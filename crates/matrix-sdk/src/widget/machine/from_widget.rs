@@ -35,7 +35,7 @@ pub(super) enum FromWidgetRequest {
     #[serde(rename = "get_openid")]
     GetOpenId {},
     #[serde(rename = "org.matrix.msc2876.read_events")]
-    ReadEvent(ReadEventRequest),
+    ReadEvent(ReadEventsRequest),
     SendEvent(SendEventRequest),
     #[serde(rename = "org.matrix.msc4157.update_delayed_event")]
     DelayedEventUpdate(UpdateDelayedEventRequest),
@@ -131,6 +131,7 @@ impl SupportedApiVersionsResponse {
                 ApiVersion::V0_0_1,
                 ApiVersion::V0_0_2,
                 ApiVersion::MSC2762,
+                ApiVersion::MSC2762UpdateState,
                 ApiVersion::MSC2871,
                 ApiVersion::MSC3819,
             ],
@@ -149,11 +150,15 @@ pub(super) enum ApiVersion {
     #[serde(rename = "0.0.2")]
     V0_0_2,
 
-    /// Supports sending and receiving of events.
+    /// Supports sending and receiving events.
     #[serde(rename = "org.matrix.msc2762")]
     MSC2762,
 
-    /// Supports sending of approved capabilities back to the widget.
+    /// Supports receiving room state with the `update_state` action.
+    #[serde(rename = "org.matrix.msc2762_update_state")]
+    MSC2762UpdateState,
+
+    /// Supports sending approved capabilities back to the widget.
     #[serde(rename = "org.matrix.msc2871")]
     MSC2871,
 
@@ -169,7 +174,7 @@ pub(super) enum ApiVersion {
     #[serde(rename = "org.matrix.msc2876")]
     MSC2876,
 
-    /// Supports sending and receiving of to-device events.
+    /// Supports sending and receiving to-device events.
     #[serde(rename = "org.matrix.msc3819")]
     MSC3819,
 
@@ -179,22 +184,15 @@ pub(super) enum ApiVersion {
 }
 
 #[derive(Deserialize, Debug)]
-#[serde(untagged)]
-pub(super) enum ReadEventRequest {
-    ReadStateEvent {
-        #[serde(rename = "type")]
-        event_type: String,
-        state_key: StateKeySelector,
-    },
-    ReadMessageLikeEvent {
-        #[serde(rename = "type")]
-        event_type: String,
-        limit: Option<u32>,
-    },
+pub(super) struct ReadEventsRequest {
+    #[serde(rename = "type")]
+    pub(super) event_type: String,
+    pub(super) state_key: Option<StateKeySelector>,
+    pub(super) limit: Option<u32>,
 }
 
 #[derive(Debug, Serialize)]
-pub(super) struct ReadEventResponse {
+pub(super) struct ReadEventsResponse {
     pub(super) events: Vec<Raw<AnyTimelineEvent>>,
 }
 

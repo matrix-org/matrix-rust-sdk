@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use ruma::{
-    events::{AnyTimelineEvent, MessageLikeEventType, StateEventType},
+    events::{AnyStateEvent, AnyTimelineEvent, MessageLikeEventType, StateEventType},
     serde::Raw,
 };
 use serde::Deserialize;
@@ -188,6 +188,16 @@ impl<'a> TryFrom<&'a Raw<AnyTimelineEvent>> for FilterInput<'a> {
     type Error = serde_json::Error;
 
     fn try_from(raw_event: &'a Raw<AnyTimelineEvent>) -> Result<Self, Self::Error> {
+        raw_event.deserialize_as()
+    }
+}
+
+/// Create a filter input based on [`AnyStateEvent`].
+/// This will create a [`FilterInput::State`].
+impl<'a> TryFrom<&'a Raw<AnyStateEvent>> for FilterInput<'a> {
+    type Error = serde_json::Error;
+
+    fn try_from(raw_event: &'a Raw<AnyStateEvent>) -> Result<Self, Self::Error> {
         raw_event.deserialize_as()
     }
 }

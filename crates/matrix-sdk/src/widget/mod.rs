@@ -212,17 +212,17 @@ impl WidgetDriver {
                         matrix_driver.get_open_id().await.map(MatrixDriverResponse::OpenIdReceived)
                     }
 
-                    MatrixDriverRequestData::ReadMessageLikeEvent(cmd) => matrix_driver
-                        .read_message_like_events(cmd.event_type.into(), cmd.limit)
+                    MatrixDriverRequestData::ReadEvents(cmd) => matrix_driver
+                        .read_events(cmd.event_type.into(), cmd.state_key, cmd.limit)
                         .await
-                        .map(MatrixDriverResponse::MatrixEventRead),
+                        .map(MatrixDriverResponse::EventsRead),
 
-                    MatrixDriverRequestData::ReadStateEvent(cmd) => matrix_driver
-                        .read_state_events(cmd.event_type.into(), &cmd.state_key)
+                    MatrixDriverRequestData::ReadState(cmd) => matrix_driver
+                        .read_state(cmd.event_type.into(), &cmd.state_key)
                         .await
-                        .map(MatrixDriverResponse::MatrixEventRead),
+                        .map(MatrixDriverResponse::StateRead),
 
-                    MatrixDriverRequestData::SendMatrixEvent(req) => {
+                    MatrixDriverRequestData::SendEvent(req) => {
                         let SendEventRequest { event_type, state_key, content, delay } = req;
                         // The widget api action does not use the unstable prefix:
                         // `org.matrix.msc4140.delay` so we
@@ -234,13 +234,13 @@ impl WidgetDriver {
                         matrix_driver
                             .send(event_type.into(), state_key, content, delay_event_parameter)
                             .await
-                            .map(MatrixDriverResponse::MatrixEventSent)
+                            .map(MatrixDriverResponse::EventSent)
                     }
 
                     MatrixDriverRequestData::UpdateDelayedEvent(req) => matrix_driver
                         .update_delayed_event(req.delay_id, req.action)
                         .await
-                        .map(MatrixDriverResponse::MatrixDelayedEventUpdate),
+                        .map(MatrixDriverResponse::DelayedEventUpdated),
                 };
 
                 // Forward the Matrix driver response to the incoming message stream.
@@ -262,7 +262,8 @@ impl WidgetDriver {
 
                 self.event_forwarding_guard = Some(guard);
 
-                let mut matrix = matrix_driver.events();
+                let mut events = matrix_driver.events();
+                let mut state_updates = matrix_driver.state_updates();
                 let incoming_msg_tx = incoming_msg_tx.clone();
 
                 spawn(async move {
@@ -273,9 +274,14 @@ impl WidgetDriver {
                                 return;
                             }
 
-                            Some(event) = matrix.recv() => {
+                            Some(event) = events.recv() => {
                                 // Forward all events to the incoming messages stream.
                                 let _ = incoming_msg_tx.send(IncomingMessage::MatrixEventReceived(event));
+                            }
+
+                            Ok(state) = state_updates.recv() => {
+                                // Forward all state updates to the incoming messages stream.
+                                let _ = incoming_msg_tx.send(IncomingMessage::StateUpdateReceived(state));
                             }
                         }
                     }
