@@ -129,7 +129,7 @@ impl From<OutgoingVerificationRequest> for AnyOutgoingRequest {
     fn from(request: OutgoingVerificationRequest) -> Self {
         match request {
             OutgoingVerificationRequest::ToDevice(r) => AnyOutgoingRequest::ToDeviceRequest(r),
-            OutgoingVerificationRequest::InRoom(r) => AnyOutgoingRequest::RoomMessage(Box::new(r)),
+            OutgoingVerificationRequest::InRoom(r) => AnyOutgoingRequest::RoomMessage(r),
         }
     }
 }
