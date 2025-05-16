@@ -1024,24 +1024,22 @@ impl MatrixMockServer {
     ///
     /// ```
     /// tokio_test::block_on(async {
-    /// use matrix_sdk::{
-    ///     ruma::room_id,
-    ///     test_utils::mocks::MatrixMockServer,
-    /// };
+    /// use matrix_sdk::test_utils::mocks::MatrixMockServer;
     ///
     /// let mock_server = MatrixMockServer::new().await;
     /// let client = mock_server.client_builder().build().await;
     ///
-    /// mock_server.mock_global_account_data()..ok(
+    /// mock_server.mock_global_account_data().ok(
     ///     client.user_id().unwrap(),
     ///     ruma::events::GlobalAccountDataEventType::MediaPreviewConfig,
     ///     json!({
     ///         "media_previews": "private",
     ///         "invite_avatars": "off"
     ///     })
-    ///     .mock_once()
-    ///     .mount()
-    ///     .await;
+    /// )
+    /// .mock_once()
+    /// .mount()
+    /// .await;
     ///
     /// # anyhow::Ok(()) });
     /// ```
