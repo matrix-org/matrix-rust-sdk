@@ -319,7 +319,8 @@ pub struct SasState<S: Clone> {
     our_public_key: Curve25519PublicKey,
 
     /// Struct holding the identities that are doing the SAS dance.
-    ids: SasIds,
+    // `Box` it to reduce the struct size.
+    ids: Box<SasIds>,
 
     /// The instant when the SAS object was created. If this more than
     /// MAX_AGE seconds are elapsed, the event will be canceled with a
@@ -584,7 +585,7 @@ impl SasState<Created> {
         SasState {
             inner: Arc::new(Mutex::new(Some(sas))),
             our_public_key,
-            ids: SasIds { account, other_device, other_identity, own_identity },
+            ids: Box::new(SasIds { account, other_device, other_identity, own_identity }),
             verification_flow_id: flow_id.into(),
 
             creation_time: Arc::new(Instant::now()),
@@ -692,12 +693,12 @@ impl SasState<Started> {
             last_event_time: Arc::new(Instant::now()),
             started_from_request,
 
-            ids: SasIds {
+            ids: Box::new(SasIds {
                 account: account.clone(),
                 other_device: other_device.clone(),
                 own_identity: own_identity.clone(),
                 other_identity: other_identity.clone(),
-            },
+            }),
 
             verification_flow_id: flow_id.clone(),
             state: Arc::new(Cancelled::new(true, CancelCode::UnknownMethod)),
@@ -731,7 +732,7 @@ impl SasState<Started> {
             inner: Arc::new(Mutex::new(Some(sas))),
             our_public_key,
 
-            ids: SasIds { account, other_device, other_identity, own_identity },
+            ids: Box::new(SasIds { account, other_device, other_identity, own_identity }),
 
             creation_time: Arc::new(Instant::now()),
             last_event_time: Arc::new(Instant::now()),
