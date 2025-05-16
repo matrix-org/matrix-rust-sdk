@@ -100,8 +100,9 @@ pub enum HttpError {
     NotClientRequest,
 
     /// API response error (deserialization, or a Matrix-specific error).
+    // `Box` its inner value to reduce the enum size.
     #[error(transparent)]
-    Api(#[from] FromHttpResponseError<RumaApiError>),
+    Api(#[from] Box<FromHttpResponseError<RumaApiError>>),
 
     /// Error when creating an API request (e.g. serialization of
     /// body/headers/query parameters).
@@ -121,7 +122,12 @@ impl HttpError {
     ///
     /// Otherwise, returns `None`.
     pub fn as_ruma_api_error(&self) -> Option<&RumaApiError> {
-        as_variant!(self, Self::Api(FromHttpResponseError::Server(e)) => e)
+        match self {
+            Self::Api(error) => {
+                as_variant!(error.as_ref(), FromHttpResponseError::Server)
+            },
+            _ => None
+        }
     }
 
     /// Shorthand for
@@ -163,11 +169,18 @@ impl HttpError {
             // internet, or that the remote is, so retry a few times.
             HttpError::Reqwest(_) => RetryKind::NetworkFailure,
 
-            HttpError::Api(FromHttpResponseError::Server(api_error)) => {
-                RetryKind::from_api_error(api_error)
-            }
+            HttpError::Api(error) => match error.as_ref() {
+                FromHttpResponseError::Server(api_error) => RetryKind::from_api_error(api_error),
+                _ => RetryKind::Permanent,
+            },
             _ => RetryKind::Permanent,
         }
+    }
+}
+
+impl From<FromHttpResponseError<RumaApiError>> for HttpError {
+    fn from(value: FromHttpResponseError<RumaApiError>) -> Self {
+        Self::Api(Box::new(value))
     }
 }
 
@@ -537,22 +550,22 @@ pub enum RoomKeyImportError {
 
 impl From<FromHttpResponseError<ruma::api::client::Error>> for HttpError {
     fn from(err: FromHttpResponseError<ruma::api::client::Error>) -> Self {
-        Self::Api(err.map(RumaApiError::ClientApi))
+        Self::Api(Box::new(err.map(RumaApiError::ClientApi)))
     }
 }
 
 impl From<FromHttpResponseError<UiaaResponse>> for HttpError {
     fn from(err: FromHttpResponseError<UiaaResponse>) -> Self {
-        Self::Api(err.map(|e| match e {
+        Self::Api(Box::new(err.map(|e| match e {
             UiaaResponse::AuthResponse(i) => RumaApiError::Uiaa(i),
             UiaaResponse::MatrixError(e) => RumaApiError::ClientApi(e),
-        }))
+        })))
     }
 }
 
 impl From<FromHttpResponseError<ruma::api::error::MatrixError>> for HttpError {
     fn from(err: FromHttpResponseError<ruma::api::error::MatrixError>) -> Self {
-        Self::Api(err.map(RumaApiError::Other))
+        Self::Api(Box::new(err.map(RumaApiError::Other)))
     }
 }
 

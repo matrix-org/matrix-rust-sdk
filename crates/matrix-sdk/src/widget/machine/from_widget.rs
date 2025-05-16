@@ -52,7 +52,12 @@ impl FromWidgetErrorResponse {
     /// Create a error response to send to the widget from an http error.
     pub(crate) fn from_http_error(error: HttpError) -> Self {
         let message = error.to_string();
-        let matrix_api_error = as_variant!(error, HttpError::Api(ruma::api::error::FromHttpResponseError::Server(RumaApiError::ClientApi(err))) => err);
+        let matrix_api_error = match error {
+            HttpError::Api(error) => {
+                as_variant!(*error, ruma::api::error::FromHttpResponseError::Server(RumaApiError::ClientApi(err)) => err)
+            }
+            _ => None,
+        };
 
         Self {
             error: FromWidgetError {
