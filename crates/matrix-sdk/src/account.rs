@@ -1028,8 +1028,6 @@ impl Account {
         (MediaPreviewConfigEventContent, impl Stream<Item = MediaPreviewConfigEventContent>),
         Error,
     > {
-        let initial_value = self.get_media_preview_config_event_content().await?;
-
         // We need to create two observers, one for the stable event and one for the
         // unstable and combine them into a single stream.
         let first_observer = self
@@ -1056,6 +1054,11 @@ impl Account {
                 yield item
             }
         };
+
+        // We need to get the initial value of the media preview config event
+        // we do this after creating the observers to make sure that we don't
+        // create a race condition
+        let initial_value = self.get_media_preview_config_event_content().await?;
 
         Ok((initial_value, result_stream))
     }

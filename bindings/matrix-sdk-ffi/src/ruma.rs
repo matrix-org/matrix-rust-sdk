@@ -1111,9 +1111,12 @@ pub enum AccountDataEvent {
 /// The policy that decides if media previews should be shown in the timeline.
 #[derive(Clone, uniffi::Enum, Default)]
 pub enum MediaPreviews {
+    /// Always show media previews in the timeline.
     #[default]
     On,
+    /// Show media previews in the timeline only if the room is private.
     Private,
+    /// Never show media previews in the timeline.
     Off,
 }
 
@@ -1138,11 +1141,13 @@ impl From<MediaPreviews> for RumaMediaPreviews {
     }
 }
 
-/// The policy that decides if avarars should be shown in invite requests.
+/// The policy that decides if avatars should be shown in invite requests.
 #[derive(Clone, uniffi::Enum, Default)]
 pub enum InviteAvatars {
+    /// Always show avatars in invite requests.
     #[default]
     On,
+    /// Never show avatars in invite requests.
     Off,
 }
 
