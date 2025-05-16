@@ -701,6 +701,12 @@ impl From<RoomMessageRequest> for OutgoingContent {
     }
 }
 
+impl From<Box<RoomMessageRequest>> for OutgoingContent {
+    fn from(value: Box<RoomMessageRequest>) -> Self {
+        (value.room_id, value.content).into()
+    }
+}
+
 impl TryFrom<ToDeviceRequest> for OutgoingContent {
     type Error = String;
 
