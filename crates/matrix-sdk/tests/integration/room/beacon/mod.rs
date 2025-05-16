@@ -17,7 +17,7 @@ use ruma::{
     },
     owned_event_id, room_id,
     time::SystemTime,
-    user_id, MilliSecondsSinceUnixEpoch,
+    user_id, EventId, MilliSecondsSinceUnixEpoch,
 };
 use serde_json::json;
 use wiremock::{
@@ -232,26 +232,20 @@ async fn test_most_recent_event_in_stream() {
 
     let mut timeline_events = Vec::new();
 
+    let f = EventFactory::new();
     for nth in 0..25 {
-        timeline_events.push(sync_timeline_event!({
-            "content": {
-                "m.relates_to": {
-                    "event_id": "$15139375514XsgmR:localhost",
-                    "rel_type": "m.reference"
-                },
-                "org.matrix.msc3488.location": {
-                    "uri": format!("geo:{nth}.9575274619722,12.494122581370175;u={nth}")
-                },
-                "org.matrix.msc3488.ts": 1_636_829_458
-            },
-            "event_id": format!("$event_for_stream_{nth}"),
-            "origin_server_ts": 1_636_829_458,
-            "sender": "@example2:localhost",
-            "type": "org.matrix.msc3672.beacon",
-            "unsigned": {
-                "age": 598971
-            }
-        }));
+        timeline_events.push(
+            f.beacon(
+                owned_event_id!("$15139375514XsgmR:localhost"),
+                format!("geo:{nth}.9575274619722,12.494122581370175;u={nth}"),
+                Some(MilliSecondsSinceUnixEpoch(1_636_829_458u32.into())),
+            )
+            .event_id(<&EventId>::try_from(format!("$event_for_stream_{nth}").as_str()).unwrap())
+            .server_ts(1_636_829_458)
+            .sender(user_id!("@example2:localhost"))
+            .age(598971)
+            .into_raw_sync(),
+        );
     }
 
     sync_builder.add_joined_room(
@@ -339,22 +333,16 @@ async fn test_observe_single_live_location_share() {
     let stream = observable_live_location_shares.subscribe();
     pin_mut!(stream);
 
-    let timeline_event = sync_timeline_event!({
-        "content": {
-            "m.relates_to": {
-                "event_id": "$test_beacon_info",
-                "rel_type": "m.reference"
-            },
-            "org.matrix.msc3488.location": {
-                "uri": "geo:10.000000,20.000000;u=5"
-            },
-            "org.matrix.msc3488.ts": 1_636_829_458
-        },
-        "event_id": "$location_event",
-        "origin_server_ts": millis_time,
-        "sender": "@example2:localhost",
-        "type": "org.matrix.msc3672.beacon",
-    });
+    let timeline_event = EventFactory::new()
+        .beacon(
+            owned_event_id!("$test_beacon_info"),
+            "geo:10.000000,20.000000;u=5".to_owned(),
+            Some(MilliSecondsSinceUnixEpoch(1_636_829_458u32.into())),
+        )
+        .event_id(event_id!("$location_event"))
+        .server_ts(millis_time)
+        .sender(user_id!("@example2:localhost"))
+        .into_raw_sync();
 
     mock_sync(
         &server,
