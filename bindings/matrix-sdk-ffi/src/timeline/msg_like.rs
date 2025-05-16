@@ -252,6 +252,7 @@ impl ThreadSummary {
 }
 
 #[derive(Clone, uniffi::Enum)]
+#[allow(clippy::large_enum_variant)]
 pub enum ThreadSummaryLatestEventDetails {
     Unavailable,
     Pending,

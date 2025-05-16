@@ -60,6 +60,7 @@ impl From<matrix_sdk_ui::timeline::InReplyToDetails> for InReplyToDetails {
 }
 
 #[derive(Clone, uniffi::Enum)]
+#[allow(clippy::large_enum_variant)]
 pub enum RepliedToEventDetails {
     Unavailable,
     Pending,
