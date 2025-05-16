@@ -248,10 +248,10 @@ impl SlidingSyncBuilder {
         // Reload existing state from the cache.
         let restored_fields = restore_sliding_sync_state(&client, &self.storage_key).await?;
 
-        let pos = if let Some(fields) = restored_fields {
+        let pos = if let Some(_fields) = restored_fields {
             #[cfg(feature = "e2e-encryption")]
             if self.share_pos {
-                fields.pos
+                _fields.pos
             } else {
                 None
             }
