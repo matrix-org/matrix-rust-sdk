@@ -60,8 +60,10 @@ use crate::{
 
 pub enum MaybeEncryptedRoomKey {
     Encrypted {
-        used_session: Session,
-        share_info: ShareInfo,
+        // `Box` the session to reduce the size of `Encrypted`.
+        used_session: Box<Session>,
+        // `Box` the session to reduce the size of `Encrypted`.
+        share_info: Box<ShareInfo>,
         message: Raw<AnyToDeviceEventContent>,
     },
     /// We could not encrypt a message to this device because there is no active
@@ -832,12 +834,12 @@ impl DeviceData {
 
         match self.encrypt(store, &event_type, content).await {
             Ok((session, encrypted)) => Ok(MaybeEncryptedRoomKey::Encrypted {
-                share_info: ShareInfo::new_shared(
+                share_info: Box::new(ShareInfo::new_shared(
                     session.sender_key().to_owned(),
                     message_index,
                     self.olm_wedging_index,
-                ),
-                used_session: session,
+                )),
+                used_session: Box::new(session),
                 message: encrypted.cast(),
             }),
 
