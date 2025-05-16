@@ -153,7 +153,7 @@ impl NotificationClient {
         event_id: &EventId,
     ) -> Result<Option<NotificationItem>, Error> {
         match self.get_notification_with_sliding_sync(room_id, event_id).await? {
-            NotificationStatus::Event(event) => Ok(Some(event)),
+            NotificationStatus::Event(event) => Ok(Some(*event)),
             NotificationStatus::EventFilteredOut => Ok(None),
             NotificationStatus::EventNotFound => {
                 self.get_notification_with_context(room_id, event_id).await
@@ -185,7 +185,7 @@ impl NotificationClient {
             for event_id in &request.event_ids {
                 match notifications.remove(event_id) {
                     Some(Ok(NotificationStatus::Event(item))) => {
-                        notification_items.add_notification(event_id.to_owned(), item);
+                        notification_items.add_notification(event_id.to_owned(), *item);
                     }
                     Some(Ok(NotificationStatus::EventNotFound)) | None => {
                         match self.get_notification_with_context(&request.room_id, event_id).await {
@@ -688,7 +688,7 @@ impl NotificationClient {
                         Vec::new(),
                     )
                     .await
-                    .map(NotificationStatus::Event);
+                    .map(|event| NotificationStatus::Event(Box::new(event)));
 
                     match notification_status {
                         Ok(notification_item) => {
@@ -771,7 +771,7 @@ fn is_event_encrypted(event_type: TimelineEventType) -> bool {
 
 #[derive(Debug)]
 pub enum NotificationStatus {
-    Event(NotificationItem),
+    Event(Box<NotificationItem>),
     EventNotFound,
     EventFilteredOut,
 }
