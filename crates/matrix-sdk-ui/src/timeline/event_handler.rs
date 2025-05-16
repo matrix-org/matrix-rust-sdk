@@ -148,6 +148,7 @@ pub(super) enum HandleAggregationKind {
 
 /// An action that we want to cause on the timeline.
 #[derive(Clone, Debug)]
+#[allow(clippy::large_enum_variant)]
 pub(super) enum TimelineAction {
     /// Add a new timeline item.
     ///
