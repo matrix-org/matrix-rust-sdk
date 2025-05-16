@@ -323,7 +323,7 @@ async fn test_local_reaction_to_local_echo() {
 
         let item = item.as_event().unwrap();
         assert!(item.is_local_echo());
-        assert_matches!(item.send_state(), Some(EventSendState::NotSentYet));
+        assert_matches!(item.send_state(), Some(EventSendState::NotSentYet { progress: None }));
 
         assert_eq!(item.content().as_message().unwrap().body(), "lol");
         assert!(item.content().reactions().is_empty());
@@ -349,7 +349,7 @@ async fn test_local_reaction_to_local_echo() {
         assert_let!(VectorDiff::Set { index: 1, value: item } = &timeline_updates[0]);
         let item = item.as_event().unwrap();
         assert!(item.is_local_echo());
-        assert_matches!(item.send_state(), Some(EventSendState::NotSentYet));
+        assert_matches!(item.send_state(), Some(EventSendState::NotSentYet { progress: None }));
 
         let reactions = item.content().reactions();
         assert_eq!(reactions.len(), 1);
@@ -371,7 +371,7 @@ async fn test_local_reaction_to_local_echo() {
         assert_let!(VectorDiff::Set { index: 1, value: item } = &timeline_updates[0]);
         let item = item.as_event().unwrap();
         assert!(item.is_local_echo());
-        assert_matches!(item.send_state(), Some(EventSendState::NotSentYet));
+        assert_matches!(item.send_state(), Some(EventSendState::NotSentYet { progress: None }));
 
         let reactions = item.content().reactions();
         assert_eq!(reactions.len(), 2);
@@ -392,7 +392,7 @@ async fn test_local_reaction_to_local_echo() {
         assert_let!(VectorDiff::Set { index: 1, value: item } = &timeline_updates[0]);
         let item = item.as_event().unwrap();
         assert!(item.is_local_echo());
-        assert_matches!(item.send_state(), Some(EventSendState::NotSentYet));
+        assert_matches!(item.send_state(), Some(EventSendState::NotSentYet { progress: None }));
 
         let reactions = item.content().reactions();
         assert_eq!(reactions.len(), 1);
