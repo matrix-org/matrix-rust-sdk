@@ -17,12 +17,10 @@ use std::collections::BTreeSet;
 use matrix_sdk_crypto::OlmMachine;
 use ruma::{OwnedUserId, RoomId};
 
-use super::super::Context;
 use crate::{store::BaseStateStore, EncryptionState, Result, RoomMemberships};
 
 /// Update tracked users, if the room is encrypted.
 pub async fn update(
-    _context: &mut Context,
     olm_machine: Option<&OlmMachine>,
     room_encryption_state: EncryptionState,
     user_ids_to_track: &BTreeSet<OwnedUserId>,
@@ -41,7 +39,6 @@ pub async fn update(
 /// Update tracked users, if the room is encrypted, or if the room has become
 /// encrypted.
 pub async fn update_or_set_if_room_is_newly_encrypted(
-    _context: &mut Context,
     olm_machine: Option<&OlmMachine>,
     user_ids_to_track: &BTreeSet<OwnedUserId>,
     new_room_encryption_state: EncryptionState,

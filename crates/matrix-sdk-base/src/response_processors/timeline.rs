@@ -99,7 +99,6 @@ pub async fn build<'notification, 'e2ee>(
                             ) => {
                                 if let Some(decrypted_timeline_event) =
                                     Box::pin(e2ee::decrypt::sync_timeline_event(
-                                        context,
                                         e2ee.clone(),
                                         timeline_event.raw(),
                                         room_id,
@@ -112,7 +111,6 @@ pub async fn build<'notification, 'e2ee>(
 
                             _ => {
                                 Box::pin(verification::process_if_relevant(
-                                    context,
                                     &sync_timeline_event,
                                     e2ee.clone(),
                                     room_id,
