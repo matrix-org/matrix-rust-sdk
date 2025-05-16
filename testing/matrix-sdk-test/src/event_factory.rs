@@ -25,6 +25,7 @@ use matrix_sdk_common::deserialized_responses::{
 };
 use ruma::{
     events::{
+        beacon::BeaconEventContent,
         member_hints::MemberHintsEventContent,
         poll::{
             unstable_end::UnstablePollEndEventContent,
@@ -788,6 +789,16 @@ impl EventFactory {
         event.alias = alias;
         event.alt_aliases = alt_aliases;
         self.event(event)
+    }
+
+    /// Create a new `org.matrix.msc3672.beacon` event.
+    pub fn beacon(
+        &self,
+        beacon_info_event_id: OwnedEventId,
+        geo_uri: String,
+        ts: Option<MilliSecondsSinceUnixEpoch>,
+    ) -> EventBuilder<BeaconEventContent> {
+        self.event(BeaconEventContent::new(beacon_info_event_id, geo_uri, ts))
     }
 
     /// Set the next server timestamp.
