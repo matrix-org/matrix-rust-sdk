@@ -248,6 +248,11 @@ pub struct VirtualElementCallWidgetOptions {
     /// Sentry [environment](https://docs.sentry.io/concepts/key-terms/key-terms/)
     /// Supported since Element Call v0.9.0. Only used by the embedded package.
     pub sentry_environment: Option<String>,
+    //// - `true`: The webview should show the list of media devices it detects using
+    ////   `enumerateDevices`.
+    ///  - `false`: the webview shows a a list of devices injected by the
+    ///    client. (used on ios & android)
+    pub controlled_media_devices: bool,
 }
 
 impl From<VirtualElementCallWidgetOptions> for matrix_sdk::widget::VirtualElementCallWidgetOptions {
@@ -271,6 +276,7 @@ impl From<VirtualElementCallWidgetOptions> for matrix_sdk::widget::VirtualElemen
             rageshake_submit_url: value.rageshake_submit_url,
             sentry_dsn: value.sentry_dsn,
             sentry_environment: value.sentry_environment,
+            controlled_media_devices: value.controlled_media_devices,
         }
     }
 }
