@@ -371,7 +371,6 @@ async fn new_sliding_sync(
 
 async fn create_one_room(
     server: &MockServer,
-    sliding_sync: &SlidingSync,
     stream: &mut Pin<&mut impl Stream<Item = matrix_sdk::Result<UpdateSummary>>>,
     room_id: &RoomId,
     room_name: String,
@@ -394,19 +393,13 @@ async fn create_one_room(
 
     assert!(update.rooms.contains(&room_id.to_owned()));
 
-    let _room = sliding_sync.get_room(room_id).await.context("`get_room`")?;
-
     Ok(())
 }
 
 async fn timeline_test_helper(
     client: &Client,
-    sliding_sync: &SlidingSync,
     room_id: &RoomId,
 ) -> Result<(Vector<Arc<TimelineItem>>, impl Stream<Item = Vec<VectorDiff<Arc<TimelineItem>>>>)> {
-    let sliding_sync_room = sliding_sync.get_room(room_id).await.unwrap();
-
-    let room_id = sliding_sync_room.room_id();
     let sdk_room = client.get_room(room_id).ok_or_else(|| {
         anyhow::anyhow!("Room {room_id} not found in client. Can't provide a timeline for it")
     })?;
@@ -436,12 +429,11 @@ async fn test_timeline_basic() -> Result<()> {
 
     let room_id = room_id!("!foo:bar.org");
 
-    create_one_room(&server, &sliding_sync, &mut stream, room_id, "Room Name".to_owned()).await?;
+    create_one_room(&server, &mut stream, room_id, "Room Name".to_owned()).await?;
 
     mock_encryption_state(&server, false).await;
 
-    let (timeline_items, mut timeline_stream) =
-        timeline_test_helper(&client, &sliding_sync, room_id).await?;
+    let (timeline_items, mut timeline_stream) = timeline_test_helper(&client, room_id).await?;
     assert!(timeline_items.is_empty());
 
     // Receiving a bunch of events.
@@ -485,11 +477,11 @@ async fn test_timeline_duplicated_events() -> Result<()> {
 
     let room_id = room_id!("!foo:bar.org");
 
-    create_one_room(&server, &sliding_sync, &mut stream, room_id, "Room Name".to_owned()).await?;
+    create_one_room(&server, &mut stream, room_id, "Room Name".to_owned()).await?;
 
     mock_encryption_state(&server, false).await;
 
-    let (_, mut timeline_stream) = timeline_test_helper(&client, &sliding_sync, room_id).await?;
+    let (_, mut timeline_stream) = timeline_test_helper(&client, room_id).await?;
 
     // Receiving events.
     {
@@ -563,12 +555,11 @@ async fn test_timeline_read_receipts_are_updated_live() -> Result<()> {
 
     let room_id = room_id!("!foo:bar.org");
 
-    create_one_room(&server, &sliding_sync, &mut stream, room_id, "Room Name".to_owned()).await?;
+    create_one_room(&server, &mut stream, room_id, "Room Name".to_owned()).await?;
 
     mock_encryption_state(&server, false).await;
 
-    let (timeline_items, mut timeline_stream) =
-        timeline_test_helper(&client, &sliding_sync, room_id).await?;
+    let (timeline_items, mut timeline_stream) = timeline_test_helper(&client, room_id).await?;
     assert!(timeline_items.is_empty());
 
     // Receiving initial events.

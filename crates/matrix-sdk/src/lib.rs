@@ -83,7 +83,7 @@ pub use room::Room;
 pub use ruma::{IdParseError, OwnedServerName, ServerName};
 pub use sliding_sync::{
     SlidingSync, SlidingSyncBuilder, SlidingSyncList, SlidingSyncListBuilder,
-    SlidingSyncListLoadingState, SlidingSyncMode, SlidingSyncRoom, UpdateSummary,
+    SlidingSyncListLoadingState, SlidingSyncMode, UpdateSummary,
 };
 
 #[cfg(feature = "uniffi")]
