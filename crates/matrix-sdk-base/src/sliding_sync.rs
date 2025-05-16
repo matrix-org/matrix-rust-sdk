@@ -2083,7 +2083,7 @@ mod tests {
         let room = http::response::Room::new();
         let response = response_with_room(room_id, room);
         client
-            .process_sliding_sync(&response, &(), &RequestedRequiredStates::default())
+            .process_sliding_sync(&response, &RequestedRequiredStates::default())
             .await
             .expect("Failed to process sync");
 
@@ -2126,7 +2126,7 @@ mod tests {
             .insert(room_id.to_owned(), unstable_room_account_data_events.clone());
 
         client
-            .process_sliding_sync(&response, &(), &RequestedRequiredStates::default())
+            .process_sliding_sync(&response, &RequestedRequiredStates::default())
             .await
             .expect("Failed to process sync");
 
@@ -2158,7 +2158,7 @@ mod tests {
             .rooms
             .insert(room_id.to_owned(), stable_room_account_data_events);
         client
-            .process_sliding_sync(&response, &(), &RequestedRequiredStates::default())
+            .process_sliding_sync(&response, &RequestedRequiredStates::default())
             .await
             .expect("Failed to process sync");
 
@@ -2180,7 +2180,7 @@ mod tests {
             .rooms
             .insert(room_id.to_owned(), unstable_room_account_data_events);
         client
-            .process_sliding_sync(&response, &(), &RequestedRequiredStates::default())
+            .process_sliding_sync(&response, &RequestedRequiredStates::default())
             .await
             .expect("Failed to process sync");
 
@@ -2213,7 +2213,7 @@ mod tests {
             .rooms
             .insert(room_id.to_owned(), stable_room_account_data_events);
         client
-            .process_sliding_sync(&response, &(), &RequestedRequiredStates::default())
+            .process_sliding_sync(&response, &RequestedRequiredStates::default())
             .await
             .expect("Failed to process sync");
 
