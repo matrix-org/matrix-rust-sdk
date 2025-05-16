@@ -2589,7 +2589,7 @@ pub(crate) mod tests {
     use std::{sync::Arc, time::Duration};
 
     use assert_matches::assert_matches;
-    use futures_util::{pin_mut, FutureExt, StreamExt};
+    use futures_util::{pin_mut, FutureExt};
     use matrix_sdk_base::{
         store::{MemoryStore, StoreConfig},
         RoomState,
