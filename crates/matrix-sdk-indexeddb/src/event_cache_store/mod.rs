@@ -574,10 +574,7 @@ impl_event_cache_store! {
                             id: id.clone(),
                             content: event,
                             room_id: room_id.to_string(),
-                            position: Some(PositionForCache {
-                                chunk_id,
-                                index
-                            }),
+                            position: Some(PositionForCache { chunk_id, index }),
                         };
 
                         let value = self.serialize_value_with_id(&id, &value)?;
@@ -601,10 +598,7 @@ impl_event_cache_store! {
                         id: event_id.clone(),
                         content: item,
                         room_id: room_id.to_string(),
-                        position: Some(PositionForCache {
-                            chunk_id,
-                            index,
-                        }),
+                        position: Some(PositionForCache { chunk_id, index }),
                     };
 
                     let value = self.serialize_value_with_id(&event_id, &timeline_event)?;
@@ -913,7 +907,8 @@ impl_event_cache_store! {
                             let events = events.get_all_with_key(&events_key_range)?.await?;
                             let mut events_vec = Vec::new();
                             for event in events {
-                                let event: TimelineEventForCache = self.deserialize_value_with_id(event)?;
+                                let event: TimelineEventForCache =
+                                    self.deserialize_value_with_id(event)?;
                                 events_vec.push(event.content);
                             }
                             linked_chunk::ChunkContent::Items(events_vec)
@@ -924,17 +919,19 @@ impl_event_cache_store! {
                             linked_chunk::ChunkContent::Gap(Gap { prev_token: gap.prev_token })
                         }
                         s => {
-                            return Err(IndexeddbEventCacheStoreError::UnknownChunkType(s.to_owned()));
+                            return Err(IndexeddbEventCacheStoreError::UnknownChunkType(
+                                s.to_owned(),
+                            ));
                         }
                     };
                     return Ok(Some(RawChunk {
                         content,
                         identifier: ChunkIdentifier::new(previous_chunk.raw_id),
                         previous: previous_chunk.raw_previous.map(ChunkIdentifier::new),
-                        // TODO: This should always be `before_chunk_identifier`, and if it's not, something
-                        // is wrong with our query... should this be an expect()? Or, at least
-                        // an error?
-                        next: previous_chunk.raw_next.map(ChunkIdentifier::new)
+                        // TODO: This should always be `before_chunk_identifier`, and if it's not,
+                        // something is wrong with our query... should this
+                        // be an expect()? Or, at least an error?
+                        next: previous_chunk.raw_next.map(ChunkIdentifier::new),
                     }));
                 }
             }
@@ -982,10 +979,9 @@ impl_event_cache_store! {
             return Ok(Vec::new());
         }
 
-        let tx = self.inner.transaction_on_multi_with_mode(
-            &[keys::EVENTS],
-            IdbTransactionMode::Readwrite,
-        )?;
+        let tx = self
+            .inner
+            .transaction_on_multi_with_mode(&[keys::EVENTS], IdbTransactionMode::Readwrite)?;
 
         let store = tx.object_store(keys::EVENTS)?;
 
@@ -995,14 +991,9 @@ impl_event_cache_store! {
         // schema doesn't easily allow us to find an event without
         // knowing which chunk it is in. To improve this, we will
         // need to add another index to our event store.
-        let lower = self.encode_key(vec![
-            (keys::ROOMS, room_id.as_ref(), true),
-        ]);
-        let upper = self.encode_upper_key(vec![
-            (keys::ROOMS, room_id.as_ref(), true),
-        ]);
-        let key_range =
-            IdbKeyRange::bound(&lower.into(), &upper.into()).unwrap();
+        let lower = self.encode_key(vec![(keys::ROOMS, room_id.as_ref(), true)]);
+        let upper = self.encode_upper_key(vec![(keys::ROOMS, room_id.as_ref(), true)]);
+        let key_range = IdbKeyRange::bound(&lower.into(), &upper.into()).unwrap();
 
         let mut result = Vec::new();
         let values = store.get_all_with_key(&key_range)?.await?;
@@ -1025,10 +1016,9 @@ impl_event_cache_store! {
         room_id: &RoomId,
         event_id: &EventId,
     ) -> Result<Option<Event>, IndexeddbEventCacheStoreError> {
-        let tx = self.inner.transaction_on_multi_with_mode(
-            &[keys::EVENTS],
-            IdbTransactionMode::Readwrite,
-        )?;
+        let tx = self
+            .inner
+            .transaction_on_multi_with_mode(&[keys::EVENTS], IdbTransactionMode::Readwrite)?;
 
         let events = tx.object_store(keys::EVENTS)?;
 
@@ -1038,20 +1028,15 @@ impl_event_cache_store! {
         // schema doesn't easily allow us to find an event without
         // knowing which chunk it is in. To improve this, we will
         // need to add another index to our event store.
-        let lower = self.encode_key(vec![
-            (keys::ROOMS, room_id.as_ref(), true),
-        ]);
-        let upper = self.encode_upper_key(vec![
-            (keys::ROOMS, room_id.as_ref(), true),
-        ]);
-        let events_key_range =
-            IdbKeyRange::bound(&lower.into(), &upper.into()).unwrap();
+        let lower = self.encode_key(vec![(keys::ROOMS, room_id.as_ref(), true)]);
+        let upper = self.encode_upper_key(vec![(keys::ROOMS, room_id.as_ref(), true)]);
+        let events_key_range = IdbKeyRange::bound(&lower.into(), &upper.into()).unwrap();
 
         let values = events.get_all_with_key(&events_key_range)?.await?;
         for value in values {
             let event: TimelineEventForCache = self.deserialize_value_with_id(value)?;
             if event.content.event_id().is_some_and(|inner| inner == *event_id) {
-                return Ok(Some(event.content))
+                return Ok(Some(event.content));
             }
         }
         Ok(None)
@@ -1067,10 +1052,9 @@ impl_event_cache_store! {
         event_id: &EventId,
         filter: Option<&[RelationType]>,
     ) -> Result<Vec<Event>, IndexeddbEventCacheStoreError> {
-        let tx = self.inner.transaction_on_multi_with_mode(
-            &[keys::EVENTS],
-            IdbTransactionMode::Readwrite,
-        )?;
+        let tx = self
+            .inner
+            .transaction_on_multi_with_mode(&[keys::EVENTS], IdbTransactionMode::Readwrite)?;
 
         let events = tx.object_store(keys::EVENTS)?;
 
@@ -1080,14 +1064,9 @@ impl_event_cache_store! {
         // schema doesn't easily allow us to find an event without
         // knowing which chunk it is in. To improve this, we will
         // need to add another index to our event store.
-        let lower = self.encode_key(vec![
-            (keys::ROOMS, room_id.as_ref(), true),
-        ]);
-        let upper = self.encode_upper_key(vec![
-            (keys::ROOMS, room_id.as_ref(), true),
-        ]);
-        let events_key_range =
-            IdbKeyRange::bound(&lower.into(), &upper.into()).unwrap();
+        let lower = self.encode_key(vec![(keys::ROOMS, room_id.as_ref(), true)]);
+        let upper = self.encode_upper_key(vec![(keys::ROOMS, room_id.as_ref(), true)]);
+        let events_key_range = IdbKeyRange::bound(&lower.into(), &upper.into()).unwrap();
 
         let mut result = Vec::new();
         let values = events.get_all_with_key(&events_key_range)?.await?;
@@ -1095,11 +1074,7 @@ impl_event_cache_store! {
             let event: TimelineEventForCache = self.deserialize_value_with_id(value)?;
             if let Some((relates_to, relation_type)) = extract_event_relation(event.content.raw()) {
                 let filter_contains_relation_type = filter
-                    .map(|filter| {
-                        filter
-                            .iter()
-                            .any(|relation| relation.as_ref() == relation_type)
-                    })
+                    .map(|filter| filter.iter().any(|relation| relation.as_ref() == relation_type))
                     .unwrap_or(true);
                 if event_id == relates_to && filter_contains_relation_type {
                     result.push(event.content);
@@ -1127,10 +1102,9 @@ impl_event_cache_store! {
             return Ok(());
         };
 
-        let tx = self.inner.transaction_on_multi_with_mode(
-            &[keys::EVENTS],
-            IdbTransactionMode::Readwrite,
-        )?;
+        let tx = self
+            .inner
+            .transaction_on_multi_with_mode(&[keys::EVENTS], IdbTransactionMode::Readwrite)?;
 
         let store = tx.object_store(keys::EVENTS)?;
 
@@ -1140,14 +1114,9 @@ impl_event_cache_store! {
         // schema doesn't easily allow us to find an event without
         // knowing which chunk it is in. To improve this, we will
         // need to add another index to our event store.
-        let lower = self.encode_key(vec![
-            (keys::ROOMS, room_id.as_ref(), true),
-        ]);
-        let upper = self.encode_upper_key(vec![
-            (keys::ROOMS, room_id.as_ref(), true),
-        ]);
-        let key_range =
-            IdbKeyRange::bound(&lower.into(), &upper.into()).unwrap();
+        let lower = self.encode_key(vec![(keys::ROOMS, room_id.as_ref(), true)]);
+        let upper = self.encode_upper_key(vec![(keys::ROOMS, room_id.as_ref(), true)]);
+        let key_range = IdbKeyRange::bound(&lower.into(), &upper.into()).unwrap();
 
         let mut position = None;
         let values = store.get_all_with_key(&key_range)?.await?;
@@ -1170,12 +1139,15 @@ impl_event_cache_store! {
             (keys::LINKED_CHUNKS, chunk_id_string.as_ref(), false),
             (keys::EVENTS, event_id.as_str(), true),
         ]);
-        let value = self.serialize_value_with_id(&id, &TimelineEventForCache {
-            id: id.clone(),
-            content: event,
-            room_id: room_id.to_string(),
-            position,
-        })?;
+        let value = self.serialize_value_with_id(
+            &id,
+            &TimelineEventForCache {
+                id: id.clone(),
+                content: event,
+                room_id: room_id.to_string(),
+                position,
+            },
+        )?;
         store.put_val_owned(value)?;
 
         Ok(())
