@@ -1756,6 +1756,150 @@ mod tests {
         assert!(chunks.is_empty());
     }
 
+    async fn test_filter_duplicate_events_no_events(store: IndexeddbEventCacheStore) {
+        let room_id = *DEFAULT_TEST_ROOM_ID;
+        let duplicates = store.filter_duplicated_events(room_id, Vec::new()).await.unwrap();
+        assert!(duplicates.is_empty());
+    }
+
+    async fn test_load_last_chunk(store: IndexeddbEventCacheStore) {
+        let room_id = room_id!("!r0:matrix.org");
+        let event = |msg: &str| make_test_event(room_id, msg);
+
+        // Case #1: no last chunk.
+        let (last_chunk, chunk_identifier_generator) =
+            store.load_last_chunk(room_id).await.unwrap();
+        assert!(last_chunk.is_none());
+        assert_eq!(chunk_identifier_generator.current(), 0);
+
+        // Case #2: only one chunk is present.
+        let updates = vec![
+            Update::NewItemsChunk { previous: None, new: ChunkIdentifier::new(42), next: None },
+            Update::PushItems {
+                at: Position::new(ChunkIdentifier::new(42), 0),
+                items: vec![event("saucisse de morteau"), event("comté")],
+            },
+        ];
+        store.handle_linked_chunk_updates(room_id, updates).await.unwrap();
+
+        let (last_chunk, chunk_identifier_generator) =
+            store.load_last_chunk(room_id).await.unwrap();
+        assert_matches!(last_chunk, Some(last_chunk) => {
+            assert_eq!(last_chunk.identifier, 42);
+            assert!(last_chunk.previous.is_none());
+            assert!(last_chunk.next.is_none());
+            assert_matches!(last_chunk.content, ChunkContent::Items(items) => {
+                assert_eq!(items.len(), 2);
+                check_test_event(&items[0], "saucisse de morteau");
+                check_test_event(&items[1], "comté");
+            });
+        });
+        assert_eq!(chunk_identifier_generator.current(), 42);
+
+        // Case #3: more chunks are present.
+        let updates = vec![
+            Update::NewItemsChunk {
+                previous: Some(ChunkIdentifier::new(42)),
+                new: ChunkIdentifier::new(7),
+                next: None,
+            },
+            Update::PushItems {
+                at: Position::new(ChunkIdentifier::new(7), 0),
+                items: vec![event("fondue"), event("gruyère"), event("mont d'or")],
+            },
+        ];
+        store.handle_linked_chunk_updates(room_id, updates).await.unwrap();
+
+        let (last_chunk, chunk_identifier_generator) =
+            store.load_last_chunk(room_id).await.unwrap();
+        assert_matches!(last_chunk, Some(last_chunk) => {
+            assert_eq!(last_chunk.identifier, 7);
+            assert_matches!(last_chunk.previous, Some(previous) => {
+                assert_eq!(previous, 42);
+            });
+            assert!(last_chunk.next.is_none());
+            assert_matches!(last_chunk.content, ChunkContent::Items(items) => {
+                assert_eq!(items.len(), 3);
+                check_test_event(&items[0], "fondue");
+                check_test_event(&items[1], "gruyère");
+                check_test_event(&items[2], "mont d'or");
+            });
+        });
+        assert_eq!(chunk_identifier_generator.current(), 42);
+    }
+
+    async fn test_load_last_chunk_with_a_cycle(store: IndexeddbEventCacheStore) {
+        let room_id = room_id!("!r0:matrix.org");
+        let updates = vec![
+            Update::NewItemsChunk { previous: None, new: ChunkIdentifier::new(0), next: None },
+            Update::NewItemsChunk {
+                // Because `previous` connects to chunk #0, it will create a cycle.
+                // Chunk #0 will have a `next` set to chunk #1! Consequently, the last chunk
+                // **does not exist**. We have to detect this cycle.
+                previous: Some(ChunkIdentifier::new(0)),
+                new: ChunkIdentifier::new(1),
+                next: Some(ChunkIdentifier::new(0)),
+            },
+        ];
+        store.handle_linked_chunk_updates(room_id, updates).await.unwrap();
+        store.load_last_chunk(room_id).await.unwrap_err();
+    }
+
+    async fn test_load_previous_chunk(store: IndexeddbEventCacheStore) {
+        let room_id = room_id!("!r0:matrix.org");
+        let event = |msg: &str| make_test_event(room_id, msg);
+
+        // Case #1: no chunk at all, equivalent to having an nonexistent
+        // `before_chunk_identifier`.
+        let previous_chunk =
+            store.load_previous_chunk(room_id, ChunkIdentifier::new(153)).await.unwrap();
+        assert!(previous_chunk.is_none());
+
+        // Case #2: there is one chunk only: we request the previous on this
+        // one, it doesn't exist.
+        let updates = vec![Update::NewItemsChunk {
+            previous: None,
+            new: ChunkIdentifier::new(42),
+            next: None,
+        }];
+        store.handle_linked_chunk_updates(room_id, updates).await.unwrap();
+
+        let previous_chunk =
+            store.load_previous_chunk(room_id, ChunkIdentifier::new(42)).await.unwrap();
+        assert!(previous_chunk.is_none());
+
+        // Case #3: there are two chunks.
+        let updates = vec![
+            // new chunk before the one that exists.
+            Update::NewItemsChunk {
+                previous: None,
+                new: ChunkIdentifier::new(7),
+                next: Some(ChunkIdentifier::new(42)),
+            },
+            Update::PushItems {
+                at: Position::new(ChunkIdentifier::new(7), 0),
+                items: vec![event("brigand du jorat"), event("morbier")],
+            },
+        ];
+        store.handle_linked_chunk_updates(room_id, updates).await.unwrap();
+
+        let previous_chunk =
+            store.load_previous_chunk(room_id, ChunkIdentifier::new(42)).await.unwrap();
+
+        assert_matches!(previous_chunk, Some(previous_chunk) => {
+            assert_eq!(previous_chunk.identifier, 7);
+            assert!(previous_chunk.previous.is_none());
+            assert_matches!(previous_chunk.next, Some(next) => {
+                assert_eq!(next, 42);
+            });
+            assert_matches!(previous_chunk.content, ChunkContent::Items(items) => {
+                assert_eq!(items.len(), 2);
+                check_test_event(&items[0], "brigand du jorat");
+                check_test_event(&items[1], "morbier");
+            });
+        });
+    }
+
     mod unencrypted {
         use matrix_sdk_base::{
             event_cache::store::EventCacheStoreError, event_cache_store_integration_tests,
@@ -1849,6 +1993,30 @@ mod tests {
         async fn test_linked_chunk_update_is_a_transaction() {
             let store = get_event_cache_store().await.expect("Failed to get event cache store");
             super::test_linked_chunk_update_is_a_transaction(store).await
+        }
+
+        #[async_test]
+        async fn test_filter_duplicate_events_no_events() {
+            let store = get_event_cache_store().await.expect("Failed to get event cache store");
+            super::test_filter_duplicate_events_no_events(store).await
+        }
+
+        #[async_test]
+        async fn test_load_last_chunk() {
+            let store = get_event_cache_store().await.expect("Failed to get event cache store");
+            super::test_load_last_chunk(store).await
+        }
+
+        #[async_test]
+        async fn test_load_last_chunk_with_a_cycle() {
+            let store = get_event_cache_store().await.expect("Failed to get event cache store");
+            super::test_load_last_chunk_with_a_cycle(store).await
+        }
+
+        #[async_test]
+        async fn test_load_previous_chunk() {
+            let store = get_event_cache_store().await.expect("Failed to get event cache store");
+            super::test_load_previous_chunk(store).await
         }
     }
 
@@ -1952,6 +2120,30 @@ mod tests {
         async fn test_linked_chunk_update_is_a_transaction() {
             let store = get_event_cache_store().await.expect("Failed to get event cache store");
             super::test_linked_chunk_update_is_a_transaction(store).await
+        }
+
+        #[async_test]
+        async fn test_filter_duplicate_events_no_events() {
+            let store = get_event_cache_store().await.expect("Failed to get event cache store");
+            super::test_filter_duplicate_events_no_events(store).await
+        }
+
+        #[async_test]
+        async fn test_load_last_chunk() {
+            let store = get_event_cache_store().await.expect("Failed to get event cache store");
+            super::test_load_last_chunk(store).await
+        }
+
+        #[async_test]
+        async fn test_load_last_chunk_with_a_cycle() {
+            let store = get_event_cache_store().await.expect("Failed to get event cache store");
+            super::test_load_last_chunk_with_a_cycle(store).await
+        }
+
+        #[async_test]
+        async fn test_load_previous_chunk() {
+            let store = get_event_cache_store().await.expect("Failed to get event cache store");
+            super::test_load_previous_chunk(store).await
         }
     }
 }
