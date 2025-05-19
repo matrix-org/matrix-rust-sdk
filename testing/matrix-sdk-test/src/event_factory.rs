@@ -807,6 +807,29 @@ impl EventFactory {
     }
 
     /// Create a new `org.matrix.msc3672.beacon` event.
+    ///
+    /// ```
+    /// use matrix_sdk_test::event_factory::EventFactory;
+    /// use ruma::{
+    ///     events::{beacon::BeaconEventContent, MessageLikeEvent},
+    ///     owned_event_id, room_id,
+    ///     serde::Raw,
+    ///     user_id, MilliSecondsSinceUnixEpoch,
+    /// };
+    ///
+    /// let factory = EventFactory::new().room(room_id!("!test:localhost"));
+    ///
+    /// let event: Raw<MessageLikeEvent<BeaconEventContent>> = factory
+    ///     .beacon(
+    ///         owned_event_id!("$123456789abc:localhost"),
+    ///         10.1,
+    ///         15.2,
+    ///         5,
+    ///         Some(MilliSecondsSinceUnixEpoch(1000u32.into())),
+    ///     )
+    ///     .sender(user_id!("@alice:localhost"))
+    ///     .into_raw();
+    /// ```
     pub fn beacon(
         &self,
         beacon_info_event_id: OwnedEventId,
