@@ -827,7 +827,7 @@ impl GroupSessionManager {
     /// Returns a tuple containing (1) the list of to-device requests, and (2)
     /// the list of devices that we could not find an olm session for (so
     /// need a withheld message).
-    async fn encrypt_content_for_devices(
+    pub(crate) async fn encrypt_content_for_devices(
         &self,
         recipient_devices: Vec<DeviceData>,
         event_type: &str,
