@@ -2,6 +2,7 @@ use std::{
     collections::HashMap,
     fmt::Debug,
     sync::{Arc, RwLock},
+    time::Duration,
 };
 
 use anyhow::{anyhow, Context as _};
@@ -38,9 +39,12 @@ use matrix_sdk::{
     store::RoomLoadSettings as SdkRoomLoadSettings,
     AuthApi, AuthSession, Client as MatrixClient, SessionChange, SessionTokens,
 };
-use matrix_sdk_ui::notification_client::{
-    NotificationClient as MatrixNotificationClient,
-    NotificationProcessSetup as MatrixNotificationProcessSetup,
+use matrix_sdk_ui::{
+    notification_client::{
+        NotificationClient as MatrixNotificationClient,
+        NotificationProcessSetup as MatrixNotificationProcessSetup,
+    },
+    unable_to_decrypt_hook::UtdHookManager,
 };
 use mime::Mime;
 use ruma::{
@@ -94,6 +98,7 @@ use crate::{
     },
     sync_service::{SyncService, SyncServiceBuilder},
     task_handle::TaskHandle,
+    utd::{UnableToDecryptDelegate, UtdHook},
     utils::AsyncRuntimeDropped,
     ClientError,
 };
@@ -216,6 +221,7 @@ impl From<matrix_sdk::TransmissionProgress> for TransmissionProgress {
 pub struct Client {
     pub(crate) inner: AsyncRuntimeDropped<MatrixClient>,
     delegate: RwLock<Option<Arc<dyn ClientDelegate>>>,
+    utd_hook_manager: Option<Arc<UtdHookManager>>,
     session_verification_controller:
         Arc<tokio::sync::RwLock<Option<SessionVerificationController>>>,
 }
@@ -225,6 +231,7 @@ impl Client {
         sdk_client: MatrixClient,
         enable_oidc_refresh_lock: bool,
         session_delegate: Option<Arc<dyn ClientSessionDelegate>>,
+        utd_delegate: Option<Arc<dyn UnableToDecryptDelegate>>,
     ) -> Result<Self, ClientError> {
         let session_verification_controller: Arc<
             tokio::sync::RwLock<Option<SessionVerificationController>>,
@@ -257,9 +264,10 @@ impl Client {
         let cross_process_store_locks_holder_name =
             sdk_client.cross_process_store_locks_holder_name().to_owned();
 
-        let client = Client {
-            inner: AsyncRuntimeDropped::new(sdk_client),
+        let mut client = Client {
+            inner: AsyncRuntimeDropped::new(sdk_client.clone()),
             delegate: RwLock::new(None),
+            utd_hook_manager: None,
             session_verification_controller,
         };
 
@@ -295,6 +303,23 @@ impl Client {
                     })
                 },
             )?;
+        }
+
+        if let Some(delegate) = utd_delegate {
+            // UTDs detected before this duration may be reclassified as "late decryption"
+            // events (or discarded, if they get decrypted fast enough).
+            const UTD_HOOK_GRACE_PERIOD: Duration = Duration::from_secs(60);
+
+            let mut utd_hook = UtdHookManager::new(Arc::new(UtdHook { delegate }), sdk_client)
+                .with_max_delay(UTD_HOOK_GRACE_PERIOD);
+
+            if let Err(e) = utd_hook.reload_from_store().await {
+                error!("Unable to reload UTD hook data from data store: {}", e);
+                // Carry on with the setup anyway; we shouldn't fail setup just
+                // because the UTD hook failed to load its data.
+            }
+
+            client.utd_hook_manager = Some(Arc::new(utd_hook));
         }
 
         Ok(client)

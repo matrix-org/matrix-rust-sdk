@@ -1,7 +1,7 @@
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
 use matrix_sdk::test_utils::mocks::MatrixMockServer;
 use matrix_sdk_test::{event_factory::EventFactory, JoinedRoomBuilder, StateTestEvent};
-use matrix_sdk_ui::{timeline::TimelineBuilder, Timeline};
+use matrix_sdk_ui::timeline::TimelineBuilder;
 use ruma::{
     events::room::message::RoomMessageEventContentWithoutRelation, owned_room_id, owned_user_id,
     EventId,

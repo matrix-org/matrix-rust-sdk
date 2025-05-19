@@ -26,7 +26,7 @@ use zeroize::Zeroizing;
 use super::client::Client;
 use crate::{
     authentication::OidcConfiguration, client::ClientSessionDelegate, error::ClientError,
-    helpers::unwrap_or_clone_arc, task_handle::TaskHandle,
+    helpers::unwrap_or_clone_arc, task_handle::TaskHandle, utd::UnableToDecryptDelegate,
 };
 
 /// A list of bytes containing a certificate in DER or PEM form.
@@ -288,6 +288,7 @@ pub struct ClientBuilder {
     room_key_recipient_strategy: CollectStrategy,
     decryption_trust_requirement: TrustRequirement,
     request_config: Option<RequestConfig>,
+    utd_hook: Option<Arc<dyn UnableToDecryptDelegate>>,
 }
 
 #[matrix_sdk_ffi_macros::export]
@@ -322,6 +323,7 @@ impl ClientBuilder {
             room_key_recipient_strategy: Default::default(),
             decryption_trust_requirement: TrustRequirement::Untrusted,
             request_config: Default::default(),
+            utd_hook: Default::default(),
         })
     }
 
@@ -559,6 +561,15 @@ impl ClientBuilder {
         Arc::new(builder)
     }
 
+    pub async fn with_utd_hook(
+        self: Arc<Self>,
+        utd_hook: Box<dyn UnableToDecryptDelegate>,
+    ) -> Arc<Self> {
+        let mut builder = unwrap_or_clone_arc(self);
+        builder.utd_hook = Some(utd_hook.into());
+        Arc::new(builder)
+    }
+
     pub async fn build(self: Arc<Self>) -> Result<Arc<Client>, ClientBuildError> {
         let builder = unwrap_or_clone_arc(self);
         let mut inner_builder = MatrixClient::builder();
@@ -718,8 +729,13 @@ impl ClientBuilder {
         let sdk_client = inner_builder.build().await?;
 
         Ok(Arc::new(
-            Client::new(sdk_client, builder.enable_oidc_refresh_lock, builder.session_delegate)
-                .await?,
+            Client::new(
+                sdk_client,
+                builder.enable_oidc_refresh_lock,
+                builder.session_delegate,
+                builder.utd_hook,
+            )
+            .await?,
         ))
     }
 
