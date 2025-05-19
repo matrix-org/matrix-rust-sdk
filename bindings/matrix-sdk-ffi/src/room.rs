@@ -237,8 +237,10 @@ impl Room {
             builder = builder.with_internal_id_prefix(internal_id_prefix);
         }
 
-        if let Some(utd_hook) = self.utd_hook.clone() {
-            builder = builder.with_unable_to_decrypt_hook(utd_hook);
+        if configuration.report_utds {
+            if let Some(utd_hook) = self.utd_hook.clone() {
+                builder = builder.with_unable_to_decrypt_hook(utd_hook);
+            }
         }
 
         let timeline = builder.build().await?;

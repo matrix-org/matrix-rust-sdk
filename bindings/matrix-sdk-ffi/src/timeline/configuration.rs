@@ -157,4 +157,8 @@ pub struct TimelineConfiguration {
     /// As this has a non negligible performance impact, make sure to enable it
     /// only when you need it.
     pub track_read_receipts: bool,
+
+    /// Whether this timeline instance should report UTDs through the client's
+    /// delegate.
+    pub report_utds: bool,
 }
