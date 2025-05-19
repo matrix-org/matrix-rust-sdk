@@ -6,7 +6,7 @@ use std::{
 
 use anyhow::{anyhow, Context as _};
 use async_compat::get_runtime_handle;
-use futures_util::StreamExt;
+use futures_util::{pin_mut, StreamExt};
 use matrix_sdk::{
     authentication::oauth::{
         AccountManagementActionFull, ClientId, OAuthAuthorizationData, OAuthSession,
@@ -89,8 +89,8 @@ use crate::{
     room_directory_search::RoomDirectorySearch,
     room_preview::RoomPreview,
     ruma::{
-        AccountDataEvent, AccountDataEventType, AuthData, MediaSource, RoomAccountDataEvent,
-        RoomAccountDataEventType,
+        AccountDataEvent, AccountDataEventType, AuthData, InviteAvatars, MediaPreviewConfig,
+        MediaPreviews, MediaSource, RoomAccountDataEvent, RoomAccountDataEventType,
     },
     sync_service::{SyncService, SyncServiceBuilder},
     task_handle::TaskHandle,
@@ -1373,6 +1373,46 @@ impl Client {
     pub async fn is_report_room_api_supported(&self) -> Result<bool, ClientError> {
         Ok(self.inner.server_versions().await?.contains(&ruma::api::MatrixVersion::V1_13))
     }
+
+    /// Subscribe to changes in the media preview configuration.
+    pub async fn subscribe_to_media_preview_config(
+        &self,
+        listener: Box<dyn MediaPreviewConfigListener>,
+    ) -> Result<Arc<TaskHandle>, ClientError> {
+        let (initial_value, stream) = self.inner.account().observe_media_preview_config().await?;
+        Ok(Arc::new(TaskHandle::new(get_runtime_handle().spawn(async move {
+            // Send the initial value to the listener.
+            listener.on_change(initial_value.into());
+            // Listen for changes and notify the listener.
+            pin_mut!(stream);
+            while let Some(media_preview_config) = stream.next().await {
+                listener.on_change(media_preview_config.into());
+            }
+        }))))
+    }
+
+    /// Set the media previews timeline display policy
+    pub async fn set_media_preview_display_policy(
+        &self,
+        policy: MediaPreviews,
+    ) -> Result<(), ClientError> {
+        self.inner.account().set_media_previews_display_policy(policy.into()).await?;
+        Ok(())
+    }
+
+    /// Get the media previews timeline display policy
+    pub async fn set_invite_avatars_display_policy(
+        &self,
+        policy: InviteAvatars,
+    ) -> Result<(), ClientError> {
+        self.inner.account().set_invite_avatars_display_policy(policy.into()).await?;
+        Ok(())
+    }
+}
+
+#[matrix_sdk_ffi_macros::export(callback_interface)]
+pub trait MediaPreviewConfigListener: Sync + Send {
+    fn on_change(&self, media_preview_config: MediaPreviewConfig);
 }
 
 #[matrix_sdk_ffi_macros::export(callback_interface)]
