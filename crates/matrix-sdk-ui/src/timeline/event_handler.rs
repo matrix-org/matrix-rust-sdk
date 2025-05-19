@@ -372,14 +372,13 @@ impl TimelineAction {
                 c,
             )) => {
                 // Record the bundled edit in the aggregations set, if any.
-                if let Some(new_content) = relations.and_then(extract_poll_edit_content) {
-                    let edit_json = raw_event.and_then(extract_bundled_edit_event_json);
-
-                    if let Some(target_id) = event_id {
+                if let Some(target_id) = event_id {
+                    if let Some(new_content) = relations.and_then(extract_poll_edit_content) {
                         // It is replacing the current event.
                         if let Some(edit_event_id) = raw_event.and_then(|raw_event| {
                             raw_event.get_field::<OwnedEventId>("event_id").ok().flatten()
                         }) {
+                            let edit_json = raw_event.and_then(extract_bundled_edit_event_json);
                             let aggregation = Aggregation::new(
                                 TimelineEventItemId::EventId(edit_event_id),
                                 AggregationKind::Edit(PendingEdit {
@@ -420,14 +419,13 @@ impl TimelineAction {
 
             AnyMessageLikeEventContent::RoomMessage(msg) => {
                 // Record the bundled edit in the aggregations set, if any.
-                if let Some(new_content) = relations.and_then(extract_room_msg_edit_content) {
-                    let edit_json = raw_event.and_then(extract_bundled_edit_event_json);
-
-                    if let Some(target_id) = event_id {
+                if let Some(target_id) = event_id {
+                    if let Some(new_content) = relations.and_then(extract_room_msg_edit_content) {
                         // It is replacing the current event.
                         if let Some(edit_event_id) = raw_event.and_then(|raw_event| {
                             raw_event.get_field::<OwnedEventId>("event_id").ok().flatten()
                         }) {
+                            let edit_json = raw_event.and_then(extract_bundled_edit_event_json);
                             let aggregation = Aggregation::new(
                                 TimelineEventItemId::EventId(edit_event_id),
                                 AggregationKind::Edit(PendingEdit {
