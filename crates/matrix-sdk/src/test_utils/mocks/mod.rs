@@ -1042,6 +1042,8 @@ impl MatrixMockServer {
     /// .mount()
     /// .await;
     ///
+    /// let (_, _) = client.account().observe_media_preview_config().await.unwrap();
+    ///
     /// # anyhow::Ok(()) });
     /// ```
     pub fn mock_global_account_data(&self) -> MockEndpoint<'_, GlobalAccountDataEndpoint> {
