@@ -234,13 +234,14 @@ async fn test_most_recent_event_in_stream() {
 
     let f = EventFactory::new();
     for nth in 0..25 {
+        let event_id = format!("$event_for_stream_{nth}");
         timeline_events.push(
             f.beacon(
                 owned_event_id!("$15139375514XsgmR:localhost"),
                 format!("geo:{nth}.9575274619722,12.494122581370175;u={nth}"),
                 Some(MilliSecondsSinceUnixEpoch(1_636_829_458u32.into())),
             )
-            .event_id(<&EventId>::try_from(format!("$event_for_stream_{nth}").as_str()).unwrap())
+            .event_id(<&EventId>::try_from(event_id.as_str()).unwrap())
             .server_ts(1_636_829_458)
             .sender(user_id!("@example2:localhost"))
             .age(598971)
