@@ -86,10 +86,6 @@ impl Room {
     pub(crate) fn new(inner: SdkRoom, utd_hook: Option<Arc<UtdHookManager>>) -> Self {
         Room { inner, timeline: Default::default(), utd_hook }
     }
-
-    pub(crate) fn with_timeline(inner: SdkRoom, timeline: TimelineLock) -> Self {
-        Room { inner, timeline, utd_hook: None }
-    }
 }
 
 #[matrix_sdk_ffi_macros::export]

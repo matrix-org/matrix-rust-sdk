@@ -317,12 +317,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "async-once-cell"
-version = "0.5.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4288f83726785267c6f2ef073a3d83dc3f9b81464e9f99898240cced85fce35a"
-
-[[package]]
 name = "async-rx"
 version = "0.1.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3316,7 +3310,6 @@ dependencies = [
  "assert-json-diff",
  "assert_matches",
  "assert_matches2",
- "async-once-cell",
  "async-rx",
  "async-stream",
  "async_cell",
