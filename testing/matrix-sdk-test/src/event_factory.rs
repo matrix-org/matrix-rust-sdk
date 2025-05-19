@@ -810,9 +810,12 @@ impl EventFactory {
     pub fn beacon(
         &self,
         beacon_info_event_id: OwnedEventId,
-        geo_uri: String,
+        latitude: f64,
+        longitude: f64,
+        uncertainty: u32,
         ts: Option<MilliSecondsSinceUnixEpoch>,
     ) -> EventBuilder<BeaconEventContent> {
+        let geo_uri = format!("geo:{latitude},{longitude};u={uncertainty}");
         self.event(BeaconEventContent::new(beacon_info_event_id, geo_uri, ts))
     }
 
