@@ -29,12 +29,12 @@ use matrix_sdk_test::{
 };
 use percent_encoding::{AsciiSet, CONTROLS};
 use ruma::{
-    api::client::room::Visibility,
+    api::client::{receipt::create_receipt::v3::ReceiptType, room::Visibility},
     device_id,
     directory::PublicRoomsChunk,
     events::{
         room::member::RoomMemberEvent, AnyStateEvent, AnyTimelineEvent, GlobalAccountDataEventType,
-        MessageLikeEventType, StateEventType,
+        MessageLikeEventType, RoomAccountDataEventType, StateEventType,
     },
     serde::Raw,
     time::Duration,
@@ -1050,6 +1050,34 @@ impl MatrixMockServer {
     pub fn mock_global_account_data(&self) -> MockEndpoint<'_, GlobalAccountDataEndpoint> {
         let mock = Mock::given(method("GET"));
         self.mock_endpoint(mock, GlobalAccountDataEndpoint).expect_default_access_token()
+    }
+
+    /// Create a prebuilt mock for the endpoint used to send a single receipt.
+    pub fn mock_send_receipt(
+        &self,
+        receipt_type: ReceiptType,
+    ) -> MockEndpoint<'_, ReceiptEndpoint> {
+        let mock = Mock::given(method("POST"))
+            .and(path_regex(format!("^/_matrix/client/v3/rooms/.*/receipt/{receipt_type}/")));
+        self.mock_endpoint(mock, ReceiptEndpoint).expect_default_access_token()
+    }
+
+    /// Create a prebuilt mock for the endpoint used to send multiple receipts.
+    pub fn mock_send_read_markers(&self) -> MockEndpoint<'_, ReadMarkersEndpoint> {
+        let mock = Mock::given(method("POST"))
+            .and(path_regex(r"^/_matrix/client/v3/rooms/.*/read_markers"));
+        self.mock_endpoint(mock, ReadMarkersEndpoint).expect_default_access_token()
+    }
+
+    /// Create a prebuilt mock for the endpoint used to set room account data.
+    pub fn mock_set_room_account_data(
+        &self,
+        data_type: RoomAccountDataEventType,
+    ) -> MockEndpoint<'_, RoomAccountDataEndpoint> {
+        let mock = Mock::given(method("PUT")).and(path_regex(format!(
+            "^/_matrix/client/v3/user/.*/rooms/.*/account_data/{data_type}"
+        )));
+        self.mock_endpoint(mock, RoomAccountDataEndpoint).expect_default_access_token()
     }
 }
 
@@ -2799,5 +2827,37 @@ impl RoomRelationsResponseTemplate {
     pub fn recursion_depth(mut self, depth: u32) -> Self {
         self.recursion_depth = Some(depth);
         self
+    }
+}
+
+/// A prebuilt mock for `POST /rooms/{roomId}/receipt/{receiptType}/{eventId}`
+/// request.
+pub struct ReceiptEndpoint;
+
+impl<'a> MockEndpoint<'a, ReceiptEndpoint> {
+    /// Returns a successful empty response.
+    pub fn ok(self) -> MatrixMock<'a> {
+        self.respond_with(ResponseTemplate::new(200).set_body_json(json!({})))
+    }
+}
+
+/// A prebuilt mock for `POST /rooms/{roomId}/read_markers` request.
+pub struct ReadMarkersEndpoint;
+
+impl<'a> MockEndpoint<'a, ReadMarkersEndpoint> {
+    /// Returns a successful empty response.
+    pub fn ok(self) -> MatrixMock<'a> {
+        self.respond_with(ResponseTemplate::new(200).set_body_json(json!({})))
+    }
+}
+
+/// A prebuilt mock for `PUT /user/{userId}/rooms/{roomId}/account_data/{type}`
+/// request.
+pub struct RoomAccountDataEndpoint;
+
+impl<'a> MockEndpoint<'a, RoomAccountDataEndpoint> {
+    /// Returns a successful empty response.
+    pub fn ok(self) -> MatrixMock<'a> {
+        self.respond_with(ResponseTemplate::new(200).set_body_json(json!({})))
     }
 }
