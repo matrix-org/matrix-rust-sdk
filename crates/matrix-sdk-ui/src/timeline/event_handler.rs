@@ -352,44 +352,18 @@ impl TimelineAction {
             }
 
             AnyMessageLikeEventContent::Sticker(content) => {
-                let mut replied_to_event_id = None;
-                let mut thread_root = None;
-                let in_reply_to_details =
-                    content.relates_to.as_ref().and_then(|relation| match relation {
-                        Relation::Reply { in_reply_to } => {
-                            replied_to_event_id = Some(in_reply_to.event_id.clone());
-                            Some(InReplyToDetails::new(
-                                in_reply_to.event_id.clone(),
-                                timeline_items,
-                            ))
-                        }
-                        Relation::Thread(thread) => {
-                            thread_root = Some(thread.event_id.clone());
-                            thread.in_reply_to.as_ref().map(|in_reply_to| {
-                                replied_to_event_id = Some(in_reply_to.event_id.clone());
-                                InReplyToDetails::new(in_reply_to.event_id.clone(), timeline_items)
-                            })
-                        }
-                        _ => None,
-                    });
+                let (in_reply_to, thread_root) = Self::extract_reply_and_thread_root(
+                    content.relates_to.clone().and_then(|rel| rel.try_into().ok()),
+                    timeline_items,
+                );
 
-                // If this message is a reply to another message, add an entry in the
-                // inverted mapping.
-                if let Some(event_id) = event_id {
-                    if let Some(replied_to_event_id) = replied_to_event_id {
-                        // This is a reply! Add an entry.
-                        meta.replies
-                            .entry(replied_to_event_id)
-                            .or_default()
-                            .insert(event_id.to_owned());
-                    }
-                }
+                Self::mark_response(meta, event_id, in_reply_to.as_ref());
 
                 Self::add_item(TimelineItemContent::MsgLike(MsgLikeContent {
                     kind: MsgLikeKind::Sticker(Sticker { content }),
                     reactions: Default::default(),
                     thread_root,
-                    in_reply_to: in_reply_to_details,
+                    in_reply_to,
                     thread_summary: None,
                 }))
             }
@@ -426,38 +400,10 @@ impl TimelineAction {
                     }
                 }
 
-                let mut replied_to_event_id = None;
-                let mut thread_root = None;
-                let in_reply_to_details =
-                    c.relates_to.as_ref().and_then(|relation| match relation {
-                        RelationWithoutReplacement::Reply { in_reply_to } => {
-                            replied_to_event_id = Some(in_reply_to.event_id.clone());
-                            Some(InReplyToDetails::new(
-                                in_reply_to.event_id.clone(),
-                                timeline_items,
-                            ))
-                        }
-                        RelationWithoutReplacement::Thread(thread) => {
-                            thread_root = Some(thread.event_id.clone());
-                            thread.in_reply_to.as_ref().map(|in_reply_to| {
-                                replied_to_event_id = Some(in_reply_to.event_id.clone());
-                                InReplyToDetails::new(in_reply_to.event_id.clone(), timeline_items)
-                            })
-                        }
-                        _ => None,
-                    });
+                let (in_reply_to, thread_root) =
+                    Self::extract_reply_and_thread_root(c.relates_to.clone(), timeline_items);
 
-                // If this message is a reply to another message, add an entry in the
-                // inverted mapping.
-                if let Some(event_id) = event_id {
-                    if let Some(replied_to_event_id) = replied_to_event_id {
-                        // This is a reply! Add an entry.
-                        meta.replies
-                            .entry(replied_to_event_id)
-                            .or_default()
-                            .insert(event_id.to_owned());
-                    }
-                }
+                Self::mark_response(meta, event_id, in_reply_to.as_ref());
 
                 let poll_state = PollState::new(c);
 
@@ -466,7 +412,7 @@ impl TimelineAction {
                         kind: MsgLikeKind::Poll(poll_state),
                         reactions: Default::default(),
                         thread_root,
-                        in_reply_to: in_reply_to_details,
+                        in_reply_to,
                         thread_summary: None,
                     }),
                 }
@@ -502,45 +448,18 @@ impl TimelineAction {
                     }
                 }
 
-                let mut replied_to_event_id = None;
-                let mut thread_root = None;
-                let in_reply_to_details =
-                    msg.relates_to.as_ref().and_then(|relation| match relation {
-                        Relation::Reply { in_reply_to } => {
-                            replied_to_event_id = Some(in_reply_to.event_id.clone());
-                            Some(InReplyToDetails::new(
-                                in_reply_to.event_id.clone(),
-                                timeline_items,
-                            ))
-                        }
-                        Relation::Thread(thread) => {
-                            thread_root = Some(thread.event_id.clone());
-                            thread.in_reply_to.as_ref().map(|in_reply_to| {
-                                replied_to_event_id = Some(in_reply_to.event_id.clone());
-                                InReplyToDetails::new(in_reply_to.event_id.clone(), timeline_items)
-                            })
-                        }
-                        _ => None,
-                    });
-
-                // If this message is a reply to another message, add an entry in the
-                // inverted mapping.
-                if let Some(event_id) = event_id {
-                    if let Some(replied_to_event_id) = replied_to_event_id {
-                        // This is a reply! Add an entry.
-                        meta.replies
-                            .entry(replied_to_event_id)
-                            .or_default()
-                            .insert(event_id.to_owned());
-                    }
-                }
+                let (in_reply_to, thread_root) = Self::extract_reply_and_thread_root(
+                    msg.relates_to.clone().and_then(|rel| rel.try_into().ok()),
+                    timeline_items,
+                );
+                Self::mark_response(meta, event_id, in_reply_to.as_ref());
 
                 Self::AddItem {
                     content: TimelineItemContent::message(
                         msg,
                         Default::default(),
                         thread_root,
-                        in_reply_to_details,
+                        in_reply_to,
                         None,
                     ),
                 }
@@ -554,6 +473,47 @@ impl TimelineAction {
                 return None;
             }
         })
+    }
+
+    fn extract_reply_and_thread_root(
+        relates_to: Option<RelationWithoutReplacement>,
+        timeline_items: &Vector<Arc<TimelineItem>>,
+    ) -> (Option<InReplyToDetails>, Option<OwnedEventId>) {
+        let mut thread_root = None;
+
+        let in_reply_to = relates_to.and_then(|relation| match relation {
+            RelationWithoutReplacement::Reply { in_reply_to } => {
+                Some(InReplyToDetails::new(in_reply_to.event_id, timeline_items))
+            }
+            RelationWithoutReplacement::Thread(thread) => {
+                thread_root = Some(thread.event_id);
+                thread
+                    .in_reply_to
+                    .map(|in_reply_to| InReplyToDetails::new(in_reply_to.event_id, timeline_items))
+            }
+            _ => None,
+        });
+
+        (in_reply_to, thread_root)
+    }
+
+    fn mark_response(
+        meta: &mut TimelineMetadata,
+        event_id: Option<&EventId>,
+        in_reply_to: Option<&InReplyToDetails>,
+    ) {
+        // If this message is a reply to another message, add an entry in the
+        // inverted mapping.
+        if let Some(event_id) = event_id {
+            if let Some(replied_to_event_id) = in_reply_to.as_ref().map(|details| &details.event_id)
+            {
+                // This is a reply! Add an entry.
+                meta.replies
+                    .entry(replied_to_event_id.to_owned())
+                    .or_default()
+                    .insert(event_id.to_owned());
+            }
+        }
     }
 
     pub(super) fn failed_to_parse(event: FailedToParseEvent, error: serde_json::Error) -> Self {
