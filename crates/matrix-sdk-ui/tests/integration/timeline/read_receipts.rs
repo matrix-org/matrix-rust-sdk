@@ -40,10 +40,6 @@ use ruma::{
 use serde_json::json;
 use stream_assert::{assert_pending, assert_ready};
 use tokio::task::yield_now;
-use wiremock::{
-    matchers::{body_json, header, method, path_regex},
-    Mock, ResponseTemplate,
-};
 
 fn filter_notice(ev: &AnySyncTimelineEvent, _room_version: &RoomVersionId) -> bool {
     match ev {
@@ -424,29 +420,26 @@ async fn test_send_single_receipt() {
     let first_receipts_event_id = event_id!("$first_receipts_event_id");
 
     let mock_post_receipt_guards = (
-        Mock::given(method("POST"))
-            .and(path_regex(r"^/_matrix/client/v3/rooms/.*/receipt/m\.read/"))
-            .and(header("authorization", "Bearer 1234"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(json!({})))
+        server
+            .mock_send_receipt(CreateReceiptType::Read)
+            .ok()
             .expect(1)
             .named("Public read receipt")
-            .mount_as_scoped(server.server())
+            .mount_as_scoped()
             .await,
-        Mock::given(method("POST"))
-            .and(path_regex(r"^/_matrix/client/v3/rooms/.*/receipt/m\.read\.private/"))
-            .and(header("authorization", "Bearer 1234"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(json!({})))
+        server
+            .mock_send_receipt(CreateReceiptType::ReadPrivate)
+            .ok()
             .expect(1)
             .named("Private read receipt")
-            .mount_as_scoped(server.server())
+            .mount_as_scoped()
             .await,
-        Mock::given(method("POST"))
-            .and(path_regex(r"^/_matrix/client/v3/rooms/.*/receipt/m\.fully_read/"))
-            .and(header("authorization", "Bearer 1234"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(json!({})))
+        server
+            .mock_send_receipt(CreateReceiptType::FullyRead)
+            .ok()
             .expect(1)
             .named("Fully-read marker")
-            .mount_as_scoped(server.server())
+            .mount_as_scoped()
             .await,
     );
 
@@ -538,29 +531,26 @@ async fn test_send_single_receipt() {
     let second_receipts_event_id = event_id!("$second_receipts_event_id");
 
     let mock_post_receipt_guards = (
-        Mock::given(method("POST"))
-            .and(path_regex(r"^/_matrix/client/v3/rooms/.*/receipt/m\.read/"))
-            .and(header("authorization", "Bearer 1234"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(json!({})))
+        server
+            .mock_send_receipt(CreateReceiptType::Read)
+            .ok()
             .expect(1)
             .named("Public read receipt")
-            .mount_as_scoped(server.server())
+            .mount_as_scoped()
             .await,
-        Mock::given(method("POST"))
-            .and(path_regex(r"^/_matrix/client/v3/rooms/.*/receipt/m\.read\.private/"))
-            .and(header("authorization", "Bearer 1234"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(json!({})))
+        server
+            .mock_send_receipt(CreateReceiptType::ReadPrivate)
+            .ok()
             .expect(1)
             .named("Private read receipt")
-            .mount_as_scoped(server.server())
+            .mount_as_scoped()
             .await,
-        Mock::given(method("POST"))
-            .and(path_regex(r"^/_matrix/client/v3/rooms/.*/receipt/m\.fully_read/"))
-            .and(header("authorization", "Bearer 1234"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(json!({})))
+        server
+            .mock_send_receipt(CreateReceiptType::FullyRead)
+            .ok()
             .expect(1)
             .named("Fully-read marker")
-            .mount_as_scoped(server.server())
+            .mount_as_scoped()
             .await,
     );
 
@@ -634,29 +624,26 @@ async fn test_send_single_receipt() {
         .await;
 
     let mock_post_receipt_guards = (
-        Mock::given(method("POST"))
-            .and(path_regex(r"^/_matrix/client/v3/rooms/.*/receipt/m\.read/"))
-            .and(header("authorization", "Bearer 1234"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(json!({})))
+        server
+            .mock_send_receipt(CreateReceiptType::Read)
+            .ok()
             .expect(1)
             .named("Public read receipt")
-            .mount_as_scoped(server.server())
+            .mount_as_scoped()
             .await,
-        Mock::given(method("POST"))
-            .and(path_regex(r"^/_matrix/client/v3/rooms/.*/receipt/m\.read\.private/"))
-            .and(header("authorization", "Bearer 1234"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(json!({})))
+        server
+            .mock_send_receipt(CreateReceiptType::ReadPrivate)
+            .ok()
             .expect(1)
             .named("Private read receipt")
-            .mount_as_scoped(server.server())
+            .mount_as_scoped()
             .await,
-        Mock::given(method("POST"))
-            .and(path_regex(r"^/_matrix/client/v3/rooms/.*/receipt/m\.fully_read/"))
-            .and(header("authorization", "Bearer 1234"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(json!({})))
+        server
+            .mock_send_receipt(CreateReceiptType::FullyRead)
+            .ok()
             .expect(1)
             .named("Fully-read marker")
-            .mount_as_scoped(server.server())
+            .mount_as_scoped()
             .await,
     );
 
@@ -806,14 +793,7 @@ async fn test_mark_as_read() {
     // (the message) is known as read.
     assert!(has_sent.not());
 
-    Mock::given(method("POST"))
-        .and(path_regex(r"^/_matrix/client/v3/rooms/.*/receipt/m\.read/"))
-        .and(header("authorization", "Bearer 1234"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({})))
-        .expect(1)
-        .named("Public read receipt")
-        .mount(server.server())
-        .await;
+    server.mock_send_receipt(CreateReceiptType::Read).ok().mock_once().mount().await;
 
     // But when I mark the room as read by sending a read receipt to the latest
     // event,
@@ -842,18 +822,7 @@ async fn test_send_multiple_receipts() {
         .public_read_receipt(Some(first_receipts_event_id.to_owned()))
         .private_read_receipt(Some(first_receipts_event_id.to_owned()));
 
-    let guard = Mock::given(method("POST"))
-        .and(path_regex(r"^/_matrix/client/v3/rooms/.*/read_markers$"))
-        .and(header("authorization", "Bearer 1234"))
-        .and(body_json(json!({
-            "m.fully_read": first_receipts_event_id,
-            "m.read": first_receipts_event_id,
-            "m.read.private": first_receipts_event_id,
-        })))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({})))
-        .expect(1)
-        .mount_as_scoped(server.server())
-        .await;
+    let guard = server.mock_send_read_markers().ok().expect(1).mount_as_scoped().await;
 
     timeline.send_multiple_receipts(first_receipts.clone()).await.unwrap();
 
@@ -900,18 +869,7 @@ async fn test_send_multiple_receipts() {
         .public_read_receipt(Some(second_receipts_event_id.to_owned()))
         .private_read_receipt(Some(second_receipts_event_id.to_owned()));
 
-    let guard = Mock::given(method("POST"))
-        .and(path_regex(r"^/_matrix/client/v3/rooms/.*/read_markers$"))
-        .and(header("authorization", "Bearer 1234"))
-        .and(body_json(json!({
-            "m.fully_read": second_receipts_event_id,
-            "m.read": second_receipts_event_id,
-            "m.read.private": second_receipts_event_id,
-        })))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({})))
-        .expect(1)
-        .mount_as_scoped(server.server())
-        .await;
+    let guard = server.mock_send_read_markers().ok().expect(1).mount_as_scoped().await;
 
     timeline.send_multiple_receipts(second_receipts.clone()).await.unwrap();
     drop(guard);
@@ -962,18 +920,7 @@ async fn test_send_multiple_receipts() {
         )
         .await;
 
-    let guard = Mock::given(method("POST"))
-        .and(path_regex(r"^/_matrix/client/v3/rooms/.*/read_markers$"))
-        .and(header("authorization", "Bearer 1234"))
-        .and(body_json(json!({
-            "m.fully_read": third_receipts_event_id,
-            "m.read": third_receipts_event_id,
-            "m.read.private": third_receipts_event_id,
-        })))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({})))
-        .expect(1)
-        .mount_as_scoped(server.server())
-        .await;
+    let guard = server.mock_send_read_markers().ok().expect(1).mount_as_scoped().await;
 
     timeline.send_multiple_receipts(third_receipts.clone()).await.unwrap();
     drop(guard);
