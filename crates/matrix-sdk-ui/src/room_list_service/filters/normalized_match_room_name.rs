@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use tracing::error;
+
 use super::{normalize_string, Filter};
 
 struct NormalizedMatcher {
@@ -47,7 +49,11 @@ pub fn new_filter(pattern: &str) -> impl Filter {
     let searcher = NormalizedMatcher::new().with_pattern(pattern);
 
     move |room| -> bool {
-        let Some(room_name) = room.cached_display_name() else { return false };
+        let Some(room_name) = room.cached_display_name() else {
+            error!(room_id = ?room.room_id(), "Missing cached room display name");
+
+            return false;
+        };
 
         searcher.matches(&room_name)
     }

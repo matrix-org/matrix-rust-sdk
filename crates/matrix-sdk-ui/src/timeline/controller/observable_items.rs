@@ -15,10 +15,12 @@
 use std::{
     cmp::Ordering,
     collections::{vec_deque::Iter, VecDeque},
+    iter::{Enumerate, Skip, Take},
     ops::{Deref, RangeBounds},
     sync::Arc,
 };
 
+use bitflags::bitflags;
 use eyeball_im::{
     ObservableVector, ObservableVectorEntries, ObservableVectorEntry, ObservableVectorTransaction,
     ObservableVectorTransactionEntry, VectorSubscriber,
@@ -31,6 +33,39 @@ use super::{metadata::EventMeta, TimelineItem};
 /// An `ObservableItems` is a type similar to
 /// [`ObservableVector<Arc<TimelineItem>>`] except the API is limited and,
 /// internally, maintains the mapping between remote events and timeline items.
+///
+/// # Regions
+///
+/// The `ObservableItems` holds all the invariants about the _position_ of the
+/// items. It defines three regions where items can live:
+///
+/// 1. the _start_ region, which can only contain a single [`TimelineStart`],
+/// 2. the _remotes_ region, which can only contain many [`Remote`] timeline
+///    items with their decorations (only [`DateDivider`]s and [`ReadMarker`]s),
+/// 3. the _locals_ region, which can only contain many [`Local`] timeline items
+///    with their decorations (only [`DateDivider`]s).
+///
+/// The [`iter_all_regions`] method allows to iterate over all regions.
+/// [`iter_remotes_region`] will restrict the iterator over the _remotes_
+/// region, and so on. These iterators provide the absolute indices of the
+/// items, so that it's harder to make mistakes when manipulating the indices of
+/// items with operations like [`insert`], [`remove`], [`replace`] etc.
+///
+/// Other methods like [`push_local`] or [`push_date_divider`] insert the items
+/// in the correct region, and check a couple of invariants.
+///
+/// [`TimelineStart`]: super::VirtualTimelineItem::TimelineStart
+/// [`DateDivider`]: super::VirtualTimelineItem::DateDivider
+/// [`ReadMarker`]: super::VirtualTimelineItem::ReadMarker
+/// [`Remote`]: super::EventTimelineItemKind::Remote
+/// [`Local`]: super::EventTimelineItemKind::Local
+/// [`iter_all_regions`]: ObservableItemsTransaction::iter_all_regions
+/// [`iter_remote_region`]: ObservableItemsTransaction::iter_remotes_region
+/// [`insert`]: ObservableItemsTransaction::insert
+/// [`remove`]: ObservableItemsTransaction::remove
+/// [`replace`]: ObservableItemsTransaction::replace
+/// [`push_local`]: ObservableItemsTransaction::push_local
+/// [`push_date_divider`]: ObservableItemsTransaction::push_date_divider
 #[derive(Debug)]
 pub struct ObservableItems {
     /// All timeline items.
@@ -303,6 +338,86 @@ impl<'observable_items> ObservableItemsTransaction<'observable_items> {
             .timeline_item_has_been_inserted_at(self.items.len().saturating_sub(1), event_index);
     }
 
+    /// Push a new [`Local`] timeline item.
+    ///
+    /// # Invariant
+    ///
+    /// A [`Local`] is always the last item.
+    ///
+    /// # Panics
+    ///
+    /// It panics if the provided `timeline_item` is not a [`Local`].
+    ///
+    /// [`Local`]: super::EventTimelineItemKind::Local
+    pub fn push_local(&mut self, timeline_item: Arc<TimelineItem>) {
+        assert!(timeline_item.is_local_echo(), "The provided `timeline_item` is not a `Local`");
+
+        self.push_back(timeline_item, None);
+    }
+
+    /// Push a new [`DateDivider`] virtual timeline item.
+    ///
+    /// # Panics
+    ///
+    /// It panics if the provided `timeline_item` is not a [`DateDivider`].
+    ///
+    /// It also panics if the `timeline_item_index` points inside the _start_
+    /// region.
+    ///
+    /// [`DateDivider`]: super::VirtualTimelineItem::DateDivider
+    /// [`TimelineStart`]: super::VirtualTimelineItem::TimelineStart
+    /// [`Local`]: super::EventTimelineItemKind::Local
+    pub fn push_date_divider(
+        &mut self,
+        timeline_item_index: usize,
+        timeline_item: Arc<TimelineItem>,
+    ) {
+        assert!(
+            timeline_item.is_date_divider(),
+            "The provided `timeline_item` is not a `DateDivider`"
+        );
+
+        // We are not inserting in the start region.
+        if timeline_item_index == 0 && !self.items.is_empty() {
+            assert!(
+                matches!(self.items.get(timeline_item_index), Some(timeline_item) if !timeline_item.is_timeline_start())
+            );
+        }
+
+        if timeline_item_index == self.len() {
+            self.push_back(timeline_item, None);
+        } else if timeline_item_index == 0 {
+            self.push_front(timeline_item, None);
+        } else {
+            self.insert(timeline_item_index, timeline_item, None);
+        }
+    }
+
+    /// Push a new [`TimelineStart`] virtual timeline item.
+    ///
+    /// # Invariant
+    ///
+    /// A [`TimelineStart`] is always the first item if present.
+    ///
+    /// # Panics
+    ///
+    /// It panics if the provided `timeline_item` is not a [`TimelineStart`].
+    ///
+    /// [`TimelineStart`]: super::VirtualTimelineItem::TimelineStart
+    pub fn push_timeline_start_if_missing(&mut self, timeline_item: Arc<TimelineItem>) {
+        assert!(
+            timeline_item.is_timeline_start(),
+            "The provided `timeline_item` is not a `TimelineStart`"
+        );
+
+        // The timeline start virtual item is necessarily the first item.
+        if self.get(0).is_some_and(|item| item.is_timeline_start()) {
+            return;
+        }
+
+        self.push_front(timeline_item, None);
+    }
+
     /// Clear all timeline items and all remote events.
     pub fn clear(&mut self) {
         self.items.clear();
@@ -320,10 +435,229 @@ impl<'observable_items> ObservableItemsTransaction<'observable_items> {
         })
     }
 
+    /// Check whether there is at least one [`Local`] timeline item.
+    ///
+    /// [`Local`]: super::EventTimelineItemKind::Local
+    pub fn has_local(&self) -> bool {
+        matches!(self.items.last(), Some(timeline_item) if timeline_item.is_local_echo())
+    }
+
+    /// Return the index where to insert the first remote timeline
+    /// item.
+    pub fn first_remotes_region_index(&self) -> usize {
+        if self.items.get(0).is_some_and(|item| item.is_timeline_start()) {
+            1
+        } else {
+            0
+        }
+    }
+
+    /// Iterate over all timeline items in the _remotes_ region.
+    pub fn iter_remotes_region(&self) -> ObservableItemsTransactionIter<'_> {
+        ObservableItemsTransactionIterBuilder::new(&self.items).with_remotes().build()
+    }
+
+    /// Iterate over all timeline items in the _remotes_ and _locals_ regions.
+    pub fn iter_remotes_and_locals_regions(&self) -> ObservableItemsTransactionIter<'_> {
+        ObservableItemsTransactionIterBuilder::new(&self.items).with_remotes().with_locals().build()
+    }
+
+    /// Iterate over all timeline items in the _locals_ region.
+    pub fn iter_locals_region(&self) -> ObservableItemsTransactionIter<'_> {
+        ObservableItemsTransactionIterBuilder::new(&self.items).with_locals().build()
+    }
+
+    /// Iterate over all timeline items (in all regions).
+    pub fn iter_all_regions(&self) -> ObservableItemsTransactionIter<'_> {
+        ObservableItemsTransactionIterBuilder::new(&self.items)
+            .with_start()
+            .with_remotes()
+            .with_locals()
+            .build()
+    }
+
+    /// Alias to [`Self::iter_all_regions`].
+    ///
+    /// This type has a `Deref` implementation to `ObservableVectorTransaction`,
+    /// which has its own `iter` method. This method “overrides” it to ensure it
+    /// is consistent with other iterator methods of this type, by aliasing it
+    /// to [`Self::iter_all_regions`].
+    #[allow(unused)] // We really don't want anybody to use the `self.items.iter()` method.
+    #[deprecated = "This method is now aliased to `Self::iter_all_regions`"]
+    pub fn iter(&self) -> ObservableItemsTransactionIter<'_> {
+        self.iter_all_regions()
+    }
+
     /// Commit this transaction, persisting the changes and notifying
     /// subscribers.
     pub fn commit(self) {
         self.items.commit()
+    }
+}
+
+bitflags! {
+    struct Regions: u8 {
+        /// The _start_ region can only contain a single [`TimelineStart`].
+        ///
+        /// [`TimelineStart`]: super::VirtualTimelineItem::TimelineStart
+        const START = 0b0000_0001;
+
+        /// The _remotes_ region can only contain many [`Remote`] timeline items
+        /// with their decorations (only [`DateDivider`]s and [`ReadMarker`]s).
+        ///
+        /// [`DateDivider`]: super::VirtualTimelineItem::DateDivider
+        /// [`ReadMarker`]: super::VirtualTimelineItem::ReadMarker
+        /// [`Remote`]: super::EventTimelineItemKind::Remote
+        const REMOTES = 0b0000_0010;
+
+        /// The _locals_ region can only contain many [`Local`] timeline items
+        /// with their decorations (only [`DateDivider`]s).
+        ///
+        /// [`DateDivider`]: super::VirtualTimelineItem::DateDivider
+        /// [`Local`]: super::EventTimelineItemKind::Local
+        const LOCALS = 0b0000_0100;
+    }
+}
+
+/// A builder for the [`ObservableItemsTransactionIter`].
+struct ObservableItemsTransactionIterBuilder<'e> {
+    /// The original items.
+    items: &'e ObservableVectorTransaction<'e, Arc<TimelineItem>>,
+
+    /// The regions to cover.
+    regions: Regions,
+}
+
+impl<'e> ObservableItemsTransactionIterBuilder<'e> {
+    /// Build a new [`Self`].
+    fn new(items: &'e ObservableVectorTransaction<'e, Arc<TimelineItem>>) -> Self {
+        Self { items, regions: Regions::empty() }
+    }
+
+    /// Include the _start_ region in the iterator.
+    fn with_start(mut self) -> Self {
+        self.regions.insert(Regions::START);
+        self
+    }
+
+    /// Include the _remotes_ region in the iterator.
+    fn with_remotes(mut self) -> Self {
+        self.regions.insert(Regions::REMOTES);
+        self
+    }
+
+    /// Include the _locals_ region in the iterator.
+    fn with_locals(mut self) -> Self {
+        self.regions.insert(Regions::LOCALS);
+        self
+    }
+
+    /// Build the iterator.
+    #[allow(clippy::iter_skip_zero)]
+    fn build(self) -> ObservableItemsTransactionIter<'e> {
+        // Calculate the size of the _start_ region.
+        let size_of_start_region = if matches!(
+            self.items.get(0),
+            Some(first_timeline_item) if first_timeline_item.is_timeline_start()
+        ) {
+            1
+        } else {
+            0
+        };
+
+        // Calculate the size of the _locals_ region.
+        let size_of_locals_region = self
+            .items
+            .deref()
+            .iter()
+            .rev()
+            .take_while(|timeline_item| timeline_item.is_local_echo())
+            .count();
+
+        // Calculate the size of the _remotes_ region.
+        let size_of_remotes_region =
+            self.items.len() - size_of_start_region - size_of_locals_region;
+
+        let with_start = self.regions.contains(Regions::START);
+        let with_remotes = self.regions.contains(Regions::REMOTES);
+        let with_locals = self.regions.contains(Regions::LOCALS);
+
+        // Compute one iterator per combination of regions.
+        let iter = self.items.deref().iter().enumerate();
+        let inner = match (with_start, with_remotes, with_locals) {
+            // Nothing.
+            (false, false, false) => iter.skip(0).take(0),
+
+            // Only the start region.
+            (true, false, false) => iter.skip(0).take(size_of_start_region),
+
+            // Only the remotes region.
+            (false, true, false) => iter.skip(size_of_start_region).take(size_of_remotes_region),
+
+            // The start region and the remotes regions.
+            (true, true, false) => iter.skip(0).take(size_of_start_region + size_of_remotes_region),
+
+            // Only the locals region.
+            (false, false, true) => {
+                iter.skip(size_of_start_region + size_of_remotes_region).take(size_of_locals_region)
+            }
+
+            // The start region and the locals regions.
+            //
+            // This combination isn't implemented yet (because it contains a hole), but it's also
+            // not necessary in our current code base; it's fine to ignore it.
+            (true, false, true) => unimplemented!(
+                "Iterating over the start and the locals regions is not implemented yet"
+            ),
+
+            // The remotes and the locals regions.
+            (false, true, true) => {
+                iter.skip(size_of_start_region).take(size_of_remotes_region + size_of_locals_region)
+            }
+
+            // All regions.
+            (true, true, true) => iter
+                .skip(0)
+                .take(size_of_start_region + size_of_remotes_region + size_of_locals_region),
+        };
+
+        ObservableItemsTransactionIter { inner }
+    }
+}
+
+/// An iterator over timeline items.
+pub(crate) struct ObservableItemsTransactionIter<'observable_items_transaction> {
+    #[allow(clippy::type_complexity)]
+    inner: Take<
+        Skip<
+            Enumerate<
+                imbl::vector::Iter<
+                    'observable_items_transaction,
+                    Arc<TimelineItem>,
+                    imbl::shared_ptr::DefaultSharedPtr,
+                >,
+            >,
+        >,
+    >,
+}
+
+impl<'e> Iterator for ObservableItemsTransactionIter<'e> {
+    type Item = (usize, &'e Arc<TimelineItem>);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.inner.next()
+    }
+}
+
+impl ExactSizeIterator for ObservableItemsTransactionIter<'_> {
+    fn len(&self) -> usize {
+        self.inner.len()
+    }
+}
+
+impl DoubleEndedIterator for ObservableItemsTransactionIter<'_> {
+    fn next_back(&mut self) -> Option<Self::Item> {
+        self.inner.next_back()
     }
 }
 
@@ -381,16 +715,16 @@ mod observable_items_tests {
     use eyeball_im::VectorDiff;
     use ruma::{
         events::room::message::{MessageType, TextMessageEventContent},
-        owned_user_id, MilliSecondsSinceUnixEpoch,
+        owned_user_id, uint, MilliSecondsSinceUnixEpoch,
     };
-    use stream_assert::assert_next_matches;
+    use stream_assert::{assert_next_matches, assert_pending};
 
     use super::*;
     use crate::timeline::{
         controller::{EventTimelineItemKind, RemoteEventOrigin},
-        event_item::RemoteEventTimelineItem,
-        EventTimelineItem, Message, MsgLikeContent, MsgLikeKind, TimelineDetails,
-        TimelineItemContent, TimelineUniqueId,
+        event_item::{LocalEventTimelineItem, RemoteEventTimelineItem},
+        EventSendState, EventTimelineItem, Message, MsgLikeContent, MsgLikeKind, TimelineDetails,
+        TimelineItemContent, TimelineItemKind, TimelineUniqueId, VirtualTimelineItem,
     };
 
     fn item(event_id: &str) -> Arc<TimelineItem> {
@@ -423,7 +757,35 @@ mod observable_items_tests {
                 }),
                 false,
             ),
-            TimelineUniqueId(format!("__id_{event_id}")),
+            TimelineUniqueId(format!("__eid_{event_id}")),
+        )
+    }
+
+    fn local_item(transaction_id: &str) -> Arc<TimelineItem> {
+        TimelineItem::new(
+            EventTimelineItem::new(
+                owned_user_id!("@ivan:mnt.io"),
+                TimelineDetails::Unavailable,
+                MilliSecondsSinceUnixEpoch(0u32.into()),
+                TimelineItemContent::MsgLike(MsgLikeContent {
+                    kind: MsgLikeKind::Message(Message {
+                        msgtype: MessageType::Text(TextMessageEventContent::plain("hello")),
+                        edited: false,
+                        mentions: None,
+                    }),
+                    reactions: Default::default(),
+                    thread_root: None,
+                    in_reply_to: None,
+                    thread_summary: None,
+                }),
+                EventTimelineItemKind::Local(LocalEventTimelineItem {
+                    send_state: EventSendState::NotSentYet,
+                    transaction_id: transaction_id.into(),
+                    send_handle: None,
+                }),
+                false,
+            ),
+            TimelineUniqueId(format!("__tid_{transaction_id}")),
         )
     }
 
@@ -438,6 +800,12 @@ mod observable_items_tests {
     macro_rules! assert_event_id {
         ( $timeline_item:expr, $event_id:literal $( , $message:expr )? $(,)? ) => {
             assert_eq!($timeline_item.as_event().unwrap().event_id().unwrap().as_str(), $event_id $( , $message)? );
+        };
+    }
+
+    macro_rules! assert_transaction_id {
+        ( $timeline_item:expr, $transaction_id:literal $( , $message:expr )? $(,)? ) => {
+            assert_eq!($timeline_item.as_event().unwrap().transaction_id().unwrap().as_str(), $transaction_id $( , $message)? );
         };
     }
 
@@ -1154,6 +1522,318 @@ mod observable_items_tests {
 
         assert_eq!(transaction.all_remote_events().0.len(), 3);
         assert_eq!(transaction.len(), 2);
+    }
+
+    #[test]
+    fn test_transaction_push_local() {
+        let mut items = ObservableItems::new();
+
+        let mut transaction = items.transaction();
+
+        // Push a remote item.
+        transaction.push_back(item("$ev0"), None);
+
+        // Push a local item.
+        transaction.push_local(local_item("t0"));
+
+        // Push another local item.
+        transaction.push_local(local_item("t1"));
+
+        transaction.commit();
+
+        let mut entries = items.entries();
+
+        assert_matches!(entries.next(), Some(entry) => {
+            assert_event_id!(entry, "$ev0");
+        });
+        assert_matches!(entries.next(), Some(entry) => {
+            assert_transaction_id!(entry, "t0");
+        });
+        assert_matches!(entries.next(), Some(entry) => {
+            assert_transaction_id!(entry, "t1");
+        });
+        assert_matches!(entries.next(), None);
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_transaction_push_local_panic_not_a_local() {
+        let mut items = ObservableItems::new();
+        let mut transaction = items.transaction();
+        transaction.push_local(item("$ev0"));
+    }
+
+    #[test]
+    fn test_transaction_push_date_divider() {
+        let mut items = ObservableItems::new();
+        let mut stream = items.subscribe().into_stream();
+
+        let mut transaction = items.transaction();
+
+        transaction.push_date_divider(
+            0,
+            TimelineItem::new(
+                TimelineItemKind::Virtual(VirtualTimelineItem::DateDivider(
+                    MilliSecondsSinceUnixEpoch(uint!(10)),
+                )),
+                TimelineUniqueId("__foo".to_owned()),
+            ),
+        );
+        transaction.push_date_divider(
+            0,
+            TimelineItem::new(
+                TimelineItemKind::Virtual(VirtualTimelineItem::DateDivider(
+                    MilliSecondsSinceUnixEpoch(uint!(20)),
+                )),
+                TimelineUniqueId("__bar".to_owned()),
+            ),
+        );
+        transaction.push_date_divider(
+            1,
+            TimelineItem::new(
+                TimelineItemKind::Virtual(VirtualTimelineItem::DateDivider(
+                    MilliSecondsSinceUnixEpoch(uint!(30)),
+                )),
+                TimelineUniqueId("__baz".to_owned()),
+            ),
+        );
+        transaction.commit();
+
+        assert_next_matches!(stream, VectorDiff::PushBack { value: timeline_item } => {
+            assert_matches!(timeline_item.as_virtual(), Some(VirtualTimelineItem::DateDivider(ms)) => {
+                assert_eq!(u64::from(ms.0), 10);
+            });
+        });
+        assert_next_matches!(stream, VectorDiff::PushFront { value: timeline_item } => {
+            assert_matches!(timeline_item.as_virtual(), Some(VirtualTimelineItem::DateDivider(ms)) => {
+                assert_eq!(u64::from(ms.0), 20);
+            });
+        });
+        assert_next_matches!(stream, VectorDiff::Insert { index: 1, value: timeline_item } => {
+            assert_matches!(timeline_item.as_virtual(), Some(VirtualTimelineItem::DateDivider(ms)) => {
+                assert_eq!(u64::from(ms.0), 30);
+            });
+        });
+        assert_pending!(stream);
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_transaction_push_date_divider_panic_not_a_date_divider() {
+        let mut items = ObservableItems::new();
+        let mut transaction = items.transaction();
+
+        transaction.push_date_divider(0, item("$ev0"));
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_transaction_push_date_divider_panic_not_in_remotes_region() {
+        let mut items = ObservableItems::new();
+        let mut transaction = items.transaction();
+
+        transaction.push_timeline_start_if_missing(TimelineItem::new(
+            VirtualTimelineItem::TimelineStart,
+            TimelineUniqueId("__id_start".to_owned()),
+        ));
+        transaction.push_date_divider(
+            0,
+            TimelineItem::new(
+                VirtualTimelineItem::DateDivider(MilliSecondsSinceUnixEpoch(uint!(10))),
+                TimelineUniqueId("__date_divider".to_owned()),
+            ),
+        );
+    }
+
+    #[test]
+    fn test_transaction_push_timeline_start_if_missing() {
+        let mut items = ObservableItems::new();
+
+        let mut transaction = items.transaction();
+
+        // Push an item.
+        transaction.push_back(item("$ev0"), None);
+
+        // Push the timeline start.
+        transaction.push_timeline_start_if_missing(TimelineItem::new(
+            VirtualTimelineItem::TimelineStart,
+            TimelineUniqueId("__id_start".to_owned()),
+        ));
+
+        // Push another item.
+        transaction.push_back(item("$ev1"), None);
+
+        // Try to push the timeline start again.
+        transaction.push_timeline_start_if_missing(TimelineItem::new(
+            VirtualTimelineItem::TimelineStart,
+            TimelineUniqueId("__id_start_again".to_owned()),
+        ));
+
+        transaction.commit();
+
+        let mut entries = items.entries();
+
+        assert_matches!(entries.next(), Some(entry) => {
+            assert!(entry.is_timeline_start());
+        });
+        assert_matches!(entries.next(), Some(entry) => {
+            assert_event_id!(entry, "$ev0");
+        });
+        assert_matches!(entries.next(), Some(entry) => {
+            assert_event_id!(entry, "$ev1");
+        });
+        assert_matches!(entries.next(), None);
+    }
+
+    #[test]
+    fn test_transaction_iter_all_regions() {
+        let mut items = ObservableItems::new();
+
+        let mut transaction = items.transaction();
+        transaction.push_timeline_start_if_missing(TimelineItem::new(
+            VirtualTimelineItem::TimelineStart,
+            TimelineUniqueId("__start".to_owned()),
+        ));
+        transaction.push_back(item("$ev0"), None);
+        transaction.push_back(item("$ev1"), None);
+        transaction.push_back(item("$ev2"), None);
+        transaction.push_local(local_item("t0"));
+        transaction.push_local(local_item("t1"));
+        transaction.push_local(local_item("t2"));
+
+        // Iterate all regions.
+        let mut iter = transaction.iter_all_regions();
+        assert_matches!(iter.next(), Some((0, item)) => {
+            assert!(item.is_timeline_start());
+        });
+        assert_matches!(iter.next(), Some((1, item)) => {
+            assert_event_id!(item, "$ev0");
+        });
+        assert_matches!(iter.next(), Some((2, item)) => {
+            assert_event_id!(item, "$ev1");
+        });
+        assert_matches!(iter.next(), Some((3, item)) => {
+            assert_event_id!(item, "$ev2");
+        });
+        assert_matches!(iter.next(), Some((4, item)) => {
+            assert_transaction_id!(item, "t0");
+        });
+        assert_matches!(iter.next(), Some((5, item)) => {
+            assert_transaction_id!(item, "t1");
+        });
+        assert_matches!(iter.next(), Some((6, item)) => {
+            assert_transaction_id!(item, "t2");
+        });
+        assert!(iter.next().is_none());
+    }
+
+    #[test]
+    fn test_transaction_iter_remotes_regions() {
+        let mut items = ObservableItems::new();
+
+        let mut transaction = items.transaction();
+        transaction.push_timeline_start_if_missing(TimelineItem::new(
+            VirtualTimelineItem::TimelineStart,
+            TimelineUniqueId("__start".to_owned()),
+        ));
+        transaction.push_back(item("$ev0"), None);
+        transaction.push_back(item("$ev1"), None);
+        transaction.push_back(item("$ev2"), None);
+        transaction.push_local(local_item("t0"));
+        transaction.push_local(local_item("t1"));
+        transaction.push_local(local_item("t2"));
+
+        // Iterate the remotes region.
+        let mut iter = transaction.iter_remotes_region();
+        assert_matches!(iter.next(), Some((1, item)) => {
+            assert_event_id!(item, "$ev0");
+        });
+        assert_matches!(iter.next(), Some((2, item)) => {
+            assert_event_id!(item, "$ev1");
+        });
+        assert_matches!(iter.next(), Some((3, item)) => {
+            assert_event_id!(item, "$ev2");
+        });
+        assert!(iter.next().is_none());
+    }
+
+    #[test]
+    fn test_transaction_iter_remotes_regions_with_no_start_region() {
+        let mut items = ObservableItems::new();
+
+        let mut transaction = items.transaction();
+        transaction.push_back(item("$ev0"), None);
+        transaction.push_back(item("$ev1"), None);
+        transaction.push_back(item("$ev2"), None);
+        transaction.push_local(local_item("t0"));
+        transaction.push_local(local_item("t1"));
+        transaction.push_local(local_item("t2"));
+
+        // Iterate the remotes region.
+        let mut iter = transaction.iter_remotes_region();
+        assert_matches!(iter.next(), Some((0, item)) => {
+            assert_event_id!(item, "$ev0");
+        });
+        assert_matches!(iter.next(), Some((1, item)) => {
+            assert_event_id!(item, "$ev1");
+        });
+        assert_matches!(iter.next(), Some((2, item)) => {
+            assert_event_id!(item, "$ev2");
+        });
+        assert!(iter.next().is_none());
+    }
+
+    #[test]
+    fn test_transaction_iter_remotes_regions_with_no_locals_region() {
+        let mut items = ObservableItems::new();
+
+        let mut transaction = items.transaction();
+        transaction.push_back(item("$ev0"), None);
+        transaction.push_back(item("$ev1"), None);
+        transaction.push_back(item("$ev2"), None);
+
+        // Iterate the remotes region.
+        let mut iter = transaction.iter_remotes_region();
+        assert_matches!(iter.next(), Some((0, item)) => {
+            assert_event_id!(item, "$ev0");
+        });
+        assert_matches!(iter.next(), Some((1, item)) => {
+            assert_event_id!(item, "$ev1");
+        });
+        assert_matches!(iter.next(), Some((2, item)) => {
+            assert_event_id!(item, "$ev2");
+        });
+        assert!(iter.next().is_none());
+    }
+
+    #[test]
+    fn test_transaction_iter_locals_region() {
+        let mut items = ObservableItems::new();
+
+        let mut transaction = items.transaction();
+        transaction.push_timeline_start_if_missing(TimelineItem::new(
+            VirtualTimelineItem::TimelineStart,
+            TimelineUniqueId("__start".to_owned()),
+        ));
+        transaction.push_back(item("$ev0"), None);
+        transaction.push_back(item("$ev1"), None);
+        transaction.push_back(item("$ev2"), None);
+        transaction.push_local(local_item("t0"));
+        transaction.push_local(local_item("t1"));
+        transaction.push_local(local_item("t2"));
+
+        // Iterate the locals region.
+        let mut iter = transaction.iter_locals_region();
+        assert_matches!(iter.next(), Some((4, item)) => {
+            assert_transaction_id!(item, "t0");
+        });
+        assert_matches!(iter.next(), Some((5, item)) => {
+            assert_transaction_id!(item, "t1");
+        });
+        assert_matches!(iter.next(), Some((6, item)) => {
+            assert_transaction_id!(item, "t2");
+        });
+        assert!(iter.next().is_none());
     }
 }
 

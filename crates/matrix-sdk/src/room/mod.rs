@@ -87,7 +87,7 @@ use ruma::{
         beacon_info::BeaconInfoEventContent,
         call::notify::{ApplicationType, CallNotifyEventContent, NotifyType},
         direct::DirectEventContent,
-        marked_unread::{MarkedUnreadEventContent, UnstableMarkedUnreadEventContent},
+        marked_unread::MarkedUnreadEventContent,
         receipt::{Receipt, ReceiptThread, ReceiptType},
         room::{
             avatar::{self, RoomAvatarEventContent},
@@ -260,19 +260,7 @@ impl Room {
                 prev_room_state,
             ))));
         }
-
-        let mark_as_direct = prev_room_state == RoomState::Invited
-            && self.inner.is_direct().await.unwrap_or_else(|e| {
-                warn!(room_id = ?self.room_id(), "is_direct() failed: {e}");
-                false
-            });
-
         self.client.join_room_by_id(self.room_id()).await?;
-
-        if mark_as_direct {
-            self.set_is_direct(true).await?;
-        }
-
         Ok(())
     }
 
@@ -2385,7 +2373,7 @@ impl Room {
     /// Sets the new avatar url for this room.
     ///
     /// # Arguments
-    /// * `avatar_url` - The owned matrix uri that represents the avatar
+    /// * `avatar_url` - The owned Matrix uri that represents the avatar
     /// * `info` - The optional image info that can be provided for the avatar
     pub async fn set_avatar_url(
         &self,
@@ -3161,7 +3149,7 @@ impl Room {
     pub async fn set_unread_flag(&self, unread: bool) -> Result<()> {
         let user_id = self.client.user_id().ok_or(Error::AuthenticationRequired)?;
 
-        let content = UnstableMarkedUnreadEventContent::from(MarkedUnreadEventContent::new(unread));
+        let content = MarkedUnreadEventContent::new(unread);
 
         let request = set_room_account_data::v3::Request::new(
             user_id.to_owned(),

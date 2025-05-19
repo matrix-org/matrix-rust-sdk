@@ -15,7 +15,7 @@
 #![allow(missing_docs)]
 
 use std::{
-    collections::BTreeSet,
+    collections::{BTreeMap, BTreeSet},
     sync::atomic::{AtomicU64, Ordering::SeqCst},
 };
 
@@ -39,14 +39,19 @@ use ruma::{
         relation::{Annotation, InReplyTo, Replacement, Thread},
         room::{
             avatar::{self, RoomAvatarEventContent},
+            canonical_alias::RoomCanonicalAliasEventContent,
+            create::RoomCreateEventContent,
             encrypted::{EncryptedEventScheme, RoomEncryptedEventContent},
             member::{MembershipState, RoomMemberEventContent},
             message::{
                 FormattedBody, ImageMessageEventContent, MessageType, Relation,
-                RoomMessageEventContent, RoomMessageEventContentWithoutRelation,
+                RelationWithoutReplacement, RoomMessageEventContent,
+                RoomMessageEventContentWithoutRelation,
             },
             name::RoomNameEventContent,
+            power_levels::RoomPowerLevelsEventContent,
             redaction::RoomRedactionEventContent,
+            server_acl::RoomServerAclEventContent,
             tombstone::RoomTombstoneEventContent,
             topic::RoomTopicEventContent,
         },
@@ -55,8 +60,9 @@ use ruma::{
         RedactedMessageLikeEventContent, RedactedStateEventContent,
     },
     serde::Raw,
-    server_name, EventId, MilliSecondsSinceUnixEpoch, MxcUri, OwnedEventId, OwnedMxcUri,
-    OwnedRoomId, OwnedTransactionId, OwnedUserId, RoomId, TransactionId, UInt, UserId,
+    server_name, EventId, Int, MilliSecondsSinceUnixEpoch, MxcUri, OwnedEventId, OwnedMxcUri,
+    OwnedRoomAliasId, OwnedRoomId, OwnedTransactionId, OwnedUserId, RoomId, RoomVersionId,
+    TransactionId, UInt, UserId,
 };
 use serde::Serialize;
 use serde_json::json;
@@ -351,6 +357,29 @@ impl EventBuilder<RoomMessageEventContent> {
             _ => panic!("unexpected event type for a caption"),
         }
 
+        self
+    }
+}
+
+impl EventBuilder<UnstablePollStartEventContent> {
+    /// Adds a reply relation to the current event.
+    pub fn reply_to(mut self, event_id: &EventId) -> Self {
+        if let UnstablePollStartEventContent::New(content) = &mut self.content {
+            content.relates_to = Some(RelationWithoutReplacement::Reply {
+                in_reply_to: InReplyTo::new(event_id.to_owned()),
+            });
+        };
+        self
+    }
+
+    /// Adds a thread relation to the root event, setting the reply to
+    /// event id as well.
+    pub fn in_thread(mut self, root: &EventId, reply_to_event_id: &EventId) -> Self {
+        let thread = Thread::reply(root.to_owned(), reply_to_event_id.to_owned());
+
+        if let UnstablePollStartEventContent::New(content) = &mut self.content {
+            content.relates_to = Some(RelationWithoutReplacement::Thread(thread));
+        };
         self
     }
 }
@@ -716,6 +745,49 @@ impl EventFactory {
     /// Create a read receipt event.
     pub fn read_receipts(&self) -> ReadReceiptBuilder<'_> {
         ReadReceiptBuilder { factory: self, content: ReceiptEventContent(Default::default()) }
+    }
+
+    /// Create a new `m.room.create` event.
+    pub fn create(
+        &self,
+        user_id: &UserId,
+        room_version: RoomVersionId,
+    ) -> EventBuilder<RoomCreateEventContent> {
+        let mut event = RoomCreateEventContent::new_v1(user_id.to_owned());
+        event.room_version = room_version;
+        self.event(event)
+    }
+
+    /// Create a new `m.room.power_levels` event.
+    pub fn power_levels(
+        &self,
+        map: &mut BTreeMap<OwnedUserId, Int>,
+    ) -> EventBuilder<RoomPowerLevelsEventContent> {
+        let mut event = RoomPowerLevelsEventContent::new();
+        event.users.append(map);
+        self.event(event)
+    }
+
+    /// Create a new `m.room.server_acl` event.
+    pub fn server_acl(
+        &self,
+        allow_ip_literals: bool,
+        allow: Vec<String>,
+        deny: Vec<String>,
+    ) -> EventBuilder<RoomServerAclEventContent> {
+        self.event(RoomServerAclEventContent::new(allow_ip_literals, allow, deny))
+    }
+
+    /// Create a new `m.room.canonical_alias` event.
+    pub fn canonical_alias(
+        &self,
+        alias: Option<OwnedRoomAliasId>,
+        alt_aliases: Vec<OwnedRoomAliasId>,
+    ) -> EventBuilder<RoomCanonicalAliasEventContent> {
+        let mut event = RoomCanonicalAliasEventContent::new();
+        event.alias = alias;
+        event.alt_aliases = alt_aliases;
+        self.event(event)
     }
 
     /// Set the next server timestamp.

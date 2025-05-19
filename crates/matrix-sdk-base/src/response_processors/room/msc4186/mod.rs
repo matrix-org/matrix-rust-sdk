@@ -80,17 +80,15 @@ pub async fn update_any_room(
     // incomplete or staled already. We must only read state events from
     // `required_state`.
     let (raw_state_events, state_events) =
-        state_events::sync::collect(context, &room_response.required_state);
+        state_events::sync::collect(&room_response.required_state);
 
     let state_store = notification.state_store;
 
     // Find or create the room in the store
     let is_new_room = !state_store.room_exists(room_id);
 
-    let invite_state_events = room_response
-        .invite_state
-        .as_ref()
-        .map(|events| state_events::stripped::collect(context, events));
+    let invite_state_events =
+        room_response.invite_state.as_ref().map(|events| state_events::stripped::collect(events));
 
     #[allow(unused_mut)] // Required for some feature flag combinations
     let (mut room, mut room_info, maybe_room_update_kind) = membership(
@@ -158,7 +156,6 @@ pub async fn update_any_room(
 
     #[cfg(feature = "e2e-encryption")]
     e2ee::tracked_users::update_or_set_if_room_is_newly_encrypted(
-        context,
         e2ee.olm_machine,
         &new_user_ids,
         room_info.encryption_state(),

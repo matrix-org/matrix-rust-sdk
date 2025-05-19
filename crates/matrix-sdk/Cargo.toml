@@ -13,7 +13,7 @@ version = "0.11.0"
 
 [package.metadata.docs.rs]
 features = ["docsrs"]
-rustdoc-args = ["--cfg", "docsrs"]
+rustdoc-args = ["--cfg", "docsrs", "--generate-link-to-definition"]
 
 [features]
 default = ["e2e-encryption", "automatic-room-key-forwarding", "sqlite", "native-tls"]
@@ -72,7 +72,6 @@ eyeball-im = { workspace = true }
 eyre = { version = "0.6.12", optional = true }
 futures-core = { workspace = true }
 futures-util = { workspace = true }
-growable-bloom-filter = { workspace = true }
 http = { workspace = true }
 imbl = { workspace = true, features = ["serde"] }
 indexmap = { workspace = true }
@@ -97,10 +96,10 @@ ruma = { workspace = true, features = [
     "unstable-msc2965",
     "unstable-msc3930",
     "unstable-msc3245-v1-compat",
-    "unstable-msc2867",
     "unstable-msc4230",
     "unstable-msc2967",
     "unstable-msc4108",
+    "unstable-msc4278",
 ] }
 serde = { workspace = true }
 serde_html_form = { workspace = true }

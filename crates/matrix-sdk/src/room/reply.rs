@@ -61,7 +61,7 @@ struct RepliedToInfo {
 #[derive(Debug, Clone)]
 enum ReplyContent {
     /// Content of a message event.
-    Message(RoomMessageEventContent),
+    Message(Box<RoomMessageEventContent>),
     /// Content of any other kind of event stored as raw JSON.
     Raw(Raw<AnySyncTimelineEvent>),
 }
@@ -144,7 +144,7 @@ async fn make_reply_event<S: EventSource>(
                 sender: replied_to_info.sender,
                 origin_server_ts: replied_to_info.timestamp,
                 room_id: room_id.to_owned(),
-                content: replied_to_content,
+                content: *replied_to_content,
                 unsigned: Default::default(),
             };
 
@@ -244,7 +244,7 @@ async fn replied_to_info_from_event_id<S: EventSource>(
                 original_event,
             )) = event
             {
-                ReplyContent::Message(original_event.content.clone())
+                ReplyContent::Message(Box::new(original_event.content.clone()))
             } else {
                 ReplyContent::Raw(raw_event)
             }

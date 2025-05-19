@@ -21,13 +21,12 @@ use ruma::{
     RoomId,
 };
 
-use super::{e2ee::E2EE, Context};
+use super::e2ee::E2EE;
 use crate::Result;
 
 /// Process the given event as a verification event if it is a candidate. The
 /// event must be decrypted.
 pub async fn process_if_relevant(
-    context: &mut Context,
     event: &AnySyncTimelineEvent,
     e2ee: E2EE<'_>,
     room_id: &RoomId,
@@ -57,8 +56,7 @@ pub async fn process_if_relevant(
 
             _ => false,
         } {
-            verification(context, e2ee.verification_is_allowed, e2ee.olm_machine, event, room_id)
-                .await?;
+            verification(e2ee.verification_is_allowed, e2ee.olm_machine, event, room_id).await?;
         }
     }
 
@@ -66,7 +64,6 @@ pub async fn process_if_relevant(
 }
 
 async fn verification(
-    _context: &mut Context,
     verification_is_allowed: bool,
     olm_machine: Option<&OlmMachine>,
     event: &AnySyncMessageLikeEvent,

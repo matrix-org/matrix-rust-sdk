@@ -310,14 +310,14 @@ impl GroupSessionManager {
 
             match result.maybe_encrypted_room_key {
                 MaybeEncryptedRoomKey::Encrypted { used_session, share_info, message } => {
-                    result_builder.on_successful_encryption(&result.device, used_session, message);
+                    result_builder.on_successful_encryption(&result.device, *used_session, message);
 
                     let user_id = result.device.user_id().to_owned();
                     let device_id = result.device.device_id().to_owned();
                     share_infos
                         .entry(user_id)
                         .or_insert_with(BTreeMap::new)
-                        .insert(device_id, share_info);
+                        .insert(device_id, *share_info);
                 }
                 MaybeEncryptedRoomKey::MissingSession => {
                     result_builder.on_missing_session(result.device);

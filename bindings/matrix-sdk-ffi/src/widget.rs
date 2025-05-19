@@ -95,7 +95,7 @@ impl From<matrix_sdk::widget::WidgetSettings> for WidgetSettings {
 ///
 /// # Arguments
 /// * `widget_settings` - The widget settings to generate the url for.
-/// * `room` - A matrix room which is used to query the logged in username
+/// * `room` - A Matrix room which is used to query the logged in username
 /// * `props` - Properties from the client that can be used by a widget to adapt
 ///   to the client. e.g. language, font-scale...
 #[matrix_sdk_ffi_macros::export]
@@ -248,6 +248,11 @@ pub struct VirtualElementCallWidgetOptions {
     /// Sentry [environment](https://docs.sentry.io/concepts/key-terms/key-terms/)
     /// Supported since Element Call v0.9.0. Only used by the embedded package.
     pub sentry_environment: Option<String>,
+    //// - `true`: The webview should show the list of media devices it detects using
+    ////   `enumerateDevices`.
+    ///  - `false`: the webview shows a a list of devices injected by the
+    ///    client. (used on ios & android)
+    pub controlled_media_devices: bool,
 }
 
 impl From<VirtualElementCallWidgetOptions> for matrix_sdk::widget::VirtualElementCallWidgetOptions {
@@ -271,6 +276,7 @@ impl From<VirtualElementCallWidgetOptions> for matrix_sdk::widget::VirtualElemen
             rageshake_submit_url: value.rageshake_submit_url,
             sentry_dsn: value.sentry_dsn,
             sentry_environment: value.sentry_environment,
+            controlled_media_devices: value.controlled_media_devices,
         }
     }
 }
@@ -373,7 +379,7 @@ pub fn get_element_call_required_permissions(
                 state_key: format!("{own_user_id}_{own_device_id}"),
             },
             // The same as above but with an underscore.
-            // To work around the issue that state events starting with `@` have to be matrix id's
+            // To work around the issue that state events starting with `@` have to be Matrix id's
             // but we use mxId+deviceId.
             WidgetEventFilter::StateWithTypeAndStateKey {
                 event_type: StateEventType::CallMember.to_string(),
@@ -442,7 +448,7 @@ pub struct WidgetCapabilities {
     /// Types of the messages that a widget wants to be able to send.
     pub send: Vec<WidgetEventFilter>,
     /// If this capability is requested by the widget, it can not operate
-    /// separately from the matrix client.
+    /// separately from the Matrix client.
     ///
     /// This means clients should not offer to open the widget in a separate
     /// browser/tab/webview that is not connected to the postmessage widget-api.

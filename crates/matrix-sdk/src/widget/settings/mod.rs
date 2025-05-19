@@ -79,7 +79,7 @@ impl WidgetSettings {
     ///
     /// # Arguments
     ///
-    /// * `room` - A matrix room which is used to query the logged in username
+    /// * `room` - A Matrix room which is used to query the logged in username
     /// * `props` - Properties from the client that can be used by a widget to
     ///   adapt to the client. e.g. language, font-scale...
     //

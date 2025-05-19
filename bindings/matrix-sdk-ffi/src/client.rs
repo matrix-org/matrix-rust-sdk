@@ -6,6 +6,7 @@ use std::{
 
 use anyhow::{anyhow, Context as _};
 use async_compat::get_runtime_handle;
+use futures_util::StreamExt;
 use matrix_sdk::{
     authentication::oauth::{
         AccountManagementActionFull, ClientId, OAuthAuthorizationData, OAuthSession,
@@ -45,8 +46,13 @@ use mime::Mime;
 use ruma::{
     api::client::{alias::get_alias, error::ErrorKind, uiaa::UserIdentifier},
     events::{
+        direct::DirectEventContent,
+        fully_read::FullyReadEventContent,
+        identity_server::IdentityServerEventContent,
         ignored_user_list::IgnoredUserListEventContent,
         key::verification::request::ToDeviceKeyVerificationRequestEvent,
+        marked_unread::{MarkedUnreadEventContent, UnstableMarkedUnreadEventContent},
+        push_rules::PushRulesEventContent,
         room::{
             history_visibility::RoomHistoryVisibilityEventContent,
             join_rules::{
@@ -55,7 +61,13 @@ use ruma::{
             message::OriginalSyncRoomMessageEvent,
             power_levels::RoomPowerLevelsEventContent,
         },
-        GlobalAccountDataEventType,
+        secret_storage::{
+            default_key::SecretStorageDefaultKeyEventContent, key::SecretStorageKeyEventContent,
+        },
+        tag::TagEventContent,
+        GlobalAccountDataEvent as RumaGlobalAccountDataEvent,
+        GlobalAccountDataEventType as RumaGlobalAccountDataEventType,
+        RoomAccountDataEvent as RumaRoomAccountDataEvent,
     },
     push::{HttpPusherData as RumaHttpPusherData, PushFormat as RumaPushFormat},
     OwnedServerName, RoomAliasId, RoomOrAliasId, ServerName,
@@ -76,7 +88,10 @@ use crate::{
     room::RoomHistoryVisibility,
     room_directory_search::RoomDirectorySearch,
     room_preview::RoomPreview,
-    ruma::{AuthData, MediaSource},
+    ruma::{
+        AccountDataEvent, AccountDataEventType, AuthData, MediaSource, RoomAccountDataEvent,
+        RoomAccountDataEventType,
+    },
     sync_service::{SyncService, SyncServiceBuilder},
     task_handle::TaskHandle,
     utils::AsyncRuntimeDropped,
@@ -166,6 +181,20 @@ pub trait SendQueueRoomErrorListener: Sync + Send {
     /// Called every time the send queue has ran into an error for a given room,
     /// which will disable the send queue for that particular room.
     fn on_error(&self, room_id: String, error: ClientError);
+}
+
+/// A listener for changes of global account data events.
+#[matrix_sdk_ffi_macros::export(callback_interface)]
+pub trait AccountDataListener: Sync + Send {
+    /// Called when a global account data event has changed.
+    fn on_change(&self, event: AccountDataEvent);
+}
+
+/// A listener for changes of room account data events.
+#[matrix_sdk_ffi_macros::export(callback_interface)]
+pub trait RoomAccountDataListener: Sync + Send {
+    /// Called when a room account data event was changed.
+    fn on_change(&self, event: RoomAccountDataEvent, room_id: String);
 }
 
 #[derive(Clone, Copy, uniffi::Record)]
@@ -400,10 +429,18 @@ impl Client {
     /// * `prompt` - The desired user experience in the web UI. No value means
     ///   that the user wishes to login into an existing account, and a value of
     ///   `Create` means that the user wishes to register a new account.
+    ///
+    /// * `login_hint` - A generic login hint that an identity provider can use
+    ///   to pre-fill the login form. The format of this hint is not restricted
+    ///   by the spec as external providers all have their own way to handle the hint.
+    ///   However, it should be noted that when providing a user ID as a hint
+    ///   for MAS (with no upstream provider), then the format to use is defined
+    ///   by [MSC4198]: https://github.com/matrix-org/matrix-spec-proposals/pull/4198
     pub async fn url_for_oidc(
         &self,
         oidc_configuration: &OidcConfiguration,
         prompt: Option<OidcPrompt>,
+        login_hint: Option<String>,
     ) -> Result<Arc<OAuthAuthorizationData>, OidcError> {
         let registration_data = oidc_configuration.registration_data()?;
         let redirect_uri = oidc_configuration.redirect_uri()?;
@@ -412,6 +449,9 @@ impl Client {
 
         if let Some(prompt) = prompt {
             url_builder = url_builder.prompt(vec![prompt.into()]);
+        }
+        if let Some(login_hint) = login_hint {
+            url_builder = url_builder.login_hint(login_hint);
         }
 
         let data = url_builder.build().await?;
@@ -532,6 +572,132 @@ impl Client {
                 }
             }
         })))
+    }
+
+    /// Subscribe to updates of global account data events.
+    ///
+    /// Be careful that only the most recent value can be observed. Subscribers
+    /// are notified when a new value is sent, but there is no guarantee that
+    /// they will see all values.
+    pub fn observe_account_data_event(
+        &self,
+        event_type: AccountDataEventType,
+        listener: Box<dyn AccountDataListener>,
+    ) -> Arc<TaskHandle> {
+        macro_rules! observe {
+            ($t:ty, $cb: expr) => {{
+                // Using an Arc here is mandatory or else the subscriber will never trigger
+                let observer =
+                    Arc::new(self.inner.observe_events::<RumaGlobalAccountDataEvent<$t>, ()>());
+
+                Arc::new(TaskHandle::new(get_runtime_handle().spawn(async move {
+                    let mut subscriber = observer.subscribe();
+                    loop {
+                        if let Some(next) = subscriber.next().await {
+                            $cb(next.0);
+                        }
+                    }
+                })))
+            }};
+
+            ($t:ty) => {{
+                observe!($t, |event: RumaGlobalAccountDataEvent<$t>| {
+                    listener.on_change(event.into());
+                })
+            }};
+        }
+
+        match event_type {
+            AccountDataEventType::Direct => {
+                observe!(DirectEventContent)
+            }
+            AccountDataEventType::IdentityServer => {
+                observe!(IdentityServerEventContent)
+            }
+            AccountDataEventType::IgnoredUserList => {
+                observe!(IgnoredUserListEventContent)
+            }
+            AccountDataEventType::PushRules => {
+                observe!(PushRulesEventContent, |event: RumaGlobalAccountDataEvent<
+                    PushRulesEventContent,
+                >| {
+                    if let Ok(event) = event.try_into() {
+                        listener.on_change(event);
+                    }
+                })
+            }
+            AccountDataEventType::SecretStorageDefaultKey => {
+                observe!(SecretStorageDefaultKeyEventContent)
+            }
+            AccountDataEventType::SecretStorageKey { key_id } => {
+                observe!(SecretStorageKeyEventContent, |event: RumaGlobalAccountDataEvent<
+                    SecretStorageKeyEventContent,
+                >| {
+                    if event.content.key_id != key_id {
+                        return;
+                    }
+                    if let Ok(event) = event.try_into() {
+                        listener.on_change(event);
+                    }
+                })
+            }
+        }
+    }
+
+    /// Subscribe to updates of room account data events.
+    ///
+    /// Be careful that only the most recent value can be observed. Subscribers
+    /// are notified when a new value is sent, but there is no guarantee that
+    /// they will see all values.
+    pub fn observe_room_account_data_event(
+        &self,
+        room_id: String,
+        event_type: RoomAccountDataEventType,
+        listener: Box<dyn RoomAccountDataListener>,
+    ) -> Result<Arc<TaskHandle>, ClientError> {
+        macro_rules! observe {
+            ($t:ty, $cb: expr) => {{
+                // Using an Arc here is mandatory or else the subscriber will never trigger
+                let observer =
+                    Arc::new(self.inner.observe_room_events::<RumaRoomAccountDataEvent<$t>, ()>(
+                        &RoomId::parse(&room_id)?,
+                    ));
+
+                Ok(Arc::new(TaskHandle::new(get_runtime_handle().spawn(async move {
+                    let mut subscriber = observer.subscribe();
+                    loop {
+                        if let Some(next) = subscriber.next().await {
+                            $cb(next.0);
+                        }
+                    }
+                }))))
+            }};
+
+            ($t:ty) => {{
+                observe!($t, |event: RumaRoomAccountDataEvent<$t>| {
+                    listener.on_change(event.into(), room_id.clone());
+                })
+            }};
+        }
+
+        match event_type {
+            RoomAccountDataEventType::FullyRead => {
+                observe!(FullyReadEventContent)
+            }
+            RoomAccountDataEventType::MarkedUnread => {
+                observe!(MarkedUnreadEventContent)
+            }
+            RoomAccountDataEventType::Tag => {
+                observe!(TagEventContent, |event: RumaRoomAccountDataEvent<TagEventContent>| {
+                    if let Ok(event) = event.try_into() {
+                        listener.on_change(event, room_id.clone());
+                    }
+                })
+            }
+            RoomAccountDataEventType::UnstableMarkedUnread => {
+                observe!(UnstableMarkedUnreadEventContent)
+            }
+        }
     }
 
     /// Allows generic GET requests to be made through the SDKs internal HTTP
@@ -942,7 +1108,7 @@ impl Client {
         if let Some(raw_content) = self
             .inner
             .account()
-            .fetch_account_data(GlobalAccountDataEventType::IgnoredUserList)
+            .fetch_account_data(RumaGlobalAccountDataEventType::IgnoredUserList)
             .await?
         {
             let content = raw_content.deserialize_as::<IgnoredUserListEventContent>()?;

@@ -27,9 +27,9 @@ use wasm_bindgen::JsValue;
 use web_sys::IdbKeyRange;
 use zeroize::Zeroizing;
 
-use crate::{safe_encode::SafeEncode, IndexeddbCryptoStoreError};
+use crate::safe_encode::SafeEncode;
 
-type Result<A, E = IndexeddbCryptoStoreError> = std::result::Result<A, E>;
+type Result<A, E = IndexeddbSerializerError> = std::result::Result<A, E>;
 
 const BASE64: GeneralPurpose = GeneralPurpose::new(&alphabet::STANDARD, general_purpose::NO_PAD);
 
@@ -37,6 +37,35 @@ const BASE64: GeneralPurpose = GeneralPurpose::new(&alphabet::STANDARD, general_
 /// indexeddb store.
 pub struct IndexeddbSerializer {
     store_cipher: Option<Arc<StoreCipher>>,
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum IndexeddbSerializerError {
+    #[error(transparent)]
+    Serialization(#[from] serde_json::Error),
+    #[error("DomException {name} ({code}): {message}")]
+    DomException {
+        /// DomException code
+        code: u16,
+        /// Specific name of the DomException
+        name: String,
+        /// Message given to the DomException
+        message: String,
+    },
+    #[error(transparent)]
+    CryptoStoreError(#[from] CryptoStoreError),
+}
+
+impl From<web_sys::DomException> for IndexeddbSerializerError {
+    fn from(frm: web_sys::DomException) -> Self {
+        Self::DomException { name: frm.name(), message: frm.message(), code: frm.code() }
+    }
+}
+
+impl From<serde_wasm_bindgen::Error> for IndexeddbSerializerError {
+    fn from(e: serde_wasm_bindgen::Error) -> Self {
+        Self::Serialization(serde::de::Error::custom(e.to_string()))
+    }
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -90,7 +119,7 @@ impl IndexeddbSerializer {
         &self,
         table_name: &str,
         key: T,
-    ) -> Result<IdbKeyRange, IndexeddbCryptoStoreError>
+    ) -> Result<IdbKeyRange, IndexeddbSerializerError>
     where
         T: SafeEncode,
     {
@@ -98,7 +127,7 @@ impl IndexeddbSerializer {
             Some(cipher) => key.encode_to_range_secure(table_name, cipher),
             None => key.encode_to_range(),
         }
-        .map_err(|e| IndexeddbCryptoStoreError::DomException {
+        .map_err(|e| IndexeddbSerializerError::DomException {
             code: 0,
             name: "IdbKeyRangeMakeError".to_owned(),
             message: e,
@@ -113,7 +142,7 @@ impl IndexeddbSerializer {
     pub fn serialize_value(
         &self,
         value: &impl Serialize,
-    ) -> Result<JsValue, IndexeddbCryptoStoreError> {
+    ) -> Result<JsValue, IndexeddbSerializerError> {
         let serialized = self.maybe_encrypt_value(value)?;
         Ok(serde_wasm_bindgen::to_value(&serialized)?)
     }
@@ -167,7 +196,7 @@ impl IndexeddbSerializer {
     pub fn deserialize_value<T: DeserializeOwned>(
         &self,
         value: JsValue,
-    ) -> Result<T, IndexeddbCryptoStoreError> {
+    ) -> Result<T, IndexeddbSerializerError> {
         // Objects which are serialized nowadays should be represented as a
         // `MaybeEncrypted`. However, `serialize_value` previously used a
         // different format, so we need to handle that in case we have old data.
@@ -221,11 +250,11 @@ impl IndexeddbSerializer {
     pub fn deserialize_legacy_value<T: DeserializeOwned>(
         &self,
         value: JsValue,
-    ) -> Result<T, IndexeddbCryptoStoreError> {
+    ) -> Result<T, IndexeddbSerializerError> {
         match &self.store_cipher {
             Some(cipher) => {
                 if !value.is_array() {
-                    return Err(IndexeddbCryptoStoreError::CryptoStoreError(
+                    return Err(IndexeddbSerializerError::CryptoStoreError(
                         CryptoStoreError::UnpicklingError,
                     ));
                 }

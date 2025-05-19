@@ -18,15 +18,15 @@ use futures_core::Stream;
 use indexmap::IndexMap;
 use ruma::{
     events::receipt::{Receipt, ReceiptEventContent, ReceiptThread, ReceiptType},
-    EventId, OwnedEventId, OwnedUserId, UserId,
+    EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedUserId, UserId,
 };
 use tokio::sync::watch;
 use tokio_stream::wrappers::WatchStream;
 use tracing::{debug, error, instrument, trace, warn};
 
 use super::{
-    rfind_event_by_id, AllRemoteEvents, FullEventMeta, ObservableItemsTransaction,
-    RelativePosition, RoomDataProvider, TimelineMetadata, TimelineState,
+    rfind_event_by_id, AllRemoteEvents, ObservableItemsTransaction, RelativePosition,
+    RoomDataProvider, TimelineMetadata, TimelineState,
 };
 use crate::timeline::{controller::TimelineStateTransaction, TimelineItem};
 
@@ -377,8 +377,7 @@ impl ReadReceiptTimelineUpdate {
 
         let item_pos = self.old_item_pos.or_else(|| {
             items
-                .iter()
-                .enumerate()
+                .iter_remotes_region()
                 .rev()
                 .filter_map(|(nth, item)| Some((nth, item.as_event()?)))
                 .find_map(|(nth, event_item)| {
@@ -429,14 +428,14 @@ impl ReadReceiptTimelineUpdate {
             return;
         };
 
+        let old_item_pos = self.old_item_pos.unwrap_or(0);
+
         let item_pos = self.new_item_pos.or_else(|| {
             items
-                .iter()
-                .enumerate()
+                .iter_remotes_region()
                 // Don't iterate over all items if the `old_item_pos` is known: the `item_pos`
                 // for the new item is necessarily _after_ the old item.
-                .skip(self.old_item_pos.unwrap_or(0))
-                .rev()
+                .skip_while(|(nth, _)| *nth < old_item_pos)
                 .filter_map(|(nth, item)| Some((nth, item.as_event()?)))
                 .find_map(|(nth, event_item)| {
                     (event_item.event_id() == Some(&event_id)).then_some(nth)
@@ -556,9 +555,12 @@ impl TimelineStateTransaction<'_> {
     /// count, so we need to handle them locally too. For that we create an
     /// "implicit" read receipt, compared to the "explicit" ones sent by the
     /// client.
-    pub(super) fn maybe_add_implicit_read_receipt(&mut self, event_meta: FullEventMeta<'_>) {
-        let FullEventMeta { event_id, sender, is_own_event, timestamp, .. } = event_meta;
-
+    pub(super) fn maybe_add_implicit_read_receipt(
+        &mut self,
+        event_id: &EventId,
+        sender: Option<&UserId>,
+        timestamp: Option<MilliSecondsSinceUnixEpoch>,
+    ) {
         let (Some(user_id), Some(timestamp)) = (sender, timestamp) else {
             // We cannot add a read receipt if we do not know the user or the timestamp.
             return;
@@ -569,6 +571,7 @@ impl TimelineStateTransaction<'_> {
         let full_receipt =
             FullReceipt { event_id, user_id, receipt_type: ReceiptType::Read, receipt: &receipt };
 
+        let is_own_event = sender.is_some_and(|sender| sender == self.meta.own_user_id);
         self.meta.read_receipts.maybe_update_read_receipt(
             full_receipt,
             is_own_event,

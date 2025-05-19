@@ -224,8 +224,8 @@ impl From<&ToDeviceRequest> for Request {
     }
 }
 
-impl From<&RoomMessageRequest> for Request {
-    fn from(r: &RoomMessageRequest) -> Self {
+impl From<&Box<RoomMessageRequest>> for Request {
+    fn from(r: &Box<RoomMessageRequest>) -> Self {
         Self::RoomMessage {
             request_id: r.txn_id.to_string(),
             room_id: r.room_id.to_string(),

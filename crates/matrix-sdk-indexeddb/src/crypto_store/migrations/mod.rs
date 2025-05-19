@@ -18,10 +18,7 @@ use indexed_db_futures::{prelude::*, web_sys::DomException};
 use tracing::info;
 use wasm_bindgen::JsValue;
 
-use crate::{
-    crypto_store::{indexeddb_serializer::IndexeddbSerializer, Result},
-    IndexeddbCryptoStoreError,
-};
+use crate::{crypto_store::Result, serializer::IndexeddbSerializer, IndexeddbCryptoStoreError};
 
 mod old_keys;
 mod v0_to_v5;

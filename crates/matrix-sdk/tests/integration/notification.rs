@@ -2,15 +2,10 @@ use assert_matches2::assert_matches;
 use matrix_sdk::{config::SyncSettings, sync::Notification};
 use matrix_sdk_base::deserialized_responses::RawAnySyncOrStrippedTimelineEvent;
 use matrix_sdk_test::{
-    async_test, stripped_state_event, sync_state_event, sync_timeline_event, test_json,
+    async_test, event_factory::EventFactory, stripped_state_event, sync_state_event, test_json,
     InvitedRoomBuilder, JoinedRoomBuilder, SyncResponseBuilder,
 };
-use ruma::{
-    events::{room::message::RoomMessageEventContent, Mentions, StateEventType},
-    room_id,
-    serde::Raw,
-    OwnedRoomId,
-};
+use ruma::{event_id, events::StateEventType, room_id, serde::Raw, user_id, OwnedRoomId};
 use stream_assert::{assert_pending, assert_ready};
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
@@ -61,25 +56,18 @@ async fn test_notifications_joined() {
     assert_pending!(receiver_stream);
 
     // Sync with two notifications.
-    let first_message = RoomMessageEventContent::text_plain("Hello example!")
-        .add_mentions(Mentions::with_user_ids([client.user_id().unwrap().to_owned()]));
-    let second_message = RoomMessageEventContent::text_plain("How are you?");
-
+    let f = EventFactory::new();
     let joined_room = JoinedRoomBuilder::new(room_id).add_timeline_bulk([
-        sync_timeline_event!({
-            "content": first_message,
-            "type": "m.room.message",
-            "event_id": "$aaa",
-            "origin_server_ts": 2189,
-            "sender": "@bob:example.com",
-        }),
-        sync_timeline_event!({
-            "content": second_message,
-            "type": "m.room.message",
-            "event_id": "$bbb",
-            "origin_server_ts": 3189,
-            "sender": "@bob:example.com",
-        }),
+        f.text_msg("Hello example!")
+            .event_id(event_id!("$aaa"))
+            .server_ts(2189)
+            .sender(user_id!("@bob:example.com"))
+            .into_raw_sync(),
+        f.text_msg("How are you?")
+            .event_id(event_id!("$bbb"))
+            .server_ts(3189)
+            .sender(user_id!("@bob:example.com"))
+            .into_raw_sync(),
     ]);
     sync_builder.add_joined_room(joined_room);
 

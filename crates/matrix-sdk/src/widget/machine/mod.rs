@@ -93,12 +93,13 @@ pub(crate) enum Action {
         data: MatrixDriverRequestData,
     },
 
-    /// Subscribe to the events in the *current* room, i.e. a room which this
-    /// widget is instantiated with. The client is aware of the room.
+    /// Subscribe to the events that the widget capabilities allow,
+    /// in the _current_ room, i.e. a room which this widget is instantiated
+    /// with. The client is aware of the room.
     Subscribe,
 
-    /// Unsuscribe from the events in the *current* room. Symmetrical to
-    /// `Subscribe`.
+    /// Unsubscribe from the events that the widget capabilities allow,
+    /// in the _current_ room. Symmetrical to `Subscribe`.
     Unsubscribe,
 }
 
@@ -118,7 +119,7 @@ pub(crate) struct WidgetMachine {
     /// Outstanding requests sent to the widget (mapped by uuid).
     pending_to_widget_requests: PendingRequests<ToWidgetRequestMeta>,
 
-    /// Outstanding requests sent to the matrix driver (mapped by uuid).
+    /// Outstanding requests sent to the Matrix driver (mapped by uuid).
     pending_matrix_driver_requests: PendingRequests<MatrixDriverRequestMeta>,
 
     /// Current negotiation state for capabilities.
@@ -166,7 +167,7 @@ impl WidgetMachine {
             }
             IncomingMessage::MatrixEventReceived(event) => {
                 let CapabilitiesState::Negotiated(capabilities) = &self.capabilities else {
-                    error!("Received matrix event before capabilities negotiation");
+                    error!("Received Matrix event before capabilities negotiation");
                     return Vec::new();
                 };
 
@@ -258,7 +259,7 @@ impl WidgetMachine {
                     return actions;
                 };
 
-                request.then(|res, machine| {
+                request.add_response_handler(|res, machine| {
                     let response = match res {
                         Ok(res) => OpenIdResponse::Allowed(OpenIdState::new(request_id, res)),
                         Err(msg) => {
@@ -297,7 +298,7 @@ impl WidgetMachine {
                     delay_id: req.delay_id,
                 })
                 .map(|(request, request_action)| {
-                    request.then(|result, _machine| {
+                    request.add_response_handler(|result, _machine| {
                         vec![Self::send_from_widget_response(
                             raw_request,
                             // This is mapped to another type because the
@@ -342,7 +343,7 @@ impl WidgetMachine {
                 let request = ReadMessageLikeEventRequest { event_type, limit };
 
                 self.send_matrix_driver_request(request).map(|(request, action)| {
-                    request.then(|result, machine| {
+                    request.add_response_handler(|result, machine| {
                         let response = match &machine.capabilities {
                             CapabilitiesState::Unset => Err(FromWidgetErrorResponse::from_string(
                                 "Received read event request before capabilities negotiation",
@@ -383,7 +384,7 @@ impl WidgetMachine {
                 if allowed {
                     self.send_matrix_driver_request(ReadStateEventRequest { event_type, state_key })
                         .map(|(request, action)| {
-                            request.then(|result, _machine| {
+                            request.add_response_handler(|result, _machine| {
                                 let response = result
                                     .map(|events| ReadEventResponse { events })
                                     .map_err(FromWidgetErrorResponse::from_error);
@@ -427,7 +428,7 @@ impl WidgetMachine {
 
         let (request, action) = self.send_matrix_driver_request(request)?;
 
-        request.then(|mut result, machine| {
+        request.add_response_handler(|mut result, machine| {
             if let Ok(r) = result.as_mut() {
                 r.set_room_id(machine.room_id.clone());
             }
@@ -585,7 +586,7 @@ impl WidgetMachine {
 
         let Some(meta) = self.pending_matrix_driver_requests.insert(request_id, request_meta)
         else {
-            warn!("Reached limits of pending requests for matrix driver requests");
+            warn!("Reached limits of pending requests for Matrix driver requests");
             return None;
         };
 
@@ -609,7 +610,7 @@ impl WidgetMachine {
             return actions;
         };
 
-        request.then(|response, machine| {
+        request.add_response_handler(|response, machine| {
             let requested_capabilities = response.capabilities;
 
             let Some((request, action)) = machine.send_matrix_driver_request(AcquireCapabilities {
@@ -619,7 +620,7 @@ impl WidgetMachine {
                 return Vec::new();
             };
 
-            request.then(|result, machine| {
+            request.add_response_handler(|result, machine| {
                 let approved_capabilities = result.unwrap_or_else(|e| {
                     error!("Acquiring capabilities failed: {e}");
                     Capabilities::default()

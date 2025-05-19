@@ -115,13 +115,12 @@ pub enum RedactError {
 
 #[derive(Error, Debug)]
 pub enum PaginationError {
-    /// The timeline isn't in the event focus mode.
-    #[error("The timeline isn't in the event focus mode")]
-    NotEventFocusMode,
-
     /// An error occurred while paginating.
     #[error("Error when paginating.")]
     Paginator(#[source] PaginatorError),
+
+    #[error("Pagination type not supported in this focus mode")]
+    NotSupported,
 }
 
 #[derive(Debug, Error)]

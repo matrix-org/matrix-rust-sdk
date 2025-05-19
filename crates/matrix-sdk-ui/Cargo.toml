@@ -7,6 +7,9 @@ repository = "https://github.com/matrix-org/matrix-rust-sdk"
 license = "Apache-2.0"
 rust-version = { workspace = true }
 
+[package.metadata.docs.rs]
+rustdoc-args = ["--generate-link-to-definition"]
+
 [features]
 default = ["native-tls"]
 
@@ -25,6 +28,7 @@ async_cell = "0.2.2"
 async-once-cell = "0.5.4"
 async-rx = { workspace = true }
 async-stream = { workspace = true }
+bitflags = { workspace = true }
 chrono = { workspace = true }
 eyeball = { workspace = true }
 eyeball-im = { workspace = true }

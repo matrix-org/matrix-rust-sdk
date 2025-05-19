@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! A high-level API for requests that we send to the matrix driver.
+//! A high-level API for requests that we send to the Matrix driver.
 
 use std::marker::PhantomData;
 
@@ -49,7 +49,7 @@ pub(crate) enum MatrixDriverRequestData {
     /// Read state event(s).
     ReadStateEvent(ReadStateEventRequest),
 
-    /// Send matrix event that corresponds to the given description.
+    /// Send Matrix event that corresponds to the given description.
     SendMatrixEvent(SendEventRequest),
 
     /// Data for sending a UpdateDelayedEvent client server api request.
@@ -70,9 +70,9 @@ where
         Self { request_meta, _phantom: PhantomData }
     }
 
-    /// Setup a callback function that will be called once the matrix driver has
+    /// Setup a callback function that will be called once the Matrix driver has
     /// processed the request.
-    pub(crate) fn then(
+    pub(crate) fn add_response_handler(
         self,
         response_handler: impl FnOnce(Result<T, crate::Error>, &mut WidgetMachine) -> Vec<Action>
             + Send
@@ -152,7 +152,7 @@ impl FromMatrixDriverResponse for request_openid_token::v3::Response {
     }
 }
 
-/// Ask the client to read matrix event(s) that corresponds to the given
+/// Ask the client to read Matrix event(s) that corresponds to the given
 /// description and return a list of events as a response.
 #[derive(Clone, Debug)]
 pub(crate) struct ReadMessageLikeEventRequest {
@@ -187,7 +187,7 @@ impl FromMatrixDriverResponse for Vec<Raw<AnyTimelineEvent>> {
     }
 }
 
-/// Ask the client to read matrix event(s) that corresponds to the given
+/// Ask the client to read Matrix event(s) that corresponds to the given
 /// description and return a list of events as a response.
 #[derive(Clone, Debug)]
 pub(crate) struct ReadStateEventRequest {
@@ -211,7 +211,7 @@ impl MatrixDriverRequest for ReadStateEventRequest {
     type Response = Vec<Raw<AnyTimelineEvent>>;
 }
 
-/// Ask the client to send matrix event that corresponds to the given
+/// Ask the client to send Matrix event that corresponds to the given
 /// description and returns an event ID (or a delay ID,
 /// see [MSC4140](https://github.com/matrix-org/matrix-spec-proposals/pull/4140)) as a response.
 #[derive(Clone, Debug, Deserialize)]

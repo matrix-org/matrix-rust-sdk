@@ -27,7 +27,7 @@ use super::{
 };
 use crate::widget::Capabilities;
 
-/// Incoming event that the client API must process.
+/// Incoming message for the widget client side module that it must process.
 pub(crate) enum IncomingMessage {
     /// An incoming raw message from the widget.
     WidgetMessage(String),
@@ -37,14 +37,14 @@ pub(crate) enum IncomingMessage {
         /// The ID of the request that this response corresponds to.
         request_id: Uuid,
 
-        /// Result of the request: the response data, or a matrix sdk error.
+        /// Result of the request: the response data, or a Matrix sdk error.
         ///
         /// Http errors will be forwarded to the widget in a specified format so
         /// the widget can parse the error.
         response: Result<MatrixDriverResponse, crate::Error>,
     },
 
-    /// The `MatrixDriver` notified the `WidgetMachine` of a new matrix event.
+    /// The `MatrixDriver` notified the `WidgetMachine` of a new Matrix event.
     ///
     /// This means that the machine previously subscribed to some events
     /// ([`crate::widget::Action::Subscribe`] request).
@@ -59,10 +59,10 @@ pub(crate) enum MatrixDriverResponse {
     /// Client got OpenId token for a given request ID.
     /// A response to an `Action::GetOpenId` command.
     OpenIdReceived(request_openid_token::v3::Response),
-    /// Client read some matrix event(s).
+    /// Client read some Matrix event(s).
     /// A response to an `Action::ReadMatrixEvent` commands.
     MatrixEventRead(Vec<Raw<AnyTimelineEvent>>),
-    /// Client sent some matrix event. The response contains the event ID.
+    /// Client sent some Matrix event. The response contains the event ID.
     /// A response to an `Action::SendMatrixEvent` command.
     MatrixEventSent(SendEventResponse),
     MatrixDelayedEventUpdate(delayed_events::update_delayed_event::unstable::Response),

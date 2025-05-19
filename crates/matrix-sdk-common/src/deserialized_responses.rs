@@ -357,7 +357,7 @@ impl<'de> Deserialize<'de> for EncryptionInfo {
     }
 }
 
-/// Represents a matrix room event that has been returned from `/sync`,
+/// Represents a Matrix room event that has been returned from `/sync`,
 /// after initial processing.
 ///
 /// Previously, this differed from [`TimelineEvent`] by wrapping an

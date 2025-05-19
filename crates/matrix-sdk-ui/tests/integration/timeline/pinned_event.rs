@@ -242,7 +242,6 @@ async fn test_cached_events_are_kept_for_different_room_instances() {
     // Subscribe to the event cache.
     let event_cache = client.event_cache();
     event_cache.subscribe().unwrap();
-    event_cache.enable_storage().unwrap();
 
     let f = EventFactory::new().room(room_id).sender(*BOB);
     let pinned_event = f
