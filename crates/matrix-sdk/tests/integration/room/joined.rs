@@ -32,7 +32,7 @@ use ruma::{
             member::MembershipState,
             message::{RoomMessageEventContent, RoomMessageEventContentWithoutRelation},
         },
-        TimelineEventType,
+        RoomAccountDataEventType, TimelineEventType,
     },
     int, mxc_uri, owned_event_id, room_id, thirdparty, user_id, OwnedUserId, TransactionId,
 };
@@ -174,22 +174,18 @@ async fn test_unban_user() {
 
 #[async_test]
 async fn test_mark_as_unread() {
-    let (client, server) = logged_in_client_with_server().await;
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
 
-    Mock::given(method("PUT"))
-        .and(path_regex(r"^/_matrix/client/r0/user/.*/rooms/.*/account_data/m.marked_unread"))
-        .and(header("authorization", "Bearer 1234"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(&*test_json::EMPTY))
-        .mount(&server)
+    server
+        .mock_set_room_account_data(RoomAccountDataEventType::MarkedUnread)
+        .ok()
+        .expect(2)
+        .mount()
         .await;
 
-    mock_sync(&server, &*test_json::SYNC, None).await;
-
-    let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
-
-    let _response = client.sync_once(sync_settings).await.unwrap();
-
-    let room = client.get_room(&DEFAULT_TEST_ROOM_ID).unwrap();
+    // Initial sync with our test room.
+    let room = server.sync_joined_room(&client, room_id!("!test:example.org")).await;
 
     room.set_unread_flag(true).await.unwrap();
 
@@ -221,48 +217,34 @@ async fn test_kick_user() {
 
 #[async_test]
 async fn test_send_single_receipt() {
-    let (client, server) = logged_in_client_with_server().await;
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
 
-    Mock::given(method("POST"))
-        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/receipt"))
-        .and(header("authorization", "Bearer 1234"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(&*test_json::EMPTY))
-        .mount(&server)
-        .await;
+    server.mock_send_receipt(ReceiptType::Read).ok().mock_once().mount().await;
 
-    mock_sync(&server, &*test_json::SYNC, None).await;
+    // Initial sync with our test room.
+    let room = server.sync_joined_room(&client, room_id!("!test:example.org")).await;
 
-    let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
-
-    let _response = client.sync_once(sync_settings).await.unwrap();
-
-    let event_id = event_id!("$xxxxxx:example.org").to_owned();
-    let room = client.get_room(&DEFAULT_TEST_ROOM_ID).unwrap();
-
-    room.send_single_receipt(ReceiptType::Read, ReceiptThread::Unthreaded, event_id).await.unwrap();
+    room.send_single_receipt(
+        ReceiptType::Read,
+        ReceiptThread::Unthreaded,
+        owned_event_id!("$xxxxxx:example.org"),
+    )
+    .await
+    .unwrap();
 }
 
 #[async_test]
 async fn test_send_multiple_receipts() {
-    let (client, server) = logged_in_client_with_server().await;
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
 
-    Mock::given(method("POST"))
-        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/read_markers$"))
-        .and(header("authorization", "Bearer 1234"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(&*test_json::EMPTY))
-        .mount(&server)
-        .await;
+    server.mock_send_read_markers().ok().mock_once().mount().await;
 
-    mock_sync(&server, &*test_json::SYNC, None).await;
+    // Initial sync with our test room.
+    let room = server.sync_joined_room(&client, room_id!("!test:example.org")).await;
 
-    let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
-
-    let _response = client.sync_once(sync_settings).await.unwrap();
-
-    let event_id = event_id!("$xxxxxx:example.org").to_owned();
-    let room = client.get_room(&DEFAULT_TEST_ROOM_ID).unwrap();
-
-    let receipts = Receipts::new().fully_read_marker(event_id);
+    let receipts = Receipts::new().fully_read_marker(owned_event_id!("$xxxxxx:example.org"));
     room.send_multiple_receipts(receipts).await.unwrap();
 }
 
