@@ -90,6 +90,8 @@ const DEFAULT_REQUIRED_STATE: &[(StateEventType, &str)] = &[
     (StateEventType::RoomJoinRules, ""),
     (StateEventType::RoomTombstone, ""),
     // Those two events are required to properly compute room previews.
+    // `StateEventType::RoomCreate` is also necessary to compute the room
+    // version, and thus handling the tombstoned room correctly.
     (StateEventType::RoomCreate, ""),
     (StateEventType::RoomHistoryVisibility, ""),
     // Required to correctly calculate the room display name.
