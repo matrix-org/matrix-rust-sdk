@@ -140,6 +140,7 @@ async fn test_encrypt_and_send_to_device() {
         .await;
 
     alice
+        .encryption()
         .encrypt_and_send_raw_to_device(vec![&alice_bob_device], "call.keys", content_raw)
         .await
         .unwrap();
@@ -189,6 +190,7 @@ async fn test_encrypt_and_send_to_device_report_failures_server() {
         .expect("alice sees bob's device");
 
     let result = alice
+        .encryption()
         .encrypt_and_send_raw_to_device(vec![&alice_bob_device], "call.keys", content_raw)
         .await
         .unwrap();
@@ -254,6 +256,7 @@ async fn test_encrypt_and_send_to_device_report_failures_encryption_error() {
         .await;
 
     let result = alice
+        .encryption()
         .encrypt_and_send_raw_to_device(vec![&alice_bob_device], "call.keys", content_raw)
         .await
         .unwrap();
