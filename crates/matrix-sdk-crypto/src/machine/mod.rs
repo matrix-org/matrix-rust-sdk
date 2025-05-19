@@ -1153,7 +1153,7 @@ impl OlmMachine {
 
             trace!(
                 session_count = session_count,
-                "Stored the changed sessions after encrypting a custom to device event"
+                "Stored the changed sessions after encrypting a custom to-device event"
             );
         }
 

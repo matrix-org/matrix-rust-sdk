@@ -2522,22 +2522,22 @@ impl Client {
         Ok(Room::new(self.clone(), base_room))
     }
 
-    /// Encrypts then send the given content via the `sendToDevice` end-point
-    /// using olm encryption.
+    /// Encrypts then send the given content via the `/sendToDevice` end-point
+    /// using Olm encryption.
     ///
-    /// If there are a lot of targets this will be break down by chunks.
+    /// If there are a lot of recipient devices multiple `/sendToDevice`
+    /// requests might be sent out.
     ///
     /// # Returns
-    /// A list of `ToDeviceRequest` to send out the event, and the list of
-    /// devices where encryption did not succeed (device excluded or no olm)
+    /// A list of failures. The list of devices that couldn't get the messages.
     #[cfg(feature = "experimental-send-custom-to-device")]
-    pub async fn encrypt_and_send_custom_to_device(
+    pub async fn encrypt_and_send_raw_to_device(
         &self,
-        targets: Vec<&Device>,
+        recipient_devices: Vec<&Device>,
         event_type: &str,
         content: Raw<AnyToDeviceEventContent>,
     ) -> Result<Vec<(OwnedUserId, OwnedDeviceId)>> {
-        let users = targets.iter().map(|device| device.user_id());
+        let users = recipient_devices.iter().map(|device| device.user_id());
 
         // Will claim one-time-key for users that needs it
         // TODO: For later optimisation: This will establish missing olm sessions with
@@ -2549,7 +2549,7 @@ impl Client {
 
         let (requests, withhelds) = olm
             .encrypt_content_for_devices(
-                targets.into_iter().map(|d| d.deref().clone()).collect(),
+                recipient_devices.into_iter().map(|d| d.deref().clone()).collect(),
                 event_type,
                 &content
                     .deserialize_as::<serde_json::Value>()
