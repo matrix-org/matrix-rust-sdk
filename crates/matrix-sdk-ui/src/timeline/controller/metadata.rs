@@ -75,6 +75,8 @@ pub(in crate::timeline) struct TimelineMetadata {
     pub aggregations: Aggregations,
 
     /// Given an event, what are all the events that are replies to it?
+    ///
+    /// Only works for remote events *and* replies which are remote-echoed.
     pub replies: HashMap<OwnedEventId, BTreeSet<OwnedEventId>>,
 
     /// Identifier of the fully-read event, helping knowing where to introduce
