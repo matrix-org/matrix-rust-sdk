@@ -17,12 +17,9 @@ use std::{fmt::Debug, sync::Arc};
 use async_compat::get_runtime_handle;
 use futures_util::pin_mut;
 use matrix_sdk::Client;
-use matrix_sdk_ui::{
-    sync_service::{
-        State as MatrixSyncServiceState, SyncService as MatrixSyncService,
-        SyncServiceBuilder as MatrixSyncServiceBuilder,
-    },
-    unable_to_decrypt_hook::UtdHookManager,
+use matrix_sdk_ui::sync_service::{
+    State as MatrixSyncServiceState, SyncService as MatrixSyncService,
+    SyncServiceBuilder as MatrixSyncServiceBuilder,
 };
 
 use crate::{
@@ -58,16 +55,12 @@ pub trait SyncServiceStateObserver: Send + Sync + Debug {
 #[derive(uniffi::Object)]
 pub struct SyncService {
     pub(crate) inner: Arc<MatrixSyncService>,
-    utd_hook: Option<Arc<UtdHookManager>>,
 }
 
 #[matrix_sdk_ffi_macros::export]
 impl SyncService {
     pub fn room_list_service(&self) -> Arc<RoomListService> {
-        Arc::new(RoomListService {
-            inner: self.inner.room_list_service(),
-            utd_hook: self.utd_hook.clone(),
-        })
+        Arc::new(RoomListService { inner: self.inner.room_list_service() })
     }
 
     pub async fn start(&self) {
@@ -95,17 +88,11 @@ impl SyncService {
 pub struct SyncServiceBuilder {
     client: Client,
     builder: MatrixSyncServiceBuilder,
-
-    utd_hook: Option<Arc<UtdHookManager>>,
 }
 
 impl SyncServiceBuilder {
     pub(crate) fn new(client: Client) -> Arc<Self> {
-        Arc::new(Self {
-            client: client.clone(),
-            builder: MatrixSyncService::builder(client),
-            utd_hook: None,
-        })
+        Arc::new(Self { client: client.clone(), builder: MatrixSyncService::builder(client) })
     }
 }
 
@@ -114,21 +101,18 @@ impl SyncServiceBuilder {
     pub fn with_cross_process_lock(self: Arc<Self>) -> Arc<Self> {
         let this = unwrap_or_clone_arc(self);
         let builder = this.builder.with_cross_process_lock();
-        Arc::new(Self { client: this.client, builder, utd_hook: this.utd_hook })
+        Arc::new(Self { client: this.client, builder })
     }
 
     /// Enable the "offline" mode for the [`SyncService`].
     pub fn with_offline_mode(self: Arc<Self>) -> Arc<Self> {
         let this = unwrap_or_clone_arc(self);
         let builder = this.builder.with_offline_mode();
-        Arc::new(Self { client: this.client, builder, utd_hook: this.utd_hook })
+        Arc::new(Self { client: this.client, builder })
     }
 
     pub async fn finish(self: Arc<Self>) -> Result<Arc<SyncService>, ClientError> {
         let this = unwrap_or_clone_arc(self);
-        Ok(Arc::new(SyncService {
-            inner: Arc::new(this.builder.build().await?),
-            utd_hook: this.utd_hook,
-        }))
+        Ok(Arc::new(SyncService { inner: Arc::new(this.builder.build().await?) }))
     }
 }
