@@ -13,6 +13,14 @@ All notable changes to this project will be documented in this file.
   a remote timeline item before the `TimelineStart` virtual timeline item.
   ([#5000](https://github.com/matrix-org/matrix-rust-sdk/pull/5000))
 
+### Features
+
+- `Timeline::send_single_receipt()` and `Timeline::send_multiple_receipts()` now also unset the
+  unread flag of the room if an unthreaded read receipt is sent.
+  ([#5055](https://github.com/matrix-org/matrix-rust-sdk/pull/5055))
+- `Timeline::mark_as_read()` unsets the unread flag of the room if it was set.
+  ([#5055](https://github.com/matrix-org/matrix-rust-sdk/pull/5055))
+
 ## [0.11.0] - 2025-04-11
 
 ### Bug Fixes
