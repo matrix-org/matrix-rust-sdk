@@ -1087,6 +1087,30 @@ impl Account {
         Ok(media_preview_config)
     }
 
+    /// Get the media preview configuration event content stored in the cache.
+    ///
+    /// This will return the default configuration if no value was found.
+    /// Will check first for the stable event and then for the unstable one.
+    pub async fn get_stored_media_preview_config_event_content(
+        &self,
+    ) -> Result<MediaPreviewConfigEventContent> {
+        let media_preview_config = self
+            .account_data::<MediaPreviewConfigEventContent>()
+            .await?
+            .and_then(|r| r.deserialize().ok());
+
+        let media_preview_config = if let Some(media_preview_config) = media_preview_config {
+            media_preview_config
+        } else {
+            self.account_data::<UnstableMediaPreviewConfigEventContent>()
+                .await?
+                .and_then(|r| r.deserialize().ok())
+                .unwrap_or_default()
+                .into()
+        };
+        Ok(media_preview_config)
+    }
+
     /// Set the media previews display policy in the timeline.
     ///
     /// This will always use the unstable event until we know which Matrix
