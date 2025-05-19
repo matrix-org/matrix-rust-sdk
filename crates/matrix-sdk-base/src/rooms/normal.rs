@@ -26,6 +26,8 @@ use eyeball::{AsyncLock, ObservableWriteGuard, SharedObservable, Subscriber};
 use futures_util::{Stream, StreamExt};
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk_common::ring_buffer::RingBuffer;
+#[cfg(feature = "e2e-encryption")]
+use ruma::{events::AnySyncTimelineEvent, serde::Raw};
 use ruma::{
     events::{
         direct::OwnedDirectUserIdentifier,
@@ -43,11 +45,9 @@ use ruma::{
             tombstone::RoomTombstoneEventContent,
         },
         tag::Tags,
-        AnyRoomAccountDataEvent, AnySyncTimelineEvent, RoomAccountDataEventType, StateEventType,
-        SyncStateEvent,
+        AnyRoomAccountDataEvent, RoomAccountDataEventType, StateEventType, SyncStateEvent,
     },
     room::RoomType,
-    serde::Raw,
     EventId, OwnedEventId, OwnedMxcUri, OwnedRoomAliasId, OwnedRoomId, OwnedUserId, RoomId, UserId,
 };
 use serde::{Deserialize, Serialize};

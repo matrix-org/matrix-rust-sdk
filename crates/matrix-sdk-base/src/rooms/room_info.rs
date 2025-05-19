@@ -12,6 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::{
+    collections::{BTreeMap, HashSet},
+    sync::{atomic::AtomicBool, Arc},
+};
+
 use matrix_sdk_common::deserialized_responses::TimelineEventKind;
 use ruma::{
     api::client::sync::sync_events::v3::RoomSummary as RumaSummary,
@@ -43,12 +48,12 @@ use ruma::{
     RoomAliasId, RoomId, RoomVersionId, UserId,
 };
 use serde::{Deserialize, Serialize};
-use std::{
-    collections::{BTreeMap, HashSet},
-    sync::{atomic::AtomicBool, Arc},
-};
 use tracing::{debug, field::debug, info, instrument, warn};
 
+use super::{
+    normal::RoomSummary, AccountDataSource, EncryptionState, RoomCreateWithCreatorEventContent,
+    RoomDisplayName, RoomHero, RoomNotableTags, RoomState,
+};
 use crate::{
     deserialized_responses::RawSyncOrStrippedState,
     latest_event::LatestEvent,
@@ -57,11 +62,6 @@ use crate::{
     store::{DynStateStore, StateStoreExt},
     sync::UnreadNotificationsCount,
     MinimalStateEvent, OriginalMinimalStateEvent,
-};
-
-use super::{
-    normal::RoomSummary, AccountDataSource, EncryptionState, RoomCreateWithCreatorEventContent,
-    RoomDisplayName, RoomHero, RoomNotableTags, RoomState,
 };
 
 /// A base room info struct that is the backbone of normal as well as stripped
