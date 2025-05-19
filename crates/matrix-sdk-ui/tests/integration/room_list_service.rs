@@ -2464,7 +2464,7 @@ async fn test_room_timeline() -> Result<(), Error> {
     mock_encryption_state(&server, false).await;
 
     let room = room_list.room(room_id)?;
-    let timeline = room.default_room_timeline_builder().unwrap().build().await?;
+    let timeline = room.default_room_timeline_builder().unwrap().build().await.unwrap();
 
     let (previous_timeline_items, mut timeline_items_stream) = timeline.subscribe().await;
 
@@ -2565,7 +2565,7 @@ async fn test_room_latest_event() -> Result<(), Error> {
     };
 
     let room = room_list.room(room_id)?;
-    let timeline = room.default_room_timeline_builder().unwrap().build().await?;
+    let timeline = room.default_room_timeline_builder().unwrap().build().await.unwrap();
 
     // The latest event does not exist.
     assert!(room.latest_event().await.is_none());

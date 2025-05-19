@@ -34,12 +34,6 @@ pub enum RoomListError {
     RoomNotFound { room_name: String },
     #[error("invalid room ID: {error}")]
     InvalidRoomId { error: String },
-    #[error("A timeline instance already exists for room {room_name}")]
-    TimelineAlreadyExists { room_name: String },
-    #[error("A timeline instance hasn't been initialized for room {room_name}")]
-    TimelineNotInitialized { room_name: String },
-    #[error("Timeline couldn't be initialized: {error}")]
-    InitializingTimeline { error: String },
     #[error("Event cache ran into an error: {error}")]
     EventCache { error: String },
     #[error("The requested room doesn't match the membership requirements {expected:?}, observed {actual:?}")]
@@ -54,12 +48,6 @@ impl From<matrix_sdk_ui::room_list_service::Error> for RoomListError {
             SlidingSync(error) => Self::SlidingSync { error: error.to_string() },
             UnknownList(list_name) => Self::UnknownList { list_name },
             RoomNotFound(room_id) => Self::RoomNotFound { room_name: room_id.to_string() },
-            TimelineAlreadyExists(room_id) => {
-                Self::TimelineAlreadyExists { room_name: room_id.to_string() }
-            }
-            InitializingTimeline(source) => {
-                Self::InitializingTimeline { error: source.to_string() }
-            }
             EventCache(error) => Self::EventCache { error: error.to_string() },
         }
     }
@@ -168,7 +156,7 @@ impl RoomList {
         page_size: u32,
         listener: Box<dyn RoomListEntriesListener>,
     ) -> Arc<RoomListEntriesWithDynamicAdaptersResult> {
-        let this = self.clone();
+        let this = self;
 
         // The following code deserves a bit of explanation.
         // `matrix_sdk_ui::room_list_service::RoomList::entries_with_dynamic_adapters`
@@ -226,9 +214,7 @@ impl RoomList {
             pin_mut!(entries_stream);
 
             while let Some(diffs) = entries_stream.next().await {
-                listener.on_update(
-                    diffs.into_iter().map(|diff| RoomListEntriesUpdate::from(diff)).collect(),
-                );
+                listener.on_update(diffs.into_iter().map(RoomListEntriesUpdate::from).collect());
             }
         })));
 

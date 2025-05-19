@@ -76,8 +76,6 @@ pub use state::*;
 use thiserror::Error;
 use tracing::debug;
 
-use crate::timeline;
-
 /// The default `required_state` constant value for sliding sync lists and
 /// sliding sync room subscriptions.
 const DEFAULT_REQUIRED_STATE: &[(StateEventType, &str)] = &[
@@ -430,12 +428,6 @@ pub enum Error {
     /// The requested room doesn't exist.
     #[error("Room `{0}` not found")]
     RoomNotFound(OwnedRoomId),
-
-    #[error("A timeline instance already exists for room {0}")]
-    TimelineAlreadyExists(OwnedRoomId),
-
-    #[error(transparent)]
-    InitializingTimeline(#[from] timeline::Error),
 
     #[error(transparent)]
     EventCache(#[from] EventCacheError),
