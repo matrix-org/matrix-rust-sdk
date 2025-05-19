@@ -299,7 +299,7 @@ impl SlidingSync {
                 // extensions part of the response, and thus would result in rooms present in
                 // the `sync_response.joined`. Mark them as updated too.
                 //
-                // Since we've removed rooms that we're in the room subsection from
+                // Since we've removed rooms that were in the room subsection from
                 // `sync_response.rooms.joined`, the remaining ones aren't already present in
                 // `updated_rooms` and wouldn't cause any duplicates.
                 updated_rooms.extend(sync_response.rooms.joined.keys().cloned());
