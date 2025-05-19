@@ -13,6 +13,10 @@ All notable changes to this project will be documented in this file.
 - `Room::relations()` is a new method to list all the events related to another event
   ("relations"), with additional filters for relation type or relation type + event type.
   ([#4972](https://github.com/matrix-org/matrix-rust-sdk/pull/4972))
+- `Encryption::encrypt_and_send_raw_to_device`: Introduced as an experimental method for
+  sending custom encrypted to-device events. This feature is gated behind the
+  `experimental-send-custom-to-device` flag, as it remains under active development and may undergo changes.
+
 
 ### Bug fixes
 
