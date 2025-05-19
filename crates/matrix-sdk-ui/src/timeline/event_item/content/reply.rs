@@ -145,7 +145,8 @@ impl RepliedToEvent {
 
                     TimelineItemContent::MsgLike(MsgLikeContent {
                         kind: MsgLikeKind::Message(Message::from_event(
-                            c,
+                            c.msgtype,
+                            c.mentions,
                             extract_room_msg_edit_content(event.relations()),
                             RemoveReplyFallback::Yes,
                         )),
