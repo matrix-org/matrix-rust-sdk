@@ -656,11 +656,11 @@ impl Room {
     /// Mark a room as read, by attaching a read receipt on the latest event.
     ///
     /// Note: this does NOT unset the unread flag; it's the caller's
-    /// responsibility to do so, if needs be.
+    /// responsibility to do so, if need be.
     pub async fn mark_as_read(&self, receipt_type: ReceiptType) -> Result<(), ClientError> {
-        let timeline = self.timeline().await?;
+        let timeline = TimelineBuilder::new(&self.inner).build().await?;
 
-        timeline.mark_as_read(receipt_type).await?;
+        timeline.mark_as_read(receipt_type.into()).await?;
         Ok(())
     }
 
