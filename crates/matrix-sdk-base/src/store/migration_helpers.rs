@@ -44,10 +44,7 @@ use serde::{Deserialize, Serialize};
 use crate::{
     deserialized_responses::SyncOrStrippedState,
     latest_event::LatestEvent,
-    rooms::{
-        normal::{RoomSummary, SyncInfo},
-        BaseRoomInfo,
-    },
+    rooms::{normal::RoomSummary, BaseRoomInfo, SyncInfo},
     sync::UnreadNotificationsCount,
     MinimalStateEvent, OriginalMinimalStateEvent, RoomInfo, RoomState,
 };
