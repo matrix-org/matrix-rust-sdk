@@ -33,9 +33,9 @@ use ruma::{
     events::{
         receipt::{ReceiptThread, ReceiptType as EventReceiptType},
         room::message::{MessageType, RoomMessageEventContent, SyncRoomMessageEvent},
-        AnySyncMessageLikeEvent, AnySyncTimelineEvent,
+        AnySyncMessageLikeEvent, AnySyncTimelineEvent, RoomAccountDataEventType,
     },
-    room_id, uint, user_id, MilliSecondsSinceUnixEpoch, RoomVersionId,
+    owned_event_id, room_id, uint, user_id, MilliSecondsSinceUnixEpoch, RoomVersionId,
 };
 use serde_json::json;
 use stream_assert::{assert_pending, assert_ready};
@@ -731,6 +731,172 @@ async fn test_send_single_receipt() {
 }
 
 #[async_test]
+async fn test_send_single_receipt_with_unread_flag() {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+    let own_user_id = client.user_id().unwrap();
+
+    let first_receipts_event_id = owned_event_id!("$first_receipts_event_id");
+    let second_receipts_event_id = owned_event_id!("$second_receipts_event_id");
+
+    // Initial sync with our test room, with read receipts and marked unread.
+    let f = EventFactory::new();
+    let room = server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::default()
+                .add_receipt(
+                    f.read_receipts()
+                        .add(
+                            &first_receipts_event_id,
+                            own_user_id,
+                            EventReceiptType::ReadPrivate,
+                            ReceiptThread::Unthreaded,
+                        )
+                        .add(
+                            &first_receipts_event_id,
+                            own_user_id,
+                            EventReceiptType::Read,
+                            ReceiptThread::Unthreaded,
+                        )
+                        .add(
+                            &first_receipts_event_id,
+                            own_user_id,
+                            EventReceiptType::Read,
+                            ReceiptThread::Main,
+                        )
+                        .into_event(),
+                )
+                .add_account_data(RoomAccountDataTestEvent::Custom(json!({
+                    "content": {
+                        "event_id": first_receipts_event_id,
+                    },
+                    "type": "m.fully_read",
+                })))
+                .add_account_data(RoomAccountDataTestEvent::MarkedUnread),
+        )
+        .await;
+    assert!(room.is_marked_unread());
+
+    server.mock_room_state_encryption().plain().mount().await;
+
+    let timeline = room.timeline().await.unwrap();
+
+    // Unchanged unthreaded receipts are not sent, but the unread flag is unset.
+    {
+        let _guard = server
+            .mock_set_room_account_data(RoomAccountDataEventType::MarkedUnread)
+            .ok()
+            .expect(3)
+            .mount_as_scoped()
+            .await;
+
+        timeline
+            .send_single_receipt(
+                CreateReceiptType::Read,
+                ReceiptThread::Unthreaded,
+                first_receipts_event_id.clone(),
+            )
+            .await
+            .unwrap();
+        timeline
+            .send_single_receipt(
+                CreateReceiptType::ReadPrivate,
+                ReceiptThread::Unthreaded,
+                first_receipts_event_id.clone(),
+            )
+            .await
+            .unwrap();
+        timeline
+            .send_single_receipt(
+                CreateReceiptType::FullyRead,
+                ReceiptThread::Unthreaded,
+                first_receipts_event_id,
+            )
+            .await
+            .unwrap();
+    }
+
+    // Unthreaded receipts on unknown events are set and the unread flag is unset.
+    {
+        let _guards = (
+            server
+                .mock_send_receipt(CreateReceiptType::Read)
+                .ok()
+                .expect(1)
+                .named("Public read receipt")
+                .mount_as_scoped()
+                .await,
+            server
+                .mock_send_receipt(CreateReceiptType::ReadPrivate)
+                .ok()
+                .expect(1)
+                .named("Private read receipt")
+                .mount_as_scoped()
+                .await,
+            server
+                .mock_send_receipt(CreateReceiptType::FullyRead)
+                .ok()
+                .expect(1)
+                .named("Fully-read marker")
+                .mount_as_scoped()
+                .await,
+            server
+                .mock_set_room_account_data(RoomAccountDataEventType::MarkedUnread)
+                .ok()
+                .expect(3)
+                .mount_as_scoped()
+                .await,
+        );
+
+        timeline
+            .send_single_receipt(
+                CreateReceiptType::Read,
+                ReceiptThread::Unthreaded,
+                second_receipts_event_id.clone(),
+            )
+            .await
+            .unwrap();
+        timeline
+            .send_single_receipt(
+                CreateReceiptType::ReadPrivate,
+                ReceiptThread::Unthreaded,
+                second_receipts_event_id.clone(),
+            )
+            .await
+            .unwrap();
+        timeline
+            .send_single_receipt(
+                CreateReceiptType::FullyRead,
+                ReceiptThread::Unthreaded,
+                second_receipts_event_id.clone(),
+            )
+            .await
+            .unwrap();
+    }
+
+    // Threaded receipt with unknown previous receipt is sent, but the unread flag
+    // is not unset.
+    {
+        let _guard = server
+            .mock_send_receipt(CreateReceiptType::Read)
+            .ok()
+            .expect(1)
+            .mount_as_scoped()
+            .await;
+
+        timeline
+            .send_single_receipt(
+                CreateReceiptType::Read,
+                ReceiptThread::Main,
+                second_receipts_event_id,
+            )
+            .await
+            .unwrap();
+    }
+}
+
+#[async_test]
 async fn test_mark_as_read() {
     let server = MatrixMockServer::new().await;
     let client = server.client_builder().build().await;
@@ -801,6 +967,111 @@ async fn test_mark_as_read() {
 
     // It works.
     assert!(has_sent);
+}
+
+#[async_test]
+async fn test_mark_as_read_with_unread_flag() {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+
+    // Initial sync with our test room, marked unread.
+    let room = server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::default().add_account_data(RoomAccountDataTestEvent::MarkedUnread),
+        )
+        .await;
+    assert!(room.is_marked_unread());
+
+    server.mock_room_state_encryption().plain().mount().await;
+
+    let timeline = room.timeline().await.unwrap();
+
+    let original_event_id = event_id!("$original_event_id");
+    let reaction_event_id = event_id!("$reaction_event_id");
+
+    // When I receive an event with a reaction on it,
+    let f = EventFactory::new();
+    let own_user_id = client.user_id().unwrap();
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::default()
+                .add_timeline_event(
+                    f.text_msg("I like big Rust and I cannot lie")
+                        .sender(user_id!("@sir-axalot:example.org"))
+                        .event_id(original_event_id),
+                )
+                .add_receipt(
+                    f.read_receipts()
+                        .add(
+                            original_event_id,
+                            own_user_id,
+                            EventReceiptType::Read,
+                            ReceiptThread::Unthreaded,
+                        )
+                        .into_event(),
+                )
+                .add_timeline_event(
+                    f.reaction(original_event_id, "🔥🔥🔥")
+                        .sender(user_id!("@prime-minirusta:example.org"))
+                        .event_id(reaction_event_id),
+                ),
+        )
+        .await;
+
+    {
+        let _send_receipt_guard = server
+            .mock_send_receipt(CreateReceiptType::Read)
+            .ok()
+            .expect(1)
+            .mount_as_scoped()
+            .await;
+        let _set_room_account_data_guard = server
+            .mock_set_room_account_data(RoomAccountDataEventType::MarkedUnread)
+            .ok()
+            .expect(1)
+            .mount_as_scoped()
+            .await;
+
+        // When I mark the room as read by sending a read receipt to the latest event,
+        let has_sent = timeline.mark_as_read(CreateReceiptType::Read).await.unwrap();
+
+        // The receipt is sent and the unread flag was unset.
+        assert!(has_sent);
+    }
+
+    // Mock receiving the read receipt only.
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::default().add_receipt(
+                f.read_receipts()
+                    .add(
+                        reaction_event_id,
+                        own_user_id,
+                        EventReceiptType::Read,
+                        ReceiptThread::Unthreaded,
+                    )
+                    .into_event(),
+            ),
+        )
+        .await;
+
+    {
+        let _set_room_account_data_guard = server
+            .mock_set_room_account_data(RoomAccountDataEventType::MarkedUnread)
+            .ok()
+            .expect(1)
+            .mount_as_scoped()
+            .await;
+
+        // When I mark the room as read by sending a read receipt to the latest event,
+        let has_sent = timeline.mark_as_read(CreateReceiptType::Read).await.unwrap();
+
+        // The receipt is not sent but the unread flag was unset.
+        assert!(!has_sent);
+    }
 }
 
 #[async_test]
@@ -956,6 +1227,94 @@ async fn test_send_multiple_receipts() {
         .await;
 
     timeline.send_multiple_receipts(second_receipts.clone()).await.unwrap();
+}
+
+#[async_test]
+async fn test_send_multiple_receipts_with_unread_flag() {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+    let own_user_id = client.user_id().unwrap();
+
+    let first_receipts_event_id = owned_event_id!("$first_receipts_event_id");
+    let second_receipts_event_id = owned_event_id!("$second_receipts_event_id");
+
+    // Initial sync with our test room, with read receipts and marked unread.
+    let f = EventFactory::new();
+    let room = server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::default()
+                .add_receipt(
+                    f.read_receipts()
+                        .add(
+                            &first_receipts_event_id,
+                            own_user_id,
+                            EventReceiptType::ReadPrivate,
+                            ReceiptThread::Unthreaded,
+                        )
+                        .add(
+                            &first_receipts_event_id,
+                            own_user_id,
+                            EventReceiptType::Read,
+                            ReceiptThread::Unthreaded,
+                        )
+                        .add(
+                            &first_receipts_event_id,
+                            own_user_id,
+                            EventReceiptType::Read,
+                            ReceiptThread::Main,
+                        )
+                        .into_event(),
+                )
+                .add_account_data(RoomAccountDataTestEvent::Custom(json!({
+                    "content": {
+                        "event_id": first_receipts_event_id,
+                    },
+                    "type": "m.fully_read",
+                })))
+                .add_account_data(RoomAccountDataTestEvent::MarkedUnread),
+        )
+        .await;
+    assert!(room.is_marked_unread());
+
+    server.mock_room_state_encryption().plain().mount().await;
+
+    let timeline = room.timeline().await.unwrap();
+
+    // Unchanged receipts are not sent, but the unread flag is unset.
+    {
+        let _guard = server
+            .mock_set_room_account_data(RoomAccountDataEventType::MarkedUnread)
+            .ok()
+            .expect(1)
+            .mount_as_scoped()
+            .await;
+
+        let first_receipts = Receipts::new()
+            .fully_read_marker(Some(first_receipts_event_id.clone()))
+            .public_read_receipt(Some(first_receipts_event_id.clone()))
+            .private_read_receipt(Some(first_receipts_event_id));
+        timeline.send_multiple_receipts(first_receipts).await.unwrap();
+    }
+
+    // Receipts with unknown previous receipts are always sent, and the unread flag
+    // is unset.
+    {
+        let _read_markers_guard =
+            server.mock_send_read_markers().ok().expect(1).mount_as_scoped().await;
+        let _marked_unread_guard = server
+            .mock_set_room_account_data(RoomAccountDataEventType::MarkedUnread)
+            .ok()
+            .expect(1)
+            .mount_as_scoped()
+            .await;
+
+        let second_receipts = Receipts::new()
+            .fully_read_marker(Some(second_receipts_event_id.clone()))
+            .public_read_receipt(Some(second_receipts_event_id.clone()))
+            .private_read_receipt(Some(second_receipts_event_id));
+        timeline.send_multiple_receipts(second_receipts.clone()).await.unwrap();
+    }
 }
 
 #[async_test]
