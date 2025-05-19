@@ -1025,6 +1025,7 @@ impl MatrixMockServer {
     /// ```
     /// tokio_test::block_on(async {
     /// use matrix_sdk::test_utils::mocks::MatrixMockServer;
+    /// use serde_json::json;
     ///
     /// let mock_server = MatrixMockServer::new().await;
     /// let client = mock_server.client_builder().build().await;

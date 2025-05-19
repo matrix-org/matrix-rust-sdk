@@ -17,7 +17,6 @@
 use futures_core::Stream;
 use futures_util::{stream, StreamExt};
 use matrix_sdk_base::{
-    event_cache::store::media,
     media::{MediaFormat, MediaRequestParameters},
     store::StateStoreExt,
     StateStoreDataKey, StateStoreDataValue,
@@ -40,7 +39,7 @@ use ruma::{
     events::{
         ignored_user_list::{IgnoredUser, IgnoredUserListEventContent},
         media_preview_config::{
-            self, InviteAvatars, MediaPreviewConfigEventContent, MediaPreviews,
+            InviteAvatars, MediaPreviewConfigEventContent, MediaPreviews,
             UnstableMediaPreviewConfigEventContent,
         },
         push_rules::PushRulesEventContent,
@@ -1004,6 +1003,7 @@ impl Account {
     /// # Examples
     ///
     /// ```no_run
+    /// # use futures_util::StreamExt;
     /// # use matrix_sdk::Client;
     /// # use matrix_sdk::ruma::events::media_preview_config::MediaPreviews;
     /// # use url::Url;
