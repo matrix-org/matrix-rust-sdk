@@ -17,14 +17,10 @@
 use core::fmt;
 use std::{ops::Deref, sync::Arc};
 
-use async_once_cell::OnceCell as AsyncOnceCell;
 use ruma::RoomId;
 
 use super::Error;
-use crate::{
-    timeline::{EventTimelineItem, TimelineBuilder},
-    Timeline,
-};
+use crate::timeline::{EventTimelineItem, TimelineBuilder};
 
 /// A room in the room list.
 ///
@@ -43,9 +39,6 @@ impl fmt::Debug for Room {
 struct RoomInner {
     /// The underlying client room.
     room: matrix_sdk::Room,
-
-    /// The timeline of the room.
-    timeline: AsyncOnceCell<Arc<Timeline>>,
 }
 
 impl Deref for Room {
@@ -59,7 +52,7 @@ impl Deref for Room {
 impl Room {
     /// Create a new `Room`.
     pub(super) fn new(room: matrix_sdk::Room) -> Self {
-        Self { inner: Arc::new(RoomInner { room, timeline: AsyncOnceCell::new() }) }
+        Self { inner: Arc::new(RoomInner { room }) }
     }
 
     /// Get the room ID.
@@ -77,56 +70,13 @@ impl Room {
         &self.inner.room
     }
 
-    /// Get the timeline of the room if one exists.
-    pub fn timeline(&self) -> Option<Arc<Timeline>> {
-        self.inner.timeline.get().cloned()
-    }
-
-    /// Get whether the timeline has been already initialised or not.
-    pub fn is_timeline_initialized(&self) -> bool {
-        self.inner.timeline.get().is_some()
-    }
-
-    /// Initialize the timeline of the room with an event type filter so only
-    /// some events are returned. If a previous timeline exists, it'll
-    /// return an error. Otherwise, a Timeline will be returned.
-    pub async fn init_timeline_with_builder(&self, builder: TimelineBuilder) -> Result<(), Error> {
-        if self.inner.timeline.get().is_some() {
-            Err(Error::TimelineAlreadyExists(self.inner.room.room_id().to_owned()))
-        } else {
-            self.inner
-                .timeline
-                .get_or_try_init(async { Ok(Arc::new(builder.build().await?)) })
-                .await
-                .map_err(Error::InitializingTimeline)?;
-            Ok(())
-        }
-    }
-
-    /// Get the latest event in the timeline.
-    ///
-    /// The latest event comes first from the `Timeline`, it can be a local or a
-    /// remote event. Note that the `Timeline` can have more information esp. if
-    /// it has run a backpagination for example. Otherwise if the `Timeline`
-    /// doesn't have any latest event, it comes from the cache. This method
-    /// does not fetch any events or calculate anything — if it's not already
-    /// available, we return `None`.
+    /// Get the room's latest event from the cache. This method does not fetch
+    /// any events or calculate anything — if it's not already available, we
+    /// return `None`.
     ///
     /// Reminder: this method also returns `None` is the latest event is not
     /// suitable for use in a message preview.
     pub async fn latest_event(&self) -> Option<EventTimelineItem> {
-        // Look for a local event in the `Timeline`.
-        //
-        // First off, let's see if a `Timeline` exists…
-        if let Some(timeline) = self.inner.timeline.get() {
-            // If it contains a `latest_event`…
-            if let Some(timeline_last_event) = timeline.latest_event().await {
-                // If it's a local event or a remote event, we return it.
-                return Some(timeline_last_event);
-            }
-        }
-
-        // Otherwise, fallback to the classical path.
         if let Some(latest_event) = self.inner.room.latest_event() {
             EventTimelineItem::from_latest_event(
                 self.inner.room.client(),

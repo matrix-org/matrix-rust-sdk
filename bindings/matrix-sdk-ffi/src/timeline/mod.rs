@@ -99,11 +99,6 @@ impl Timeline {
         Arc::new(Self { inner })
     }
 
-    pub(crate) fn from_arc(inner: Arc<matrix_sdk_ui::timeline::Timeline>) -> Arc<Self> {
-        // SAFETY: repr(transparent) means transmuting the arc this way is allowed
-        unsafe { Arc::from_raw(Arc::into_raw(inner) as _) }
-    }
-
     fn send_attachment(
         self: Arc<Self>,
         params: UploadParameters,

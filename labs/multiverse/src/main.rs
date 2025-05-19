@@ -280,14 +280,16 @@ impl App {
                     }
                 };
 
-                if let Err(err) = ui_room.init_timeline_with_builder(builder).await {
-                    error!("error when creating default timeline: {err}");
-                    continue;
-                }
+                let timeline = match builder.build().await {
+                    Ok(timeline) => timeline,
+                    Err(err) => {
+                        error!("error when creating default timeline: {err}");
+                        continue;
+                    }
+                };
 
                 // Save the timeline in the cache.
-                let sdk_timeline = ui_room.timeline().unwrap();
-                let (items, stream) = sdk_timeline.subscribe().await;
+                let (items, stream) = timeline.subscribe().await;
                 let items = Arc::new(Mutex::new(items));
 
                 // Spawn a timeline task that will listen to all the timeline item changes.
@@ -306,7 +308,7 @@ impl App {
 
                 new_timelines.push((
                     ui_room.room_id().to_owned(),
-                    Timeline { timeline: sdk_timeline, items, task: timeline_task },
+                    Timeline { timeline: Arc::new(timeline), items, task: timeline_task },
                 ));
 
                 // Save the room list service room in the cache.

@@ -12,6 +12,7 @@ use matrix_sdk::{
     },
     RoomState,
 };
+use matrix_sdk_ui::timeline::TimelineBuilder;
 use ratatui::{prelude::*, widgets::*};
 use tokio::{spawn, task::JoinHandle};
 
@@ -328,7 +329,12 @@ impl RoomView {
         };
 
         // Mark as read!
-        match room.timeline().unwrap().mark_as_read(ReceiptType::Read).await {
+        let Ok(timeline) = TimelineBuilder::new(&room).build().await else {
+            self.status_handle.set_message("failed creating timeline".to_owned());
+            return;
+        };
+
+        match timeline.mark_as_read(ReceiptType::Read).await {
             Ok(did) => {
                 self.status_handle.set_message(format!(
                     "did {}send a read receipt!",
