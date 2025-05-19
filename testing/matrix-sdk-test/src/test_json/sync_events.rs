@@ -706,3 +706,12 @@ pub static TOPIC_REDACTION: Lazy<JsonValue> = Lazy::new(|| {
         }
     })
 });
+
+pub static MARKED_UNREAD: Lazy<JsonValue> = Lazy::new(|| {
+    json!({
+        "content": {
+            "unread": true,
+        },
+        "type": "m.marked_unread",
+    })
+});
