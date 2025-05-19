@@ -1022,7 +1022,8 @@ impl<P: RoomDataProvider, D: Decryptor> TimelineController<P, D> {
         // Replace the local-related state (kind) and the content state.
         let new_item = TimelineItem::new(
             prev_item.with_kind(ti_kind).with_content(TimelineItemContent::message(
-                content,
+                content.msgtype,
+                content.mentions,
                 prev_item.content().reactions().cloned().unwrap_or_default(),
                 prev_item.content().thread_root(),
                 prev_item.content().in_reply_to(),

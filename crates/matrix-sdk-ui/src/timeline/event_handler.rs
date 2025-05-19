@@ -447,14 +447,15 @@ impl TimelineAction {
                 }
 
                 let (in_reply_to, thread_root) = Self::extract_reply_and_thread_root(
-                    msg.relates_to.clone().and_then(|rel| rel.try_into().ok()),
+                    msg.relates_to.and_then(|rel| rel.try_into().ok()),
                     timeline_items,
                 );
                 Self::mark_response(meta, event_id, in_reply_to.as_ref());
 
                 Self::AddItem {
                     content: TimelineItemContent::message(
-                        msg,
+                        msg.msgtype,
+                        msg.mentions,
                         Default::default(),
                         thread_root,
                         in_reply_to,
