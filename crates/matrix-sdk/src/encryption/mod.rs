@@ -578,21 +578,6 @@ impl Client {
         self.send(request).await
     }
 
-    #[cfg(feature = "experimental-send-custom-to-device")]
-    pub(crate) async fn send_to_device_with_config(
-        &self,
-        request: &ToDeviceRequest,
-        config: RequestConfig,
-    ) -> HttpResult<ToDeviceResponse> {
-        let request = RumaToDeviceRequest::new_raw(
-            request.event_type.clone(),
-            request.txn_id.clone(),
-            request.messages.clone(),
-        );
-
-        self.send_inner(request, Some(config), Default::default()).await
-    }
-
     pub(crate) async fn send_verification_request(
         &self,
         request: OutgoingVerificationRequest,
@@ -1801,8 +1786,16 @@ impl Encryption {
 
         // TODO: parallelize that? it's already grouping 250 devices per chunk.
         for request in requests {
-            let send_result =
-                self.client.send_to_device_with_config(&request, RequestConfig::short_retry()).await;
+            let request = RumaToDeviceRequest::new_raw(
+                request.event_type.clone(),
+                request.txn_id.clone(),
+                request.messages.clone(),
+            );
+
+            let send_result = self
+                .client
+                .send_inner(request, Some(RequestConfig::short_retry()), Default::default())
+                .await;
 
             // If the sending failed we need to collect the failures to report them
             if send_result.is_err() {
