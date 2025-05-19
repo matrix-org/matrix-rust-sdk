@@ -28,6 +28,7 @@ All notable changes to this project will be documented in this file.
 - `Encryption::encrypt_and_send_raw_to_device`: Introduced as an experimental method for
   sending custom encrypted to-device events. This feature is gated behind the
   `experimental-send-custom-to-device` flag, as it remains under active development and may undergo changes.
+  ([4998](https://github.com/matrix-org/matrix-rust-sdk/pull/4998))
 
 
 ### Bug fixes
