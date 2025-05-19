@@ -19,8 +19,8 @@ use matrix_sdk_test::{
     event_factory::EventFactory,
     mocks::mock_encryption_state,
     test_json::{self, sync::CUSTOM_ROOM_POWER_LEVELS},
-    GlobalAccountDataTestEvent, JoinedRoomBuilder, StateTestEvent, SyncResponseBuilder,
-    DEFAULT_TEST_ROOM_ID,
+    GlobalAccountDataTestEvent, JoinedRoomBuilder, RoomAccountDataTestEvent, StateTestEvent,
+    SyncResponseBuilder, DEFAULT_TEST_ROOM_ID,
 };
 use ruma::{
     api::client::{membership::Invite3pidInit, receipt::create_receipt::v3::ReceiptType},
@@ -235,6 +235,42 @@ async fn test_send_single_receipt() {
 }
 
 #[async_test]
+async fn test_send_single_receipt_with_unread_flag() {
+    let event_id = owned_event_id!("$xxxxxx:example.org");
+
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+
+    server.mock_send_receipt(ReceiptType::Read).ok().expect(2).mount().await;
+
+    // Initial sync with our test room, marked unread.
+    let room = server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::default().add_account_data(RoomAccountDataTestEvent::MarkedUnread),
+        )
+        .await;
+    assert!(room.is_marked_unread());
+
+    // An unthreaded receipt triggers a marked unread update.
+    {
+        let _guard = server
+            .mock_set_room_account_data(RoomAccountDataEventType::MarkedUnread)
+            .ok()
+            .mock_once()
+            .mount_as_scoped()
+            .await;
+
+        room.send_single_receipt(ReceiptType::Read, ReceiptThread::Unthreaded, event_id.clone())
+            .await
+            .unwrap();
+    }
+
+    // A threaded read receipt update doesn't trigger a marked unread update.
+    room.send_single_receipt(ReceiptType::Read, ReceiptThread::Main, event_id).await.unwrap();
+}
+
+#[async_test]
 async fn test_send_multiple_receipts() {
     let server = MatrixMockServer::new().await;
     let client = server.client_builder().build().await;
@@ -246,6 +282,36 @@ async fn test_send_multiple_receipts() {
 
     let receipts = Receipts::new().fully_read_marker(owned_event_id!("$xxxxxx:example.org"));
     room.send_multiple_receipts(receipts).await.unwrap();
+}
+
+#[async_test]
+async fn test_send_multiple_receipts_with_unread_flag() {
+    let event_id = owned_event_id!("$xxxxxx:example.org");
+
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+
+    server.mock_send_read_markers().ok().mock_once().mount().await;
+    server
+        .mock_set_room_account_data(RoomAccountDataEventType::MarkedUnread)
+        .ok()
+        .mock_once()
+        .mount()
+        .await;
+
+    // Initial sync with our test room, marked unread.
+    let room = server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::default().add_account_data(RoomAccountDataTestEvent::MarkedUnread),
+        )
+        .await;
+    assert!(room.is_marked_unread());
+
+    // Sending receipts triggers a marked unread update.
+    room.send_multiple_receipts(Receipts::new().public_read_receipt(event_id.clone()))
+        .await
+        .unwrap();
 }
 
 #[async_test]
