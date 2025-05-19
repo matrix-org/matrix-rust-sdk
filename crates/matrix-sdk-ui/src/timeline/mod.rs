@@ -148,11 +148,6 @@ pub enum DateDividerMode {
 }
 
 impl Timeline {
-    /// Create a new [`TimelineBuilder`] for the given room.
-    pub fn builder(room: &Room) -> TimelineBuilder {
-        TimelineBuilder::new(room)
-    }
-
     /// Returns the room for this timeline.
     pub fn room(&self) -> &Room {
         self.controller.room()

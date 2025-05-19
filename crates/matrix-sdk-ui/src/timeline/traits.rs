@@ -68,7 +68,7 @@ impl RoomExt for Room {
     }
 
     fn timeline_builder(&self) -> TimelineBuilder {
-        Timeline::builder(self).track_read_marker_and_receipts()
+        TimelineBuilder::new(self).track_read_marker_and_receipts()
     }
 }
 

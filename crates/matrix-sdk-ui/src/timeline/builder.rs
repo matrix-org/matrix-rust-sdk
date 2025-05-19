@@ -57,7 +57,7 @@ pub struct TimelineBuilder {
 }
 
 impl TimelineBuilder {
-    pub(super) fn new(room: &Room) -> Self {
+    pub fn new(room: &Room) -> Self {
         Self {
             room: room.clone(),
             settings: TimelineSettings::default(),

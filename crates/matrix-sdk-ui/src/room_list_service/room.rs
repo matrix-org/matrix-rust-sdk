@@ -144,6 +144,6 @@ impl Room {
     /// If the room was synced before some initial events will be added to the
     /// [`TimelineBuilder`].
     pub fn default_room_timeline_builder(&self) -> Result<TimelineBuilder, Error> {
-        Ok(Timeline::builder(&self.inner.room).track_read_marker_and_receipts())
+        Ok(TimelineBuilder::new(&self.inner.room).track_read_marker_and_receipts())
     }
 }

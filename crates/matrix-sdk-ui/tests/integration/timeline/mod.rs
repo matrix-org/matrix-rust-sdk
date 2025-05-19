@@ -29,7 +29,7 @@ use matrix_sdk_test::{
 use matrix_sdk_ui::{
     timeline::{
         AnyOtherFullStateEventContent, Error, EventSendState, RedactError, RoomExt,
-        TimelineEventItemId, TimelineItemContent, VirtualTimelineItem,
+        TimelineBuilder, TimelineEventItemId, TimelineItemContent, VirtualTimelineItem,
     },
     Timeline,
 };
@@ -668,7 +668,7 @@ async fn test_timeline_without_encryption_can_update() {
     // Previously this would have panicked.
     // We're creating a timeline without read receipts tracking to check only the
     // encryption changes.
-    let timeline = Timeline::builder(&room).build().await.unwrap();
+    let timeline = TimelineBuilder::new(&room).build().await.unwrap();
 
     let (items, mut stream) = timeline.subscribe().await;
     assert_eq!(items.len(), 2);

@@ -17,7 +17,7 @@ use eyeball_im::VectorDiff;
 use futures_util::StreamExt as _;
 use matrix_sdk::test_utils::mocks::{MatrixMockServer, RoomRelationsResponseTemplate};
 use matrix_sdk_test::{async_test, event_factory::EventFactory};
-use matrix_sdk_ui::{timeline::TimelineFocus, Timeline};
+use matrix_sdk_ui::timeline::{TimelineBuilder, TimelineFocus};
 use ruma::{event_id, events::AnyTimelineEvent, owned_event_id, room_id, serde::Raw, user_id};
 use stream_assert::assert_pending;
 
@@ -55,7 +55,7 @@ async fn test_new_thread() {
 
     let room = server.sync_joined_room(&client, room_id).await;
 
-    let timeline = Timeline::builder(&room)
+    let timeline = TimelineBuilder::new(&room)
         .with_focus(TimelineFocus::Thread { root_event_id: thread_root_event_id, num_events: 1 })
         .build()
         .await
@@ -121,7 +121,7 @@ async fn test_thread_backpagination() {
 
     let room = server.sync_joined_room(&client, room_id).await;
 
-    let timeline = Timeline::builder(&room)
+    let timeline = TimelineBuilder::new(&room)
         .with_focus(TimelineFocus::Thread { root_event_id: thread_root_event_id, num_events: 1 })
         .build()
         .await

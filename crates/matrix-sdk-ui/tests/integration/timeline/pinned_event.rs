@@ -16,10 +16,7 @@ use matrix_sdk_test::{
     async_test, event_factory::EventFactory, JoinedRoomBuilder, StateTestEvent,
     SyncResponseBuilder, BOB,
 };
-use matrix_sdk_ui::{
-    timeline::{RoomExt, TimelineFocus},
-    Timeline,
-};
+use matrix_sdk_ui::timeline::{RoomExt, TimelineBuilder, TimelineFocus};
 use ruma::{
     assign, event_id,
     events::{
@@ -70,7 +67,7 @@ async fn test_new_pinned_events_are_not_added_on_sync() {
         .await
         .expect("Room should be synced");
     let timeline =
-        Timeline::builder(&room).with_focus(pinned_events_focus(100)).build().await.unwrap();
+        TimelineBuilder::new(&room).with_focus(pinned_events_focus(100)).build().await.unwrap();
 
     assert!(
         timeline.live_back_pagination_status().await.is_none(),
@@ -133,7 +130,7 @@ async fn test_new_pinned_event_ids_reload_the_timeline() {
         .expect("Room should be synced");
 
     let timeline =
-        Timeline::builder(&room).with_focus(pinned_events_focus(100)).build().await.unwrap();
+        TimelineBuilder::new(&room).with_focus(pinned_events_focus(100)).build().await.unwrap();
 
     assert!(
         timeline.live_back_pagination_status().await.is_none(),
@@ -208,7 +205,7 @@ async fn test_max_events_to_load_is_honored() {
         .await
         .expect("Sync failed");
 
-    let ret = Timeline::builder(&room).with_focus(pinned_events_focus(1)).build().await;
+    let ret = TimelineBuilder::new(&room).with_focus(pinned_events_focus(1)).build().await;
 
     // We're only taking the last event id, `$2`, and it's not available so the
     // timeline fails to initialise.
@@ -245,7 +242,7 @@ async fn test_cached_events_are_kept_for_different_room_instances() {
 
     let (room_cache, _drop_handles) = room.event_cache().await.unwrap();
     let timeline =
-        Timeline::builder(&room).with_focus(pinned_events_focus(2)).build().await.unwrap();
+        TimelineBuilder::new(&room).with_focus(pinned_events_focus(2)).build().await.unwrap();
 
     assert!(
         timeline.live_back_pagination_status().await.is_none(),
@@ -274,7 +271,7 @@ async fn test_cached_events_are_kept_for_different_room_instances() {
 
     // And a new timeline one
     let timeline =
-        Timeline::builder(&room).with_focus(pinned_events_focus(2)).build().await.unwrap();
+        TimelineBuilder::new(&room).with_focus(pinned_events_focus(2)).build().await.unwrap();
 
     let (items, _) = timeline.subscribe().await;
     assert!(!items.is_empty()); // These events came from the cache
@@ -299,7 +296,7 @@ async fn test_pinned_timeline_with_pinned_event_ids_and_empty_result_fails() {
         .mock_and_sync(&client, &server)
         .await
         .expect("Sync failed");
-    let ret = Timeline::builder(&room).with_focus(pinned_events_focus(1)).build().await;
+    let ret = TimelineBuilder::new(&room).with_focus(pinned_events_focus(1)).build().await;
 
     // The timeline couldn't load any events so it fails to initialise
     assert!(ret.is_err());
@@ -318,7 +315,7 @@ async fn test_pinned_timeline_with_no_pinned_event_ids_is_just_empty() {
         .await
         .expect("Sync failed");
     let timeline =
-        Timeline::builder(&room).with_focus(pinned_events_focus(1)).build().await.unwrap();
+        TimelineBuilder::new(&room).with_focus(pinned_events_focus(1)).build().await.unwrap();
 
     // The timeline couldn't load any events, but it expected none, so it just
     // returns an empty list
@@ -346,7 +343,7 @@ async fn test_pinned_timeline_with_no_pinned_events_and_an_utd_on_sync_is_just_e
     mock_events_endpoint(&server, room_id, vec![utd_event]).await;
 
     let timeline =
-        Timeline::builder(&room).with_focus(pinned_events_focus(1)).build().await.unwrap();
+        TimelineBuilder::new(&room).with_focus(pinned_events_focus(1)).build().await.unwrap();
 
     // The timeline couldn't load any events, but it expected none, so it just
     // returns an empty list
@@ -369,7 +366,7 @@ async fn test_pinned_timeline_with_no_pinned_events_on_pagination_is_just_empty(
         .await
         .expect("Sync failed");
     let pinned_timeline =
-        Timeline::builder(&room).with_focus(pinned_events_focus(1)).build().await.unwrap();
+        TimelineBuilder::new(&room).with_focus(pinned_events_focus(1)).build().await.unwrap();
 
     // The timeline couldn't load any events, but it expected none, so it just
     // returns an empty list
@@ -430,7 +427,7 @@ async fn test_pinned_timeline_with_pinned_utd_on_sync_contains_it() {
     mock_events_endpoint(&server, room_id, vec![utd_event]).await;
 
     let timeline =
-        Timeline::builder(&room).with_focus(pinned_events_focus(1)).build().await.unwrap();
+        TimelineBuilder::new(&room).with_focus(pinned_events_focus(1)).build().await.unwrap();
 
     // The timeline loaded with just a day divider and the pinned UTD
     let (items, _) = timeline.subscribe().await;
@@ -463,7 +460,7 @@ async fn test_edited_events_are_reflected_in_sync() {
         .await
         .expect("Sync failed");
     let timeline =
-        Timeline::builder(&room).with_focus(pinned_events_focus(100)).build().await.unwrap();
+        TimelineBuilder::new(&room).with_focus(pinned_events_focus(100)).build().await.unwrap();
 
     assert!(
         timeline.live_back_pagination_status().await.is_none(),
@@ -535,7 +532,7 @@ async fn test_redacted_events_are_reflected_in_sync() {
         .await
         .expect("Sync failed");
     let timeline =
-        Timeline::builder(&room).with_focus(pinned_events_focus(100)).build().await.unwrap();
+        TimelineBuilder::new(&room).with_focus(pinned_events_focus(100)).build().await.unwrap();
 
     assert!(
         timeline.live_back_pagination_status().await.is_none(),
