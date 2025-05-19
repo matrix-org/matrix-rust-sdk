@@ -1577,7 +1577,7 @@ mod tests {
         use crate::{rooms::BaseRoomInfo, sync::UnreadNotificationsCount};
 
         let info = RoomInfo {
-            version: 1,
+            data_format_version: 1,
             room_id: room_id!("!gda78o:server.tld").into(),
             room_state: RoomState::Invited,
             notification_counts: UnreadNotificationsCount {
@@ -3065,21 +3065,21 @@ mod tests {
         });
         let mut room_info: RoomInfo = serde_json::from_value(room_info_json).unwrap();
 
-        assert_eq!(room_info.version, 0);
+        assert_eq!(room_info.data_format_version, 0);
         assert!(room_info.base_info.notable_tags.is_empty());
         assert!(room_info.base_info.pinned_events.is_none());
 
         // Apply migrations with an empty store.
         assert!(room_info.apply_migrations(store.clone()).await);
 
-        assert_eq!(room_info.version, 1);
+        assert_eq!(room_info.data_format_version, 1);
         assert!(room_info.base_info.notable_tags.is_empty());
         assert!(room_info.base_info.pinned_events.is_none());
 
         // Applying migrations again has no effect.
         assert!(!room_info.apply_migrations(store.clone()).await);
 
-        assert_eq!(room_info.version, 1);
+        assert_eq!(room_info.data_format_version, 1);
         assert!(room_info.base_info.notable_tags.is_empty());
         assert!(room_info.base_info.pinned_events.is_none());
 
@@ -3097,16 +3097,16 @@ mod tests {
         store.save_changes(&changes).await.unwrap();
 
         // Reset to version 0 and reapply migrations.
-        room_info.version = 0;
+        room_info.data_format_version = 0;
         assert!(room_info.apply_migrations(store.clone()).await);
 
-        assert_eq!(room_info.version, 1);
+        assert_eq!(room_info.data_format_version, 1);
         assert!(room_info.base_info.notable_tags.contains(RoomNotableTags::FAVOURITE));
         assert!(room_info.base_info.pinned_events.is_some());
 
         // Creating a new room info initializes it to version 1.
         let new_room_info = RoomInfo::new(room_id!("!new_room:localhost"), RoomState::Joined);
-        assert_eq!(new_room_info.version, 1);
+        assert_eq!(new_room_info.data_format_version, 1);
     }
 
     #[async_test]

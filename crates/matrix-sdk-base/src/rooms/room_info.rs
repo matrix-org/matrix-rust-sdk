@@ -356,9 +356,10 @@ where
 /// Holds all the info needed to persist a room into the state store.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct RoomInfo {
-    /// The version of the room info.
-    #[serde(default)]
-    pub(crate) version: u8,
+    /// The version of the room info type. It is used to migrate the `RoomInfo`
+    /// serialization from one version to another.
+    #[serde(default, alias = "version")]
+    pub(crate) data_format_version: u8,
 
     /// The unique room id of the room.
     pub(crate) room_id: OwnedRoomId,
@@ -429,7 +430,7 @@ impl RoomInfo {
     #[doc(hidden)] // used by store tests, otherwise it would be pub(crate)
     pub fn new(room_id: &RoomId, room_state: RoomState) -> Self {
         Self {
-            version: 1,
+            data_format_version: 1,
             room_id: room_id.into(),
             room_state,
             notification_counts: Default::default(),
@@ -948,7 +949,7 @@ impl RoomInfo {
     pub(crate) async fn apply_migrations(&mut self, store: Arc<DynStateStore>) -> bool {
         let mut migrated = false;
 
-        if self.version < 1 {
+        if self.data_format_version < 1 {
             info!("Migrating room info to version 1");
 
             // notable_tags
@@ -992,7 +993,7 @@ impl RoomInfo {
                 }
             }
 
-            self.version = 1;
+            self.data_format_version = 1;
             migrated = true;
         }
 
