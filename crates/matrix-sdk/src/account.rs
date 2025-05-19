@@ -1003,7 +1003,7 @@ impl Account {
     /// # Examples
     ///
     /// ```no_run
-    /// # use futures_util::StreamExt;
+    /// # use futures_util::{pin_mut, StreamExt};
     /// # use matrix_sdk::Client;
     /// # use matrix_sdk::ruma::events::media_preview_config::MediaPreviews;
     /// # use url::Url;
@@ -1012,11 +1012,12 @@ impl Account {
     /// # let client = Client::new(homeserver).await?;
     /// let account = client.account();
     ///
-    /// let (initial_config, mut config_stream) =
+    /// let (initial_config, config_stream) =
     ///     account.observe_media_preview_config().await?;
     ///
     /// println!("Initial media preview config: {:?}", initial_config);
     ///
+    /// pin_mut!(config_stream);
     /// while let Some(new_config) = config_stream.next().await {
     ///     println!("Updated media preview config: {:?}", new_config);
     /// }
