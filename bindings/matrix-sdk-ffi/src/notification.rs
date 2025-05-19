@@ -108,7 +108,7 @@ impl NotificationClient {
     pub fn get_room(&self, room_id: String) -> Result<Option<Arc<Room>>, ClientError> {
         let room_id = RoomId::parse(room_id)?;
         let sdk_room = self.inner.get_room(&room_id);
-        let room = sdk_room.map(|room| Arc::new(Room::new(room)));
+        let room = sdk_room.map(|room| Arc::new(Room::new(room, None)));
         Ok(room)
     }
 

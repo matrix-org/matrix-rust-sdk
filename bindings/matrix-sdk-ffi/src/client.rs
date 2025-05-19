@@ -221,7 +221,7 @@ impl From<matrix_sdk::TransmissionProgress> for TransmissionProgress {
 pub struct Client {
     pub(crate) inner: AsyncRuntimeDropped<MatrixClient>,
     delegate: RwLock<Option<Arc<dyn ClientDelegate>>>,
-    utd_hook_manager: Option<Arc<UtdHookManager>>,
+    utd_hook: Option<Arc<UtdHookManager>>,
     session_verification_controller:
         Arc<tokio::sync::RwLock<Option<SessionVerificationController>>>,
 }
@@ -267,7 +267,7 @@ impl Client {
         let mut client = Client {
             inner: AsyncRuntimeDropped::new(sdk_client.clone()),
             delegate: RwLock::new(None),
-            utd_hook_manager: None,
+            utd_hook: None,
             session_verification_controller,
         };
 
@@ -319,7 +319,7 @@ impl Client {
                 // because the UTD hook failed to load its data.
             }
 
-            client.utd_hook_manager = Some(Arc::new(utd_hook));
+            client.utd_hook = Some(Arc::new(utd_hook));
         }
 
         Ok(client)
@@ -1053,7 +1053,11 @@ impl Client {
     }
 
     pub fn rooms(&self) -> Vec<Arc<Room>> {
-        self.inner.rooms().into_iter().map(|room| Arc::new(Room::new(room))).collect()
+        self.inner
+            .rooms()
+            .into_iter()
+            .map(|room| Arc::new(Room::new(room, self.utd_hook.clone())))
+            .collect()
     }
 
     /// Get a room by its ID.
@@ -1070,14 +1074,14 @@ impl Client {
     pub fn get_room(&self, room_id: String) -> Result<Option<Arc<Room>>, ClientError> {
         let room_id = RoomId::parse(room_id)?;
         let sdk_room = self.inner.get_room(&room_id);
-        let room = sdk_room.map(|room| Arc::new(Room::new(room)));
+        let room = sdk_room.map(|room| Arc::new(Room::new(room, self.utd_hook.clone())));
         Ok(room)
     }
 
     pub fn get_dm_room(&self, user_id: String) -> Result<Option<Arc<Room>>, ClientError> {
         let user_id = UserId::parse(user_id)?;
         let sdk_room = self.inner.get_dm_room(&user_id);
-        let dm = sdk_room.map(|room| Arc::new(Room::new(room)));
+        let dm = sdk_room.map(|room| Arc::new(Room::new(room, self.utd_hook.clone())));
         Ok(dm)
     }
 
@@ -1184,7 +1188,7 @@ impl Client {
     pub async fn join_room_by_id(&self, room_id: String) -> Result<Arc<Room>, ClientError> {
         let room_id = RoomId::parse(room_id)?;
         let room = self.inner.join_room_by_id(room_id.as_ref()).await?;
-        Ok(Arc::new(Room::new(room)))
+        Ok(Arc::new(Room::new(room, self.utd_hook.clone())))
     }
 
     /// Join a room by its ID or alias.
@@ -1205,7 +1209,7 @@ impl Client {
             .collect::<Result<Vec<_>, _>>()?;
         let room =
             self.inner.join_room_by_id_or_alias(room_id.as_ref(), server_names.as_ref()).await?;
-        Ok(Arc::new(Room::new(room)))
+        Ok(Arc::new(Room::new(room, self.utd_hook.clone())))
     }
 
     /// Knock on a room to join it using its ID or alias.
@@ -1219,7 +1223,7 @@ impl Client {
         let server_names =
             server_names.iter().map(ServerName::parse).collect::<Result<Vec<_>, _>>()?;
         let room = self.inner.knock(room_id, reason, server_names).await?;
-        Ok(Arc::new(Room::new(room)))
+        Ok(Arc::new(Room::new(room, self.utd_hook.clone())))
     }
 
     pub async fn get_recently_visited_rooms(&self) -> Result<Vec<String>, ClientError> {
@@ -1313,7 +1317,10 @@ impl Client {
     /// or an externally set timeout happens.**
     pub async fn await_room_remote_echo(&self, room_id: String) -> Result<Arc<Room>, ClientError> {
         let room_id = RoomId::parse(room_id)?;
-        Ok(Arc::new(Room::new(self.inner.await_room_remote_echo(&room_id).await)))
+        Ok(Arc::new(Room::new(
+            self.inner.await_room_remote_echo(&room_id).await,
+            self.utd_hook.clone(),
+        )))
     }
 
     /// Lets the user know whether this is an `m.login.password` based
