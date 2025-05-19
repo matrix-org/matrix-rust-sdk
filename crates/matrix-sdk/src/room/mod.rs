@@ -1595,6 +1595,9 @@ impl Room {
 
     /// Send a request to set a single receipt.
     ///
+    /// If an unthreaded receipt is sent, this will also unset the unread flag
+    /// of the room if necessary.
+    ///
     /// # Arguments
     ///
     /// * `receipt_type` - The type of the receipt to set. Note that it is
@@ -1622,6 +1625,10 @@ impl Room {
             .locks
             .read_receipt_deduplicated_handler
             .run((request_key, event_id.clone()), async {
+                // We will unset the unread flag if we send an unthreaded receipt.
+                let unset_unread_flag =
+                    thread == ReceiptThread::Unthreaded && self.is_marked_unread();
+
                 let mut request = create_receipt::v3::Request::new(
                     self.room_id().to_owned(),
                     receipt_type,
@@ -1630,12 +1637,19 @@ impl Room {
                 request.thread = thread;
 
                 self.client.send(request).await?;
+
+                if unset_unread_flag {
+                    self.set_unread_flag(false).await?;
+                }
+
                 Ok(())
             })
             .await
     }
 
     /// Send a request to set multiple receipts at once.
+    ///
+    /// This will also unset the unread flag of the room if necessary.
     ///
     /// # Arguments
     ///
@@ -1656,6 +1670,11 @@ impl Room {
         });
 
         self.client.send(request).await?;
+
+        if self.is_marked_unread() {
+            self.set_unread_flag(false).await?;
+        }
+
         Ok(())
     }
 
