@@ -17,7 +17,6 @@ use matrix_sdk_ui::{
         new_filter_unread, BoxedFilterFn, RoomCategory,
     },
     timeline::default_event_filter,
-    unable_to_decrypt_hook::UtdHookManager,
 };
 use ruma::{OwnedRoomOrAliasId, OwnedServerName, ServerName};
 use tokio::sync::RwLock;
@@ -84,7 +83,6 @@ impl From<ruma::IdParseError> for RoomListError {
 #[derive(uniffi::Object)]
 pub struct RoomListService {
     pub(crate) inner: Arc<matrix_sdk_ui::RoomListService>,
-    pub(crate) utd_hook: Option<Arc<UtdHookManager>>,
 }
 
 #[matrix_sdk_ffi_macros::export]
@@ -104,10 +102,7 @@ impl RoomListService {
     fn room(&self, room_id: String) -> Result<Arc<RoomListItem>, RoomListError> {
         let room_id = <&RoomId>::try_from(room_id.as_str()).map_err(RoomListError::from)?;
 
-        Ok(Arc::new(RoomListItem {
-            inner: Arc::new(self.inner.room(room_id)?),
-            utd_hook: self.utd_hook.clone(),
-        }))
+        Ok(Arc::new(RoomListItem { inner: Arc::new(self.inner.room(room_id)?) }))
     }
 
     async fn all_rooms(self: Arc<Self>) -> Result<Arc<RoomList>, RoomListError> {
@@ -183,7 +178,6 @@ impl RoomList {
         listener: Box<dyn RoomListEntriesListener>,
     ) -> Arc<RoomListEntriesWithDynamicAdaptersResult> {
         let this = self.clone();
-        let utd_hook = self.room_list_service.utd_hook.clone();
 
         // The following code deserves a bit of explanation.
         // `matrix_sdk_ui::room_list_service::RoomList::entries_with_dynamic_adapters`
@@ -242,10 +236,7 @@ impl RoomList {
 
             while let Some(diffs) = entries_stream.next().await {
                 listener.on_update(
-                    diffs
-                        .into_iter()
-                        .map(|diff| RoomListEntriesUpdate::from(diff, utd_hook.clone()))
-                        .collect(),
+                    diffs.into_iter().map(|diff| RoomListEntriesUpdate::from(diff)).collect(),
                 );
             }
         })));
@@ -392,33 +383,30 @@ pub enum RoomListEntriesUpdate {
 }
 
 impl RoomListEntriesUpdate {
-    fn from(
-        vector_diff: VectorDiff<matrix_sdk_ui::room_list_service::Room>,
-        utd_hook: Option<Arc<UtdHookManager>>,
-    ) -> Self {
+    fn from(vector_diff: VectorDiff<matrix_sdk_ui::room_list_service::Room>) -> Self {
         match vector_diff {
             VectorDiff::Append { values } => Self::Append {
                 values: values
                     .into_iter()
-                    .map(|value| Arc::new(RoomListItem::from(value, utd_hook.clone())))
+                    .map(|value| Arc::new(RoomListItem::from(value)))
                     .collect(),
             },
             VectorDiff::Clear => Self::Clear,
             VectorDiff::PushFront { value } => {
-                Self::PushFront { value: Arc::new(RoomListItem::from(value, utd_hook)) }
+                Self::PushFront { value: Arc::new(RoomListItem::from(value)) }
             }
             VectorDiff::PushBack { value } => {
-                Self::PushBack { value: Arc::new(RoomListItem::from(value, utd_hook)) }
+                Self::PushBack { value: Arc::new(RoomListItem::from(value)) }
             }
             VectorDiff::PopFront => Self::PopFront,
             VectorDiff::PopBack => Self::PopBack,
             VectorDiff::Insert { index, value } => Self::Insert {
                 index: u32::try_from(index).unwrap(),
-                value: Arc::new(RoomListItem::from(value, utd_hook)),
+                value: Arc::new(RoomListItem::from(value)),
             },
             VectorDiff::Set { index, value } => Self::Set {
                 index: u32::try_from(index).unwrap(),
-                value: Arc::new(RoomListItem::from(value, utd_hook)),
+                value: Arc::new(RoomListItem::from(value)),
             },
             VectorDiff::Remove { index } => Self::Remove { index: u32::try_from(index).unwrap() },
             VectorDiff::Truncate { length } => {
@@ -427,7 +415,7 @@ impl RoomListEntriesUpdate {
             VectorDiff::Reset { values } => Self::Reset {
                 values: values
                     .into_iter()
-                    .map(|value| Arc::new(RoomListItem::from(value, utd_hook.clone())))
+                    .map(|value| Arc::new(RoomListItem::from(value)))
                     .collect(),
             },
         }
@@ -528,15 +516,11 @@ impl From<RoomListEntriesDynamicFilterKind> for BoxedFilterFn {
 #[derive(uniffi::Object)]
 pub struct RoomListItem {
     inner: Arc<matrix_sdk_ui::room_list_service::Room>,
-    utd_hook: Option<Arc<UtdHookManager>>,
 }
 
 impl RoomListItem {
-    fn from(
-        value: matrix_sdk_ui::room_list_service::Room,
-        utd_hook: Option<Arc<UtdHookManager>>,
-    ) -> Self {
-        Self { inner: Arc::new(value), utd_hook }
+    fn from(value: matrix_sdk_ui::room_list_service::Room) -> Self {
+        Self { inner: Arc::new(value) }
     }
 }
 
@@ -665,10 +649,6 @@ impl RoomListItem {
 
         if let Some(internal_id_prefix) = internal_id_prefix {
             timeline_builder = timeline_builder.with_internal_id_prefix(internal_id_prefix);
-        }
-
-        if let Some(utd_hook) = self.utd_hook.clone() {
-            timeline_builder = timeline_builder.with_unable_to_decrypt_hook(utd_hook);
         }
 
         self.inner.init_timeline_with_builder(timeline_builder).map_err(RoomListError::from).await
