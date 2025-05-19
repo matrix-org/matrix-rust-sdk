@@ -7,10 +7,7 @@ use matrix_sdk_base::{
 };
 use matrix_sdk_sqlite::SqliteStateStore;
 use matrix_sdk_test::{event_factory::EventFactory, JoinedRoomBuilder, StateTestEvent};
-use matrix_sdk_ui::{
-    timeline::{TimelineBuilder, TimelineFocus},
-    Timeline,
-};
+use matrix_sdk_ui::timeline::{TimelineBuilder, TimelineFocus};
 use ruma::{
     api::client::membership::get_member_events,
     device_id,
