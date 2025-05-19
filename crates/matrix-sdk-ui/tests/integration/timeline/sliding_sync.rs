@@ -24,10 +24,7 @@ use matrix_sdk::{
     SlidingSyncListBuilder, SlidingSyncMode, UpdateSummary,
 };
 use matrix_sdk_test::{async_test, mocks::mock_encryption_state};
-use matrix_sdk_ui::{
-    timeline::{TimelineItem, TimelineItemKind},
-    Timeline,
-};
+use matrix_sdk_ui::timeline::{TimelineBuilder, TimelineItem, TimelineItemKind};
 use ruma::{room_id, user_id, RoomId};
 use serde_json::json;
 use wiremock::{http::Method, Match, Mock, MockServer, Request, ResponseTemplate};
@@ -411,7 +408,7 @@ async fn timeline_test_helper(
         anyhow::anyhow!("Room {room_id} not found in client. Can't provide a timeline for it")
     })?;
 
-    let timeline = Timeline::builder(&sdk_room).track_read_marker_and_receipts().build().await?;
+    let timeline = TimelineBuilder::new(&sdk_room).track_read_marker_and_receipts().build().await?;
 
     Ok(timeline.subscribe().await)
 }

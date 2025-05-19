@@ -24,7 +24,7 @@ use matrix_sdk_test::{
     async_test, event_factory::EventFactory, mocks::mock_encryption_state, JoinedRoomBuilder,
     SyncResponseBuilder, ALICE, BOB,
 };
-use matrix_sdk_ui::{timeline::TimelineFocus, Timeline};
+use matrix_sdk_ui::timeline::{TimelineBuilder, TimelineFocus};
 use ruma::{event_id, events::room::message::RoomMessageEventContent, room_id};
 use stream_assert::assert_pending;
 use tokio::time::sleep;
@@ -70,7 +70,7 @@ async fn test_new_focused() {
     mock_encryption_state(&server, false).await;
 
     let room = client.get_room(room_id).unwrap();
-    let timeline = Timeline::builder(&room)
+    let timeline = TimelineBuilder::new(&room)
         .with_focus(TimelineFocus::Event {
             target: target_event.to_owned(),
             num_context_events: 20,
@@ -218,7 +218,7 @@ async fn test_focused_timeline_does_not_react() {
     mock_encryption_state(&server, false).await;
 
     let room = client.get_room(room_id).unwrap();
-    let timeline = Timeline::builder(&room)
+    let timeline = TimelineBuilder::new(&room)
         .with_focus(TimelineFocus::Event {
             target: target_event.to_owned(),
             num_context_events: 20,
@@ -292,7 +292,7 @@ async fn test_focused_timeline_local_echoes() {
     mock_encryption_state(&server, false).await;
 
     let room = client.get_room(room_id).unwrap();
-    let timeline = Timeline::builder(&room)
+    let timeline = TimelineBuilder::new(&room)
         .with_focus(TimelineFocus::Event {
             target: target_event.to_owned(),
             num_context_events: 20,
@@ -371,7 +371,7 @@ async fn test_focused_timeline_doesnt_show_local_echoes() {
     mock_encryption_state(&server, false).await;
 
     let room = client.get_room(room_id).unwrap();
-    let timeline = Timeline::builder(&room)
+    let timeline = TimelineBuilder::new(&room)
         .with_focus(TimelineFocus::Event {
             target: target_event.to_owned(),
             num_context_events: 20,

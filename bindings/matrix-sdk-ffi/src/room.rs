@@ -12,7 +12,7 @@ use matrix_sdk::{
     ComposerDraft as SdkComposerDraft, ComposerDraftType as SdkComposerDraftType, EncryptionState,
     RoomHero as SdkRoomHero, RoomMemberships, RoomState,
 };
-use matrix_sdk_ui::timeline::{default_event_filter, RoomExt};
+use matrix_sdk_ui::timeline::{default_event_filter, RoomExt, TimelineBuilder};
 use mime::Mime;
 use ruma::{
     assign,
@@ -189,7 +189,7 @@ impl Room {
         &self,
         configuration: TimelineConfiguration,
     ) -> Result<Arc<Timeline>, ClientError> {
-        let mut builder = matrix_sdk_ui::timeline::Timeline::builder(&self.inner);
+        let mut builder = matrix_sdk_ui::timeline::TimelineBuilder::new(&self.inner);
 
         builder = builder
             .with_focus(configuration.focus.try_into()?)
