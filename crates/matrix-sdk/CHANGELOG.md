@@ -25,11 +25,14 @@ All notable changes to this project will be documented in this file.
 - `Room::set_unread_flag()` now sets the stable `m.marked_unread` room account data, which was
   stabilized in Matrix 1.12. `Room::is_marked_unread()` also ignores the unstable
   `com.famedly.marked_unread` room account data if the stable variant is present.
+  ([#5034](https://github.com/matrix-org/matrix-rust-sdk/pull/5034))
 - `Encryption::encrypt_and_send_raw_to_device`: Introduced as an experimental method for
   sending custom encrypted to-device events. This feature is gated behind the
   `experimental-send-custom-to-device` flag, as it remains under active development and may undergo changes.
   ([4998](https://github.com/matrix-org/matrix-rust-sdk/pull/4998))
-
+- `Room::send_single_receipt()` and `Room::send_multiple_receipts()` now also unset the unread
+  flag of the room if an unthreaded read receipt is sent.
+  ([#5055](https://github.com/matrix-org/matrix-rust-sdk/pull/5055))
 
 ### Bug fixes
 
