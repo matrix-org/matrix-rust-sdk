@@ -12,8 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::fmt;
-
 use ruma::{
     events::{
         AnyTimelineEvent, AnyToDeviceEvent, MessageLikeEventType, StateEventType, ToDeviceEventType,
@@ -144,17 +142,9 @@ impl ToDeviceEventFilter {
     pub fn new(event_type: ToDeviceEventType) -> Self {
         Self { event_type }
     }
-}
 
-impl ToDeviceEventFilter {
     fn matches(&self, filter_input: &FilterInput<'_>) -> bool {
         matches!(filter_input,FilterInput::ToDevice(f_in) if f_in.event_type == self.event_type.to_string())
-    }
-}
-
-impl fmt::Display for ToDeviceEventFilter {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.event_type)
     }
 }
 
