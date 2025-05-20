@@ -348,7 +348,7 @@ mod tests {
     #[cfg(feature = "e2e-encryption")]
     use super::processors::room::msc4186::cache_latest_events;
     use crate::{
-        rooms::{normal::RoomHero, RoomInfoNotableUpdateReasons},
+        rooms::{RoomHero, RoomInfoNotableUpdateReasons},
         store::{RoomLoadSettings, StoreConfig},
         test_utils::logged_in_base_client,
         BaseClient, EncryptionState, RequestedRequiredStates, RoomInfoNotableUpdate, RoomState,

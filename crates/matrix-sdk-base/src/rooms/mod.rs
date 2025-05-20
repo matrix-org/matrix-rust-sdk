@@ -14,16 +14,18 @@
 
 #![allow(clippy::assign_op_pattern)] // Triggered by bitflags! usage
 
+mod display_name;
 mod members;
 pub(crate) mod normal;
 mod room_info;
 
-use std::{fmt, hash::Hash};
+use std::hash::Hash;
 
 use bitflags::bitflags;
+pub use display_name::{RoomDisplayName, RoomHero};
+pub(crate) use display_name::{RoomSummary, UpdatedRoomDisplayName};
 pub use members::RoomMember;
-pub use normal::{EncryptionState, Room, RoomHero, RoomMembersUpdate, RoomState, RoomStateFilter};
-use regex::Regex;
+pub use normal::{EncryptionState, Room, RoomMembersUpdate, RoomState, RoomStateFilter};
 pub(crate) use room_info::SyncInfo;
 pub use room_info::{
     apply_redaction, BaseRoomInfo, RoomInfo, RoomInfoNotableUpdate, RoomInfoNotableUpdateReasons,
@@ -42,87 +44,6 @@ use ruma::{
     OwnedUserId, RoomVersionId,
 };
 use serde::{Deserialize, Serialize};
-
-/// The name of the room, either from the metadata or calculated
-/// according to [matrix specification](https://matrix.org/docs/spec/client_server/latest#calculating-the-display-name-for-a-room)
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
-pub enum RoomDisplayName {
-    /// The room has been named explicitly as
-    Named(String),
-    /// The room has a canonical alias that should be used
-    Aliased(String),
-    /// The room has not given an explicit name but a name could be
-    /// calculated
-    Calculated(String),
-    /// The room doesn't have a name right now, but used to have one
-    /// e.g. because it was a DM and everyone has left the room
-    EmptyWas(String),
-    /// No useful name could be calculated or ever found
-    Empty,
-}
-
-/// An internal representing whether a room display name is new or not when
-/// computed.
-pub(crate) enum UpdatedRoomDisplayName {
-    New(RoomDisplayName),
-    Same(RoomDisplayName),
-}
-
-impl UpdatedRoomDisplayName {
-    /// Get the inner [`RoomDisplayName`].
-    pub fn into_inner(self) -> RoomDisplayName {
-        match self {
-            UpdatedRoomDisplayName::New(room_display_name) => room_display_name,
-            UpdatedRoomDisplayName::Same(room_display_name) => room_display_name,
-        }
-    }
-}
-
-const WHITESPACE_REGEX: &str = r"\s+";
-const INVALID_SYMBOLS_REGEX: &str = r"[#,:\{\}\\]+";
-
-impl RoomDisplayName {
-    /// Transforms the current display name into the name part of a
-    /// `RoomAliasId`.
-    pub fn to_room_alias_name(&self) -> String {
-        let room_name = match self {
-            Self::Named(name) => name,
-            Self::Aliased(name) => name,
-            Self::Calculated(name) => name,
-            Self::EmptyWas(name) => name,
-            Self::Empty => "",
-        };
-
-        let whitespace_regex =
-            Regex::new(WHITESPACE_REGEX).expect("`WHITESPACE_REGEX` should be valid");
-        let symbol_regex =
-            Regex::new(INVALID_SYMBOLS_REGEX).expect("`INVALID_SYMBOLS_REGEX` should be valid");
-
-        // Replace whitespaces with `-`
-        let sanitised = whitespace_regex.replace_all(room_name, "-");
-        // Remove non-ASCII characters and ASCII control characters
-        let sanitised =
-            String::from_iter(sanitised.chars().filter(|c| c.is_ascii() && !c.is_ascii_control()));
-        // Remove other problematic ASCII symbols
-        let sanitised = symbol_regex.replace_all(&sanitised, "");
-        // Lowercased
-        sanitised.to_lowercase()
-    }
-}
-
-impl fmt::Display for RoomDisplayName {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            RoomDisplayName::Named(s)
-            | RoomDisplayName::Calculated(s)
-            | RoomDisplayName::Aliased(s) => {
-                write!(f, "{s}")
-            }
-            RoomDisplayName::EmptyWas(s) => write!(f, "Empty Room (was {s})"),
-            RoomDisplayName::Empty => write!(f, "Empty Room"),
-        }
-    }
-}
 
 bitflags! {
     /// Notable tags, i.e. subset of tags that we are more interested by.
