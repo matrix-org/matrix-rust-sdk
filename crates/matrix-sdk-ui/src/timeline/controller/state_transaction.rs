@@ -177,6 +177,159 @@ impl<'a> TimelineStateTransaction<'a> {
         self.check_invariants();
     }
 
+    async fn handle_remote_aggregation<RoomData>(
+        &mut self,
+        event: TimelineEvent,
+        position: TimelineItemPosition,
+        room_data_provider: &RoomData,
+        date_divider_adjuster: &mut DateDividerAdjuster,
+    ) where
+        RoomData: RoomDataProvider,
+    {
+        let deserialized = match event.raw().deserialize() {
+            Ok(deserialized) => deserialized,
+            Err(err) => {
+                warn!("Failed to deserialize timeline event: {err}");
+                return;
+            }
+        };
+
+        let sender = deserialized.sender().to_owned();
+        let timestamp = deserialized.origin_server_ts();
+        let event_id = deserialized.event_id().to_owned();
+        let txn_id = deserialized.transaction_id().map(ToOwned::to_owned);
+
+        if let Some(action @ TimelineAction::HandleAggregation { .. }) = TimelineAction::from_event(
+            deserialized,
+            event.raw(),
+            room_data_provider,
+            None,
+            &self.items,
+            &mut self.meta,
+        )
+        .await
+        {
+            let encryption_info = event.kind.encryption_info().cloned();
+
+            let sender_profile = room_data_provider.profile_from_user_id(&sender).await;
+
+            let ctx = TimelineEventContext {
+                sender,
+                sender_profile,
+                timestamp,
+                // These are not used when handling an aggregation.
+                read_receipts: Default::default(),
+                is_highlighted: false,
+                flow: Flow::Remote {
+                    event_id: event_id.clone(),
+                    raw_event: event.raw().clone(),
+                    encryption_info,
+                    txn_id,
+                    position,
+                },
+                // This field is not used when handling an aggregation.
+                should_add_new_items: false,
+            };
+
+            TimelineEventHandler::new(self, ctx).handle_event(date_divider_adjuster, action).await;
+        }
+    }
+
+    /// Handle a set of live remote aggregations on events as [`VectorDiff`]s.
+    ///
+    /// This is like `handle_remote_events`, with two key differences:
+    /// - it only applies to aggregated events, not all the sync events.
+    /// - it will also not add the events to the `all_remote_events` array
+    ///   itself.
+    pub(super) async fn handle_remote_aggregations<RoomData>(
+        &mut self,
+        diffs: Vec<VectorDiff<TimelineEvent>>,
+        origin: RemoteEventOrigin,
+        room_data_provider: &RoomData,
+        settings: &TimelineSettings,
+    ) where
+        RoomData: RoomDataProvider,
+    {
+        let mut date_divider_adjuster =
+            DateDividerAdjuster::new(settings.date_divider_mode.clone());
+
+        for diff in diffs {
+            match diff {
+                VectorDiff::Append { values: events } => {
+                    for event in events {
+                        self.handle_remote_aggregation(
+                            event,
+                            TimelineItemPosition::End { origin },
+                            room_data_provider,
+                            &mut date_divider_adjuster,
+                        )
+                        .await;
+                    }
+                }
+
+                VectorDiff::PushFront { value: event } => {
+                    self.handle_remote_aggregation(
+                        event,
+                        TimelineItemPosition::Start { origin },
+                        room_data_provider,
+                        &mut date_divider_adjuster,
+                    )
+                    .await;
+                }
+
+                VectorDiff::PushBack { value: event } => {
+                    self.handle_remote_aggregation(
+                        event,
+                        TimelineItemPosition::End { origin },
+                        room_data_provider,
+                        &mut date_divider_adjuster,
+                    )
+                    .await;
+                }
+
+                VectorDiff::Insert { index: event_index, value: event } => {
+                    self.handle_remote_aggregation(
+                        event,
+                        TimelineItemPosition::At { event_index, origin },
+                        room_data_provider,
+                        &mut date_divider_adjuster,
+                    )
+                    .await;
+                }
+
+                VectorDiff::Set { index: event_index, value: event } => {
+                    if let Some(timeline_item_index) = self
+                        .items
+                        .all_remote_events()
+                        .get(event_index)
+                        .and_then(|meta| meta.timeline_item_index)
+                    {
+                        self.handle_remote_aggregation(
+                            event,
+                            TimelineItemPosition::UpdateAt { timeline_item_index },
+                            room_data_provider,
+                            &mut date_divider_adjuster,
+                        )
+                        .await;
+                    } else {
+                        warn!(event_index, "Set update dropped because there wasn't any attached timeline item index.");
+                    }
+                }
+
+                VectorDiff::Remove { .. } | VectorDiff::Clear => {
+                    // Do nothing. An aggregated redaction comes with a
+                    // redaction event, or as a redacted event in the first
+                    // place.
+                }
+
+                v => unimplemented!("{v:?}"),
+            }
+        }
+
+        self.adjust_date_dividers(date_divider_adjuster);
+        self.check_invariants();
+    }
+
     fn check_invariants(&self) {
         self.check_no_duplicate_read_receipts();
         self.check_no_unused_unique_ids();

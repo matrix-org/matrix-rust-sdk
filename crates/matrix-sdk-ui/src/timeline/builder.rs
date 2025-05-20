@@ -392,26 +392,22 @@ async fn room_event_cache_updates_task(
 
             RoomEventCacheUpdate::UpdateTimelineEvents { diffs, origin } => {
                 trace!("Received new timeline events diffs");
+                let origin = match origin {
+                    EventsOrigin::Sync => RemoteEventOrigin::Sync,
+                    EventsOrigin::Pagination => RemoteEventOrigin::Pagination,
+                    EventsOrigin::Cache => RemoteEventOrigin::Cache,
+                };
 
-                // We shouldn't use the general way of adding events to timelines to
-                // non-live timelines, such as pinned events or focused timeline.
-                // These timelines should handle any live updates by themselves.
-                if !is_live {
-                    continue;
+                let has_diffs = !diffs.is_empty();
+
+                if is_live {
+                    timeline_controller.handle_remote_events_with_diffs(diffs, origin).await;
+                } else {
+                    // Only handle the remote aggregation for a non-live timeline.
+                    timeline_controller.handle_remote_aggregations(diffs, origin).await;
                 }
 
-                timeline_controller
-                    .handle_remote_events_with_diffs(
-                        diffs,
-                        match origin {
-                            EventsOrigin::Sync => RemoteEventOrigin::Sync,
-                            EventsOrigin::Pagination => RemoteEventOrigin::Pagination,
-                            EventsOrigin::Cache => RemoteEventOrigin::Cache,
-                        },
-                    )
-                    .await;
-
-                if matches!(origin, EventsOrigin::Cache) {
+                if has_diffs && matches!(origin, RemoteEventOrigin::Cache) {
                     timeline_controller.retry_event_decryption(None).await;
                 }
             }

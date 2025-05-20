@@ -91,6 +91,25 @@ impl TimelineState {
         transaction.commit();
     }
 
+    /// Handle remote aggregations on events as [`VectorDiff`]s.
+    pub(super) async fn handle_remote_aggregations<RoomData>(
+        &mut self,
+        diffs: Vec<VectorDiff<TimelineEvent>>,
+        origin: RemoteEventOrigin,
+        room_data: &RoomData,
+        settings: &TimelineSettings,
+    ) where
+        RoomData: RoomDataProvider,
+    {
+        if diffs.is_empty() {
+            return;
+        }
+
+        let mut transaction = self.transaction();
+        transaction.handle_remote_aggregations(diffs, origin, room_data, settings).await;
+        transaction.commit();
+    }
+
     /// Marks the given event as fully read, using the read marker received from
     /// sync.
     pub(super) fn handle_fully_read_marker(&mut self, fully_read_event_id: OwnedEventId) {

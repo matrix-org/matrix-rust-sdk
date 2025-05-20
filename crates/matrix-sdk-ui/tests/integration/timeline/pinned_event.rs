@@ -440,7 +440,7 @@ async fn test_pinned_timeline_with_pinned_utd_on_sync_contains_it() {
 }
 
 #[async_test]
-async fn test_edited_events_are_not_reflected_in_sync() {
+async fn test_edited_events_are_reflected_in_sync() {
     let server = MatrixMockServer::new().await;
     let client = server.client_builder().build().await;
     let room_id = room_id!("!test:localhost");
@@ -452,11 +452,11 @@ async fn test_edited_events_are_not_reflected_in_sync() {
         .server_ts(MilliSecondsSinceUnixEpoch::now())
         .into_raw_sync();
 
-    // Mock /event for some timeline events
+    // Mock /event for some timeline events.
     mock_events_endpoint(&server, room_id, vec![pinned_event]).await;
 
     // Load initial timeline items: a text message and a `m.room.pinned_events` with
-    // event $1
+    // event $1.
     let room = PinnedEventsSync::new(room_id)
         .with_pinned_event_ids(vec!["$1"])
         .mock_and_sync(&client, &server)
@@ -470,7 +470,7 @@ async fn test_edited_events_are_not_reflected_in_sync() {
         "there should be no live back-pagination status for a focused timeline"
     );
 
-    // Load timeline items
+    // Load timeline items.
     let (items, mut timeline_stream) = timeline.subscribe().await;
 
     assert_eq!(items.len(), 1 + 1); // event item + a date divider
@@ -479,31 +479,40 @@ async fn test_edited_events_are_not_reflected_in_sync() {
     assert_pending!(timeline_stream);
 
     let edited_event = f
-        .text_msg("edited message!")
+        .text_msg("* edited message!")
         .edit(
             event_id!("$1"),
-            RoomMessageEventContentWithoutRelation::text_plain("* edited message!"),
+            RoomMessageEventContentWithoutRelation::text_plain("edited message!"),
         )
         .event_id(event_id!("$2"))
         .server_ts(MilliSecondsSinceUnixEpoch::now())
         .into_raw_sync();
 
-    // Mock /event for some timeline events
+    // Mock /event for some timeline events.
     mock_events_endpoint(&server, room_id, vec![edited_event.clone()]).await;
 
-    // Load new pinned event contents from sync, where $2 is and edit on $1
+    // Load new pinned event contents from sync, where $2 is and edit on $1.
     let _ = PinnedEventsSync::new(room_id)
         .with_timeline_events(vec![edited_event])
         .mock_and_sync(&client, &server)
         .await
         .expect("Sync failed");
 
-    // The edit does not replace the original event
+    assert_let!(Some(timeline_updates) = timeline_stream.next().await);
+    assert_eq!(timeline_updates.len(), 1);
+
+    // The edit does replace the original event.
+    assert_let!(VectorDiff::Set { index: 1, value } = &timeline_updates[0]);
+    let event = value.as_event().unwrap();
+    assert_eq!(event.event_id().unwrap(), event_id!("$1"));
+    assert_eq!(event.content().as_message().unwrap().body(), "edited message!");
+
+    // That's all, folks!
     assert_pending!(timeline_stream);
 }
 
 #[async_test]
-async fn test_redacted_events_are_not_reflected_in_sync() {
+async fn test_redacted_events_are_reflected_in_sync() {
     let server = MatrixMockServer::new().await;
     let client = server.client_builder().build().await;
     let room_id = room_id!("!test:localhost");
@@ -557,7 +566,15 @@ async fn test_redacted_events_are_not_reflected_in_sync() {
         .await
         .expect("Sync failed");
 
-    // The redaction does not replace the original event
+    assert_let!(Some(timeline_updates) = timeline_stream.next().await);
+    assert_eq!(timeline_updates.len(), 1);
+
+    // The redaction takes place.
+    assert_let!(VectorDiff::Set { index: 1, value } = &timeline_updates[0]);
+    let event = value.as_event().unwrap();
+    assert!(event.content().is_redacted());
+
+    // That's all, folks!
     assert_pending!(timeline_stream);
 }
 

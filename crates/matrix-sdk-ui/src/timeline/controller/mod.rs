@@ -753,6 +753,22 @@ impl<P: RoomDataProvider, D: Decryptor> TimelineController<P, D> {
             .await
     }
 
+    /// Only handle aggregations received as [`VectorDiff`]s.
+    pub(super) async fn handle_remote_aggregations(
+        &self,
+        diffs: Vec<VectorDiff<TimelineEvent>>,
+        origin: RemoteEventOrigin,
+    ) {
+        if diffs.is_empty() {
+            return;
+        }
+
+        let mut state = self.state.write().await;
+        state
+            .handle_remote_aggregations(diffs, origin, &self.room_data_provider, &self.settings)
+            .await
+    }
+
     pub(super) async fn clear(&self) {
         self.state.write().await.clear();
     }

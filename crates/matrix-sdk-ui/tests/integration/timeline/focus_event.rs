@@ -185,7 +185,7 @@ async fn test_new_focused() {
 }
 
 #[async_test]
-async fn test_focused_timeline_does_not_react() {
+async fn test_live_aggregations_are_reflected_on_focused_timelines() {
     let room_id = room_id!("!a98sd12bjh:example.org");
     let (client, server) = logged_in_client_with_server().await;
     let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
@@ -254,8 +254,16 @@ async fn test_focused_timeline_does_not_react() {
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
     server.reset().await;
 
-    // Nothing was received by the focused event timeline
-    assert_pending!(timeline_stream);
+    // We only receive one updated for the reaction, from the timeline stream.
+    assert_let!(Some(timeline_updates) = timeline_stream.next().await);
+    assert_eq!(timeline_updates.len(), 1);
+    assert_let!(VectorDiff::Set { index: 1, value: item } = &timeline_updates[0]);
+
+    let event_item = item.as_event().unwrap();
+    assert_eq!(event_item.content().as_message().unwrap().body(), "yolo");
+    let reactions = event_item.content().reactions().cloned().unwrap_or_default();
+    assert_eq!(reactions.len(), 1);
+    let _ = reactions["👍"][*BOB];
 }
 
 #[async_test]
