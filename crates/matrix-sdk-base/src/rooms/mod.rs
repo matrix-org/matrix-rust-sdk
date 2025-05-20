@@ -15,6 +15,7 @@
 #![allow(clippy::assign_op_pattern)] // Triggered by bitflags! usage
 
 mod display_name;
+mod encryption;
 mod members;
 pub(crate) mod normal;
 mod room_info;
@@ -24,8 +25,9 @@ use std::hash::Hash;
 use bitflags::bitflags;
 pub use display_name::{RoomDisplayName, RoomHero};
 pub(crate) use display_name::{RoomSummary, UpdatedRoomDisplayName};
+pub use encryption::EncryptionState;
 pub use members::RoomMember;
-pub use normal::{EncryptionState, Room, RoomMembersUpdate, RoomState, RoomStateFilter};
+pub use normal::{Room, RoomMembersUpdate, RoomState, RoomStateFilter};
 pub(crate) use room_info::SyncInfo;
 pub use room_info::{
     apply_redaction, BaseRoomInfo, RoomInfo, RoomInfoNotableUpdate, RoomInfoNotableUpdateReasons,
