@@ -123,6 +123,13 @@ pub(crate) enum AggregationKind {
     /// An event has been redacted.
     Redaction,
 
+    /// An event has been edited.
+    ///
+    /// Note that edits can't be applied in isolation; we need to identify what
+    /// the *latest* edit is, based on the event ordering. As such, they're
+    /// handled exceptionally in `Aggregation::apply` and
+    /// `Aggregation::unapply`, and the callers have the responsibility of
+    /// considering all the edits and applying only the right one.
     Edit(PendingEdit),
 }
 
@@ -215,20 +222,20 @@ impl Aggregation {
 
             AggregationKind::Reaction { key, sender, timestamp, reaction_status } => {
                 let Some(reactions) = event.content().reactions() else {
-                    // These items don't hold reactions.
+                    // An item that can't hold any reactions.
                     return ApplyAggregationResult::LeftItemIntact;
                 };
 
-                let mut reactions = reactions.clone();
-                let previous_reaction = reactions.entry(key.clone()).or_default().insert(
-                    sender.clone(),
-                    ReactionInfo { timestamp: *timestamp, status: reaction_status.clone() },
-                );
+                let previous_reaction = reactions.get(key).and_then(|by_user| by_user.get(sender));
+
+                // If the reaction was already added to the item, we don't need to add it back.
+                //
+                // Search for a previous reaction that would be equivalent.
 
                 let is_same = previous_reaction.is_some_and(|prev| {
                     prev.timestamp == *timestamp
                         && matches!(
-                            (prev.status, reaction_status),
+                            (&prev.status, reaction_status),
                             (ReactionStatus::LocalToLocal(_), ReactionStatus::LocalToLocal(_))
                                 | (
                                     ReactionStatus::LocalToRemote(_),
@@ -244,9 +251,17 @@ impl Aggregation {
                 if is_same {
                     ApplyAggregationResult::LeftItemIntact
                 } else {
-                    if let Some(reactions_mut) = event.to_mut().content_mut().reactions_mut() {
-                        *reactions_mut = reactions;
-                    }
+                    let reactions = event
+                        .to_mut()
+                        .content_mut()
+                        .reactions_mut()
+                        .expect("reactions was Some above");
+
+                    reactions.entry(key.clone()).or_default().insert(
+                        sender.clone(),
+                        ReactionInfo { timestamp: *timestamp, status: reaction_status.clone() },
+                    );
+
                     ApplyAggregationResult::UpdatedItem
                 }
             }
@@ -289,26 +304,30 @@ impl Aggregation {
 
             AggregationKind::Reaction { key, sender, .. } => {
                 let Some(reactions) = event.content().reactions() else {
-                    // An item that doesn't hold any reactions.
+                    // An item that can't hold any reactions.
                     return ApplyAggregationResult::LeftItemIntact;
                 };
 
-                let mut reactions = reactions.clone();
-                let by_user = reactions.get_mut(key);
-                let previous_entry = if let Some(by_user) = by_user {
-                    let prev = by_user.swap_remove(sender);
-                    // If this was the last reaction, remove the entire map for this key.
-                    if by_user.is_empty() {
-                        reactions.swap_remove(key);
-                    }
-                    prev
-                } else {
-                    None
-                };
+                // We only need to remove the previous reaction if it was there.
+                //
+                // Search for it.
 
-                if previous_entry.is_some() {
-                    if let Some(reactions_mut) = event.to_mut().content_mut().reactions_mut() {
-                        *reactions_mut = reactions;
+                let had_entry =
+                    reactions.get(key).and_then(|by_user| by_user.get(sender)).is_some();
+
+                if had_entry {
+                    let reactions = event
+                        .to_mut()
+                        .content_mut()
+                        .reactions_mut()
+                        .expect("reactions was some above");
+                    let by_user = reactions.get_mut(key);
+                    if let Some(by_user) = by_user {
+                        by_user.swap_remove(sender);
+                        // If this was the last reaction, remove the entire map for this key.
+                        if by_user.is_empty() {
+                            reactions.swap_remove(key);
+                        }
                     }
                     ApplyAggregationResult::UpdatedItem
                 } else {
@@ -558,6 +577,8 @@ impl Aggregations {
 
 /// Look at all the edits of a given event, and apply the most recent one, if
 /// found.
+///
+/// Returns true if an edit was found and applied, false otherwise.
 fn resolve_edits(
     aggregations: &[Aggregation],
     items: &ObservableItemsTransaction<'_>,
@@ -616,7 +637,7 @@ fn resolve_edits(
     }
 }
 
-/// Apply the selected edit to the given EventTimelineItem
+/// Apply the selected edit to the given EventTimelineItem.
 fn edit_item(item: &mut Cow<'_, EventTimelineItem>, edit: PendingEdit) -> bool {
     let PendingEdit { kind: edit_kind, edit_json, encryption_info } = edit;
 
