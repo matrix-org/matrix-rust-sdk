@@ -41,7 +41,7 @@ use self::{
     openid::{OpenIdResponse, OpenIdState},
     pending::{PendingRequests, RequestLimits},
     to_widget::{
-        NotifyCapabilitiesChanged, NotifyNewMatrixEvent, NotifyNewToDeviceEvent,
+        NotifyCapabilitiesChanged, NotifyNewMatrixEvent, NotifyNewToDeviceMessage,
         NotifyOpenIdChanged, RequestCapabilities, ToWidgetRequest, ToWidgetRequestHandle,
         ToWidgetResponse,
     },
@@ -191,7 +191,7 @@ impl WidgetMachine {
                 capabilities
                     .allow_reading(&to_device_raw)
                     .then(|| {
-                        self.send_to_widget_request(NotifyNewToDeviceEvent(to_device_raw))
+                        self.send_to_widget_request(NotifyNewToDeviceMessage(to_device_raw))
                             .map(|(_request, action)| vec![action])
                             .unwrap_or_default()
                     })

@@ -128,13 +128,13 @@ impl ToWidgetRequest for NotifyNewMatrixEvent {
 #[derive(Deserialize)]
 pub(crate) struct Empty {}
 
-/// Notify the widget that we received a new matrix to device event.
-/// This is a "response" to the widget subscribing to the events in the room.
+/// Notify the widget that we received a new Matrix to-device message.
+/// This is a "response" to the widget subscribing to the to-device messages.
 #[derive(Serialize)]
 #[serde(transparent)]
-pub(crate) struct NotifyNewToDeviceEvent(pub(crate) Raw<AnyToDeviceEvent>);
+pub(crate) struct NotifyNewToDeviceMessage(pub(crate) Raw<AnyToDeviceEvent>);
 
-impl ToWidgetRequest for NotifyNewToDeviceEvent {
+impl ToWidgetRequest for NotifyNewToDeviceMessage {
     const ACTION: &'static str = "send_to_device";
     type ResponseData = Empty;
 }
