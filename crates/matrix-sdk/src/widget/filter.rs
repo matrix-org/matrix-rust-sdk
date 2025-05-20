@@ -159,9 +159,9 @@ pub enum FilterInput<'a> {
     // The order is important.
     // We first need to check if we can deserialize as a state (state_key exists)
     State(FilterInputState<'a>),
-    // only then we can check if we can deserialize as a message like.
+    // only then we can check if we can deserialize as a message-like.
     MessageLike(FilterInputMessageLike<'a>),
-    // ToDevice will need to be done explicitly since it looks the same as a message like.
+    // ToDevice will need to be done explicitly since it looks the same as a message-like.
     ToDevice(FilterInputToDevice<'a>),
 }
 
@@ -219,7 +219,7 @@ impl<'a> TryFrom<&'a Raw<AnyTimelineEvent>> for FilterInput<'a> {
 
     fn try_from(raw_event: &'a Raw<AnyTimelineEvent>) -> Result<Self, Self::Error> {
         // FilterInput first checks if it can deserialize as a state event (state_key
-        // exists) and then as a message like event.
+        // exists) and then as a message-like event.
         raw_event.deserialize_as()
     }
 }

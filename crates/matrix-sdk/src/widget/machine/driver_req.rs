@@ -57,7 +57,7 @@ pub(crate) enum MatrixDriverRequestData {
     /// Send matrix event that corresponds to the given description.
     SendMatrixEvent(SendEventRequest),
 
-    /// Send matrix event that corresponds to the given description.
+    /// Send a to-device message over the Matrix homeserver.
     SendToDeviceEvent(SendToDeviceRequest),
 
     /// Data for sending a UpdateDelayedEvent client server api request.
@@ -261,18 +261,18 @@ impl FromMatrixDriverResponse for SendEventResponse {
     }
 }
 
-/// Ask the client to send matrix event that corresponds to the given
-/// description and returns an event ID (or a delay ID,
-/// see [MSC4140](https://github.com/matrix-org/matrix-spec-proposals/pull/4140)) as a response.
+/// Ask the client to send a to-device message that corresponds to the given
+/// description.
 #[derive(Clone, Debug, Deserialize)]
 pub(crate) struct SendToDeviceRequest {
-    /// The type of the event.
+    /// The type of the to-device message.
     #[serde(rename = "type")]
     pub(crate) event_type: String,
-    // If the to_device message should be encrypted or not.
+    /// If the to-device message should be encrypted or not.
+    /// TODO: As per MSC 3819 should default to true
     pub(crate) encrypted: bool,
-    /// The messages that will be encrypted (per device) and sent.
-    /// They are organized in a map of user_id -> device_id -> content like the
+    /// The messages to be sent.
+    /// They are organized in a map of user ID -> device ID -> content like the
     /// cs api request.
     pub(crate) messages:
         BTreeMap<OwnedUserId, BTreeMap<DeviceIdOrAllDevices, Raw<AnyToDeviceEventContent>>>,
