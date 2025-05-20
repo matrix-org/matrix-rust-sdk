@@ -166,7 +166,6 @@ impl From<PushFormat> for RumaPushFormat {
 #[matrix_sdk_ffi_macros::export(callback_interface)]
 pub trait ClientDelegate: Sync + Send {
     fn did_receive_auth_error(&self, is_soft_logout: bool);
-    fn did_refresh_tokens(&self);
 }
 
 #[matrix_sdk_ffi_macros::export(callback_interface)]
@@ -1492,9 +1491,7 @@ impl Client {
                 SessionChange::UnknownToken { soft_logout } => {
                     delegate.did_receive_auth_error(soft_logout);
                 }
-                SessionChange::TokensRefreshed => {
-                    delegate.did_refresh_tokens();
-                }
+                SessionChange::TokensRefreshed => {}
             });
         } else {
             debug!(
