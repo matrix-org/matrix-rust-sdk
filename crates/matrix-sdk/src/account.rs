@@ -1064,7 +1064,11 @@ impl Account {
         Ok((initial_value, result_stream))
     }
 
-    async fn get_media_preview_config_event_content(
+    /// Get the media preview configuration event content from the server.
+    ///
+    /// If no value was found in either the stable and unstable type, the default
+    /// configuration will be returned.
+    pub async fn get_media_preview_config_event_content(
         &self,
     ) -> Result<MediaPreviewConfigEventContent> {
         // First we check if there is avalue in the stable event

@@ -1033,7 +1033,7 @@ impl MatrixMockServer {
     ///
     /// mock_server.mock_global_account_data().ok(
     ///     client.user_id().unwrap(),
-    ///     ruma::events::GlobalAccountDataEventType::UnstableMediaPreviewConfig,
+    ///     ruma::events::GlobalAccountDataEventType::MediaPreviewConfig,
     ///     json!({
     ///         "media_previews": "private",
     ///         "invite_avatars": "off"
@@ -1043,7 +1043,7 @@ impl MatrixMockServer {
     /// .mount()
     /// .await;
     ///
-    /// client.account().set_media_previews_display_policy(MediaPreviews::Private).await.unwrap();
+    /// client.account().get_media_preview_config_event_content().await.unwrap();
     ///
     /// # anyhow::Ok(()) });
     /// ```
