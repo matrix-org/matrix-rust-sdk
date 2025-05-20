@@ -17,7 +17,6 @@ use ruma::{
     api::client::{
         delayed_events::{delayed_message_event, delayed_state_event, update_delayed_event},
         error::{ErrorBody, StandardErrorBody},
-        to_device::send_event_to_device,
     },
     events::AnyTimelineEvent,
     serde::Raw,
@@ -250,9 +249,3 @@ impl From<update_delayed_event::unstable::Response> for UpdateDelayedEventRespon
 /// serializes to `{}` instead of `Null` when returned to the widget as json.
 #[derive(Serialize, Debug)]
 pub(crate) struct SendToDeviceEventResponse {}
-
-impl From<send_event_to_device::v3::Response> for SendToDeviceEventResponse {
-    fn from(_: send_event_to_device::v3::Response) -> Self {
-        Self {}
-    }
-}

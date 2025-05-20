@@ -484,7 +484,7 @@ impl WidgetMachine {
             vec![Self::send_from_widget_response(
                 raw_request,
                 result
-                    .map(Into::<SendToDeviceEventResponse>::into)
+                    .map(|_| SendToDeviceEventResponse {})
                     .map_err(FromWidgetErrorResponse::from_error),
             )]
         });
