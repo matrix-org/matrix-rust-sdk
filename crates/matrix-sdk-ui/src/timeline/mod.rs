@@ -691,7 +691,13 @@ impl Timeline {
 
     /// Create a [`RepliedToEvent`] from an arbitrary event, be it in the
     /// timeline or not.
-    pub async fn make_replied_to(&self, event: TimelineEvent) -> Result<RepliedToEvent, Error> {
+    ///
+    /// Can be `None` if the event cannot be represented as a standalone item,
+    /// because it's an aggregation.
+    pub async fn make_replied_to(
+        &self,
+        event: TimelineEvent,
+    ) -> Result<Option<RepliedToEvent>, Error> {
         self.controller.make_replied_to(event).await
     }
 }
