@@ -176,20 +176,49 @@ async fn test_unban_user() {
 async fn test_mark_as_unread() {
     let server = MatrixMockServer::new().await;
     let client = server.client_builder().build().await;
-
-    server
-        .mock_set_room_account_data(RoomAccountDataEventType::MarkedUnread)
-        .ok()
-        .expect(2)
-        .mount()
-        .await;
+    let room_id = room_id!("!test:example.org");
 
     // Initial sync with our test room.
-    let room = server.sync_joined_room(&client, room_id!("!test:example.org")).await;
+    let room = server.sync_joined_room(&client, room_id).await;
+    assert!(!room.is_marked_unread());
 
-    room.set_unread_flag(true).await.unwrap();
+    // Setting the room as unread makes a request.
+    {
+        let _guard = server
+            .mock_set_room_account_data(RoomAccountDataEventType::MarkedUnread)
+            .ok()
+            .expect(1)
+            .mount_as_scoped()
+            .await;
+        room.set_unread_flag(true).await.unwrap();
+    }
 
+    // Unsetting the room as unread is a no-op.
     room.set_unread_flag(false).await.unwrap();
+
+    // Now we mark the room as unread.
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id)
+                .add_account_data(RoomAccountDataTestEvent::MarkedUnread),
+        )
+        .await;
+    assert!(room.is_marked_unread());
+
+    // Unsetting the room as unread makes a request.
+    {
+        let _guard = server
+            .mock_set_room_account_data(RoomAccountDataEventType::MarkedUnread)
+            .ok()
+            .expect(1)
+            .mount_as_scoped()
+            .await;
+        room.set_unread_flag(false).await.unwrap();
+    }
+
+    // Setting the room as unread is a no-op.
+    room.set_unread_flag(true).await.unwrap();
 }
 
 #[async_test]

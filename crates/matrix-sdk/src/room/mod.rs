@@ -1626,8 +1626,7 @@ impl Room {
             .read_receipt_deduplicated_handler
             .run((request_key, event_id.clone()), async {
                 // We will unset the unread flag if we send an unthreaded receipt.
-                let unset_unread_flag =
-                    thread == ReceiptThread::Unthreaded && self.is_marked_unread();
+                let is_unthreaded = thread == ReceiptThread::Unthreaded;
 
                 let mut request = create_receipt::v3::Request::new(
                     self.room_id().to_owned(),
@@ -1638,7 +1637,7 @@ impl Room {
 
                 self.client.send(request).await?;
 
-                if unset_unread_flag {
+                if is_unthreaded {
                     self.set_unread_flag(false).await?;
                 }
 
@@ -1671,9 +1670,7 @@ impl Room {
 
         self.client.send(request).await?;
 
-        if self.is_marked_unread() {
-            self.set_unread_flag(false).await?;
-        }
+        self.set_unread_flag(false).await?;
 
         Ok(())
     }
@@ -3165,7 +3162,15 @@ impl Room {
 
     /// Set a flag on the room to indicate that the user has explicitly marked
     /// it as (un)read.
+    ///
+    /// This is a no-op if [`Room::is_marked_unread()`] returns the same value
+    /// as `unread`.
     pub async fn set_unread_flag(&self, unread: bool) -> Result<()> {
+        if self.is_marked_unread() == unread {
+            // The request is not necessary.
+            return Ok(());
+        }
+
         let user_id = self.client.user_id().ok_or(Error::AuthenticationRequired)?;
 
         let content = MarkedUnreadEventContent::new(unread);
