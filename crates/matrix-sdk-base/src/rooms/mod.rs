@@ -16,6 +16,7 @@
 
 mod display_name;
 mod encryption;
+mod latest_event;
 mod members;
 pub(crate) mod normal;
 mod room_info;
