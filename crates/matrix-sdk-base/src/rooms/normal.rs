@@ -15,8 +15,7 @@
 #[cfg(feature = "e2e-encryption")]
 use std::sync::RwLock as SyncRwLock;
 use std::{
-    collections::{BTreeMap, BTreeSet, HashSet},
-    mem,
+    collections::{BTreeMap, HashSet},
     sync::Arc,
 };
 
@@ -31,7 +30,6 @@ use ruma::{events::AnySyncTimelineEvent, serde::Raw};
 use ruma::{
     events::{
         direct::OwnedDirectUserIdentifier,
-        ignored_user_list::IgnoredUserListEventContent,
         member_hints::MemberHintsEventContent,
         receipt::{Receipt, ReceiptThread, ReceiptType},
         room::{
@@ -50,14 +48,14 @@ use ruma::{
 };
 use serde::{Deserialize, Serialize};
 use tokio::sync::broadcast;
-use tracing::{debug, info, instrument, warn};
+use tracing::{info, instrument, warn};
 
 use super::{
-    members::MemberRoomInfo, RoomCreateWithCreatorEventContent, RoomHero, RoomInfo,
-    RoomInfoNotableUpdate, RoomInfoNotableUpdateReasons, RoomMember, SyncInfo,
+    RoomCreateWithCreatorEventContent, RoomHero, RoomInfo, RoomInfoNotableUpdate,
+    RoomInfoNotableUpdateReasons, RoomMembersUpdate, SyncInfo,
 };
 use crate::{
-    deserialized_responses::{DisplayName, MemberEvent, RawMemberEvent, SyncOrStrippedState},
+    deserialized_responses::{MemberEvent, RawMemberEvent, SyncOrStrippedState},
     latest_event::LatestEvent,
     notification_settings::RoomNotificationMode,
     read_receipts::RoomReadReceipts,
@@ -129,15 +127,6 @@ impl From<&MembershipState> for RoomState {
             _ => panic!("Unexpected MembershipState: {}", membership_state),
         }
     }
-}
-
-/// The kind of room member updates that just happened.
-#[derive(Debug, Clone)]
-pub enum RoomMembersUpdate {
-    /// The whole list room members was reloaded.
-    FullReload,
-    /// A few members were updated, their user ids are included.
-    Partial(BTreeSet<OwnedUserId>),
 }
 
 impl Room {
@@ -242,35 +231,6 @@ impl Room {
     /// encrypted rooms.
     pub fn num_unread_mentions(&self) -> u64 {
         self.inner.read().read_receipts.num_mentions
-    }
-
-    /// Check if the room has its members fully synced.
-    ///
-    /// Members might be missing if lazy member loading was enabled for the
-    /// sync.
-    ///
-    /// Returns true if no members are missing, false otherwise.
-    pub fn are_members_synced(&self) -> bool {
-        self.inner.read().members_synced
-    }
-
-    /// Mark this Room as holding all member information.
-    ///
-    /// Useful in tests if we want to persuade the Room not to sync when asked
-    /// about its members.
-    #[cfg(feature = "testing")]
-    pub fn mark_members_synced(&self) {
-        self.inner.update(|info| {
-            info.members_synced = true;
-        });
-    }
-
-    /// Mark this Room as still missing member information.
-    pub fn mark_members_missing(&self) {
-        self.inner.update_if(|info| {
-            // notify observable subscribers only if the previous value was false
-            mem::replace(&mut info.members_synced, false)
-        })
     }
 
     /// Check if the room states have been synced
@@ -566,133 +526,9 @@ impl Room {
         self.store.get_user_ids(self.room_id(), RoomMemberships::JOIN).await
     }
 
-    /// Get the `RoomMember`s of this room that are known to the store, with the
-    /// given memberships.
-    pub async fn members(&self, memberships: RoomMemberships) -> StoreResult<Vec<RoomMember>> {
-        let user_ids = self.store.get_user_ids(self.room_id(), memberships).await?;
-
-        if user_ids.is_empty() {
-            return Ok(Vec::new());
-        }
-
-        let member_events = self
-            .store
-            .get_state_events_for_keys_static::<RoomMemberEventContent, _, _>(
-                self.room_id(),
-                &user_ids,
-            )
-            .await?
-            .into_iter()
-            .map(|raw_event| raw_event.deserialize())
-            .collect::<Result<Vec<_>, _>>()?;
-
-        let mut profiles = self.store.get_profiles(self.room_id(), &user_ids).await?;
-
-        let mut presences = self
-            .store
-            .get_presence_events(&user_ids)
-            .await?
-            .into_iter()
-            .filter_map(|e| {
-                e.deserialize().ok().map(|presence| (presence.sender.clone(), presence))
-            })
-            .collect::<BTreeMap<_, _>>();
-
-        let display_names = member_events.iter().map(|e| e.display_name()).collect::<Vec<_>>();
-        let room_info = self.member_room_info(&display_names).await?;
-
-        let mut members = Vec::new();
-
-        for event in member_events {
-            let profile = profiles.remove(event.user_id());
-            let presence = presences.remove(event.user_id());
-            members.push(RoomMember::from_parts(event, profile, presence, &room_info))
-        }
-
-        Ok(members)
-    }
-
     /// Get the heroes for this room.
     pub fn heroes(&self) -> Vec<RoomHero> {
         self.inner.read().heroes().to_vec()
-    }
-
-    /// Returns the number of members who have joined or been invited to the
-    /// room.
-    pub fn active_members_count(&self) -> u64 {
-        self.inner.read().active_members_count()
-    }
-
-    /// Returns the number of members who have been invited to the room.
-    pub fn invited_members_count(&self) -> u64 {
-        self.inner.read().invited_members_count()
-    }
-
-    /// Returns the number of members who have joined the room.
-    pub fn joined_members_count(&self) -> u64 {
-        self.inner.read().joined_members_count()
-    }
-
-    /// Get the `RoomMember` with the given `user_id`.
-    ///
-    /// Returns `None` if the member was never part of this room, otherwise
-    /// return a `RoomMember` that can be in a joined, RoomState::Invited, left,
-    /// banned state.
-    ///
-    /// Async because it can read from storage.
-    pub async fn get_member(&self, user_id: &UserId) -> StoreResult<Option<RoomMember>> {
-        let Some(raw_event) = self.store.get_member_event(self.room_id(), user_id).await? else {
-            debug!(%user_id, "Member event not found in state store");
-            return Ok(None);
-        };
-
-        let event = raw_event.deserialize()?;
-
-        let presence =
-            self.store.get_presence_event(user_id).await?.and_then(|e| e.deserialize().ok());
-
-        let profile = self.store.get_profile(self.room_id(), user_id).await?;
-
-        let display_names = [event.display_name()];
-        let room_info = self.member_room_info(&display_names).await?;
-
-        Ok(Some(RoomMember::from_parts(event, profile, presence, &room_info)))
-    }
-
-    /// The current `MemberRoomInfo` for this room.
-    ///
-    /// Async because it can read from storage.
-    async fn member_room_info<'a>(
-        &self,
-        display_names: &'a [DisplayName],
-    ) -> StoreResult<MemberRoomInfo<'a>> {
-        let max_power_level = self.max_power_level();
-        let room_creator = self.inner.read().creator().map(ToOwned::to_owned);
-
-        let power_levels = self
-            .store
-            .get_state_event_static(self.room_id())
-            .await?
-            .and_then(|e| e.deserialize().ok());
-
-        let users_display_names =
-            self.store.get_users_with_display_names(self.room_id(), display_names).await?;
-
-        let ignored_users = self
-            .store
-            .get_account_data_event_static::<IgnoredUserListEventContent>()
-            .await?
-            .map(|c| c.deserialize())
-            .transpose()?
-            .map(|e| e.content.ignored_users.into_keys().collect());
-
-        Ok(MemberRoomInfo {
-            power_levels: power_levels.into(),
-            max_power_level,
-            room_creator,
-            users_display_names,
-            ignored_users,
-        })
     }
 
     /// Get the receipt as an `OwnedEventId` and `Receipt` tuple for the given
