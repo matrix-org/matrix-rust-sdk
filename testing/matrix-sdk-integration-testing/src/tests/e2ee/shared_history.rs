@@ -1,8 +1,9 @@
-use std::{sync::Arc, time::Duration};
+use std::time::Duration;
 
 use anyhow::Result;
 use assign::assign;
 use matrix_sdk::{
+    assert_decrypted_message_eq,
     crypto::UserDevices,
     encryption::EncryptionSettings,
     ruma::{
@@ -36,13 +37,11 @@ async fn test_history_share_on_invite() -> Result<()> {
         .await?;
 
     let sync_service_span = tracing::info_span!(parent: &alice_span, "sync_service");
-    let alice_sync_service = Arc::new(
-        SyncService::builder(alice.clone())
-            .with_parent_span(sync_service_span)
-            .build()
-            .await
-            .expect("Could not build alice sync service"),
-    );
+    let alice_sync_service = SyncService::builder(alice.clone())
+        .with_parent_span(sync_service_span)
+        .build()
+        .await
+        .expect("Could not build alice sync service");
 
     alice.encryption().wait_for_e2ee_initialization_tasks().await;
     alice_sync_service.start().await;
@@ -54,12 +53,14 @@ async fn test_history_share_on_invite() -> Result<()> {
     {
         // Alice and Bob share an encrypted room
         // TODO: get rid of all of this: history sharing should work even if Bob and
-        //   Alice do not share a room
+        // Alice do not share a room, which means we should force a `/keys/query` when
+        // we invite the user, before the historic key bundle is sent out.
         let alice_shared_room = alice
             .create_room(assign!(CreateRoomRequest::new(), {preset: Some(RoomPreset::PublicChat)}))
             .await?;
         let shared_room_id = alice_shared_room.room_id();
         alice_shared_room.enable_encryption().await?;
+
         bob.join_room_by_id(shared_room_id)
             .instrument(bob_span.clone())
             .await
@@ -127,13 +128,18 @@ async fn test_history_share_on_invite() -> Result<()> {
     info!(room_id = ?alice_room.room_id(), "Alice has created and enabled encryption in the room");
 
     // ... and sends a message
-    alice_room
+    let event_id = alice_room
         .send(RoomMessageEventContent::text_plain("Hello Bob"))
         .await
-        .expect("We should be able to send a message to the room");
+        .expect("We should be able to send a message to the room")
+        .event_id;
 
     // Alice invites Bob to the room
     alice_room.invite_user_by_id(bob.user_id().unwrap()).await?;
+
+    // Alice is done. Bob has been invited and the room key bundle should have been
+    // sent out. Let's stop syncing so the logs contain less noise.
+    alice_sync_service.stop().await;
 
     let bob_response = bob.sync_once().instrument(bob_span.clone()).await?;
 
@@ -145,7 +151,25 @@ async fn test_history_share_on_invite() -> Result<()> {
         "io.element.msc4268.room_key_bundle"
     );
 
-    // TODO: ensure Bob can decrypt the content
+    let bob_room = bob.get_room(alice_room.room_id()).expect("Bob should have received the invite");
+
+    bob_room
+        .join()
+        .instrument(bob_span.clone())
+        .await
+        .expect("Bob should be able to accept the invitation from Alice");
+
+    let event = bob_room
+        .event(&event_id, None)
+        .instrument(bob_span.clone())
+        .await
+        .expect("Bob should be able to fetch the historic event");
+
+    assert_decrypted_message_eq!(
+        event,
+        "Hello Bob",
+        "The decrypted event should match the message Alice has sent"
+    );
 
     Ok(())
 }
