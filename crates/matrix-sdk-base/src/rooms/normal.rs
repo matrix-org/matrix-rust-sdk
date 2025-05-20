@@ -56,7 +56,8 @@ use tracing::{debug, info, instrument, trace, warn};
 
 use super::{
     members::MemberRoomInfo, RoomCreateWithCreatorEventContent, RoomDisplayName, RoomInfo,
-    RoomMember, RoomNotableTags, SyncInfo, UpdatedRoomDisplayName,
+    RoomInfoNotableUpdate, RoomInfoNotableUpdateReasons, RoomMember, RoomNotableTags, SyncInfo,
+    UpdatedRoomDisplayName,
 };
 use crate::{
     deserialized_responses::{DisplayName, MemberEvent, RawMemberEvent, SyncOrStrippedState},
@@ -67,66 +68,6 @@ use crate::{
     sync::UnreadNotificationsCount,
     Error, MinimalStateEvent, RoomMemberships, StateStoreDataKey, StateStoreDataValue, StoreError,
 };
-
-/// Indicates that a notable update of `RoomInfo` has been applied, and why.
-///
-/// A room info notable update is an update that can be interested for other
-/// parts of the code. This mechanism is used in coordination with
-/// [`BaseClient::room_info_notable_update_receiver`][baseclient] (and
-/// `Room::inner` plus `Room::room_info_notable_update_sender`) where `RoomInfo`
-/// can be observed and some of its updates can be spread to listeners.
-///
-/// [baseclient]: crate::BaseClient::room_info_notable_update_receiver
-#[derive(Debug, Clone)]
-pub struct RoomInfoNotableUpdate {
-    /// The room which was updated.
-    pub room_id: OwnedRoomId,
-
-    /// The reason for this update.
-    pub reasons: RoomInfoNotableUpdateReasons,
-}
-
-bitflags! {
-    /// The reason why a [`RoomInfoNotableUpdate`] is emitted.
-    #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-    pub struct RoomInfoNotableUpdateReasons: u8 {
-        /// The recency stamp of the `Room` has changed.
-        const RECENCY_STAMP = 0b0000_0001;
-
-        /// The latest event of the `Room` has changed.
-        const LATEST_EVENT = 0b0000_0010;
-
-        /// A read receipt has changed.
-        const READ_RECEIPT = 0b0000_0100;
-
-        /// The user-controlled unread marker value has changed.
-        const UNREAD_MARKER = 0b0000_1000;
-
-        /// A membership change happened for the current user.
-        const MEMBERSHIP = 0b0001_0000;
-
-        /// The display name has changed.
-        const DISPLAY_NAME = 0b0010_0000;
-
-        /// This is a temporary hack.
-        ///
-        /// So here is the thing. Ideally, we DO NOT want to emit this reason. It does not
-        /// makes sense. However, all notable update reasons are not clearly identified
-        /// so far. Why is it a problem? The `matrix_sdk_ui::room_list_service::RoomList`
-        /// is listening this stream of [`RoomInfoNotableUpdate`], and emits an update on a
-        /// room item if it receives a notable reason. Because all reasons are not
-        /// identified, we are likely to miss particular updates, and it can feel broken.
-        /// Ultimately, we want to clearly identify all the notable update reasons, and
-        /// remove this one.
-        const NONE = 0b1000_0000;
-    }
-}
-
-impl Default for RoomInfoNotableUpdateReasons {
-    fn default() -> Self {
-        Self::empty()
-    }
-}
 
 /// The result of a room summary computation.
 ///
