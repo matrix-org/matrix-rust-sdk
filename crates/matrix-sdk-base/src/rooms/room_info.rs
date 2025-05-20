@@ -53,8 +53,8 @@ use serde::{Deserialize, Serialize};
 use tracing::{debug, field::debug, info, instrument, warn};
 
 use super::{
-    normal::RoomSummary, AccountDataSource, EncryptionState, Room,
-    RoomCreateWithCreatorEventContent, RoomDisplayName, RoomHero, RoomNotableTags, RoomState,
+    AccountDataSource, EncryptionState, Room, RoomCreateWithCreatorEventContent, RoomDisplayName,
+    RoomHero, RoomNotableTags, RoomState, RoomSummary,
 };
 use crate::{
     deserialized_responses::RawSyncOrStrippedState,
@@ -1161,7 +1161,7 @@ mod tests {
     use crate::{
         latest_event::LatestEvent,
         notification_settings::RoomNotificationMode,
-        rooms::{normal::RoomSummary, RoomNotableTags},
+        rooms::{RoomNotableTags, RoomSummary},
         store::{IntoStateStore, MemoryStore},
         sync::UnreadNotificationsCount,
         RoomDisplayName, RoomHero, RoomState, StateChanges,
