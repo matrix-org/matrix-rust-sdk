@@ -1320,10 +1320,15 @@ impl<P: RoomDataProvider, D: Decryptor> TimelineController<P, D> {
         txn.commit();
     }
 
+    /// Create a [`RepliedToEvent`] from an arbitrary event, be it in the
+    /// timeline or not.
+    ///
+    /// Can be `None` if the event cannot be represented as a standalone item,
+    /// because it's an aggregation.
     pub(super) async fn make_replied_to(
         &self,
         event: TimelineEvent,
-    ) -> Result<RepliedToEvent, Error> {
+    ) -> Result<Option<RepliedToEvent>, Error> {
         // Reborrow, to avoid that the automatic deref borrows the entire guard (and we
         // can't borrow both items and meta).
         let state = &mut *self.state.write().await;
@@ -1565,17 +1570,25 @@ async fn fetch_replied_to_event(
     let res = match room.load_or_fetch_event(in_reply_to, None).await {
         Ok(timeline_event) => {
             let state = &mut *state_lock.write().await;
-            TimelineDetails::Ready(Box::new(
-                RepliedToEvent::try_from_timeline_event(
-                    timeline_event,
-                    room,
-                    &state.items,
-                    &mut state.meta,
-                )
-                .await?,
-            ))
+
+            let replied_to_item = RepliedToEvent::try_from_timeline_event(
+                timeline_event,
+                room,
+                &state.items,
+                &mut state.meta,
+            )
+            .await?;
+
+            if let Some(item) = replied_to_item {
+                TimelineDetails::Ready(Box::new(item))
+            } else {
+                // The replied-to item is an aggregation, not a standalone item.
+                return Err(Error::UnsupportedEvent);
+            }
         }
+
         Err(e) => TimelineDetails::Error(Arc::new(e)),
     };
+
     Ok(res)
 }

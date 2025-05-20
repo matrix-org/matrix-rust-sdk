@@ -23,7 +23,7 @@ use super::TimelineItemContent;
 use crate::timeline::{
     controller::TimelineMetadata,
     event_handler::TimelineAction,
-    event_item::{content::MsgLikeContent, EventTimelineItem, Profile, TimelineDetails},
+    event_item::{EventTimelineItem, Profile, TimelineDetails},
     traits::RoomDataProvider,
     Error as TimelineError, TimelineItem,
 };
@@ -97,7 +97,7 @@ impl RepliedToEvent {
         room_data_provider: &P,
         timeline_items: &Vector<Arc<TimelineItem>>,
         meta: &mut TimelineMetadata,
-    ) -> Result<Self, TimelineError> {
+    ) -> Result<Option<Self>, TimelineError> {
         let (raw_event, unable_to_decrypt_info) = match timeline_event.kind {
             matrix_sdk::deserialized_responses::TimelineEventKind::UnableToDecrypt {
                 utd_info,
@@ -127,17 +127,15 @@ impl RepliedToEvent {
         )
         .await;
 
-        let content = if let Some(TimelineAction::AddItem { content, .. }) = action {
-            content
-        } else {
-            // TODO: need some kind of "unsupported" event here: return an option
-            TimelineItemContent::MsgLike(MsgLikeContent::redacted())
+        let Some(TimelineAction::AddItem { content }) = action else {
+            // The event can't be represented as a standalone timeline item.
+            return Ok(None);
         };
 
         let sender_profile = TimelineDetails::from_initial_value(
             room_data_provider.profile_from_user_id(&sender).await,
         );
 
-        Ok(Self { content, sender, sender_profile })
+        Ok(Some(Self { content, sender, sender_profile }))
     }
 }

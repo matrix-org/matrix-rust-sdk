@@ -692,13 +692,18 @@ impl Timeline {
         };
 
         match replied_to {
-            Ok(replied_to) => Ok(Arc::new(InReplyToDetails::new(
+            Ok(Some(replied_to)) => Ok(Arc::new(InReplyToDetails::new(
                 event_id_str,
                 RepliedToEventDetails::Ready {
                     content: replied_to.content().clone().into(),
                     sender: replied_to.sender().to_string(),
                     sender_profile: replied_to.sender_profile().into(),
                 },
+            ))),
+
+            Ok(None) => Ok(Arc::new(InReplyToDetails::new(
+                event_id_str,
+                RepliedToEventDetails::Error { message: "unsupported event".to_owned() },
             ))),
 
             Err(e) => Ok(Arc::new(InReplyToDetails::new(
