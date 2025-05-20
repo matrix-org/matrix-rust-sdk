@@ -36,7 +36,6 @@ use ruma::{
         receipt::{Receipt, ReceiptThread, ReceiptType},
         room::{
             avatar::{self},
-            encryption::RoomEncryptionEventContent,
             guest_access::GuestAccess,
             history_visibility::HistoryVisibility,
             join_rules::JoinRule,
@@ -386,17 +385,6 @@ impl Room {
     /// we're sharing the room with.
     pub fn direct_targets_length(&self) -> usize {
         self.inner.read().base_info.dm_targets.len()
-    }
-
-    /// Get the encryption state of this room.
-    pub fn encryption_state(&self) -> EncryptionState {
-        self.inner.read().encryption_state()
-    }
-
-    /// Get the `m.room.encryption` content that enabled end to end encryption
-    /// in the room.
-    pub fn encryption_settings(&self) -> Option<RoomEncryptionEventContent> {
-        self.inner.read().base_info.encryption.clone()
     }
 
     /// Get the guest access policy of this room.
@@ -1002,40 +990,12 @@ impl RoomStateFilter {
     }
 }
 
-/// Represents the state of a room encryption.
-#[derive(Debug)]
-#[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
-pub enum EncryptionState {
-    /// The room is encrypted.
-    Encrypted,
-
-    /// The room is not encrypted.
-    NotEncrypted,
-
-    /// The state of the room encryption is unknown, probably because the
-    /// `/sync` did not provide all data needed to decide.
-    Unknown,
-}
-
-impl EncryptionState {
-    /// Check whether `EncryptionState` is [`Encrypted`][Self::Encrypted].
-    pub fn is_encrypted(&self) -> bool {
-        matches!(self, Self::Encrypted)
-    }
-
-    /// Check whether `EncryptionState` is [`Unknown`][Self::Unknown].
-    pub fn is_unknown(&self) -> bool {
-        matches!(self, Self::Unknown)
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use std::{
         ops::{Not, Sub},
-        str::FromStr,
         sync::Arc,
-        time::Duration,
+        time::{Duration, SystemTime},
     };
 
     use assert_matches::assert_matches;
@@ -1050,20 +1010,17 @@ mod tests {
                 CallMemberEventContent, CallMemberStateKey, Focus, LegacyMembershipData,
                 LegacyMembershipDataInit, LivekitFocus, OriginalSyncCallMemberEvent,
             },
-            room::encryption::{OriginalSyncRoomEncryptionEvent, RoomEncryptionEventContent},
-            AnySyncStateEvent, EmptyStateKey, StateUnsigned, SyncStateEvent,
+            AnySyncStateEvent, StateUnsigned, SyncStateEvent,
         },
         owned_room_id, room_id,
         serde::Raw,
-        time::SystemTime,
-        user_id, DeviceId, EventEncryptionAlgorithm, EventId, MilliSecondsSinceUnixEpoch,
-        OwnedEventId, OwnedUserId, UserId,
+        user_id, DeviceId, EventId, MilliSecondsSinceUnixEpoch, OwnedUserId, UserId,
     };
     use serde_json::json;
     use similar_asserts::assert_eq;
     use stream_assert::{assert_pending, assert_ready};
 
-    use super::{EncryptionState, Room, RoomState};
+    use super::{Room, RoomState};
     use crate::{
         latest_event::LatestEvent,
         response_processors as processors,
@@ -1666,56 +1623,6 @@ mod tests {
         // We have no active call anymore after emptying the memberships
         assert_eq!(Vec::<OwnedUserId>::new(), room.active_room_call_participants());
         assert!(!room.has_active_room_call());
-    }
-
-    #[test]
-    fn test_encryption_is_set_when_encryption_event_is_received_encrypted() {
-        let (_store, room) = make_room_test_helper(RoomState::Joined);
-
-        assert_matches!(room.encryption_state(), EncryptionState::Unknown);
-
-        let encryption_content =
-            RoomEncryptionEventContent::new(EventEncryptionAlgorithm::MegolmV1AesSha2);
-        let encryption_event = AnySyncStateEvent::RoomEncryption(SyncStateEvent::Original(
-            OriginalSyncRoomEncryptionEvent {
-                content: encryption_content,
-                event_id: OwnedEventId::from_str("$1234_1").unwrap(),
-                sender: ALICE.to_owned(),
-                // we can simply use now here since this will be dropped when using a
-                // MinimalStateEvent in the roomInfo
-                origin_server_ts: timestamp(0),
-                state_key: EmptyStateKey,
-                unsigned: StateUnsigned::new(),
-            },
-        ));
-        receive_state_events(&room, vec![&encryption_event]);
-
-        assert_matches!(room.encryption_state(), EncryptionState::Encrypted);
-    }
-
-    #[test]
-    fn test_encryption_is_set_when_encryption_event_is_received_not_encrypted() {
-        let (_store, room) = make_room_test_helper(RoomState::Joined);
-
-        assert_matches!(room.encryption_state(), EncryptionState::Unknown);
-        room.inner.update_if(|info| {
-            info.mark_encryption_state_synced();
-
-            false
-        });
-
-        assert_matches!(room.encryption_state(), EncryptionState::NotEncrypted);
-    }
-
-    #[test]
-    fn test_encryption_state() {
-        assert!(EncryptionState::Unknown.is_unknown());
-        assert!(EncryptionState::Encrypted.is_unknown().not());
-        assert!(EncryptionState::NotEncrypted.is_unknown().not());
-
-        assert!(EncryptionState::Unknown.is_encrypted().not());
-        assert!(EncryptionState::Encrypted.is_encrypted());
-        assert!(EncryptionState::NotEncrypted.is_encrypted().not());
     }
 
     #[async_test]
