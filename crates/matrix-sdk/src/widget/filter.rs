@@ -234,7 +234,7 @@ pub struct FilterInputToDevice<'a> {
 impl<'a> TryFrom<&'a Raw<AnyToDeviceEvent>> for FilterInput<'a> {
     type Error = serde_json::Error;
     fn try_from(raw_event: &'a Raw<AnyToDeviceEvent>) -> Result<Self, Self::Error> {
-        // deserialize_as::<FilterInput> will first try state, message like and then
+        // deserialize_as::<FilterInput> will first try state, message-like and then
         // to-device. The `AnyToDeviceEvent` would match message like first, so
         // we need to explicitly deserialize as `FilterInputToDevice`.
         raw_event.deserialize_as::<FilterInputToDevice<'a>>().map(FilterInput::ToDevice)

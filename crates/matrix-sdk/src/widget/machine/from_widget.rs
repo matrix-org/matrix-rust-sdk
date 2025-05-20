@@ -69,7 +69,7 @@ impl FromWidgetErrorResponse {
         }
     }
 
-    /// Create an error response to send to the widget from a matrix sdk error.
+    /// Create an error response to send to the widget from a matrix SDK error.
     pub(crate) fn from_error(error: Error) -> Self {
         match error {
             Error::Http(e) => FromWidgetErrorResponse::from_http_error(*e),

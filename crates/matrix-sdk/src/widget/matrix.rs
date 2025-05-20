@@ -205,7 +205,7 @@ impl MatrixDriver {
                         let _ = _tx.send(event_with_room_id.cast());
                     }
                     Err(e) => {
-                        error!("Failed to attach room id to message like event: {}", e);
+                        error!("Failed to attach room id to message-like event: {}", e);
                     }
                 }
                 async {}
@@ -248,7 +248,7 @@ impl MatrixDriver {
                         let _ = tx.send(ev);
                     }
                     Err(e) => {
-                        error!("Failed to attach encryption flag to to_device event: {}", e);
+                        error!("Failed to attach encryption flag to to-device message: {}", e);
                     }
                 }
                 async {}
@@ -319,7 +319,7 @@ struct RoomIdEncryptionSerializer {
 /// Attach a room id to the event. This is needed because the widget API
 /// requires the room id to be present in the event.
 ///
-/// Attach the `ecryption` flag to the event. This is needed so the widget gets
+/// Attach the `encryption` flag to the event. This is needed so the widget gets
 /// informed if an event is encrypted or not. Since the client is responsible
 /// for decrypting the event, there otherwise is no way for the widget to know
 /// if its an encrypted (signed/trusted) event or not.
