@@ -42,7 +42,7 @@ use ruma::{
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use tracing::{error, trace};
 use wasm_bindgen::JsValue;
-use web_sys::{IdbCursorDirection, IdbKeyRange, IdbTransactionMode};
+use web_sys::{IdbKeyRange, IdbTransactionMode};
 
 use crate::serializer::{IndexeddbSerializer, IndexeddbSerializerError, MaybeEncrypted};
 
@@ -72,6 +72,10 @@ pub enum IndexeddbEventCacheStoreError {
     CryptoStoreError(#[from] CryptoStoreError),
     #[error("unknown chunk type: {0}")]
     UnknownChunkType(String),
+    #[error("chunks contain cycle")]
+    ChunksContainCycle,
+    #[error("chunks contain disjoint lists")]
+    ChunksContainDisjointLists,
     #[error("media store: {0}")]
     MediaStore(#[from] EventCacheStoreError),
 }
@@ -804,12 +808,35 @@ impl_event_cache_store! {
         let upper = self.encode_upper_key(vec![(keys::ROOMS, room_id.as_ref(), true)]);
         let range = IdbKeyRange::bound(&lower.into(), &upper.into()).unwrap();
 
-        if let Some(cursor) =
-            chunks.open_cursor_with_range_and_direction(&range, IdbCursorDirection::Prev)?.await?
-        {
-            let chunk: ChunkForCache = self.deserialize_value_with_id(cursor.value())?;
-            let chunk_id = chunk.raw_id.to_string();
-            let content = match chunk.type_str.as_str() {
+        let values = chunks.get_all_with_key(&range)?.await?;
+        if values.length() == 0 {
+            // There are no chunks in the object store, so there is no last chunk
+            Ok((None, ChunkIdentifierGenerator::new_from_scratch()))
+        } else {
+            let mut max_chunk_id = 0;
+            let mut last_chunks = Vec::new();
+            for value in values {
+                let chunk: ChunkForCache = self.deserialize_value_with_id(value)?;
+                if chunk.raw_id > max_chunk_id {
+                    max_chunk_id = chunk.raw_id;
+                }
+                if chunk.raw_next.is_none() {
+                    last_chunks.push(chunk);
+                }
+            }
+            if last_chunks.len() > 1 {
+                // There are some chunks in the object store, but there is more than
+                // one last chunk, which means that we have disjoint lists.
+                return Err(IndexeddbEventCacheStoreError::ChunksContainDisjointLists);
+            }
+            let Some(last_chunk) = last_chunks.pop() else {
+                // There are chunks in the object store, but there is no last chunk,
+                // which means that we have a cycle somewhere.
+                return Err(IndexeddbEventCacheStoreError::ChunksContainCycle);
+            };
+
+            let chunk_id = last_chunk.raw_id.to_string();
+            let content = match last_chunk.type_str.as_str() {
                 ChunkForCache::CHUNK_TYPE_EVENT_TYPE_STRING => {
                     let lower = self.encode_key(vec![
                         (keys::ROOMS, room_id.as_ref(), true),
@@ -833,7 +860,7 @@ impl_event_cache_store! {
                     linked_chunk::ChunkContent::Items(events_vec)
                 }
                 ChunkForCache::CHUNK_TYPE_GAP_TYPE_STRING => {
-                    let gap = gaps.get_owned(chunk.id.clone())?.await?.unwrap();
+                    let gap = gaps.get_owned(last_chunk.id.clone())?.await?.unwrap();
                     let gap: GapForCache = self.deserialize_value_with_id(gap)?;
                     linked_chunk::ChunkContent::Gap(Gap { prev_token: gap.prev_token })
                 }
@@ -842,21 +869,17 @@ impl_event_cache_store! {
                 }
             };
 
-            let identifier = ChunkIdentifier::new(chunk.raw_id);
+            let identifier = ChunkIdentifier::new(last_chunk.raw_id);
             let raw_chunk = RawChunk {
                 identifier,
                 content,
-                previous: chunk.raw_previous.map(ChunkIdentifier::new),
-                // TODO: This should always be None, and if it's not, something
-                // is wrong with our query... should this be an expect()? Or, at least
-                // an error?
-                next: chunk.raw_next.map(ChunkIdentifier::new),
+                previous: last_chunk.raw_previous.map(ChunkIdentifier::new),
+                next: None,
             };
-            let generator =
-                ChunkIdentifierGenerator::new_from_previous_chunk_identifier(identifier);
+            let generator = ChunkIdentifierGenerator::new_from_previous_chunk_identifier(
+                ChunkIdentifier::new(max_chunk_id),
+            );
             Ok((Some(raw_chunk), generator))
-        } else {
-            Ok((None, ChunkIdentifierGenerator::new_from_scratch()))
         }
     }
 
