@@ -220,7 +220,7 @@ impl From<matrix_sdk::TransmissionProgress> for TransmissionProgress {
 #[derive(uniffi::Object)]
 pub struct Client {
     pub(crate) inner: AsyncRuntimeDropped<MatrixClient>,
-    delegate: RwLock<Option<Arc<dyn ClientDelegate>>>,
+    delegate: OnceLock<Arc<dyn ClientDelegate>>,
     utd_hook: OnceLock<Arc<UtdHookManager>>,
     session_verification_controller:
         Arc<tokio::sync::RwLock<Option<SessionVerificationController>>>,
@@ -265,7 +265,7 @@ impl Client {
 
         let client = Client {
             inner: AsyncRuntimeDropped::new(sdk_client.clone()),
-            delegate: RwLock::new(None),
+            delegate: OnceLock::new(),
             utd_hook: OnceLock::new(),
             session_verification_controller,
         };
@@ -774,7 +774,7 @@ impl Client {
                 }
             });
 
-            *self.delegate.write().unwrap() = Some(Arc::from(delegate));
+            self.delegate.get_or_init(|| Arc::from(delegate));
             Arc::new(TaskHandle::new(session_change_task))
         })
     }
@@ -1486,7 +1486,7 @@ impl From<&search_users::v3::User> for UserProfile {
 
 impl Client {
     fn process_session_change(&self, session_change: SessionChange) {
-        if let Some(delegate) = self.delegate.read().unwrap().clone() {
+        if let Some(delegate) = self.delegate.get().cloned() {
             debug!("Applying session change: {session_change:?}");
             get_runtime_handle().spawn_blocking(move || match session_change {
                 SessionChange::UnknownToken { soft_logout } => {
