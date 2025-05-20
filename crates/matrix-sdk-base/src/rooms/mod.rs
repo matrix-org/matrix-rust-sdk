@@ -21,14 +21,11 @@ pub(crate) mod normal;
 mod room_info;
 mod tags;
 
-use std::hash::Hash;
-
-use bitflags::bitflags;
 pub use display_name::{RoomDisplayName, RoomHero};
 pub(crate) use display_name::{RoomSummary, UpdatedRoomDisplayName};
 pub use encryption::EncryptionState;
-pub use members::RoomMember;
-pub use normal::{Room, RoomMembersUpdate, RoomState, RoomStateFilter};
+pub use members::{RoomMember, RoomMembersUpdate, RoomMemberships};
+pub use normal::{Room, RoomState, RoomStateFilter};
 pub(crate) use room_info::SyncInfo;
 pub use room_info::{
     apply_redaction, BaseRoomInfo, RoomInfo, RoomInfoNotableUpdate, RoomInfoNotableUpdateReasons,
@@ -37,10 +34,7 @@ use ruma::{
     assign,
     events::{
         macros::EventContent,
-        room::{
-            create::{PreviousRoom, RoomCreateEventContent},
-            member::MembershipState,
-        },
+        room::create::{PreviousRoom, RoomCreateEventContent},
         EmptyStateKey, RedactContent, RedactedStateEventContent,
     },
     room::RoomType,
@@ -140,72 +134,6 @@ impl RedactContent for RoomCreateWithCreatorEventContent {
 
 fn default_create_room_version_id() -> RoomVersionId {
     RoomVersionId::V1
-}
-
-bitflags! {
-    /// Room membership filter as a bitset.
-    ///
-    /// Note that [`RoomMemberships::empty()`] doesn't filter the results and
-    /// [`RoomMemberships::all()`] filters out unknown memberships.
-    #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-    pub struct RoomMemberships: u16 {
-        /// The member joined the room.
-        const JOIN    = 0b00000001;
-        /// The member was invited to the room.
-        const INVITE  = 0b00000010;
-        /// The member requested to join the room.
-        const KNOCK   = 0b00000100;
-        /// The member left the room.
-        const LEAVE   = 0b00001000;
-        /// The member was banned.
-        const BAN     = 0b00010000;
-
-        /// The member is active in the room (i.e. joined or invited).
-        const ACTIVE = Self::JOIN.bits() | Self::INVITE.bits();
-    }
-}
-
-impl RoomMemberships {
-    /// Whether the given membership matches this `RoomMemberships`.
-    pub fn matches(&self, membership: &MembershipState) -> bool {
-        if self.is_empty() {
-            return true;
-        }
-
-        let membership = match membership {
-            MembershipState::Ban => Self::BAN,
-            MembershipState::Invite => Self::INVITE,
-            MembershipState::Join => Self::JOIN,
-            MembershipState::Knock => Self::KNOCK,
-            MembershipState::Leave => Self::LEAVE,
-            _ => return false,
-        };
-
-        self.contains(membership)
-    }
-
-    /// Get this `RoomMemberships` as a list of matching [`MembershipState`]s.
-    pub fn as_vec(&self) -> Vec<MembershipState> {
-        let mut memberships = Vec::new();
-
-        if self.contains(Self::JOIN) {
-            memberships.push(MembershipState::Join);
-        }
-        if self.contains(Self::INVITE) {
-            memberships.push(MembershipState::Invite);
-        }
-        if self.contains(Self::KNOCK) {
-            memberships.push(MembershipState::Knock);
-        }
-        if self.contains(Self::LEAVE) {
-            memberships.push(MembershipState::Leave);
-        }
-        if self.contains(Self::BAN) {
-            memberships.push(MembershipState::Ban);
-        }
-
-        memberships
-    }
 }
 
 /// The possible sources of an account data type.

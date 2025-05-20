@@ -57,8 +57,7 @@ use crate::{
     event_cache::store::EventCacheStoreLock,
     response_processors::{self as processors, Context},
     rooms::{
-        normal::RoomMembersUpdate, Room, RoomInfoNotableUpdate, RoomInfoNotableUpdateReasons,
-        RoomState,
+        Room, RoomInfoNotableUpdate, RoomInfoNotableUpdateReasons, RoomMembersUpdate, RoomState,
     },
     store::{
         ambiguity_map::AmbiguityCache, BaseStateStore, DynStateStore, MemoryStore,
