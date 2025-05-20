@@ -25,6 +25,7 @@ use matrix_sdk_common::deserialized_responses::{
 };
 use ruma::{
     events::{
+        beacon::BeaconEventContent,
         member_hints::MemberHintsEventContent,
         poll::{
             unstable_end::UnstablePollEndEventContent,
@@ -113,12 +114,21 @@ struct Unsigned<C: EventContent> {
 
     #[serde(skip_serializing_if = "Option::is_none")]
     redacted_because: Option<RedactedBecause>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    age: Option<Int>,
 }
 
 // rustc can't derive Default because C isn't marked as `Default` 🤔 oh well.
 impl<C: EventContent> Default for Unsigned<C> {
     fn default() -> Self {
-        Self { prev_content: None, transaction_id: None, relations: None, redacted_because: None }
+        Self {
+            prev_content: None,
+            transaction_id: None,
+            relations: None,
+            redacted_because: None,
+            age: None,
+        }
     }
 }
 
@@ -173,6 +183,12 @@ where
     pub fn unsigned_transaction_id(mut self, transaction_id: &TransactionId) -> Self {
         self.unsigned.get_or_insert_with(Default::default).transaction_id =
             Some(transaction_id.to_owned());
+        self
+    }
+
+    /// Add age to unsigned data in this event.
+    pub fn age(mut self, age: impl Into<Int>) -> Self {
+        self.unsigned.get_or_insert_with(Default::default).age = Some(age.into());
         self
     }
 
@@ -788,6 +804,42 @@ impl EventFactory {
         event.alias = alias;
         event.alt_aliases = alt_aliases;
         self.event(event)
+    }
+
+    /// Create a new `org.matrix.msc3672.beacon` event.
+    ///
+    /// ```
+    /// use matrix_sdk_test::event_factory::EventFactory;
+    /// use ruma::{
+    ///     events::{beacon::BeaconEventContent, MessageLikeEvent},
+    ///     owned_event_id, room_id,
+    ///     serde::Raw,
+    ///     user_id, MilliSecondsSinceUnixEpoch,
+    /// };
+    ///
+    /// let factory = EventFactory::new().room(room_id!("!test:localhost"));
+    ///
+    /// let event: Raw<MessageLikeEvent<BeaconEventContent>> = factory
+    ///     .beacon(
+    ///         owned_event_id!("$123456789abc:localhost"),
+    ///         10.1,
+    ///         15.2,
+    ///         5,
+    ///         Some(MilliSecondsSinceUnixEpoch(1000u32.into())),
+    ///     )
+    ///     .sender(user_id!("@alice:localhost"))
+    ///     .into_raw();
+    /// ```
+    pub fn beacon(
+        &self,
+        beacon_info_event_id: OwnedEventId,
+        latitude: f64,
+        longitude: f64,
+        uncertainty: u32,
+        ts: Option<MilliSecondsSinceUnixEpoch>,
+    ) -> EventBuilder<BeaconEventContent> {
+        let geo_uri = format!("geo:{latitude},{longitude};u={uncertainty}");
+        self.event(BeaconEventContent::new(beacon_info_event_id, geo_uri, ts))
     }
 
     /// Set the next server timestamp.
