@@ -105,6 +105,16 @@ pub(crate) trait FromMatrixDriverResponse: Sized {
     fn from_response(_: MatrixDriverResponse) -> Option<Self>;
 }
 
+impl<T> FromMatrixDriverResponse for T
+where
+    MatrixDriverResponse: TryInto<T>,
+{
+    fn from_response(response: MatrixDriverResponse) -> Option<Self> {
+        response.try_into().ok() // Delegates to the existing TryInto
+                                 // implementation
+    }
+}
+
 /// Ask the client (capability provider) to acquire given capabilities
 /// from the user. The client must eventually respond with granted capabilities.
 #[derive(Clone, Debug)]
@@ -288,14 +298,13 @@ impl MatrixDriverRequest for SendToDeviceRequest {
     type Response = send_event_to_device::v3::Response;
 }
 
-impl FromMatrixDriverResponse for send_event_to_device::v3::Response {
-    fn from_response(ev: MatrixDriverResponse) -> Option<Self> {
-        match ev {
-            MatrixDriverResponse::MatrixToDeviceSent(response) => Some(response),
-            _ => {
-                error!("bug in MatrixDriver, received wrong event response");
-                None
-            }
+impl TryInto<send_event_to_device::v3::Response> for MatrixDriverResponse {
+    type Error = anyhow::Error;
+
+    fn try_into(self) -> Result<send_event_to_device::v3::Response, Self::Error> {
+        match self {
+            MatrixDriverResponse::MatrixToDeviceSent(response) => Ok(response),
+            _ => Err(anyhow::Error::msg("bug in MatrixDriver, received wrong event response")),
         }
     }
 }
