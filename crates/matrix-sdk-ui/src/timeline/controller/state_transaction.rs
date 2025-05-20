@@ -201,7 +201,7 @@ impl<'a> TimelineStateTransaction<'a> {
 
         if let Some(action @ TimelineAction::HandleAggregation { .. }) = TimelineAction::from_event(
             deserialized,
-            &event.raw(),
+            event.raw(),
             room_data_provider,
             None,
             &self.items,
