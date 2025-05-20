@@ -3341,16 +3341,16 @@ pub(crate) mod tests {
         let client = server.client_builder().build().await;
 
         server
-            .mock_global_account_data()
-            .ok(
-                client.user_id().unwrap(),
-                ruma::events::GlobalAccountDataEventType::MediaPreviewConfig,
-                json!({
+            .mock_sync()
+            .ok_and_run(&client, |builder| {
+                builder.add_global_account_data_event(GlobalAccountDataTestEvent::Custom(json!({
+                "content": {
                     "media_previews": "private",
                     "invite_avatars": "off"
-                }),
-            )
-            .mount()
+                },
+                "type": "m.media_preview_config"
+                  })));
+            })
             .await;
 
         let (initial_value, stream) =
@@ -3391,25 +3391,16 @@ pub(crate) mod tests {
         let client = server.client_builder().build().await;
 
         server
-            .mock_global_account_data()
-            .not_found(
-                client.user_id().unwrap(),
-                ruma::events::GlobalAccountDataEventType::MediaPreviewConfig,
-            )
-            .mount()
-            .await;
-
-        server
-            .mock_global_account_data()
-            .ok(
-                client.user_id().unwrap(),
-                ruma::events::GlobalAccountDataEventType::UnstableMediaPreviewConfig,
-                json!({
+            .mock_sync()
+            .ok_and_run(&client, |builder| {
+                builder.add_global_account_data_event(GlobalAccountDataTestEvent::Custom(json!({
+                "content": {
                     "media_previews": "private",
                     "invite_avatars": "off"
-                }),
-            )
-            .mount()
+                },
+                "type": "io.element.msc4278.media_preview_config"
+                  })));
+            })
             .await;
 
         let (initial_value, stream) =
@@ -3448,24 +3439,6 @@ pub(crate) mod tests {
     async fn test_media_preview_config_not_found() {
         let server = MatrixMockServer::new().await;
         let client = server.client_builder().build().await;
-
-        server
-            .mock_global_account_data()
-            .not_found(
-                client.user_id().unwrap(),
-                ruma::events::GlobalAccountDataEventType::MediaPreviewConfig,
-            )
-            .mount()
-            .await;
-
-        server
-            .mock_global_account_data()
-            .not_found(
-                client.user_id().unwrap(),
-                ruma::events::GlobalAccountDataEventType::UnstableMediaPreviewConfig,
-            )
-            .mount()
-            .await;
 
         let (initial_value, _) = client.account().observe_media_preview_config().await.unwrap();
 
