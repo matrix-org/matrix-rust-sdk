@@ -574,8 +574,18 @@ impl TimelineEventKind {
     pub fn encryption_info(&self) -> Option<&EncryptionInfo> {
         match self {
             TimelineEventKind::Decrypted(d) => Some(&d.encryption_info),
-            TimelineEventKind::UnableToDecrypt { .. } => None,
-            TimelineEventKind::PlainText { .. } => None,
+            TimelineEventKind::UnableToDecrypt { .. } | TimelineEventKind::PlainText { .. } => None,
+        }
+    }
+
+    /// If the event was a decrypted event that was successfully decrypted, get
+    /// the map of decryption metadata related to the bundled events.
+    pub fn unsigned_encryption_map(
+        &self,
+    ) -> Option<&BTreeMap<UnsignedEventLocation, UnsignedDecryptionResult>> {
+        match self {
+            TimelineEventKind::Decrypted(d) => d.unsigned_encryption_info.as_ref(),
+            TimelineEventKind::UnableToDecrypt { .. } | TimelineEventKind::PlainText { .. } => None,
         }
     }
 
@@ -701,6 +711,17 @@ pub enum UnsignedDecryptionResult {
     Decrypted(EncryptionInfo),
     /// The event failed to be decrypted.
     UnableToDecrypt(UnableToDecryptInfo),
+}
+
+impl UnsignedDecryptionResult {
+    /// Returns the encryption info for this bundled event if it was
+    /// successfully decrypted.
+    pub fn encryption_info(&self) -> Option<&EncryptionInfo> {
+        match self {
+            Self::Decrypted(info) => Some(info),
+            Self::UnableToDecrypt(_) => None,
+        }
+    }
 }
 
 /// Metadata about an event that could not be decrypted.

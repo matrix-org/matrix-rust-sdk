@@ -15,7 +15,7 @@
 use std::sync::Arc;
 
 use imbl::Vector;
-use matrix_sdk::deserialized_responses::TimelineEvent;
+use matrix_sdk::deserialized_responses::{TimelineEvent, UnsignedEventLocation};
 use ruma::{OwnedEventId, OwnedUserId, UserId};
 use tracing::{debug, instrument, warn};
 
@@ -98,6 +98,11 @@ impl RepliedToEvent {
         timeline_items: &Vector<Arc<TimelineItem>>,
         meta: &mut TimelineMetadata,
     ) -> Result<Option<Self>, TimelineError> {
+        let bundled_edit_encryption_info =
+            timeline_event.kind.unsigned_encryption_map().and_then(|map| {
+                map.get(&UnsignedEventLocation::RelationsReplace)?.encryption_info().cloned()
+            });
+
         let (raw_event, unable_to_decrypt_info) = match timeline_event.kind {
             matrix_sdk::deserialized_responses::TimelineEventKind::UnableToDecrypt {
                 utd_info,
@@ -122,6 +127,7 @@ impl RepliedToEvent {
             &raw_event,
             room_data_provider,
             unable_to_decrypt_info,
+            bundled_edit_encryption_info,
             timeline_items,
             meta,
         )
