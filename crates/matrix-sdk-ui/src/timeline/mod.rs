@@ -606,10 +606,12 @@ impl Timeline {
             }
         }
 
+        let room = self.room();
+
         if !receipts.is_empty() {
-            self.room().send_multiple_receipts(receipts).await?;
+            room.send_multiple_receipts(receipts).await?;
         } else {
-            self.room().set_unread_flag(false).await?;
+            room.set_unread_flag(false).await?;
         }
 
         Ok(())
