@@ -1,7 +1,7 @@
 use assert_matches::assert_matches;
 use eyeball_im::VectorDiff;
 use matrix_sdk_base::deserialized_responses::{ShieldState, ShieldStateCode};
-use matrix_sdk_test::{async_test, event_factory::EventFactory, sync_timeline_event, ALICE};
+use matrix_sdk_test::{async_test, event_factory::EventFactory, ALICE};
 use ruma::{
     event_id,
     events::{
