@@ -3163,8 +3163,8 @@ impl Room {
     /// Set a flag on the room to indicate that the user has explicitly marked
     /// it as (un)read.
     ///
-    /// This is a no-op if [`Room::is_marked_unread()`] returns the same value
-    /// as `unread`.
+    /// This is a no-op if [`BaseRoom::is_marked_unread()`] returns the same
+    /// value as `unread`.
     pub async fn set_unread_flag(&self, unread: bool) -> Result<()> {
         if self.is_marked_unread() == unread {
             // The request is not necessary.
