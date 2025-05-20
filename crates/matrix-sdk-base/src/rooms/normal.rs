@@ -43,8 +43,7 @@ use ruma::{
             power_levels::{RoomPowerLevels, RoomPowerLevelsEventContent},
             tombstone::RoomTombstoneEventContent,
         },
-        tag::Tags,
-        AnyRoomAccountDataEvent, RoomAccountDataEventType, StateEventType, SyncStateEvent,
+        StateEventType, SyncStateEvent,
     },
     room::RoomType,
     EventId, OwnedEventId, OwnedMxcUri, OwnedRoomAliasId, OwnedRoomId, OwnedUserId, RoomId, UserId,
@@ -55,7 +54,7 @@ use tracing::{debug, info, instrument, warn};
 
 use super::{
     members::MemberRoomInfo, RoomCreateWithCreatorEventContent, RoomHero, RoomInfo,
-    RoomInfoNotableUpdate, RoomInfoNotableUpdateReasons, RoomMember, RoomNotableTags, SyncInfo,
+    RoomInfoNotableUpdate, RoomInfoNotableUpdateReasons, RoomMember, SyncInfo,
 };
 use crate::{
     deserialized_responses::{DisplayName, MemberEvent, RawMemberEvent, SyncOrStrippedState},
@@ -696,35 +695,6 @@ impl Room {
         })
     }
 
-    /// Get the `Tags` for this room.
-    pub async fn tags(&self) -> StoreResult<Option<Tags>> {
-        if let Some(AnyRoomAccountDataEvent::Tag(event)) = self
-            .store
-            .get_room_account_data_event(self.room_id(), RoomAccountDataEventType::Tag)
-            .await?
-            .and_then(|r| r.deserialize().ok())
-        {
-            Ok(Some(event.content.tags))
-        } else {
-            Ok(None)
-        }
-    }
-
-    /// Check whether the room is marked as favourite.
-    ///
-    /// A room is considered favourite if it has received the `m.favourite` tag.
-    pub fn is_favourite(&self) -> bool {
-        self.inner.read().base_info.notable_tags.contains(RoomNotableTags::FAVOURITE)
-    }
-
-    /// Check whether the room is marked as low priority.
-    ///
-    /// A room is considered low priority if it has received the `m.lowpriority`
-    /// tag.
-    pub fn is_low_priority(&self) -> bool {
-        self.inner.read().base_info.notable_tags.contains(RoomNotableTags::LOW_PRIORITY)
-    }
-
     /// Get the receipt as an `OwnedEventId` and `Receipt` tuple for the given
     /// `receipt_type`, `thread` and `user_id` in this room.
     pub async fn load_user_receipt(
@@ -993,7 +963,7 @@ impl RoomStateFilter {
 #[cfg(test)]
 mod tests {
     use std::{
-        ops::{Not, Sub},
+        ops::Sub,
         sync::Arc,
         time::{Duration, SystemTime},
     };
@@ -1018,7 +988,6 @@ mod tests {
     };
     use serde_json::json;
     use similar_asserts::assert_eq;
-    use stream_assert::{assert_pending, assert_ready};
 
     use super::{Room, RoomState};
     use crate::{
@@ -1028,198 +997,6 @@ mod tests {
         test_utils::logged_in_base_client,
         BaseClient, RoomStateFilter, SessionMeta,
     };
-
-    #[async_test]
-    async fn test_is_favourite() {
-        // Given a room,
-        let client =
-            BaseClient::new(StoreConfig::new("cross-process-store-locks-holder-name".to_owned()));
-
-        client
-            .activate(
-                SessionMeta {
-                    user_id: user_id!("@alice:example.org").into(),
-                    device_id: ruma::device_id!("AYEAYEAYE").into(),
-                },
-                RoomLoadSettings::default(),
-                #[cfg(feature = "e2e-encryption")]
-                None,
-            )
-            .await
-            .unwrap();
-
-        let room_id = room_id!("!test:localhost");
-        let room = client.get_or_create_room(room_id, RoomState::Joined);
-
-        // Sanity checks to ensure the room isn't marked as favourite.
-        assert!(room.is_favourite().not());
-
-        // Subscribe to the `RoomInfo`.
-        let mut room_info_subscriber = room.subscribe_info();
-
-        assert_pending!(room_info_subscriber);
-
-        // Create the tag.
-        let tag_raw = Raw::new(&json!({
-            "content": {
-                "tags": {
-                    "m.favourite": {
-                        "order": 0.0
-                    },
-                },
-            },
-            "type": "m.tag",
-        }))
-        .unwrap()
-        .cast();
-
-        // When the new tag is handled and applied.
-        let mut context = processors::Context::default();
-
-        processors::account_data::for_room(&mut context, room_id, &[tag_raw], &client.state_store)
-            .await;
-
-        processors::changes::save_and_apply(
-            context.clone(),
-            &client.state_store,
-            &client.ignore_user_list_changes,
-            None,
-        )
-        .await
-        .unwrap();
-
-        // The `RoomInfo` is getting notified.
-        assert_ready!(room_info_subscriber);
-        assert_pending!(room_info_subscriber);
-
-        // The room is now marked as favourite.
-        assert!(room.is_favourite());
-
-        // Now, let's remove the tag.
-        let tag_raw = Raw::new(&json!({
-            "content": {
-                "tags": {},
-            },
-            "type": "m.tag"
-        }))
-        .unwrap()
-        .cast();
-
-        processors::account_data::for_room(&mut context, room_id, &[tag_raw], &client.state_store)
-            .await;
-
-        processors::changes::save_and_apply(
-            context,
-            &client.state_store,
-            &client.ignore_user_list_changes,
-            None,
-        )
-        .await
-        .unwrap();
-
-        // The `RoomInfo` is getting notified.
-        assert_ready!(room_info_subscriber);
-        assert_pending!(room_info_subscriber);
-
-        // The room is now marked as _not_ favourite.
-        assert!(room.is_favourite().not());
-    }
-
-    #[async_test]
-    async fn test_is_low_priority() {
-        // Given a room,
-        let client =
-            BaseClient::new(StoreConfig::new("cross-process-store-locks-holder-name".to_owned()));
-
-        client
-            .activate(
-                SessionMeta {
-                    user_id: user_id!("@alice:example.org").into(),
-                    device_id: ruma::device_id!("AYEAYEAYE").into(),
-                },
-                RoomLoadSettings::default(),
-                #[cfg(feature = "e2e-encryption")]
-                None,
-            )
-            .await
-            .unwrap();
-
-        let room_id = room_id!("!test:localhost");
-        let room = client.get_or_create_room(room_id, RoomState::Joined);
-
-        // Sanity checks to ensure the room isn't marked as low priority.
-        assert!(!room.is_low_priority());
-
-        // Subscribe to the `RoomInfo`.
-        let mut room_info_subscriber = room.subscribe_info();
-
-        assert_pending!(room_info_subscriber);
-
-        // Create the tag.
-        let tag_raw = Raw::new(&json!({
-            "content": {
-                "tags": {
-                    "m.lowpriority": {
-                        "order": 0.0
-                    },
-                }
-            },
-            "type": "m.tag"
-        }))
-        .unwrap()
-        .cast();
-
-        // When the new tag is handled and applied.
-        let mut context = processors::Context::default();
-
-        processors::account_data::for_room(&mut context, room_id, &[tag_raw], &client.state_store)
-            .await;
-
-        processors::changes::save_and_apply(
-            context.clone(),
-            &client.state_store,
-            &client.ignore_user_list_changes,
-            None,
-        )
-        .await
-        .unwrap();
-
-        // The `RoomInfo` is getting notified.
-        assert_ready!(room_info_subscriber);
-        assert_pending!(room_info_subscriber);
-
-        // The room is now marked as low priority.
-        assert!(room.is_low_priority());
-
-        // Now, let's remove the tag.
-        let tag_raw = Raw::new(&json!({
-            "content": {
-                "tags": {},
-            },
-            "type": "m.tag"
-        }))
-        .unwrap()
-        .cast();
-
-        processors::account_data::for_room(&mut context, room_id, &[tag_raw], &client.state_store)
-            .await;
-
-        processors::changes::save_and_apply(
-            context,
-            &client.state_store,
-            &client.ignore_user_list_changes,
-            None,
-        )
-        .await
-        .unwrap();
-
-        // The `RoomInfo` is getting notified.
-        assert_ready!(room_info_subscriber);
-        assert_pending!(room_info_subscriber);
-
-        // The room is now marked as _not_ low priority.
-        assert!(room.is_low_priority().not());
-    }
 
     fn make_room_test_helper(room_type: RoomState) -> (Arc<MemoryStore>, Room) {
         let store = Arc::new(MemoryStore::new());

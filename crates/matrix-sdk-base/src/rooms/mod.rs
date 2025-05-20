@@ -19,6 +19,7 @@ mod encryption;
 mod members;
 pub(crate) mod normal;
 mod room_info;
+mod tags;
 
 use std::hash::Hash;
 
@@ -46,22 +47,7 @@ use ruma::{
     OwnedUserId, RoomVersionId,
 };
 use serde::{Deserialize, Serialize};
-
-bitflags! {
-    /// Notable tags, i.e. subset of tags that we are more interested by.
-    ///
-    /// We are not interested by all the tags. Some tags are more important than
-    /// others, and this struct describes them.
-    #[repr(transparent)]
-    #[derive(Debug, Default, Clone, Copy, Deserialize, Serialize)]
-    pub(crate) struct RoomNotableTags: u8 {
-        /// The `m.favourite` tag.
-        const FAVOURITE = 0b0000_0001;
-
-        /// THe `m.lowpriority` tag.
-        const LOW_PRIORITY = 0b0000_0010;
-    }
-}
+pub(crate) use tags::RoomNotableTags;
 
 /// The content of an `m.room.create` event, with a required `creator` field.
 ///
