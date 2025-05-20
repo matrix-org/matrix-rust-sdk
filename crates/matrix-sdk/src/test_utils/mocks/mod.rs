@@ -1026,6 +1026,7 @@ impl MatrixMockServer {
     /// tokio_test::block_on(async {
     /// use matrix_sdk::test_utils::mocks::MatrixMockServer;
     /// use serde_json::json;
+    /// use ruma::events::media_preview_config::MediaPreviews;
     ///
     /// let mock_server = MatrixMockServer::new().await;
     /// let client = mock_server.client_builder().build().await;
@@ -1042,7 +1043,7 @@ impl MatrixMockServer {
     /// .mount()
     /// .await;
     ///
-    /// let (_, _) = client.account().observe_media_preview_config().await.unwrap();
+    /// client.account().set_media_previews_display_policy(MediaPreviews::Private).await.unwrap();
     ///
     /// # anyhow::Ok(()) });
     /// ```
