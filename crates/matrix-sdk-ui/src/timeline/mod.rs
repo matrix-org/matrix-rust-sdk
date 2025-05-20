@@ -545,7 +545,7 @@ impl Timeline {
                 "not sending receipt, because we already cover the event with a previous receipt"
             );
 
-            if thread == ReceiptThread::Unthreaded && self.room().is_marked_unread() {
+            if thread == ReceiptThread::Unthreaded {
                 // Unset the read marker.
                 self.room().set_unread_flag(false).await?;
             }
@@ -608,7 +608,7 @@ impl Timeline {
 
         if !receipts.is_empty() {
             self.room().send_multiple_receipts(receipts).await?;
-        } else if self.room().is_marked_unread() {
+        } else {
             self.room().set_unread_flag(false).await?;
         }
 
@@ -632,10 +632,8 @@ impl Timeline {
         } else {
             trace!("can't mark room as read because there's no latest event id");
 
-            if self.room().is_marked_unread() {
-                // Unset the read marker.
-                self.room().set_unread_flag(false).await?;
-            }
+            // Unset the read marker.
+            self.room().set_unread_flag(false).await?;
 
             Ok(false)
         }

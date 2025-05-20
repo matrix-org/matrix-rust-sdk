@@ -53,6 +53,8 @@ All notable changes to this project will be documented in this file.
   `get_all_rooms`, `get_rooms`, `get_number_of_rooms`, and
   `FrozenSlidingSync` methods and type have been removed.
   ([#5047](https://github.com/matrix-org/matrix-rust-sdk/pull/5047))
+- `Room::set_unread_flag()` is now a no-op if the unread flag already has the wanted value.
+  ([#5055](https://github.com/matrix-org/matrix-rust-sdk/pull/5055))
 
 ## [0.11.0] - 2025-04-11
 
