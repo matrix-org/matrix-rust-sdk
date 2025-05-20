@@ -22,7 +22,7 @@ use std::{
 
 use as_variant::as_variant;
 use bitflags::bitflags;
-use eyeball::{AsyncLock, ObservableWriteGuard, SharedObservable, Subscriber};
+use eyeball::{AsyncLock, ObservableWriteGuard, SharedObservable};
 use futures_util::{Stream, StreamExt};
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk_common::ring_buffer::RingBuffer;
@@ -91,13 +91,13 @@ struct ComputedSummary {
 #[derive(Debug, Clone)]
 pub struct Room {
     /// The room ID.
-    room_id: OwnedRoomId,
+    pub(super) room_id: OwnedRoomId,
 
     /// Our own user ID.
     own_user_id: OwnedUserId,
 
-    inner: SharedObservable<RoomInfo>,
-    room_info_notable_update_sender: broadcast::Sender<RoomInfoNotableUpdate>,
+    pub(super) inner: SharedObservable<RoomInfo>,
+    pub(super) room_info_notable_update_sender: broadcast::Sender<RoomInfoNotableUpdate>,
     store: Arc<DynStateStore>,
 
     /// The most recent few encrypted events. When the keys come through to
@@ -989,41 +989,6 @@ impl Room {
         self.inner.read().joined_members_count()
     }
 
-    /// Subscribe to the inner `RoomInfo`.
-    pub fn subscribe_info(&self) -> Subscriber<RoomInfo> {
-        self.inner.subscribe()
-    }
-
-    /// Clone the inner `RoomInfo`.
-    pub fn clone_info(&self) -> RoomInfo {
-        self.inner.get()
-    }
-
-    /// Update the summary with given RoomInfo.
-    pub fn set_room_info(
-        &self,
-        room_info: RoomInfo,
-        room_info_notable_update_reasons: RoomInfoNotableUpdateReasons,
-    ) {
-        self.inner.set(room_info);
-
-        if !room_info_notable_update_reasons.is_empty() {
-            // Ignore error if no receiver exists.
-            let _ = self.room_info_notable_update_sender.send(RoomInfoNotableUpdate {
-                room_id: self.room_id.clone(),
-                reasons: room_info_notable_update_reasons,
-            });
-        } else {
-            // TODO: remove this block!
-            // Read `RoomInfoNotableUpdateReasons::NONE` to understand why it must be
-            // removed.
-            let _ = self.room_info_notable_update_sender.send(RoomInfoNotableUpdate {
-                room_id: self.room_id.clone(),
-                reasons: RoomInfoNotableUpdateReasons::NONE,
-            });
-        }
-    }
-
     /// Get the `RoomMember` with the given `user_id`.
     ///
     /// Returns `None` if the member was never part of this room, otherwise
@@ -1457,12 +1422,7 @@ mod tests {
     use assert_matches::assert_matches;
     use assign::assign;
     use matrix_sdk_common::deserialized_responses::TimelineEvent;
-    use matrix_sdk_test::{
-        async_test,
-        event_factory::EventFactory,
-        test_json::{sync_events::PINNED_EVENTS, TAG},
-        ALICE, BOB, CAROL,
-    };
+    use matrix_sdk_test::{async_test, event_factory::EventFactory, ALICE, BOB, CAROL};
     use ruma::{
         api::client::sync::sync_events::v3::RoomSummary as RumaSummary,
         device_id, event_id,
@@ -1477,11 +1437,10 @@ mod tests {
                 encryption::{OriginalSyncRoomEncryptionEvent, RoomEncryptionEventContent},
                 member::{MembershipState, RoomMemberEventContent, StrippedRoomMemberEvent},
                 name::RoomNameEventContent,
-                pinned_events::RoomPinnedEventsEventContent,
             },
             AnySyncStateEvent, EmptyStateKey, StateEventType, StateUnsigned, SyncStateEvent,
         },
-        owned_event_id, owned_room_id, owned_user_id, room_alias_id, room_id,
+        owned_room_id, room_alias_id, room_id,
         serde::Raw,
         time::SystemTime,
         user_id, DeviceId, EventEncryptionAlgorithm, EventId, MilliSecondsSinceUnixEpoch,
@@ -1491,295 +1450,15 @@ mod tests {
     use similar_asserts::assert_eq;
     use stream_assert::{assert_pending, assert_ready};
 
-    use super::{
-        compute_display_name_from_heroes, EncryptionState, Room, RoomHero, RoomInfo, RoomState,
-        SyncInfo,
-    };
+    use super::{compute_display_name_from_heroes, EncryptionState, Room, RoomState};
     use crate::{
         latest_event::LatestEvent,
         response_processors as processors,
-        rooms::RoomNotableTags,
-        store::{
-            IntoStateStore, MemoryStore, RoomLoadSettings, StateChanges, StateStore, StoreConfig,
-        },
+        store::{MemoryStore, RoomLoadSettings, StateChanges, StateStore, StoreConfig},
         test_utils::logged_in_base_client,
         BaseClient, MinimalStateEvent, OriginalMinimalStateEvent, RoomDisplayName, RoomStateFilter,
         SessionMeta,
     };
-
-    #[test]
-    fn test_room_info_serialization() {
-        // This test exists to make sure we don't accidentally change the
-        // serialized format for `RoomInfo`.
-
-        use ruma::owned_user_id;
-
-        use super::RoomSummary;
-        use crate::{rooms::BaseRoomInfo, sync::UnreadNotificationsCount};
-
-        let info = RoomInfo {
-            data_format_version: 1,
-            room_id: room_id!("!gda78o:server.tld").into(),
-            room_state: RoomState::Invited,
-            notification_counts: UnreadNotificationsCount {
-                highlight_count: 1,
-                notification_count: 2,
-            },
-            summary: RoomSummary {
-                room_heroes: vec![RoomHero {
-                    user_id: owned_user_id!("@somebody:example.org"),
-                    display_name: None,
-                    avatar_url: None,
-                }],
-                joined_member_count: 5,
-                invited_member_count: 0,
-            },
-            members_synced: true,
-            last_prev_batch: Some("pb".to_owned()),
-            sync_info: SyncInfo::FullySynced,
-            encryption_state_synced: true,
-            latest_event: Some(Box::new(LatestEvent::new(TimelineEvent::new(
-                Raw::from_json_string(json!({"sender": "@u:i.uk"}).to_string()).unwrap(),
-            )))),
-            base_info: Box::new(
-                assign!(BaseRoomInfo::new(), { pinned_events: Some(RoomPinnedEventsEventContent::new(vec![owned_event_id!("$a")])) }),
-            ),
-            read_receipts: Default::default(),
-            warned_about_unknown_room_version: Arc::new(false.into()),
-            cached_display_name: None,
-            cached_user_defined_notification_mode: None,
-            recency_stamp: Some(42),
-        };
-
-        let info_json = json!({
-            "version": 1,
-            "room_id": "!gda78o:server.tld",
-            "room_state": "Invited",
-            "notification_counts": {
-                "highlight_count": 1,
-                "notification_count": 2,
-            },
-            "summary": {
-                "room_heroes": [{
-                    "user_id": "@somebody:example.org",
-                    "display_name": null,
-                    "avatar_url": null
-                }],
-                "joined_member_count": 5,
-                "invited_member_count": 0,
-            },
-            "members_synced": true,
-            "last_prev_batch": "pb",
-            "sync_info": "FullySynced",
-            "encryption_state_synced": true,
-            "latest_event": {
-                "event": {
-                    "kind": {"PlainText": {"event": {"sender": "@u:i.uk"}}},
-                },
-            },
-            "base_info": {
-                "avatar": null,
-                "canonical_alias": null,
-                "create": null,
-                "dm_targets": [],
-                "encryption": null,
-                "guest_access": null,
-                "history_visibility": null,
-                "is_marked_unread": false,
-                "is_marked_unread_source": "Unstable",
-                "join_rules": null,
-                "max_power_level": 100,
-                "name": null,
-                "tombstone": null,
-                "topic": null,
-                "pinned_events": {
-                    "pinned": ["$a"]
-                },
-            },
-            "read_receipts": {
-                "num_unread": 0,
-                "num_mentions": 0,
-                "num_notifications": 0,
-                "latest_active": null,
-                "pending": []
-            },
-            "recency_stamp": 42,
-        });
-
-        assert_eq!(serde_json::to_value(info).unwrap(), info_json);
-    }
-
-    // Ensure we can still deserialize RoomInfos before we added things to its
-    // schema
-    //
-    // In an ideal world, we must not change this test. Please see
-    // [`test_room_info_serialization`] if you want to test a “recent” `RoomInfo`
-    // deserialization.
-    #[test]
-    fn test_room_info_deserialization_without_optional_items() {
-        use ruma::{owned_mxc_uri, owned_user_id};
-
-        // The following JSON should never change if we want to be able to read in old
-        // cached state
-        let info_json = json!({
-            "room_id": "!gda78o:server.tld",
-            "room_state": "Invited",
-            "notification_counts": {
-                "highlight_count": 1,
-                "notification_count": 2,
-            },
-            "summary": {
-                "room_heroes": [{
-                    "user_id": "@somebody:example.org",
-                    "display_name": "Somebody",
-                    "avatar_url": "mxc://example.org/abc"
-                }],
-                "joined_member_count": 5,
-                "invited_member_count": 0,
-            },
-            "members_synced": true,
-            "last_prev_batch": "pb",
-            "sync_info": "FullySynced",
-            "encryption_state_synced": true,
-            "base_info": {
-                "avatar": null,
-                "canonical_alias": null,
-                "create": null,
-                "dm_targets": [],
-                "encryption": null,
-                "guest_access": null,
-                "history_visibility": null,
-                "join_rules": null,
-                "max_power_level": 100,
-                "name": null,
-                "tombstone": null,
-                "topic": null,
-            },
-        });
-
-        let info: RoomInfo = serde_json::from_value(info_json).unwrap();
-
-        assert_eq!(info.room_id, room_id!("!gda78o:server.tld"));
-        assert_eq!(info.room_state, RoomState::Invited);
-        assert_eq!(info.notification_counts.highlight_count, 1);
-        assert_eq!(info.notification_counts.notification_count, 2);
-        assert_eq!(
-            info.summary.room_heroes,
-            vec![RoomHero {
-                user_id: owned_user_id!("@somebody:example.org"),
-                display_name: Some("Somebody".to_owned()),
-                avatar_url: Some(owned_mxc_uri!("mxc://example.org/abc")),
-            }]
-        );
-        assert_eq!(info.summary.joined_member_count, 5);
-        assert_eq!(info.summary.invited_member_count, 0);
-        assert!(info.members_synced);
-        assert_eq!(info.last_prev_batch, Some("pb".to_owned()));
-        assert_eq!(info.sync_info, SyncInfo::FullySynced);
-        assert!(info.encryption_state_synced);
-        assert!(info.base_info.avatar.is_none());
-        assert!(info.base_info.canonical_alias.is_none());
-        assert!(info.base_info.create.is_none());
-        assert_eq!(info.base_info.dm_targets.len(), 0);
-        assert!(info.base_info.encryption.is_none());
-        assert!(info.base_info.guest_access.is_none());
-        assert!(info.base_info.history_visibility.is_none());
-        assert!(info.base_info.join_rules.is_none());
-        assert_eq!(info.base_info.max_power_level, 100);
-        assert!(info.base_info.name.is_none());
-        assert!(info.base_info.tombstone.is_none());
-        assert!(info.base_info.topic.is_none());
-    }
-
-    #[test]
-    fn test_room_info_deserialization() {
-        use ruma::{owned_mxc_uri, owned_user_id};
-
-        use crate::notification_settings::RoomNotificationMode;
-
-        let info_json = json!({
-            "room_id": "!gda78o:server.tld",
-            "room_state": "Joined",
-            "notification_counts": {
-                "highlight_count": 1,
-                "notification_count": 2,
-            },
-            "summary": {
-                "room_heroes": [{
-                    "user_id": "@somebody:example.org",
-                    "display_name": "Somebody",
-                    "avatar_url": "mxc://example.org/abc"
-                }],
-                "joined_member_count": 5,
-                "invited_member_count": 0,
-            },
-            "members_synced": true,
-            "last_prev_batch": "pb",
-            "sync_info": "FullySynced",
-            "encryption_state_synced": true,
-            "base_info": {
-                "avatar": null,
-                "canonical_alias": null,
-                "create": null,
-                "dm_targets": [],
-                "encryption": null,
-                "guest_access": null,
-                "history_visibility": null,
-                "join_rules": null,
-                "max_power_level": 100,
-                "name": null,
-                "tombstone": null,
-                "topic": null,
-            },
-            "cached_display_name": { "Calculated": "lol" },
-            "cached_user_defined_notification_mode": "Mute",
-            "recency_stamp": 42,
-        });
-
-        let info: RoomInfo = serde_json::from_value(info_json).unwrap();
-
-        assert_eq!(info.room_id, room_id!("!gda78o:server.tld"));
-        assert_eq!(info.room_state, RoomState::Joined);
-        assert_eq!(info.notification_counts.highlight_count, 1);
-        assert_eq!(info.notification_counts.notification_count, 2);
-        assert_eq!(
-            info.summary.room_heroes,
-            vec![RoomHero {
-                user_id: owned_user_id!("@somebody:example.org"),
-                display_name: Some("Somebody".to_owned()),
-                avatar_url: Some(owned_mxc_uri!("mxc://example.org/abc")),
-            }]
-        );
-        assert_eq!(info.summary.joined_member_count, 5);
-        assert_eq!(info.summary.invited_member_count, 0);
-        assert!(info.members_synced);
-        assert_eq!(info.last_prev_batch, Some("pb".to_owned()));
-        assert_eq!(info.sync_info, SyncInfo::FullySynced);
-        assert!(info.encryption_state_synced);
-        assert!(info.latest_event.is_none());
-        assert!(info.base_info.avatar.is_none());
-        assert!(info.base_info.canonical_alias.is_none());
-        assert!(info.base_info.create.is_none());
-        assert_eq!(info.base_info.dm_targets.len(), 0);
-        assert!(info.base_info.encryption.is_none());
-        assert!(info.base_info.guest_access.is_none());
-        assert!(info.base_info.history_visibility.is_none());
-        assert!(info.base_info.join_rules.is_none());
-        assert_eq!(info.base_info.max_power_level, 100);
-        assert!(info.base_info.name.is_none());
-        assert!(info.base_info.tombstone.is_none());
-        assert!(info.base_info.topic.is_none());
-
-        assert_eq!(
-            info.cached_display_name.as_ref(),
-            Some(&RoomDisplayName::Calculated("lol".to_owned())),
-        );
-        assert_eq!(
-            info.cached_user_defined_notification_mode.as_ref(),
-            Some(&RoomNotificationMode::Mute)
-        );
-        assert_eq!(info.recency_stamp.as_ref(), Some(&42));
-    }
 
     #[async_test]
     async fn test_is_favourite() {
@@ -2947,107 +2626,6 @@ mod tests {
         assert!(EncryptionState::Unknown.is_encrypted().not());
         assert!(EncryptionState::Encrypted.is_encrypted());
         assert!(EncryptionState::NotEncrypted.is_encrypted().not());
-    }
-
-    #[async_test]
-    async fn test_room_info_migration_v1() {
-        let store = MemoryStore::new().into_state_store();
-
-        let room_info_json = json!({
-            "room_id": "!gda78o:server.tld",
-            "room_state": "Joined",
-            "notification_counts": {
-                "highlight_count": 1,
-                "notification_count": 2,
-            },
-            "summary": {
-                "room_heroes": [{
-                    "user_id": "@somebody:example.org",
-                    "display_name": null,
-                    "avatar_url": null
-                }],
-                "joined_member_count": 5,
-                "invited_member_count": 0,
-            },
-            "members_synced": true,
-            "last_prev_batch": "pb",
-            "sync_info": "FullySynced",
-            "encryption_state_synced": true,
-            "latest_event": {
-                "event": {
-                    "encryption_info": null,
-                    "event": {
-                        "sender": "@u:i.uk",
-                    },
-                },
-            },
-            "base_info": {
-                "avatar": null,
-                "canonical_alias": null,
-                "create": null,
-                "dm_targets": [],
-                "encryption": null,
-                "guest_access": null,
-                "history_visibility": null,
-                "join_rules": null,
-                "max_power_level": 100,
-                "name": null,
-                "tombstone": null,
-                "topic": null,
-            },
-            "read_receipts": {
-                "num_unread": 0,
-                "num_mentions": 0,
-                "num_notifications": 0,
-                "latest_active": null,
-                "pending": []
-            },
-            "recency_stamp": 42,
-        });
-        let mut room_info: RoomInfo = serde_json::from_value(room_info_json).unwrap();
-
-        assert_eq!(room_info.data_format_version, 0);
-        assert!(room_info.base_info.notable_tags.is_empty());
-        assert!(room_info.base_info.pinned_events.is_none());
-
-        // Apply migrations with an empty store.
-        assert!(room_info.apply_migrations(store.clone()).await);
-
-        assert_eq!(room_info.data_format_version, 1);
-        assert!(room_info.base_info.notable_tags.is_empty());
-        assert!(room_info.base_info.pinned_events.is_none());
-
-        // Applying migrations again has no effect.
-        assert!(!room_info.apply_migrations(store.clone()).await);
-
-        assert_eq!(room_info.data_format_version, 1);
-        assert!(room_info.base_info.notable_tags.is_empty());
-        assert!(room_info.base_info.pinned_events.is_none());
-
-        // Add events to the store.
-        let mut changes = StateChanges::default();
-
-        let raw_tag_event = Raw::new(&*TAG).unwrap().cast();
-        let tag_event = raw_tag_event.deserialize().unwrap();
-        changes.add_room_account_data(&room_info.room_id, tag_event, raw_tag_event);
-
-        let raw_pinned_events_event = Raw::new(&*PINNED_EVENTS).unwrap().cast();
-        let pinned_events_event = raw_pinned_events_event.deserialize().unwrap();
-        changes.add_state_event(&room_info.room_id, pinned_events_event, raw_pinned_events_event);
-
-        store.save_changes(&changes).await.unwrap();
-
-        // Reset to version 0 and reapply migrations.
-        room_info.data_format_version = 0;
-        assert!(room_info.apply_migrations(store.clone()).await);
-
-        assert_eq!(room_info.data_format_version, 1);
-        assert!(room_info.base_info.notable_tags.contains(RoomNotableTags::FAVOURITE));
-        assert!(room_info.base_info.pinned_events.is_some());
-
-        // Creating a new room info initializes it to version 1.
-        let new_room_info = RoomInfo::new(room_id!("!new_room:localhost"), RoomState::Joined);
-        assert_eq!(new_room_info.data_format_version, 1);
     }
 
     #[async_test]
