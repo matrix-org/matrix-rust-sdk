@@ -186,6 +186,7 @@ impl TimelineAction {
         raw_event: &Raw<AnySyncTimelineEvent>,
         room_data_provider: &P,
         unable_to_decrypt_info: Option<UnableToDecryptInfo>,
+        bundled_edit_encryption_info: Option<EncryptionInfo>,
         timeline_items: &Vector<Arc<TimelineItem>>,
         meta: &mut TimelineMetadata,
     ) -> Option<Self> {
@@ -245,6 +246,7 @@ impl TimelineAction {
                             Some(raw_event),
                             Some(ev.relations()),
                             Some(ev.event_id()),
+                            bundled_edit_encryption_info,
                             timeline_items,
                             meta,
                         );
@@ -257,6 +259,7 @@ impl TimelineAction {
                         Some(raw_event),
                         Some(ev.relations()),
                         Some(ev.event_id()),
+                        bundled_edit_encryption_info,
                         timeline_items,
                         meta,
                     );
@@ -306,6 +309,7 @@ impl TimelineAction {
         raw_event: Option<&Raw<AnySyncTimelineEvent>>,
         relations: Option<BundledMessageLikeRelations<AnySyncMessageLikeEvent>>,
         event_id: Option<&EventId>,
+        bundled_edit_encryption_info: Option<EncryptionInfo>,
         timeline_items: &Vector<Arc<TimelineItem>>,
         meta: &mut TimelineMetadata,
     ) -> Option<Self> {
@@ -387,8 +391,7 @@ impl TimelineAction {
                                         new_content,
                                     )),
                                     edit_json,
-                                    // TODO maybe we could provide it?
-                                    encryption_info: None,
+                                    encryption_info: bundled_edit_encryption_info,
                                 }),
                             );
                             meta.aggregations.add(
@@ -434,8 +437,7 @@ impl TimelineAction {
                                         new_content,
                                     )),
                                     edit_json,
-                                    // TODO maybe we could provide it?
-                                    encryption_info: None,
+                                    encryption_info: bundled_edit_encryption_info,
                                 }),
                             );
                             meta.aggregations.add(

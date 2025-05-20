@@ -16,7 +16,7 @@ use std::collections::{HashMap, HashSet};
 
 use eyeball_im::VectorDiff;
 use itertools::Itertools as _;
-use matrix_sdk::deserialized_responses::TimelineEvent;
+use matrix_sdk::deserialized_responses::{TimelineEvent, TimelineEventKind, UnsignedEventLocation};
 use ruma::{
     events::AnySyncTimelineEvent, push::Action, serde::Raw, MilliSecondsSinceUnixEpoch,
     OwnedEventId, OwnedTransactionId, OwnedUserId, UserId,
@@ -203,6 +203,7 @@ impl<'a> TimelineStateTransaction<'a> {
             deserialized,
             event.raw(),
             room_data_provider,
+            None,
             None,
             &self.items,
             &mut self.meta,
@@ -554,13 +555,15 @@ impl<'a> TimelineStateTransaction<'a> {
         date_divider_adjuster: &mut DateDividerAdjuster,
     ) -> RemovedItem {
         let TimelineEvent { push_actions, kind } = event;
+
         let encryption_info = kind.encryption_info().cloned();
 
+        let bundled_edit_encryption_info = kind.unsigned_encryption_map().and_then(|map| {
+            map.get(&UnsignedEventLocation::RelationsReplace)?.encryption_info().cloned()
+        });
+
         let (raw, utd_info) = match kind {
-            matrix_sdk::deserialized_responses::TimelineEventKind::UnableToDecrypt {
-                utd_info,
-                event,
-            } => (event, Some(utd_info)),
+            TimelineEventKind::UnableToDecrypt { utd_info, event } => (event, Some(utd_info)),
             _ => (kind.into_raw(), None),
         };
 
@@ -581,6 +584,7 @@ impl<'a> TimelineStateTransaction<'a> {
                         &raw,
                         room_data_provider,
                         utd_info,
+                        bundled_edit_encryption_info,
                         &self.items,
                         &mut self.meta,
                     )
