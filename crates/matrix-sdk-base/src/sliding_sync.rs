@@ -25,7 +25,7 @@ use crate::{
     error::Result,
     read_receipts::compute_unread_counts,
     response_processors as processors,
-    rooms::normal::RoomInfoNotableUpdateReasons,
+    rooms::RoomInfoNotableUpdateReasons,
     store::ambiguity_map::AmbiguityCache,
     sync::{RoomUpdates, SyncResponse},
     RequestedRequiredStates,
@@ -348,7 +348,7 @@ mod tests {
     #[cfg(feature = "e2e-encryption")]
     use super::processors::room::msc4186::cache_latest_events;
     use crate::{
-        rooms::normal::{RoomHero, RoomInfoNotableUpdateReasons},
+        rooms::{normal::RoomHero, RoomInfoNotableUpdateReasons},
         store::{RoomLoadSettings, StoreConfig},
         test_utils::logged_in_base_client,
         BaseClient, EncryptionState, RequestedRequiredStates, RoomInfoNotableUpdate, RoomState,

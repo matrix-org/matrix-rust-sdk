@@ -144,7 +144,7 @@ mod tests {
     use ruma::{event_id, events::room::member::MembershipState, room_id, user_id};
 
     use super::{decrypt_from_rooms, Context, E2EE};
-    use crate::{rooms::normal::RoomInfoNotableUpdateReasons, test_utils::logged_in_base_client};
+    use crate::{rooms::RoomInfoNotableUpdateReasons, test_utils::logged_in_base_client};
 
     #[async_test]
     async fn test_when_there_are_no_latest_encrypted_events_decrypting_them_does_nothing() {

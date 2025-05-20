@@ -22,13 +22,12 @@ use std::{fmt, hash::Hash};
 
 use bitflags::bitflags;
 pub use members::RoomMember;
-pub use normal::{
-    EncryptionState, Room, RoomHero, RoomInfoNotableUpdate, RoomInfoNotableUpdateReasons,
-    RoomMembersUpdate, RoomState, RoomStateFilter,
-};
+pub use normal::{EncryptionState, Room, RoomHero, RoomMembersUpdate, RoomState, RoomStateFilter};
 use regex::Regex;
 pub(crate) use room_info::SyncInfo;
-pub use room_info::{apply_redaction, BaseRoomInfo, RoomInfo};
+pub use room_info::{
+    apply_redaction, BaseRoomInfo, RoomInfo, RoomInfoNotableUpdate, RoomInfoNotableUpdateReasons,
+};
 use ruma::{
     assign,
     events::{
