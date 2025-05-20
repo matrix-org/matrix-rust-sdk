@@ -1033,7 +1033,7 @@ impl MatrixMockServer {
     ///
     /// mock_server.mock_global_account_data().ok(
     ///     client.user_id().unwrap(),
-    ///     ruma::events::GlobalAccountDataEventType::MediaPreviewConfig,
+    ///     ruma::events::GlobalAccountDataEventType::UnstableMediaPreviewConfig,
     ///     json!({
     ///         "media_previews": "private",
     ///         "invite_avatars": "off"
