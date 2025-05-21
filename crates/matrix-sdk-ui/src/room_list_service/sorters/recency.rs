@@ -28,7 +28,7 @@ where
     F: Fn(&Room, &Room) -> (Option<u64>, Option<u64>),
 {
     fn matches(&self, left: &Room, right: &Room) -> Ordering {
-        if left.id() == right.id() {
+        if left.room_id() == right.room_id() {
             // `left` and `right` are the same room. We are comparing the same
             // `LatestEvent`!
             //
