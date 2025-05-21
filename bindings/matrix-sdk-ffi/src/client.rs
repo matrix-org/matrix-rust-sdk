@@ -220,7 +220,7 @@ impl From<matrix_sdk::TransmissionProgress> for TransmissionProgress {
 pub struct Client {
     pub(crate) inner: AsyncRuntimeDropped<MatrixClient>,
     delegate: OnceLock<Arc<dyn ClientDelegate>>,
-    utd_hook_manager: OnceLock<Arc<UtdHookManager>>,
+    pub(crate) utd_hook_manager: OnceLock<Arc<UtdHookManager>>,
     session_verification_controller:
         Arc<tokio::sync::RwLock<Option<SessionVerificationController>>>,
 }
@@ -1141,7 +1141,7 @@ impl Client {
         Ok(Arc::new(NotificationClient {
             inner: MatrixNotificationClient::new((*self.inner).clone(), process_setup.into())
                 .await?,
-            _client: self.clone(),
+            client: self.clone(),
         }))
     }
 
