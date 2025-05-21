@@ -71,10 +71,16 @@ mod tests {
     use std::ops::Not;
 
     use matrix_sdk_test::async_test;
-    use ruma::{room_id, serde::Raw, user_id};
+    use ruma::{
+        events::tag::{TagInfo, TagName, Tags},
+        room_id,
+        serde::Raw,
+        user_id,
+    };
     use serde_json::json;
     use stream_assert::{assert_pending, assert_ready};
 
+    use super::{super::BaseRoomInfo, RoomNotableTags};
     use crate::{
         response_processors as processors,
         store::{RoomLoadSettings, StoreConfig},
@@ -271,5 +277,35 @@ mod tests {
 
         // The room is now marked as _not_ low priority.
         assert!(room.is_low_priority().not());
+    }
+
+    #[test]
+    fn test_handle_notable_tags_favourite() {
+        let mut base_room_info = BaseRoomInfo::default();
+
+        let mut tags = Tags::new();
+        tags.insert(TagName::Favorite, TagInfo::default());
+
+        assert!(base_room_info.notable_tags.contains(RoomNotableTags::FAVOURITE).not());
+        base_room_info.handle_notable_tags(&tags);
+        assert!(base_room_info.notable_tags.contains(RoomNotableTags::FAVOURITE));
+        tags.clear();
+        base_room_info.handle_notable_tags(&tags);
+        assert!(base_room_info.notable_tags.contains(RoomNotableTags::FAVOURITE).not());
+    }
+
+    #[test]
+    fn test_handle_notable_tags_low_priority() {
+        let mut base_room_info = BaseRoomInfo::default();
+
+        let mut tags = Tags::new();
+        tags.insert(TagName::LowPriority, TagInfo::default());
+
+        assert!(base_room_info.notable_tags.contains(RoomNotableTags::LOW_PRIORITY).not());
+        base_room_info.handle_notable_tags(&tags);
+        assert!(base_room_info.notable_tags.contains(RoomNotableTags::LOW_PRIORITY));
+        tags.clear();
+        base_room_info.handle_notable_tags(&tags);
+        assert!(base_room_info.notable_tags.contains(RoomNotableTags::LOW_PRIORITY).not());
     }
 }
