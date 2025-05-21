@@ -230,6 +230,41 @@ impl IndexeddbEventCacheStore {
         ])
     }
 
+    fn encode_in_band_event_range_for_chunk(&self, room_id: &str, chunk_id: u64) -> IdbKeyRange {
+        let lower =
+            self.encode_in_band_event_key(room_id, &PositionForCache { chunk_id, index: 0 });
+        let upper = self.encode_upper_in_band_event_key_for_chunk(room_id, chunk_id);
+        IdbKeyRange::bound(&lower.into(), &upper.into()).expect("construct key range")
+    }
+
+    fn encode_in_band_event_range_for_chunk_from(
+        &self,
+        room_id: &str,
+        position: &PositionForCache,
+    ) -> IdbKeyRange {
+        let lower = self.encode_in_band_event_key(room_id, position);
+        let upper = self.encode_upper_in_band_event_key_for_chunk(room_id, position.chunk_id);
+        IdbKeyRange::bound(&lower.into(), &upper.into()).expect("construct key range")
+    }
+
+    fn encode_in_band_event_range_for_room(&self, room_id: &str) -> IdbKeyRange {
+        let lower = self.encode_in_band_event_key(room_id, &PositionForCache::default());
+        let upper = self.encode_upper_in_band_event_key_for_room(room_id);
+        IdbKeyRange::bound(&lower.into(), &upper.into()).expect("construct key range")
+    }
+
+    fn encode_event_range_for_room(&self, room_id: &str) -> IdbKeyRange {
+        let lower = self.encode_key(vec![
+            (keys::ROOMS, room_id, true),
+            (keys::LINKED_CHUNKS, &String::from(Self::KEY_LOWER_CHARACTER), false),
+        ]);
+        let upper = self.encode_key(vec![
+            (keys::ROOMS, room_id, true),
+            (keys::LINKED_CHUNKS, &String::from(Self::KEY_UPPER_CHARACTER), false),
+        ]);
+        IdbKeyRange::bound(&lower.into(), &upper.into()).expect("construct key range")
+    }
+
     fn encode_out_of_band_event_key(&self, room_id: &str, event_id: &EventId) -> String {
         let chunk_id = String::from(Self::KEY_LOWER_CHARACTER);
         self.encode_key(vec![
@@ -751,10 +786,7 @@ impl_event_cache_store! {
 
                     let object_store = tx.object_store(keys::EVENTS)?;
 
-                    let lower = self.encode_in_band_event_key(room_id.as_ref(), &at.into());
-                    let upper = self.encode_upper_in_band_event_key_for_chunk(room_id.as_ref(), chunk_id);
-                    let key_range = IdbKeyRange::bound(&lower.into(), &upper.into()).unwrap();
-
+                    let key_range = self.encode_in_band_event_range_for_chunk_from(room_id.as_ref(), &at.into());
                     if let Some(cursor) = object_store.open_cursor_with_range(&key_range)?.await? {
                         while cursor.key().is_some() {
                             let event: InBandEventForCache = self.deserialize_in_band_event(cursor.value())?;
@@ -780,16 +812,9 @@ impl_event_cache_store! {
 
                     for chunk in chunks {
                         let chunk: ChunkForCache = self.deserialize_value_with_id(chunk)?;
-
                         // Delete all events for this chunk
-                        let lower = self.encode_in_band_event_key(room_id.as_ref(), &PositionForCache {
-                            chunk_id: chunk.raw_id,
-                            index: 0,
-                        });
-                        let upper = self.encode_upper_in_band_event_key_for_chunk(room_id.as_ref(), chunk.raw_id);
-                        let key_range = IdbKeyRange::bound(&lower.into(), &upper.into()).unwrap();
-
-                        events.delete_owned(key_range)?;
+                        let events_key_range = self.encode_in_band_event_range_for_chunk(room_id.as_ref(), chunk.raw_id);
+                        events.delete_owned(events_key_range)?;
                         linked_chunks.delete_owned(&chunk.id)?;
                     }
                 }
@@ -833,14 +858,8 @@ impl_event_cache_store! {
 
             match linked_chunk.type_str.as_str() {
                 ChunkForCache::CHUNK_TYPE_EVENT_TYPE_STRING => {
-                    let lower = self.encode_in_band_event_key(room_id.as_ref(), &PositionForCache {
-                        chunk_id,
-                        index: 0,
-                    });
-                    let upper = self.encode_upper_in_band_event_key_for_chunk(room_id.as_ref(), chunk_id);
-
                     let events_key_range =
-                        IdbKeyRange::bound(&lower.into(), &upper.into()).unwrap();
+                        self.encode_in_band_event_range_for_chunk(room_id.as_ref(), chunk_id);
 
                     let events = events.get_all_with_key(&events_key_range)?.await?;
                     let mut events_vec = Vec::new();
@@ -939,14 +958,7 @@ impl_event_cache_store! {
 
             let content = match last_chunk.type_str.as_str() {
                 ChunkForCache::CHUNK_TYPE_EVENT_TYPE_STRING => {
-                    let lower = self.encode_in_band_event_key(room_id.as_ref(), &PositionForCache {
-                        chunk_id: last_chunk.raw_id,
-                        index: 0,
-                    });
-                    let upper = self.encode_upper_in_band_event_key_for_chunk(room_id.as_ref(), last_chunk.raw_id);
-                    let events_key_range =
-                        IdbKeyRange::bound(&lower.into(), &upper.into()).unwrap();
-
+                    let events_key_range = self.encode_in_band_event_range_for_chunk(room_id.as_ref(), last_chunk.raw_id);
                     let events = events.get_all_with_key(&events_key_range)?.await?;
                     let mut events_vec = Vec::new();
                     for event in events {
@@ -1009,15 +1021,7 @@ impl_event_cache_store! {
                     let previous_chunk: ChunkForCache = self.deserialize_value_with_id(value)?;
                     let content = match previous_chunk.type_str.as_str() {
                         ChunkForCache::CHUNK_TYPE_EVENT_TYPE_STRING => {
-                            let lower = self.encode_in_band_event_key(room_id.as_ref(), &PositionForCache {
-                                chunk_id: previous_chunk.raw_id,
-                                index: 0,
-                            });
-                            let upper = self.encode_upper_in_band_event_key_for_chunk(room_id.as_ref(), previous_chunk.raw_id);
-
-                            let events_key_range =
-                                IdbKeyRange::bound(&lower.into(), &upper.into()).unwrap();
-
+                            let events_key_range = self.encode_in_band_event_range_for_chunk(room_id.as_ref(), previous_chunk.raw_id);
                             let events = events.get_all_with_key(&events_key_range)?.await?;
                             let mut events_vec = Vec::new();
                             for event in events {
@@ -1105,9 +1109,7 @@ impl_event_cache_store! {
         // schema doesn't easily allow us to find an event without
         // knowing which chunk it is in. To improve this, we will
         // need to add another index to our event store.
-        let lower = self.encode_in_band_event_key(room_id.as_ref(), &PositionForCache::default());
-        let upper = self.encode_upper_in_band_event_key_for_room(room_id.as_ref());
-        let key_range = IdbKeyRange::bound(&lower.clone().into(), &upper.clone().into()).unwrap();
+        let key_range = self.encode_in_band_event_range_for_room(room_id.as_ref());
 
         let mut result = Vec::new();
         let values = store.get_all_with_key(&key_range)?.await?;
@@ -1140,9 +1142,7 @@ impl_event_cache_store! {
         // schema doesn't easily allow us to find an event without
         // knowing which chunk it is in. To improve this, we will
         // need to add another index to our event store.
-        let lower = self.encode_key(vec![(keys::ROOMS, room_id.as_ref(), true)]);
-        let upper = self.encode_upper_key(vec![(keys::ROOMS, room_id.as_ref(), true)]);
-        let events_key_range = IdbKeyRange::bound(&lower.into(), &upper.into()).unwrap();
+        let events_key_range = self.encode_event_range_for_room(room_id.as_ref());
 
         let values = events.get_all_with_key(&events_key_range)?.await?;
         for value in values {
@@ -1176,9 +1176,7 @@ impl_event_cache_store! {
         // schema doesn't easily allow us to find an event without
         // knowing which chunk it is in. To improve this, we will
         // need to add another index to our event store.
-        let lower = self.encode_key(vec![(keys::ROOMS, room_id.as_ref(), true)]);
-        let upper = self.encode_upper_key(vec![(keys::ROOMS, room_id.as_ref(), true)]);
-        let events_key_range = IdbKeyRange::bound(&lower.into(), &upper.into()).unwrap();
+        let events_key_range = self.encode_event_range_for_room(room_id.as_ref());
 
         let mut result = Vec::new();
         let values = events.get_all_with_key(&events_key_range)?.await?;
@@ -1227,9 +1225,7 @@ impl_event_cache_store! {
         // schema doesn't easily allow us to find an event without
         // knowing which chunk it is in. To improve this, we will
         // need to add another index to our event store.
-        let lower = self.encode_key(vec![(keys::ROOMS, room_id.as_ref(), true)]);
-        let upper = self.encode_upper_key(vec![(keys::ROOMS, room_id.as_ref(), true)]);
-        let key_range = IdbKeyRange::bound(&lower.into(), &upper.into()).unwrap();
+        let key_range = self.encode_event_range_for_room(room_id.as_ref());
 
         let mut position = None;
         let values = store.get_all_with_key(&key_range)?.await?;
@@ -1432,7 +1428,7 @@ mod tests {
     };
     use matrix_sdk_test::DEFAULT_TEST_ROOM_ID;
     use ruma::room_id;
-    use web_sys::{IdbKeyRange, IdbTransactionMode};
+    use web_sys::IdbTransactionMode;
 
     use super::*;
 
@@ -1691,16 +1687,7 @@ mod tests {
             .unwrap();
         let object_store = tx.object_store(keys::EVENTS).unwrap();
 
-        let lower = store.encode_key(vec![
-            (keys::ROOMS, room_id.as_ref(), true),
-            (keys::LINKED_CHUNKS, "42", false),
-            (keys::EVENTS, "0", false),
-        ]);
-        let upper = store.encode_upper_key(vec![
-            (keys::ROOMS, room_id.as_ref(), true),
-            (keys::LINKED_CHUNKS, "42", false),
-        ]);
-        let key_range = IdbKeyRange::bound(&lower.into(), &upper.into()).unwrap();
+        let key_range = store.encode_in_band_event_range_for_chunk(room_id.as_ref(), 42);
 
         let events = object_store.get_all_with_key(&key_range).unwrap().await.unwrap();
         assert_eq!(events.length(), 1);
