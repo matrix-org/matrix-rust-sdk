@@ -14,12 +14,20 @@
 
 use std::fmt;
 
+use as_variant::as_variant;
 use regex::Regex;
-use ruma::{events::member_hints::MemberHintsEventContent, OwnedMxcUri, OwnedUserId, UserId};
+use ruma::{
+    events::{member_hints::MemberHintsEventContent, SyncStateEvent},
+    OwnedMxcUri, OwnedUserId, UserId,
+};
 use serde::{Deserialize, Serialize};
 use tracing::{debug, trace, warn};
 
-use crate::{store::Result as StoreResult, RoomMember, RoomState};
+use crate::{
+    deserialized_responses::SyncOrStrippedState,
+    store::{Result as StoreResult, StateStoreExt},
+    RoomMember, RoomState,
+};
 
 use super::{Room, RoomMemberships};
 
@@ -290,6 +298,21 @@ impl Room {
         let num_joined_invited_guess = num_joined_invited as u64;
 
         Ok(ComputedSummary { heroes, num_service_members, num_joined_invited_guess })
+    }
+
+    async fn get_member_hints(&self) -> StoreResult<MemberHintsEventContent> {
+        Ok(self
+            .store
+            .get_state_event_static::<MemberHintsEventContent>(self.room_id())
+            .await?
+            .and_then(|event| {
+                event
+                    .deserialize()
+                    .inspect_err(|e| warn!("Couldn't deserialize the member hints event: {e}"))
+                    .ok()
+            })
+            .and_then(|event| as_variant!(event, SyncOrStrippedState::Sync(SyncStateEvent::Original(e)) => e.content))
+            .unwrap_or_default())
     }
 }
 
