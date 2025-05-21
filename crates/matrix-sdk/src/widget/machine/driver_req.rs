@@ -26,7 +26,7 @@ use ruma::{
     to_device::DeviceIdOrAllDevices,
     OwnedUserId,
 };
-use serde::Deserialize;
+use serde::{de, Deserialize};
 use serde_json::value::RawValue as RawJsonValue;
 use tracing::error;
 
@@ -299,12 +299,12 @@ impl MatrixDriverRequest for SendToDeviceRequest {
 }
 
 impl TryInto<send_event_to_device::v3::Response> for MatrixDriverResponse {
-    type Error = anyhow::Error;
+    type Error = de::value::Error;
 
     fn try_into(self) -> Result<send_event_to_device::v3::Response, Self::Error> {
         match self {
             MatrixDriverResponse::MatrixToDeviceSent(response) => Ok(response),
-            _ => Err(anyhow::Error::msg("bug in MatrixDriver, received wrong event response")),
+            _ => Err(de::Error::custom("bug in MatrixDriver, received wrong event response")),
         }
     }
 }
