@@ -5,15 +5,21 @@ use std::{fmt::Debug, mem::MaybeUninit, ptr::addr_of_mut, sync::Arc, time::Durat
 use async_compat::get_runtime_handle;
 use eyeball_im::VectorDiff;
 use futures_util::{pin_mut, StreamExt};
-use matrix_sdk::ruma::{
-    api::client::sync::sync_events::UnreadNotificationsCount as RumaUnreadNotificationsCount,
-    RoomId,
+use matrix_sdk::{
+    ruma::{
+        api::client::sync::sync_events::UnreadNotificationsCount as RumaUnreadNotificationsCount,
+        RoomId,
+    },
+    Room,
 };
-use matrix_sdk_ui::room_list_service::filters::{
-    new_filter_all, new_filter_any, new_filter_category, new_filter_favourite,
-    new_filter_fuzzy_match_room_name, new_filter_invite, new_filter_joined, new_filter_non_left,
-    new_filter_none, new_filter_normalized_match_room_name, new_filter_unread, BoxedFilterFn,
-    RoomCategory,
+use matrix_sdk_ui::{
+    room_list_service::filters::{
+        new_filter_all, new_filter_any, new_filter_category, new_filter_favourite,
+        new_filter_fuzzy_match_room_name, new_filter_invite, new_filter_joined,
+        new_filter_non_left, new_filter_none, new_filter_normalized_match_room_name,
+        new_filter_unread, BoxedFilterFn, RoomCategory,
+    },
+    timeline::RoomExt as _,
 };
 use ruma::{OwnedRoomOrAliasId, OwnedServerName, ServerName};
 
@@ -81,7 +87,7 @@ impl RoomListService {
     fn room(&self, room_id: String) -> Result<Arc<RoomListItem>, RoomListError> {
         let room_id = <&RoomId>::try_from(room_id.as_str()).map_err(RoomListError::from)?;
 
-        Ok(Arc::new(RoomListItem { inner: Arc::new(self.inner.room(room_id)?) }))
+        Ok(Arc::new(RoomListItem { inner: self.inner.room(room_id)? }))
     }
 
     async fn all_rooms(self: Arc<Self>) -> Result<Arc<RoomList>, RoomListError> {
@@ -360,7 +366,7 @@ pub enum RoomListEntriesUpdate {
 }
 
 impl RoomListEntriesUpdate {
-    fn from(vector_diff: VectorDiff<matrix_sdk_ui::room_list_service::Room>) -> Self {
+    fn from(vector_diff: VectorDiff<Room>) -> Self {
         match vector_diff {
             VectorDiff::Append { values } => Self::Append {
                 values: values
@@ -492,26 +498,26 @@ impl From<RoomListEntriesDynamicFilterKind> for BoxedFilterFn {
 
 #[derive(uniffi::Object)]
 pub struct RoomListItem {
-    inner: Arc<matrix_sdk_ui::room_list_service::Room>,
+    inner: Room,
 }
 
 impl RoomListItem {
-    fn from(value: matrix_sdk_ui::room_list_service::Room) -> Self {
-        Self { inner: Arc::new(value) }
+    fn from(inner: Room) -> Self {
+        Self { inner }
     }
 }
 
 #[matrix_sdk_ffi_macros::export]
 impl RoomListItem {
     fn id(&self) -> String {
-        self.inner.id().to_string()
+        self.inner.room_id().to_string()
     }
 
     /// Returns the room's name from the state event if available, otherwise
     /// compute a room name based on the room's nature (DM or not) and number of
     /// members.
     fn display_name(&self) -> Option<String> {
-        self.inner.cached_display_name()
+        self.inner.cached_display_name().map(|display_name| display_name.to_string())
     }
 
     fn avatar_url(&self) -> Option<String> {
@@ -519,20 +525,20 @@ impl RoomListItem {
     }
 
     async fn is_direct(&self) -> bool {
-        self.inner.inner_room().is_direct().await.unwrap_or(false)
+        self.inner.is_direct().await.unwrap_or(false)
     }
 
     fn canonical_alias(&self) -> Option<String> {
-        self.inner.inner_room().canonical_alias().map(|alias| alias.to_string())
+        self.inner.canonical_alias().map(|alias| alias.to_string())
     }
 
     async fn room_info(&self) -> Result<RoomInfo, ClientError> {
-        RoomInfo::new(self.inner.inner_room()).await
+        RoomInfo::new(&self.inner).await
     }
 
     /// The room's current membership state.
     fn membership(&self) -> Membership {
-        self.inner.inner_room().state().into()
+        self.inner.state().into()
     }
 
     /// Builds a `RoomPreview` from a room list item. This is intended for
@@ -551,7 +557,7 @@ impl RoomListItem {
             let room_or_alias_id: OwnedRoomOrAliasId = alias.into();
             (room_or_alias_id, Vec::new())
         } else {
-            let room_or_alias_id: OwnedRoomOrAliasId = self.inner.id().to_owned().into();
+            let room_or_alias_id: OwnedRoomOrAliasId = self.inner.room_id().to_owned().into();
             (room_or_alias_id, server_names)
         };
 
@@ -583,7 +589,7 @@ impl RoomListItem {
     }
 
     async fn latest_event(&self) -> Option<EventTimelineItem> {
-        self.inner.latest_event().await.map(Into::into)
+        self.inner.latest_event_item().await.map(Into::into)
     }
 }
 
