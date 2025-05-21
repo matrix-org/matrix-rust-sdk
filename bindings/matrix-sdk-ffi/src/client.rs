@@ -1146,7 +1146,7 @@ impl Client {
     }
 
     pub fn sync_service(&self) -> Arc<SyncServiceBuilder> {
-        SyncServiceBuilder::new((*self.inner).clone())
+        SyncServiceBuilder::new((*self.inner).clone(), self.utd_hook_manager.get().cloned())
     }
 
     pub async fn get_notification_settings(&self) -> Arc<NotificationSettings> {
