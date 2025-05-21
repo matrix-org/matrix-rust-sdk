@@ -236,6 +236,8 @@ impl Room {
         if configuration.report_utds {
             if let Some(utd_hook_manager) = self.utd_hook_manager.clone() {
                 builder = builder.with_unable_to_decrypt_hook(utd_hook_manager);
+            } else {
+                return Err(ClientError::Generic { msg: "Failed creating timeline because the configuration is set to report UTDs but no hook manager is set".to_owned(), details: None });
             }
         }
 
