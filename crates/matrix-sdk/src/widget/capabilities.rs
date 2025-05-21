@@ -46,7 +46,7 @@ pub struct Capabilities {
     /// Types of the messages that a widget wants to be able to send.
     pub send: Vec<Filter>,
     /// If this capability is requested by the widget, it can not operate
-    /// separately from the matrix client.
+    /// separately from the Matrix client.
     ///
     /// This means clients should not offer to open the widget in a separate
     /// browser/tab/webview that is not connected to the postmessage widget-api.

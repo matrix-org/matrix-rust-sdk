@@ -83,7 +83,10 @@ async fn test_default_filter() {
     timeline.handle_live_event(f.reaction(third_event_id, "+1").sender(&BOB)).await;
     timeline.handle_live_event(f.redaction(second_event_id).sender(&BOB)).await;
     let item = assert_next_matches!(stream, VectorDiff::Set { index: 3, value } => value);
-    assert_eq!(item.as_event().unwrap().content().reactions().len(), 1);
+    assert_eq!(
+        item.as_event().unwrap().content().reactions().cloned().unwrap_or_default().len(),
+        1
+    );
 
     // TODO: After adding raw timeline items, check for one here.
 

@@ -16,7 +16,7 @@ js = ["vodozemac/js"]
 
 [package.metadata.docs.rs]
 all-features = true
-rustdoc-args = ["--cfg", "docsrs"]
+rustdoc-args = ["--cfg", "docsrs", "--generate-link-to-definition"]
 
 [dependencies]
 byteorder = { workspace = true }

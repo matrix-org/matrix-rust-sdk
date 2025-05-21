@@ -86,7 +86,8 @@ macro_rules! assert_timeline_stream {
                                 **value,
                                 matrix_sdk_ui::timeline::TimelineItemKind::Virtual(
                                     matrix_sdk_ui::timeline::VirtualTimelineItem::DateDivider(_)
-                                )
+                                ),
+                                "`--- date divider ---` has failed",
                             );
                         }
                     );
@@ -110,8 +111,13 @@ macro_rules! assert_timeline_stream {
                             assert_matches!(
                                 &**value,
                                 matrix_sdk_ui::timeline::TimelineItemKind::Event(event_timeline_item) => {
-                                    assert_eq!(event_timeline_item.event_id().unwrap().as_str(), $event_id);
-                                }
+                                    assert_eq!(
+                                        event_timeline_item.event_id().unwrap().as_str(),
+                                        $event_id,
+                                    concat!("`append ", $event_id, "` has failed: event ID does not match"),
+                                    );
+                                },
+                                concat!("`append ", $event_id, "` has failed: timeline item kind does not match"),
                             );
                         }
                     );
@@ -136,7 +142,8 @@ macro_rules! assert_timeline_stream {
                                 &**value,
                                 matrix_sdk_ui::timeline::TimelineItemKind::Virtual(
                                     matrix_sdk_ui::timeline::VirtualTimelineItem::DateDivider(_)
-                                ) => {}
+                                ),
+                                "`prepend --- date divider ---` has failed",
                             );
                         }
                     );
@@ -144,7 +151,6 @@ macro_rules! assert_timeline_stream {
             ]
         )
     };
-
 
     // `prepend --- timeline start ---`
     ( @_ [ $iterator:ident ] [ prepend --- timeline start --- ; $( $rest:tt )* ] [ $( $accumulator:tt )* ] ) => {
@@ -162,7 +168,8 @@ macro_rules! assert_timeline_stream {
                                 &**value,
                                 matrix_sdk_ui::timeline::TimelineItemKind::Virtual(
                                     matrix_sdk_ui::timeline::VirtualTimelineItem::TimelineStart
-                                ) => {}
+                                ),
+                                "`prepend --- timeline start ---` has failed",
                             );
                         }
                     );
@@ -186,8 +193,39 @@ macro_rules! assert_timeline_stream {
                             assert_matches!(
                                 &**value,
                                 matrix_sdk_ui::timeline::TimelineItemKind::Event(event_timeline_item) => {
-                                    assert_eq!(event_timeline_item.event_id().unwrap().as_str(), $event_id);
-                                }
+                                    assert_eq!(
+                                        event_timeline_item.event_id().unwrap().as_str(),
+                                        $event_id,
+                                        concat!("`prepend ", $event_id, "` has failed: event ID does not match"),
+                                    );
+                                },
+                                concat!("`prepend ", $event_id, "` has failed: timeline item kind does not match"),
+                            );
+                        }
+                    );
+                }
+            ]
+        )
+    };
+
+    // `insert [$nth] --- date divider ---`
+    ( @_ [ $iterator:ident ] [ insert [$index:literal] --- date divider --- ; $( $rest:tt )* ] [ $( $accumulator:tt )* ] ) => {
+        assert_timeline_stream!(
+            @_
+            [ $iterator ]
+            [ $( $rest )* ]
+            [
+                $( $accumulator )*
+                {
+                    assert_matches!(
+                        $iterator .next(),
+                        Some(eyeball_im::VectorDiff::Insert { index: $index, value }) => {
+                            assert_matches!(
+                                &**value,
+                                matrix_sdk_ui::timeline::TimelineItemKind::Virtual(
+                                    matrix_sdk_ui::timeline::VirtualTimelineItem::DateDivider(_)
+                                ),
+                                concat!("`insert [", $index, "] --- date divider ---` has failed"),
                             );
                         }
                     );
@@ -211,8 +249,13 @@ macro_rules! assert_timeline_stream {
                             assert_matches!(
                                 &**value,
                                 matrix_sdk_ui::timeline::TimelineItemKind::Event(event_timeline_item) => {
-                                    assert_eq!(event_timeline_item.event_id().unwrap().as_str(), $event_id);
-                                }
+                                    assert_eq!(
+                                        event_timeline_item.event_id().unwrap().as_str(),
+                                        $event_id,
+                                        concat!("`insert [", $index, "] ", $event_id, "` has failed: event ID does not match"),
+                                    );
+                                },
+                                concat!("`insert [", $index, "] ", $event_id, "` has failed: timeline item kind does not match"),
                             );
                         }
                     );
@@ -236,8 +279,13 @@ macro_rules! assert_timeline_stream {
                             assert_matches!(
                                 &**value,
                                 matrix_sdk_ui::timeline::TimelineItemKind::Event(event_timeline_item) => {
-                                    assert_eq!(event_timeline_item.event_id().unwrap().as_str(), $event_id);
-                                }
+                                    assert_eq!(
+                                        event_timeline_item.event_id().unwrap().as_str(),
+                                        $event_id,
+                                        concat!("`update [", $index, "] ", $event_id, "` has failed: event ID does not match"),
+                                    );
+                                },
+                                concat!("`update [", $index, "] ", $event_id, "` has failed: timeline item kind does not match"),
                             );
                         }
                     );
@@ -257,7 +305,8 @@ macro_rules! assert_timeline_stream {
                 {
                     assert_matches!(
                         $iterator .next(),
-                        Some(eyeball_im::VectorDiff::Remove { index: $index })
+                        Some(eyeball_im::VectorDiff::Remove { index: $index }),
+                        concat!("`remove [", $index, "]` has failed"),
                     );
                 }
             ]
@@ -275,7 +324,8 @@ macro_rules! assert_timeline_stream {
                 {
                     assert_matches!(
                         $iterator .next(),
-                        Some(eyeball_im::VectorDiff::Clear)
+                        Some(eyeball_im::VectorDiff::Clear),
+                        "clear has failed",
                     );
                 }
             ]
@@ -285,7 +335,9 @@ macro_rules! assert_timeline_stream {
     ( @_ [ $iterator:ident ] [] [ $( $accumulator:tt )* ] ) => {
         $( $accumulator )*
 
-        assert!($iterator .next().is_none(), concat!(stringify!($iterator), " has not been entirely read"));
+        let next = $iterator .next();
+
+        assert!(next.is_none(), "`{}` has not been entirely read; received `{:?}`", stringify!( $iterator ), next);
     };
 
     ( [ $stream:ident ] $( $all:tt )* ) => {
@@ -319,7 +371,6 @@ async fn new_sliding_sync(
 
 async fn create_one_room(
     server: &MockServer,
-    sliding_sync: &SlidingSync,
     stream: &mut Pin<&mut impl Stream<Item = matrix_sdk::Result<UpdateSummary>>>,
     room_id: &RoomId,
     room_name: String,
@@ -342,19 +393,13 @@ async fn create_one_room(
 
     assert!(update.rooms.contains(&room_id.to_owned()));
 
-    let _room = sliding_sync.get_room(room_id).await.context("`get_room`")?;
-
     Ok(())
 }
 
 async fn timeline_test_helper(
     client: &Client,
-    sliding_sync: &SlidingSync,
     room_id: &RoomId,
 ) -> Result<(Vector<Arc<TimelineItem>>, impl Stream<Item = Vec<VectorDiff<Arc<TimelineItem>>>>)> {
-    let sliding_sync_room = sliding_sync.get_room(room_id).await.unwrap();
-
-    let room_id = sliding_sync_room.room_id();
     let sdk_room = client.get_room(room_id).ok_or_else(|| {
         anyhow::anyhow!("Room {room_id} not found in client. Can't provide a timeline for it")
     })?;
@@ -384,12 +429,11 @@ async fn test_timeline_basic() -> Result<()> {
 
     let room_id = room_id!("!foo:bar.org");
 
-    create_one_room(&server, &sliding_sync, &mut stream, room_id, "Room Name".to_owned()).await?;
+    create_one_room(&server, &mut stream, room_id, "Room Name".to_owned()).await?;
 
     mock_encryption_state(&server, false).await;
 
-    let (timeline_items, mut timeline_stream) =
-        timeline_test_helper(&client, &sliding_sync, room_id).await?;
+    let (timeline_items, mut timeline_stream) = timeline_test_helper(&client, room_id).await?;
     assert!(timeline_items.is_empty());
 
     // Receiving a bunch of events.
@@ -433,11 +477,11 @@ async fn test_timeline_duplicated_events() -> Result<()> {
 
     let room_id = room_id!("!foo:bar.org");
 
-    create_one_room(&server, &sliding_sync, &mut stream, room_id, "Room Name".to_owned()).await?;
+    create_one_room(&server, &mut stream, room_id, "Room Name".to_owned()).await?;
 
     mock_encryption_state(&server, false).await;
 
-    let (_, mut timeline_stream) = timeline_test_helper(&client, &sliding_sync, room_id).await?;
+    let (_, mut timeline_stream) = timeline_test_helper(&client, room_id).await?;
 
     // Receiving events.
     {
@@ -511,12 +555,11 @@ async fn test_timeline_read_receipts_are_updated_live() -> Result<()> {
 
     let room_id = room_id!("!foo:bar.org");
 
-    create_one_room(&server, &sliding_sync, &mut stream, room_id, "Room Name".to_owned()).await?;
+    create_one_room(&server, &mut stream, room_id, "Room Name".to_owned()).await?;
 
     mock_encryption_state(&server, false).await;
 
-    let (timeline_items, mut timeline_stream) =
-        timeline_test_helper(&client, &sliding_sync, room_id).await?;
+    let (timeline_items, mut timeline_stream) = timeline_test_helper(&client, room_id).await?;
     assert!(timeline_items.is_empty());
 
     // Receiving initial events.

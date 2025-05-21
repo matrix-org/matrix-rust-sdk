@@ -392,7 +392,12 @@ impl ClientInner {
 
         let _ = client
             .event_cache
-            .get_or_init(|| async { EventCache::new(WeakClient::from_inner(&client)) })
+            .get_or_init(|| async {
+                EventCache::new(
+                    WeakClient::from_inner(&client),
+                    client.base_client.event_cache_store().clone(),
+                )
+            })
             .await;
 
         client
@@ -1406,10 +1411,34 @@ impl Client {
         }
     }
 
+    /// Finish joining a room.
+    ///
+    /// If the room was an invite that should be marked as a DM, will include it
+    /// in the DM event after creating the joined room.
+    async fn finish_join_room(&self, room_id: &RoomId) -> Result<Room> {
+        let mark_as_dm = if let Some(room) = self.get_room(room_id) {
+            room.state() == RoomState::Invited
+                && room.is_direct().await.unwrap_or_else(|e| {
+                    warn!(%room_id, "is_direct() failed: {e}");
+                    false
+                })
+        } else {
+            false
+        };
+
+        let base_room = self.base_client().room_joined(room_id).await?;
+        let room = Room::new(self.clone(), base_room);
+
+        if mark_as_dm {
+            room.set_is_direct(true).await?;
+        }
+
+        Ok(room)
+    }
+
     /// Join a room by `RoomId`.
     ///
-    /// Returns a `join_room_by_id::Response` consisting of the
-    /// joined rooms `RoomId`.
+    /// Returns the `Room` in the joined state.
     ///
     /// # Arguments
     ///
@@ -1417,19 +1446,19 @@ impl Client {
     pub async fn join_room_by_id(&self, room_id: &RoomId) -> Result<Room> {
         let request = join_room_by_id::v3::Request::new(room_id.to_owned());
         let response = self.send(request).await?;
-        let base_room = self.base_client().room_joined(&response.room_id).await?;
-        Ok(Room::new(self.clone(), base_room))
+        self.finish_join_room(&response.room_id).await
     }
 
-    /// Join a room by `RoomId`.
+    /// Join a room by `RoomOrAliasId`.
     ///
-    /// Returns a `join_room_by_id_or_alias::Response` consisting of the
-    /// joined rooms `RoomId`.
+    /// Returns the `Room` in the joined state.
     ///
     /// # Arguments
     ///
     /// * `alias` - The `RoomId` or `RoomAliasId` of the room to be joined. An
     ///   alias looks like `#name:example.com`.
+    /// * `server_names` - The server names to be used for resolving the alias,
+    ///   if needs be.
     pub async fn join_room_by_id_or_alias(
         &self,
         alias: &RoomOrAliasId,
@@ -1439,8 +1468,7 @@ impl Client {
             via: server_names.to_owned(),
         });
         let response = self.send(request).await?;
-        let base_room = self.base_client().room_joined(&response.room_id).await?;
-        Ok(Room::new(self.clone(), base_room))
+        self.finish_join_room(&response.room_id).await
     }
 
     /// Search the homeserver's directory of public rooms.
@@ -2561,14 +2589,14 @@ pub(crate) mod tests {
     use std::{sync::Arc, time::Duration};
 
     use assert_matches::assert_matches;
-    use futures_util::FutureExt;
+    use futures_util::{pin_mut, FutureExt};
     use matrix_sdk_base::{
         store::{MemoryStore, StoreConfig},
         RoomState,
     };
     use matrix_sdk_test::{
-        async_test, test_json, JoinedRoomBuilder, StateTestEvent, SyncResponseBuilder,
-        DEFAULT_TEST_ROOM_ID,
+        async_test, test_json, GlobalAccountDataTestEvent, JoinedRoomBuilder, StateTestEvent,
+        SyncResponseBuilder, DEFAULT_TEST_ROOM_ID,
     };
     #[cfg(target_arch = "wasm32")]
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
@@ -2576,10 +2604,14 @@ pub(crate) mod tests {
     use ruma::{
         api::{client::room::create_room::v3::Request as CreateRoomRequest, MatrixVersion},
         assign,
-        events::ignored_user_list::IgnoredUserListEventContent,
+        events::{
+            ignored_user_list::IgnoredUserListEventContent,
+            media_preview_config::{InviteAvatars, MediaPreviewConfigEventContent, MediaPreviews},
+        },
         owned_room_id, room_alias_id, room_id, RoomId, ServerName, UserId,
     };
     use serde_json::json;
+    use stream_assert::{assert_next_matches, assert_pending};
     use tokio::{
         spawn,
         time::{sleep, timeout},
@@ -2999,12 +3031,7 @@ pub(crate) mod tests {
         assert_eq!(client.server_versions().await.unwrap().len(), 1);
 
         // This second call hits the in-memory cache.
-        assert!(client
-            .server_versions()
-            .await
-            .unwrap()
-            .iter()
-            .any(|version| *version == MatrixVersion::V1_0));
+        assert!(client.server_versions().await.unwrap().contains(&MatrixVersion::V1_0));
 
         drop(client);
 
@@ -3041,12 +3068,7 @@ pub(crate) mod tests {
         // Hits network again.
         assert_eq!(client.server_versions().await.unwrap().len(), 1);
         // Hits in-memory cache again.
-        assert!(client
-            .server_versions()
-            .await
-            .unwrap()
-            .iter()
-            .any(|version| *version == MatrixVersion::V1_0));
+        assert!(client.server_versions().await.unwrap().contains(&MatrixVersion::V1_0));
     }
 
     #[async_test]
@@ -3314,24 +3336,140 @@ pub(crate) mod tests {
     }
 
     #[async_test]
-    async fn test_room_preview_for_banned_room_retrieves_local_room_info() {
+    async fn test_media_preview_config() {
         let server = MatrixMockServer::new().await;
         let client = server.client_builder().build().await;
 
-        let room_id = room_id!("!a-room:matrix.org");
+        server
+            .mock_global_account_data()
+            .ok(
+                client.user_id().unwrap(),
+                ruma::events::GlobalAccountDataEventType::MediaPreviewConfig,
+                json!({
+                    "media_previews": "private",
+                    "invite_avatars": "off"
+                }),
+            )
+            .mount()
+            .await;
 
-        // Make sure the summary endpoint is not called
-        server.mock_room_summary().ok(room_id).never().mount().await;
+        let (initial_value, stream) =
+            client.account().observe_media_preview_config().await.unwrap();
 
-        // We create a locally cached banned room
-        let banned_room = client.inner.base_client.get_or_create_room(room_id, RoomState::Banned);
+        assert_eq!(initial_value.invite_avatars, InviteAvatars::Off);
+        assert_eq!(initial_value.media_previews, MediaPreviews::Private);
+        pin_mut!(stream);
+        assert_pending!(stream);
 
-        // And we get a preview, no server endpoint was reached
-        let preview = client
-            .get_room_preview(room_id.into(), Vec::new())
-            .await
-            .expect("Room preview should be retrieved");
+        server
+            .mock_sync()
+            .ok_and_run(&client, |builder| {
+                builder.add_global_account_data_event(GlobalAccountDataTestEvent::Custom(json!({
+                "content": {
+                    "media_previews": "off",
+                    "invite_avatars": "on"
+                },
+                "type": "m.media_preview_config"
+                  })));
+            })
+            .await;
 
-        assert_eq!(banned_room.room_id().to_owned(), preview.room_id);
+        assert_next_matches!(
+            stream,
+            MediaPreviewConfigEventContent {
+                media_previews: MediaPreviews::Off,
+                invite_avatars: InviteAvatars::On,
+                ..
+            }
+        );
+        assert_pending!(stream);
+    }
+
+    #[async_test]
+    async fn test_unstable_media_preview_config() {
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+
+        server
+            .mock_global_account_data()
+            .not_found(
+                client.user_id().unwrap(),
+                ruma::events::GlobalAccountDataEventType::MediaPreviewConfig,
+            )
+            .mount()
+            .await;
+
+        server
+            .mock_global_account_data()
+            .ok(
+                client.user_id().unwrap(),
+                ruma::events::GlobalAccountDataEventType::UnstableMediaPreviewConfig,
+                json!({
+                    "media_previews": "private",
+                    "invite_avatars": "off"
+                }),
+            )
+            .mount()
+            .await;
+
+        let (initial_value, stream) =
+            client.account().observe_media_preview_config().await.unwrap();
+
+        assert_eq!(initial_value.invite_avatars, InviteAvatars::Off);
+        assert_eq!(initial_value.media_previews, MediaPreviews::Private);
+        pin_mut!(stream);
+        assert_pending!(stream);
+
+        server
+            .mock_sync()
+            .ok_and_run(&client, |builder| {
+                builder.add_global_account_data_event(GlobalAccountDataTestEvent::Custom(json!({
+                "content": {
+                    "media_previews": "off",
+                    "invite_avatars": "on"
+                },
+                "type": "io.element.msc4278.media_preview_config"
+                  })));
+            })
+            .await;
+
+        assert_next_matches!(
+            stream,
+            MediaPreviewConfigEventContent {
+                media_previews: MediaPreviews::Off,
+                invite_avatars: InviteAvatars::On,
+                ..
+            }
+        );
+        assert_pending!(stream);
+    }
+
+    #[async_test]
+    async fn test_media_preview_config_not_found() {
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+
+        server
+            .mock_global_account_data()
+            .not_found(
+                client.user_id().unwrap(),
+                ruma::events::GlobalAccountDataEventType::MediaPreviewConfig,
+            )
+            .mount()
+            .await;
+
+        server
+            .mock_global_account_data()
+            .not_found(
+                client.user_id().unwrap(),
+                ruma::events::GlobalAccountDataEventType::UnstableMediaPreviewConfig,
+            )
+            .mount()
+            .await;
+
+        let (initial_value, _) = client.account().observe_media_preview_config().await.unwrap();
+
+        assert_eq!(initial_value.invite_avatars, InviteAvatars::On);
+        assert_eq!(initial_value.media_previews, MediaPreviews::On);
     }
 }

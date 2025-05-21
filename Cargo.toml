@@ -31,6 +31,7 @@ async-stream = "0.3.5"
 async-trait = "0.1.85"
 as_variant = "1.3.0"
 base64 = "0.22.1"
+bitflags = "2.8.0"
 byteorder = "1.5.0"
 chrono = "0.4.39"
 eyeball = { version = "0.8.8", features = ["tracing"] }
@@ -60,7 +61,7 @@ reqwest = { version = "0.12.12", default-features = false }
 rmp-serde = "1.3.0"
 # Be careful to use commits from the https://github.com/ruma/ruma/tree/ruma-0.12
 # branch until a proper release with breaking changes happens.
-ruma = { version = "0.12.2", features = [
+ruma = { git = "https://github.com/ruma/ruma", rev = "a8fd1b0322649bf59e2a5cfc73ab4fe46b21edd7", features = [
     "client-api-c",
     "compat-upload-signatures",
     "compat-user-id",
@@ -74,8 +75,9 @@ ruma = { version = "0.12.2", features = [
     "unstable-msc4075",
     "unstable-msc4140",
     "unstable-msc4171",
-] }
-ruma-common = "0.15.2"
+    "unstable-msc4278",
+    ] }
+ruma-common = { git = "https://github.com/ruma/ruma", rev = "a8fd1b0322649bf59e2a5cfc73ab4fe46b21edd7" }
 serde = "1.0.217"
 serde_html_form = "0.2.7"
 serde_json = "1.0.138"
@@ -84,7 +86,7 @@ similar-asserts = "1.6.1"
 stream_assert = "0.1.1"
 tempfile = "3.16.0"
 thiserror = "2.0.11"
-tokio = { version = "1.43.0", default-features = false, features = ["sync"] }
+tokio = { version = "1.43.1", default-features = false, features = ["sync"] }
 tokio-stream = "0.1.17"
 tracing = { version = "0.1.40", default-features = false, features = ["std"] }
 tracing-core = "0.1.32"

@@ -174,7 +174,7 @@ async fn discover_homeserver(
         )
         .await
         .map_err(|e| match e {
-            HttpError::Api(err) => ClientBuildError::AutoDiscovery(err),
+            HttpError::Api(err) => ClientBuildError::AutoDiscovery(*err),
             err => ClientBuildError::Http(err),
         })?;
 

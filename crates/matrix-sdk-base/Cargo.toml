@@ -13,7 +13,7 @@ version = "0.11.0"
 
 [package.metadata.docs.rs]
 all-features = true
-rustdoc-args = ["--cfg", "docsrs"]
+rustdoc-args = ["--cfg", "docsrs", "--generate-link-to-definition"]
 
 [features]
 default = []
@@ -21,6 +21,7 @@ e2e-encryption = ["dep:matrix-sdk-crypto"]
 js = ["matrix-sdk-common/js", "matrix-sdk-crypto?/js", "ruma/js", "matrix-sdk-store-encryption/js"]
 qrcode = ["matrix-sdk-crypto?/qrcode"]
 automatic-room-key-forwarding = ["matrix-sdk-crypto?/automatic-room-key-forwarding"]
+experimental-send-custom-to-device = ["matrix-sdk-crypto?/experimental-send-custom-to-device"]
 uniffi = ["dep:uniffi", "matrix-sdk-crypto?/uniffi", "matrix-sdk-common/uniffi"]
 
 # Private feature, see
@@ -51,7 +52,7 @@ as_variant = { workspace = true }
 assert_matches = { workspace = true, optional = true }
 assert_matches2 = { workspace = true, optional = true }
 async-trait = { workspace = true }
-bitflags = { version = "2.8.0", features = ["serde"] }
+bitflags = { workspace = true, features = ["serde"] }
 decancer = "3.2.8"
 eyeball = { workspace = true, features = ["async-lock"] }
 eyeball-im = { workspace = true }

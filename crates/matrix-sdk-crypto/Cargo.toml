@@ -12,11 +12,12 @@ rust-version = { workspace = true }
 version = "0.11.0"
 
 [package.metadata.docs.rs]
-rustdoc-args = ["--cfg", "docsrs"]
+rustdoc-args = ["--cfg", "docsrs", "--generate-link-to-definition"]
 
 [features]
 default = []
 automatic-room-key-forwarding = []
+experimental-send-custom-to-device = []
 js = ["ruma/js", "vodozemac/js", "matrix-sdk-common/js"]
 qrcode = ["dep:matrix-sdk-qrcode"]
 experimental-algorithms = []

@@ -206,7 +206,7 @@ impl ClientBuilder {
         self
     }
 
-    /// Set up the store configuration for a SQLite store.
+    /// Set up the store configuration for an SQLite store.
     #[cfg(feature = "sqlite")]
     pub fn sqlite_store(mut self, path: impl AsRef<Path>, passphrase: Option<&str>) -> Self {
         let sqlite_store_config = SqliteStoreConfig::new(path).passphrase(passphrase);
@@ -216,7 +216,7 @@ impl ClientBuilder {
         self
     }
 
-    /// Set up the store configuration for a SQLite store with cached data
+    /// Set up the store configuration for an SQLite store with cached data
     /// separated out from state/crypto data.
     #[cfg(feature = "sqlite")]
     pub fn sqlite_store_with_cache_path(
@@ -234,7 +234,7 @@ impl ClientBuilder {
         self
     }
 
-    /// Set up the store configuration for a SQLite store with a store config,
+    /// Set up the store configuration for an SQLite store with a store config,
     /// and with an optional cache data separated out from state/crypto data.
     #[cfg(feature = "sqlite")]
     pub fn sqlite_store_with_config_and_cache_path(

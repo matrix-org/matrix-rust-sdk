@@ -1,3 +1,5 @@
+#![allow(clippy::large_enum_variant)]
+
 use std::{
     collections::HashMap,
     io::{self, stdout, Write},
@@ -112,7 +114,6 @@ async fn main() -> Result<()> {
 
     let event_cache = client.event_cache();
     event_cache.subscribe()?;
-    event_cache.enable_storage()?;
 
     let terminal = ratatui::init();
     execute!(stdout(), EnableMouseCapture)?;
@@ -271,7 +272,7 @@ impl App {
                 all_rooms.into_iter().filter(|room| !previous_ui_rooms.contains_key(room.room_id()))
             {
                 // Initialize the timeline.
-                let builder = match ui_room.default_room_timeline_builder().await {
+                let builder = match ui_room.default_room_timeline_builder() {
                     Ok(builder) => builder,
                     Err(err) => {
                         error!("error when getting default timeline builder: {err}");

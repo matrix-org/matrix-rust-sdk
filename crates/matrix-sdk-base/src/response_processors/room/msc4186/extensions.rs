@@ -14,7 +14,12 @@
 
 use std::collections::BTreeMap;
 
-use ruma::{api::client::sync::sync_events::v5 as http, OwnedRoomId};
+use ruma::{
+    api::client::sync::sync_events::v5 as http,
+    events::{receipt::ReceiptEventContent, AnySyncEphemeralRoomEvent, SyncEphemeralRoomEvent},
+    serde::Raw,
+    OwnedRoomId, RoomId,
+};
 
 use super::super::super::{
     account_data::for_room as account_data_for_room, ephemeral_events::dispatch_receipt, Context,
@@ -25,22 +30,12 @@ use crate::{
     RoomState,
 };
 
-pub fn dispatch_ephemeral_events(
-    context: &mut Context,
-    receipts: &http::response::Receipts,
+/// Dispatch the ephemeral events in the `extensions.typing` part of the
+/// response.
+pub fn dispatch_typing_ephemeral_events(
     typing: &http::response::Typing,
     joined_room_updates: &mut BTreeMap<OwnedRoomId, JoinedRoomUpdate>,
 ) {
-    for (room_id, raw) in &receipts.rooms {
-        dispatch_receipt(context, raw.cast_ref(), room_id);
-
-        joined_room_updates
-            .entry(room_id.to_owned())
-            .or_default()
-            .ephemeral
-            .push(raw.clone().cast());
-    }
-
     for (room_id, raw) in &typing.rooms {
         joined_room_updates
             .entry(room_id.to_owned())
@@ -48,6 +43,20 @@ pub fn dispatch_ephemeral_events(
             .ephemeral
             .push(raw.clone().cast());
     }
+}
+
+/// Dispatch the ephemeral event in the `extensions.receipts` part of the
+/// response for a particular room.
+pub fn dispatch_receipt_ephemeral_event_for_room(
+    context: &mut Context,
+    room_id: &RoomId,
+    receipt: &Raw<SyncEphemeralRoomEvent<ReceiptEventContent>>,
+    joined_room_update: &mut JoinedRoomUpdate,
+) {
+    let receipt: Raw<AnySyncEphemeralRoomEvent> = receipt.cast_ref().clone();
+
+    dispatch_receipt(context, &receipt, room_id);
+    joined_room_update.ephemeral.push(receipt);
 }
 
 pub async fn room_account_data(

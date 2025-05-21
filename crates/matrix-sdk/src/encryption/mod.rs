@@ -16,6 +16,8 @@
 #![doc = include_str!("../docs/encryption.md")]
 #![cfg_attr(target_arch = "wasm32", allow(unused_imports))]
 
+#[cfg(feature = "experimental-send-custom-to-device")]
+use std::ops::Deref;
 use std::{
     collections::{BTreeMap, HashSet},
     io::{Cursor, Read, Write},
@@ -57,6 +59,8 @@ use ruma::{
     },
     DeviceId, MilliSecondsSinceUnixEpoch, OwnedDeviceId, OwnedUserId, TransactionId, UserId,
 };
+#[cfg(feature = "experimental-send-custom-to-device")]
+use ruma::{events::AnyToDeviceEventContent, serde::Raw, to_device::DeviceIdOrAllDevices};
 use serde::Deserialize;
 use tokio::sync::{Mutex, RwLockReadGuard};
 use tokio_stream::wrappers::errors::BroadcastStreamRecvError;
@@ -99,6 +103,8 @@ pub use matrix_sdk_base::crypto::{
     SessionCreationError, SignatureError, VERSION,
 };
 
+#[cfg(feature = "experimental-send-custom-to-device")]
+use crate::config::RequestConfig;
 pub use crate::error::RoomKeyImportError;
 
 /// All the data related to the encryption state.
@@ -554,7 +560,7 @@ impl Client {
 
         self.get_room(room_id)
             .expect("Can't send a message to a room that isn't known to the store")
-            .send(content)
+            .send(*content)
             .with_transaction_id(txn_id)
             .await
     }
@@ -783,8 +789,8 @@ impl Encryption {
         let olm = olm.as_ref()?;
         #[allow(clippy::bind_instead_of_map)]
         olm.get_verification(user_id, flow_id).and_then(|v| match v {
-            matrix_sdk_base::crypto::Verification::SasV1(s) => {
-                Some(SasVerification { inner: s, client: self.client.clone() }.into())
+            matrix_sdk_base::crypto::Verification::SasV1(sas) => {
+                Some(SasVerification { inner: sas, client: self.client.clone() }.into())
             }
             #[cfg(feature = "qrcode")]
             matrix_sdk_base::crypto::Verification::QrV1(qr) => {
@@ -1734,6 +1740,82 @@ impl Encryption {
                 self.client.inner.verification_state.set(VerificationState::Unknown);
             }
         }
+    }
+
+    /// Encrypts then send the given content via the `/sendToDevice` end-point
+    /// using Olm encryption.
+    ///
+    /// If there are a lot of recipient devices multiple `/sendToDevice`
+    /// requests might be sent out.
+    ///
+    /// # Returns
+    /// A list of failures. The list of devices that couldn't get the messages.
+    #[cfg(feature = "experimental-send-custom-to-device")]
+    pub async fn encrypt_and_send_raw_to_device(
+        &self,
+        recipient_devices: Vec<&Device>,
+        event_type: &str,
+        content: Raw<AnyToDeviceEventContent>,
+    ) -> Result<Vec<(OwnedUserId, OwnedDeviceId)>> {
+        let users = recipient_devices.iter().map(|device| device.user_id());
+
+        // Will claim one-time-key for users that needs it
+        // TODO: For later optimisation: This will establish missing olm sessions with
+        // all this users devices, but we just want for some devices.
+        self.client.claim_one_time_keys(users).await?;
+
+        let olm = self.client.olm_machine().await;
+        let olm = olm.as_ref().expect("Olm machine wasn't started");
+
+        let (requests, withhelds) = olm
+            .encrypt_content_for_devices(
+                recipient_devices.into_iter().map(|d| d.deref().clone()).collect(),
+                event_type,
+                &content
+                    .deserialize_as::<serde_json::Value>()
+                    .expect("Deserialize as Value will always work"),
+            )
+            .await?;
+
+        let mut failures: Vec<(OwnedUserId, OwnedDeviceId)> = Default::default();
+
+        // Push the withhelds in the failures
+        withhelds.iter().for_each(|(d, _)| {
+            failures.push((d.user_id().to_owned(), d.device_id().to_owned()));
+        });
+
+        // TODO: parallelize that? it's already grouping 250 devices per chunk.
+        for request in requests {
+            let request = RumaToDeviceRequest::new_raw(
+                request.event_type.clone(),
+                request.txn_id.clone(),
+                request.messages.clone(),
+            );
+
+            let send_result = self
+                .client
+                .send_inner(request, Some(RequestConfig::short_retry()), Default::default())
+                .await;
+
+            // If the sending failed we need to collect the failures to report them
+            if send_result.is_err() {
+                // Mark the sending as failed
+                for (user_id, device_map) in request.messages {
+                    for device_id in device_map.keys() {
+                        match device_id {
+                            DeviceIdOrAllDevices::DeviceId(device_id) => {
+                                failures.push((user_id.clone(), device_id.to_owned()));
+                            }
+                            DeviceIdOrAllDevices::AllDevices => {
+                                // Cannot happen in this case
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok(failures)
     }
 }
 

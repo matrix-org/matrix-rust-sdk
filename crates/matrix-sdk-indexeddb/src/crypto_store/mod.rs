@@ -47,12 +47,11 @@ use tracing::{debug, warn};
 use wasm_bindgen::JsValue;
 use web_sys::IdbKeyRange;
 
-use self::indexeddb_serializer::MaybeEncrypted;
-use crate::crypto_store::{
-    indexeddb_serializer::IndexeddbSerializer, migrations::open_and_upgrade_db,
+use crate::{
+    crypto_store::migrations::open_and_upgrade_db,
+    serializer::{IndexeddbSerializer, IndexeddbSerializerError, MaybeEncrypted},
 };
 
-mod indexeddb_serializer;
 mod migrations;
 
 mod keys {
@@ -146,6 +145,20 @@ pub enum IndexeddbCryptoStoreError {
     CryptoStoreError(#[from] CryptoStoreError),
     #[error("The schema version of the crypto store is too new. Existing version: {current_version}; max supported version: {max_supported_version}")]
     SchemaTooNewError { max_supported_version: u32, current_version: u32 },
+}
+
+impl From<IndexeddbSerializerError> for IndexeddbCryptoStoreError {
+    fn from(value: IndexeddbSerializerError) -> Self {
+        match value {
+            IndexeddbSerializerError::Serialization(error) => Self::Serialization(error),
+            IndexeddbSerializerError::DomException { code, name, message } => {
+                Self::DomException { code, name, message }
+            }
+            IndexeddbSerializerError::CryptoStoreError(crypto_store_error) => {
+                Self::CryptoStoreError(crypto_store_error)
+            }
+        }
+    }
 }
 
 impl From<web_sys::DomException> for IndexeddbCryptoStoreError {
@@ -1141,7 +1154,7 @@ impl_crypto_store! {
             .object_store(keys::DEVICES)?
             .get(&key)?
             .await?
-            .map(|i| self.serializer.deserialize_value(i))
+            .map(|i| self.serializer.deserialize_value(i).map_err(Into::into))
             .transpose()
     }
 
@@ -1178,7 +1191,7 @@ impl_crypto_store! {
             .object_store(keys::IDENTITIES)?
             .get(&self.serializer.encode_key(keys::IDENTITIES, user_id))?
             .await?
-            .map(|i| self.serializer.deserialize_value(i))
+            .map(|i| self.serializer.deserialize_value(i).map_err(Into::into))
             .transpose()
     }
 
@@ -1355,7 +1368,7 @@ impl_crypto_store! {
             .object_store(keys::ROOM_SETTINGS)?
             .get(&key)?
             .await?
-            .map(|v| self.serializer.deserialize_value(v))
+            .map(|v| self.serializer.deserialize_value(v).map_err(Into::into))
             .transpose()
     }
 
@@ -1372,7 +1385,7 @@ impl_crypto_store! {
             .object_store(keys::CORE)?
             .get(&JsValue::from_str(key))?
             .await?
-            .map(|v| self.serializer.deserialize_value(v))
+            .map(|v| self.serializer.deserialize_value(v).map_err(Into::into))
             .transpose()
     }
 
@@ -1769,7 +1782,7 @@ mod unit_tests {
     use ruma::{device_id, room_id, user_id};
 
     use super::InboundGroupSessionIndexedDbObject;
-    use crate::crypto_store::indexeddb_serializer::{IndexeddbSerializer, MaybeEncrypted};
+    use crate::serializer::{IndexeddbSerializer, MaybeEncrypted};
 
     #[test]
     fn needs_backup_is_serialized_as_a_u8_in_json() {

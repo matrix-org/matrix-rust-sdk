@@ -39,7 +39,7 @@ use crate::rooms::RoomCreateWithCreatorEventContent;
 
 /// A minimal state event.
 ///
-/// This type can holding an possibly-redacted state event with an optional
+/// This type can hold a possibly-redacted state event with an optional
 /// event ID. The event ID is optional so this type can also hold events from
 /// invited rooms, where event IDs are not available.
 #[derive(Clone, Debug, Deserialize, Serialize)]

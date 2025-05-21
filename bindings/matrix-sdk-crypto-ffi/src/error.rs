@@ -78,10 +78,10 @@ pub enum DecryptionError {
 
 impl From<MegolmError> for DecryptionError {
     fn from(value: MegolmError) -> Self {
-        match value {
+        match &value {
             MegolmError::MissingRoomKey(withheld_code) => Self::MissingRoomKey {
-                error: "Withheld Inbound group session".to_owned(),
-                withheld_code: withheld_code.map(|w| w.as_str().to_owned()),
+                error: value.to_string(),
+                withheld_code: withheld_code.as_ref().map(|w| w.as_str().to_owned()),
             },
             _ => Self::Megolm { error: value.to_string() },
         }

@@ -102,7 +102,7 @@ fn test_capabilities_failure_results_into_empty_capabilities() {
         })))
     };
 
-    // Try to acquire capabilities by sending a request to a matrix driver.
+    // Try to acquire capabilities by sending a request to a Matrix driver.
     let actions = {
         let [action]: [Action; 1] = actions.try_into().unwrap();
         assert_let!(
@@ -177,7 +177,7 @@ pub(super) fn assert_capabilities_dance(
         })))
     };
 
-    // Try to acquire capabilities by sending a request to a matrix driver.
+    // Try to acquire capabilities by sending a request to a Matrix driver.
     let mut actions = {
         let [action]: [Action; 1] = actions.try_into().unwrap();
         assert_let!(

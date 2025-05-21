@@ -57,6 +57,18 @@ impl QrCodeData {
     pub fn from_bytes(bytes: Vec<u8>) -> Result<Arc<Self>, QrCodeDecodeError> {
         Ok(Self { inner: qrcode::QrCodeData::from_bytes(&bytes)? }.into())
     }
+
+    /// The server name contained within the scanned QR code data.
+    ///
+    /// Note: This value is only present when scanning a QR code the belongs to
+    /// a logged in client. The mode where the new client shows the QR code
+    /// will return `None`.
+    pub fn server_name(&self) -> Option<String> {
+        match &self.inner.mode_data {
+            QrCodeModeData::Reciprocate { server_name } => Some(server_name.to_owned()),
+            QrCodeModeData::Login => None,
+        }
+    }
 }
 
 /// Error type for the decoding of the [`QrCodeData`].
@@ -276,10 +288,6 @@ pub struct ClientBuilder {
     room_key_recipient_strategy: CollectStrategy,
     decryption_trust_requirement: TrustRequirement,
     request_config: Option<RequestConfig>,
-
-    /// Whether to enable use of the event cache store, for reloading events
-    /// when building timelines et al.
-    use_event_cache_persistent_storage: bool,
 }
 
 #[matrix_sdk_ffi_macros::export]
@@ -314,25 +322,7 @@ impl ClientBuilder {
             room_key_recipient_strategy: Default::default(),
             decryption_trust_requirement: TrustRequirement::Untrusted,
             request_config: Default::default(),
-            use_event_cache_persistent_storage: false,
         })
-    }
-
-    /// Whether to use the event cache persistent storage or not.
-    ///
-    /// This is a temporary feature flag, for testing the event cache's
-    /// persistent storage. Follow new developments in https://github.com/matrix-org/matrix-rust-sdk/issues/3280.
-    ///
-    /// This is disabled by default. When disabled, a one-time cleanup is
-    /// performed when creating the client, and it will clear all the events
-    /// previously stored in the event cache.
-    ///
-    /// When enabled, it will attempt to store events in the event cache as
-    /// they're received, and reuse them when reconstructing timelines.
-    pub fn use_event_cache_persistent_storage(self: Arc<Self>, value: bool) -> Arc<Self> {
-        let mut builder = unwrap_or_clone_arc(self);
-        builder.use_event_cache_persistent_storage = value;
-        Arc::new(builder)
     }
 
     pub fn cross_process_store_locks_holder_name(
@@ -726,19 +716,6 @@ impl ClientBuilder {
         }
 
         let sdk_client = inner_builder.build().await?;
-
-        if builder.use_event_cache_persistent_storage {
-            // Enable the persistent storage \o/
-            sdk_client.event_cache().enable_storage()?;
-        } else {
-            // Get rid of all the previous events, if any.
-            let store = sdk_client
-                .event_cache_store()
-                .lock()
-                .await
-                .map_err(EventCacheError::LockingStorage)?;
-            store.clear_all_rooms_chunks().await.map_err(EventCacheError::Storage)?;
-        }
 
         Ok(Arc::new(
             Client::new(sdk_client, builder.enable_oidc_refresh_lock, builder.session_delegate)

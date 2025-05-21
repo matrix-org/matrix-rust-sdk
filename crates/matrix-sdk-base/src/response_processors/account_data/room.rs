@@ -20,7 +20,10 @@ use ruma::{
 use tracing::{instrument, warn};
 
 use super::super::{Context, RoomInfoNotableUpdates};
-use crate::{store::BaseStateStore, RoomInfo, RoomInfoNotableUpdateReasons, StateChanges};
+use crate::{
+    rooms::AccountDataSource, store::BaseStateStore, RoomInfo, RoomInfoNotableUpdateReasons,
+    StateChanges,
+};
 
 #[instrument(skip_all, fields(?room_id))]
 pub async fn for_room(
@@ -49,6 +52,7 @@ pub async fn for_room(
                                 on_unread_marker(
                                     room_id,
                                     &event.content,
+                                    AccountDataSource::Stable,
                                     room_info,
                                     &mut context.room_info_notable_updates,
                                 );
@@ -64,6 +68,7 @@ pub async fn for_room(
                                 on_unread_marker(
                                     room_id,
                                     &event.content.0,
+                                    AccountDataSource::Unstable,
                                     room_info,
                                     &mut context.room_info_notable_updates,
                                 );
@@ -127,9 +132,17 @@ fn on_room_info<F>(
 fn on_unread_marker(
     room_id: &RoomId,
     content: &MarkedUnreadEventContent,
+    source: AccountDataSource,
     room_info: &mut RoomInfo,
     room_info_notable_updates: &mut RoomInfoNotableUpdates,
 ) {
+    if room_info.base_info.is_marked_unread_source == AccountDataSource::Stable
+        && source != AccountDataSource::Stable
+    {
+        // Ignore the unstable source if a stable source was used previously.
+        return;
+    }
+
     if room_info.base_info.is_marked_unread != content.unread {
         // Notify the room list about a manual read marker change if the
         // value's changed.
@@ -140,4 +153,5 @@ fn on_unread_marker(
     }
 
     room_info.base_info.is_marked_unread = content.unread;
+    room_info.base_info.is_marked_unread_source = source;
 }

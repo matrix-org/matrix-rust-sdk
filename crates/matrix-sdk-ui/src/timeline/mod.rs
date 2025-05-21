@@ -70,6 +70,7 @@ mod pinned_events_loader;
 mod subscriber;
 #[cfg(test)]
 mod tests;
+mod threaded_events_loader;
 mod to_device;
 mod traits;
 mod virtual_item;
@@ -120,6 +121,9 @@ pub enum TimelineFocus {
     /// Focus on a specific event, e.g. after clicking a permalink.
     Event { target: OwnedEventId, num_context_events: u16 },
 
+    /// Focus on a specific thread
+    Thread { root_event_id: OwnedEventId, num_events: u16 },
+
     /// Only show pinned events.
     PinnedEvents { max_events_to_load: u16, max_concurrent_requests: u16 },
 }
@@ -129,6 +133,7 @@ impl TimelineFocus {
         match self {
             TimelineFocus::Live => "live".to_owned(),
             TimelineFocus::Event { target, .. } => format!("permalink:{target}"),
+            TimelineFocus::Thread { root_event_id, .. } => format!("thread:{root_event_id}"),
             TimelineFocus::PinnedEvents { .. } => "pinned-events".to_owned(),
         }
     }

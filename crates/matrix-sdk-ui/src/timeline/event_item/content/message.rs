@@ -23,8 +23,7 @@ use ruma::{
             UnstablePollStartEventContent,
         },
         room::message::{
-            MessageType, Relation, RoomMessageEventContent, RoomMessageEventContentWithoutRelation,
-            SyncRoomMessageEvent,
+            MessageType, Relation, RoomMessageEventContentWithoutRelation, SyncRoomMessageEvent,
         },
         AnySyncMessageLikeEvent, AnySyncTimelineEvent, BundledMessageLikeRelations, Mentions,
     },
@@ -46,14 +45,14 @@ pub struct Message {
 impl Message {
     /// Construct a `Message` from a `m.room.message` event.
     pub(in crate::timeline) fn from_event(
-        c: RoomMessageEventContent,
+        mut msgtype: MessageType,
+        mentions: Option<Mentions>,
         edit: Option<RoomMessageEventContentWithoutRelation>,
         remove_reply_fallback: RemoveReplyFallback,
     ) -> Self {
-        let mut msgtype = c.msgtype;
         msgtype.sanitize(DEFAULT_SANITIZER_MODE, remove_reply_fallback);
 
-        let mut ret = Self { msgtype, edited: false, mentions: c.mentions };
+        let mut ret = Self { msgtype, edited: false, mentions };
 
         if let Some(edit) = edit {
             ret.apply_edit(edit);

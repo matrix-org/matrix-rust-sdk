@@ -11,7 +11,7 @@ readme = "README.md"
 [package.metadata.docs.rs]
 all-features = true
 default-target = "wasm32-unknown-unknown"
-rustdoc-args = ["--cfg", "docsrs"]
+rustdoc-args = ["--cfg", "docsrs", "--generate-link-to-definition"]
 
 [features]
 default = ["e2e-encryption", "state-store"]

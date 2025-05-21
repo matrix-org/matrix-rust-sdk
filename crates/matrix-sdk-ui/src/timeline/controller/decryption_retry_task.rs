@@ -521,14 +521,16 @@ mod tests {
             origin: RemoteEventOrigin::Sync,
         });
 
+        let content = RoomMessageEventContent::text_plain("hi");
+
         TimelineItem::new(
             TimelineItemKind::Event(EventTimelineItem::new(
                 owned_user_id!("@u:s.to"),
                 TimelineDetails::Pending,
                 timestamp(),
                 TimelineItemContent::message(
-                    RoomMessageEventContent::text_plain("hi"),
-                    None,
+                    content.msgtype,
+                    content.mentions,
                     ReactionsByKeyBySender::default(),
                     None,
                     None,
