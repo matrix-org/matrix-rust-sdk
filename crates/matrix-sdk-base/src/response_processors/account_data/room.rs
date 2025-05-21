@@ -21,7 +21,7 @@ use tracing::{instrument, warn};
 
 use super::super::{Context, RoomInfoNotableUpdates};
 use crate::{
-    rooms::AccountDataSource, store::BaseStateStore, RoomInfo, RoomInfoNotableUpdateReasons,
+    room::AccountDataSource, store::BaseStateStore, RoomInfo, RoomInfoNotableUpdateReasons,
     StateChanges,
 };
 

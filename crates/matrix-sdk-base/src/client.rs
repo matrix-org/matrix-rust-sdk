@@ -56,7 +56,7 @@ use crate::{
     error::{Error, Result},
     event_cache::store::EventCacheStoreLock,
     response_processors::{self as processors, Context},
-    rooms::{
+    room::{
         Room, RoomInfoNotableUpdate, RoomInfoNotableUpdateReasons, RoomMembersUpdate, RoomState,
     },
     store::{
