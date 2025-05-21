@@ -12,11 +12,14 @@ use matrix_sdk::{
     },
     Room as SdkRoom,
 };
-use matrix_sdk_ui::room_list_service::filters::{
-    new_filter_all, new_filter_any, new_filter_category, new_filter_favourite,
-    new_filter_fuzzy_match_room_name, new_filter_invite, new_filter_joined, new_filter_non_left,
-    new_filter_none, new_filter_normalized_match_room_name, new_filter_unread, BoxedFilterFn,
-    RoomCategory,
+use matrix_sdk_ui::{
+    room_list_service::filters::{
+        new_filter_all, new_filter_any, new_filter_category, new_filter_favourite,
+        new_filter_fuzzy_match_room_name, new_filter_invite, new_filter_joined,
+        new_filter_non_left, new_filter_none, new_filter_normalized_match_room_name,
+        new_filter_unread, BoxedFilterFn, RoomCategory,
+    },
+    unable_to_decrypt_hook::UtdHookManager,
 };
 
 use crate::{
@@ -64,6 +67,7 @@ impl From<ruma::IdParseError> for RoomListError {
 #[derive(uniffi::Object)]
 pub struct RoomListService {
     pub(crate) inner: Arc<matrix_sdk_ui::RoomListService>,
+    pub(crate) utd_hook: Option<Arc<UtdHookManager>>,
 }
 
 #[matrix_sdk_ffi_macros::export]
@@ -83,8 +87,7 @@ impl RoomListService {
     fn room(&self, room_id: String) -> Result<Arc<Room>, RoomListError> {
         let room_id = <&RoomId>::try_from(room_id.as_str()).map_err(RoomListError::from)?;
 
-        // TODO: how to pass the UTD hook here?
-        Ok(Arc::new(Room::new(self.inner.room(room_id)?, None)))
+        Ok(Arc::new(Room::new(self.inner.room(room_id)?, self.utd_hook.clone())))
     }
 
     async fn all_rooms(self: Arc<Self>) -> Result<Arc<RoomList>, RoomListError> {
@@ -213,11 +216,17 @@ impl RoomList {
         let dynamic_entries_controller =
             Arc::new(RoomListDynamicEntriesController::new(dynamic_entries_controller));
 
+        let utd_hook = this.room_list_service.utd_hook.clone();
         let entries_stream = Arc::new(TaskHandle::new(get_runtime_handle().spawn(async move {
             pin_mut!(entries_stream);
 
             while let Some(diffs) = entries_stream.next().await {
-                listener.on_update(diffs.into_iter().map(RoomListEntriesUpdate::from).collect());
+                listener.on_update(
+                    diffs
+                        .into_iter()
+                        .map(|room| RoomListEntriesUpdate::from(utd_hook.clone(), room))
+                        .collect(),
+                );
             }
         })));
 
@@ -363,9 +372,7 @@ pub enum RoomListEntriesUpdate {
 }
 
 impl RoomListEntriesUpdate {
-    fn from(vector_diff: VectorDiff<SdkRoom>) -> Self {
-        // TODO: pass the UTD hook here
-        let utd_hook = None;
+    fn from(utd_hook: Option<Arc<UtdHookManager>>, vector_diff: VectorDiff<SdkRoom>) -> Self {
         match vector_diff {
             VectorDiff::Append { values } => Self::Append {
                 values: values
