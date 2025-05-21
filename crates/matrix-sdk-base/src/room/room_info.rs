@@ -1218,7 +1218,7 @@ mod tests {
         };
 
         let info_json = json!({
-            "version": 1,
+            "data_format_version": 1,
             "room_id": "!gda78o:server.tld",
             "room_state": "Invited",
             "notification_counts": {
