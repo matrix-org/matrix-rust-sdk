@@ -1043,4 +1043,36 @@ mod tests {
         actual = compute_display_name_from_heroes(1, vec!["a", "b", "c"]);
         assert_eq!(RoomDisplayName::EmptyWas("a, b, c".to_owned()), actual);
     }
+
+    #[test]
+    fn test_room_alias_from_room_display_name_lowercases() {
+        assert_eq!(
+            "roomalias",
+            RoomDisplayName::Named("RoomAlias".to_owned()).to_room_alias_name()
+        );
+    }
+
+    #[test]
+    fn test_room_alias_from_room_display_name_removes_whitespace() {
+        assert_eq!(
+            "room-alias",
+            RoomDisplayName::Named("Room Alias".to_owned()).to_room_alias_name()
+        );
+    }
+
+    #[test]
+    fn test_room_alias_from_room_display_name_removes_non_ascii_symbols() {
+        assert_eq!(
+            "roomalias",
+            RoomDisplayName::Named("Room±Alias√".to_owned()).to_room_alias_name()
+        );
+    }
+
+    #[test]
+    fn test_room_alias_from_room_display_name_removes_invalid_ascii_symbols() {
+        assert_eq!(
+            "roomalias",
+            RoomDisplayName::Named("#Room,{Alias}:".to_owned()).to_room_alias_name()
+        );
+    }
 }
