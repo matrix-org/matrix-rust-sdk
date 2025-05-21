@@ -58,7 +58,6 @@ mod tests {
         },
         room_id, user_id, DeviceId, EventId, MilliSecondsSinceUnixEpoch, OwnedUserId, UserId,
     };
-
     use similar_asserts::assert_eq;
 
     use super::super::{Room, RoomState};

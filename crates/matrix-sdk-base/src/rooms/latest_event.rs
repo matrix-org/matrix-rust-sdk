@@ -15,13 +15,13 @@
 #[cfg(feature = "e2e-encryption")]
 use std::{collections::BTreeMap, num::NonZeroUsize};
 
+#[cfg(feature = "e2e-encryption")]
+use ruma::{events::AnySyncTimelineEvent, serde::Raw, OwnedRoomId};
+
 use super::Room;
 #[cfg(feature = "e2e-encryption")]
 use super::RoomInfoNotableUpdateReasons;
 use crate::latest_event::LatestEvent;
-
-#[cfg(feature = "e2e-encryption")]
-use ruma::{events::AnySyncTimelineEvent, serde::Raw, OwnedRoomId};
 
 impl Room {
     /// The size of the latest_encrypted_events RingBuffer
@@ -81,6 +81,12 @@ impl Room {
 mod tests_with_e2e_encryption {
     use std::sync::Arc;
 
+    use assert_matches::assert_matches;
+    use matrix_sdk_common::deserialized_responses::TimelineEvent;
+    use matrix_sdk_test::async_test;
+    use ruma::{room_id, serde::Raw, user_id};
+    use serde_json::json;
+
     use crate::{
         latest_event::LatestEvent,
         response_processors as processors,
@@ -88,12 +94,6 @@ mod tests_with_e2e_encryption {
         BaseClient, Room, RoomInfoNotableUpdate, RoomInfoNotableUpdateReasons, RoomState,
         SessionMeta, StateChanges,
     };
-
-    use assert_matches::assert_matches;
-    use matrix_sdk_common::deserialized_responses::TimelineEvent;
-    use matrix_sdk_test::async_test;
-    use ruma::{room_id, serde::Raw, user_id};
-    use serde_json::json;
 
     fn make_room_test_helper(room_type: RoomState) -> (Arc<MemoryStore>, Room) {
         let store = Arc::new(MemoryStore::new());

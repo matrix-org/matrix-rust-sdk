@@ -23,13 +23,12 @@ use ruma::{
 use serde::{Deserialize, Serialize};
 use tracing::{debug, trace, warn};
 
+use super::{Room, RoomMemberships};
 use crate::{
     deserialized_responses::SyncOrStrippedState,
     store::{Result as StoreResult, StateStoreExt},
     RoomMember, RoomState,
 };
-
-use super::{Room, RoomMemberships};
 
 impl Room {
     /// Calculate a room's display name, or return the cached value, taking into
@@ -513,13 +512,6 @@ mod tests {
     use std::{collections::BTreeSet, sync::Arc};
 
     use matrix_sdk_test::{async_test, event_factory::EventFactory};
-    use serde_json::json;
-
-    use super::{compute_display_name_from_heroes, Room, RoomDisplayName};
-    use crate::{
-        store::MemoryStore, MinimalStateEvent, OriginalMinimalStateEvent, RoomState, StateChanges,
-        StateStore,
-    };
     use ruma::{
         api::client::sync::sync_events::v3::RoomSummary as RumaSummary,
         assign,
@@ -534,6 +526,13 @@ mod tests {
         room_alias_id, room_id,
         serde::Raw,
         user_id, UserId,
+    };
+    use serde_json::json;
+
+    use super::{compute_display_name_from_heroes, Room, RoomDisplayName};
+    use crate::{
+        store::MemoryStore, MinimalStateEvent, OriginalMinimalStateEvent, RoomState, StateChanges,
+        StateStore,
     };
 
     fn make_room_test_helper(room_type: RoomState) -> (Arc<MemoryStore>, Room) {

@@ -25,14 +25,13 @@ mod room_info;
 mod state;
 mod tags;
 
-use crate::{
-    deserialized_responses::MemberEvent,
-    notification_settings::RoomNotificationMode,
-    read_receipts::RoomReadReceipts,
-    store::{DynStateStore, Result as StoreResult, StateStoreExt},
-    sync::UnreadNotificationsCount,
-    Error, MinimalStateEvent,
+#[cfg(feature = "e2e-encryption")]
+use std::sync::RwLock as SyncRwLock;
+use std::{
+    collections::{BTreeMap, HashSet},
+    sync::Arc,
 };
+
 pub use create::*;
 pub use display_name::{RoomDisplayName, RoomHero};
 pub(crate) use display_name::{RoomSummary, UpdatedRoomDisplayName};
@@ -66,15 +65,18 @@ use ruma::{
 };
 use serde::{Deserialize, Serialize};
 pub use state::{RoomState, RoomStateFilter};
-#[cfg(feature = "e2e-encryption")]
-use std::sync::RwLock as SyncRwLock;
-use std::{
-    collections::{BTreeMap, HashSet},
-    sync::Arc,
-};
 pub(crate) use tags::RoomNotableTags;
 use tokio::sync::broadcast;
 use tracing::{info, instrument, warn};
+
+use crate::{
+    deserialized_responses::MemberEvent,
+    notification_settings::RoomNotificationMode,
+    read_receipts::RoomReadReceipts,
+    store::{DynStateStore, Result as StoreResult, StateStoreExt},
+    sync::UnreadNotificationsCount,
+    Error, MinimalStateEvent,
+};
 
 /// The underlying room data structure collecting state for joined, left and
 /// invited rooms.
