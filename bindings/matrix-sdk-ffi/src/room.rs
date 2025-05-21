@@ -31,7 +31,6 @@ use ruma::{
     },
     EventId, Int, OwnedDeviceId, OwnedUserId, RoomAliasId, UserId,
 };
-use tokio::sync::RwLock;
 use tracing::{error, warn};
 
 use crate::{
@@ -73,18 +72,15 @@ impl From<RoomState> for Membership {
     }
 }
 
-pub(crate) type TimelineLock = Arc<RwLock<Option<Arc<Timeline>>>>;
-
 #[derive(uniffi::Object)]
 pub struct Room {
     pub(super) inner: SdkRoom,
     utd_hook_manager: Option<Arc<UtdHookManager>>,
-    timeline: TimelineLock,
 }
 
 impl Room {
     pub(crate) fn new(inner: SdkRoom, utd_hook_manager: Option<Arc<UtdHookManager>>) -> Self {
-        Room { inner, timeline: Default::default(), utd_hook_manager }
+        Room { inner, utd_hook_manager }
     }
 }
 
@@ -183,15 +179,10 @@ impl Room {
         Ok(())
     }
 
+    /// Create a timeline with a default configuration, i.e. a live timeline
+    /// with read receipts and read marker tracking.
     pub async fn timeline(&self) -> Result<Arc<Timeline>, ClientError> {
-        let mut write_guard = self.timeline.write().await;
-        if let Some(timeline) = &*write_guard {
-            Ok(timeline.clone())
-        } else {
-            let timeline = Timeline::new(self.inner.timeline().await?);
-            *write_guard = Some(timeline.clone());
-            Ok(timeline)
-        }
+        Ok(Timeline::new(self.inner.timeline().await?))
     }
 
     /// Build a new timeline instance with the given configuration.
