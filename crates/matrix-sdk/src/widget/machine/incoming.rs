@@ -50,7 +50,7 @@ pub(crate) enum IncomingMessage {
     /// ([`crate::widget::Action::SubscribeTimeline`] request).
     MatrixEventReceived(Raw<AnyTimelineEvent>),
 
-    /// The `MatrixDriver` notified the `WidgetMachine` of a new to_device
+    /// The `MatrixDriver` notified the `WidgetMachine` of a new to-device
     /// event.
     ToDeviceReceived(Raw<AnyToDeviceEvent>),
 }

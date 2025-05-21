@@ -249,7 +249,7 @@ impl MatrixDriver {
 
         let request = if encrypted {
             return Err(Error::UnknownError(
-                "Sending encrypted to_device events is not supported by the widget driver.".into(),
+                "Sending encrypted to-device events is not supported by the widget driver.".into(),
             ));
         } else {
             RumaToDeviceRequest::new_raw(event_type, TransactionId::new(), messages)
