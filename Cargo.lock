@@ -2913,6 +2913,7 @@ dependencies = [
  "http",
  "imbl",
  "indexmap",
+ "insta",
  "js_int",
  "language-tags",
  "matrix-sdk-base",
