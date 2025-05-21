@@ -13,7 +13,7 @@
 // limitations under the License.
 
 #[cfg(feature = "e2e-encryption")]
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, num::NonZeroUsize};
 
 use super::Room;
 #[cfg(feature = "e2e-encryption")]
@@ -24,6 +24,10 @@ use crate::latest_event::LatestEvent;
 use ruma::{events::AnySyncTimelineEvent, serde::Raw, OwnedRoomId};
 
 impl Room {
+    /// The size of the latest_encrypted_events RingBuffer
+    #[cfg(feature = "e2e-encryption")]
+    pub(super) const MAX_ENCRYPTED_EVENTS: NonZeroUsize = NonZeroUsize::new(10).unwrap();
+
     /// Return the last event in this room, if one has been cached during
     /// sliding sync.
     pub fn latest_event(&self) -> Option<LatestEvent> {
