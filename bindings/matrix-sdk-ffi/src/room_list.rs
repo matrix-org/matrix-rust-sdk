@@ -12,21 +12,14 @@ use matrix_sdk::{
     },
     Room,
 };
-use matrix_sdk_ui::{
-    room_list_service::filters::{
-        new_filter_all, new_filter_any, new_filter_category, new_filter_favourite,
-        new_filter_fuzzy_match_room_name, new_filter_invite, new_filter_joined,
-        new_filter_non_left, new_filter_none, new_filter_normalized_match_room_name,
-        new_filter_unread, BoxedFilterFn, RoomCategory,
-    },
-    timeline::RoomExt as _,
+use matrix_sdk_ui::room_list_service::filters::{
+    new_filter_all, new_filter_any, new_filter_category, new_filter_favourite,
+    new_filter_fuzzy_match_room_name, new_filter_invite, new_filter_joined, new_filter_non_left,
+    new_filter_none, new_filter_normalized_match_room_name, new_filter_unread, BoxedFilterFn,
+    RoomCategory,
 };
-use ruma::{OwnedRoomOrAliasId, OwnedServerName, ServerName};
 
-use crate::{
-    error::ClientError, room::Membership, room_info::RoomInfo, room_preview::RoomPreview,
-    timeline::EventTimelineItem, utils::AsyncRuntimeDropped, TaskHandle,
-};
+use crate::{room::Membership, TaskHandle};
 
 #[derive(Debug, thiserror::Error, uniffi::Error)]
 pub enum RoomListError {
@@ -504,92 +497,6 @@ pub struct RoomListItem {
 impl RoomListItem {
     fn from(inner: Room) -> Self {
         Self { inner }
-    }
-}
-
-#[matrix_sdk_ffi_macros::export]
-impl RoomListItem {
-    fn id(&self) -> String {
-        self.inner.room_id().to_string()
-    }
-
-    /// Returns the room's name from the state event if available, otherwise
-    /// compute a room name based on the room's nature (DM or not) and number of
-    /// members.
-    fn display_name(&self) -> Option<String> {
-        self.inner.cached_display_name().map(|display_name| display_name.to_string())
-    }
-
-    fn avatar_url(&self) -> Option<String> {
-        self.inner.avatar_url().map(|uri| uri.to_string())
-    }
-
-    async fn is_direct(&self) -> bool {
-        self.inner.is_direct().await.unwrap_or(false)
-    }
-
-    fn canonical_alias(&self) -> Option<String> {
-        self.inner.canonical_alias().map(|alias| alias.to_string())
-    }
-
-    async fn room_info(&self) -> Result<RoomInfo, ClientError> {
-        RoomInfo::new(&self.inner).await
-    }
-
-    /// The room's current membership state.
-    fn membership(&self) -> Membership {
-        self.inner.state().into()
-    }
-
-    /// Builds a `RoomPreview` from a room list item. This is intended for
-    /// invited, knocked or banned rooms.
-    async fn preview_room(&self, via: Vec<String>) -> Result<Arc<RoomPreview>, ClientError> {
-        // Validate parameters first.
-        let server_names: Vec<OwnedServerName> = via
-            .into_iter()
-            .map(|server| ServerName::parse(server).map_err(ClientError::from))
-            .collect::<Result<_, ClientError>>()?;
-
-        // Do the thing.
-        let client = self.inner.client();
-        let (room_or_alias_id, mut server_names) = if let Some(alias) = self.inner.canonical_alias()
-        {
-            let room_or_alias_id: OwnedRoomOrAliasId = alias.into();
-            (room_or_alias_id, Vec::new())
-        } else {
-            let room_or_alias_id: OwnedRoomOrAliasId = self.inner.room_id().to_owned().into();
-            (room_or_alias_id, server_names)
-        };
-
-        // If no server names are provided and the room's membership is invited,
-        // add the server name from the sender's user id as a fallback value
-        if server_names.is_empty() {
-            if let Ok(invite_details) = self.inner.invite_details().await {
-                if let Some(inviter) = invite_details.inviter {
-                    server_names.push(inviter.user_id().server_name().to_owned());
-                }
-            }
-        }
-
-        let room_preview = client.get_room_preview(&room_or_alias_id, server_names).await?;
-
-        Ok(Arc::new(RoomPreview::new(AsyncRuntimeDropped::new(client), room_preview)))
-    }
-
-    /// Checks whether the room is encrypted or not.
-    ///
-    /// **Note**: this info may not be reliable if you don't set up
-    /// `m.room.encryption` as required state.
-    async fn is_encrypted(&self) -> bool {
-        self.inner
-            .latest_encryption_state()
-            .await
-            .map(|state| state.is_encrypted())
-            .unwrap_or(false)
-    }
-
-    async fn latest_event(&self) -> Option<EventTimelineItem> {
-        self.inner.latest_event_item().await.map(Into::into)
     }
 }
 

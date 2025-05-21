@@ -29,7 +29,8 @@ use ruma::{
         },
         AnyMessageLikeEventContent, AnySyncTimelineEvent, TimelineEventType,
     },
-    EventId, Int, OwnedDeviceId, OwnedUserId, RoomAliasId, UserId,
+    EventId, Int, OwnedDeviceId, OwnedRoomOrAliasId, OwnedServerName, OwnedUserId, RoomAliasId,
+    ServerName, UserId,
 };
 use tracing::{error, warn};
 
@@ -42,12 +43,13 @@ use crate::{
     live_location_share::{LastLocation, LiveLocationShare},
     room_info::RoomInfo,
     room_member::{RoomMember, RoomMemberWithSenderInfo},
+    room_preview::RoomPreview,
     ruma::{ImageInfo, LocationContent, Mentions, NotifyType},
     timeline::{
         configuration::{TimelineConfiguration, TimelineFilter},
-        ReceiptType, SendHandle, Timeline,
+        EventTimelineItem, ReceiptType, SendHandle, Timeline,
     },
-    utils::u64_to_uint,
+    utils::{u64_to_uint, AsyncRuntimeDropped},
     TaskHandle,
 };
 
@@ -140,6 +142,7 @@ impl Room {
         }
     }
 
+    /// The room's current membership state.
     pub fn membership(&self) -> Membership {
         self.inner.state().into()
     }
@@ -253,6 +256,22 @@ impl Room {
 
     pub fn encryption_state(&self) -> EncryptionState {
         self.inner.encryption_state()
+    }
+
+    /// Checks whether the room is encrypted or not.
+    ///
+    /// **Note**: this info may not be reliable if you don't set up
+    /// `m.room.encryption` as required state.
+    async fn is_encrypted(&self) -> bool {
+        self.inner
+            .latest_encryption_state()
+            .await
+            .map(|state| state.is_encrypted())
+            .unwrap_or(false)
+    }
+
+    async fn latest_event(&self) -> Option<EventTimelineItem> {
+        self.inner.latest_event_item().await.map(Into::into)
     }
 
     pub async fn latest_encryption_state(&self) -> Result<EncryptionState, ClientError> {
@@ -1090,6 +1109,41 @@ impl Room {
     pub async fn forget(&self) -> Result<(), ClientError> {
         self.inner.forget().await?;
         Ok(())
+    }
+
+    /// Builds a `RoomPreview` from a room list item. This is intended for
+    /// invited, knocked or banned rooms.
+    async fn preview_room(&self, via: Vec<String>) -> Result<Arc<RoomPreview>, ClientError> {
+        // Validate parameters first.
+        let server_names: Vec<OwnedServerName> = via
+            .into_iter()
+            .map(|server| ServerName::parse(server).map_err(ClientError::from))
+            .collect::<Result<_, ClientError>>()?;
+
+        // Do the thing.
+        let client = self.inner.client();
+        let (room_or_alias_id, mut server_names) = if let Some(alias) = self.inner.canonical_alias()
+        {
+            let room_or_alias_id: OwnedRoomOrAliasId = alias.into();
+            (room_or_alias_id, Vec::new())
+        } else {
+            let room_or_alias_id: OwnedRoomOrAliasId = self.inner.room_id().to_owned().into();
+            (room_or_alias_id, server_names)
+        };
+
+        // If no server names are provided and the room's membership is invited,
+        // add the server name from the sender's user id as a fallback value
+        if server_names.is_empty() {
+            if let Ok(invite_details) = self.inner.invite_details().await {
+                if let Some(inviter) = invite_details.inviter {
+                    server_names.push(inviter.user_id().server_name().to_owned());
+                }
+            }
+        }
+
+        let room_preview = client.get_room_preview(&room_or_alias_id, server_names).await?;
+
+        Ok(Arc::new(RoomPreview::new(AsyncRuntimeDropped::new(client), room_preview)))
     }
 }
 
