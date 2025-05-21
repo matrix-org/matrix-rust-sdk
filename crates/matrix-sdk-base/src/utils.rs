@@ -28,7 +28,7 @@ use ruma::{
 };
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
-use crate::rooms::RoomCreateWithCreatorEventContent;
+use crate::room::RoomCreateWithCreatorEventContent;
 
 // #[serde(bound)] instead of DeserializeOwned in type where clause does not
 // work, it can only be a single bound that replaces the default and if a helper

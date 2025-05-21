@@ -1172,7 +1172,7 @@ mod tests {
     use crate::{
         latest_event::LatestEvent,
         notification_settings::RoomNotificationMode,
-        rooms::{RoomNotableTags, RoomSummary},
+        room::{RoomNotableTags, RoomSummary},
         store::{IntoStateStore, MemoryStore},
         sync::UnreadNotificationsCount,
         RoomDisplayName, RoomHero, RoomState, StateChanges,
