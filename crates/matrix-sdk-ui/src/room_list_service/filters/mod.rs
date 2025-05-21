@@ -73,6 +73,7 @@ pub use invite::new_filter as new_filter_invite;
 pub use joined::new_filter as new_filter_joined;
 #[cfg(test)]
 use matrix_sdk::Client;
+use matrix_sdk::Room;
 #[cfg(test)]
 use matrix_sdk_test::{JoinedRoomBuilder, SyncResponseBuilder};
 pub use non_left::new_filter as new_filter_non_left;
@@ -88,8 +89,6 @@ use wiremock::{
     matchers::{header, method, path},
     Mock, MockServer, ResponseTemplate,
 };
-
-use super::Room;
 
 /// A trait “alias” that represents a _filter_.
 ///
@@ -131,7 +130,7 @@ pub(super) async fn new_rooms<const N: usize>(
 
     let _response = client.sync_once(Default::default()).await.unwrap();
 
-    room_ids.map(|room_id| Room::new(client.get_room(room_id).unwrap()))
+    room_ids.map(|room_id| client.get_room(room_id).unwrap())
 }
 
 #[cfg(test)]

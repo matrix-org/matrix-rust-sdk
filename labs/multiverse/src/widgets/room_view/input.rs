@@ -1,7 +1,6 @@
 use clap::{Parser, Subcommand};
 use crossterm::event::KeyEvent;
-use matrix_sdk::ruma::OwnedUserId;
-use matrix_sdk_ui::room_list_service::Room;
+use matrix_sdk::{ruma::OwnedUserId, Room};
 use ratatui::{prelude::*, widgets::*};
 use style::palette::tailwind;
 use tui_textarea::TextArea;

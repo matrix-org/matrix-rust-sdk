@@ -120,14 +120,7 @@ impl RoomList {
 
     /// Get a stream of rooms.
     fn entries(&self) -> (Vector<Room>, impl Stream<Item = Vec<VectorDiff<Room>>> + '_) {
-        let (rooms, stream) = self.client.rooms_stream();
-
-        let map_room = |room| Room::new(room);
-
-        (
-            rooms.into_iter().map(map_room).collect(),
-            stream.map(move |diffs| diffs.into_iter().map(|diff| diff.map(map_room)).collect()),
-        )
+        self.client.rooms_stream()
     }
 
     /// Get a configurable stream of rooms.
