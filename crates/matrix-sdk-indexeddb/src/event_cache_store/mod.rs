@@ -234,17 +234,57 @@ struct GapForCache {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-struct TimelineEventForCache {
+struct GenericEventForCache<P> {
     id: String,
     content: TimelineEvent,
     room_id: String,
-    position: Option<PositionForCache>,
+    position: P,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Copy, Clone, Serialize, Deserialize)]
 struct PositionForCache {
     chunk_id: u64,
     index: usize,
+}
+
+type InBandEventForCache = GenericEventForCache<PositionForCache>;
+type OutOfBandEventForCache = GenericEventForCache<()>;
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(untagged)]
+enum EventForCache {
+    InBand(InBandEventForCache),
+    OutOfBand(OutOfBandEventForCache),
+}
+
+impl EventForCache {
+    pub fn content(&self) -> &TimelineEvent {
+        match self {
+            EventForCache::InBand(i) => &i.content,
+            EventForCache::OutOfBand(o) => &o.content,
+        }
+    }
+
+    pub fn take_content(self) -> TimelineEvent {
+        match self {
+            EventForCache::InBand(i) => i.content,
+            EventForCache::OutOfBand(o) => o.content,
+        }
+    }
+
+    pub fn event_id(&self) -> Option<OwnedEventId> {
+        match self {
+            EventForCache::InBand(i) => i.content.event_id(),
+            EventForCache::OutOfBand(o) => o.content.event_id(),
+        }
+    }
+
+    pub fn position(&self) -> Option<PositionForCache> {
+        match self {
+            EventForCache::InBand(i) => Some(i.position),
+            EventForCache::OutOfBand(_) => None,
+        }
+    }
 }
 
 impl From<PositionForCache> for Position {
@@ -574,11 +614,11 @@ impl_event_cache_store! {
                             (keys::EVENTS, &index.to_string(), false),
                         ]);
 
-                        let value = TimelineEventForCache {
+                        let value = InBandEventForCache {
                             id: id.clone(),
                             content: event,
                             room_id: room_id.to_string(),
-                            position: Some(PositionForCache { chunk_id, index }),
+                            position: PositionForCache { chunk_id, index },
                         };
 
                         let value = self.serialize_value_with_id(&id, &value)?;
@@ -598,11 +638,11 @@ impl_event_cache_store! {
                         (keys::EVENTS, &index.to_string(), false),
                     ]);
 
-                    let timeline_event = TimelineEventForCache {
+                    let timeline_event = InBandEventForCache {
                         id: event_id.clone(),
                         content: item,
                         room_id: room_id.to_string(),
-                        position: Some(PositionForCache { chunk_id, index }),
+                        position: PositionForCache { chunk_id, index },
                     };
 
                     let value = self.serialize_value_with_id(&event_id, &timeline_event)?;
@@ -647,8 +687,8 @@ impl_event_cache_store! {
                     let items = object_store.get_all_with_key(&key_range)?.await?;
 
                     for item in items {
-                        let event: TimelineEventForCache = self.deserialize_value_with_id(item)?;
-                        if event.position.is_some_and(|position| position.index >= index) {
+                        let event: InBandEventForCache = self.deserialize_value_with_id(item)?;
+                        if event.position.index >= index {
                             object_store.delete(&JsValue::from_str(&event.id))?;
                         }
                     }
@@ -744,7 +784,7 @@ impl_event_cache_store! {
                     let mut events_vec = Vec::new();
 
                     for event in events {
-                        let event: TimelineEventForCache = self.deserialize_value_with_id(event)?;
+                        let event: InBandEventForCache = self.deserialize_value_with_id(event)?;
                         events_vec.push(event.content);
                     }
 
@@ -854,7 +894,7 @@ impl_event_cache_store! {
                     let events = events.get_all_with_key(&events_key_range)?.await?;
                     let mut events_vec = Vec::new();
                     for event in events {
-                        let event: TimelineEventForCache = self.deserialize_value_with_id(event)?;
+                        let event: InBandEventForCache = self.deserialize_value_with_id(event)?;
                         events_vec.push(event.content);
                     }
                     linked_chunk::ChunkContent::Items(events_vec)
@@ -930,7 +970,7 @@ impl_event_cache_store! {
                             let events = events.get_all_with_key(&events_key_range)?.await?;
                             let mut events_vec = Vec::new();
                             for event in events {
-                                let event: TimelineEventForCache =
+                                let event: InBandEventForCache =
                                     self.deserialize_value_with_id(event)?;
                                 events_vec.push(event.content);
                             }
@@ -1021,12 +1061,10 @@ impl_event_cache_store! {
         let mut result = Vec::new();
         let values = store.get_all_with_key(&key_range)?.await?;
         for value in values {
-            let event: TimelineEventForCache = self.deserialize_value_with_id(value)?;
+            let event: InBandEventForCache = self.deserialize_value_with_id(value)?;
             if let Some(event_id) = event.content.event_id() {
                 if events.contains(&event_id) {
-                    if let Some(position) = event.position {
-                        result.push((event_id, position.into()))
-                    }
+                    result.push((event_id, event.position.into()))
                 }
             }
         }
@@ -1057,9 +1095,9 @@ impl_event_cache_store! {
 
         let values = events.get_all_with_key(&events_key_range)?.await?;
         for value in values {
-            let event: TimelineEventForCache = self.deserialize_value_with_id(value)?;
-            if event.content.event_id().is_some_and(|inner| inner == *event_id) {
-                return Ok(Some(event.content));
+            let event: EventForCache = self.deserialize_value_with_id(value)?;
+            if event.event_id().is_some_and(|inner| inner == *event_id) {
+                return Ok(Some(event.take_content()));
             }
         }
         Ok(None)
@@ -1094,13 +1132,14 @@ impl_event_cache_store! {
         let mut result = Vec::new();
         let values = events.get_all_with_key(&events_key_range)?.await?;
         for value in values {
-            let event: TimelineEventForCache = self.deserialize_value_with_id(value)?;
-            if let Some((relates_to, relation_type)) = extract_event_relation(event.content.raw()) {
+            let event: EventForCache = self.deserialize_value_with_id(value)?;
+            if let Some((relates_to, relation_type)) = extract_event_relation(event.content().raw())
+            {
                 let filter_contains_relation_type = filter
                     .map(|filter| filter.iter().any(|relation| relation.as_ref() == relation_type))
                     .unwrap_or(true);
                 if event_id == relates_to && filter_contains_relation_type {
-                    result.push(event.content);
+                    result.push(event.take_content());
                 }
             }
         }
@@ -1144,10 +1183,10 @@ impl_event_cache_store! {
         let mut position = None;
         let values = store.get_all_with_key(&key_range)?.await?;
         for value in values {
-            let candidate: TimelineEventForCache = self.deserialize_value_with_id(value)?;
-            if let Some(candidate_id) = candidate.content.event_id() {
-                if event_id == candidate_id {
-                    position = candidate.position;
+            let candidate: EventForCache = self.deserialize_value_with_id(value)?;
+            if let Some(id) = candidate.event_id() {
+                if event_id == id {
+                    position = candidate.position();
                     break;
                 }
             }
@@ -1164,7 +1203,7 @@ impl_event_cache_store! {
         ]);
         let value = self.serialize_value_with_id(
             &id,
-            &TimelineEventForCache {
+            &GenericEventForCache {
                 id: id.clone(),
                 content: event,
                 room_id: room_id.to_string(),
