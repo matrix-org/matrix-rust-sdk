@@ -26,14 +26,13 @@ mod state;
 mod tags;
 
 use crate::{
-    deserialized_responses::{MemberEvent, SyncOrStrippedState},
+    deserialized_responses::MemberEvent,
     notification_settings::RoomNotificationMode,
     read_receipts::RoomReadReceipts,
     store::{DynStateStore, Result as StoreResult, StateStoreExt},
     sync::UnreadNotificationsCount,
     Error, MinimalStateEvent,
 };
-use as_variant::as_variant;
 pub use create::*;
 pub use display_name::{RoomDisplayName, RoomHero};
 pub(crate) use display_name::{RoomSummary, UpdatedRoomDisplayName};
@@ -52,7 +51,6 @@ use ruma::{events::AnySyncTimelineEvent, serde::Raw};
 use ruma::{
     events::{
         direct::OwnedDirectUserIdentifier,
-        member_hints::MemberHintsEventContent,
         receipt::{Receipt, ReceiptThread, ReceiptType},
         room::{
             avatar::{self},
@@ -62,7 +60,6 @@ use ruma::{
             power_levels::{RoomPowerLevels, RoomPowerLevelsEventContent},
             tombstone::RoomTombstoneEventContent,
         },
-        SyncStateEvent,
     },
     room::RoomType,
     EventId, OwnedEventId, OwnedMxcUri, OwnedRoomAliasId, OwnedRoomId, OwnedUserId, RoomId, UserId,
@@ -389,21 +386,6 @@ impl Room {
     /// Get the topic of the room.
     pub fn topic(&self) -> Option<String> {
         self.inner.read().topic().map(ToOwned::to_owned)
-    }
-
-    pub(super) async fn get_member_hints(&self) -> StoreResult<MemberHintsEventContent> {
-        Ok(self
-            .store
-            .get_state_event_static::<MemberHintsEventContent>(self.room_id())
-            .await?
-            .and_then(|event| {
-                event
-                    .deserialize()
-                    .inspect_err(|e| warn!("Couldn't deserialize the member hints event: {e}"))
-                    .ok()
-            })
-            .and_then(|event| as_variant!(event, SyncOrStrippedState::Sync(SyncStateEvent::Original(e)) => e.content))
-            .unwrap_or_default())
     }
 
     /// Update the cached user defined notification mode.
