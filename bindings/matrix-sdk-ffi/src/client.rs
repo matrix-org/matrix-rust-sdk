@@ -753,11 +753,20 @@ impl Client {
         self.inner.available_sliding_sync_versions().await.into_iter().map(Into::into).collect()
     }
 
+    /// Sets the [ClientDelegate] which will inform about authentication errors.
+    /// Returns an error if the delegate was already set.
     pub fn set_delegate(
         self: Arc<Self>,
         delegate: Option<Box<dyn ClientDelegate>>,
-    ) -> Option<Arc<TaskHandle>> {
-        delegate.map(|delegate| {
+    ) -> Result<Option<Arc<TaskHandle>>, ClientError> {
+        if self.delegate.get().is_some() {
+            return Err(ClientError::Generic {
+                msg: "Delegate already initialized".to_owned(),
+                details: None,
+            });
+        }
+
+        Ok(delegate.map(|delegate| {
             let mut session_change_receiver = self.inner.subscribe_to_session_changes();
             let client_clone = self.clone();
             let session_change_task = get_runtime_handle().spawn(async move {
@@ -774,11 +783,24 @@ impl Client {
             });
 
             self.delegate.get_or_init(|| Arc::from(delegate));
+
             Arc::new(TaskHandle::new(session_change_task))
-        })
+        }))
     }
 
-    pub async fn set_utd_delegate(self: Arc<Self>, utd_delegate: Box<dyn UnableToDecryptDelegate>) {
+    /// Sets the [UnableToDecryptDelegate] which will inform about UTDs.
+    /// Returns an error if the delegate was already set.
+    pub async fn set_utd_delegate(
+        self: Arc<Self>,
+        utd_delegate: Box<dyn UnableToDecryptDelegate>,
+    ) -> Result<(), ClientError> {
+        if self.utd_hook_manager.get().is_some() {
+            return Err(ClientError::Generic {
+                msg: "UTD delegate already initialized".to_owned(),
+                details: None,
+            });
+        }
+
         // UTDs detected before this duration may be reclassified as "late decryption"
         // events (or discarded, if they get decrypted fast enough).
         const UTD_HOOK_GRACE_PERIOD: Duration = Duration::from_secs(60);
@@ -796,6 +818,8 @@ impl Client {
         }
 
         self.utd_hook_manager.get_or_init(|| Arc::new(utd_hook_manager));
+
+        Ok(())
     }
 
     pub fn session(&self) -> Result<Session, ClientError> {
