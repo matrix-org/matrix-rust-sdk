@@ -78,13 +78,13 @@ pub(crate) type TimelineLock = Arc<RwLock<Option<Arc<Timeline>>>>;
 #[derive(uniffi::Object)]
 pub struct Room {
     pub(super) inner: SdkRoom,
-    utd_hook: Option<Arc<UtdHookManager>>,
+    utd_hook_manager: Option<Arc<UtdHookManager>>,
     timeline: TimelineLock,
 }
 
 impl Room {
-    pub(crate) fn new(inner: SdkRoom, utd_hook: Option<Arc<UtdHookManager>>) -> Self {
-        Room { inner, timeline: Default::default(), utd_hook }
+    pub(crate) fn new(inner: SdkRoom, utd_hook_manager: Option<Arc<UtdHookManager>>) -> Self {
+        Room { inner, timeline: Default::default(), utd_hook_manager }
     }
 }
 
@@ -234,8 +234,8 @@ impl Room {
         }
 
         if configuration.report_utds {
-            if let Some(utd_hook) = self.utd_hook.clone() {
-                builder = builder.with_unable_to_decrypt_hook(utd_hook);
+            if let Some(utd_hook_manager) = self.utd_hook_manager.clone() {
+                builder = builder.with_unable_to_decrypt_hook(utd_hook_manager);
             }
         }
 

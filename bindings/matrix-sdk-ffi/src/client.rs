@@ -220,7 +220,7 @@ impl From<matrix_sdk::TransmissionProgress> for TransmissionProgress {
 pub struct Client {
     pub(crate) inner: AsyncRuntimeDropped<MatrixClient>,
     delegate: OnceLock<Arc<dyn ClientDelegate>>,
-    utd_hook: OnceLock<Arc<UtdHookManager>>,
+    utd_hook_manager: OnceLock<Arc<UtdHookManager>>,
     session_verification_controller:
         Arc<tokio::sync::RwLock<Option<SessionVerificationController>>>,
 }
@@ -265,7 +265,7 @@ impl Client {
         let client = Client {
             inner: AsyncRuntimeDropped::new(sdk_client.clone()),
             delegate: OnceLock::new(),
-            utd_hook: OnceLock::new(),
+            utd_hook_manager: OnceLock::new(),
             session_verification_controller,
         };
 
@@ -783,19 +783,19 @@ impl Client {
         // events (or discarded, if they get decrypted fast enough).
         const UTD_HOOK_GRACE_PERIOD: Duration = Duration::from_secs(60);
 
-        let mut utd_hook = UtdHookManager::new(
+        let mut utd_hook_manager = UtdHookManager::new(
             Arc::new(UtdHook { delegate: utd_delegate.into() }),
             (*self.inner).clone(),
         )
         .with_max_delay(UTD_HOOK_GRACE_PERIOD);
 
-        if let Err(e) = utd_hook.reload_from_store().await {
+        if let Err(e) = utd_hook_manager.reload_from_store().await {
             error!("Unable to reload UTD hook data from data store: {}", e);
             // Carry on with the setup anyway; we shouldn't fail setup just
             // because the UTD hook failed to load its data.
         }
 
-        self.utd_hook.get_or_init(|| Arc::new(utd_hook));
+        self.utd_hook_manager.get_or_init(|| Arc::new(utd_hook_manager));
     }
 
     pub fn session(&self) -> Result<Session, ClientError> {
@@ -1057,7 +1057,7 @@ impl Client {
         self.inner
             .rooms()
             .into_iter()
-            .map(|room| Arc::new(Room::new(room, self.utd_hook.get().cloned())))
+            .map(|room| Arc::new(Room::new(room, self.utd_hook_manager.get().cloned())))
             .collect()
     }
 
@@ -1076,14 +1076,16 @@ impl Client {
         let room_id = RoomId::parse(room_id)?;
         let sdk_room = self.inner.get_room(&room_id);
 
-        let room = sdk_room.map(|room| Arc::new(Room::new(room, self.utd_hook.get().cloned())));
+        let room =
+            sdk_room.map(|room| Arc::new(Room::new(room, self.utd_hook_manager.get().cloned())));
         Ok(room)
     }
 
     pub fn get_dm_room(&self, user_id: String) -> Result<Option<Arc<Room>>, ClientError> {
         let user_id = UserId::parse(user_id)?;
         let sdk_room = self.inner.get_dm_room(&user_id);
-        let dm = sdk_room.map(|room| Arc::new(Room::new(room, self.utd_hook.get().cloned())));
+        let dm =
+            sdk_room.map(|room| Arc::new(Room::new(room, self.utd_hook_manager.get().cloned())));
         Ok(dm)
     }
 
@@ -1190,7 +1192,7 @@ impl Client {
     pub async fn join_room_by_id(&self, room_id: String) -> Result<Arc<Room>, ClientError> {
         let room_id = RoomId::parse(room_id)?;
         let room = self.inner.join_room_by_id(room_id.as_ref()).await?;
-        Ok(Arc::new(Room::new(room, self.utd_hook.get().cloned())))
+        Ok(Arc::new(Room::new(room, self.utd_hook_manager.get().cloned())))
     }
 
     /// Join a room by its ID or alias.
@@ -1211,7 +1213,7 @@ impl Client {
             .collect::<Result<Vec<_>, _>>()?;
         let room =
             self.inner.join_room_by_id_or_alias(room_id.as_ref(), server_names.as_ref()).await?;
-        Ok(Arc::new(Room::new(room, self.utd_hook.get().cloned())))
+        Ok(Arc::new(Room::new(room, self.utd_hook_manager.get().cloned())))
     }
 
     /// Knock on a room to join it using its ID or alias.
@@ -1225,7 +1227,7 @@ impl Client {
         let server_names =
             server_names.iter().map(ServerName::parse).collect::<Result<Vec<_>, _>>()?;
         let room = self.inner.knock(room_id, reason, server_names).await?;
-        Ok(Arc::new(Room::new(room, self.utd_hook.get().cloned())))
+        Ok(Arc::new(Room::new(room, self.utd_hook_manager.get().cloned())))
     }
 
     pub async fn get_recently_visited_rooms(&self) -> Result<Vec<String>, ClientError> {
@@ -1321,7 +1323,7 @@ impl Client {
         let room_id = RoomId::parse(room_id)?;
         Ok(Arc::new(Room::new(
             self.inner.await_room_remote_echo(&room_id).await,
-            self.utd_hook.get().cloned(),
+            self.utd_hook_manager.get().cloned(),
         )))
     }
 
