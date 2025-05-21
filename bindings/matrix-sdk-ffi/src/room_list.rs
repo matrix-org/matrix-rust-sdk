@@ -10,7 +10,7 @@ use matrix_sdk::{
         api::client::sync::sync_events::UnreadNotificationsCount as RumaUnreadNotificationsCount,
         RoomId,
     },
-    Room,
+    Room as SdkRoom,
 };
 use matrix_sdk_ui::room_list_service::filters::{
     new_filter_all, new_filter_any, new_filter_category, new_filter_favourite,
@@ -359,7 +359,7 @@ pub enum RoomListEntriesUpdate {
 }
 
 impl RoomListEntriesUpdate {
-    fn from(vector_diff: VectorDiff<Room>) -> Self {
+    fn from(vector_diff: VectorDiff<SdkRoom>) -> Self {
         match vector_diff {
             VectorDiff::Append { values } => Self::Append {
                 values: values
@@ -491,11 +491,11 @@ impl From<RoomListEntriesDynamicFilterKind> for BoxedFilterFn {
 
 #[derive(uniffi::Object)]
 pub struct RoomListItem {
-    inner: Room,
+    inner: SdkRoom,
 }
 
 impl RoomListItem {
-    fn from(inner: Room) -> Self {
+    fn from(inner: SdkRoom) -> Self {
         Self { inner }
     }
 }
