@@ -208,6 +208,113 @@ impl IndexeddbEventCacheStore {
         let deserialized: T = self.serializer.maybe_decrypt_value(obj.value)?;
         Ok(deserialized)
     }
+
+    #[allow(dead_code)]
+    fn encode_in_band_event_key(&self, room_id: &RoomId, position: &PositionForCache) -> String {
+        self.encode_key(vec![
+            (keys::ROOMS, room_id.as_ref(), true),
+            (keys::LINKED_CHUNKS, &position.chunk_id.to_string(), false),
+            (keys::EVENTS, &position.index.to_string(), false),
+        ])
+    }
+
+    #[allow(dead_code)]
+    fn encode_upper_in_band_event_key_for_room(&self, room_id: &RoomId) -> String {
+        self.encode_upper_key(vec![(keys::ROOMS, room_id.as_ref(), true)])
+    }
+
+    #[allow(dead_code)]
+    fn encode_upper_in_band_event_key_for_chunk(&self, room_id: &RoomId, chunk_id: u64) -> String {
+        self.encode_upper_key(vec![
+            (keys::ROOMS, room_id.as_ref(), true),
+            (keys::LINKED_CHUNKS, &chunk_id.to_string(), false),
+        ])
+    }
+
+    #[allow(dead_code)]
+    fn encode_out_of_band_event_key(
+        &self,
+        room_id: &RoomId,
+        event_id: &EventId,
+    ) -> Result<String, IndexeddbEventCacheStoreError> {
+        let chunk_id = String::from(Self::KEY_LOWER_CHARACTER);
+        Ok(self.encode_key(vec![
+            (keys::ROOMS, room_id.as_ref(), true),
+            (keys::LINKED_CHUNKS, &chunk_id, false),
+            (keys::EVENTS, event_id.as_ref(), false),
+        ]))
+    }
+
+    #[allow(dead_code)]
+    fn serialize_in_band_event(
+        &self,
+        event: &InBandEventForCache,
+    ) -> Result<JsValue, IndexeddbEventCacheStoreError> {
+        let encrypted_event = self.serializer.maybe_encrypt_value(event)?;
+        Ok(serde_wasm_bindgen::to_value(&IndexedEvent {
+            id: event.id.clone(),
+            content: encrypted_event,
+        })?)
+    }
+
+    #[allow(dead_code)]
+    fn serialize_out_of_band_event(
+        &self,
+        event: &OutOfBandEventForCache,
+    ) -> Result<JsValue, IndexeddbEventCacheStoreError> {
+        let encrypted_event = self.serializer.maybe_encrypt_value(event)?;
+        Ok(serde_wasm_bindgen::to_value(&IndexedEvent {
+            id: event.id.clone(),
+            content: encrypted_event,
+        })?)
+    }
+
+    #[allow(dead_code)]
+    fn serialize_event(
+        &self,
+        event: &EventForCache,
+    ) -> Result<JsValue, IndexeddbEventCacheStoreError> {
+        match event {
+            EventForCache::InBand(i) => self.serialize_in_band_event(i),
+            EventForCache::OutOfBand(o) => self.serialize_out_of_band_event(o),
+        }
+    }
+
+    #[allow(dead_code)]
+    fn deserialize_generic_event<P: DeserializeOwned>(
+        &self,
+        value: JsValue,
+    ) -> Result<GenericEventForCache<P>, IndexeddbEventCacheStoreError> {
+        let indexed: IndexedEvent = value.into_serde()?;
+        self.serializer
+            .maybe_decrypt_value::<GenericEventForCache<P>>(indexed.content)
+            .map_err(Into::into)
+    }
+
+    #[allow(dead_code)]
+    fn deserialize_in_band_event(
+        &self,
+        value: JsValue,
+    ) -> Result<InBandEventForCache, IndexeddbEventCacheStoreError> {
+        self.deserialize_generic_event(value)
+    }
+
+    #[allow(dead_code)]
+    fn deserialize_out_of_band_event(
+        &self,
+        value: JsValue,
+    ) -> Result<OutOfBandEventForCache, IndexeddbEventCacheStoreError> {
+        self.deserialize_generic_event(value)
+    }
+
+    #[allow(dead_code)]
+    fn deserialize_event(
+        &self,
+        value: JsValue,
+    ) -> Result<EventForCache, IndexeddbEventCacheStoreError> {
+        let indexed: IndexedEvent = value.into_serde()?;
+        self.serializer.maybe_decrypt_value(indexed.content).map_err(Into::into)
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -291,6 +398,12 @@ impl From<PositionForCache> for Position {
     fn from(value: PositionForCache) -> Self {
         Self::new(ChunkIdentifier::new(value.chunk_id), value.index)
     }
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct IndexedEvent {
+    id: String,
+    content: MaybeEncrypted,
 }
 
 // Small hack to have the following macro invocation act as the appropriate
