@@ -115,10 +115,6 @@ pub struct Room {
 }
 
 impl Room {
-    /// The size of the latest_encrypted_events RingBuffer
-    #[cfg(feature = "e2e-encryption")]
-    const MAX_ENCRYPTED_EVENTS: std::num::NonZeroUsize = std::num::NonZeroUsize::new(10).unwrap();
-
     pub(crate) fn new(
         own_user_id: &UserId,
         store: Arc<DynStateStore>,
