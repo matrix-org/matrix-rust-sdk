@@ -96,7 +96,7 @@ impl RoomInfo {
             is_direct: room.is_direct().await?,
             is_public: room.is_public(),
             is_space: room.is_space(),
-            tombstone: room.tombstone().map(Into::into),
+            tombstone: room.tombstone_content().map(Into::into),
             is_favourite: room.is_favourite(),
             canonical_alias: room.canonical_alias().map(Into::into),
             alternative_aliases: room.alt_aliases().into_iter().map(Into::into).collect(),
