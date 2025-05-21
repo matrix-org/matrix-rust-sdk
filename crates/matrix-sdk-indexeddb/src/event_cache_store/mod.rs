@@ -76,6 +76,8 @@ pub enum IndexeddbEventCacheStoreError {
     ChunksContainCycle,
     #[error("chunks contain disjoint lists")]
     ChunksContainDisjointLists,
+    #[error("no event id")]
+    NoEventId,
     #[error("media store: {0}")]
     MediaStore(#[from] EventCacheStoreError),
 }
@@ -209,46 +211,41 @@ impl IndexeddbEventCacheStore {
         Ok(deserialized)
     }
 
-    fn encode_in_band_event_key(&self, room_id: &RoomId, position: &PositionForCache) -> String {
+    fn encode_in_band_event_key(&self, room_id: &str, position: &PositionForCache) -> String {
         self.encode_key(vec![
-            (keys::ROOMS, room_id.as_ref(), true),
+            (keys::ROOMS, room_id, true),
             (keys::LINKED_CHUNKS, &position.chunk_id.to_string(), false),
             (keys::EVENTS, &position.index.to_string(), false),
         ])
     }
 
-    fn encode_upper_in_band_event_key_for_room(&self, room_id: &RoomId) -> String {
-        self.encode_upper_key(vec![(keys::ROOMS, room_id.as_ref(), true)])
+    fn encode_upper_in_band_event_key_for_room(&self, room_id: &str) -> String {
+        self.encode_upper_key(vec![(keys::ROOMS, room_id, true)])
     }
 
-    fn encode_upper_in_band_event_key_for_chunk(&self, room_id: &RoomId, chunk_id: u64) -> String {
+    fn encode_upper_in_band_event_key_for_chunk(&self, room_id: &str, chunk_id: u64) -> String {
         self.encode_upper_key(vec![
-            (keys::ROOMS, room_id.as_ref(), true),
+            (keys::ROOMS, room_id, true),
             (keys::LINKED_CHUNKS, &chunk_id.to_string(), false),
         ])
     }
 
-    fn encode_out_of_band_event_key(
-        &self,
-        room_id: &RoomId,
-        event_id: &EventId,
-    ) -> Result<String, IndexeddbEventCacheStoreError> {
+    fn encode_out_of_band_event_key(&self, room_id: &str, event_id: &EventId) -> String {
         let chunk_id = String::from(Self::KEY_LOWER_CHARACTER);
-        Ok(self.encode_key(vec![
-            (keys::ROOMS, room_id.as_ref(), true),
+        self.encode_key(vec![
+            (keys::ROOMS, room_id, true),
             (keys::LINKED_CHUNKS, &chunk_id, false),
             (keys::EVENTS, event_id.as_ref(), false),
-        ]))
+        ])
     }
 
     fn serialize_in_band_event(
         &self,
         event: &InBandEventForCache,
     ) -> Result<JsValue, IndexeddbEventCacheStoreError> {
-        let encrypted_event = self.serializer.maybe_encrypt_value(event)?;
         Ok(serde_wasm_bindgen::to_value(&IndexedEvent {
-            id: event.id.clone(),
-            content: encrypted_event,
+            id: self.encode_in_band_event_key(&event.room_id, &event.position),
+            content: self.serializer.maybe_encrypt_value(event)?,
         })?)
     }
 
@@ -256,10 +253,12 @@ impl IndexeddbEventCacheStore {
         &self,
         event: &OutOfBandEventForCache,
     ) -> Result<JsValue, IndexeddbEventCacheStoreError> {
-        let encrypted_event = self.serializer.maybe_encrypt_value(event)?;
         Ok(serde_wasm_bindgen::to_value(&IndexedEvent {
-            id: event.id.clone(),
-            content: encrypted_event,
+            id: self.encode_out_of_band_event_key(
+                &event.room_id,
+                &event.content.event_id().ok_or(IndexeddbEventCacheStoreError::NoEventId)?,
+            ),
+            content: self.serializer.maybe_encrypt_value(event)?,
         })?)
     }
 
@@ -324,7 +323,6 @@ struct GapForCache {
 
 #[derive(Debug, Serialize, Deserialize)]
 struct GenericEventForCache<P> {
-    id: String,
     content: TimelineEvent,
     room_id: String,
     position: P,
@@ -708,19 +706,13 @@ impl_event_cache_store! {
                     trace!(%room_id, "pushing {} items @ {chunk_id}", items.len());
 
                     for (i, item) in items.into_iter().enumerate() {
-                        let index = at.index() + i;
-                        let position = PositionForCache {
-                            chunk_id,
-                            index,
-                        };
-                        let id = self.encode_in_band_event_key(&room_id, &position);
-                        let event = InBandEventForCache {
-                            id,
+                        let value = self.serialize_in_band_event(&InBandEventForCache {
                             content: item,
                             room_id: room_id.to_string(),
-                            position,
-                        };
-                        let value = self.serialize_in_band_event(&event)?;
+                            position: PositionForCache {
+                                chunk_id, index: at.index() + i,
+                            },
+                        })?;
                         events.put_val(&value)?.into_future().await?;
                     }
                 }
@@ -730,15 +722,11 @@ impl_event_cache_store! {
 
                     trace!(%room_id, "replacing item @ {chunk_id}:{index}");
 
-                    let position = PositionForCache::from(at);
-                    let id = self.encode_in_band_event_key(&room_id, &position);
-                    let event = InBandEventForCache {
-                        id,
+                    let value = self.serialize_in_band_event(&InBandEventForCache {
                         content: item,
                         room_id: room_id.to_string(),
-                        position,
-                    };
-                    let value = self.serialize_in_band_event(&event)?;
+                        position: at.into(),
+                    })?;
                     events.put_val(&value)?;
                 }
                 Update::RemoveItem { at } => {
@@ -763,17 +751,17 @@ impl_event_cache_store! {
 
                     let object_store = tx.object_store(keys::EVENTS)?;
 
-                    let lower = self.encode_in_band_event_key(&room_id, &at.into());
-                    let upper = self.encode_upper_in_band_event_key_for_chunk(&room_id, chunk_id);
-
+                    let lower = self.encode_in_band_event_key(room_id.as_ref(), &at.into());
+                    let upper = self.encode_upper_in_band_event_key_for_chunk(room_id.as_ref(), chunk_id);
                     let key_range = IdbKeyRange::bound(&lower.into(), &upper.into()).unwrap();
 
-                    let items = object_store.get_all_with_key(&key_range)?.await?;
-
-                    for item in items {
-                        let event: InBandEventForCache = self.deserialize_in_band_event(item)?;
-                        if event.position.index >= index {
-                            object_store.delete(&JsValue::from_str(&event.id))?;
+                    if let Some(cursor) = object_store.open_cursor_with_range(&key_range)?.await? {
+                        while cursor.key().is_some() {
+                            let event: InBandEventForCache = self.deserialize_in_band_event(cursor.value())?;
+                            if event.position.index >= index {
+                                cursor.delete()?.await?;
+                            }
+                            cursor.continue_cursor()?.await?;
                         }
                     }
                 }
@@ -794,20 +782,14 @@ impl_event_cache_store! {
                         let chunk: ChunkForCache = self.deserialize_value_with_id(chunk)?;
 
                         // Delete all events for this chunk
-
-                        let lower = self.encode_key(vec![
-                            (keys::ROOMS, room_id.as_ref(), true),
-                            (keys::LINKED_CHUNKS, &chunk.id, false),
-                        ]);
-                        let upper = self.encode_upper_key(vec![
-                            (keys::ROOMS, room_id.as_ref(), true),
-                            (keys::LINKED_CHUNKS, &chunk.id, false),
-                        ]);
-
+                        let lower = self.encode_in_band_event_key(room_id.as_ref(), &PositionForCache {
+                            chunk_id: chunk.raw_id,
+                            index: 0,
+                        });
+                        let upper = self.encode_upper_in_band_event_key_for_chunk(room_id.as_ref(), chunk.raw_id);
                         let key_range = IdbKeyRange::bound(&lower.into(), &upper.into()).unwrap();
 
                         events.delete_owned(key_range)?;
-
                         linked_chunks.delete_owned(&chunk.id)?;
                     }
                 }
@@ -851,11 +833,11 @@ impl_event_cache_store! {
 
             match linked_chunk.type_str.as_str() {
                 ChunkForCache::CHUNK_TYPE_EVENT_TYPE_STRING => {
-                    let lower = self.encode_in_band_event_key(&room_id, &PositionForCache {
+                    let lower = self.encode_in_band_event_key(room_id.as_ref(), &PositionForCache {
                         chunk_id,
                         index: 0,
                     });
-                    let upper = self.encode_upper_in_band_event_key_for_chunk(&room_id, chunk_id);
+                    let upper = self.encode_upper_in_band_event_key_for_chunk(room_id.as_ref(), chunk_id);
 
                     let events_key_range =
                         IdbKeyRange::bound(&lower.into(), &upper.into()).unwrap();
@@ -957,11 +939,11 @@ impl_event_cache_store! {
 
             let content = match last_chunk.type_str.as_str() {
                 ChunkForCache::CHUNK_TYPE_EVENT_TYPE_STRING => {
-                    let lower = self.encode_in_band_event_key(&room_id, &PositionForCache {
+                    let lower = self.encode_in_band_event_key(room_id.as_ref(), &PositionForCache {
                         chunk_id: last_chunk.raw_id,
                         index: 0,
                     });
-                    let upper = self.encode_upper_in_band_event_key_for_chunk(&room_id, last_chunk.raw_id);
+                    let upper = self.encode_upper_in_band_event_key_for_chunk(room_id.as_ref(), last_chunk.raw_id);
                     let events_key_range =
                         IdbKeyRange::bound(&lower.into(), &upper.into()).unwrap();
 
@@ -1027,11 +1009,11 @@ impl_event_cache_store! {
                     let previous_chunk: ChunkForCache = self.deserialize_value_with_id(value)?;
                     let content = match previous_chunk.type_str.as_str() {
                         ChunkForCache::CHUNK_TYPE_EVENT_TYPE_STRING => {
-                            let lower = self.encode_in_band_event_key(&room_id, &PositionForCache {
+                            let lower = self.encode_in_band_event_key(room_id.as_ref(), &PositionForCache {
                                 chunk_id: previous_chunk.raw_id,
                                 index: 0,
                             });
-                            let upper = self.encode_upper_in_band_event_key_for_chunk(&room_id, previous_chunk.raw_id);
+                            let upper = self.encode_upper_in_band_event_key_for_chunk(room_id.as_ref(), previous_chunk.raw_id);
 
                             let events_key_range =
                                 IdbKeyRange::bound(&lower.into(), &upper.into()).unwrap();
@@ -1123,8 +1105,8 @@ impl_event_cache_store! {
         // schema doesn't easily allow us to find an event without
         // knowing which chunk it is in. To improve this, we will
         // need to add another index to our event store.
-        let lower = self.encode_in_band_event_key(&room_id, &PositionForCache::default());
-        let upper = self.encode_upper_in_band_event_key_for_room(&room_id);
+        let lower = self.encode_in_band_event_key(room_id.as_ref(), &PositionForCache::default());
+        let upper = self.encode_upper_in_band_event_key_for_room(room_id.as_ref());
         let key_range = IdbKeyRange::bound(&lower.clone().into(), &upper.clone().into()).unwrap();
 
         let mut result = Vec::new();
@@ -1262,14 +1244,12 @@ impl_event_cache_store! {
         }
         let event = if let Some(position) = position {
             EventForCache::InBand(InBandEventForCache {
-                id: self.encode_in_band_event_key(&room_id, &position),
                 content: event,
                 room_id: room_id.to_string(),
                 position
             })
         } else {
             EventForCache::OutOfBand(OutOfBandEventForCache {
-                id: self.encode_out_of_band_event_key(&room_id, &event_id)?,
                 content: event,
                 room_id: room_id.to_string(),
                 position: (),
