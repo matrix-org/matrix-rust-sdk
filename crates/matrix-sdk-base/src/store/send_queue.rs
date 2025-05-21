@@ -109,6 +109,10 @@ pub enum QueuedRequestKind {
         #[cfg(feature = "unstable-msc4274")]
         #[serde(default)]
         accumulated: Vec<AccumulatedSentMediaInfo>,
+
+        /// Is this a thumbnail upload?
+        #[serde(default = "default_is_thumbnail")]
+        is_thumbnail: bool,
     },
 }
 
@@ -242,6 +246,10 @@ pub enum DependentQueuedRequestKind {
         #[cfg(feature = "unstable-msc4274")]
         #[serde(default = "default_parent_is_thumbnail_upload")]
         parent_is_thumbnail_upload: bool,
+
+        /// Is this a thumbnail upload?
+        #[serde(default = "default_is_thumbnail")]
+        is_thumbnail: bool,
     },
 
     /// Finish an upload by updating references to the media cache and sending
@@ -266,6 +274,12 @@ pub enum DependentQueuedRequestKind {
 #[cfg(feature = "unstable-msc4274")]
 fn default_parent_is_thumbnail_upload() -> bool {
     true
+}
+
+/// We don't really have a way to infer the value if it hasn't been set on an
+/// old request, so we just default to false.
+fn default_is_thumbnail() -> bool {
+    false
 }
 
 /// Detailed record about a thumbnail used when finishing a media upload.
