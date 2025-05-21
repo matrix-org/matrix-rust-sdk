@@ -139,6 +139,7 @@ assert_matches = { workspace = true }
 assert_matches2 = { workspace = true }
 dirs = "6.0.0"
 futures-executor = { workspace = true }
+insta = { workspace = true }
 matrix-sdk-base = { workspace = true, features = ["testing"] }
 matrix-sdk-test = { workspace = true }
 serde_urlencoded = "0.7.1"
