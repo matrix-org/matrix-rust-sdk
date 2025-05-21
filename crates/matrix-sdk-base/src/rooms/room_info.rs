@@ -1157,16 +1157,6 @@ impl Default for RoomInfoNotableUpdateReasons {
 mod tests {
     use std::sync::Arc;
 
-    use super::{BaseRoomInfo, RoomInfo, SyncInfo};
-    use crate::{
-        latest_event::LatestEvent,
-        notification_settings::RoomNotificationMode,
-        rooms::{RoomNotableTags, RoomSummary},
-        store::{IntoStateStore, MemoryStore},
-        sync::UnreadNotificationsCount,
-        RoomDisplayName, RoomHero, RoomState, StateChanges,
-    };
-
     use matrix_sdk_common::deserialized_responses::TimelineEvent;
     use matrix_sdk_test::{
         async_test,
@@ -1177,6 +1167,16 @@ mod tests {
         owned_mxc_uri, owned_user_id, room_id, serde::Raw,
     };
     use serde_json::json;
+
+    use super::{BaseRoomInfo, RoomInfo, SyncInfo};
+    use crate::{
+        latest_event::LatestEvent,
+        notification_settings::RoomNotificationMode,
+        rooms::{RoomNotableTags, RoomSummary},
+        store::{IntoStateStore, MemoryStore},
+        sync::UnreadNotificationsCount,
+        RoomDisplayName, RoomHero, RoomState, StateChanges,
+    };
 
     #[test]
     fn test_room_info_serialization() {
