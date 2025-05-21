@@ -38,11 +38,7 @@ impl Room {
 
 #[cfg(test)]
 mod tests {
-    use std::{
-        ops::Sub,
-        sync::Arc,
-        time::{Duration, SystemTime},
-    };
+    use std::{ops::Sub, sync::Arc, time::Duration};
 
     use assign::assign;
     use matrix_sdk_test::{ALICE, BOB, CAROL};
@@ -56,7 +52,9 @@ mod tests {
             },
             AnySyncStateEvent, StateUnsigned, SyncStateEvent,
         },
-        room_id, user_id, DeviceId, EventId, MilliSecondsSinceUnixEpoch, OwnedUserId, UserId,
+        room_id,
+        time::SystemTime,
+        user_id, DeviceId, EventId, MilliSecondsSinceUnixEpoch, OwnedUserId, UserId,
     };
     use similar_asserts::assert_eq;
 
