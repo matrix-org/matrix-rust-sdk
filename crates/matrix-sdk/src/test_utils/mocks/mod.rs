@@ -1043,7 +1043,7 @@ impl MatrixMockServer {
     /// .mount()
     /// .await;
     ///
-    /// client.account().get_media_preview_config_event_content().await.unwrap();
+    /// client.account().fetch_media_preview_config_event_content().await.unwrap();
     ///
     /// # anyhow::Ok(()) });
     /// ```

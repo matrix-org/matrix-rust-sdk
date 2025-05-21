@@ -1402,11 +1402,8 @@ impl Client {
 
     /// Get the media previews timeline display policy
     /// currently stored in the cache.
-    pub async fn get_stored_media_preview_display_policy(
-        &self,
-    ) -> Result<MediaPreviews, ClientError> {
-        let configuration =
-            self.inner.account().get_stored_media_preview_config_event_content().await?;
+    pub async fn get_media_preview_display_policy(&self) -> Result<MediaPreviews, ClientError> {
+        let configuration = self.inner.account().get_media_preview_config_event_content().await?;
         Ok(configuration.media_previews.into())
     }
 
@@ -1421,11 +1418,8 @@ impl Client {
 
     /// Get the invite request avatars display policy
     /// currently stored in the cache.
-    pub async fn get_stored_invite_avatars_display_policy(
-        &self,
-    ) -> Result<InviteAvatars, ClientError> {
-        let configuration =
-            self.inner.account().get_stored_media_preview_config_event_content().await?;
+    pub async fn get_invite_avatars_display_policy(&self) -> Result<InviteAvatars, ClientError> {
+        let configuration = self.inner.account().get_media_preview_config_event_content().await?;
         Ok(configuration.invite_avatars.into())
     }
 }

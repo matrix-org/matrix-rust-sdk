@@ -1059,16 +1059,16 @@ impl Account {
         // We need to get the initial value of the media preview config event
         // we do this after creating the observers to make sure that we don't
         // create a race condition
-        let initial_value = self.get_stored_media_preview_config_event_content().await?;
+        let initial_value = self.get_media_preview_config_event_content().await?;
 
         Ok((initial_value, result_stream))
     }
 
-    /// Get the media preview configuration event content from the server.
+    /// Fetch the media preview configuration event content from the server.
     ///
     /// If no value was found in either the stable and unstable type, the
     /// default configuration will be returned.
-    pub async fn get_media_preview_config_event_content(
+    pub async fn fetch_media_preview_config_event_content(
         &self,
     ) -> Result<MediaPreviewConfigEventContent> {
         // First we check if there is avalue in the stable event
@@ -1095,7 +1095,7 @@ impl Account {
     ///
     /// This will return the default configuration if no value was found.
     /// Will check first for the stable event and then for the unstable one.
-    pub async fn get_stored_media_preview_config_event_content(
+    pub async fn get_media_preview_config_event_content(
         &self,
     ) -> Result<MediaPreviewConfigEventContent> {
         let media_preview_config = self
@@ -1120,7 +1120,7 @@ impl Account {
     /// This will always use the unstable event until we know which Matrix
     /// version will support it.
     pub async fn set_media_previews_display_policy(&self, policy: MediaPreviews) -> Result<()> {
-        let mut media_preview_config = self.get_media_preview_config_event_content().await?;
+        let mut media_preview_config = self.fetch_media_preview_config_event_content().await?;
         media_preview_config.media_previews = policy;
 
         // Updating the unstable account data
@@ -1135,7 +1135,7 @@ impl Account {
     /// This will always use the unstable event until we know which matrix
     /// version will support it.
     pub async fn set_invite_avatars_display_policy(&self, policy: InviteAvatars) -> Result<()> {
-        let mut media_preview_config = self.get_media_preview_config_event_content().await?;
+        let mut media_preview_config = self.fetch_media_preview_config_event_content().await?;
         media_preview_config.invite_avatars = policy;
 
         // Updating the unstable account data
