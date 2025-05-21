@@ -481,7 +481,7 @@ impl WidgetMachine {
         }
 
         let (request, action) = self.send_matrix_driver_request(request)?;
-        request.then(|result, _| {
+        request.add_response_handler(|result, _| {
             vec![Self::send_from_widget_response(
                 raw_request,
                 result
