@@ -770,12 +770,7 @@ impl_event_cache_store! {
 
                     trace!(%room_id, "removing item @ {chunk_id}:{index}");
 
-                    let id = self.encode_key(vec![
-                        (keys::ROOMS, room_id.as_ref(), true),
-                        (keys::LINKED_CHUNKS, &chunk_id.to_string(), false),
-                        (keys::EVENTS, &index.to_string(), false),
-                    ]);
-
+                    let id = self.encode_in_band_event_key(room_id.as_ref(), &at.into());
                     events.delete_owned(id)?;
                 }
                 Update::DetachLastItems { at } => {
