@@ -19,7 +19,10 @@ use matrix_sdk_ui::room_list_service::filters::{
     RoomCategory,
 };
 
-use crate::{room::Membership, TaskHandle};
+use crate::{
+    room::{Membership, Room},
+    TaskHandle,
+};
 
 #[derive(Debug, thiserror::Error, uniffi::Error)]
 pub enum RoomListError {
@@ -77,10 +80,11 @@ impl RoomListService {
         })))
     }
 
-    fn room(&self, room_id: String) -> Result<Arc<RoomListItem>, RoomListError> {
+    fn room(&self, room_id: String) -> Result<Arc<Room>, RoomListError> {
         let room_id = <&RoomId>::try_from(room_id.as_str()).map_err(RoomListError::from)?;
 
-        Ok(Arc::new(RoomListItem { inner: self.inner.room(room_id)? }))
+        // TODO: how to pass the UTD hook here?
+        Ok(Arc::new(Room::new(self.inner.room(room_id)?, None)))
     }
 
     async fn all_rooms(self: Arc<Self>) -> Result<Arc<RoomList>, RoomListError> {
@@ -238,7 +242,7 @@ impl RoomList {
         Arc::new(unsafe { result.assume_init() })
     }
 
-    fn room(&self, room_id: String) -> Result<Arc<RoomListItem>, RoomListError> {
+    fn room(&self, room_id: String) -> Result<Arc<Room>, RoomListError> {
         self.room_list_service.room(room_id)
     }
 }
@@ -345,44 +349,46 @@ pub trait RoomListServiceSyncIndicatorListener: Send + Sync + Debug {
 
 #[derive(uniffi::Enum)]
 pub enum RoomListEntriesUpdate {
-    Append { values: Vec<Arc<RoomListItem>> },
+    Append { values: Vec<Arc<Room>> },
     Clear,
-    PushFront { value: Arc<RoomListItem> },
-    PushBack { value: Arc<RoomListItem> },
+    PushFront { value: Arc<Room> },
+    PushBack { value: Arc<Room> },
     PopFront,
     PopBack,
-    Insert { index: u32, value: Arc<RoomListItem> },
-    Set { index: u32, value: Arc<RoomListItem> },
+    Insert { index: u32, value: Arc<Room> },
+    Set { index: u32, value: Arc<Room> },
     Remove { index: u32 },
     Truncate { length: u32 },
-    Reset { values: Vec<Arc<RoomListItem>> },
+    Reset { values: Vec<Arc<Room>> },
 }
 
 impl RoomListEntriesUpdate {
     fn from(vector_diff: VectorDiff<SdkRoom>) -> Self {
+        // TODO: pass the UTD hook here
+        let utd_hook = None;
         match vector_diff {
             VectorDiff::Append { values } => Self::Append {
                 values: values
                     .into_iter()
-                    .map(|value| Arc::new(RoomListItem::from(value)))
+                    .map(|value| Arc::new(Room::new(value, utd_hook.clone())))
                     .collect(),
             },
             VectorDiff::Clear => Self::Clear,
             VectorDiff::PushFront { value } => {
-                Self::PushFront { value: Arc::new(RoomListItem::from(value)) }
+                Self::PushFront { value: Arc::new(Room::new(value, utd_hook)) }
             }
             VectorDiff::PushBack { value } => {
-                Self::PushBack { value: Arc::new(RoomListItem::from(value)) }
+                Self::PushBack { value: Arc::new(Room::new(value, utd_hook)) }
             }
             VectorDiff::PopFront => Self::PopFront,
             VectorDiff::PopBack => Self::PopBack,
             VectorDiff::Insert { index, value } => Self::Insert {
                 index: u32::try_from(index).unwrap(),
-                value: Arc::new(RoomListItem::from(value)),
+                value: Arc::new(Room::new(value, utd_hook)),
             },
             VectorDiff::Set { index, value } => Self::Set {
                 index: u32::try_from(index).unwrap(),
-                value: Arc::new(RoomListItem::from(value)),
+                value: Arc::new(Room::new(value, utd_hook)),
             },
             VectorDiff::Remove { index } => Self::Remove { index: u32::try_from(index).unwrap() },
             VectorDiff::Truncate { length } => {
@@ -391,7 +397,7 @@ impl RoomListEntriesUpdate {
             VectorDiff::Reset { values } => Self::Reset {
                 values: values
                     .into_iter()
-                    .map(|value| Arc::new(RoomListItem::from(value)))
+                    .map(|value| Arc::new(Room::new(value, utd_hook.clone())))
                     .collect(),
             },
         }
@@ -486,17 +492,6 @@ impl From<RoomListEntriesDynamicFilterKind> for BoxedFilterFn {
                 Box::new(new_filter_fuzzy_match_room_name(&pattern))
             }
         }
-    }
-}
-
-#[derive(uniffi::Object)]
-pub struct RoomListItem {
-    inner: SdkRoom,
-}
-
-impl RoomListItem {
-    fn from(inner: SdkRoom) -> Self {
-        Self { inner }
     }
 }
 
