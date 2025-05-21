@@ -150,42 +150,7 @@ pub(crate) enum AccountDataSource {
 
 #[cfg(test)]
 mod tests {
-    use std::ops::Not;
-
-    use ruma::events::tag::{TagInfo, TagName, Tags};
-
-    use super::{BaseRoomInfo, RoomNotableTags};
     use crate::RoomDisplayName;
-
-    #[test]
-    fn test_handle_notable_tags_favourite() {
-        let mut base_room_info = BaseRoomInfo::default();
-
-        let mut tags = Tags::new();
-        tags.insert(TagName::Favorite, TagInfo::default());
-
-        assert!(base_room_info.notable_tags.contains(RoomNotableTags::FAVOURITE).not());
-        base_room_info.handle_notable_tags(&tags);
-        assert!(base_room_info.notable_tags.contains(RoomNotableTags::FAVOURITE));
-        tags.clear();
-        base_room_info.handle_notable_tags(&tags);
-        assert!(base_room_info.notable_tags.contains(RoomNotableTags::FAVOURITE).not());
-    }
-
-    #[test]
-    fn test_handle_notable_tags_low_priority() {
-        let mut base_room_info = BaseRoomInfo::default();
-
-        let mut tags = Tags::new();
-        tags.insert(TagName::LowPriority, TagInfo::default());
-
-        assert!(base_room_info.notable_tags.contains(RoomNotableTags::LOW_PRIORITY).not());
-        base_room_info.handle_notable_tags(&tags);
-        assert!(base_room_info.notable_tags.contains(RoomNotableTags::LOW_PRIORITY));
-        tags.clear();
-        base_room_info.handle_notable_tags(&tags);
-        assert!(base_room_info.notable_tags.contains(RoomNotableTags::LOW_PRIORITY).not());
-    }
 
     #[test]
     fn test_room_alias_from_room_display_name_lowercases() {
