@@ -10,6 +10,9 @@ rust-version = { workspace = true }
 [package.metadata.docs.rs]
 rustdoc-args = ["--cfg", "docsrs", "--generate-link-to-definition"]
 
+[package.metadata.cargo-machete]
+ignored = ["getrandom"] # We do manually enable a feature for it.
+
 [features]
 js = ["dep:getrandom", "getrandom?/js"]
 
@@ -33,6 +36,3 @@ anyhow = { workspace = true }
 
 [lints]
 workspace = true
-
-[package.metadata.cargo-machete]
-ignored = ["getrandom"] # We do manually enable a feature for it.

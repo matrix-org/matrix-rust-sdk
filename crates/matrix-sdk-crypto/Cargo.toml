@@ -51,8 +51,8 @@ hkdf = { workspace = true }
 hmac = { workspace = true }
 itertools = { workspace = true }
 js_option = "0.1.1"
-matrix-sdk-qrcode = { workspace = true, optional = true }
 matrix-sdk-common = { workspace = true }
+matrix-sdk-qrcode = { workspace = true, optional = true }
 matrix-sdk-test = { workspace = true, optional = true }  # feature = testing only
 pbkdf2 = { workspace = true }
 rand = { workspace = true }
@@ -62,22 +62,22 @@ serde = { workspace = true, features = ["derive", "rc"] }
 serde_json = { workspace = true }
 sha2 = { workspace = true }
 subtle = "2.6.1"
-time = { version = "0.3.37", features = ["formatting"] }
-tokio-stream = { workspace = true, features = ["sync"] }
-tokio = { workspace = true }
 thiserror = { workspace = true }
+time = { version = "0.3.37", features = ["formatting"] }
+tokio = { workspace = true }
+tokio-stream = { workspace = true, features = ["sync"] }
 tracing = { workspace = true, features = ["attributes"] }
-url = { workspace = true }
 ulid = { version = "1.1.4" }
 uniffi = { workspace = true, optional = true }
+url = { workspace = true }
 vodozemac = { workspace = true }
 zeroize = { workspace = true, features = ["zeroize_derive"] }
 
-[target.'cfg(target_arch = "wasm32")'.dependencies]
-tokio = { workspace = true }
-
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 tokio = { workspace = true, features = ["time"] }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+tokio = { workspace = true }
 
 [dev-dependencies]
 anyhow = { workspace = true }
@@ -88,8 +88,8 @@ http = { workspace = true }
 indoc = "2.0.5"
 insta = { workspace = true }
 matrix-sdk-test = { workspace = true }
-rmp-serde = { workspace = true }
 proptest = { workspace = true }
+rmp-serde = { workspace = true }
 similar-asserts = { workspace = true }
 # required for async_test macro
 stream_assert = { workspace = true }
