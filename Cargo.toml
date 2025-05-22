@@ -100,7 +100,7 @@ url = "2.5.4"
 uuid = "1.12.1"
 vodozemac = { version = "0.9.0", features = ["insecure-pk-encryption"] }
 wasm-bindgen = "0.2.84"
-wasm-bindgen-test = "0.3.33"
+wasm-bindgen-test = "0.3.50"
 web-sys = "0.3.69"
 wiremock = "0.6.2"
 zeroize = "1.8.1"
