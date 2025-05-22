@@ -17,7 +17,7 @@
 use std::time::Duration;
 
 use driver_req::UpdateDelayedEventRequest;
-use from_widget::UpdateDelayedEventResponse;
+use from_widget::{SendToDeviceEventResponse, UpdateDelayedEventResponse};
 use indexmap::IndexMap;
 use ruma::{
     serde::{JsonObject, Raw},
@@ -41,8 +41,9 @@ use self::{
     openid::{OpenIdResponse, OpenIdState},
     pending::{PendingRequests, RequestLimits},
     to_widget::{
-        NotifyCapabilitiesChanged, NotifyNewMatrixEvent, NotifyOpenIdChanged, RequestCapabilities,
-        ToWidgetRequest, ToWidgetRequestHandle, ToWidgetResponse,
+        NotifyCapabilitiesChanged, NotifyNewMatrixEvent, NotifyNewToDeviceMessage,
+        NotifyOpenIdChanged, RequestCapabilities, ToWidgetRequest, ToWidgetRequestHandle,
+        ToWidgetResponse,
     },
 };
 #[cfg(doc)]
@@ -64,7 +65,9 @@ mod tests;
 mod to_widget;
 
 pub(crate) use self::{
-    driver_req::{MatrixDriverRequestData, ReadStateEventRequest, SendEventRequest},
+    driver_req::{
+        MatrixDriverRequestData, ReadStateEventRequest, SendEventRequest, SendToDeviceRequest,
+    },
     from_widget::SendEventResponse,
     incoming::{IncomingMessage, MatrixDriverResponse},
 };
@@ -165,16 +168,31 @@ impl WidgetMachine {
             IncomingMessage::MatrixDriverResponse { request_id, response } => {
                 self.process_matrix_driver_response(request_id, response)
             }
-            IncomingMessage::MatrixEventReceived(event) => {
+            IncomingMessage::MatrixEventReceived(event_raw) => {
                 let CapabilitiesState::Negotiated(capabilities) = &self.capabilities else {
                     error!("Received Matrix event before capabilities negotiation");
                     return Vec::new();
                 };
 
                 capabilities
-                    .allow_reading(&event)
+                    .allow_reading(&event_raw)
                     .then(|| {
-                        self.send_to_widget_request(NotifyNewMatrixEvent(event))
+                        self.send_to_widget_request(NotifyNewMatrixEvent(event_raw))
+                            .map(|(_request, action)| vec![action])
+                            .unwrap_or_default()
+                    })
+                    .unwrap_or_default()
+            }
+            IncomingMessage::ToDeviceReceived(to_device_raw) => {
+                let CapabilitiesState::Negotiated(capabilities) = &self.capabilities else {
+                    error!("Received to device event before capabilities negotiation");
+                    return Vec::new();
+                };
+
+                capabilities
+                    .allow_reading(&to_device_raw)
+                    .then(|| {
+                        self.send_to_widget_request(NotifyNewToDeviceMessage(to_device_raw))
                             .map(|(_request, action)| vec![action])
                             .unwrap_or_default()
                     })
@@ -245,6 +263,11 @@ impl WidgetMachine {
 
             FromWidgetRequest::SendEvent(req) => self
                 .process_send_event_request(req, raw_request)
+                .map(|a| vec![a])
+                .unwrap_or_default(),
+
+            FromWidgetRequest::SendToDevice(req) => self
+                .process_to_device_request(req, raw_request)
                 .map(|a| vec![a])
                 .unwrap_or_default(),
 
@@ -437,7 +460,35 @@ impl WidgetMachine {
                 result.map_err(FromWidgetErrorResponse::from_error),
             )]
         });
+        Some(action)
+    }
 
+    fn process_to_device_request(
+        &mut self,
+        request: SendToDeviceRequest,
+        raw_request: Raw<FromWidgetRequest>,
+    ) -> Option<Action> {
+        let CapabilitiesState::Negotiated(capabilities) = &self.capabilities else {
+            error!("Received send event request before capabilities negotiation");
+            return None;
+        };
+
+        if !capabilities.allow_sending(&request) {
+            return Some(Self::send_from_widget_error_string_response(
+                raw_request,
+                format!("Not allowed to send to-device message of type: {}", request.event_type),
+            ));
+        }
+
+        let (request, action) = self.send_matrix_driver_request(request)?;
+        request.add_response_handler(|result, _| {
+            vec![Self::send_from_widget_response(
+                raw_request,
+                result
+                    .map(|_| SendToDeviceEventResponse {})
+                    .map_err(FromWidgetErrorResponse::from_error),
+            )]
+        });
         Some(action)
     }
 

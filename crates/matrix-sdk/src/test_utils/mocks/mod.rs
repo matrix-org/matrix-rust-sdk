@@ -778,6 +778,56 @@ impl MatrixMockServer {
         self.mock_endpoint(mock, DeleteRoomKeysVersionEndpoint).expect_default_access_token()
     }
 
+    /// Creates a prebuilt mock for the `/sendToDevice` endpoint.
+    ///
+    /// This mock can be used to simulate sending to-device messages in tests.
+    /// # Examples
+    ///
+    /// ```
+    /// # #[cfg(feature = "e2e-encryption")]
+    /// # {
+    /// # tokio_test::block_on(async {
+    /// use std::collections::BTreeMap;
+    /// use matrix_sdk::{
+    ///     ruma::{
+    ///         serde::Raw,
+    ///         api::client::to_device::send_event_to_device::v3::Request as ToDeviceRequest,
+    ///         to_device::DeviceIdOrAllDevices,
+    ///         user_id,owned_device_id
+    ///     },
+    ///     test_utils::mocks::MatrixMockServer,
+    /// };
+    /// use serde_json::json;
+    ///
+    /// let mock_server = MatrixMockServer::new().await;
+    /// let client = mock_server.client_builder().build().await;
+    ///
+    /// mock_server.mock_send_to_device().ok().mock_once().mount().await;
+    ///
+    /// let request = ToDeviceRequest::new_raw(
+    ///     "m.custom.event".into(),
+    ///     "txn_id".into(),
+    /// BTreeMap::from([
+    /// (user_id!("@alice:localhost").to_owned(), BTreeMap::from([(
+    ///     DeviceIdOrAllDevices::AllDevices,
+    ///     Raw::new(&ruma::events::AnyToDeviceEventContent::Dummy(ruma::events::dummy::ToDeviceDummyEventContent {})).unwrap(),
+    /// )])),
+    /// ])
+    /// );
+    ///
+    /// client
+    ///     .send(request)
+    ///     .await
+    ///     .expect("We should be able to send a to-device message");
+    /// # anyhow::Ok(()) });
+    /// # }
+    /// ```
+    pub fn mock_send_to_device(&self) -> MockEndpoint<'_, SendToDeviceEndpoint> {
+        let mock =
+            Mock::given(method("PUT")).and(path_regex(r"^/_matrix/client/v3/sendToDevice/.*/.*"));
+        self.mock_endpoint(mock, SendToDeviceEndpoint).expect_default_access_token()
+    }
+
     /// Create a prebuilt mock for getting the room members in a room.
     ///
     /// # Examples
@@ -2382,6 +2432,17 @@ impl<'a> MockEndpoint<'a, DeleteRoomKeysVersionEndpoint> {
     pub fn ok(self) -> MatrixMock<'a> {
         self.respond_with(ResponseTemplate::new(200).set_body_json(json!({})))
             .named("DELETE for the backup deletion")
+    }
+}
+
+/// A prebuilt mock for the `/sendToDevice` endpoint.
+///
+/// This mock can be used to simulate sending to-device messages in tests.
+pub struct SendToDeviceEndpoint;
+impl<'a> MockEndpoint<'a, SendToDeviceEndpoint> {
+    /// Returns a successful response with default data.
+    pub fn ok(self) -> MatrixMock<'a> {
+        self.respond_with(ResponseTemplate::new(200).set_body_json(json!({})))
     }
 }
 

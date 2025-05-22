@@ -22,7 +22,7 @@ use serde::{ser::SerializeSeq, Deserialize, Deserializer, Serialize, Serializer}
 use tracing::{debug, warn};
 
 use super::{
-    filter::{Filter, FilterInput},
+    filter::{Filter, FilterInput, ToDeviceEventFilter},
     MessageLikeEventFilter, StateEventFilter,
 };
 
@@ -60,7 +60,7 @@ pub struct Capabilities {
 impl Capabilities {
     /// Checks if a given event is allowed to be forwarded to the widget.
     ///
-    /// - `event_filter_input` is a minimized event respresntation that contains
+    /// - `event_filter_input` is a minimized event representation that contains
     ///   only the information needed to check if the widget is allowed to
     ///   receive the event. (See [`FilterInput`])
     pub(super) fn allow_reading<'a>(
@@ -78,7 +78,7 @@ impl Capabilities {
 
     /// Checks if a given event is allowed to be sent by the widget.
     ///
-    /// - `event_filter_input` is a minimized event respresntation that contains
+    /// - `event_filter_input` is a minimized event representation that contains
     ///   only the information needed to check if the widget is allowed to send
     ///   the event to a matrix room. (See [`FilterInput`])
     pub(super) fn allow_sending<'a>(
@@ -102,11 +102,13 @@ impl Capabilities {
     }
 }
 
-const SEND_EVENT: &str = "org.matrix.msc2762.send.event";
-const READ_EVENT: &str = "org.matrix.msc2762.receive.event";
-const SEND_STATE: &str = "org.matrix.msc2762.send.state_event";
-const READ_STATE: &str = "org.matrix.msc2762.receive.state_event";
-const REQUIRES_CLIENT: &str = "io.element.requires_client";
+pub(super) const SEND_EVENT: &str = "org.matrix.msc2762.send.event";
+pub(super) const READ_EVENT: &str = "org.matrix.msc2762.receive.event";
+pub(super) const SEND_STATE: &str = "org.matrix.msc2762.send.state_event";
+pub(super) const READ_STATE: &str = "org.matrix.msc2762.receive.state_event";
+pub(super) const SEND_TODEVICE: &str = "org.matrix.msc3819.send.to_device";
+pub(super) const READ_TODEVICE: &str = "org.matrix.msc3819.receive.to_device";
+pub(super) const REQUIRES_CLIENT: &str = "io.element.requires_client";
 pub(super) const SEND_DELAYED_EVENT: &str = "org.matrix.msc4157.send.delayed_event";
 pub(super) const UPDATE_DELAYED_EVENT: &str = "org.matrix.msc4157.update_delayed_event";
 
@@ -121,6 +123,12 @@ impl Serialize for Capabilities {
                 match self.0 {
                     Filter::MessageLike(filter) => PrintMessageLikeEventFilter(filter).fmt(f),
                     Filter::State(filter) => PrintStateEventFilter(filter).fmt(f),
+                    Filter::ToDevice(filter) => {
+                        // As per MSC 3819 https://github.com/matrix-org/matrix-spec-proposals/pull/3819
+                        // ToDevice capabilities is in the form of `m.send.to_device:<event type>`
+                        // or `m.receive.to_device:<event type>`
+                        write!(f, "{}", filter.event_type)
+                    }
                 }
             }
         }
@@ -168,6 +176,7 @@ impl Serialize for Capabilities {
             let name = match filter {
                 Filter::MessageLike(_) => READ_EVENT,
                 Filter::State(_) => READ_STATE,
+                Filter::ToDevice(_) => READ_TODEVICE,
             };
             seq.serialize_element(&format!("{name}:{}", PrintEventFilter(filter)))?;
         }
@@ -175,6 +184,7 @@ impl Serialize for Capabilities {
             let name = match filter {
                 Filter::MessageLike(_) => SEND_EVENT,
                 Filter::State(_) => SEND_STATE,
+                Filter::ToDevice(_) => SEND_TODEVICE,
             };
             seq.serialize_element(&format!("{name}:{}", PrintEventFilter(filter)))?;
         }
@@ -226,6 +236,12 @@ impl<'de> Deserialize<'de> for Capabilities {
                     Some((SEND_STATE, filter_s)) => {
                         Ok(Permission::Send(Filter::State(parse_state_event_filter(filter_s))))
                     }
+                    Some((READ_TODEVICE, filter_s)) => Ok(Permission::Read(Filter::ToDevice(
+                        parse_to_device_event_filter(filter_s),
+                    ))),
+                    Some((SEND_TODEVICE, filter_s)) => Ok(Permission::Send(Filter::ToDevice(
+                        parse_to_device_event_filter(filter_s),
+                    ))),
                     _ => {
                         debug!("Unknown capability `{s}`");
                         Ok(Self::Unknown)
@@ -252,6 +268,10 @@ impl<'de> Deserialize<'de> for Capabilities {
             }
         }
 
+        fn parse_to_device_event_filter(s: &str) -> ToDeviceEventFilter {
+            ToDeviceEventFilter::new(s.into())
+        }
+
         let mut capabilities = Capabilities::default();
         for capability in Vec::<Permission>::deserialize(deserializer)? {
             match capability {
@@ -274,6 +294,7 @@ mod tests {
     use ruma::events::StateEventType;
 
     use super::*;
+    use crate::widget::filter::ToDeviceEventFilter;
 
     #[test]
     fn deserialization_of_no_capabilities() {
@@ -293,8 +314,10 @@ mod tests {
             "org.matrix.msc2762.receive.event:org.matrix.rageshake_request",
             "org.matrix.msc2762.receive.state_event:m.room.member",
             "org.matrix.msc2762.receive.state_event:org.matrix.msc3401.call.member",
+            "org.matrix.msc3819.receive.to_device:io.element.call.encryption_keys",
             "org.matrix.msc2762.send.event:org.matrix.rageshake_request",
             "org.matrix.msc2762.send.state_event:org.matrix.msc3401.call.member#@user:matrix.server",
+            "org.matrix.msc3819.send.to_device:io.element.call.encryption_keys",
             "org.matrix.msc4157.send.delayed_event",
             "org.matrix.msc4157.update_delayed_event"
         ]"#;
@@ -307,6 +330,9 @@ mod tests {
                 )),
                 Filter::State(StateEventFilter::WithType(StateEventType::RoomMember)),
                 Filter::State(StateEventFilter::WithType("org.matrix.msc3401.call.member".into())),
+                Filter::ToDevice(ToDeviceEventFilter::new(
+                    "io.element.call.encryption_keys".into(),
+                )),
             ],
             send: vec![
                 Filter::MessageLike(MessageLikeEventFilter::WithType(
@@ -315,6 +341,9 @@ mod tests {
                 Filter::State(StateEventFilter::WithTypeAndStateKey(
                     "org.matrix.msc3401.call.member".into(),
                     "@user:matrix.server".into(),
+                )),
+                Filter::ToDevice(ToDeviceEventFilter::new(
+                    "io.element.call.encryption_keys".into(),
                 )),
             ],
             requires_client: true,
@@ -335,6 +364,9 @@ mod tests {
                     "org.matrix.msc3401.call.member".into(),
                     "@user:matrix.server".into(),
                 )),
+                Filter::ToDevice(ToDeviceEventFilter::new(
+                    "io.element.call.encryption_keys".into(),
+                )),
             ],
             send: vec![
                 Filter::MessageLike(MessageLikeEventFilter::WithType("io.element.custom".into())),
@@ -342,6 +374,7 @@ mod tests {
                     "org.matrix.msc3401.call.member".into(),
                     "@user:matrix.server".into(),
                 )),
+                Filter::ToDevice(ToDeviceEventFilter::new("my.org.other.to_device_event".into())),
             ],
             requires_client: true,
             update_delayed_event: false,

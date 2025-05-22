@@ -43,7 +43,7 @@ mod settings;
 
 pub use self::{
     capabilities::{Capabilities, CapabilitiesProvider},
-    filter::{Filter, MessageLikeEventFilter, StateEventFilter},
+    filter::{Filter, MessageLikeEventFilter, StateEventFilter, ToDeviceEventFilter},
     settings::{
         ClientProperties, EncryptionSystem, Intent, VirtualElementCallWidgetOptions, WidgetSettings,
     },
@@ -241,6 +241,17 @@ impl WidgetDriver {
                         .update_delayed_event(req.delay_id, req.action)
                         .await
                         .map(MatrixDriverResponse::MatrixDelayedEventUpdate),
+
+                    MatrixDriverRequestData::SendToDeviceEvent(send_to_device_request) => {
+                        matrix_driver
+                            .send_to_device(
+                                send_to_device_request.event_type.into(),
+                                send_to_device_request.encrypted,
+                                send_to_device_request.messages,
+                            )
+                            .await
+                            .map(MatrixDriverResponse::MatrixToDeviceSent)
+                    }
                 };
 
                 // Forward the Matrix driver response to the incoming message stream.
@@ -262,7 +273,8 @@ impl WidgetDriver {
 
                 self.event_forwarding_guard = Some(guard);
 
-                let mut matrix = matrix_driver.events();
+                let mut events_receiver = matrix_driver.events();
+                let mut to_device_receiver = matrix_driver.to_device_events();
                 let incoming_msg_tx = incoming_msg_tx.clone();
 
                 spawn(async move {
@@ -273,9 +285,14 @@ impl WidgetDriver {
                                 return;
                             }
 
-                            Some(event) = matrix.recv() => {
+                            Some(event) = events_receiver.recv() => {
                                 // Forward all events to the incoming messages stream.
                                 let _ = incoming_msg_tx.send(IncomingMessage::MatrixEventReceived(event));
+                            }
+
+                            Some(event) = to_device_receiver.recv() => {
+                                // Forward all events to the incoming messages stream.
+                                let _ = incoming_msg_tx.send(IncomingMessage::ToDeviceReceived(event));
                             }
                         }
                     }
