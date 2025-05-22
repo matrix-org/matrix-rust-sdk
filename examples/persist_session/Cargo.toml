@@ -13,16 +13,16 @@ name = "example-persist-session"
 test = false
 
 [dependencies]
-anyhow = { workspace = true }
+anyhow.workspace = true
 dirs = "6.0.0"
 # when copy-pasting this, please use a git dependency or make sure that you
 # have copied the example as it was at the time of the release you use.
 matrix-sdk = { path = "../../crates/matrix-sdk" }
-rand = { workspace = true }
-serde = { workspace = true }
-serde_json = { workspace = true }
+rand.workspace = true
+serde.workspace = true
+serde_json.workspace = true
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
-tracing-subscriber = { workspace = true }
+tracing-subscriber.workspace = true
 
 [lints]
 workspace = true

@@ -8,7 +8,7 @@ homepage = "https://github.com/matrix-org/matrix-rust-sdk"
 keywords = ["matrix", "chat", "messaging", "ruma", "nio"]
 license = "Apache-2.0"
 readme = "README.md"
-rust-version = { workspace = true }
+rust-version.workspace = true
 repository = "https://github.com/matrix-org/matrix-rust-sdk"
 
 [package.metadata.docs.rs]
@@ -19,11 +19,11 @@ rustdoc-args = ["--cfg", "docsrs", "--generate-link-to-definition"]
 js = ["vodozemac/js"]
 
 [dependencies]
-byteorder = { workspace = true }
+byteorder.workspace = true
 qrcode = { version = "0.14.1", default-features = false }
-ruma-common = { workspace = true }
-thiserror = { workspace = true }
-vodozemac = { workspace = true }
+ruma-common.workspace = true
+thiserror.workspace = true
+vodozemac.workspace = true
 
 [dev-dependencies]
 image = { version = "0.25.5", default-features = false }
