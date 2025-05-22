@@ -35,16 +35,18 @@ async fn test_notification_client_with_context() {
 
     let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
 
+    let content = "Hello world!";
     let event_id = event_id!("$example_event_id");
+    let server_ts = 152049794;
     let sender = user_id!("@user:example.org");
     let event_json = json!({
         "content": {
-            "body": "Hello world!",
+            "body": content,
             "msgtype": "m.text",
         },
         "room_id": room_id,
         "event_id": event_id,
-        "origin_server_ts": 152049794,
+        "origin_server_ts": server_ts,
         "sender": sender,
         "type": "m.room.message",
     });
@@ -53,9 +55,9 @@ async fn test_notification_client_with_context() {
     sync_builder.add_joined_room(
         JoinedRoomBuilder::new(room_id).add_timeline_event(
             EventFactory::new()
-                .text_msg("Hello world!")
+                .text_msg(content)
                 .event_id(event_id)
-                .server_ts(152049794)
+                .server_ts(server_ts)
                 .sender(sender)
                 .into_raw_sync(),
         ),
