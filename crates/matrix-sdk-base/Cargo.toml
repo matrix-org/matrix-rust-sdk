@@ -8,7 +8,7 @@ license = "Apache-2.0"
 name = "matrix-sdk-base"
 readme = "README.md"
 repository = "https://github.com/matrix-org/matrix-rust-sdk"
-rust-version = { workspace = true }
+rust-version.workspace = true
 version = "0.11.0"
 
 [package.metadata.docs.rs]
@@ -53,22 +53,22 @@ testing = [
 unstable-msc4274 = []
 
 [dependencies]
-as_variant = { workspace = true }
+as_variant.workspace = true
 assert_matches = { workspace = true, optional = true }
 assert_matches2 = { workspace = true, optional = true }
-async-trait = { workspace = true }
+async-trait.workspace = true
 bitflags = { workspace = true, features = ["serde"] }
 decancer = "3.2.8"
 eyeball = { workspace = true, features = ["async-lock"] }
-eyeball-im = { workspace = true }
-futures-util = { workspace = true }
-growable-bloom-filter = { workspace = true }
+eyeball-im.workspace = true
+futures-util.workspace = true
+growable-bloom-filter.workspace = true
 http = { workspace = true, optional = true }
-matrix-sdk-common = { workspace = true }
+matrix-sdk-common.workspace = true
 matrix-sdk-crypto = { workspace = true, optional = true }
-matrix-sdk-store-encryption = { workspace = true }
+matrix-sdk-store-encryption.workspace = true
 matrix-sdk-test = { workspace = true, optional = true }
-once_cell = { workspace = true }
+once_cell.workspace = true
 regex = "1.11.1"
 ruma = { workspace = true, features = [
     "canonical-json",
@@ -78,28 +78,28 @@ ruma = { workspace = true, features = [
     "rand",
 ] }
 serde = { workspace = true, features = ["rc"] }
-serde_json = { workspace = true }
-thiserror = { workspace = true }
-tokio = { workspace = true }
-tracing = { workspace = true }
-unicode-normalization = { workspace = true }
+serde_json.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+unicode-normalization.workspace = true
 uniffi = { workspace = true, optional = true }
 
 [dev-dependencies]
-assert_matches = { workspace = true }
-assert_matches2 = { workspace = true }
+assert_matches.workspace = true
+assert_matches2.workspace = true
 assign = "1.1.1"
-futures-executor = { workspace = true }
-http = { workspace = true }
-matrix-sdk-test = { workspace = true }
-similar-asserts = { workspace = true }
-stream_assert = { workspace = true }
+futures-executor.workspace = true
+http.workspace = true
+matrix-sdk-test.workspace = true
+similar-asserts.workspace = true
+stream_assert.workspace = true
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
 
 [target.'cfg(target_arch = "wasm32")'.dev-dependencies]
-wasm-bindgen-test = { workspace = true }
+wasm-bindgen-test.workspace = true
 
 [lints]
 workspace = true

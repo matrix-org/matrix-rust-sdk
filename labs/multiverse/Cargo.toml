@@ -16,20 +16,20 @@ test = false
 clap = { version = "4.0.15", features = ["derive", "env"] }
 color-eyre = "0.6.2"
 crossterm = "0.28.1"
-futures-util = { workspace = true }
-imbl = { workspace = true }
-itertools = { workspace = true }
+futures-util.workspace = true
+imbl.workspace = true
+itertools.workspace = true
 matrix-sdk = { path = "../../crates/matrix-sdk", features = ["sso-login", "experimental-share-history-on-invite"] }
 matrix-sdk-base = { path = "../../crates/matrix-sdk-base" }
 matrix-sdk-common = { path = "../../crates/matrix-sdk-common" }
 matrix-sdk-ui = { path = "../../crates/matrix-sdk-ui" }
 ratatui = { version = "0.29.0", features = ["unstable-widget-ref"] }
 rpassword = "7.3.1"
-serde_json = { workspace = true }
+serde_json.workspace = true
 strum = { version = "0.27.1", features = ["derive"] }
 throbber-widgets-tui = "0.8.0"
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
-tracing = { workspace = true }
+tracing.workspace = true
 tracing-appender = { version = "0.2.2" }
 tracing-subscriber = { workspace = true, features = ["env-filter"] }
 tui-framework-experiment = "0.4.0"

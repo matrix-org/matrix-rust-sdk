@@ -17,6 +17,6 @@ camino = "1.0.8"
 clap = { version = "4.0.18", features = ["derive"] }
 fs_extra = "1"
 serde = { workspace = true, features = ["derive"] }
-serde_json = { workspace = true }
-uniffi_bindgen = { workspace = true }
+serde_json.workspace = true
+uniffi_bindgen.workspace = true
 xshell = "0.2.2"

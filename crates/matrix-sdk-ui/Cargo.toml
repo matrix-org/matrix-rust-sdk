@@ -5,7 +5,7 @@ version = "0.11.0"
 edition = "2021"
 repository = "https://github.com/matrix-org/matrix-rust-sdk"
 license = "Apache-2.0"
-rust-version = { workspace = true }
+rust-version.workspace = true
 
 [package.metadata.docs.rs]
 rustdoc-args = ["--generate-link-to-definition"]
@@ -23,52 +23,52 @@ uniffi = ["dep:uniffi", "matrix-sdk/uniffi", "matrix-sdk-base/uniffi"]
 unstable-msc3956 = ["ruma/unstable-msc3956"]
 
 [dependencies]
-as_variant = { workspace = true }
-async-rx = { workspace = true }
-async-stream = { workspace = true }
+as_variant.workspace = true
+async-rx.workspace = true
+async-stream.workspace = true
 async_cell = "0.2.2"
-bitflags = { workspace = true }
-chrono = { workspace = true }
-eyeball = { workspace = true }
-eyeball-im = { workspace = true }
-eyeball-im-util = { workspace = true }
-futures-core = { workspace = true }
-futures-util = { workspace = true }
+bitflags.workspace = true
+chrono.workspace = true
+eyeball.workspace = true
+eyeball-im.workspace = true
+eyeball-im-util.workspace = true
+futures-core.workspace = true
+futures-util.workspace = true
 fuzzy-matcher = "0.3.7"
-growable-bloom-filter = { workspace = true }
+growable-bloom-filter.workspace = true
 imbl = { workspace = true, features = ["serde"] }
-indexmap = { workspace = true }
-itertools = { workspace = true }
+indexmap.workspace = true
+itertools.workspace = true
 matrix-sdk = { workspace = true, features = ["e2e-encryption"] }
-matrix-sdk-base = { workspace = true }
-mime = { workspace = true }
-once_cell = { workspace = true }
-pin-project-lite = { workspace = true }
+matrix-sdk-base.workspace = true
+mime.workspace = true
+once_cell.workspace = true
+pin-project-lite.workspace = true
 ruma = { workspace = true, features = ["html", "unstable-msc3381"] }
-serde = { workspace = true }
-serde_json = { workspace = true }
-thiserror = { workspace = true }
-tokio = { workspace = true }
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
 tokio-stream = { workspace = true, features = ["sync"] }
 tracing = { workspace = true, features = ["attributes"] }
-unicode-normalization = { workspace = true }
+unicode-normalization.workspace = true
 uniffi = { workspace = true, optional = true }
 
 emojis = "0.6.4"
 unicode-segmentation = "1.12.0"
 
 [dev-dependencies]
-anyhow = { workspace = true }
-assert-json-diff = { workspace = true }
-assert_matches = { workspace = true }
-assert_matches2 = { workspace = true }
-eyeball-im-util = { workspace = true }
+anyhow.workspace = true
+assert-json-diff.workspace = true
+assert_matches.workspace = true
+assert_matches2.workspace = true
+eyeball-im-util.workspace = true
 matrix-sdk = { workspace = true, features = ["testing", "sqlite"] }
-matrix-sdk-test = { workspace = true }
-stream_assert = { workspace = true }
-tempfile = { workspace = true }
-url = { workspace = true }
-wiremock = { workspace = true }
+matrix-sdk-test.workspace = true
+stream_assert.workspace = true
+tempfile.workspace = true
+url.workspace = true
+wiremock.workspace = true
 
 [lints]
 workspace = true
