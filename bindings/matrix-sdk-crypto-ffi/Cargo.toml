@@ -9,6 +9,9 @@ repository = "https://github.com/matrix-org/matrix-rust-sdk"
 license = "Apache-2.0"
 publish = false
 
+[package.metadata.release]
+release = false
+
 [lib]
 crate-type = ["cdylib", "staticlib"]
 
@@ -58,15 +61,12 @@ default-features = false
 features = ["rt-multi-thread"]
 
 [build-dependencies]
-vergen = { version = "8.2.5", features = ["build", "git", "gitcl"] }
 uniffi = { workspace = true, features = ["build"] }
+vergen = { version = "8.2.5", features = ["build", "git", "gitcl"] }
 
 [dev-dependencies]
-tempfile = "3.8.0"
 assert_matches2 = { workspace = true }
+tempfile = "3.8.0"
 
 [lints]
 workspace = true
-
-[package.metadata.release]
-release = false
