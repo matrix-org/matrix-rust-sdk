@@ -785,7 +785,7 @@ trait SqliteObjectCryptoStoreExt: SqliteAsyncConnExt {
     ) -> Result<Option<Vec<u8>>> {
         Ok(self
             .query_row(
-                "SELECT bundle_data FROM received_room_key_bundle WHERE room_id = ? AND sender_user = ?",
+                "SELECT bundle_data FROM received_room_key_bundle WHERE room_id = ? AND sender_user_id = ?",
                 (room_id, sender_user),
                 |row| { row.get(0) },
             )
