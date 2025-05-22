@@ -553,7 +553,7 @@ async fn test_migration_old_olm_decrypted_processed_event() {
     );
 
     assert_matches!(
-        processed_event,
+        processed_event.clone(),
         ProcessedToDeviceEvent::Decrypted {
             raw: _,
             encryption_info: EncryptionInfo {
@@ -563,5 +563,13 @@ async fn test_migration_old_olm_decrypted_processed_event() {
                 ..
             }
         }
+    );
+
+    // Serialize to new format and deserialize again
+    let json = serde_json::to_value(processed_event).unwrap();
+    let deserialized: ProcessedToDeviceEvent = serde_json::from_value(json).unwrap();
+    assert_eq!(
+        deserialized.to_raw().deserialize().unwrap().sender().as_str(),
+        "@alice:example.org"
     );
 }
