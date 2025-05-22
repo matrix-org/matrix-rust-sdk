@@ -6,7 +6,7 @@ use std::{
 use assert_matches::assert_matches;
 use matrix_sdk::{config::SyncSettings, test_utils::logged_in_client_with_server};
 use matrix_sdk_test::{
-    async_test, mocks::mock_encryption_state, sync_timeline_event, JoinedRoomBuilder,
+    async_test, event_factory::EventFactory, mocks::mock_encryption_state, JoinedRoomBuilder,
     StateTestEvent, SyncResponseBuilder,
 };
 use matrix_sdk_ui::{
@@ -51,7 +51,14 @@ async fn test_notification_client_with_context() {
 
     let mut sync_builder = SyncResponseBuilder::new();
     sync_builder.add_joined_room(
-        JoinedRoomBuilder::new(room_id).add_timeline_event(sync_timeline_event!(event_json)),
+        JoinedRoomBuilder::new(room_id).add_timeline_event(
+            EventFactory::new()
+                .text_msg("Hello world!")
+                .event_id(event_id)
+                .server_ts(152049794)
+                .sender(sender)
+                .into_raw_sync(),
+        ),
     );
 
     // First, mock a sync that contains a text message.
