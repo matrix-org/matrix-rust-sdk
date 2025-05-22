@@ -996,6 +996,13 @@ impl MatrixMockServer {
         self.mock_endpoint(mock, RoomLeaveEndpoint).expect_default_access_token()
     }
 
+    /// Creates a prebuilt mock for the endpoint used to forget a room.
+    pub fn mock_room_forget(&self) -> MockEndpoint<'_, RoomForgetEndpoint> {
+        let mock =
+            Mock::given(method("POST")).and(path_regex(r"^/_matrix/client/v3/rooms/.*/forget"));
+        self.mock_endpoint(mock, RoomForgetEndpoint).expect_default_access_token()
+    }
+
     /// Create a prebuilt mock for the endpoint use to log out a session.
     pub fn mock_logout(&self) -> MockEndpoint<'_, LogoutEndpoint> {
         let mock = Mock::given(method("POST")).and(path("/_matrix/client/v3/logout"));
@@ -2636,6 +2643,17 @@ impl<'a> MockEndpoint<'a, RoomLeaveEndpoint> {
         self.respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "room_id": room_id,
         })))
+    }
+}
+
+/// A prebuilt mock for the room forget endpoint.
+pub struct RoomForgetEndpoint;
+
+impl<'a> MockEndpoint<'a, RoomForgetEndpoint> {
+    /// Returns a successful response with some default data for the given room
+    /// id.
+    pub fn ok(self) -> MatrixMock<'a> {
+        self.respond_with(ResponseTemplate::new(200).set_body_json(json!({})))
     }
 }
 

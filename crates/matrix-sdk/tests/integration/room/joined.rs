@@ -19,8 +19,8 @@ use matrix_sdk_test::{
     event_factory::EventFactory,
     mocks::mock_encryption_state,
     test_json::{self, sync::CUSTOM_ROOM_POWER_LEVELS},
-    GlobalAccountDataTestEvent, JoinedRoomBuilder, RoomAccountDataTestEvent, StateTestEvent,
-    SyncResponseBuilder, DEFAULT_TEST_ROOM_ID,
+    GlobalAccountDataTestEvent, InvitedRoomBuilder, JoinedRoomBuilder, RoomAccountDataTestEvent,
+    StateTestEvent, SyncResponseBuilder, DEFAULT_TEST_ROOM_ID,
 };
 use ruma::{
     api::client::{membership::Invite3pidInit, receipt::create_receipt::v3::ReceiptType},
@@ -122,6 +122,52 @@ async fn test_leave_room() -> Result<(), anyhow::Error> {
     room.leave().await?;
 
     assert_eq!(room.state(), RoomState::Left);
+
+    Ok(())
+}
+
+#[async_test]
+async fn test_leave_joined_room_does_not_forget_it() -> Result<(), anyhow::Error> {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+    let room_id = *DEFAULT_TEST_ROOM_ID;
+
+    server.mock_room_leave().ok(room_id).mock_once().mount().await;
+    // The forget endpoint should never be called
+    server.mock_room_forget().ok().never().mount().await;
+
+    let room = server.sync_joined_room(&client, room_id).await;
+
+    room.leave().await?;
+
+    assert_eq!(room.state(), RoomState::Left);
+
+    // The left room is still around and in the right state
+    let left_room = client.get_room(room_id);
+    assert!(left_room.is_some());
+    assert_eq!(left_room.unwrap().state(), RoomState::Left);
+
+    Ok(())
+}
+
+#[async_test]
+async fn test_leave_invited_room_also_forgets_it() -> Result<(), anyhow::Error> {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+    let room_id = *DEFAULT_TEST_ROOM_ID;
+
+    server.mock_room_leave().ok(room_id).mock_once().mount().await;
+    server.mock_room_forget().ok().mock_once().mount().await;
+
+    let invited_room_builder = InvitedRoomBuilder::new(room_id);
+    let room = server.sync_room(&client, invited_room_builder).await;
+
+    room.leave().await?;
+
+    assert_eq!(room.state(), RoomState::Left);
+
+    let forgotten_room = client.get_room(room_id);
+    assert!(forgotten_room.is_none());
 
     Ok(())
 }

@@ -230,6 +230,8 @@ impl Room {
     }
 
     /// Leave this room.
+    /// If the room was in [`RoomState::Invited`] state, it'll also be forgotten
+    /// automatically.
     ///
     /// Only invited and joined rooms can be left.
     #[doc(alias = "reject_invitation")]
@@ -242,9 +244,20 @@ impl Room {
             ))));
         }
 
+        // If the room was in Invited state we should also forget it when declining the
+        // invite.
+        let should_forget = matches!(self.state(), RoomState::Invited);
+
         let request = leave_room::v3::Request::new(self.inner.room_id().to_owned());
         self.client.send(request).await?;
         self.client.base_client().room_left(self.room_id()).await?;
+
+        if should_forget {
+            if let Err(error) = self.forget().await {
+                warn!("Failed to forget room when leaving it: {error}");
+            }
+        }
+
         Ok(())
     }
 
