@@ -34,7 +34,10 @@ use std::{
 };
 
 use as_variant::as_variant;
-use matrix_sdk_common::deserialized_responses::PrivOwnedStr;
+use matrix_sdk_common::deserialized_responses::{
+    AlgorithmInfo, DeviceLinkProblem, EncryptionInfo, PrivOwnedStr, VerificationLevel,
+    VerificationState,
+};
 use ruma::{
     events::AnyToDeviceEvent,
     serde::{Raw, StringEnum},
@@ -633,8 +636,14 @@ mod test {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum ProcessedToDeviceEvent {
     /// A successfully-decrypted encrypted event.
-    /// Contains the raw decrypted event .
-    Decrypted(Raw<AnyToDeviceEvent>),
+    /// Contains the raw decrypted event and encryption info
+    #[serde(deserialize_with = "deserialize_decrypted_variant")]
+    Decrypted {
+        /// The raw decrypted event
+        raw: Raw<AnyToDeviceEvent>,
+        /// The olm encryption info
+        encryption_info: EncryptionInfo,
+    },
 
     /// An encrypted event which could not be decrypted.
     UnableToDecrypt(Raw<AnyToDeviceEvent>),
@@ -648,12 +657,66 @@ pub enum ProcessedToDeviceEvent {
     Invalid(Raw<AnyToDeviceEvent>),
 }
 
+// Custom deserialization function for the `Decrypted` variant that
+// support migration of the old format
+fn deserialize_decrypted_variant<'de, D>(
+    deserializer: D,
+) -> Result<(Raw<AnyToDeviceEvent>, EncryptionInfo), D::Error>
+where
+    D: Deserializer<'de>,
+{
+    use serde_json::Value;
+
+    // Deserialize into a generic JSON value to inspect the structure
+    let json = Value::deserialize(deserializer)?;
+
+    // In the old format the Raw<AnyToDeviceEvent> was just flatten out here.
+    // With the new format the event is encapsulated under `raw` and there is a
+    // `encryption_info` field
+    if json.get("raw").is_some() && json.get("encryption_info").is_some() {
+        // If the "raw" field is present, it's a NewFormat
+        #[derive(Deserialize)]
+        struct NewFormat {
+            raw: Raw<AnyToDeviceEvent>,
+            encryption_info: EncryptionInfo,
+        }
+
+        let parsed: NewFormat = serde_json::from_value(json).map_err(serde::de::Error::custom)?;
+        Ok((parsed.raw, parsed.encryption_info))
+    } else {
+        // Otherwise, treat it as OldFormat (raw data only)
+        let raw: Raw<AnyToDeviceEvent> =
+            serde_json::from_value(json).map_err(serde::de::Error::custom)?;
+
+        // The migration cannot give an accurate EncryptionInfo, let's just create an
+        // EncryptionInfo with a `DeviceLinkProblem::MissingDevice`
+        // verification_state.
+        let sender: OwnedUserId = raw
+            .get_field("sender")
+            .ok()
+            .flatten()
+            .expect("Sender field is missing in the old format");
+
+        let encryption_info = EncryptionInfo {
+            sender,
+            sender_device: None,
+            algorithm_info: AlgorithmInfo::OlmV1Curve25519AesSha2 {
+                curve25519_public_key_base64: "".into(),
+            },
+            verification_state: VerificationState::Unverified(VerificationLevel::None(
+                DeviceLinkProblem::MissingDevice,
+            )),
+        };
+        Ok((raw, encryption_info))
+    }
+}
+
 impl ProcessedToDeviceEvent {
     /// Converts a ProcessedToDeviceEvent to the `Raw<AnyToDeviceEvent>` it
     /// encapsulates
     pub fn to_raw(&self) -> Raw<AnyToDeviceEvent> {
         match self {
-            ProcessedToDeviceEvent::Decrypted(decrypted_event) => decrypted_event.clone(),
+            ProcessedToDeviceEvent::Decrypted { raw, .. } => raw.clone(),
             ProcessedToDeviceEvent::UnableToDecrypt(event) => event.clone(),
             ProcessedToDeviceEvent::PlainText(event) => event.clone(),
             ProcessedToDeviceEvent::Invalid(event) => event.clone(),

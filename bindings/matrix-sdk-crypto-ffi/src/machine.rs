@@ -932,6 +932,11 @@ impl OlmMachine {
                     encryption_info.verification_state.to_shield_state_lax().into()
                 },
             },
+            AlgorithmInfo::OlmV1Curve25519AesSha2 { .. } => {
+                // cannot happen because `decrypt_room_event` would have fail to decrypt olm for
+                // a room (EventError::UnsupportedAlgorithm)
+                panic!("Unsupported olm algorithm in room")
+            }
         })
     }
 

@@ -10,6 +10,11 @@ All notable changes to this project will be documented in this file.
 
 - [**breaking**] Move `session_id` from `EncryptionInfo` to `AlgorithmInfo` as it is megolm specific. 
   Use `EncryptionInfo::session_id()` helper for quick access.
+    ([4981](https://github.com/matrix-org/matrix-rust-sdk/pull/4981))
+
+- [**breaking**] The `ProcessedToDeviceEvent::Decrypted` variant now also have an `EncryptionInfo` field.
+  Format changed from `Decrypted(Raw<AnyToDeviceEvent>)` to `Decrypted { raw: Raw<AnyToDeviceEvent>, encryption_info: EncryptionInfo) }`
+  ([5074](https://github.com/matrix-org/matrix-rust-sdk/pull/5074))
 
 - Send stable identifier `sender_device_keys` for MSC4147 (Including device
   keys with Olm-encrypted events).

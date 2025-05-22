@@ -14,14 +14,21 @@
 
 use assert_matches2::{assert_let, assert_matches};
 use insta::assert_json_snapshot;
+use matrix_sdk_common::deserialized_responses::{
+    AlgorithmInfo, DeviceLinkProblem, EncryptionInfo, VerificationLevel, VerificationState,
+};
 use matrix_sdk_test::async_test;
 use ruma::{events::AnyToDeviceEvent, serde::Raw, to_device::DeviceIdOrAllDevices};
 use serde_json::{json, value::to_raw_value, Value};
 
 use crate::{
     machine::{
-        test_helpers::{get_machine_pair, get_machine_pair_with_session},
+        test_helpers::{
+            build_session_for_pair, get_machine_pair, get_machine_pair_with_session,
+            get_prepared_machine_test_helper, send_and_receive_encrypted_to_device_test_helper,
+        },
         tests,
+        tests::decryption_verification_state::mark_alice_identity_as_verified_test_helper,
     },
     types::{
         events::{ToDeviceCustomEvent, ToDeviceEvent},
@@ -29,7 +36,8 @@ use crate::{
         ProcessedToDeviceEvent,
     },
     utilities::json_convert,
-    EncryptionSyncChanges, OlmError,
+    verification::tests::bob_id,
+    DeviceData, EncryptionSyncChanges, LocalTrust, OlmError, OlmMachine,
 };
 
 #[async_test]
@@ -48,7 +56,7 @@ async fn test_send_encrypted_to_device() {
     let raw_encrypted = device
         .encrypt_event_raw(custom_event_type, &custom_content)
         .await
-        .expect("Should have encryted the content");
+        .expect("Should have encrypted the content");
 
     let request = ToDeviceRequest::new(
         bob.user_id(),
@@ -88,9 +96,9 @@ async fn test_send_encrypted_to_device() {
     assert_eq!(1, decrypted.len());
     let processed_event = &decrypted[0];
 
-    assert_let!(ProcessedToDeviceEvent::Decrypted(decrypted_event) = processed_event);
+    assert_let!(ProcessedToDeviceEvent::Decrypted { raw, encryption_info } = processed_event);
 
-    let decrypted_event = decrypted_event.deserialize().unwrap();
+    let decrypted_event = raw.deserialize().unwrap();
 
     assert_eq!(decrypted_event.event_type().to_string(), custom_event_type.to_owned());
 
@@ -105,6 +113,242 @@ async fn test_send_encrypted_to_device() {
     assert_eq!(
         decrypted_value.get("content").unwrap().get("rooms").unwrap().as_array().unwrap(),
         custom_content.get("rooms").unwrap().as_array().unwrap(),
+    );
+
+    assert_eq!(encryption_info.sender, alice.user_id().to_owned());
+
+    assert_matches!(&encryption_info.sender_device, Some(sender_device));
+    assert_eq!(sender_device.to_owned(), alice.device_id().to_owned());
+
+    assert_matches!(
+        &encryption_info.algorithm_info,
+        AlgorithmInfo::OlmV1Curve25519AesSha2 { curve25519_public_key_base64 }
+    );
+    let alice_device =
+        alice.get_device(alice.user_id(), alice.device_id(), None).await.unwrap().unwrap();
+    assert_eq!(
+        curve25519_public_key_base64.to_owned(),
+        alice_device.curve25519_key().unwrap().to_base64()
+    );
+
+    assert_matches!(
+        &encryption_info.verification_state,
+        VerificationState::Unverified(VerificationLevel::UnsignedDevice)
+    );
+}
+
+#[async_test]
+async fn test_receive_custom_encrypted_to_device_fails_if_device_unknown() {
+    // When decrypting a custom to device, we expect the recipient to know the
+    // sending device. If the device is not known decryption will fail (see
+    // `EventError(MissingSigningKey)`). The only exception is room keys were
+    // this check can be delayed. This is a reason why there is no test for
+    // verification_state `DeviceLinkProblem::MissingDevice`
+
+    let (bob, otk) = get_prepared_machine_test_helper(bob_id(), false).await;
+
+    let alice = OlmMachine::new(tests::alice_id(), tests::alice_device_id()).await;
+
+    let bob_device = DeviceData::from_machine_test_helper(&bob).await.unwrap();
+    alice.store().save_device_data(&[bob_device]).await.unwrap();
+
+    let (alice, bob) = build_session_for_pair(alice, bob, otk).await;
+
+    let custom_event_type = "m.new_device";
+
+    let custom_content = json!({
+            "device_id": "XYZABCDE",
+            "rooms": ["!726s6s6q:example.com"]
+    });
+
+    let device = alice.get_device(bob.user_id(), bob.device_id(), None).await.unwrap().unwrap();
+    let raw_encrypted = device
+        .encrypt_event_raw(custom_event_type, &custom_content)
+        .await
+        .expect("Should have encrypted the content");
+
+    let request = ToDeviceRequest::new(
+        bob.user_id(),
+        DeviceIdOrAllDevices::DeviceId(tests::bob_device_id().to_owned()),
+        "m.room.encrypted",
+        raw_encrypted.cast(),
+    );
+
+    let event = ToDeviceEvent::new(
+        alice.user_id().to_owned(),
+        tests::to_device_requests_to_content(vec![request.clone().into()]),
+    );
+
+    let event = json_convert(&event).unwrap();
+
+    let sync_changes = EncryptionSyncChanges {
+        to_device_events: vec![event],
+        changed_devices: &Default::default(),
+        one_time_keys_counts: &Default::default(),
+        unused_fallback_keys: None,
+        next_batch_token: None,
+    };
+
+    let (decrypted, _) = bob.receive_sync_changes(sync_changes).await.unwrap();
+
+    assert_eq!(1, decrypted.len());
+    let processed_event = &decrypted[0];
+
+    assert_let!(ProcessedToDeviceEvent::UnableToDecrypt(_) = processed_event);
+}
+
+#[async_test]
+async fn test_send_olm_encryption_info_unverified_identity() {
+    let (alice, bob) =
+        get_machine_pair_with_session(tests::alice_id(), tests::user_id(), false).await;
+
+    // bootstrap cross-signing
+    // tests::setup_cross_signing_for_machine_test_helper(&alice, &bob).await;
+
+    // sign alice device and let bob knows about it
+    tests::sign_alice_device_for_machine_test_helper(&alice, &bob).await;
+
+    let custom_event_type = "m.new_device";
+
+    let custom_content = json!({
+            "device_id": "XYZABCDE",
+            "rooms": ["!726s6s6q:example.com"]
+    });
+
+    let processed_event = send_and_receive_encrypted_to_device_test_helper(
+        &alice,
+        &bob,
+        custom_event_type,
+        custom_content,
+    )
+    .await;
+
+    assert_let!(ProcessedToDeviceEvent::Decrypted { encryption_info, .. } = processed_event);
+    assert_eq!(encryption_info.sender, alice.user_id().to_owned());
+    assert_eq!(encryption_info.sender_device, Some(alice.device_id().to_owned()));
+    assert_eq!(encryption_info.session_id(), None);
+
+    assert_matches!(
+        &encryption_info.verification_state,
+        VerificationState::Unverified(VerificationLevel::UnverifiedIdentity)
+    );
+}
+
+#[async_test]
+async fn test_send_olm_encryption_info_verified_identity() {
+    let (alice, bob) =
+        get_machine_pair_with_session(tests::alice_id(), tests::user_id(), false).await;
+
+    // bootstrap cross-signing
+    tests::setup_cross_signing_for_machine_test_helper(&alice, &bob).await;
+
+    // sign alice device and let bob knows about it
+    tests::sign_alice_device_for_machine_test_helper(&alice, &bob).await;
+
+    // Given alice is verified
+    mark_alice_identity_as_verified_test_helper(&alice, &bob).await;
+
+    let custom_event_type = "m.new_device";
+
+    let custom_content = json!({
+            "device_id": "XYZABCDE",
+            "rooms": ["!726s6s6q:example.com"]
+    });
+
+    let processed_event = send_and_receive_encrypted_to_device_test_helper(
+        &alice,
+        &bob,
+        custom_event_type,
+        custom_content,
+    )
+    .await;
+
+    assert_let!(ProcessedToDeviceEvent::Decrypted { encryption_info, .. } = processed_event);
+    assert_eq!(encryption_info.sender, alice.user_id().to_owned());
+    assert_eq!(encryption_info.sender_device, Some(alice.device_id().to_owned()));
+    assert_eq!(encryption_info.session_id(), None);
+
+    assert_matches!(&encryption_info.verification_state, VerificationState::Verified);
+}
+
+#[async_test]
+async fn test_send_olm_encryption_info_verified_locally() {
+    let (alice, bob) =
+        get_machine_pair_with_session(tests::alice_id(), tests::user_id(), false).await;
+
+    let custom_event_type = "m.new_device";
+
+    let custom_content = json!({
+            "device_id": "XYZABCDE",
+            "rooms": ["!726s6s6q:example.com"]
+    });
+
+    bob.get_device(alice.user_id(), alice.device_id(), None)
+        .await
+        .unwrap()
+        .unwrap()
+        .set_local_trust(LocalTrust::Verified)
+        .await
+        .unwrap();
+
+    let processed_event = send_and_receive_encrypted_to_device_test_helper(
+        &alice,
+        &bob,
+        custom_event_type,
+        custom_content,
+    )
+    .await;
+
+    assert_let!(ProcessedToDeviceEvent::Decrypted { encryption_info, .. } = processed_event);
+    assert_eq!(encryption_info.sender, alice.user_id().to_owned());
+    assert_eq!(encryption_info.sender_device, Some(alice.device_id().to_owned()));
+    assert_eq!(encryption_info.session_id(), None);
+
+    assert_matches!(&encryption_info.verification_state, VerificationState::Verified);
+}
+
+#[async_test]
+async fn test_send_olm_encryption_info_verification_violation() {
+    let (alice, bob) =
+        get_machine_pair_with_session(tests::alice_id(), tests::user_id(), false).await;
+
+    // bootstrap cross-signing
+    tests::setup_cross_signing_for_machine_test_helper(&alice, &bob).await;
+
+    // sign alice device and let bob knows about it
+    tests::sign_alice_device_for_machine_test_helper(&alice, &bob).await;
+
+    // Given alice is verified
+    mark_alice_identity_as_verified_test_helper(&alice, &bob).await;
+
+    // Reset alice identity
+    alice.bootstrap_cross_signing(true).await.unwrap();
+    tests::setup_cross_signing_for_machine_test_helper(&alice, &bob).await;
+    tests::sign_alice_device_for_machine_test_helper(&alice, &bob).await;
+
+    let custom_event_type = "m.new_device";
+
+    let custom_content = json!({
+            "device_id": "XYZABCDE",
+            "rooms": ["!726s6s6q:example.com"]
+    });
+
+    let processed_event = send_and_receive_encrypted_to_device_test_helper(
+        &alice,
+        &bob,
+        custom_event_type,
+        custom_content,
+    )
+    .await;
+
+    assert_let!(ProcessedToDeviceEvent::Decrypted { encryption_info, .. } = processed_event);
+    assert_eq!(encryption_info.sender, alice.user_id().to_owned());
+    assert_eq!(encryption_info.sender_device, Some(alice.device_id().to_owned()));
+    assert_eq!(encryption_info.session_id(), None);
+
+    assert_matches!(
+        &encryption_info.verification_state,
+        VerificationState::Unverified(VerificationLevel::VerificationViolation)
     );
 }
 
@@ -215,7 +459,7 @@ async fn test_processed_to_device_variants() {
     assert_eq!(4, processed.len());
 
     let processed_event = &processed[0];
-    assert_matches!(processed_event, ProcessedToDeviceEvent::Decrypted(_));
+    assert_matches!(processed_event, ProcessedToDeviceEvent::Decrypted { .. });
 
     insta::with_settings!({ prepend_module_to_snapshot => false }, {
         assert_json_snapshot!(
@@ -284,4 +528,41 @@ async fn test_send_encrypted_to_device_no_session() {
         .await;
 
     assert_matches!(encryption_result, Err(OlmError::MissingSession));
+}
+
+#[async_test]
+async fn test_migration_old_olm_decrypted_processed_event() {
+    // Old format was:
+    // Decrypted(Raw<AnyToDeviceEvent>)
+    // Now it is Decrypted { raw: Raw<AnyToDeviceEvent>, encryption_info:
+    // EncryptionInfo },
+    let old_processed = json!({
+      "Decrypted": {
+        "$serde_json::private::RawValue": "{\"sender\":\"@alice:example.org\",\"content\":{\"device_id\":\"XYZABCDE\",\"rooms\":[\"!726s6s6q:example.com\"]},\"type\":\"m.new_device\",\"keys\":{\"ed25519\":\"jyRZplhaPXXZx6Miu8fWYxJKF2NS8bDeQ27O/+DN/+U\"},\"recipient\":\"@bob:example.com\",\"recipient_keys\":{\"ed25519\":\"hZXl8irs7TOrytL338C7rK611agxwFLzZL6B5tfD54I\"},\"sender_device_keys\":{\"algorithms\":[\"m.olm.v1.curve25519-aes-sha2\",\"m.megolm.v1.aes-sha2\"],\"device_id\":\"JLAFKJWSCS\",\"keys\":{\"curve25519:JLAFKJWSCS\":\"R33ydtOeGBADVsIxeu1A4qIKKgePRZ4iePq8GyadnHY\",\"ed25519:JLAFKJWSCS\":\"jyRZplhaPXXZx6Miu8fWYxJKF2NS8bDeQ27O/+DN/+U\"},\"signatures\":{\"@alice:example.org\":{\"ed25519:JLAFKJWSCS\":\"NhKwKPvxOw/ynjLtCKol7k6HkCqBsciurn52eEAwEuTMLb7sAsgvqDLLk3k1wsJHGFI/BppuoQdlI9LfOf4rAA\"}},\"user_id\":\"@alice:example.org\"}}"
+      }
+    });
+
+    let processed_event: ProcessedToDeviceEvent = serde_json::from_value(old_processed).unwrap();
+
+    insta::with_settings!({ prepend_module_to_snapshot => false }, {
+        assert_json_snapshot!(processed_event);
+    });
+
+    assert_eq!(
+        processed_event.to_raw().deserialize().unwrap().sender().as_str(),
+        "@alice:example.org"
+    );
+
+    assert_matches!(
+        processed_event,
+        ProcessedToDeviceEvent::Decrypted {
+            raw: _,
+            encryption_info: EncryptionInfo {
+                verification_state: VerificationState::Unverified(VerificationLevel::None(
+                    DeviceLinkProblem::MissingDevice
+                )),
+                ..
+            }
+        }
+    );
 }
