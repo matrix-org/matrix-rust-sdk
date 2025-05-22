@@ -21,6 +21,7 @@ use futures_core::Future;
 #[doc(no_inline)]
 pub use ruma;
 
+pub mod async_lock;
 pub mod debug;
 pub mod deserialized_responses;
 pub mod executor;
@@ -30,6 +31,7 @@ pub mod locks;
 pub mod ring_buffer;
 pub mod sleep;
 pub mod store_locks;
+pub mod stream;
 pub mod timeout;
 pub mod tracing_timer;
 pub mod ttl_cache;
