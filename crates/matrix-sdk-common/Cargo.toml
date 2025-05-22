@@ -40,6 +40,7 @@ uniffi = { workspace = true, optional = true }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 futures-util = { workspace = true, features = ["channel"] }
+futures-executor = { workspace = true }
 wasm-bindgen-futures = { version = "0.4.33", optional = true }
 gloo-timers = { workspace = true, features = ["futures"] }
 web-sys = { workspace = true, features = ["console"] }
@@ -56,6 +57,7 @@ insta = { workspace = true }
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 # Enable the test macro.
 tokio = { workspace = true, features = ["rt", "macros"] }
+async-compat = { workspace = true }
 
 [target.'cfg(target_arch = "wasm32")'.dev-dependencies]
 # Enable the JS feature for getrandom.
