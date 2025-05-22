@@ -54,6 +54,7 @@ mod keys {
     // constructing keys for object stores.
     pub const ROOMS: &str = "rooms";
     pub const EVENTS: &str = "events";
+    pub const EVENT_POSITIONS: &str = "event_positions";
     pub const LINKED_CHUNKS: &str = "linked_chunks";
     pub const GAPS: &str = "gaps";
 }
@@ -278,8 +279,10 @@ impl IndexeddbEventCacheStore {
         &self,
         event: &InBandEventForCache,
     ) -> Result<JsValue, IndexeddbEventCacheStoreError> {
+        let position = self.encode_in_band_event_key(&event.room_id, &event.position);
         Ok(serde_wasm_bindgen::to_value(&IndexedEvent {
-            id: self.encode_in_band_event_key(&event.room_id, &event.position),
+            id: position.clone(),
+            position: Some(position),
             content: self.serializer.maybe_encrypt_value(event)?,
         })?)
     }
@@ -293,6 +296,7 @@ impl IndexeddbEventCacheStore {
                 &event.room_id,
                 &event.content.event_id().ok_or(IndexeddbEventCacheStoreError::NoEventId)?,
             ),
+            position: None,
             content: self.serializer.maybe_encrypt_value(event)?,
         })?)
     }
@@ -492,6 +496,7 @@ impl From<Position> for PositionForCache {
 #[derive(Debug, Serialize, Deserialize)]
 struct IndexedEvent {
     id: String,
+    position: Option<String>,
     content: MaybeEncrypted,
 }
 
