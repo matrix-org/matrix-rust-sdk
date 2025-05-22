@@ -28,7 +28,7 @@ use crate::{crypto::types::events::room_key_bundle::RoomKeyBundleContent, Error,
 ///
 /// [MSC4268]: https://github.com/matrix-org/matrix-spec-proposals/pull/4268
 #[instrument(skip(room), fields(room_id = ?room.room_id()))]
-pub async fn share_room_history(room: &Room, user_id: OwnedUserId) -> Result<()> {
+pub(super) async fn share_room_history(room: &Room, user_id: OwnedUserId) -> Result<()> {
     let client = &room.client;
 
     // 0. We can only share room history if our user has set up cross signing
@@ -36,6 +36,7 @@ pub async fn share_room_history(room: &Room, user_id: OwnedUserId) -> Result<()>
         Some(own_user) => client.encryption().get_user_identity(own_user).await?,
         None => None,
     };
+
     if own_identity.is_none() {
         warn!("Not sharing message history as cross-signing is not set up");
         return Ok(());
@@ -43,12 +44,11 @@ pub async fn share_room_history(room: &Room, user_id: OwnedUserId) -> Result<()>
 
     info!("Sharing message history");
 
+    let olm_machine = client.olm_machine().await;
+    let olm_machine = olm_machine.as_ref().ok_or(Error::NoOlmMachine)?;
+
     // 1. Construct the key bundle
-    let bundle = {
-        let olm_machine = client.olm_machine().await;
-        let olm_machine = olm_machine.as_ref().ok_or(Error::NoOlmMachine)?;
-        olm_machine.store().build_room_key_bundle(room.room_id()).await?
-    };
+    let bundle = olm_machine.store().build_room_key_bundle(room.room_id()).await?;
 
     if bundle.is_empty() {
         info!("No keys to share");
@@ -66,10 +66,17 @@ pub async fn share_room_history(room: &Room, user_id: OwnedUserId) -> Result<()>
         "Uploaded encrypted key blob"
     );
 
-    // 3. Establish Olm sessions with all of the recipient's devices.
+    // 3. Ensure that we get a fresh list of devices for the invited user.
+    let (req_id, request) = olm_machine.query_keys_for_users(iter::once(user_id.as_ref()));
+
+    if !request.device_keys.is_empty() {
+        room.client.keys_query(&req_id, request.device_keys).await?;
+    }
+
+    // 4. Establish Olm sessions with all of the recipient's devices.
     client.claim_one_time_keys(iter::once(user_id.as_ref())).await?;
 
-    // 4. Send to-device messages to the recipient to share the keys.
+    // 5. Send to-device messages to the recipient to share the keys.
     let content = RoomKeyBundleContent { room_id: room.room_id().to_owned(), file: upload };
     let requests = {
         let olm_machine = client.olm_machine().await;
@@ -87,6 +94,7 @@ pub async fn share_room_history(room: &Room, user_id: OwnedUserId) -> Result<()>
         let response = client.send_to_device(&request).await?;
         client.mark_request_as_sent(&request.txn_id, &response).await?;
     }
+
     Ok(())
 }
 
@@ -104,7 +112,7 @@ pub async fn share_room_history(room: &Room, user_id: OwnedUserId) -> Result<()>
 ///
 /// [MSC4268]: https://github.com/matrix-org/matrix-spec-proposals/pull/4268
 #[instrument(skip(room), fields(room_id = ?room.room_id(), bundle_sender))]
-pub async fn maybe_accept_key_bundle(room: &Room, inviter: &UserId) -> Result<()> {
+pub(super) async fn maybe_accept_key_bundle(room: &Room, inviter: &UserId) -> Result<()> {
     // TODO: retry this if it gets interrupted or it fails.
     // TODO: do this in the background.
 
