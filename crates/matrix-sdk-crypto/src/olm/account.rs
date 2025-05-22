@@ -1471,10 +1471,22 @@ impl Account {
             // Ed25519 key of the sender until we decrypt room events. This
             // ensures that we receive the room key even if we don't have access
             // to the device.
-            if !matches!(*event, AnyDecryptedOlmEvent::RoomKey(_)) {
-                let Some(device) =
+            if !matches!(event.as_ref(), AnyDecryptedOlmEvent::RoomKey(_)) {
+                let device = if let Some(device) =
                     store.get_device_from_curve_key(event.sender(), sender_key).await?
-                else {
+                {
+                    device
+                } else if let AnyDecryptedOlmEvent::RoomKeyBundle(_) = event.as_ref() {
+                    // If this is a room key bundle, and we don't have the device in our store,
+                    // we're requiring the device keys to be part of the `AnyDecryptedOlmEvent`.
+                    //
+                    // Othrwise we'll throw an error refusing to decrypt the room key bundle.
+                    let device_keys =
+                        event.sender_device_keys().ok_or(EventError::MissingSigningKey)?;
+                    let device_data = DeviceData::try_from(device_keys).unwrap();
+
+                    store.wrap_device_data(device_data).await?
+                } else {
                     return Err(EventError::MissingSigningKey.into());
                 };
 
