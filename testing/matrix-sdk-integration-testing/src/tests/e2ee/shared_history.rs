@@ -1,24 +1,18 @@
-use std::time::Duration;
-
 use anyhow::Result;
 use assign::assign;
 use matrix_sdk::{
     assert_decrypted_message_eq,
-    crypto::UserDevices,
     encryption::EncryptionSettings,
     ruma::{
         api::client::room::create_room::v3::{Request as CreateRoomRequest, RoomPreset},
         events::room::message::RoomMessageEventContent,
-        UserId,
     },
-    timeout::timeout,
-    Client,
 };
 use matrix_sdk_ui::sync_service::SyncService;
 use similar_asserts::assert_eq;
 use tracing::{info, Instrument};
 
-use crate::helpers::{wait_until_some, SyncTokenAwareClient, TestClientBuilder};
+use crate::helpers::{SyncTokenAwareClient, TestClientBuilder};
 
 /// When we invite another user to a room with "joined" history visibility, we
 /// share the encryption history.
@@ -49,73 +43,6 @@ async fn test_history_share_on_invite() -> Result<()> {
     let bob = SyncTokenAwareClient::new(
         TestClientBuilder::new("bob").encryption_settings(encryption_settings).build().await?,
     );
-
-    {
-        // Alice and Bob share an encrypted room
-        // TODO: get rid of all of this: history sharing should work even if Bob and
-        // Alice do not share a room, which means we should force a `/keys/query` when
-        // we invite the user, before the historic key bundle is sent out.
-        let alice_shared_room = alice
-            .create_room(assign!(CreateRoomRequest::new(), {preset: Some(RoomPreset::PublicChat)}))
-            .await?;
-        let shared_room_id = alice_shared_room.room_id();
-        alice_shared_room.enable_encryption().await?;
-
-        bob.join_room_by_id(shared_room_id)
-            .instrument(bob_span.clone())
-            .await
-            .expect("Bob should have joined the room");
-
-        // Alice should now have a pending `/keys/query` request for Bob, but we need
-        // her to actually send it, which we do by having her wait for Bob to join, and
-        // then send an encrypted message.
-        //
-        // (The `room-list` sync loop will register Bob's keys as out of date, but that
-        // loop doesn't handle pending outgoing crypto requests. So an alternative would
-        // be to get the `encryption` sync loop to cycle, but this is more direct.)
-
-        wait_until_some(
-            async |_| alice_shared_room.get_member(bob.user_id().unwrap()).await.unwrap(),
-            Duration::from_secs(30),
-        )
-        .await
-        .expect("Alice did not see bob in room");
-
-        alice_shared_room
-            .send(RoomMessageEventContent::text_plain(""))
-            .await
-            .expect("Alice could not send message in room");
-
-        // Sanity check: Both users see the others' device
-        async fn devices_seen(client: &Client, other: &UserId) -> UserDevices {
-            client
-                .olm_machine_for_testing()
-                .await
-                .as_ref()
-                .unwrap()
-                .get_user_devices(other, Some(Duration::from_secs(1)))
-                .await
-                .unwrap()
-        }
-
-        timeout(
-            async {
-                loop {
-                    let bob_devices = devices_seen(&alice, bob.user_id().unwrap()).await;
-                    if bob_devices.devices().count() >= 1 {
-                        return;
-                    }
-                }
-            },
-            Duration::from_secs(30), // This can take quite a while to happen on the CI runners.
-        )
-        .await
-        .expect("Alice did not see bob's device");
-
-        bob.sync_once().instrument(bob_span.clone()).await?;
-        let alice_devices = devices_seen(&bob, alice.user_id().unwrap()).await;
-        assert_eq!(alice_devices.devices().count(), 1, "Bob did not see Alice's device");
-    }
 
     // Alice creates a room ...
     let alice_room = alice
