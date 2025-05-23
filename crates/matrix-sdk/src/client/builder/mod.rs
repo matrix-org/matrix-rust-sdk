@@ -36,7 +36,7 @@ use super::{Client, ClientInner};
 use crate::crypto::{CollectStrategy, TrustRequirement};
 #[cfg(feature = "e2e-encryption")]
 use crate::encryption::EncryptionSettings;
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(not(target_family = "wasm"))]
 use crate::http_client::HttpSettings;
 use crate::{
     authentication::{oauth::OAuthCtx, AuthCtx},
@@ -314,21 +314,21 @@ impl ClientBuilder {
     ///
     /// let client_config = Client::builder().proxy("http://localhost:8080");
     /// ```
-    #[cfg(not(target_arch = "wasm32"))]
+    #[cfg(not(target_family = "wasm"))]
     pub fn proxy(mut self, proxy: impl AsRef<str>) -> Self {
         self.http_settings().proxy = Some(proxy.as_ref().to_owned());
         self
     }
 
     /// Disable SSL verification for the HTTP requests.
-    #[cfg(not(target_arch = "wasm32"))]
+    #[cfg(not(target_family = "wasm"))]
     pub fn disable_ssl_verification(mut self) -> Self {
         self.http_settings().disable_ssl_verification = true;
         self
     }
 
     /// Set a custom HTTP user agent for the client.
-    #[cfg(not(target_arch = "wasm32"))]
+    #[cfg(not(target_family = "wasm"))]
     pub fn user_agent(mut self, user_agent: impl AsRef<str>) -> Self {
         self.http_settings().user_agent = Some(user_agent.as_ref().to_owned());
         self
@@ -342,7 +342,7 @@ impl ClientBuilder {
     ///
     /// Internally this will call the
     /// [`reqwest::ClientBuilder::add_root_certificate()`] method.
-    #[cfg(not(target_arch = "wasm32"))]
+    #[cfg(not(target_family = "wasm"))]
     pub fn add_root_certificates(mut self, certificates: Vec<reqwest::Certificate>) -> Self {
         self.http_settings().additional_root_certificates = certificates;
         self
@@ -351,7 +351,7 @@ impl ClientBuilder {
     /// Don't trust any system root certificates, only trust the certificates
     /// provided through
     /// [`add_root_certificates`][ClientBuilder::add_root_certificates].
-    #[cfg(not(target_arch = "wasm32"))]
+    #[cfg(not(target_family = "wasm"))]
     pub fn disable_built_in_root_certificates(mut self) -> Self {
         self.http_settings().disable_built_in_root_certificates = true;
         self
@@ -380,7 +380,7 @@ impl ClientBuilder {
         self
     }
 
-    #[cfg(not(target_arch = "wasm32"))]
+    #[cfg(not(target_family = "wasm"))]
     fn http_settings(&mut self) -> &mut HttpSettings {
         self.http_cfg.get_or_insert_with(Default::default).settings()
     }
@@ -477,9 +477,9 @@ impl ClientBuilder {
         let homeserver_cfg = self.homeserver_cfg.ok_or(ClientBuildError::MissingHomeserver)?;
         Span::current().record("homeserver", debug(&homeserver_cfg));
 
-        #[cfg_attr(target_arch = "wasm32", allow(clippy::infallible_destructuring_match))]
+        #[cfg_attr(target_family = "wasm", allow(clippy::infallible_destructuring_match))]
         let inner_http_client = match self.http_cfg.unwrap_or_default() {
-            #[cfg(not(target_arch = "wasm32"))]
+            #[cfg(not(target_family = "wasm"))]
             HttpConfig::Settings(mut settings) => {
                 settings.timeout = self.request_config.timeout;
                 settings.make_client()?
@@ -629,7 +629,7 @@ async fn build_store_config(
 
 // The indexeddb stores only implement `IntoStateStore` and `IntoCryptoStore` on
 // wasm32, so this only compiles there.
-#[cfg(all(target_arch = "wasm32", feature = "indexeddb"))]
+#[cfg(all(target_family = "wasm", feature = "indexeddb"))]
 async fn build_indexeddb_store_config(
     name: &str,
     passphrase: Option<&str>,
@@ -660,7 +660,7 @@ async fn build_indexeddb_store_config(
     Ok(store_config)
 }
 
-#[cfg(all(not(target_arch = "wasm32"), feature = "indexeddb"))]
+#[cfg(all(not(target_family = "wasm"), feature = "indexeddb"))]
 #[allow(clippy::unused_async)]
 async fn build_indexeddb_store_config(
     _name: &str,
@@ -672,12 +672,12 @@ async fn build_indexeddb_store_config(
 
 #[derive(Clone, Debug)]
 enum HttpConfig {
-    #[cfg(not(target_arch = "wasm32"))]
+    #[cfg(not(target_family = "wasm"))]
     Settings(HttpSettings),
     Custom(reqwest::Client),
 }
 
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(not(target_family = "wasm"))]
 impl HttpConfig {
     fn settings(&mut self) -> &mut HttpSettings {
         match self {
@@ -695,10 +695,10 @@ impl HttpConfig {
 
 impl Default for HttpConfig {
     fn default() -> Self {
-        #[cfg(not(target_arch = "wasm32"))]
+        #[cfg(not(target_family = "wasm"))]
         return Self::Settings(HttpSettings::default());
 
-        #[cfg(target_arch = "wasm32")]
+        #[cfg(target_family = "wasm")]
         return Self::Custom(reqwest::Client::new());
     }
 }
@@ -779,7 +779,7 @@ pub enum ClientBuildError {
 }
 
 // The http mocking library is not supported for wasm32
-#[cfg(all(test, not(target_arch = "wasm32")))]
+#[cfg(all(test, not(target_family = "wasm")))]
 pub(crate) mod tests {
     use assert_matches::assert_matches;
     use matrix_sdk_test::{async_test, test_json};

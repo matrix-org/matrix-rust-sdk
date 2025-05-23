@@ -14,7 +14,7 @@
 // limitations under the License.
 
 #![doc = include_str!("../docs/encryption.md")]
-#![cfg_attr(target_arch = "wasm32", allow(unused_imports))]
+#![cfg_attr(target_family = "wasm", allow(unused_imports))]
 
 #[cfg(feature = "experimental-send-custom-to-device")]
 use std::ops::Deref;
@@ -723,7 +723,7 @@ impl Encryption {
         }
     }
 
-    #[cfg(not(target_arch = "wasm32"))]
+    #[cfg(not(target_family = "wasm"))]
     pub(crate) async fn import_secrets_bundle(
         &self,
         bundle: &matrix_sdk_base::crypto::types::SecretsBundle,
@@ -1353,7 +1353,7 @@ impl Encryption {
     ///     .await?;
     /// # anyhow::Ok(()) };
     /// ```
-    #[cfg(not(target_arch = "wasm32"))]
+    #[cfg(not(target_family = "wasm"))]
     pub async fn export_room_keys(
         &self,
         path: PathBuf,
@@ -1415,7 +1415,7 @@ impl Encryption {
     /// );
     /// # anyhow::Ok(()) };
     /// ```
-    #[cfg(not(target_arch = "wasm32"))]
+    #[cfg(not(target_family = "wasm"))]
     pub async fn import_room_keys(
         &self,
         path: PathBuf,
@@ -1691,7 +1691,7 @@ impl Encryption {
     /// **Warning**: Do not use this method if we're already calling
     /// [`Client::send_outgoing_request()`]. This method is intended for
     /// explicitly uploading the device keys before starting a sync.
-    #[cfg(not(target_arch = "wasm32"))]
+    #[cfg(not(target_family = "wasm"))]
     pub(crate) async fn ensure_device_keys_upload(&self) -> Result<()> {
         let olm = self.client.olm_machine().await;
         let olm = olm.as_ref().ok_or(Error::NoOlmMachine)?;
@@ -1819,7 +1819,7 @@ impl Encryption {
     }
 }
 
-#[cfg(all(test, not(target_arch = "wasm32")))]
+#[cfg(all(test, not(target_family = "wasm")))]
 mod tests {
     use std::{
         ops::Not,

@@ -26,7 +26,7 @@ use ruma::{
     DeviceKeyAlgorithm, OwnedDeviceId, OwnedEventId, OwnedUserId,
 };
 use serde::{Deserialize, Serialize};
-#[cfg(target_arch = "wasm32")]
+#[cfg(target_family = "wasm")]
 use wasm_bindgen::prelude::*;
 
 use crate::debug::{DebugRawEvent, DebugStructExt};
@@ -252,7 +252,7 @@ pub enum ShieldState {
 /// A machine-readable representation of the authenticity for a `ShieldState`.
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, Eq, PartialEq)]
 #[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
-#[cfg_attr(target_arch = "wasm32", wasm_bindgen)]
+#[cfg_attr(target_family = "wasm", wasm_bindgen)]
 pub enum ShieldStateCode {
     /// Not enough information available to check the authenticity.
     AuthenticityNotGuaranteed,

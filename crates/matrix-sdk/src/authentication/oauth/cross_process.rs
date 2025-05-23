@@ -244,7 +244,7 @@ pub enum CrossProcessRefreshLockError {
     DuplicatedLock,
 }
 
-#[cfg(all(test, feature = "e2e-encryption", feature = "sqlite", not(target_arch = "wasm32")))]
+#[cfg(all(test, feature = "e2e-encryption", feature = "sqlite", not(target_family = "wasm")))]
 mod tests {
 
     use anyhow::Context as _;

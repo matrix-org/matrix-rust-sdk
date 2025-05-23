@@ -54,8 +54,8 @@ use crate::{
 
 /// An abstract state store trait that can be used to implement different stores
 /// for the SDK.
-#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+#[cfg_attr(target_family = "wasm", async_trait(?Send))]
+#[cfg_attr(not(target_family = "wasm"), async_trait)]
 pub trait StateStore: AsyncTraitDeps {
     /// The error type used by this state store.
     type Error: fmt::Debug + Into<StoreError> + From<serde_json::Error>;
@@ -485,8 +485,8 @@ impl<T: fmt::Debug> fmt::Debug for EraseStateStoreError<T> {
     }
 }
 
-#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+#[cfg_attr(target_family = "wasm", async_trait(?Send))]
+#[cfg_attr(not(target_family = "wasm"), async_trait)]
 impl<T: StateStore> StateStore for EraseStateStoreError<T> {
     type Error = StoreError;
 
@@ -770,8 +770,8 @@ impl<T: StateStore> StateStore for EraseStateStoreError<T> {
 }
 
 /// Convenience functionality for state stores.
-#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+#[cfg_attr(target_family = "wasm", async_trait(?Send))]
+#[cfg_attr(not(target_family = "wasm"), async_trait)]
 pub trait StateStoreExt: StateStore {
     /// Get a specific state event of statically-known type.
     ///
@@ -909,8 +909,8 @@ pub trait StateStoreExt: StateStore {
     }
 }
 
-#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+#[cfg_attr(target_family = "wasm", async_trait(?Send))]
+#[cfg_attr(not(target_family = "wasm"), async_trait)]
 impl<T: StateStore + ?Sized> StateStoreExt for T {}
 
 /// A type-erased [`StateStore`].

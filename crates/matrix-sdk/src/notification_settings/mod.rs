@@ -570,7 +570,7 @@ impl NotificationSettings {
 }
 
 // The http mocking library is not supported for wasm32
-#[cfg(all(test, not(target_arch = "wasm32")))]
+#[cfg(all(test, not(target_family = "wasm")))]
 mod tests {
     use std::sync::{
         atomic::{AtomicBool, Ordering},

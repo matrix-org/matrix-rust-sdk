@@ -17,7 +17,7 @@
 use std::{fmt::Debug, future::IntoFuture};
 
 use eyeball::SharedObservable;
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(not(target_family = "wasm"))]
 use eyeball::Subscriber;
 use matrix_sdk_common::boxed_into_future;
 use oauth2::{basic::BasicErrorResponseType, RequestTokenError};
@@ -65,7 +65,7 @@ impl<R> SendRequest<R> {
 
     /// Get a subscriber to observe the progress of sending the request
     /// body.
-    #[cfg(not(target_arch = "wasm32"))]
+    #[cfg(not(target_family = "wasm"))]
     pub fn subscribe_to_send_progress(&self) -> Subscriber<TransmissionProgress> {
         self.send_progress.subscribe()
     }

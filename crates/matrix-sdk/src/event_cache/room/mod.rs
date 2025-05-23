@@ -1541,7 +1541,7 @@ mod tests {
         assert_eq!(related_event_id, associated_related_id);
     }
 
-    #[cfg(not(target_arch = "wasm32"))] // This uses the cross-process lock, so needs time support.
+    #[cfg(not(target_family = "wasm"))] // This uses the cross-process lock, so needs time support.
     #[async_test]
     async fn test_write_to_storage() {
         use matrix_sdk_base::linked_chunk::lazy_loader::from_all_chunks;
@@ -1607,7 +1607,7 @@ mod tests {
         assert!(chunks.next().is_none());
     }
 
-    #[cfg(not(target_arch = "wasm32"))] // This uses the cross-process lock, so needs time support.
+    #[cfg(not(target_family = "wasm"))] // This uses the cross-process lock, so needs time support.
     #[async_test]
     async fn test_write_to_storage_strips_bundled_relations() {
         use matrix_sdk_base::linked_chunk::lazy_loader::from_all_chunks;
@@ -1689,7 +1689,7 @@ mod tests {
         assert!(chunks.next().is_none());
     }
 
-    #[cfg(not(target_arch = "wasm32"))] // This uses the cross-process lock, so needs time support.
+    #[cfg(not(target_family = "wasm"))] // This uses the cross-process lock, so needs time support.
     #[async_test]
     async fn test_clear() {
         use eyeball_im::VectorDiff;
@@ -1832,7 +1832,7 @@ mod tests {
         assert_eq!(linked_chunk.num_items(), 0);
     }
 
-    #[cfg(not(target_arch = "wasm32"))] // This uses the cross-process lock, so needs time support.
+    #[cfg(not(target_family = "wasm"))] // This uses the cross-process lock, so needs time support.
     #[async_test]
     async fn test_load_from_storage() {
         use eyeball_im::VectorDiff;
@@ -1955,7 +1955,7 @@ mod tests {
         assert_eq!(items[1].event_id().unwrap(), event_id2);
     }
 
-    #[cfg(not(target_arch = "wasm32"))] // This uses the cross-process lock, so needs time support.
+    #[cfg(not(target_family = "wasm"))] // This uses the cross-process lock, so needs time support.
     #[async_test]
     async fn test_load_from_storage_resilient_to_failure() {
         let room_id = room_id!("!fondue:patate.ch");
@@ -2021,7 +2021,7 @@ mod tests {
         assert!(raw_chunks.is_empty());
     }
 
-    #[cfg(not(target_arch = "wasm32"))] // This uses the cross-process lock, so needs time support.
+    #[cfg(not(target_family = "wasm"))] // This uses the cross-process lock, so needs time support.
     #[async_test]
     async fn test_no_useless_gaps() {
         use crate::event_cache::room::LoadMoreEventsBackwardsOutcome;
@@ -2173,7 +2173,7 @@ mod tests {
         assert_eq!(related_event_id, related_id);
     }
 
-    #[cfg(not(target_arch = "wasm32"))] // This uses the cross-process lock, so needs time support.
+    #[cfg(not(target_family = "wasm"))] // This uses the cross-process lock, so needs time support.
     #[async_test]
     async fn test_shrink_to_last_chunk() {
         use eyeball_im::VectorDiff;
@@ -2288,7 +2288,7 @@ mod tests {
         assert!(outcome.reached_start);
     }
 
-    #[cfg(not(target_arch = "wasm32"))] // This uses the cross-process lock, so needs time support.
+    #[cfg(not(target_family = "wasm"))] // This uses the cross-process lock, so needs time support.
     #[async_test]
     async fn test_auto_shrink_after_all_subscribers_are_gone() {
         use eyeball_im::VectorDiff;

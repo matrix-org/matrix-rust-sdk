@@ -232,7 +232,7 @@ fn add_unique_index<'a>(
     object_store.create_index_with_params(name, &IdbKeyPath::str(key_path), &params)
 }
 
-#[cfg(all(test, target_arch = "wasm32"))]
+#[cfg(all(test, target_family = "wasm"))]
 mod tests {
     use std::{cell::Cell, future::Future, rc::Rc, sync::Arc};
 
