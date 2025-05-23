@@ -2263,7 +2263,7 @@ impl Room {
 
         let content = self
             .make_message_event(
-                self.make_attachment_type(
+                Room::make_attachment_type(
                     content_type,
                     filename,
                     media_source,
@@ -2288,7 +2288,6 @@ impl Room {
     /// provided by its source.
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn make_attachment_type(
-        &self,
         content_type: &Mime,
         filename: String,
         source: MediaSource,
@@ -2334,7 +2333,6 @@ impl Room {
     #[cfg(feature = "unstable-msc4274")]
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn make_gallery_item_type(
-        &self,
         content_type: &Mime,
         filename: String,
         source: MediaSource,

@@ -51,7 +51,7 @@ use crate::{
         LocalEcho, LocalEchoContent, MediaHandles, RoomSendQueueStorageError, RoomSendQueueUpdate,
         SendHandle,
     },
-    Client, Media,
+    Client, Media, Room,
 };
 #[cfg(feature = "unstable-msc4274")]
 use crate::{
@@ -283,7 +283,7 @@ impl RoomSendQueue {
         // Create the content for the media event.
         let event_content = room
             .make_message_event(
-                room.make_attachment_type(
+                Room::make_attachment_type(
                     &content_type,
                     filename,
                     file_media_request.source.clone(),
@@ -447,7 +447,7 @@ impl RoomSendQueue {
                 }
             };
 
-            item_types.push(room.make_gallery_item_type(
+            item_types.push(Room::make_gallery_item_type(
                 &content_type,
                 filename,
                 file_media_request.source.clone(),
