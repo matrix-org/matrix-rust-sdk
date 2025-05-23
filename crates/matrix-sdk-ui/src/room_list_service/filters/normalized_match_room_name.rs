@@ -55,7 +55,7 @@ pub fn new_filter(pattern: &str) -> impl Filter {
             return false;
         };
 
-        searcher.matches(&room_name)
+        searcher.matches(&room_name.to_string())
     }
 }
 

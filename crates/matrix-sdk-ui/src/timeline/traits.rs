@@ -37,7 +37,7 @@ use ruma::{
 };
 use tracing::error;
 
-use super::{Profile, RedactError, TimelineBuilder};
+use super::{EventTimelineItem, Profile, RedactError, TimelineBuilder};
 use crate::timeline::{self, pinned_events_loader::PinnedEventsRoom, Timeline};
 
 pub trait RoomExt {
@@ -60,6 +60,12 @@ pub trait RoomExt {
     /// This allows to customize settings of the [`Timeline`] before
     /// constructing it.
     fn timeline_builder(&self) -> TimelineBuilder;
+
+    /// Return an optional [`EventTimelineItem`] corresponding to this room's
+    /// latest event.
+    fn latest_event_item(
+        &self,
+    ) -> impl Future<Output = Option<EventTimelineItem>> + SendOutsideWasm;
 }
 
 impl RoomExt for Room {
@@ -69,6 +75,14 @@ impl RoomExt for Room {
 
     fn timeline_builder(&self) -> TimelineBuilder {
         TimelineBuilder::new(self).track_read_marker_and_receipts()
+    }
+
+    async fn latest_event_item(&self) -> Option<EventTimelineItem> {
+        if let Some(latest_event) = (**self).latest_event() {
+            EventTimelineItem::from_latest_event(self.client(), self.room_id(), latest_event).await
+        } else {
+            None
+        }
     }
 }
 
