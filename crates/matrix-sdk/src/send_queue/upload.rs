@@ -372,6 +372,10 @@ impl RoomSendQueue {
             return Err(RoomSendQueueError::RoomNotJoined);
         }
 
+        if item_infos.is_empty() {
+            return Err(RoomSendQueueError::EmptyGallery);
+        }
+
         let send_event_txn = config.txn_id.map_or_else(ChildTransactionId::new, Into::into);
 
         Span::current().record("event_txn", tracing::field::display(&*send_event_txn));

@@ -2137,6 +2137,11 @@ pub enum RoomSendQueueError {
     #[error("the attachment event could not be created")]
     FailedToCreateAttachment,
 
+    /// The gallery contains no items.
+    #[cfg(feature = "unstable-msc4274")]
+    #[error("the gallery contains no items")]
+    EmptyGallery,
+
     /// The gallery event failed to be created.
     #[cfg(feature = "unstable-msc4274")]
     #[error("the gallery event could not be created")]
