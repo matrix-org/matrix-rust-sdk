@@ -248,12 +248,18 @@ where
             map.insert("sender".to_owned(), json!(sender));
         }
 
-        let event_id = self
-            .event_id
-            .or_else(|| {
-                self.room.as_ref().map(|room_id| EventId::new(room_id.server_name().unwrap()))
-            })
-            .or_else(|| (!self.no_event_id).then(|| EventId::new(server_name!("dummy.org"))));
+        let mut event_id = self.event_id;
+
+        // Automatically generate an event id only if there was no preset by the user,
+        // and we're not making an invalid event on purpose.
+        if event_id.is_none() && !self.no_event_id {
+            event_id = self
+                .room
+                .as_ref()
+                .map(|room_id| EventId::new(room_id.server_name().unwrap()))
+                .or_else(|| Some(EventId::new(server_name!("dummy.org"))));
+        }
+
         if let Some(event_id) = event_id {
             map.insert("event_id".to_owned(), json!(event_id));
         }
