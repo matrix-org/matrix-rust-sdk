@@ -1304,7 +1304,7 @@ impl QueueStorage {
 
         let mut last_upload_file_txn: Option<OwnedTransactionId> = None;
 
-        let mut finish_item_infos = Vec::<FinishGalleryItemInfo>::new();
+        let mut finish_item_infos = Vec::with_capacity(item_queue_infos.len());
 
         if let Some((first, rest)) = item_queue_infos.split_first() {
             let GalleryItemQueueInfo {
