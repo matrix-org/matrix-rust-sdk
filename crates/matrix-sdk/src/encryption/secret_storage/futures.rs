@@ -41,9 +41,9 @@ impl<'a> CreateStore<'a> {
 
 impl<'a> IntoFuture for CreateStore<'a> {
     type Output = Result<SecretStore>;
-    #[cfg(target_arch = "wasm32")]
+    #[cfg(target_family = "wasm")]
     type IntoFuture = Pin<Box<dyn Future<Output = Self::Output> + 'a>>;
-    #[cfg(not(target_arch = "wasm32"))]
+    #[cfg(not(target_family = "wasm"))]
     type IntoFuture = Pin<Box<dyn Future<Output = Self::Output> + Send + 'a>>;
 
     fn into_future(self) -> Self::IntoFuture {
