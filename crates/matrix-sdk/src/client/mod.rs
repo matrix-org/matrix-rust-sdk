@@ -2541,6 +2541,13 @@ impl Client {
         let base_room = self.inner.base_client.room_knocked(&response.room_id).await?;
         Ok(Room::new(self.clone(), base_room))
     }
+
+    /// Checks whether the provided `user_id` belongs to an ignored user.
+    pub fn is_user_ignored(&self, user_id: &UserId) -> bool {
+        let raw_user_id = user_id.to_string();
+        let current_ignored_user_list = self.subscribe_to_ignore_user_list_changes().get();
+        current_ignored_user_list.contains(&raw_user_id)
+    }
 }
 
 /// A weak reference to the inner client, useful when trying to get a handle
@@ -2608,7 +2615,7 @@ pub(crate) mod tests {
             ignored_user_list::IgnoredUserListEventContent,
             media_preview_config::{InviteAvatars, MediaPreviewConfigEventContent, MediaPreviews},
         },
-        owned_room_id, room_alias_id, room_id, RoomId, ServerName, UserId,
+        owned_room_id, room_alias_id, room_id, user_id, RoomId, ServerName, UserId,
     };
     use serde_json::json;
     use stream_assert::{assert_next_matches, assert_pending};
@@ -3444,5 +3451,26 @@ pub(crate) mod tests {
 
         assert_eq!(initial_value.invite_avatars, InviteAvatars::On);
         assert_eq!(initial_value.media_previews, MediaPreviews::On);
+    }
+
+    #[async_test]
+    async fn test_is_user_ignored() {
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+
+        let user_id = user_id!("@alice:host");
+        assert!(!client.is_user_ignored(user_id));
+
+        server
+            .mock_sync()
+            .ok_and_run(&client, |builder| {
+                builder.add_global_account_data_event(GlobalAccountDataTestEvent::Custom(json!({
+                    "type": "m.ignored_user_list",
+                    "content": IgnoredUserListEventContent::users([user_id.to_owned()])
+                })));
+            })
+            .await;
+
+        assert!(client.is_user_ignored(user_id));
     }
 }
