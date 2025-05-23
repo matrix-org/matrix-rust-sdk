@@ -45,6 +45,7 @@ use std::{
     task::{Context, Poll},
 };
 
+#[cfg(target_family = "wasm")]
 use anymap2::any::CloneAny;
 #[cfg(not(target_family = "wasm"))]
 use anymap2::any::CloneAnySendSync;
