@@ -1827,7 +1827,7 @@ async fn test_media_uploads() {
     let mentions = Mentions::with_user_ids([owned_user_id!("@ivan:sdk.rs")]);
     let config = AttachmentConfig::new()
         .thumbnail(Some(thumbnail))
-        .txn_id(&transaction_id)
+        .txn_id(transaction_id.clone())
         .caption(Some("caption".to_owned()))
         .mentions(Some(mentions.clone()))
         .reply(Some(Reply {
@@ -2126,7 +2126,7 @@ async fn test_gallery_uploads() {
     let transaction_id = TransactionId::new();
     let mentions = Mentions::with_user_ids([owned_user_id!("@ivan:sdk.rs")]);
     let config = GalleryConfig::new()
-        .txn_id(&transaction_id)
+        .txn_id(transaction_id.clone())
         .caption(Some("caption".to_owned()))
         .mentions(Some(mentions.clone()))
         .reply(Some(Reply {
