@@ -52,7 +52,7 @@ pub static CREATE: Lazy<JsonValue> = Lazy::new(|| {
         "state_key": "",
         "type": "m.room.create",
         "unsigned": {
-          "age": 139298
+            "age": 139298
         }
     })
 });

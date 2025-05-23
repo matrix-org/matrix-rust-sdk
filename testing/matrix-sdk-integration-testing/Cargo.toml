@@ -6,35 +6,35 @@ edition = "2021"
 publish = false
 license = "Apache-2.0"
 
+[package.metadata.release]
+release = false
+
 [dev-dependencies]
-anyhow = { workspace = true }
-assert_matches = { workspace = true }
-assert_matches2 = { workspace = true }
+anyhow.workspace = true
+assert_matches.workspace = true
+assert_matches2.workspace = true
 assign = "1"
-eyeball = { workspace = true }
-eyeball-im = { workspace = true }
+eyeball.workspace = true
+eyeball-im.workspace = true
 futures = { version = "0.3.29", features = ["executor"] }
-futures-core = { workspace = true }
-futures-util = { workspace = true }
-http = { workspace = true }
-matrix-sdk = {workspace = true, default-features = true, features = ["testing", "qrcode", "experimental-share-history-on-invite"] }
+futures-core.workspace = true
+futures-util.workspace = true
+http.workspace = true
+json-structural-diff = "0.1.0"
+matrix-sdk = { workspace = true, default-features = true, features = ["testing", "qrcode", "experimental-share-history-on-invite"] }
 matrix-sdk-base = { workspace = true, default-features = true, features = ["testing", "qrcode"] }
+matrix-sdk-test.workspace = true
 matrix-sdk-ui = { workspace = true, default-features = true }
-matrix-sdk-test = { workspace = true }
-once_cell = { workspace = true }
-rand = { workspace = true }
-stream_assert = { workspace = true }
-reqwest = { workspace = true }
-serde_json = { workspace = true }
-similar-asserts = { workspace = true }
+once_cell.workspace = true
+rand.workspace = true
+reqwest.workspace = true
+serde_json.workspace = true
+similar-asserts.workspace = true
+stream_assert.workspace = true
 tempfile = "3.3.0"
 tokio = { workspace = true, features = ["rt", "rt-multi-thread", "macros"] }
-tracing = { workspace = true }
-wiremock = { workspace = true }
-json-structural-diff = "0.1.0"
+tracing.workspace = true
+wiremock.workspace = true
 
 [lints]
 workspace = true
-
-[package.metadata.release]
-release = false

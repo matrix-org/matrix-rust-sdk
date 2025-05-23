@@ -41,7 +41,7 @@ use ruma::{
         room::{
             avatar::{self, RoomAvatarEventContent},
             canonical_alias::RoomCanonicalAliasEventContent,
-            create::RoomCreateEventContent,
+            create::{PreviousRoom, RoomCreateEventContent},
             encrypted::{EncryptedEventScheme, RoomEncryptedEventContent},
             member::{MembershipState, RoomMemberEventContent},
             message::{
@@ -288,7 +288,7 @@ where
     }
 
     pub fn into_raw_timeline(self) -> Raw<AnyTimelineEvent> {
-        Raw::new(&self.construct_json(true)).unwrap().cast()
+        self.into_raw()
     }
 
     pub fn into_raw_sync(self) -> Raw<AnySyncTimelineEvent> {
@@ -396,6 +396,20 @@ impl EventBuilder<UnstablePollStartEventContent> {
         if let UnstablePollStartEventContent::New(content) = &mut self.content {
             content.relates_to = Some(RelationWithoutReplacement::Thread(thread));
         };
+        self
+    }
+}
+
+impl EventBuilder<RoomCreateEventContent> {
+    /// Define the predecessor fields.
+    pub fn predecessor(mut self, room_id: &RoomId, event_id: &EventId) -> Self {
+        self.content.predecessor = Some(PreviousRoom::new(room_id.to_owned(), event_id.to_owned()));
+        self
+    }
+
+    /// Erase the predecessor if any.
+    pub fn no_predecessor(mut self) -> Self {
+        self.content.predecessor = None;
         self
     }
 }
@@ -766,12 +780,21 @@ impl EventFactory {
     /// Create a new `m.room.create` event.
     pub fn create(
         &self,
-        user_id: &UserId,
+        creator_user_id: &UserId,
         room_version: RoomVersionId,
     ) -> EventBuilder<RoomCreateEventContent> {
-        let mut event = RoomCreateEventContent::new_v1(user_id.to_owned());
-        event.room_version = room_version;
-        self.event(event)
+        let mut event = self.event(RoomCreateEventContent::new_v1(creator_user_id.to_owned()));
+        event.content.room_version = room_version;
+
+        if self.sender.is_some() {
+            event.sender = self.sender.clone();
+        } else {
+            event.sender = Some(creator_user_id.to_owned());
+        }
+
+        event.state_key = Some("".to_owned());
+
+        event
     }
 
     /// Create a new `m.room.power_levels` event.

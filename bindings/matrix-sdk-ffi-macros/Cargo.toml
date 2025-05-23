@@ -7,7 +7,7 @@ license = "Apache-2.0"
 name = "matrix-sdk-ffi-macros"
 readme = "README.md"
 repository = "https://github.com/matrix-org/matrix-rust-sdk"
-rust-version = { workspace = true }
+rust-version.workspace = true
 version = "0.7.0"
 publish = false
 
