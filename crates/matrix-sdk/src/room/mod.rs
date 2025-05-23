@@ -2262,7 +2262,7 @@ impl Room {
         }
 
         let content = self
-            .make_message_event(
+            .make_media_event(
                 Room::make_attachment_type(
                     content_type,
                     filename,
@@ -2310,7 +2310,7 @@ impl Room {
 
     /// Creates the [`RoomMessageEventContent`] based on the message type,
     /// mentions and reply information.
-    pub(crate) async fn make_message_event(
+    pub(crate) async fn make_media_event(
         &self,
         msg_type: MessageType,
         mentions: Option<Mentions>,

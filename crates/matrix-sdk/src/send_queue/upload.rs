@@ -282,7 +282,7 @@ impl RoomSendQueue {
 
         // Create the content for the media event.
         let event_content = room
-            .make_message_event(
+            .make_media_event(
                 Room::make_attachment_type(
                     &content_type,
                     filename,
@@ -469,7 +469,7 @@ impl RoomSendQueue {
 
         // Create the content for the gallery event.
         let event_content = room
-            .make_message_event(
+            .make_media_event(
                 MessageType::Gallery(GalleryMessageEventContent::new(
                     config.caption.unwrap_or_default(),
                     config.formatted_caption,
