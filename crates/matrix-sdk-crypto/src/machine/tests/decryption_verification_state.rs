@@ -311,6 +311,69 @@ pub async fn mark_alice_identity_as_verified_test_helper(alice: &OlmMachine, bob
         .is_verified());
 }
 
+/// Test that the verification state is set correctly when the sender of an
+/// event does not match the owner of the device that sent us the session.
+///
+/// In this test, Bob receives an event from Alice, but the HS admin has
+/// rewritten the `sender` of the event to look like another user.
+#[async_test]
+async fn test_verification_states_spoofed_sender() {
+    let (alice, bob) = get_machine_pair_with_setup_sessions_test_helper(
+        tests::alice_id(),
+        tests::user_id(),
+        false,
+    )
+    .await;
+
+    let room_id = room_id!("!test:example.org");
+    let decryption_settings =
+        DecryptionSettings { sender_device_trust_requirement: TrustRequirement::Untrusted };
+
+    // Alice sends a message to Bob.
+    let (event, _) = encrypt_message(&alice, room_id, &bob, "Secret message").await;
+    bob.decrypt_room_event(&event, room_id, &decryption_settings)
+        .await
+        .expect("Bob could not decrypt event");
+    let event_encryption_info = bob.get_room_event_encryption_info(&event, room_id).await.unwrap();
+    assert_matches!(
+        event_encryption_info.verification_state,
+        VerificationState::Unverified(VerificationLevel::UnsignedDevice)
+    );
+
+    // Alice now sends a second message to Bob, using the same room key, but the HS
+    // admin rewrites the 'sender' to Charlie.
+    let encrypted_content = alice
+        .encrypt_room_event(
+            room_id,
+            AnyMessageLikeEventContent::RoomMessage(RoomMessageEventContent::text_plain(
+                "spoofed message",
+            )),
+        )
+        .await
+        .unwrap();
+    let event = json!({
+        "event_id": "$xxxxy:example.org",
+        "origin_server_ts": MilliSecondsSinceUnixEpoch::now(),
+        "sender": "@charlie:example.org",  // Note! spoofed sender
+        "type": "m.room.encrypted",
+        "content": encrypted_content,
+    });
+    let event = json_convert(&event).unwrap();
+
+    bob.decrypt_room_event(&event, room_id, &decryption_settings)
+        .await
+        .expect("Bob could not decrypt spoofed event");
+
+    // The verification_state of the event should be `MissingDevice` (since it
+    // manifests as a message from Charlie which does not correspond to one of
+    // Charlie's devices).
+    let event_encryption_info = bob.get_room_event_encryption_info(&event, room_id).await.unwrap();
+    assert_matches!(
+        event_encryption_info.verification_state,
+        VerificationState::Unverified(VerificationLevel::None(DeviceLinkProblem::MissingDevice))
+    );
+}
+
 #[async_test]
 async fn test_verification_states_multiple_device() {
     let (bob, _) = get_prepared_machine_test_helper(tests::user_id(), false).await;

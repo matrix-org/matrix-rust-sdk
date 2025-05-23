@@ -1540,8 +1540,30 @@ impl OlmMachine {
     ) -> MegolmResult<(VerificationState, Option<OwnedDeviceId>)> {
         let sender_data = self.get_or_update_sender_data(session, sender).await?;
 
-        let (verification_state, device_id) =
-            sender_data_to_verification_state(sender_data, session.has_been_imported());
+        // If the user ID in the sender data doesn't match that in the event envelope,
+        // this event is not from who it appears to be from.
+        //
+        // If `sender_data.user_id()` returns `None`, that means we don't have any
+        // information about the owner of the session (i.e. we have
+        // `SenderData::UnknownDevice`); in that case we fall through to the
+        // logic in `sender_data_to_verification_state` which will pick an appropriate
+        // `DeviceLinkProblem` for `VerificationLevel::None`.
+        let (verification_state, device_id) = match sender_data.user_id() {
+            Some(i) if i != sender => {
+                // For backwards compatibility, we treat this the same as "Unknown device".
+                // TODO: use a dedicated VerificationLevel here.
+                (
+                    VerificationState::Unverified(VerificationLevel::None(
+                        DeviceLinkProblem::MissingDevice,
+                    )),
+                    None,
+                )
+            }
+
+            Some(_) | None => {
+                sender_data_to_verification_state(sender_data, session.has_been_imported())
+            }
+        };
 
         Ok((verification_state, device_id))
     }
