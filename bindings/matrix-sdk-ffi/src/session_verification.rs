@@ -1,6 +1,5 @@
 use std::sync::{Arc, RwLock};
 
-use async_compat::get_runtime_handle;
 use futures_util::StreamExt;
 use matrix_sdk::{
     encryption::{
@@ -11,6 +10,7 @@ use matrix_sdk::{
     ruma::events::key::verification::VerificationMethod,
     Account,
 };
+use matrix_sdk_common::runtime::get_runtime_handle;
 use ruma::UserId;
 use tracing::{error, warn};
 
