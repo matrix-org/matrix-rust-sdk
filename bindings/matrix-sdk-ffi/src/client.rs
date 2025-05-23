@@ -39,6 +39,7 @@ use matrix_sdk::{
     store::RoomLoadSettings as SdkRoomLoadSettings,
     AuthApi, AuthSession, Client as MatrixClient, SessionChange, SessionTokens,
 };
+use matrix_sdk_common::{AsyncTraitDeps, SendOutsideWasm, SyncOutsideWasm};
 use matrix_sdk_ui::{
     notification_client::{
         NotificationClient as MatrixNotificationClient,
@@ -164,24 +165,24 @@ impl From<PushFormat> for RumaPushFormat {
 }
 
 #[matrix_sdk_ffi_macros::export(callback_interface)]
-pub trait ClientDelegate: Sync + Send {
+pub trait ClientDelegate: SyncOutsideWasm + SendOutsideWasm {
     fn did_receive_auth_error(&self, is_soft_logout: bool);
 }
 
 #[matrix_sdk_ffi_macros::export(callback_interface)]
-pub trait ClientSessionDelegate: Sync + Send {
+pub trait ClientSessionDelegate: AsyncTraitDeps {
     fn retrieve_session_from_keychain(&self, user_id: String) -> Result<Session, ClientError>;
     fn save_session_in_keychain(&self, session: Session);
 }
 
 #[matrix_sdk_ffi_macros::export(callback_interface)]
-pub trait ProgressWatcher: Send + Sync {
+pub trait ProgressWatcher: SendOutsideWasm + SyncOutsideWasm {
     fn transmission_progress(&self, progress: TransmissionProgress);
 }
 
 /// A listener to the global (client-wide) error reporter of the send queue.
 #[matrix_sdk_ffi_macros::export(callback_interface)]
-pub trait SendQueueRoomErrorListener: Sync + Send {
+pub trait SendQueueRoomErrorListener: SyncOutsideWasm + SendOutsideWasm {
     /// Called every time the send queue has ran into an error for a given room,
     /// which will disable the send queue for that particular room.
     fn on_error(&self, room_id: String, error: ClientError);
@@ -189,14 +190,14 @@ pub trait SendQueueRoomErrorListener: Sync + Send {
 
 /// A listener for changes of global account data events.
 #[matrix_sdk_ffi_macros::export(callback_interface)]
-pub trait AccountDataListener: Sync + Send {
+pub trait AccountDataListener: SyncOutsideWasm + SendOutsideWasm {
     /// Called when a global account data event has changed.
     fn on_change(&self, event: AccountDataEvent);
 }
 
 /// A listener for changes of room account data events.
 #[matrix_sdk_ffi_macros::export(callback_interface)]
-pub trait RoomAccountDataListener: Sync + Send {
+pub trait RoomAccountDataListener: SyncOutsideWasm + SendOutsideWasm {
     /// Called when a room account data event was changed.
     fn on_change(&self, event: RoomAccountDataEvent, room_id: String);
 }
@@ -1485,12 +1486,12 @@ impl Client {
 }
 
 #[matrix_sdk_ffi_macros::export(callback_interface)]
-pub trait MediaPreviewConfigListener: Sync + Send {
+pub trait MediaPreviewConfigListener: SyncOutsideWasm + SendOutsideWasm {
     fn on_change(&self, media_preview_config: MediaPreviewConfig);
 }
 
 #[matrix_sdk_ffi_macros::export(callback_interface)]
-pub trait IgnoredUsersListener: Sync + Send {
+pub trait IgnoredUsersListener: SyncOutsideWasm + SendOutsideWasm {
     fn call(&self, ignored_user_ids: Vec<String>);
 }
 

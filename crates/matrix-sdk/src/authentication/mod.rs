@@ -48,11 +48,23 @@ impl fmt::Debug for SessionTokens {
     }
 }
 
+#[cfg(not(target_family = "wasm"))]
 pub(crate) type SessionCallbackError = Box<dyn std::error::Error + Send + Sync>;
+#[cfg(target_family = "wasm")]
+pub(crate) type SessionCallbackError = Box<dyn std::error::Error>;
+
+#[cfg(not(target_family = "wasm"))]
 pub(crate) type SaveSessionCallback =
     dyn Fn(Client) -> Result<(), SessionCallbackError> + Send + Sync;
+#[cfg(target_family = "wasm")]
+pub(crate) type SaveSessionCallback = dyn Fn(Client) -> Result<(), SessionCallbackError>;
+
+#[cfg(not(target_family = "wasm"))]
 pub(crate) type ReloadSessionCallback =
     dyn Fn(Client) -> Result<SessionTokens, SessionCallbackError> + Send + Sync;
+#[cfg(target_family = "wasm")]
+pub(crate) type ReloadSessionCallback =
+    dyn Fn(Client) -> Result<SessionTokens, SessionCallbackError>;
 
 /// All the data relative to authentication, and that must be shared between a
 /// client and all its children.

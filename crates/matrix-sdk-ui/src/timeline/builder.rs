@@ -27,6 +27,7 @@ use matrix_sdk::{
     send_queue::RoomSendQueueUpdate,
     Room,
 };
+use matrix_sdk_base::{SendOutsideWasm, SyncOutsideWasm};
 use ruma::{events::AnySyncTimelineEvent, OwnedEventId, RoomVersionId};
 use tokio::sync::broadcast::{error::RecvError, Receiver};
 use tokio_stream::wrappers::errors::BroadcastStreamRecvError;
@@ -134,7 +135,10 @@ impl TimelineBuilder {
     ///   they couldn't be decrypted when the appropriate room key arrives).
     pub fn event_filter<F>(mut self, filter: F) -> Self
     where
-        F: Fn(&AnySyncTimelineEvent, &RoomVersionId) -> bool + Send + Sync + 'static,
+        F: Fn(&AnySyncTimelineEvent, &RoomVersionId) -> bool
+            + SendOutsideWasm
+            + SyncOutsideWasm
+            + 'static,
     {
         self.settings.event_filter = Arc::new(filter);
         self

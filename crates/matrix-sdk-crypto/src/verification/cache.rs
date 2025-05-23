@@ -41,7 +41,7 @@ unsafe impl Sync for VerificationCache {}
 #[test]
 // See https://github.com/matrix-org/matrix-rust-sdk/pull/3749#issuecomment-2312939823.
 fn test_send_sync_for_room() {
-    fn assert_send_sync<T: Send + Sync>() {}
+    fn assert_send_sync<T: SendOutsideWasm + SyncOutsideWasm>() {}
 
     assert_send_sync::<VerificationCache>();
 }

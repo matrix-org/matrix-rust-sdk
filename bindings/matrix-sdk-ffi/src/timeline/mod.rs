@@ -85,6 +85,7 @@ mod msg_like;
 mod reply;
 
 use matrix_sdk::utils::formatted_body_from;
+use matrix_sdk_common::{SendOutsideWasm, SyncOutsideWasm};
 
 use crate::error::QueueWedgeError;
 
@@ -807,12 +808,12 @@ pub enum FocusEventError {
 }
 
 #[matrix_sdk_ffi_macros::export(callback_interface)]
-pub trait TimelineListener: Sync + Send {
+pub trait TimelineListener: SyncOutsideWasm + SendOutsideWasm {
     fn on_update(&self, diff: Vec<Arc<TimelineDiff>>);
 }
 
 #[matrix_sdk_ffi_macros::export(callback_interface)]
-pub trait PaginationStatusListener: Sync + Send {
+pub trait PaginationStatusListener: SyncOutsideWasm + SendOutsideWasm {
     fn on_update(&self, status: RoomPaginationStatus);
 }
 
