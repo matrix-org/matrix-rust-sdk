@@ -45,6 +45,9 @@ use std::{
     task::{Context, Poll},
 };
 
+#[cfg(target_family = "wasm")]
+use anymap2::any::CloneAny;
+#[cfg(not(target_family = "wasm"))]
 use anymap2::any::CloneAnySendSync;
 use eyeball::{SharedObservable, Subscriber};
 use futures_core::Stream;
@@ -68,17 +71,20 @@ mod static_events;
 
 pub use self::context::{Ctx, EventHandlerContext, RawEvent};
 
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(not(target_family = "wasm"))]
 type EventHandlerFut = Pin<Box<dyn Future<Output = ()> + Send>>;
-#[cfg(target_arch = "wasm32")]
+#[cfg(target_family = "wasm")]
 type EventHandlerFut = Pin<Box<dyn Future<Output = ()>>>;
 
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(not(target_family = "wasm"))]
 type EventHandlerFn = dyn Fn(EventHandlerData<'_>) -> EventHandlerFut + Send + Sync;
-#[cfg(target_arch = "wasm32")]
+#[cfg(target_family = "wasm")]
 type EventHandlerFn = dyn Fn(EventHandlerData<'_>) -> EventHandlerFut;
 
+#[cfg(not(target_family = "wasm"))]
 type AnyMap = anymap2::Map<dyn CloneAnySendSync + Send + Sync>;
+#[cfg(target_family = "wasm")]
+type AnyMap = anymap2::Map<dyn CloneAny>;
 
 #[derive(Default)]
 pub(crate) struct EventHandlerStore {
@@ -677,7 +683,7 @@ mod tests {
         InvitedRoomBuilder, JoinedRoomBuilder, DEFAULT_TEST_ROOM_ID,
     };
     use stream_assert::{assert_closed, assert_pending, assert_ready};
-    #[cfg(target_arch = "wasm32")]
+    #[cfg(target_family = "wasm")]
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
     use std::{
         future,
@@ -964,7 +970,7 @@ mod tests {
             // All of Client's async methods that do network requests (and
             // possibly some that don't) are `!Send` on wasm. We obviously want
             // to be able to use them in event handlers.
-            let _caps = client.get_capabilities().await?;
+            let _caps = client.get_capabilities().await.map_err(|e| anyhow::anyhow!("{}", e))?;
             anyhow::Ok(())
         });
     }

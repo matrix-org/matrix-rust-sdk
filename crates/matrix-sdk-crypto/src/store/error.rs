@@ -77,7 +77,13 @@ pub enum CryptoStoreError {
 
     /// A problem with the underlying database backend
     #[error(transparent)]
+    #[cfg(not(target_family = "wasm"))]
     Backend(Box<dyn std::error::Error + Send + Sync>),
+
+    /// A problem with the underlying database backend
+    #[error(transparent)]
+    #[cfg(target_family = "wasm")]
+    Backend(Box<dyn std::error::Error>),
 
     /// An error due to an invalid generation in a cross-process locking scheme.
     #[error("invalid lock generation: {0}")]
@@ -89,9 +95,22 @@ impl CryptoStoreError {
     ///
     /// Shorthand for `StoreError::Backend(Box::new(error))`.
     #[inline]
+    #[cfg(not(target_family = "wasm"))]
     pub fn backend<E>(error: E) -> Self
     where
         E: std::error::Error + Send + Sync + 'static,
+    {
+        Self::Backend(Box::new(error))
+    }
+
+    /// Create a new [`Backend`][Self::Backend] error.
+    ///
+    /// Shorthand for `StoreError::Backend(Box::new(error))`.
+    #[inline]
+    #[cfg(target_family = "wasm")]
+    pub fn backend<E>(error: E) -> Self
+    where
+        E: std::error::Error + 'static,
     {
         Self::Backend(Box::new(error))
     }

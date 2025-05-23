@@ -9,6 +9,7 @@ use matrix_sdk::ruma::{
     api::client::sync::sync_events::UnreadNotificationsCount as RumaUnreadNotificationsCount,
     RoomId,
 };
+use matrix_sdk_common::{SendOutsideWasm, SyncOutsideWasm};
 use matrix_sdk_ui::room_list_service::filters::{
     new_filter_all, new_filter_any, new_filter_category, new_filter_favourite,
     new_filter_fuzzy_match_room_name, new_filter_invite, new_filter_joined, new_filter_non_left,
@@ -330,17 +331,17 @@ impl From<matrix_sdk_ui::room_list_service::RoomListLoadingState> for RoomListLo
 }
 
 #[matrix_sdk_ffi_macros::export(callback_interface)]
-pub trait RoomListServiceStateListener: Send + Sync + Debug {
+pub trait RoomListServiceStateListener: SendOutsideWasm + SyncOutsideWasm + Debug {
     fn on_update(&self, state: RoomListServiceState);
 }
 
 #[matrix_sdk_ffi_macros::export(callback_interface)]
-pub trait RoomListLoadingStateListener: Send + Sync + Debug {
+pub trait RoomListLoadingStateListener: SendOutsideWasm + SyncOutsideWasm + Debug {
     fn on_update(&self, state: RoomListLoadingState);
 }
 
 #[matrix_sdk_ffi_macros::export(callback_interface)]
-pub trait RoomListServiceSyncIndicatorListener: Send + Sync + Debug {
+pub trait RoomListServiceSyncIndicatorListener: SendOutsideWasm + SyncOutsideWasm + Debug {
     fn on_update(&self, sync_indicator: RoomListServiceSyncIndicator);
 }
 
@@ -400,7 +401,7 @@ impl RoomListEntriesUpdate {
 }
 
 #[matrix_sdk_ffi_macros::export(callback_interface)]
-pub trait RoomListEntriesListener: Send + Sync + Debug {
+pub trait RoomListEntriesListener: SendOutsideWasm + SyncOutsideWasm + Debug {
     fn on_update(&self, room_entries_update: Vec<RoomListEntriesUpdate>);
 }
 
