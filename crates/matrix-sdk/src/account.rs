@@ -995,8 +995,7 @@ impl Account {
     /// that will yield new values as they are received.
     ///
     /// The initial value is the one that was stored in the account data
-    /// when the client was started. If no value was found in either the stable
-    /// and unstable type, the default configuration will be returned.
+    /// when the client was started.
     /// and the following code is using a temporary solution until we know which
     /// Matrix version will support the stable type.
     ///
@@ -1026,7 +1025,10 @@ impl Account {
     pub async fn observe_media_preview_config(
         &self,
     ) -> Result<
-        (MediaPreviewConfigEventContent, impl Stream<Item = MediaPreviewConfigEventContent>),
+        (
+            Option<MediaPreviewConfigEventContent>,
+            impl Stream<Item = Option<MediaPreviewConfigEventContent>>,
+        ),
         Error,
     > {
         // We need to create two observers, one for the stable event and one for the
@@ -1035,13 +1037,13 @@ impl Account {
             .client
             .observe_events::<GlobalAccountDataEvent<MediaPreviewConfigEventContent>, ()>();
 
-        let stream = first_observer.subscribe().map(|event| event.0.content);
+        let stream = first_observer.subscribe().map(|event| Some(event.0.content));
 
         let second_observer = self
             .client
             .observe_events::<GlobalAccountDataEvent<UnstableMediaPreviewConfigEventContent>, ()>();
 
-        let second_stream = second_observer.subscribe().map(|event| event.0.content.0);
+        let second_stream = second_observer.subscribe().map(|event| Some(event.0.content.0));
 
         let mut combined_stream = stream::select(stream, second_stream);
 
@@ -1066,8 +1068,7 @@ impl Account {
 
     /// Fetch the media preview configuration event content from the server.
     ///
-    /// If no value was found in either the stable and unstable type, the
-    /// default configuration will be returned.
+    /// Will check first for the stable event and then for the unstable one.
     pub async fn fetch_media_preview_config_event_content(
         &self,
     ) -> Result<MediaPreviewConfigEventContent> {
@@ -1093,26 +1094,24 @@ impl Account {
 
     /// Get the media preview configuration event content stored in the cache.
     ///
-    /// This will return the default configuration if no value was found.
     /// Will check first for the stable event and then for the unstable one.
     pub async fn get_media_preview_config_event_content(
         &self,
-    ) -> Result<MediaPreviewConfigEventContent> {
+    ) -> Result<Option<MediaPreviewConfigEventContent>> {
         let media_preview_config = self
             .account_data::<MediaPreviewConfigEventContent>()
             .await?
             .and_then(|r| r.deserialize().ok());
 
-        let media_preview_config = if let Some(media_preview_config) = media_preview_config {
-            media_preview_config
+        if let Some(media_preview_config) = media_preview_config {
+            Ok(Some(media_preview_config))
         } else {
-            self.account_data::<UnstableMediaPreviewConfigEventContent>()
+            Ok(self
+                .account_data::<UnstableMediaPreviewConfigEventContent>()
                 .await?
                 .and_then(|r| r.deserialize().ok())
-                .unwrap_or_default()
-                .into()
-        };
-        Ok(media_preview_config)
+                .map(Into::into))
+        }
     }
 
     /// Set the media previews display policy in the timeline.
