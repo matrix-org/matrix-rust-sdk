@@ -656,7 +656,7 @@ impl QueueStorage {
                 let from_req = Media::make_local_file_media_request(&file_upload_txn);
 
                 // Store the sent media under the original cache key for later insertion into
-                // the local echo
+                // the local echo.
                 sent_infos.insert(from_req.source.unique_key(), sent_media.clone());
 
                 trace!(from = ?from_req.source, to = ?sent_media.file, "renaming media file key in cache store");

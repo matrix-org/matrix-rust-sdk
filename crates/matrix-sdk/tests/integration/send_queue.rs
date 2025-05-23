@@ -1873,7 +1873,7 @@ async fn test_media_uploads() {
         .expect("queuing the attachment works");
 
     // ----------------------
-    // Observe the local echo
+    // Observe the local echo.
     let (txn, send_handle, content) = assert_update!(watch => local echo event);
     assert_eq!(txn, transaction_id);
 
@@ -2177,7 +2177,7 @@ async fn test_gallery_uploads() {
     q.send_gallery(item_infos, config).await.expect("queuing the gallery works");
 
     // ----------------------
-    // Observe the local echo
+    // Observe the local echo.
     let (txn, send_handle, content) = assert_update!(watch => local echo event);
     assert_eq!(txn, transaction_id);
 
@@ -2276,7 +2276,8 @@ async fn test_gallery_uploads() {
         .expect("media should be found");
     assert_eq!(thumbnail_media, b"thumbnail");
 
-    // Media 2
+    // ----------------------
+    // Media 2.
     assert_let!(GalleryItemType::Image(img_content) = gallery_content.itemtypes.get(1).unwrap());
     assert_eq!(img_content.filename.as_deref().unwrap(), filename2);
     assert_eq!(img_content.body, "caption2");

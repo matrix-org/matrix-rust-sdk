@@ -268,7 +268,7 @@ pub enum DependentQueuedRequestKind {
         /// `Box` the local echo so that it reduces the size of the whole enum.
         local_echo: Box<RoomMessageEventContent>,
 
-        /// Metadata about the gallery items
+        /// Metadata about the gallery items.
         item_infos: Vec<FinishGalleryItemInfo>,
     },
 }
