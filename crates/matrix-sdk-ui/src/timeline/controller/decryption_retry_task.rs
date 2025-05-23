@@ -174,10 +174,7 @@ fn compute_event_indices_to_retry_decryption(
         } else {
             // Non-UTDs only have a session ID if they are remote and have it in the
             // EncryptionInfo
-            event
-                .as_remote()
-                .and_then(|remote| remote.encryption_info.as_ref()?.session_id.as_ref())
-                .map(String::as_str)
+            event.as_remote().and_then(|remote| remote.encryption_info.as_ref()?.session_id())
         };
 
         if let Some(session_id) = session_id {
@@ -232,7 +229,7 @@ async fn make_replacement_for<P: RoomDataProvider>(
     let item = item?;
     let event = item.as_event()?;
     let remote = event.as_remote()?;
-    let session_id = remote.encryption_info.as_ref()?.session_id.as_deref()?;
+    let session_id = remote.encryption_info.as_ref()?.session_id()?;
 
     let new_encryption_info =
         room_data_provider.get_encryption_info(session_id, &event.sender).await;
@@ -515,14 +512,16 @@ mod tests {
                 algorithm_info: AlgorithmInfo::MegolmV1AesSha2 {
                     curve25519_key: "".to_owned(),
                     sender_claimed_keys: BTreeMap::new(),
+                    session_id: Some(session_id.to_owned()),
                 },
                 verification_state: VerificationState::Verified,
-                session_id: Some(session_id.to_owned()),
             }),
             original_json: None,
             latest_edit_json: None,
             origin: RemoteEventOrigin::Sync,
         });
+
+        let content = RoomMessageEventContent::text_plain("hi");
 
         TimelineItem::new(
             TimelineItemKind::Event(EventTimelineItem::new(
@@ -530,8 +529,8 @@ mod tests {
                 TimelineDetails::Pending,
                 timestamp(),
                 TimelineItemContent::message(
-                    RoomMessageEventContent::text_plain("hi"),
-                    None,
+                    content.msgtype,
+                    content.mentions,
                     ReactionsByKeyBySender::default(),
                     None,
                     None,

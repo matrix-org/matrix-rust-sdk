@@ -32,7 +32,7 @@ use matrix_sdk::{
     },
 };
 use matrix_sdk_ui::timeline::{
-    self, EventItemOrigin, Profile, RepliedToEvent, TimelineDetails,
+    self, AttachmentSource, EventItemOrigin, Profile, TimelineDetails,
     TimelineUniqueId as SdkTimelineUniqueId,
 };
 use mime::Mime;
@@ -99,11 +99,6 @@ impl Timeline {
         Arc::new(Self { inner })
     }
 
-    pub(crate) fn from_arc(inner: Arc<matrix_sdk_ui::timeline::Timeline>) -> Arc<Self> {
-        // SAFETY: repr(transparent) means transmuting the arc this way is allowed
-        unsafe { Arc::from_raw(Arc::into_raw(inner) as _) }
-    }
-
     fn send_attachment(
         self: Arc<Self>,
         params: UploadParameters,
@@ -131,7 +126,7 @@ impl Timeline {
 
         let handle = SendAttachmentJoinHandle::new(get_runtime_handle().spawn(async move {
             let mut request =
-                self.inner.send_attachment(params.filename, mime_type, attachment_config);
+                self.inner.send_attachment(params.source, mime_type, attachment_config);
 
             if params.use_send_queue {
                 request = request.use_send_queue();
@@ -201,8 +196,8 @@ fn build_thumbnail_info(
 
 #[derive(uniffi::Record)]
 pub struct UploadParameters {
-    /// Filename (previously called "url") for the media to be sent.
-    filename: String,
+    /// Source from which to upload data
+    source: UploadSource,
     /// Optional non-formatted caption, for clients that support it.
     caption: Option<String>,
     /// Optional HTML-formatted caption, for clients that support it.
@@ -215,6 +210,32 @@ pub struct UploadParameters {
     ///
     /// Watching progress only works with the synchronous method, at the moment.
     use_send_queue: bool,
+}
+
+/// A source for uploading a file
+#[derive(uniffi::Enum)]
+pub enum UploadSource {
+    /// Upload source is a file on disk
+    File {
+        /// Path to file
+        filename: String,
+    },
+    /// Upload source is data in memory
+    Data {
+        /// Bytes being uploaded
+        bytes: Vec<u8>,
+        /// Filename to associate with bytes
+        filename: String,
+    },
+}
+
+impl From<UploadSource> for AttachmentSource {
+    fn from(value: UploadSource) -> Self {
+        match value {
+            UploadSource::File { filename } => Self::File(filename.into()),
+            UploadSource::Data { bytes, filename } => Self::Data { bytes, filename },
+        }
+    }
 }
 
 #[derive(uniffi::Record)]
@@ -661,20 +682,23 @@ impl Timeline {
         let event_id = EventId::parse(&event_id_str)?;
 
         let replied_to = match self.inner.room().load_or_fetch_event(&event_id, None).await {
-            Ok(event) => RepliedToEvent::try_from_timeline_event_for_room(event, self.inner.room())
-                .await
-                .map_err(ClientError::from),
+            Ok(event) => self.inner.make_replied_to(event).await.map_err(ClientError::from),
             Err(e) => Err(ClientError::from(e)),
         };
 
         match replied_to {
-            Ok(replied_to) => Ok(Arc::new(InReplyToDetails::new(
+            Ok(Some(replied_to)) => Ok(Arc::new(InReplyToDetails::new(
                 event_id_str,
                 RepliedToEventDetails::Ready {
                     content: replied_to.content().clone().into(),
                     sender: replied_to.sender().to_string(),
                     sender_profile: replied_to.sender_profile().into(),
                 },
+            ))),
+
+            Ok(None) => Ok(Arc::new(InReplyToDetails::new(
+                event_id_str,
+                RepliedToEventDetails::Error { message: "unsupported event".to_owned() },
             ))),
 
             Err(e) => Ok(Arc::new(InReplyToDetails::new(

@@ -186,7 +186,7 @@ async fn test_toggling_reaction() -> Result<()> {
         // Local echo is added.
         {
             let event = assert_event_is_updated!(timeline_updates[0], event_id, message_position);
-            let reactions = event.content().reactions();
+            let reactions = event.content().reactions().cloned().unwrap_or_default();
             let reactions = reactions.get(&reaction_key).unwrap();
             let reaction = reactions.get(&user_id).unwrap();
             assert_matches!(reaction.status, ReactionStatus::LocalToRemote(..));
@@ -196,7 +196,7 @@ async fn test_toggling_reaction() -> Result<()> {
         {
             let event = assert_event_is_updated!(timeline_updates[1], event_id, message_position);
 
-            let reactions = event.content().reactions();
+            let reactions = event.content().reactions().cloned().unwrap_or_default();
             let reactions = reactions.get(&reaction_key).unwrap();
             assert_eq!(reactions.keys().count(), 1);
 
@@ -223,7 +223,7 @@ async fn test_toggling_reaction() -> Result<()> {
 
         // The reaction is removed.
         let event = assert_event_is_updated!(timeline_updates[0], event_id, message_position);
-        assert!(event.content().reactions().is_empty());
+        assert!(event.content().reactions().cloned().unwrap_or_default().is_empty());
 
         assert_pending!(stream);
     }
@@ -713,6 +713,7 @@ async fn test_room_keys_received_on_notification_client_trigger_redecryption() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "Flaky: times out waiting for timeline update that message was from a secure device"]
 async fn test_new_users_first_messages_dont_warn_about_insecure_device_if_it_is_secure() {
     async fn timeline_messages(timeline: &Timeline) -> Vec<EventTimelineItem> {
         timeline

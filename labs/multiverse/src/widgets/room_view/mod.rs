@@ -319,16 +319,14 @@ impl RoomView {
 
     /// Mark the currently selected room as read.
     pub async fn mark_as_read(&mut self) {
-        let selected = self.selected_room.as_deref();
-
-        let Some(room) = selected.and_then(|room_id| self.ui_rooms.lock().get(room_id).cloned())
-        else {
-            self.status_handle.set_message("missing room or nothing to show".to_owned());
+        let Some(sdk_timeline) = self.selected_room.as_deref().and_then(|room_id| {
+            self.timelines.lock().get(room_id).map(|timeline| timeline.timeline.clone())
+        }) else {
+            self.status_handle.set_message("missing timeline for room".to_owned());
             return;
         };
 
-        // Mark as read!
-        match room.timeline().unwrap().mark_as_read(ReceiptType::Read).await {
+        match sdk_timeline.mark_as_read(ReceiptType::Read).await {
             Ok(did) => {
                 self.status_handle.set_message(format!(
                     "did {}send a read receipt!",

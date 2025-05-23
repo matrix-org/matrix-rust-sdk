@@ -7,7 +7,7 @@ use matrix_sdk_base::{
 };
 use matrix_sdk_sqlite::SqliteStateStore;
 use matrix_sdk_test::{event_factory::EventFactory, JoinedRoomBuilder, StateTestEvent};
-use matrix_sdk_ui::{timeline::TimelineFocus, Timeline};
+use matrix_sdk_ui::timeline::{TimelineBuilder, TimelineFocus};
 use ruma::{
     api::client::membership::get_member_events,
     device_id,
@@ -182,7 +182,7 @@ pub fn load_pinned_events_benchmark(c: &mut Criterion) {
                 .await
                 .unwrap();
 
-            let timeline = Timeline::builder(&room)
+            let timeline = TimelineBuilder::new(&room)
                 .with_focus(TimelineFocus::PinnedEvents {
                     max_events_to_load: 100,
                     max_concurrent_requests: 10,

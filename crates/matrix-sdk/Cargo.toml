@@ -8,34 +8,44 @@ license = "Apache-2.0"
 name = "matrix-sdk"
 readme = "README.md"
 repository = "https://github.com/matrix-org/matrix-rust-sdk"
-rust-version = { workspace = true }
+rust-version.workspace = true
 version = "0.11.0"
 
 [package.metadata.docs.rs]
 features = ["docsrs"]
-rustdoc-args = ["--cfg", "docsrs"]
+rustdoc-args = ["--cfg", "docsrs", "--generate-link-to-definition"]
 
 [features]
 default = ["e2e-encryption", "automatic-room-key-forwarding", "sqlite", "native-tls"]
-testing = ["matrix-sdk-sqlite?/testing", "matrix-sdk-indexeddb?/testing", "matrix-sdk-base/testing", "wiremock", "matrix-sdk-test", "assert_matches2"]
+testing = [
+    "matrix-sdk-sqlite?/testing",
+    "matrix-sdk-indexeddb?/testing",
+    "matrix-sdk-base/testing",
+    "wiremock",
+    "matrix-sdk-test",
+    "assert_matches2",
+]
 
 e2e-encryption = [
     "matrix-sdk-base/e2e-encryption",
-    "matrix-sdk-sqlite?/crypto-store",        # activate crypto-store on sqlite if given
-    "matrix-sdk-indexeddb?/e2e-encryption",   # activate on indexeddb if given
+    # activate crypto-store on sqlite if given
+    "matrix-sdk-sqlite?/crypto-store",
+    # activate on indexeddb if given
+    "matrix-sdk-indexeddb?/e2e-encryption",
 ]
 js = ["matrix-sdk-common/js", "matrix-sdk-base/js"]
 
 sqlite = [
     "dep:matrix-sdk-sqlite",
     "matrix-sdk-sqlite?/state-store",
-    "matrix-sdk-sqlite?/event-cache"
+    "matrix-sdk-sqlite?/event-cache",
 ]
 bundled-sqlite = ["sqlite", "matrix-sdk-sqlite?/bundled"]
 indexeddb = ["matrix-sdk-indexeddb/state-store"]
 
 qrcode = ["e2e-encryption", "matrix-sdk-base/qrcode"]
 automatic-room-key-forwarding = ["e2e-encryption", "matrix-sdk-base/automatic-room-key-forwarding"]
+experimental-send-custom-to-device = ["e2e-encryption", "matrix-sdk-base/experimental-send-custom-to-device"]
 markdown = ["ruma/markdown"]
 native-tls = ["reqwest/native-tls"]
 rustls-tls = ["reqwest/rustls-tls"]
@@ -56,39 +66,39 @@ unstable-msc4274 = ["ruma/unstable-msc4274", "matrix-sdk-base/unstable-msc4274"]
 [dependencies]
 anyhow = { workspace = true, optional = true }
 anymap2 = "0.13.0"
-aquamarine = { workspace = true }
+aquamarine.workspace = true
+as_variant.workspace = true
 assert_matches2 = { workspace = true, optional = true }
-as_variant = { workspace = true }
 async-channel = "2.3.1"
-async-stream = { workspace = true }
-async-trait = { workspace = true }
+async-stream.workspace = true
+async-trait.workspace = true
 axum = { version = "0.8.1", optional = true }
 bytes = "1.9.0"
 bytesize = "2.0.1"
+cfg-if = "1.0.0"
 event-listener = "5.4.0"
-eyeball = { workspace = true }
-eyeball-im = { workspace = true }
+eyeball.workspace = true
+eyeball-im.workspace = true
 eyre = { version = "0.6.12", optional = true }
-futures-core = { workspace = true }
-futures-util = { workspace = true }
-growable-bloom-filter = { workspace = true }
-http = { workspace = true }
+futures-core.workspace = true
+futures-util.workspace = true
+http.workspace = true
 imbl = { workspace = true, features = ["serde"] }
-indexmap = { workspace = true }
+indexmap.workspace = true
 js_int = "0.2.2"
 language-tags = { version = "0.3.2" }
-matrix-sdk-base = { workspace = true }
-matrix-sdk-common = { workspace = true }
+matrix-sdk-base.workspace = true
+matrix-sdk-common.workspace = true
 matrix-sdk-ffi-macros = { workspace = true, optional = true }
 matrix-sdk-indexeddb = { workspace = true, optional = true }
 matrix-sdk-sqlite = { workspace = true, optional = true }
 matrix-sdk-test = { workspace = true, optional = true }
-mime = { workspace = true }
+mime.workspace = true
 mime2ext = "0.1.53"
 oauth2 = { version = "5.0.0", default-features = false, features = ["reqwest", "timing-resistant-secret-traits"] }
-once_cell = { workspace = true }
+once_cell.workspace = true
 percent-encoding = "2.3.1"
-pin-project-lite = { workspace = true }
+pin-project-lite.workspace = true
 rand = { workspace = true, optional = true }
 ruma = { workspace = true, features = [
     "rand",
@@ -96,17 +106,17 @@ ruma = { workspace = true, features = [
     "unstable-msc2965",
     "unstable-msc3930",
     "unstable-msc3245-v1-compat",
-    "unstable-msc2867",
     "unstable-msc4230",
     "unstable-msc2967",
     "unstable-msc4108",
+    "unstable-msc4278",
 ] }
-serde = { workspace = true }
-serde_html_form = { workspace = true }
-serde_json = { workspace = true }
-sha2 = { workspace = true }
-tempfile = { workspace = true }
-thiserror = { workspace = true }
+serde.workspace = true
+serde_html_form.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+tempfile.workspace = true
+thiserror.workspace = true
 tokio-stream = { workspace = true, features = ["sync"] }
 tokio-util = "0.7.13"
 tower = { version = "0.5.2", features = ["util"], optional = true }
@@ -115,14 +125,8 @@ uniffi = { workspace = true, optional = true }
 url = { workspace = true, features = ["serde"] }
 urlencoding = "2.1.3"
 uuid = { workspace = true, features = ["serde", "v4"], optional = true }
-vodozemac = { workspace = true }
-zeroize = { workspace = true }
-cfg-if = "1.0.0"
-
-[target.'cfg(target_arch = "wasm32")'.dependencies]
-gloo-timers = { workspace = true, features = ["futures"] }
-reqwest = { workspace = true, features = ["gzip", "http2"] }
-tokio = { workspace = true, features = ["macros"] }
+vodozemac.workspace = true
+zeroize.workspace = true
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 backon = "1.5.0"
@@ -132,28 +136,34 @@ reqwest = { workspace = true, features = ["stream", "gzip", "http2"] }
 tokio = { workspace = true, features = ["fs", "rt", "macros"] }
 wiremock = { workspace = true, optional = true }
 
-[dev-dependencies]
-anyhow = { workspace = true }
-assert-json-diff = { workspace = true }
-assert_matches = { workspace = true }
-assert_matches2 = { workspace = true }
-dirs = "6.0.0"
-futures-executor = { workspace = true }
-matrix-sdk-base = { workspace = true, features = ["testing"] }
-matrix-sdk-test = { workspace = true }
-serde_urlencoded = "0.7.1"
-similar-asserts = { workspace = true }
-stream_assert = { workspace = true }
-tracing-subscriber = { workspace = true, features = ["env-filter"] }
-tokio-test = "0.4.4"
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+gloo-timers = { workspace = true, features = ["futures"] }
+reqwest = { workspace = true, features = ["gzip", "http2"] }
+tokio = { workspace = true, features = ["macros"] }
 
-[target.'cfg(target_arch = "wasm32")'.dev-dependencies]
-wasm-bindgen-test = { workspace = true }
+[dev-dependencies]
+anyhow.workspace = true
+assert-json-diff.workspace = true
+assert_matches.workspace = true
+assert_matches2.workspace = true
+dirs = "6.0.0"
+futures-executor.workspace = true
+insta.workspace = true
+matrix-sdk-base = { workspace = true, features = ["testing"] }
+matrix-sdk-test.workspace = true
+serde_urlencoded = "0.7.1"
+similar-asserts.workspace = true
+stream_assert.workspace = true
+tokio-test = "0.4.4"
+tracing-subscriber = { workspace = true, features = ["env-filter"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
-proptest = { workspace = true }
+proptest.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
-wiremock = { workspace = true }
+wiremock.workspace = true
+
+[target.'cfg(target_arch = "wasm32")'.dev-dependencies]
+wasm-bindgen-test.workspace = true
 
 [[test]]
 name = "integration"

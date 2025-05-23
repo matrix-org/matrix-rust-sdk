@@ -707,12 +707,6 @@ impl RoomSendQueue {
                 trace!(%relates_to, "uploading media related to event");
 
                 let fut = async move {
-                    let mime = Mime::from_str(&content_type).map_err(|_| {
-                        crate::Error::SendQueueWedgeError(Box::new(
-                            QueueWedgeError::InvalidMimeType { mime_type: content_type.clone() },
-                        ))
-                    })?;
-
                     let data = room
                         .client()
                         .event_cache_store()
@@ -724,13 +718,19 @@ impl RoomSendQueue {
                             QueueWedgeError::MissingMediaContent,
                         )))?;
 
+                    let mime = Mime::from_str(&content_type).map_err(|_| {
+                        crate::Error::SendQueueWedgeError(Box::new(
+                            QueueWedgeError::InvalidMimeType { mime_type: content_type.clone() },
+                        ))
+                    })?;
+
                     #[cfg(feature = "e2e-encryption")]
                     let media_source = if room.latest_encryption_state().await?.is_encrypted() {
                         trace!("upload will be encrypted (encrypted room)");
                         let mut cursor = std::io::Cursor::new(data);
                         let encrypted_file = room
                             .client()
-                            .upload_encrypted_file(&mime, &mut cursor)
+                            .upload_encrypted_file(&mut cursor)
                             .with_request_config(RequestConfig::short_retry())
                             .await?;
                         MediaSource::Encrypted(Box::new(encrypted_file))

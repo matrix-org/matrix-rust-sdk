@@ -6,6 +6,27 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased] - ReleaseDate
 
+### Refactor
+
+- [**breaking**] [`TimelineItemContent::reactions()`] returns an `Option<&ReactionsByKeyBySender>`
+  instead of `ReactionsByKeyBySender`. This reflects the fact that some timeline items cannot hold
+  reactions at all.
+
+### Bug Fixes
+
+- Introduce `Timeline` regions, which helps to remove a class of bugs in the
+  `Timeline` where items could be inserted in the wrong _regions_, such as
+  a remote timeline item before the `TimelineStart` virtual timeline item.
+  ([#5000](https://github.com/matrix-org/matrix-rust-sdk/pull/5000))
+
+### Features
+
+- `Timeline::send_single_receipt()` and `Timeline::send_multiple_receipts()` now also unset the
+  unread flag of the room if an unthreaded read receipt is sent.
+  ([#5055](https://github.com/matrix-org/matrix-rust-sdk/pull/5055))
+- `Timeline::mark_as_read()` unsets the unread flag of the room if it was set.
+  ([#5055](https://github.com/matrix-org/matrix-rust-sdk/pull/5055))
+
 ## [0.11.0] - 2025-04-11
 
 ### Bug Fixes
@@ -13,15 +34,15 @@ All notable changes to this project will be documented in this file.
 ### Features
 
 - [**breaking**] Optionally allow starting threads with `Timeline::send_reply`.
-  ([4819](https://github.com/matrix-org/matrix-rust-sdk/pull/4819))
+  ([#4819](https://github.com/matrix-org/matrix-rust-sdk/pull/4819))
 - [**breaking**] Push `RepliedToInfo`, `ReplyContent`, `EnforceThread` and
   `UnsupportedReplyItem` (becoming `ReplyError`) down into matrix_sdk.
   [`Timeline::send_reply()`] now takes an event ID rather than a `RepliedToInfo`.
   `Timeline::replied_to_info_from_event_id` has been made private in `matrix_sdk`.
-  ([4842](https://github.com/matrix-org/matrix-rust-sdk/pull/4842))
+  ([#4842](https://github.com/matrix-org/matrix-rust-sdk/pull/4842))
 - Allow sending media as (thread) replies. The reply behaviour can be configured
   through new fields on [`AttachmentConfig`].
-  ([4852](https://github.com/matrix-org/matrix-rust-sdk/pull/4852))
+  ([#4852](https://github.com/matrix-org/matrix-rust-sdk/pull/4852))
 
 ### Refactor
 

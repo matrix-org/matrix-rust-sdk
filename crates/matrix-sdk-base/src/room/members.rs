@@ -13,27 +13,187 @@
 // limitations under the License.
 
 use std::{
-    collections::{BTreeSet, HashMap},
+    collections::{BTreeMap, BTreeSet, HashMap},
+    mem,
     sync::Arc,
 };
 
+use bitflags::bitflags;
 use ruma::{
     events::{
+        ignored_user_list::IgnoredUserListEventContent,
         presence::PresenceEvent,
         room::{
-            member::MembershipState,
+            member::{MembershipState, RoomMemberEventContent},
             power_levels::{PowerLevelAction, RoomPowerLevels, RoomPowerLevelsEventContent},
         },
         MessageLikeEventType, StateEventType,
     },
     MxcUri, OwnedUserId, UserId,
 };
+use tracing::debug;
 
+use super::Room;
 use crate::{
     deserialized_responses::{DisplayName, MemberEvent, SyncOrStrippedState},
-    store::ambiguity_map::is_display_name_ambiguous,
+    store::{ambiguity_map::is_display_name_ambiguous, Result as StoreResult, StateStoreExt},
     MinimalRoomMemberEvent,
 };
+
+impl Room {
+    /// Check if the room has its members fully synced.
+    ///
+    /// Members might be missing if lazy member loading was enabled for the
+    /// sync.
+    ///
+    /// Returns true if no members are missing, false otherwise.
+    pub fn are_members_synced(&self) -> bool {
+        self.inner.read().members_synced
+    }
+
+    /// Mark this Room as holding all member information.
+    ///
+    /// Useful in tests if we want to persuade the Room not to sync when asked
+    /// about its members.
+    #[cfg(feature = "testing")]
+    pub fn mark_members_synced(&self) {
+        self.inner.update(|info| {
+            info.members_synced = true;
+        });
+    }
+
+    /// Mark this Room as still missing member information.
+    pub fn mark_members_missing(&self) {
+        self.inner.update_if(|info| {
+            // notify observable subscribers only if the previous value was false
+            mem::replace(&mut info.members_synced, false)
+        })
+    }
+
+    /// Get the `RoomMember`s of this room that are known to the store, with the
+    /// given memberships.
+    pub async fn members(&self, memberships: RoomMemberships) -> StoreResult<Vec<RoomMember>> {
+        let user_ids = self.store.get_user_ids(self.room_id(), memberships).await?;
+
+        if user_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let member_events = self
+            .store
+            .get_state_events_for_keys_static::<RoomMemberEventContent, _, _>(
+                self.room_id(),
+                &user_ids,
+            )
+            .await?
+            .into_iter()
+            .map(|raw_event| raw_event.deserialize())
+            .collect::<Result<Vec<_>, _>>()?;
+
+        let mut profiles = self.store.get_profiles(self.room_id(), &user_ids).await?;
+
+        let mut presences = self
+            .store
+            .get_presence_events(&user_ids)
+            .await?
+            .into_iter()
+            .filter_map(|e| {
+                e.deserialize().ok().map(|presence| (presence.sender.clone(), presence))
+            })
+            .collect::<BTreeMap<_, _>>();
+
+        let display_names = member_events.iter().map(|e| e.display_name()).collect::<Vec<_>>();
+        let room_info = self.member_room_info(&display_names).await?;
+
+        let mut members = Vec::new();
+
+        for event in member_events {
+            let profile = profiles.remove(event.user_id());
+            let presence = presences.remove(event.user_id());
+            members.push(RoomMember::from_parts(event, profile, presence, &room_info))
+        }
+
+        Ok(members)
+    }
+
+    /// Returns the number of members who have joined or been invited to the
+    /// room.
+    pub fn active_members_count(&self) -> u64 {
+        self.inner.read().active_members_count()
+    }
+
+    /// Returns the number of members who have been invited to the room.
+    pub fn invited_members_count(&self) -> u64 {
+        self.inner.read().invited_members_count()
+    }
+
+    /// Returns the number of members who have joined the room.
+    pub fn joined_members_count(&self) -> u64 {
+        self.inner.read().joined_members_count()
+    }
+
+    /// Get the `RoomMember` with the given `user_id`.
+    ///
+    /// Returns `None` if the member was never part of this room, otherwise
+    /// return a `RoomMember` that can be in a joined, RoomState::Invited, left,
+    /// banned state.
+    ///
+    /// Async because it can read from storage.
+    pub async fn get_member(&self, user_id: &UserId) -> StoreResult<Option<RoomMember>> {
+        let Some(raw_event) = self.store.get_member_event(self.room_id(), user_id).await? else {
+            debug!(%user_id, "Member event not found in state store");
+            return Ok(None);
+        };
+
+        let event = raw_event.deserialize()?;
+
+        let presence =
+            self.store.get_presence_event(user_id).await?.and_then(|e| e.deserialize().ok());
+
+        let profile = self.store.get_profile(self.room_id(), user_id).await?;
+
+        let display_names = [event.display_name()];
+        let room_info = self.member_room_info(&display_names).await?;
+
+        Ok(Some(RoomMember::from_parts(event, profile, presence, &room_info)))
+    }
+
+    /// The current `MemberRoomInfo` for this room.
+    ///
+    /// Async because it can read from storage.
+    async fn member_room_info<'a>(
+        &self,
+        display_names: &'a [DisplayName],
+    ) -> StoreResult<MemberRoomInfo<'a>> {
+        let max_power_level = self.max_power_level();
+        let room_creator = self.inner.read().creator().map(ToOwned::to_owned);
+
+        let power_levels = self
+            .store
+            .get_state_event_static(self.room_id())
+            .await?
+            .and_then(|e| e.deserialize().ok());
+
+        let users_display_names =
+            self.store.get_users_with_display_names(self.room_id(), display_names).await?;
+
+        let ignored_users = self
+            .store
+            .get_account_data_event_static::<IgnoredUserListEventContent>()
+            .await?
+            .map(|c| c.deserialize())
+            .transpose()?
+            .map(|e| e.content.ignored_users.into_keys().collect());
+
+        Ok(MemberRoomInfo {
+            power_levels: power_levels.into(),
+            max_power_level,
+            room_creator,
+            users_display_names,
+            ignored_users,
+        })
+    }
+}
 
 /// A member of a room.
 #[derive(Clone, Debug)]
@@ -250,4 +410,79 @@ pub(crate) struct MemberRoomInfo<'a> {
     pub(crate) room_creator: Option<OwnedUserId>,
     pub(crate) users_display_names: HashMap<&'a DisplayName, BTreeSet<OwnedUserId>>,
     pub(crate) ignored_users: Option<BTreeSet<OwnedUserId>>,
+}
+
+/// The kind of room member updates that just happened.
+#[derive(Debug, Clone)]
+pub enum RoomMembersUpdate {
+    /// The whole list room members was reloaded.
+    FullReload,
+    /// A few members were updated, their user ids are included.
+    Partial(BTreeSet<OwnedUserId>),
+}
+
+bitflags! {
+    /// Room membership filter as a bitset.
+    ///
+    /// Note that [`RoomMemberships::empty()`] doesn't filter the results and
+    /// [`RoomMemberships::all()`] filters out unknown memberships.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+    pub struct RoomMemberships: u16 {
+        /// The member joined the room.
+        const JOIN    = 0b00000001;
+        /// The member was invited to the room.
+        const INVITE  = 0b00000010;
+        /// The member requested to join the room.
+        const KNOCK   = 0b00000100;
+        /// The member left the room.
+        const LEAVE   = 0b00001000;
+        /// The member was banned.
+        const BAN     = 0b00010000;
+
+        /// The member is active in the room (i.e. joined or invited).
+        const ACTIVE = Self::JOIN.bits() | Self::INVITE.bits();
+    }
+}
+
+impl RoomMemberships {
+    /// Whether the given membership matches this `RoomMemberships`.
+    pub fn matches(&self, membership: &MembershipState) -> bool {
+        if self.is_empty() {
+            return true;
+        }
+
+        let membership = match membership {
+            MembershipState::Ban => Self::BAN,
+            MembershipState::Invite => Self::INVITE,
+            MembershipState::Join => Self::JOIN,
+            MembershipState::Knock => Self::KNOCK,
+            MembershipState::Leave => Self::LEAVE,
+            _ => return false,
+        };
+
+        self.contains(membership)
+    }
+
+    /// Get this `RoomMemberships` as a list of matching [`MembershipState`]s.
+    pub fn as_vec(&self) -> Vec<MembershipState> {
+        let mut memberships = Vec::new();
+
+        if self.contains(Self::JOIN) {
+            memberships.push(MembershipState::Join);
+        }
+        if self.contains(Self::INVITE) {
+            memberships.push(MembershipState::Invite);
+        }
+        if self.contains(Self::KNOCK) {
+            memberships.push(MembershipState::Knock);
+        }
+        if self.contains(Self::LEAVE) {
+            memberships.push(MembershipState::Leave);
+        }
+        if self.contains(Self::BAN) {
+            memberships.push(MembershipState::Ban);
+        }
+
+        memberships
+    }
 }

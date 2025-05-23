@@ -6,9 +6,26 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased] - ReleaseDate
 
+Breaking changes:
+
+- `UploadParameters` replaces field `filename: String` with `source: UploadSource`.
+  `UploadSource` is an enum which may take a filename or a filename and bytes, which
+  allows a foreign language to read file contents natively and then pass those contents to
+  the foreign function when uploading a file through the `Timeline`.
+  ([#4948](https://github.com/matrix-org/matrix-rust-sdk/pull/4948))
+- `RoomInfo` replaces its field `is_tombstoned: bool` with `tombstone: Option<RoomTombstoneInfo>`,
+  containing the data needed to implement the room migration UI, a message and the replacement room id.
+  ([#5027](https://github.com/matrix-org/matrix-rust-sdk/pull/5027))
+
 Additions:
 
+- Support for adding a Sentry layer to the FFI bindings has been added. Only `tracing` statements with
+  the field `sentry=true` will be forwarded to Sentry, in addition to default Sentry filters.
 - Add room topic string to `StateEventContent`
+- Add `UploadSource` for representing upload data - this is analogous to `matrix_sdk_ui::timeline::AttachmentSource`
+- Add `Client::observe_account_data_event` and `Client::observe_room_account_data_event` to
+  subscribe to global and room account data changes.
+  ([#4994](https://github.com/matrix-org/matrix-rust-sdk/pull/4994))
 
 Breaking changes:
 

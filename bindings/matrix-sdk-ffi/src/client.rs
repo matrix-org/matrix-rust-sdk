@@ -1,11 +1,13 @@
 use std::{
     collections::HashMap,
     fmt::Debug,
-    sync::{Arc, RwLock},
+    sync::{Arc, OnceLock, RwLock},
+    time::Duration,
 };
 
 use anyhow::{anyhow, Context as _};
 use async_compat::get_runtime_handle;
+use futures_util::{pin_mut, StreamExt};
 use matrix_sdk::{
     authentication::oauth::{
         AccountManagementActionFull, ClientId, OAuthAuthorizationData, OAuthSession,
@@ -37,16 +39,24 @@ use matrix_sdk::{
     store::RoomLoadSettings as SdkRoomLoadSettings,
     AuthApi, AuthSession, Client as MatrixClient, SessionChange, SessionTokens,
 };
-use matrix_sdk_ui::notification_client::{
-    NotificationClient as MatrixNotificationClient,
-    NotificationProcessSetup as MatrixNotificationProcessSetup,
+use matrix_sdk_ui::{
+    notification_client::{
+        NotificationClient as MatrixNotificationClient,
+        NotificationProcessSetup as MatrixNotificationProcessSetup,
+    },
+    unable_to_decrypt_hook::UtdHookManager,
 };
 use mime::Mime;
 use ruma::{
     api::client::{alias::get_alias, error::ErrorKind, uiaa::UserIdentifier},
     events::{
+        direct::DirectEventContent,
+        fully_read::FullyReadEventContent,
+        identity_server::IdentityServerEventContent,
         ignored_user_list::IgnoredUserListEventContent,
         key::verification::request::ToDeviceKeyVerificationRequestEvent,
+        marked_unread::{MarkedUnreadEventContent, UnstableMarkedUnreadEventContent},
+        push_rules::PushRulesEventContent,
         room::{
             history_visibility::RoomHistoryVisibilityEventContent,
             join_rules::{
@@ -55,7 +65,13 @@ use ruma::{
             message::OriginalSyncRoomMessageEvent,
             power_levels::RoomPowerLevelsEventContent,
         },
-        GlobalAccountDataEventType,
+        secret_storage::{
+            default_key::SecretStorageDefaultKeyEventContent, key::SecretStorageKeyEventContent,
+        },
+        tag::TagEventContent,
+        GlobalAccountDataEvent as RumaGlobalAccountDataEvent,
+        GlobalAccountDataEventType as RumaGlobalAccountDataEventType,
+        RoomAccountDataEvent as RumaRoomAccountDataEvent,
     },
     push::{HttpPusherData as RumaHttpPusherData, PushFormat as RumaPushFormat},
     OwnedServerName, RoomAliasId, RoomOrAliasId, ServerName,
@@ -76,9 +92,13 @@ use crate::{
     room::RoomHistoryVisibility,
     room_directory_search::RoomDirectorySearch,
     room_preview::RoomPreview,
-    ruma::{AuthData, MediaSource},
+    ruma::{
+        AccountDataEvent, AccountDataEventType, AuthData, InviteAvatars, MediaPreviewConfig,
+        MediaPreviews, MediaSource, RoomAccountDataEvent, RoomAccountDataEventType,
+    },
     sync_service::{SyncService, SyncServiceBuilder},
     task_handle::TaskHandle,
+    utd::{UnableToDecryptDelegate, UtdHook},
     utils::AsyncRuntimeDropped,
     ClientError,
 };
@@ -146,7 +166,6 @@ impl From<PushFormat> for RumaPushFormat {
 #[matrix_sdk_ffi_macros::export(callback_interface)]
 pub trait ClientDelegate: Sync + Send {
     fn did_receive_auth_error(&self, is_soft_logout: bool);
-    fn did_refresh_tokens(&self);
 }
 
 #[matrix_sdk_ffi_macros::export(callback_interface)]
@@ -168,6 +187,20 @@ pub trait SendQueueRoomErrorListener: Sync + Send {
     fn on_error(&self, room_id: String, error: ClientError);
 }
 
+/// A listener for changes of global account data events.
+#[matrix_sdk_ffi_macros::export(callback_interface)]
+pub trait AccountDataListener: Sync + Send {
+    /// Called when a global account data event has changed.
+    fn on_change(&self, event: AccountDataEvent);
+}
+
+/// A listener for changes of room account data events.
+#[matrix_sdk_ffi_macros::export(callback_interface)]
+pub trait RoomAccountDataListener: Sync + Send {
+    /// Called when a room account data event was changed.
+    fn on_change(&self, event: RoomAccountDataEvent, room_id: String);
+}
+
 #[derive(Clone, Copy, uniffi::Record)]
 pub struct TransmissionProgress {
     pub current: u64,
@@ -186,7 +219,8 @@ impl From<matrix_sdk::TransmissionProgress> for TransmissionProgress {
 #[derive(uniffi::Object)]
 pub struct Client {
     pub(crate) inner: AsyncRuntimeDropped<MatrixClient>,
-    delegate: RwLock<Option<Arc<dyn ClientDelegate>>>,
+    delegate: OnceLock<Arc<dyn ClientDelegate>>,
+    utd_hook_manager: OnceLock<Arc<UtdHookManager>>,
     session_verification_controller:
         Arc<tokio::sync::RwLock<Option<SessionVerificationController>>>,
 }
@@ -229,8 +263,9 @@ impl Client {
             sdk_client.cross_process_store_locks_holder_name().to_owned();
 
         let client = Client {
-            inner: AsyncRuntimeDropped::new(sdk_client),
-            delegate: RwLock::new(None),
+            inner: AsyncRuntimeDropped::new(sdk_client.clone()),
+            delegate: OnceLock::new(),
+            utd_hook_manager: OnceLock::new(),
             session_verification_controller,
         };
 
@@ -400,10 +435,18 @@ impl Client {
     /// * `prompt` - The desired user experience in the web UI. No value means
     ///   that the user wishes to login into an existing account, and a value of
     ///   `Create` means that the user wishes to register a new account.
+    ///
+    /// * `login_hint` - A generic login hint that an identity provider can use
+    ///   to pre-fill the login form. The format of this hint is not restricted
+    ///   by the spec as external providers all have their own way to handle the hint.
+    ///   However, it should be noted that when providing a user ID as a hint
+    ///   for MAS (with no upstream provider), then the format to use is defined
+    ///   by [MSC4198]: https://github.com/matrix-org/matrix-spec-proposals/pull/4198
     pub async fn url_for_oidc(
         &self,
         oidc_configuration: &OidcConfiguration,
         prompt: Option<OidcPrompt>,
+        login_hint: Option<String>,
     ) -> Result<Arc<OAuthAuthorizationData>, OidcError> {
         let registration_data = oidc_configuration.registration_data()?;
         let redirect_uri = oidc_configuration.redirect_uri()?;
@@ -412,6 +455,9 @@ impl Client {
 
         if let Some(prompt) = prompt {
             url_builder = url_builder.prompt(vec![prompt.into()]);
+        }
+        if let Some(login_hint) = login_hint {
+            url_builder = url_builder.login_hint(login_hint);
         }
 
         let data = url_builder.build().await?;
@@ -534,6 +580,132 @@ impl Client {
         })))
     }
 
+    /// Subscribe to updates of global account data events.
+    ///
+    /// Be careful that only the most recent value can be observed. Subscribers
+    /// are notified when a new value is sent, but there is no guarantee that
+    /// they will see all values.
+    pub fn observe_account_data_event(
+        &self,
+        event_type: AccountDataEventType,
+        listener: Box<dyn AccountDataListener>,
+    ) -> Arc<TaskHandle> {
+        macro_rules! observe {
+            ($t:ty, $cb: expr) => {{
+                // Using an Arc here is mandatory or else the subscriber will never trigger
+                let observer =
+                    Arc::new(self.inner.observe_events::<RumaGlobalAccountDataEvent<$t>, ()>());
+
+                Arc::new(TaskHandle::new(get_runtime_handle().spawn(async move {
+                    let mut subscriber = observer.subscribe();
+                    loop {
+                        if let Some(next) = subscriber.next().await {
+                            $cb(next.0);
+                        }
+                    }
+                })))
+            }};
+
+            ($t:ty) => {{
+                observe!($t, |event: RumaGlobalAccountDataEvent<$t>| {
+                    listener.on_change(event.into());
+                })
+            }};
+        }
+
+        match event_type {
+            AccountDataEventType::Direct => {
+                observe!(DirectEventContent)
+            }
+            AccountDataEventType::IdentityServer => {
+                observe!(IdentityServerEventContent)
+            }
+            AccountDataEventType::IgnoredUserList => {
+                observe!(IgnoredUserListEventContent)
+            }
+            AccountDataEventType::PushRules => {
+                observe!(PushRulesEventContent, |event: RumaGlobalAccountDataEvent<
+                    PushRulesEventContent,
+                >| {
+                    if let Ok(event) = event.try_into() {
+                        listener.on_change(event);
+                    }
+                })
+            }
+            AccountDataEventType::SecretStorageDefaultKey => {
+                observe!(SecretStorageDefaultKeyEventContent)
+            }
+            AccountDataEventType::SecretStorageKey { key_id } => {
+                observe!(SecretStorageKeyEventContent, |event: RumaGlobalAccountDataEvent<
+                    SecretStorageKeyEventContent,
+                >| {
+                    if event.content.key_id != key_id {
+                        return;
+                    }
+                    if let Ok(event) = event.try_into() {
+                        listener.on_change(event);
+                    }
+                })
+            }
+        }
+    }
+
+    /// Subscribe to updates of room account data events.
+    ///
+    /// Be careful that only the most recent value can be observed. Subscribers
+    /// are notified when a new value is sent, but there is no guarantee that
+    /// they will see all values.
+    pub fn observe_room_account_data_event(
+        &self,
+        room_id: String,
+        event_type: RoomAccountDataEventType,
+        listener: Box<dyn RoomAccountDataListener>,
+    ) -> Result<Arc<TaskHandle>, ClientError> {
+        macro_rules! observe {
+            ($t:ty, $cb: expr) => {{
+                // Using an Arc here is mandatory or else the subscriber will never trigger
+                let observer =
+                    Arc::new(self.inner.observe_room_events::<RumaRoomAccountDataEvent<$t>, ()>(
+                        &RoomId::parse(&room_id)?,
+                    ));
+
+                Ok(Arc::new(TaskHandle::new(get_runtime_handle().spawn(async move {
+                    let mut subscriber = observer.subscribe();
+                    loop {
+                        if let Some(next) = subscriber.next().await {
+                            $cb(next.0);
+                        }
+                    }
+                }))))
+            }};
+
+            ($t:ty) => {{
+                observe!($t, |event: RumaRoomAccountDataEvent<$t>| {
+                    listener.on_change(event.into(), room_id.clone());
+                })
+            }};
+        }
+
+        match event_type {
+            RoomAccountDataEventType::FullyRead => {
+                observe!(FullyReadEventContent)
+            }
+            RoomAccountDataEventType::MarkedUnread => {
+                observe!(MarkedUnreadEventContent)
+            }
+            RoomAccountDataEventType::Tag => {
+                observe!(TagEventContent, |event: RumaRoomAccountDataEvent<TagEventContent>| {
+                    if let Ok(event) = event.try_into() {
+                        listener.on_change(event, room_id.clone());
+                    }
+                })
+            }
+            RoomAccountDataEventType::UnstableMarkedUnread => {
+                observe!(UnstableMarkedUnreadEventContent)
+            }
+        }
+    }
+
     /// Allows generic GET requests to be made through the SDKs internal HTTP
     /// client
     pub async fn get_url(&self, url: String) -> Result<String, ClientError> {
@@ -581,11 +753,20 @@ impl Client {
         self.inner.available_sliding_sync_versions().await.into_iter().map(Into::into).collect()
     }
 
+    /// Sets the [ClientDelegate] which will inform about authentication errors.
+    /// Returns an error if the delegate was already set.
     pub fn set_delegate(
         self: Arc<Self>,
         delegate: Option<Box<dyn ClientDelegate>>,
-    ) -> Option<Arc<TaskHandle>> {
-        delegate.map(|delegate| {
+    ) -> Result<Option<Arc<TaskHandle>>, ClientError> {
+        if self.delegate.get().is_some() {
+            return Err(ClientError::Generic {
+                msg: "Delegate already initialized".to_owned(),
+                details: None,
+            });
+        }
+
+        Ok(delegate.map(|delegate| {
             let mut session_change_receiver = self.inner.subscribe_to_session_changes();
             let client_clone = self.clone();
             let session_change_task = get_runtime_handle().spawn(async move {
@@ -601,9 +782,44 @@ impl Client {
                 }
             });
 
-            *self.delegate.write().unwrap() = Some(Arc::from(delegate));
+            self.delegate.get_or_init(|| Arc::from(delegate));
+
             Arc::new(TaskHandle::new(session_change_task))
-        })
+        }))
+    }
+
+    /// Sets the [UnableToDecryptDelegate] which will inform about UTDs.
+    /// Returns an error if the delegate was already set.
+    pub async fn set_utd_delegate(
+        self: Arc<Self>,
+        utd_delegate: Box<dyn UnableToDecryptDelegate>,
+    ) -> Result<(), ClientError> {
+        if self.utd_hook_manager.get().is_some() {
+            return Err(ClientError::Generic {
+                msg: "UTD delegate already initialized".to_owned(),
+                details: None,
+            });
+        }
+
+        // UTDs detected before this duration may be reclassified as "late decryption"
+        // events (or discarded, if they get decrypted fast enough).
+        const UTD_HOOK_GRACE_PERIOD: Duration = Duration::from_secs(60);
+
+        let mut utd_hook_manager = UtdHookManager::new(
+            Arc::new(UtdHook { delegate: utd_delegate.into() }),
+            (*self.inner).clone(),
+        )
+        .with_max_delay(UTD_HOOK_GRACE_PERIOD);
+
+        if let Err(e) = utd_hook_manager.reload_from_store().await {
+            error!("Unable to reload UTD hook data from data store: {}", e);
+            // Carry on with the setup anyway; we shouldn't fail setup just
+            // because the UTD hook failed to load its data.
+        }
+
+        self.utd_hook_manager.get_or_init(|| Arc::new(utd_hook_manager));
+
+        Ok(())
     }
 
     pub fn session(&self) -> Result<Session, ClientError> {
@@ -862,7 +1078,11 @@ impl Client {
     }
 
     pub fn rooms(&self) -> Vec<Arc<Room>> {
-        self.inner.rooms().into_iter().map(|room| Arc::new(Room::new(room))).collect()
+        self.inner
+            .rooms()
+            .into_iter()
+            .map(|room| Arc::new(Room::new(room, self.utd_hook_manager.get().cloned())))
+            .collect()
     }
 
     /// Get a room by its ID.
@@ -879,14 +1099,17 @@ impl Client {
     pub fn get_room(&self, room_id: String) -> Result<Option<Arc<Room>>, ClientError> {
         let room_id = RoomId::parse(room_id)?;
         let sdk_room = self.inner.get_room(&room_id);
-        let room = sdk_room.map(|room| Arc::new(Room::new(room)));
+
+        let room =
+            sdk_room.map(|room| Arc::new(Room::new(room, self.utd_hook_manager.get().cloned())));
         Ok(room)
     }
 
     pub fn get_dm_room(&self, user_id: String) -> Result<Option<Arc<Room>>, ClientError> {
         let user_id = UserId::parse(user_id)?;
         let sdk_room = self.inner.get_dm_room(&user_id);
-        let dm = sdk_room.map(|room| Arc::new(Room::new(room)));
+        let dm =
+            sdk_room.map(|room| Arc::new(Room::new(room, self.utd_hook_manager.get().cloned())));
         Ok(dm)
     }
 
@@ -942,7 +1165,7 @@ impl Client {
         if let Some(raw_content) = self
             .inner
             .account()
-            .fetch_account_data(GlobalAccountDataEventType::IgnoredUserList)
+            .fetch_account_data(RumaGlobalAccountDataEventType::IgnoredUserList)
             .await?
         {
             let content = raw_content.deserialize_as::<IgnoredUserListEventContent>()?;
@@ -993,7 +1216,7 @@ impl Client {
     pub async fn join_room_by_id(&self, room_id: String) -> Result<Arc<Room>, ClientError> {
         let room_id = RoomId::parse(room_id)?;
         let room = self.inner.join_room_by_id(room_id.as_ref()).await?;
-        Ok(Arc::new(Room::new(room)))
+        Ok(Arc::new(Room::new(room, self.utd_hook_manager.get().cloned())))
     }
 
     /// Join a room by its ID or alias.
@@ -1014,7 +1237,7 @@ impl Client {
             .collect::<Result<Vec<_>, _>>()?;
         let room =
             self.inner.join_room_by_id_or_alias(room_id.as_ref(), server_names.as_ref()).await?;
-        Ok(Arc::new(Room::new(room)))
+        Ok(Arc::new(Room::new(room, self.utd_hook_manager.get().cloned())))
     }
 
     /// Knock on a room to join it using its ID or alias.
@@ -1028,7 +1251,7 @@ impl Client {
         let server_names =
             server_names.iter().map(ServerName::parse).collect::<Result<Vec<_>, _>>()?;
         let room = self.inner.knock(room_id, reason, server_names).await?;
-        Ok(Arc::new(Room::new(room)))
+        Ok(Arc::new(Room::new(room, self.utd_hook_manager.get().cloned())))
     }
 
     pub async fn get_recently_visited_rooms(&self) -> Result<Vec<String>, ClientError> {
@@ -1122,7 +1345,10 @@ impl Client {
     /// or an externally set timeout happens.**
     pub async fn await_room_remote_echo(&self, room_id: String) -> Result<Arc<Room>, ClientError> {
         let room_id = RoomId::parse(room_id)?;
-        Ok(Arc::new(Room::new(self.inner.await_room_remote_echo(&room_id).await)))
+        Ok(Arc::new(Room::new(
+            self.inner.await_room_remote_echo(&room_id).await,
+            self.utd_hook_manager.get().cloned(),
+        )))
     }
 
     /// Lets the user know whether this is an `m.login.password` based
@@ -1202,6 +1428,65 @@ impl Client {
 
         Ok(closure().await?)
     }
+
+    /// Checks if the server supports the report room API.
+    pub async fn is_report_room_api_supported(&self) -> Result<bool, ClientError> {
+        Ok(self.inner.server_versions().await?.contains(&ruma::api::MatrixVersion::V1_13))
+    }
+
+    /// Subscribe to changes in the media preview configuration.
+    pub async fn subscribe_to_media_preview_config(
+        &self,
+        listener: Box<dyn MediaPreviewConfigListener>,
+    ) -> Result<Arc<TaskHandle>, ClientError> {
+        let (initial_value, stream) = self.inner.account().observe_media_preview_config().await?;
+        Ok(Arc::new(TaskHandle::new(get_runtime_handle().spawn(async move {
+            // Send the initial value to the listener.
+            listener.on_change(initial_value.into());
+            // Listen for changes and notify the listener.
+            pin_mut!(stream);
+            while let Some(media_preview_config) = stream.next().await {
+                listener.on_change(media_preview_config.into());
+            }
+        }))))
+    }
+
+    /// Set the media previews timeline display policy
+    pub async fn set_media_preview_display_policy(
+        &self,
+        policy: MediaPreviews,
+    ) -> Result<(), ClientError> {
+        self.inner.account().set_media_previews_display_policy(policy.into()).await?;
+        Ok(())
+    }
+
+    /// Get the media previews timeline display policy
+    /// currently stored in the cache.
+    pub async fn get_media_preview_display_policy(&self) -> Result<MediaPreviews, ClientError> {
+        let configuration = self.inner.account().get_media_preview_config_event_content().await?;
+        Ok(configuration.media_previews.into())
+    }
+
+    /// Set the invite request avatars display policy
+    pub async fn set_invite_avatars_display_policy(
+        &self,
+        policy: InviteAvatars,
+    ) -> Result<(), ClientError> {
+        self.inner.account().set_invite_avatars_display_policy(policy.into()).await?;
+        Ok(())
+    }
+
+    /// Get the invite request avatars display policy
+    /// currently stored in the cache.
+    pub async fn get_invite_avatars_display_policy(&self) -> Result<InviteAvatars, ClientError> {
+        let configuration = self.inner.account().get_media_preview_config_event_content().await?;
+        Ok(configuration.invite_avatars.into())
+    }
+}
+
+#[matrix_sdk_ffi_macros::export(callback_interface)]
+pub trait MediaPreviewConfigListener: Sync + Send {
+    fn on_change(&self, media_preview_config: MediaPreviewConfig);
 }
 
 #[matrix_sdk_ffi_macros::export(callback_interface)]
@@ -1280,15 +1565,13 @@ impl From<&search_users::v3::User> for UserProfile {
 
 impl Client {
     fn process_session_change(&self, session_change: SessionChange) {
-        if let Some(delegate) = self.delegate.read().unwrap().clone() {
+        if let Some(delegate) = self.delegate.get().cloned() {
             debug!("Applying session change: {session_change:?}");
             get_runtime_handle().spawn_blocking(move || match session_change {
                 SessionChange::UnknownToken { soft_logout } => {
                     delegate.did_receive_auth_error(soft_logout);
                 }
-                SessionChange::TokensRefreshed => {
-                    delegate.did_refresh_tokens();
-                }
+                SessionChange::TokensRefreshed => {}
             });
         } else {
             debug!(

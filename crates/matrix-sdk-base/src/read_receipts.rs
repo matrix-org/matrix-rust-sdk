@@ -122,7 +122,6 @@ use std::{
     num::NonZeroUsize,
 };
 
-use eyeball_im::Vector;
 use matrix_sdk_common::{deserialized_responses::TimelineEvent, ring_buffer::RingBuffer};
 use ruma::{
     events::{
@@ -268,19 +267,6 @@ impl RoomReadReceipts {
     }
 }
 
-/// Provider for timeline events prior to the current sync.
-pub trait PreviousEventsProvider: Send + Sync {
-    /// Returns the list of known timeline events, in sync order, for the given
-    /// room.
-    fn for_room(&self, room_id: &RoomId) -> Vector<TimelineEvent>;
-}
-
-impl PreviousEventsProvider for () {
-    fn for_room(&self, _: &RoomId) -> Vector<TimelineEvent> {
-        Vector::new()
-    }
-}
-
 /// Small helper to select the "best" receipt (that with the biggest sync
 /// order).
 struct ReceiptSelector {
@@ -294,10 +280,7 @@ struct ReceiptSelector {
 }
 
 impl ReceiptSelector {
-    fn new(
-        all_events: &Vector<TimelineEvent>,
-        latest_active_receipt_event: Option<&EventId>,
-    ) -> Self {
+    fn new(all_events: &[TimelineEvent], latest_active_receipt_event: Option<&EventId>) -> Self {
         let event_id_to_pos = Self::create_sync_index(all_events.iter());
 
         let best_pos =
@@ -457,23 +440,22 @@ pub(crate) fn compute_unread_counts(
     user_id: &UserId,
     room_id: &RoomId,
     receipt_event: Option<&ReceiptEventContent>,
-    previous_events: Vector<TimelineEvent>,
+    mut previous_events: Vec<TimelineEvent>,
     new_events: &[TimelineEvent],
     read_receipts: &mut RoomReadReceipts,
 ) {
-    debug!(?read_receipts, "Starting.");
+    debug!(?read_receipts, "Starting");
 
     let all_events = if events_intersects(previous_events.iter(), new_events) {
         // The previous and new events sets can intersect, for instance if we restored
         // previous events from the disk cache, or a timeline was limited. This
         // means the old events will be cleared, because we don't reconcile
-        // timelines in sliding sync (yet). As a result, forget
+        // timelines in the event cache (yet). As a result, forget
         // about the previous events.
-        Vector::from_iter(new_events.iter().cloned())
+        new_events.to_owned()
     } else {
-        let mut all_events = previous_events;
-        all_events.extend(new_events.iter().cloned());
-        all_events
+        previous_events.extend(new_events.iter().cloned());
+        previous_events
     };
 
     let new_receipt = {
@@ -481,6 +463,7 @@ pub(crate) fn compute_unread_counts(
             &all_events,
             read_receipts.latest_active.as_ref().map(|receipt| &*receipt.event_id),
         );
+
         selector.try_match_implicit(user_id, new_events);
         selector.handle_pending_receipts(&mut read_receipts.pending);
         if let Some(receipt_event) = receipt_event {
@@ -622,7 +605,6 @@ fn marks_as_unread(event: &Raw<AnySyncTimelineEvent>, user_id: &UserId) -> bool 
 mod tests {
     use std::{num::NonZeroUsize, ops::Not as _};
 
-    use eyeball_im::Vector;
     use matrix_sdk_common::{deserialized_responses::TimelineEvent, ring_buffer::RingBuffer};
     use matrix_sdk_test::event_factory::EventFactory;
     use ruma::{
@@ -915,7 +897,7 @@ mod tests {
         let room_id = room_id!("!room:example.org");
         let receipt_event_id = event_id!("$1");
 
-        let mut previous_events = Vector::new();
+        let mut previous_events = Vec::new();
 
         let f = EventFactory::new();
         let ev1 = f.text_msg("A").sender(other_user_id).event_id(receipt_event_id).into_event();
@@ -940,8 +922,8 @@ mod tests {
         assert_eq!(read_receipts.num_unread, 1);
 
         // Receive the same receipt event, with a new sync event.
-        previous_events.push_back(ev1);
-        previous_events.push_back(ev2);
+        previous_events.push(ev1);
+        previous_events.push(ev2);
 
         let new_event =
             f.text_msg("A").sender(other_user_id).event_id(event_id!("$3")).into_event();
@@ -958,7 +940,7 @@ mod tests {
         assert_eq!(read_receipts.num_unread, 2);
     }
 
-    fn make_test_events(user_id: &UserId) -> Vector<TimelineEvent> {
+    fn make_test_events(user_id: &UserId) -> Vec<TimelineEvent> {
         let f = EventFactory::new().sender(user_id);
         let ev1 = f.text_msg("With the lights out, it's less dangerous").event_id(event_id!("$1"));
         let ev2 = f.text_msg("Here we are now, entertain us").event_id(event_id!("$2"));
@@ -976,7 +958,7 @@ mod tests {
         let room_id = room_id!("!room:example.org");
 
         let all_events = make_test_events(user_id!("@bob:example.org"));
-        let head_events: Vector<_> = all_events.iter().take(2).cloned().collect();
+        let head_events: Vec<_> = all_events.iter().take(2).cloned().collect();
         let tail_events: Vec<_> = all_events.iter().skip(2).cloned().collect();
 
         // Given a receipt event marking events 1-3 as read using a combination of
@@ -1165,7 +1147,7 @@ mod tests {
 
         {
             // No initial active receipt, so the first receipt we get *will* win.
-            let mut selector = ReceiptSelector::new(&vec![].into(), None);
+            let mut selector = ReceiptSelector::new(&[], None);
             selector.try_select_later(event_id!("$1"), 0);
             let best_receipt = selector.select();
             assert_eq!(best_receipt.unwrap().event_id, event_id!("$1"));
@@ -1203,11 +1185,11 @@ mod tests {
         let f = EventFactory::new().sender(sender);
         let ev1 = f.text_msg("yo").event_id(event_id!("$1")).into_event();
         let ev2 = f.text_msg("well?").event_id(event_id!("$2")).into_event();
-        let events: Vector<_> = vec![ev1, ev2].into();
+        let events = &[ev1, ev2][..];
 
         {
             // No pending receipt => no better receipt.
-            let mut selector = ReceiptSelector::new(&events, None);
+            let mut selector = ReceiptSelector::new(events, None);
 
             let mut pending = RingBuffer::new(NonZeroUsize::new(16).unwrap());
             selector.handle_pending_receipts(&mut pending);
@@ -1221,7 +1203,7 @@ mod tests {
         {
             // No pending receipt, and there was an active last receipt => no better
             // receipt.
-            let mut selector = ReceiptSelector::new(&events, Some(event_id!("$1")));
+            let mut selector = ReceiptSelector::new(events, Some(event_id!("$1")));
 
             let mut pending = RingBuffer::new(NonZeroUsize::new(16).unwrap());
             selector.handle_pending_receipts(&mut pending);
@@ -1239,11 +1221,11 @@ mod tests {
         let f = EventFactory::new().sender(sender);
         let ev1 = f.text_msg("yo").event_id(event_id!("$1")).into_event();
         let ev2 = f.text_msg("well?").event_id(event_id!("$2")).into_event();
-        let events: Vector<_> = vec![ev1, ev2].into();
+        let events = &[ev1, ev2][..];
 
         {
             // A pending receipt for an event that is still missing => no better receipt.
-            let mut selector = ReceiptSelector::new(&events, None);
+            let mut selector = ReceiptSelector::new(events, None);
 
             let mut pending = RingBuffer::new(NonZeroUsize::new(16).unwrap());
             pending.push(owned_event_id!("$3"));
@@ -1257,7 +1239,7 @@ mod tests {
 
         {
             // Ditto but there was an active receipt => no better receipt.
-            let mut selector = ReceiptSelector::new(&events, Some(event_id!("$1")));
+            let mut selector = ReceiptSelector::new(events, Some(event_id!("$1")));
 
             let mut pending = RingBuffer::new(NonZeroUsize::new(16).unwrap());
             pending.push(owned_event_id!("$3"));
@@ -1276,11 +1258,11 @@ mod tests {
         let f = EventFactory::new().sender(sender);
         let ev1 = f.text_msg("yo").event_id(event_id!("$1")).into_event();
         let ev2 = f.text_msg("well?").event_id(event_id!("$2")).into_event();
-        let events: Vector<_> = vec![ev1, ev2].into();
+        let events = &[ev1, ev2][..];
 
         {
             // A pending receipt for an event that is present => better receipt.
-            let mut selector = ReceiptSelector::new(&events, None);
+            let mut selector = ReceiptSelector::new(events, None);
 
             let mut pending = RingBuffer::new(NonZeroUsize::new(16).unwrap());
             pending.push(owned_event_id!("$2"));
@@ -1296,7 +1278,7 @@ mod tests {
 
         {
             // Mixed found and not found receipt => better receipt.
-            let mut selector = ReceiptSelector::new(&events, None);
+            let mut selector = ReceiptSelector::new(events, None);
 
             let mut pending = RingBuffer::new(NonZeroUsize::new(16).unwrap());
             pending.push(owned_event_id!("$1"));
@@ -1318,12 +1300,12 @@ mod tests {
         let f = EventFactory::new().sender(sender);
         let ev1 = f.text_msg("yo").event_id(event_id!("$1")).into_event();
         let ev2 = f.text_msg("well?").event_id(event_id!("$2")).into_event();
-        let events: Vector<_> = vec![ev1, ev2].into();
+        let events = &[ev1, ev2][..];
 
         {
             // Same, and there was an initial receipt that was less good than the one we
             // selected => better receipt.
-            let mut selector = ReceiptSelector::new(&events, Some(event_id!("$1")));
+            let mut selector = ReceiptSelector::new(events, Some(event_id!("$1")));
 
             let mut pending = RingBuffer::new(NonZeroUsize::new(16).unwrap());
             pending.push(owned_event_id!("$2"));
@@ -1339,7 +1321,7 @@ mod tests {
 
         {
             // Same, but the previous receipt was better => no better receipt.
-            let mut selector = ReceiptSelector::new(&events, Some(event_id!("$2")));
+            let mut selector = ReceiptSelector::new(events, Some(event_id!("$2")));
 
             let mut pending = RingBuffer::new(NonZeroUsize::new(16).unwrap());
             pending.push(owned_event_id!("$1"));
@@ -1484,26 +1466,26 @@ mod tests {
         // When the selector sees only other users' events,
         let mut selector = ReceiptSelector::new(&events, None);
         // And I search for my implicit read receipt,
-        selector.try_match_implicit(&myself, &events.iter().cloned().collect::<Vec<_>>());
+        selector.try_match_implicit(&myself, &events);
         // Then I don't find any.
         let best_receipt = selector.select();
         assert!(best_receipt.is_none());
 
         // Now, if there are events I've written too...
         let f = EventFactory::new();
-        events.push_back(
+        events.push(
             f.text_msg("A mulatto, an albino")
                 .sender(&myself)
                 .event_id(event_id!("$6"))
                 .into_event(),
         );
-        events.push_back(
+        events.push(
             f.text_msg("A mosquito, my libido").sender(bob).event_id(event_id!("$7")).into_event(),
         );
 
         let mut selector = ReceiptSelector::new(&events, None);
         // And I search for my implicit read receipt,
-        selector.try_match_implicit(&myself, &events.iter().cloned().collect::<Vec<_>>());
+        selector.try_match_implicit(&myself, &events);
         // Then my last sent event counts as a read receipt.
         let best_receipt = selector.select();
         assert_eq!(best_receipt.unwrap().event_id, event_id!("$6"));
@@ -1520,7 +1502,7 @@ mod tests {
 
         // One by me,
         let f = EventFactory::new();
-        events.push_back(
+        events.push(
             f.text_msg("A mulatto, an albino")
                 .sender(user_id)
                 .event_id(event_id!("$6"))
@@ -1528,10 +1510,10 @@ mod tests {
         );
 
         // And others by Bob,
-        events.push_back(
+        events.push(
             f.text_msg("A mosquito, my libido").sender(bob).event_id(event_id!("$7")).into_event(),
         );
-        events.push_back(
+        events.push(
             f.text_msg("A denial, a denial").sender(bob).event_id(event_id!("$8")).into_event(),
         );
 
@@ -1551,7 +1533,7 @@ mod tests {
             user_id,
             room_id,
             Some(&receipt_event),
-            Vector::new(),
+            Vec::new(),
             &events,
             &mut read_receipts,
         );

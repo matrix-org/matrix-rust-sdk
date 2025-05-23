@@ -43,7 +43,7 @@ pub async fn decrypt_from_rooms(
         // Try to find a message we can decrypt and is suitable for using as the latest
         // event. If we found one, set it as the latest and delete any older
         // encrypted events
-        if let Some((found, found_index)) = find_suitable_and_decrypt(context, &room, &e2ee).await {
+        if let Some((found, found_index)) = find_suitable_and_decrypt(&room, &e2ee).await {
             room.on_latest_event_decrypted(
                 found,
                 found_index,
@@ -57,7 +57,6 @@ pub async fn decrypt_from_rooms(
 }
 
 async fn find_suitable_and_decrypt(
-    context: &mut Context,
     room: &Room,
     e2ee: &E2EE<'_>,
 ) -> Option<(Box<LatestEvent>, usize)> {
@@ -71,7 +70,7 @@ async fn find_suitable_and_decrypt(
         // async fn since it is likely that there aren't even any encrypted
         // events when calling it.
         let decrypt_sync_room_event =
-            Box::pin(decrypt_sync_room_event(context, event, e2ee, room.room_id()));
+            Box::pin(decrypt_sync_room_event(event, e2ee, room.room_id()));
 
         if let Ok(decrypted) = decrypt_sync_room_event.await {
             // We found an event we can decrypt
@@ -105,7 +104,6 @@ async fn find_suitable_and_decrypt(
 ///
 /// Panics if there is no [`OlmMachine`] in [`E2EE`].
 async fn decrypt_sync_room_event(
-    context: &mut Context,
     event: &Raw<AnySyncTimelineEvent>,
     e2ee: &E2EE<'_>,
     room_id: &RoomId,
@@ -123,13 +121,8 @@ async fn decrypt_sync_room_event(
             let event: TimelineEvent = decrypted.into();
 
             if let Ok(sync_timeline_event) = event.raw().deserialize() {
-                verification::process_if_relevant(
-                    context,
-                    &sync_timeline_event,
-                    e2ee.clone(),
-                    room_id,
-                )
-                .await?;
+                verification::process_if_relevant(&sync_timeline_event, e2ee.clone(), room_id)
+                    .await?;
             }
 
             event
@@ -151,7 +144,7 @@ mod tests {
     use ruma::{event_id, events::room::member::MembershipState, room_id, user_id};
 
     use super::{decrypt_from_rooms, Context, E2EE};
-    use crate::{rooms::normal::RoomInfoNotableUpdateReasons, test_utils::logged_in_base_client};
+    use crate::{room::RoomInfoNotableUpdateReasons, test_utils::logged_in_base_client};
 
     #[async_test]
     async fn test_when_there_are_no_latest_encrypted_events_decrypting_them_does_nothing() {

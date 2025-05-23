@@ -76,8 +76,6 @@ pub use state::*;
 use thiserror::Error;
 use tracing::debug;
 
-use crate::timeline;
-
 /// The default `required_state` constant value for sliding sync lists and
 /// sliding sync room subscriptions.
 const DEFAULT_REQUIRED_STATE: &[(StateEventType, &str)] = &[
@@ -90,7 +88,10 @@ const DEFAULT_REQUIRED_STATE: &[(StateEventType, &str)] = &[
     (StateEventType::RoomPowerLevels, ""),
     (StateEventType::CallMember, "*"),
     (StateEventType::RoomJoinRules, ""),
+    (StateEventType::RoomTombstone, ""),
     // Those two events are required to properly compute room previews.
+    // `StateEventType::RoomCreate` is also necessary to compute the room
+    // version, and thus handling the tombstoned room correctly.
     (StateEventType::RoomCreate, ""),
     (StateEventType::RoomHistoryVisibility, ""),
     // Required to correctly calculate the room display name.
@@ -378,7 +379,6 @@ impl RoomListService {
     pub fn room(&self, room_id: &RoomId) -> Result<Room, Error> {
         Ok(Room::new(
             self.client.get_room(room_id).ok_or_else(|| Error::RoomNotFound(room_id.to_owned()))?,
-            &self.sliding_sync,
         ))
     }
 
@@ -430,12 +430,6 @@ pub enum Error {
     /// The requested room doesn't exist.
     #[error("Room `{0}` not found")]
     RoomNotFound(OwnedRoomId),
-
-    #[error("A timeline instance already exists for room {0}")]
-    TimelineAlreadyExists(OwnedRoomId),
-
-    #[error(transparent)]
-    InitializingTimeline(#[from] timeline::Error),
 
     #[error(transparent)]
     EventCache(#[from] EventCacheError),

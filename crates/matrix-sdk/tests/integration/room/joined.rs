@@ -19,8 +19,8 @@ use matrix_sdk_test::{
     event_factory::EventFactory,
     mocks::mock_encryption_state,
     test_json::{self, sync::CUSTOM_ROOM_POWER_LEVELS},
-    GlobalAccountDataTestEvent, JoinedRoomBuilder, StateTestEvent, SyncResponseBuilder,
-    DEFAULT_TEST_ROOM_ID,
+    GlobalAccountDataTestEvent, InvitedRoomBuilder, JoinedRoomBuilder, RoomAccountDataTestEvent,
+    StateTestEvent, SyncResponseBuilder, DEFAULT_TEST_ROOM_ID,
 };
 use ruma::{
     api::client::{membership::Invite3pidInit, receipt::create_receipt::v3::ReceiptType},
@@ -32,7 +32,7 @@ use ruma::{
             member::MembershipState,
             message::{RoomMessageEventContent, RoomMessageEventContentWithoutRelation},
         },
-        TimelineEventType,
+        RoomAccountDataEventType, TimelineEventType,
     },
     int, mxc_uri, owned_event_id, room_id, thirdparty, user_id, OwnedUserId, TransactionId,
 };
@@ -127,6 +127,52 @@ async fn test_leave_room() -> Result<(), anyhow::Error> {
 }
 
 #[async_test]
+async fn test_leave_joined_room_does_not_forget_it() -> Result<(), anyhow::Error> {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+    let room_id = *DEFAULT_TEST_ROOM_ID;
+
+    server.mock_room_leave().ok(room_id).mock_once().mount().await;
+    // The forget endpoint should never be called
+    server.mock_room_forget().ok().never().mount().await;
+
+    let room = server.sync_joined_room(&client, room_id).await;
+
+    room.leave().await?;
+
+    assert_eq!(room.state(), RoomState::Left);
+
+    // The left room is still around and in the right state
+    let left_room = client.get_room(room_id);
+    assert!(left_room.is_some());
+    assert_eq!(left_room.unwrap().state(), RoomState::Left);
+
+    Ok(())
+}
+
+#[async_test]
+async fn test_leave_invited_room_also_forgets_it() -> Result<(), anyhow::Error> {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+    let room_id = *DEFAULT_TEST_ROOM_ID;
+
+    server.mock_room_leave().ok(room_id).mock_once().mount().await;
+    server.mock_room_forget().ok().mock_once().mount().await;
+
+    let invited_room_builder = InvitedRoomBuilder::new(room_id);
+    let room = server.sync_room(&client, invited_room_builder).await;
+
+    room.leave().await?;
+
+    assert_eq!(room.state(), RoomState::Left);
+
+    let forgotten_room = client.get_room(room_id);
+    assert!(forgotten_room.is_none());
+
+    Ok(())
+}
+
+#[async_test]
 async fn test_ban_user() {
     let (client, server) = logged_in_client_with_server().await;
 
@@ -174,28 +220,51 @@ async fn test_unban_user() {
 
 #[async_test]
 async fn test_mark_as_unread() {
-    let (client, server) = logged_in_client_with_server().await;
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+    let room_id = room_id!("!test:example.org");
 
-    Mock::given(method("PUT"))
-        .and(path_regex(
-            r"^/_matrix/client/r0/user/.*/rooms/.*/account_data/com.famedly.marked_unread",
-        ))
-        .and(header("authorization", "Bearer 1234"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(&*test_json::EMPTY))
-        .mount(&server)
-        .await;
+    // Initial sync with our test room.
+    let room = server.sync_joined_room(&client, room_id).await;
+    assert!(!room.is_marked_unread());
 
-    mock_sync(&server, &*test_json::SYNC, None).await;
+    // Setting the room as unread makes a request.
+    {
+        let _guard = server
+            .mock_set_room_account_data(RoomAccountDataEventType::MarkedUnread)
+            .ok()
+            .expect(1)
+            .mount_as_scoped()
+            .await;
+        room.set_unread_flag(true).await.unwrap();
+    }
 
-    let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
-
-    let _response = client.sync_once(sync_settings).await.unwrap();
-
-    let room = client.get_room(&DEFAULT_TEST_ROOM_ID).unwrap();
-
-    room.set_unread_flag(true).await.unwrap();
-
+    // Unsetting the room as unread is a no-op.
     room.set_unread_flag(false).await.unwrap();
+
+    // Now we mark the room as unread.
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id)
+                .add_account_data(RoomAccountDataTestEvent::MarkedUnread),
+        )
+        .await;
+    assert!(room.is_marked_unread());
+
+    // Unsetting the room as unread makes a request.
+    {
+        let _guard = server
+            .mock_set_room_account_data(RoomAccountDataEventType::MarkedUnread)
+            .ok()
+            .expect(1)
+            .mount_as_scoped()
+            .await;
+        room.set_unread_flag(false).await.unwrap();
+    }
+
+    // Setting the room as unread is a no-op.
+    room.set_unread_flag(true).await.unwrap();
 }
 
 #[async_test]
@@ -223,49 +292,101 @@ async fn test_kick_user() {
 
 #[async_test]
 async fn test_send_single_receipt() {
-    let (client, server) = logged_in_client_with_server().await;
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
 
-    Mock::given(method("POST"))
-        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/receipt"))
-        .and(header("authorization", "Bearer 1234"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(&*test_json::EMPTY))
-        .mount(&server)
+    server.mock_send_receipt(ReceiptType::Read).ok().mock_once().mount().await;
+
+    // Initial sync with our test room.
+    let room = server.sync_joined_room(&client, room_id!("!test:example.org")).await;
+
+    room.send_single_receipt(
+        ReceiptType::Read,
+        ReceiptThread::Unthreaded,
+        owned_event_id!("$xxxxxx:example.org"),
+    )
+    .await
+    .unwrap();
+}
+
+#[async_test]
+async fn test_send_single_receipt_with_unread_flag() {
+    let event_id = owned_event_id!("$xxxxxx:example.org");
+
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+
+    server.mock_send_receipt(ReceiptType::Read).ok().expect(2).mount().await;
+
+    // Initial sync with our test room, marked unread.
+    let room = server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::default().add_account_data(RoomAccountDataTestEvent::MarkedUnread),
+        )
         .await;
+    assert!(room.is_marked_unread());
 
-    mock_sync(&server, &*test_json::SYNC, None).await;
+    // An unthreaded receipt triggers a marked unread update.
+    {
+        let _guard = server
+            .mock_set_room_account_data(RoomAccountDataEventType::MarkedUnread)
+            .ok()
+            .mock_once()
+            .mount_as_scoped()
+            .await;
 
-    let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
+        room.send_single_receipt(ReceiptType::Read, ReceiptThread::Unthreaded, event_id.clone())
+            .await
+            .unwrap();
+    }
 
-    let _response = client.sync_once(sync_settings).await.unwrap();
-
-    let event_id = event_id!("$xxxxxx:example.org").to_owned();
-    let room = client.get_room(&DEFAULT_TEST_ROOM_ID).unwrap();
-
-    room.send_single_receipt(ReceiptType::Read, ReceiptThread::Unthreaded, event_id).await.unwrap();
+    // A threaded read receipt update doesn't trigger a marked unread update.
+    room.send_single_receipt(ReceiptType::Read, ReceiptThread::Main, event_id).await.unwrap();
 }
 
 #[async_test]
 async fn test_send_multiple_receipts() {
-    let (client, server) = logged_in_client_with_server().await;
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
 
-    Mock::given(method("POST"))
-        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/read_markers$"))
-        .and(header("authorization", "Bearer 1234"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(&*test_json::EMPTY))
-        .mount(&server)
+    server.mock_send_read_markers().ok().mock_once().mount().await;
+
+    // Initial sync with our test room.
+    let room = server.sync_joined_room(&client, room_id!("!test:example.org")).await;
+
+    let receipts = Receipts::new().fully_read_marker(owned_event_id!("$xxxxxx:example.org"));
+    room.send_multiple_receipts(receipts).await.unwrap();
+}
+
+#[async_test]
+async fn test_send_multiple_receipts_with_unread_flag() {
+    let event_id = owned_event_id!("$xxxxxx:example.org");
+
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+
+    server.mock_send_read_markers().ok().mock_once().mount().await;
+    server
+        .mock_set_room_account_data(RoomAccountDataEventType::MarkedUnread)
+        .ok()
+        .mock_once()
+        .mount()
         .await;
 
-    mock_sync(&server, &*test_json::SYNC, None).await;
+    // Initial sync with our test room, marked unread.
+    let room = server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::default().add_account_data(RoomAccountDataTestEvent::MarkedUnread),
+        )
+        .await;
+    assert!(room.is_marked_unread());
 
-    let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
-
-    let _response = client.sync_once(sync_settings).await.unwrap();
-
-    let event_id = event_id!("$xxxxxx:example.org").to_owned();
-    let room = client.get_room(&DEFAULT_TEST_ROOM_ID).unwrap();
-
-    let receipts = Receipts::new().fully_read_marker(event_id);
-    room.send_multiple_receipts(receipts).await.unwrap();
+    // Sending receipts triggers a marked unread update.
+    room.send_multiple_receipts(Receipts::new().public_read_receipt(event_id.clone()))
+        .await
+        .unwrap();
 }
 
 #[async_test]

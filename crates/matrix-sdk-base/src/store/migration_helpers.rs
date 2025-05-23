@@ -44,10 +44,7 @@ use serde::{Deserialize, Serialize};
 use crate::{
     deserialized_responses::SyncOrStrippedState,
     latest_event::LatestEvent,
-    rooms::{
-        normal::{RoomSummary, SyncInfo},
-        BaseRoomInfo, RoomNotableTags,
-    },
+    room::{BaseRoomInfo, RoomSummary, SyncInfo},
     sync::UnreadNotificationsCount,
     MinimalStateEvent, OriginalMinimalStateEvent, RoomInfo, RoomState,
 };
@@ -108,10 +105,9 @@ impl RoomInfoV1 {
         } = self;
 
         RoomInfo {
-            version: 0,
+            data_format_version: 0,
             room_id,
             room_state: room_type,
-            prev_room_state: None,
             notification_counts,
             summary,
             members_synced,
@@ -214,10 +210,7 @@ impl BaseRoomInfoV1 {
             name,
             tombstone,
             topic,
-            rtc_member_events: BTreeMap::new(),
-            is_marked_unread: false,
-            notable_tags: RoomNotableTags::empty(),
-            pinned_events: None,
+            ..Default::default()
         })
     }
 }

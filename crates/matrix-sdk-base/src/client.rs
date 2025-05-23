@@ -56,9 +56,8 @@ use crate::{
     error::{Error, Result},
     event_cache::store::EventCacheStoreLock,
     response_processors::{self as processors, Context},
-    rooms::{
-        normal::{RoomInfoNotableUpdate, RoomInfoNotableUpdateReasons, RoomMembersUpdate},
-        Room, RoomState,
+    room::{
+        Room, RoomInfoNotableUpdate, RoomInfoNotableUpdateReasons, RoomMembersUpdate, RoomState,
     },
     store::{
         ambiguity_map::AmbiguityCache, BaseStateStore, DynStateStore, MemoryStore,
@@ -498,12 +497,7 @@ impl BaseClient {
             let processors::e2ee::to_device::Output {
                 decrypted_to_device_events: to_device,
                 room_key_updates,
-            } = processors::e2ee::to_device::from_sync_v2(
-                &mut context,
-                &response,
-                olm_machine.as_ref(),
-            )
-            .await?;
+            } = processors::e2ee::to_device::from_sync_v2(&response, olm_machine.as_ref()).await?;
 
             processors::latest_event::decrypt_from_rooms(
                 &mut context,
@@ -782,7 +776,6 @@ impl BaseClient {
 
         #[cfg(feature = "e2e-encryption")]
         processors::e2ee::tracked_users::update(
-            &mut context,
             self.olm_machine().await.as_ref(),
             room.encryption_state(),
             &user_ids,

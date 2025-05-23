@@ -400,6 +400,8 @@ async fn test_room_notification_count() -> Result<()> {
     let bob = TestClientBuilder::new("bob").use_sqlite().build().await?;
     let alice = TestClientBuilder::new("alice").use_sqlite().build().await?;
 
+    alice.event_cache().subscribe().unwrap();
+
     // Spawn sync for Bob.
     spawn({
         let bob = bob.clone();

@@ -13,10 +13,9 @@
 // limitations under the License.
 
 use ruma::UserId;
-use tracing::error;
 use vodozemac::Curve25519PublicKey;
 
-use super::{InboundGroupSession, KnownSenderData, SenderData};
+use super::{InboundGroupSession, SenderData};
 use crate::{
     error::MismatchedIdentityKeysError, store::Store, types::events::olm_v1::DecryptedRoomKeyEvent,
     CryptoStoreError, Device, DeviceData, MegolmError, OlmError, SignatureError,
@@ -229,57 +228,14 @@ impl<'a> SenderDataFinder<'a> {
         // Is the session owned by the device?
         let device_is_owner = sender_device.is_owner_of_session(self.session)?;
 
-        // Is the device cross-signed?
-        // Does the cross-signing key match that used to sign the device?
-        // And is the signature in the device valid?
-        let cross_signed = sender_device.is_cross_signed_by_owner();
-
-        Ok(match (device_is_owner, cross_signed) {
-            (true, true) => self.device_is_cross_signed_by_sender(sender_device),
-            (true, false) => {
-                // F (we have device keys, but they are not signed by the sender)
-                SenderData::device_info(sender_device.as_device_keys().clone())
-            }
-            (false, _) => {
-                // Step E (the device does not own the session)
-                // Give up: something is wrong with the session.
-                SenderData::UnknownDevice { legacy_session: false, owner_check_failed: true }
-            }
-        })
-    }
-
-    /// Step G (device is cross-signed by the sender)
-    fn device_is_cross_signed_by_sender(&self, sender_device: Device) -> SenderData {
-        // H (cross-signing key matches that used to sign the device!)
-        let user_id = sender_device.user_id().to_owned();
-        let device_id = Some(sender_device.device_id().to_owned());
-
-        let master_key = sender_device
-            .device_owner_identity
-            .as_ref()
-            .and_then(|i| i.master_key().get_first_key());
-
-        if let Some(master_key) = master_key {
-            // We have user_id and master_key for the user sending the to-device message.
-            let master_key = Box::new(master_key);
-            let known_sender_data = KnownSenderData { user_id, device_id, master_key };
-            if sender_device.is_cross_signing_trusted() {
-                SenderData::SenderVerified(known_sender_data)
-            } else if sender_device
-                .device_owner_identity
-                .expect("User with master key must have identity")
-                .was_previously_verified()
-            {
-                SenderData::VerificationViolation(known_sender_data)
-            } else {
-                SenderData::SenderUnverified(known_sender_data)
-            }
+        if !device_is_owner {
+            // Step E (the device does not own the session)
+            // Give up: something is wrong with the session.
+            Ok(SenderData::UnknownDevice { legacy_session: false, owner_check_failed: true })
         } else {
-            // Surprisingly, there was no key in the MasterPubkey. We did not expect this:
-            // treat it as if the device was not signed by this master key.
-            //
-            error!("MasterPubkey for user {user_id} does not contain any keys!",);
-            SenderData::device_info(sender_device.as_device_keys().clone())
+            // Steps F, G, and H: we have a device, which may or may not be signed by the
+            // sender.
+            Ok(SenderData::from_device(&sender_device))
         }
     }
 }
@@ -381,6 +337,10 @@ mod tests {
     use super::SenderDataFinder;
     use crate::{
         error::MismatchedIdentityKeysError,
+        machine::test_helpers::{
+            create_signed_device_of_unverified_user, create_unsigned_device,
+            sign_user_identity_data,
+        },
         olm::{
             group_sessions::sender_data_finder::SessionDeviceKeysCheckError, InboundGroupSession,
             KnownSenderData, PrivateCrossSigningIdentity, SenderData,
@@ -394,7 +354,7 @@ mod tests {
             EventEncryptionAlgorithm,
         },
         verification::VerificationMachine,
-        Account, Device, DeviceData, OtherUserIdentityData, OwnUserIdentityData, UserIdentityData,
+        Account, Device, OtherUserIdentityData, OwnUserIdentityData, UserIdentityData,
     };
 
     impl<'a> SenderDataFinder<'a> {
@@ -828,9 +788,13 @@ mod tests {
             let sender = TestUser::other(&me, &options).await;
 
             let sender_device = if options.device_is_signed {
-                create_signed_device(&sender.account, &*sender.private_identity.lock().await).await
+                create_signed_device_of_unverified_user(
+                    sender.account.device_keys(),
+                    &*sender.private_identity.lock().await,
+                )
+                .await
             } else {
-                create_unsigned_device(&sender.account)
+                create_unsigned_device(sender.account.device_keys())
             };
 
             let store = create_store(&me);
@@ -1008,14 +972,7 @@ mod tests {
     ) {
         if let Some(signer) = signer {
             let signer_private_identity = signer.private_identity.lock().await;
-
-            let user_signing = signer_private_identity.user_signing_key.lock().await;
-
-            let user_signing = user_signing.as_ref().unwrap();
-            let master = user_signing.sign_user(&*other_user_identity).unwrap();
-            other_user_identity.master_key = Arc::new(master.try_into().unwrap());
-
-            user_signing.public_key().verify_master_key(other_user_identity.master_key()).unwrap();
+            sign_user_identity_data(signer_private_identity.deref(), other_user_identity).await;
         } else {
             panic!("You must provide a `signer` if you want an Other to be verified!");
         }
@@ -1023,45 +980,6 @@ mod tests {
 
     async fn create_private_identity(account: &Account) -> PrivateCrossSigningIdentity {
         PrivateCrossSigningIdentity::with_account(account).await.0
-    }
-
-    async fn create_signed_device(
-        account: &Account,
-        private_identity: &PrivateCrossSigningIdentity,
-    ) -> Device {
-        let mut read_only_device = DeviceData::from_account(account);
-
-        let self_signing = private_identity.self_signing_key.lock().await;
-        let self_signing = self_signing.as_ref().unwrap();
-
-        let mut device_keys = read_only_device.as_device_keys().to_owned();
-        self_signing.sign_device(&mut device_keys).unwrap();
-        read_only_device.update_device(&device_keys).unwrap();
-
-        wrap_device(account, read_only_device)
-    }
-
-    fn create_unsigned_device(account: &Account) -> Device {
-        wrap_device(account, DeviceData::from_account(account))
-    }
-
-    fn wrap_device(account: &Account, read_only_device: DeviceData) -> Device {
-        Device {
-            inner: read_only_device,
-            verification_machine: VerificationMachine::new(
-                account.deref().clone(),
-                Arc::new(Mutex::new(PrivateCrossSigningIdentity::new(
-                    account.user_id().to_owned(),
-                ))),
-                Arc::new(CryptoStoreWrapper::new(
-                    account.user_id(),
-                    account.device_id(),
-                    MemoryStore::new(),
-                )),
-            ),
-            own_identity: None,
-            device_owner_identity: None,
-        }
     }
 
     fn create_room_key_event(

@@ -89,7 +89,7 @@ use ruma::{
         beacon_info::BeaconInfoEventContent,
         call::notify::{ApplicationType, CallNotifyEventContent, NotifyType},
         direct::DirectEventContent,
-        marked_unread::{MarkedUnreadEventContent, UnstableMarkedUnreadEventContent},
+        marked_unread::MarkedUnreadEventContent,
         receipt::{Receipt, ReceiptThread, ReceiptType},
         room::{
             avatar::{self, RoomAvatarEventContent},
@@ -133,7 +133,10 @@ use tracing::{debug, info, instrument, warn};
 use self::futures::{SendAttachment, SendMessageLikeEvent, SendRawMessageLikeEvent};
 pub use self::{
     member::{RoomMember, RoomMemberRole},
-    messages::{EventWithContextResponse, Messages, MessagesOptions},
+    messages::{
+        EventWithContextResponse, IncludeRelations, ListThreadsOptions, Messages, MessagesOptions,
+        Relations, RelationsOptions, ThreadRoots,
+    },
 };
 #[cfg(doc)]
 use crate::event_cache::EventCache;
@@ -229,6 +232,8 @@ impl Room {
     }
 
     /// Leave this room.
+    /// If the room was in [`RoomState::Invited`] state, it'll also be forgotten
+    /// automatically.
     ///
     /// Only invited and joined rooms can be left.
     #[doc(alias = "reject_invitation")]
@@ -241,9 +246,20 @@ impl Room {
             ))));
         }
 
+        // If the room was in Invited state we should also forget it when declining the
+        // invite.
+        let should_forget = matches!(self.state(), RoomState::Invited);
+
         let request = leave_room::v3::Request::new(self.inner.room_id().to_owned());
         self.client.send(request).await?;
         self.client.base_client().room_left(self.room_id()).await?;
+
+        if should_forget {
+            if let Err(error) = self.forget().await {
+                warn!("Failed to forget room when leaving it: {error}");
+            }
+        }
+
         Ok(())
     }
 
@@ -252,28 +268,14 @@ impl Room {
     /// Only invited and left rooms can be joined via this method.
     #[doc(alias = "accept_invitation")]
     pub async fn join(&self) -> Result<()> {
-        let state = self.state();
-        if state == RoomState::Joined {
+        let prev_room_state = self.inner.state();
+        if prev_room_state == RoomState::Joined {
             return Err(Error::WrongRoomState(Box::new(WrongRoomState::new(
                 "Invited or Left",
-                state,
+                prev_room_state,
             ))));
         }
-
-        let prev_room_state = self.inner.state();
-
-        let mark_as_direct = prev_room_state == RoomState::Invited
-            && self.inner.is_direct().await.unwrap_or_else(|e| {
-                warn!(room_id = ?self.room_id(), "is_direct() failed: {e}");
-                false
-            });
-
         self.client.join_room_by_id(self.room_id()).await?;
-
-        if mark_as_direct {
-            self.set_is_direct(true).await?;
-        }
-
         Ok(())
     }
 
@@ -1608,6 +1610,9 @@ impl Room {
 
     /// Send a request to set a single receipt.
     ///
+    /// If an unthreaded receipt is sent, this will also unset the unread flag
+    /// of the room if necessary.
+    ///
     /// # Arguments
     ///
     /// * `receipt_type` - The type of the receipt to set. Note that it is
@@ -1635,6 +1640,9 @@ impl Room {
             .locks
             .read_receipt_deduplicated_handler
             .run((request_key, event_id.clone()), async {
+                // We will unset the unread flag if we send an unthreaded receipt.
+                let is_unthreaded = thread == ReceiptThread::Unthreaded;
+
                 let mut request = create_receipt::v3::Request::new(
                     self.room_id().to_owned(),
                     receipt_type,
@@ -1643,12 +1651,19 @@ impl Room {
                 request.thread = thread;
 
                 self.client.send(request).await?;
+
+                if is_unthreaded {
+                    self.set_unread_flag(false).await?;
+                }
+
                 Ok(())
             })
             .await
     }
 
     /// Send a request to set multiple receipts at once.
+    ///
+    /// This will also unset the unread flag of the room if necessary.
     ///
     /// # Arguments
     ///
@@ -1669,6 +1684,9 @@ impl Room {
         });
 
         self.client.send(request).await?;
+
+        self.set_unread_flag(false).await?;
+
         Ok(())
     }
 
@@ -2102,7 +2120,7 @@ impl Room {
         #[cfg(feature = "e2e-encryption")]
         let (media_source, thumbnail) = if self.latest_encryption_state().await?.is_encrypted() {
             self.client
-                .upload_encrypted_media_and_thumbnail(content_type, &data, thumbnail, send_progress)
+                .upload_encrypted_media_and_thumbnail(&data, thumbnail, send_progress)
                 .await?
         } else {
             self.client
@@ -2479,7 +2497,7 @@ impl Room {
     /// Sets the new avatar url for this room.
     ///
     /// # Arguments
-    /// * `avatar_url` - The owned matrix uri that represents the avatar
+    /// * `avatar_url` - The owned Matrix uri that represents the avatar
     /// * `info` - The optional image info that can be provided for the avatar
     pub async fn set_avatar_url(
         &self,
@@ -3252,10 +3270,18 @@ impl Room {
 
     /// Set a flag on the room to indicate that the user has explicitly marked
     /// it as (un)read.
+    ///
+    /// This is a no-op if [`BaseRoom::is_marked_unread()`] returns the same
+    /// value as `unread`.
     pub async fn set_unread_flag(&self, unread: bool) -> Result<()> {
+        if self.is_marked_unread() == unread {
+            // The request is not necessary.
+            return Ok(());
+        }
+
         let user_id = self.client.user_id().ok_or(Error::AuthenticationRequired)?;
 
-        let content = UnstableMarkedUnreadEventContent::from(MarkedUnreadEventContent::new(unread));
+        let content = MarkedUnreadEventContent::new(unread);
 
         let request = set_room_account_data::v3::Request::new(
             user_id.to_owned(),
@@ -3641,6 +3667,48 @@ impl Room {
     pub fn privacy_settings(&self) -> RoomPrivacySettings<'_> {
         RoomPrivacySettings::new(&self.inner, &self.client)
     }
+
+    /// Retrieve a list of all the threads for the current room.
+    ///
+    /// Since this client-server API is paginated, the return type may include a
+    /// token used to resuming back-pagination into the list of results, in
+    /// [`ThreadRoots::prev_batch_token`]. This token can be fed back into
+    /// [`ListThreadsOptions::from`] to continue the pagination
+    /// from the previous position.
+    pub async fn list_threads(&self, opts: ListThreadsOptions) -> Result<ThreadRoots> {
+        let request = opts.into_request(self.room_id());
+
+        let response = self.client.send(request).await?;
+
+        let push_ctx = self.push_context().await?;
+        let chunk = join_all(
+            response.chunk.into_iter().map(|ev| self.try_decrypt_event(ev, push_ctx.as_ref())),
+        )
+        .await;
+
+        Ok(ThreadRoots { chunk, prev_batch_token: response.next_batch })
+    }
+
+    /// Retrieve a list of relations for the given event, according to the given
+    /// options.
+    ///
+    /// Since this client-server API is paginated, the return type may include a
+    /// token used to resuming back-pagination into the list of results, in
+    /// [`Relations::prev_batch_token`]. This token can be fed back into
+    /// [`RelationsOptions::from`] to continue the pagination from the previous
+    /// position.
+    ///
+    /// **Note**: if [`RelationsOptions::from`] is set for a subsequent request,
+    /// then it must be used with the same
+    /// [`RelationsOptions::include_relations`] value as the request that
+    /// returns the `from` token, otherwise the server behavior is undefined.
+    pub async fn relations(
+        &self,
+        event_id: OwnedEventId,
+        opts: RelationsOptions,
+    ) -> Result<Relations> {
+        opts.send(self, event_id).await
+    }
 }
 
 #[cfg(all(feature = "e2e-encryption", not(target_arch = "wasm32")))]
@@ -3960,7 +4028,11 @@ mod tests {
         async_test, event_factory::EventFactory, test_json, JoinedRoomBuilder, StateTestEvent,
         SyncResponseBuilder,
     };
-    use ruma::{event_id, events::room::member::MembershipState, int, room_id, user_id};
+    use ruma::{
+        event_id,
+        events::{relation::RelationType, room::member::MembershipState},
+        int, owned_event_id, room_id, user_id,
+    };
     use wiremock::{
         matchers::{header, method, path_regex},
         Mock, MockServer, ResponseTemplate,
@@ -3969,7 +4041,12 @@ mod tests {
     use super::ReportedContentScore;
     use crate::{
         config::RequestConfig,
-        test_utils::{client::mock_matrix_session, logged_in_client, mocks::MatrixMockServer},
+        room::messages::{IncludeRelations, ListThreadsOptions, RelationsOptions},
+        test_utils::{
+            client::mock_matrix_session,
+            logged_in_client,
+            mocks::{MatrixMockServer, RoomRelationsResponseTemplate},
+        },
         Client,
     };
 
@@ -4313,5 +4390,171 @@ mod tests {
         // And also the sender info from the /members endpoint
         assert!(ret.sender_info.is_some());
         assert_eq!(ret.sender_info.unwrap().event().user_id(), sender_id);
+    }
+
+    #[async_test]
+    async fn test_list_threads() {
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+
+        let room_id = room_id!("!a:b.c");
+        let sender_id = user_id!("@alice:b.c");
+        let f = EventFactory::new().room(room_id).sender(sender_id);
+
+        let eid1 = event_id!("$1");
+        let eid2 = event_id!("$2");
+        let batch1 = vec![f.text_msg("Thread root 1").event_id(eid1).into_raw_sync().cast()];
+        let batch2 = vec![f.text_msg("Thread root 2").event_id(eid2).into_raw_sync().cast()];
+
+        server
+            .mock_room_threads()
+            .ok(batch1.clone(), Some("prev_batch".to_owned()))
+            .mock_once()
+            .mount()
+            .await;
+        server
+            .mock_room_threads()
+            .match_from("prev_batch")
+            .ok(batch2, None)
+            .mock_once()
+            .mount()
+            .await;
+
+        let room = server.sync_joined_room(&client, room_id).await;
+        let result =
+            room.list_threads(ListThreadsOptions::default()).await.expect("Failed to list threads");
+        assert_eq!(result.chunk.len(), 1);
+        assert_eq!(result.chunk[0].event_id().unwrap(), eid1);
+        assert!(result.prev_batch_token.is_some());
+
+        let opts = ListThreadsOptions { from: result.prev_batch_token, ..Default::default() };
+        let result = room.list_threads(opts).await.expect("Failed to list threads");
+        assert_eq!(result.chunk.len(), 1);
+        assert_eq!(result.chunk[0].event_id().unwrap(), eid2);
+        assert!(result.prev_batch_token.is_none());
+    }
+
+    #[async_test]
+    async fn test_relations() {
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+
+        let room_id = room_id!("!a:b.c");
+        let sender_id = user_id!("@alice:b.c");
+        let f = EventFactory::new().room(room_id).sender(sender_id);
+
+        let target_event_id = owned_event_id!("$target");
+        let eid1 = event_id!("$1");
+        let eid2 = event_id!("$2");
+        let batch1 = vec![f.text_msg("Related event 1").event_id(eid1).into_raw_sync().cast()];
+        let batch2 = vec![f.text_msg("Related event 2").event_id(eid2).into_raw_sync().cast()];
+
+        server
+            .mock_room_relations()
+            .match_target_event(target_event_id.clone())
+            .ok(RoomRelationsResponseTemplate::default().events(batch1).next_batch("next_batch"))
+            .mock_once()
+            .mount()
+            .await;
+
+        server
+            .mock_room_relations()
+            .match_target_event(target_event_id.clone())
+            .match_from("next_batch")
+            .ok(RoomRelationsResponseTemplate::default().events(batch2))
+            .mock_once()
+            .mount()
+            .await;
+
+        let room = server.sync_joined_room(&client, room_id).await;
+
+        // Main endpoint: no relation type filtered out.
+        let mut opts = RelationsOptions {
+            include_relations: IncludeRelations::AllRelations,
+            ..Default::default()
+        };
+        let result = room
+            .relations(target_event_id.clone(), opts.clone())
+            .await
+            .expect("Failed to list relations the first time");
+        assert_eq!(result.chunk.len(), 1);
+        assert_eq!(result.chunk[0].event_id().unwrap(), eid1);
+        assert!(result.prev_batch_token.is_none());
+        assert!(result.next_batch_token.is_some());
+        assert!(result.recursion_depth.is_none());
+
+        opts.from = result.next_batch_token;
+        let result = room
+            .relations(target_event_id, opts)
+            .await
+            .expect("Failed to list relations the second time");
+        assert_eq!(result.chunk.len(), 1);
+        assert_eq!(result.chunk[0].event_id().unwrap(), eid2);
+        assert!(result.prev_batch_token.is_none());
+        assert!(result.next_batch_token.is_none());
+        assert!(result.recursion_depth.is_none());
+    }
+
+    #[async_test]
+    async fn test_relations_with_reltype() {
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+
+        let room_id = room_id!("!a:b.c");
+        let sender_id = user_id!("@alice:b.c");
+        let f = EventFactory::new().room(room_id).sender(sender_id);
+
+        let target_event_id = owned_event_id!("$target");
+        let eid1 = event_id!("$1");
+        let eid2 = event_id!("$2");
+        let batch1 = vec![f.text_msg("In-thread event 1").event_id(eid1).into_raw_sync().cast()];
+        let batch2 = vec![f.text_msg("In-thread event 2").event_id(eid2).into_raw_sync().cast()];
+
+        server
+            .mock_room_relations()
+            .match_target_event(target_event_id.clone())
+            .match_subrequest(IncludeRelations::RelationsOfType(RelationType::Thread))
+            .ok(RoomRelationsResponseTemplate::default().events(batch1).next_batch("next_batch"))
+            .mock_once()
+            .mount()
+            .await;
+
+        server
+            .mock_room_relations()
+            .match_target_event(target_event_id.clone())
+            .match_from("next_batch")
+            .match_subrequest(IncludeRelations::RelationsOfType(RelationType::Thread))
+            .ok(RoomRelationsResponseTemplate::default().events(batch2))
+            .mock_once()
+            .mount()
+            .await;
+
+        let room = server.sync_joined_room(&client, room_id).await;
+
+        // Reltype-filtered endpoint, for threads \o/
+        let mut opts = RelationsOptions {
+            include_relations: IncludeRelations::RelationsOfType(RelationType::Thread),
+            ..Default::default()
+        };
+        let result = room
+            .relations(target_event_id.clone(), opts.clone())
+            .await
+            .expect("Failed to list relations the first time");
+        assert_eq!(result.chunk.len(), 1);
+        assert_eq!(result.chunk[0].event_id().unwrap(), eid1);
+        assert!(result.prev_batch_token.is_none());
+        assert!(result.next_batch_token.is_some());
+        assert!(result.recursion_depth.is_none());
+
+        opts.from = result.next_batch_token;
+        let result = room
+            .relations(target_event_id, opts)
+            .await
+            .expect("Failed to list relations the second time");
+        assert_eq!(result.chunk.len(), 1);
+        assert_eq!(result.chunk[0].event_id().unwrap(), eid2);
+        assert!(result.prev_batch_token.is_none());
+        assert!(result.next_batch_token.is_none());
+        assert!(result.recursion_depth.is_none());
     }
 }

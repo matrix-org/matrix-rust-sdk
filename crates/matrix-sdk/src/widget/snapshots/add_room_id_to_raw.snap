@@ -1,0 +1,15 @@
+---
+source: crates/matrix-sdk/src/widget/matrix.rs
+expression: "new.deserialize_as::<Value>().unwrap()"
+---
+{
+  "content": {
+    "body": "Hello world",
+    "msgtype": "m.text"
+  },
+  "event_id": "$1676512345:example.org",
+  "origin_server_ts": 1676512345,
+  "room_id": "!my_id:example.org",
+  "sender": "@user:example.org",
+  "type": "m.room.message"
+}

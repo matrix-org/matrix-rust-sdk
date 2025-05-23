@@ -4,15 +4,13 @@ members = [
     "bindings/matrix-sdk-crypto-ffi",
     "bindings/matrix-sdk-ffi",
     "crates/*",
-    "testing/*",
     "examples/*",
     "labs/*",
+    "testing/*",
     "uniffi-bindgen",
     "xtask",
 ]
-exclude = [
-    "testing/data",
-]
+exclude = ["testing/data"]
 # xtask, testing and the bindings should only be built when invoked explicitly.
 default-members = ["benchmarks", "crates/*", "labs/*"]
 resolver = "2"
@@ -23,14 +21,15 @@ rust-version = "1.85"
 [workspace.dependencies]
 anyhow = "1.0.95"
 aquamarine = "0.6.0"
+as_variant = "1.3.0"
 assert-json-diff = "2.0.2"
 assert_matches = "1.5.0"
 assert_matches2 = "0.1.2"
 async-rx = "0.1.3"
 async-stream = "0.3.5"
 async-trait = "0.1.85"
-as_variant = "1.3.0"
 base64 = "0.22.1"
+bitflags = "2.8.0"
 byteorder = "1.5.0"
 chrono = "0.4.39"
 eyeball = { version = "0.8.8", features = ["tracing"] }
@@ -60,7 +59,7 @@ reqwest = { version = "0.12.12", default-features = false }
 rmp-serde = "1.3.0"
 # Be careful to use commits from the https://github.com/ruma/ruma/tree/ruma-0.12
 # branch until a proper release with breaking changes happens.
-ruma = { version = "0.12.2", features = [
+ruma = { git = "https://github.com/ruma/ruma", rev = "a8fd1b0322649bf59e2a5cfc73ab4fe46b21edd7", features = [
     "client-api-c",
     "compat-upload-signatures",
     "compat-user-id",
@@ -74,8 +73,11 @@ ruma = { version = "0.12.2", features = [
     "unstable-msc4075",
     "unstable-msc4140",
     "unstable-msc4171",
-] }
-ruma-common = "0.15.2"
+    "unstable-msc4278",
+    ] }
+ruma-common = { git = "https://github.com/ruma/ruma", rev = "a8fd1b0322649bf59e2a5cfc73ab4fe46b21edd7" }
+sentry = "0.36.0"
+sentry-tracing = "0.36.0"
 serde = "1.0.217"
 serde_html_form = "0.2.7"
 serde_json = "1.0.138"
@@ -84,7 +86,7 @@ similar-asserts = "1.6.1"
 stream_assert = "0.1.1"
 tempfile = "3.16.0"
 thiserror = "2.0.11"
-tokio = { version = "1.43.0", default-features = false, features = ["sync"] }
+tokio = { version = "1.43.1", default-features = false, features = ["sync"] }
 tokio-stream = "0.1.17"
 tracing = { version = "0.1.40", default-features = false, features = ["std"] }
 tracing-core = "0.1.32"
@@ -96,7 +98,7 @@ url = "2.5.4"
 uuid = "1.12.1"
 vodozemac = { version = "0.9.0", features = ["insecure-pk-encryption"] }
 wasm-bindgen = "0.2.84"
-wasm-bindgen-test = "0.3.33"
+wasm-bindgen-test = "0.3.50"
 web-sys = "0.3.69"
 wiremock = "0.6.2"
 zeroize = "1.8.1"
@@ -112,6 +114,34 @@ matrix-sdk-sqlite = { path = "crates/matrix-sdk-sqlite", version = "0.11.0", def
 matrix-sdk-store-encryption = { path = "crates/matrix-sdk-store-encryption", version = "0.11.0" }
 matrix-sdk-test = { path = "testing/matrix-sdk-test", version = "0.11.0" }
 matrix-sdk-ui = { path = "crates/matrix-sdk-ui", version = "0.11.0", default-features = false }
+
+[workspace.lints.rust]
+rust_2018_idioms = "warn"
+semicolon_in_expressions_from_macros = "warn"
+unexpected_cfgs = { level = "warn", check-cfg = [
+    'cfg(tarpaulin_include)', # Used by tarpaulin (code coverage)
+    'cfg(ruma_unstable_exhaustive_types)', # Used by Ruma's EventContent derive macro
+] }
+unused_extern_crates = "warn"
+unused_import_braces = "warn"
+unused_qualifications = "warn"
+trivial_casts = "warn"
+trivial_numeric_casts = "warn"
+
+[workspace.lints.clippy]
+assigning_clones = "allow"
+box_default = "allow"
+cloned_instead_of_copied = "warn"
+dbg_macro = "warn"
+inefficient_to_string = "warn"
+macro_use_imports = "warn"
+mut_mut = "warn"
+needless_borrow = "warn"
+nonstandard_macro_braces = "warn"
+str_to_string = "warn"
+todo = "warn"
+unused_async = "warn"
+redundant_clone = "warn"
 
 # Default development profile; default for most Cargo commands, otherwise
 # selected with `--debug`
@@ -155,31 +185,3 @@ tracing-core = { git = "https://github.com/element-hq/tracing.git", rev = "ca943
 tracing-subscriber = { git = "https://github.com/element-hq/tracing.git", rev = "ca9431f74d37c9d3b5e6a9f35b2c706711dab7dd" }
 tracing-appender = { git = "https://github.com/element-hq/tracing.git", rev = "ca9431f74d37c9d3b5e6a9f35b2c706711dab7dd" }
 paranoid-android = { git = "https://github.com/element-hq/paranoid-android.git", rev = "69388ac5b4afeed7be4401c70ce17f6d9a2cf19b" }
-
-[workspace.lints.rust]
-rust_2018_idioms = "warn"
-semicolon_in_expressions_from_macros = "warn"
-unexpected_cfgs = { level = "warn", check-cfg = [
-    'cfg(tarpaulin_include)', # Used by tarpaulin (code coverage)
-    'cfg(ruma_unstable_exhaustive_types)', # Used by Ruma's EventContent derive macro
-] }
-unused_extern_crates = "warn"
-unused_import_braces = "warn"
-unused_qualifications = "warn"
-trivial_casts = "warn"
-trivial_numeric_casts = "warn"
-
-[workspace.lints.clippy]
-assigning_clones = "allow"
-box_default = "allow"
-cloned_instead_of_copied = "warn"
-dbg_macro = "warn"
-inefficient_to_string = "warn"
-macro_use_imports = "warn"
-mut_mut = "warn"
-needless_borrow = "warn"
-nonstandard_macro_braces = "warn"
-str_to_string = "warn"
-todo = "warn"
-unused_async = "warn"
-redundant_clone = "warn"

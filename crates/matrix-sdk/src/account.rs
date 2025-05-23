@@ -14,6 +14,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use futures_core::Stream;
+use futures_util::{stream, StreamExt};
 use matrix_sdk_base::{
     media::{MediaFormat, MediaRequestParameters},
     store::StateStoreExt,
@@ -36,9 +38,13 @@ use ruma::{
     assign,
     events::{
         ignored_user_list::{IgnoredUser, IgnoredUserListEventContent},
+        media_preview_config::{
+            InviteAvatars, MediaPreviewConfigEventContent, MediaPreviews,
+            UnstableMediaPreviewConfigEventContent,
+        },
         push_rules::PushRulesEventContent,
         room::MediaSource,
-        AnyGlobalAccountDataEventContent, GlobalAccountDataEventContent,
+        AnyGlobalAccountDataEventContent, GlobalAccountDataEvent, GlobalAccountDataEventContent,
         GlobalAccountDataEventType, StaticEventContent,
     },
     push::Ruleset,
@@ -978,6 +984,164 @@ impl Account {
             .state_store()
             .set_kv_data(StateStoreDataKey::RecentlyVisitedRooms(user_id), data)
             .await?;
+        Ok(())
+    }
+
+    /// Observes the media preview configuration.
+    ///
+    /// This value is linked to the [MSC 4278](https://github.com/matrix-org/matrix-spec-proposals/pull/4278) which is still in an unstable state.
+    ///
+    /// This will return the initial value of the configuration and a stream
+    /// that will yield new values as they are received.
+    ///
+    /// The initial value is the one that was stored in the account data
+    /// when the client was started. If no value was found in either the stable
+    /// and unstable type, the default configuration will be returned.
+    /// and the following code is using a temporary solution until we know which
+    /// Matrix version will support the stable type.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # use futures_util::{pin_mut, StreamExt};
+    /// # use matrix_sdk::Client;
+    /// # use matrix_sdk::ruma::events::media_preview_config::MediaPreviews;
+    /// # use url::Url;
+    /// # async {
+    /// # let homeserver = Url::parse("http://localhost:8080")?;
+    /// # let client = Client::new(homeserver).await?;
+    /// let account = client.account();
+    ///
+    /// let (initial_config, config_stream) =
+    ///     account.observe_media_preview_config().await?;
+    ///
+    /// println!("Initial media preview config: {:?}", initial_config);
+    ///
+    /// pin_mut!(config_stream);
+    /// while let Some(new_config) = config_stream.next().await {
+    ///     println!("Updated media preview config: {:?}", new_config);
+    /// }
+    /// # anyhow::Ok(()) };
+    /// ```
+    pub async fn observe_media_preview_config(
+        &self,
+    ) -> Result<
+        (MediaPreviewConfigEventContent, impl Stream<Item = MediaPreviewConfigEventContent>),
+        Error,
+    > {
+        // We need to create two observers, one for the stable event and one for the
+        // unstable and combine them into a single stream.
+        let first_observer = self
+            .client
+            .observe_events::<GlobalAccountDataEvent<MediaPreviewConfigEventContent>, ()>();
+
+        let stream = first_observer.subscribe().map(|event| event.0.content);
+
+        let second_observer = self
+            .client
+            .observe_events::<GlobalAccountDataEvent<UnstableMediaPreviewConfigEventContent>, ()>();
+
+        let second_stream = second_observer.subscribe().map(|event| event.0.content.0);
+
+        let mut combined_stream = stream::select(stream, second_stream);
+
+        let result_stream = async_stream::stream! {
+            // The observers need to be alive for the individual streams to be alive, so let's now
+            // create a stream that takes ownership of them.
+            let _first_observer = first_observer;
+            let _second_observer = second_observer;
+
+            while let Some(item) = combined_stream.next().await {
+                yield item
+            }
+        };
+
+        // We need to get the initial value of the media preview config event
+        // we do this after creating the observers to make sure that we don't
+        // create a race condition
+        let initial_value = self.get_media_preview_config_event_content().await?;
+
+        Ok((initial_value, result_stream))
+    }
+
+    /// Fetch the media preview configuration event content from the server.
+    ///
+    /// If no value was found in either the stable and unstable type, the
+    /// default configuration will be returned.
+    pub async fn fetch_media_preview_config_event_content(
+        &self,
+    ) -> Result<MediaPreviewConfigEventContent> {
+        // First we check if there is avalue in the stable event
+        let media_preview_config =
+            self.fetch_account_data(GlobalAccountDataEventType::MediaPreviewConfig).await?;
+
+        let media_preview_config = if let Some(media_preview_config) = media_preview_config {
+            Some(media_preview_config)
+        } else {
+            // If there is no value in the stable event, we check the unstable
+            self.fetch_account_data(GlobalAccountDataEventType::UnstableMediaPreviewConfig).await?
+        };
+
+        // We deserialize the content of the event, if is not found we return the
+        // default
+        let media_preview_config = media_preview_config
+            .and_then(|value| value.deserialize_as::<MediaPreviewConfigEventContent>().ok())
+            .unwrap_or_default();
+
+        Ok(media_preview_config)
+    }
+
+    /// Get the media preview configuration event content stored in the cache.
+    ///
+    /// This will return the default configuration if no value was found.
+    /// Will check first for the stable event and then for the unstable one.
+    pub async fn get_media_preview_config_event_content(
+        &self,
+    ) -> Result<MediaPreviewConfigEventContent> {
+        let media_preview_config = self
+            .account_data::<MediaPreviewConfigEventContent>()
+            .await?
+            .and_then(|r| r.deserialize().ok());
+
+        let media_preview_config = if let Some(media_preview_config) = media_preview_config {
+            media_preview_config
+        } else {
+            self.account_data::<UnstableMediaPreviewConfigEventContent>()
+                .await?
+                .and_then(|r| r.deserialize().ok())
+                .unwrap_or_default()
+                .into()
+        };
+        Ok(media_preview_config)
+    }
+
+    /// Set the media previews display policy in the timeline.
+    ///
+    /// This will always use the unstable event until we know which Matrix
+    /// version will support it.
+    pub async fn set_media_previews_display_policy(&self, policy: MediaPreviews) -> Result<()> {
+        let mut media_preview_config = self.fetch_media_preview_config_event_content().await?;
+        media_preview_config.media_previews = policy;
+
+        // Updating the unstable account data
+        let unstable_media_preview_config =
+            UnstableMediaPreviewConfigEventContent::from(media_preview_config);
+        self.set_account_data(unstable_media_preview_config).await?;
+        Ok(())
+    }
+
+    /// Set the display policy for avatars in invite requests.
+    ///
+    /// This will always use the unstable event until we know which matrix
+    /// version will support it.
+    pub async fn set_invite_avatars_display_policy(&self, policy: InviteAvatars) -> Result<()> {
+        let mut media_preview_config = self.fetch_media_preview_config_event_content().await?;
+        media_preview_config.invite_avatars = policy;
+
+        // Updating the unstable account data
+        let unstable_media_preview_config =
+            UnstableMediaPreviewConfigEventContent::from(media_preview_config);
+        self.set_account_data(unstable_media_preview_config).await?;
         Ok(())
     }
 }

@@ -1,4 +1,4 @@
-// Copyright 2023 The Matrix.org Foundation C.I.C.
+// Copyright 2025 The Matrix.org Foundation C.I.C.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -22,7 +22,7 @@ use matrix_sdk::{
     crypto::types::events::CryptoContextInfo,
     deserialized_responses::{EncryptionInfo, TimelineEvent},
     event_cache::paginator::PaginableRoom,
-    room::PushContext,
+    room::{PushContext, Relations, RelationsOptions},
     AsyncTraitDeps, Result, Room, SendOutsideWasm,
 };
 use matrix_sdk_base::{latest_event::LatestEvent, RoomInfo};
@@ -68,7 +68,7 @@ impl RoomExt for Room {
     }
 
     fn timeline_builder(&self) -> TimelineBuilder {
-        Timeline::builder(self).track_read_marker_and_receipts()
+        TimelineBuilder::new(self).track_read_marker_and_receipts()
     }
 }
 
@@ -129,6 +129,8 @@ pub(super) trait RoomDataProvider:
         session_id: &str,
         sender: &UserId,
     ) -> impl Future<Output = Option<EncryptionInfo>> + SendOutsideWasm;
+
+    async fn relations(&self, event_id: OwnedEventId, opts: RelationsOptions) -> Result<Relations>;
 }
 
 impl RoomDataProvider for Room {
@@ -273,6 +275,10 @@ impl RoomDataProvider for Room {
     ) -> Option<EncryptionInfo> {
         // Pass directly on to `Room::get_encryption_info`
         self.get_encryption_info(session_id, sender).await
+    }
+
+    async fn relations(&self, event_id: OwnedEventId, opts: RelationsOptions) -> Result<Relations> {
+        self.relations(event_id, opts).await
     }
 }
 

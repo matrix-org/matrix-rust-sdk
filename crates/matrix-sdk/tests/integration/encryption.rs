@@ -2,6 +2,7 @@ mod backups;
 mod cross_signing;
 mod recovery;
 mod secret_storage;
+mod to_device;
 mod verification;
 
 /// The backup key, which is also returned (encrypted) as part of the secret

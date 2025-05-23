@@ -12,7 +12,10 @@ use matrix_sdk::{
     ComposerDraft as SdkComposerDraft, ComposerDraftType as SdkComposerDraftType, EncryptionState,
     RoomHero as SdkRoomHero, RoomMemberships, RoomState,
 };
-use matrix_sdk_ui::timeline::{default_event_filter, RoomExt};
+use matrix_sdk_ui::{
+    timeline::{default_event_filter, RoomExt, TimelineBuilder},
+    unable_to_decrypt_hook::UtdHookManager,
+};
 use mime::Mime;
 use ruma::{
     assign,
@@ -75,16 +78,13 @@ pub(crate) type TimelineLock = Arc<RwLock<Option<Arc<Timeline>>>>;
 #[derive(uniffi::Object)]
 pub struct Room {
     pub(super) inner: SdkRoom,
+    utd_hook_manager: Option<Arc<UtdHookManager>>,
     timeline: TimelineLock,
 }
 
 impl Room {
-    pub(crate) fn new(inner: SdkRoom) -> Self {
-        Room { inner, timeline: Default::default() }
-    }
-
-    pub(crate) fn with_timeline(inner: SdkRoom, timeline: TimelineLock) -> Self {
-        Room { inner, timeline }
+    pub(crate) fn new(inner: SdkRoom, utd_hook_manager: Option<Arc<UtdHookManager>>) -> Self {
+        Room { inner, timeline: Default::default(), utd_hook_manager }
     }
 }
 
@@ -189,7 +189,7 @@ impl Room {
         &self,
         configuration: TimelineConfiguration,
     ) -> Result<Arc<Timeline>, ClientError> {
-        let mut builder = matrix_sdk_ui::timeline::Timeline::builder(&self.inner);
+        let mut builder = matrix_sdk_ui::timeline::TimelineBuilder::new(&self.inner);
 
         builder = builder
             .with_focus(configuration.focus.try_into()?)
@@ -231,6 +231,14 @@ impl Room {
 
         if let Some(internal_id_prefix) = configuration.internal_id_prefix {
             builder = builder.with_internal_id_prefix(internal_id_prefix);
+        }
+
+        if configuration.report_utds {
+            if let Some(utd_hook_manager) = self.utd_hook_manager.clone() {
+                builder = builder.with_unable_to_decrypt_hook(utd_hook_manager);
+            } else {
+                return Err(ClientError::Generic { msg: "Failed creating timeline because the configuration is set to report UTDs but no hook manager is set".to_owned(), details: None });
+            }
         }
 
         let timeline = builder.build().await?;
@@ -656,11 +664,11 @@ impl Room {
     /// Mark a room as read, by attaching a read receipt on the latest event.
     ///
     /// Note: this does NOT unset the unread flag; it's the caller's
-    /// responsibility to do so, if needs be.
+    /// responsibility to do so, if need be.
     pub async fn mark_as_read(&self, receipt_type: ReceiptType) -> Result<(), ClientError> {
-        let timeline = self.timeline().await?;
+        let timeline = TimelineBuilder::new(&self.inner).build().await?;
 
-        timeline.mark_as_read(receipt_type).await?;
+        timeline.mark_as_read(receipt_type.into()).await?;
         Ok(())
     }
 

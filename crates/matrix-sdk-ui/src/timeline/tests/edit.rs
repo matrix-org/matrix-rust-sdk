@@ -173,9 +173,9 @@ async fn test_edit_updates_encryption_info() {
         algorithm_info: AlgorithmInfo::MegolmV1AesSha2 {
             curve25519_key: "123".to_owned(),
             sender_claimed_keys: BTreeMap::new(),
+            session_id: Some("mysessionid6333".to_owned()),
         },
         verification_state: VerificationState::Verified,
-        session_id: Some("mysessionid6333".to_owned()),
     };
 
     let original_event: TimelineEvent = DecryptedRoomEvent {
@@ -426,18 +426,16 @@ async fn test_updated_reply_doesnt_lose_latest_edit() {
         )
         .await;
 
-    {
-        // The reply is updated.
-        let item = assert_next_matches!(stream, VectorDiff::Set { index: 1, value } => value);
-        // And still has the latest edit JSON.
-        assert!(item.latest_edit_json().is_some());
-        assert_eq!(item.content().as_message().unwrap().body(), "guten tag");
+    // The original is updated.
+    let item = assert_next_matches!(stream, VectorDiff::Set { index: 0, value } => value);
+    // And now has a latest edit JSON.
+    assert!(item.latest_edit_json().is_some());
 
-        // The original is updated.
-        let item = assert_next_matches!(stream, VectorDiff::Set { index: 0, value } => value);
-        // And now has a latest edit JSON.
-        assert!(item.latest_edit_json().is_some());
+    // The reply is updated.
+    let item = assert_next_matches!(stream, VectorDiff::Set { index: 1, value } => value);
+    // And still has the latest edit JSON.
+    assert!(item.latest_edit_json().is_some());
+    assert_eq!(item.content().as_message().unwrap().body(), "guten tag");
 
-        assert_pending!(stream);
-    }
+    assert_pending!(stream);
 }

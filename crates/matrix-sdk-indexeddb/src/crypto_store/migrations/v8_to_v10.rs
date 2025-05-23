@@ -22,7 +22,6 @@ use web_sys::{DomException, IdbTransactionMode};
 
 use crate::{
     crypto_store::{
-        indexeddb_serializer::IndexeddbSerializer,
         keys,
         migrations::{
             add_nonunique_index, do_schema_upgrade, old_keys,
@@ -30,6 +29,7 @@ use crate::{
         },
         InboundGroupSessionIndexedDbObject, Result,
     },
+    serializer::IndexeddbSerializer,
     IndexeddbCryptoStoreError,
 };
 

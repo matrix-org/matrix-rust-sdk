@@ -194,8 +194,9 @@ async fn test_false_positive_late_decryption_regression() {
 
     let hook = Arc::new(DummyUtdHook::default());
     let client = test_client_builder(None).build().await.unwrap();
-    let utd_hook =
-        Arc::new(UtdHookManager::new(hook.clone(), client).with_max_delay(Duration::from_secs(1)));
+    let utd_hook = Arc::new(
+        UtdHookManager::new(hook.clone(), client).with_max_delay(Duration::from_millis(500)),
+    );
 
     let timeline = TestTimelineBuilder::new().unable_to_decrypt_hook(utd_hook.clone()).build();
 
@@ -229,6 +230,11 @@ async fn test_false_positive_late_decryption_regression() {
     let own_user_id = user_id!("@example:morheus.localhost");
     let olm_machine = OlmMachine::new(own_user_id, "SomeDeviceId".into()).await;
 
+    sleep(Duration::from_millis(200)).await;
+
+    // Simulate a retry decryption.
+    // Due to the regression this was marking the event as successfully decrypted on
+    // retry
     timeline
         .controller
         .retry_event_decryption_test(
@@ -691,9 +697,9 @@ fn make_encryption_info(session_id: &str, verification_state: VerificationState)
         algorithm_info: AlgorithmInfo::MegolmV1AesSha2 {
             curve25519_key: Default::default(),
             sender_claimed_keys: Default::default(),
+            session_id: Some(session_id.to_owned()),
         },
         verification_state,
-        session_id: Some(session_id.to_owned()),
     }
 }
 

@@ -6,6 +6,11 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased] - ReleaseDate
 
+### Bug Fixes
+
+- Fix a `UNIQUE` constraint violation in the event cache store
+  ([#5001](https://github.com/matrix-org/matrix-rust-sdk/pull/5001))
+
 ## [0.11.0] - 2025-04-11
 
 ### Features

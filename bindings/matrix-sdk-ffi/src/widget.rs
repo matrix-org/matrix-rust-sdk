@@ -4,7 +4,7 @@ use async_compat::get_runtime_handle;
 use language_tags::LanguageTag;
 use matrix_sdk::{
     async_trait,
-    widget::{MessageLikeEventFilter, StateEventFilter},
+    widget::{MessageLikeEventFilter, StateEventFilter, ToDeviceEventFilter},
 };
 use ruma::events::MessageLikeEventType;
 use tracing::error;
@@ -95,7 +95,7 @@ impl From<matrix_sdk::widget::WidgetSettings> for WidgetSettings {
 ///
 /// # Arguments
 /// * `widget_settings` - The widget settings to generate the url for.
-/// * `room` - A matrix room which is used to query the logged in username
+/// * `room` - A Matrix room which is used to query the logged in username
 /// * `props` - Properties from the client that can be used by a widget to adapt
 ///   to the client. e.g. language, font-scale...
 #[matrix_sdk_ffi_macros::export]
@@ -248,6 +248,11 @@ pub struct VirtualElementCallWidgetOptions {
     /// Sentry [environment](https://docs.sentry.io/concepts/key-terms/key-terms/)
     /// Supported since Element Call v0.9.0. Only used by the embedded package.
     pub sentry_environment: Option<String>,
+    //// - `true`: The webview should show the list of media devices it detects using
+    ////   `enumerateDevices`.
+    ///  - `false`: the webview shows a a list of devices injected by the
+    ///    client. (used on ios & android)
+    pub controlled_media_devices: bool,
 }
 
 impl From<VirtualElementCallWidgetOptions> for matrix_sdk::widget::VirtualElementCallWidgetOptions {
@@ -271,6 +276,7 @@ impl From<VirtualElementCallWidgetOptions> for matrix_sdk::widget::VirtualElemen
             rageshake_submit_url: value.rageshake_submit_url,
             sentry_dsn: value.sentry_dsn,
             sentry_environment: value.sentry_environment,
+            controlled_media_devices: value.controlled_media_devices,
         }
     }
 }
@@ -321,7 +327,9 @@ pub fn get_element_call_required_permissions(
             event_type: "org.matrix.rageshake_request".to_owned(),
         },
         // To read and send encryption keys
+        WidgetEventFilter::ToDevice { event_type: "io.element.call.encryption_keys".to_owned() },
         // TODO change this to the appropriate to-device version once ready
+        // remove this once all matrixRTC call apps supports to-device encryption.
         WidgetEventFilter::MessageLikeWithType {
             event_type: "io.element.call.encryption_keys".to_owned(),
         },
@@ -373,7 +381,7 @@ pub fn get_element_call_required_permissions(
                 state_key: format!("{own_user_id}_{own_device_id}"),
             },
             // The same as above but with an underscore.
-            // To work around the issue that state events starting with `@` have to be matrix id's
+            // To work around the issue that state events starting with `@` have to be Matrix id's
             // but we use mxId+deviceId.
             WidgetEventFilter::StateWithTypeAndStateKey {
                 event_type: StateEventType::CallMember.to_string(),
@@ -442,7 +450,7 @@ pub struct WidgetCapabilities {
     /// Types of the messages that a widget wants to be able to send.
     pub send: Vec<WidgetEventFilter>,
     /// If this capability is requested by the widget, it can not operate
-    /// separately from the matrix client.
+    /// separately from the Matrix client.
     ///
     /// This means clients should not offer to open the widget in a separate
     /// browser/tab/webview that is not connected to the postmessage widget-api.
@@ -488,9 +496,11 @@ pub enum WidgetEventFilter {
     StateWithType { event_type: String },
     /// Matches state events with the given `type` and `state_key`.
     StateWithTypeAndStateKey { event_type: String, state_key: String },
+    /// Matches to-device events with the given `event_type`.
+    ToDevice { event_type: String },
 }
 
-impl From<WidgetEventFilter> for matrix_sdk::widget::EventFilter {
+impl From<WidgetEventFilter> for matrix_sdk::widget::Filter {
     fn from(value: WidgetEventFilter) -> Self {
         match value {
             WidgetEventFilter::MessageLikeWithType { event_type } => {
@@ -505,13 +515,16 @@ impl From<WidgetEventFilter> for matrix_sdk::widget::EventFilter {
             WidgetEventFilter::StateWithTypeAndStateKey { event_type, state_key } => {
                 Self::State(StateEventFilter::WithTypeAndStateKey(event_type.into(), state_key))
             }
+            WidgetEventFilter::ToDevice { event_type } => {
+                Self::ToDevice(ToDeviceEventFilter { event_type: event_type.into() })
+            }
         }
     }
 }
 
-impl From<matrix_sdk::widget::EventFilter> for WidgetEventFilter {
-    fn from(value: matrix_sdk::widget::EventFilter) -> Self {
-        use matrix_sdk::widget::EventFilter as F;
+impl From<matrix_sdk::widget::Filter> for WidgetEventFilter {
+    fn from(value: matrix_sdk::widget::Filter) -> Self {
+        use matrix_sdk::widget::Filter as F;
 
         match value {
             F::MessageLike(MessageLikeEventFilter::WithType(event_type)) => {
@@ -525,6 +538,9 @@ impl From<matrix_sdk::widget::EventFilter> for WidgetEventFilter {
             }
             F::State(StateEventFilter::WithTypeAndStateKey(event_type, state_key)) => {
                 Self::StateWithTypeAndStateKey { event_type: event_type.to_string(), state_key }
+            }
+            F::ToDevice(ToDeviceEventFilter { event_type }) => {
+                Self::ToDevice { event_type: event_type.to_string() }
             }
         }
     }

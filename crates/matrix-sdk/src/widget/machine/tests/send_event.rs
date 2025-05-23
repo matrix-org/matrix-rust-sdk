@@ -32,6 +32,6 @@ fn parse_delayed_event_widget_action() {
     assert_let!(delay = send_event_request.delay.unwrap());
 
     assert_eq!(delay, 10000);
-    assert_eq!(send_event_request.event_type, TimelineEventType::CallMember);
+    assert_eq!(send_event_request.event_type, TimelineEventType::CallMember.to_string());
     assert_eq!(send_event_request.state_key.unwrap(), "_@abc:example.org_VFKPEKYWMP".to_owned());
 }

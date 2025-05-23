@@ -1,17 +1,15 @@
-use std::collections::BTreeMap;
+use std::collections::BTreeSet;
 
-use imbl::Vector;
-use matrix_sdk_base::{sync::SyncResponse, PreviousEventsProvider, RequestedRequiredStates};
+use matrix_sdk_base::{sync::SyncResponse, RequestedRequiredStates};
 use ruma::{
     api::client::{discovery::get_supported_versions, sync::sync_events::v5 as http},
     events::AnyToDeviceEvent,
     serde::Raw,
-    OwnedRoomId,
 };
 use tracing::error;
 
 use super::{SlidingSync, SlidingSyncBuilder};
-use crate::{Client, Result, SlidingSyncRoom};
+use crate::{Client, Result};
 
 /// A sliding sync version.
 #[derive(Clone, Debug)]
@@ -138,26 +136,13 @@ impl Client {
         response: &http::Response,
         requested_required_states: &RequestedRequiredStates,
     ) -> Result<SyncResponse> {
-        let response = self
-            .base_client()
-            .process_sliding_sync(response, &(), requested_required_states)
-            .await?;
+        let response =
+            self.base_client().process_sliding_sync(response, requested_required_states).await?;
 
         tracing::debug!("done processing on base_client");
         self.call_sync_response_handlers(&response).await?;
 
         Ok(response)
-    }
-}
-
-struct SlidingSyncPreviousEventsProvider<'a>(&'a BTreeMap<OwnedRoomId, SlidingSyncRoom>);
-
-impl PreviousEventsProvider for SlidingSyncPreviousEventsProvider<'_> {
-    fn for_room(
-        &self,
-        room_id: &ruma::RoomId,
-    ) -> Vector<matrix_sdk_common::deserialized_responses::TimelineEvent> {
-        self.0.get(room_id).map(|room| room.timeline_queue()).unwrap_or_default()
     }
 }
 
@@ -167,16 +152,15 @@ impl PreviousEventsProvider for SlidingSyncPreviousEventsProvider<'_> {
 /// independently, if needs be, making sure that both are properly processed by
 /// event handlers.
 #[must_use]
-pub(crate) struct SlidingSyncResponseProcessor<'a> {
+pub(crate) struct SlidingSyncResponseProcessor {
     client: Client,
     to_device_events: Vec<Raw<AnyToDeviceEvent>>,
     response: Option<SyncResponse>,
-    rooms: &'a BTreeMap<OwnedRoomId, SlidingSyncRoom>,
 }
 
-impl<'a> SlidingSyncResponseProcessor<'a> {
-    pub fn new(client: Client, rooms: &'a BTreeMap<OwnedRoomId, SlidingSyncRoom>) -> Self {
-        Self { client, to_device_events: Vec::new(), response: None, rooms }
+impl SlidingSyncResponseProcessor {
+    pub fn new(client: Client) -> Self {
+        Self { client, to_device_events: Vec::new(), response: None }
     }
 
     #[cfg(feature = "e2e-encryption")]
@@ -210,16 +194,14 @@ impl<'a> SlidingSyncResponseProcessor<'a> {
         response: &http::Response,
         requested_required_states: &RequestedRequiredStates,
     ) -> Result<()> {
-        self.response = Some(
-            self.client
-                .base_client()
-                .process_sliding_sync(
-                    response,
-                    &SlidingSyncPreviousEventsProvider(self.rooms),
-                    requested_required_states,
-                )
-                .await?,
-        );
+        let mut sync_response = self
+            .client
+            .base_client()
+            .process_sliding_sync(response, requested_required_states)
+            .await?;
+        handle_receipts_extension(&self.client, response, &mut sync_response).await?;
+
+        self.response = Some(sync_response);
         self.post_process().await
     }
 
@@ -260,14 +242,60 @@ async fn update_in_memory_caches(client: &Client, response: &SyncResponse) -> Re
     Ok(())
 }
 
+/// Update the receipts extension and compute the read receipt accordingly.
+async fn handle_receipts_extension(
+    client: &Client,
+    response: &http::Response,
+    sync_response: &mut SyncResponse,
+) -> Result<()> {
+    // We need to compute read receipts for each joined room that has received an
+    // update, or from each room that has received a receipt ephemeral event.
+    let room_ids = BTreeSet::from_iter(
+        sync_response
+            .rooms
+            .joined
+            .keys()
+            .cloned()
+            .chain(response.extensions.receipts.rooms.keys().cloned()),
+    );
+
+    for room_id in room_ids {
+        let Ok((room_event_cache, _drop_handle)) = client.event_cache().for_room(&room_id).await
+        else {
+            tracing::info!(
+                ?room_id,
+                "Failed to fetch the `RoomEventCache` when computing unread counts"
+            );
+
+            continue;
+        };
+
+        let previous_events = room_event_cache.events().await;
+
+        client
+            .base_client()
+            .process_sliding_sync_receipts_extension_for_room(
+                &room_id,
+                response,
+                sync_response,
+                previous_events,
+            )
+            .await?;
+    }
+    Ok(())
+}
+
 #[cfg(all(test, not(target_family = "wasm")))]
 mod tests {
     use std::collections::BTreeMap;
 
     use assert_matches::assert_matches;
-    use matrix_sdk_base::{notification_settings::RoomNotificationMode, RequestedRequiredStates};
+    use matrix_sdk_base::{
+        notification_settings::RoomNotificationMode, RequestedRequiredStates,
+        RoomInfoNotableUpdate, RoomInfoNotableUpdateReasons,
+    };
     use matrix_sdk_test::async_test;
-    use ruma::{assign, room_id, serde::Raw};
+    use ruma::{assign, events::AnySyncTimelineEvent, room_id, serde::Raw};
     use serde_json::json;
     use wiremock::{
         matchers::{method, path},
@@ -277,8 +305,8 @@ mod tests {
     use super::{get_supported_versions, Version, VersionBuilder};
     use crate::{
         error::Result,
-        sliding_sync::{http, VersionBuilderError},
-        test_utils::logged_in_client_with_server,
+        sliding_sync::{client::SlidingSyncResponseProcessor, http, VersionBuilderError},
+        test_utils::{logged_in_client, logged_in_client_with_server},
         SlidingSyncList, SlidingSyncMode,
     };
 
@@ -473,5 +501,101 @@ mod tests {
         );
 
         Ok(())
+    }
+
+    #[async_test]
+    async fn test_read_receipt_can_trigger_a_notable_update_reason() {
+        use ruma::api::client::sync::sync_events::v5 as http;
+
+        // Given a logged-in client
+        let client = logged_in_client(None).await;
+        client.event_cache().subscribe().unwrap();
+
+        let mut room_info_notable_update_stream = client.room_info_notable_update_receiver();
+
+        // When I send sliding sync response containing a new room.
+        let room_id = room_id!("!r:e.uk");
+        let room = http::response::Room::new();
+        let mut response = http::Response::new("5".to_owned());
+        response.rooms.insert(room_id.to_owned(), room);
+
+        let mut processor = SlidingSyncResponseProcessor::new(client.clone());
+        processor
+            .handle_room_response(&response, &RequestedRequiredStates::default())
+            .await
+            .expect("Failed to process sync");
+        processor.process_and_take_response().await.expect("Failed to finish processing sync");
+
+        // Then room info notable updates are received.
+        assert_matches!(
+            room_info_notable_update_stream.recv().await,
+            Ok(RoomInfoNotableUpdate { room_id: received_room_id, reasons: received_reasons }) => {
+                assert_eq!(received_room_id, room_id);
+                assert!(!received_reasons.contains(RoomInfoNotableUpdateReasons::READ_RECEIPT), "{received_reasons:?}");
+            }
+        );
+        assert_matches!(
+            room_info_notable_update_stream.recv().await,
+            Ok(RoomInfoNotableUpdate { room_id: received_room_id, reasons: received_reasons }) => {
+                assert_eq!(received_room_id, room_id);
+                assert!(received_reasons.contains(RoomInfoNotableUpdateReasons::DISPLAY_NAME), "{received_reasons:?}");
+            }
+        );
+        assert!(room_info_notable_update_stream.is_empty());
+
+        // When I send sliding sync response containing a couple of events with no read
+        // receipt.
+        let room_id = room_id!("!r:e.uk");
+        let events = vec![
+            make_raw_event("m.room.message", "$3"),
+            make_raw_event("m.room.message", "$4"),
+            make_raw_event("m.read", "$5"),
+        ];
+        let room = assign!(http::response::Room::new(), {
+            timeline: events,
+        });
+        let mut response = http::Response::new("5".to_owned());
+        response.rooms.insert(room_id.to_owned(), room);
+
+        let mut processor = SlidingSyncResponseProcessor::new(client.clone());
+        processor
+            .handle_room_response(&response, &RequestedRequiredStates::default())
+            .await
+            .expect("Failed to process sync");
+        processor.process_and_take_response().await.expect("Failed to finish processing sync");
+
+        // Then room info notable updates are received.
+        //
+        // `NONE` because the regular sync process ends up to updating nothing.
+        assert_matches!(
+            room_info_notable_update_stream.recv().await,
+            Ok(RoomInfoNotableUpdate { room_id: received_room_id, reasons: received_reasons }) => {
+                assert_eq!(received_room_id, room_id);
+                assert!(received_reasons.contains(RoomInfoNotableUpdateReasons::NONE), "{received_reasons:?}");
+            }
+        );
+        // `READ_RECEIPT` because this is what we expect.
+        assert_matches!(
+            room_info_notable_update_stream.recv().await,
+            Ok(RoomInfoNotableUpdate { room_id: received_room_id, reasons: received_reasons }) => {
+                assert_eq!(received_room_id, room_id);
+                assert!(received_reasons.contains(RoomInfoNotableUpdateReasons::READ_RECEIPT), "{received_reasons:?}");
+            }
+        );
+        assert!(room_info_notable_update_stream.is_empty());
+    }
+
+    fn make_raw_event(event_type: &str, id: &str) -> Raw<AnySyncTimelineEvent> {
+        Raw::from_json_string(
+            json!({
+                "type": event_type,
+                "event_id": id,
+                "content": { "msgtype": "m.text", "body": "my msg" },
+                "sender": "@u:h.uk",
+                "origin_server_ts": 12344445,
+            })
+            .to_string(),
+        )
+        .unwrap()
     }
 }

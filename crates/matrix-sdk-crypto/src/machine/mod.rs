@@ -19,6 +19,8 @@ use std::{
 };
 
 use itertools::Itertools;
+#[cfg(feature = "experimental-send-custom-to-device")]
+use matrix_sdk_common::deserialized_responses::WithheldCode;
 use matrix_sdk_common::{
     deserialized_responses::{
         AlgorithmInfo, DecryptedRoomEvent, DeviceLinkProblem, EncryptionInfo, UnableToDecryptInfo,
@@ -50,10 +52,12 @@ use ruma::{
 };
 use serde_json::{value::to_raw_value, Value};
 use tokio::sync::Mutex;
+#[cfg(feature = "experimental-send-custom-to-device")]
+use tracing::trace;
 use tracing::{
     debug, error,
     field::{debug, display},
-    info, instrument, warn, Span,
+    info, instrument, trace, warn, Span,
 };
 use vodozemac::{
     megolm::{DecryptionError, SessionOrdering},
@@ -939,10 +943,11 @@ impl OlmMachine {
         }
     }
 
+    /// Handle a received, decrypted, `io.element.msc4268.room_key_bundle`
+    /// to-device event.
     #[instrument()]
-    async fn receive_room_key_bundle(
+    async fn receive_room_key_bundle_data(
         &self,
-        sender_key: Curve25519PublicKey,
         event: &DecryptedRoomKeyBundleEvent,
         changes: &mut Changes,
     ) -> OlmResult<()> {
@@ -951,9 +956,17 @@ impl OlmMachine {
             return Ok(());
         };
 
+        // We already checked that `sender_device_keys` matches the actual sender of the
+        // message when we decrypted the message, which included doing
+        // `DeviceData::try_from` on it, so it can't fail.
+
+        let sender_device_data =
+            DeviceData::try_from(sender_device_keys).expect("failed to verify sender device keys");
+        let sender_device = self.store().wrap_device_data(sender_device_data).await?;
+
         changes.received_room_key_bundles.push(StoredRoomKeyBundleData {
             sender_user: event.sender.clone(),
-            sender_data: SenderData::device_info(sender_device_keys.clone()),
+            sender_data: SenderData::from_device(&sender_device),
             bundle_data: event.content.clone(),
         });
         Ok(())
@@ -1110,6 +1123,50 @@ impl OlmMachine {
         self.inner.group_session_manager.share_room_key(room_id, users, encryption_settings).await
     }
 
+    /// Encrypts the given content using Olm for each of the given devices.
+    ///
+    /// The 1-to-1 session must be established prior to this
+    /// call by using the [`OlmMachine::get_missing_sessions`] method or the
+    /// encryption will fail.
+    ///
+    /// The caller is responsible for sending the encrypted
+    /// event to the target device, and should do it ASAP to avoid out-of-order
+    /// messages.
+    ///
+    /// # Returns
+    /// A list of `ToDeviceRequest` to send out the event, and the list of
+    /// devices where encryption did not succeed (device excluded or no olm)
+    #[cfg(feature = "experimental-send-custom-to-device")]
+    pub async fn encrypt_content_for_devices(
+        &self,
+        devices: Vec<DeviceData>,
+        event_type: &str,
+        content: &Value,
+    ) -> OlmResult<(Vec<ToDeviceRequest>, Vec<(DeviceData, WithheldCode)>)> {
+        // TODO: Use a `CollectStrategy` arguments to filter our devices depending on
+        // safety settings (like not sending to insecure devices).
+        let mut changes = Changes::default();
+
+        let result = self
+            .inner
+            .group_session_manager
+            .encrypt_content_for_devices(devices, event_type, content.clone(), &mut changes)
+            .await;
+
+        // Persist any changes we might have collected.
+        if !changes.is_empty() {
+            let session_count = changes.sessions.len();
+
+            self.inner.store.save_changes(changes).await?;
+
+            trace!(
+                session_count = session_count,
+                "Stored the changed sessions after encrypting a custom to-device event"
+            );
+        }
+
+        result
+    }
     /// Collect the devices belonging to the given user, and send the details of
     /// a room key bundle to those devices.
     ///
@@ -1206,7 +1263,7 @@ impl OlmMachine {
             }
             AnyDecryptedOlmEvent::RoomKeyBundle(e) => {
                 debug!("Received a room key bundle event {:?}", e);
-                self.receive_room_key_bundle(decrypted.result.sender_key, e, changes).await?;
+                self.receive_room_key_bundle_data(e, changes).await?;
             }
             AnyDecryptedOlmEvent::Custom(_) => {
                 warn!("Received an unexpected encrypted to-device event");
@@ -1719,9 +1776,9 @@ impl OlmMachine {
                     .iter()
                     .map(|(k, v)| (k.to_owned(), v.to_base64()))
                     .collect(),
+                session_id: Some(session.session_id().to_owned()),
             },
             verification_state,
-            session_id: Some(session.session_id().to_owned()),
         })
     }
 
@@ -1777,52 +1834,85 @@ impl OlmMachine {
         }
     }
 
-    /// Check that the sender of a Megolm session satisfies the trust
+    /// Check that a Megolm event satisfies the sender trust
     /// requirement from the decryption settings.
+    ///
+    /// If the requirement is not satisfied, returns
+    /// [`MegolmError::SenderIdentityNotTrusted`].
     fn check_sender_trust_requirement(
         &self,
         session: &InboundGroupSession,
         encryption_info: &EncryptionInfo,
         trust_requirement: &TrustRequirement,
     ) -> MegolmResult<()> {
-        /// Get the error from the encryption information.
-        fn encryption_info_to_error(encryption_info: &EncryptionInfo) -> MegolmResult<()> {
-            // When this is called, the verification state *must* be unverified,
-            // otherwise the sender_data would have been SenderVerified
-            let VerificationState::Unverified(verification_level) =
-                &encryption_info.verification_state
-            else {
-                unreachable!("inconsistent verification state");
-            };
+        trace!(
+            verification_state = ?encryption_info.verification_state,
+            ?trust_requirement, "check_sender_trust_requirement",
+        );
+
+        // VerificationState::Verified is acceptable for all TrustRequirement levels, so
+        // let's get that out of the way
+        let verification_level = match &encryption_info.verification_state {
+            VerificationState::Verified => return Ok(()),
+            VerificationState::Unverified(verification_level) => verification_level,
+        };
+
+        let ok = match trust_requirement {
+            TrustRequirement::Untrusted => true,
+
+            TrustRequirement::CrossSignedOrLegacy => {
+                // `VerificationLevel::UnsignedDevice` and `VerificationLevel::None` correspond
+                // to `SenderData::DeviceInfo` and `SenderData::UnknownDevice`
+                // respectively, and those cases may be acceptable if the reason
+                // for the lack of data is that the sessions were established
+                // before we started collecting SenderData.
+                let legacy_session = match session.sender_data {
+                    SenderData::DeviceInfo { legacy_session, .. } => legacy_session,
+                    SenderData::UnknownDevice { legacy_session, .. } => legacy_session,
+                    _ => false,
+                };
+
+                // In the CrossSignedOrLegacy case the following rules apply:
+                //
+                // 1. Identities we have not yet verified can be decrypted regardless of the
+                //    legacy state of the session.
+                // 2. Devices that aren't signed by the owning identity of the device can only
+                //    be decrypted if it's a legacy session.
+                // 3. If we have no information about the device, we should only decrypt if it's
+                //    a legacy session.
+                // 4. Anything else, should throw an error.
+                match (verification_level, legacy_session) {
+                    // Case 1
+                    (VerificationLevel::UnverifiedIdentity, _) => true,
+
+                    // Case 2
+                    (VerificationLevel::UnsignedDevice, true) => true,
+
+                    // Case 3
+                    (VerificationLevel::None(_), true) => true,
+
+                    // Case 4
+                    (VerificationLevel::VerificationViolation, _)
+                    | (VerificationLevel::UnsignedDevice, false)
+                    | (VerificationLevel::None(_), false) => false,
+                }
+            }
+
+            // If cross-signing of identities is required, the only acceptable unverified case
+            // is when the identity is signed but not yet verified by us.
+            TrustRequirement::CrossSigned => match verification_level {
+                VerificationLevel::UnverifiedIdentity => true,
+
+                VerificationLevel::VerificationViolation
+                | VerificationLevel::UnsignedDevice
+                | VerificationLevel::None(_) => false,
+            },
+        };
+
+        if ok {
+            Ok(())
+        } else {
             Err(MegolmError::SenderIdentityNotTrusted(verification_level.clone()))
-        }
-
-        match trust_requirement {
-            TrustRequirement::Untrusted => Ok(()),
-
-            TrustRequirement::CrossSignedOrLegacy => match &session.sender_data {
-                // Reject if the sender was previously verified, but changed
-                // their identity and is not verified any more.
-                SenderData::VerificationViolation(..) => Err(
-                    MegolmError::SenderIdentityNotTrusted(VerificationLevel::VerificationViolation),
-                ),
-                SenderData::SenderUnverified(..) => Ok(()),
-                SenderData::SenderVerified(..) => Ok(()),
-                SenderData::DeviceInfo { legacy_session: true, .. } => Ok(()),
-                SenderData::UnknownDevice { legacy_session: true, .. } => Ok(()),
-                _ => encryption_info_to_error(encryption_info),
-            },
-
-            TrustRequirement::CrossSigned => match &session.sender_data {
-                // Reject if the sender was previously verified, but changed
-                // their identity and is not verified any more.
-                SenderData::VerificationViolation(..) => Err(
-                    MegolmError::SenderIdentityNotTrusted(VerificationLevel::VerificationViolation),
-                ),
-                SenderData::SenderUnverified(..) => Ok(()),
-                SenderData::SenderVerified(..) => Ok(()),
-                _ => encryption_info_to_error(encryption_info),
-            },
         }
     }
 

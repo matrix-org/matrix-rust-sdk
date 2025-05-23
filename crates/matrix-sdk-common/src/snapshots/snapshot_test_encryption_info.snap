@@ -1,6 +1,5 @@
 ---
 source: crates/matrix-sdk-common/src/deserialized_responses.rs
-assertion_line: 1360
 expression: info
 ---
 {
@@ -9,9 +8,9 @@ expression: info
   "algorithm_info": {
     "MegolmV1AesSha2": {
       "curve25519_key": "curvecurvecurve",
-      "sender_claimed_keys": {}
+      "sender_claimed_keys": {},
+      "session_id": "mysessionid76"
     }
   },
-  "verification_state": "Verified",
-  "session_id": "mysessionid76"
+  "verification_state": "Verified"
 }
