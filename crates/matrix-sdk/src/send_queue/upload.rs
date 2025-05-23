@@ -518,65 +518,8 @@ impl QueueStorage {
             .into_media()
             .ok_or(RoomSendQueueError::StorageError(RoomSendQueueStorageError::InvalidParentKey))?;
 
-        // Update cache keys in the cache store.
-        {
-            // Do it for the file itself.
-            let from_req = Media::make_local_file_media_request(&file_upload_txn);
-
-            trace!(from = ?from_req.source, to = ?sent_media.file, "renaming media file key in cache store");
-            let cache_store = client
-                .event_cache_store()
-                .lock()
-                .await
-                .map_err(RoomSendQueueStorageError::LockError)?;
-
-            // The media can now be removed during cleanups.
-            cache_store
-                .set_ignore_media_retention_policy(&from_req, IgnoreMediaRetentionPolicy::No)
-                .await
-                .map_err(RoomSendQueueStorageError::EventCacheStoreError)?;
-
-            cache_store
-                .replace_media_key(
-                    &from_req,
-                    &MediaRequestParameters {
-                        source: sent_media.file.clone(),
-                        format: MediaFormat::File,
-                    },
-                )
-                .await
-                .map_err(RoomSendQueueStorageError::EventCacheStoreError)?;
-
-            // Rename the thumbnail too, if needs be.
-            if let Some((info, new_source)) =
-                thumbnail_info.as_ref().zip(sent_media.thumbnail.clone())
-            {
-                // Previously the media request used `MediaFormat::Thumbnail`. Handle this case
-                // for send queue requests that were in the state store before the change.
-                let from_req = if let Some((height, width)) = info.height.zip(info.width) {
-                    Media::make_local_thumbnail_media_request(&info.txn, height, width)
-                } else {
-                    Media::make_local_file_media_request(&info.txn)
-                };
-
-                trace!(from = ?from_req.source, to = ?new_source, "renaming thumbnail file key in cache store");
-
-                // The media can now be removed during cleanups.
-                cache_store
-                    .set_ignore_media_retention_policy(&from_req, IgnoreMediaRetentionPolicy::No)
-                    .await
-                    .map_err(RoomSendQueueStorageError::EventCacheStoreError)?;
-
-                cache_store
-                    .replace_media_key(
-                        &from_req,
-                        &MediaRequestParameters { source: new_source, format: MediaFormat::File },
-                    )
-                    .await
-                    .map_err(RoomSendQueueStorageError::EventCacheStoreError)?;
-            }
-        }
-
+        update_media_cache_keys_after_upload(client, &file_upload_txn, thumbnail_info, &sent_media)
+            .await?;
         update_media_event_after_upload(&mut local_echo, sent_media);
 
         let new_content = SerializableEventContent::new(&local_echo.into())
@@ -635,74 +578,18 @@ impl QueueStorage {
         for (item_info, sent_media) in zip(item_infos, sent_media_vec) {
             let FinishGalleryItemInfo { file_upload: file_upload_txn, thumbnail_info } = item_info;
 
-            // Update cache keys in the cache store.
-            {
-                // Do it for the file itself.
-                let from_req = Media::make_local_file_media_request(&file_upload_txn);
+            // Store the sent media under the original cache key for later insertion into
+            // the local echo.
+            let from_req = Media::make_local_file_media_request(&file_upload_txn);
+            sent_infos.insert(from_req.source.unique_key(), sent_media.clone());
 
-                // Store the sent media under the original cache key for later insertion into
-                // the local echo.
-                sent_infos.insert(from_req.source.unique_key(), sent_media.clone());
-
-                trace!(from = ?from_req.source, to = ?sent_media.file, "renaming media file key in cache store");
-                let cache_store = client
-                    .event_cache_store()
-                    .lock()
-                    .await
-                    .map_err(RoomSendQueueStorageError::LockError)?;
-
-                // The media can now be removed during cleanups.
-                cache_store
-                    .set_ignore_media_retention_policy(&from_req, IgnoreMediaRetentionPolicy::No)
-                    .await
-                    .map_err(RoomSendQueueStorageError::EventCacheStoreError)?;
-
-                cache_store
-                    .replace_media_key(
-                        &from_req,
-                        &MediaRequestParameters {
-                            source: sent_media.file.clone(),
-                            format: MediaFormat::File,
-                        },
-                    )
-                    .await
-                    .map_err(RoomSendQueueStorageError::EventCacheStoreError)?;
-
-                // Rename the thumbnail too, if needs be.
-                if let Some((info, new_source)) =
-                    thumbnail_info.as_ref().zip(sent_media.thumbnail.clone())
-                {
-                    // Previously the media request used `MediaFormat::Thumbnail`. Handle this case
-                    // for send queue requests that were in the state store before the change.
-                    let from_req = if let Some((height, width)) = info.height.zip(info.width) {
-                        Media::make_local_thumbnail_media_request(&info.txn, height, width)
-                    } else {
-                        Media::make_local_file_media_request(&info.txn)
-                    };
-
-                    trace!(from = ?from_req.source, to = ?new_source, "renaming thumbnail file key in cache store");
-
-                    // The media can now be removed during cleanups.
-                    cache_store
-                        .set_ignore_media_retention_policy(
-                            &from_req,
-                            IgnoreMediaRetentionPolicy::No,
-                        )
-                        .await
-                        .map_err(RoomSendQueueStorageError::EventCacheStoreError)?;
-
-                    cache_store
-                        .replace_media_key(
-                            &from_req,
-                            &MediaRequestParameters {
-                                source: new_source,
-                                format: MediaFormat::File,
-                            },
-                        )
-                        .await
-                        .map_err(RoomSendQueueStorageError::EventCacheStoreError)?;
-                }
-            }
+            update_media_cache_keys_after_upload(
+                client,
+                &file_upload_txn,
+                thumbnail_info,
+                &sent_media.into(),
+            )
+            .await?;
         }
 
         update_gallery_event_after_upload(&mut local_echo, sent_infos);
@@ -1051,4 +938,63 @@ impl QueueStorage {
         trace!("media event was not being sent, updated local echo");
         Ok(Some(any_content))
     }
+}
+
+/// Update cache keys in the cache store after uploading a media file /
+/// thumbnail.
+async fn update_media_cache_keys_after_upload(
+    client: &Client,
+    file_upload_txn: &OwnedTransactionId,
+    thumbnail_info: Option<FinishUploadThumbnailInfo>,
+    sent_media: &SentMediaInfo,
+) -> Result<(), RoomSendQueueError> {
+    // Do it for the file itself.
+    let from_req = Media::make_local_file_media_request(file_upload_txn);
+
+    trace!(from = ?from_req.source, to = ?sent_media.file, "renaming media file key in cache store");
+    let cache_store =
+        client.event_cache_store().lock().await.map_err(RoomSendQueueStorageError::LockError)?;
+
+    // The media can now be removed during cleanups.
+    cache_store
+        .set_ignore_media_retention_policy(&from_req, IgnoreMediaRetentionPolicy::No)
+        .await
+        .map_err(RoomSendQueueStorageError::EventCacheStoreError)?;
+
+    cache_store
+        .replace_media_key(
+            &from_req,
+            &MediaRequestParameters { source: sent_media.file.clone(), format: MediaFormat::File },
+        )
+        .await
+        .map_err(RoomSendQueueStorageError::EventCacheStoreError)?;
+
+    // Rename the thumbnail too, if needs be.
+    if let Some((info, new_source)) = thumbnail_info.as_ref().zip(sent_media.thumbnail.clone()) {
+        // Previously the media request used `MediaFormat::Thumbnail`. Handle this case
+        // for send queue requests that were in the state store before the change.
+        let from_req = if let Some((height, width)) = info.height.zip(info.width) {
+            Media::make_local_thumbnail_media_request(&info.txn, height, width)
+        } else {
+            Media::make_local_file_media_request(&info.txn)
+        };
+
+        trace!(from = ?from_req.source, to = ?new_source, "renaming thumbnail file key in cache store");
+
+        // The media can now be removed during cleanups.
+        cache_store
+            .set_ignore_media_retention_policy(&from_req, IgnoreMediaRetentionPolicy::No)
+            .await
+            .map_err(RoomSendQueueStorageError::EventCacheStoreError)?;
+
+        cache_store
+            .replace_media_key(
+                &from_req,
+                &MediaRequestParameters { source: new_source, format: MediaFormat::File },
+            )
+            .await
+            .map_err(RoomSendQueueStorageError::EventCacheStoreError)?;
+    }
+
+    Ok(())
 }

@@ -394,6 +394,13 @@ pub struct AccumulatedSentMediaInfo {
     pub thumbnail: Option<MediaSource>,
 }
 
+#[cfg(feature = "unstable-msc4274")]
+impl From<AccumulatedSentMediaInfo> for SentMediaInfo {
+    fn from(value: AccumulatedSentMediaInfo) -> Self {
+        Self { file: value.file, thumbnail: value.thumbnail, accumulated: vec![] }
+    }
+}
+
 /// A unique key (identifier) indicating that a transaction has been
 /// successfully sent to the server.
 ///
