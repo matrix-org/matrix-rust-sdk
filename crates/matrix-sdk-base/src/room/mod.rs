@@ -67,6 +67,7 @@ use serde::{Deserialize, Serialize};
 pub use state::{RoomState, RoomStateFilter};
 pub(crate) use tags::RoomNotableTags;
 use tokio::sync::broadcast;
+pub use tombstone::{PredecessorRoom, SuccessorRoom};
 use tracing::{info, instrument, warn};
 
 use crate::{
