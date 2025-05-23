@@ -45,6 +45,8 @@ use std::{
     task::{Context, Poll},
 };
 
+use anymap2::any::CloneAny;
+#[cfg(not(target_family = "wasm"))]
 use anymap2::any::CloneAnySendSync;
 use eyeball::{SharedObservable, Subscriber};
 use futures_core::Stream;
@@ -78,7 +80,10 @@ type EventHandlerFn = dyn Fn(EventHandlerData<'_>) -> EventHandlerFut + Send + S
 #[cfg(target_family = "wasm")]
 type EventHandlerFn = dyn Fn(EventHandlerData<'_>) -> EventHandlerFut;
 
+#[cfg(not(target_family = "wasm"))]
 type AnyMap = anymap2::Map<dyn CloneAnySendSync + Send + Sync>;
+#[cfg(target_family = "wasm")]
+type AnyMap = anymap2::Map<dyn CloneAny>;
 
 #[derive(Default)]
 pub(crate) struct EventHandlerStore {

@@ -16,6 +16,7 @@
 use std::ops::Deref;
 
 use matrix_sdk_base::deserialized_responses::EncryptionInfo;
+use matrix_sdk_common::{SendOutsideWasm, SyncOutsideWasm};
 use ruma::push::Action;
 use serde_json::value::RawValue as RawJsonValue;
 
@@ -93,7 +94,7 @@ impl EventHandlerContext for Vec<Action> {
 #[derive(Debug)]
 pub struct Ctx<T>(pub T);
 
-impl<T: Clone + Send + Sync + 'static> EventHandlerContext for Ctx<T> {
+impl<T: Clone + SendOutsideWasm + SyncOutsideWasm + 'static> EventHandlerContext for Ctx<T> {
     fn from_data(data: &EventHandlerData<'_>) -> Option<Self> {
         let map = data.client.inner.event_handlers.context.read().unwrap();
         map.get::<T>().cloned().map(Ctx)
