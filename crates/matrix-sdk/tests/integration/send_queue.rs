@@ -2102,8 +2102,11 @@ async fn test_gallery_uploads() {
         ..Default::default()
     });
 
-    let item_infos = vec![
-        GalleryItemInfo {
+    let transaction_id = TransactionId::new();
+    let mentions = Mentions::with_user_ids([owned_user_id!("@ivan:sdk.rs")]);
+    let config = GalleryConfig::new()
+        .txn_id(transaction_id.clone())
+        .add_item(GalleryItemInfo {
             attachment_info: attachment_info1,
             content_type: content_type1,
             filename: filename1.into(),
@@ -2111,8 +2114,8 @@ async fn test_gallery_uploads() {
             thumbnail: Some(thumbnail1),
             caption: Some("caption1".to_owned()),
             formatted_caption: None,
-        },
-        GalleryItemInfo {
+        })
+        .add_item(GalleryItemInfo {
             attachment_info: attachment_info2,
             content_type: content_type2,
             filename: filename2.into(),
@@ -2120,13 +2123,7 @@ async fn test_gallery_uploads() {
             thumbnail: Some(thumbnail2),
             caption: Some("caption2".to_owned()),
             formatted_caption: None,
-        },
-    ];
-
-    let transaction_id = TransactionId::new();
-    let mentions = Mentions::with_user_ids([owned_user_id!("@ivan:sdk.rs")]);
-    let config = GalleryConfig::new()
-        .txn_id(transaction_id.clone())
+        })
         .caption(Some("caption".to_owned()))
         .mentions(Some(mentions.clone()))
         .reply(Some(Reply {
@@ -2174,7 +2171,7 @@ async fn test_gallery_uploads() {
     // ----------------------
     // Send the media.
     assert!(watch.is_empty());
-    q.send_gallery(item_infos, config).await.expect("queuing the gallery works");
+    q.send_gallery(config).await.expect("queuing the gallery works");
 
     // ----------------------
     // Observe the local echo.

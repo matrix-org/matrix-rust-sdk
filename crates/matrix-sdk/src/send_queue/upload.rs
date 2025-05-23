@@ -361,7 +361,6 @@ impl RoomSendQueue {
     #[instrument(skip_all, fields(event_txn))]
     pub async fn send_gallery(
         &self,
-        item_infos: Vec<GalleryItemInfo>,
         config: GalleryConfig,
     ) -> Result<SendHandle, RoomSendQueueError> {
         let Some(room) = self.inner.room.get() else {
@@ -372,17 +371,17 @@ impl RoomSendQueue {
             return Err(RoomSendQueueError::RoomNotJoined);
         }
 
-        if item_infos.is_empty() {
+        if config.is_empty() {
             return Err(RoomSendQueueError::EmptyGallery);
         }
 
-        let send_event_txn = config.txn_id.map_or_else(ChildTransactionId::new, Into::into);
+        let send_event_txn = config.txn_id.clone().map_or_else(ChildTransactionId::new, Into::into);
 
         Span::current().record("event_txn", tracing::field::display(&*send_event_txn));
 
-        let mut item_types = Vec::with_capacity(item_infos.len());
-        let mut item_queue_infos = Vec::with_capacity(item_infos.len());
-        let mut media_handles = Vec::with_capacity(item_infos.len());
+        let mut item_types = Vec::with_capacity(config.len());
+        let mut item_queue_infos = Vec::with_capacity(config.len());
+        let mut media_handles = Vec::with_capacity(config.len());
 
         let client = room.client();
         let cache_store = client
@@ -391,7 +390,7 @@ impl RoomSendQueue {
             .await
             .map_err(RoomSendQueueStorageError::LockError)?;
 
-        for item_info in item_infos {
+        for item_info in config.items {
             let GalleryItemInfo { filename, content_type, data, .. } = item_info;
 
             let upload_file_txn = TransactionId::new();

@@ -282,6 +282,7 @@ impl AttachmentConfig {
 #[derive(Debug, Default)]
 pub struct GalleryConfig {
     pub(crate) txn_id: Option<OwnedTransactionId>,
+    pub(crate) items: Vec<GalleryItemInfo>,
     pub(crate) caption: Option<String>,
     pub(crate) formatted_caption: Option<FormattedBody>,
     pub(crate) mentions: Option<Mentions>,
@@ -305,6 +306,17 @@ impl GalleryConfig {
     #[must_use]
     pub fn txn_id(mut self, txn_id: OwnedTransactionId) -> Self {
         self.txn_id = Some(txn_id);
+        self
+    }
+
+    /// Adds a media item to the gallery.
+    ///
+    /// # Arguments
+    ///
+    /// * `item` - Information about the item to be added.
+    #[must_use]
+    pub fn add_item(mut self, item: GalleryItemInfo) -> Self {
+        self.items.push(item);
         self
     }
 
@@ -346,6 +358,16 @@ impl GalleryConfig {
     pub fn reply(mut self, reply: Option<Reply>) -> Self {
         self.reply = reply;
         self
+    }
+
+    /// Returns the number of media items in the gallery.
+    pub fn len(&self) -> usize {
+        self.items.len()
+    }
+
+    /// Checks whether the gallery contains any media items or not.
+    pub fn is_empty(&self) -> bool {
+        self.items.is_empty()
     }
 }
 
