@@ -19,7 +19,7 @@ use std::{fmt::Debug, future::IntoFuture};
 use eyeball::SharedObservable;
 #[cfg(not(target_arch = "wasm32"))]
 use eyeball::Subscriber;
-use matrix_sdk_common::boxed_into_future;
+use matrix_sdk_common::{boxed_into_future, SendOutsideWasm, SyncOutsideWasm};
 use oauth2::{basic::BasicErrorResponseType, RequestTokenError};
 use ruma::api::{client::error::ErrorKind, error::FromHttpResponseError, OutgoingRequest};
 use tracing::{error, trace};
@@ -65,7 +65,7 @@ impl<R> SendRequest<R> {
 
     /// Get a subscriber to observe the progress of sending the request
     /// body.
-    #[cfg(not(target_arch = "wasm32"))]
+    #[cfg(not(target_family = "wasm"))]
     pub fn subscribe_to_send_progress(&self) -> Subscriber<TransmissionProgress> {
         self.send_progress.subscribe()
     }
@@ -73,8 +73,8 @@ impl<R> SendRequest<R> {
 
 impl<R> IntoFuture for SendRequest<R>
 where
-    R: OutgoingRequest + Clone + Debug + Send + Sync + 'static,
-    R::IncomingResponse: Send + Sync,
+    R: OutgoingRequest + Clone + Debug + SendOutsideWasm + SyncOutsideWasm + 'static,
+    R::IncomingResponse: SendOutsideWasm + SyncOutsideWasm,
     HttpError: From<FromHttpResponseError<R::EndpointError>>,
 {
     type Output = HttpResult<R::IncomingResponse>;

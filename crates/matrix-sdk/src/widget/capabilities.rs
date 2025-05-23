@@ -18,6 +18,7 @@
 use std::fmt;
 
 use async_trait::async_trait;
+use matrix_sdk_common::{SendOutsideWasm, SyncOutsideWasm};
 use serde::{ser::SerializeSeq, Deserialize, Deserializer, Serialize, Serializer};
 use tracing::{debug, warn};
 
@@ -30,7 +31,7 @@ use super::{
 /// whether a widget is allowed to use certain capabilities (typically by
 /// providing a prompt to the user).
 #[async_trait]
-pub trait CapabilitiesProvider: Send + Sync + 'static {
+pub trait CapabilitiesProvider: SendOutsideWasm + SyncOutsideWasm + 'static {
     /// Receives a request for given capabilities and returns the actual
     /// capabilities that the clients grants to a given widget (usually by
     /// prompting the user).
