@@ -116,11 +116,9 @@ mod tests {
 
     use assert_matches::assert_matches;
     use matrix_sdk_test::{
-        async_test, event_factory::EventFactory, JoinedRoomBuilder, StateTestEvent,
-        SyncResponseBuilder,
+        async_test, event_factory::EventFactory, JoinedRoomBuilder, SyncResponseBuilder,
     };
-    use ruma::{event_id, room_id, user_id};
-    use serde_json::json;
+    use ruma::{event_id, room_id, user_id, RoomVersionId};
 
     use crate::{test_utils::logged_in_base_client, RoomState};
 
@@ -212,22 +210,15 @@ mod tests {
 
         let mut sync_builder = SyncResponseBuilder::new();
         let response = sync_builder
-            .add_joined_room(JoinedRoomBuilder::new(room_id).add_state_event(
-                StateTestEvent::Custom(json!({
-                    "content": {
-                        "creator": sender,
-                        // no `predecessor` field!
-                    },
-                    "event_id": "$ev0",
-                    "origin_server_ts": 42,
-                    "sender": sender,
-                    "state_key": "",
-                    "type": "m.room.create",
-                    "unsigned": {
-                        "age": 43
-                    }
-                })),
-            ))
+            .add_joined_room(
+                JoinedRoomBuilder::new(room_id).add_timeline_event(
+                    EventFactory::new()
+                        .create(sender, RoomVersionId::V11)
+                        // No `predecessor` field!
+                        .no_predecessor()
+                        .into_raw_sync(),
+                ),
+            )
             .build_sync_response();
 
         client.receive_sync_response(response).await.unwrap();
@@ -247,25 +238,14 @@ mod tests {
 
         let mut sync_builder = SyncResponseBuilder::new();
         let response = sync_builder
-            .add_joined_room(JoinedRoomBuilder::new(room_id).add_state_event(
-                StateTestEvent::Custom(json!({
-                    "content": {
-                        "creator": sender,
-                        "predecessor": {
-                            "event_id": predecessor_last_event_id,
-                            "room_id": predecessor_room_id,
-                        },
-                    },
-                    "event_id": "$ev0",
-                    "origin_server_ts": 42,
-                    "sender": sender,
-                    "state_key": "",
-                    "type": "m.room.create",
-                    "unsigned": {
-                        "age": 43
-                    }
-                })),
-            ))
+            .add_joined_room(
+                JoinedRoomBuilder::new(room_id).add_timeline_event(
+                    EventFactory::new()
+                        .create(sender, RoomVersionId::V11)
+                        .predecessor(predecessor_room_id, predecessor_last_event_id)
+                        .into_raw_sync(),
+                ),
+            )
             .build_sync_response();
 
         client.receive_sync_response(response).await.unwrap();
