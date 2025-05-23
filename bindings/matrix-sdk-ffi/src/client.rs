@@ -1545,6 +1545,13 @@ impl Client {
             None => Ok(None),
         }
     }
+
+    /// Fetch the media preview configuration from the server.
+    pub async fn fetch_media_preview_config(
+        &self,
+    ) -> Result<Option<MediaPreviewConfig>, ClientError> {
+        Ok(self.inner.account().fetch_media_preview_config_event_content().await?.map(Into::into))
+    }
 }
 
 #[matrix_sdk_ffi_macros::export(callback_interface)]
