@@ -54,6 +54,7 @@
 mod all;
 mod any;
 mod category;
+mod deduplicate_versions;
 mod favourite;
 mod fuzzy_match_room_name;
 mod invite;
@@ -67,6 +68,7 @@ mod unread;
 pub use all::new_filter as new_filter_all;
 pub use any::new_filter as new_filter_any;
 pub use category::{new_filter as new_filter_category, RoomCategory};
+pub use deduplicate_versions::new_filter as new_filter_deduplicate_versions;
 pub use favourite::new_filter as new_filter_favourite;
 pub use fuzzy_match_room_name::new_filter as new_filter_fuzzy_match_room_name;
 pub use invite::new_filter as new_filter_invite;
