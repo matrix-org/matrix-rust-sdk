@@ -220,6 +220,88 @@ impl PushContext {
     }
 }
 
+macro_rules! make_media_type {
+    ($t:ty, $content_type: ident, $filename: ident, $source: ident, $caption: ident, $formatted_caption: ident, $info: ident, $thumbnail: ident) => {{
+        // If caption is set, use it as body, and filename as the file name; otherwise,
+        // body is the filename, and the filename is not set.
+        // https://github.com/matrix-org/matrix-spec-proposals/blob/main/proposals/2530-body-as-caption.md
+        let (body, filename) = match $caption {
+            Some(caption) => (caption, Some($filename)),
+            None => ($filename, None),
+        };
+
+        let (thumbnail_source, thumbnail_info) = $thumbnail.unzip();
+
+        match $content_type.type_() {
+            mime::IMAGE => {
+                let info = assign!($info.map(ImageInfo::from).unwrap_or_default(), {
+                    mimetype: Some($content_type.as_ref().to_owned()),
+                    thumbnail_source,
+                    thumbnail_info
+                });
+                let content = assign!(ImageMessageEventContent::new(body, $source), {
+                    info: Some(Box::new(info)),
+                    formatted: $formatted_caption,
+                    filename
+                });
+                <$t>::Image(content)
+            }
+
+            mime::AUDIO => {
+                let mut content = assign!(AudioMessageEventContent::new(body, $source), {
+                    formatted: $formatted_caption,
+                    filename
+                });
+
+                if let Some(AttachmentInfo::Voice { audio_info, waveform: Some(waveform_vec) }) =
+                    &$info
+                {
+                    if let Some(duration) = audio_info.duration {
+                        let waveform = waveform_vec.iter().map(|v| (*v).into()).collect();
+                        content.audio =
+                            Some(UnstableAudioDetailsContentBlock::new(duration, waveform));
+                    }
+                    content.voice = Some(UnstableVoiceContentBlock::new());
+                }
+
+                let mut audio_info = $info.map(AudioInfo::from).unwrap_or_default();
+                audio_info.mimetype = Some($content_type.as_ref().to_owned());
+                let content = content.info(Box::new(audio_info));
+
+                <$t>::Audio(content)
+            }
+
+            mime::VIDEO => {
+                let info = assign!($info.map(VideoInfo::from).unwrap_or_default(), {
+                    mimetype: Some($content_type.as_ref().to_owned()),
+                    thumbnail_source,
+                    thumbnail_info
+                });
+                let content = assign!(VideoMessageEventContent::new(body, $source), {
+                    info: Some(Box::new(info)),
+                    formatted: $formatted_caption,
+                    filename
+                });
+                <$t>::Video(content)
+            }
+
+            _ => {
+                let info = assign!($info.map(FileInfo::from).unwrap_or_default(), {
+                    mimetype: Some($content_type.as_ref().to_owned()),
+                    thumbnail_source,
+                    thumbnail_info
+                });
+                let content = assign!(FileMessageEventContent::new(body, $source), {
+                    info: Some(Box::new(info)),
+                    formatted: $formatted_caption,
+                    filename,
+                });
+                <$t>::File(content)
+            }
+        }
+    }};
+}
+
 impl Room {
     /// Create a new `Room`
     ///
@@ -2215,83 +2297,16 @@ impl Room {
         info: Option<AttachmentInfo>,
         thumbnail: Option<(MediaSource, Box<ThumbnailInfo>)>,
     ) -> MessageType {
-        // If caption is set, use it as body, and filename as the file name; otherwise,
-        // body is the filename, and the filename is not set.
-        // https://github.com/matrix-org/matrix-spec-proposals/blob/main/proposals/2530-body-as-caption.md
-        let (body, filename) = match caption {
-            Some(caption) => (caption, Some(filename)),
-            None => (filename, None),
-        };
-
-        let (thumbnail_source, thumbnail_info) = thumbnail.unzip();
-
-        match content_type.type_() {
-            mime::IMAGE => {
-                let info = assign!(info.map(ImageInfo::from).unwrap_or_default(), {
-                    mimetype: Some(content_type.as_ref().to_owned()),
-                    thumbnail_source,
-                    thumbnail_info
-                });
-                let content = assign!(ImageMessageEventContent::new(body, source), {
-                    info: Some(Box::new(info)),
-                    formatted: formatted_caption,
-                    filename
-                });
-                MessageType::Image(content)
-            }
-
-            mime::AUDIO => {
-                let mut content = assign!(AudioMessageEventContent::new(body, source), {
-                    formatted: formatted_caption,
-                    filename
-                });
-
-                if let Some(AttachmentInfo::Voice { audio_info, waveform: Some(waveform_vec) }) =
-                    &info
-                {
-                    if let Some(duration) = audio_info.duration {
-                        let waveform = waveform_vec.iter().map(|v| (*v).into()).collect();
-                        content.audio =
-                            Some(UnstableAudioDetailsContentBlock::new(duration, waveform));
-                    }
-                    content.voice = Some(UnstableVoiceContentBlock::new());
-                }
-
-                let mut audio_info = info.map(AudioInfo::from).unwrap_or_default();
-                audio_info.mimetype = Some(content_type.as_ref().to_owned());
-                let content = content.info(Box::new(audio_info));
-
-                MessageType::Audio(content)
-            }
-
-            mime::VIDEO => {
-                let info = assign!(info.map(VideoInfo::from).unwrap_or_default(), {
-                    mimetype: Some(content_type.as_ref().to_owned()),
-                    thumbnail_source,
-                    thumbnail_info
-                });
-                let content = assign!(VideoMessageEventContent::new(body, source), {
-                    info: Some(Box::new(info)),
-                    formatted: formatted_caption,
-                    filename
-                });
-                MessageType::Video(content)
-            }
-
-            _ => {
-                let info = assign!(info.map(FileInfo::from).unwrap_or_default(), {
-                    mimetype: Some(content_type.as_ref().to_owned()),
-                    thumbnail_source,
-                    thumbnail_info
-                });
-                let content = assign!(FileMessageEventContent::new(body, source), {
-                    info: Some(Box::new(info)),
-                    formatted: formatted_caption,
-                    filename,
-                });
-                MessageType::File(content)
-            }
-        }
+        make_media_type!(
+            MessageType,
+            content_type,
+            filename,
+            source,
+            caption,
+            formatted_caption,
+            info,
+            thumbnail
+        )
     }
 
     /// Creates the [`RoomMessageEventContent`] based on the message type,
@@ -2328,83 +2343,16 @@ impl Room {
         info: Option<AttachmentInfo>,
         thumbnail: Option<(MediaSource, Box<ThumbnailInfo>)>,
     ) -> GalleryItemType {
-        // If caption is set, use it as body, and filename as the file name; otherwise,
-        // body is the filename, and the filename is not set.
-        // https://github.com/matrix-org/matrix-spec-proposals/blob/main/proposals/2530-body-as-caption.md
-        let (body, filename) = match caption {
-            Some(caption) => (caption, Some(filename)),
-            None => (filename, None),
-        };
-
-        let (thumbnail_source, thumbnail_info) = thumbnail.unzip();
-
-        match content_type.type_() {
-            mime::IMAGE => {
-                let info = assign!(info.map(ImageInfo::from).unwrap_or_default(), {
-                    mimetype: Some(content_type.as_ref().to_owned()),
-                    thumbnail_source,
-                    thumbnail_info
-                });
-                let content = assign!(ImageMessageEventContent::new(body, source), {
-                    info: Some(Box::new(info)),
-                    formatted: formatted_caption,
-                    filename
-                });
-                GalleryItemType::Image(content)
-            }
-
-            mime::AUDIO => {
-                let mut content = assign!(AudioMessageEventContent::new(body, source), {
-                    formatted: formatted_caption,
-                    filename
-                });
-
-                if let Some(AttachmentInfo::Voice { audio_info, waveform: Some(waveform_vec) }) =
-                    &info
-                {
-                    if let Some(duration) = audio_info.duration {
-                        let waveform = waveform_vec.iter().map(|v| (*v).into()).collect();
-                        content.audio =
-                            Some(UnstableAudioDetailsContentBlock::new(duration, waveform));
-                    }
-                    content.voice = Some(UnstableVoiceContentBlock::new());
-                }
-
-                let mut audio_info = info.map(AudioInfo::from).unwrap_or_default();
-                audio_info.mimetype = Some(content_type.as_ref().to_owned());
-                let content = content.info(Box::new(audio_info));
-
-                GalleryItemType::Audio(content)
-            }
-
-            mime::VIDEO => {
-                let info = assign!(info.map(VideoInfo::from).unwrap_or_default(), {
-                    mimetype: Some(content_type.as_ref().to_owned()),
-                    thumbnail_source,
-                    thumbnail_info
-                });
-                let content = assign!(VideoMessageEventContent::new(body, source), {
-                    info: Some(Box::new(info)),
-                    formatted: formatted_caption,
-                    filename
-                });
-                GalleryItemType::Video(content)
-            }
-
-            _ => {
-                let info = assign!(info.map(FileInfo::from).unwrap_or_default(), {
-                    mimetype: Some(content_type.as_ref().to_owned()),
-                    thumbnail_source,
-                    thumbnail_info
-                });
-                let content = assign!(FileMessageEventContent::new(body, source), {
-                    info: Some(Box::new(info)),
-                    formatted: formatted_caption,
-                    filename,
-                });
-                GalleryItemType::File(content)
-            }
-        }
+        make_media_type!(
+            GalleryItemType,
+            content_type,
+            filename,
+            source,
+            caption,
+            formatted_caption,
+            info,
+            thumbnail
+        )
     }
 
     /// Update the power levels of a select set of users of this room.
