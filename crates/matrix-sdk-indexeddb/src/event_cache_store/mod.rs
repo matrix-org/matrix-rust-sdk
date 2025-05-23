@@ -1152,16 +1152,18 @@ impl_event_cache_store! {
                 }
             }
         }
-        let chunk_id_string = position
-            .as_ref()
-            .map(|inner| inner.chunk_id.to_string())
-            .unwrap_or_else(|| Self::KEY_LOWER_CHARACTER.into());
-
-        let id = self.encode_key(vec![
-            (keys::ROOMS, room_id.as_ref(), true),
-            (keys::LINKED_CHUNKS, chunk_id_string.as_ref(), false),
-            (keys::EVENTS, event_id.as_str(), true),
-        ]);
+        let id = match position {
+            Some(ref position) => self.encode_key(vec![
+                (keys::ROOMS, room_id.as_ref(), true),
+                (keys::LINKED_CHUNKS, &position.chunk_id.to_string(), false),
+                (keys::EVENTS, &position.index.to_string(), false),
+            ]),
+            None => self.encode_key(vec![
+                (keys::ROOMS, room_id.as_ref(), true),
+                (keys::LINKED_CHUNKS, &String::from(Self::KEY_LOWER_CHARACTER), false),
+                (keys::EVENTS, event_id.as_str(), true),
+            ])
+        };
         let value = self.serialize_value_with_id(
             &id,
             &TimelineEventForCache {
