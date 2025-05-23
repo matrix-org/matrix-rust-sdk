@@ -28,6 +28,7 @@ pub mod failures_cache;
 pub mod linked_chunk;
 pub mod locks;
 pub mod ring_buffer;
+pub mod runtime;
 pub mod sleep;
 pub mod store_locks;
 pub mod timeout;
