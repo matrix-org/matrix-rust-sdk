@@ -134,6 +134,16 @@ impl Room {
         self.inner.alt_aliases().iter().map(|a| a.to_string()).collect()
     }
 
+    /// Get the user who created the invite, if any.
+    pub async fn inviter(&self) -> Result<Option<RoomMember>, ClientError> {
+        let invite_details = self.inner.invite_details().await?;
+
+        match invite_details.inviter {
+            Some(inviter) => Ok(Some(inviter.try_into()?)),
+            None => Ok(None),
+        }
+    }
+
     pub fn membership(&self) -> Membership {
         self.inner.state().into()
     }
