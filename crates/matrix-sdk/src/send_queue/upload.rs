@@ -380,6 +380,13 @@ impl RoomSendQueue {
         let mut item_queue_infos = Vec::<GalleryItemQueueInfo>::new();
         let mut media_handles = Vec::<MediaHandles>::new();
 
+        let client = room.client();
+        let cache_store = client
+            .event_cache_store()
+            .lock()
+            .await
+            .map_err(RoomSendQueueStorageError::LockError)?;
+
         for item_info in item_infos {
             let GalleryItemInfo { filename, content_type, data, .. } = item_info;
 
@@ -390,13 +397,6 @@ impl RoomSendQueue {
             let file_media_request = Media::make_local_file_media_request(&upload_file_txn);
 
             let (upload_thumbnail_txn, event_thumbnail_info, queue_thumbnail_info) = {
-                let client = room.client();
-                let cache_store = client
-                    .event_cache_store()
-                    .lock()
-                    .await
-                    .map_err(RoomSendQueueStorageError::LockError)?;
-
                 // Cache the file itself in the cache store.
                 cache_store
                     .add_media_content(
