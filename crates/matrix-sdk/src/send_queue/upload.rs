@@ -105,78 +105,60 @@ fn update_gallery_event_after_upload(
     echo: &mut RoomMessageEventContent,
     sent: HashMap<String, AccumulatedSentMediaInfo>,
 ) {
-    match &mut echo.msgtype {
-        MessageType::Gallery(gallery) => {
-            // Some variants look really similar below, but the `event` and `info` are all
-            // different types…
-            for itemtype in gallery.itemtypes.iter_mut() {
-                match itemtype {
-                    GalleryItemType::Audio(event) => match sent.get(&event.source.unique_key()) {
-                        Some(sent) => event.source = sent.file.clone(),
-                        None => error!(
-                            "key for item {:?} does not exist on gallery event",
-                            &event.source
-                        ),
-                    },
-                    GalleryItemType::File(event) => match sent.get(&event.source.unique_key()) {
-                        Some(sent) => {
-                            event.source = sent.file.clone();
-                            if let Some(info) = event.info.as_mut() {
-                                info.thumbnail_source = sent.thumbnail.clone();
-                            }
-                        }
-                        None => error!(
-                            "key for item {:?} does not exist on gallery event",
-                            &event.source
-                        ),
-                    },
-                    GalleryItemType::Image(event) => match sent.get(&event.source.unique_key()) {
-                        Some(sent) => {
-                            event.source = sent.file.clone();
-                            if let Some(info) = event.info.as_mut() {
-                                info.thumbnail_source = sent.thumbnail.clone();
-                            }
-                        }
-                        None => error!(
-                            "key for item {:?} does not exist on gallery event",
-                            &event.source
-                        ),
-                    },
-                    GalleryItemType::Video(event) => match sent.get(&event.source.unique_key()) {
-                        Some(sent) => {
-                            event.source = sent.file.clone();
-                            if let Some(info) = event.info.as_mut() {
-                                info.thumbnail_source = sent.thumbnail.clone();
-                            }
-                        }
-                        None => error!(
-                            "key for item {:?} does not exist on gallery event",
-                            &event.source
-                        ),
-                    },
+    let MessageType::Gallery(gallery) = &mut echo.msgtype else {
+        // All `GalleryItemType` created by `Room::make_gallery_item_type` should be
+        // handled here. The only way to end up here is that a item type has
+        // been tampered with in the database.
+        error!("Invalid gallery item types in database");
+        // Only crash debug builds.
+        debug_assert!(false, "invalid item type in database {:?}", echo.msgtype());
+        return;
+    };
 
-                    _ => {
-                        // All `GalleryItemType` created by `Room::make_gallery_item_type` should be
-                        // handled here. The only way to end up here is that a item type has
-                        // been tampered with in the database.
-                        error!("Invalid gallery item types in database");
-                        // Only crash debug builds.
-                        debug_assert!(
-                            false,
-                            "invalid gallery item type in database {:?}",
-                            itemtype
-                        );
+    // Some variants look really similar below, but the `event` and `info` are all
+    // different types…
+    for itemtype in gallery.itemtypes.iter_mut() {
+        match itemtype {
+            GalleryItemType::Audio(event) => match sent.get(&event.source.unique_key()) {
+                Some(sent) => event.source = sent.file.clone(),
+                None => error!("key for item {:?} does not exist on gallery event", &event.source),
+            },
+            GalleryItemType::File(event) => match sent.get(&event.source.unique_key()) {
+                Some(sent) => {
+                    event.source = sent.file.clone();
+                    if let Some(info) = event.info.as_mut() {
+                        info.thumbnail_source = sent.thumbnail.clone();
                     }
                 }
+                None => error!("key for item {:?} does not exist on gallery event", &event.source),
+            },
+            GalleryItemType::Image(event) => match sent.get(&event.source.unique_key()) {
+                Some(sent) => {
+                    event.source = sent.file.clone();
+                    if let Some(info) = event.info.as_mut() {
+                        info.thumbnail_source = sent.thumbnail.clone();
+                    }
+                }
+                None => error!("key for item {:?} does not exist on gallery event", &event.source),
+            },
+            GalleryItemType::Video(event) => match sent.get(&event.source.unique_key()) {
+                Some(sent) => {
+                    event.source = sent.file.clone();
+                    if let Some(info) = event.info.as_mut() {
+                        info.thumbnail_source = sent.thumbnail.clone();
+                    }
+                }
+                None => error!("key for item {:?} does not exist on gallery event", &event.source),
+            },
+
+            _ => {
+                // All `GalleryItemType` created by `Room::make_gallery_item_type` should be
+                // handled here. The only way to end up here is that a item type has
+                // been tampered with in the database.
+                error!("Invalid gallery item types in database");
+                // Only crash debug builds.
+                debug_assert!(false, "invalid gallery item type in database {:?}", itemtype);
             }
-        }
-        _ => {
-            // All `GalleryItemType` created by `Room::make_gallery_item_type` should be
-            // handled here. The only way to end up here is that a item type has
-            // been tampered with in the database.
-            error!("Invalid gallery item types in database");
-            // Only crash debug builds.
-            debug_assert!(false, "invalid item type in database {:?}", echo.msgtype());
         }
     }
 }
