@@ -38,7 +38,7 @@ tracing = { workspace = true }
 tokio = { workspace = true, features = ["rt", "time"] }
 uniffi = { workspace = true, optional = true }
 
-[target.'cfg(target_arch = "wasm32")'.dependencies]
+[target.'cfg(target_family = "wasm")'.dependencies]
 futures-util = { workspace = true, features = ["channel"] }
 wasm-bindgen-futures = { version = "0.4.33", optional = true }
 gloo-timers = { workspace = true, features = ["futures"] }
@@ -53,11 +53,11 @@ matrix-sdk-test-macros = { path = "../../testing/matrix-sdk-test-macros" }
 wasm-bindgen-test = { workspace = true }
 insta = { workspace = true }
 
-[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+[target.'cfg(not(target_family = "wasm"))'.dependencies]
 # Enable the test macro.
 tokio = { workspace = true, features = ["rt", "macros"] }
 
-[target.'cfg(target_arch = "wasm32")'.dev-dependencies]
+[target.'cfg(target_family = "wasm")'.dev-dependencies]
 # Enable the JS feature for getrandom.
 getrandom = { workspace = true, default-features = false, features = ["js"] }
 js-sys = { workspace = true }

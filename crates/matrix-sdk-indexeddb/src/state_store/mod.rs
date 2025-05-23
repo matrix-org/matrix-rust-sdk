@@ -493,7 +493,7 @@ impl PersistedQueuedRequest {
 // this hack allows us to still have most of rust-analyzer's IDE functionality
 // within the impl block without having to set it up to check things against
 // the wasm target (which would disable many other parts of the codebase).
-#[cfg(target_arch = "wasm32")]
+#[cfg(target_family = "wasm")]
 macro_rules! impl_state_store {
     ({ $($body:tt)* }) => {
         #[async_trait(?Send)]
@@ -505,7 +505,7 @@ macro_rules! impl_state_store {
     };
 }
 
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(not(target_family = "wasm"))]
 macro_rules! impl_state_store {
     ({ $($body:tt)* }) => {
         impl IndexeddbStateStore {
@@ -1850,9 +1850,9 @@ mod migration_tests {
     }
 }
 
-#[cfg(all(test, target_arch = "wasm32"))]
+#[cfg(all(test, target_family = "wasm"))]
 mod tests {
-    #[cfg(target_arch = "wasm32")]
+    #[cfg(target_family = "wasm")]
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
     use matrix_sdk_base::statestore_integration_tests;
@@ -1868,9 +1868,9 @@ mod tests {
     statestore_integration_tests!();
 }
 
-#[cfg(all(test, target_arch = "wasm32"))]
+#[cfg(all(test, target_family = "wasm"))]
 mod encrypted_tests {
-    #[cfg(target_arch = "wasm32")]
+    #[cfg(target_family = "wasm")]
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
     use matrix_sdk_base::statestore_integration_tests;

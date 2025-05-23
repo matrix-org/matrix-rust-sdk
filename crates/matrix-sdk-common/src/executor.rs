@@ -15,24 +15,24 @@
 //! Abstraction over an executor so we can spawn tasks under WASM the same way
 //! we do usually.
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(target_family = "wasm")]
 use std::{
     future::Future,
     pin::Pin,
     task::{Context, Poll},
 };
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(target_family = "wasm")]
 pub use futures_util::future::Aborted as JoinError;
-#[cfg(target_arch = "wasm32")]
+#[cfg(target_family = "wasm")]
 use futures_util::{
     future::{AbortHandle, Abortable, RemoteHandle},
     FutureExt,
 };
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(not(target_family = "wasm"))]
 pub use tokio::task::{spawn, JoinError, JoinHandle};
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(target_family = "wasm")]
 pub fn spawn<F, T>(future: F) -> JoinHandle<T>
 where
     F: Future<Output = T> + 'static,
@@ -50,14 +50,14 @@ where
     JoinHandle { remote_handle: Some(remote_handle), abort_handle }
 }
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(target_family = "wasm")]
 #[derive(Debug)]
 pub struct JoinHandle<T> {
     remote_handle: Option<RemoteHandle<T>>,
     abort_handle: AbortHandle,
 }
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(target_family = "wasm")]
 impl<T> JoinHandle<T> {
     pub fn abort(&self) {
         self.abort_handle.abort();
@@ -68,7 +68,7 @@ impl<T> JoinHandle<T> {
     }
 }
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(target_family = "wasm")]
 impl<T> Drop for JoinHandle<T> {
     fn drop(&mut self) {
         // don't abort the spawned future
@@ -78,7 +78,7 @@ impl<T> Drop for JoinHandle<T> {
     }
 }
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(target_family = "wasm")]
 impl<T: 'static> Future for JoinHandle<T> {
     type Output = Result<T, JoinError>;
 

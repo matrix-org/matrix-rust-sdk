@@ -47,8 +47,8 @@ use crate::{
 ///
 /// This trait is not meant to be used directly, but will be used with the
 /// `statestore_integration_tests!` macro.
-#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+#[cfg_attr(target_family = "wasm", async_trait(?Send))]
+#[cfg_attr(not(target_family = "wasm"), async_trait)]
 pub trait StateStoreIntegrationTests {
     /// Populate the given `StateStore`.
     async fn populate(&self) -> Result<()>;
@@ -98,8 +98,8 @@ pub trait StateStoreIntegrationTests {
     async fn test_get_room_infos(&self);
 }
 
-#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+#[cfg_attr(target_family = "wasm", async_trait(?Send))]
+#[cfg_attr(not(target_family = "wasm"), async_trait)]
 impl StateStoreIntegrationTests for DynStateStore {
     async fn populate(&self) -> Result<()> {
         let mut changes = StateChanges::default();
