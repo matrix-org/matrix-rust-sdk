@@ -288,7 +288,7 @@ where
     }
 
     pub fn into_raw_timeline(self) -> Raw<AnyTimelineEvent> {
-        Raw::new(&self.construct_json(true)).unwrap().cast()
+        self.into_raw()
     }
 
     pub fn into_raw_sync(self) -> Raw<AnySyncTimelineEvent> {
