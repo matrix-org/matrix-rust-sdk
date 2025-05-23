@@ -34,17 +34,18 @@ ruma.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
-tokio = { workspace = true, features = ["rt", "time"] }
 tracing.workspace = true
 uniffi = { workspace = true, optional = true }
 
-[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+[target.'cfg(not(target_family = "wasm"))'.dependencies]
 # Enable the test macro.
-tokio = { workspace = true, features = ["rt", "macros"] }
+tokio = { workspace = true, features = ["rt", "time", "macros"] }
 
-[target.'cfg(target_arch = "wasm32")'.dependencies]
+[target.'cfg(target_family = "wasm")'.dependencies]
 futures-util = { workspace = true, features = ["channel"] }
+n0-future = "0.1"
 gloo-timers = { workspace = true, features = ["futures"] }
+tokio = { workspace = true, features = ["macros"] }
 tracing-subscriber = { workspace = true, features = ["fmt", "ansi"] }
 wasm-bindgen.workspace = true
 wasm-bindgen-futures = { version = "0.4.33", optional = true }
@@ -57,7 +58,7 @@ matrix-sdk-test-macros = { path = "../../testing/matrix-sdk-test-macros" }
 proptest.workspace = true
 wasm-bindgen-test.workspace = true
 
-[target.'cfg(target_arch = "wasm32")'.dev-dependencies]
+[target.'cfg(target_family = "wasm")'.dev-dependencies]
 # Enable the JS feature for getrandom.
 getrandom = { workspace = true, default-features = false, features = ["js"] }
 js-sys.workspace = true
