@@ -648,7 +648,7 @@ impl QueueStorage {
             thumbnail: sent_gallery.thumbnail,
         });
 
-        let mut sent_infos = HashMap::<String, AccumulatedSentMediaInfo>::new();
+        let mut sent_infos = HashMap::new();
 
         for (item_info, sent_media) in zip(item_infos, sent_media_vec) {
             let FinishGalleryItemInfo { file_upload: file_upload_txn, thumbnail_info } = item_info;
