@@ -364,13 +364,11 @@ async fn test_verification_states_spoofed_sender() {
         .await
         .expect("Bob could not decrypt spoofed event");
 
-    // The verification_state of the event should be `MissingDevice` (since it
-    // manifests as a message from Charlie which does not correspond to one of
-    // Charlie's devices).
+    // The verification_state of the event should be `MismatchedSender`.
     let event_encryption_info = bob.get_room_event_encryption_info(&event, room_id).await.unwrap();
     assert_matches!(
         &event_encryption_info.verification_state,
-        VerificationState::Unverified(VerificationLevel::None(DeviceLinkProblem::MissingDevice))
+        VerificationState::Unverified(VerificationLevel::MismatchedSender)
     );
 }
 

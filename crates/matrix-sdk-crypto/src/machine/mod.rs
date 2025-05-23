@@ -1663,14 +1663,7 @@ impl OlmMachine {
         // `DeviceLinkProblem` for `VerificationLevel::None`.
         let (verification_state, device_id) = match sender_data.user_id() {
             Some(i) if i != sender => {
-                // For backwards compatibility, we treat this the same as "Unknown device".
-                // TODO: use a dedicated VerificationLevel here.
-                (
-                    VerificationState::Unverified(VerificationLevel::None(
-                        DeviceLinkProblem::MissingDevice,
-                    )),
-                    None,
-                )
+                (VerificationState::Unverified(VerificationLevel::MismatchedSender), None)
             }
 
             Some(_) | None => {
@@ -1967,6 +1960,7 @@ impl OlmMachine {
 
                     // Case 4
                     (VerificationLevel::VerificationViolation, _)
+                    | (VerificationLevel::MismatchedSender, _)
                     | (VerificationLevel::UnsignedDevice, false)
                     | (VerificationLevel::None(_), false) => false,
                 }
@@ -1978,6 +1972,7 @@ impl OlmMachine {
                 VerificationLevel::UnverifiedIdentity => true,
 
                 VerificationLevel::VerificationViolation
+                | VerificationLevel::MismatchedSender
                 | VerificationLevel::UnsignedDevice
                 | VerificationLevel::None(_) => false,
             },
