@@ -41,7 +41,7 @@ use ruma::{
         room::{
             avatar::{self, RoomAvatarEventContent},
             canonical_alias::RoomCanonicalAliasEventContent,
-            create::RoomCreateEventContent,
+            create::{PreviousRoom, RoomCreateEventContent},
             encrypted::{EncryptedEventScheme, RoomEncryptedEventContent},
             member::{MembershipState, RoomMemberEventContent},
             message::{
@@ -396,6 +396,20 @@ impl EventBuilder<UnstablePollStartEventContent> {
         if let UnstablePollStartEventContent::New(content) = &mut self.content {
             content.relates_to = Some(RelationWithoutReplacement::Thread(thread));
         };
+        self
+    }
+}
+
+impl EventBuilder<RoomCreateEventContent> {
+    /// Define the predecessor fields.
+    pub fn predecessor(mut self, room_id: &RoomId, event_id: &EventId) -> Self {
+        self.content.predecessor = Some(PreviousRoom::new(room_id.to_owned(), event_id.to_owned()));
+        self
+    }
+
+    /// Erase the predecessor if any.
+    pub fn no_predecessor(mut self) -> Self {
+        self.content.predecessor = None;
         self
     }
 }
