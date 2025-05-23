@@ -380,9 +380,9 @@ impl RoomSendQueue {
 
         Span::current().record("event_txn", tracing::field::display(&*send_event_txn));
 
-        let mut item_types = Vec::new();
-        let mut item_queue_infos = Vec::new();
-        let mut media_handles = Vec::new();
+        let mut item_types = Vec::with_capacity(item_infos.len());
+        let mut item_queue_infos = Vec::with_capacity(item_infos.len());
+        let mut media_handles = Vec::with_capacity(item_infos.len());
 
         let client = room.client();
         let cache_store = client
