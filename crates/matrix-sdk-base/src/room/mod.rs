@@ -41,8 +41,6 @@ use eyeball::{AsyncLock, SharedObservable};
 use futures_util::{Stream, StreamExt};
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk_common::ring_buffer::RingBuffer;
-#[cfg(feature = "test-send-sync")]
-use matrix_sdk_common::{SendOutsideWasm, SyncOutsideWasm};
 pub use members::{RoomMember, RoomMembersUpdate, RoomMemberships};
 pub(crate) use room_info::SyncInfo;
 pub use room_info::{
@@ -483,7 +481,10 @@ unsafe impl Sync for Room {}
 #[test]
 // See https://github.com/matrix-org/matrix-rust-sdk/pull/3749#issuecomment-2312939823.
 fn test_send_sync_for_room() {
-    fn assert_send_sync<T: SendOutsideWasm + SyncOutsideWasm>() {}
+    fn assert_send_sync<
+        T: matrix_sdk_common::SendOutsideWasm + matrix_sdk_common::SyncOutsideWasm,
+    >() {
+    }
 
     assert_send_sync::<Room>();
 }

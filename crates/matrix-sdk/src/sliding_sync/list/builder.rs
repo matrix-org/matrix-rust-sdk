@@ -97,6 +97,11 @@ impl SlidingSyncListBuilder {
         self
     }
 
+    /// Runs a callback once the list has been built.
+    ///
+    /// If the list was cached, then the cached fields won't be available in
+    /// this callback. Use the streams to get published versions of the
+    /// cached fields, once they've been set.
     #[cfg(target_family = "wasm")]
     pub fn once_built<C>(mut self, callback: C) -> Self
     where
