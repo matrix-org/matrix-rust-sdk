@@ -298,10 +298,11 @@ pub struct FinishUploadThumbnailInfo {
     pub height: Option<UInt>,
 }
 
+/// Detailed record about a file and thumbnail. When finishing a gallery
+/// upload, one [`FinishGalleryItemInfo`] will be used for each media in the
+/// gallery.
 #[cfg(feature = "unstable-msc4274")]
 #[derive(Clone, Debug, Serialize, Deserialize)]
-/// Detailed record about a file and thumbnail used when finishing a gallery
-/// upload.
 pub struct FinishGalleryItemInfo {
     /// Transaction id for the file upload.
     pub file_upload: OwnedTransactionId,
