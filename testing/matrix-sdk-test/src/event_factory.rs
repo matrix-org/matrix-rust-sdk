@@ -766,12 +766,21 @@ impl EventFactory {
     /// Create a new `m.room.create` event.
     pub fn create(
         &self,
-        user_id: &UserId,
+        creator_user_id: &UserId,
         room_version: RoomVersionId,
     ) -> EventBuilder<RoomCreateEventContent> {
-        let mut event = RoomCreateEventContent::new_v1(user_id.to_owned());
-        event.room_version = room_version;
-        self.event(event)
+        let mut event = self.event(RoomCreateEventContent::new_v1(creator_user_id.to_owned()));
+        event.content.room_version = room_version;
+
+        if self.sender.is_some() {
+            event.sender = self.sender.clone();
+        } else {
+            event.sender = Some(creator_user_id.to_owned());
+        }
+
+        event.state_key = Some("".to_owned());
+
+        event
     }
 
     /// Create a new `m.room.power_levels` event.
