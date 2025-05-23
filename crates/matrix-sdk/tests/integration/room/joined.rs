@@ -511,7 +511,7 @@ async fn test_room_redact() {
     assert_eq!(response.event_id, event_id);
 }
 
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(not(target_family = "wasm"))]
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn test_fetch_members_deduplication() {
     let server = MatrixMockServer::new().await;

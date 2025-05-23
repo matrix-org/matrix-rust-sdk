@@ -490,7 +490,7 @@ pub fn get_decimal(
     bytes.decimals()
 }
 
-#[cfg(all(test, not(target_arch = "wasm32")))]
+#[cfg(all(test, not(target_family = "wasm")))]
 mod tests {
     use ruma::{
         events::key::verification::start::ToDeviceKeyVerificationStartEventContent, serde::Base64,

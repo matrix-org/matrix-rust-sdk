@@ -934,7 +934,7 @@ mod tests {
         );
     }
 
-    #[cfg(not(target_arch = "wasm32"))]
+    #[cfg(not(target_family = "wasm"))]
     mod proptests {
         use proptest::prelude::*;
 

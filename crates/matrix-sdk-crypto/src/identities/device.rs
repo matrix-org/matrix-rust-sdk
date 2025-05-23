@@ -805,9 +805,9 @@ impl DeviceData {
         event_type: &str,
         content: impl Serialize,
     ) -> OlmResult<(Session, Raw<ToDeviceEncryptedEventContent>)> {
-        #[cfg(not(target_arch = "wasm32"))]
+        #[cfg(not(target_family = "wasm"))]
         let message_id = ulid::Ulid::new().to_string();
-        #[cfg(target_arch = "wasm32")]
+        #[cfg(target_family = "wasm")]
         let message_id = ruma::TransactionId::new().to_string();
 
         tracing::Span::current().record("message_id", &message_id);

@@ -213,7 +213,7 @@ impl<S: BackingStore + Clone + SendOutsideWasm + 'static> CrossProcessStoreLock<
         //   operation running in a transaction.
 
         if let Some(_prev) = renew_task.take() {
-            #[cfg(not(target_arch = "wasm32"))]
+            #[cfg(not(target_family = "wasm"))]
             if !_prev.is_finished() {
                 trace!("aborting the previous renew task");
                 _prev.abort();
@@ -334,7 +334,7 @@ pub enum LockStoreError {
 }
 
 #[cfg(test)]
-#[cfg(not(target_arch = "wasm32"))] // These tests require tokio::time, which is not implemented on wasm.
+#[cfg(not(target_family = "wasm"))] // These tests require tokio::time, which is not implemented on wasm.
 mod tests {
     use std::{
         collections::HashMap,

@@ -8,7 +8,7 @@ The most common usage pattern would be to have this included via `matrix-sdk` in
 instantiation to it.
 
 ```toml,no_test
-[target.'cfg(target_arch = "wasm32")'.dependencies]
+[target.'cfg(target_family = "wasm")'.dependencies]
 matrix-sdk = { version = "0.5, default-features = false, features = ["indexeddb", "e2e-encryption"] }
 ```
 
