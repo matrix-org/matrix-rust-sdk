@@ -2121,7 +2121,7 @@ impl OlmMachine {
         self.get_session_encryption_info(room_id, content.session_id(), &event.sender).await
     }
 
-    /// Get encryption info for a megolm session.
+    /// Get encryption info for an event decrypted with a megolm session.
     ///
     /// This recalculates the [`EncryptionInfo`] data that is returned by
     /// [`OlmMachine::decrypt_room_event`], based on the current
@@ -2133,7 +2133,8 @@ impl OlmMachine {
     ///
     /// * `room_id` - The ID of the room where the session is being used.
     /// * `session_id` - The ID of the session to get information for.
-    /// * `sender` - The user ID of the sender who created this session.
+    /// * `sender` - The (claimed) sender of the event where the session was
+    ///   used.
     pub async fn get_session_encryption_info(
         &self,
         room_id: &RoomId,

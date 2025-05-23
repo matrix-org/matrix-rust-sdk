@@ -1375,12 +1375,18 @@ impl Room {
         Ok(event)
     }
 
-    /// Fetches the [`EncryptionInfo`] for the supplied session_id.
+    /// Fetches the [`EncryptionInfo`] for an event decrypted with the supplied
+    /// session_id.
     ///
     /// This may be used when we receive an update for a session, and we want to
     /// reflect the changes in messages we have received that were encrypted
     /// with that session, e.g. to remove a warning shield because a device is
     /// now verified.
+    ///
+    /// # Arguments
+    /// * `session_id` - The ID of the Megolm session to get information for.
+    /// * `sender` - The (claimed) sender of the event where the session was
+    ///   used.
     #[cfg(feature = "e2e-encryption")]
     pub async fn get_encryption_info(
         &self,
