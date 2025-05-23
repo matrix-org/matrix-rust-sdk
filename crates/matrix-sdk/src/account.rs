@@ -1071,7 +1071,7 @@ impl Account {
     /// Will check first for the stable event and then for the unstable one.
     pub async fn fetch_media_preview_config_event_content(
         &self,
-    ) -> Result<MediaPreviewConfigEventContent> {
+    ) -> Result<Option<MediaPreviewConfigEventContent>> {
         // First we check if there is avalue in the stable event
         let media_preview_config =
             self.fetch_account_data(GlobalAccountDataEventType::MediaPreviewConfig).await?;
@@ -1086,8 +1086,7 @@ impl Account {
         // We deserialize the content of the event, if is not found we return the
         // default
         let media_preview_config = media_preview_config
-            .and_then(|value| value.deserialize_as::<MediaPreviewConfigEventContent>().ok())
-            .unwrap_or_default();
+            .and_then(|value| value.deserialize_as::<MediaPreviewConfigEventContent>().ok());
 
         Ok(media_preview_config)
     }
@@ -1119,7 +1118,8 @@ impl Account {
     /// This will always use the unstable event until we know which Matrix
     /// version will support it.
     pub async fn set_media_previews_display_policy(&self, policy: MediaPreviews) -> Result<()> {
-        let mut media_preview_config = self.fetch_media_preview_config_event_content().await?;
+        let mut media_preview_config =
+            self.fetch_media_preview_config_event_content().await?.unwrap_or_default();
         media_preview_config.media_previews = policy;
 
         // Updating the unstable account data
@@ -1134,7 +1134,8 @@ impl Account {
     /// This will always use the unstable event until we know which matrix
     /// version will support it.
     pub async fn set_invite_avatars_display_policy(&self, policy: InviteAvatars) -> Result<()> {
-        let mut media_preview_config = self.fetch_media_preview_config_event_content().await?;
+        let mut media_preview_config =
+            self.fetch_media_preview_config_event_content().await?.unwrap_or_default();
         media_preview_config.invite_avatars = policy;
 
         // Updating the unstable account data
