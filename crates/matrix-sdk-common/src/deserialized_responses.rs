@@ -287,6 +287,12 @@ pub enum AlgorithmInfo {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         session_id: Option<String>,
     },
+
+    /// The info if the event was encrypted using m.olm.v1.curve25519-aes-sha2
+    OlmV1Curve25519AesSha2 {
+        // The sender device key, base64 encoded
+        curve25519_public_key_base64: String,
+    },
 }
 
 /// Struct containing information on how an event was decrypted.
@@ -312,8 +318,11 @@ pub struct EncryptionInfo {
 impl EncryptionInfo {
     /// Helper to get the megolm session id used to encrypt.
     pub fn session_id(&self) -> Option<&str> {
-        let AlgorithmInfo::MegolmV1AesSha2 { session_id, .. } = &self.algorithm_info;
-        session_id.as_deref()
+        if let AlgorithmInfo::MegolmV1AesSha2 { session_id, .. } = &self.algorithm_info {
+            session_id.as_deref()
+        } else {
+            None
+        }
     }
 }
 
@@ -334,26 +343,22 @@ impl<'de> Deserialize<'de> for EncryptionInfo {
             pub old_session_id: Option<String>,
         }
 
-        let Helper {
-            sender,
-            sender_device,
-            algorithm_info:
-                AlgorithmInfo::MegolmV1AesSha2 { curve25519_key, sender_claimed_keys, session_id },
-            verification_state,
-            old_session_id,
-        } = Helper::deserialize(deserializer)?;
+        let Helper { sender, sender_device, algorithm_info, verification_state, old_session_id } =
+            Helper::deserialize(deserializer)?;
 
-        Ok(EncryptionInfo {
-            sender,
-            sender_device,
-            algorithm_info: AlgorithmInfo::MegolmV1AesSha2 {
-                // Migration, merge the old_session_id in algorithm_info
-                session_id: session_id.or(old_session_id),
-                curve25519_key,
-                sender_claimed_keys,
-            },
-            verification_state,
-        })
+        let algorithm_info = match algorithm_info {
+            AlgorithmInfo::MegolmV1AesSha2 { curve25519_key, sender_claimed_keys, session_id } => {
+                AlgorithmInfo::MegolmV1AesSha2 {
+                    // Migration, merge the old_session_id in algorithm_info
+                    session_id: session_id.or(old_session_id),
+                    curve25519_key,
+                    sender_claimed_keys,
+                }
+            }
+            other => other,
+        };
+
+        Ok(EncryptionInfo { sender, sender_device, algorithm_info, verification_state })
     }
 }
 
@@ -1463,8 +1468,13 @@ mod tests {
         let deserialized = serde_json::from_value::<EncryptionInfo>(old_format).unwrap();
         let expected_session_id = Some("mysessionid76".to_owned());
 
-        let AlgorithmInfo::MegolmV1AesSha2 { session_id, .. } = deserialized.algorithm_info.clone();
-        assert_eq!(session_id, expected_session_id);
+        if let AlgorithmInfo::MegolmV1AesSha2 { session_id, .. } =
+            deserialized.algorithm_info.clone()
+        {
+            assert_eq!(session_id, expected_session_id);
+        } else {
+            panic!("Expected MegolmV1AesSha2");
+        }
 
         assert_json_snapshot!(deserialized);
     }
