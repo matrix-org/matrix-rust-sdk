@@ -670,7 +670,7 @@ impl IndexeddbCryptoStore {
 // this hack allows us to still have most of rust-analyzer's IDE functionality
 // within the impl block without having to set it up to check things against
 // the wasm target (which would disable many other parts of the codebase).
-#[cfg(target_arch = "wasm32")]
+#[cfg(target_family = "wasm")]
 macro_rules! impl_crypto_store {
     ( $($body:tt)* ) => {
         #[async_trait(?Send)]
@@ -682,7 +682,7 @@ macro_rules! impl_crypto_store {
     };
 }
 
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(not(target_family = "wasm"))]
 macro_rules! impl_crypto_store {
     ( $($body:tt)* ) => {
         impl IndexeddbCryptoStore {
@@ -1866,7 +1866,7 @@ mod unit_tests {
     }
 }
 
-#[cfg(all(test, target_arch = "wasm32"))]
+#[cfg(all(test, target_family = "wasm"))]
 mod wasm_unit_tests {
     use std::collections::BTreeMap;
 
@@ -1930,7 +1930,7 @@ mod wasm_unit_tests {
     }
 }
 
-#[cfg(all(test, target_arch = "wasm32"))]
+#[cfg(all(test, target_family = "wasm"))]
 mod tests {
     use matrix_sdk_crypto::cryptostore_integration_tests;
 
@@ -1959,7 +1959,7 @@ mod tests {
     cryptostore_integration_tests!();
 }
 
-#[cfg(all(test, target_arch = "wasm32"))]
+#[cfg(all(test, target_family = "wasm"))]
 mod encrypted_tests {
     use matrix_sdk_crypto::{
         cryptostore_integration_tests,

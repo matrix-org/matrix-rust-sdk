@@ -139,7 +139,7 @@ pub(super) struct DeduplicationOutcome {
 }
 
 #[cfg(test)]
-#[cfg(not(target_arch = "wasm32"))] // These tests uses the cross-process lock, so need time support.
+#[cfg(not(target_family = "wasm"))] // These tests uses the cross-process lock, so need time support.
 mod tests {
     use matrix_sdk_base::{deserialized_responses::TimelineEvent, linked_chunk::ChunkIdentifier};
     use matrix_sdk_test::{async_test, event_factory::EventFactory};

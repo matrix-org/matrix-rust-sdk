@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#![cfg_attr(target_arch = "wasm32", allow(clippy::arc_with_non_send_sync))]
+#![cfg_attr(target_family = "wasm", allow(clippy::arc_with_non_send_sync))]
 #![cfg_attr(docsrs, feature(doc_auto_cfg))]
 
 pub use eyeball_im;

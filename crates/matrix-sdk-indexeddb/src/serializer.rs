@@ -321,7 +321,7 @@ impl IndexeddbSerializer {
     }
 }
 
-#[cfg(all(test, target_arch = "wasm32"))]
+#[cfg(all(test, target_family = "wasm"))]
 mod tests {
     use std::{collections::BTreeMap, sync::Arc};
 

@@ -128,7 +128,7 @@ uuid = { workspace = true, features = ["serde", "v4"], optional = true }
 vodozemac.workspace = true
 zeroize.workspace = true
 
-[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+[target.'cfg(not(target_family = "wasm"))'.dependencies]
 backon = "1.5.0"
 # only activate reqwest's stream feature on non-wasm, the wasm part seems to not
 # support *sending* streams, which makes it useless for us.
@@ -136,7 +136,7 @@ reqwest = { workspace = true, features = ["stream", "gzip", "http2"] }
 tokio = { workspace = true, features = ["fs", "rt", "macros"] }
 wiremock = { workspace = true, optional = true }
 
-[target.'cfg(target_arch = "wasm32")'.dependencies]
+[target.'cfg(target_family = "wasm")'.dependencies]
 gloo-timers = { workspace = true, features = ["futures"] }
 reqwest = { workspace = true, features = ["gzip", "http2"] }
 tokio = { workspace = true, features = ["macros"] }
@@ -157,12 +157,12 @@ stream_assert.workspace = true
 tokio-test = "0.4.4"
 tracing-subscriber = { workspace = true, features = ["env-filter"] }
 
-[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+[target.'cfg(not(target_family = "wasm"))'.dev-dependencies]
 proptest.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
 wiremock.workspace = true
 
-[target.'cfg(target_arch = "wasm32")'.dev-dependencies]
+[target.'cfg(target_family = "wasm")'.dev-dependencies]
 wasm-bindgen-test.workspace = true
 
 [[test]]

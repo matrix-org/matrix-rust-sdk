@@ -1,4 +1,4 @@
-#![cfg_attr(not(target_arch = "wasm32"), allow(unused))]
+#![cfg_attr(not(target_family = "wasm"), allow(unused))]
 
 #[cfg(feature = "state-store")]
 use matrix_sdk_base::store::StoreError;

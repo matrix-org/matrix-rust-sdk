@@ -31,8 +31,8 @@ use crate::media::{MediaFormat, MediaRequestParameters};
 ///
 /// This trait is not meant to be used directly, but will be used with the
 /// `event_cache_store_media_integration_tests!` macro.
-#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+#[cfg_attr(target_family = "wasm", async_trait(?Send))]
+#[cfg_attr(not(target_family = "wasm"), async_trait)]
 pub trait EventCacheStoreMediaIntegrationTests {
     /// Test media retention policy storage.
     async fn test_store_media_retention_policy(&self);
@@ -58,8 +58,8 @@ pub trait EventCacheStoreMediaIntegrationTests {
     async fn test_store_last_media_cleanup_time(&self);
 }
 
-#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+#[cfg_attr(target_family = "wasm", async_trait(?Send))]
+#[cfg_attr(not(target_family = "wasm"), async_trait)]
 impl<Store> EventCacheStoreMediaIntegrationTests for Store
 where
     Store: EventCacheStoreMedia + std::fmt::Debug,
