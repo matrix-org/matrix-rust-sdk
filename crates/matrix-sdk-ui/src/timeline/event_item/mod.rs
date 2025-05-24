@@ -792,9 +792,7 @@ mod tests {
         deserialized_responses::TimelineEvent, latest_event::LatestEvent, MinimalStateEvent,
         OriginalMinimalStateEvent, RequestedRequiredStates,
     };
-    use matrix_sdk_test::{
-        async_test, event_factory::EventFactory, sync_state_event, sync_timeline_event,
-    };
+    use matrix_sdk_test::{async_test, event_factory::EventFactory, sync_state_event};
     use ruma::{
         api::client::sync::sync_events::v5 as http,
         event_id,
@@ -1150,24 +1148,17 @@ mod tests {
         display_name: &str,
         avatar_url: &str,
     ) -> Raw<AnySyncTimelineEvent> {
-        sync_timeline_event!({
-            "type": "m.room.member",
-            "content": {
-                "avatar_url": avatar_url,
-                "displayname": display_name,
-                "membership": "join",
-                "reason": ""
-            },
-            "event_id": "$143273582443PhrSn:example.org",
-            "origin_server_ts": 143273583,
-            "room_id": room_id,
-            "sender": "@example:example.org",
-            "state_key": user_id,
-            "type": "m.room.member",
-            "unsigned": {
-              "age": 1234
-            }
-        })
+        EventFactory::new()
+            .room(room_id)
+            .sender(user_id!("@example:example.org"))
+            .member(user_id)
+            .avatar_url(avatar_url.into())
+            .display_name(display_name)
+            .reason("")
+            .event_id(event_id!("$143273582443PhrSn:example.org"))
+            .server_ts(143273583)
+            .age(1234)
+            .into_raw_sync()
     }
 
     fn member_event_as_state_event(
@@ -1209,18 +1200,12 @@ mod tests {
         formatted_body: &str,
         ts: u64,
     ) -> TimelineEvent {
-        TimelineEvent::new(sync_timeline_event!({
-            "event_id": "$eventid6",
-            "sender": user_id,
-            "origin_server_ts": ts,
-            "type": "m.room.message",
-            "room_id": room_id.to_string(),
-            "content": {
-                "body": body,
-                "format": "org.matrix.custom.html",
-                "formatted_body": formatted_body,
-                "msgtype": "m.text"
-            },
-        }))
+        EventFactory::new()
+            .room(room_id)
+            .text_html(body, formatted_body)
+            .event_id(event_id!("$eventid6"))
+            .sender(user_id)
+            .server_ts(ts)
+            .into_event()
     }
 }
