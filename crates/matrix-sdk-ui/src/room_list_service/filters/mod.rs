@@ -54,6 +54,7 @@
 mod all;
 mod any;
 mod category;
+mod deduplicate_versions;
 mod favourite;
 mod fuzzy_match_room_name;
 mod invite;
