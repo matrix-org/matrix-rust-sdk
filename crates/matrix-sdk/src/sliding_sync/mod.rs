@@ -254,7 +254,7 @@ impl SlidingSync {
 
         let sync_response = {
 
-            let mut response_processor = {
+            let response_processor = {
                 // Take the lock to avoid concurrent sliding syncs overwriting each other's room
                 // infos.
                 let _sync_lock = self.inner.client.base_client().sync_lock().lock().await;
