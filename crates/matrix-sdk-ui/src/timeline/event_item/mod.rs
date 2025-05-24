@@ -1209,18 +1209,12 @@ mod tests {
         formatted_body: &str,
         ts: u64,
     ) -> TimelineEvent {
-        TimelineEvent::new(sync_timeline_event!({
-            "event_id": "$eventid6",
-            "sender": user_id,
-            "origin_server_ts": ts,
-            "type": "m.room.message",
-            "room_id": room_id.to_string(),
-            "content": {
-                "body": body,
-                "format": "org.matrix.custom.html",
-                "formatted_body": formatted_body,
-                "msgtype": "m.text"
-            },
-        }))
+        EventFactory::new()
+            .room(room_id)
+            .text_html(body, formatted_body)
+            .event_id(event_id!("$eventid6"))
+            .sender(user_id)
+            .server_ts(ts)
+            .into_event()
     }
 }
