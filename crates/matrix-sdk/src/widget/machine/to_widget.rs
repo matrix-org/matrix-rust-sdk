@@ -15,7 +15,7 @@
 use std::marker::PhantomData;
 
 use ruma::{
-    events::{AnyTimelineEvent, AnyToDeviceEvent},
+    events::{AnyStateEvent, AnyTimelineEvent, AnyToDeviceEvent},
     serde::Raw,
 };
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
@@ -122,6 +122,18 @@ pub(crate) struct NotifyNewMatrixEvent(pub(crate) Raw<AnyTimelineEvent>);
 
 impl ToWidgetRequest for NotifyNewMatrixEvent {
     const ACTION: &'static str = "send_event";
+    type ResponseData = Empty;
+}
+
+/// Notify the widget that room state has changed.
+/// This is a "response" to the widget subscribing to the events in the room.
+#[derive(Serialize)]
+pub(crate) struct NotifyStateUpdate {
+    pub(super) state: Vec<Raw<AnyStateEvent>>,
+}
+
+impl ToWidgetRequest for NotifyStateUpdate {
+    const ACTION: &'static str = "update_state";
     type ResponseData = Empty;
 }
 

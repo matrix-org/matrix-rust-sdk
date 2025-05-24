@@ -21,7 +21,7 @@ use ruma::{
         account::request_openid_token, delayed_events::update_delayed_event,
         to_device::send_event_to_device,
     },
-    events::{AnyTimelineEvent, AnyToDeviceEventContent},
+    events::{AnyStateEvent, AnyTimelineEvent, AnyToDeviceEventContent},
     serde::Raw,
     to_device::DeviceIdOrAllDevices,
     OwnedUserId,
@@ -48,14 +48,14 @@ pub(crate) enum MatrixDriverRequestData {
     /// Get OpenId token for a given request ID.
     GetOpenId,
 
-    /// Read message event(s).
-    ReadMessageLikeEvent(ReadMessageLikeEventRequest),
+    /// Read events from the timeline.
+    ReadEvents(ReadEventsRequest),
 
-    /// Read state event(s).
-    ReadStateEvent(ReadStateEventRequest),
+    /// Read room state entries.
+    ReadState(ReadStateRequest),
 
     /// Send Matrix event that corresponds to the given description.
-    SendMatrixEvent(SendEventRequest),
+    SendEvent(SendEventRequest),
 
     /// Send a to-device message over the Matrix homeserver.
     SendToDeviceEvent(SendToDeviceRequest),
@@ -170,33 +170,39 @@ impl FromMatrixDriverResponse for request_openid_token::v3::Response {
     }
 }
 
-/// Ask the client to read Matrix event(s) that corresponds to the given
+/// Ask the client to read Matrix events that correspond to the given
 /// description and return a list of events as a response.
 #[derive(Clone, Debug)]
-pub(crate) struct ReadMessageLikeEventRequest {
+pub(crate) struct ReadEventsRequest {
     /// The event type to read.
     // TODO: This wants to be `MessageLikeEventType`` but we need a type which supports `as_str()`
     // as soon as ruma supports `as_str()` on `MessageLikeEventType` we can use it here.
     pub(crate) event_type: String,
 
+    /// The `state_key` to read. If None, this will read events regardless of
+    /// whether they are state events. If `Some(Any)`, this will only read state
+    /// events of the given type. If set to a specific state key, this will only
+    /// read state events of the given type matching that state key.
+    pub(crate) state_key: Option<StateKeySelector>,
+
     /// The maximum number of events to return.
     pub(crate) limit: u32,
 }
 
-impl From<ReadMessageLikeEventRequest> for MatrixDriverRequestData {
-    fn from(value: ReadMessageLikeEventRequest) -> Self {
-        MatrixDriverRequestData::ReadMessageLikeEvent(value)
+impl From<ReadEventsRequest> for MatrixDriverRequestData {
+    fn from(value: ReadEventsRequest) -> Self {
+        MatrixDriverRequestData::ReadEvents(value)
     }
 }
 
-impl MatrixDriverRequest for ReadMessageLikeEventRequest {
+impl MatrixDriverRequest for ReadEventsRequest {
     type Response = Vec<Raw<AnyTimelineEvent>>;
 }
 
 impl FromMatrixDriverResponse for Vec<Raw<AnyTimelineEvent>> {
     fn from_response(ev: MatrixDriverResponse) -> Option<Self> {
         match ev {
-            MatrixDriverResponse::MatrixEventRead(response) => Some(response),
+            MatrixDriverResponse::EventsRead(response) => Some(response),
             _ => {
                 error!("bug in MatrixDriver, received wrong event response");
                 None
@@ -205,28 +211,40 @@ impl FromMatrixDriverResponse for Vec<Raw<AnyTimelineEvent>> {
     }
 }
 
-/// Ask the client to read Matrix event(s) that corresponds to the given
-/// description and return a list of events as a response.
+/// Ask the client to read Matrix room state entries corresponding to the given
+/// description and return a list of state events as a response.
 #[derive(Clone, Debug)]
-pub(crate) struct ReadStateEventRequest {
+pub(crate) struct ReadStateRequest {
     /// The event type to read.
     // TODO: This wants to be `TimelineEventType` but we need a type which supports `as_str()`
     // as soon as ruma supports `as_str()` on `TimelineEventType` we can use it here.
     pub(crate) event_type: String,
 
-    /// The `state_key` to read, or `Any` to receive any/all events of the given
-    /// type, regardless of their `state_key`.
+    /// The `state_key` to read, or `Any` to receive any/all room state entries
+    /// of the given type, regardless of their `state_key`.
     pub(crate) state_key: StateKeySelector,
 }
 
-impl From<ReadStateEventRequest> for MatrixDriverRequestData {
-    fn from(value: ReadStateEventRequest) -> Self {
-        MatrixDriverRequestData::ReadStateEvent(value)
+impl From<ReadStateRequest> for MatrixDriverRequestData {
+    fn from(value: ReadStateRequest) -> Self {
+        MatrixDriverRequestData::ReadState(value)
     }
 }
 
-impl MatrixDriverRequest for ReadStateEventRequest {
-    type Response = Vec<Raw<AnyTimelineEvent>>;
+impl MatrixDriverRequest for ReadStateRequest {
+    type Response = Vec<Raw<AnyStateEvent>>;
+}
+
+impl FromMatrixDriverResponse for Vec<Raw<AnyStateEvent>> {
+    fn from_response(ev: MatrixDriverResponse) -> Option<Self> {
+        match ev {
+            MatrixDriverResponse::StateRead(response) => Some(response),
+            _ => {
+                error!("bug in MatrixDriver, received wrong event response");
+                None
+            }
+        }
+    }
 }
 
 /// Ask the client to send Matrix event that corresponds to the given
@@ -251,7 +269,7 @@ pub(crate) struct SendEventRequest {
 
 impl From<SendEventRequest> for MatrixDriverRequestData {
     fn from(value: SendEventRequest) -> Self {
-        MatrixDriverRequestData::SendMatrixEvent(value)
+        MatrixDriverRequestData::SendEvent(value)
     }
 }
 
@@ -262,7 +280,7 @@ impl MatrixDriverRequest for SendEventRequest {
 impl FromMatrixDriverResponse for SendEventResponse {
     fn from_response(ev: MatrixDriverResponse) -> Option<Self> {
         match ev {
-            MatrixDriverResponse::MatrixEventSent(response) => Some(response),
+            MatrixDriverResponse::EventSent(response) => Some(response),
             _ => {
                 error!("bug in MatrixDriver, received wrong event response");
                 None
@@ -303,7 +321,7 @@ impl TryInto<send_event_to_device::v3::Response> for MatrixDriverResponse {
 
     fn try_into(self) -> Result<send_event_to_device::v3::Response, Self::Error> {
         match self {
-            MatrixDriverResponse::MatrixToDeviceSent(response) => Ok(response),
+            MatrixDriverResponse::ToDeviceSent(response) => Ok(response),
             _ => Err(de::Error::custom("bug in MatrixDriver, received wrong event response")),
         }
     }
@@ -330,7 +348,7 @@ impl MatrixDriverRequest for UpdateDelayedEventRequest {
 impl FromMatrixDriverResponse for update_delayed_event::unstable::Response {
     fn from_response(ev: MatrixDriverResponse) -> Option<Self> {
         match ev {
-            MatrixDriverResponse::MatrixDelayedEventUpdate(response) => Some(response),
+            MatrixDriverResponse::DelayedEventUpdated(response) => Some(response),
             _ => {
                 error!("bug in MatrixDriver, received wrong event response");
                 None

@@ -29,9 +29,11 @@ use matrix_sdk_test::{async_test, event_factory::EventFactory, JoinedRoomBuilder
 use once_cell::sync::Lazy;
 use ruma::{
     event_id,
-    events::{room::member::MembershipState, MessageLikeEventType, StateEventType},
+    events::{
+        room::member::MembershipState, AnySyncStateEvent, MessageLikeEventType, StateEventType,
+    },
     owned_room_id,
-    serde::JsonObject,
+    serde::{JsonObject, Raw},
     user_id, OwnedRoomId,
 };
 use serde::Serialize;
@@ -181,6 +183,35 @@ async fn test_negotiate_capabilities_immediately() {
     assert_matches!(driver_handle.recv().now_or_never(), None);
 }
 
+static HELLO_EVENT: Lazy<JsonValue> = Lazy::new(|| {
+    json!({
+        "content": {
+            "body": "hello",
+            "msgtype": "m.text",
+        },
+        "event_id": "$msda7m0df9E9op3",
+        "origin_server_ts": 152037280,
+        "sender": "@example:localhost",
+        "type": "m.room.message",
+        "room_id": &*ROOM_ID,
+    })
+});
+
+static TOMBSTONE_EVENT: Lazy<JsonValue> = Lazy::new(|| {
+    json!({
+        "content": {
+            "body": "This room has been replaced",
+            "replacement_room": "!newroom:localhost",
+        },
+        "event_id": "$foun39djjod0f",
+        "origin_server_ts": 152039280,
+        "sender": "@bob:localhost",
+        "state_key": "",
+        "type": "m.room.tombstone",
+        "room_id": &*ROOM_ID,
+    })
+});
+
 #[async_test]
 async fn test_read_messages() {
     let (_, mock_server, driver_handle) = run_test_driver(true).await;
@@ -205,66 +236,40 @@ async fn test_read_messages() {
     // No messages from the driver
     assert_matches!(recv_message(&driver_handle).now_or_never(), None);
 
-    {
-        let response_json = json!({
-            "chunk": [
-                {
-                    "content": {
-                        "body": "hello",
-                        "msgtype": "m.text",
-                    },
-                    "event_id": "$msda7m0df9E9op3",
-                    "origin_server_ts": 152037280,
-                    "sender": "@example:localhost",
-                    "type": "m.room.message",
-                    "room_id": &*ROOM_ID,
-                },
-                {
-                    "content": {
-                        "body": "This room has been replaced",
-                        "replacement_room": "!newroom:localhost",
-                    },
-                    "event_id": "$foun39djjod0f",
-                    "origin_server_ts": 152039280,
-                    "sender": "@bob:localhost",
-                    "state_key": "",
-                    "type": "m.room.tombstone",
-                    "room_id": &*ROOM_ID,
-                },
-            ],
-            "end": "t47409-4357353_219380_26003_2269",
-            "start": "t392-516_47314_0_7_1_1_1_11444_1"
-        });
-        mock_server
-            .mock_room_messages()
-            .match_limit(2)
-            .respond_with(ResponseTemplate::new(200).set_body_json(response_json))
-            .mock_once()
-            .mount()
-            .await;
-
-        // Ask the driver to read messages
-        send_request(
-            &driver_handle,
-            "2-read-messages",
-            "org.matrix.msc2876.read_events",
-            json!({
-                "type": "m.room.message",
-                "limit": 2,
-            }),
-        )
+    let response_json = json!({
+        "chunk": [*HELLO_EVENT, *TOMBSTONE_EVENT],
+        "end": "t47409-4357353_219380_26003_2269",
+        "start": "t392-516_47314_0_7_1_1_1_11444_1"
+    });
+    mock_server
+        .mock_room_messages()
+        .match_limit(2)
+        .respond_with(ResponseTemplate::new(200).set_body_json(response_json))
+        .mock_once()
+        .mount()
         .await;
 
-        // Receive the response
-        let msg = recv_message(&driver_handle).await;
-        assert_eq!(msg["api"], "fromWidget");
-        assert_eq!(msg["action"], "org.matrix.msc2876.read_events");
-        let events = msg["response"]["events"].as_array().unwrap();
+    // Ask the driver to read messages
+    send_request(
+        &driver_handle,
+        "2-read-messages",
+        "org.matrix.msc2876.read_events",
+        json!({
+            "type": "m.room.message",
+            "limit": 2,
+        }),
+    )
+    .await;
 
-        assert_eq!(events.len(), 1);
-        let first_event = &events[0];
-        assert_eq!(first_event["content"]["body"], "hello");
-    }
+    // Receive the response
+    let msg = recv_message(&driver_handle).await;
+    assert_eq!(msg["api"], "fromWidget");
+    assert_eq!(msg["action"], "org.matrix.msc2876.read_events");
+    let events = msg["response"]["events"].as_array().unwrap();
+
+    assert_eq!(events.len(), 1);
+    let first_event = &events[0];
+    assert_eq!(first_event["content"]["body"], "hello");
 }
 
 #[async_test]
@@ -293,43 +298,48 @@ async fn test_read_messages_with_msgtype_capabilities() {
 
     let f = EventFactory::new().room(&ROOM_ID).sender(user_id!("@example:localhost"));
 
-    {
-        let end = "t47409-4357353_219380_26003_2269";
-        let chunk2 = vec![
-            f.notice("custom content").event_id(event_id!("$msda7m0df9E9op3")).into_raw_timeline(),
-            f.text_msg("hello").event_id(event_id!("$msda7m0df9E9op5")).into_raw_timeline(),
-            f.reaction(event_id!("$event_id"), "annotation").into_raw_timeline(),
-        ];
-        mock_server
-            .mock_room_messages()
-            .match_limit(3)
-            .ok(RoomMessagesResponseTemplate::default().end_token(end).events(chunk2))
-            .mock_once()
-            .mount()
-            .await;
-
-        // Ask the driver to read messages
-        send_request(
-            &driver_handle,
-            "2-read-messages",
-            "org.matrix.msc2876.read_events",
-            json!({
-                "type": "m.room.message",
-                "limit": 3,
-            }),
-        )
+    let end = "t47409-4357353_219380_26003_2269";
+    let chunk2 = vec![
+        f.notice("custom content").event_id(event_id!("$msda7m0df9E9op3")).into_raw_timeline(),
+        f.text_msg("hello").event_id(event_id!("$msda7m0df9E9op5")).into_raw_timeline(),
+        f.reaction(event_id!("$event_id"), "annotation").into_raw_timeline(),
+    ];
+    mock_server
+        .mock_room_messages()
+        .match_limit(3)
+        .ok(RoomMessagesResponseTemplate::default().end_token(end).events(chunk2))
+        .mock_once()
+        .mount()
         .await;
 
-        // Receive the response
-        let msg = recv_message(&driver_handle).await;
-        assert_eq!(msg["api"], "fromWidget");
-        assert_eq!(msg["action"], "org.matrix.msc2876.read_events");
-        let events = msg["response"]["events"].as_array().unwrap();
+    // Ask the driver to read messages
+    send_request(
+        &driver_handle,
+        "2-read-messages",
+        "org.matrix.msc2876.read_events",
+        json!({
+            "type": "m.room.message",
+            "limit": 3,
+        }),
+    )
+    .await;
 
-        assert_eq!(events.len(), 1);
-        let first_event = &events[0];
-        assert_eq!(first_event["content"]["body"], "hello");
-    }
+    // Receive the response
+    let msg = recv_message(&driver_handle).await;
+    assert_eq!(msg["api"], "fromWidget");
+    assert_eq!(msg["action"], "org.matrix.msc2876.read_events");
+    let events = msg["response"]["events"].as_array().unwrap();
+
+    assert_eq!(events.len(), 1);
+    let first_event = &events[0];
+    assert_eq!(first_event["content"]["body"], "hello");
+}
+
+async fn assert_state_synced(driver_handle: &WidgetDriverHandle, state: JsonValue) {
+    let msg = recv_message(driver_handle).await;
+    assert_eq!(msg["api"], "toWidget");
+    assert_eq!(msg["action"], "update_state");
+    assert_eq!(msg["data"]["state"], state);
 }
 
 #[async_test]
@@ -342,32 +352,62 @@ async fn test_read_room_members() {
     )
     .await;
 
-    // No messages from the driver
+    // Wait for the state to be synced
+    assert_state_synced(&driver_handle, json!([])).await;
+    // No further messages from the driver yet
     assert_matches!(recv_message(&driver_handle).now_or_never(), None);
 
-    {
-        // The read-events request is fulfilled from the state store
-        drop(mock_server);
+    let f = EventFactory::new().room(&ROOM_ID);
 
-        // Ask the driver to read state events
-        send_request(
-            &driver_handle,
-            "2-read-messages",
-            "org.matrix.msc2876.read_events",
-            json!({ "type": "m.room.member", "state_key": true }),
-        )
+    let leave_event = f
+        .member(user_id!("@example:localhost"))
+        .membership(MembershipState::Leave)
+        .previous(MembershipState::Join)
+        .into_raw_timeline();
+    let join_event = f
+        .member(user_id!("@example:localhost"))
+        .membership(MembershipState::Join)
+        .previous(MembershipState::Leave)
+        .into_raw_timeline();
+
+    let response_json = json!({
+        "chunk": [*HELLO_EVENT, *TOMBSTONE_EVENT, leave_event, join_event],
+        "end": "t47409-4357353_219380_26003_2269",
+        "start": "t392-516_47314_0_7_1_1_1_11444_1"
+    });
+    mock_server
+        .mock_room_messages()
+        .match_limit(3)
+        .respond_with(ResponseTemplate::new(200).set_body_json(response_json))
+        .mock_once()
+        .mount()
         .await;
 
-        // Receive the response
-        let msg = recv_message(&driver_handle).await;
-        assert_eq!(msg["api"], "fromWidget");
-        assert_eq!(msg["action"], "org.matrix.msc2876.read_events");
-        let events = msg["response"]["events"].as_array().unwrap();
+    // Ask the driver to read messages
+    send_request(
+        &driver_handle,
+        "2-read-messages",
+        "org.matrix.msc2876.read_events",
+        json!({
+            "type": "m.room.member",
+            "state_key": true,
+            "limit": 3,
+        }),
+    )
+    .await;
 
-        // No useful data in the state store, that's fine for this test
-        // (we just want to know that a successful response is generated)
-        assert_eq!(events.len(), 0);
-    }
+    // Receive the response
+    let msg = recv_message(&driver_handle).await;
+    assert_eq!(msg["api"], "fromWidget");
+    assert_eq!(msg["action"], "org.matrix.msc2876.read_events");
+    println!("{:?}", msg["response"]);
+    let events = msg["response"]["events"].as_array().unwrap();
+
+    // We should get both the leave event and the join event, because the
+    // `read_events` action reads from the timeline, not the room state
+    let [first_event, second_event]: &[_; 2] = events.as_slice().try_into().unwrap();
+    assert_eq!(first_event, &leave_event.deserialize_as::<JsonValue>().unwrap());
+    assert_eq!(second_event, &join_event.deserialize_as::<JsonValue>().unwrap());
 }
 
 #[async_test]
@@ -387,7 +427,9 @@ async fn test_receive_live_events() {
     )
     .await;
 
-    // No messages from the driver yet
+    // Wait for the state to be synced
+    assert_state_synced(&driver_handle, json!([])).await;
+    // No further messages from the driver yet
     assert_matches!(recv_message(&driver_handle).now_or_never(), None);
 
     let f = EventFactory::new();
@@ -479,6 +521,105 @@ async fn test_receive_live_events() {
 
     // No more messages from the driver
     assert_matches!(recv_message(&driver_handle).now_or_never(), None);
+}
+
+#[async_test]
+async fn test_receive_state() {
+    let (client, mock_server, driver_handle) = run_test_driver(false).await;
+
+    let f = EventFactory::new().room(&ROOM_ID);
+    let name_event_1: Raw<AnySyncStateEvent> = f.room_name("room name").sender(&BOB).into();
+
+    mock_server
+        .mock_sync()
+        .ok_and_run(&client, |sync_builder| {
+            sync_builder.add_joined_room(
+                // set room name - matches filter
+                JoinedRoomBuilder::new(&ROOM_ID).add_state_event(name_event_1),
+            );
+        })
+        .await;
+
+    negotiate_capabilities(
+        &driver_handle,
+        json!(["org.matrix.msc2762.receive.state_event:m.room.name#"]),
+    )
+    .await;
+
+    // Wait for the state to be synced
+    let msg = recv_message(&driver_handle).await;
+    assert_eq!(msg["api"], "toWidget");
+    assert_eq!(msg["action"], "update_state");
+    assert_eq!(msg["data"]["state"].as_array().unwrap().len(), 1);
+    assert_eq!(msg["data"]["state"][0]["type"], "m.room.name");
+    assert_eq!(msg["data"]["state"][0]["room_id"], ROOM_ID.as_str());
+    assert_eq!(msg["data"]["state"][0]["sender"], BOB.as_str());
+    assert_eq!(msg["data"]["state"][0]["state_key"], "");
+    assert_eq!(msg["data"]["state"][0]["content"]["name"], "room name");
+    // No further messages from the driver yet
+    assert_matches!(recv_message(&driver_handle).now_or_never(), None);
+
+    let topic_event: Raw<AnySyncStateEvent> = f.room_topic("new room topic").sender(&BOB).into();
+    let name_event_2 = f.room_name("new room name").sender(&BOB);
+    let name_event_3: Raw<AnySyncStateEvent> =
+        f.room_name("even newer room name").sender(&BOB).into();
+
+    mock_server
+        .mock_sync()
+        .ok_and_run(&client, |sync_builder| {
+            sync_builder.add_joined_room(
+                JoinedRoomBuilder::new(&ROOM_ID)
+                    // text message from alice - doesn't match
+                    .add_timeline_event(f.text_msg("simple text message").sender(&ALICE))
+                    // set room topic - doesn't match
+                    .add_timeline_event(topic_event.clone().cast())
+                    .add_state_event(topic_event)
+                    // set room name - matches filter but not reported in the state block
+                    .add_timeline_event(name_event_2)
+                    // set room name - matches filter
+                    .add_timeline_event(name_event_3.clone().cast())
+                    .add_state_event(name_event_3),
+            );
+        })
+        .await;
+
+    // Driver should have exactly 3 messages for us
+    let msg1 = recv_message(&driver_handle).await;
+    let msg2 = recv_message(&driver_handle).await;
+    let msg3 = recv_message(&driver_handle).await;
+    assert_matches!(recv_message(&driver_handle).now_or_never(), None);
+
+    let (update_state, send_events): (Vec<_>, _) =
+        [msg1, msg2, msg3].into_iter().partition(|msg| msg["action"] == "update_state");
+    assert_eq!(update_state.len(), 1);
+    assert_eq!(send_events.len(), 2);
+
+    let msg = &update_state[0];
+    assert_eq!(msg["api"], "toWidget");
+    assert_eq!(msg["data"]["state"].as_array().unwrap().len(), 1);
+    assert_eq!(msg["data"]["state"][0]["type"], "m.room.name");
+    assert_eq!(msg["data"]["state"][0]["room_id"], ROOM_ID.as_str());
+    assert_eq!(msg["data"]["state"][0]["sender"], BOB.as_str());
+    assert_eq!(msg["data"]["state"][0]["state_key"], "");
+    assert_eq!(msg["data"]["state"][0]["content"]["name"], "even newer room name");
+
+    let msg = &send_events[0];
+    assert_eq!(msg["api"], "toWidget");
+    assert_eq!(msg["action"], "send_event");
+    assert_eq!(msg["data"]["type"], "m.room.name");
+    assert_eq!(msg["data"]["room_id"], ROOM_ID.as_str());
+    assert_eq!(msg["data"]["sender"], BOB.as_str());
+    assert_eq!(msg["data"]["state_key"], "");
+    assert_eq!(msg["data"]["content"]["name"], "new room name");
+
+    let msg = &send_events[1];
+    assert_eq!(msg["api"], "toWidget");
+    assert_eq!(msg["action"], "send_event");
+    assert_eq!(msg["data"]["type"], "m.room.name");
+    assert_eq!(msg["data"]["room_id"], ROOM_ID.as_str());
+    assert_eq!(msg["data"]["sender"], BOB.as_str());
+    assert_eq!(msg["data"]["state_key"], "");
+    assert_eq!(msg["data"]["content"]["name"], "even newer room name");
 }
 
 #[async_test]
