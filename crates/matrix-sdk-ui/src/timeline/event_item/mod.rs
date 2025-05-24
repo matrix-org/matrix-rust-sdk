@@ -792,9 +792,7 @@ mod tests {
         deserialized_responses::TimelineEvent, latest_event::LatestEvent, MinimalStateEvent,
         OriginalMinimalStateEvent, RequestedRequiredStates,
     };
-    use matrix_sdk_test::{
-        async_test, event_factory::EventFactory, sync_state_event, sync_timeline_event,
-    };
+    use matrix_sdk_test::{async_test, event_factory::EventFactory, sync_state_event};
     use ruma::{
         api::client::sync::sync_events::v5 as http,
         event_id,
