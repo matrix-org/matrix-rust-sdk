@@ -253,26 +253,31 @@ impl SlidingSync {
         // happens here.
 
         let sync_response = {
-            // Take the lock to avoid concurrent sliding syncs overwriting each other's room
-            // infos.
-            let _sync_lock = self.inner.client.base_client().sync_lock().lock().await;
+            let response_processor = {
+                // Take the lock to avoid concurrent sliding syncs overwriting each other's room
+                // infos.
+                let _sync_lock = self.inner.client.base_client().sync_lock().lock().await;
 
-            let mut response_processor =
-                SlidingSyncResponseProcessor::new(self.inner.client.clone());
+                let mut response_processor =
+                    SlidingSyncResponseProcessor::new(self.inner.client.clone());
 
-            #[cfg(feature = "e2e-encryption")]
-            if self.is_e2ee_enabled() {
-                response_processor.handle_encryption(&sliding_sync_response.extensions).await?
-            }
+                #[cfg(feature = "e2e-encryption")]
+                if self.is_e2ee_enabled() {
+                    response_processor.handle_encryption(&sliding_sync_response.extensions).await?
+                }
 
-            // Only handle the room's subsection of the response, if this sliding sync was
-            // configured to do so.
-            if must_process_rooms_response {
+                // Only handle the room's subsection of the response, if this sliding sync was
+                // configured to do so.
+                if must_process_rooms_response {
+                    response_processor
+                        .handle_room_response(&sliding_sync_response, &requested_required_states)
+                        .await?;
+                }
+
                 response_processor
-                    .handle_room_response(&sliding_sync_response, &requested_required_states)
-                    .await?;
-            }
+            };
 
+            // Release the lock before calling event handlers
             response_processor.process_and_take_response().await?
         };
 
