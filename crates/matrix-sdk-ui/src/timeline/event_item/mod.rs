@@ -1150,24 +1150,17 @@ mod tests {
         display_name: &str,
         avatar_url: &str,
     ) -> Raw<AnySyncTimelineEvent> {
-        sync_timeline_event!({
-            "type": "m.room.member",
-            "content": {
-                "avatar_url": avatar_url,
-                "displayname": display_name,
-                "membership": "join",
-                "reason": ""
-            },
-            "event_id": "$143273582443PhrSn:example.org",
-            "origin_server_ts": 143273583,
-            "room_id": room_id,
-            "sender": "@example:example.org",
-            "state_key": user_id,
-            "type": "m.room.member",
-            "unsigned": {
-              "age": 1234
-            }
-        })
+        EventFactory::new()
+            .room(room_id)
+            .sender(user_id!("@example:example.org"))
+            .member(user_id)
+            .avatar_url(avatar_url.into())
+            .display_name(display_name)
+            .reason("")
+            .event_id(event_id!("$143273582443PhrSn:example.org"))
+            .server_ts(143273583)
+            .age(1234)
+            .into_raw_sync()
     }
 
     fn member_event_as_state_event(
