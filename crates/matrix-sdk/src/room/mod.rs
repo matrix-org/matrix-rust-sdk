@@ -267,13 +267,34 @@ impl Room {
     #[doc(alias = "accept_invitation")]
     pub async fn join(&self) -> Result<()> {
         let prev_room_state = self.inner.state();
+
         if prev_room_state == RoomState::Joined {
             return Err(Error::WrongRoomState(Box::new(WrongRoomState::new(
                 "Invited or Left",
                 prev_room_state,
             ))));
         }
+
+        #[cfg(all(feature = "experimental-share-history-on-invite", feature = "e2e-encryption"))]
+        let inviter = if prev_room_state == RoomState::Invited {
+            match self.invite_details().await {
+                Ok(details) => details.inviter,
+                Err(e) => {
+                    warn!("No invite details were found, can't attempt to find a room key bundle to accept: {e:?}");
+                    None
+                }
+            }
+        } else {
+            None
+        };
+
         self.client.join_room_by_id(self.room_id()).await?;
+
+        #[cfg(all(feature = "experimental-share-history-on-invite", feature = "e2e-encryption"))]
+        if let Some(inviter) = inviter {
+            shared_room_history::maybe_accept_key_bundle(self, inviter.user_id()).await?;
+        }
+
         Ok(())
     }
 
