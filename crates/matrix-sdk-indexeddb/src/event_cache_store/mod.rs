@@ -1333,7 +1333,7 @@ impl_event_cache_store! {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, target_arch = "wasm32"))]
 mod tests {
     use assert_matches::assert_matches;
     use indexed_db_futures::IdbQuerySource;
@@ -1942,10 +1942,7 @@ mod tests {
             Ok(IndexeddbEventCacheStore::builder().name(name).build().await?)
         }
 
-        #[cfg(target_arch = "wasm32")]
         event_cache_store_integration_tests!();
-
-        #[cfg(target_arch = "wasm32")]
         event_cache_store_integration_tests_time!();
 
         #[async_test]
@@ -2069,10 +2066,7 @@ mod tests {
                 .await?)
         }
 
-        #[cfg(target_arch = "wasm32")]
         event_cache_store_integration_tests!();
-
-        #[cfg(target_arch = "wasm32")]
         event_cache_store_integration_tests_time!();
 
         #[async_test]
