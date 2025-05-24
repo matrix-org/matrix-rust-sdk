@@ -253,7 +253,6 @@ impl SlidingSync {
         // happens here.
 
         let sync_response = {
-
             let response_processor = {
                 // Take the lock to avoid concurrent sliding syncs overwriting each other's room
                 // infos.
