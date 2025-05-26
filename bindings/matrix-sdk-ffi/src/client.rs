@@ -1499,7 +1499,7 @@ impl Client {
             // Listen for changes and notify the listener.
             pin_mut!(stream);
             while let Some(media_preview_config) = stream.next().await {
-                listener.on_change(media_preview_config.into());
+                listener.on_change(Some(media_preview_config.into()));
             }
         }))))
     }
