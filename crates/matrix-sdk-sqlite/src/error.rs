@@ -119,7 +119,22 @@ macro_rules! impl_from {
     };
 }
 
-impl_from!(rusqlite::Error => Error::Sqlite);
+impl From<rusqlite::Error> for Error {
+    fn from(error: rusqlite::Error) -> Self {
+        if let rusqlite::Error::SqliteFailure(ffi_error, message) = &error {
+            if ffi_error.code == rusqlite::ErrorCode::DatabaseBusy {
+                // Report to sentry.
+                tracing::error!(
+                    sentry = true,
+                    sqlite_message = message,
+                    "observed database busy error"
+                );
+            }
+        }
+        Error::Sqlite(error)
+    }
+}
+
 impl_from!(PoolError => Error::Pool);
 impl_from!(rmp_serde::encode::Error => Error::Encode);
 impl_from!(rmp_serde::decode::Error => Error::Decode);

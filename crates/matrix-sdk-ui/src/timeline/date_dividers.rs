@@ -129,7 +129,7 @@ impl DateDividerAdjuster {
         let mut prev_item: Option<PrevItemDesc<'_>> = None;
         let mut latest_event_ts = None;
 
-        for (i, item) in items.iter().enumerate() {
+        for (i, item) in items.iter_remotes_and_locals_regions() {
             match item.kind() {
                 TimelineItemKind::Virtual(VirtualTimelineItem::DateDivider(ts)) => {
                     // Record what the last alive item pair is only if we haven't removed the date
@@ -163,7 +163,7 @@ impl DateDividerAdjuster {
         // Also chase trailing date dividers explicitly, by iterating from the end to
         // the start. Since they wouldn't be the prev_item of anything, we
         // wouldn't analyze them in the previous loop.
-        for (i, item) in items.iter().enumerate().rev() {
+        for (i, item) in items.iter_remotes_and_locals_regions().rev() {
             if item.is_date_divider() {
                 // The item is a trailing date divider: remove it, if it wasn't already
                 // scheduled for deletion.
@@ -192,8 +192,16 @@ impl DateDividerAdjuster {
 
         // Only record the initial state if we've enabled the trace log level, and not
         // otherwise.
-        let initial_state =
-            if event_enabled!(Level::TRACE) { Some(items.iter().cloned().collect()) } else { None };
+        let initial_state = if event_enabled!(Level::TRACE) {
+            Some(
+                items
+                    .iter_remotes_and_locals_regions()
+                    .map(|(_i, timeline_item)| timeline_item.clone())
+                    .collect(),
+            )
+        } else {
+            None
+        };
 
         self.process_ops(items, meta);
 
@@ -330,16 +338,10 @@ impl DateDividerAdjuster {
                     assert!(at >= 0);
                     let at = at as usize;
 
-                    let item = meta.new_timeline_item(VirtualTimelineItem::DateDivider(ts));
-
-                    // Keep push semantics, if we're inserting at the front or the back.
-                    if at == items.len() {
-                        items.push_back(item, None);
-                    } else if at == 0 {
-                        items.push_front(item, None);
-                    } else {
-                        items.insert(at, item, None);
-                    }
+                    items.push_date_divider(
+                        at,
+                        meta.new_timeline_item(VirtualTimelineItem::DateDivider(ts)),
+                    );
 
                     offset += 1;
                     max_i = i;
@@ -404,7 +406,7 @@ impl DateDividerAdjuster {
         // Assert invariants.
         // 1. The timeline starts with a date divider, if it's not only virtual items.
         {
-            let mut i = 0;
+            let mut i = items.first_remotes_region_index();
             while let Some(item) = items.get(i) {
                 if let Some(virt) = item.as_virtual() {
                     if matches!(virt, VirtualTimelineItem::DateDivider(_)) {
@@ -423,7 +425,7 @@ impl DateDividerAdjuster {
         // 2. There are no two date dividers following each other.
         {
             let mut prev_was_date_divider = false;
-            for (i, item) in items.iter().enumerate() {
+            for (i, item) in items.iter_remotes_and_locals_regions() {
                 if item.is_date_divider() {
                     if prev_was_date_divider {
                         report.errors.push(DateDividerInsertError::DuplicateDateDivider { at: i });
@@ -447,7 +449,7 @@ impl DateDividerAdjuster {
             let mut prev_event_ts = None;
             let mut prev_date_divider_ts = None;
 
-            for (i, item) in items.iter().enumerate() {
+            for (i, item) in items.iter_remotes_and_locals_regions() {
                 if let Some(ev) = item.as_event() {
                     let ts = ev.timestamp();
 
@@ -498,7 +500,10 @@ impl DateDividerAdjuster {
         //    end.
         if let Some(state) = &report.initial_state {
             if state.iter().any(|item| item.is_read_marker())
-                && !report.final_state.iter().any(|item| item.is_read_marker())
+                && !report
+                    .final_state
+                    .iter_remotes_and_locals_regions()
+                    .any(|(_i, item)| item.is_read_marker())
             {
                 report.errors.push(DateDividerInsertError::ReadMarkerDisappeared);
             }
@@ -599,7 +604,14 @@ impl Display for DateDividerInvariantsReport<'_, '_> {
             }
 
             writeln!(f, "\nFinal state:")?;
-            write_items(f, self.final_state.iter().cloned().collect::<Vec<_>>().as_slice())?;
+            write_items(
+                f,
+                self.final_state
+                    .iter_remotes_and_locals_regions()
+                    .map(|(_i, item)| item.clone())
+                    .collect::<Vec<_>>()
+                    .as_slice(),
+            )?;
 
             writeln!(f)?;
         }
@@ -938,15 +950,19 @@ mod tests {
         let mut meta = test_metadata();
 
         txn.push_back(
-            meta.new_timeline_item(event_with_ts(MilliSecondsSinceUnixEpoch(uint!(0)))),
+            // Start one day later than the origin, to make this test pass on all timezones.
+            // Let's call this time T.
+            meta.new_timeline_item(event_with_ts(MilliSecondsSinceUnixEpoch(uint!(86_400_000)))),
             None,
         );
         txn.push_back(
-            meta.new_timeline_item(event_with_ts(MilliSecondsSinceUnixEpoch(uint!(86_400_000)))), // One day later
+            // One day later (T+1 day).
+            meta.new_timeline_item(event_with_ts(MilliSecondsSinceUnixEpoch(uint!(172_800_000)))),
             None,
         );
         txn.push_back(
-            meta.new_timeline_item(event_with_ts(MilliSecondsSinceUnixEpoch(uint!(2_678_400_000)))), // One month later
+            // One month later (T+31 days).
+            meta.new_timeline_item(event_with_ts(MilliSecondsSinceUnixEpoch(uint!(2_764_800_000)))),
             None,
         );
 

@@ -1,7 +1,7 @@
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
 use matrix_sdk::test_utils::mocks::MatrixMockServer;
 use matrix_sdk_test::{event_factory::EventFactory, JoinedRoomBuilder, StateTestEvent};
-use matrix_sdk_ui::Timeline;
+use matrix_sdk_ui::timeline::TimelineBuilder;
 use ruma::{
     events::room::message::RoomMessageEventContentWithoutRelation, owned_room_id, owned_user_id,
     EventId,
@@ -102,7 +102,7 @@ pub fn create_timeline_with_initial_events(c: &mut Criterion) {
         BenchmarkId::new("create_timeline_with_initial_events", format!("{NUM_EVENTS} events")),
         |b| {
             b.to_async(&runtime).iter(|| async {
-                let timeline = Timeline::builder(&room)
+                let timeline = TimelineBuilder::new(&room)
                     .track_read_marker_and_receipts()
                     .build()
                     .await

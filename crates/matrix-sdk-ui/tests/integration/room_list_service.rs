@@ -10,7 +10,7 @@ use matrix_sdk::{
         mocks::{MatrixMockServer, RoomMessagesResponseTemplate},
         set_client_session, test_client_builder,
     },
-    Client,
+    Client, RoomDisplayName,
 };
 use matrix_sdk_base::sync::UnreadNotificationsCount;
 use matrix_sdk_test::{
@@ -21,7 +21,7 @@ use matrix_sdk_ui::{
         filters::{new_filter_fuzzy_match_room_name, new_filter_non_left, new_filter_none},
         Error, RoomListLoadingState, State, SyncIndicator, ALL_ROOMS_LIST_NAME as ALL_ROOMS,
     },
-    timeline::{TimelineItemKind, VirtualTimelineItem},
+    timeline::{RoomExt as _, TimelineItemKind, VirtualTimelineItem},
     RoomListService,
 };
 use ruma::{
@@ -364,6 +364,7 @@ async fn test_sync_all_states() -> Result<(), Error> {
                         ["m.room.power_levels", ""],
                         ["org.matrix.msc3401.call.member", "*"],
                         ["m.room.join_rules", ""],
+                        ["m.room.tombstone", ""],
                         ["m.room.create", ""],
                         ["m.room.history_visibility", ""],
                         ["io.element.functional_members", ""],
@@ -2130,7 +2131,7 @@ async fn test_room() -> Result<(), Error> {
     let room0 = room_list.room(room_id_0)?;
 
     // Room has received a name from sliding sync.
-    assert_eq!(room0.cached_display_name(), Some("Room #0".to_owned()));
+    assert_eq!(room0.cached_display_name(), Some(RoomDisplayName::Named("Room #0".to_owned())));
 
     // Room has received an avatar from sliding sync.
     assert_eq!(room0.avatar_url(), Some(mxc_uri!("mxc://homeserver/media").to_owned()));
@@ -2138,7 +2139,7 @@ async fn test_room() -> Result<(), Error> {
     let room1 = room_list.room(room_id_1)?;
 
     // Room has not received a name from sliding sync, then it's calculated.
-    assert_eq!(room1.cached_display_name(), Some("Empty Room".to_owned()));
+    assert_eq!(room1.cached_display_name(), Some(RoomDisplayName::Empty));
 
     // Room has not received an avatar from sliding sync, then it's calculated, but
     // there is nothing to calculate from, so there is no URL.
@@ -2175,7 +2176,7 @@ async fn test_room() -> Result<(), Error> {
     };
 
     // Room has _now_ received a name from sliding sync!
-    assert_eq!(room1.cached_display_name(), Some("Room #1".to_owned()));
+    assert_eq!(room1.cached_display_name(), Some(RoomDisplayName::Named("Room #1".to_owned())));
 
     // Room has _now_ received an avatar URL from sliding sync!
     assert_eq!(room1.avatar_url(), Some(mxc_uri!("mxc://homeserver/other-media").to_owned()));
@@ -2266,6 +2267,7 @@ async fn test_room_subscription() -> Result<(), Error> {
                         ["m.room.power_levels", ""],
                         ["org.matrix.msc3401.call.member", "*"],
                         ["m.room.join_rules", ""],
+                        ["m.room.tombstone", ""],
                         ["m.room.create", ""],
                         ["m.room.history_visibility", ""],
                         ["io.element.functional_members", ""],
@@ -2307,6 +2309,7 @@ async fn test_room_subscription() -> Result<(), Error> {
                         ["m.room.power_levels", ""],
                         ["org.matrix.msc3401.call.member", "*"],
                         ["m.room.join_rules", ""],
+                        ["m.room.tombstone", ""],
                         ["m.room.create", ""],
                         ["m.room.history_visibility", ""],
                         ["io.element.functional_members", ""],
@@ -2461,8 +2464,7 @@ async fn test_room_timeline() -> Result<(), Error> {
     mock_encryption_state(&server, false).await;
 
     let room = room_list.room(room_id)?;
-    room.init_timeline_with_builder(room.default_room_timeline_builder().await.unwrap()).await?;
-    let timeline = room.timeline().unwrap();
+    let timeline = room.timeline_builder().build().await.unwrap();
 
     let (previous_timeline_items, mut timeline_items_stream) = timeline.subscribe().await;
 
@@ -2526,7 +2528,7 @@ async fn test_room_empty_timeline() {
 
     // The room wasn't synced, but it will be available
     let room = room_list.room(&room_id).unwrap();
-    let timeline = room.default_room_timeline_builder().await.unwrap().build().await.unwrap();
+    let timeline = room.timeline_builder().build().await.unwrap();
     let (prev_items, _) = timeline.subscribe().await;
 
     // However, since the room wasn't synced its timeline won't have any initial
@@ -2563,10 +2565,10 @@ async fn test_room_latest_event() -> Result<(), Error> {
     };
 
     let room = room_list.room(room_id)?;
-    room.init_timeline_with_builder(room.default_room_timeline_builder().await.unwrap()).await?;
+    let timeline = room.timeline_builder().build().await.unwrap();
 
     // The latest event does not exist.
-    assert!(room.latest_event().await.is_none());
+    assert!(room.latest_event_item().await.is_none());
 
     sync_then_assert_request_and_fake_response! {
         [server, room_list, sync]
@@ -2586,7 +2588,7 @@ async fn test_room_latest_event() -> Result<(), Error> {
 
     // The latest event exists.
     assert_matches!(
-        room.latest_event().await,
+        room.latest_event_item().await,
         Some(event) => {
             assert!(event.is_local_echo().not());
             assert_eq!(event.event_id(), Some(event_id!("$x0:bar.org")));
@@ -2610,12 +2612,9 @@ async fn test_room_latest_event() -> Result<(), Error> {
     };
 
     // The latest event has been updated.
-    let latest_event = room.latest_event().await.unwrap();
+    let latest_event = room.latest_event_item().await.unwrap();
     assert!(latest_event.is_local_echo().not());
     assert_eq!(latest_event.event_id(), Some(event_id!("$x1:bar.org")));
-
-    // Now let's compare with the result of the `Timeline`.
-    let timeline = room.timeline().unwrap();
 
     // The latest event matches the latest event of the `Timeline`.
     assert_matches!(
@@ -2637,15 +2636,6 @@ async fn test_room_latest_event() -> Result<(), Error> {
         Some(timeline_event) => {
             assert!(timeline_event.is_local_echo());
             assert_eq!(timeline_event.event_id(), None);
-        }
-    );
-
-    // The latest event is a local event.
-    assert_matches!(
-        room.latest_event().await,
-        Some(event) => {
-            assert!(event.is_local_echo());
-            assert_eq!(event.event_id(), None);
         }
     );
 
@@ -2890,10 +2880,7 @@ async fn test_multiple_timeline_init() {
         // Get a RoomListService::Room, initialize the timeline, start a pagination.
         let room = room_list.room(room_id).unwrap();
 
-        let builder = room.default_room_timeline_builder().await.unwrap();
-        room.init_timeline_with_builder(builder).await.unwrap();
-
-        let timeline = room.timeline().unwrap();
+        let timeline = room.timeline_builder().build().await.unwrap();
 
         spawn(async move { timeline.paginate_backwards(20).await })
     };
@@ -2906,6 +2893,5 @@ async fn test_multiple_timeline_init() {
     task.abort();
 
     // A new timeline for the same room can still be constructed.
-    let builder = room.default_room_timeline_builder().await.unwrap();
-    room.init_timeline_with_builder(builder).await.unwrap();
+    room.timeline_builder().build().await.unwrap();
 }

@@ -124,20 +124,13 @@ Next to the room list, the details for rooms are the next important aspect.
 Each [list](#lists) only references the [`OwnedRoomId`] of the room at the given
 position. The details (`required_state`s and timeline items) requested by all
 lists are bundled, together with the common details (e.g. whether it is a `dm`
-or its calculated name) and made available on the Sliding Sync session struct as
-a [reactive](#reactive-api) through [`.get_all_rooms`](SlidingSync::get_all_rooms),
-[`get_room`](SlidingSync::get_room) and [`get_rooms`](SlidingSync::get_rooms)
-APIs.
+or its calculated name). Use the `Room` API to get these updated data.
 
-Notably, this map only knows about the rooms that have come down [Sliding
-Sync protocol][MSC] and if the given room isn't in any active list range, it
-may be stale. Additionally to selecting the room data via the room lists,
-the [Sliding Sync protocol][MSC] allows to subscribe to specific rooms via
-the [`subscribe_to_rooms()`](SlidingSync::subscribe_to_rooms). Any room subscribed
-to will receive updates (with the given settings) regardless of whether they are
-visible in any list. The most common case for using this API is when the user
-enters a room - as we want to receive the incoming new messages regardless of
-whether the room is pushed out of the lists room list.
+It is possible [`subscribe_to_rooms()`](SlidingSync::subscribe_to_rooms): any
+room subscribed to will receive updates (with the given settings) regardless of
+whether they are visible in any list. The most common case for using this API
+is when the user enters a room - as we want to receive the incoming new messages
+regardless of whether the room is pushed out of the lists room list.
 
 ## Extensions
 

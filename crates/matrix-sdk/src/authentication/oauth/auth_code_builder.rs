@@ -73,10 +73,34 @@ impl OAuthAuthCodeUrlBuilder {
         self
     }
 
+    /// Set a generic login hint to help an identity provider pre-fill the login
+    /// form.
+    ///
+    /// Note: This is not the same as the [`Self::user_id_hint()`] method, which
+    /// is specifically designed to a) take a `UserId` and no other type of
+    /// hint and b) be used directly by MAS and not the identity provider.
+    ///
+    /// The most likely use case for this method is to pre-fill the login page
+    /// using a provisioning link provided by an external party such as
+    /// `https://app.example.com/?server_name=example.org&login_hint=alice`
+    /// In this instance it is up to the external party to make ensure that the
+    /// hint is known to work with their identity provider. For more information
+    /// see `login_hint` in <https://openid.net/specs/openid-connect-core-1_0.html#AuthRequest>
+    ///
+    /// The following methods are mutually exclusive: [`Self::login_hint()`] and
+    /// [`Self::user_id_hint()`].
+    pub fn login_hint(mut self, login_hint: String) -> Self {
+        self.login_hint = Some(login_hint);
+        self
+    }
+
     /// Set the hint to the Authorization Server about the Matrix user ID the
     /// End-User might use to log in, as defined in [MSC4198].
     ///
     /// [MSC4198]: https://github.com/matrix-org/matrix-spec-proposals/pull/4198
+    ///
+    /// The following methods are mutually exclusive: [`Self::login_hint()`] and
+    /// [`Self::user_id_hint()`].
     pub fn user_id_hint(mut self, user_id: &UserId) -> Self {
         self.login_hint = Some(format!("mxid:{user_id}"));
         self

@@ -3,11 +3,14 @@ name = "matrix-sdk-crypto-ffi"
 version = "0.1.0"
 authors = ["Damir Jelić <poljar@termina.org.uk>"]
 edition = "2021"
-rust-version = { workspace = true }
+rust-version.workspace = true
 description = "Uniffi based bindings for the Rust SDK crypto crate"
 repository = "https://github.com/matrix-org/matrix-rust-sdk"
 license = "Apache-2.0"
 publish = false
+
+[package.metadata.release]
+release = false
 
 [lib]
 crate-type = ["cdylib", "staticlib"]
@@ -21,23 +24,23 @@ default = ["bundled-sqlite"]
 bundled-sqlite = ["matrix-sdk-sqlite/bundled"]
 
 [dependencies]
-anyhow = { workspace = true }
-futures-util = { workspace = true }
+anyhow.workspace = true
+futures-util.workspace = true
 hmac = "0.12.1"
-http = { workspace = true }
+http.workspace = true
 matrix-sdk-common = { workspace = true, features = ["uniffi"] }
-matrix-sdk-ffi-macros = { workspace = true }
+matrix-sdk-ffi-macros.workspace = true
 pbkdf2 = "0.12.2"
-rand = { workspace = true }
-ruma = { workspace = true }
-serde = { workspace = true }
-serde_json = { workspace = true }
-sha2 = { workspace = true }
-thiserror = { workspace = true }
+rand.workspace = true
+ruma.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+thiserror.workspace = true
 tracing-subscriber = { workspace = true, features = ["env-filter"] }
 # keep in sync with uniffi dependency in matrix-sdk-ffi, and uniffi_bindgen in ffi CI job
 uniffi = { workspace = true, features = ["cli"] }
-vodozemac = { workspace = true }
+vodozemac.workspace = true
 zeroize = { workspace = true, features = ["zeroize_derive"] }
 
 [dependencies.js_int]
@@ -53,20 +56,17 @@ workspace = true
 features = ["crypto-store"]
 
 [dependencies.tokio]
-version = "1.33.0"
+version = "1.43.1"
 default-features = false
 features = ["rt-multi-thread"]
 
 [build-dependencies]
-vergen = { version = "8.2.5", features = ["build", "git", "gitcl"] }
 uniffi = { workspace = true, features = ["build"] }
+vergen = { version = "8.2.5", features = ["build", "git", "gitcl"] }
 
 [dev-dependencies]
+assert_matches2.workspace = true
 tempfile = "3.8.0"
-assert_matches2 = { workspace = true }
 
 [lints]
 workspace = true
-
-[package.metadata.release]
-release = false

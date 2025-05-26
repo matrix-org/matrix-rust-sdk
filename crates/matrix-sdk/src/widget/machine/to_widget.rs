@@ -14,7 +14,10 @@
 
 use std::marker::PhantomData;
 
-use ruma::{events::AnyTimelineEvent, serde::Raw};
+use ruma::{
+    events::{AnyTimelineEvent, AnyToDeviceEvent},
+    serde::Raw,
+};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_json::value::RawValue as RawJsonValue;
 use tracing::error;
@@ -36,7 +39,7 @@ where
         Self { request_meta, _phantom: PhantomData }
     }
 
-    pub(crate) fn then(
+    pub(crate) fn add_response_handler(
         self,
         response_handler: impl FnOnce(T, &mut WidgetMachine) -> Vec<Action> + Send + 'static,
     ) {
@@ -111,7 +114,7 @@ impl ToWidgetRequest for NotifyOpenIdChanged {
     type ResponseData = OpenIdResponse;
 }
 
-/// Notify the widget that we received a new matrix event.
+/// Notify the widget that we received a new Matrix event.
 /// This is a "response" to the widget subscribing to the events in the room.
 #[derive(Serialize)]
 #[serde(transparent)]
@@ -124,3 +127,14 @@ impl ToWidgetRequest for NotifyNewMatrixEvent {
 
 #[derive(Deserialize)]
 pub(crate) struct Empty {}
+
+/// Notify the widget that we received a new Matrix to-device message.
+/// This is a "response" to the widget subscribing to the to-device messages.
+#[derive(Serialize)]
+#[serde(transparent)]
+pub(crate) struct NotifyNewToDeviceMessage(pub(crate) Raw<AnyToDeviceEvent>);
+
+impl ToWidgetRequest for NotifyNewToDeviceMessage {
+    const ACTION: &'static str = "send_to_device";
+    type ResponseData = Empty;
+}

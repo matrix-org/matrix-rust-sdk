@@ -52,7 +52,7 @@ pub static CREATE: Lazy<JsonValue> = Lazy::new(|| {
         "state_key": "",
         "type": "m.room.create",
         "unsigned": {
-          "age": 139298
+            "age": 139298
         }
     })
 });
@@ -704,5 +704,14 @@ pub static TOPIC_REDACTION: Lazy<JsonValue> = Lazy::new(|| {
           "age": 1392990,
           "prev_sender": "@example:localhost",
         }
+    })
+});
+
+pub static MARKED_UNREAD: Lazy<JsonValue> = Lazy::new(|| {
+    json!({
+        "content": {
+            "unread": true,
+        },
+        "type": "m.marked_unread",
     })
 });

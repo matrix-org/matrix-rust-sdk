@@ -61,8 +61,7 @@ pub async fn update_joined_room(
     room_info.mark_state_fully_synced();
     room_info.handle_encryption_state(requested_required_states.for_room(room_id));
 
-    let (raw_state_events, state_events) =
-        state_events::sync::collect(context, &joined_room.state.events);
+    let (raw_state_events, state_events) = state_events::sync::collect(&joined_room.state.events);
 
     let mut new_user_ids = state_events::sync::dispatch_and_get_new_users(
         context,
@@ -79,7 +78,7 @@ pub async fn update_joined_room(
     }
 
     let (raw_state_events_from_timeline, state_events_from_timeline) =
-        state_events::sync::collect_from_timeline(context, &joined_room.timeline.events);
+        state_events::sync::collect_from_timeline(&joined_room.timeline.events);
 
     let mut other_new_user_ids = state_events::sync::dispatch_and_get_new_users(
         context,
@@ -124,7 +123,6 @@ pub async fn update_joined_room(
 
     #[cfg(feature = "e2e-encryption")]
     e2ee::tracked_users::update_or_set_if_room_is_newly_encrypted(
-        context,
         olm_machine,
         &new_user_ids,
         room_info.encryption_state(),
@@ -175,8 +173,7 @@ pub async fn update_left_room(
     room_info.mark_state_partially_synced();
     room_info.handle_encryption_state(requested_required_states.for_room(room_id));
 
-    let (raw_state_events, state_events) =
-        state_events::sync::collect(context, &left_room.state.events);
+    let (raw_state_events, state_events) = state_events::sync::collect(&left_room.state.events);
 
     let _ = state_events::sync::dispatch_and_get_new_users(
         context,
@@ -187,7 +184,7 @@ pub async fn update_left_room(
     .await?;
 
     let (raw_state_events_from_timeline, state_events_from_timeline) =
-        state_events::sync::collect_from_timeline(context, &left_room.timeline.events);
+        state_events::sync::collect_from_timeline(&left_room.timeline.events);
 
     let _ = state_events::sync::dispatch_and_get_new_users(
         context,
@@ -239,8 +236,7 @@ pub async fn update_invited_room(
         room_info_notable_update_sender,
     );
 
-    let (raw_events, events) =
-        state_events::stripped::collect(context, &invited_room.invite_state.events);
+    let (raw_events, events) = state_events::stripped::collect(&invited_room.invite_state.events);
 
     let mut room_info = room.clone_info();
     room_info.mark_as_invited();
@@ -276,8 +272,7 @@ pub async fn update_knocked_room(
         room_info_notable_update_sender,
     );
 
-    let (raw_events, events) =
-        state_events::stripped::collect(context, &knocked_room.knock_state.events);
+    let (raw_events, events) = state_events::stripped::collect(&knocked_room.knock_state.events);
 
     let mut room_info = room.clone_info();
     room_info.mark_as_knocked();

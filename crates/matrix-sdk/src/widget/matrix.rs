@@ -17,21 +17,24 @@
 
 use std::collections::BTreeMap;
 
-use matrix_sdk_base::deserialized_responses::RawAnySyncOrStrippedState;
+use matrix_sdk_base::deserialized_responses::{EncryptionInfo, RawAnySyncOrStrippedState};
 use ruma::{
     api::client::{
         account::request_openid_token::v3::{Request as OpenIdRequest, Response as OpenIdResponse},
         delayed_events::{self, update_delayed_event::unstable::UpdateAction},
         filter::RoomEventFilter,
+        to_device::send_event_to_device::{self, v3::Request as RumaToDeviceRequest},
     },
     assign,
     events::{
         AnyMessageLikeEventContent, AnyStateEventContent, AnySyncMessageLikeEvent,
-        AnySyncStateEvent, AnySyncTimelineEvent, AnyTimelineEvent, MessageLikeEventType,
-        StateEventType, TimelineEventType,
+        AnySyncStateEvent, AnySyncTimelineEvent, AnyTimelineEvent, AnyToDeviceEvent,
+        AnyToDeviceEventContent, MessageLikeEventType, StateEventType, TimelineEventType,
+        ToDeviceEventType,
     },
     serde::{from_raw_json_value, Raw},
-    EventId, RoomId, TransactionId,
+    to_device::DeviceIdOrAllDevices,
+    EventId, OwnedUserId, RoomId, TransactionId,
 };
 use serde_json::{value::RawValue as RawJsonValue, Value};
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver};
@@ -181,7 +184,7 @@ impl MatrixDriver {
 
     /// Starts forwarding new room events. Once the returned `EventReceiver`
     /// is dropped, forwarding will be stopped.
-    pub(crate) fn events(&self) -> EventReceiver {
+    pub(crate) fn events(&self) -> EventReceiver<Raw<AnyTimelineEvent>> {
         let (tx, rx) = unbounded_channel();
         let room_id = self.room.room_id().to_owned();
 
@@ -208,19 +211,65 @@ impl MatrixDriver {
         // section of the sync will not be forwarded to the widget.
         // TODO annotate the events and send both timeline and state section state
         // events.
-        EventReceiver { rx, _drop_guards: [drop_guard_msg_like, drop_guard_state] }
+        EventReceiver { rx, _drop_guards: vec![drop_guard_msg_like, drop_guard_state] }
+    }
+
+    /// Starts forwarding new room events. Once the returned `EventReceiver`
+    /// is dropped, forwarding will be stopped.
+    pub(crate) fn to_device_events(&self) -> EventReceiver<Raw<AnyToDeviceEvent>> {
+        let (tx, rx) = unbounded_channel();
+
+        let to_device_handle = self.room.client().add_event_handler(
+            // TODO: encryption support for to-device is not yet supported. Needs an Olm
+            // EncryptionInfo. The widgetAPI expects a boolean `encrypted` to be added
+            // (!) to the raw content to know if the to-device message was encrypted or
+            // not (as per MSC3819).
+            move |raw: Raw<AnyToDeviceEvent>, _: Option<EncryptionInfo>| {
+                let _ = tx.send(raw);
+                async {}
+            },
+        );
+
+        let drop_guard = self.room.client().event_handler_drop_guard(to_device_handle);
+        EventReceiver { rx, _drop_guards: vec![drop_guard] }
+    }
+
+    /// It will ignore all devices where errors occurred or where the device is
+    /// not verified or where th user has a has_verification_violation.
+    pub(crate) async fn send_to_device(
+        &self,
+        event_type: ToDeviceEventType,
+        encrypted: bool,
+        messages: BTreeMap<
+            OwnedUserId,
+            BTreeMap<DeviceIdOrAllDevices, Raw<AnyToDeviceEventContent>>,
+        >,
+    ) -> Result<send_event_to_device::v3::Response> {
+        let client = self.room.client();
+
+        let request = if encrypted {
+            return Err(Error::UnknownError(
+                "Sending encrypted to-device events is not supported by the widget driver.".into(),
+            ));
+        } else {
+            RumaToDeviceRequest::new_raw(event_type, TransactionId::new(), messages)
+        };
+
+        let response = client.send(request).await;
+
+        response.map_err(Into::into)
     }
 }
 
 /// A simple entity that wraps an `UnboundedReceiver`
 /// along with the drop guard for the room event handler.
-pub(crate) struct EventReceiver {
-    rx: UnboundedReceiver<Raw<AnyTimelineEvent>>,
-    _drop_guards: [EventHandlerDropGuard; 2],
+pub(crate) struct EventReceiver<E> {
+    rx: UnboundedReceiver<E>,
+    _drop_guards: Vec<EventHandlerDropGuard>,
 }
 
-impl EventReceiver {
-    pub(crate) async fn recv(&mut self) -> Option<Raw<AnyTimelineEvent>> {
+impl<T> EventReceiver<T> {
+    pub(crate) async fn recv(&mut self) -> Option<T> {
         self.rx.recv().await
     }
 }
@@ -229,4 +278,66 @@ fn attach_room_id(raw_ev: &Raw<AnySyncTimelineEvent>, room_id: &RoomId) -> Raw<A
     let mut ev_obj = raw_ev.deserialize_as::<BTreeMap<String, Box<RawJsonValue>>>().unwrap();
     ev_obj.insert("room_id".to_owned(), serde_json::value::to_raw_value(room_id).unwrap());
     Raw::new(&ev_obj).unwrap().cast()
+}
+
+#[cfg(test)]
+mod tests {
+    use insta;
+    use ruma::{events::AnyTimelineEvent, room_id, serde::Raw};
+    use serde_json::{json, Value};
+
+    use super::attach_room_id;
+
+    #[test]
+    fn test_add_room_id_to_raw() {
+        let raw = Raw::new(&json!({
+            "type": "m.room.message",
+            "event_id": "$1676512345:example.org",
+            "sender": "@user:example.org",
+            "origin_server_ts": 1676512345,
+            "content": {
+                "msgtype": "m.text",
+                "body": "Hello world"
+            }
+        }))
+        .unwrap()
+        .cast();
+        let room_id = room_id!("!my_id:example.org");
+        let new = attach_room_id(&raw, room_id);
+
+        insta::with_settings!({prepend_module_to_snapshot => false}, {
+            insta::assert_json_snapshot!(new.deserialize_as::<Value>().unwrap())
+        });
+
+        let attached: AnyTimelineEvent = new.deserialize().unwrap();
+        assert_eq!(attached.room_id(), room_id);
+    }
+
+    #[test]
+    fn test_add_room_id_to_raw_override() {
+        // What would happen if there is already a room_id in the raw content?
+        // Ensure it is overridden with the given value
+        let raw = Raw::new(&json!({
+            "type": "m.room.message",
+            "event_id": "$1676512345:example.org",
+            "room_id": "!override_me:example.org",
+            "sender": "@user:example.org",
+            "origin_server_ts": 1676512345,
+            "content": {
+                "msgtype": "m.text",
+                "body": "Hello world"
+            }
+        }))
+        .unwrap()
+        .cast();
+        let room_id = room_id!("!my_id:example.org");
+        let new = attach_room_id(&raw, room_id);
+
+        insta::with_settings!({prepend_module_to_snapshot => false}, {
+            insta::assert_json_snapshot!(new.deserialize_as::<Value>().unwrap())
+        });
+
+        let attached: AnyTimelineEvent = new.deserialize().unwrap();
+        assert_eq!(attached.room_id(), room_id);
+    }
 }

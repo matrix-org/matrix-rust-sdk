@@ -28,5 +28,5 @@ pub struct RoomMessageRequest {
     pub txn_id: OwnedTransactionId,
 
     /// The event content to send.
-    pub content: AnyMessageLikeEventContent,
+    pub content: Box<AnyMessageLikeEventContent>,
 }

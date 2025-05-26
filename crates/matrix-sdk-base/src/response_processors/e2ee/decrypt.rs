@@ -16,10 +16,7 @@ use matrix_sdk_common::deserialized_responses::TimelineEvent;
 use matrix_sdk_crypto::{DecryptionSettings, RoomEventDecryptionResult};
 use ruma::{events::AnySyncTimelineEvent, serde::Raw, RoomId};
 
-use super::{
-    super::{verification, Context},
-    E2EE,
-};
+use super::{super::verification, E2EE};
 use crate::Result;
 
 /// Attempt to decrypt the given raw event into a [`TimelineEvent`].
@@ -30,7 +27,6 @@ use crate::Result;
 ///
 /// Returns `Ok(None)` if encryption is not configured.
 pub async fn sync_timeline_event(
-    context: &mut Context,
     e2ee: E2EE<'_>,
     event: &Raw<AnySyncTimelineEvent>,
     room_id: &RoomId,
@@ -46,8 +42,7 @@ pub async fn sync_timeline_event(
                 let timeline_event = TimelineEvent::from(decrypted);
 
                 if let Ok(sync_timeline_event) = timeline_event.raw().deserialize() {
-                    verification::process_if_relevant(context, &sync_timeline_event, e2ee, room_id)
-                        .await?;
+                    verification::process_if_relevant(&sync_timeline_event, e2ee, room_id).await?;
                 }
 
                 timeline_event

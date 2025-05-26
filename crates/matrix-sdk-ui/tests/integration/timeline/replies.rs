@@ -350,7 +350,13 @@ async fn test_fetch_details_utd() {
         let in_reply_to = in_reply_to.clone().unwrap();
         assert_let!(TimelineDetails::Ready(replied_to) = &in_reply_to.event);
         assert_eq!(replied_to.sender(), *ALICE);
-        assert!(replied_to.content().is_unable_to_decrypt());
+        assert_matches!(
+            replied_to.content(),
+            TimelineItemContent::MsgLike(MsgLikeContent {
+                kind: MsgLikeKind::UnableToDecrypt(_),
+                ..
+            })
+        );
     }
 }
 

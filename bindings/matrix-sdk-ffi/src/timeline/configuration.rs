@@ -65,6 +65,7 @@ impl From<FilterTimelineEventType> for TimelineEventType {
 pub enum TimelineFocus {
     Live,
     Event { event_id: String, num_context_events: u16 },
+    Thread { root_event_id: String, num_events: u16 },
     PinnedEvents { max_events_to_load: u16, max_concurrent_requests: u16 },
 }
 
@@ -84,6 +85,16 @@ impl TryFrom<TimelineFocus> for matrix_sdk_ui::timeline::TimelineFocus {
                     })?;
 
                 Ok(Self::Event { target: parsed_event_id, num_context_events })
+            }
+            TimelineFocus::Thread { root_event_id, num_events } => {
+                let parsed_root_event_id = EventId::parse(&root_event_id).map_err(|err| {
+                    FocusEventError::InvalidEventId {
+                        event_id: root_event_id.clone(),
+                        err: err.to_string(),
+                    }
+                })?;
+
+                Ok(Self::Thread { root_event_id: parsed_root_event_id, num_events })
             }
             TimelineFocus::PinnedEvents { max_events_to_load, max_concurrent_requests } => {
                 Ok(Self::PinnedEvents { max_events_to_load, max_concurrent_requests })
@@ -146,4 +157,8 @@ pub struct TimelineConfiguration {
     /// As this has a non negligible performance impact, make sure to enable it
     /// only when you need it.
     pub track_read_receipts: bool,
+
+    /// Whether this timeline instance should report UTDs through the client's
+    /// delegate.
+    pub report_utds: bool,
 }

@@ -295,7 +295,7 @@ async fn test_react_to_local_media() {
         assert_eq!(get_filename_and_caption(msg.msgtype()), ("test.bin", None));
 
         // The item starts with no reactions.
-        assert!(item.content().reactions().is_empty());
+        assert!(item.content().reactions().cloned().unwrap_or_default().is_empty());
 
         item.identifier()
     };
@@ -308,7 +308,7 @@ async fn test_react_to_local_media() {
     assert_eq!(get_filename_and_caption(msg.msgtype()), ("test.bin", None));
 
     // There's a reaction for the current user for the given emoji.
-    let reactions = item.content().reactions();
+    let reactions = item.content().reactions().cloned().unwrap_or_default();
     let own_user_id = client.user_id().unwrap();
     reactions.get("🤪").unwrap().get(own_user_id).unwrap();
 

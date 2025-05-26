@@ -492,7 +492,14 @@ async fn test_edit_to_replied_updates_reply() {
 
     yield_now().await; // let the send queue handle the edit.
 
-    // The reply events are updated with the edited replied-to content.
+    // The edit happens.
+    assert_next_matches!(timeline_stream, VectorDiff::Set { index: 0, value } => {
+        let msg = value.content().as_message().unwrap();
+        assert_eq!(msg.body(), "hello world");
+        assert!(msg.is_edited());
+    });
+
+    // And then the reply events are updated with the edited replied-to content.
     assert_next_matches!(timeline_stream, VectorDiff::Set { index: 1, value } => {
         let msglike = value.content().as_msglike().unwrap();
         let reply_message = msglike.as_message().unwrap();
@@ -515,13 +522,6 @@ async fn test_edit_to_replied_updates_reply() {
         assert_eq!(in_reply_to.event_id, eid1);
         assert_let!(TimelineDetails::Ready(replied_to) = &in_reply_to.event);
         assert_eq!(replied_to.content().as_message().unwrap().body(), "hello world");
-    });
-
-    // And the edit happens.
-    assert_next_matches!(timeline_stream, VectorDiff::Set { index: 0, value } => {
-        let msg = value.content().as_message().unwrap();
-        assert_eq!(msg.body(), "hello world");
-        assert!(msg.is_edited());
     });
 
     sleep(Duration::from_millis(200)).await;
@@ -610,74 +610,6 @@ async fn test_send_edit_poll() {
     // updates, so just wait for a bit before verifying that the endpoint was
     // called.
     sleep(Duration::from_millis(200)).await;
-}
-
-#[async_test]
-async fn test_send_edit_when_timeline_is_clear() {
-    let server = MatrixMockServer::new().await;
-    let client = server.client_builder().build().await;
-
-    let room_id = room_id!("!a98sd12bjh:example.org");
-    let room = server.sync_joined_room(&client, room_id).await;
-
-    server.mock_room_state_encryption().plain().mount().await;
-
-    let timeline = room.timeline().await.unwrap();
-    let (_, mut timeline_stream) =
-        timeline.subscribe_filter_map(|item| item.as_event().cloned()).await;
-
-    let f = EventFactory::new();
-    let raw_original_event = f
-        .text_msg("Hello, World!")
-        .sender(client.user_id().unwrap())
-        .event_id(event_id!("$original_event"))
-        .into_raw_sync();
-
-    server
-        .sync_room(
-            &client,
-            JoinedRoomBuilder::new(room_id).add_timeline_event(raw_original_event.clone()),
-        )
-        .await;
-
-    let hello_world_item =
-        assert_next_matches!(timeline_stream, VectorDiff::PushBack { value } => value);
-    let hello_world_message = hello_world_item.content().as_message().unwrap();
-    assert!(!hello_world_message.is_edited());
-    assert!(hello_world_item.is_editable());
-
-    // Receive a limited (gappy) sync for this room, which will clear the timeline…
-    //
-    // TODO: …until the event cache storage is enabled by default, a time where
-    // we'll be able to get rid of this test entirely (or update its
-    // expectations).
-
-    server.sync_room(&client, JoinedRoomBuilder::new(room_id).set_timeline_limited()).await;
-
-    yield_now().await;
-    assert_next_matches!(timeline_stream, VectorDiff::Clear);
-
-    // Sending the edit will fail, since the edited event isn't in the timeline
-    // anymore.
-    assert_matches!(
-        timeline
-            .edit(
-                &hello_world_item.identifier(),
-                EditedContent::RoomMessage(RoomMessageEventContentWithoutRelation::text_plain(
-                    "Hello, Room!",
-                )),
-            )
-            .await,
-        Err(Error::EventNotInTimeline(TimelineEventItemId::EventId(event_id))) => {
-            assert_eq!(hello_world_item.event_id().unwrap(), event_id);
-        }
-    );
-
-    // The response to the mocked endpoint does not generate further timeline
-    // updates, so just wait for a bit before verifying that the endpoint was
-    // called.
-    sleep(Duration::from_millis(200)).await;
-    assert!(timeline_stream.next().now_or_never().is_none());
 }
 
 #[async_test]

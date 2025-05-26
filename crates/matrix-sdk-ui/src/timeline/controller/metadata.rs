@@ -14,21 +14,16 @@
 
 use std::{
     collections::{BTreeSet, HashMap},
-    num::NonZeroUsize,
     sync::Arc,
 };
 
-use matrix_sdk::ring_buffer::RingBuffer;
 use ruma::{EventId, OwnedEventId, OwnedUserId, RoomVersionId};
 use tracing::trace;
 
 use super::{
-    super::{
-        rfind_event_by_id, subscriber::skip::SkipCount, TimelineItem, TimelineItemKind,
-        TimelineUniqueId,
-    },
+    super::{subscriber::skip::SkipCount, TimelineItem, TimelineItemKind, TimelineUniqueId},
     read_receipts::ReadReceipts,
-    Aggregations, AllRemoteEvents, ObservableItemsTransaction, PendingEdit,
+    Aggregations, AllRemoteEvents, ObservableItemsTransaction,
 };
 use crate::unable_to_decrypt_hook::UtdHookManager;
 
@@ -62,7 +57,7 @@ pub(in crate::timeline) struct TimelineMetadata {
     pub room_version: RoomVersionId,
 
     /// The own [`OwnedUserId`] of the client who opened the timeline.
-    own_user_id: OwnedUserId,
+    pub(crate) own_user_id: OwnedUserId,
 
     // **** DYNAMIC FIELDS ****
     /// The next internal identifier for timeline items, used for both local and
@@ -80,10 +75,9 @@ pub(in crate::timeline) struct TimelineMetadata {
     pub aggregations: Aggregations,
 
     /// Given an event, what are all the events that are replies to it?
+    ///
+    /// Only works for remote events *and* replies which are remote-echoed.
     pub replies: HashMap<OwnedEventId, BTreeSet<OwnedEventId>>,
-
-    /// Edit events received before the related event they're editing.
-    pub pending_edits: RingBuffer<PendingEdit>,
 
     /// Identifier of the fully-read event, helping knowing where to introduce
     /// the read marker.
@@ -103,10 +97,6 @@ pub(in crate::timeline) struct TimelineMetadata {
     pub(super) read_receipts: ReadReceipts,
 }
 
-/// Maximum number of stash pending edits.
-/// SAFETY: 32 is not 0.
-const MAX_NUM_STASHED_PENDING_EDITS: NonZeroUsize = NonZeroUsize::new(32).unwrap();
-
 impl TimelineMetadata {
     pub(in crate::timeline) fn new(
         own_user_id: OwnedUserId,
@@ -120,7 +110,6 @@ impl TimelineMetadata {
             own_user_id,
             next_internal_id: Default::default(),
             aggregations: Default::default(),
-            pending_edits: RingBuffer::new(MAX_NUM_STASHED_PENDING_EDITS),
             replies: Default::default(),
             fully_read_event: Default::default(),
             // It doesn't make sense to set this to false until we fill the `fully_read_event`
@@ -139,7 +128,6 @@ impl TimelineMetadata {
         // ids across timeline clears.
         self.aggregations.clear();
         self.replies.clear();
-        self.pending_edits.clear();
         self.fully_read_event = None;
         // We forgot about the fully read marker right above, so wait for a new one
         // before attempting to update it for each new timeline item.
@@ -196,12 +184,16 @@ impl TimelineMetadata {
         let Some(fully_read_event) = &self.fully_read_event else { return };
         trace!(?fully_read_event, "Updating read marker");
 
-        let read_marker_idx = items.iter().rposition(|item| item.is_read_marker());
+        let read_marker_idx = items
+            .iter_remotes_region()
+            .rev()
+            .find_map(|(idx, item)| item.is_read_marker().then_some(idx));
 
-        let mut fully_read_event_idx =
-            rfind_event_by_id(items, fully_read_event).map(|(idx, _)| idx);
+        let mut fully_read_event_idx = items.iter_remotes_region().rev().find_map(|(idx, item)| {
+            (item.as_event()?.event_id() == Some(fully_read_event)).then_some(idx)
+        });
 
-        if let Some(i) = &mut fully_read_event_idx {
+        if let Some(fully_read_event_idx) = &mut fully_read_event_idx {
             // The item at position `i` is the first item that's fully read, we're about to
             // insert a read marker just after it.
             //
@@ -209,24 +201,26 @@ impl TimelineMetadata {
 
             // Find the position of the first element…
             let next = items
-                .iter()
-                .enumerate()
+                .iter_remotes_region()
                 // …strictly *after* the fully read event…
-                .skip(*i + 1)
+                .skip_while(|(idx, _)| idx <= fully_read_event_idx)
                 // …that's not virtual and not sent by us…
-                .find(|(_, item)| {
-                    item.as_event().is_some_and(|event| event.sender() != self.own_user_id)
-                })
-                .map(|(i, _)| i);
+                .find_map(|(idx, item)| {
+                    (item.as_event()?.sender() != self.own_user_id).then_some(idx)
+                });
 
             if let Some(next) = next {
                 // `next` point to the first item that's not sent by us, so the *previous* of
                 // next is the right place where to insert the fully read marker.
-                *i = next.wrapping_sub(1);
+                *fully_read_event_idx = next.wrapping_sub(1);
             } else {
                 // There's no event after the read marker that's not sent by us, i.e. the full
-                // timeline has been read: the fully read marker goes to the end.
-                *i = items.len().wrapping_sub(1);
+                // timeline has been read: the fully read marker goes to the end, even after the
+                // local timeline items.
+                //
+                // TODO (@hywan): Should we introduce a `items.position_of_last_remote()` to
+                // insert before the local timeline items?
+                *fully_read_event_idx = items.len().wrapping_sub(1);
             }
         }
 
@@ -368,4 +362,10 @@ pub(in crate::timeline) struct EventMeta {
     /// Note that the #2 timeline item (the day divider) doesn't map to any
     /// remote event, but if it moves, it has an impact on this mapping.
     pub timeline_item_index: Option<usize>,
+}
+
+impl EventMeta {
+    pub fn new(event_id: OwnedEventId, visible: bool) -> Self {
+        Self { event_id, visible, timeline_item_index: None }
+    }
 }

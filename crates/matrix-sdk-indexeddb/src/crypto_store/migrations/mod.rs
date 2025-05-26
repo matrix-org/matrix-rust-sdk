@@ -217,8 +217,8 @@ fn add_nonunique_index<'a>(
     name: &str,
     key_path: &str,
 ) -> Result<IdbIndex<'a>, DomException> {
-    let mut params = IdbIndexParameters::new();
-    params.unique(false);
+    let params = IdbIndexParameters::new();
+    params.set_unique(false);
     object_store.create_index_with_params(name, &IdbKeyPath::str(key_path), &params)
 }
 
@@ -227,8 +227,8 @@ fn add_unique_index<'a>(
     name: &str,
     key_path: &str,
 ) -> Result<IdbIndex<'a>, DomException> {
-    let mut params = IdbIndexParameters::new();
-    params.unique(true);
+    let params = IdbIndexParameters::new();
+    params.set_unique(true);
     object_store.create_index_with_params(name, &IdbKeyPath::str(key_path), &params)
 }
 

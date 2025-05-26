@@ -31,7 +31,7 @@ use matrix_sdk::{
     crypto::OlmMachine,
     deserialized_responses::{EncryptionInfo, TimelineEvent},
     event_cache::paginator::{PaginableRoom, PaginatorError},
-    room::{EventWithContextResponse, Messages, MessagesOptions, PushContext},
+    room::{EventWithContextResponse, Messages, MessagesOptions, PushContext, Relations},
     send_queue::RoomSendQueueUpdate,
     BoxFuture,
 };
@@ -58,9 +58,8 @@ use tokio::sync::RwLock;
 
 use super::{
     algorithms::rfind_event_by_item_id, controller::TimelineSettings,
-    event_handler::TimelineEventKind, event_item::RemoteEventOrigin, traits::RoomDataProvider,
-    EventTimelineItem, Profile, TimelineController, TimelineEventItemId, TimelineFocus,
-    TimelineItem,
+    event_item::RemoteEventOrigin, traits::RoomDataProvider, EventTimelineItem, Profile,
+    TimelineController, TimelineEventItemId, TimelineFocus, TimelineItem,
 };
 use crate::{
     timeline::pinned_events_loader::PinnedEventsRoom, unable_to_decrypt_hook::UtdHookManager,
@@ -182,13 +181,7 @@ impl TestTimeline {
 
     async fn handle_local_event(&self, content: AnyMessageLikeEventContent) -> OwnedTransactionId {
         let txn_id = TransactionId::new();
-        self.controller
-            .handle_local_event(
-                txn_id.clone(),
-                TimelineEventKind::Message { content, relations: Default::default() },
-                None,
-            )
-            .await;
+        self.controller.handle_local_event(txn_id.clone(), content, None).await;
         txn_id
     }
 
@@ -434,5 +427,13 @@ impl RoomDataProvider for TestRoomDataProvider {
         _sender: &UserId,
     ) -> Option<EncryptionInfo> {
         self.encryption_info.get(session_id).cloned()
+    }
+
+    async fn relations(
+        &self,
+        _event_id: OwnedEventId,
+        _opts: matrix_sdk::room::RelationsOptions,
+    ) -> Result<Relations, matrix_sdk::Error> {
+        unimplemented!();
     }
 }

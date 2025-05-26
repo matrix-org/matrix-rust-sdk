@@ -236,7 +236,7 @@ impl Device {
         let (sas, request) = self.inner.start_verification().await?;
         self.client.send_to_device(&request).await?;
 
-        Ok(SasVerification { inner: sas, client: self.client.clone() })
+        Ok(SasVerification { inner: Box::new(sas), client: self.client.clone() })
     }
 
     /// Manually verify this device.

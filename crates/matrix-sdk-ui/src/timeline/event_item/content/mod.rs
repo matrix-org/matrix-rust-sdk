@@ -39,10 +39,7 @@ use ruma::{
             history_visibility::RoomHistoryVisibilityEventContent,
             join_rules::RoomJoinRulesEventContent,
             member::{Change, RoomMemberEventContent, SyncRoomMemberEvent},
-            message::{
-                Relation, RoomMessageEventContent, RoomMessageEventContentWithoutRelation,
-                SyncRoomMessageEvent,
-            },
+            message::{MessageType, Relation, SyncRoomMessageEvent},
             name::RoomNameEventContent,
             pinned_events::RoomPinnedEventsEventContent,
             power_levels::{RoomPowerLevels, RoomPowerLevelsEventContent},
@@ -53,7 +50,7 @@ use ruma::{
         },
         space::{child::SpaceChildEventContent, parent::SpaceParentEventContent},
         sticker::{StickerEventContent, SyncStickerEvent},
-        AnyFullStateEventContent, AnySyncTimelineEvent, FullStateEventContent,
+        AnyFullStateEventContent, AnySyncTimelineEvent, FullStateEventContent, Mentions,
         MessageLikeEventType, StateEventType,
     },
     html::RemoveReplyFallback,
@@ -202,7 +199,8 @@ impl TimelineItemContent {
 
                 let msglike = MsgLikeContent {
                     kind: MsgLikeKind::Message(Message::from_event(
-                        event_content,
+                        event_content.msgtype,
+                        event_content.mentions,
                         edit,
                         RemoveReplyFallback::Yes,
                     )),
@@ -292,6 +290,13 @@ impl TimelineItemContent {
                 }
             });
 
+        let mut poll = PollState::new(NewUnstablePollStartEventContent::new(
+            event.content.poll_start().clone(),
+        ));
+        if let Some(edit) = edit {
+            poll = poll.edit(edit).expect("the poll can't be ended yet!"); // TODO or can it?
+        }
+
         // We're not interested in aggregations for the latest preview item.
         let reactions = Default::default();
         let thread_root = None;
@@ -299,10 +304,7 @@ impl TimelineItemContent {
         let thread_summary = None;
 
         let msglike = MsgLikeContent {
-            kind: MsgLikeKind::Poll(PollState::new(
-                NewUnstablePollStartEventContent::new(event.content.poll_start().clone()),
-                edit,
-            )),
+            kind: MsgLikeKind::Poll(poll),
             reactions,
             thread_root,
             in_reply_to,
@@ -409,8 +411,8 @@ impl TimelineItemContent {
     // These constructors could also be `From` implementations, but that would
     // allow users to call them directly, which should not be supported
     pub(crate) fn message(
-        c: RoomMessageEventContent,
-        edit: Option<RoomMessageEventContentWithoutRelation>,
+        msgtype: MessageType,
+        mentions: Option<Mentions>,
         reactions: ReactionsByKeyBySender,
         thread_root: Option<OwnedEventId>,
         in_reply_to: Option<InReplyToDetails>,
@@ -420,7 +422,12 @@ impl TimelineItemContent {
             if in_reply_to.is_some() { RemoveReplyFallback::Yes } else { RemoveReplyFallback::No };
 
         Self::MsgLike(MsgLikeContent {
-            kind: MsgLikeKind::Message(Message::from_event(c, edit, remove_reply_fallback)),
+            kind: MsgLikeKind::Message(Message::from_event(
+                msgtype,
+                mentions,
+                None,
+                remove_reply_fallback,
+            )),
             reactions,
             thread_root,
             in_reply_to,
@@ -531,9 +538,9 @@ impl TimelineItemContent {
 
     /// Return the reactions, grouped by key and then by sender, for a given
     /// content.
-    pub fn reactions(&self) -> ReactionsByKeyBySender {
+    pub fn reactions(&self) -> Option<&ReactionsByKeyBySender> {
         match self {
-            TimelineItemContent::MsgLike(msglike) => msglike.reactions.clone(),
+            TimelineItemContent::MsgLike(msglike) => Some(&msglike.reactions),
 
             TimelineItemContent::MembershipChange(..)
             | TimelineItemContent::ProfileChange(..)
@@ -543,7 +550,7 @@ impl TimelineItemContent {
             | TimelineItemContent::CallInvite
             | TimelineItemContent::CallNotify => {
                 // No reactions for these kind of items.
-                Default::default()
+                None
             }
         }
     }

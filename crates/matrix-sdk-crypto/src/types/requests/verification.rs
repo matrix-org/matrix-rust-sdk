@@ -22,7 +22,8 @@ pub enum OutgoingVerificationRequest {
     /// The to-device verification request variant.
     ToDevice(ToDeviceRequest),
     /// The in-room verification request variant.
-    InRoom(RoomMessageRequest),
+    // `Box` the `RoomMessageRequest` to reduce the size of the enum.
+    InRoom(Box<RoomMessageRequest>),
 }
 
 impl OutgoingVerificationRequest {
@@ -43,6 +44,6 @@ impl From<ToDeviceRequest> for OutgoingVerificationRequest {
 
 impl From<RoomMessageRequest> for OutgoingVerificationRequest {
     fn from(r: RoomMessageRequest) -> Self {
-        OutgoingVerificationRequest::InRoom(r)
+        OutgoingVerificationRequest::InRoom(Box::new(r))
     }
 }

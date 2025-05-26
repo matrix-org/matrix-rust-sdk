@@ -1,5 +1,5 @@
 use itertools::Itertools;
-use matrix_sdk_ui::room_list_service::Room;
+use matrix_sdk::Room;
 use ratatui::{
     prelude::*,
     widgets::{Paragraph, Wrap},
@@ -28,8 +28,7 @@ impl Widget for &mut EventsView<'_> {
                 let events = tokio::task::block_in_place(|| {
                     Handle::current().block_on(async {
                         let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
-                        let (events, _) = room_event_cache.subscribe().await;
-                        events
+                        room_event_cache.events().await
                     })
                 });
 

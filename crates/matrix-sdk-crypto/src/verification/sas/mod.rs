@@ -467,7 +467,9 @@ impl Sas {
                     OwnedAcceptContent::Room(room_id, content) => RoomMessageRequest {
                         room_id,
                         txn_id: TransactionId::new(),
-                        content: AnyMessageLikeEventContent::KeyVerificationAccept(content),
+                        content: Box::new(AnyMessageLikeEventContent::KeyVerificationAccept(
+                            content,
+                        )),
                     }
                     .into(),
                 })

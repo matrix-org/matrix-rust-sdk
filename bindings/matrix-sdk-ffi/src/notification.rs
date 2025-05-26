@@ -1,9 +1,10 @@
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
 use matrix_sdk_ui::notification_client::{
     NotificationClient as MatrixNotificationClient, NotificationItem as MatrixNotificationItem,
 };
-use ruma::{EventId, RoomId};
+use ruma::{EventId, OwnedEventId, OwnedRoomId, RoomId};
+use tracing::error;
 
 use crate::{
     client::{Client, JoinRule},
@@ -95,7 +96,7 @@ pub struct NotificationClient {
     /// Note: we do this to make it so that the FFI `NotificationClient` keeps
     /// the FFI `Client` and thus the SDK `Client` alive. Otherwise, we
     /// would need to repeat the hack done in the FFI `Client::drop` method.
-    pub(crate) _client: Arc<Client>,
+    pub(crate) client: Arc<Client>,
 }
 
 #[matrix_sdk_ffi_macros::export]
@@ -107,7 +108,8 @@ impl NotificationClient {
     pub fn get_room(&self, room_id: String) -> Result<Option<Arc<Room>>, ClientError> {
         let room_id = RoomId::parse(room_id)?;
         let sdk_room = self.inner.get_room(&room_id);
-        let room = sdk_room.map(|room| Arc::new(Room::new(room)));
+        let room = sdk_room
+            .map(|room| Arc::new(Room::new(room, self.client.utd_hook_manager.get().cloned())));
         Ok(room)
     }
 
@@ -129,5 +131,67 @@ impl NotificationClient {
         } else {
             Ok(None)
         }
+    }
+
+    /// Get several notification items in a single batch.
+    ///
+    /// Returns an error if the flow failed when preparing to fetch the
+    /// notifications, and a [`HashMap`] containing either a
+    /// [`NotificationItem`] or no entry for it if it failed to fetch a
+    /// notification for the provided [`EventId`].
+    pub async fn get_notifications(
+        &self,
+        requests: Vec<NotificationItemsRequest>,
+    ) -> Result<HashMap<String, NotificationItem>, ClientError> {
+        let requests =
+            requests.into_iter().map(TryInto::try_into).collect::<Result<Vec<_>, _>>()?;
+        let items = self.inner.get_notifications(&requests).await?;
+        let mut result = HashMap::new();
+        for (key, value) in items.into_iter() {
+            match value {
+                Ok(item) => {
+                    result.insert(key.to_string(), NotificationItem::from_inner(item));
+                }
+                Err(error) => {
+                    // TODO This error should actually be returned so the clients can handle the
+                    // error as they see fit, but it's failing when creating
+                    // bindings for Go, i.e.
+                    // (https://github.com/NordSecurity/uniffi-bindgen-go/issues/62)
+                    error!("Could not fetch notification {key}, an error happened: {error}");
+                }
+            }
+        }
+        Ok(result)
+    }
+}
+
+/// A request for notification items grouped by their room.
+#[derive(uniffi::Record)]
+pub struct NotificationItemsRequest {
+    room_id: String,
+    event_ids: Vec<String>,
+}
+
+impl NotificationItemsRequest {
+    /// The parsed [`OwnedRoomId`] to use with the SDK crates.
+    pub fn room_id(&self) -> Result<OwnedRoomId, ClientError> {
+        RoomId::parse(&self.room_id).map_err(ClientError::from)
+    }
+
+    /// The parsed [`OwnedEventId`] list to use with the SDK crates.
+    pub fn event_ids(&self) -> Result<Vec<OwnedEventId>, ClientError> {
+        self.event_ids
+            .iter()
+            .map(|id| EventId::parse(id).map_err(ClientError::from))
+            .collect::<Result<Vec<_>, _>>()
+    }
+}
+
+impl TryFrom<NotificationItemsRequest>
+    for matrix_sdk_ui::notification_client::NotificationItemsRequest
+{
+    type Error = ClientError;
+    fn try_from(value: NotificationItemsRequest) -> Result<Self, Self::Error> {
+        Ok(Self { room_id: value.room_id()?, event_ids: value.event_ids()? })
     }
 }

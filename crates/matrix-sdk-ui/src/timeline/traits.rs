@@ -1,4 +1,4 @@
-// Copyright 2023 The Matrix.org Foundation C.I.C.
+// Copyright 2025 The Matrix.org Foundation C.I.C.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -22,7 +22,7 @@ use matrix_sdk::{
     crypto::types::events::CryptoContextInfo,
     deserialized_responses::{EncryptionInfo, TimelineEvent},
     event_cache::paginator::PaginableRoom,
-    room::PushContext,
+    room::{PushContext, Relations, RelationsOptions},
     AsyncTraitDeps, Result, Room, SendOutsideWasm,
 };
 use matrix_sdk_base::{latest_event::LatestEvent, RoomInfo};
@@ -37,7 +37,7 @@ use ruma::{
 };
 use tracing::error;
 
-use super::{Profile, RedactError, TimelineBuilder};
+use super::{EventTimelineItem, Profile, RedactError, TimelineBuilder};
 use crate::timeline::{self, pinned_events_loader::PinnedEventsRoom, Timeline};
 
 pub trait RoomExt {
@@ -60,6 +60,12 @@ pub trait RoomExt {
     /// This allows to customize settings of the [`Timeline`] before
     /// constructing it.
     fn timeline_builder(&self) -> TimelineBuilder;
+
+    /// Return an optional [`EventTimelineItem`] corresponding to this room's
+    /// latest event.
+    fn latest_event_item(
+        &self,
+    ) -> impl Future<Output = Option<EventTimelineItem>> + SendOutsideWasm;
 }
 
 impl RoomExt for Room {
@@ -68,7 +74,15 @@ impl RoomExt for Room {
     }
 
     fn timeline_builder(&self) -> TimelineBuilder {
-        Timeline::builder(self).track_read_marker_and_receipts()
+        TimelineBuilder::new(self).track_read_marker_and_receipts()
+    }
+
+    async fn latest_event_item(&self) -> Option<EventTimelineItem> {
+        if let Some(latest_event) = (**self).latest_event() {
+            EventTimelineItem::from_latest_event(self.client(), self.room_id(), latest_event).await
+        } else {
+            None
+        }
     }
 }
 
@@ -129,6 +143,8 @@ pub(super) trait RoomDataProvider:
         session_id: &str,
         sender: &UserId,
     ) -> impl Future<Output = Option<EncryptionInfo>> + SendOutsideWasm;
+
+    async fn relations(&self, event_id: OwnedEventId, opts: RelationsOptions) -> Result<Relations>;
 }
 
 impl RoomDataProvider for Room {
@@ -273,6 +289,10 @@ impl RoomDataProvider for Room {
     ) -> Option<EncryptionInfo> {
         // Pass directly on to `Room::get_encryption_info`
         self.get_encryption_info(session_id, sender).await
+    }
+
+    async fn relations(&self, event_id: OwnedEventId, opts: RelationsOptions) -> Result<Relations> {
+        self.relations(event_id, opts).await
     }
 }
 

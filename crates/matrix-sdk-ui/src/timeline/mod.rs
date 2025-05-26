@@ -25,6 +25,7 @@ use futures_core::Stream;
 use imbl::Vector;
 use matrix_sdk::{
     attachment::AttachmentConfig,
+    deserialized_responses::TimelineEvent,
     event_cache::{EventCacheDropHandles, RoomEventCache},
     event_handler::EventHandlerHandle,
     executor::JoinHandle,
@@ -70,6 +71,7 @@ mod pinned_events_loader;
 mod subscriber;
 #[cfg(test)]
 mod tests;
+mod threaded_events_loader;
 mod to_device;
 mod traits;
 mod virtual_item;
@@ -120,6 +122,9 @@ pub enum TimelineFocus {
     /// Focus on a specific event, e.g. after clicking a permalink.
     Event { target: OwnedEventId, num_context_events: u16 },
 
+    /// Focus on a specific thread
+    Thread { root_event_id: OwnedEventId, num_events: u16 },
+
     /// Only show pinned events.
     PinnedEvents { max_events_to_load: u16, max_concurrent_requests: u16 },
 }
@@ -129,6 +134,7 @@ impl TimelineFocus {
         match self {
             TimelineFocus::Live => "live".to_owned(),
             TimelineFocus::Event { target, .. } => format!("permalink:{target}"),
+            TimelineFocus::Thread { root_event_id, .. } => format!("thread:{root_event_id}"),
             TimelineFocus::PinnedEvents { .. } => "pinned-events".to_owned(),
         }
     }
@@ -143,11 +149,6 @@ pub enum DateDividerMode {
 }
 
 impl Timeline {
-    /// Create a new [`TimelineBuilder`] for the given room.
-    pub fn builder(room: &Room) -> TimelineBuilder {
-        TimelineBuilder::new(room)
-    }
-
     /// Returns the room for this timeline.
     pub fn room(&self) -> &Room {
         self.controller.room()
@@ -524,7 +525,10 @@ impl Timeline {
     /// first if the receipt points to an event in this timeline that is more
     /// recent than the current ones, to avoid unnecessary requests.
     ///
-    /// Returns a boolean indicating if it sent the request or not.
+    /// If an unthreaded receipt is sent, this will also unset the unread flag
+    /// of the room if necessary.
+    ///
+    /// Returns a boolean indicating if it sent the receipt or not.
     #[instrument(skip(self), fields(room_id = ?self.room().room_id()))]
     pub async fn send_single_receipt(
         &self,
@@ -536,6 +540,12 @@ impl Timeline {
             trace!(
                 "not sending receipt, because we already cover the event with a previous receipt"
             );
+
+            if thread == ReceiptThread::Unthreaded {
+                // Unset the read marker.
+                self.room().set_unread_flag(false).await?;
+            }
+
             return Ok(false);
         }
 
@@ -550,6 +560,8 @@ impl Timeline {
     /// checks first if the receipts point to events in this timeline that
     /// are more recent than the current ones, to avoid unnecessary
     /// requests.
+    ///
+    /// This also unsets the unread marker of the room if necessary.
     #[instrument(skip(self))]
     pub async fn send_multiple_receipts(&self, mut receipts: Receipts) -> Result<()> {
         if let Some(fully_read) = &receipts.fully_read {
@@ -590,7 +602,15 @@ impl Timeline {
             }
         }
 
-        self.room().send_multiple_receipts(receipts).await
+        let room = self.room();
+
+        if !receipts.is_empty() {
+            room.send_multiple_receipts(receipts).await?;
+        } else {
+            room.set_unread_flag(false).await?;
+        }
+
+        Ok(())
     }
 
     /// Mark the room as read by sending an unthreaded read receipt on the
@@ -600,13 +620,19 @@ impl Timeline {
     /// reply also belongs to the unthreaded timeline. No threaded receipt
     /// will be sent here (see also #3123).
     ///
-    /// Returns a boolean indicating if we sent the request or not.
+    /// This also unsets the unread marker of the room if necessary.
+    ///
+    /// Returns a boolean indicating if it sent the receipt or not.
     #[instrument(skip(self), fields(room_id = ?self.room().room_id()))]
     pub async fn mark_as_read(&self, receipt_type: ReceiptType) -> Result<bool> {
         if let Some(event_id) = self.controller.latest_event_id().await {
             self.send_single_receipt(receipt_type, ReceiptThread::Unthreaded, event_id).await
         } else {
             trace!("can't mark room as read because there's no latest event id");
+
+            // Unset the read marker.
+            self.room().set_unread_flag(false).await?;
+
             Ok(false)
         }
     }
@@ -661,6 +687,18 @@ impl Timeline {
         } else {
             Ok(false)
         }
+    }
+
+    /// Create a [`RepliedToEvent`] from an arbitrary event, be it in the
+    /// timeline or not.
+    ///
+    /// Can be `None` if the event cannot be represented as a standalone item,
+    /// because it's an aggregation.
+    pub async fn make_replied_to(
+        &self,
+        event: TimelineEvent,
+    ) -> Result<Option<RepliedToEvent>, Error> {
+        self.controller.make_replied_to(event).await
     }
 }
 

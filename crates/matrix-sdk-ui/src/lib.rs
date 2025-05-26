@@ -15,11 +15,8 @@
 #![cfg_attr(target_arch = "wasm32", allow(clippy::arc_with_non_send_sync))]
 #![cfg_attr(docsrs, feature(doc_auto_cfg))]
 
-use ruma::html::HtmlSanitizerMode;
-
-mod events;
-
 pub use eyeball_im;
+use ruma::html::HtmlSanitizerMode;
 
 pub mod encryption_sync_service;
 pub mod notification_client;

@@ -1337,7 +1337,8 @@ impl OlmMachine {
                 let (sas, request) = self.runtime.block_on(device.start_verification())?;
 
                 Some(StartSasResult {
-                    sas: Sas { inner: sas, runtime: self.runtime.handle().to_owned() }.into(),
+                    sas: Sas { inner: Box::new(sas), runtime: self.runtime.handle().to_owned() }
+                        .into(),
                     request: request.into(),
                 })
             } else {

@@ -14,7 +14,7 @@
 
 use super::super::Context;
 use crate::{
-    rooms::UpdatedRoomDisplayName, store::BaseStateStore, sync::RoomUpdates,
+    room::UpdatedRoomDisplayName, store::BaseStateStore, sync::RoomUpdates,
     RoomInfoNotableUpdateReasons,
 };
 

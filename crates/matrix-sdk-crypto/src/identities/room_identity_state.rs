@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::collections::HashMap;
+use std::{collections::HashMap, ops::Deref};
 
 use matrix_sdk_common::BoxFuture;
 use ruma::{
@@ -134,11 +134,11 @@ impl<R: RoomIdentityProvider> RoomIdentityState<R> {
 
     async fn process_membership_change(
         &mut self,
-        sync_room_member_event: SyncRoomMemberEvent,
+        sync_room_member_event: Box<SyncRoomMemberEvent>,
     ) -> Vec<IdentityStatusChange> {
         // Ignore redacted events - memberships should come through as new events, not
         // redactions.
-        if let SyncStateEvent::Original(event) = sync_room_member_event {
+        if let SyncStateEvent::Original(event) = sync_room_member_event.deref() {
             // Ignore invalid user IDs
             let user_id: Result<&UserId, _> = event.state_key.as_str().try_into();
             if let Ok(user_id) = user_id {
@@ -280,7 +280,8 @@ pub enum RoomIdentityChange {
     IdentityUpdates(IdentityUpdates),
 
     /// Someone joined or left a room
-    SyncRoomMemberEvent(SyncRoomMemberEvent),
+    // `Box` the `SyncRoomMemberEvent` to reduce the size of this variant.
+    SyncRoomMemberEvent(Box<SyncRoomMemberEvent>),
 }
 
 /// What we know about the states of users in this room.
@@ -1056,7 +1057,7 @@ mod tests {
             unsigned: RoomMemberUnsigned::new(),
             state_key: user_id.to_owned(),
         });
-        RoomIdentityChange::SyncRoomMemberEvent(event)
+        RoomIdentityChange::SyncRoomMemberEvent(Box::new(event))
     }
 
     async fn identity_change(

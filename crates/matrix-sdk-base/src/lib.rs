@@ -34,10 +34,9 @@ pub mod latest_event;
 pub mod media;
 pub mod notification_settings;
 mod response_processors;
-mod rooms;
+mod room;
 
 pub mod read_receipts;
-pub use read_receipts::PreviousEventsProvider;
 pub mod sliding_sync;
 
 pub mod store;
@@ -55,7 +54,7 @@ pub use http;
 #[cfg(feature = "e2e-encryption")]
 pub use matrix_sdk_crypto as crypto;
 pub use once_cell;
-pub use rooms::{
+pub use room::{
     apply_redaction, EncryptionState, Room, RoomCreateWithCreatorEventContent, RoomDisplayName,
     RoomHero, RoomInfo, RoomInfoNotableUpdate, RoomInfoNotableUpdateReasons, RoomMember,
     RoomMembersUpdate, RoomMemberships, RoomState, RoomStateFilter,

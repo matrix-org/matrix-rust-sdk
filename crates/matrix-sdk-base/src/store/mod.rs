@@ -60,7 +60,7 @@ use tracing::warn;
 use crate::{
     deserialized_responses::DisplayName,
     event_cache::store as event_cache_store,
-    rooms::{normal::RoomInfoNotableUpdate, RoomInfo, RoomState},
+    room::{RoomInfo, RoomInfoNotableUpdate, RoomState},
     MinimalRoomMemberEvent, Room, RoomStateFilter, SessionMeta,
 };
 

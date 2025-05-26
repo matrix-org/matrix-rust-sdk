@@ -338,14 +338,14 @@ macro_rules! try_from_outgoing_content {
             fn try_from(value: &'a OutgoingContent) -> Result<Self, Self::Error> {
                 match value {
                     OutgoingContent::Room(_, c) => {
-                        if let AnyMessageLikeEventContent::$enum_variant(c) = c {
+                        if let AnyMessageLikeEventContent::$enum_variant(c) = c.as_ref() {
                             Ok(Self::Room(c))
                         } else {
                             Err(())
                         }
                     }
                     OutgoingContent::ToDevice(c) => {
-                        if let AnyToDeviceEventContent::$enum_variant(c) = c {
+                        if let AnyToDeviceEventContent::$enum_variant(c) = c.as_ref() {
                             Ok(Self::ToDevice(c))
                         } else {
                             Err(())
@@ -371,7 +371,7 @@ impl<'a> TryFrom<&'a OutgoingContent> for RequestContent<'a> {
     fn try_from(value: &'a OutgoingContent) -> Result<Self, Self::Error> {
         match value {
             OutgoingContent::Room(_, c) => {
-                if let AnyMessageLikeEventContent::RoomMessage(m) = c {
+                if let AnyMessageLikeEventContent::RoomMessage(m) = c.as_ref() {
                     if let MessageType::VerificationRequest(c) = &m.msgtype {
                         Ok(Self::Room(c))
                     } else {
@@ -382,7 +382,7 @@ impl<'a> TryFrom<&'a OutgoingContent> for RequestContent<'a> {
                 }
             }
             OutgoingContent::ToDevice(c) => {
-                if let AnyToDeviceEventContent::KeyVerificationRequest(c) = c {
+                if let AnyToDeviceEventContent::KeyVerificationRequest(c) = c.as_ref() {
                     Ok(Self::ToDevice(c))
                 } else {
                     Err(())
@@ -650,8 +650,8 @@ impl OwnedAcceptContent {
 
 #[derive(Clone, Debug)]
 pub enum OutgoingContent {
-    Room(OwnedRoomId, AnyMessageLikeEventContent),
-    ToDevice(AnyToDeviceEventContent),
+    Room(OwnedRoomId, Box<AnyMessageLikeEventContent>),
+    ToDevice(Box<AnyToDeviceEventContent>),
 }
 
 impl From<OwnedStartContent> for OutgoingContent {
@@ -669,12 +669,18 @@ impl From<OwnedStartContent> for OutgoingContent {
 
 impl From<AnyToDeviceEventContent> for OutgoingContent {
     fn from(content: AnyToDeviceEventContent) -> Self {
-        OutgoingContent::ToDevice(content)
+        OutgoingContent::ToDevice(Box::new(content))
     }
 }
 
 impl From<(OwnedRoomId, AnyMessageLikeEventContent)> for OutgoingContent {
     fn from(content: (OwnedRoomId, AnyMessageLikeEventContent)) -> Self {
+        OutgoingContent::Room(content.0, Box::new(content.1))
+    }
+}
+
+impl From<(OwnedRoomId, Box<AnyMessageLikeEventContent>)> for OutgoingContent {
+    fn from(content: (OwnedRoomId, Box<AnyMessageLikeEventContent>)) -> Self {
         OutgoingContent::Room(content.0, content.1)
     }
 }
@@ -697,6 +703,12 @@ impl TryFrom<OutgoingVerificationRequest> for OutgoingContent {
 
 impl From<RoomMessageRequest> for OutgoingContent {
     fn from(value: RoomMessageRequest) -> Self {
+        (value.room_id, value.content).into()
+    }
+}
+
+impl From<Box<RoomMessageRequest>> for OutgoingContent {
+    fn from(value: Box<RoomMessageRequest>) -> Self {
         (value.room_id, value.content).into()
     }
 }

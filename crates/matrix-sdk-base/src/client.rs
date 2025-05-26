@@ -36,18 +36,19 @@ use ruma::DeviceId;
 use ruma::{
     api::client::{self as api, sync::sync_events::v5},
     events::{
+        ignored_user_list::IgnoredUserListEventContent,
         push_rules::{PushRulesEvent, PushRulesEventContent},
         room::member::SyncRoomMemberEvent,
         StateEvent, StateEventType,
     },
     push::Ruleset,
     time::Instant,
-    OwnedRoomId, OwnedUserId, RoomId,
+    OwnedRoomId, OwnedUserId, RoomId, UserId,
 };
 use tokio::sync::{broadcast, Mutex};
 #[cfg(feature = "e2e-encryption")]
 use tokio::sync::{RwLock, RwLockReadGuard};
-use tracing::{debug, enabled, info, instrument, Level};
+use tracing::{debug, enabled, info, instrument, warn, Level};
 
 #[cfg(feature = "e2e-encryption")]
 use crate::RoomMemberships;
@@ -56,9 +57,8 @@ use crate::{
     error::{Error, Result},
     event_cache::store::EventCacheStoreLock,
     response_processors::{self as processors, Context},
-    rooms::{
-        normal::{RoomInfoNotableUpdate, RoomInfoNotableUpdateReasons, RoomMembersUpdate},
-        Room, RoomState,
+    room::{
+        Room, RoomInfoNotableUpdate, RoomInfoNotableUpdateReasons, RoomMembersUpdate, RoomState,
     },
     store::{
         ambiguity_map::AmbiguityCache, BaseStateStore, DynStateStore, MemoryStore,
@@ -498,12 +498,7 @@ impl BaseClient {
             let processors::e2ee::to_device::Output {
                 decrypted_to_device_events: to_device,
                 room_key_updates,
-            } = processors::e2ee::to_device::from_sync_v2(
-                &mut context,
-                &response,
-                olm_machine.as_ref(),
-            )
-            .await?;
+            } = processors::e2ee::to_device::from_sync_v2(&response, olm_machine.as_ref()).await?;
 
             processors::latest_event::decrypt_from_rooms(
                 &mut context,
@@ -782,7 +777,6 @@ impl BaseClient {
 
         #[cfg(feature = "e2e-encryption")]
         processors::e2ee::tracked_users::update(
-            &mut context,
             self.olm_machine().await.as_ref(),
             room.encryption_state(),
             &user_ids,
@@ -966,6 +960,27 @@ impl BaseClient {
     /// Learn more by reading the [`RoomInfoNotableUpdate`] type.
     pub fn room_info_notable_update_receiver(&self) -> broadcast::Receiver<RoomInfoNotableUpdate> {
         self.room_info_notable_update_sender.subscribe()
+    }
+
+    /// Checks whether the provided `user_id` belongs to an ignored user.
+    pub async fn is_user_ignored(&self, user_id: &UserId) -> bool {
+        match self.state_store.get_account_data_event_static::<IgnoredUserListEventContent>().await
+        {
+            Ok(Some(raw_ignored_user_list)) => match raw_ignored_user_list.deserialize() {
+                Ok(current_ignored_user_list) => {
+                    current_ignored_user_list.content.ignored_users.contains_key(user_id)
+                }
+                Err(error) => {
+                    warn!(?error, "Failed to deserialize the ignored user list event");
+                    false
+                }
+            },
+            Ok(None) => false,
+            Err(error) => {
+                warn!(?error, "Could not get the ignored user list from the state store");
+                false
+            }
+        }
     }
 }
 
@@ -1603,5 +1618,28 @@ mod tests {
 
         assert_let!(Some(ignored) = subscriber.next().await);
         assert!(ignored.is_empty());
+    }
+
+    #[async_test]
+    async fn test_is_user_ignored() {
+        let ignored_user_id = user_id!("@alice:example.org");
+        let client = logged_in_base_client(None).await;
+
+        let mut sync_builder = SyncResponseBuilder::new();
+        let response = sync_builder
+            .add_global_account_data_event(matrix_sdk_test::GlobalAccountDataTestEvent::Custom(
+                json!({
+                    "content": {
+                        "ignored_users": {
+                            ignored_user_id: {}
+                        }
+                    },
+                    "type": "m.ignored_user_list",
+                }),
+            ))
+            .build_sync_response();
+        client.receive_sync_response(response).await.unwrap();
+
+        assert!(client.is_user_ignored(ignored_user_id).await);
     }
 }

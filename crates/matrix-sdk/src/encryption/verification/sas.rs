@@ -23,7 +23,7 @@ use crate::{error::Result, Client};
 /// An object controlling the short auth string verification flow.
 #[derive(Debug, Clone)]
 pub struct SasVerification {
-    pub(crate) inner: BaseSas,
+    pub(crate) inner: Box<BaseSas>,
     pub(crate) client: Client,
 }
 

@@ -59,15 +59,7 @@ impl RoomPreview {
         let room =
             self.client.get_room(&self.inner.room_id).context("missing room for a room preview")?;
 
-        let should_forget = matches!(room.state(), matrix_sdk::RoomState::Invited);
-
-        room.leave().await.map_err(ClientError::from)?;
-
-        if should_forget {
-            _ = self.forget().await;
-        }
-
-        Ok(())
+        Ok(room.leave().await?)
     }
 
     /// Get the user who created the invite, if any.

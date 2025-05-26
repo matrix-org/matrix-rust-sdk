@@ -174,7 +174,7 @@ impl VerificationRequest {
             .inner
             .generate_qr_code()
             .await?
-            .map(|qr| QrVerification { inner: qr, client: self.client.clone() }))
+            .map(|qr| QrVerification { inner: Box::new(qr), client: self.client.clone() }))
     }
 
     /// Start a QR code verification by providing a scanned QR code for this
@@ -192,7 +192,7 @@ impl VerificationRequest {
             self.client.send_verification_request(request).await?;
         }
 
-        Ok(Some(QrVerification { inner: qr, client: self.client.clone() }))
+        Ok(Some(QrVerification { inner: Box::new(qr), client: self.client.clone() }))
     }
 
     /// Transition from this verification request into a SAS verification flow.
@@ -200,7 +200,7 @@ impl VerificationRequest {
         let Some((sas, request)) = self.inner.start_sas().await? else { return Ok(None) };
         self.client.send_verification_request(request).await?;
 
-        Ok(Some(SasVerification { inner: sas, client: self.client.clone() }))
+        Ok(Some(SasVerification { inner: Box::new(sas), client: self.client.clone() }))
     }
 
     /// Cancel the verification request
@@ -228,12 +228,12 @@ impl VerificationRequest {
             }
             Transitioned { verification, .. } => VerificationRequestState::Transitioned {
                 verification: match verification {
-                    matrix_sdk_base::crypto::Verification::SasV1(s) => {
-                        Verification::SasV1(SasVerification { inner: s, client })
+                    matrix_sdk_base::crypto::Verification::SasV1(sas) => {
+                        Verification::SasV1(SasVerification { inner: sas, client })
                     }
                     #[cfg(feature = "qrcode")]
-                    matrix_sdk_base::crypto::Verification::QrV1(q) => {
-                        Verification::QrV1(QrVerification { inner: q, client })
+                    matrix_sdk_base::crypto::Verification::QrV1(qr) => {
+                        Verification::QrV1(QrVerification { inner: qr, client })
                     }
                     _ => unreachable!("We only support QR code and SAS verification"),
                 },

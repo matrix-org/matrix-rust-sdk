@@ -35,8 +35,8 @@ use crate::types::events::forwarded_room_key::ForwardedMegolmV2AesSha2Content;
 use crate::types::{
     deserialize_curve_key, deserialize_curve_key_vec,
     events::forwarded_room_key::{ForwardedMegolmV1AesSha2Content, ForwardedRoomKeyContent},
-    serialize_curve_key, serialize_curve_key_vec, EventEncryptionAlgorithm, SigningKey,
-    SigningKeys,
+    serialize_curve_key, serialize_curve_key_vec, EventEncryptionAlgorithm, RoomKeyExport,
+    SigningKey, SigningKeys,
 };
 
 /// An error type for the creation of group sessions.
@@ -138,6 +138,20 @@ impl ExportedRoomKey {
             forwarding_curve25519_key_chain,
             shared_history,
         }
+    }
+}
+
+impl RoomKeyExport for &ExportedRoomKey {
+    fn room_id(&self) -> &ruma::RoomId {
+        &self.room_id
+    }
+
+    fn session_id(&self) -> &str {
+        &self.session_id
+    }
+
+    fn sender_key(&self) -> Curve25519PublicKey {
+        self.sender_key
     }
 }
 

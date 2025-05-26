@@ -39,7 +39,12 @@ where
 /// "a" < "b".
 pub fn new_sorter() -> impl Sorter {
     let matcher = NameMatcher {
-        names: move |left, right| (left.cached_display_name(), right.cached_display_name()),
+        names: move |left, right| {
+            (
+                left.cached_display_name().map(|display_name| display_name.to_string()),
+                right.cached_display_name().map(|display_name| display_name.to_string()),
+            )
+        },
     };
 
     move |left, right| -> Ordering { matcher.matches(left, right) }
@@ -47,20 +52,17 @@ pub fn new_sorter() -> impl Sorter {
 
 #[cfg(test)]
 mod tests {
+    use matrix_sdk::test_utils::logged_in_client_with_server;
     use matrix_sdk_test::async_test;
     use ruma::room_id;
 
-    use super::{
-        super::super::filters::{client_and_server_prelude, new_rooms},
-        *,
-    };
+    use super::{super::super::filters::new_rooms, *};
 
     #[async_test]
     async fn test_with_two_names() {
-        let (client, server, sliding_sync) = client_and_server_prelude().await;
+        let (client, server) = logged_in_client_with_server().await;
         let [room_a, room_b] =
-            new_rooms([room_id!("!a:b.c"), room_id!("!d:e.f")], &client, &server, &sliding_sync)
-                .await;
+            new_rooms([room_id!("!a:b.c"), room_id!("!d:e.f")], &client, &server).await;
 
         // `room_a` has a “greater name” than `room_b`.
         {
@@ -92,10 +94,9 @@ mod tests {
 
     #[async_test]
     async fn test_with_one_name() {
-        let (client, server, sliding_sync) = client_and_server_prelude().await;
+        let (client, server) = logged_in_client_with_server().await;
         let [room_a, room_b] =
-            new_rooms([room_id!("!a:b.c"), room_id!("!d:e.f")], &client, &server, &sliding_sync)
-                .await;
+            new_rooms([room_id!("!a:b.c"), room_id!("!d:e.f")], &client, &server).await;
 
         // `room_a` has a name, `room_b` has no name.
         {
@@ -114,10 +115,9 @@ mod tests {
 
     #[async_test]
     async fn test_with_zero_name() {
-        let (client, server, sliding_sync) = client_and_server_prelude().await;
+        let (client, server) = logged_in_client_with_server().await;
         let [room_a, room_b] =
-            new_rooms([room_id!("!a:b.c"), room_id!("!d:e.f")], &client, &server, &sliding_sync)
-                .await;
+            new_rooms([room_id!("!a:b.c"), room_id!("!d:e.f")], &client, &server).await;
 
         // `room_a` and `room_b` has no name.
         {

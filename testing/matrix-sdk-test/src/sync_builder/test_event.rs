@@ -93,6 +93,7 @@ impl StrippedStateTestEvent {
 pub enum RoomAccountDataTestEvent {
     FullyRead,
     Tags,
+    MarkedUnread,
     Custom(JsonValue),
 }
 
@@ -102,6 +103,7 @@ impl RoomAccountDataTestEvent {
         match self {
             Self::FullyRead => test_json::sync_events::FULLY_READ.to_owned(),
             Self::Tags => test_json::sync_events::TAG.to_owned(),
+            Self::MarkedUnread => test_json::sync_events::MARKED_UNREAD.to_owned(),
             Self::Custom(json) => json,
         }
     }

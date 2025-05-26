@@ -16,10 +16,7 @@ use matrix_sdk_test::{
     async_test, event_factory::EventFactory, JoinedRoomBuilder, StateTestEvent,
     SyncResponseBuilder, BOB,
 };
-use matrix_sdk_ui::{
-    timeline::{RoomExt, TimelineFocus},
-    Timeline,
-};
+use matrix_sdk_ui::timeline::{RoomExt, TimelineBuilder, TimelineFocus};
 use ruma::{
     assign, event_id,
     events::{
@@ -70,7 +67,7 @@ async fn test_new_pinned_events_are_not_added_on_sync() {
         .await
         .expect("Room should be synced");
     let timeline =
-        Timeline::builder(&room).with_focus(pinned_events_focus(100)).build().await.unwrap();
+        TimelineBuilder::new(&room).with_focus(pinned_events_focus(100)).build().await.unwrap();
 
     assert!(
         timeline.live_back_pagination_status().await.is_none(),
@@ -99,26 +96,8 @@ async fn test_new_pinned_events_are_not_added_on_sync() {
         .await
         .expect("Room should be synced");
 
-    // If the test runs fast, we receive 1 update, then 2 updates. If the test runs
-    // slow, we receive 3 updates directly. Let's solve this flakiness with a
-    // `sleep`.
-    sleep(Duration::from_millis(500)).await;
-
-    assert_let!(Some(timeline_updates) = timeline_stream.next().await);
-    assert_eq!(timeline_updates.len(), 3);
-
-    // The list is reloaded, so it's reset
-    assert_let!(VectorDiff::Clear = &timeline_updates[0]);
-
-    // The loaded list items are added
-    assert_let!(VectorDiff::PushBack { value } = &timeline_updates[1]);
-    assert_eq!(value.as_event().unwrap().event_id().unwrap(), event_id!("$1"));
-
-    assert_let!(VectorDiff::PushFront { value } = &timeline_updates[2]);
-    assert!(value.is_date_divider());
-
     // Event $2 was received through sync, but it wasn't added to the pinned event
-    // timeline
+    // timeline.
     assert_pending!(timeline_stream);
 }
 
@@ -151,7 +130,7 @@ async fn test_new_pinned_event_ids_reload_the_timeline() {
         .expect("Room should be synced");
 
     let timeline =
-        Timeline::builder(&room).with_focus(pinned_events_focus(100)).build().await.unwrap();
+        TimelineBuilder::new(&room).with_focus(pinned_events_focus(100)).build().await.unwrap();
 
     assert!(
         timeline.live_back_pagination_status().await.is_none(),
@@ -226,7 +205,7 @@ async fn test_max_events_to_load_is_honored() {
         .await
         .expect("Sync failed");
 
-    let ret = Timeline::builder(&room).with_focus(pinned_events_focus(1)).build().await;
+    let ret = TimelineBuilder::new(&room).with_focus(pinned_events_focus(1)).build().await;
 
     // We're only taking the last event id, `$2`, and it's not available so the
     // timeline fails to initialise.
@@ -242,7 +221,6 @@ async fn test_cached_events_are_kept_for_different_room_instances() {
     // Subscribe to the event cache.
     let event_cache = client.event_cache();
     event_cache.subscribe().unwrap();
-    event_cache.enable_storage().unwrap();
 
     let f = EventFactory::new().room(room_id).sender(*BOB);
     let pinned_event = f
@@ -264,7 +242,7 @@ async fn test_cached_events_are_kept_for_different_room_instances() {
 
     let (room_cache, _drop_handles) = room.event_cache().await.unwrap();
     let timeline =
-        Timeline::builder(&room).with_focus(pinned_events_focus(2)).build().await.unwrap();
+        TimelineBuilder::new(&room).with_focus(pinned_events_focus(2)).build().await.unwrap();
 
     assert!(
         timeline.live_back_pagination_status().await.is_none(),
@@ -293,7 +271,7 @@ async fn test_cached_events_are_kept_for_different_room_instances() {
 
     // And a new timeline one
     let timeline =
-        Timeline::builder(&room).with_focus(pinned_events_focus(2)).build().await.unwrap();
+        TimelineBuilder::new(&room).with_focus(pinned_events_focus(2)).build().await.unwrap();
 
     let (items, _) = timeline.subscribe().await;
     assert!(!items.is_empty()); // These events came from the cache
@@ -318,7 +296,7 @@ async fn test_pinned_timeline_with_pinned_event_ids_and_empty_result_fails() {
         .mock_and_sync(&client, &server)
         .await
         .expect("Sync failed");
-    let ret = Timeline::builder(&room).with_focus(pinned_events_focus(1)).build().await;
+    let ret = TimelineBuilder::new(&room).with_focus(pinned_events_focus(1)).build().await;
 
     // The timeline couldn't load any events so it fails to initialise
     assert!(ret.is_err());
@@ -337,7 +315,7 @@ async fn test_pinned_timeline_with_no_pinned_event_ids_is_just_empty() {
         .await
         .expect("Sync failed");
     let timeline =
-        Timeline::builder(&room).with_focus(pinned_events_focus(1)).build().await.unwrap();
+        TimelineBuilder::new(&room).with_focus(pinned_events_focus(1)).build().await.unwrap();
 
     // The timeline couldn't load any events, but it expected none, so it just
     // returns an empty list
@@ -365,7 +343,7 @@ async fn test_pinned_timeline_with_no_pinned_events_and_an_utd_on_sync_is_just_e
     mock_events_endpoint(&server, room_id, vec![utd_event]).await;
 
     let timeline =
-        Timeline::builder(&room).with_focus(pinned_events_focus(1)).build().await.unwrap();
+        TimelineBuilder::new(&room).with_focus(pinned_events_focus(1)).build().await.unwrap();
 
     // The timeline couldn't load any events, but it expected none, so it just
     // returns an empty list
@@ -388,7 +366,7 @@ async fn test_pinned_timeline_with_no_pinned_events_on_pagination_is_just_empty(
         .await
         .expect("Sync failed");
     let pinned_timeline =
-        Timeline::builder(&room).with_focus(pinned_events_focus(1)).build().await.unwrap();
+        TimelineBuilder::new(&room).with_focus(pinned_events_focus(1)).build().await.unwrap();
 
     // The timeline couldn't load any events, but it expected none, so it just
     // returns an empty list
@@ -449,7 +427,7 @@ async fn test_pinned_timeline_with_pinned_utd_on_sync_contains_it() {
     mock_events_endpoint(&server, room_id, vec![utd_event]).await;
 
     let timeline =
-        Timeline::builder(&room).with_focus(pinned_events_focus(1)).build().await.unwrap();
+        TimelineBuilder::new(&room).with_focus(pinned_events_focus(1)).build().await.unwrap();
 
     // The timeline loaded with just a day divider and the pinned UTD
     let (items, _) = timeline.subscribe().await;
@@ -459,7 +437,7 @@ async fn test_pinned_timeline_with_pinned_utd_on_sync_contains_it() {
 }
 
 #[async_test]
-async fn test_edited_events_are_not_reflected_in_sync() {
+async fn test_edited_events_are_reflected_in_sync() {
     let server = MatrixMockServer::new().await;
     let client = server.client_builder().build().await;
     let room_id = room_id!("!test:localhost");
@@ -471,25 +449,25 @@ async fn test_edited_events_are_not_reflected_in_sync() {
         .server_ts(MilliSecondsSinceUnixEpoch::now())
         .into_raw_sync();
 
-    // Mock /event for some timeline events
+    // Mock /event for some timeline events.
     mock_events_endpoint(&server, room_id, vec![pinned_event]).await;
 
     // Load initial timeline items: a text message and a `m.room.pinned_events` with
-    // event $1
+    // event $1.
     let room = PinnedEventsSync::new(room_id)
         .with_pinned_event_ids(vec!["$1"])
         .mock_and_sync(&client, &server)
         .await
         .expect("Sync failed");
     let timeline =
-        Timeline::builder(&room).with_focus(pinned_events_focus(100)).build().await.unwrap();
+        TimelineBuilder::new(&room).with_focus(pinned_events_focus(100)).build().await.unwrap();
 
     assert!(
         timeline.live_back_pagination_status().await.is_none(),
         "there should be no live back-pagination status for a focused timeline"
     );
 
-    // Load timeline items
+    // Load timeline items.
     let (items, mut timeline_stream) = timeline.subscribe().await;
 
     assert_eq!(items.len(), 1 + 1); // event item + a date divider
@@ -498,19 +476,19 @@ async fn test_edited_events_are_not_reflected_in_sync() {
     assert_pending!(timeline_stream);
 
     let edited_event = f
-        .text_msg("edited message!")
+        .text_msg("* edited message!")
         .edit(
             event_id!("$1"),
-            RoomMessageEventContentWithoutRelation::text_plain("* edited message!"),
+            RoomMessageEventContentWithoutRelation::text_plain("edited message!"),
         )
         .event_id(event_id!("$2"))
         .server_ts(MilliSecondsSinceUnixEpoch::now())
         .into_raw_sync();
 
-    // Mock /event for some timeline events
+    // Mock /event for some timeline events.
     mock_events_endpoint(&server, room_id, vec![edited_event.clone()]).await;
 
-    // Load new pinned event contents from sync, where $2 is and edit on $1
+    // Load new pinned event contents from sync, where $2 is and edit on $1.
     let _ = PinnedEventsSync::new(room_id)
         .with_timeline_events(vec![edited_event])
         .mock_and_sync(&client, &server)
@@ -518,25 +496,20 @@ async fn test_edited_events_are_not_reflected_in_sync() {
         .expect("Sync failed");
 
     assert_let!(Some(timeline_updates) = timeline_stream.next().await);
-    assert_eq!(timeline_updates.len(), 3);
+    assert_eq!(timeline_updates.len(), 1);
 
-    // The list is reloaded, so it's reset
-    assert_let!(VectorDiff::Clear = &timeline_updates[0]);
-
-    // Then the loaded list items are added
-    assert_let!(VectorDiff::PushBack { value } = &timeline_updates[1]);
+    // The edit does replace the original event.
+    assert_let!(VectorDiff::Set { index: 1, value } = &timeline_updates[0]);
     let event = value.as_event().unwrap();
     assert_eq!(event.event_id().unwrap(), event_id!("$1"));
+    assert_eq!(event.content().as_message().unwrap().body(), "edited message!");
 
-    assert_let!(VectorDiff::PushFront { value } = &timeline_updates[2]);
-    assert!(value.is_date_divider());
-
-    // The edit does not replace the original event
+    // That's all, folks!
     assert_pending!(timeline_stream);
 }
 
 #[async_test]
-async fn test_redacted_events_are_not_reflected_in_sync() {
+async fn test_redacted_events_are_reflected_in_sync() {
     let server = MatrixMockServer::new().await;
     let client = server.client_builder().build().await;
     let room_id = room_id!("!test:localhost");
@@ -559,7 +532,7 @@ async fn test_redacted_events_are_not_reflected_in_sync() {
         .await
         .expect("Sync failed");
     let timeline =
-        Timeline::builder(&room).with_focus(pinned_events_focus(100)).build().await.unwrap();
+        TimelineBuilder::new(&room).with_focus(pinned_events_focus(100)).build().await.unwrap();
 
     assert!(
         timeline.live_back_pagination_status().await.is_none(),
@@ -591,20 +564,14 @@ async fn test_redacted_events_are_not_reflected_in_sync() {
         .expect("Sync failed");
 
     assert_let!(Some(timeline_updates) = timeline_stream.next().await);
-    assert_eq!(timeline_updates.len(), 3);
+    assert_eq!(timeline_updates.len(), 1);
 
-    // The list is reloaded, so it's reset
-    assert_let!(VectorDiff::Clear = &timeline_updates[0]);
-
-    // Then the loaded list items are added
-    assert_let!(VectorDiff::PushBack { value } = &timeline_updates[1]);
+    // The redaction takes place.
+    assert_let!(VectorDiff::Set { index: 1, value } = &timeline_updates[0]);
     let event = value.as_event().unwrap();
-    assert_eq!(event.event_id().unwrap(), event_id!("$1"));
+    assert!(event.content().is_redacted());
 
-    assert_let!(VectorDiff::PushFront { value } = &timeline_updates[2]);
-    assert!(value.is_date_divider());
-
-    // The redaction does not replace the original event
+    // That's all, folks!
     assert_pending!(timeline_stream);
 }
 

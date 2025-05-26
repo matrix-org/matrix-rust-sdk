@@ -22,6 +22,7 @@ use matrix_sdk_test::{
     async_test, event_factory::PreviousMembership, sync_timeline_event, ALICE, BOB, CAROL,
 };
 use ruma::{
+    event_id,
     events::{
         receipt::{Receipt, ReceiptThread, ReceiptType},
         room::{
@@ -141,6 +142,13 @@ async fn test_sticker() {
                     "w": 394
                 },
                 "url": "mxc://server.name/JWEIFJgwEIhweiWJE",
+                "m.relates_to": {
+                    "rel_type": "m.thread",
+                    "event_id": "$thread_root",
+                    "m.in_reply_to": {
+                        "event_id": "$in_reply_to"
+                    }
+                }
             },
             "event_id": "$143273582443PhrSn",
             "origin_server_ts": 143273582,
@@ -151,6 +159,11 @@ async fn test_sticker() {
 
     let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
     assert!(item.content().is_sticker());
+
+    assert_eq!(item.content().thread_root(), Some(event_id!("$thread_root").to_owned()));
+
+    assert_let!(Some(details) = item.content().in_reply_to());
+    assert_eq!(details.event_id, event_id!("$in_reply_to").to_owned())
 }
 
 #[async_test]

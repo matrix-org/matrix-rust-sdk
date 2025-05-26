@@ -19,14 +19,9 @@ use matrix_sdk::{deserialized_responses::TimelineEvent, send_queue::SendHandle};
 #[cfg(test)]
 use ruma::events::receipt::ReceiptEventContent;
 use ruma::{
-    events::{
-        poll::unstable_start::NewUnstablePollStartEventContentWithoutRelation,
-        relation::Replacement, room::message::RoomMessageEventContentWithoutRelation,
-        AnySyncEphemeralRoomEvent, AnySyncTimelineEvent,
-    },
+    events::{AnyMessageLikeEventContent, AnySyncEphemeralRoomEvent},
     serde::Raw,
-    EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, OwnedUserId,
-    RoomVersionId, UserId,
+    MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, OwnedUserId, RoomVersionId,
 };
 use tracing::{instrument, trace, warn};
 
@@ -34,14 +29,12 @@ use super::{
     super::{
         date_dividers::DateDividerAdjuster,
         event_handler::{
-            Flow, TimelineEventContext, TimelineEventHandler, TimelineEventKind,
-            TimelineItemPosition,
+            Flow, TimelineAction, TimelineEventContext, TimelineEventHandler, TimelineItemPosition,
         },
         event_item::RemoteEventOrigin,
         traits::RoomDataProvider,
         Profile, TimelineItem,
     },
-    metadata::EventMeta,
     observable_items::ObservableItems,
     DateDividerMode, TimelineFocusKind, TimelineMetadata, TimelineSettings,
     TimelineStateTransaction,
@@ -98,6 +91,25 @@ impl TimelineState {
         transaction.commit();
     }
 
+    /// Handle remote aggregations on events as [`VectorDiff`]s.
+    pub(super) async fn handle_remote_aggregations<RoomData>(
+        &mut self,
+        diffs: Vec<VectorDiff<TimelineEvent>>,
+        origin: RemoteEventOrigin,
+        room_data: &RoomData,
+        settings: &TimelineSettings,
+    ) where
+        RoomData: RoomDataProvider,
+    {
+        if diffs.is_empty() {
+            return;
+        }
+
+        let mut transaction = self.transaction();
+        transaction.handle_remote_aggregations(diffs, origin, room_data, settings).await;
+        transaction.commit();
+    }
+
     /// Marks the given event as fully read, using the read marker received from
     /// sync.
     pub(super) fn handle_fully_read_marker(&mut self, fully_read_event_id: OwnedEventId) {
@@ -143,17 +155,22 @@ impl TimelineState {
         &mut self,
         own_user_id: OwnedUserId,
         own_profile: Option<Profile>,
-        should_add_new_items: bool,
         date_divider_mode: DateDividerMode,
         txn_id: OwnedTransactionId,
         send_handle: Option<SendHandle>,
-        content: TimelineEventKind,
+        content: AnyMessageLikeEventContent,
     ) {
+        // Only add new items if the timeline is live.
+        let should_add_new_items = match self.timeline_focus {
+            TimelineFocusKind::Live => true,
+            TimelineFocusKind::Event | TimelineFocusKind::PinnedEvents => false,
+            TimelineFocusKind::Thread => false,
+        };
+
         let ctx = TimelineEventContext {
             sender: own_user_id,
             sender_profile: own_profile,
             timestamp: MilliSecondsSinceUnixEpoch::now(),
-            is_own_event: true,
             read_receipts: Default::default(),
             // An event sent by ourselves is never matched against push rules.
             is_highlighted: false,
@@ -165,11 +182,14 @@ impl TimelineState {
 
         let mut date_divider_adjuster = DateDividerAdjuster::new(date_divider_mode);
 
-        TimelineEventHandler::new(&mut txn, ctx)
-            .handle_event(&mut date_divider_adjuster, content)
-            .await;
-
-        txn.adjust_date_dividers(date_divider_adjuster);
+        if let Some(timeline_action) =
+            TimelineAction::from_content(content, None, &txn.items, &mut txn.meta)
+        {
+            TimelineEventHandler::new(&mut txn, ctx)
+                .handle_event(&mut date_divider_adjuster, timeline_action)
+                .await;
+            txn.adjust_date_dividers(date_divider_adjuster);
+        }
 
         txn.commit();
     }
@@ -198,7 +218,7 @@ impl TimelineState {
                 continue;
             };
 
-            let handle_one_res = txn
+            let removed_item = txn
                 .handle_remote_event(
                     event,
                     TimelineItemPosition::UpdateAt { timeline_item_index: idx },
@@ -210,7 +230,7 @@ impl TimelineState {
 
             // If the UTD was removed rather than updated, offset all
             // subsequent loop iterations.
-            if handle_one_res.item_removed {
+            if removed_item {
                 offset += 1;
             }
         }
@@ -224,7 +244,7 @@ impl TimelineState {
     pub(super) fn handle_read_receipts(
         &mut self,
         receipt_event_content: ReceiptEventContent,
-        own_user_id: &UserId,
+        own_user_id: &ruma::UserId,
     ) {
         let mut txn = self.transaction();
         txn.handle_explicit_read_receipts(receipt_event_content, own_user_id);
@@ -275,64 +295,5 @@ impl TimelineState {
 
     pub(super) fn transaction(&mut self) -> TimelineStateTransaction<'_> {
         TimelineStateTransaction::new(&mut self.items, &mut self.meta, self.timeline_focus)
-    }
-}
-
-#[derive(Clone)]
-pub(in crate::timeline) enum PendingEditKind {
-    RoomMessage(Replacement<RoomMessageEventContentWithoutRelation>),
-    Poll(Replacement<NewUnstablePollStartEventContentWithoutRelation>),
-}
-
-#[derive(Clone)]
-pub(in crate::timeline) struct PendingEdit {
-    pub kind: PendingEditKind,
-    pub event_json: Raw<AnySyncTimelineEvent>,
-}
-
-impl PendingEdit {
-    pub fn edited_event(&self) -> &EventId {
-        match &self.kind {
-            PendingEditKind::RoomMessage(Replacement { event_id, .. })
-            | PendingEditKind::Poll(Replacement { event_id, .. }) => event_id,
-        }
-    }
-}
-
-#[cfg(not(tarpaulin_include))]
-impl std::fmt::Debug for PendingEdit {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match &self.kind {
-            PendingEditKind::RoomMessage(_) => {
-                f.debug_struct("RoomMessage").finish_non_exhaustive()
-            }
-            PendingEditKind::Poll(_) => f.debug_struct("Poll").finish_non_exhaustive(),
-        }
-    }
-}
-
-/// Full metadata about an event.
-///
-/// Only used to group function parameters.
-pub(crate) struct FullEventMeta<'a> {
-    /// The ID of the event.
-    pub event_id: &'a EventId,
-    /// Whether the event is among the timeline items.
-    pub visible: bool,
-    /// The sender of the event.
-    pub sender: Option<&'a UserId>,
-    /// Whether this event was sent by our own user.
-    pub is_own_event: bool,
-    /// The timestamp of the event.
-    pub timestamp: Option<MilliSecondsSinceUnixEpoch>,
-}
-
-impl FullEventMeta<'_> {
-    pub(super) fn base_meta(&self) -> EventMeta {
-        EventMeta {
-            event_id: self.event_id.to_owned(),
-            visible: self.visible,
-            timeline_item_index: None,
-        }
     }
 }

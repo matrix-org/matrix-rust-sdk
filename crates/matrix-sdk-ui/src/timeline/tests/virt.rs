@@ -14,7 +14,7 @@
 
 use assert_matches::assert_matches;
 use assert_matches2::assert_let;
-use chrono::{Datelike, Local, TimeZone};
+use chrono::{Datelike, TimeZone, Utc};
 use eyeball_im::VectorDiff;
 use futures_util::{FutureExt, StreamExt as _};
 use matrix_sdk_test::{async_test, ALICE, BOB};
@@ -43,7 +43,7 @@ async fn test_date_divider() {
 
     let date_divider = assert_next_matches!(stream, VectorDiff::PushFront { value } => value);
     assert_let!(VirtualTimelineItem::DateDivider(ts) = date_divider.as_virtual().unwrap());
-    let date = Local.timestamp_millis_opt(ts.0.into()).single().unwrap();
+    let date = Utc.timestamp_millis_opt(ts.0.into()).single().unwrap();
     assert_eq!(date.year(), 1970);
     assert_eq!(date.month(), 1);
     assert_eq!(date.day(), 1);
@@ -68,7 +68,7 @@ async fn test_date_divider() {
     let date_divider =
         assert_next_matches!(stream, VectorDiff::Insert { index: 3, value } => value);
     assert_let!(VirtualTimelineItem::DateDivider(ts) = date_divider.as_virtual().unwrap());
-    let date = Local.timestamp_millis_opt(ts.0.into()).single().unwrap();
+    let date = Utc.timestamp_millis_opt(ts.0.into()).single().unwrap();
     assert_eq!(date.year(), 1970);
     assert_eq!(date.month(), 1);
     assert_eq!(date.day(), 2);

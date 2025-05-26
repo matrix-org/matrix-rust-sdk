@@ -87,7 +87,7 @@ use ruma::{
         beacon_info::BeaconInfoEventContent,
         call::notify::{ApplicationType, CallNotifyEventContent, NotifyType},
         direct::DirectEventContent,
-        marked_unread::{MarkedUnreadEventContent, UnstableMarkedUnreadEventContent},
+        marked_unread::MarkedUnreadEventContent,
         receipt::{Receipt, ReceiptThread, ReceiptType},
         room::{
             avatar::{self, RoomAvatarEventContent},
@@ -126,7 +126,7 @@ use serde::de::DeserializeOwned;
 use thiserror::Error;
 use tokio::{join, sync::broadcast};
 use tokio_stream::StreamExt;
-use tracing::{debug, info, instrument, warn};
+use tracing::{debug, error, info, instrument, warn};
 
 use self::futures::{SendAttachment, SendMessageLikeEvent, SendRawMessageLikeEvent};
 pub use self::{
@@ -230,9 +230,12 @@ impl Room {
     }
 
     /// Leave this room.
+    /// If the room was in [`RoomState::Invited`] state, it'll also be forgotten
+    /// automatically.
     ///
     /// Only invited and joined rooms can be left.
     #[doc(alias = "reject_invitation")]
+    #[instrument(skip_all, fields(room_id = ?self.inner.room_id()))]
     pub async fn leave(&self) -> Result<()> {
         let state = self.state();
         if state == RoomState::Left {
@@ -242,9 +245,43 @@ impl Room {
             ))));
         }
 
+        // If the room was in Invited state we should also forget it when declining the
+        // invite.
+        let should_forget = matches!(self.state(), RoomState::Invited);
+
         let request = leave_room::v3::Request::new(self.inner.room_id().to_owned());
-        self.client.send(request).await?;
+        let response = self.client.send(request).await;
+
+        // The server can return with an error that is acceptable to ignore. Let's find
+        // which one.
+        if let Err(error) = response {
+            error!(?error, "Failed to leave the room");
+
+            #[allow(clippy::collapsible_match)]
+            let ignore_error = if let Some(error) = error.client_api_error_kind() {
+                match error {
+                    // The user is trying to leave a room but doesn't have permissions to do so.
+                    // Let's consider the user has left the room.
+                    ErrorKind::Forbidden { .. } => true,
+                    _ => false,
+                }
+            } else {
+                false
+            };
+
+            if !ignore_error {
+                return Err(error.into());
+            }
+        }
+
         self.client.base_client().room_left(self.room_id()).await?;
+
+        if should_forget {
+            if let Err(error) = self.forget().await {
+                warn!("Failed to forget room when leaving it: {error}");
+            }
+        }
+
         Ok(())
     }
 
@@ -260,19 +297,7 @@ impl Room {
                 prev_room_state,
             ))));
         }
-
-        let mark_as_direct = prev_room_state == RoomState::Invited
-            && self.inner.is_direct().await.unwrap_or_else(|e| {
-                warn!(room_id = ?self.room_id(), "is_direct() failed: {e}");
-                false
-            });
-
         self.client.join_room_by_id(self.room_id()).await?;
-
-        if mark_as_direct {
-            self.set_is_direct(true).await?;
-        }
-
         Ok(())
     }
 
@@ -1607,6 +1632,9 @@ impl Room {
 
     /// Send a request to set a single receipt.
     ///
+    /// If an unthreaded receipt is sent, this will also unset the unread flag
+    /// of the room if necessary.
+    ///
     /// # Arguments
     ///
     /// * `receipt_type` - The type of the receipt to set. Note that it is
@@ -1634,6 +1662,9 @@ impl Room {
             .locks
             .read_receipt_deduplicated_handler
             .run((request_key, event_id.clone()), async {
+                // We will unset the unread flag if we send an unthreaded receipt.
+                let is_unthreaded = thread == ReceiptThread::Unthreaded;
+
                 let mut request = create_receipt::v3::Request::new(
                     self.room_id().to_owned(),
                     receipt_type,
@@ -1642,12 +1673,19 @@ impl Room {
                 request.thread = thread;
 
                 self.client.send(request).await?;
+
+                if is_unthreaded {
+                    self.set_unread_flag(false).await?;
+                }
+
                 Ok(())
             })
             .await
     }
 
     /// Send a request to set multiple receipts at once.
+    ///
+    /// This will also unset the unread flag of the room if necessary.
     ///
     /// # Arguments
     ///
@@ -1668,6 +1706,9 @@ impl Room {
         });
 
         self.client.send(request).await?;
+
+        self.set_unread_flag(false).await?;
+
         Ok(())
     }
 
@@ -2385,7 +2426,7 @@ impl Room {
     /// Sets the new avatar url for this room.
     ///
     /// # Arguments
-    /// * `avatar_url` - The owned matrix uri that represents the avatar
+    /// * `avatar_url` - The owned Matrix uri that represents the avatar
     /// * `info` - The optional image info that can be provided for the avatar
     pub async fn set_avatar_url(
         &self,
@@ -3158,10 +3199,18 @@ impl Room {
 
     /// Set a flag on the room to indicate that the user has explicitly marked
     /// it as (un)read.
+    ///
+    /// This is a no-op if [`BaseRoom::is_marked_unread()`] returns the same
+    /// value as `unread`.
     pub async fn set_unread_flag(&self, unread: bool) -> Result<()> {
+        if self.is_marked_unread() == unread {
+            // The request is not necessary.
+            return Ok(());
+        }
+
         let user_id = self.client.user_id().ok_or(Error::AuthenticationRequired)?;
 
-        let content = UnstableMarkedUnreadEventContent::from(MarkedUnreadEventContent::new(unread));
+        let content = MarkedUnreadEventContent::new(unread);
 
         let request = set_room_account_data::v3::Request::new(
             user_id.to_owned(),

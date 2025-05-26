@@ -7,8 +7,8 @@ use matrix_sdk::{
     test_utils::mocks::MatrixMockServer,
 };
 use matrix_sdk_test::{
-    async_test, event_factory::EventFactory, mocks::mock_encryption_state, sync_timeline_event,
-    test_json, JoinedRoomBuilder, SyncResponseBuilder, DEFAULT_TEST_ROOM_ID,
+    async_test, event_factory::EventFactory, mocks::mock_encryption_state, test_json,
+    JoinedRoomBuilder, SyncResponseBuilder, DEFAULT_TEST_ROOM_ID,
 };
 use ruma::{
     event_id,
@@ -17,7 +17,7 @@ use ruma::{
     },
     owned_event_id, room_id,
     time::SystemTime,
-    user_id, MilliSecondsSinceUnixEpoch,
+    user_id, EventId, MilliSecondsSinceUnixEpoch,
 };
 use serde_json::json;
 use wiremock::{
@@ -232,26 +232,23 @@ async fn test_most_recent_event_in_stream() {
 
     let mut timeline_events = Vec::new();
 
+    let f = EventFactory::new();
     for nth in 0..25 {
-        timeline_events.push(sync_timeline_event!({
-            "content": {
-                "m.relates_to": {
-                    "event_id": "$15139375514XsgmR:localhost",
-                    "rel_type": "m.reference"
-                },
-                "org.matrix.msc3488.location": {
-                    "uri": format!("geo:{nth}.9575274619722,12.494122581370175;u={nth}")
-                },
-                "org.matrix.msc3488.ts": 1_636_829_458
-            },
-            "event_id": format!("$event_for_stream_{nth}"),
-            "origin_server_ts": 1_636_829_458,
-            "sender": "@example2:localhost",
-            "type": "org.matrix.msc3672.beacon",
-            "unsigned": {
-                "age": 598971
-            }
-        }));
+        let event_id = format!("$event_for_stream_{nth}");
+        timeline_events.push(
+            f.beacon(
+                owned_event_id!("$15139375514XsgmR:localhost"),
+                nth as f64 + 0.9575274619722,
+                12.494122581370175,
+                nth,
+                Some(MilliSecondsSinceUnixEpoch(1_636_829_458u32.into())),
+            )
+            .event_id(<&EventId>::try_from(event_id.as_str()).unwrap())
+            .server_ts(1_636_829_458)
+            .sender(user_id!("@example2:localhost"))
+            .age(598971)
+            .into_raw_sync(),
+        );
     }
 
     sync_builder.add_joined_room(
@@ -269,7 +266,10 @@ async fn test_most_recent_event_in_stream() {
 
     assert_eq!(user_id.to_string(), "@example2:localhost");
 
-    assert_eq!(last_location.location.uri, "geo:24.9575274619722,12.494122581370175;u=24");
+    assert_eq!(
+        last_location.location.uri,
+        format!("geo:{},{};u=24", 24.9575274619722, 12.494122581370175)
+    );
 
     assert!(last_location.location.description.is_none());
     assert!(last_location.location.zoom_level.is_none());
@@ -339,22 +339,18 @@ async fn test_observe_single_live_location_share() {
     let stream = observable_live_location_shares.subscribe();
     pin_mut!(stream);
 
-    let timeline_event = sync_timeline_event!({
-        "content": {
-            "m.relates_to": {
-                "event_id": "$test_beacon_info",
-                "rel_type": "m.reference"
-            },
-            "org.matrix.msc3488.location": {
-                "uri": "geo:10.000000,20.000000;u=5"
-            },
-            "org.matrix.msc3488.ts": 1_636_829_458
-        },
-        "event_id": "$location_event",
-        "origin_server_ts": millis_time,
-        "sender": "@example2:localhost",
-        "type": "org.matrix.msc3672.beacon",
-    });
+    let timeline_event = EventFactory::new()
+        .beacon(
+            owned_event_id!("$test_beacon_info"),
+            10.000000,
+            20.000000,
+            5,
+            Some(MilliSecondsSinceUnixEpoch(1_636_829_458u32.into())),
+        )
+        .event_id(event_id!("$location_event"))
+        .server_ts(millis_time)
+        .sender(user_id!("@example2:localhost"))
+        .into_raw_sync();
 
     mock_sync(
         &server,
@@ -374,7 +370,7 @@ async fn test_observe_single_live_location_share() {
         stream.next().await.expect("Another live location was expected");
 
     assert_eq!(user_id.to_string(), "@example2:localhost");
-    assert_eq!(last_location.location.uri, "geo:10.000000,20.000000;u=5");
+    assert_eq!(last_location.location.uri, format!("geo:{},{};u=5", 10.000000, 20.000000));
     assert_eq!(last_location.ts, current_time);
 
     let beacon_info = beacon_info.expect("Live location share is missing the beacon_info");

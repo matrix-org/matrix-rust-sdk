@@ -446,7 +446,18 @@ impl SqliteStateStore {
     }
 
     async fn acquire(&self) -> Result<SqliteAsyncConn> {
-        Ok(self.pool.get().await?)
+        let conn = self.pool.get().await?;
+
+        // Specify a busy timeout so that operations are automatically retried, in case
+        // the database was marked as locked, which can happen under very
+        // peculiar circumstances in WAL mode.
+        //
+        // The timeout value is in milliseconds.
+        //
+        // See also https://www.sqlite.org/wal.html#sometimes_queries_return_sqlite_busy_in_wal_mode.
+        conn.execute_batch("PRAGMA busy_timeout = 2000;").await?;
+
+        Ok(conn)
     }
 
     fn remove_maybe_stripped_room_data(

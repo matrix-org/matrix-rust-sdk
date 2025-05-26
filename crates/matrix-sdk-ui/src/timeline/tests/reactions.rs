@@ -67,7 +67,7 @@ macro_rules! assert_item_update {
 macro_rules! assert_reaction_is_updated {
     ($stream:expr, $event_id:expr, $index:expr, $is_remote_echo:literal) => {{
         let event = assert_item_update!($stream, $event_id, $index);
-        let reactions = event.content().reactions();
+        let reactions = event.content().reactions().cloned().unwrap_or_default();
         let reactions = reactions.get(&REACTION_KEY.to_owned()).unwrap();
         let reaction = reactions.get(*ALICE).unwrap();
         match reaction.status {
@@ -144,7 +144,13 @@ async fn test_redact_reaction_success() {
 
     // Will immediately redact it on the item.
     let event = assert_item_update!(stream, &event_id, item_pos);
-    assert!(event.content().reactions().get(&REACTION_KEY.to_owned()).is_none());
+    assert!(event
+        .content()
+        .reactions()
+        .cloned()
+        .unwrap_or_default()
+        .get(&REACTION_KEY.to_owned())
+        .is_none());
 
     // And send a redaction request for that reaction.
     {
@@ -174,7 +180,7 @@ async fn test_reactions_store_timestamp() {
     timeline.toggle_reaction_local(&item_id, REACTION_KEY).await.unwrap();
 
     let event = assert_reaction_is_updated!(stream, &event_id, msg_pos, false);
-    let reactions = event.content().reactions();
+    let reactions = event.content().reactions().cloned().unwrap_or_default();
     let reactions = reactions.get(&REACTION_KEY.to_owned()).unwrap();
     let timestamp = reactions.values().next().unwrap().timestamp;
 
@@ -209,7 +215,15 @@ async fn test_initial_reaction_timestamp_is_stored() {
         .await;
 
     let items = timeline.controller.items().await;
-    let reactions = items.last().unwrap().as_event().unwrap().content().reactions();
+    let reactions = items
+        .last()
+        .unwrap()
+        .as_event()
+        .unwrap()
+        .content()
+        .reactions()
+        .cloned()
+        .unwrap_or_default();
     let entry = reactions.get(&REACTION_KEY.to_owned()).unwrap();
 
     assert_eq!(entry.values().next().unwrap().timestamp, reaction_timestamp);
@@ -262,13 +276,13 @@ async fn test_reinserted_item_keeps_reactions() {
     // Get the event.
     assert_next_matches_with_timeout!(stream, VectorDiff::PushBack { value: item } => {
         assert_eq!(item.content().as_message().unwrap().body(), "hey");
-        assert!(item.content().reactions().is_empty());
+        assert!(item.content().reactions().cloned().unwrap_or_default().is_empty());
     });
 
     // Get the reaction.
     assert_next_matches_with_timeout!(stream, VectorDiff::Set { index: 0, value: item } => {
         assert_eq!(item.content().as_message().unwrap().body(), "hey");
-        let reactions = item.content().reactions();
+        let reactions = item.content().reactions().cloned().unwrap_or_default();
         assert_eq!(reactions.len(), 1);
         reactions.get(REACTION_KEY).unwrap().get(*ALICE).unwrap();
     });
@@ -295,7 +309,7 @@ async fn test_reinserted_item_keeps_reactions() {
     assert_next_matches_with_timeout!(stream, VectorDiff::Insert { index: 0, value: item } => {
         assert_eq!(item.content().as_message().unwrap().body(), "hey");
         // And it still includes the reaction from Alice.
-        let reactions = item.content().reactions();
+        let reactions = item.content().reactions().cloned().unwrap_or_default();
         assert_eq!(reactions.len(), 1);
         reactions.get(REACTION_KEY).unwrap().get(*ALICE).unwrap();
     });
