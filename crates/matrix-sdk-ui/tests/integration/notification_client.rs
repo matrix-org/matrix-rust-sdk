@@ -1,4 +1,5 @@
 use std::{
+    collections::BTreeMap,
     sync::{Arc, Mutex},
     time::Duration,
 };
@@ -9,8 +10,8 @@ use matrix_sdk::{
     test_utils::{logged_in_client_with_server, mocks::MatrixMockServer},
 };
 use matrix_sdk_test::{
-    async_test, mocks::mock_encryption_state, JoinedRoomBuilder, StateTestEvent,
-    SyncResponseBuilder,
+    async_test, event_factory::EventFactory, mocks::mock_encryption_state, JoinedRoomBuilder,
+    StateTestEvent, SyncResponseBuilder,
 };
 use matrix_sdk_ui::{
     notification_client::{
@@ -19,7 +20,11 @@ use matrix_sdk_ui::{
     },
     sync_service::SyncService,
 };
-use ruma::{event_id, events::TimelineEventType, room_id, user_id};
+use ruma::{
+    event_id,
+    events::{room::member::MembershipState, TimelineEventType},
+    room_id, user_id,
+};
 use serde_json::json;
 use wiremock::{
     matchers::{header, method, path},
@@ -1083,7 +1088,6 @@ async fn test_notification_client_sliding_sync_filters_out_events_from_ignored_u
     let room_id = room_id!("!a98sd12bjh:example.org");
     let room_name = "The Maltese Falcon";
     let sender_display_name = "John Mastodon";
-    let sender_avatar_url = "https://example.org/avatar.jpeg";
     let event_id = event_id!("$example_event_id");
 
     let raw_event = EventFactory::new()
@@ -1092,6 +1096,23 @@ async fn test_notification_client_sliding_sync_filters_out_events_from_ignored_u
         .text_msg("Heya")
         .event_id(event_id)
         .into_raw_sync();
+
+    let event_factory = EventFactory::new().room(room_id);
+
+    let sender_member_event = event_factory
+        .member(sender)
+        .display_name(sender_display_name)
+        .membership(MembershipState::Join)
+        .into_raw_sync();
+
+    let own_member_event = event_factory
+        .member(&my_user_id)
+        .display_name("My self")
+        .membership(MembershipState::Join)
+        .into_raw_sync();
+
+    let power_levels_event =
+        event_factory.sender(sender).power_levels(&mut BTreeMap::new()).into_raw_sync();
 
     let pos = Mutex::new(0);
     Mock::given(SlidingSyncMatcher)
@@ -1111,75 +1132,13 @@ async fn test_notification_client_sliding_sync_filters_out_events_from_ignored_u
 
                         "required_state": [
                             // Sender's member information.
-                            {
-                                "content": {
-                                    "avatar_url": sender_avatar_url,
-                                    "displayname": sender_display_name,
-                                    "membership": "join"
-                                },
-                                "room_id": room_id,
-                                "event_id": "$151800140517rfvjc:example.org",
-                                "membership": "join",
-                                "origin_server_ts": 151800140,
-                                "sender": sender,
-                                "state_key": sender,
-                                "type": "m.room.member",
-                                "unsigned": {
-                                    "age": 2970366,
-                                }
-                            },
+                            sender_member_event,
 
                             // Own member information.
-                            {
-                                "content": {
-                                    "avatar_url": null,
-                                    "displayname": "My Self",
-                                    "membership": "join"
-                                },
-                                "room_id": room_id,
-                                "event_id": "$151800140517rflkc:example.org",
-                                "membership": "join",
-                                "origin_server_ts": 151800140,
-                                "sender": my_user_id.clone(),
-                                "state_key": my_user_id,
-                                "type": "m.room.member",
-                                "unsigned": {
-                                    "age": 2970366,
-                                }
-                            },
+                            own_member_event,
 
                             // Power levels.
-                            {
-                                "content": {
-                                    "ban": 50,
-                                    "events": {
-                                        "m.room.avatar": 50,
-                                        "m.room.canonical_alias": 50,
-                                        "m.room.history_visibility": 100,
-                                        "m.room.name": 50,
-                                        "m.room.power_levels": 100,
-                                        "m.room.message": 25,
-                                    },
-                                    "events_default": 0,
-                                    "invite": 0,
-                                    "kick": 50,
-                                    "redact": 50,
-                                    "state_default": 50,
-                                    "users": {
-                                        "@example:localhost": 100,
-                                        sender: 0,
-                                    },
-                                    "users_default": 0,
-                                },
-                                "event_id": "$15139375512JaHAW:localhost",
-                                "origin_server_ts": 151393755,
-                                "sender": "@example:localhost",
-                                "state_key": "",
-                                "type": "m.room.power_levels",
-                                "unsigned": {
-                                    "age": 703422,
-                                },
-                            },
+                            power_levels_event,
                         ],
 
                         "timeline": [
