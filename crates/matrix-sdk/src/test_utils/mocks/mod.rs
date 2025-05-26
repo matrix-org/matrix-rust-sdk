@@ -2763,6 +2763,14 @@ impl<'a> MockEndpoint<'a, RoomLeaveEndpoint> {
             "room_id": room_id,
         })))
     }
+
+    /// Returns a `M_FORBIDDEN` response.
+    pub fn forbidden(self) -> MatrixMock<'a> {
+        self.respond_with(ResponseTemplate::new(403).set_body_json(json!({
+            "errcode": "M_FORBIDDEN",
+            "error": "sowwy",
+        })))
+    }
 }
 
 /// A prebuilt mock for the room forget endpoint.
