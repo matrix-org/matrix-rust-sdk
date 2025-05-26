@@ -801,7 +801,7 @@ mod tests {
                 member::RoomMemberEventContent,
                 message::{MessageFormat, MessageType},
             },
-            AnySyncStateEvent, AnySyncTimelineEvent, BundledMessageLikeRelations,
+            AnySyncStateEvent, BundledMessageLikeRelations,
         },
         room_id,
         serde::Raw,
@@ -1063,7 +1063,14 @@ mod tests {
         let client = logged_in_client(None).await;
 
         let member_event = MinimalStateEvent::Original(
-            member_event(room_id, user_id, "Alice Margatroid", "mxc://e.org/SEs")
+            EventFactory::new()
+                .room(room_id)
+                .sender(user_id!("@example:example.org"))
+                .member(user_id)
+                .avatar_url("mxc://e.org/SEs".into())
+                .display_name("Alice Margatroid")
+                .reason("")
+                .into_raw_sync()
                 .deserialize_as::<OriginalMinimalStateEvent<RoomMemberEventContent>>()
                 .unwrap(),
         );
@@ -1140,22 +1147,6 @@ mod tests {
                 .unwrap();
 
         assert!(timeline_item.contains_only_emojis());
-    }
-
-    fn member_event(
-        room_id: &RoomId,
-        user_id: &UserId,
-        display_name: &str,
-        avatar_url: &str,
-    ) -> Raw<AnySyncTimelineEvent> {
-        EventFactory::new()
-            .room(room_id)
-            .sender(user_id!("@example:example.org"))
-            .member(user_id)
-            .avatar_url(avatar_url.into())
-            .display_name(display_name)
-            .reason("")
-            .into_raw_sync()
     }
 
     fn member_event_as_state_event(
