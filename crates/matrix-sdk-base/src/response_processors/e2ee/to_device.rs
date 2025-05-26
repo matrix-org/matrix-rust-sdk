@@ -14,7 +14,9 @@
 
 use std::collections::BTreeMap;
 
-use matrix_sdk_crypto::{store::RoomKeyInfo, EncryptionSyncChanges, OlmMachine};
+use matrix_sdk_crypto::{
+    store::RoomKeyInfo, types::ProcessedToDeviceEvent, EncryptionSyncChanges, OlmMachine,
+};
 use ruma::{
     api::client::sync::sync_events::{v3, v5, DeviceLists},
     events::AnyToDeviceEvent,
@@ -93,28 +95,31 @@ async fn process(
         let (events, room_key_updates) =
             olm_machine.receive_sync_changes(encryption_sync_changes).await?;
 
-        let events = events
-            .iter()
-            // TODO: There is loss of information here, after calling `to_raw` it is not
-            // possible to make the difference between a successfully decrypted event and a plain
-            // text event. This information needs to be propagated to top layer at some point if
-            // clients relies on custom encrypted to device events.
-            .map(|p| p.to_raw())
-            .collect();
-
-        Output { decrypted_to_device_events: events, room_key_updates: Some(room_key_updates) }
+        Output { processed_to_device_events: events, room_key_updates: Some(room_key_updates) }
     } else {
-        // If we have no `OlmMachine`, just return the events that were passed in.
+        // If we have no `OlmMachine`, just return the clear events that were passed in.
+        // The encrypted ones are dropped as they are un-usable.
         // This should not happen unless we forget to set things up by calling
         // `Self::activate()`.
         Output {
-            decrypted_to_device_events: encryption_sync_changes.to_device_events,
+            processed_to_device_events: encryption_sync_changes
+                .to_device_events
+                .into_iter()
+                .filter(|raw| {
+                    if let Ok(Some(event_type)) = raw.get_field::<String>("type") {
+                        event_type != "m.room.encrypted"
+                    } else {
+                        false // Exclude events with no type or encrypted
+                    }
+                })
+                .map(ProcessedToDeviceEvent::PlainText)
+                .collect(),
             room_key_updates: None,
         }
     })
 }
 
 pub struct Output {
-    pub decrypted_to_device_events: Vec<Raw<AnyToDeviceEvent>>,
+    pub processed_to_device_events: Vec<ProcessedToDeviceEvent>,
     pub room_key_updates: Option<Vec<RoomKeyInfo>>,
 }
