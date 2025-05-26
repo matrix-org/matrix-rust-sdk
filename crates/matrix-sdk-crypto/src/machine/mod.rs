@@ -52,8 +52,6 @@ use ruma::{
 };
 use serde_json::{value::to_raw_value, Value};
 use tokio::sync::Mutex;
-#[cfg(feature = "experimental-send-custom-to-device")]
-use tracing::trace;
 use tracing::{
     debug, error,
     field::{debug, display},

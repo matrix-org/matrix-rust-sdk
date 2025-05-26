@@ -1786,7 +1786,7 @@ impl Encryption {
 
         // TODO: parallelize that? it's already grouping 250 devices per chunk.
         for request in requests {
-            let request = RumaToDeviceRequest::new_raw(
+            let ruma_request = RumaToDeviceRequest::new_raw(
                 request.event_type.clone(),
                 request.txn_id.clone(),
                 request.messages.clone(),
@@ -1794,7 +1794,7 @@ impl Encryption {
 
             let send_result = self
                 .client
-                .send_inner(request, Some(RequestConfig::short_retry()), Default::default())
+                .send_inner(ruma_request, Some(RequestConfig::short_retry()), Default::default())
                 .await;
 
             // If the sending failed we need to collect the failures to report them
