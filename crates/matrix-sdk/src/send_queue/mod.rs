@@ -1315,42 +1315,28 @@ impl QueueStorage {
                         )
                         .await?;
 
-                    // Save the file upload request as a dependent request of the thumbnail upload.
-                    store
-                        .save_dependent_queued_request(
-                            &self.room_id,
-                            &upload_thumbnail_txn,
-                            upload_file_txn.clone().into(),
-                            created_at,
-                            DependentQueuedRequestKind::UploadFileOrThumbnail {
-                                content_type: content_type.to_string(),
-                                cache_key: file_media_request.clone(),
-                                related_to: send_event_txn.clone(),
-                                parent_is_thumbnail_upload: true,
-                            },
-                        )
-                        .await?;
+                    last_upload_file_txn = Some(upload_thumbnail_txn);
 
                     Some(thumbnail_info)
                 } else {
-                    // Save the file upload as a dependent request of the last file upload.
-                    store
-                        .save_dependent_queued_request(
-                            &self.room_id,
-                            &last_upload_file_txn.unwrap(),
-                            upload_file_txn.clone().into(),
-                            created_at,
-                            DependentQueuedRequestKind::UploadFileOrThumbnail {
-                                content_type: content_type.to_string(),
-                                cache_key: file_media_request.clone(),
-                                related_to: send_event_txn.clone(),
-                                parent_is_thumbnail_upload: false,
-                            },
-                        )
-                        .await?;
-
                     None
                 };
+
+                // Save the file upload as a dependent request of the previous upload.
+                store
+                    .save_dependent_queued_request(
+                        &self.room_id,
+                        &last_upload_file_txn.unwrap(),
+                        upload_file_txn.clone().into(),
+                        created_at,
+                        DependentQueuedRequestKind::UploadFileOrThumbnail {
+                            content_type: content_type.to_string(),
+                            cache_key: file_media_request.clone(),
+                            related_to: send_event_txn.clone(),
+                            parent_is_thumbnail_upload: thumbnail.is_some(),
+                        },
+                    )
+                    .await?;
 
                 finish_item_infos.push(FinishGalleryItemInfo {
                     file_upload: upload_file_txn.clone(),
