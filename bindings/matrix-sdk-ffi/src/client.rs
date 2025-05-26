@@ -1,6 +1,7 @@
 use std::{
     collections::HashMap,
     fmt::Debug,
+    path::PathBuf,
     sync::{Arc, OnceLock, RwLock},
     time::Duration,
 };
@@ -38,6 +39,7 @@ use matrix_sdk::{
     sliding_sync::Version as SdkSlidingSyncVersion,
     store::RoomLoadSettings as SdkRoomLoadSettings,
     AuthApi, AuthSession, Client as MatrixClient, SessionChange, SessionTokens,
+    STATE_STORE_DATABASE_NAME,
 };
 use matrix_sdk_ui::{
     notification_client::{
@@ -223,6 +225,10 @@ pub struct Client {
     utd_hook_manager: OnceLock<Arc<UtdHookManager>>,
     session_verification_controller:
         Arc<tokio::sync::RwLock<Option<SessionVerificationController>>>,
+    /// The path to the directory where the state store and the crypto store are
+    /// located, if the `Client` instance has been built with a SQLite store
+    /// backend.
+    store_path: Option<PathBuf>,
 }
 
 impl Client {
@@ -230,6 +236,7 @@ impl Client {
         sdk_client: MatrixClient,
         enable_oidc_refresh_lock: bool,
         session_delegate: Option<Arc<dyn ClientSessionDelegate>>,
+        store_path: Option<PathBuf>,
     ) -> Result<Self, ClientError> {
         let session_verification_controller: Arc<
             tokio::sync::RwLock<Option<SessionVerificationController>>,
@@ -267,6 +274,7 @@ impl Client {
             delegate: OnceLock::new(),
             utd_hook_manager: OnceLock::new(),
             session_verification_controller,
+            store_path,
         };
 
         if enable_oidc_refresh_lock {
@@ -1408,14 +1416,30 @@ impl Client {
 
     /// Clear all the non-critical caches for this Client instance.
     ///
+    /// WARNING: This will clear all the caches, including the base store (state
+    /// store), so callers must make sure that any sync is inactive before
+    /// calling this method. In particular, the `SyncService` must not be
+    /// running. After the method returns, the Client will be in an unstable
+    /// state, and it is required that the caller reinstantiates a new
+    /// Client instance, be it via dropping the previous and re-creating it,
+    /// restarting their application, or any other similar means.
+    ///
+    /// - This will get rid of the backing state store file, if provided.
     /// - This will empty all the room's persisted event caches, so all rooms
     ///   will start as if they were empty.
     /// - This will empty the media cache according to the current media
     ///   retention policy.
     pub async fn clear_caches(&self) -> Result<(), ClientError> {
-        let closure = async || -> Result<_, EventCacheError> {
+        let closure = async || -> Result<_, ClientError> {
             // Clean up the media cache according to the current media retention policy.
-            self.inner.event_cache_store().lock().await?.clean_up_media_cache().await?;
+            self.inner
+                .event_cache_store()
+                .lock()
+                .await
+                .map_err(EventCacheError::from)?
+                .clean_up_media_cache()
+                .await
+                .map_err(EventCacheError::from)?;
 
             // Clear all the room chunks. It's important to *not* call
             // `EventCacheStore::clear_all_rooms_chunks` here, because there might be live
@@ -1423,10 +1447,39 @@ impl Client {
             // mismatch.
             self.inner.event_cache().clear_all_rooms().await?;
 
+            // Delete the state store file, if it exists.
+            if let Some(store_path) = &self.store_path {
+                debug!("Removing the state store: {}", store_path.display());
+
+                // The state store and the crypto store both live in the same store path, so we
+                // can't blindly delete the directory.
+                //
+                // Delete the state store SQLite file, as well as the write-ahead log (WAL) and
+                // shared-memory (SHM) files, if they exist.
+
+                for file_name in [
+                    PathBuf::from(STATE_STORE_DATABASE_NAME),
+                    PathBuf::from(format!("{STATE_STORE_DATABASE_NAME}.wal")),
+                    PathBuf::from(format!("{STATE_STORE_DATABASE_NAME}.shm")),
+                ] {
+                    let file_path = store_path.join(file_name);
+                    if file_path.exists() {
+                        debug!("Removing file: {}", file_path.display());
+                        std::fs::remove_file(&file_path).map_err(|err| ClientError::Generic {
+                            msg: format!(
+                                "couldn't delete the state store file {}: {err}",
+                                file_path.display()
+                            ),
+                            details: None,
+                        })?;
+                    }
+                }
+            }
+
             Ok(())
         };
 
-        Ok(closure().await?)
+        closure().await
     }
 
     /// Checks if the server supports the report room API.
