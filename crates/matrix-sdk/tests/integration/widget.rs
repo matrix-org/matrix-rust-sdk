@@ -27,6 +27,7 @@ use matrix_sdk::{
 use matrix_sdk_common::{executor::spawn, timeout::timeout};
 use matrix_sdk_test::{async_test, event_factory::EventFactory, JoinedRoomBuilder, ALICE, BOB};
 use once_cell::sync::Lazy;
+use rand::rngs::mock;
 use ruma::{
     event_id,
     events::{room::member::MembershipState, MessageLikeEventType, StateEventType},
@@ -967,7 +968,7 @@ async fn test_send_encrypted_to_device_event() {
                 },
             }
         }),
-        json! {{"error":{"message":"Sending encrypted to-device events is not supported by the widget driver."}}},
+        json! {{}},
         0,
     )
     .await;
