@@ -42,7 +42,9 @@ use ruma::{
 };
 use tracing::{debug, error, warn};
 
-use crate::{event_handler::HandlerKind, Client, Result, Room};
+use crate::{
+    crypto::types::ProcessedToDeviceEvent, event_handler::HandlerKind, Client, Result, Room,
+};
 
 /// The processed response of a `/sync` request.
 #[derive(Clone, Default)]

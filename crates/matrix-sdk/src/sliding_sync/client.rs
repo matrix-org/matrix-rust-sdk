@@ -6,7 +6,7 @@ use ruma::api::client::{discovery::get_supported_versions, sync::sync_events::v5
 use tracing::error;
 
 use super::{SlidingSync, SlidingSyncBuilder};
-use crate::{Client, Result};
+use crate::{crypto::types::ProcessedToDeviceEvent, Client, Result};
 
 /// A sliding sync version.
 #[derive(Clone, Debug)]
