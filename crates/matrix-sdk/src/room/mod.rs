@@ -128,7 +128,7 @@ use serde::de::DeserializeOwned;
 use thiserror::Error;
 use tokio::{join, sync::broadcast};
 use tokio_stream::StreamExt;
-use tracing::{debug, info, instrument, warn};
+use tracing::{debug, error, info, instrument, warn};
 
 use self::futures::{SendAttachment, SendMessageLikeEvent, SendRawMessageLikeEvent};
 pub use self::{
@@ -319,6 +319,7 @@ impl Room {
     ///
     /// Only invited and joined rooms can be left.
     #[doc(alias = "reject_invitation")]
+    #[instrument(skip_all, fields(room_id = ?self.inner.room_id()))]
     pub async fn leave(&self) -> Result<()> {
         let state = self.state();
         if state == RoomState::Left {
@@ -333,7 +334,30 @@ impl Room {
         let should_forget = matches!(self.state(), RoomState::Invited);
 
         let request = leave_room::v3::Request::new(self.inner.room_id().to_owned());
-        self.client.send(request).await?;
+        let response = self.client.send(request).await;
+
+        // The server can return with an error that is acceptable to ignore. Let's find
+        // which one.
+        if let Err(error) = response {
+            error!(?error, "Failed to leave the room");
+
+            #[allow(clippy::collapsible_match)]
+            let ignore_error = if let Some(error) = error.client_api_error_kind() {
+                match error {
+                    // The user is trying to leave a room but doesn't have permissions to do so.
+                    // Let's consider the user has left the room.
+                    ErrorKind::Forbidden { .. } => true,
+                    _ => false,
+                }
+            } else {
+                false
+            };
+
+            if !ignore_error {
+                return Err(error.into());
+            }
+        }
+
         self.client.base_client().room_left(self.room_id()).await?;
 
         if should_forget {

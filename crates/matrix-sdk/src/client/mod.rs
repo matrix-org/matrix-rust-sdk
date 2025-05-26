@@ -2541,6 +2541,11 @@ impl Client {
         let base_room = self.inner.base_client.room_knocked(&response.room_id).await?;
         Ok(Room::new(self.clone(), base_room))
     }
+
+    /// Checks whether the provided `user_id` belongs to an ignored user.
+    pub async fn is_user_ignored(&self, user_id: &UserId) -> bool {
+        self.base_client().is_user_ignored(user_id).await
+    }
 }
 
 /// A weak reference to the inner client, useful when trying to get a handle
