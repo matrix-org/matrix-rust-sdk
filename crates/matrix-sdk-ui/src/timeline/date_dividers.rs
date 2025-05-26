@@ -950,15 +950,19 @@ mod tests {
         let mut meta = test_metadata();
 
         txn.push_back(
-            meta.new_timeline_item(event_with_ts(MilliSecondsSinceUnixEpoch(uint!(0)))),
+            // Start one day later than the origin, to make this test pass on all timezones.
+            // Let's call this time T.
+            meta.new_timeline_item(event_with_ts(MilliSecondsSinceUnixEpoch(uint!(86_400_000)))),
             None,
         );
         txn.push_back(
-            meta.new_timeline_item(event_with_ts(MilliSecondsSinceUnixEpoch(uint!(86_400_000)))), // One day later
+            // One day later (T+1 day).
+            meta.new_timeline_item(event_with_ts(MilliSecondsSinceUnixEpoch(uint!(172_800_000)))),
             None,
         );
         txn.push_back(
-            meta.new_timeline_item(event_with_ts(MilliSecondsSinceUnixEpoch(uint!(2_678_400_000)))), // One month later
+            // One month later (T+31 days).
+            meta.new_timeline_item(event_with_ts(MilliSecondsSinceUnixEpoch(uint!(2_764_800_000)))),
             None,
         );
 
