@@ -36,7 +36,10 @@ use mime::Mime;
 use ruma::events::room::message::{GalleryItemType, GalleryMessageEventContent};
 use ruma::{
     events::{
-        room::message::{FormattedBody, MessageType, RoomMessageEventContent},
+        room::{
+            message::{FormattedBody, MessageType, RoomMessageEventContent},
+            MediaSource, ThumbnailInfo,
+        },
         AnyMessageLikeEventContent, Mentions,
     },
     MilliSecondsSinceUnixEpoch, OwnedTransactionId, TransactionId,
@@ -45,7 +48,7 @@ use tracing::{debug, error, instrument, trace, warn, Span};
 
 use super::{QueueStorage, RoomSendQueue, RoomSendQueueError};
 use crate::{
-    attachment::AttachmentConfig,
+    attachment::{AttachmentConfig, Thumbnail},
     room::edit::update_media_caption,
     send_queue::{
         LocalEcho, LocalEchoContent, MediaHandles, RoomSendQueueStorageError, RoomSendQueueUpdate,
@@ -163,6 +166,14 @@ fn update_gallery_event_after_upload(
     }
 }
 
+#[derive(Default)]
+
+struct MediaCacheResult {
+    upload_thumbnail_txn: Option<OwnedTransactionId>,
+    event_thumbnail_info: Option<(MediaSource, Box<ThumbnailInfo>)>,
+    queue_thumbnail_info: Option<(FinishUploadThumbnailInfo, MediaRequestParameters, Mime)>,
+}
+
 impl RoomSendQueue {
     /// Queues an attachment to be sent to the room, using the send queue.
     ///
@@ -208,59 +219,9 @@ impl RoomSendQueue {
 
         let file_media_request = Media::make_local_file_media_request(&upload_file_txn);
 
-        let (upload_thumbnail_txn, event_thumbnail_info, queue_thumbnail_info) = {
-            let client = room.client();
-            let cache_store = client
-                .event_cache_store()
-                .lock()
-                .await
-                .map_err(RoomSendQueueStorageError::LockError)?;
-
-            // Cache the file itself in the cache store.
-            cache_store
-                .add_media_content(
-                    &file_media_request,
-                    data.clone(),
-                    // Make sure that the file is stored until it has been uploaded.
-                    IgnoreMediaRetentionPolicy::Yes,
-                )
-                .await
-                .map_err(RoomSendQueueStorageError::EventCacheStoreError)?;
-
-            // Process the thumbnail, if it's been provided.
-            if let Some(thumbnail) = config.thumbnail.take() {
-                let txn = TransactionId::new();
-                trace!(upload_thumbnail_txn = %txn, "attachment has a thumbnail");
-
-                // Create the information required for filling the thumbnail section of the
-                // media event.
-                let (data, content_type, thumbnail_info) = thumbnail.into_parts();
-
-                // Cache thumbnail in the cache store.
-                let thumbnail_media_request = Media::make_local_file_media_request(&txn);
-                cache_store
-                    .add_media_content(
-                        &thumbnail_media_request,
-                        data,
-                        // Make sure that the thumbnail is stored until it has been uploaded.
-                        IgnoreMediaRetentionPolicy::Yes,
-                    )
-                    .await
-                    .map_err(RoomSendQueueStorageError::EventCacheStoreError)?;
-
-                (
-                    Some(txn.clone()),
-                    Some((thumbnail_media_request.source.clone(), thumbnail_info)),
-                    Some((
-                        FinishUploadThumbnailInfo { txn, width: None, height: None },
-                        thumbnail_media_request,
-                        content_type,
-                    )),
-                )
-            } else {
-                Default::default()
-            }
-        };
+        let MediaCacheResult { upload_thumbnail_txn, event_thumbnail_info, queue_thumbnail_info } =
+            RoomSendQueue::cache_media(&room, data, config.thumbnail.take(), &file_media_request)
+                .await?;
 
         // Create the content for the media event.
         let event_content = room
@@ -365,13 +326,6 @@ impl RoomSendQueue {
         let mut item_queue_infos = Vec::with_capacity(config.len());
         let mut media_handles = Vec::with_capacity(config.len());
 
-        let client = room.client();
-        let cache_store = client
-            .event_cache_store()
-            .lock()
-            .await
-            .map_err(RoomSendQueueStorageError::LockError)?;
-
         for item_info in config.items {
             let GalleryItemInfo { filename, content_type, data, .. } = item_info;
 
@@ -381,52 +335,12 @@ impl RoomSendQueue {
 
             let file_media_request = Media::make_local_file_media_request(&upload_file_txn);
 
-            let (upload_thumbnail_txn, event_thumbnail_info, queue_thumbnail_info) = {
-                // Cache the file itself in the cache store.
-                cache_store
-                    .add_media_content(
-                        &file_media_request,
-                        data.clone(),
-                        // Make sure that the file is stored until it has been uploaded.
-                        IgnoreMediaRetentionPolicy::Yes,
-                    )
-                    .await
-                    .map_err(RoomSendQueueStorageError::EventCacheStoreError)?;
-
-                // Process the thumbnail, if it's been provided.
-                if let Some(thumbnail) = item_info.thumbnail {
-                    let txn = TransactionId::new();
-                    trace!(upload_thumbnail_txn = %txn, "gallery item has a thumbnail");
-
-                    // Create the information required for filling the thumbnail section of the
-                    // gallery event.
-                    let (data, content_type, thumbnail_info) = thumbnail.into_parts();
-
-                    // Cache thumbnail in the cache store.
-                    let thumbnail_media_request = Media::make_local_file_media_request(&txn);
-                    cache_store
-                        .add_media_content(
-                            &thumbnail_media_request,
-                            data,
-                            // Make sure that the thumbnail is stored until it has been uploaded.
-                            IgnoreMediaRetentionPolicy::Yes,
-                        )
-                        .await
-                        .map_err(RoomSendQueueStorageError::EventCacheStoreError)?;
-
-                    (
-                        Some(txn.clone()),
-                        Some((thumbnail_media_request.source.clone(), thumbnail_info)),
-                        Some((
-                            FinishUploadThumbnailInfo { txn, width: None, height: None },
-                            thumbnail_media_request,
-                            content_type,
-                        )),
-                    )
-                } else {
-                    Default::default()
-                }
-            };
+            let MediaCacheResult {
+                upload_thumbnail_txn,
+                event_thumbnail_info,
+                queue_thumbnail_info,
+            } = RoomSendQueue::cache_media(&room, data, item_info.thumbnail, &file_media_request)
+                .await?;
 
             item_types.push(Room::make_gallery_item_type(
                 &content_type,
@@ -497,6 +411,68 @@ impl RoomSendQueue {
         }));
 
         Ok(send_handle)
+    }
+
+    async fn cache_media(
+        room: &Room,
+        data: Vec<u8>,
+        thumbnail: Option<Thumbnail>,
+        file_media_request: &MediaRequestParameters,
+    ) -> Result<MediaCacheResult, RoomSendQueueError> {
+        let client = room.client();
+        let cache_store = client
+            .event_cache_store()
+            .lock()
+            .await
+            .map_err(RoomSendQueueStorageError::LockError)?;
+
+        // Cache the file itself in the cache store.
+        cache_store
+            .add_media_content(
+                file_media_request,
+                data,
+                // Make sure that the file is stored until it has been uploaded.
+                IgnoreMediaRetentionPolicy::Yes,
+            )
+            .await
+            .map_err(RoomSendQueueStorageError::EventCacheStoreError)?;
+
+        // Process the thumbnail, if it's been provided.
+        if let Some(thumbnail) = thumbnail {
+            let txn = TransactionId::new();
+            trace!(upload_thumbnail_txn = %txn, "media has a thumbnail");
+
+            // Create the information required for filling the thumbnail section of the
+            // event.
+            let (data, content_type, thumbnail_info) = thumbnail.into_parts();
+
+            // Cache thumbnail in the cache store.
+            let thumbnail_media_request = Media::make_local_file_media_request(&txn);
+            cache_store
+                .add_media_content(
+                    &thumbnail_media_request,
+                    data,
+                    // Make sure that the thumbnail is stored until it has been uploaded.
+                    IgnoreMediaRetentionPolicy::Yes,
+                )
+                .await
+                .map_err(RoomSendQueueStorageError::EventCacheStoreError)?;
+
+            Ok(MediaCacheResult {
+                upload_thumbnail_txn: Some(txn.clone()),
+                event_thumbnail_info: Some((
+                    thumbnail_media_request.source.clone(),
+                    thumbnail_info,
+                )),
+                queue_thumbnail_info: Some((
+                    FinishUploadThumbnailInfo { txn, width: None, height: None },
+                    thumbnail_media_request,
+                    content_type,
+                )),
+            })
+        } else {
+            Ok(Default::default())
+        }
     }
 }
 
