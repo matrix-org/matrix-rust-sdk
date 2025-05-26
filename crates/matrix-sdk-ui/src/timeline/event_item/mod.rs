@@ -817,7 +817,12 @@ mod tests {
 
         let room_id = room_id!("!q:x.uk");
         let user_id = user_id!("@t:o.uk");
-        let event = message_event(room_id, user_id, "**My M**", "<b>My M</b>", 122344);
+        let event = EventFactory::new()
+            .room(room_id)
+            .text_html("**My M**", "<b>My M</b>")
+            .sender(user_id)
+            .server_ts(122344)
+            .into_event();
         let client = logged_in_client(None).await;
 
         // When we construct a timeline event from it
@@ -1014,7 +1019,12 @@ mod tests {
         use ruma::owned_mxc_uri;
         let room_id = room_id!("!q:x.uk");
         let user_id = user_id!("@t:o.uk");
-        let event = message_event(room_id, user_id, "**My M**", "<b>My M</b>", 122344);
+        let event = EventFactory::new()
+            .room(room_id)
+            .text_html("**My M**", "<b>My M</b>")
+            .sender(user_id)
+            .server_ts(122344)
+            .into_event();
         let client = logged_in_client(None).await;
         let mut room = http::response::Room::new();
         room.required_state.push(member_event_as_state_event(
@@ -1059,7 +1069,12 @@ mod tests {
         use ruma::owned_mxc_uri;
         let room_id = room_id!("!q:x.uk");
         let user_id = user_id!("@t:o.uk");
-        let event = message_event(room_id, user_id, "**My M**", "<b>My M</b>", 122344);
+        let event = EventFactory::new()
+            .room(room_id)
+            .text_html("**My M**", "<b>My M</b>")
+            .sender(user_id)
+            .server_ts(122344)
+            .into_event();
         let client = logged_in_client(None).await;
 
         let member_event = MinimalStateEvent::Original(
@@ -1112,8 +1127,9 @@ mod tests {
         let room_id = room_id!("!q:x.uk");
         let user_id = user_id!("@t:o.uk");
         let client = logged_in_client(None).await;
+        let f = EventFactory::new().room(room_id);
 
-        let mut event = message_event(room_id, user_id, "🤷‍♂️ No boost 🤷‍♂️", "", 0);
+        let mut event = f.text_html("🤷‍♂️ No boost 🤷‍♂️", "").sender(user_id).server_ts(0).into_event();
         let mut timeline_item =
             EventTimelineItem::from_latest_event(client.clone(), room_id, LatestEvent::new(event))
                 .await
@@ -1122,7 +1138,7 @@ mod tests {
         assert!(!timeline_item.contains_only_emojis());
 
         // Ignores leading and trailing white spaces
-        event = message_event(room_id, user_id, " 🚀 ", "", 0);
+        event = f.text_html(" 🚀 ", "").sender(user_id).server_ts(0).into_event();
         timeline_item =
             EventTimelineItem::from_latest_event(client.clone(), room_id, LatestEvent::new(event))
                 .await
@@ -1131,7 +1147,7 @@ mod tests {
         assert!(timeline_item.contains_only_emojis());
 
         // Too many
-        event = message_event(room_id, user_id, "👨‍👩‍👦1️⃣🚀👳🏾‍♂️🪩👍👍🏻🫱🏼‍🫲🏾🙂👋", "", 0);
+        event = f.text_html("👨‍👩‍👦1️⃣🚀👳🏾‍♂️🪩👍👍🏻🫱🏼‍🫲🏾🙂👋", "").sender(user_id).server_ts(0).into_event();
         timeline_item =
             EventTimelineItem::from_latest_event(client.clone(), room_id, LatestEvent::new(event))
                 .await
@@ -1140,7 +1156,7 @@ mod tests {
         assert!(!timeline_item.contains_only_emojis());
 
         // Works with combined emojis
-        event = message_event(room_id, user_id, "👨‍👩‍👦1️⃣👳🏾‍♂️👍🏻🫱🏼‍🫲🏾", "", 0);
+        event = f.text_html("👨‍👩‍👦1️⃣👳🏾‍♂️👍🏻🫱🏼‍🫲🏾", "").sender(user_id).server_ts(0).into_event();
         timeline_item =
             EventTimelineItem::from_latest_event(client.clone(), room_id, LatestEvent::new(event))
                 .await
@@ -1179,20 +1195,5 @@ mod tests {
         let mut response = http::Response::new("6".to_owned());
         response.rooms.insert(room_id.to_owned(), room);
         response
-    }
-
-    fn message_event(
-        room_id: &RoomId,
-        user_id: &UserId,
-        body: &str,
-        formatted_body: &str,
-        ts: u64,
-    ) -> TimelineEvent {
-        EventFactory::new()
-            .room(room_id)
-            .text_html(body, formatted_body)
-            .sender(user_id)
-            .server_ts(ts)
-            .into_event()
     }
 }
