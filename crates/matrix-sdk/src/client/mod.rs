@@ -3382,11 +3382,11 @@ pub(crate) mod tests {
 
         assert_next_matches!(
             stream,
-            Some(MediaPreviewConfigEventContent {
+            MediaPreviewConfigEventContent {
                 media_previews: MediaPreviews::Off,
                 invite_avatars: InviteAvatars::On,
                 ..
-            })
+            }
         );
         assert_pending!(stream);
     }
@@ -3433,11 +3433,11 @@ pub(crate) mod tests {
 
         assert_next_matches!(
             stream,
-            Some(MediaPreviewConfigEventContent {
+            MediaPreviewConfigEventContent {
                 media_previews: MediaPreviews::Off,
                 invite_avatars: InviteAvatars::On,
                 ..
-            })
+            }
         );
         assert_pending!(stream);
     }

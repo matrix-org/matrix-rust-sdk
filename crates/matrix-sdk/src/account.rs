@@ -1027,7 +1027,7 @@ impl Account {
     ) -> Result<
         (
             Option<MediaPreviewConfigEventContent>,
-            impl Stream<Item = Option<MediaPreviewConfigEventContent>>,
+            impl Stream<Item = MediaPreviewConfigEventContent>,
         ),
         Error,
     > {
@@ -1037,13 +1037,13 @@ impl Account {
             .client
             .observe_events::<GlobalAccountDataEvent<MediaPreviewConfigEventContent>, ()>();
 
-        let stream = first_observer.subscribe().map(|event| Some(event.0.content));
+        let stream = first_observer.subscribe().map(|event| event.0.content);
 
         let second_observer = self
             .client
             .observe_events::<GlobalAccountDataEvent<UnstableMediaPreviewConfigEventContent>, ()>();
 
-        let second_stream = second_observer.subscribe().map(|event| Some(event.0.content.0));
+        let second_stream = second_observer.subscribe().map(|event| event.0.content.0);
 
         let mut combined_stream = stream::select(stream, second_stream);
 
