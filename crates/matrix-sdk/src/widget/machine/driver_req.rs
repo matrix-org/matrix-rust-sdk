@@ -273,6 +273,7 @@ impl FromMatrixDriverResponse for SendEventResponse {
 
 /// Ask the client to send a to-device message that corresponds to the given
 /// description.
+/// see [MSC4140](https://github.com/matrix-org/matrix-spec-proposals/pull/4140)) as a response.
 #[derive(Clone, Debug, Deserialize)]
 pub(crate) struct SendToDeviceRequest {
     /// The type of the to-device message.
