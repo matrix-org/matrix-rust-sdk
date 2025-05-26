@@ -1155,9 +1155,6 @@ mod tests {
             .avatar_url(avatar_url.into())
             .display_name(display_name)
             .reason("")
-            .event_id(event_id!("$143273582443PhrSn:example.org"))
-            .server_ts(143273583)
-            .age(1234)
             .into_raw_sync()
     }
 
@@ -1203,7 +1200,6 @@ mod tests {
         EventFactory::new()
             .room(room_id)
             .text_html(body, formatted_body)
-            .event_id(event_id!("$eventid6"))
             .sender(user_id)
             .server_ts(ts)
             .into_event()
