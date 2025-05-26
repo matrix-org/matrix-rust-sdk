@@ -1251,50 +1251,43 @@ impl QueueStorage {
         let client = guard.client()?;
         let store = client.state_store();
 
-        let mut last_upload_file_txn: Option<OwnedTransactionId> = None;
-
         let mut finish_item_infos = Vec::with_capacity(item_queue_infos.len());
 
-        if let Some((first, rest)) = item_queue_infos.split_first() {
+        let Some((first, rest)) = item_queue_infos.split_first() else {
+            return Ok(());
+        };
+
+        let GalleryItemQueueInfo { content_type, upload_file_txn, file_media_request, thumbnail } =
+            first;
+
+        let thumbnail_info = self
+            .push_thumbnail_and_media_uploads(
+                store,
+                content_type,
+                send_event_txn.clone(),
+                created_at,
+                upload_file_txn.clone(),
+                file_media_request.clone(),
+                thumbnail.clone(),
+            )
+            .await?;
+
+        finish_item_infos
+            .push(FinishGalleryItemInfo { file_upload: upload_file_txn.clone(), thumbnail_info });
+
+        let mut last_upload_file_txn = upload_file_txn.clone();
+
+        for item_queue_info in rest {
             let GalleryItemQueueInfo {
                 content_type,
                 upload_file_txn,
                 file_media_request,
                 thumbnail,
-            } = first;
+            } = item_queue_info;
 
-            let thumbnail_info = self
-                .push_thumbnail_and_media_uploads(
-                    store,
-                    content_type,
-                    send_event_txn.clone(),
-                    created_at,
-                    upload_file_txn.clone(),
-                    file_media_request.clone(),
-                    thumbnail.clone(),
-                )
-                .await?;
-
-            finish_item_infos.push(FinishGalleryItemInfo {
-                file_upload: upload_file_txn.clone(),
-                thumbnail_info,
-            });
-
-            last_upload_file_txn = Some(upload_file_txn.clone());
-
-            for item_queue_info in rest {
-                let GalleryItemQueueInfo {
-                    content_type,
-                    upload_file_txn,
-                    file_media_request,
-                    thumbnail,
-                } = item_queue_info;
-
-                let thumbnail_info = if let Some((
-                    thumbnail_info,
-                    thumbnail_media_request,
-                    thumbnail_content_type,
-                )) = thumbnail
+            let thumbnail_info =
+                if let Some((thumbnail_info, thumbnail_media_request, thumbnail_content_type)) =
+                    thumbnail
                 {
                     let upload_thumbnail_txn = thumbnail_info.txn.clone();
 
@@ -1303,7 +1296,7 @@ impl QueueStorage {
                     store
                         .save_dependent_queued_request(
                             &self.room_id,
-                            &last_upload_file_txn.unwrap(),
+                            &last_upload_file_txn,
                             upload_thumbnail_txn.clone().into(),
                             created_at,
                             DependentQueuedRequestKind::UploadFileOrThumbnail {
@@ -1315,36 +1308,35 @@ impl QueueStorage {
                         )
                         .await?;
 
-                    last_upload_file_txn = Some(upload_thumbnail_txn);
+                    last_upload_file_txn = upload_thumbnail_txn;
 
                     Some(thumbnail_info)
                 } else {
                     None
                 };
 
-                // Save the file upload as a dependent request of the previous upload.
-                store
-                    .save_dependent_queued_request(
-                        &self.room_id,
-                        &last_upload_file_txn.unwrap(),
-                        upload_file_txn.clone().into(),
-                        created_at,
-                        DependentQueuedRequestKind::UploadFileOrThumbnail {
-                            content_type: content_type.to_string(),
-                            cache_key: file_media_request.clone(),
-                            related_to: send_event_txn.clone(),
-                            parent_is_thumbnail_upload: thumbnail.is_some(),
-                        },
-                    )
-                    .await?;
+            // Save the file upload as a dependent request of the previous upload.
+            store
+                .save_dependent_queued_request(
+                    &self.room_id,
+                    &last_upload_file_txn,
+                    upload_file_txn.clone().into(),
+                    created_at,
+                    DependentQueuedRequestKind::UploadFileOrThumbnail {
+                        content_type: content_type.to_string(),
+                        cache_key: file_media_request.clone(),
+                        related_to: send_event_txn.clone(),
+                        parent_is_thumbnail_upload: thumbnail.is_some(),
+                    },
+                )
+                .await?;
 
-                finish_item_infos.push(FinishGalleryItemInfo {
-                    file_upload: upload_file_txn.clone(),
-                    thumbnail_info: thumbnail_info.cloned(),
-                });
+            finish_item_infos.push(FinishGalleryItemInfo {
+                file_upload: upload_file_txn.clone(),
+                thumbnail_info: thumbnail_info.cloned(),
+            });
 
-                last_upload_file_txn = Some(upload_file_txn.clone());
-            }
+            last_upload_file_txn = upload_file_txn.clone();
         }
 
         // Push the request for the event itself as a dependent request of the last file
@@ -1352,7 +1344,7 @@ impl QueueStorage {
         store
             .save_dependent_queued_request(
                 &self.room_id,
-                &last_upload_file_txn.unwrap(),
+                &last_upload_file_txn,
                 send_event_txn.into(),
                 created_at,
                 DependentQueuedRequestKind::FinishGallery {
