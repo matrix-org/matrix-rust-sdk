@@ -693,7 +693,7 @@ impl NotificationClient {
                     match notification_result {
                         Ok(notification_status) => match notification_status {
                             NotificationStatus::Event(event) => {
-                                if self.client.is_user_ignored(event.event.sender()) {
+                                if self.client.is_user_ignored(event.event.sender()).await {
                                     result.add_notification(
                                         event_id,
                                         NotificationStatus::EventFilteredOut,
@@ -768,7 +768,7 @@ impl NotificationClient {
         )
         .await?;
 
-        if self.client.is_user_ignored(notification_item.event.sender()) {
+        if self.client.is_user_ignored(notification_item.event.sender()).await {
             Ok(None)
         } else {
             Ok(Some(notification_item))
