@@ -22,6 +22,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
+use js_int::UInt;
 use matrix_sdk_base::deserialized_responses::TimelineEvent;
 use matrix_sdk_test::{
     test_json, InvitedRoomBuilder, JoinedRoomBuilder, KnockedRoomBuilder, LeftRoomBuilder,
@@ -1142,6 +1143,15 @@ impl MatrixMockServer {
             "^/_matrix/client/v3/user/.*/rooms/.*/account_data/{data_type}"
         )));
         self.mock_endpoint(mock, RoomAccountDataEndpoint).expect_default_access_token()
+    }
+
+    /// Create a prebuilt mock for the endpoint used to get the media config of
+    /// the homeserver.
+    pub fn mock_authenticated_media_config(
+        &self,
+    ) -> MockEndpoint<'_, AuthenticatedMediaConfigEndpoint> {
+        let mock = Mock::given(method("GET")).and(path("/_matrix/client/v1/media/config"));
+        self.mock_endpoint(mock, AuthenticatedMediaConfigEndpoint).expect_default_access_token()
     }
 }
 
@@ -3001,5 +3011,17 @@ impl<'a> MockEndpoint<'a, RoomAccountDataEndpoint> {
     /// Returns a successful empty response.
     pub fn ok(self) -> MatrixMock<'a> {
         self.respond_with(ResponseTemplate::new(200).set_body_json(json!({})))
+    }
+}
+
+/// A prebuilt mock for `GET /_matrix/client/v1/media/config` request.
+pub struct AuthenticatedMediaConfigEndpoint;
+
+impl<'a> MockEndpoint<'a, AuthenticatedMediaConfigEndpoint> {
+    /// Returns a successful response with the provided max upload size.
+    pub fn ok(self, max_upload_size: UInt) -> MatrixMock<'a> {
+        self.respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "m.upload.size": max_upload_size,
+        })))
     }
 }
