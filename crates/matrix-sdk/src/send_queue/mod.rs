@@ -2169,7 +2169,7 @@ pub enum RoomSendQueueUpdate {
         is_thumbnail: bool,
     },
 
-    /// A media has been successfully uploaded.
+    /// A media upload has made progress.
     MediaUploadProgress {
         /// The media event this uploaded media relates to.
         related_to: OwnedTransactionId,
