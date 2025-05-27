@@ -99,7 +99,6 @@ pub struct SuccessorRoom {
 /// To know the predecessor of a room, the [`m.room.create`] state event must
 /// have been received.
 ///
-/// [`m.room.tombstone`]: https://spec.matrix.org/v1.14/client-server-api/#mroomtombstone
 /// [`m.room.create`]: https://spec.matrix.org/v1.14/client-server-api/#mroomcreate
 #[derive(Debug)]
 pub struct PredecessorRoom {
