@@ -784,9 +784,11 @@ impl RoomSendQueue {
                         let mut req = client
                             .upload_encrypted_file(&mut cursor)
                             .with_request_config(RequestConfig::short_retry());
+
                         if let Some(watcher) = progress_watcher {
                             req = req.with_send_progress_observable(watcher);
                         };
+
                         let encrypted_file = req.await?;
                         MediaSource::Encrypted(Box::new(encrypted_file))
                     } else {
