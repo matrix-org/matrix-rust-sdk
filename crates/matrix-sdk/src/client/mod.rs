@@ -3361,6 +3361,7 @@ pub(crate) mod tests {
         let (initial_value, stream) =
             client.account().observe_media_preview_config().await.unwrap();
 
+        let initial_value: MediaPreviewConfigEventContent = initial_value.unwrap();
         assert_eq!(initial_value.invite_avatars, InviteAvatars::Off);
         assert_eq!(initial_value.media_previews, MediaPreviews::Private);
         pin_mut!(stream);
@@ -3411,6 +3412,7 @@ pub(crate) mod tests {
         let (initial_value, stream) =
             client.account().observe_media_preview_config().await.unwrap();
 
+        let initial_value: MediaPreviewConfigEventContent = initial_value.unwrap();
         assert_eq!(initial_value.invite_avatars, InviteAvatars::Off);
         assert_eq!(initial_value.media_previews, MediaPreviews::Private);
         pin_mut!(stream);
@@ -3447,7 +3449,6 @@ pub(crate) mod tests {
 
         let (initial_value, _) = client.account().observe_media_preview_config().await.unwrap();
 
-        assert_eq!(initial_value.invite_avatars, InviteAvatars::On);
-        assert_eq!(initial_value.media_previews, MediaPreviews::On);
+        assert!(initial_value.is_none());
     }
 }

@@ -1495,11 +1495,11 @@ impl Client {
         let (initial_value, stream) = self.inner.account().observe_media_preview_config().await?;
         Ok(Arc::new(TaskHandle::new(get_runtime_handle().spawn(async move {
             // Send the initial value to the listener.
-            listener.on_change(initial_value.into());
+            listener.on_change(initial_value.map(|config| config.into()));
             // Listen for changes and notify the listener.
             pin_mut!(stream);
             while let Some(media_preview_config) = stream.next().await {
-                listener.on_change(media_preview_config.into());
+                listener.on_change(Some(media_preview_config.into()));
             }
         }))))
     }
@@ -1515,9 +1515,14 @@ impl Client {
 
     /// Get the media previews timeline display policy
     /// currently stored in the cache.
-    pub async fn get_media_preview_display_policy(&self) -> Result<MediaPreviews, ClientError> {
+    pub async fn get_media_preview_display_policy(
+        &self,
+    ) -> Result<Option<MediaPreviews>, ClientError> {
         let configuration = self.inner.account().get_media_preview_config_event_content().await?;
-        Ok(configuration.media_previews.into())
+        match configuration {
+            Some(configuration) => Ok(Some(configuration.media_previews.into())),
+            None => Ok(None),
+        }
     }
 
     /// Set the invite request avatars display policy
@@ -1531,15 +1536,27 @@ impl Client {
 
     /// Get the invite request avatars display policy
     /// currently stored in the cache.
-    pub async fn get_invite_avatars_display_policy(&self) -> Result<InviteAvatars, ClientError> {
+    pub async fn get_invite_avatars_display_policy(
+        &self,
+    ) -> Result<Option<InviteAvatars>, ClientError> {
         let configuration = self.inner.account().get_media_preview_config_event_content().await?;
-        Ok(configuration.invite_avatars.into())
+        match configuration {
+            Some(configuration) => Ok(Some(configuration.invite_avatars.into())),
+            None => Ok(None),
+        }
+    }
+
+    /// Fetch the media preview configuration from the server.
+    pub async fn fetch_media_preview_config(
+        &self,
+    ) -> Result<Option<MediaPreviewConfig>, ClientError> {
+        Ok(self.inner.account().fetch_media_preview_config_event_content().await?.map(Into::into))
     }
 }
 
 #[matrix_sdk_ffi_macros::export(callback_interface)]
 pub trait MediaPreviewConfigListener: Sync + Send {
-    fn on_change(&self, media_preview_config: MediaPreviewConfig);
+    fn on_change(&self, media_preview_config: Option<MediaPreviewConfig>);
 }
 
 #[matrix_sdk_ffi_macros::export(callback_interface)]
