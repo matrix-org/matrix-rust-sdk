@@ -89,6 +89,7 @@ use crate::{
         EventHandlerStore, ObservableEventHandler, SyncEvent,
     },
     http_client::HttpClient,
+    media::MediaError,
     notification_settings::NotificationSettings,
     room_preview::RoomPreview,
     send_queue::SendQueueData,
@@ -336,6 +337,10 @@ pub(crate) struct ClientInner {
     ///
     /// [`SendQueue`]: crate::send_queue::SendQueue
     pub(crate) send_queue_data: Arc<SendQueueData>,
+
+    /// The `max_upload_size` value of the homeserver, it contains the max
+    /// request size you can send.
+    pub(crate) server_max_upload_size: Mutex<OnceCell<UInt>>,
 }
 
 impl ClientInner {
@@ -392,6 +397,7 @@ impl ClientInner {
             verification_state: SharedObservable::new(VerificationState::Unknown),
             #[cfg(feature = "e2e-encryption")]
             enable_share_history_on_invite,
+            server_max_upload_size: Mutex::new(OnceCell::new()),
         };
 
         #[allow(clippy::let_and_return)]
@@ -2558,6 +2564,27 @@ impl Client {
     pub async fn is_user_ignored(&self, user_id: &UserId) -> bool {
         self.base_client().is_user_ignored(user_id).await
     }
+
+    /// Gets the `max_upload_size` value from the homeserver, getting either a
+    /// cached value or with a `/_matrix/client/v1/media/config` request if it's
+    /// missing.
+    pub async fn load_or_fetch_max_upload_size(&self) -> Result<UInt> {
+        let max_upload_size_lock = self.inner.server_max_upload_size.lock().await;
+        if let Some(data) = max_upload_size_lock.get() {
+            return Ok(data.to_owned());
+        }
+
+        let response = self
+            .send(ruma::api::client::authenticated_media::get_media_config::v1::Request::default())
+            .await?;
+
+        match max_upload_size_lock.set(response.upload_size) {
+            Ok(_) => Ok(response.upload_size),
+            Err(error) => {
+                Err(Error::Media(MediaError::FetchMaxUploadSizeFailed(error.to_string())))
+            }
+        }
+    }
 }
 
 /// A weak reference to the inner client, useful when trying to get a handle
@@ -2606,7 +2633,10 @@ pub(crate) mod tests {
     use std::{sync::Arc, time::Duration};
 
     use assert_matches::assert_matches;
+    use assert_matches2::assert_let;
+    use eyeball::SharedObservable;
     use futures_util::{pin_mut, FutureExt};
+    use js_int::{uint, UInt};
     use matrix_sdk_base::{
         store::{MemoryStore, StoreConfig},
         RoomState,
@@ -2641,13 +2671,15 @@ pub(crate) mod tests {
 
     use super::Client;
     use crate::{
-        client::WeakClient,
+        client::{futures::SendMediaUploadRequest, WeakClient},
         config::{RequestConfig, SyncSettings},
+        futures::SendRequest,
+        media::MediaError,
         test_utils::{
             logged_in_client, mocks::MatrixMockServer, no_retry_test_client, set_client_session,
             test_client_builder, test_client_builder_with_server,
         },
-        Error,
+        Error, TransmissionProgress,
     };
 
     #[async_test]
@@ -3462,5 +3494,44 @@ pub(crate) mod tests {
         let (initial_value, _) = client.account().observe_media_preview_config().await.unwrap();
 
         assert!(initial_value.is_none());
+    }
+
+    #[async_test]
+    async fn test_load_or_fetch_max_upload_size() {
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+
+        assert!(!client.inner.server_max_upload_size.lock().await.initialized());
+
+        server.mock_authenticated_media_config().ok(uint!(2)).mock_once().mount().await;
+        client.load_or_fetch_max_upload_size().await.unwrap();
+
+        assert_eq!(*client.inner.server_max_upload_size.lock().await.get().unwrap(), uint!(2));
+    }
+
+    #[async_test]
+    async fn test_uploading_a_too_large_media_file() {
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+
+        server.mock_authenticated_media_config().ok(uint!(1)).mock_once().mount().await;
+        client.load_or_fetch_max_upload_size().await.unwrap();
+        assert_eq!(*client.inner.server_max_upload_size.lock().await.get().unwrap(), uint!(1));
+
+        let data = vec![1, 2];
+        let upload_request =
+            ruma::api::client::media::create_content::v3::Request::new(data.clone());
+        let request = SendRequest {
+            client: client.clone(),
+            request: upload_request,
+            config: None,
+            send_progress: SharedObservable::new(TransmissionProgress::default()),
+        };
+        let media_request = SendMediaUploadRequest::new(request);
+
+        let error = media_request.await.err();
+        assert_let!(Some(Error::Media(MediaError::MediaTooLargeToUpload { max, current })) = error);
+        assert_eq!(max, uint!(1));
+        assert_eq!(current, UInt::new_wrapping(data.len() as u64));
     }
 }
