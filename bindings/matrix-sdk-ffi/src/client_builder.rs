@@ -568,14 +568,16 @@ impl ClientBuilder {
                 inner_builder.cross_process_store_locks_holder_name(holder_name.clone());
         }
 
-        if let Some(session_paths) = &builder.session_paths {
+        let store_path = if let Some(session_paths) = &builder.session_paths {
+            // This is the path where both the state store and the crypto store will live.
             let data_path = Path::new(&session_paths.data_path);
+            // This is the path where the event cache store will live.
             let cache_path = Path::new(&session_paths.cache_path);
 
             debug!(
                 data_path = %data_path.to_string_lossy(),
-                cache_path = %cache_path.to_string_lossy(),
-                "Creating directories for data and cache stores.",
+                event_cache_path = %cache_path.to_string_lossy(),
+                "Creating directories for data (state and crypto) and cache stores.",
             );
 
             fs::create_dir_all(data_path)?;
@@ -604,9 +606,12 @@ impl ClientBuilder {
 
             inner_builder = inner_builder
                 .sqlite_store_with_config_and_cache_path(sqlite_store_config, Some(cache_path));
+
+            Some(data_path.to_owned())
         } else {
             debug!("Not using a store path.");
-        }
+            None
+        };
 
         // Determine server either from URL, server name or user ID.
         inner_builder = match builder.homeserver_cfg {
@@ -718,8 +723,13 @@ impl ClientBuilder {
         let sdk_client = inner_builder.build().await?;
 
         Ok(Arc::new(
-            Client::new(sdk_client, builder.enable_oidc_refresh_lock, builder.session_delegate)
-                .await?,
+            Client::new(
+                sdk_client,
+                builder.enable_oidc_refresh_lock,
+                builder.session_delegate,
+                store_path,
+            )
+            .await?,
         ))
     }
 

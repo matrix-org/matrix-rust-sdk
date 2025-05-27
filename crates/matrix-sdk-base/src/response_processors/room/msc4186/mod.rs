@@ -15,6 +15,8 @@
 pub mod extensions;
 
 use std::collections::BTreeMap;
+#[cfg(feature = "e2e-encryption")]
+use std::collections::BTreeSet;
 
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk_common::deserialized_responses::TimelineEvent;
@@ -104,12 +106,18 @@ pub async fn update_any_room(
     room_info.mark_state_partially_synced();
     room_info.handle_encryption_state(requested_required_states.for_room(room_id));
 
-    #[cfg_attr(not(feature = "e2e-encryption"), allow(unused))]
-    let new_user_ids = state_events::sync::dispatch_and_get_new_users(
+    #[cfg(feature = "e2e-encryption")]
+    let mut new_user_ids = BTreeSet::new();
+
+    #[cfg(not(feature = "e2e-encryption"))]
+    let mut new_user_ids = ();
+
+    state_events::sync::dispatch(
         context,
         (&raw_state_events, &state_events),
         &mut room_info,
         ambiguity_cache,
+        &mut new_user_ids,
     )
     .await?;
 

@@ -33,7 +33,7 @@ use matrix_sdk::{
 };
 use matrix_sdk_ui::timeline::{
     self, AttachmentSource, EventItemOrigin, EventSendProgress as SdkEventSendProgress, Profile,
-    RepliedToEvent, TimelineDetails, TimelineUniqueId as SdkTimelineUniqueId,
+    TimelineDetails, TimelineUniqueId as SdkTimelineUniqueId,
 };
 use mime::Mime;
 use reply::{InReplyToDetails, RepliedToEventDetails};

@@ -64,7 +64,8 @@ mod keys {
     pub const DEPENDENTS_SEND_QUEUE: &str = "dependent_send_queue_events";
 }
 
-const DATABASE_NAME: &str = "matrix-sdk-state.sqlite3";
+/// The filename used for the SQLITE database file used by the state store.
+pub const DATABASE_NAME: &str = "matrix-sdk-state.sqlite3";
 
 /// Identifier of the latest database version.
 ///

@@ -61,7 +61,7 @@ docsrs = ["e2e-encryption", "sqlite", "indexeddb", "sso-login", "qrcode"]
 experimental-share-history-on-invite = []
 
 # Add support for inline media galleries via msgtypes
-unstable-msc4274 = ["matrix-sdk-base/unstable-msc4274"]
+unstable-msc4274 = ["ruma/unstable-msc4274", "matrix-sdk-base/unstable-msc4274"]
 
 [dependencies]
 anyhow = { workspace = true, optional = true }

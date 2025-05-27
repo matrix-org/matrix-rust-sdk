@@ -37,7 +37,7 @@ pub use self::error::OpenStoreError;
 #[cfg(feature = "event-cache")]
 pub use self::event_cache_store::SqliteEventCacheStore;
 #[cfg(feature = "state-store")]
-pub use self::state_store::SqliteStateStore;
+pub use self::state_store::{SqliteStateStore, DATABASE_NAME as STATE_STORE_DATABASE_NAME};
 
 #[cfg(test)]
 matrix_sdk_test::init_tracing_for_tests!();
