@@ -24,7 +24,7 @@ pub mod sync {
 
     use ruma::{
         events::{room::member::MembershipState, AnySyncTimelineEvent},
-        OwnedUserId,
+        OwnedUserId, UserId,
     };
     use tracing::instrument;
 
@@ -57,25 +57,23 @@ pub mod sync {
         }))
     }
 
-    /// Dispatch the sync state events and return the new users for this room.
+    /// Dispatch the sync state events.
     ///
     /// `raw_events` and `events` must be generated from [`collect`].
     /// Events must be exactly the same list of events that are in
     /// `raw_events`, but deserialised. We demand them here to avoid
     /// deserialising multiple times.
+    ///
+    /// The `new_users` mutable reference allows to collect the new users for
+    /// this room.
     #[instrument(skip_all, fields(room_id = ?room_info.room_id))]
-    pub async fn dispatch_and_get_new_users(
+    pub async fn dispatch<U: NewUsers>(
         context: &mut Context,
         (raw_events, events): (&[Raw<AnySyncStateEvent>], &[AnySyncStateEvent]),
         room_info: &mut RoomInfo,
         ambiguity_cache: &mut AmbiguityCache,
-    ) -> StoreResult<BTreeSet<OwnedUserId>> {
-        let mut user_ids = BTreeSet::new();
-
-        if raw_events.is_empty() {
-            return Ok(user_ids);
-        }
-
+        new_users: &mut U,
+    ) -> StoreResult<()> {
         for (raw_event, event) in iter::zip(raw_events, events) {
             room_info.handle_state_event(event);
 
@@ -86,7 +84,7 @@ pub mod sync {
 
                 match member.membership() {
                     MembershipState::Join | MembershipState::Invite => {
-                        user_ids.insert(member.state_key().to_owned());
+                        new_users.insert(member.state_key());
                     }
                     _ => (),
                 }
@@ -104,7 +102,23 @@ pub mod sync {
                 .insert(event.state_key().to_owned(), raw_event.clone());
         }
 
-        Ok(user_ids)
+        Ok(())
+    }
+
+    /// A trait to collect new users in [`dispatch`].
+    trait NewUsers {
+        /// Insert a new user in the collection of new users.
+        fn insert(&mut self, user_id: &UserId);
+    }
+
+    impl NewUsers for BTreeSet<OwnedUserId> {
+        fn insert(&mut self, user_id: &UserId) {
+            self.insert(user_id.to_owned());
+        }
+    }
+
+    impl NewUsers for () {
+        fn insert(&mut self, _user_id: &UserId) {}
     }
 }
 

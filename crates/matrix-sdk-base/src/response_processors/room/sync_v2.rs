@@ -63,11 +63,14 @@ pub async fn update_joined_room(
 
     let (raw_state_events, state_events) = state_events::sync::collect(&joined_room.state.events);
 
-    let mut new_user_ids = state_events::sync::dispatch_and_get_new_users(
+    let mut new_user_ids = BTreeSet::new();
+
+    state_events::sync::dispatch(
         context,
         (&raw_state_events, &state_events),
         &mut room_info,
         ambiguity_cache,
+        &mut new_user_ids,
     )
     .await?;
 
@@ -80,14 +83,15 @@ pub async fn update_joined_room(
     let (raw_state_events_from_timeline, state_events_from_timeline) =
         state_events::sync::collect_from_timeline(&joined_room.timeline.events);
 
-    let mut other_new_user_ids = state_events::sync::dispatch_and_get_new_users(
+    state_events::sync::dispatch(
         context,
         (&raw_state_events_from_timeline, &state_events_from_timeline),
         &mut room_info,
         ambiguity_cache,
+        &mut new_user_ids,
     )
     .await?;
-    new_user_ids.append(&mut other_new_user_ids);
+
     updated_members_in_room.insert(room_id.to_owned(), new_user_ids.clone());
 
     #[cfg(feature = "e2e-encryption")]
@@ -175,22 +179,24 @@ pub async fn update_left_room(
 
     let (raw_state_events, state_events) = state_events::sync::collect(&left_room.state.events);
 
-    let _ = state_events::sync::dispatch_and_get_new_users(
+    state_events::sync::dispatch(
         context,
         (&raw_state_events, &state_events),
         &mut room_info,
         ambiguity_cache,
+        &mut (),
     )
     .await?;
 
     let (raw_state_events_from_timeline, state_events_from_timeline) =
         state_events::sync::collect_from_timeline(&left_room.timeline.events);
 
-    let _ = state_events::sync::dispatch_and_get_new_users(
+    state_events::sync::dispatch(
         context,
         (&raw_state_events_from_timeline, &state_events_from_timeline),
         &mut room_info,
         ambiguity_cache,
+        &mut (),
     )
     .await?;
 
