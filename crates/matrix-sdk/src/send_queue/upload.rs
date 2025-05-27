@@ -304,7 +304,7 @@ impl RoomSendQueue {
     #[instrument(skip_all, fields(event_txn))]
     pub async fn send_gallery(
         &self,
-        config: GalleryConfig,
+        gallery: GalleryConfig,
     ) -> Result<SendHandle, RoomSendQueueError> {
         let Some(room) = self.inner.room.get() else {
             return Err(RoomSendQueueError::RoomDisappeared);
@@ -314,19 +314,20 @@ impl RoomSendQueue {
             return Err(RoomSendQueueError::RoomNotJoined);
         }
 
-        if config.is_empty() {
+        if gallery.is_empty() {
             return Err(RoomSendQueueError::EmptyGallery);
         }
 
-        let send_event_txn = config.txn_id.clone().map_or_else(ChildTransactionId::new, Into::into);
+        let send_event_txn =
+            gallery.txn_id.clone().map_or_else(ChildTransactionId::new, Into::into);
 
         Span::current().record("event_txn", tracing::field::display(&*send_event_txn));
 
-        let mut item_types = Vec::with_capacity(config.len());
-        let mut item_queue_infos = Vec::with_capacity(config.len());
-        let mut media_handles = Vec::with_capacity(config.len());
+        let mut item_types = Vec::with_capacity(gallery.len());
+        let mut item_queue_infos = Vec::with_capacity(gallery.len());
+        let mut media_handles = Vec::with_capacity(gallery.len());
 
-        for item_info in config.items {
+        for item_info in gallery.items {
             let GalleryItemInfo { filename, content_type, data, .. } = item_info;
 
             let upload_file_txn = TransactionId::new();
@@ -366,12 +367,12 @@ impl RoomSendQueue {
         let event_content = room
             .make_media_event(
                 MessageType::Gallery(GalleryMessageEventContent::new(
-                    config.caption.unwrap_or_default(),
-                    config.formatted_caption,
+                    gallery.caption.unwrap_or_default(),
+                    gallery.formatted_caption,
                     item_types,
                 )),
-                config.mentions,
-                config.reply,
+                gallery.mentions,
+                gallery.reply,
             )
             .await
             .map_err(|_| RoomSendQueueError::FailedToCreateGallery)?;

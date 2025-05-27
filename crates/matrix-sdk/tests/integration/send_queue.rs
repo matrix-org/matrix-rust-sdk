@@ -2104,7 +2104,7 @@ async fn test_gallery_uploads() {
 
     let transaction_id = TransactionId::new();
     let mentions = Mentions::with_user_ids([owned_user_id!("@ivan:sdk.rs")]);
-    let config = GalleryConfig::new()
+    let gallery = GalleryConfig::new()
         .txn_id(transaction_id.clone())
         .add_item(GalleryItemInfo {
             attachment_info: attachment_info1,
@@ -2171,7 +2171,7 @@ async fn test_gallery_uploads() {
     // ----------------------
     // Send the media.
     assert!(watch.is_empty());
-    q.send_gallery(config).await.expect("queuing the gallery works");
+    q.send_gallery(gallery).await.expect("queuing the gallery works");
 
     // ----------------------
     // Observe the local echo.
