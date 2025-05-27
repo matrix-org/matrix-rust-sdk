@@ -23,8 +23,11 @@ pub mod sync {
     use std::{collections::BTreeSet, iter};
 
     use ruma::{
-        events::{room::member::MembershipState, AnySyncTimelineEvent},
-        OwnedUserId, UserId,
+        events::{
+            room::member::{MembershipState, RoomMemberEventContent},
+            AnySyncTimelineEvent, SyncStateEvent,
+        },
+        OwnedUserId, RoomId, UserId,
     };
     use tracing::instrument;
 
@@ -67,29 +70,28 @@ pub mod sync {
     /// The `new_users` mutable reference allows to collect the new users for
     /// this room.
     #[instrument(skip_all, fields(room_id = ?room_info.room_id))]
-    pub async fn dispatch<U: NewUsers>(
+    pub async fn dispatch<U>(
         context: &mut Context,
         (raw_events, events): (&[Raw<AnySyncStateEvent>], &[AnySyncStateEvent]),
         room_info: &mut RoomInfo,
         ambiguity_cache: &mut AmbiguityCache,
         new_users: &mut U,
-    ) -> StoreResult<()> {
+    ) -> StoreResult<()>
+    where
+        U: NewUsers,
+    {
         for (raw_event, event) in iter::zip(raw_events, events) {
             room_info.handle_state_event(event);
 
             if let AnySyncStateEvent::RoomMember(member) = event {
-                ambiguity_cache
-                    .handle_event(&context.state_changes, &room_info.room_id, member)
-                    .await?;
-
-                match member.membership() {
-                    MembershipState::Join | MembershipState::Invite => {
-                        new_users.insert(member.state_key());
-                    }
-                    _ => (),
-                }
-
-                profiles::upsert_or_delete(context, &room_info.room_id, member);
+                dispatch_room_member(
+                    context,
+                    &room_info.room_id,
+                    member,
+                    ambiguity_cache,
+                    new_users,
+                )
+                .await?;
             }
 
             context
@@ -101,6 +103,31 @@ pub mod sync {
                 .or_default()
                 .insert(event.state_key().to_owned(), raw_event.clone());
         }
+
+        Ok(())
+    }
+
+    /// Dispatch a [`RoomMemberEventContent>`] state event.
+    async fn dispatch_room_member<U>(
+        context: &mut Context,
+        room_id: &RoomId,
+        event: &SyncStateEvent<RoomMemberEventContent>,
+        ambiguity_cache: &mut AmbiguityCache,
+        new_users: &mut U,
+    ) -> StoreResult<()>
+    where
+        U: NewUsers,
+    {
+        ambiguity_cache.handle_event(&context.state_changes, room_id, event).await?;
+
+        match event.membership() {
+            MembershipState::Join | MembershipState::Invite => {
+                new_users.insert(event.state_key());
+            }
+            _ => (),
+        }
+
+        profiles::upsert_or_delete(context, room_id, event);
 
         Ok(())
     }
