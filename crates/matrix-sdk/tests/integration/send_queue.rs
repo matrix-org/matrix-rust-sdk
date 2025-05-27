@@ -2568,6 +2568,47 @@ async fn test_media_upload_retry() {
 }
 
 #[async_test]
+async fn test_media_upload_retry_with_520_http_status_code() {
+    let mock = MatrixMockServer::new().await;
+
+    // Mark the room as joined.
+    let room_id = room_id!("!a:b.c");
+    let client = mock.client_builder().build().await;
+    let room = mock.sync_joined_room(&client, room_id).await;
+
+    let q = room.send_queue();
+    let (local_echoes, mut watch) = q.subscribe().await.unwrap();
+    assert!(local_echoes.is_empty());
+
+    // Prepare endpoints.
+    mock.mock_room_state_encryption().plain().mount().await;
+
+    // Fail with a 520 http status code
+    mock.mock_upload()
+        .expect_mime_type("image/jpeg")
+        .respond_with(ResponseTemplate::new(520).set_body_json(json!({})))
+        .up_to_n_times(1)
+        .expect(1)
+        .mount()
+        .await;
+
+    // Send the media.
+    assert!(watch.is_empty());
+    let (_handle, filename) = queue_attachment_no_thumbnail(&q).await;
+
+    // Observe the local echo.
+    let (event_txn, _send_handle, content) = assert_update!(watch => local echo event);
+    assert_let!(MessageType::Image(img_content) = content.msgtype);
+    assert_eq!(img_content.body, filename);
+
+    // Let the upload stumble and the queue disable itself.
+    let error = assert_update!(watch => error { recoverable=false, txn=event_txn });
+    let error = error.as_client_api_error().unwrap();
+    assert_eq!(error.status_code, 520);
+    assert!(q.is_enabled().not());
+}
+
+#[async_test]
 async fn test_unwedging_media_upload() {
     let mock = MatrixMockServer::new().await;
 
