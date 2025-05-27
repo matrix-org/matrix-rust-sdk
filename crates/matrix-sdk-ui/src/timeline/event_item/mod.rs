@@ -1120,9 +1120,9 @@ mod tests {
         let room_id = room_id!("!q:x.uk");
         let user_id = user_id!("@t:o.uk");
         let client = logged_in_client(None).await;
-        let f = EventFactory::new().room(room_id);
+        let f = EventFactory::new().room(room_id).sender(user_id);
 
-        let mut event = f.text_html("🤷‍♂️ No boost 🤷‍♂️", "").sender(user_id).into_event();
+        let mut event = f.text_html("🤷‍♂️ No boost 🤷‍♂️", "").into_event();
         let mut timeline_item =
             EventTimelineItem::from_latest_event(client.clone(), room_id, LatestEvent::new(event))
                 .await
@@ -1131,7 +1131,7 @@ mod tests {
         assert!(!timeline_item.contains_only_emojis());
 
         // Ignores leading and trailing white spaces
-        event = f.text_html(" 🚀 ", "").sender(user_id).into_event();
+        event = f.text_html(" 🚀 ", "").into_event();
         timeline_item =
             EventTimelineItem::from_latest_event(client.clone(), room_id, LatestEvent::new(event))
                 .await
@@ -1140,7 +1140,7 @@ mod tests {
         assert!(timeline_item.contains_only_emojis());
 
         // Too many
-        event = f.text_html("👨‍👩‍👦1️⃣🚀👳🏾‍♂️🪩👍👍🏻🫱🏼‍🫲🏾🙂👋", "").sender(user_id).into_event();
+        event = f.text_html("👨‍👩‍👦1️⃣🚀👳🏾‍♂️🪩👍👍🏻🫱🏼‍🫲🏾🙂👋", "").into_event();
         timeline_item =
             EventTimelineItem::from_latest_event(client.clone(), room_id, LatestEvent::new(event))
                 .await
@@ -1149,7 +1149,7 @@ mod tests {
         assert!(!timeline_item.contains_only_emojis());
 
         // Works with combined emojis
-        event = f.text_html("👨‍👩‍👦1️⃣👳🏾‍♂️👍🏻🫱🏼‍🫲🏾", "").sender(user_id).into_event();
+        event = f.text_html("👨‍👩‍👦1️⃣👳🏾‍♂️👍🏻🫱🏼‍🫲🏾", "").into_event();
         timeline_item =
             EventTimelineItem::from_latest_event(client.clone(), room_id, LatestEvent::new(event))
                 .await
