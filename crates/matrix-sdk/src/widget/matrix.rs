@@ -40,13 +40,10 @@ use tokio::sync::{
     broadcast::{error::RecvError, Receiver},
     mpsc::{unbounded_channel, UnboundedReceiver},
 };
-use tracing::error;
+use tracing::{error, warn, trace};
 
 use super::{machine::SendEventResponse, StateKeySelector};
-use crate::{
-    event_handler::EventHandlerDropGuard, room::MessagesOptions, sync::RoomUpdate, Error, Result,
-    Room,
-};
+use crate::{event_handler::EventHandlerDropGuard, room::MessagesOptions, sync::RoomUpdate, Client, Error, Result, Room};
 
 /// Thin wrapper around a [`Room`] that provides functionality relevant for
 /// widgets.
@@ -235,19 +232,85 @@ impl MatrixDriver {
     pub(crate) fn to_device_events(&self) -> EventReceiver<Raw<AnyToDeviceEvent>> {
         let (tx, rx) = unbounded_channel();
 
+        let room_id = self.room.room_id().to_owned();
         let to_device_handle = self.room.client().add_event_handler(
-            // TODO: encryption support for to-device is not yet supported. Needs an Olm
-            // EncryptionInfo. The widgetAPI expects a boolean `encrypted` to be added
-            // (!) to the raw content to know if the to-device message was encrypted or
-            // not (as per MSC3819).
-            move |raw: Raw<AnyToDeviceEvent>, _: Option<EncryptionInfo>| {
-                let _ = tx.send(raw);
-                async {}
+
+            async move |raw: Raw<AnyToDeviceEvent>, encryption_info: Option<EncryptionInfo>, client: Client| {
+
+                // Some to-device traffic is used by the sdk for internal machinery.
+                // They should not be exposed to widgets.
+                if Self::should_filter_message_to_widget(&raw) {
+                    trace!("Internal or UTD to-device message filtered out by widget driver.");
+                    return;
+                }
+
+                // Encryption can be enabled after the widget has been instantiated,
+                // we want to keep track of the latest status
+                let Some(room) = client.get_room(&room_id) else {
+                    warn!("Room {} not found in client.", room_id);
+                    return;
+                };
+
+                // Or should I use room.encryption_settings()?
+                let room_encrypted = room.latest_encryption_state().await
+                    .map(|s| s.is_encrypted())
+                    // Default consider encrypted
+                    .unwrap_or(true);
+                if room_encrypted {
+                    // The room is encrypted so the to-device traffic should be too.
+                    if encryption_info.is_none() {
+                        warn!(
+                            ?room_id,
+                            "Received to-device event in clear for a widget in an e2e room, dropping."
+                        );
+                        return;
+                    };
+
+                    // There no per-room specific decryption setting, so we can just send to the
+                    // widget
+                    let _ = tx.send(raw);
+                } else {
+                    // forward to the widget
+                    // It is ok to send an encrypted to-device message even if the room is clear.
+                    let _ = tx.send(raw);
+                }
             },
         );
 
         let drop_guard = self.room.client().event_handler_drop_guard(to_device_handle);
         EventReceiver { rx, _drop_guard: drop_guard }
+    }
+
+    fn should_filter_message_to_widget(raw_message: &Raw<AnyToDeviceEvent>) -> bool {
+        let Ok(Some(event_type)) = raw_message.get_field::<String>("type") else {
+            return true;
+        };
+
+        if event_type == "m.room.encrypted" {
+            // Unable to decrypt,
+            return true;
+        }
+
+        // Filter out all the internal crypto related traffic.
+        // The SDK has already zeroized the critical data, but let's not leak any
+        // information
+        matches!(
+            event_type.as_str(),
+            "m.dummy"
+                | "m.room_key"
+                | "m.room_key_request"
+                | "m.forwarded_room_key"
+                | "m.key.verification.request"
+                | "m.key.verification.ready"
+                | "m.key.verification.start"
+                | "m.key.verification.cancel"
+                | "m.key.verification.accept"
+                | "m.key.verification.key"
+                | "m.key.verification.mac"
+                | "m.key.verification.done"
+                | "m.secret.request"
+                | "m.secret.send"
+        )
     }
 
     /// It will ignore all devices where errors occurred or where the device is
