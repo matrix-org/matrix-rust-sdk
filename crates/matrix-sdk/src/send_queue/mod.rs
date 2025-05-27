@@ -586,15 +586,16 @@ impl RoomSendQueue {
                 _ => false,
             };
 
+            let default_index = 0; // Before MSC4274 only a single file (and thumbnail) could be sent per event.
             let index = {
                 cfg_if::cfg_if! {
                     if #[cfg(feature = "unstable-msc4274")] {
                         match &queued_request.kind {
                             QueuedRequestKind::MediaUpload { accumulated, .. } => accumulated.len() as u64,
-                            _ => 0,
+                            _ => default_index,
                         };
                     } else {
-                        0 // Before MSC4274 there were only a single file (and thumbnail) could be sent per event.
+                        default_index
                     }
                 }
             };
