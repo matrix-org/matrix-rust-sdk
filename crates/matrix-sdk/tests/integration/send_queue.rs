@@ -164,7 +164,7 @@ macro_rules! assert_update {
     // Returns a tuple of (transaction_id, send_handle).
     ($watch:ident => uploaded { related_to = $related_to:expr, mxc = $mxc:expr }) => {{
         assert_let!(
-            Ok(Ok(RoomSendQueueUpdate::UploadedMedia {
+            Ok(Ok(RoomSendQueueUpdate::MediaUpload {
                 related_to,
                 file,
                 ..
@@ -172,7 +172,7 @@ macro_rules! assert_update {
         );
 
         assert_eq!(related_to, $related_to);
-        assert_let!(MediaSource::Plain(mxc) = file);
+        assert_let!(Some(MediaSource::Plain(mxc)) = file);
         assert_eq!(mxc, $mxc);
     }};
 
