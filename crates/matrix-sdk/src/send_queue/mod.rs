@@ -612,8 +612,9 @@ impl RoomSendQueue {
                     let updates = updates.clone();
                     spawn(async move {
                         while let Some(progress) = subscriber.next().await {
-                            let _ = updates.send(RoomSendQueueUpdate::MediaUploadProgress {
+                            let _ = updates.send(RoomSendQueueUpdate::MediaUpload {
                                 related_to: related_to.clone(),
+                                file: None,
                                 index,
                                 is_thumbnail,
                                 progress,
@@ -641,12 +642,15 @@ impl RoomSendQueue {
                         }
 
                         SentRequestKey::Media(media_info) => {
-                            let _ = updates.send(RoomSendQueueUpdate::UploadedMedia {
+                            let _ = updates.send(RoomSendQueueUpdate::MediaUpload {
                                 related_to: related_txn_id.as_ref().unwrap_or(&txn_id).clone(),
-                                file: media_info.file,
-                                bytes: media_info.bytes,
+                                file: Some(media_info.file),
                                 index,
                                 is_thumbnail,
+                                progress: TransmissionProgress {
+                                    current: media_info.bytes,
+                                    total: media_info.bytes,
+                                },
                             });
                         }
                     },
@@ -2150,29 +2154,13 @@ pub enum RoomSendQueueUpdate {
         event_id: OwnedEventId,
     },
 
-    /// A media has been successfully uploaded.
-    UploadedMedia {
-        /// The media event this uploaded media relates to.
-        related_to: OwnedTransactionId,
-
-        /// The final media source for the file that was just uploaded.
-        file: MediaSource,
-
-        /// The number of bytes uploaded for the file.
-        bytes: usize,
-
-        /// The index of the media within the transaction. A file and its
-        /// thumbnail share the same index.
-        index: u64,
-
-        /// Is this a thumbnail request, or a real one.
-        is_thumbnail: bool,
-    },
-
     /// A media upload has made progress.
-    MediaUploadProgress {
+    MediaUpload {
         /// The media event this uploaded media relates to.
         related_to: OwnedTransactionId,
+
+        /// The final media source for the file if it has finished uploading.
+        file: Option<MediaSource>,
 
         /// The index of the media within the transaction. A file and its
         /// thumbnail share the same index.
