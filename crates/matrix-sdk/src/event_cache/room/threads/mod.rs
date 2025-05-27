@@ -373,7 +373,7 @@ mod tests {
         // If there's a bundled relation, but it's not a thread, we can still extract
         // without failing.
         let mut relations = BundledMessageLikeRelations::new();
-        relations.replace = Some(Box::new(f.text_msg("hello wrold!").into_raw()));
+        relations.replace = Some(Box::new(f.text_msg("bonjour monde !").into_raw()));
 
         let root = f.text_msg("hello world!").bundled_relations(relations).into_raw();
         let extracted_summary =
