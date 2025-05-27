@@ -14,7 +14,7 @@
 
 //! Platform-specific stream utilities.
 //!
-//! This module provides a unified BoxStream + StreamExt class for working
+//! This module provides a unified `BoxStream` + `StreamExt` class for working
 //! with boxed streams across different platforms. On native platforms,
 //! streams can be `Send`, but on Wasm they cannot. This module abstracts
 //! over that difference.
@@ -31,10 +31,10 @@ mod sys {
     // On Wasm, BoxStream is LocalBoxStream
     pub use futures_util::stream::LocalBoxStream as BoxStream;
 
-    /// Custom StreamExt trait for Wasm that provides essential methods
-    /// like `.boxed()` and `.next()` without Send requirements.
+    /// Custom `StreamExt` trait for Wasm that provides essential methods
+    /// like `.boxed()` and `.next()` without `Send` requirements.
     pub trait StreamExt: Stream {
-        /// Box this stream using LocalBoxStream (no Send requirement).
+        /// Box this stream using `LocalBoxStream` (no `Send` requirement).
         fn boxed<'a>(self) -> BoxStream<'a, Self::Item>
         where
             Self: Sized + 'a,
