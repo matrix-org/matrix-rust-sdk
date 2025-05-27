@@ -41,8 +41,8 @@ use tempfile::{Builder as TempFileBuilder, NamedTempFile, TempDir};
 use tokio::{fs::File as TokioFile, io::AsyncWriteExt};
 
 use crate::{
-    attachment::Thumbnail, config::RequestConfig, futures::SendRequest, Client, Error, Result,
-    TransmissionProgress,
+    attachment::Thumbnail, client::futures::SendMediaUploadRequest, config::RequestConfig, Client,
+    Error, Result, TransmissionProgress,
 };
 
 /// A conservative upload speed of 1Mbps
@@ -142,10 +142,20 @@ pub enum MediaError {
     /// Local-only media content was not found.
     #[error("local-only media content was not found")]
     LocalMediaNotFound,
-}
 
-/// `IntoFuture` returned by [`Media::upload`].
-pub type SendUploadRequest = SendRequest<media::create_content::v3::Request>;
+    /// The provided media is too large to upload.
+    #[error("The provided media is too large to upload. Maximum upload length is {max} bytes, tried to upload {current} bytes")]
+    MediaTooLargeToUpload {
+        /// The `max_upload_size` value for this homeserver.
+        max: UInt,
+        /// The size of the current media to upload.
+        current: UInt,
+    },
+
+    /// Fetching the `max_upload_size` value from the homeserver failed.
+    #[error("Fetching the `max_upload_size` value from the homeserver failed: {0}")]
+    FetchMaxUploadSizeFailed(String),
+}
 
 impl Media {
     pub(crate) fn new(client: Client) -> Self {
@@ -188,7 +198,7 @@ impl Media {
         content_type: &Mime,
         data: Vec<u8>,
         request_config: Option<RequestConfig>,
-    ) -> SendUploadRequest {
+    ) -> SendMediaUploadRequest {
         let request_config = request_config.unwrap_or_else(|| {
             self.client.request_config().timeout(Self::reasonable_upload_timeout(&data))
         });
@@ -197,7 +207,8 @@ impl Media {
             content_type: Some(content_type.essence_str().to_owned()),
         });
 
-        self.client.send(request).with_request_config(request_config)
+        let request = self.client.send(request).with_request_config(request_config);
+        SendMediaUploadRequest::new(request)
     }
 
     /// Returns a reasonable upload timeout for an upload, based on the size of
@@ -721,10 +732,7 @@ impl Media {
         let upload_thumbnail = self.upload_thumbnail(thumbnail, send_progress.clone());
 
         let upload_attachment = async move {
-            self.upload(content_type, data, None)
-                .with_send_progress_observable(send_progress)
-                .await
-                .map_err(Error::from)
+            self.upload(content_type, data, None).with_send_progress_observable(send_progress).await
         };
 
         let (thumbnail, response) = try_join(upload_thumbnail, upload_attachment).await?;
