@@ -92,8 +92,6 @@ pub async fn update_joined_room(
     )
     .await?;
 
-    updated_members_in_room.insert(room_id.to_owned(), new_user_ids.clone());
-
     #[cfg(feature = "e2e-encryption")]
     let olm_machine = e2ee.olm_machine;
 
@@ -135,6 +133,8 @@ pub async fn update_joined_room(
         state_store,
     )
     .await?;
+
+    updated_members_in_room.insert(room_id.to_owned(), new_user_ids);
 
     let notification_count = joined_room.unread_notifications.into();
     room_info.update_notification_count(notification_count);
