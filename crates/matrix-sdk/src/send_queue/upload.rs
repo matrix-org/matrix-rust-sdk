@@ -167,7 +167,6 @@ fn update_gallery_event_after_upload(
 }
 
 #[derive(Default)]
-
 struct MediaCacheResult {
     upload_thumbnail_txn: Option<OwnedTransactionId>,
     event_thumbnail_info: Option<(MediaSource, Box<ThumbnailInfo>)>,
