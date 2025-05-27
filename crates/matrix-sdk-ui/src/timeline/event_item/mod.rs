@@ -1069,19 +1069,14 @@ mod tests {
         use ruma::owned_mxc_uri;
         let room_id = room_id!("!q:x.uk");
         let user_id = user_id!("@t:o.uk");
-        let event = EventFactory::new()
-            .room(room_id)
-            .text_html("**My M**", "<b>My M</b>")
-            .sender(user_id)
-            .server_ts(122344)
-            .into_event();
+        let f = EventFactory::new().room(room_id);
+        let event =
+            f.text_html("**My M**", "<b>My M</b>").sender(user_id).server_ts(122344).into_event();
         let client = logged_in_client(None).await;
 
         let member_event = MinimalStateEvent::Original(
-            EventFactory::new()
-                .room(room_id)
+            f.member(user_id)
                 .sender(user_id!("@example:example.org"))
-                .member(user_id)
                 .avatar_url("mxc://e.org/SEs".into())
                 .display_name("Alice Margatroid")
                 .reason("")
