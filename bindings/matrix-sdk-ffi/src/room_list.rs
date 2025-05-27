@@ -14,10 +14,10 @@ use matrix_sdk::{
 };
 use matrix_sdk_ui::{
     room_list_service::filters::{
-        new_filter_all, new_filter_any, new_filter_category, new_filter_favourite,
-        new_filter_fuzzy_match_room_name, new_filter_invite, new_filter_joined,
-        new_filter_non_left, new_filter_none, new_filter_normalized_match_room_name,
-        new_filter_unread, BoxedFilterFn, RoomCategory,
+        new_filter_all, new_filter_any, new_filter_category, new_filter_deduplicate_versions,
+        new_filter_favourite, new_filter_fuzzy_match_room_name, new_filter_invite,
+        new_filter_joined, new_filter_non_left, new_filter_none,
+        new_filter_normalized_match_room_name, new_filter_unread, BoxedFilterFn, RoomCategory,
     },
     unable_to_decrypt_hook::UtdHookManager,
 };
@@ -457,6 +457,7 @@ pub enum RoomListEntriesDynamicFilterKind {
     None,
     NormalizedMatchRoomName { pattern: String },
     FuzzyMatchRoomName { pattern: String },
+    DeduplicateVersions,
 }
 
 #[derive(uniffi::Enum)]
@@ -498,6 +499,7 @@ impl From<RoomListEntriesDynamicFilterKind> for BoxedFilterFn {
             Kind::FuzzyMatchRoomName { pattern } => {
                 Box::new(new_filter_fuzzy_match_room_name(&pattern))
             }
+            Kind::DeduplicateVersions => Box::new(new_filter_deduplicate_versions()),
         }
     }
 }
