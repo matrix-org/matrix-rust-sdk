@@ -18,7 +18,7 @@ use indexed_db_futures::{
     IdbDatabase, IdbKeyPath, IdbVersionChangeEvent,
 };
 use wasm_bindgen::JsValue;
-use web_sys::DomException;
+use web_sys::{DomException, IdbIndexParameters};
 
 use crate::event_cache_store::keys;
 
@@ -43,14 +43,24 @@ async fn setup_db(db: IdbDatabase, version: u32) -> Result<IdbDatabase, DomExcep
             move |events: &IdbVersionChangeEvent| -> Result<(), JsValue> {
                 events.db().create_object_store(keys::CORE)?;
 
-                let mut params = IdbObjectStoreParameters::new();
-                params.key_path(Some(&IdbKeyPath::from("id")));
-                events.db().create_object_store_with_params(keys::LINKED_CHUNKS, &params)?;
+                let mut object_store_params = IdbObjectStoreParameters::new();
+                object_store_params.key_path(Some(&IdbKeyPath::from("id")));
                 events
                     .db()
-                    .create_object_store_with_params(keys::EVENTS, &params)?
-                    .create_index(keys::EVENT_POSITIONS, &IdbKeyPath::from("position"))?;
-                events.db().create_object_store_with_params(keys::GAPS, &params)?;
+                    .create_object_store_with_params(keys::LINKED_CHUNKS, &object_store_params)?;
+
+                let mut event_positions_parameters = IdbIndexParameters::new();
+                event_positions_parameters.unique(true);
+                events
+                    .db()
+                    .create_object_store_with_params(keys::EVENTS, &object_store_params)?
+                    .create_index_with_params(
+                        keys::EVENT_POSITIONS,
+                        &IdbKeyPath::from("position"),
+                        &event_positions_parameters,
+                    )?;
+
+                events.db().create_object_store_with_params(keys::GAPS, &object_store_params)?;
                 Ok(())
             },
         ));
