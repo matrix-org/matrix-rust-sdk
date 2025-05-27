@@ -275,7 +275,7 @@ impl TryInto<Reply> for ReplyParameters {
 #[derive(Clone, Copy, uniffi::Enum)]
 pub enum EventSendProgress {
     /// A media is being uploaded.
-    MediaUploadProgress {
+    MediaUpload {
         /// The index of the media within the transaction. A file and its
         /// thumbnail share the same index.
         index: u64,
@@ -286,26 +286,13 @@ pub enum EventSendProgress {
         /// The current upload progress.
         progress: TransmissionProgress,
     },
-
-    /// A media has finished uploading.
-    UploadedMedia {
-        /// The index of the media within the transaction. A file and its
-        /// thumbnail share the same index.
-        index: u64,
-
-        /// Is the media a thumbnail?
-        is_thumbnail: bool,
-    },
 }
 
 impl From<SdkEventSendProgress> for EventSendProgress {
     fn from(value: SdkEventSendProgress) -> Self {
         match value {
-            SdkEventSendProgress::MediaUploadProgress { index, is_thumbnail, progress } => {
-                Self::MediaUploadProgress { index, is_thumbnail, progress: progress.into() }
-            }
-            SdkEventSendProgress::UploadedMedia { index, is_thumbnail } => {
-                Self::UploadedMedia { index, is_thumbnail }
+            SdkEventSendProgress::MediaUpload { index, is_thumbnail, progress } => {
+                Self::MediaUpload { index, is_thumbnail, progress: progress.into() }
             }
         }
     }

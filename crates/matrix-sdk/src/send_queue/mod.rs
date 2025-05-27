@@ -643,6 +643,7 @@ impl RoomSendQueue {
                             let _ = updates.send(RoomSendQueueUpdate::UploadedMedia {
                                 related_to: related_txn_id.as_ref().unwrap_or(&txn_id).clone(),
                                 file: media_info.file,
+                                bytes: media_info.bytes,
                                 index,
                                 is_thumbnail,
                             });
@@ -776,6 +777,8 @@ impl RoomSendQueue {
                         ))
                     })?;
 
+                    let bytes;
+
                     #[cfg(feature = "e2e-encryption")]
                     let media_source = if room.latest_encryption_state().await?.is_encrypted() {
                         trace!("upload will be encrypted (encrypted room)");
@@ -789,7 +792,10 @@ impl RoomSendQueue {
                             req = req.with_send_progress_observable(watcher);
                         };
 
+                        let progress = req.send_progress.clone();
                         let encrypted_file = req.await?;
+                        bytes = progress.get().total;
+
                         MediaSource::Encrypted(Box::new(encrypted_file))
                     } else {
                         trace!("upload will be in clear text (room without encryption)");
@@ -797,11 +803,15 @@ impl RoomSendQueue {
                             .timeout(Media::reasonable_upload_timeout(&data));
                         let mut req =
                             room.client().media().upload(&mime, data, Some(request_config));
+
                         if let Some(watcher) = progress_watcher {
                             req = req.with_send_progress_observable(watcher);
                         };
 
+                        let progress = req.send_progress.clone();
                         let res = req.await?;
+                        bytes = progress.get().total;
+
                         MediaSource::Plain(res.content_uri)
                     };
 
@@ -809,8 +819,17 @@ impl RoomSendQueue {
                     let media_source = {
                         let request_config = RequestConfig::short_retry()
                             .timeout(Media::reasonable_upload_timeout(&data));
-                        let res =
-                            room.client().media().upload(&mime, data, Some(request_config)).await?;
+                        let mut req =
+                            room.client().media().upload(&mime, data, Some(request_config));
+
+                        if let Some(watcher) = progress_watcher {
+                            req = req.with_send_progress_observable(watcher);
+                        };
+
+                        let progress = req.send_progress.clone();
+                        let res = req.await?;
+                        bytes = progress.get().total;
+
                         MediaSource::Plain(res.content_uri)
                     };
 
@@ -825,6 +844,7 @@ impl RoomSendQueue {
                         thumbnail: thumbnail_source,
                         #[cfg(feature = "unstable-msc4274")]
                         accumulated,
+                        bytes,
                     }))
                 };
 
@@ -2144,6 +2164,9 @@ pub enum RoomSendQueueUpdate {
 
         /// The final media source for the file that was just uploaded.
         file: MediaSource,
+
+        /// The number of bytes uploaded for the file.
+        bytes: usize,
 
         /// The index of the media within the transaction. A file and its
         /// thumbnail share the same index.

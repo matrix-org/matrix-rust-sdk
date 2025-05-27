@@ -92,7 +92,7 @@ pub enum EventSendState {
 #[derive(Clone, Debug)]
 pub enum EventSendProgress {
     /// A media is being uploaded.
-    MediaUploadProgress {
+    MediaUpload {
         /// The index of the media within the transaction. A file and its
         /// thumbnail share the same index.
         index: u64,
@@ -102,14 +102,5 @@ pub enum EventSendProgress {
 
         /// The current upload progress.
         progress: TransmissionProgress,
-    },
-
-    /// A media has finished uploading.
-    UploadedMedia {
-        /// The index of the media within the transaction. A file and its
-        /// thumbnail share the same index.
-        index: u64,
-        /// Is the media a thumbnail?
-        is_thumbnail: bool,
     },
 }

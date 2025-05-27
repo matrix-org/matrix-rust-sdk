@@ -31,7 +31,7 @@ use matrix_sdk::{
     send_queue::{
         LocalEcho, LocalEchoContent, RoomSendQueueUpdate, SendHandle, SendReactionHandle,
     },
-    Result, Room,
+    Result, Room, TransmissionProgress,
 };
 use ruma::{
     api::client::receipt::create_receipt::v3::ReceiptType as SendReceiptType,
@@ -1340,11 +1340,17 @@ impl<P: RoomDataProvider, D: Decryptor> TimelineController<P, D> {
                     .await;
             }
 
-            RoomSendQueueUpdate::UploadedMedia { related_to, index, is_thumbnail, .. } => {
+            RoomSendQueueUpdate::UploadedMedia {
+                related_to, bytes, index, is_thumbnail, ..
+            } => {
                 self.update_event_send_state(
                     &related_to,
                     EventSendState::NotSentYet {
-                        progress: Some(EventSendProgress::UploadedMedia { index, is_thumbnail }),
+                        progress: Some(EventSendProgress::MediaUpload {
+                            index,
+                            is_thumbnail,
+                            progress: TransmissionProgress { current: bytes, total: bytes },
+                        }),
                     },
                 )
                 .await;
@@ -1359,7 +1365,7 @@ impl<P: RoomDataProvider, D: Decryptor> TimelineController<P, D> {
                 self.update_event_send_state(
                     &related_to,
                     EventSendState::NotSentYet {
-                        progress: Some(EventSendProgress::MediaUploadProgress {
+                        progress: Some(EventSendProgress::MediaUpload {
                             index,
                             is_thumbnail,
                             progress,
