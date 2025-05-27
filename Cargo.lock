@@ -3098,6 +3098,7 @@ dependencies = [
  "language-tags",
  "log-panics",
  "matrix-sdk",
+ "matrix-sdk-common",
  "matrix-sdk-ffi-macros",
  "matrix-sdk-ui",
  "mime",
