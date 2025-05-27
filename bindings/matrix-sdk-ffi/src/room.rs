@@ -121,16 +121,6 @@ impl Room {
         self.inner.is_space()
     }
 
-    /// Has the room been tombstoned.
-    ///
-    /// A room is tombstoned if it has received a [`m.room.tombstone`] state
-    /// event. See [`Room::successor_room`].
-    ///
-    /// [`m.room.tombstone`]: https://spec.matrix.org/v1.14/client-server-api/#mroomtombstone
-    pub fn is_tombstoned(&self) -> bool {
-        self.inner.is_tombstoned()
-    }
-
     /// If this room is tombstoned, return the “reference” to the successor room
     /// —i.e. the room replacing this one.
     ///
