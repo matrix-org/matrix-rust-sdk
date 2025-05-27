@@ -1373,71 +1373,66 @@ impl QueueStorage {
         file_media_request: MediaRequestParameters,
         thumbnail: Option<(FinishUploadThumbnailInfo, MediaRequestParameters, Mime)>,
     ) -> Result<Option<FinishUploadThumbnailInfo>, RoomSendQueueStorageError> {
-        let thumbnail_info =
-            if let Some((thumbnail_info, thumbnail_media_request, thumbnail_content_type)) =
-                thumbnail
-            {
-                let upload_thumbnail_txn = thumbnail_info.txn.clone();
+        if let Some((thumbnail_info, thumbnail_media_request, thumbnail_content_type)) = thumbnail {
+            let upload_thumbnail_txn = thumbnail_info.txn.clone();
 
-                // Save the thumbnail upload request.
-                store
-                    .save_send_queue_request(
-                        &self.room_id,
-                        upload_thumbnail_txn.clone(),
-                        created_at,
-                        QueuedRequestKind::MediaUpload {
-                            content_type: thumbnail_content_type.to_string(),
-                            cache_key: thumbnail_media_request,
-                            thumbnail_source: None, // the thumbnail has no thumbnails :)
-                            related_to: send_event_txn.clone(),
-                            #[cfg(feature = "unstable-msc4274")]
-                            accumulated: vec![],
-                        },
-                        Self::LOW_PRIORITY,
-                    )
-                    .await?;
+            // Save the thumbnail upload request.
+            store
+                .save_send_queue_request(
+                    &self.room_id,
+                    upload_thumbnail_txn.clone(),
+                    created_at,
+                    QueuedRequestKind::MediaUpload {
+                        content_type: thumbnail_content_type.to_string(),
+                        cache_key: thumbnail_media_request,
+                        thumbnail_source: None, // the thumbnail has no thumbnails :)
+                        related_to: send_event_txn.clone(),
+                        #[cfg(feature = "unstable-msc4274")]
+                        accumulated: vec![],
+                    },
+                    Self::LOW_PRIORITY,
+                )
+                .await?;
 
-                // Save the file upload request as a dependent request of the thumbnail upload.
-                store
-                    .save_dependent_queued_request(
-                        &self.room_id,
-                        &upload_thumbnail_txn,
-                        upload_file_txn.into(),
-                        created_at,
-                        DependentQueuedRequestKind::UploadFileOrThumbnail {
-                            content_type: content_type.to_string(),
-                            cache_key: file_media_request,
-                            related_to: send_event_txn,
-                            #[cfg(feature = "unstable-msc4274")]
-                            parent_is_thumbnail_upload: true,
-                        },
-                    )
-                    .await?;
+            // Save the file upload request as a dependent request of the thumbnail upload.
+            store
+                .save_dependent_queued_request(
+                    &self.room_id,
+                    &upload_thumbnail_txn,
+                    upload_file_txn.into(),
+                    created_at,
+                    DependentQueuedRequestKind::UploadFileOrThumbnail {
+                        content_type: content_type.to_string(),
+                        cache_key: file_media_request,
+                        related_to: send_event_txn,
+                        #[cfg(feature = "unstable-msc4274")]
+                        parent_is_thumbnail_upload: true,
+                    },
+                )
+                .await?;
 
-                Some(thumbnail_info)
-            } else {
-                // Save the file upload as its own request, not a dependent one.
-                store
-                    .save_send_queue_request(
-                        &self.room_id,
-                        upload_file_txn,
-                        created_at,
-                        QueuedRequestKind::MediaUpload {
-                            content_type: content_type.to_string(),
-                            cache_key: file_media_request,
-                            thumbnail_source: None,
-                            related_to: send_event_txn,
-                            #[cfg(feature = "unstable-msc4274")]
-                            accumulated: vec![],
-                        },
-                        Self::LOW_PRIORITY,
-                    )
-                    .await?;
+            Ok(Some(thumbnail_info))
+        } else {
+            // Save the file upload as its own request, not a dependent one.
+            store
+                .save_send_queue_request(
+                    &self.room_id,
+                    upload_file_txn,
+                    created_at,
+                    QueuedRequestKind::MediaUpload {
+                        content_type: content_type.to_string(),
+                        cache_key: file_media_request,
+                        thumbnail_source: None,
+                        related_to: send_event_txn,
+                        #[cfg(feature = "unstable-msc4274")]
+                        accumulated: vec![],
+                    },
+                    Self::LOW_PRIORITY,
+                )
+                .await?;
 
-                None
-            };
-
-        Ok(thumbnail_info)
+            Ok(None)
+        }
     }
 
     /// Reacts to the given local echo of an event.
