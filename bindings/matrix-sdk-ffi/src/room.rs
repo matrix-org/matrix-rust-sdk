@@ -10,7 +10,8 @@ use matrix_sdk::{
         TryFromReportedContentScoreError,
     },
     ComposerDraft as SdkComposerDraft, ComposerDraftType as SdkComposerDraftType, EncryptionState,
-    RoomHero as SdkRoomHero, RoomMemberships, RoomState,
+    PredecessorRoom as SdkPredecessorRoom, RoomHero as SdkRoomHero, RoomMemberships, RoomState,
+    SuccessorRoom as SdkSuccessorRoom,
 };
 use matrix_sdk_ui::{
     timeline::{default_event_filter, RoomExt, TimelineBuilder},
@@ -120,8 +121,41 @@ impl Room {
         self.inner.is_space()
     }
 
+    /// Has the room been tombstoned.
+    ///
+    /// A room is tombstoned if it has received a [`m.room.tombstone`] state
+    /// event. See [`Room::successor_room`].
+    ///
+    /// [`m.room.tombstone`]: https://spec.matrix.org/v1.14/client-server-api/#mroomtombstone
     pub fn is_tombstoned(&self) -> bool {
         self.inner.is_tombstoned()
+    }
+
+    /// If this room is tombstoned, return the “reference” to the successor room
+    /// —i.e. the room replacing this one.
+    ///
+    /// A room is tombstoned if it has received a [`m.room.tombstone`] state
+    /// event.
+    ///
+    /// [`m.room.tombstone`]: https://spec.matrix.org/v1.14/client-server-api/#mroomtombstone
+    pub fn successor_room(&self) -> Option<SuccessorRoom> {
+        self.inner.successor_room().map(Into::into)
+    }
+
+    /// If this room is the successor of a tombstoned room, return the
+    /// “reference” to the predecessor room.
+    ///
+    /// A room is tombstoned if it has received a [`m.room.tombstone`] state
+    /// event.
+    ///
+    /// To determine if a room is the successor of a tombstoned room, the
+    /// [`m.room.create`] must have been received, **with** a `predecessor`
+    /// field.
+    ///
+    /// [`m.room.tombstone`]: https://spec.matrix.org/v1.14/client-server-api/#mroomtombstone
+    /// [`m.room.create`]: https://spec.matrix.org/v1.14/client-server-api/#mroomcreate
+    pub fn predecessor_room(&self) -> Option<PredecessorRoom> {
+        self.inner.predecessor_room().map(Into::into)
     }
 
     pub fn canonical_alias(&self) -> Option<String> {
@@ -1521,5 +1555,50 @@ impl TryFrom<RoomHistoryVisibility> for RumaHistoryVisibility {
             RoomHistoryVisibility::WorldReadable => Ok(RumaHistoryVisibility::WorldReadable),
             RoomHistoryVisibility::Custom { .. } => Err(NotYetImplemented),
         }
+    }
+}
+
+/// When a room A is tombstoned, it is replaced by a room B. The room A is the
+/// predecessor of B, and B is the successor of A. This type holds information
+/// about the successor room. See [`Room::successor_room`].
+///
+/// A room is tombstoned if it has received a [`m.room.tombstone`] state event.
+///
+/// [`m.room.tombstone`]: https://spec.matrix.org/v1.14/client-server-api/#mroomtombstone
+#[derive(uniffi::Record)]
+pub struct SuccessorRoom {
+    /// The ID of the replacement room.
+    pub room_id: String,
+
+    /// The message explaining why the room has been tombstoned.
+    pub reason: Option<String>,
+}
+
+impl From<SdkSuccessorRoom> for SuccessorRoom {
+    fn from(value: SdkSuccessorRoom) -> Self {
+        Self { room_id: value.room_id.to_string(), reason: value.reason }
+    }
+}
+
+/// When a room A is tombstoned, it is replaced by a room B. The room A is the
+/// predecessor of B, and B is the successor of A. This type holds information
+/// about the predecessor room. See [`Room::predecessor_room`].
+///
+/// To know the predecessor of a room, the [`m.room.create`] state event must
+/// have been received.
+///
+/// [`m.room.create`]: https://spec.matrix.org/v1.14/client-server-api/#mroomcreate
+#[derive(uniffi::Record)]
+pub struct PredecessorRoom {
+    /// The ID of the replacement room.
+    pub room_id: String,
+
+    /// The event ID of the last known event in the predecesssor room.
+    pub last_event_id: String,
+}
+
+impl From<SdkPredecessorRoom> for PredecessorRoom {
+    fn from(value: SdkPredecessorRoom) -> Self {
+        Self { room_id: value.room_id.to_string(), last_event_id: value.last_event_id.to_string() }
     }
 }
