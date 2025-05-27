@@ -609,10 +609,10 @@ impl RoomSendQueue {
                     _ => None,
                 } {
                     let mut subscriber = progress.subscribe();
-                    let our_updates = updates.clone();
+                    let updates = updates.clone();
                     spawn(async move {
                         while let Some(progress) = subscriber.next().await {
-                            let _ = our_updates.send(RoomSendQueueUpdate::MediaUploadProgress {
+                            let _ = updates.send(RoomSendQueueUpdate::MediaUploadProgress {
                                 related_to: related_to.clone(),
                                 index,
                                 is_thumbnail,
