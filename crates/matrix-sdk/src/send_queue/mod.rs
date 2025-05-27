@@ -800,6 +800,7 @@ impl RoomSendQueue {
                         if let Some(watcher) = progress_watcher {
                             req = req.with_send_progress_observable(watcher);
                         };
+
                         let res = req.await?;
                         MediaSource::Plain(res.content_uri)
                     };
