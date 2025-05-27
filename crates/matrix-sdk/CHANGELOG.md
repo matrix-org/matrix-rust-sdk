@@ -34,6 +34,9 @@ All notable changes to this project will be documented in this file.
   flag of the room if an unthreaded read receipt is sent.
   ([#5055](https://github.com/matrix-org/matrix-rust-sdk/pull/5055))
 - `Client::is_user_ignored(&UserId)` can be used to check if a user is currently ignored. ([#5081](https://github.com/matrix-org/matrix-rust-sdk/pull/5081))
+- `RoomSendQueue::send_gallery` has been added to allow sending MSC4274-style media galleries
+  via the send queue under the `unstable-msc4274` feature.
+  ([#4977](https://github.com/matrix-org/matrix-rust-sdk/pull/4977))
 
 ### Bug fixes
 
