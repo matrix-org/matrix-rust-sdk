@@ -249,18 +249,6 @@ impl IndexeddbEventCacheStore {
         IdbKeyRange::bound(&lower.into(), &upper.into()).expect("construct key range")
     }
 
-    fn encode_event_id_range_for_room(&self, room_id: &str) -> IdbKeyRange {
-        let lower = self.encode_key(vec![
-            (keys::ROOMS, room_id, true),
-            (keys::EVENTS, &String::from(Self::KEY_LOWER_CHARACTER), false),
-        ]);
-        let upper = self.encode_key(vec![
-            (keys::ROOMS, room_id, true),
-            (keys::EVENTS, &String::from(Self::KEY_UPPER_CHARACTER), false),
-        ]);
-        IdbKeyRange::bound(&lower.into(), &upper.into()).expect("construct key range")
-    }
-
     fn encode_event_id_key(&self, room_id: &str, event_id: &EventId) -> String {
         self.encode_key(vec![(keys::ROOMS, room_id, true), (keys::EVENTS, event_id.as_ref(), true)])
     }
@@ -269,13 +257,31 @@ impl IndexeddbEventCacheStore {
         &self,
         room_id: &str,
         related_event: &EventId,
-        relation_type: String,
+        relation_type: &RelationType,
     ) -> String {
         self.encode_key(vec![
             (keys::ROOMS, room_id, true),
             (keys::EVENT_RELATED_EVENTS, related_event.as_ref(), true),
-            (keys::EVENT_RELATION_TYPES, &relation_type, true),
+            (keys::EVENT_RELATION_TYPES, relation_type.as_ref(), true),
         ])
+    }
+
+    fn encode_event_relation_range_for_related_event(
+        &self,
+        room_id: &str,
+        related_event: &EventId,
+    ) -> IdbKeyRange {
+        let lower = self.encode_key(vec![
+            (keys::ROOMS, room_id, true),
+            (keys::EVENT_RELATED_EVENTS, related_event.as_ref(), true),
+            (keys::EVENT_RELATION_TYPES, &String::from(Self::KEY_LOWER_CHARACTER), false),
+        ]);
+        let upper = self.encode_key(vec![
+            (keys::ROOMS, room_id, true),
+            (keys::EVENT_RELATED_EVENTS, related_event.as_ref(), true),
+            (keys::EVENT_RELATION_TYPES, &String::from(Self::KEY_UPPER_CHARACTER), false),
+        ]);
+        IdbKeyRange::bound(&lower.into(), &upper.into()).expect("construct key range")
     }
 
     fn serialize_in_band_event(
@@ -286,7 +292,11 @@ impl IndexeddbEventCacheStore {
         let id = self.encode_event_id_key(&event.room_id, &event_id);
         let position = self.encode_event_position_key(&event.room_id, &event.position);
         let relation = event.relation().map(|(related_event, relation_type)| {
-            self.encode_event_relation_key(&event.room_id, &related_event, relation_type)
+            self.encode_event_relation_key(
+                &event.room_id,
+                &related_event,
+                &RelationType::from(relation_type),
+            )
         });
         Ok(serde_wasm_bindgen::to_value(&IndexedEvent {
             id,
@@ -303,7 +313,11 @@ impl IndexeddbEventCacheStore {
         let event_id = event.content.event_id().ok_or(IndexeddbEventCacheStoreError::NoEventId)?;
         let id = self.encode_event_id_key(&event.room_id, &event_id);
         let relation = event.relation().map(|(related_event, relation_type)| {
-            self.encode_event_relation_key(&event.room_id, &related_event, relation_type)
+            self.encode_event_relation_key(
+                &event.room_id,
+                &related_event,
+                &RelationType::from(relation_type),
+            )
         });
         Ok(serde_wasm_bindgen::to_value(&IndexedEvent {
             id,
@@ -391,12 +405,42 @@ impl IndexeddbEventCacheStore {
         Ok(events.pop())
     }
 
-    async fn get_all_events_by_room(
+    async fn get_all_events_by_relation_range<K: wasm_bindgen::JsCast>(
+        &self,
+        key: &K,
+    ) -> Result<Vec<EventForCache>, IndexeddbEventCacheStoreError> {
+        let mut events = Vec::new();
+        let values = self
+            .inner
+            .transaction_on_one_with_mode(keys::EVENTS, IdbTransactionMode::Readonly)?
+            .object_store(keys::EVENTS)?
+            .index(keys::EVENT_RELATIONS)?
+            .get_all_with_key(key)?
+            .await?;
+        for value in values {
+            events.push(self.deserialize_event(value)?);
+        }
+        Ok(events)
+    }
+
+    async fn get_all_events_by_relation(
         &self,
         room_id: &RoomId,
+        related_event: &EventId,
+        relation_type: &RelationType,
     ) -> Result<Vec<EventForCache>, IndexeddbEventCacheStoreError> {
-        let range = self.encode_event_id_range_for_room(room_id.as_ref());
-        self.get_all_events_by_id(&range).await
+        let key = self.encode_event_relation_key(room_id.as_ref(), related_event, relation_type);
+        self.get_all_events_by_relation_range(&JsValue::from(key)).await
+    }
+
+    async fn get_all_events_by_related_event(
+        &self,
+        room_id: &RoomId,
+        related_event: &EventId,
+    ) -> Result<Vec<EventForCache>, IndexeddbEventCacheStoreError> {
+        let range =
+            self.encode_event_relation_range_for_related_event(room_id.as_ref(), related_event);
+        self.get_all_events_by_relation_range(&range).await
     }
 
     async fn get_all_events_by_chunk(
@@ -481,13 +525,6 @@ enum EventForCache {
 }
 
 impl EventForCache {
-    pub fn content(&self) -> &TimelineEvent {
-        match self {
-            EventForCache::InBand(i) => &i.content,
-            EventForCache::OutOfBand(o) => &o.content,
-        }
-    }
-
     pub fn take_content(self) -> TimelineEvent {
         match self {
             EventForCache::InBand(i) => i.content,
@@ -1205,25 +1242,22 @@ impl_event_cache_store! {
         event_id: &EventId,
         filter: Option<&[RelationType]>,
     ) -> Result<Vec<Event>, IndexeddbEventCacheStoreError> {
-        // TODO: This is very inefficient, as we are reading and
-        // deserializing every event in the room in order to pick
-        // out a single one. The problem is that the current
-        // schema doesn't easily allow us to find an event without
-        // knowing which chunk it is in. To improve this, we will
-        // need to add another index to our event store.
-        let mut result = Vec::new();
-        for event in self.get_all_events_by_room(room_id).await? {
-            if let Some((relates_to, relation_type)) = extract_event_relation(event.content().raw())
-            {
-                let filter_contains_relation_type = filter
-                    .map(|filter| filter.iter().any(|relation| relation.as_ref() == relation_type))
-                    .unwrap_or(true);
-                if event_id == relates_to && filter_contains_relation_type {
-                    result.push(event.take_content());
+        let mut events = Vec::new();
+        match filter {
+            Some(relation_types) if !relation_types.is_empty() => {
+                for relation_type in relation_types {
+                    for event in self.get_all_events_by_relation(room_id, event_id, relation_type).await? {
+                        events.push(event.take_content());
+                    }
                 }
             }
-        }
-        Ok(result)
+            _ => {
+                for event in self.get_all_events_by_related_event(room_id, event_id).await? {
+                    events.push(event.take_content());
+                }
+            }
+        };
+        Ok(events)
     }
 
     /// Save an event, that might or might not be part of an existing linked
