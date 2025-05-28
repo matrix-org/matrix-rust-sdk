@@ -43,6 +43,7 @@ async-compat.workspace = true
 tokio = { workspace = true, features = ["rt", "time", "macros"] }
 
 [target.'cfg(target_family = "wasm")'.dependencies]
+futures-executor.workspace = true
 futures-util = { workspace = true, features = ["channel"] }
 gloo-timers = { workspace = true, features = ["futures"] }
 tokio = { workspace = true, features = ["macros"] }

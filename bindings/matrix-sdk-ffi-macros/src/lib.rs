@@ -53,8 +53,8 @@ pub fn export(attr: TokenStream, item: TokenStream) -> TokenStream {
         Ok(item) => match has_async_fn(item) {
             true => {
                 quote! {
-                  #[cfg_attr(target_arch = "wasm32", uniffi::export(#attr2))]
-                  #[cfg_attr(not(target_arch = "wasm32"), uniffi::export(async_runtime = "tokio", #attr2))]
+                  #[cfg_attr(target_family = "wasm", uniffi::export(#attr2))]
+                  #[cfg_attr(not(target_family = "wasm"), uniffi::export(async_runtime = "tokio", #attr2))]
                 }
             }
             false => quote! { #[uniffi::export(#attr2)] },
