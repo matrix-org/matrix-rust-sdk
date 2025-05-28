@@ -531,8 +531,40 @@ async fn test_receive_live_events() {
 }
 
 #[async_test]
+async fn test_block_clear_to_device_in_e2ee_room() {
+    let (client, mock_server, driver_handle) = run_test_driver(false, true).await;
+
+    negotiate_capabilities(
+        &driver_handle,
+        json!(["org.matrix.msc3819.receive.to_device:my.custom.to.device"]),
+    )
+    .await;
+
+    // No messages from the driver yet
+    assert_matches!(recv_message(&driver_handle).now_or_never(), None);
+
+    mock_server
+        .mock_sync()
+        .ok_and_run(&client, |sync_builder| {
+            sync_builder.add_to_device_event(json!({
+                    "sender": "@alice:example.com",
+                    "type": "my.custom.to.device",
+                    "content": {
+                      "a": "test",
+                    }
+                  }
+            ));
+        })
+        .await;
+
+    // The message should be filtered out because it is not encrypted and the room
+    // is encrypted
+    assert_matches!(recv_message(&driver_handle).now_or_never(), None);
+}
+
+#[async_test]
 async fn test_receive_state() {
-    let (client, mock_server, driver_handle) = run_test_driver(false).await;
+    let (client, mock_server, driver_handle) = run_test_driver(false, false).await;
 
     let f = EventFactory::new().room(&ROOM_ID);
     let name_event_1: Raw<AnySyncStateEvent> = f.room_name("room name").sender(&BOB).into();

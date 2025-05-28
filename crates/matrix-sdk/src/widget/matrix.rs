@@ -251,7 +251,6 @@ impl MatrixDriver {
                     return;
                 };
 
-                // Or should I use room.encryption_settings()?
                 let room_encrypted = room.latest_encryption_state().await
                     .map(|s| s.is_encrypted())
                     // Default consider encrypted
