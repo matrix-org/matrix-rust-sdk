@@ -36,7 +36,10 @@ use tracing::{error, info};
 
 use crate::{
     error::SignatureError,
-    store::{Changes, IdentityChanges, Store},
+    store::{
+        types::{Changes, IdentityChanges},
+        Store,
+    },
     types::{
         requests::OutgoingVerificationRequest, MasterPubkey, SelfSigningPubkey, UserSigningPubkey,
     },

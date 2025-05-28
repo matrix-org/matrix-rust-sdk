@@ -51,8 +51,11 @@ macro_rules! cryptostore_integration_tests {
                     PrivateCrossSigningIdentity, SenderData, SenderDataType, Session
                 },
                 store::{
-                    BackupDecryptionKey, Changes, CryptoStore, DehydratedDeviceKey, DeviceChanges, GossipRequest,
-                    IdentityChanges, PendingChanges, RoomSettings, StoredRoomKeyBundleData,
+                    types::{
+                        BackupDecryptionKey, Changes, DehydratedDeviceKey, DeviceChanges,
+                        IdentityChanges, PendingChanges, StoredRoomKeyBundleData, RoomSettings,
+                    },
+                    CryptoStore, GossipRequest,
                 },
                 testing::{get_device, get_other_identity, get_own_identity},
                 types::{

@@ -69,7 +69,10 @@ use crate::{
     error::{EventError, OlmResult, SessionCreationError},
     identities::DeviceData,
     olm::SenderData,
-    store::{Changes, DeviceChanges, Store},
+    store::{
+        types::{Changes, DeviceChanges},
+        Store,
+    },
     types::{
         events::{
             olm_v1::AnyDecryptedOlmEvent,

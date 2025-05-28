@@ -37,7 +37,7 @@ use crate::{
         tests::megolm_sender_data::receive_to_device_event,
     },
     olm::utility::SignJson,
-    store::Changes,
+    store::types::Changes,
     types::{events::ToDeviceEvent, DeviceKeys, ProcessedToDeviceEvent},
     DeviceData, OlmMachine,
 };

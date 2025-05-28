@@ -24,7 +24,7 @@ use ruma::{
 };
 
 use super::UserIdentity;
-use crate::store::IdentityUpdates;
+use crate::store::types::IdentityUpdates;
 
 /// Something that can answer questions about the membership of a room and the
 /// identities of users.
@@ -347,7 +347,7 @@ mod tests {
     use super::{IdentityState, RoomIdentityChange, RoomIdentityProvider, RoomIdentityState};
     use crate::{
         identities::user::testing::own_identity_wrapped,
-        store::{IdentityUpdates, Store},
+        store::{types::IdentityUpdates, Store},
         IdentityStatusChange, OtherUserIdentity, OtherUserIdentityData, OwnUserIdentityData,
         UserIdentity,
     };

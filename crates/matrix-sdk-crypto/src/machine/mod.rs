@@ -75,9 +75,12 @@ use crate::{
     },
     session_manager::{GroupSessionManager, SessionManager},
     store::{
-        Changes, CryptoStoreWrapper, DeviceChanges, IdentityChanges, IntoCryptoStore, MemoryStore,
-        PendingChanges, Result as StoreResult, RoomKeyInfo, RoomSettings, SecretImportError, Store,
-        StoreCache, StoreTransaction, StoredRoomKeyBundleData,
+        types::{
+            Changes, CrossSigningKeyExport, DeviceChanges, IdentityChanges, PendingChanges,
+            RoomKeyInfo, RoomSettings, StoredRoomKeyBundleData,
+        },
+        CryptoStoreWrapper, IntoCryptoStore, MemoryStore, Result as StoreResult, SecretImportError,
+        Store, StoreCache, StoreTransaction,
     },
     types::{
         events::{
@@ -101,8 +104,8 @@ use crate::{
     },
     utilities::timestamp_to_iso8601,
     verification::{Verification, VerificationMachine, VerificationRequest},
-    CollectStrategy, CrossSigningKeyExport, CryptoStoreError, DecryptionSettings, DeviceData,
-    LocalTrust, RoomEventDecryptionResult, SignatureError, TrustRequirement,
+    CollectStrategy, CryptoStoreError, DecryptionSettings, DeviceData, LocalTrust,
+    RoomEventDecryptionResult, SignatureError, TrustRequirement,
 };
 
 /// State machine implementation of the Olm/Megolm encryption protocol used for
