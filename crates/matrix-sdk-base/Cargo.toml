@@ -56,7 +56,6 @@ unstable-msc4274 = []
 as_variant.workspace = true
 assert_matches = { workspace = true, optional = true }
 assert_matches2 = { workspace = true, optional = true }
-async-trait.workspace = true
 bitflags = { workspace = true, features = ["serde"] }
 decancer = "3.3.0"
 eyeball = { workspace = true, features = ["async-lock"] }

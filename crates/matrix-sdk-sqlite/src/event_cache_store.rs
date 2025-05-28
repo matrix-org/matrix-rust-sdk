@@ -16,7 +16,6 @@
 
 use std::{borrow::Cow, fmt, iter::once, path::Path, sync::Arc};
 
-use async_trait::async_trait;
 use deadpool_sqlite::{Object as SqliteAsyncConn, Pool as SqlitePool, Runtime};
 use matrix_sdk_base::{
     deserialized_responses::TimelineEvent,
@@ -36,6 +35,7 @@ use matrix_sdk_base::{
     },
     media::{MediaRequestParameters, UniqueKey},
 };
+use matrix_sdk_common::async_trait;
 use matrix_sdk_store_encryption::StoreCipher;
 use ruma::{
     events::relation::RelationType, time::SystemTime, EventId, MilliSecondsSinceUnixEpoch, MxcUri,
@@ -1237,8 +1237,7 @@ impl EventCacheStore for SqliteEventCacheStore {
     }
 }
 
-#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+#[async_trait]
 impl EventCacheStoreMedia for SqliteEventCacheStore {
     type Error = Error;
 

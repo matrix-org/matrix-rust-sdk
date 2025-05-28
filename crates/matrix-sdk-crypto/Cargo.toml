@@ -39,7 +39,6 @@ testing = ["matrix-sdk-test"]
 aes = "0.8.4"
 aquamarine.workspace = true
 as_variant.workspace = true
-async-trait.workspace = true
 bs58 = { version = "0.5.1" }
 byteorder.workspace = true
 cfg-if = "1.0.0"

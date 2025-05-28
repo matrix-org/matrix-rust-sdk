@@ -1,0 +1,20 @@
+[package]
+name = "matrix-sdk-macros"
+version = "0.11.0"
+edition = "2021"
+authors = ["Damir Jelić <poljar@termina.org.uk>"]
+description = "Procedural macros for the matrix-rust-sdk"
+homepage = "https://github.com/matrix-org/matrix-rust-sdk"
+repository = "https://github.com/matrix-org/matrix-rust-sdk"
+license = "Apache-2.0"
+rust-version.workspace = true
+
+[lib]
+proc-macro = true
+
+[dependencies]
+proc-macro2 = "1.0.86"
+quote = "1.0.18"
+
+[lints]
+workspace = true

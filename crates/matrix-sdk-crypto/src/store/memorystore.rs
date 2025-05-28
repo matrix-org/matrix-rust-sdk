@@ -18,9 +18,8 @@ use std::{
     sync::Arc,
 };
 
-use async_trait::async_trait;
 use matrix_sdk_common::{
-    locks::RwLock as StdRwLock, store_locks::memory_store_helper::try_take_leased_lock,
+    async_trait, locks::RwLock as StdRwLock, store_locks::memory_store_helper::try_take_leased_lock,
 };
 use ruma::{
     events::secret::request::SecretName, time::Instant, DeviceId, OwnedDeviceId, OwnedRoomId,
@@ -183,8 +182,7 @@ impl MemoryStore {
 
 type Result<T> = std::result::Result<T, Infallible>;
 
-#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+#[async_trait]
 impl CryptoStore for MemoryStore {
     type Error = Infallible;
 
@@ -1231,7 +1229,7 @@ mod integration_tests {
         sync::{Arc, Mutex, OnceLock},
     };
 
-    use async_trait::async_trait;
+    use matrix_sdk_common::async_trait;
     use ruma::{
         events::secret::request::SecretName, DeviceId, OwnedDeviceId, RoomId, TransactionId, UserId,
     };

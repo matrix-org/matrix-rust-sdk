@@ -21,7 +21,6 @@ testing = ["matrix-sdk-crypto?/testing"]
 
 [dependencies]
 anyhow.workspace = true
-async-trait.workspace = true
 base64.workspace = true
 gloo-utils = { version = "0.2.0", features = ["serde"] }
 growable-bloom-filter = { workspace = true, optional = true }
@@ -29,6 +28,7 @@ hkdf.workspace = true
 indexed_db_futures = "0.5.0"
 js-sys.workspace = true
 matrix-sdk-base = { workspace = true, features = ["js"], optional = true }
+matrix-sdk-common.workspace = true
 matrix-sdk-crypto = { workspace = true, features = ["js"], optional = true }
 matrix-sdk-store-encryption.workspace = true
 ruma.workspace = true

@@ -18,8 +18,8 @@ use std::{
     sync::{Arc, RwLock as StdRwLock},
 };
 
-use async_trait::async_trait;
 use matrix_sdk_common::{
+    async_trait,
     linked_chunk::{
         relational::RelationalLinkedChunk, ChunkIdentifier, ChunkIdentifierGenerator, Position,
         RawChunk, Update,
@@ -110,8 +110,7 @@ impl MemoryStore {
     }
 }
 
-#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+#[async_trait]
 impl EventCacheStore for MemoryStore {
     type Error = EventCacheStoreError;
 
@@ -364,8 +363,7 @@ impl EventCacheStore for MemoryStore {
     }
 }
 
-#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+#[async_trait]
 impl EventCacheStoreMedia for MemoryStore {
     type Error = EventCacheStoreError;
 

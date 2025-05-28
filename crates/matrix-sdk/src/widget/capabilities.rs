@@ -17,7 +17,7 @@
 
 use std::fmt;
 
-use async_trait::async_trait;
+use matrix_sdk_common::async_trait;
 use serde::{ser::SerializeSeq, Deserialize, Deserializer, Serialize, Serializer};
 use tracing::{debug, warn};
 

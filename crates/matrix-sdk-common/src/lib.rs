@@ -72,10 +72,32 @@ pub trait SyncOutsideWasm {}
 impl<T> SyncOutsideWasm for T {}
 
 /// Super trait that is used for our store traits, this trait will differ if
-/// it's used on WASM. WASM targets will not require `Send` and `Sync` to have
+/// it's used on Wasm. Wasm targets will not require `Send` and `Sync` to have
 /// implemented, while other targets will.
 pub trait AsyncTraitDeps: std::fmt::Debug + SendOutsideWasm + SyncOutsideWasm {}
 impl<T: std::fmt::Debug + SendOutsideWasm + SyncOutsideWasm> AsyncTraitDeps for T {}
+
+// Re-export async_trait implementation with an alias
+pub use async_trait::async_trait as async_trait_impl;
+
+// Helper "macros" for the async_trait proc macro - these are actually just
+// identifiers
+#[macro_export]
+macro_rules! __matrix_sdk_async_trait_wasm {
+    () => {
+        $crate::async_trait_impl(?Send)
+    };
+}
+
+#[macro_export]
+macro_rules! __matrix_sdk_async_trait_non_wasm {
+    () => {
+        $crate::async_trait_impl
+    };
+}
+
+// Re-export the async_trait proc macro
+pub use matrix_sdk_macros::async_trait;
 
 // TODO: Remove in favor of impl Trait once allowed in associated types
 #[macro_export]

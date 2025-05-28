@@ -15,9 +15,9 @@
 use core::fmt;
 use std::{borrow::Borrow, cmp::min, iter, ops::Deref};
 
-use async_trait::async_trait;
 use deadpool_sqlite::Object as SqliteAsyncConn;
 use itertools::Itertools;
+use matrix_sdk_common::async_trait;
 use matrix_sdk_store_encryption::StoreCipher;
 use ruma::time::SystemTime;
 use rusqlite::{limits::Limit, OptionalExtension, Params, Row, Statement, Transaction};

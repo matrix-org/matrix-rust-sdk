@@ -2875,7 +2875,6 @@ dependencies = [
  "assert_matches2",
  "async-channel",
  "async-stream",
- "async-trait",
  "axum",
  "backon",
  "bytes",
@@ -2946,7 +2945,6 @@ dependencies = [
  "assert_matches",
  "assert_matches2",
  "assign",
- "async-trait",
  "bitflags 2.8.0",
  "decancer",
  "eyeball",
@@ -2979,6 +2977,7 @@ name = "matrix-sdk-common"
 version = "0.11.0"
 dependencies = [
  "assert_matches",
+ "async-trait",
  "eyeball-im",
  "futures-core",
  "futures-util",
@@ -2987,6 +2986,7 @@ dependencies = [
  "imbl",
  "insta",
  "js-sys",
+ "matrix-sdk-macros",
  "matrix-sdk-test-macros",
  "proptest",
  "ruma",
@@ -3013,7 +3013,6 @@ dependencies = [
  "as_variant",
  "assert_matches",
  "assert_matches2",
- "async-trait",
  "bs58",
  "byteorder",
  "cfg-if",
@@ -3138,7 +3137,6 @@ dependencies = [
  "anyhow",
  "assert_matches",
  "assert_matches2",
- "async-trait",
  "base64",
  "getrandom 0.2.15",
  "gloo-utils",
@@ -3200,6 +3198,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "matrix-sdk-macros"
+version = "0.11.0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+]
+
+[[package]]
 name = "matrix-sdk-qrcode"
 version = "0.11.0"
 dependencies = [
@@ -3217,7 +3223,6 @@ version = "0.11.0"
 dependencies = [
  "as_variant",
  "assert_matches",
- "async-trait",
  "deadpool-sqlite",
  "glob",
  "itertools 0.14.0",

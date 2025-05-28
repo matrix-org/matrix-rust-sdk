@@ -20,8 +20,8 @@ use std::{
     sync::{Arc, RwLock},
 };
 
-use async_trait::async_trait;
 use deadpool_sqlite::{Object as SqliteAsyncConn, Pool as SqlitePool, Runtime};
+use matrix_sdk_common::async_trait;
 use matrix_sdk_crypto::{
     olm::{
         InboundGroupSession, OutboundGroupSession, PickledInboundGroupSession,
