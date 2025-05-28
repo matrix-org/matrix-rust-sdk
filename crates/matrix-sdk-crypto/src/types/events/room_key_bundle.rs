@@ -17,10 +17,12 @@
 //!
 //! [MSC4268]: https://github.com/matrix-org/matrix-spec-proposals/pull/4268
 
-use ruma::OwnedRoomId;
+use ruma::{events::room::EncryptedFile, OwnedRoomId};
 use serde::{Deserialize, Serialize};
 
 use super::EventType;
+
+// TODO: We need implement zeroize for this type.
 
 /// The `io.element.msc4268.room_key_bundle` event content. See [MSC4268].
 ///
@@ -31,7 +33,7 @@ pub struct RoomKeyBundleContent {
     pub room_id: OwnedRoomId,
 
     /// The location and encryption info of the key bundle.
-    pub file: ruma::events::room::EncryptedFile,
+    pub file: EncryptedFile,
 }
 
 impl EventType for RoomKeyBundleContent {
