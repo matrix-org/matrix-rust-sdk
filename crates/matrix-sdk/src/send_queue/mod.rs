@@ -600,37 +600,38 @@ impl RoomSendQueue {
                 }
             };
 
-            let progress_watcher = {
-                if let Some((progress, related_to)) = match &queued_request.kind {
-                    QueuedRequestKind::MediaUpload { related_to, .. } => {
-                        let progress: SharedObservable<TransmissionProgress> = Default::default();
-                        Some((progress, related_to.clone()))
+            // Prepare to watch and communicate the request progress.
+            let progress = if let Some(related_to) = related_txn_id.as_ref() {
+                let progress: SharedObservable<TransmissionProgress> = Default::default();
+                let mut subscriber = progress.subscribe();
+
+                let updates = updates.clone();
+                let related_to = related_to.clone();
+
+                // Watch and communicate the progress on a detached background task. Once
+                // the progress observable is dropped, next() will return None and the
+                // task will end.
+                spawn(async move {
+                    while let Some(progress) = subscriber.next().await {
+                        let _ = updates.send(RoomSendQueueUpdate::MediaUpload {
+                            related_to: related_to.clone(),
+                            file: None,
+                            index,
+                            is_thumbnail,
+                            progress,
+                        });
                     }
-                    _ => None,
-                } {
-                    let mut subscriber = progress.subscribe();
-                    let updates = updates.clone();
-                    spawn(async move {
-                        while let Some(progress) = subscriber.next().await {
-                            let _ = updates.send(RoomSendQueueUpdate::MediaUpload {
-                                related_to: related_to.clone(),
-                                file: None,
-                                index,
-                                is_thumbnail,
-                                progress,
-                            });
-                        }
-                    });
-                    Some(progress)
-                } else {
-                    None
-                }
+                });
+
+                Some(progress)
+            } else {
+                None
             };
 
-            let req =
-                Self::handle_request(&room, queued_request, cancel_upload_rx, progress_watcher);
+            let result =
+                Self::handle_request(&room, queued_request, cancel_upload_rx, progress).await;
 
-            match req.await {
+            match result {
                 Ok(Some(parent_key)) => match queue.mark_as_sent(&txn_id, parent_key.clone()).await
                 {
                     Ok(()) => match parent_key {
