@@ -79,6 +79,8 @@ pub enum IndexeddbEventCacheStoreError {
     ChunksContainDisjointLists,
     #[error("no event id")]
     NoEventId,
+    #[error("duplicate event id")]
+    DuplicateEventId,
     #[error("media store: {0}")]
     MediaStore(#[from] EventCacheStoreError),
 }
@@ -360,6 +362,19 @@ impl IndexeddbEventCacheStore {
             events.push(self.deserialize_event(value)?);
         }
         Ok(events)
+    }
+
+    async fn get_event_by_id(
+        &self,
+        room_id: &RoomId,
+        event_id: &EventId,
+    ) -> Result<Option<EventForCache>, IndexeddbEventCacheStoreError> {
+        let key = self.encode_event_id_key(room_id.as_ref(), event_id);
+        let mut events = self.get_all_events_by_id(&JsValue::from(key)).await?;
+        if events.len() > 1 {
+            return Err(IndexeddbEventCacheStoreError::DuplicateEventId);
+        }
+        Ok(events.pop())
     }
 
     async fn get_all_in_band_events_by_room(
@@ -1183,18 +1198,9 @@ impl_event_cache_store! {
         room_id: &RoomId,
         event_id: &EventId,
     ) -> Result<Option<Event>, IndexeddbEventCacheStoreError> {
-        // TODO: This is very inefficient, as we are reading and
-        // deserializing every event in the room in order to pick
-        // out a single one. The problem is that the current
-        // schema doesn't easily allow us to find an event without
-        // knowing which chunk it is in. To improve this, we will
-        // need to add another index to our event store.
-        for event in self.get_all_events_by_room(room_id).await? {
-            if event.event_id().is_some_and(|inner| inner == *event_id) {
-                return Ok(Some(event.take_content()));
-            }
-        }
-        Ok(None)
+        self.get_event_by_id(room_id, event_id)
+            .await
+            .map(|ok| ok.map(|some| some.take_content()))
     }
 
     /// Find all the events that relate to a given event.
