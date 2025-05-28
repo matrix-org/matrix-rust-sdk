@@ -392,6 +392,15 @@ impl ThreadSummaryStatus {
     fn is_unknown(&self) -> bool {
         matches!(self, ThreadSummaryStatus::Unknown)
     }
+
+    /// Transforms the [`ThreadSummaryStatus`] into an optional thread summary,
+    /// for cases where we don't care about distinguishing unknown and none.
+    pub fn summary(&self) -> Option<&ThreadSummary> {
+        match self {
+            ThreadSummaryStatus::Unknown | ThreadSummaryStatus::None => None,
+            ThreadSummaryStatus::Some(thread_summary) => Some(thread_summary),
+        }
+    }
 }
 
 /// Represents a Matrix room event that has been returned from `/sync`,

@@ -15,10 +15,19 @@
 use assert_matches2::assert_let;
 use eyeball_im::VectorDiff;
 use futures_util::StreamExt as _;
-use matrix_sdk::test_utils::mocks::{MatrixMockServer, RoomRelationsResponseTemplate};
-use matrix_sdk_test::{async_test, event_factory::EventFactory};
-use matrix_sdk_ui::timeline::{TimelineBuilder, TimelineFocus};
-use ruma::{event_id, events::AnyTimelineEvent, owned_event_id, room_id, serde::Raw, user_id};
+use matrix_sdk::{
+    assert_let_timeout,
+    test_utils::mocks::{MatrixMockServer, RoomRelationsResponseTemplate},
+};
+use matrix_sdk_test::{async_test, event_factory::EventFactory, JoinedRoomBuilder, ALICE};
+use matrix_sdk_ui::timeline::{RoomExt as _, TimelineBuilder, TimelineFocus};
+use ruma::{
+    event_id,
+    events::{relation::BundledThread, AnyTimelineEvent, BundledMessageLikeRelations},
+    owned_event_id, room_id,
+    serde::Raw,
+    uint, user_id,
+};
 use stream_assert::assert_pending;
 
 #[async_test]
@@ -151,8 +160,6 @@ async fn test_thread_backpagination() {
     // events and the thread root
     assert_eq!(timeline_updates.len(), 5);
 
-    println!("Stefan: {timeline_updates:?}");
-
     // Check the timeline diffs
     assert_let!(VectorDiff::PushFront { value } = &timeline_updates[0]);
     assert_eq!(value.as_event().unwrap().event_id().unwrap(), event_id!("$2"));
@@ -192,4 +199,51 @@ async fn test_thread_backpagination() {
         items[5].as_event().unwrap().content().as_message().unwrap().body(),
         "Threaded event 4"
     );
+}
+
+#[async_test]
+async fn test_thread_summary() {
+    // A sync event that includes a bundled thread summary receives a
+    // `ThreadSummary` in the associated timeline content.
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+
+    let room_id = room_id!("!a:b.c");
+    let room = server.sync_joined_room(&client, room_id).await;
+
+    let timeline = room.timeline().await.unwrap();
+
+    let (initial_items, mut stream) = timeline.subscribe().await;
+    assert!(initial_items.is_empty());
+
+    let f = EventFactory::new().room(room_id).sender(&ALICE);
+    let thread_event_id = event_id!("$thread_root");
+    let latest_event_id = event_id!("$latest_event");
+
+    let latest_thread_event = f.text_msg("the last one!").event_id(latest_event_id).into_raw();
+
+    let mut relations = BundledMessageLikeRelations::new();
+    relations.thread = Some(Box::new(BundledThread::new(latest_thread_event, uint!(42), false)));
+
+    let event = f
+        .text_msg("thready thread mcthreadface")
+        .bundled_relations(relations)
+        .event_id(thread_event_id);
+
+    server.sync_room(&client, JoinedRoomBuilder::new(room_id).add_timeline_event(event)).await;
+
+    assert_let_timeout!(Some(timeline_updates) = stream.next());
+    // Message + day divider.
+    assert_eq!(timeline_updates.len(), 2);
+
+    // Check the timeline diffs.
+    assert_let!(VectorDiff::PushBack { value } = &timeline_updates[0]);
+    let event_item = value.as_event().unwrap();
+    assert_eq!(event_item.event_id().unwrap(), thread_event_id);
+    assert_let!(Some(summary) = event_item.content().thread_summary());
+    // Soon™, Stefan, soon™.
+    assert!(summary.latest_event.is_unavailable());
+
+    assert_let!(VectorDiff::PushFront { value } = &timeline_updates[1]);
+    assert!(value.is_date_divider());
 }
