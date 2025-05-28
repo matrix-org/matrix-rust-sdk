@@ -62,6 +62,7 @@ async fn test_send_attachment_from_file() {
     let mock = MatrixMockServer::new().await;
     let client = mock.client_builder().build().await;
 
+    mock.mock_authenticated_media_config().ok_default().mount().await;
     mock.mock_room_state_encryption().plain().mount().await;
 
     let room_id = room_id!("!a98sd12bjh:example.org");
@@ -168,6 +169,7 @@ async fn test_send_attachment_from_bytes() {
     let mock = MatrixMockServer::new().await;
     let client = mock.client_builder().build().await;
 
+    mock.mock_authenticated_media_config().ok_default().mount().await;
     mock.mock_room_state_encryption().plain().mount().await;
 
     let room_id = room_id!("!a98sd12bjh:example.org");

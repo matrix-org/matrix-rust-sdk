@@ -3027,4 +3027,11 @@ impl<'a> MockEndpoint<'a, AuthenticatedMediaConfigEndpoint> {
             "m.upload.size": max_upload_size,
         })))
     }
+
+    /// Returns a successful response with a maxed out max upload size.
+    pub fn ok_default(self) -> MatrixMock<'a> {
+        self.respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "m.upload.size": UInt::MAX,
+        })))
+    }
 }

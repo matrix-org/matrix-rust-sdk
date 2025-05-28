@@ -1838,6 +1838,7 @@ async fn test_media_uploads() {
 
     // ----------------------
     // Prepare endpoints.
+    mock.mock_authenticated_media_config().ok_default().mount().await;
     mock.mock_room_state_encryption().plain().mount().await;
     mock.mock_room_send().ok(event_id!("$1")).mock_once().mount().await;
 
@@ -2507,6 +2508,7 @@ async fn test_media_upload_retry() {
     assert!(local_echoes.is_empty());
 
     // Prepare endpoints.
+    mock.mock_authenticated_media_config().ok_default().mount().await;
     mock.mock_room_state_encryption().plain().mount().await;
 
     // Fail for the first three attempts.
@@ -2583,6 +2585,8 @@ async fn test_media_upload_retry_with_520_http_status_code() {
     // Prepare endpoints.
     mock.mock_room_state_encryption().plain().mount().await;
 
+    mock.mock_authenticated_media_config().ok_default().mount().await;
+
     // Fail with a 520 http status code
     mock.mock_upload()
         .expect_mime_type("image/jpeg")
@@ -2622,6 +2626,7 @@ async fn test_unwedging_media_upload() {
     assert!(local_echoes.is_empty());
 
     // Prepare endpoints.
+    mock.mock_authenticated_media_config().ok_default().mount().await;
     mock.mock_room_state_encryption().plain().mount().await;
 
     // Fail for the first attempt with an error indicating the media's too large,
@@ -2729,6 +2734,7 @@ async fn test_media_event_is_sent_in_order() {
     assert!(local_echoes.is_empty());
 
     // Prepare endpoints.
+    mock.mock_authenticated_media_config().ok_default().mount().await;
     mock.mock_room_state_encryption().plain().mount().await;
     mock.mock_upload().ok(mxc_uri!("mxc://sdk.rs/media")).mock_once().mount().await;
 
@@ -2859,6 +2865,7 @@ async fn test_cancel_upload_with_thumbnail_active() {
     assert!(local_echoes.is_empty());
 
     // Prepare endpoints.
+    mock.mock_authenticated_media_config().ok_default().mount().await;
     mock.mock_room_state_encryption().plain().mount().await;
     mock.mock_room_send().ok(event_id!("$msg")).mock_once().mount().await;
 
@@ -2910,6 +2917,7 @@ async fn test_cancel_upload_with_uploaded_thumbnail_and_file_active() {
     assert!(local_echoes.is_empty());
 
     // Prepare endpoints.
+    mock.mock_authenticated_media_config().ok_default().mount().await;
     mock.mock_room_state_encryption().plain().mount().await;
     mock.mock_room_send().ok(event_id!("$msg")).mock_once().named("send event").mount().await;
 
@@ -2973,6 +2981,7 @@ async fn test_cancel_upload_only_file_with_file_active() {
     assert!(local_echoes.is_empty());
 
     // Prepare endpoints.
+    mock.mock_authenticated_media_config().ok_default().mount().await;
     mock.mock_room_state_encryption().plain().mount().await;
     mock.mock_room_send().ok(event_id!("$msg")).mock_once().named("send event").mount().await;
 
@@ -3038,6 +3047,7 @@ async fn test_cancel_upload_while_sending_event() {
     assert!(local_echoes.is_empty());
 
     // Prepare endpoints.
+    mock.mock_authenticated_media_config().ok_default().mount().await;
     mock.mock_room_state_encryption().plain().mount().await;
 
     // File upload will succeed immediately.
@@ -3141,6 +3151,7 @@ async fn test_update_caption_while_sending_media() {
     assert!(local_echoes.is_empty());
 
     // Prepare endpoints.
+    mock.mock_authenticated_media_config().ok_default().mount().await;
     mock.mock_room_state_encryption().plain().mount().await;
 
     // File upload will take a second.
@@ -3213,6 +3224,8 @@ async fn test_update_caption_while_sending_media() {
 #[async_test]
 async fn test_update_caption_before_event_is_sent() {
     let mock = MatrixMockServer::new().await;
+
+    mock.mock_authenticated_media_config().ok_default().mount().await;
 
     // Mark the room as joined.
     let room_id = room_id!("!a:b.c");
@@ -3327,6 +3340,7 @@ async fn test_add_mention_to_caption_before_media_sent() {
     assert!(local_echoes.is_empty());
 
     // Prepare endpoints.
+    mock.mock_authenticated_media_config().ok_default().mount().await;
     mock.mock_room_state_encryption().plain().mount().await;
 
     // File upload will take a second.
@@ -3426,6 +3440,7 @@ async fn test_update_caption_while_sending_media_event() {
     assert!(local_echoes.is_empty());
 
     // Prepare endpoints.
+    mock.mock_authenticated_media_config().ok_default().mount().await;
     mock.mock_room_state_encryption().plain().mount().await;
 
     // File upload will resolve immediately.

@@ -21,6 +21,8 @@ use serde_json::json;
 async fn test_room_attachment_send() {
     let mock = MatrixMockServer::new().await;
 
+    mock.mock_authenticated_media_config().ok_default().mount().await;
+
     let expected_event_id = event_id!("$h29iv0s8:example.com");
 
     mock.mock_room_send()
@@ -63,6 +65,8 @@ async fn test_room_attachment_send() {
 async fn test_room_attachment_send_in_encrypted_room_has_binary_mime_type() {
     let mock = MatrixMockServer::new().await;
 
+    mock.mock_authenticated_media_config().ok_default().mount().await;
+
     let expected_event_id = event_id!("$h29iv0s8:example.com");
 
     mock.mock_room_send().ok(expected_event_id).mock_once().mount().await;
@@ -97,6 +101,8 @@ async fn test_room_attachment_send_in_encrypted_room_has_binary_mime_type() {
 #[async_test]
 async fn test_room_attachment_send_info() {
     let mock = MatrixMockServer::new().await;
+
+    mock.mock_authenticated_media_config().ok_default().mount().await;
 
     let expected_event_id = event_id!("$h29iv0s8:example.com");
     mock.mock_room_send()
@@ -142,6 +148,8 @@ async fn test_room_attachment_send_info() {
 #[async_test]
 async fn test_room_attachment_send_wrong_info() {
     let mock = MatrixMockServer::new().await;
+
+    mock.mock_authenticated_media_config().ok_default().mount().await;
 
     // Note: this mock is NOT called because the height and width are lost, because
     // we're trying to send the attachment as an image, while we provide a
@@ -194,6 +202,8 @@ async fn test_room_attachment_send_wrong_info() {
 #[async_test]
 async fn test_room_attachment_send_info_thumbnail() {
     let mock = MatrixMockServer::new().await;
+
+    mock.mock_authenticated_media_config().ok_default().mount().await;
 
     let media_mxc = owned_mxc_uri!("mxc://example.com/media");
     let thumbnail_mxc = owned_mxc_uri!("mxc://example.com/thumbnail");
@@ -299,6 +309,8 @@ async fn test_room_attachment_send_info_thumbnail() {
 async fn test_room_attachment_send_mentions() {
     let mock = MatrixMockServer::new().await;
 
+    mock.mock_authenticated_media_config().ok_default().mount().await;
+
     let expected_event_id = event_id!("$h29iv0s8:example.com");
 
     mock.mock_room_send()
@@ -343,6 +355,8 @@ async fn test_room_attachment_reply_outside_thread() {
 
     let expected_event_id = event_id!("$h29iv0s8:example.com");
     let replied_to_event_id = event_id!("$foo:bar.com");
+
+    mock.mock_authenticated_media_config().ok_default().mount().await;
 
     mock.mock_room_send()
         .body_matches_partial_json(json!({
@@ -404,6 +418,8 @@ async fn test_room_attachment_start_thread() {
 
     let expected_event_id = event_id!("$h29iv0s8:example.com");
     let replied_to_event_id = event_id!("$foo:bar.com");
+
+    mock.mock_authenticated_media_config().ok_default().mount().await;
 
     mock.mock_room_send()
         .body_matches_partial_json(json!({
@@ -470,6 +486,8 @@ async fn test_room_attachment_reply_on_thread_as_reply() {
     let thread_root_event_id = event_id!("$bar:foo.com");
     let replied_to_event_id = event_id!("$foo:bar.com");
 
+    mock.mock_authenticated_media_config().ok_default().mount().await;
+
     mock.mock_room_send()
         .body_matches_partial_json(json!({
             "m.relates_to": {
@@ -530,6 +548,8 @@ async fn test_room_attachment_reply_on_thread_as_reply() {
 #[async_test]
 async fn test_room_attachment_reply_forwarding_thread() {
     let mock = MatrixMockServer::new().await;
+
+    mock.mock_authenticated_media_config().ok_default().mount().await;
 
     let expected_event_id = event_id!("$h29iv0s8:example.com");
     let thread_root_event_id = event_id!("$bar:foo.com");
@@ -596,6 +616,8 @@ async fn test_room_attachment_reply_forwarding_thread() {
 #[async_test]
 async fn test_room_attachment_send_is_animated() {
     let mock = MatrixMockServer::new().await;
+
+    mock.mock_authenticated_media_config().ok_default().mount().await;
 
     let expected_event_id = event_id!("$h29iv0s8:example.com");
     mock.mock_room_send()
