@@ -34,9 +34,9 @@ use crate::{
     identities::{DeviceData, OtherUserIdentityData, OwnUserIdentityData, UserIdentityData},
     olm::{InboundGroupSession, PrivateCrossSigningIdentity, SenderDataFinder, SenderDataType},
     store::{
-        caches::SequenceNumber,
+        caches::{SequenceNumber, StoreCache, StoreCacheGuard},
         types::{Changes, DeviceChanges, IdentityChanges, UserKeyQueryResult},
-        KeyQueryManager, Result as StoreResult, Store, StoreCache, StoreCacheGuard,
+        KeyQueryManager, Result as StoreResult, Store,
     },
     types::{
         requests::KeysQueryRequest, CrossSigningKey, DeviceKeys, MasterPubkey, SelfSigningPubkey,

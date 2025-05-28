@@ -18,8 +18,9 @@
 //! `CryptoStore`.
 
 use std::{
-    collections::{BTreeMap, HashMap, HashSet},
+    collections::{BTreeMap, BTreeSet, HashMap, HashSet},
     fmt::Display,
+    ops::Deref,
     sync::{
         atomic::{AtomicBool, Ordering},
         Arc, Weak,
@@ -29,10 +30,11 @@ use std::{
 use matrix_sdk_common::locks::RwLock as StdRwLock;
 use ruma::{DeviceId, OwnedDeviceId, OwnedUserId, UserId};
 use serde::{Deserialize, Serialize};
-use tokio::sync::{Mutex, RwLock};
+use tokio::sync::{Mutex, MutexGuard, OwnedRwLockReadGuard, RwLock};
 use tracing::{field::display, instrument, trace, Span};
 
-use crate::{identities::DeviceData, olm::Session};
+use super::{CryptoStoreError, CryptoStoreWrapper};
+use crate::{identities::DeviceData, olm::Session, Account};
 
 /// In-memory store for Olm Sessions.
 #[derive(Debug, Default, Clone)]
@@ -325,6 +327,77 @@ impl UsersForKeyQuery {
 
             waiter
         })
+    }
+}
+
+#[derive(Debug)]
+pub(crate) struct StoreCache {
+    pub(super) store: Arc<CryptoStoreWrapper>,
+    pub(super) tracked_users: StdRwLock<BTreeSet<OwnedUserId>>,
+    pub(super) loaded_tracked_users: RwLock<bool>,
+    pub(super) account: Mutex<Option<Account>>,
+}
+
+impl StoreCache {
+    pub(crate) fn store_wrapper(&self) -> &CryptoStoreWrapper {
+        self.store.as_ref()
+    }
+
+    /// Returns a reference to the `Account`.
+    ///
+    /// Either load the account from the cache, or the store if missing from
+    /// the cache.
+    ///
+    /// Note there should always be an account stored at least in the store, so
+    /// this doesn't return an `Option`.
+    ///
+    /// Note: this method should remain private, otherwise it's possible to ask
+    /// for a `StoreTransaction`, then get the `StoreTransaction::cache()`
+    /// and thus have two different live copies of the `Account` at once.
+    pub(super) async fn account(&self) -> super::Result<impl Deref<Target = Account> + '_> {
+        let mut guard = self.account.lock().await;
+        if guard.is_some() {
+            Ok(MutexGuard::map(guard, |acc| acc.as_mut().unwrap()))
+        } else {
+            match self.store.load_account().await? {
+                Some(account) => {
+                    *guard = Some(account);
+                    Ok(MutexGuard::map(guard, |acc| acc.as_mut().unwrap()))
+                }
+                None => Err(CryptoStoreError::AccountUnset),
+            }
+        }
+    }
+}
+
+/// Read-only store cache guard.
+///
+/// This type should hold all the methods that are available when the cache is
+/// borrowed in read-only mode, while all the write operations on those fields
+/// should happen as part of a `StoreTransaction`.
+pub(crate) struct StoreCacheGuard {
+    pub(super) cache: OwnedRwLockReadGuard<StoreCache>,
+    // TODO: (bnjbvr, #2624) add cross-process lock guard here.
+}
+
+impl StoreCacheGuard {
+    /// Returns a reference to the `Account`.
+    ///
+    /// Either load the account from the cache, or the store if missing from
+    /// the cache.
+    ///
+    /// Note there should always be an account stored at least in the store, so
+    /// this doesn't return an `Option`.
+    pub async fn account(&self) -> super::Result<impl Deref<Target = Account> + '_> {
+        self.cache.account().await
+    }
+}
+
+impl Deref for StoreCacheGuard {
+    type Target = StoreCache;
+
+    fn deref(&self) -> &Self::Target {
+        &self.cache
     }
 }
 

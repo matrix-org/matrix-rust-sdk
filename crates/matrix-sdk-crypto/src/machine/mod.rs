@@ -75,12 +75,13 @@ use crate::{
     },
     session_manager::{GroupSessionManager, SessionManager},
     store::{
+        caches::StoreCache,
         types::{
             Changes, CrossSigningKeyExport, DeviceChanges, IdentityChanges, PendingChanges,
             RoomKeyInfo, RoomSettings, StoredRoomKeyBundleData,
         },
         CryptoStoreWrapper, IntoCryptoStore, MemoryStore, Result as StoreResult, SecretImportError,
-        Store, StoreCache, StoreTransaction,
+        Store, StoreTransaction,
     },
     types::{
         events::{
