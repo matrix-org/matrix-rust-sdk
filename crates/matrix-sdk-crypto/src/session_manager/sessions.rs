@@ -840,7 +840,8 @@ mod tests {
         let time = SystemTime::now() - Duration::from_secs(3601);
         session.creation_time = SecondsSinceUnixEpoch::from_system_time(time).unwrap();
 
-        manager.store.save_device_data(&[bob_device.clone()]).await.unwrap();
+        let devices = std::slice::from_ref(&bob_device);
+        manager.store.save_device_data(devices).await.unwrap();
         manager.store.save_sessions(&[session]).await.unwrap();
 
         assert!(manager.get_missing_sessions(iter::once(bob.user_id())).await.unwrap().is_none());

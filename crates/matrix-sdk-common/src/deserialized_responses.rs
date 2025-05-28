@@ -208,7 +208,7 @@ impl fmt::Display for VerificationLevel {
             }
             VerificationLevel::None(..) => "The sending device is not known",
         };
-        write!(f, "{}", display)
+        write!(f, "{display}")
     }
 }
 
@@ -501,8 +501,7 @@ impl<'de> Deserialize<'de> for TimelineEvent {
             let v0: SyncTimelineEventDeserializationHelperV0 =
                 serde_json::from_value(Value::Object(value)).map_err(|e| {
                     serde::de::Error::custom(format!(
-                        "Unable to deserialize V0-format TimelineEvent: {}",
-                        e
+                        "Unable to deserialize V0-format TimelineEvent: {e}",
                     ))
                 })?;
             Ok(v0.into())
@@ -512,8 +511,7 @@ impl<'de> Deserialize<'de> for TimelineEvent {
             let v1: SyncTimelineEventDeserializationHelperV1 =
                 serde_json::from_value(Value::Object(value)).map_err(|e| {
                     serde::de::Error::custom(format!(
-                        "Unable to deserialize V1-format TimelineEvent: {}",
-                        e
+                        "Unable to deserialize V1-format TimelineEvent: {e}",
                     ))
                 })?;
             Ok(v1.into())

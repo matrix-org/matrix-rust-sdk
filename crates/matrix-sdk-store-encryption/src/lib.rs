@@ -653,7 +653,7 @@ impl std::fmt::Display for EncryptedValueBase64DecodeError {
         let msg = match self {
             EncryptedValueBase64DecodeError::DecodeError(e) => e.to_string(),
             EncryptedValueBase64DecodeError::IncorrectNonceLength(length) => {
-                format!("Incorrect nonce length {}. Expected length: {}.", length, XNONCE_SIZE)
+                format!("Incorrect nonce length {length}. Expected length: {XNONCE_SIZE}.")
             }
         };
 
