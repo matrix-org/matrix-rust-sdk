@@ -690,7 +690,7 @@ impl<T> TimelineDetails<T> {
         }
     }
 
-    pub(crate) fn is_unavailable(&self) -> bool {
+    pub fn is_unavailable(&self) -> bool {
         matches!(self, Self::Unavailable)
     }
 
