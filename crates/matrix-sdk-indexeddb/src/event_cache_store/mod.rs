@@ -214,7 +214,7 @@ impl IndexeddbEventCacheStore {
         Ok(deserialized)
     }
 
-    fn encode_in_band_event_key(&self, room_id: &str, position: &PositionForCache) -> String {
+    fn encode_event_position_key(&self, room_id: &str, position: &PositionForCache) -> String {
         self.encode_key(vec![
             (keys::ROOMS, room_id, true),
             (keys::LINKED_CHUNKS, &position.chunk_id.to_string(), false),
@@ -222,27 +222,27 @@ impl IndexeddbEventCacheStore {
         ])
     }
 
-    fn encode_upper_in_band_event_key_for_chunk(&self, room_id: &str, chunk_id: u64) -> String {
+    fn encode_upper_event_position_key_for_chunk(&self, room_id: &str, chunk_id: u64) -> String {
         self.encode_upper_key(vec![
             (keys::ROOMS, room_id, true),
             (keys::LINKED_CHUNKS, &chunk_id.to_string(), false),
         ])
     }
 
-    fn encode_in_band_event_range_for_chunk(&self, room_id: &str, chunk_id: u64) -> IdbKeyRange {
+    fn encode_event_position_range_for_chunk(&self, room_id: &str, chunk_id: u64) -> IdbKeyRange {
         let lower =
-            self.encode_in_band_event_key(room_id, &PositionForCache { chunk_id, index: 0 });
-        let upper = self.encode_upper_in_band_event_key_for_chunk(room_id, chunk_id);
+            self.encode_event_position_key(room_id, &PositionForCache { chunk_id, index: 0 });
+        let upper = self.encode_upper_event_position_key_for_chunk(room_id, chunk_id);
         IdbKeyRange::bound(&lower.into(), &upper.into()).expect("construct key range")
     }
 
-    fn encode_in_band_event_range_for_chunk_from(
+    fn encode_event_position_range_for_chunk_from(
         &self,
         room_id: &str,
         position: &PositionForCache,
     ) -> IdbKeyRange {
-        let lower = self.encode_in_band_event_key(room_id, position);
-        let upper = self.encode_upper_in_band_event_key_for_chunk(room_id, position.chunk_id);
+        let lower = self.encode_event_position_key(room_id, position);
+        let upper = self.encode_upper_event_position_key_for_chunk(room_id, position.chunk_id);
         IdbKeyRange::bound(&lower.into(), &upper.into()).expect("construct key range")
     }
 
@@ -268,7 +268,7 @@ impl IndexeddbEventCacheStore {
     ) -> Result<JsValue, IndexeddbEventCacheStoreError> {
         let event_id = event.content.event_id().ok_or(IndexeddbEventCacheStoreError::NoEventId)?;
         let id = self.encode_event_id_key(&event.room_id, &event_id);
-        let position = self.encode_in_band_event_key(&event.room_id, &event.position);
+        let position = self.encode_event_position_key(&event.room_id, &event.position);
         Ok(serde_wasm_bindgen::to_value(&IndexedEvent {
             id,
             position: Some(position),
@@ -380,7 +380,7 @@ impl IndexeddbEventCacheStore {
         room_id: &RoomId,
         chunk_id: u64,
     ) -> Result<Vec<InBandEventForCache>, IndexeddbEventCacheStoreError> {
-        let range = self.encode_in_band_event_range_for_chunk(room_id.as_ref(), chunk_id);
+        let range = self.encode_event_position_range_for_chunk(room_id.as_ref(), chunk_id);
         let values = self.get_all_events_by_position(&range).await?;
         let mut events = Vec::new();
         for event in values {
@@ -824,7 +824,7 @@ impl_event_cache_store! {
                     trace!(%room_id, "replacing item @ {chunk_id}:{index}");
 
                     // First remove the event in the given position, if it exists
-                    let key = self.encode_in_band_event_key(room_id.as_ref(), &at.into());
+                    let key = self.encode_event_position_key(room_id.as_ref(), &at.into());
                     if let Some(cursor) = event_positions.open_cursor_with_range(&JsValue::from(key))?.await? {
                         cursor.delete()?.await?;
                     }
@@ -843,7 +843,7 @@ impl_event_cache_store! {
 
                     trace!(%room_id, "removing item @ {chunk_id}:{index}");
 
-                    let key = self.encode_in_band_event_key(room_id.as_ref(), &at.into());
+                    let key = self.encode_event_position_key(room_id.as_ref(), &at.into());
                     if let Some(cursor) = event_positions.open_cursor_with_range(&JsValue::from(key))?.await? {
                         cursor.delete()?.await?;
                     }
@@ -854,7 +854,7 @@ impl_event_cache_store! {
 
                     trace!(%room_id, "detaching last items @ {chunk_id}:{index}");
 
-                    let key_range = self.encode_in_band_event_range_for_chunk_from(room_id.as_ref(), &at.into());
+                    let key_range = self.encode_event_position_range_for_chunk_from(room_id.as_ref(), &at.into());
                     if let Some(cursor) = event_positions.open_cursor_with_range(&key_range)?.await? {
                         while cursor.key().is_some() {
                             let event: InBandEventForCache = self.deserialize_in_band_event(cursor.value())?;
@@ -881,7 +881,7 @@ impl_event_cache_store! {
                     for chunk in chunks {
                         let chunk: ChunkForCache = self.deserialize_value_with_id(chunk)?;
                         // Delete all events for this chunk
-                        let events_key_range = self.encode_in_band_event_range_for_chunk(room_id.as_ref(), chunk.raw_id);
+                        let events_key_range = self.encode_event_position_range_for_chunk(room_id.as_ref(), chunk.raw_id);
                         events.delete_owned(events_key_range)?;
                         linked_chunks.delete_owned(&chunk.id)?;
                     }
