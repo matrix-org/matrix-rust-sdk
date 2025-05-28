@@ -637,7 +637,8 @@ async fn test_megolm_encryption() {
         .unwrap()
         .inbound_group_session
         .unwrap();
-    bob.store().save_inbound_group_sessions(&[group_session.clone()]).await.unwrap();
+    let sessions = std::slice::from_ref(&group_session);
+    bob.store().save_inbound_group_sessions(sessions).await.unwrap();
 
     // when we decrypt the room key, the
     // inbound_group_session_streamroom_keys_received_stream should tell us

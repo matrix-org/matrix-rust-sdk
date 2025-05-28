@@ -501,7 +501,7 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
             let previous_chunk =
                 self.load_previous_chunk(room_id, first_chunk).await.unwrap().unwrap();
 
-            let _ = lazy_loader::insert_new_first_chunk(&mut linked_chunk, previous_chunk).unwrap();
+            lazy_loader::insert_new_first_chunk(&mut linked_chunk, previous_chunk).unwrap();
 
             let mut rchunks = linked_chunk.rchunks();
 
@@ -538,7 +538,7 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
             let previous_chunk =
                 self.load_previous_chunk(room_id, first_chunk).await.unwrap().unwrap();
 
-            let _ = lazy_loader::insert_new_first_chunk(&mut linked_chunk, previous_chunk).unwrap();
+            lazy_loader::insert_new_first_chunk(&mut linked_chunk, previous_chunk).unwrap();
 
             let mut rchunks = linked_chunk.rchunks();
 
