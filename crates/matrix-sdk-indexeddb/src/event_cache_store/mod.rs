@@ -222,10 +222,6 @@ impl IndexeddbEventCacheStore {
         ])
     }
 
-    fn encode_upper_in_band_event_key_for_room(&self, room_id: &str) -> String {
-        self.encode_upper_key(vec![(keys::ROOMS, room_id, true)])
-    }
-
     fn encode_upper_in_band_event_key_for_chunk(&self, room_id: &str, chunk_id: u64) -> String {
         self.encode_upper_key(vec![
             (keys::ROOMS, room_id, true),
@@ -247,12 +243,6 @@ impl IndexeddbEventCacheStore {
     ) -> IdbKeyRange {
         let lower = self.encode_in_band_event_key(room_id, position);
         let upper = self.encode_upper_in_band_event_key_for_chunk(room_id, position.chunk_id);
-        IdbKeyRange::bound(&lower.into(), &upper.into()).expect("construct key range")
-    }
-
-    fn encode_in_band_event_range_for_room(&self, room_id: &str) -> IdbKeyRange {
-        let lower = self.encode_in_band_event_key(room_id, &PositionForCache::default());
-        let upper = self.encode_upper_in_band_event_key_for_room(room_id);
         IdbKeyRange::bound(&lower.into(), &upper.into()).expect("construct key range")
     }
 
@@ -375,20 +365,6 @@ impl IndexeddbEventCacheStore {
             return Err(IndexeddbEventCacheStoreError::DuplicateEventId);
         }
         Ok(events.pop())
-    }
-
-    async fn get_all_in_band_events_by_room(
-        &self,
-        room_id: &RoomId,
-    ) -> Result<Vec<InBandEventForCache>, IndexeddbEventCacheStoreError> {
-        let range = self.encode_in_band_event_range_for_room(room_id.as_ref());
-        let values = self.get_all_events_by_position(&range).await?;
-        let mut events = Vec::new();
-        for event in values {
-            let event: InBandEventForCache = self.deserialize_in_band_event(event)?;
-            events.push(event);
-        }
-        Ok(events)
     }
 
     async fn get_all_events_by_room(
@@ -1175,18 +1151,10 @@ impl_event_cache_store! {
             return Ok(Vec::new());
         }
 
-        // TODO: This is very inefficient, as we are reading and
-        // deserializing every event in the room in order to pick
-        // out a single one. The problem is that the current
-        // schema doesn't easily allow us to find an event without
-        // knowing which chunk it is in. To improve this, we will
-        // need to add another index to our event store.
         let mut duplicated = Vec::new();
-        for event in self.get_all_in_band_events_by_room(room_id).await? {
-            if let Some(event_id) = event.content.event_id() {
-                if events.contains(&event_id) {
-                    duplicated.push((event_id, event.position.into()))
-                }
+        for event_id in events {
+            if let Some(EventForCache::InBand(event)) = self.get_event_by_id(room_id, &event_id).await? {
+                duplicated.push((event_id, event.position.into()));
             }
         }
         Ok(duplicated)
