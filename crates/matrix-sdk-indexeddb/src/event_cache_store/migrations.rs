@@ -51,14 +51,16 @@ async fn setup_db(db: IdbDatabase, version: u32) -> Result<IdbDatabase, DomExcep
 
                 let mut event_positions_parameters = IdbIndexParameters::new();
                 event_positions_parameters.unique(true);
-                events
+                let events_object_store = events
                     .db()
-                    .create_object_store_with_params(keys::EVENTS, &object_store_params)?
-                    .create_index_with_params(
-                        keys::EVENT_POSITIONS,
-                        &IdbKeyPath::from("position"),
-                        &event_positions_parameters,
-                    )?;
+                    .create_object_store_with_params(keys::EVENTS, &object_store_params)?;
+                events_object_store.create_index_with_params(
+                    keys::EVENT_POSITIONS,
+                    &IdbKeyPath::from("position"),
+                    &event_positions_parameters,
+                )?;
+                events_object_store
+                    .create_index(keys::EVENT_RELATIONS, &IdbKeyPath::from("relation"))?;
 
                 events.db().create_object_store_with_params(keys::GAPS, &object_store_params)?;
                 Ok(())

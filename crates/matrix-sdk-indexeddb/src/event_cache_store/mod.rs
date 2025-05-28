@@ -55,6 +55,7 @@ mod keys {
     pub const ROOMS: &str = "rooms";
     pub const EVENTS: &str = "events";
     pub const EVENT_POSITIONS: &str = "event_positions";
+    pub const EVENT_RELATIONS: &str = "event_relations";
     pub const EVENT_RELATED_EVENTS: &str = "event_related_events";
     pub const EVENT_RELATION_TYPES: &str = "event_relation_types";
     pub const LINKED_CHUNKS: &str = "linked_chunks";
