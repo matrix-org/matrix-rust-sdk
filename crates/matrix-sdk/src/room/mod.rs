@@ -128,7 +128,7 @@ use serde::de::DeserializeOwned;
 use thiserror::Error;
 use tokio::{join, sync::broadcast};
 use tokio_stream::StreamExt;
-use tracing::{debug, error, info, instrument, warn};
+use tracing::{debug, error, info, instrument, trace, warn};
 
 use self::futures::{SendAttachment, SendMessageLikeEvent, SendRawMessageLikeEvent};
 pub use self::{
@@ -339,8 +339,6 @@ impl Room {
         // The server can return with an error that is acceptable to ignore. Let's find
         // which one.
         if let Err(error) = response {
-            error!(?error, "Failed to leave the room");
-
             #[allow(clippy::collapsible_match)]
             let ignore_error = if let Some(error) = error.client_api_error_kind() {
                 match error {
@@ -353,6 +351,8 @@ impl Room {
                 false
             };
 
+            error!(?error, ignore_error, should_forget, "Failed to leave the room");
+
             if !ignore_error {
                 return Err(error.into());
             }
@@ -361,8 +361,10 @@ impl Room {
         self.client.base_client().room_left(self.room_id()).await?;
 
         if should_forget {
+            trace!("Trying to forget the room");
+
             if let Err(error) = self.forget().await {
-                warn!("Failed to forget room when leaving it: {error}");
+                error!(?error, "Failed to forget the room");
             }
         }
 
