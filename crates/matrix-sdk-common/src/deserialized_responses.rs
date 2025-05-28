@@ -386,9 +386,15 @@ pub struct TimelineEvent {
 
     /// The push actions associated with this event.
     ///
-    /// If it's set to `None`, then it means we couldn't compute those actions.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    /// If it's set to `None`, then it means we couldn't compute those actions,
+    /// or that they could be computed but there were none.
+    #[serde(skip_serializing_if = "skip_serialize_push_actions")]
     pub push_actions: Option<Vec<Action>>,
+}
+
+// Don't serialize push actions if they're `None` or an empty vec.
+fn skip_serialize_push_actions(push_actions: &Option<Vec<Action>>) -> bool {
+    push_actions.as_ref().is_none_or(|v| v.is_empty())
 }
 
 // See https://github.com/matrix-org/matrix-rust-sdk/pull/3749#issuecomment-2312939823.
