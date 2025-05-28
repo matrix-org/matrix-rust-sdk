@@ -417,18 +417,6 @@ impl TimelineEvent {
         Self { kind: TimelineEventKind::PlainText { event }, push_actions: None }
     }
 
-    /// Create a new [`TimelineEvent`] from the given raw event and push
-    /// actions.
-    ///
-    /// This is a convenience constructor for a plaintext event, for example
-    /// inside a test.
-    pub fn new_with_push_actions(
-        event: Raw<AnySyncTimelineEvent>,
-        push_actions: Vec<Action>,
-    ) -> Self {
-        Self { kind: TimelineEventKind::PlainText { event }, push_actions: Some(push_actions) }
-    }
-
     /// Create a new [`TimelineEvent`] to represent the given decryption
     /// failure.
     pub fn new_utd_event(event: Raw<AnySyncTimelineEvent>, utd_info: UnableToDecryptInfo) -> Self {
