@@ -44,5 +44,8 @@ expression: "serde_json::to_value(&room_event).unwrap()"
         }
       }
     }
+  },
+  "thread_summary": {
+    "Some": {}
   }
 }
