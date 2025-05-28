@@ -629,7 +629,8 @@ impl RoomSendQueue {
             };
 
             let result =
-                Self::handle_request(&room, queued_request, cancel_upload_rx, progress).await;
+                Self::handle_request(&room, queued_request, cancel_upload_rx, progress.clone())
+                    .await;
 
             match result {
                 Ok(Some(parent_key)) => match queue.mark_as_sent(&txn_id, parent_key.clone()).await
@@ -648,10 +649,7 @@ impl RoomSendQueue {
                                 file: Some(media_info.file),
                                 index,
                                 is_thumbnail,
-                                progress: TransmissionProgress {
-                                    current: media_info.bytes,
-                                    total: media_info.bytes,
-                                },
+                                progress: progress.map(|p| p.get()).unwrap_or_default(),
                             });
                         }
                     },
@@ -738,7 +736,7 @@ impl RoomSendQueue {
         room: &Room,
         request: QueuedRequest,
         cancel_upload_rx: Option<oneshot::Receiver<()>>,
-        progress_watcher: Option<SharedObservable<TransmissionProgress>>,
+        progress: Option<SharedObservable<TransmissionProgress>>,
     ) -> Result<Option<SentRequestKey>, crate::Error> {
         match request.kind {
             QueuedRequestKind::Event { content } => {
@@ -783,8 +781,6 @@ impl RoomSendQueue {
                         ))
                     })?;
 
-                    let bytes;
-
                     #[cfg(feature = "e2e-encryption")]
                     let media_source = if room.latest_encryption_state().await?.is_encrypted() {
                         trace!("upload will be encrypted (encrypted room)");
@@ -794,14 +790,11 @@ impl RoomSendQueue {
                             .upload_encrypted_file(&mut cursor)
                             .with_request_config(RequestConfig::short_retry());
 
-                        if let Some(watcher) = progress_watcher {
-                            req = req.with_send_progress_observable(watcher);
+                        if let Some(progress) = progress {
+                            req = req.with_send_progress_observable(progress);
                         };
 
-                        let progress = req.send_progress.clone();
                         let encrypted_file = req.await?;
-                        bytes = progress.get().total;
-
                         MediaSource::Encrypted(Box::new(encrypted_file))
                     } else {
                         trace!("upload will be in clear text (room without encryption)");
@@ -810,14 +803,11 @@ impl RoomSendQueue {
                         let mut req =
                             room.client().media().upload(&mime, data, Some(request_config));
 
-                        if let Some(watcher) = progress_watcher {
-                            req = req.with_send_progress_observable(watcher);
+                        if let Some(progress) = progress {
+                            req = req.with_send_progress_observable(progress);
                         };
 
-                        let progress = req.send_progress.clone();
                         let res = req.await?;
-                        bytes = progress.get().total;
-
                         MediaSource::Plain(res.content_uri)
                     };
 
@@ -828,14 +818,11 @@ impl RoomSendQueue {
                         let mut req =
                             room.client().media().upload(&mime, data, Some(request_config));
 
-                        if let Some(watcher) = progress_watcher {
-                            req = req.with_send_progress_observable(watcher);
+                        if let Some(progress) = progress {
+                            req = req.with_send_progress_observable(progress);
                         };
 
-                        let progress = req.send_progress.clone();
                         let res = req.await?;
-                        bytes = progress.get().total;
-
                         MediaSource::Plain(res.content_uri)
                     };
 
@@ -850,7 +837,6 @@ impl RoomSendQueue {
                         thumbnail: thumbnail_source,
                         #[cfg(feature = "unstable-msc4274")]
                         accumulated,
-                        bytes,
                     }))
                 };
 

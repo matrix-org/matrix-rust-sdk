@@ -379,10 +379,6 @@ pub struct SentMediaInfo {
     /// thumbnail media source.
     pub file: MediaSource,
 
-    /// The number of bytes uploaded for the file.
-    #[serde(default)]
-    pub bytes: usize,
-
     /// Optional thumbnail previously uploaded, when uploading a file.
     ///
     /// When uploading a thumbnail, this is set to `None`.
