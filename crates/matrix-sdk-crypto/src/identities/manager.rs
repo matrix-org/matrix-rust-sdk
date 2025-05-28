@@ -37,9 +37,9 @@ use crate::{
         PrivateCrossSigningIdentity, SenderDataFinder, SenderDataType,
     },
     store::{
-        caches::SequenceNumber,
+        caches::{SequenceNumber, StoreCache, StoreCacheGuard},
         types::{Changes, DeviceChanges, IdentityChanges, UserKeyQueryResult},
-        KeyQueryManager, Result as StoreResult, Store, StoreCache, StoreCacheGuard,
+        KeyQueryManager, Result as StoreResult, Store,
     },
     types::{
         requests::KeysQueryRequest, CrossSigningKey, DeviceKeys, MasterPubkey, SelfSigningPubkey,

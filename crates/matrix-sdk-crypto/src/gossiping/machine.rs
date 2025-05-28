@@ -47,7 +47,7 @@ use crate::{
     identities::IdentityManager,
     olm::{InboundGroupSession, Session},
     session_manager::GroupSessionCache,
-    store::{types::Changes, CryptoStoreError, SecretImportError, Store, StoreCache},
+    store::{caches::StoreCache, types::Changes, CryptoStoreError, SecretImportError, Store},
     types::{
         events::{
             forwarded_room_key::ForwardedRoomKeyContent,
