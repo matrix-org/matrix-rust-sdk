@@ -244,7 +244,7 @@ impl TryFrom<AnySyncMessageLikeEvent> for MessageLikeEventContent {
                 MessageLikeEventContent::RoomRedaction { redacted_event_id, reason }
             }
             AnySyncMessageLikeEvent::Sticker(_) => MessageLikeEventContent::Sticker,
-            _ => bail!("Unsupported Event Type"),
+            _ => bail!("Unsupported Event Type: {:?}", value.event_type()),
         };
         Ok(content)
     }
