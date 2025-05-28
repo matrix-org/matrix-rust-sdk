@@ -55,6 +55,8 @@ mod keys {
     pub const ROOMS: &str = "rooms";
     pub const EVENTS: &str = "events";
     pub const EVENT_POSITIONS: &str = "event_positions";
+    pub const EVENT_RELATED_EVENTS: &str = "event_related_events";
+    pub const EVENT_RELATION_TYPES: &str = "event_relation_types";
     pub const LINKED_CHUNKS: &str = "linked_chunks";
     pub const GAPS: &str = "gaps";
 }
@@ -262,6 +264,19 @@ impl IndexeddbEventCacheStore {
         self.encode_key(vec![(keys::ROOMS, room_id, true), (keys::EVENTS, event_id.as_ref(), true)])
     }
 
+    fn encode_event_relation_key(
+        &self,
+        room_id: &str,
+        related_event: &EventId,
+        relation_type: String,
+    ) -> String {
+        self.encode_key(vec![
+            (keys::ROOMS, room_id, true),
+            (keys::EVENT_RELATED_EVENTS, related_event.as_ref(), true),
+            (keys::EVENT_RELATION_TYPES, &relation_type, true),
+        ])
+    }
+
     fn serialize_in_band_event(
         &self,
         event: &InBandEventForCache,
@@ -269,9 +284,13 @@ impl IndexeddbEventCacheStore {
         let event_id = event.content.event_id().ok_or(IndexeddbEventCacheStoreError::NoEventId)?;
         let id = self.encode_event_id_key(&event.room_id, &event_id);
         let position = self.encode_event_position_key(&event.room_id, &event.position);
+        let relation = event.relation().map(|(related_event, relation_type)| {
+            self.encode_event_relation_key(&event.room_id, &related_event, relation_type)
+        });
         Ok(serde_wasm_bindgen::to_value(&IndexedEvent {
             id,
             position: Some(position),
+            relation,
             content: self.serializer.maybe_encrypt_value(event)?,
         })?)
     }
@@ -282,9 +301,13 @@ impl IndexeddbEventCacheStore {
     ) -> Result<JsValue, IndexeddbEventCacheStoreError> {
         let event_id = event.content.event_id().ok_or(IndexeddbEventCacheStoreError::NoEventId)?;
         let id = self.encode_event_id_key(&event.room_id, &event_id);
+        let relation = event.relation().map(|(related_event, relation_type)| {
+            self.encode_event_relation_key(&event.room_id, &related_event, relation_type)
+        });
         Ok(serde_wasm_bindgen::to_value(&IndexedEvent {
             id,
             position: None,
+            relation,
             content: self.serializer.maybe_encrypt_value(event)?,
         })?)
     }
@@ -434,6 +457,12 @@ struct GenericEventForCache<P> {
     position: P,
 }
 
+impl<P> GenericEventForCache<P> {
+    pub fn relation(&self) -> Option<(OwnedEventId, String)> {
+        extract_event_relation(self.content.raw())
+    }
+}
+
 #[derive(Debug, Default, Copy, Clone, Serialize, Deserialize)]
 struct PositionForCache {
     chunk_id: u64,
@@ -489,6 +518,7 @@ impl From<Position> for PositionForCache {
 struct IndexedEvent {
     id: String,
     position: Option<String>,
+    relation: Option<String>,
     content: MaybeEncrypted,
 }
 
