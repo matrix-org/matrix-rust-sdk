@@ -37,7 +37,7 @@ use super::{
 };
 use crate::timeline::{
     event_handler::{FailedToParseEvent, RemovedItem, TimelineAction},
-    VirtualTimelineItem,
+    ThreadSummary, TimelineDetails, VirtualTimelineItem,
 };
 
 pub(in crate::timeline) struct TimelineStateTransaction<'a> {
@@ -203,6 +203,7 @@ impl<'a> TimelineStateTransaction<'a> {
             deserialized,
             event.raw(),
             room_data_provider,
+            None,
             None,
             None,
             &self.items,
@@ -555,7 +556,12 @@ impl<'a> TimelineStateTransaction<'a> {
         date_divider_adjuster: &mut DateDividerAdjuster,
     ) -> RemovedItem {
         // TODO: do something with the thread summary!
-        let TimelineEvent { push_actions, kind, thread_summary: _thread_summary } = event;
+        let TimelineEvent { push_actions, kind, thread_summary } = event;
+
+        let thread_summary = thread_summary.summary().map(|_common_summary| {
+            // TODO: later, fill the latest event in the thread summary!
+            ThreadSummary { latest_event: TimelineDetails::Unavailable }
+        });
 
         let encryption_info = kind.encryption_info().cloned();
 
@@ -584,6 +590,7 @@ impl<'a> TimelineStateTransaction<'a> {
                         event,
                         &raw,
                         room_data_provider,
+                        thread_summary,
                         utd_info,
                         bundled_edit_encryption_info,
                         &self.items,
