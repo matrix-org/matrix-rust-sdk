@@ -15,8 +15,14 @@
 //! A collection of serde helpers to avoid having to deserialize an entire event
 //! to access some fields.
 
-use ruma::{events::AnySyncTimelineEvent, serde::Raw, OwnedEventId};
+use ruma::{
+    events::{relation::BundledThread, AnySyncTimelineEvent},
+    serde::Raw,
+    OwnedEventId,
+};
 use serde::Deserialize;
+
+use crate::deserialized_responses::{ThreadSummary, ThreadSummaryStatus};
 
 #[derive(Deserialize)]
 enum RelationsType {
@@ -53,6 +59,33 @@ pub fn extract_thread_root(event: &Raw<AnySyncTimelineEvent>) -> Option<OwnedEve
     }
 }
 
+#[allow(missing_debug_implementations)]
+#[derive(Deserialize)]
+struct Relations {
+    #[serde(rename = "m.thread")]
+    thread: Option<Box<BundledThread>>,
+}
+
+#[allow(missing_debug_implementations)]
+#[derive(Deserialize)]
+struct Unsigned {
+    #[serde(rename = "m.relations")]
+    relations: Option<Relations>,
+}
+
+/// Try to extract a bundled thread summary of a timeline event, if available.
+pub fn extract_bundled_thread_summary(event: &Raw<AnySyncTimelineEvent>) -> ThreadSummaryStatus {
+    match event.get_field::<Unsigned>("unsigned") {
+        Ok(Some(Unsigned { relations: Some(Relations { thread: Some(bundled_thread) }) })) => {
+            // Currently, we don't do anything with the bundled thread, but later we will!
+            let _ = bundled_thread;
+            ThreadSummaryStatus::Some(ThreadSummary {})
+        }
+        Ok(_) => ThreadSummaryStatus::None,
+        Err(_) => ThreadSummaryStatus::Unknown,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use assert_matches::assert_matches;
@@ -60,6 +93,10 @@ mod tests {
     use serde_json::json;
 
     use super::extract_thread_root;
+    use crate::{
+        deserialized_responses::{ThreadSummary, ThreadSummaryStatus},
+        serde_helpers::extract_bundled_thread_summary,
+    };
 
     #[test]
     fn test_extract_thread_root() {
@@ -136,5 +173,104 @@ mod tests {
 
         let observed_thread_root = extract_thread_root(&event);
         assert_matches!(observed_thread_root, None);
+    }
+
+    #[test]
+    fn test_extract_bundled_thread_summary() {
+        // When there's a bundled thread summary, we can extract it.
+        let event = Raw::new(&json!({
+            "event_id": "$eid:example.com",
+            "type": "m.room.message",
+            "sender": "@alice:example.com",
+            "origin_server_ts": 42,
+            "content": {
+                "body": "Hello, world!",
+            },
+            "unsigned": {
+                "m.relations": {
+                    "m.thread": {
+                        "latest_event": {
+                            "event_id": "$latest_event:example.com",
+                            "type": "m.room.message",
+                            "sender": "@bob:example.com",
+                            "origin_server_ts": 42,
+                            "content": {
+                                "body": "Hello to you too!",
+                            }
+                        },
+                        "count": 2,
+                        "current_user_participated": true,
+                    }
+                }
+            }
+        }))
+        .unwrap()
+        .cast();
+
+        assert_matches!(
+            extract_bundled_thread_summary(&event),
+            ThreadSummaryStatus::Some(ThreadSummary { .. })
+        );
+
+        // When there's a bundled thread summary, we can assert it with certainty.
+        let event = Raw::new(&json!({
+            "event_id": "$eid:example.com",
+            "type": "m.room.message",
+            "sender": "@alice:example.com",
+            "origin_server_ts": 42,
+        }))
+        .unwrap()
+        .cast();
+
+        assert_matches!(extract_bundled_thread_summary(&event), ThreadSummaryStatus::None);
+
+        // When there's a bundled replace, we can assert there's no thread summary.
+        let event = Raw::new(&json!({
+            "event_id": "$eid:example.com",
+            "type": "m.room.message",
+            "sender": "@alice:example.com",
+            "origin_server_ts": 42,
+            "content": {
+                "body": "Bonjour, monde!",
+            },
+            "unsigned": {
+                "m.relations": {
+                    "m.replace":
+                    {
+                        "event_id": "$update:example.com",
+                        "type": "m.room.message",
+                        "sender": "@alice:example.com",
+                        "origin_server_ts": 43,
+                        "content": {
+                            "body": "* Hello, world!",
+                        }
+                    },
+                }
+            }
+        }))
+        .unwrap()
+        .cast();
+
+        assert_matches!(extract_bundled_thread_summary(&event), ThreadSummaryStatus::None);
+
+        // When the bundled thread summary is malformed, we return
+        // `ThreadSummaryStatus::Unknown`.
+        let event = Raw::new(&json!({
+            "event_id": "$eid:example.com",
+            "type": "m.room.message",
+            "sender": "@alice:example.com",
+            "origin_server_ts": 42,
+            "unsigned": {
+                "m.relations": {
+                    "m.thread": {
+                        // Missing `latest_event` field.
+                    }
+                }
+            }
+        }))
+        .unwrap()
+        .cast();
+
+        assert_matches!(extract_bundled_thread_summary(&event), ThreadSummaryStatus::Unknown);
     }
 }
