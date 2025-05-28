@@ -348,13 +348,18 @@ impl IndexeddbEventCacheStore {
     async fn get_all_events_by_id<K: wasm_bindgen::JsCast>(
         &self,
         key: &K,
-    ) -> Result<js_sys::Array, IndexeddbEventCacheStoreError> {
-        self.inner
+    ) -> Result<Vec<EventForCache>, IndexeddbEventCacheStoreError> {
+        let mut events = Vec::new();
+        let values = self
+            .inner
             .transaction_on_one_with_mode(keys::EVENTS, IdbTransactionMode::Readonly)?
             .object_store(keys::EVENTS)?
             .get_all_with_key(key)?
-            .await
-            .map_err(Into::into)
+            .await?;
+        for value in values {
+            events.push(self.deserialize_event(value)?);
+        }
+        Ok(events)
     }
 
     async fn get_all_in_band_events_by_room(
@@ -376,13 +381,7 @@ impl IndexeddbEventCacheStore {
         room_id: &RoomId,
     ) -> Result<Vec<EventForCache>, IndexeddbEventCacheStoreError> {
         let range = self.encode_event_id_range_for_room(room_id.as_ref());
-        let values = self.get_all_events_by_id(&range).await?;
-        let mut events = Vec::new();
-        for event in values {
-            let event: EventForCache = self.deserialize_event(event)?;
-            events.push(event);
-        }
-        Ok(events)
+        self.get_all_events_by_id(&range).await
     }
 
     async fn get_all_events_by_chunk(
