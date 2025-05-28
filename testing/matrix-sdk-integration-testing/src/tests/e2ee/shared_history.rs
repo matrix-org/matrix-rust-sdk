@@ -1,6 +1,9 @@
+use std::ops::Deref;
+
 use anyhow::Result;
 use assert_matches2::assert_let;
 use assign::assign;
+use futures::{pin_mut, FutureExt, StreamExt};
 use matrix_sdk::{
     assert_decrypted_message_eq,
     encryption::EncryptionSettings,
@@ -68,6 +71,12 @@ async fn test_history_share_on_invite() -> Result<()> {
         .expect("We should be able to send a message to the room")
         .event_id;
 
+    let bundle_stream = bob
+        .encryption()
+        .historic_room_key_stream()
+        .await
+        .expect("We should be able to get the bundle stream");
+
     // Alice invites Bob to the room
     alice_room.invite_user_by_id(bob.user_id().unwrap()).await?;
 
@@ -87,6 +96,17 @@ async fn test_history_share_on_invite() -> Result<()> {
     );
 
     let bob_room = bob.get_room(alice_room.room_id()).expect("Bob should have received the invite");
+
+    pin_mut!(bundle_stream);
+
+    let info = bundle_stream
+        .next()
+        .now_or_never()
+        .flatten()
+        .expect("We should be notified about the received bundle");
+
+    assert_eq!(Some(info.sender.deref()), alice.user_id());
+    assert_eq!(info.room_id, alice_room.room_id());
 
     bob_room
         .join()

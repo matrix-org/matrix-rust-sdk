@@ -33,7 +33,7 @@ use futures_util::{
     stream::{self, StreamExt},
 };
 use matrix_sdk_base::crypto::{
-    store::types::RoomKeyInfo,
+    store::types::{RoomKeyBundleInfo, RoomKeyInfo},
     types::requests::{
         OutgoingRequest, OutgoingVerificationRequest, RoomMessageRequest, ToDeviceRequest,
     },
@@ -1476,6 +1476,43 @@ impl Encryption {
         let olm = olm.as_ref()?;
 
         Some(olm.store().room_keys_received_stream())
+    }
+
+    /// Receive notifications of historic room key bundles as a [`Stream`].
+    ///
+    /// Historic room key bundles are defined in [MSC4268](https://github.com/matrix-org/matrix-spec-proposals/pull/4268).
+    ///
+    /// Each time a historic room key bundle was received, an update will be
+    /// sent to the stream. This stream is useful for informative purposes
+    /// exclusively, historic room key bundles are handled by the SDK
+    /// automatically.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # use matrix_sdk::Client;
+    /// # use url::Url;
+    /// # async {
+    /// # let homeserver = Url::parse("http://example.com")?;
+    /// # let client = Client::new(homeserver).await?;
+    /// use futures_util::StreamExt;
+    ///
+    /// let Some(mut bundle_stream) =
+    ///     client.encryption().historic_room_key_stream().await
+    /// else {
+    ///     return Ok(());
+    /// };
+    ///
+    /// while let Some(bundle_info) = bundle_stream.next().await {
+    ///     println!("Received a historic room key bundle {bundle_info:?}");
+    /// }
+    /// # anyhow::Ok(()) };
+    /// ```
+    pub async fn historic_room_key_stream(&self) -> Option<impl Stream<Item = RoomKeyBundleInfo>> {
+        let olm = self.client.olm_machine().await;
+        let olm = olm.as_ref()?;
+
+        Some(olm.store().historic_room_key_stream())
     }
 
     /// Get the secret storage manager of the client.
