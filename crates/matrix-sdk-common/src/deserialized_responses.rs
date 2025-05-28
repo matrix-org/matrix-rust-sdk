@@ -466,7 +466,7 @@ impl TimelineEvent {
         self.kind.encryption_info()
     }
 
-    /// Takes ownership of this `TimelineEvent`, returning the (potentially
+    /// Takes ownership of this [`TimelineEvent`], returning the (potentially
     /// decrypted) Matrix event within.
     pub fn into_raw(self) -> Raw<AnySyncTimelineEvent> {
         self.kind.into_raw()
