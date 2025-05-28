@@ -15,7 +15,7 @@
 use std::iter;
 
 use matrix_sdk_base::{
-    crypto::store::StoredRoomKeyBundleData,
+    crypto::store::types::StoredRoomKeyBundleData,
     media::{MediaFormat, MediaRequestParameters},
 };
 use ruma::{events::room::MediaSource, OwnedUserId, UserId};

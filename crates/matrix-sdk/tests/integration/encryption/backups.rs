@@ -22,7 +22,7 @@ use matrix_sdk::{
     config::RequestConfig,
     crypto::{
         olm::{InboundGroupSession, SenderData, SessionCreationError},
-        store::BackupDecryptionKey,
+        store::types::BackupDecryptionKey,
         types::EventEncryptionAlgorithm,
     },
     encryption::{
