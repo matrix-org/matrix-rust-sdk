@@ -237,6 +237,7 @@ pub fn default_event_filter(event: &AnySyncTimelineEvent, room_version: &RoomVer
                                 MessageType::Audio(_)
                                     | MessageType::Emote(_)
                                     | MessageType::File(_)
+                                    | MessageType::Gallery(_)
                                     | MessageType::Image(_)
                                     | MessageType::Location(_)
                                     | MessageType::Notice(_)

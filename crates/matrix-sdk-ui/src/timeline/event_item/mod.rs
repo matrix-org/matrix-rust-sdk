@@ -369,6 +369,7 @@ impl EventTimelineItem {
                             | MessageType::Emote(_)
                             | MessageType::Audio(_)
                             | MessageType::File(_)
+                            | MessageType::Gallery(_)
                             | MessageType::Image(_)
                             | MessageType::Video(_)
                     )
