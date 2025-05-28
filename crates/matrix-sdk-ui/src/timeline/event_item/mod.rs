@@ -792,9 +792,7 @@ mod tests {
         deserialized_responses::TimelineEvent, latest_event::LatestEvent, MinimalStateEvent,
         OriginalMinimalStateEvent, RequestedRequiredStates,
     };
-    use matrix_sdk_test::{
-        async_test, event_factory::EventFactory, sync_state_event, sync_timeline_event,
-    };
+    use matrix_sdk_test::{async_test, event_factory::EventFactory, sync_state_event};
     use ruma::{
         api::client::sync::sync_events::v5 as http,
         event_id,
@@ -803,7 +801,7 @@ mod tests {
                 member::RoomMemberEventContent,
                 message::{MessageFormat, MessageType},
             },
-            AnySyncStateEvent, AnySyncTimelineEvent, BundledMessageLikeRelations,
+            AnySyncStateEvent, BundledMessageLikeRelations,
         },
         room_id,
         serde::Raw,
@@ -819,7 +817,12 @@ mod tests {
 
         let room_id = room_id!("!q:x.uk");
         let user_id = user_id!("@t:o.uk");
-        let event = message_event(room_id, user_id, "**My M**", "<b>My M</b>", 122344);
+        let event = EventFactory::new()
+            .room(room_id)
+            .text_html("**My M**", "<b>My M</b>")
+            .sender(user_id)
+            .server_ts(122344)
+            .into_event();
         let client = logged_in_client(None).await;
 
         // When we construct a timeline event from it
@@ -1016,7 +1019,11 @@ mod tests {
         use ruma::owned_mxc_uri;
         let room_id = room_id!("!q:x.uk");
         let user_id = user_id!("@t:o.uk");
-        let event = message_event(room_id, user_id, "**My M**", "<b>My M</b>", 122344);
+        let event = EventFactory::new()
+            .room(room_id)
+            .text_html("**My M**", "<b>My M</b>")
+            .sender(user_id)
+            .into_event();
         let client = logged_in_client(None).await;
         let mut room = http::response::Room::new();
         room.required_state.push(member_event_as_state_event(
@@ -1061,11 +1068,17 @@ mod tests {
         use ruma::owned_mxc_uri;
         let room_id = room_id!("!q:x.uk");
         let user_id = user_id!("@t:o.uk");
-        let event = message_event(room_id, user_id, "**My M**", "<b>My M</b>", 122344);
+        let f = EventFactory::new().room(room_id);
+        let event = f.text_html("**My M**", "<b>My M</b>").sender(user_id).into_event();
         let client = logged_in_client(None).await;
 
         let member_event = MinimalStateEvent::Original(
-            member_event(room_id, user_id, "Alice Margatroid", "mxc://e.org/SEs")
+            f.member(user_id)
+                .sender(user_id!("@example:example.org"))
+                .avatar_url("mxc://e.org/SEs".into())
+                .display_name("Alice Margatroid")
+                .reason("")
+                .into_raw_sync()
                 .deserialize_as::<OriginalMinimalStateEvent<RoomMemberEventContent>>()
                 .unwrap(),
         );
@@ -1107,8 +1120,9 @@ mod tests {
         let room_id = room_id!("!q:x.uk");
         let user_id = user_id!("@t:o.uk");
         let client = logged_in_client(None).await;
+        let f = EventFactory::new().room(room_id).sender(user_id);
 
-        let mut event = message_event(room_id, user_id, "🤷‍♂️ No boost 🤷‍♂️", "", 0);
+        let mut event = f.text_html("🤷‍♂️ No boost 🤷‍♂️", "").into_event();
         let mut timeline_item =
             EventTimelineItem::from_latest_event(client.clone(), room_id, LatestEvent::new(event))
                 .await
@@ -1117,7 +1131,7 @@ mod tests {
         assert!(!timeline_item.contains_only_emojis());
 
         // Ignores leading and trailing white spaces
-        event = message_event(room_id, user_id, " 🚀 ", "", 0);
+        event = f.text_html(" 🚀 ", "").into_event();
         timeline_item =
             EventTimelineItem::from_latest_event(client.clone(), room_id, LatestEvent::new(event))
                 .await
@@ -1126,7 +1140,7 @@ mod tests {
         assert!(timeline_item.contains_only_emojis());
 
         // Too many
-        event = message_event(room_id, user_id, "👨‍👩‍👦1️⃣🚀👳🏾‍♂️🪩👍👍🏻🫱🏼‍🫲🏾🙂👋", "", 0);
+        event = f.text_html("👨‍👩‍👦1️⃣🚀👳🏾‍♂️🪩👍👍🏻🫱🏼‍🫲🏾🙂👋", "").into_event();
         timeline_item =
             EventTimelineItem::from_latest_event(client.clone(), room_id, LatestEvent::new(event))
                 .await
@@ -1135,39 +1149,13 @@ mod tests {
         assert!(!timeline_item.contains_only_emojis());
 
         // Works with combined emojis
-        event = message_event(room_id, user_id, "👨‍👩‍👦1️⃣👳🏾‍♂️👍🏻🫱🏼‍🫲🏾", "", 0);
+        event = f.text_html("👨‍👩‍👦1️⃣👳🏾‍♂️👍🏻🫱🏼‍🫲🏾", "").into_event();
         timeline_item =
             EventTimelineItem::from_latest_event(client.clone(), room_id, LatestEvent::new(event))
                 .await
                 .unwrap();
 
         assert!(timeline_item.contains_only_emojis());
-    }
-
-    fn member_event(
-        room_id: &RoomId,
-        user_id: &UserId,
-        display_name: &str,
-        avatar_url: &str,
-    ) -> Raw<AnySyncTimelineEvent> {
-        sync_timeline_event!({
-            "type": "m.room.member",
-            "content": {
-                "avatar_url": avatar_url,
-                "displayname": display_name,
-                "membership": "join",
-                "reason": ""
-            },
-            "event_id": "$143273582443PhrSn:example.org",
-            "origin_server_ts": 143273583,
-            "room_id": room_id,
-            "sender": "@example:example.org",
-            "state_key": user_id,
-            "type": "m.room.member",
-            "unsigned": {
-              "age": 1234
-            }
-        })
     }
 
     fn member_event_as_state_event(
@@ -1200,27 +1188,5 @@ mod tests {
         let mut response = http::Response::new("6".to_owned());
         response.rooms.insert(room_id.to_owned(), room);
         response
-    }
-
-    fn message_event(
-        room_id: &RoomId,
-        user_id: &UserId,
-        body: &str,
-        formatted_body: &str,
-        ts: u64,
-    ) -> TimelineEvent {
-        TimelineEvent::new(sync_timeline_event!({
-            "event_id": "$eventid6",
-            "sender": user_id,
-            "origin_server_ts": ts,
-            "type": "m.room.message",
-            "room_id": room_id.to_string(),
-            "content": {
-                "body": body,
-                "format": "org.matrix.custom.html",
-                "formatted_body": formatted_body,
-                "msgtype": "m.text"
-            },
-        }))
     }
 }
