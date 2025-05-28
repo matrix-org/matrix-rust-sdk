@@ -15,7 +15,6 @@
 //! Trait and macro of integration tests for `EventCacheStore` implementations.
 
 use assert_matches::assert_matches;
-use async_trait::async_trait;
 use matrix_sdk_common::{
     deserialized_responses::{
         AlgorithmInfo, DecryptedRoomEvent, EncryptionInfo, TimelineEvent, TimelineEventKind,
@@ -114,8 +113,7 @@ pub fn check_test_event(event: &TimelineEvent, text: &str) {
 ///
 /// This trait is not meant to be used directly, but will be used with the
 /// `event_cache_store_integration_tests!` macro.
-#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+#[allow(async_fn_in_trait)]
 pub trait EventCacheStoreIntegrationTests {
     /// Test media content storage.
     async fn test_media_content(&self);
@@ -154,8 +152,6 @@ pub trait EventCacheStoreIntegrationTests {
     async fn test_save_event(&self);
 }
 
-#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 impl EventCacheStoreIntegrationTests for DynEventCacheStore {
     async fn test_media_content(&self) {
         let uri = mxc_uri!("mxc://localhost/media");
