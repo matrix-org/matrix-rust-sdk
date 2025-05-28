@@ -546,9 +546,12 @@ mod private {
     use eyeball_im::VectorDiff;
     use matrix_sdk_base::{
         apply_redaction,
-        deserialized_responses::{TimelineEvent, TimelineEventKind},
+        deserialized_responses::{
+            ThreadSummary, ThreadSummaryStatus, TimelineEvent, TimelineEventKind,
+        },
         event_cache::{store::EventCacheStoreLock, Event, Gap},
         linked_chunk::{lazy_loader, ChunkContent, ChunkIdentifierGenerator, Position, Update},
+        serde_helpers::extract_thread_root,
     };
     use matrix_sdk_common::executor::spawn;
     use ruma::{
@@ -1175,6 +1178,7 @@ mod private {
 
             for event in &events_to_post_process {
                 self.maybe_apply_new_redaction(event).await?;
+                self.extract_thread_root(event).await?;
             }
 
             // If we've never waited for an initial previous-batch token, and we now have at
@@ -1188,6 +1192,44 @@ mod private {
             let updates_as_vector_diffs = self.events.updates_as_vector_diffs();
 
             Ok(updates_as_vector_diffs)
+        }
+
+        /// If the event has a thread root, ensure the thread root event has a thread summary.
+        #[instrument(skip_all)]
+        async fn extract_thread_root(&mut self, event: &Event) -> Result<(), EventCacheError> {
+            let Some(thread_root) = extract_thread_root(event.raw()) else {
+                // No thread root, carry on.
+                return Ok(());
+            };
+
+            // Add a thread summary to the event which has the thread root, if we knew about it.
+            let Some((location, mut target_event)) = self.find_event(&thread_root).await? else {
+                trace!("thread root event is missing from the linked chunk");
+                return Ok(());
+            };
+
+            match target_event.thread_summary {
+                ThreadSummaryStatus::Unknown | ThreadSummaryStatus::None => {}
+                ThreadSummaryStatus::Some(_thread_summary) => {
+                    // The event already had a thread summary; ignore.
+                    // TODO: later, we might want to recompute the thread summary here, and cause
+                    // an update if it's changed.
+                    return Ok(());
+                }
+            }
+
+            target_event.thread_summary = ThreadSummaryStatus::Some(ThreadSummary {});
+
+            match location {
+                EventLocation::Memory(position) => {
+                    self.events
+                        .replace_event_at(position, target_event)
+                        .expect("should have been a valid position of an item");
+                }
+                EventLocation::Store => self.save_event([target_event]).await?,
+            }
+
+            Ok(())
         }
 
         /// If the given event is a redaction, try to retrieve the
