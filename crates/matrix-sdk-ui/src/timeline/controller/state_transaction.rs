@@ -554,7 +554,8 @@ impl<'a> TimelineStateTransaction<'a> {
         settings: &TimelineSettings,
         date_divider_adjuster: &mut DateDividerAdjuster,
     ) -> RemovedItem {
-        let TimelineEvent { push_actions, kind } = event;
+        // TODO: do something with the thread summary!
+        let TimelineEvent { push_actions, kind, thread_summary: _thread_summary } = event;
 
         let encryption_info = kind.encryption_info().cloned();
 
