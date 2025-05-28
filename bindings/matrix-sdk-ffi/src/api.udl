@@ -1,10 +1,12 @@
 namespace matrix_sdk_ffi {};
 
+[Remote]
 dictionary Mentions {
   sequence<string> user_ids;
   boolean room;
 };
 
+[Remote]
 interface RoomMessageEventContentWithoutRelation {
     RoomMessageEventContentWithoutRelation with_mentions(Mentions mentions);
 };

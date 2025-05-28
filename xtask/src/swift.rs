@@ -4,11 +4,12 @@ use std::{
 };
 
 use camino::{Utf8Path, Utf8PathBuf};
+use cargo_metadata::MetadataCommand;
 use clap::{Args, Subcommand};
 use uniffi_bindgen::{bindings::SwiftBindingGenerator, library_mode::generate_bindings};
 use xshell::cmd;
 
-use crate::{sh, workspace, Result};
+use crate::{config_supplier::CrateConfigSupplier, sh, workspace, Result};
 
 /// Builds the SDK for Swift as a Static Library or XCFramework.
 #[derive(Args)]
@@ -168,7 +169,24 @@ fn build_library() -> Result<()> {
 }
 
 fn generate_uniffi(library_path: &Utf8Path, ffi_directory: &Utf8Path) -> Result<()> {
-    generate_bindings(library_path, None, &SwiftBindingGenerator, None, ffi_directory, false)?;
+  let manifest_path = std::env::current_dir()?.join("Cargo.toml");
+    println!("manifest path {:?}", manifest_path);
+
+    // Get metadata using cargo_metadata
+    let metadata = MetadataCommand::new().manifest_path(&manifest_path).exec()?;
+
+    // Convert the Metadata into a CrateConfigSupplier using From
+    let config_supplier = CrateConfigSupplier::from(metadata);
+
+    generate_bindings(
+        library_path,
+        None,
+        &SwiftBindingGenerator,
+        &config_supplier,
+        None,
+        ffi_directory,
+        false,
+    )?;
     Ok(())
 }
 
