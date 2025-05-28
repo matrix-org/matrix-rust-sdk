@@ -357,6 +357,31 @@ impl<'de> Deserialize<'de> for EncryptionInfo {
     }
 }
 
+/// A simplified thread summary.
+///
+/// At the moment, it contains nothing.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ThreadSummary {}
+
+/// The status of a thread summary.
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub enum ThreadSummaryStatus {
+    /// We don't know if the event has a thread summary.
+    #[default]
+    Unknown,
+    /// The event has no thread summary.
+    None,
+    /// The event has a thread summary, which is bundled in the event itself.
+    Some(ThreadSummary),
+}
+
+impl ThreadSummaryStatus {
+    /// Is the thread status of this event unknown?
+    fn is_unknown(&self) -> bool {
+        matches!(self, ThreadSummaryStatus::Unknown)
+    }
+}
+
 /// Represents a Matrix room event that has been returned from `/sync`,
 /// after initial processing.
 ///
@@ -390,6 +415,10 @@ pub struct TimelineEvent {
     /// be computed but there were none.
     #[serde(skip_serializing_if = "skip_serialize_push_actions")]
     pub push_actions: Option<Vec<Action>>,
+
+    /// If the event is part of a thread, a thread summary.
+    #[serde(default, skip_serializing_if = "ThreadSummaryStatus::is_unknown")]
+    pub thread_summary: ThreadSummaryStatus,
 }
 
 // Don't serialize push actions if they're `None` or an empty vec.
@@ -420,13 +449,21 @@ impl TimelineEvent {
     /// This is a convenience constructor for a plaintext event when you don't
     /// need to set `push_action`, for example inside a test.
     pub fn new(event: Raw<AnySyncTimelineEvent>) -> Self {
-        Self { kind: TimelineEventKind::PlainText { event }, push_actions: None }
+        Self {
+            kind: TimelineEventKind::PlainText { event },
+            push_actions: None,
+            thread_summary: ThreadSummaryStatus::default(),
+        }
     }
 
     /// Create a new [`TimelineEvent`] to represent the given decryption
     /// failure.
     pub fn new_utd_event(event: Raw<AnySyncTimelineEvent>, utd_info: UnableToDecryptInfo) -> Self {
-        Self { kind: TimelineEventKind::UnableToDecrypt { event, utd_info }, push_actions: None }
+        Self {
+            kind: TimelineEventKind::UnableToDecrypt { event, utd_info },
+            push_actions: None,
+            thread_summary: ThreadSummaryStatus::default(),
+        }
     }
 
     /// Get the event id of this [`TimelineEvent`] if the event has any valid
@@ -469,7 +506,11 @@ impl TimelineEvent {
 
 impl From<DecryptedRoomEvent> for TimelineEvent {
     fn from(decrypted: DecryptedRoomEvent) -> Self {
-        Self { kind: TimelineEventKind::Decrypted(decrypted), push_actions: None }
+        // TODO: try to extract a bundled thread summary from the decrypted event.
+        // XXX(bnjbvr): why do we have this impl? seems dangerous as it doesn't compute push
+        // actions.
+        let thread_summary = ThreadSummaryStatus::Unknown;
+        Self { kind: TimelineEventKind::Decrypted(decrypted), push_actions: None, thread_summary }
     }
 }
 
@@ -899,12 +940,16 @@ struct SyncTimelineEventDeserializationHelperV1 {
     /// The push actions associated with this event.
     #[serde(default)]
     push_actions: Vec<Action>,
+
+    /// If the event is part of a thread, a thread summary.
+    #[serde(default)]
+    thread_summary: ThreadSummaryStatus,
 }
 
 impl From<SyncTimelineEventDeserializationHelperV1> for TimelineEvent {
     fn from(value: SyncTimelineEventDeserializationHelperV1) -> Self {
-        let SyncTimelineEventDeserializationHelperV1 { kind, push_actions } = value;
-        TimelineEvent { kind, push_actions: Some(push_actions) }
+        let SyncTimelineEventDeserializationHelperV1 { kind, push_actions, thread_summary } = value;
+        TimelineEvent { kind, push_actions: Some(push_actions), thread_summary }
     }
 }
 
@@ -956,7 +1001,12 @@ impl From<SyncTimelineEventDeserializationHelperV0> for TimelineEvent {
             None => TimelineEventKind::PlainText { event },
         };
 
-        TimelineEvent { kind, push_actions: Some(push_actions) }
+        TimelineEvent {
+            kind,
+            push_actions: Some(push_actions),
+            // No serialized events had a thread summary at this version of the struct.
+            thread_summary: ThreadSummaryStatus::Unknown,
+        }
     }
 }
 
@@ -972,6 +1022,8 @@ mod tests {
     };
     use serde::Deserialize;
     use serde_json::json;
+
+    use crate::deserialized_responses::{ThreadSummary, ThreadSummaryStatus};
 
     use super::{
         AlgorithmInfo, DecryptedRoomEvent, DeviceLinkProblem, EncryptionInfo, ShieldState,
@@ -1133,6 +1185,7 @@ mod tests {
                 )])),
             }),
             push_actions: Default::default(),
+            thread_summary: ThreadSummaryStatus::Unknown,
         };
 
         let serialized = serde_json::to_value(&room_event).unwrap();
@@ -1516,6 +1569,7 @@ mod tests {
                 )])),
             }),
             push_actions: Default::default(),
+            thread_summary: ThreadSummaryStatus::Some(ThreadSummary {}),
         };
 
         with_settings!({ sort_maps => true, prepend_module_to_snapshot => false }, {

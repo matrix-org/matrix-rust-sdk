@@ -18,8 +18,8 @@ use assert_matches::assert_matches;
 use async_trait::async_trait;
 use matrix_sdk_common::{
     deserialized_responses::{
-        AlgorithmInfo, DecryptedRoomEvent, EncryptionInfo, TimelineEvent, TimelineEventKind,
-        VerificationState,
+        AlgorithmInfo, DecryptedRoomEvent, EncryptionInfo, ThreadSummaryStatus, TimelineEvent,
+        TimelineEventKind, VerificationState,
     },
     linked_chunk::{lazy_loader, ChunkContent, ChunkIdentifier as CId, Position, Update},
 };
@@ -80,6 +80,7 @@ pub fn make_test_event_with_event_id(
             unsigned_encryption_info: None,
         }),
         push_actions: Some(vec![Action::Notify]),
+        thread_summary: ThreadSummaryStatus::Unknown,
     }
 }
 
