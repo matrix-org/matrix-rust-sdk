@@ -71,7 +71,6 @@ as_variant.workspace = true
 assert_matches2 = { workspace = true, optional = true }
 async-channel = "2.3.1"
 async-stream.workspace = true
-async-trait.workspace = true
 axum = { version = "0.8.1", optional = true }
 bytes = "1.9.0"
 bytesize = "2.0.1"

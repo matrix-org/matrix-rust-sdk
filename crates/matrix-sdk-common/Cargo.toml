@@ -30,6 +30,7 @@ eyeball-im.workspace = true
 futures-core.workspace = true
 futures-util.workspace = true
 imbl.workspace = true
+matrix-sdk-macros.workspace = true
 ruma.workspace = true
 serde.workspace = true
 serde_json.workspace = true

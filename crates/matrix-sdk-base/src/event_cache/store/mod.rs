@@ -28,8 +28,11 @@ pub mod media;
 mod memory_store;
 mod traits;
 
-use matrix_sdk_common::store_locks::{
-    BackingStore, CrossProcessStoreLock, CrossProcessStoreLockGuard, LockStoreError,
+use matrix_sdk_common::{
+    async_trait,
+    store_locks::{
+        BackingStore, CrossProcessStoreLock, CrossProcessStoreLockGuard, LockStoreError,
+    },
 };
 pub use matrix_sdk_store_encryption::Error as StoreEncryptionError;
 use ruma::{
@@ -185,8 +188,7 @@ pub type Result<T, E = EventCacheStoreError> = std::result::Result<T, E>;
 #[derive(Clone, Debug)]
 struct LockableEventCacheStore(Arc<DynEventCacheStore>);
 
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
+#[async_trait]
 impl BackingStore for LockableEventCacheStore {
     type LockError = EventCacheStoreError;
 

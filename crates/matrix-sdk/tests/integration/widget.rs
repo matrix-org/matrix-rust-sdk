@@ -15,9 +15,9 @@
 use std::{pin::pin, time::Duration};
 
 use assert_matches::assert_matches;
-use async_trait::async_trait;
 use futures_util::FutureExt;
 use matrix_sdk::{
+    async_trait,
     test_utils::mocks::{MatrixMockServer, RoomMessagesResponseTemplate},
     widget::{
         Capabilities, CapabilitiesProvider, WidgetDriver, WidgetDriverHandle, WidgetSettings,

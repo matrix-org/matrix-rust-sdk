@@ -18,7 +18,6 @@
 #![cfg_attr(target_arch = "wasm32", allow(clippy::arc_with_non_send_sync))]
 #![cfg_attr(docsrs, feature(doc_auto_cfg))]
 
-pub use async_trait::async_trait;
 pub use bytes;
 #[cfg(feature = "e2e-encryption")]
 pub use matrix_sdk_base::crypto;
@@ -30,7 +29,7 @@ pub use matrix_sdk_base::{
     RoomMember as BaseRoomMember, RoomMemberships, RoomState, SessionMeta, StateChanges,
     StateStore, StoreError, SuccessorRoom,
 };
-pub use matrix_sdk_common::*;
+pub use matrix_sdk_common::{async_trait, *};
 pub use reqwest;
 
 mod account;

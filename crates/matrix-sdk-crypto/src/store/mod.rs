@@ -51,7 +51,7 @@ use as_variant::as_variant;
 use futures_core::Stream;
 use futures_util::StreamExt;
 use itertools::{Either, Itertools};
-use matrix_sdk_common::locks::RwLock as StdRwLock;
+use matrix_sdk_common::{async_trait, locks::RwLock as StdRwLock};
 use ruma::{
     encryption::KeyUsage, events::secret::request::SecretName, DeviceId, OwnedDeviceId,
     OwnedRoomId, OwnedUserId, RoomId, UserId,
@@ -2138,8 +2138,7 @@ impl Deref for Store {
 #[derive(Clone, Debug)]
 pub struct LockableCryptoStore(Arc<dyn CryptoStore<Error = CryptoStoreError>>);
 
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
+#[async_trait]
 impl matrix_sdk_common::store_locks::BackingStore for LockableCryptoStore {
     type LockError = CryptoStoreError;
 

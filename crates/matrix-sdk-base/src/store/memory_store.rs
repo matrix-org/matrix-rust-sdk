@@ -17,8 +17,8 @@ use std::{
     sync::RwLock,
 };
 
-use async_trait::async_trait;
 use growable_bloom_filter::GrowableBloom;
+use matrix_sdk_common::async_trait;
 use ruma::{
     canonical_json::{redact, RedactedBecause},
     events::{
@@ -138,8 +138,7 @@ impl MemoryStore {
     }
 }
 
-#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+#[async_trait]
 impl StateStore for MemoryStore {
     type Error = StoreError;
 

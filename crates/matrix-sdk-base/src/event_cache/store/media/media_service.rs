@@ -14,8 +14,8 @@
 
 use std::{fmt, sync::Arc};
 
-use async_trait::async_trait;
 use matrix_sdk_common::{
+    async_trait,
     executor::{spawn, JoinHandle},
     locks::Mutex,
     AsyncTraitDeps, SendOutsideWasm, SyncOutsideWasm,
@@ -356,8 +356,7 @@ where
 /// [`MediaRetentionPolicy`] by wrapping this in a [`MediaService`], and to
 /// simplify the implementation of tests by being able to have complete control
 /// over the `SystemTime`s provided to the store.
-#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+#[async_trait]
 pub trait EventCacheStoreMedia: AsyncTraitDeps + Clone {
     /// The error type used by this media cache store.
     type Error: fmt::Debug + fmt::Display + Into<EventCacheStoreError>;
@@ -534,8 +533,7 @@ mod tests {
         sync::{Arc, MutexGuard},
     };
 
-    use async_trait::async_trait;
-    use matrix_sdk_common::locks::Mutex;
+    use matrix_sdk_common::{async_trait, locks::Mutex};
     use matrix_sdk_test::async_test;
     use ruma::{
         events::room::MediaSource,

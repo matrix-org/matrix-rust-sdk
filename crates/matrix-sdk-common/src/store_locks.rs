@@ -46,6 +46,7 @@ use std::{
     time::Duration,
 };
 
+use matrix_sdk_macros::async_trait_internal;
 use tokio::sync::Mutex;
 use tracing::{debug, error, instrument, trace};
 
@@ -56,8 +57,7 @@ use crate::{
 };
 
 /// Backing store for a cross-process lock.
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
+#[async_trait_internal]
 pub trait BackingStore {
     type LockError: Error + Send + Sync;
 
@@ -344,6 +344,7 @@ mod tests {
     };
 
     use assert_matches::assert_matches;
+    use matrix_sdk_macros::async_trait_internal;
     use matrix_sdk_test_macros::async_test;
     use tokio::{
         spawn,
@@ -369,8 +370,7 @@ mod tests {
     #[derive(Debug, thiserror::Error)]
     enum DummyError {}
 
-    #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
-    #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
+    #[async_trait_internal]
     impl BackingStore for TestStore {
         type LockError = DummyError;
 

@@ -18,7 +18,6 @@ use std::{
 };
 
 use anyhow::anyhow;
-use async_trait::async_trait;
 use gloo_utils::format::JsValueSerdeExt;
 use growable_bloom_filter::GrowableBloom;
 use indexed_db_futures::prelude::*;
@@ -31,6 +30,7 @@ use matrix_sdk_base::{
     },
     MinimalRoomMemberEvent, RoomInfo, RoomMemberships, StateStoreDataKey, StateStoreDataValue,
 };
+use matrix_sdk_common::async_trait;
 use matrix_sdk_store_encryption::{Error as EncryptionError, StoreCipher};
 use ruma::{
     canonical_json::{redact, RedactedBecause},
