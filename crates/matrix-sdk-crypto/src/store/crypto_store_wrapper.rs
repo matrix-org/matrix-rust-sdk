@@ -8,7 +8,10 @@ use tokio::sync::{broadcast, Mutex};
 use tokio_stream::wrappers::{errors::BroadcastStreamRecvError, BroadcastStream};
 use tracing::{debug, trace, warn};
 
-use super::{caches::SessionStore, DeviceChanges, IdentityChanges, LockableCryptoStore};
+use super::{
+    caches::SessionStore, types::RoomKeyBundleInfo, DeviceChanges, IdentityChanges,
+    LockableCryptoStore,
+};
 use crate::{
     olm::InboundGroupSession,
     store,
@@ -46,6 +49,10 @@ pub(crate) struct CryptoStoreWrapper {
     /// identities which got updated or newly created.
     identities_broadcaster:
         broadcast::Sender<(Option<OwnUserIdentityData>, IdentityChanges, DeviceChanges)>,
+
+    /// The sender side of a broadcast channel which sends out information about
+    /// historic room key bundles we have received.
+    historic_room_key_bundles_broadcaster: broadcast::Sender<RoomKeyBundleInfo>,
 }
 
 impl CryptoStoreWrapper {
@@ -56,6 +63,7 @@ impl CryptoStoreWrapper {
         // The identities broadcaster is responsible for user identities as well as
         // devices, that's why we increase the capacity here.
         let identities_broadcaster = broadcast::Sender::new(20);
+        let historic_room_key_bundles_broadcaster = broadcast::Sender::new(10);
 
         Self {
             user_id: user_id.to_owned(),
@@ -66,6 +74,7 @@ impl CryptoStoreWrapper {
             room_keys_withheld_received_sender,
             secrets_broadcaster,
             identities_broadcaster,
+            historic_room_key_bundles_broadcaster,
         }
     }
 
@@ -107,6 +116,8 @@ impl CryptoStoreWrapper {
         let secrets = changes.secrets.to_owned();
         let devices = changes.devices.to_owned();
         let identities = changes.identities.to_owned();
+        let room_key_bundle_updates: Vec<_> =
+            changes.received_room_key_bundles.iter().map(RoomKeyBundleInfo::from).collect();
 
         if devices
             .changed
@@ -157,6 +168,10 @@ impl CryptoStoreWrapper {
 
         for secret in secrets {
             let _ = self.secrets_broadcaster.send(secret);
+        }
+
+        for bundle_info in room_key_bundle_updates {
+            let _ = self.historic_room_key_bundles_broadcaster.send(bundle_info);
         }
 
         if !devices.is_empty() || !identities.is_empty() {
@@ -328,6 +343,13 @@ impl CryptoStoreWrapper {
     pub fn secrets_stream(&self) -> impl Stream<Item = GossippedSecret> {
         let stream = BroadcastStream::new(self.secrets_broadcaster.subscribe());
         Self::filter_errors_out_of_stream(stream, "secrets_stream")
+    }
+
+    /// Receive notifications of historic room key bundles being received and
+    /// stored in the store as a [`Stream`].
+    pub fn historic_room_key_stream(&self) -> impl Stream<Item = RoomKeyBundleInfo> {
+        let stream = BroadcastStream::new(self.historic_room_key_bundles_broadcaster.subscribe());
+        Self::filter_errors_out_of_stream(stream, "bundle_stream")
     }
 
     /// Returns a stream of newly created or updated cryptographic identities.
