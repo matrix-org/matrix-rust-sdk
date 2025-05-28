@@ -2979,6 +2979,7 @@ name = "matrix-sdk-common"
 version = "0.11.0"
 dependencies = [
  "assert_matches",
+ "async-compat",
  "async-trait",
  "eyeball-im",
  "futures-core",
@@ -3099,6 +3100,7 @@ dependencies = [
  "language-tags",
  "log-panics",
  "matrix-sdk",
+ "matrix-sdk-common",
  "matrix-sdk-ffi-macros",
  "matrix-sdk-ui",
  "mime",

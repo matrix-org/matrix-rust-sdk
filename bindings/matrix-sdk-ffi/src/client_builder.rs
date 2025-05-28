@@ -2,7 +2,6 @@ use std::{fs, num::NonZeroUsize, path::Path, sync::Arc, time::Duration};
 
 use matrix_sdk_common::{SendOutsideWasm, SyncOutsideWasm};
 
-use async_compat::get_runtime_handle;
 use futures_util::StreamExt;
 use matrix_sdk::{
     authentication::oauth::qrcode::{self, DeviceCodeErrorResponseType, LoginFailureReason},
@@ -21,6 +20,7 @@ use matrix_sdk::{
     Client as MatrixClient, ClientBuildError as MatrixClientBuildError, HttpError, IdParseError,
     RumaApiError, SqliteStoreConfig,
 };
+use matrix_sdk_common::runtime::get_runtime_handle;
 use ruma::api::error::{DeserializationError, FromHttpResponseError};
 use tracing::{debug, error};
 use zeroize::Zeroizing;

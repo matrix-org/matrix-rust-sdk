@@ -2,7 +2,6 @@
 
 use std::{fmt::Debug, mem::MaybeUninit, ptr::addr_of_mut, sync::Arc, time::Duration};
 
-use async_compat::get_runtime_handle;
 use eyeball_im::VectorDiff;
 use futures_util::{pin_mut, StreamExt};
 use matrix_sdk::{
@@ -12,6 +11,7 @@ use matrix_sdk::{
     },
     Room as SdkRoom,
 };
+use matrix_sdk_common::runtime::get_runtime_handle;
 use matrix_sdk_common::{SendOutsideWasm, SyncOutsideWasm};
 use matrix_sdk_ui::{
     room_list_service::filters::{
