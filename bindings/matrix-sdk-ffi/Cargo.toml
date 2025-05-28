@@ -20,6 +20,7 @@ crate-type = ["cdylib", "staticlib"]
 default = ["bundled-sqlite", "unstable-msc4274"]
 bundled-sqlite = ["matrix-sdk/bundled-sqlite"]
 unstable-msc4274 = ["matrix-sdk-ui/unstable-msc4274"]
+wasm = []
 
 [dependencies]
 anyhow.workspace = true
@@ -30,6 +31,7 @@ eyeball-im.workspace = true
 futures-util.workspace = true
 language-tags = "0.3.2"
 log-panics = { version = "2", features = ["with-backtrace"] }
+matrix-sdk-base.workspace = true
 matrix-sdk-common.workspace = true
 matrix-sdk-ffi-macros.workspace = true
 matrix-sdk-ui = { workspace = true, features = ["uniffi"] }
@@ -40,7 +42,6 @@ sentry-tracing = "0.36.0"
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
-tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
 tracing.workspace = true
 tracing-appender = { version = "0.2.2" }
 tracing-core.workspace = true
@@ -50,21 +51,7 @@ url.workspace = true
 uuid = { version = "1.4.1", features = ["v4"] }
 zeroize.workspace = true
 
-[target.'cfg(not(target_os = "android"))'.dependencies.matrix-sdk]
-workspace = true
-features = [
-    "anyhow",
-    "e2e-encryption",
-    "experimental-widgets",
-    "markdown",
-    # note: differ from block below
-    "native-tls",
-    "socks",
-    "sqlite",
-    "uniffi",
-]
-
-[target.'cfg(not(target_os = "android"))'.dependencies.sentry]
+[target.'cfg(all(not(target_os = "android"), not(target_family = "wasm")))'.dependencies.sentry]
 version = "0.36.0"
 default-features = false
 features = [
@@ -80,6 +67,14 @@ features = [
 [target.'cfg(target_os = "android")'.dependencies]
 paranoid-android = "0.2.1"
 
+[target.'cfg(target_family = "wasm")'.dependencies]
+tokio = { workspace = true, features = ["sync", "macros"] }
+uniffi = { workspace = true, features = ["tokio", "wasm-unstable-single-threaded"] }
+
+[target.'cfg(not(target_family = "wasm"))'.dependencies]
+tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
+uniffi = { workspace = true, features = ["tokio"] }
+
 [target.'cfg(target_os = "android")'.dependencies.matrix-sdk]
 workspace = true
 features = [
@@ -94,18 +89,33 @@ features = [
     "uniffi",
 ]
 
-[target.'cfg(target_os = "android")'.dependencies.sentry]
-version = "0.36.0"
-default-features = false
+[target.'cfg(all(not(target_os = "android"), not(target_family = "wasm")))'.dependencies.matrix-sdk]
+workspace = true
 features = [
-    # TLS lib specific for Android.
-    "rustls",
-    # Most default features enabled otherwise.
-    "backtrace",
-    "contexts",
-    "panic",
-    "reqwest",
+    "anyhow",
+    "e2e-encryption",
+    "experimental-widgets",
+    "markdown",
+    # note: differ from block above
+    "native-tls",
+    "socks",
+    "sqlite",
+    "uniffi",
 ]
+
+[target.'cfg(target_family = "wasm")'.dependencies.matrix-sdk]
+workspace = true
+features = [
+    "anyhow",
+    "e2e-encryption",
+    "experimental-widgets",
+    "markdown",
+    "native-tls", # note: differ from block below
+    "socks",
+    "indexeddb",  # note: differ from block below
+    "uniffi",
+]
+
 
 [build-dependencies]
 uniffi = { workspace = true, features = ["build"] }
