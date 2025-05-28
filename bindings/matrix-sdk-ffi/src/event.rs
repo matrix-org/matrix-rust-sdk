@@ -135,7 +135,7 @@ impl TryFrom<AnySyncStateEvent> for StateEventContent {
             }
             AnySyncStateEvent::SpaceChild(_) => StateEventContent::SpaceChild,
             AnySyncStateEvent::SpaceParent(_) => StateEventContent::SpaceParent,
-            _ => bail!("Unsupported state event"),
+            _ => bail!("Unsupported state event: {:?}", value.event_type()),
         };
         Ok(event)
     }
