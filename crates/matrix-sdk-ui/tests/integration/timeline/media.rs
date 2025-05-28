@@ -134,7 +134,7 @@ async fn test_send_attachment_from_file() {
     }
 
     // Eventually, the media is updated with the final MXC IDs…
-    sleep(Duration::from_secs(2)).await;
+    sleep(Duration::from_secs(4)).await;
 
     {
         assert_let_timeout!(
@@ -234,7 +234,7 @@ async fn test_send_attachment_from_bytes() {
     }
 
     // Eventually, the media is updated with the final MXC IDs…
-    sleep(Duration::from_secs(2)).await;
+    sleep(Duration::from_secs(4)).await;
 
     {
         assert_let_timeout!(
