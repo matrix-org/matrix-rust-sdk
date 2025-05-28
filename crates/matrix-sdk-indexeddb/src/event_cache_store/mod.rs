@@ -465,17 +465,10 @@ impl EventForCache {
         }
     }
 
-    pub fn event_id(&self) -> Option<OwnedEventId> {
+    pub fn replace_content(&mut self, content: TimelineEvent) -> TimelineEvent {
         match self {
-            EventForCache::InBand(i) => i.content.event_id(),
-            EventForCache::OutOfBand(o) => o.content.event_id(),
-        }
-    }
-
-    pub fn position(&self) -> Option<PositionForCache> {
-        match self {
-            EventForCache::InBand(i) => Some(i.position),
-            EventForCache::OutOfBand(_) => None,
+            EventForCache::InBand(i) => std::mem::replace(&mut i.content, content),
+            EventForCache::OutOfBand(o) => std::mem::replace(&mut o.content, content),
         }
     }
 }
@@ -1219,30 +1212,12 @@ impl_event_cache_store! {
             error!(%room_id, "Trying to save an event with no ID");
             return Ok(());
         };
-
-        // TODO: This is very inefficient, as we are reading and
-        // deserializing every event in the room in order to pick
-        // out a single one. The problem is that the current
-        // schema doesn't easily allow us to find an event without
-        // knowing which chunk it is in. To improve this, we will
-        // need to add another index to our event store.
-        let mut position = None;
-        for candidate in self.get_all_events_by_room(room_id).await? {
-            if let Some(id) = candidate.event_id() {
-                if event_id == id {
-                    position = candidate.position();
-                    break;
-                }
-            }
-        }
-        let event = if let Some(position) = position {
-            EventForCache::InBand(InBandEventForCache {
-                content: event,
-                room_id: room_id.to_string(),
-                position
-            })
-        } else {
-            EventForCache::OutOfBand(OutOfBandEventForCache {
+        let event = match self.get_event_by_id(room_id, &event_id).await? {
+            Some(mut inner) => {
+                let _ = inner.replace_content(event);
+                inner
+            },
+            None => EventForCache::OutOfBand(OutOfBandEventForCache {
                 content: event,
                 room_id: room_id.to_string(),
                 position: (),
