@@ -38,6 +38,7 @@ uniffi = { workspace = true, optional = true }
 
 [target.'cfg(not(target_family = "wasm"))'.dependencies]
 # Enable the test macro.
+async-compat.workspace = true
 tokio = { workspace = true, features = ["rt", "time", "macros"] }
 
 [target.'cfg(target_family = "wasm")'.dependencies]
