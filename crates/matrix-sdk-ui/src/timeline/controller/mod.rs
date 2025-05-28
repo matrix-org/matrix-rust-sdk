@@ -232,20 +232,21 @@ pub fn default_event_filter(event: &AnySyncTimelineEvent, room_version: &RoomVer
                                 return false;
                             }
 
-                            matches!(
-                                content.msgtype,
+                            match content.msgtype {
                                 MessageType::Audio(_)
-                                    | MessageType::Emote(_)
-                                    | MessageType::File(_)
-                                    | MessageType::Gallery(_)
-                                    | MessageType::Image(_)
-                                    | MessageType::Location(_)
-                                    | MessageType::Notice(_)
-                                    | MessageType::ServerNotice(_)
-                                    | MessageType::Text(_)
-                                    | MessageType::Video(_)
-                                    | MessageType::VerificationRequest(_)
-                            )
+                                | MessageType::Emote(_)
+                                | MessageType::File(_)
+                                | MessageType::Image(_)
+                                | MessageType::Location(_)
+                                | MessageType::Notice(_)
+                                | MessageType::ServerNotice(_)
+                                | MessageType::Text(_)
+                                | MessageType::Video(_)
+                                | MessageType::VerificationRequest(_) => true,
+                                #[cfg(feature = "unstable-msc4274")]
+                                MessageType::Gallery(_) => false,
+                                _ => false,
+                            }
                         }
 
                         AnyMessageLikeEventContent::Sticker(_)

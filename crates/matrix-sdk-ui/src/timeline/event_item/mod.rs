@@ -362,18 +362,17 @@ impl EventTimelineItem {
 
         match self.content() {
             TimelineItemContent::MsgLike(msglike) => match &msglike.kind {
-                MsgLikeKind::Message(message) => {
-                    matches!(
-                        message.msgtype(),
-                        MessageType::Text(_)
-                            | MessageType::Emote(_)
-                            | MessageType::Audio(_)
-                            | MessageType::File(_)
-                            | MessageType::Gallery(_)
-                            | MessageType::Image(_)
-                            | MessageType::Video(_)
-                    )
-                }
+                MsgLikeKind::Message(message) => match message.msgtype() {
+                    MessageType::Text(_)
+                    | MessageType::Emote(_)
+                    | MessageType::Audio(_)
+                    | MessageType::File(_)
+                    | MessageType::Image(_)
+                    | MessageType::Video(_) => true,
+                    #[cfg(feature = "unstable-msc4274")]
+                    MessageType::Gallery(_) => true,
+                    _ => false,
+                },
                 MsgLikeKind::Poll(poll) => {
                     poll.response_data.is_empty() && poll.end_event_timestamp.is_none()
                 }
