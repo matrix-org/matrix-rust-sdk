@@ -1052,6 +1052,7 @@ mod tests {
         UnableToDecryptReason, UnsignedDecryptionResult, UnsignedEventLocation, VerificationLevel,
         VerificationState, WithheldCode,
     };
+    use crate::deserialized_responses::{ThreadSummary, ThreadSummaryStatus};
 
     fn example_event() -> serde_json::Value {
         json!({

@@ -21,13 +21,7 @@ use matrix_sdk::{
 };
 use matrix_sdk_test::{async_test, event_factory::EventFactory, JoinedRoomBuilder, ALICE};
 use matrix_sdk_ui::timeline::{RoomExt as _, TimelineBuilder, TimelineFocus};
-use ruma::{
-    event_id,
-    events::{relation::BundledThread, AnyTimelineEvent, BundledMessageLikeRelations},
-    owned_event_id, room_id,
-    serde::Raw,
-    uint, user_id,
-};
+use ruma::{event_id, events::AnyTimelineEvent, owned_event_id, room_id, serde::Raw, user_id};
 use stream_assert::assert_pending;
 
 #[async_test]
@@ -220,14 +214,13 @@ async fn test_thread_summary() {
     let thread_event_id = event_id!("$thread_root");
     let latest_event_id = event_id!("$latest_event");
 
-    let latest_thread_event = f.text_msg("the last one!").event_id(latest_event_id).into_raw();
-
-    let mut relations = BundledMessageLikeRelations::new();
-    relations.thread = Some(Box::new(BundledThread::new(latest_thread_event, uint!(42), false)));
-
     let event = f
         .text_msg("thready thread mcthreadface")
-        .bundled_relations(relations)
+        .with_bundled_thread_summary(
+            f.text_msg("the last one!").event_id(latest_event_id).into_raw(),
+            42,
+            false,
+        )
         .event_id(thread_event_id);
 
     server.sync_room(&client, JoinedRoomBuilder::new(room_id).add_timeline_event(event)).await;

@@ -1611,7 +1611,6 @@ mod tests {
     #[async_test]
     async fn test_write_to_storage_strips_bundled_relations() {
         use matrix_sdk_base::linked_chunk::lazy_loader::from_all_chunks;
-        use ruma::events::BundledMessageLikeRelations;
 
         let room_id = room_id!("!galette:saucisse.bzh");
         let f = EventFactory::new().room(room_id).sender(user_id!("@ben:saucisse.bzh"));
@@ -1636,10 +1635,11 @@ mod tests {
         let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
 
         // Propagate an update for a message with bundled relations.
-        let mut relations = BundledMessageLikeRelations::new();
-        relations.replace =
-            Some(Box::new(f.text_msg("Hello, Kind Sir").sender(*ALICE).into_raw_sync()));
-        let ev = f.text_msg("hey yo").sender(*ALICE).bundled_relations(relations).into_event();
+        let ev = f
+            .text_msg("hey yo")
+            .sender(*ALICE)
+            .with_bundled_edit(f.text_msg("Hello, Kind Sir").sender(*ALICE))
+            .into_event();
 
         let timeline = Timeline { limited: false, prev_batch: None, events: vec![ev] };
 
