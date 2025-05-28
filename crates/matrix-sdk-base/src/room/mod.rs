@@ -78,6 +78,8 @@ use crate::{
     sync::UnreadNotificationsCount,
     Error, MinimalStateEvent,
 };
+#[cfg(feature = "test-send-sync")]
+use matrix_sdk_common::{SendOutsideWasm, SyncOutsideWasm};
 
 /// The underlying room data structure collecting state for joined, left and
 /// invited rooms.
@@ -481,7 +483,7 @@ unsafe impl Sync for Room {}
 #[test]
 // See https://github.com/matrix-org/matrix-rust-sdk/pull/3749#issuecomment-2312939823.
 fn test_send_sync_for_room() {
-    fn assert_send_sync<T: Send + Sync>() {}
+    fn assert_send_sync<T: SendOutsideWasm + SyncOutsideWasm>() {}
 
     assert_send_sync::<Room>();
 }

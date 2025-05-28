@@ -30,6 +30,8 @@ use serde::{Deserialize, Serialize};
 use wasm_bindgen::prelude::*;
 
 use crate::debug::{DebugRawEvent, DebugStructExt};
+#[cfg(feature = "test-send-sync")]
+use crate::{SendOutsideWasm, SyncOutsideWasm};
 
 const AUTHENTICITY_NOT_GUARANTEED: &str =
     "The authenticity of this encrypted message can't be guaranteed on this device.";
@@ -403,7 +405,7 @@ unsafe impl Sync for TimelineEvent {}
 #[test]
 // See https://github.com/matrix-org/matrix-rust-sdk/pull/3749#issuecomment-2312939823.
 fn test_send_sync_for_sync_timeline_event() {
-    fn assert_send_sync<T: Send + Sync>() {}
+    fn assert_send_sync<T: SendOutsideWasm + SyncOutsideWasm>() {}
 
     assert_send_sync::<TimelineEvent>();
 }

@@ -30,6 +30,7 @@ use matrix_sdk::{
     sleep::sleep,
     Client,
 };
+use matrix_sdk_base::{SendOutsideWasm, SyncOutsideWasm};
 use matrix_sdk_base::{StateStoreDataKey, StateStoreDataValue, StoreError};
 use ruma::{
     time::{Duration, Instant},
@@ -40,7 +41,7 @@ use tracing::{error, trace};
 
 /// A generic interface which methods get called whenever we observe a
 /// unable-to-decrypt (UTD) event.
-pub trait UnableToDecryptHook: std::fmt::Debug + Send + Sync {
+pub trait UnableToDecryptHook: std::fmt::Debug + SendOutsideWasm + SyncOutsideWasm {
     /// Called every time the hook observes an encrypted event that couldn't be
     /// decrypted.
     ///

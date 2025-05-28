@@ -1,5 +1,7 @@
 use std::{fs, num::NonZeroUsize, path::Path, sync::Arc, time::Duration};
 
+use matrix_sdk_common::{SendOutsideWasm, SyncOutsideWasm};
+
 use async_compat::get_runtime_handle;
 use futures_util::StreamExt;
 use matrix_sdk::{
@@ -173,7 +175,7 @@ pub enum QrLoginProgress {
 }
 
 #[matrix_sdk_ffi_macros::export(callback_interface)]
-pub trait QrLoginProgressListener: Sync + Send {
+pub trait QrLoginProgressListener: SyncOutsideWasm + SendOutsideWasm {
     fn on_update(&self, state: QrLoginProgress);
 }
 
