@@ -84,7 +84,7 @@ impl RoomUpdates {
     /// Iterate over all room IDs, from [`RoomUpdates::left`],
     /// [`RoomUpdates::joined`], [`RoomUpdates::invited`] and
     /// [`RoomUpdates::knocked`].
-    fn iter_all_room_ids(&self) -> impl Iterator<Item = &OwnedRoomId> {
+    pub(crate) fn iter_all_room_ids(&self) -> impl Iterator<Item = &OwnedRoomId> {
         self.left
             .keys()
             .chain(self.joined.keys())
@@ -158,9 +158,9 @@ mod tests {
 impl fmt::Debug for RoomUpdates {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("RoomUpdates")
-            .field("leave", &self.left)
-            .field("join", &self.joined)
-            .field("invite", &DebugInvitedRoomUpdates(&self.invited))
+            .field("left", &self.left)
+            .field("joined", &self.joined)
+            .field("invited", &DebugInvitedRoomUpdates(&self.invited))
             .field("knocked", &DebugKnockedRoomUpdates(&self.knocked))
             .finish()
     }
