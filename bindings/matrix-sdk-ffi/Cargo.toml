@@ -24,7 +24,7 @@ unstable-msc4274 = ["matrix-sdk-ui/unstable-msc4274"]
 [dependencies]
 anyhow.workspace = true
 as_variant.workspace = true
-async-compat = "0.2.4"
+async-compat.workspace = true
 extension-trait = "1.0.1"
 eyeball-im.workspace = true
 futures-util.workspace = true

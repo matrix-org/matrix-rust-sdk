@@ -18,7 +18,6 @@
 //! with boxed streams across different platforms. On native platforms,
 //! streams can be `Send`, but on Wasm they cannot. This module abstracts
 //! over that difference.
-
 #[cfg(not(target_family = "wasm"))]
 mod sys {
     // On native platforms, just re-export everything from futures_util
