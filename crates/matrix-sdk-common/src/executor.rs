@@ -37,14 +37,40 @@ mod sys {
     };
 
     pub use futures_util::future::AbortHandle;
-    pub use n0_future::task::{spawn as n0_spawn, JoinError};
+    use futures_util::{
+        future::{Abortable, RemoteHandle},
+        FutureExt,
+    };
 
-    /// Wrapper around n0-future's JoinHandle to provide tokio-compatible API
-    /// The wrapper adds methods the abort, abort_handle, and is_finished
-    /// methods, in order to have better conformity with the tokio equivalents.
+    #[derive(Debug)]
+    pub enum JoinError {
+        Cancelled,
+        Panic,
+    }
+
+    impl JoinError {
+        /// Returns true if the error was caused by the task being cancelled.
+        ///
+        /// See [the module level docs] for more information on cancellation.
+        ///
+        /// [the module level docs]: crate::task#cancellation
+        pub fn is_cancelled(&self) -> bool {
+            matches!(self, JoinError::Cancelled)
+        }
+    }
+
+    impl std::fmt::Display for JoinError {
+        fn fmt(&self, fmt: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            match &self {
+                JoinError::Cancelled => write!(fmt, "task was cancelled"),
+                JoinError::Panic => write!(fmt, "task panicked"),
+            }
+        }
+    }
+
     #[derive(Debug)]
     pub struct JoinHandle<T> {
-        inner: n0_future::task::JoinHandle<Result<T, futures_util::future::Aborted>>,
+        remote_handle: Option<RemoteHandle<T>>,
         abort_handle: AbortHandle,
     }
 
@@ -62,26 +88,45 @@ mod sys {
         }
     }
 
-    impl<T> Future for JoinHandle<T> {
-        type Output = Result<T, JoinError>;
-
-        fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-            match Pin::new(&mut self.inner).poll(cx) {
-                Poll::Ready(Ok(Ok(value))) => Poll::Ready(Ok(value)),
-                Poll::Ready(Ok(Err(_aborted))) => Poll::Ready(Err(JoinError::Cancelled)),
-                Poll::Ready(Err(join_err)) => Poll::Ready(Err(join_err)),
-                Poll::Pending => Poll::Pending,
+    impl<T> Drop for JoinHandle<T> {
+        fn drop(&mut self) {
+            // don't abort the spawned future
+            if let Some(h) = self.remote_handle.take() {
+                h.forget();
             }
         }
     }
 
-    pub fn spawn<F, T: 'static>(future: F) -> JoinHandle<T>
+    impl<T: 'static> Future for JoinHandle<T> {
+        type Output = Result<T, JoinError>;
+
+        fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+            if self.abort_handle.is_aborted() {
+                // The future has been aborted. It is not possible to poll it again.
+                Poll::Ready(Err(JoinError::Cancelled))
+            } else if let Some(handle) = self.remote_handle.as_mut() {
+                Pin::new(handle).poll(cx).map(Ok)
+            } else {
+                Poll::Ready(Err(JoinError::Panic))
+            }
+        }
+    }
+
+    pub fn spawn<F, T>(future: F) -> JoinHandle<T>
     where
         F: Future<Output = T> + 'static,
     {
-        let (abortable_future, abort_handle) = futures_util::future::abortable(future);
-        let inner = n0_spawn(abortable_future);
-        JoinHandle { inner, abort_handle }
+        let (future, remote_handle) = future.remote_handle();
+        let (abort_handle, abort_registration) = AbortHandle::new_pair();
+        let future = Abortable::new(future, abort_registration);
+
+        wasm_bindgen_futures::spawn_local(async {
+            // Poll the future, and ignore the result (either it's `Ok(())`, or it's
+            // `Err(Aborted)`).
+            let _ = future.await;
+        });
+
+        JoinHandle { remote_handle: Some(remote_handle), abort_handle }
     }
 }
 

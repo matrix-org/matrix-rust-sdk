@@ -43,7 +43,6 @@ tokio = { workspace = true, features = ["rt", "time", "macros"] }
 
 [target.'cfg(target_family = "wasm")'.dependencies]
 futures-util = { workspace = true, features = ["channel"] }
-n0-future = "0.1"
 gloo-timers = { workspace = true, features = ["futures"] }
 tokio = { workspace = true, features = ["macros"] }
 tracing-subscriber = { workspace = true, features = ["fmt", "ansi"] }
