@@ -33,6 +33,7 @@ use matrix_sdk::{
     },
     Client, Room, RoomState,
 };
+use matrix_sdk_common::executor::spawn;
 use serde::{Deserialize, Serialize};
 use tokio::time::{sleep, Duration};
 
@@ -148,7 +149,7 @@ async fn on_stripped_state_member(
         return;
     }
 
-    tokio::spawn(async move {
+    spawn(async move {
         println!("Autojoining room {}", room.room_id());
         let mut delay = 2;
 

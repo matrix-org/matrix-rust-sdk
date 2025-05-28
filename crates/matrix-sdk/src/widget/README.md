@@ -187,7 +187,8 @@ To use this module, two structs are needed:
 #[derive(Clone)]
 struct CapProv {}
 
-#[async_trait]
+#[cfg_attr(target_family = "wasm", async_trait(?Send))]
+#[cfg_attr(not(target_family = "wasm"), async_trait)]
 impl CapabilitiesProvider for CapProv {
     async fn acquire_capabilities(&self, requested_capabilities: Capabilities) -> Capabilities {
         // Only approve capabilities the user has approved interactively

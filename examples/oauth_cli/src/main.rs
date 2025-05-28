@@ -38,6 +38,7 @@ use matrix_sdk::{
     utils::local_server::{LocalServerBuilder, LocalServerRedirectHandle, QueryString},
     Client, ClientBuildError, Result, RoomState,
 };
+use matrix_sdk_common::executor::spawn;
 use matrix_sdk_ui::sync_service::SyncService;
 use rand::{distributions::Alphanumeric, thread_rng, Rng};
 use serde::{Deserialize, Serialize};
@@ -430,7 +431,7 @@ impl OAuthCli {
         let mut sync_service_state = sync_service.state();
 
         let sync_service_clone = sync_service.clone();
-        let task = tokio::spawn(async move {
+        let task = spawn(async move {
             // Only fail after getting 5 errors in a row. When we're in an always-refail
             // scenario, we move from the Error to the Running state for a bit
             // until we fail again, so we need to track both failure state and
@@ -506,7 +507,7 @@ impl OAuthCli {
     /// This should always be set up whenever automatic refresh is happening.
     fn setup_background_save(&self) {
         let this = self.clone();
-        tokio::spawn(async move {
+        spawn(async move {
             while let Ok(update) = this.client.subscribe_to_session_changes().recv().await {
                 match update {
                     matrix_sdk::SessionChange::UnknownToken { soft_logout } => {

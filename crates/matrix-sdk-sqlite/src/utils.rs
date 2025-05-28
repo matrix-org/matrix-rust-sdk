@@ -57,7 +57,8 @@ impl rusqlite::ToSql for Key {
     }
 }
 
-#[async_trait]
+#[cfg_attr(target_family = "wasm", async_trait(?Send))]
+#[cfg_attr(not(target_family = "wasm"), async_trait)]
 pub(crate) trait SqliteAsyncConnExt {
     async fn execute<P>(
         &self,
@@ -195,7 +196,8 @@ pub(crate) trait SqliteAsyncConnExt {
     }
 }
 
-#[async_trait]
+#[cfg_attr(target_family = "wasm", async_trait(?Send))]
+#[cfg_attr(not(target_family = "wasm"), async_trait)]
 impl SqliteAsyncConnExt for SqliteAsyncConn {
     async fn execute<P>(
         &self,
@@ -391,7 +393,8 @@ impl SqliteKeyValueStoreConnExt for rusqlite::Connection {
 ///     "value" BLOB NOT NULL
 /// );
 /// ```
-#[async_trait]
+#[cfg_attr(target_family = "wasm", async_trait(?Send))]
+#[cfg_attr(not(target_family = "wasm"), async_trait)]
 pub(crate) trait SqliteKeyValueStoreAsyncConnExt: SqliteAsyncConnExt {
     /// Whether the `kv` table exists in this database.
     async fn kv_table_exists(&self) -> rusqlite::Result<bool> {
@@ -471,7 +474,8 @@ pub(crate) trait SqliteKeyValueStoreAsyncConnExt: SqliteAsyncConnExt {
     }
 }
 
-#[async_trait]
+#[cfg_attr(target_family = "wasm", async_trait(?Send))]
+#[cfg_attr(not(target_family = "wasm"), async_trait)]
 impl SqliteKeyValueStoreAsyncConnExt for SqliteAsyncConn {
     async fn set_kv(&self, key: &str, value: Vec<u8>) -> rusqlite::Result<()> {
         let key = key.to_owned();

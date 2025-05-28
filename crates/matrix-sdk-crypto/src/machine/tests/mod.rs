@@ -17,9 +17,12 @@ use std::{collections::BTreeMap, iter, ops::Not, sync::Arc, time::Duration};
 use assert_matches2::{assert_let, assert_matches};
 use futures_util::{pin_mut, FutureExt, StreamExt};
 use itertools::Itertools;
-use matrix_sdk_common::deserialized_responses::{
-    AlgorithmInfo, UnableToDecryptInfo, UnableToDecryptReason, UnsignedDecryptionResult,
-    UnsignedEventLocation, VerificationLevel, VerificationState, WithheldCode,
+use matrix_sdk_common::{
+    deserialized_responses::{
+        AlgorithmInfo, UnableToDecryptInfo, UnableToDecryptReason, UnsignedDecryptionResult,
+        UnsignedEventLocation, VerificationLevel, VerificationState, WithheldCode,
+    },
+    executor::spawn,
 };
 use matrix_sdk_test::{async_test, message_like_event_content, ruma_response_from_json, test_json};
 use ruma::{
@@ -1254,7 +1257,7 @@ async fn test_wait_on_key_query_doesnt_block_store() {
     // Start a background task that will wait for the key query to finish silently
     // in the background.
     let machine_cloned = machine.clone();
-    let wait = tokio::spawn(async move {
+    let wait = spawn(async move {
         let machine = machine_cloned;
         let user_devices =
             machine.get_user_devices(alice_id(), Some(Duration::from_secs(10))).await.unwrap();

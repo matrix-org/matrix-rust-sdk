@@ -16,6 +16,7 @@ use std::{sync::Arc, time::Duration};
 
 use assert_matches::assert_matches;
 use matrix_sdk::{config::SyncSettings, test_utils::logged_in_client_with_server};
+use matrix_sdk_common::executor::spawn;
 use matrix_sdk_test::{
     async_test, event_factory::EventFactory, mocks::mock_encryption_state, JoinedRoomBuilder,
     SyncResponseBuilder, ALICE, BOB, CAROL, DEFAULT_TEST_ROOM_ID,
@@ -127,7 +128,7 @@ async fn test_update_sender_profiles() {
 
     // Spawn fetch_members as a background task, so we can observe the missing
     // profiles being set to pending first.
-    let hdl = tokio::spawn({
+    let hdl = spawn({
         let timeline = timeline.clone();
         async move {
             timeline.fetch_members().await;

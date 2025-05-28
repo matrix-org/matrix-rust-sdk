@@ -14,6 +14,7 @@ use matrix_sdk::{
     test_utils::mocks::MatrixMockServer,
 };
 use matrix_sdk_base::{EncryptionState, RoomMembersUpdate, RoomState};
+use matrix_sdk_common::executor::spawn;
 use matrix_sdk_test::{
     async_test,
     event_factory::EventFactory,
@@ -528,7 +529,7 @@ async fn test_fetch_members_deduplication() {
     // Create N tasks that try to fetch the members.
     for _ in 0..5 {
         #[allow(unknown_lints, clippy::redundant_async_block)] // false positive
-        let task = tokio::spawn({
+        let task = spawn({
             let room = room.clone();
             async move { room.sync_members().await }
         });
@@ -612,7 +613,7 @@ async fn test_subscribe_to_typing_notifications() {
     let room = server.sync_joined_room(&client, room_id).await;
 
     // Send to typing notification
-    let join_handle = tokio::spawn({
+    let join_handle = spawn({
         let typing_sequences = Arc::clone(&typing_sequences);
         async move {
             let (_drop_guard, mut subscriber) = room.subscribe_to_typing_notifications();
