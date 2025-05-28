@@ -73,10 +73,10 @@ url.workspace = true
 vodozemac.workspace = true
 zeroize = { workspace = true, features = ["zeroize_derive"] }
 
-[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+[target.'cfg(not(target_family = "wasm"))'.dependencies]
 tokio = { workspace = true, features = ["time"] }
 
-[target.'cfg(target_arch = "wasm32")'.dependencies]
+[target.'cfg(target_family = "wasm")'.dependencies]
 tokio.workspace = true
 
 [dev-dependencies]

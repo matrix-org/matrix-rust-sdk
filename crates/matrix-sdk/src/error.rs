@@ -195,7 +195,7 @@ pub(crate) enum RetryKind {
     /// `retry_after`.
     Transient {
         // This is used only for attempts to retry, so on non-wasm32 code (in the `native` module).
-        #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
+        #[cfg_attr(target_family = "wasm", allow(dead_code))]
         retry_after: Option<Duration>,
     },
 

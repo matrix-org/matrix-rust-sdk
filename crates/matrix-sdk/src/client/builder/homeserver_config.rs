@@ -199,7 +199,7 @@ pub(super) async fn get_supported_versions(
         .await
 }
 
-#[cfg(all(test, not(target_arch = "wasm32")))]
+#[cfg(all(test, not(target_family = "wasm")))]
 mod tests {
     use matrix_sdk_test::async_test;
     use ruma::OwnedServerName;

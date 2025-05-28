@@ -17,7 +17,7 @@
 use std::{fmt::Debug, future::IntoFuture};
 
 use eyeball::SharedObservable;
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(not(target_family = "wasm"))]
 use eyeball::Subscriber;
 use matrix_sdk_common::{boxed_into_future, SendOutsideWasm, SyncOutsideWasm};
 use oauth2::{basic::BasicErrorResponseType, RequestTokenError};

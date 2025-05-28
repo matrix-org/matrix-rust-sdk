@@ -15,11 +15,11 @@
 use std::{error::Error, fmt, time::Duration};
 
 use futures_core::Future;
-#[cfg(target_arch = "wasm32")]
+#[cfg(target_family = "wasm")]
 use futures_util::future::{select, Either};
-#[cfg(target_arch = "wasm32")]
+#[cfg(target_family = "wasm")]
 use gloo_timers::future::TimeoutFuture;
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(not(target_family = "wasm"))]
 use tokio::time::timeout as tokio_timeout;
 
 /// Error type notifying that a timeout has elapsed.
@@ -43,10 +43,10 @@ pub async fn timeout<F, T>(future: F, duration: Duration) -> Result<T, ElapsedEr
 where
     F: Future<Output = T>,
 {
-    #[cfg(not(target_arch = "wasm32"))]
+    #[cfg(not(target_family = "wasm"))]
     return tokio_timeout(duration, future).await.map_err(|_| ElapsedError());
 
-    #[cfg(target_arch = "wasm32")]
+    #[cfg(target_family = "wasm")]
     {
         let timeout_future =
             TimeoutFuture::new(u32::try_from(duration.as_millis()).expect("Overlong duration"));
@@ -66,7 +66,7 @@ pub(crate) mod tests {
 
     use super::timeout;
 
-    #[cfg(target_arch = "wasm32")]
+    #[cfg(target_family = "wasm")]
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
     #[async_test]
