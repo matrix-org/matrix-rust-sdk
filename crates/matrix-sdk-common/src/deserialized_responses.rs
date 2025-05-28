@@ -29,7 +29,10 @@ use serde::{Deserialize, Serialize};
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
 
-use crate::debug::{DebugRawEvent, DebugStructExt};
+use crate::{
+    debug::{DebugRawEvent, DebugStructExt},
+    serde_helpers::extract_bundled_thread_summary,
+};
 
 const AUTHENTICITY_NOT_GUARANTEED: &str =
     "The authenticity of this encrypted message can't be guaranteed on this device.";
@@ -458,20 +461,18 @@ impl TimelineEvent {
     /// This is a convenience constructor for a plaintext event when you don't
     /// need to set `push_action`, for example inside a test.
     pub fn new(event: Raw<AnySyncTimelineEvent>) -> Self {
-        Self {
-            kind: TimelineEventKind::PlainText { event },
-            push_actions: None,
-            thread_summary: ThreadSummaryStatus::default(),
-        }
+        let thread_summary = extract_bundled_thread_summary(&event);
+        Self { kind: TimelineEventKind::PlainText { event }, push_actions: None, thread_summary }
     }
 
     /// Create a new [`TimelineEvent`] to represent the given decryption
     /// failure.
     pub fn new_utd_event(event: Raw<AnySyncTimelineEvent>, utd_info: UnableToDecryptInfo) -> Self {
+        let thread_summary = extract_bundled_thread_summary(&event);
         Self {
             kind: TimelineEventKind::UnableToDecrypt { event, utd_info },
             push_actions: None,
-            thread_summary: ThreadSummaryStatus::default(),
+            thread_summary,
         }
     }
 
@@ -513,12 +514,11 @@ impl TimelineEvent {
     }
 }
 
+// Note: it's the responsibility of the caller to fill the `push_actions` field,
+// if necessary.
 impl From<DecryptedRoomEvent> for TimelineEvent {
     fn from(decrypted: DecryptedRoomEvent) -> Self {
-        // TODO: try to extract a bundled thread summary from the decrypted event.
-        // XXX(bnjbvr): why do we have this impl? seems dangerous as it doesn't compute push
-        // actions.
-        let thread_summary = ThreadSummaryStatus::Unknown;
+        let thread_summary = extract_bundled_thread_summary(decrypted.event.cast_ref());
         Self { kind: TimelineEventKind::Decrypted(decrypted), push_actions: None, thread_summary }
     }
 }
@@ -552,12 +552,18 @@ impl<'de> Deserialize<'de> for TimelineEvent {
         }
         // Otherwise, it's V1
         else {
-            let v1: SyncTimelineEventDeserializationHelperV1 =
+            let mut v1: SyncTimelineEventDeserializationHelperV1 =
                 serde_json::from_value(Value::Object(value)).map_err(|e| {
                     serde::de::Error::custom(format!(
                         "Unable to deserialize V1-format TimelineEvent: {e}",
                     ))
                 })?;
+
+            // Try to figure whether there's a thread summary, if it was not already known.
+            if v1.thread_summary.is_unknown() {
+                v1.thread_summary = extract_bundled_thread_summary(v1.kind.raw());
+            }
+
             Ok(v1.into())
         }
     }
@@ -1313,6 +1319,57 @@ mod tests {
                 })
             });
         });
+    }
+
+    #[test]
+    fn test_creating_or_deserializing_an_event_extracts_summary() {
+        let event = json!({
+            "event_id": "$eid:example.com",
+            "type": "m.room.message",
+            "sender": "@alice:example.com",
+            "origin_server_ts": 42,
+            "content": {
+                "body": "Hello, world!",
+            },
+            "unsigned": {
+                "m.relations": {
+                    "m.thread": {
+                        "latest_event": {
+                            "event_id": "$latest_event:example.com",
+                            "type": "m.room.message",
+                            "sender": "@bob:example.com",
+                            "origin_server_ts": 42,
+                            "content": {
+                                "body": "Hello to you too!",
+                            }
+                        },
+                        "count": 2,
+                        "current_user_participated": true,
+                    }
+                }
+            }
+        });
+
+        let raw = Raw::new(&event).unwrap().cast();
+
+        // When creating a timeline event from a raw event, the thread summary is always
+        // extracted, if available.
+        let timeline_event = TimelineEvent::new(raw);
+        assert_matches!(timeline_event.thread_summary, ThreadSummaryStatus::Some(ThreadSummary {}));
+
+        // When deserializing an old serialized timeline event, the thread summary is
+        // also extracted, if it wasn't serialized.
+        let serialized_timeline_item = json!({
+            "kind": {
+                "PlainText": {
+                    "event": event
+                }
+            }
+        });
+
+        let timeline_event: TimelineEvent =
+            serde_json::from_value(serialized_timeline_item).unwrap();
+        assert_matches!(timeline_event.thread_summary, ThreadSummaryStatus::Some(ThreadSummary {}));
     }
 
     #[test]
