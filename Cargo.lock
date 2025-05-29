@@ -1203,12 +1203,11 @@ dependencies = [
 
 [[package]]
 name = "decancer"
-version = "3.2.8"
+version = "3.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1a41401dd84c9335e2f5aec7f64057e243585d62622260d41c245919a601ccc9"
+checksum = "d59c633be7ba6fcf3c153e11d647990e4e4bd463a4d5834ba0a45caa96da6baf"
 dependencies = [
  "lazy_static",
- "paste",
  "regex",
 ]
 
