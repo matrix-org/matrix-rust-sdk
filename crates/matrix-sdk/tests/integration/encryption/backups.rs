@@ -37,7 +37,7 @@ use matrix_sdk::{
     Client, SessionMeta,
 };
 use matrix_sdk_base::crypto::olm::OutboundGroupSession;
-use matrix_sdk_common::timeout::timeout;
+use matrix_sdk_common::{executor::spawn, timeout::timeout};
 use matrix_sdk_test::{async_test, JoinedRoomBuilder, SyncResponseBuilder};
 use ruma::{
     api::client::room::create_room::v3::Request as CreateRoomRequest,
@@ -47,7 +47,6 @@ use ruma::{
 };
 use serde_json::{json, Value};
 use tempfile::tempdir;
-use tokio::spawn;
 use vodozemac::{
     olm::IdentityKeys, Curve25519PublicKey, Curve25519SecretKey, Ed25519PublicKey, Ed25519SecretKey,
 };

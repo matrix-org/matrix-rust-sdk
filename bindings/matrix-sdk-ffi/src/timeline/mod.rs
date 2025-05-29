@@ -16,7 +16,6 @@ use std::{collections::HashMap, fmt::Write as _, fs, panic, sync::Arc};
 
 use anyhow::{Context, Result};
 use as_variant::as_variant;
-use async_compat::get_runtime_handle;
 use eyeball_im::VectorDiff;
 use futures_util::{pin_mut, StreamExt as _};
 use matrix_sdk::{
@@ -31,6 +30,8 @@ use matrix_sdk::{
         reply::{EnforceThread, Reply},
     },
 };
+use matrix_sdk_common::executor::{AbortHandle, JoinHandle};
+use matrix_sdk_common::runtime::get_runtime_handle;
 use matrix_sdk_ui::timeline::{
     self, AttachmentSource, EventItemOrigin, Profile, TimelineDetails,
     TimelineUniqueId as SdkTimelineUniqueId,
@@ -57,10 +58,7 @@ use ruma::{
     },
     EventId, UInt,
 };
-use tokio::{
-    sync::Mutex,
-    task::{AbortHandle, JoinHandle},
-};
+use tokio::sync::Mutex;
 use tracing::{error, warn};
 use uuid::Uuid;
 
@@ -85,6 +83,7 @@ mod msg_like;
 mod reply;
 
 use matrix_sdk::utils::formatted_body_from;
+use matrix_sdk_common::{SendOutsideWasm, SyncOutsideWasm};
 
 use crate::error::QueueWedgeError;
 
@@ -379,7 +378,7 @@ impl Timeline {
             Ok(handle) => Ok(Arc::new(SendHandle::new(handle))),
             Err(err) => {
                 error!("error when sending a message: {err}");
-                Err(anyhow::anyhow!(err).into())
+                Err(err.into())
             }
         }
     }
@@ -532,10 +531,7 @@ impl Timeline {
         msg: Arc<RoomMessageEventContentWithoutRelation>,
         reply_params: ReplyParameters,
     ) -> Result<(), ClientError> {
-        self.inner
-            .send_reply((*msg).clone(), reply_params.try_into()?)
-            .await
-            .map_err(|err| anyhow::anyhow!(err))?;
+        self.inner.send_reply((*msg).clone(), reply_params.try_into()?).await?;
         Ok(())
     }
 
@@ -629,7 +625,10 @@ impl Timeline {
 
     pub async fn fetch_details_for_event(&self, event_id: String) -> Result<(), ClientError> {
         let event_id = <&EventId>::try_from(event_id.as_str())?;
-        self.inner.fetch_details_for_event(event_id).await.context("Fetching event details")?;
+        self.inner
+            .fetch_details_for_event(event_id)
+            .await
+            .map_err(|_| ClientError::from_str("Fetching event details".to_string(), None))?;
         Ok(())
     }
 
@@ -807,12 +806,12 @@ pub enum FocusEventError {
 }
 
 #[matrix_sdk_ffi_macros::export(callback_interface)]
-pub trait TimelineListener: Sync + Send {
+pub trait TimelineListener: SyncOutsideWasm + SendOutsideWasm {
     fn on_update(&self, diff: Vec<Arc<TimelineDiff>>);
 }
 
 #[matrix_sdk_ffi_macros::export(callback_interface)]
-pub trait PaginationStatusListener: Sync + Send {
+pub trait PaginationStatusListener: SyncOutsideWasm + SendOutsideWasm {
     fn on_update(&self, status: RoomPaginationStatus);
 }
 
@@ -1228,7 +1227,10 @@ impl SendAttachmentJoinHandle {
                     return Ok(());
                 }
                 error!("task panicked! resuming panic from here.");
+                #[cfg(not(target_family = "wasm"))]
                 panic::resume_unwind(err.into_panic());
+                #[cfg(target_family = "wasm")]
+                panic!("task panicked! {err}");
             }
         }
     }

@@ -1,6 +1,5 @@
 use std::sync::{Arc, RwLock};
 
-use async_compat::get_runtime_handle;
 use futures_util::StreamExt;
 use matrix_sdk::{
     encryption::{
@@ -11,6 +10,8 @@ use matrix_sdk::{
     ruma::events::key::verification::VerificationMethod,
     Account,
 };
+use matrix_sdk_common::runtime::get_runtime_handle;
+use matrix_sdk_common::{SendOutsideWasm, SyncOutsideWasm};
 use ruma::UserId;
 use tracing::{error, warn};
 
@@ -51,7 +52,7 @@ pub struct SessionVerificationRequestDetails {
 }
 
 #[matrix_sdk_ffi_macros::export(callback_interface)]
-pub trait SessionVerificationControllerDelegate: Sync + Send {
+pub trait SessionVerificationControllerDelegate: SyncOutsideWasm + SendOutsideWasm {
     fn did_receive_verification_request(&self, details: SessionVerificationRequestDetails);
     fn did_accept_verification_request(&self);
     fn did_start_sas_verification(&self);
@@ -114,11 +115,8 @@ impl SessionVerificationController {
     /// Request verification for the current device
     pub async fn request_device_verification(&self) -> Result<(), ClientError> {
         let methods = vec![VerificationMethod::SasV1];
-        let verification_request = self
-            .user_identity
-            .request_verification_with_methods(methods)
-            .await
-            .map_err(anyhow::Error::from)?;
+        let verification_request =
+            self.user_identity.request_verification_with_methods(methods).await?;
 
         self.set_ongoing_verification_request(verification_request)
     }
@@ -139,10 +137,7 @@ impl SessionVerificationController {
 
         let methods = vec![VerificationMethod::SasV1];
 
-        let verification_request = user_identity
-            .request_verification_with_methods(methods)
-            .await
-            .map_err(anyhow::Error::from)?;
+        let verification_request = user_identity.request_verification_with_methods(methods).await?;
 
         self.set_ongoing_verification_request(verification_request)
     }

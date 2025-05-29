@@ -3,6 +3,7 @@ use std::{env, process::exit};
 use matrix_sdk::{
     config::SyncSettings, ruma::events::room::member::StrippedRoomMemberEvent, Client, Room,
 };
+use matrix_sdk_common::executor::spawn;
 use tokio::time::{sleep, Duration};
 
 async fn on_stripped_state_member(
@@ -14,7 +15,7 @@ async fn on_stripped_state_member(
         return;
     }
 
-    tokio::spawn(async move {
+    spawn(async move {
         println!("Autojoining room {}", room.room_id());
         let mut delay = 2;
 

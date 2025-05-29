@@ -11,6 +11,7 @@ use matrix_sdk::{
     ruma::{api::client::uiaa, OwnedUserId},
     Client, LoopCtrl,
 };
+use matrix_sdk_common::executor::spawn;
 use url::Url;
 
 async fn bootstrap(client: Client, user_id: OwnedUserId, password: String) -> Result<()> {
@@ -64,7 +65,7 @@ async fn login(homeserver_url: String, username: &str, password: &str) -> matrix
 
             // Wait for sync to be done then ask the user to bootstrap.
             if !asked.load(Ordering::SeqCst) {
-                tokio::spawn(bootstrap((*client).clone(), (*user_id).clone(), password.to_owned()));
+                spawn(bootstrap((*client).clone(), (*user_id).clone(), password.to_owned()));
             }
 
             asked.store(true, Ordering::SeqCst);

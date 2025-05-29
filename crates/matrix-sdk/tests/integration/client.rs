@@ -14,6 +14,7 @@ use matrix_sdk::{
     Client, Error, MemoryStore, StateChanges, StateStore,
 };
 use matrix_sdk_base::{sync::RoomUpdates, RoomState};
+use matrix_sdk_common::executor::spawn;
 use matrix_sdk_test::{
     async_test, sync_state_event,
     test_json::{
@@ -407,7 +408,7 @@ async fn test_subscribe_all_room_updates() {
 // Check that the `Room::latest_encryption_state().await?.is_encrypted()` is
 // properly deduplicated, meaning we only make a single request to the server,
 // and that multiple calls do return the same result.
-#[cfg(all(feature = "e2e-encryption", not(target_arch = "wasm32")))]
+#[cfg(all(feature = "e2e-encryption", not(target_family = "wasm")))]
 #[async_test]
 async fn test_request_encryption_event_before_sending() {
     let (client, server) = logged_in_client_with_server().await;
@@ -438,14 +439,15 @@ async fn test_request_encryption_event_before_sending() {
         .mount(&server)
         .await;
 
-    let first_handle = tokio::spawn({
+    let first_handle = spawn({
         let room = room.to_owned();
         async move { room.to_owned().latest_encryption_state().await.map(|state| state.is_encrypted()) }
     });
 
-    let second_handle = tokio::spawn(async move {
-        room.latest_encryption_state().await.map(|state| state.is_encrypted())
-    });
+    let second_handle =
+        spawn(
+            async move { room.latest_encryption_state().await.map(|state| state.is_encrypted()) },
+        );
 
     let first_encrypted =
         first_handle.await.unwrap().expect("We should be able to test if the room is encrypted.");
@@ -1217,7 +1219,7 @@ async fn test_test_ambiguity_changes() {
     assert_pending!(updates);
 }
 
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(not(target_family = "wasm"))]
 #[async_test]
 async fn test_rooms_stream() {
     use futures_util::StreamExt as _;

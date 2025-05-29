@@ -31,11 +31,11 @@ use matrix_sdk::{
     Client,
 };
 use matrix_sdk_base::SessionMeta;
+use matrix_sdk_common::executor::spawn;
 use matrix_sdk_test::async_test;
 use ruma::{api::client::uiaa, device_id, user_id, UserId};
 use serde::Deserialize;
 use serde_json::{json, Value};
-use tokio::spawn;
 use wiremock::{
     matchers::{header, method, path, path_regex},
     Mock, ResponseTemplate,

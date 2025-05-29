@@ -6,6 +6,7 @@ use matrix_sdk::{
     encryption::{backups::BackupState, secret_storage::SecretStore},
     Client,
 };
+use matrix_sdk_common::executor::spawn;
 use url::Url;
 
 /// A command line example showcasing how to resume backups by importing the
@@ -105,7 +106,7 @@ async fn main() -> Result<()> {
     let secret_store =
         client.encryption().secret_storage().open_secret_store(&cli.secret_store_key).await?;
 
-    let _task = tokio::spawn({
+    let _task = spawn({
         let client = client.clone();
         async move { listen_for_backup_state_changes(client).await }
     });

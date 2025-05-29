@@ -793,7 +793,7 @@ async fn migrate_to_v12(db: IdbDatabase) -> Result<IdbDatabase> {
     Ok(IdbDatabase::open_u32(&name, 12)?.await?)
 }
 
-#[cfg(all(test, target_arch = "wasm32"))]
+#[cfg(all(test, target_family = "wasm"))]
 mod tests {
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 

@@ -11,6 +11,7 @@ use matrix_sdk::{
     ruma::serde::Raw,
     Client,
 };
+use matrix_sdk_common::executor::spawn;
 use url::Url;
 
 /// A command line example showcasing how to login using a QR code.
@@ -118,7 +119,7 @@ async fn login(proxy: Option<Url>) -> Result<()> {
     let login_client = oauth.login_with_qr_code(&data, Some(&registration_data));
     let mut subscriber = login_client.subscribe_to_progress();
 
-    let task = tokio::spawn(async move {
+    let task = spawn(async move {
         while let Some(state) = subscriber.next().await {
             match state {
                 LoginProgress::Starting => (),

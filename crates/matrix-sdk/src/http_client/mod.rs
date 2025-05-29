@@ -36,12 +36,12 @@ use tracing::{debug, field::debug, instrument, trace};
 
 use crate::{config::RequestConfig, error::HttpError};
 
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(not(target_family = "wasm"))]
 mod native;
-#[cfg(target_arch = "wasm32")]
+#[cfg(target_family = "wasm")]
 mod wasm;
 
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(not(target_family = "wasm"))]
 pub(crate) use native::HttpSettings;
 
 pub(crate) const DEFAULT_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
@@ -250,7 +250,7 @@ async fn response_to_http_response(
     Ok(http_builder.body(body).expect("Can't construct a response using the given body"))
 }
 
-#[cfg(all(test, not(target_arch = "wasm32")))]
+#[cfg(all(test, not(target_family = "wasm")))]
 mod tests {
     use std::{
         num::NonZeroUsize,
@@ -261,6 +261,7 @@ mod tests {
         time::Duration,
     };
 
+    use matrix_sdk_common::executor::spawn;
     use matrix_sdk_test::{async_test, test_json};
     use wiremock::{
         matchers::{method, path},
@@ -302,7 +303,7 @@ mod tests {
             .mount(&server)
             .await;
 
-        let bg_task = tokio::spawn(async move {
+        let bg_task = spawn(async move {
             futures_util::future::join_all((0..10).map(|_| client.whoami())).await
         });
 
@@ -346,7 +347,7 @@ mod tests {
             .mount(&server)
             .await;
 
-        let bg_task = tokio::spawn(async move {
+        let bg_task = spawn(async move {
             futures_util::future::join_all((0..254).map(|_| client.whoami())).await
         });
 

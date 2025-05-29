@@ -20,6 +20,7 @@ use matrix_sdk::{
     },
     Client, Room, RoomState,
 };
+use matrix_sdk_common::executor::spawn;
 use tokio::time::{sleep, Duration};
 
 /// This is the starting point of the app. `main` is called by rust binaries to
@@ -118,7 +119,7 @@ async fn on_stripped_state_member(
     // methods that change the state of a room (joining, leaving a room)
     // wait for the sync to return the new room state so we need to spawn
     // a new task for them.
-    tokio::spawn(async move {
+    spawn(async move {
         println!("Autojoining room {}", room.room_id());
         let mut delay = 2;
 

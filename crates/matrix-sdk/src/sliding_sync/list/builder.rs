@@ -45,7 +45,10 @@ pub struct SlidingSyncListBuilder {
     /// `FrozenSlidingSyncList`.
     reloaded_cached_data: Option<SlidingSyncListCachedData>,
 
+    #[cfg(not(target_family = "wasm"))]
     once_built: Arc<Box<dyn Fn(SlidingSyncList) -> SlidingSyncList + Send + Sync>>,
+    #[cfg(target_family = "wasm")]
+    once_built: Arc<Box<dyn Fn(SlidingSyncList) -> SlidingSyncList>>,
 }
 
 #[cfg(not(tarpaulin_include))]
@@ -85,9 +88,19 @@ impl SlidingSyncListBuilder {
     /// If the list was cached, then the cached fields won't be available in
     /// this callback. Use the streams to get published versions of the
     /// cached fields, once they've been set.
+    #[cfg(not(target_family = "wasm"))]
     pub fn once_built<C>(mut self, callback: C) -> Self
     where
         C: Fn(SlidingSyncList) -> SlidingSyncList + Send + Sync + 'static,
+    {
+        self.once_built = Arc::new(Box::new(callback));
+        self
+    }
+
+    #[cfg(target_family = "wasm")]
+    pub fn once_built<C>(mut self, callback: C) -> Self
+    where
+        C: Fn(SlidingSyncList) -> SlidingSyncList + 'static,
     {
         self.once_built = Arc::new(Box::new(callback));
         self

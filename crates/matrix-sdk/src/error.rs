@@ -195,7 +195,7 @@ pub(crate) enum RetryKind {
     /// `retry_after`.
     Transient {
         // This is used only for attempts to retry, so on non-wasm32 code (in the `native` module).
-        #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
+        #[cfg_attr(target_family = "wasm", allow(dead_code))]
         retry_after: Option<Duration>,
     },
 
@@ -383,8 +383,14 @@ pub enum Error {
     ///
     /// This might happen because encryption was enabled on the base-crate
     /// but not here and that raised.
+    #[cfg(not(target_family = "wasm"))]
     #[error("unknown error: {0}")]
     UnknownError(Box<dyn std::error::Error + Send + Sync>),
+
+    /// An other error was raised.
+    #[cfg(target_family = "wasm")]
+    #[error("unknown error: {0}")]
+    UnknownError(Box<dyn std::error::Error>),
 
     /// An error coming from the event cache subsystem.
     #[error(transparent)]
@@ -585,11 +591,22 @@ impl From<SdkBaseError> for Error {
             SdkBaseError::OlmError(e) => Self::OlmError(Box::new(e)),
             #[cfg(feature = "eyre")]
             _ => Self::UnknownError(eyre::eyre!(e).into()),
-            #[cfg(all(not(feature = "eyre"), feature = "anyhow"))]
+            #[cfg(all(not(feature = "eyre"), feature = "anyhow", not(target_family = "wasm")))]
             _ => Self::UnknownError(anyhow::anyhow!(e).into()),
-            #[cfg(all(not(feature = "eyre"), not(feature = "anyhow")))]
+            #[cfg(all(not(feature = "eyre"), feature = "anyhow", target_family = "wasm"))]
+            _ => Self::UnknownError(e.into()),
+            #[cfg(all(
+                not(feature = "eyre"),
+                not(feature = "anyhow"),
+                not(target_family = "wasm")
+            ))]
             _ => {
-                let e: Box<dyn std::error::Error + Sync + Send> = format!("{e:?}").into();
+                let e: Box<dyn std::error::Error + Send + Sync> = format!("{e:?}").into();
+                Self::UnknownError(e)
+            }
+            #[cfg(all(not(feature = "eyre"), not(feature = "anyhow"), target_family = "wasm"))]
+            _ => {
+                let e: Box<dyn std::error::Error> = format!("{e:?}").into();
                 Self::UnknownError(e)
             }
         }

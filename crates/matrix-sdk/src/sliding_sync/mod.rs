@@ -2506,7 +2506,7 @@ mod tests {
         pin_mut!(stream);
 
         let cloned_sync = sliding_sync.clone();
-        tokio::spawn(async move {
+        spawn(async move {
             tokio::time::sleep(Duration::from_millis(100)).await;
 
             cloned_sync

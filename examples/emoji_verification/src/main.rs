@@ -18,6 +18,7 @@ use matrix_sdk::{
     },
     Client,
 };
+use matrix_sdk_common::executor::spawn;
 use url::Url;
 
 async fn wait_for_confirmation(sas: SasVerification, emoji: [Emoji; 7]) {
@@ -67,7 +68,7 @@ async fn sas_verification_handler(client: Client, sas: SasVerification) {
     while let Some(state) = stream.next().await {
         match state {
             SasState::KeysExchanged { emojis, decimals: _ } => {
-                tokio::spawn(wait_for_confirmation(
+                spawn(wait_for_confirmation(
                     sas.clone(),
                     emojis.expect("We only support verifications using emojis").emojis,
                 ));
@@ -113,7 +114,7 @@ async fn request_verification_handler(client: Client, request: VerificationReque
             VerificationRequestState::Transitioned { verification } => {
                 // We only support SAS verification.
                 if let Verification::SasV1(s) = verification {
-                    tokio::spawn(sas_verification_handler(client, s));
+                    spawn(sas_verification_handler(client, s));
                     break;
                 }
             }
@@ -131,7 +132,7 @@ async fn sync(client: Client) -> matrix_sdk::Result<()> {
                 .await
                 .expect("Request object wasn't created");
 
-            tokio::spawn(request_verification_handler(client, request));
+            spawn(request_verification_handler(client, request));
         },
     );
 
@@ -143,7 +144,7 @@ async fn sync(client: Client) -> matrix_sdk::Result<()> {
                 .await
                 .expect("Request object wasn't created");
 
-            tokio::spawn(request_verification_handler(client, request));
+            spawn(request_verification_handler(client, request));
         }
     });
 
