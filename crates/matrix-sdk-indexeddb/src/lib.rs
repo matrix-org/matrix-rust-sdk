@@ -6,6 +6,7 @@ use thiserror::Error;
 
 #[cfg(feature = "e2e-encryption")]
 mod crypto_store;
+#[cfg(feature = "event-cache-store")]
 mod event_cache_store;
 mod safe_encode;
 #[cfg(feature = "e2e-encryption")]
