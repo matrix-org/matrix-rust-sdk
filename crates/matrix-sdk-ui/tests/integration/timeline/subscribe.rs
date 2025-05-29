@@ -297,6 +297,7 @@ async fn test_profile_updates() {
     let room_id = room_id!("!a98sd12bjh:example.org");
     let (client, server) = logged_in_client_with_server().await;
     let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
+    let f = EventFactory::new();
 
     let mut sync_builder = SyncResponseBuilder::new();
     sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id));
@@ -311,8 +312,8 @@ async fn test_profile_updates() {
     let timeline = room.timeline_builder().build().await.unwrap();
     let (_, mut timeline_stream) = timeline.subscribe().await;
 
-    let alice = "@alice:example.org";
-    let bob = "@bob:example.org";
+    let alice = user_id!("@alice:example.org");
+    let bob = user_id!("@bob:example.org");
 
     // Add users with unknown profile.
     let event_1_id = event_id!("$YTQwYl2pl1");
@@ -320,26 +321,12 @@ async fn test_profile_updates() {
 
     sync_builder.add_joined_room(
         JoinedRoomBuilder::new(room_id)
-            .add_timeline_event(sync_timeline_event!({
-                "content": {
-                    "body": "hello",
-                    "msgtype": "m.text",
-                },
-                "event_id": event_1_id,
-                "origin_server_ts": 152037280,
-                "sender": alice,
-                "type": "m.room.message",
-            }))
-            .add_timeline_event(sync_timeline_event!({
-                "content": {
-                    "body": "hello",
-                    "msgtype": "m.text",
-                },
-                "event_id": event_2_id,
-                "origin_server_ts": 152037280,
-                "sender": bob,
-                "type": "m.room.message",
-            })),
+            .add_timeline_event(
+                f.text_msg("hello").event_id(event_1_id).sender(alice).server_ts(152037280),
+            )
+            .add_timeline_event(
+                f.text_msg("hello").event_id(event_2_id).sender(bob).server_ts(152037280),
+            ),
     );
 
     mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
@@ -371,38 +358,15 @@ async fn test_profile_updates() {
 
     sync_builder.add_joined_room(
         JoinedRoomBuilder::new(room_id)
-            .add_timeline_event(sync_timeline_event!({
-                "content": {
-                    "displayname": "Member",
-                    "membership": "join"
-                },
-                "event_id": event_3_id,
-                "origin_server_ts": 152037280,
-                "sender": bob,
-                "state_key": bob,
-                "type": "m.room.member",
-            }))
-            .add_timeline_event(sync_timeline_event!({
-                "content": {
-                    "displayname": "Alice",
-                    "membership": "join"
-                },
-                "event_id": event_4_id,
-                "origin_server_ts": 152037280,
-                "sender": alice,
-                "state_key": alice,
-                "type": "m.room.member",
-            }))
-            .add_timeline_event(sync_timeline_event!({
-                "content": {
-                    "body": "hello",
-                    "msgtype": "m.text",
-                },
-                "event_id": event_5_id,
-                "origin_server_ts": 152037280,
-                "sender": alice,
-                "type": "m.room.message",
-            })),
+            .add_timeline_event(
+                f.member(bob).display_name("Member").event_id(event_3_id).server_ts(152037280),
+            )
+            .add_timeline_event(
+                f.member(alice).display_name("Alice").event_id(event_4_id).server_ts(152037280),
+            )
+            .add_timeline_event(
+                f.text_msg("hello").event_id(event_5_id).sender(alice).server_ts(152037280),
+            ),
     );
 
     mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
@@ -470,17 +434,7 @@ async fn test_profile_updates() {
     let event_6_id = event_id!("$YTQwYl2pl6");
 
     sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_timeline_event(
-        sync_timeline_event!({
-            "content": {
-                "displayname": "Member",
-                "membership": "join"
-            },
-            "event_id": event_6_id,
-            "origin_server_ts": 152037280,
-            "sender": alice,
-            "state_key": alice,
-            "type": "m.room.member",
-        }),
+        f.member(alice).display_name("Member").event_id(event_6_id).server_ts(152037280),
     ));
 
     mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
