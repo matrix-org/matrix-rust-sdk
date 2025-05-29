@@ -197,7 +197,7 @@ impl Widget for &mut RoomList {
                         room_id.to_string()
                     };
 
-                    format!("#{i}{dm_marker} {}", room_name)
+                    format!("#{i}{dm_marker} {room_name}")
                 };
 
                 let line = Line::styled(line, TEXT_COLOR);
