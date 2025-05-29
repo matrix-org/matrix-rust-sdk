@@ -1523,7 +1523,7 @@ impl Room {
         &self,
         session_id: &str,
         sender: &UserId,
-    ) -> Option<EncryptionInfo> {
+    ) -> Option<Arc<EncryptionInfo>> {
         let machine = self.client.olm_machine().await;
         let machine = machine.as_ref()?;
         machine.get_session_encryption_info(self.room_id(), session_id, sender).await.ok()

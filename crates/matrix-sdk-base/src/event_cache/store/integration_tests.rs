@@ -14,6 +14,8 @@
 
 //! Trait and macro of integration tests for `EventCacheStore` implementations.
 
+use std::sync::Arc;
+
 use assert_matches::assert_matches;
 use matrix_sdk_common::{
     deserialized_responses::{
@@ -55,7 +57,7 @@ pub fn make_test_event_with_event_id(
     content: &str,
     event_id: Option<&EventId>,
 ) -> TimelineEvent {
-    let encryption_info = EncryptionInfo {
+    let encryption_info = Arc::new(EncryptionInfo {
         sender: (*ALICE).into(),
         sender_device: None,
         algorithm_info: AlgorithmInfo::MegolmV1AesSha2 {
@@ -64,7 +66,7 @@ pub fn make_test_event_with_event_id(
             session_id: Some("mysessionid9".to_owned()),
         },
         verification_state: VerificationState::Verified,
-    };
+    });
 
     let mut builder = EventFactory::new().text_msg(content).room(room_id).sender(*ALICE);
     if let Some(event_id) = event_id {

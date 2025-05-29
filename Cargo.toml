@@ -79,7 +79,7 @@ ruma = { git = "https://github.com/ruma/ruma", rev = "b4941a991919685345646a230b
 ruma-common = { git = "https://github.com/ruma/ruma", rev = "b4941a991919685345646a230b05b985338ec3f8" }
 sentry = "0.36.0"
 sentry-tracing = "0.36.0"
-serde = "1.0.217"
+serde = { version = "1.0.217", features = ["rc"] }
 serde_html_form = "0.2.7"
 serde_json = "1.0.138"
 sha2 = "0.10.8"

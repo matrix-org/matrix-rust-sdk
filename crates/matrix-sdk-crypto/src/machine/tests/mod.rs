@@ -443,12 +443,12 @@ async fn test_session_encryption_info_can_be_fetched() {
 
     // Then the expected info is returned
     assert_eq!(encryption_info.sender, alice_id());
-    assert_eq!(encryption_info.sender_device.unwrap(), alice_device_id());
+    assert_eq!(encryption_info.sender_device.as_deref(), Some(alice_device_id()));
     assert_matches!(
-        encryption_info.algorithm_info,
+        &encryption_info.algorithm_info,
         AlgorithmInfo::MegolmV1AesSha2 { curve25519_key, .. }
     );
-    assert_eq!(curve25519_key, alice_session.sender_key().to_string());
+    assert_eq!(*curve25519_key, alice_session.sender_key().to_string());
     assert_eq!(
         encryption_info.verification_state,
         VerificationState::Unverified(VerificationLevel::UnsignedDevice)

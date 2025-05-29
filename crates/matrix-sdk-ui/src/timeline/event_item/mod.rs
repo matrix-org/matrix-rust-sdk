@@ -398,7 +398,7 @@ impl EventTimelineItem {
     pub fn encryption_info(&self) -> Option<&EncryptionInfo> {
         match &self.kind {
             EventTimelineItemKind::Local(_) => None,
-            EventTimelineItemKind::Remote(remote_event) => remote_event.encryption_info.as_ref(),
+            EventTimelineItemKind::Remote(remote_event) => remote_event.encryption_info.as_deref(),
         }
     }
 
@@ -521,7 +521,10 @@ impl EventTimelineItem {
     }
 
     /// Clone the current event item, and update its `encryption_info`.
-    pub(super) fn with_encryption_info(&self, encryption_info: Option<EncryptionInfo>) -> Self {
+    pub(super) fn with_encryption_info(
+        &self,
+        encryption_info: Option<Arc<EncryptionInfo>>,
+    ) -> Self {
         let mut new = self.clone();
         if let EventTimelineItemKind::Remote(r) = &mut new.kind {
             r.encryption_info = encryption_info;
