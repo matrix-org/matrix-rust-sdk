@@ -26,7 +26,10 @@ use matrix_sdk_test::{
 use matrix_sdk_ui::timeline::{RoomExt, TimelineDetails};
 use ruma::{
     event_id,
-    events::room::{member::MembershipState, message::MessageType},
+    events::room::{
+        member::MembershipState,
+        message::{MessageType, RoomMessageEventContent},
+    },
     room_id, user_id,
 };
 use serde_json::json;
@@ -81,6 +84,7 @@ async fn test_event_filter() {
     let room_id = room_id!("!a98sd12bjh:example.org");
     let (client, server) = logged_in_client_with_server().await;
     let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
+    let f = EventFactory::new();
 
     let mut sync_builder = SyncResponseBuilder::new();
     sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id));
@@ -96,18 +100,14 @@ async fn test_event_filter() {
     let (_, mut timeline_stream) = timeline.subscribe().await;
 
     let first_event_id = event_id!("$YTQwYl2ply");
-    sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_timeline_event(
-        sync_timeline_event!({
-            "content": {
-                "body": "hello",
-                "msgtype": "m.text",
-            },
-            "event_id": first_event_id,
-            "origin_server_ts": 152037280,
-            "sender": "@alice:example.org",
-            "type": "m.room.message",
-        }),
-    ));
+    sync_builder.add_joined_room(
+        JoinedRoomBuilder::new(room_id).add_timeline_event(
+            f.text_msg("hello")
+                .sender(user_id!("@alice:example.org"))
+                .event_id(first_event_id)
+                .server_ts(152037280),
+        ),
+    );
 
     mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
@@ -132,36 +132,19 @@ async fn test_event_filter() {
     let edit_event_id = event_id!("$7i9In0gEmB");
     sync_builder.add_joined_room(
         JoinedRoomBuilder::new(room_id)
-            .add_timeline_event(sync_timeline_event!({
-                "content": {
-                    "body": "Test",
-                    "formatted_body": "<em>Test</em>",
-                    "msgtype": "m.text",
-                    "format": "org.matrix.custom.html",
-                },
-                "event_id": second_event_id,
-                "origin_server_ts": 152038280,
-                "sender": "@bob:example.org",
-                "type": "m.room.message",
-            }))
-            .add_timeline_event(sync_timeline_event!({
-                "content": {
-                    "body": " * hi",
-                    "m.new_content": {
-                        "body": "hi",
-                        "msgtype": "m.text",
-                    },
-                    "m.relates_to": {
-                        "event_id": first_event_id,
-                        "rel_type": "m.replace",
-                    },
-                    "msgtype": "m.text",
-                },
-                "event_id": edit_event_id,
-                "origin_server_ts": 159056300,
-                "sender": "@alice:example.org",
-                "type": "m.room.message",
-            })),
+            .add_timeline_event(
+                f.text_html("Test", "<em>Test</em>")
+                    .sender(user_id!("@bob:example.org"))
+                    .event_id(second_event_id)
+                    .server_ts(152038280),
+            )
+            .add_timeline_event(
+                f.text_msg(" * hi")
+                    .sender(user_id!("@alice:example.org"))
+                    .event_id(edit_event_id)
+                    .server_ts(159056300)
+                    .edit(first_event_id, RoomMessageEventContent::text_plain("hi").into()),
+            ),
     );
 
     mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
