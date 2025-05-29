@@ -14,6 +14,7 @@
 
 //! Abstraction over an executor so we can spawn tasks under Wasm the same way
 //! we do usually.
+
 //! On non Wasm platforms, this re-exports parts of tokio directly.  For Wasm,
 //! we provide a single-threaded solution that matches the interface that tokio
 //! provides as a drop in replacement.
