@@ -41,14 +41,14 @@ mod sys {
         FutureExt,
     };
 
+    /// A Wasm specific version of `tokio::task::JoinError` designed to work
+    /// in the single-threaded environment available in Wasm environments.
     #[derive(Debug)]
     pub enum JoinError {
         Cancelled,
         Panic,
     }
 
-    /// A Wasm specific version of `tokio::task::JoinError` designed to work
-    /// in the single-threaded environment available in Wasm environments.
     impl JoinError {
         /// Returns true if the error was caused by the task being cancelled.
         ///
