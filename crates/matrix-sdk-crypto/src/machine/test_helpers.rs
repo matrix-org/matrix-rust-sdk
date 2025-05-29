@@ -29,17 +29,25 @@ use ruma::{
     encryption::OneTimeKey,
     events::dummy::ToDeviceDummyEventContent,
     serde::Raw,
+    to_device::DeviceIdOrAllDevices,
     user_id, DeviceId, OwnedOneTimeKeyId, TransactionId, UserId,
 };
-use serde_json::json;
+use serde_json::{json, Value};
 use tokio::sync::Mutex;
 
 use crate::{
+    machine::tests,
     olm::PrivateCrossSigningIdentity,
     store::{Changes, CryptoStoreWrapper, MemoryStore},
-    types::{events::ToDeviceEvent, requests::AnyOutgoingRequest, DeviceKeys},
+    types::{
+        events::ToDeviceEvent,
+        requests::{AnyOutgoingRequest, ToDeviceRequest},
+        DeviceKeys, ProcessedToDeviceEvent,
+    },
+    utilities::json_convert,
     verification::VerificationMachine,
-    Account, CrossSigningBootstrapRequests, Device, DeviceData, OlmMachine, OtherUserIdentityData,
+    Account, CrossSigningBootstrapRequests, Device, DeviceData, EncryptionSyncChanges, OlmMachine,
+    OtherUserIdentityData,
 };
 
 /// These keys need to be periodically uploaded to the server.
@@ -172,6 +180,46 @@ pub async fn get_machine_pair_with_session(
     let (alice, bob, one_time_keys) = get_machine_pair(alice, bob, use_fallback_key).await;
 
     build_session_for_pair(alice, bob, one_time_keys).await
+}
+
+pub async fn send_and_receive_encrypted_to_device_test_helper(
+    sender: &OlmMachine,
+    recipient: &OlmMachine,
+    event_type: &str,
+    content: Value,
+) -> ProcessedToDeviceEvent {
+    let device =
+        sender.get_device(recipient.user_id(), recipient.device_id(), None).await.unwrap().unwrap();
+
+    let raw_encrypted = device
+        .encrypt_event_raw(event_type, &content)
+        .await
+        .expect("Should have encrypted the content");
+
+    let request = ToDeviceRequest::new(
+        recipient.user_id(),
+        DeviceIdOrAllDevices::DeviceId(recipient.device_id().to_owned()),
+        "m.room.encrypted",
+        raw_encrypted.cast(),
+    );
+    let event = ToDeviceEvent::new(
+        sender.user_id().to_owned(),
+        tests::to_device_requests_to_content(vec![request.clone().into()]),
+    );
+
+    let event = json_convert(&event).unwrap();
+
+    let sync_changes = EncryptionSyncChanges {
+        to_device_events: vec![event],
+        changed_devices: &Default::default(),
+        one_time_keys_counts: &Default::default(),
+        unused_fallback_keys: None,
+        next_batch_token: None,
+    };
+
+    let (decrypted, _) = recipient.receive_sync_changes(sync_changes).await.unwrap();
+    assert_eq!(1, decrypted.len());
+    decrypted[0].clone()
 }
 
 /// Create a session for the two supplied Olm machines to communicate.

@@ -1823,10 +1823,10 @@ mod tests {
         assert_eq!(1, decrypted.len());
         use crate::types::events::EventType;
         assert_let!(
-            ProcessedToDeviceEvent::Decrypted(decrypted_event) = decrypted.first().unwrap().clone()
+            ProcessedToDeviceEvent::Decrypted { raw, .. } = decrypted.first().unwrap().clone()
         );
         assert_eq!(
-            decrypted_event.get_field::<String>("type").unwrap().unwrap(),
+            raw.get_field::<String>("type").unwrap().unwrap(),
             RoomKeyBundleContent::EVENT_TYPE,
         );
     }

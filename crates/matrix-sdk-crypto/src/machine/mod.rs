@@ -1453,7 +1453,10 @@ impl OlmMachine {
                     }
                 }
 
-                Some(ProcessedToDeviceEvent::Decrypted(raw_event))
+                Some(ProcessedToDeviceEvent::Decrypted {
+                    raw: raw_event,
+                    encryption_info: decrypted.result.encryption_info,
+                })
             }
 
             e => {
