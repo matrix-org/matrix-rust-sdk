@@ -16,16 +16,15 @@
 //! we do usually.
 
 //! On non Wasm platforms, this re-exports parts of tokio directly.  For Wasm,
-//! we wrap the n0-future package's AbortHandle + spawn method in order to
-//! provide an interface that is similar to tokio's.
+//! we provide a single-threaded solution that matches the interface that tokio
+//! provides as a drop in replacement.
 
 #[cfg(not(target_family = "wasm"))]
 mod sys {
-    pub use tokio::task::{spawn, AbortHandle, JoinError, JoinHandle};
-
-    /// A handle to a runtime for executing async tasks and futures.
-    pub type Handle = tokio::runtime::Handle;
-    pub type Runtime = tokio::runtime::Runtime;
+    pub use tokio::{
+        runtime::{Handle, Runtime},
+        task::{spawn, AbortHandle, JoinError, JoinHandle},
+    };
 }
 
 #[cfg(target_family = "wasm")]
@@ -48,6 +47,8 @@ mod sys {
         Panic,
     }
 
+    /// A Wasm specific version of `tokio::task::JoinError` designed to work
+    /// in the single-threaded environment available in Wasm environments.
     impl JoinError {
         /// Returns true if the error was caused by the task being cancelled.
         ///
@@ -68,6 +69,8 @@ mod sys {
         }
     }
 
+    /// A Wasm specific version of `tokio::task::JoinHandle` that
+    /// holds handles to locally executing futures.
     #[derive(Debug)]
     pub struct JoinHandle<T> {
         remote_handle: Option<RemoteHandle<T>>,
@@ -75,14 +78,18 @@ mod sys {
     }
 
     impl<T> JoinHandle<T> {
+        /// Aborts the spawned future, preventing it from being polled again.
         pub fn abort(&self) {
             self.abort_handle.abort();
         }
 
+        /// Returns the handle to the `AbortHandle` that can be used to
+        /// abort the spawned future.
         pub fn abort_handle(&self) -> AbortHandle {
             self.abort_handle.clone()
         }
 
+        /// Returns true if the spawned future has been aborted.
         pub fn is_finished(&self) -> bool {
             self.abort_handle.is_aborted()
         }
@@ -112,6 +119,8 @@ mod sys {
         }
     }
 
+    /// A Wasm specific version of `tokio::task::spawn` that utilizes
+    /// wasm_bindgen_futures to spawn futures on the local executor.
     pub fn spawn<F, T>(future: F) -> JoinHandle<T>
     where
         F: Future<Output = T> + 'static,
