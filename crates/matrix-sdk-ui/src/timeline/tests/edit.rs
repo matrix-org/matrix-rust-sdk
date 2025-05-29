@@ -87,7 +87,7 @@ async fn test_live_sanitized() {
     let new_html_content = "<edited/> <strong>better</strong> message";
     timeline
         .handle_live_event(
-            f.text_html(format!("* {}", new_plain_content), format!("* {}", new_html_content))
+            f.text_html(format!("* {new_plain_content}"), format!("* {new_html_content}"))
                 .sender(&ALICE)
                 .edit(
                     first_event_id,

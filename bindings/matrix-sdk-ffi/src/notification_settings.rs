@@ -290,7 +290,7 @@ impl TryFrom<SdkTweak> for Tweak {
             SdkTweak::Highlight(highlight) => Self::Highlight { value: highlight },
             SdkTweak::Custom { name, value } => {
                 let json_string = serde_json::to_string(&value)
-                    .map_err(|e| format!("Failed to serialize custom tweak value: {}", e))?;
+                    .map_err(|e| format!("Failed to serialize custom tweak value: {e}"))?;
 
                 Self::Custom { name, value: json_string }
             }
@@ -308,9 +308,9 @@ impl TryFrom<Tweak> for SdkTweak {
             Tweak::Highlight { value } => Self::Highlight(value),
             Tweak::Custom { name, value } => {
                 let json_value: serde_json::Value = serde_json::from_str(&value)
-                    .map_err(|e| format!("Failed to deserialize custom tweak value: {}", e))?;
+                    .map_err(|e| format!("Failed to deserialize custom tweak value: {e}"))?;
                 let value = serde_json::from_value(json_value)
-                    .map_err(|e| format!("Failed to convert JSON value: {}", e))?;
+                    .map_err(|e| format!("Failed to convert JSON value: {e}"))?;
 
                 Self::Custom { name, value }
             }
@@ -334,7 +334,7 @@ impl TryFrom<SdkAction> for Action {
         Ok(match value {
             SdkAction::Notify => Self::Notify,
             SdkAction::SetTweak(tweak) => Self::SetTweak {
-                value: tweak.try_into().map_err(|e| format!("Failed to convert tweak: {}", e))?,
+                value: tweak.try_into().map_err(|e| format!("Failed to convert tweak: {e}"))?,
             },
             _ => return Err("Unsupported action type".to_owned()),
         })
@@ -348,7 +348,7 @@ impl TryFrom<Action> for SdkAction {
         Ok(match value {
             Action::Notify => Self::Notify,
             Action::SetTweak { value } => Self::SetTweak(
-                value.try_into().map_err(|e| format!("Failed to convert tweak: {}", e))?,
+                value.try_into().map_err(|e| format!("Failed to convert tweak: {e}"))?,
             ),
         })
     }

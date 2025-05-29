@@ -271,7 +271,7 @@ impl WidgetSettings {
 
         // All the params will be set inside the fragment (to keep the traffic to the
         // server minimal and most importantly don't send the passwords).
-        raw_url.set_fragment(Some(&format!("?{}", query)));
+        raw_url.set_fragment(Some(&format!("?{query}")));
 
         // for EC we always want init on content load to be true.
         Ok(Self { widget_id: props.widget_id, init_on_content_load: true, raw_url })
@@ -510,9 +510,7 @@ mod tests {
             for e in expected_elements {
                 assert!(
                     query_set.contains(&e),
-                    "The query elements: \n{:?}\nDid not contain: \n{:?}",
-                    query_set,
-                    e
+                    "The query elements: \n{query_set:?}\nDid not contain: \n{e:?}"
                 );
             }
         }
@@ -530,9 +528,7 @@ mod tests {
             let expected_elements = ("perParticipantE2EE".to_owned(), "false".to_owned());
             assert!(
                 query_set.contains(&expected_elements),
-                "The url query elements for an unencrypted call: \n{:?}\nDid not contain: \n{:?}",
-                query_set,
-                expected_elements
+                "The url query elements for an unencrypted call: \n{query_set:?}\nDid not contain: \n{expected_elements:?}"
             );
         }
         {
@@ -550,9 +546,7 @@ mod tests {
             for e in expected_elements {
                 assert!(
                     query_set.contains(&e),
-                    "The query elements: \n{:?}\nDid not contain: \n{:?}",
-                    query_set,
-                    e
+                    "The query elements: \n{query_set:?}\nDid not contain: \n{e:?}"
                 );
             }
         }
@@ -574,9 +568,7 @@ mod tests {
             let query_set = get_query_sets(&Url::parse(&url).unwrap()).unwrap().1;
             assert!(
                 query_set.contains(&controlled_media_element),
-                "The query elements: \n{:?}\nDid not contain: \n{:?}",
-                query_set,
-                controlled_media_element
+                "The query elements: \n{query_set:?}\nDid not contain: \n{controlled_media_element:?}"
             );
         }
     }
@@ -595,9 +587,7 @@ mod tests {
             for e in expected_unset_elements {
                 assert!(
                     !query_set.iter().any(|x| x.0 == e),
-                    "The query elements: \n{:?}\nShould not have contained: \n{:?}",
-                    query_set,
-                    e
+                    "The query elements: \n{query_set:?}\nShould not have contained: \n{e:?}"
                 );
             }
         }
@@ -615,9 +605,7 @@ mod tests {
             let expected_elements = ("intent".to_owned(), "join_existing".to_owned());
             assert!(
                 query_set.contains(&expected_elements),
-                "The url query elements for an unencrypted call: \n{:?}\nDid not contain: \n{:?}",
-                query_set,
-                expected_elements
+                "The url query elements for an unencrypted call: \n{query_set:?}\nDid not contain: \n{expected_elements:?}"
             );
 
             let expected_unset_elements = ["skipLobby".to_owned()];
@@ -625,9 +613,7 @@ mod tests {
             for e in expected_unset_elements {
                 assert!(
                     !query_set.iter().any(|x| x.0 == e),
-                    "The query elements: \n{:?}\nShould not have contained: \n{:?}",
-                    query_set,
-                    e
+                    "The query elements: \n{query_set:?}\nShould not have contained: \n{e:?}"
                 );
             }
         }
@@ -651,9 +637,7 @@ mod tests {
             for e in expected_elements {
                 assert!(
                     query_set.contains(&e),
-                    "The query elements: \n{:?}\nDid not contain: \n{:?}",
-                    query_set,
-                    e
+                    "The query elements: \n{query_set:?}\nDid not contain: \n{e:?}"
                 );
             }
         }

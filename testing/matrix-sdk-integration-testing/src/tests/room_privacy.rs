@@ -172,7 +172,7 @@ async fn test_removing_published_room_alias() -> anyhow::Result<()> {
 
     // We'll add a room alias to it
     let random_id: u128 = random();
-    let local_part_room_alias = format!("a-room-alias-{}", random_id);
+    let local_part_room_alias = format!("a-room-alias-{random_id}");
     let raw_room_alias = format!("#{local_part_room_alias}:{server_name}");
     let room_alias = RoomAliasId::parse(raw_room_alias).expect("The room alias should be valid");
 
