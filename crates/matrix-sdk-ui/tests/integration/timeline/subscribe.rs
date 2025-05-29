@@ -20,7 +20,7 @@ use eyeball_im::VectorDiff;
 use futures_util::StreamExt;
 use matrix_sdk::{config::SyncSettings, test_utils::logged_in_client_with_server};
 use matrix_sdk_test::{
-    async_test, event_factory::EventFactory, mocks::mock_encryption_state, sync_timeline_event,
+    async_test, event_factory::EventFactory, mocks::mock_encryption_state,
     GlobalAccountDataTestEvent, JoinedRoomBuilder, SyncResponseBuilder, ALICE, BOB,
 };
 use matrix_sdk_ui::timeline::{RoomExt, TimelineDetails};
