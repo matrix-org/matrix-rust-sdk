@@ -13,3 +13,4 @@
 // limitations under the License
 
 mod migrations;
+mod types;
