@@ -1,10 +1,7 @@
 use std::sync::{Arc, Mutex};
 
 use language_tags::LanguageTag;
-use matrix_sdk::{
-    async_trait,
-    widget::{MessageLikeEventFilter, StateEventFilter, ToDeviceEventFilter},
-};
+use matrix_sdk::widget::{MessageLikeEventFilter, StateEventFilter, ToDeviceEventFilter};
 use matrix_sdk_common::{SendOutsideWasm, SyncOutsideWasm};
 use ruma::events::MessageLikeEventType;
 use tracing::error;
@@ -553,8 +550,6 @@ pub trait WidgetCapabilitiesProvider: SendOutsideWasm + SyncOutsideWasm {
 
 struct CapabilitiesProviderWrap(Arc<dyn WidgetCapabilitiesProvider>);
 
-#[cfg_attr(target_family = "wasm", async_trait(?Send))]
-#[cfg_attr(not(target_family = "wasm"), async_trait)]
 impl matrix_sdk::widget::CapabilitiesProvider for CapabilitiesProviderWrap {
     async fn acquire_capabilities(
         &self,
