@@ -85,7 +85,7 @@ pub(super) enum Flow {
         /// Where should this be added in the timeline.
         position: TimelineItemPosition,
         /// Information about the encryption for this event.
-        encryption_info: Option<EncryptionInfo>,
+        encryption_info: Option<Arc<EncryptionInfo>>,
     },
 }
 
@@ -150,7 +150,7 @@ pub(super) struct RemoteEventContext<'a> {
     event_id: &'a EventId,
     raw_event: &'a Raw<AnySyncTimelineEvent>,
     relations: BundledMessageLikeRelations<AnySyncMessageLikeEvent>,
-    bundled_edit_encryption_info: Option<EncryptionInfo>,
+    bundled_edit_encryption_info: Option<Arc<EncryptionInfo>>,
 }
 
 /// An action that we want to cause on the timeline.
@@ -195,7 +195,7 @@ impl TimelineAction {
         raw_event: &Raw<AnySyncTimelineEvent>,
         room_data_provider: &P,
         unable_to_decrypt_info: Option<UnableToDecryptInfo>,
-        bundled_edit_encryption_info: Option<EncryptionInfo>,
+        bundled_edit_encryption_info: Option<Arc<EncryptionInfo>>,
         timeline_items: &Vector<Arc<TimelineItem>>,
         meta: &mut TimelineMetadata,
     ) -> Option<Self> {

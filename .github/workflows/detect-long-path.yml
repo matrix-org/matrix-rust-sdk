@@ -7,11 +7,6 @@ on:
   workflow_dispatch:
   pull_request: # focus on the changed files in current PR
     branches: [main]
-    types:
-      - opened
-      - reopened
-      - synchronize
-      - ready_for_review
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}

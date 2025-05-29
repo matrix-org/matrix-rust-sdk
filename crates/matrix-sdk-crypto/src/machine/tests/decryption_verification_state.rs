@@ -557,7 +557,8 @@ async fn encrypt_message(
         .unwrap()
         .inbound_group_session
         .unwrap();
-    recipient.store().save_inbound_group_sessions(&[group_session.clone()]).await.unwrap();
+    let sessions = std::slice::from_ref(&group_session);
+    recipient.store().save_inbound_group_sessions(sessions).await.unwrap();
 
     let content = RoomMessageEventContent::text_plain(plaintext);
 
@@ -596,14 +597,12 @@ async fn check_decryption_trust_requirement(
         if *is_ok {
             assert!(
                 bob.decrypt_room_event(event, room_id, &decryption_settings).await.is_ok(),
-                "Decryption did not succeed with {:?}",
-                trust_requirement,
+                "Decryption did not succeed with {trust_requirement:?}",
             );
         } else {
             assert!(
                 bob.decrypt_room_event(event, room_id, &decryption_settings).await.is_err(),
-                "Decryption succeeded with {:?}",
-                trust_requirement,
+                "Decryption succeeded with {trust_requirement:?}",
             );
         }
     }
