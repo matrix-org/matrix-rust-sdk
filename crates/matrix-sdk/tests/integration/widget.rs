@@ -102,7 +102,7 @@ async fn send_request(
         "action": action,
         "data": data,
     });
-    println!("Json string sent from the widget {}", json_string);
+    println!("Json string sent from the widget {json_string}");
     let sent = driver_handle.send(json_string).await;
     assert!(sent);
 }
@@ -772,7 +772,7 @@ async fn test_update_delayed_event() {
     .await;
     // Receive the response
     let response = recv_message(&driver_handle).await;
-    print!("{:?}", response);
+    print!("{response:?}");
     assert_eq!(response["api"], "fromWidget");
     assert_eq!(response["action"], "org.matrix.msc4157.update_delayed_event");
     let empty_response = response["response"].clone();
@@ -797,7 +797,7 @@ async fn test_try_update_delayed_event_without_permission() {
     .await;
     // Receive the response
     let response = recv_message(&driver_handle).await;
-    print!("{:?}", response);
+    print!("{response:?}");
     assert_eq!(response["api"], "fromWidget");
     assert_eq!(response["action"], "org.matrix.msc4157.update_delayed_event");
     let error_response = response["response"]["error"]["message"].clone();

@@ -128,7 +128,7 @@ use serde::de::DeserializeOwned;
 use thiserror::Error;
 use tokio::{join, sync::broadcast};
 use tokio_stream::StreamExt;
-use tracing::{debug, error, info, instrument, warn};
+use tracing::{debug, error, info, instrument, trace, warn};
 
 use self::futures::{SendAttachment, SendMessageLikeEvent, SendRawMessageLikeEvent};
 pub use self::{
@@ -339,8 +339,6 @@ impl Room {
         // The server can return with an error that is acceptable to ignore. Let's find
         // which one.
         if let Err(error) = response {
-            error!(?error, "Failed to leave the room");
-
             #[allow(clippy::collapsible_match)]
             let ignore_error = if let Some(error) = error.client_api_error_kind() {
                 match error {
@@ -353,6 +351,8 @@ impl Room {
                 false
             };
 
+            error!(?error, ignore_error, should_forget, "Failed to leave the room");
+
             if !ignore_error {
                 return Err(error.into());
             }
@@ -361,8 +361,10 @@ impl Room {
         self.client.base_client().room_left(self.room_id()).await?;
 
         if should_forget {
+            trace!("Trying to forget the room");
+
             if let Err(error) = self.forget().await {
-                warn!("Failed to forget room when leaving it: {error}");
+                error!(?error, "Failed to forget the room");
             }
         }
 
@@ -375,13 +377,34 @@ impl Room {
     #[doc(alias = "accept_invitation")]
     pub async fn join(&self) -> Result<()> {
         let prev_room_state = self.inner.state();
+
         if prev_room_state == RoomState::Joined {
             return Err(Error::WrongRoomState(Box::new(WrongRoomState::new(
                 "Invited or Left",
                 prev_room_state,
             ))));
         }
+
+        #[cfg(all(feature = "experimental-share-history-on-invite", feature = "e2e-encryption"))]
+        let inviter = if prev_room_state == RoomState::Invited {
+            match self.invite_details().await {
+                Ok(details) => details.inviter,
+                Err(e) => {
+                    warn!("No invite details were found, can't attempt to find a room key bundle to accept: {e:?}");
+                    None
+                }
+            }
+        } else {
+            None
+        };
+
         self.client.join_room_by_id(self.room_id()).await?;
+
+        #[cfg(all(feature = "experimental-share-history-on-invite", feature = "e2e-encryption"))]
+        if let Some(inviter) = inviter {
+            shared_room_history::maybe_accept_key_bundle(self, inviter.user_id()).await?;
+        }
+
         Ok(())
     }
 
@@ -1500,7 +1523,7 @@ impl Room {
         &self,
         session_id: &str,
         sender: &UserId,
-    ) -> Option<EncryptionInfo> {
+    ) -> Option<Arc<EncryptionInfo>> {
         let machine = self.client.olm_machine().await;
         let machine = machine.as_ref()?;
         machine.get_session_encryption_info(self.room_id(), session_id, sender).await.ok()

@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{collections::BTreeMap, fmt};
+use std::{collections::BTreeMap, fmt, sync::Arc};
 
 #[cfg(doc)]
 use ruma::events::AnyTimelineEvent;
@@ -208,7 +208,7 @@ impl fmt::Display for VerificationLevel {
             }
             VerificationLevel::None(..) => "The sending device is not known",
         };
-        write!(f, "{}", display)
+        write!(f, "{display}")
     }
 }
 
@@ -462,7 +462,7 @@ impl TimelineEvent {
 
     /// If the event was a decrypted event that was successfully decrypted, get
     /// its encryption info. Otherwise, `None`.
-    pub fn encryption_info(&self) -> Option<&EncryptionInfo> {
+    pub fn encryption_info(&self) -> Option<&Arc<EncryptionInfo>> {
         self.kind.encryption_info()
     }
 
@@ -501,8 +501,7 @@ impl<'de> Deserialize<'de> for TimelineEvent {
             let v0: SyncTimelineEventDeserializationHelperV0 =
                 serde_json::from_value(Value::Object(value)).map_err(|e| {
                     serde::de::Error::custom(format!(
-                        "Unable to deserialize V0-format TimelineEvent: {}",
-                        e
+                        "Unable to deserialize V0-format TimelineEvent: {e}",
                     ))
                 })?;
             Ok(v0.into())
@@ -512,8 +511,7 @@ impl<'de> Deserialize<'de> for TimelineEvent {
             let v1: SyncTimelineEventDeserializationHelperV1 =
                 serde_json::from_value(Value::Object(value)).map_err(|e| {
                     serde::de::Error::custom(format!(
-                        "Unable to deserialize V1-format TimelineEvent: {}",
-                        e
+                        "Unable to deserialize V1-format TimelineEvent: {e}",
                     ))
                 })?;
             Ok(v1.into())
@@ -571,7 +569,7 @@ impl TimelineEventKind {
 
     /// If the event was a decrypted event that was successfully decrypted, get
     /// its encryption info. Otherwise, `None`.
-    pub fn encryption_info(&self) -> Option<&EncryptionInfo> {
+    pub fn encryption_info(&self) -> Option<&Arc<EncryptionInfo>> {
         match self {
             TimelineEventKind::Decrypted(d) => Some(&d.encryption_info),
             TimelineEventKind::UnableToDecrypt { .. } | TimelineEventKind::PlainText { .. } => None,
@@ -651,7 +649,7 @@ pub struct DecryptedRoomEvent {
     pub event: Raw<AnyMessageLikeEvent>,
 
     /// The encryption info about the event.
-    pub encryption_info: EncryptionInfo,
+    pub encryption_info: Arc<EncryptionInfo>,
 
     /// The encryption info about the events bundled in the `unsigned`
     /// object.
@@ -708,7 +706,7 @@ impl UnsignedEventLocation {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum UnsignedDecryptionResult {
     /// The event was successfully decrypted.
-    Decrypted(EncryptionInfo),
+    Decrypted(Arc<EncryptionInfo>),
     /// The event failed to be decrypted.
     UnableToDecrypt(UnableToDecryptInfo),
 }
@@ -716,7 +714,7 @@ pub enum UnsignedDecryptionResult {
 impl UnsignedDecryptionResult {
     /// Returns the encryption info for this bundled event if it was
     /// successfully decrypted.
-    pub fn encryption_info(&self) -> Option<&EncryptionInfo> {
+    pub fn encryption_info(&self) -> Option<&Arc<EncryptionInfo>> {
         match self {
             Self::Decrypted(info) => Some(info),
             Self::UnableToDecrypt(_) => None,
@@ -920,9 +918,10 @@ struct SyncTimelineEventDeserializationHelperV0 {
     /// The actual event.
     event: Raw<AnySyncTimelineEvent>,
 
-    /// The encryption info about the event. Will be `None` if the event
-    /// was not encrypted.
-    encryption_info: Option<EncryptionInfo>,
+    /// The encryption info about the event.
+    ///
+    /// Will be `None` if the event was not encrypted.
+    encryption_info: Option<Arc<EncryptionInfo>>,
 
     /// The push actions associated with this event.
     #[serde(default)]
@@ -968,7 +967,7 @@ impl From<SyncTimelineEventDeserializationHelperV0> for TimelineEvent {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeMap;
+    use std::{collections::BTreeMap, sync::Arc};
 
     use assert_matches::assert_matches;
     use insta::{assert_json_snapshot, with_settings};
@@ -1120,7 +1119,7 @@ mod tests {
         let room_event = TimelineEvent {
             kind: TimelineEventKind::Decrypted(DecryptedRoomEvent {
                 event: Raw::new(&example_event()).unwrap().cast(),
-                encryption_info: EncryptionInfo {
+                encryption_info: Arc::new(EncryptionInfo {
                     sender: user_id!("@sender:example.com").to_owned(),
                     sender_device: None,
                     algorithm_info: AlgorithmInfo::MegolmV1AesSha2 {
@@ -1129,7 +1128,7 @@ mod tests {
                         session_id: Some("xyz".to_owned()),
                     },
                     verification_state: VerificationState::Verified,
-                },
+                }),
                 unsigned_encryption_info: Some(BTreeMap::from([(
                     UnsignedEventLocation::RelationsReplace,
                     UnsignedDecryptionResult::UnableToDecrypt(UnableToDecryptInfo {
@@ -1492,7 +1491,7 @@ mod tests {
         let room_event = TimelineEvent {
             kind: TimelineEventKind::Decrypted(DecryptedRoomEvent {
                 event: Raw::new(&example_event()).unwrap().cast(),
-                encryption_info: EncryptionInfo {
+                encryption_info: Arc::new(EncryptionInfo {
                     sender: user_id!("@sender:example.com").to_owned(),
                     sender_device: Some(device_id!("ABCDEFGHIJ").to_owned()),
                     algorithm_info: AlgorithmInfo::MegolmV1AesSha2 {
@@ -1510,7 +1509,7 @@ mod tests {
                         session_id: Some("mysessionid112".to_owned()),
                     },
                     verification_state: VerificationState::Verified,
-                },
+                }),
                 unsigned_encryption_info: Some(BTreeMap::from([(
                     UnsignedEventLocation::RelationsThreadLatestEvent,
                     UnsignedDecryptionResult::UnableToDecrypt(UnableToDecryptInfo {

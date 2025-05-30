@@ -1111,8 +1111,7 @@ impl EventCacheStore for SqliteEventCacheStore {
                 };
 
                 let query = format!(
-                    "SELECT content FROM events WHERE relates_to = ? AND room_id = ? {}",
-                    filter_query
+                    "SELECT content FROM events WHERE relates_to = ? AND room_id = ? {filter_query}"
                 );
 
                 // Collect related events.

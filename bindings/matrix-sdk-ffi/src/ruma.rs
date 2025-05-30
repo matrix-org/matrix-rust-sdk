@@ -182,10 +182,10 @@ impl From<&RumaMatrixId> for MatrixId {
                         event_id: event_id.to_string(),
                     }
                 } else {
-                    panic!("Unexpected MatrixId type: {:?}", room_id_or_alias)
+                    panic!("Unexpected MatrixId type: {room_id_or_alias:?}")
                 }
             }
-            _ => panic!("Unexpected MatrixId type: {:?}", value),
+            _ => panic!("Unexpected MatrixId type: {value:?}"),
         }
     }
 }

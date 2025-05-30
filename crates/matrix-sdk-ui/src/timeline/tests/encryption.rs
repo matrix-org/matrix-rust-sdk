@@ -690,8 +690,11 @@ async fn test_retry_fetching_encryption_info() {
     assert_pending!(stream);
 }
 
-fn make_encryption_info(session_id: &str, verification_state: VerificationState) -> EncryptionInfo {
-    EncryptionInfo {
+fn make_encryption_info(
+    session_id: &str,
+    verification_state: VerificationState,
+) -> Arc<EncryptionInfo> {
+    Arc::new(EncryptionInfo {
         sender: BOB.to_owned(),
         sender_device: Some(owned_device_id!("BOBDEVICE")),
         algorithm_info: AlgorithmInfo::MegolmV1AesSha2 {
@@ -700,7 +703,7 @@ fn make_encryption_info(session_id: &str, verification_state: VerificationState)
             session_id: Some(session_id.to_owned()),
         },
         verification_state,
-    }
+    })
 }
 
 #[async_test]

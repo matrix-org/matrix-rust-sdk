@@ -174,14 +174,13 @@ impl WidgetMachine {
                     return Vec::new();
                 };
 
-                capabilities
-                    .allow_reading(&event_raw)
-                    .then(|| {
-                        self.send_to_widget_request(NotifyNewMatrixEvent(event_raw))
-                            .map(|(_request, action)| vec![action])
-                            .unwrap_or_default()
-                    })
-                    .unwrap_or_default()
+                if capabilities.allow_reading(&event_raw) {
+                    self.send_to_widget_request(NotifyNewMatrixEvent(event_raw))
+                        .map(|(_request, action)| vec![action])
+                        .unwrap_or_default()
+                } else {
+                    vec![]
+                }
             }
             IncomingMessage::ToDeviceReceived(to_device_raw) => {
                 let CapabilitiesState::Negotiated(capabilities) = &self.capabilities else {
@@ -189,14 +188,13 @@ impl WidgetMachine {
                     return Vec::new();
                 };
 
-                capabilities
-                    .allow_reading(&to_device_raw)
-                    .then(|| {
-                        self.send_to_widget_request(NotifyNewToDeviceMessage(to_device_raw))
-                            .map(|(_request, action)| vec![action])
-                            .unwrap_or_default()
-                    })
-                    .unwrap_or_default()
+                if capabilities.allow_reading(&to_device_raw) {
+                    self.send_to_widget_request(NotifyNewToDeviceMessage(to_device_raw))
+                        .map(|(_request, action)| vec![action])
+                        .unwrap_or_default()
+                } else {
+                    vec![]
+                }
             }
         }
     }

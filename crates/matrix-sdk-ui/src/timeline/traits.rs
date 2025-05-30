@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::future::Future;
+use std::{future::Future, sync::Arc};
 
 use eyeball::Subscriber;
 use indexmap::IndexMap;
@@ -142,7 +142,7 @@ pub(super) trait RoomDataProvider:
         &self,
         session_id: &str,
         sender: &UserId,
-    ) -> impl Future<Output = Option<EncryptionInfo>> + SendOutsideWasm;
+    ) -> impl Future<Output = Option<Arc<EncryptionInfo>>> + SendOutsideWasm;
 
     async fn relations(&self, event_id: OwnedEventId, opts: RelationsOptions) -> Result<Relations>;
 }
@@ -286,7 +286,7 @@ impl RoomDataProvider for Room {
         &self,
         session_id: &str,
         sender: &UserId,
-    ) -> Option<EncryptionInfo> {
+    ) -> Option<Arc<EncryptionInfo>> {
         // Pass directly on to `Room::get_encryption_info`
         self.get_encryption_info(session_id, sender).await
     }

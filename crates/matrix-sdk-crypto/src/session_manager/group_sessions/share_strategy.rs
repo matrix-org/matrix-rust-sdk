@@ -1688,7 +1688,7 @@ mod tests {
         ) {
             // The share list should be empty
             for (user, device_list) in recips.devices {
-                assert_eq!(device_list.len(), 0, "session unexpectedly shared with {}", user);
+                assert_eq!(device_list.len(), 0, "session unexpectedly shared with {user}");
             }
 
             // ... and there should be one withheld message

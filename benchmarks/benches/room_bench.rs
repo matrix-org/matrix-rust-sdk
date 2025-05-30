@@ -29,7 +29,7 @@ pub fn receive_all_members_benchmark(c: &mut Criterion) {
     let f = EventFactory::new().room(&room_id);
     let mut member_events: Vec<Raw<RoomMemberEvent>> = Vec::with_capacity(MEMBERS_IN_ROOM);
     for i in 0..MEMBERS_IN_ROOM {
-        let user_id = OwnedUserId::try_from(format!("@user_{}:matrix.org", i)).unwrap();
+        let user_id = OwnedUserId::try_from(format!("@user_{i}:matrix.org")).unwrap();
         let event = f
             .member(&user_id)
             .membership(MembershipState::Join)

@@ -11,7 +11,7 @@ use matrix_sdk::{
 };
 use matrix_sdk_test::{
     async_test, event_factory::EventFactory, mocks::mock_encryption_state, JoinedRoomBuilder,
-    StateTestEvent, SyncResponseBuilder,
+    SyncResponseBuilder,
 };
 use matrix_sdk_ui::{
     notification_client::{
@@ -22,8 +22,8 @@ use matrix_sdk_ui::{
 };
 use ruma::{
     event_id,
-    events::{room::member::MembershipState, TimelineEventType},
-    room_id, user_id,
+    events::{room::member::MembershipState, AnyStateEvent, TimelineEventType},
+    mxc_uri, room_id, user_id,
 };
 use serde_json::json;
 use wiremock::{
@@ -47,22 +47,23 @@ async fn test_notification_client_with_context() {
     let event_id = event_id!("$example_event_id");
     let server_ts = 152049794;
     let sender = user_id!("@user:example.org");
-    let event_json = json!({
-        "content": {
-            "body": content,
-            "msgtype": "m.text",
-        },
-        "room_id": room_id,
-        "event_id": event_id,
-        "origin_server_ts": server_ts,
-        "sender": sender,
-        "type": "m.room.message",
-    });
+    let sender_display_name = "John Mastodon";
+    let sender_avatar_url = mxc_uri!("mxc://example.org/avatar");
+    let event_factory = EventFactory::new().room(room_id).sender(sender);
+    let event_json =
+        event_factory.text_msg(content).event_id(event_id).server_ts(server_ts).into_raw_sync();
+
+    let sender_member_event = event_factory
+        .member(sender)
+        .membership(MembershipState::Join)
+        .display_name(sender_display_name)
+        .avatar_url(sender_avatar_url)
+        .into_raw_timeline();
 
     let mut sync_builder = SyncResponseBuilder::new();
     sync_builder.add_joined_room(
         JoinedRoomBuilder::new(room_id).add_timeline_event(
-            EventFactory::new()
+            event_factory
                 .text_msg(content)
                 .event_id(event_id)
                 .server_ts(server_ts)
@@ -89,25 +90,7 @@ async fn test_notification_client_with_context() {
             .and(header("authorization", "Bearer 1234"))
             .respond_with(ResponseTemplate::new(200).set_body_json(json!({
                 "event": event_json,
-                "state": [
-                    {
-                        "content": {
-                            "avatar_url": "https://example.org/avatar.jpeg",
-                            "displayname": "John Mastodon",
-                            "membership": "join"
-                        },
-                        "room_id": room_id,
-                        "event_id": "$151800140517rfvjc:example.org",
-                        "membership": "join",
-                        "origin_server_ts": 151800140,
-                        "sender": sender,
-                        "state_key": sender,
-                        "type": "m.room.member",
-                        "unsigned": {
-                            "age": 2970366,
-                        }
-                    }
-                ]
+                "state": [sender_member_event.cast::<AnyStateEvent>()]
             })))
             .mount(&server)
             .await;
@@ -127,7 +110,7 @@ async fn test_notification_client_with_context() {
         assert_eq!(event.event_type(), TimelineEventType::RoomMessage);
     });
     assert_eq!(item.sender_display_name.as_deref(), Some("John Mastodon"));
-    assert_eq!(item.sender_avatar_url.as_deref(), Some("https://example.org/avatar.jpeg"));
+    assert_eq!(item.sender_avatar_url, Some(sender_avatar_url.to_string()));
 }
 
 #[async_test]
@@ -138,33 +121,39 @@ async fn test_notification_client_sliding_sync() {
     let event_id = event_id!("$example_event_id");
     let event_id2 = event_id!("$example_event_id2");
     let sender = user_id!("@user:example.org");
+    let sender_display_name = "John Mastodon";
+    let sender_avatar_url = mxc_uri!("mxc://example.org/avatar");
     let my_user_id = client.user_id().unwrap().to_owned();
-    let event_json = json!({
-        "content": {
-            "body": "Hello world!",
-            "msgtype": "m.text",
-        },
-        "room_id": room_id,
-        "event_id": event_id,
-        "origin_server_ts": 152049794,
-        "sender": sender,
-        "type": "m.room.message",
-    });
-    let event_json2 = json!({
-        "content": {
-            "body": "Hello world again!",
-            "msgtype": "m.text",
-        },
-        "room_id": room_id,
-        "event_id": event_id2,
-        "origin_server_ts": 152049795,
-        "sender": sender,
-        "type": "m.room.message",
-    });
+
+    let event_factory = EventFactory::new().room(room_id);
+
+    let sender_member_event = event_factory
+        .member(sender)
+        .display_name(sender_display_name)
+        .avatar_url(sender_avatar_url)
+        .membership(MembershipState::Join)
+        .into_raw_sync();
+
+    let own_member_event = event_factory
+        .member(&my_user_id)
+        .display_name("My self")
+        .membership(MembershipState::Join)
+        .into_raw_sync();
+
+    let power_levels_event =
+        event_factory.power_levels(&mut BTreeMap::new()).sender(sender).into_raw_sync();
+
+    let event_json =
+        event_factory.text_msg("Hello world!").event_id(event_id).sender(sender).into_raw_sync();
+
+    let event_json2 = event_factory
+        .text_msg("Hello world again!")
+        .sender(sender)
+        .event_id(event_id2)
+        .into_raw_sync();
 
     let room_name = "The Maltese Falcon";
     let sender_display_name = "John Mastodon";
-    let sender_avatar_url = "https://example.org/avatar.jpeg";
 
     let pos = Mutex::new(0);
     Mock::given(SlidingSyncMatcher)
@@ -184,75 +173,13 @@ async fn test_notification_client_sliding_sync() {
 
                         "required_state": [
                             // Sender's member information.
-                            {
-                                "content": {
-                                    "avatar_url": sender_avatar_url,
-                                    "displayname": sender_display_name,
-                                    "membership": "join"
-                                },
-                                "room_id": room_id,
-                                "event_id": "$151800140517rfvjc:example.org",
-                                "membership": "join",
-                                "origin_server_ts": 151800140,
-                                "sender": sender,
-                                "state_key": sender,
-                                "type": "m.room.member",
-                                "unsigned": {
-                                    "age": 2970366,
-                                }
-                            },
+                            sender_member_event,
 
                             // Own member information.
-                            {
-                                "content": {
-                                    "avatar_url": null,
-                                    "displayname": "My Self",
-                                    "membership": "join"
-                                },
-                                "room_id": room_id,
-                                "event_id": "$151800140517rflkc:example.org",
-                                "membership": "join",
-                                "origin_server_ts": 151800140,
-                                "sender": my_user_id.clone(),
-                                "state_key": my_user_id,
-                                "type": "m.room.member",
-                                "unsigned": {
-                                    "age": 2970366,
-                                }
-                            },
+                            own_member_event,
 
                             // Power levels.
-                            {
-                                "content": {
-                                    "ban": 50,
-                                    "events": {
-                                        "m.room.avatar": 50,
-                                        "m.room.canonical_alias": 50,
-                                        "m.room.history_visibility": 100,
-                                        "m.room.name": 50,
-                                        "m.room.power_levels": 100,
-                                        "m.room.message": 25,
-                                    },
-                                    "events_default": 0,
-                                    "invite": 0,
-                                    "kick": 50,
-                                    "redact": 50,
-                                    "state_default": 50,
-                                    "users": {
-                                        "@example:localhost": 100,
-                                        sender: 0,
-                                    },
-                                    "users_default": 0,
-                                },
-                                "event_id": "$15139375512JaHAW:localhost",
-                                "origin_server_ts": 151393755,
-                                "sender": "@example:localhost",
-                                "state_key": "",
-                                "type": "m.room.power_levels",
-                                "unsigned": {
-                                    "age": 703422,
-                                },
-                            },
+                            power_levels_event,
                         ],
 
                         "timeline": [
@@ -350,7 +277,7 @@ async fn test_notification_client_sliding_sync() {
         assert_eq!(event.event_type(), TimelineEventType::RoomMessage);
     });
     assert_eq!(item.sender_display_name.as_deref(), Some(sender_display_name));
-    assert_eq!(item.sender_avatar_url.as_deref(), Some(sender_avatar_url));
+    assert_eq!(item.sender_avatar_url, Some(sender_avatar_url.to_string()));
     assert_eq!(item.room_computed_display_name, sender_display_name);
     assert_eq!(item.is_noisy, Some(false));
 }
@@ -364,34 +291,47 @@ async fn test_notification_client_sliding_sync_invites() {
     let event_id = event_id!("$example_event_id");
     let invite_event_id = event_id!("$invite_event_id");
     let sender = user_id!("@user:example.org");
+    let sender_display_name = "John Mastodon";
+    let sender_avatar_url = mxc_uri!("mxc://example.org/avatar");
     let my_user_id = client.user_id().unwrap().to_owned();
-    let event_json = json!({
-        "content": {
-            "body": "Hello world!",
-            "msgtype": "m.text",
-        },
-        "room_id": room_id,
-        "event_id": event_id,
-        "origin_server_ts": 152049794,
-        "sender": sender,
-        "type": "m.room.message",
-    });
-    let invite_event_json = json!({
-        "content": {
-            "displayname": "Alice Margatroid",
-            "membership": "invite"
-        },
-        "room_id": room_id,
-        // No event id, as it's an invite and it's a stripped event which lacks this info.
-        "origin_server_ts": 152049794,
-        "sender": sender,
-        "state_key": client.user_id().unwrap().to_owned(),
-        "type": "m.room.member",
-    });
+
+    let event_factory1 = EventFactory::new().room(room_id);
+    let event_factory2 = EventFactory::new().room(room_id2);
+
+    let sender_member_event_room1 = event_factory1
+        .member(sender)
+        .display_name(sender_display_name)
+        .avatar_url(sender_avatar_url)
+        .membership(MembershipState::Join)
+        .into_raw_sync();
+
+    let sender_member_event_room2 = event_factory2
+        .member(sender)
+        .display_name(sender_display_name)
+        .membership(MembershipState::Join)
+        .into_raw_sync();
+
+    let own_member_event = event_factory1
+        .member(&my_user_id)
+        .display_name("My self")
+        .membership(MembershipState::Join)
+        .into_raw_sync();
+
+    let invite_member_event = event_factory2
+        .member(&my_user_id)
+        .membership(MembershipState::Invite)
+        .sender(sender)
+        .event_id(invite_event_id)
+        .into_raw_sync();
+
+    let power_levels_event =
+        event_factory1.power_levels(&mut BTreeMap::new()).sender(sender).into_raw_sync();
+
+    let event_json =
+        event_factory1.text_msg("Hello world!").event_id(event_id).sender(sender).into_raw_sync();
 
     let room_name = "The Maltese Falcon";
     let sender_display_name = "John Mastodon";
-    let sender_avatar_url = "https://example.org/avatar.jpeg";
 
     let pos = Mutex::new(0);
     Mock::given(SlidingSyncMatcher)
@@ -410,75 +350,13 @@ async fn test_notification_client_sliding_sync_invites() {
                         "initial": true,
                         "required_state": [
                             // Sender's member information.
-                            {
-                                "content": {
-                                    "avatar_url": sender_avatar_url,
-                                    "displayname": sender_display_name,
-                                    "membership": "join"
-                                },
-                                "room_id": room_id,
-                                "event_id": "$151800140517rfvjc:example.org",
-                                "membership": "join",
-                                "origin_server_ts": 151800140,
-                                "sender": sender,
-                                "state_key": sender,
-                                "type": "m.room.member",
-                                "unsigned": {
-                                    "age": 2970366,
-                                }
-                            },
+                            sender_member_event_room1,
 
                             // Own member information.
-                            {
-                                "content": {
-                                    "avatar_url": null,
-                                    "displayname": "My Self",
-                                    "membership": "join"
-                                },
-                                "room_id": room_id,
-                                "event_id": "$151800140517rflkc:example.org",
-                                "membership": "join",
-                                "origin_server_ts": 151800140,
-                                "sender": my_user_id.clone(),
-                                "state_key": my_user_id,
-                                "type": "m.room.member",
-                                "unsigned": {
-                                    "age": 2970366,
-                                }
-                            },
+                            own_member_event,
 
                             // Power levels.
-                            {
-                                "content": {
-                                    "ban": 50,
-                                    "events": {
-                                        "m.room.avatar": 50,
-                                        "m.room.canonical_alias": 50,
-                                        "m.room.history_visibility": 100,
-                                        "m.room.name": 50,
-                                        "m.room.power_levels": 100,
-                                        "m.room.message": 25,
-                                    },
-                                    "events_default": 0,
-                                    "invite": 0,
-                                    "kick": 50,
-                                    "redact": 50,
-                                    "state_default": 50,
-                                    "users": {
-                                        "@example:localhost": 100,
-                                        sender: 0,
-                                    },
-                                    "users_default": 0,
-                                },
-                                "event_id": "$15139375512JaHAW:localhost",
-                                "origin_server_ts": 151393755,
-                                "sender": "@example:localhost",
-                                "state_key": "",
-                                "type": "m.room.power_levels",
-                                "unsigned": {
-                                    "age": 703422,
-                                },
-                            },
+                            power_levels_event,
                         ],
 
                         "timeline": [
@@ -490,25 +368,9 @@ async fn test_notification_client_sliding_sync_invites() {
                         "initial": true,
                         "invite_state": [
                             // Sender's member information.
-                            {
-                                "content": {
-                                    "avatar_url": sender_avatar_url,
-                                    "displayname": sender_display_name,
-                                    "membership": "join"
-                                },
-                                "room_id": room_id,
-                                "event_id": "$151800140517rfvjc:example.org",
-                                "membership": "join",
-                                "origin_server_ts": 151800140,
-                                "sender": sender,
-                                "state_key": sender,
-                                "type": "m.room.member",
-                                "unsigned": {
-                                    "age": 2970366,
-                                }
-                            },
+                            sender_member_event_room2,
                             // Invite event
-                            invite_event_json,
+                            invite_member_event,
                         ],
                         "timeline": [],
                     }
@@ -560,7 +422,7 @@ async fn test_notification_client_sliding_sync_invites() {
         assert_eq!(event.event_type(), TimelineEventType::RoomMessage);
     });
     assert_eq!(item.sender_display_name.as_deref(), Some(sender_display_name));
-    assert_eq!(item.sender_avatar_url.as_deref(), Some(sender_avatar_url));
+    assert_eq!(item.sender_avatar_url, Some(sender_avatar_url.to_string()));
     assert_eq!(item.room_computed_display_name, sender_display_name);
     assert_eq!(item.is_noisy, Some(false));
 }
@@ -574,35 +436,46 @@ async fn test_notification_client_sliding_sync_invites_with_event_id() {
     let event_id = event_id!("$example_event_id");
     let invite_event_id = event_id!("$invite_event_id");
     let sender = user_id!("@user:example.org");
+    let sender_display_name = "John Mastodon";
+    let sender_avatar_url = mxc_uri!("mxc://example.org/avatar");
     let my_user_id = client.user_id().unwrap().to_owned();
-    let event_json = json!({
-        "content": {
-            "body": "Hello world!",
-            "msgtype": "m.text",
-        },
-        "room_id": room_id,
-        "event_id": event_id,
-        "origin_server_ts": 152049794,
-        "sender": sender,
-        "type": "m.room.message",
-    });
-    let invite_event_json = json!({
-        "content": {
-            "displayname": "Alice Margatroid",
-            "membership": "invite"
-        },
-        "room_id": room_id,
-        // This should never exist in a well-written server, but we need to test it.
-        "event_id": invite_event_id,
-        "origin_server_ts": 152049794,
-        "sender": sender,
-        "state_key": client.user_id().unwrap().to_owned(),
-        "type": "m.room.member",
-    });
+
+    let event_factory1 = EventFactory::new().room(room_id);
+    let event_factory2 = EventFactory::new().room(room_id2);
+
+    let sender_member_event_room1 = event_factory1
+        .member(sender)
+        .display_name(sender_display_name)
+        .avatar_url(sender_avatar_url)
+        .membership(MembershipState::Join)
+        .into_raw_sync();
+
+    let sender_member_event_room2 = event_factory2
+        .member(sender)
+        .display_name(sender_display_name)
+        .membership(MembershipState::Join)
+        .into_raw_sync();
+
+    let own_member_event = event_factory1
+        .member(&my_user_id)
+        .display_name("My self")
+        .membership(MembershipState::Join)
+        .into_raw_sync();
+
+    let invite_member_event = event_factory2
+        .member(&my_user_id)
+        .membership(MembershipState::Invite)
+        .sender(sender)
+        .event_id(invite_event_id)
+        .into_raw_sync();
+
+    let power_levels_event =
+        event_factory1.power_levels(&mut BTreeMap::new()).sender(sender).into_raw_sync();
+
+    let event_json =
+        event_factory1.text_msg("Hello world!").event_id(event_id).sender(sender).into_raw_sync();
 
     let room_name = "The Maltese Falcon";
-    let sender_display_name = "John Mastodon";
-    let sender_avatar_url = "https://example.org/avatar.jpeg";
 
     let pos = Mutex::new(0);
     Mock::given(SlidingSyncMatcher)
@@ -621,75 +494,13 @@ async fn test_notification_client_sliding_sync_invites_with_event_id() {
                         "initial": true,
                         "required_state": [
                             // Sender's member information.
-                            {
-                                "content": {
-                                    "avatar_url": sender_avatar_url,
-                                    "displayname": sender_display_name,
-                                    "membership": "join"
-                                },
-                                "room_id": room_id,
-                                "event_id": "$151800140517rfvjc:example.org",
-                                "membership": "join",
-                                "origin_server_ts": 151800140,
-                                "sender": sender,
-                                "state_key": sender,
-                                "type": "m.room.member",
-                                "unsigned": {
-                                    "age": 2970366,
-                                }
-                            },
+                            sender_member_event_room1,
 
                             // Own member information.
-                            {
-                                "content": {
-                                    "avatar_url": null,
-                                    "displayname": "My Self",
-                                    "membership": "join"
-                                },
-                                "room_id": room_id,
-                                "event_id": "$151800140517rflkc:example.org",
-                                "membership": "join",
-                                "origin_server_ts": 151800140,
-                                "sender": my_user_id.clone(),
-                                "state_key": my_user_id,
-                                "type": "m.room.member",
-                                "unsigned": {
-                                    "age": 2970366,
-                                }
-                            },
+                            own_member_event,
 
                             // Power levels.
-                            {
-                                "content": {
-                                    "ban": 50,
-                                    "events": {
-                                        "m.room.avatar": 50,
-                                        "m.room.canonical_alias": 50,
-                                        "m.room.history_visibility": 100,
-                                        "m.room.name": 50,
-                                        "m.room.power_levels": 100,
-                                        "m.room.message": 25,
-                                    },
-                                    "events_default": 0,
-                                    "invite": 0,
-                                    "kick": 50,
-                                    "redact": 50,
-                                    "state_default": 50,
-                                    "users": {
-                                        "@example:localhost": 100,
-                                        sender: 0,
-                                    },
-                                    "users_default": 0,
-                                },
-                                "event_id": "$15139375512JaHAW:localhost",
-                                "origin_server_ts": 151393755,
-                                "sender": "@example:localhost",
-                                "state_key": "",
-                                "type": "m.room.power_levels",
-                                "unsigned": {
-                                    "age": 703422,
-                                },
-                            },
+                            power_levels_event,
                         ],
 
                         "timeline": [
@@ -701,25 +512,9 @@ async fn test_notification_client_sliding_sync_invites_with_event_id() {
                         "initial": true,
                         "invite_state": [
                             // Sender's member information.
-                            {
-                                "content": {
-                                    "avatar_url": sender_avatar_url,
-                                    "displayname": sender_display_name,
-                                    "membership": "join"
-                                },
-                                "room_id": room_id,
-                                "event_id": "$151800140517rfvjc:example.org",
-                                "membership": "join",
-                                "origin_server_ts": 151800140,
-                                "sender": sender,
-                                "state_key": sender,
-                                "type": "m.room.member",
-                                "unsigned": {
-                                    "age": 2970366,
-                                }
-                            },
+                            sender_member_event_room2,
                             // Invite event
-                            invite_event_json,
+                            invite_member_event,
                         ],
                         "timeline": [],
                     }
@@ -771,7 +566,7 @@ async fn test_notification_client_sliding_sync_invites_with_event_id() {
         assert_eq!(event.event_type(), TimelineEventType::RoomMessage);
     });
     assert_eq!(item.sender_display_name.as_deref(), Some(sender_display_name));
-    assert_eq!(item.sender_avatar_url.as_deref(), Some(sender_avatar_url));
+    assert_eq!(item.sender_avatar_url, Some(sender_avatar_url.to_string()));
     assert_eq!(item.room_computed_display_name, sender_display_name);
     assert_eq!(item.is_noisy, Some(false));
 }
@@ -784,75 +579,44 @@ async fn test_notification_client_mixed() {
     let event_id = event_id!("$example_event_id");
     let event_id2 = event_id!("$example_event_id2");
     let sender = user_id!("@user:example.org");
+    let sender_display_name = "John Mastodon";
+    let sender_avatar_url = mxc_uri!("mxc://example.org/avatar");
     let my_user_id = client.user_id().unwrap().to_owned();
-    let event_json = json!({
-        "content": {
-            "body": "Hello world!",
-            "msgtype": "m.text",
-        },
-        "room_id": room_id,
-        "event_id": event_id,
-        "origin_server_ts": 152049794,
-        "sender": sender,
-        "type": "m.room.message",
-    });
-    let event_json2 = json!({
-        "content": {
-            "body": "Hello world again!",
-            "msgtype": "m.text",
-        },
-        "room_id": room_id,
-        "event_id": event_id2,
-        "origin_server_ts": 152049795,
-        "sender": sender,
-        "type": "m.room.message",
-    });
+
+    let event_factory = EventFactory::new().room(room_id);
+
+    let sender_member_event = event_factory
+        .member(sender)
+        .display_name(sender_display_name)
+        .avatar_url(sender_avatar_url)
+        .membership(MembershipState::Join)
+        .into_raw_sync();
+
+    let own_member_event = event_factory
+        .member(&my_user_id)
+        .display_name("My self")
+        .membership(MembershipState::Join)
+        .into_raw_sync();
+
+    let power_levels_event =
+        event_factory.power_levels(&mut BTreeMap::new()).sender(sender).into_raw_sync();
+
+    let event_json =
+        event_factory.text_msg("Hello world!").event_id(event_id).sender(sender).into_raw_sync();
+
+    let event_json2 = event_factory
+        .text_msg("Hello world again!")
+        .sender(sender)
+        .event_id(event_id2)
+        .into_raw_sync();
 
     let room_name = "The Maltese Falcon";
     let sender_display_name = "John Mastodon";
-    let sender_avatar_url = "https://example.org/avatar.jpeg";
 
     let mut sync_builder = SyncResponseBuilder::new();
     sync_builder.add_joined_room(
         JoinedRoomBuilder::new(room_id)
-            .add_state_event(StateTestEvent::Custom(json!(
-                {
-                    "content": {
-                        "avatar_url": "https://example.org/avatar.jpeg",
-                        "displayname": sender_display_name,
-                        "membership": "join"
-                    },
-                    "room_id": room_id,
-                    "event_id": "$151800140517rfvjc:example.org",
-                    "membership": "join",
-                    "origin_server_ts": 151800140,
-                    "sender": sender,
-                    "state_key": sender,
-                    "type": "m.room.member",
-                    "unsigned": {
-                        "age": 2970366,
-                    }
-                }
-            )))
-            .add_state_event(StateTestEvent::Custom(json!(
-                {
-                    "content": {
-                        "avatar_url": null,
-                        "displayname": "My Self",
-                        "membership": "join"
-                    },
-                    "room_id": room_id,
-                    "event_id": "$151800140517rflkc:example.org",
-                    "membership": "join",
-                    "origin_server_ts": 151800140,
-                    "sender": my_user_id.clone(),
-                    "state_key": my_user_id,
-                    "type": "m.room.member",
-                    "unsigned": {
-                        "age": 2970366,
-                    }
-                }
-            ))),
+            .add_state_bulk([sender_member_event.clone().cast(), own_member_event.clone().cast()]),
     );
 
     // First, mock a sync that contains a state event so we get a valid room for
@@ -863,105 +627,46 @@ async fn test_notification_client_mixed() {
 
     let pos = Mutex::new(0);
     Mock::given(SlidingSyncMatcher)
-        .respond_with(move |request: &Request| {
-            let partial_request: PartialSlidingSyncRequest = request.body_json().unwrap();
-            // Repeat the transaction id in the response, to validate sticky parameters.
-            let mut pos = pos.lock().unwrap();
-            *pos += 1;
-            let pos_as_str = (*pos).to_string();
-            ResponseTemplate::new(200).set_body_json(json!({
-                "txn_id": partial_request.txn_id,
-                "pos": pos_as_str,
-                "rooms": {
-                    room_id: {
-                        "name": room_name,
-                        "initial": true,
+        .respond_with({
+            let sender_member_event = sender_member_event.clone();
+            move |request: &Request| {
+                let partial_request: PartialSlidingSyncRequest = request.body_json().unwrap();
+                // Repeat the transaction id in the response, to validate sticky parameters.
+                let mut pos = pos.lock().unwrap();
+                *pos += 1;
+                let pos_as_str = (*pos).to_string();
+                ResponseTemplate::new(200).set_body_json(json!({
+                    "txn_id": partial_request.txn_id,
+                    "pos": pos_as_str,
+                    "rooms": {
+                        room_id: {
+                            "name": room_name,
+                            "initial": true,
 
-                        "required_state": [
-                            // Sender's member information.
-                            {
-                                "content": {
-                                    "avatar_url": sender_avatar_url,
-                                    "displayname": sender_display_name,
-                                    "membership": "join"
-                                },
-                                "room_id": room_id,
-                                "event_id": "$151800140517rfvjc:example.org",
-                                "membership": "join",
-                                "origin_server_ts": 151800140,
-                                "sender": sender,
-                                "state_key": sender,
-                                "type": "m.room.member",
-                                "unsigned": {
-                                    "age": 2970366,
-                                }
-                            },
+                            "required_state": [
+                                // Sender's member information.
+                                sender_member_event,
 
-                            // Own member information.
-                            {
-                                "content": {
-                                    "avatar_url": null,
-                                    "displayname": "My Self",
-                                    "membership": "join"
-                                },
-                                "room_id": room_id,
-                                "event_id": "$151800140517rflkc:example.org",
-                                "membership": "join",
-                                "origin_server_ts": 151800140,
-                                "sender": my_user_id.clone(),
-                                "state_key": my_user_id,
-                                "type": "m.room.member",
-                                "unsigned": {
-                                    "age": 2970366,
-                                }
-                            },
+                                // Own member information.
+                                own_member_event,
 
-                            // Power levels.
-                            {
-                                "content": {
-                                    "ban": 50,
-                                    "events": {
-                                        "m.room.avatar": 50,
-                                        "m.room.canonical_alias": 50,
-                                        "m.room.history_visibility": 100,
-                                        "m.room.name": 50,
-                                        "m.room.power_levels": 100,
-                                        "m.room.message": 25,
-                                    },
-                                    "events_default": 0,
-                                    "invite": 0,
-                                    "kick": 50,
-                                    "redact": 50,
-                                    "state_default": 50,
-                                    "users": {
-                                        "@example:localhost": 100,
-                                        sender: 0,
-                                    },
-                                    "users_default": 0,
-                                },
-                                "event_id": "$15139375512JaHAW:localhost",
-                                "origin_server_ts": 151393755,
-                                "sender": "@example:localhost",
-                                "state_key": "",
-                                "type": "m.room.power_levels",
-                                "unsigned": {
-                                    "age": 703422,
-                                },
-                            },
-                        ],
+                                // Power levels.
+                                power_levels_event,
+                            ],
 
-                        "timeline": [
-                            event_json.clone(),
-                        ]
+                            "timeline": [
+                                event_json,
+                            ]
+                        }
+                    },
+
+                    "extensions": {
+                        "account_data": {
+                            // Leave it empty for now.
+                        }
                     }
-                },
-
-                "extensions": {
-                    "account_data": {
-                        // Leave it empty for now.
-                    }
-                }
-            }))
+                }))
+            }
         })
         .mount(&server)
         .await;
@@ -974,23 +679,7 @@ async fn test_notification_client_mixed() {
             .respond_with(ResponseTemplate::new(200).set_body_json(json!({
                 "event": event_json2,
                 "state": [
-                    {
-                        "content": {
-                            "avatar_url": "https://example.org/avatar.jpeg",
-                            "displayname": sender_display_name,
-                            "membership": "join"
-                        },
-                        "room_id": room_id,
-                        "event_id": "$151800140517rfvjc:example.org",
-                        "membership": "join",
-                        "origin_server_ts": 151800140,
-                        "sender": sender,
-                        "state_key": sender,
-                        "type": "m.room.member",
-                        "unsigned": {
-                            "age": 2970366,
-                        }
-                    }
+                    sender_member_event,
                 ],
             })))
             .mount(&server)
@@ -1072,7 +761,7 @@ async fn test_notification_client_mixed() {
         assert_eq!(event.event_type(), TimelineEventType::RoomMessage);
     });
     assert_eq!(item.sender_display_name.as_deref(), Some(sender_display_name));
-    assert_eq!(item.sender_avatar_url.as_deref(), Some(sender_avatar_url));
+    assert_eq!(item.sender_avatar_url, Some(sender_avatar_url.to_string()));
     assert_eq!(item.room_computed_display_name, sender_display_name);
     assert_eq!(item.is_noisy, Some(false));
 }

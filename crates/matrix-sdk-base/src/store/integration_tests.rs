@@ -4,7 +4,6 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use assert_matches::assert_matches;
 use assert_matches2::assert_let;
-use async_trait::async_trait;
 use growable_bloom_filter::GrowableBloomBuilder;
 use matrix_sdk_test::{event_factory::EventFactory, test_json};
 use ruma::{
@@ -47,8 +46,7 @@ use crate::{
 ///
 /// This trait is not meant to be used directly, but will be used with the
 /// `statestore_integration_tests!` macro.
-#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+#[allow(async_fn_in_trait)]
 pub trait StateStoreIntegrationTests {
     /// Populate the given `StateStore`.
     async fn populate(&self) -> Result<()>;
@@ -98,8 +96,6 @@ pub trait StateStoreIntegrationTests {
     async fn test_get_room_infos(&self);
 }
 
-#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 impl StateStoreIntegrationTests for DynStateStore {
     async fn populate(&self) -> Result<()> {
         let mut changes = StateChanges::default();

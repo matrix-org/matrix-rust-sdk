@@ -17,7 +17,7 @@ use crate::{sliding_sync::SlidingSyncListCachePolicy, Client, Result};
 /// Be careful: as this is used as a storage key; changing it requires migrating
 /// data!
 pub(super) fn format_storage_key_prefix(id: &str, user_id: &UserId) -> String {
-    format!("sliding_sync_store::{}::{}", id, user_id)
+    format!("sliding_sync_store::{id}::{user_id}")
 }
 
 /// Be careful: as this is used as a storage key; changing it requires migrating

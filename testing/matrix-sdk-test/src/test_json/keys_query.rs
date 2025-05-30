@@ -118,11 +118,11 @@ pub fn self_signing_keys(user: &KeysQueryUser) -> serde_json::Value {
         json!({
             user.user_id: {
                 "keys": {
-                    &format!("ed25519:{}", self_signing_key_name): self_signing_key_name
+                    &format!("ed25519:{self_signing_key_name}"): self_signing_key_name
                 },
                 "signatures": {
                     "@bob:localhost": {
-                        &format!("ed25519:{}", master_key_name): self_signing_key_signature,
+                        &format!("ed25519:{master_key_name}"): self_signing_key_signature,
                     }
                 },
                 "usage": [ "self_signing" ],
@@ -140,10 +140,10 @@ pub fn master_keys(user: &KeysQueryUser) -> serde_json::Value {
     {
         json!({
             user.user_id: {
-                "keys": { &format!("ed25519:{}", master_key_name): master_key_name },
+                "keys": { &format!("ed25519:{master_key_name}"): master_key_name },
                 "signatures": {
                     user.user_id: {
-                        &format!("ed25519:{}", master_key_name): master_key_signature,
+                        &format!("ed25519:{master_key_name}"): master_key_signature,
                         &format!("ed25519:{}", user.device_id): master_key_device_signature
                     }
                 },
@@ -164,7 +164,7 @@ pub fn device_keys_payload(user: &KeysQueryUser) -> serde_json::Value {
         (user.device_signature_2_name, user.device_signature_2_signature)
     {
         signatures
-            .insert(format!("ed25519:{}", device_signature_2_name), device_signature_2_signature);
+            .insert(format!("ed25519:{device_signature_2_name}"), device_signature_2_signature);
     }
 
     json!({

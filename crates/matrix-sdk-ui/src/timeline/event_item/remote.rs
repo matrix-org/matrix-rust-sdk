@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::fmt;
+use std::{fmt, sync::Arc};
 
 use indexmap::IndexMap;
 use matrix_sdk::deserialized_responses::EncryptionInfo;
@@ -46,7 +46,7 @@ pub(in crate::timeline) struct RemoteEventTimelineItem {
     pub is_highlighted: bool,
 
     /// Encryption information.
-    pub encryption_info: Option<EncryptionInfo>,
+    pub encryption_info: Option<Arc<EncryptionInfo>>,
 
     /// JSON of the original event.
     ///

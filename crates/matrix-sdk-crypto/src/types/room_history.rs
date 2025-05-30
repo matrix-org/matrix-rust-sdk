@@ -24,6 +24,7 @@ use ruma::{DeviceKeyAlgorithm, OwnedRoomId};
 use serde::{Deserialize, Serialize};
 use vodozemac::{megolm::ExportedSessionKey, Curve25519PublicKey};
 
+use super::RoomKeyExport;
 use crate::{
     olm::ExportedRoomKey,
     types::{
@@ -94,6 +95,20 @@ impl Debug for HistoricRoomKey {
             .field("session_id", &self.session_id)
             .field("sender_claimed_keys", &self.sender_claimed_keys)
             .finish_non_exhaustive()
+    }
+}
+
+impl RoomKeyExport for &HistoricRoomKey {
+    fn room_id(&self) -> &ruma::RoomId {
+        &self.room_id
+    }
+
+    fn session_id(&self) -> &str {
+        &self.session_id
+    }
+
+    fn sender_key(&self) -> Curve25519PublicKey {
+        self.sender_key
     }
 }
 

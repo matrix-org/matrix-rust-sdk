@@ -688,7 +688,7 @@ impl PinnedEventsSync {
             .into_iter()
             .map(|id| match EventId::parse(id) {
                 Ok(id) => id,
-                Err(_) => panic!("Invalid event id: {}", id),
+                Err(_) => panic!("Invalid event id: {id}"),
             })
             .collect();
 

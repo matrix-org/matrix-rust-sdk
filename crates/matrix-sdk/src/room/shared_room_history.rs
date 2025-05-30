@@ -14,7 +14,11 @@
 
 use std::iter;
 
-use ruma::OwnedUserId;
+use matrix_sdk_base::{
+    crypto::store::StoredRoomKeyBundleData,
+    media::{MediaFormat, MediaRequestParameters},
+};
+use ruma::{events::room::MediaSource, OwnedUserId, UserId};
 use tracing::{info, instrument, warn};
 
 use crate::{crypto::types::events::room_key_bundle::RoomKeyBundleContent, Error, Result, Room};
@@ -83,5 +87,79 @@ pub async fn share_room_history(room: &Room, user_id: OwnedUserId) -> Result<()>
         let response = client.send_to_device(&request).await?;
         client.mark_request_as_sent(&request.txn_id, &response).await?;
     }
+    Ok(())
+}
+
+/// Having accepted an invite for the given room from the given user, attempt to
+/// find a information about a room key bundle and, if found, download the
+/// bundle and import the room keys, as per [MSC4268].
+///
+/// # Arguments
+///
+/// * `room` - The room we were invited to, for which we want to check if a room
+///   key bundle was received.
+///
+/// * `inviter` - The user who invited us to the room and is expected to have
+///   sent the room key bundle.
+///
+/// [MSC4268]: https://github.com/matrix-org/matrix-spec-proposals/pull/4268
+#[instrument(skip(room), fields(room_id = ?room.room_id(), bundle_sender))]
+pub async fn maybe_accept_key_bundle(room: &Room, inviter: &UserId) -> Result<()> {
+    // TODO: retry this if it gets interrupted or it fails.
+    // TODO: do this in the background.
+
+    let client = &room.client;
+    let olm_machine = client.olm_machine().await;
+
+    let Some(olm_machine) = olm_machine.as_ref() else {
+        warn!("Not fetching room key bundle as the Olm machine is not available");
+        return Ok(());
+    };
+
+    let Some(StoredRoomKeyBundleData { sender_user, sender_data, bundle_data }) =
+        olm_machine.store().get_received_room_key_bundle_data(room.room_id(), inviter).await?
+    else {
+        // No bundle received (yet).
+        // TODO: deal with the bundle arriving later (https://github.com/matrix-org/matrix-rust-sdk/issues/4926)
+        return Ok(());
+    };
+
+    tracing::Span::current().record("bundle_sender", sender_user.as_str());
+
+    let bundle_content = client
+        .media()
+        .get_media_content(
+            &MediaRequestParameters {
+                source: MediaSource::Encrypted(Box::new(bundle_data.file)),
+                format: MediaFormat::File,
+            },
+            false,
+        )
+        .await?;
+
+    match serde_json::from_slice(&bundle_content) {
+        Ok(bundle) => {
+            olm_machine
+                .store()
+                .receive_room_key_bundle(
+                    room.room_id(),
+                    &sender_user,
+                    &sender_data,
+                    bundle,
+                    // TODO: Use the progress listener and expose an argument for it.
+                    |_, _| {},
+                )
+                .await?;
+        }
+        Err(err) => {
+            warn!("Failed to deserialize room key bundle: {}", err);
+        }
+    }
+
+    // TODO: Now that we downloaded and imported the bundle, or the bundle was
+    // invalid, we can safely remove the info about the bundle.
+    // olm_machine.store().clear_received_room_key_bundle_data(room.room_id(),
+    // user_id).await?;
+
     Ok(())
 }

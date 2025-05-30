@@ -151,7 +151,7 @@ async fn test_thread_backpagination() {
     // events and the thread root
     assert_eq!(timeline_updates.len(), 5);
 
-    println!("Stefan: {:?}", timeline_updates);
+    println!("Stefan: {timeline_updates:?}");
 
     // Check the timeline diffs
     assert_let!(VectorDiff::PushFront { value } = &timeline_updates[0]);

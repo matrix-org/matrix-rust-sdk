@@ -37,7 +37,7 @@
 //! to cater for the first use case, and to never lose any aggregations in the
 //! second use case.
 
-use std::{borrow::Cow, collections::HashMap};
+use std::{borrow::Cow, collections::HashMap, sync::Arc};
 
 use as_variant::as_variant;
 use matrix_sdk::deserialized_responses::EncryptionInfo;
@@ -82,7 +82,7 @@ pub(in crate::timeline) struct PendingEdit {
     pub edit_json: Option<Raw<AnySyncTimelineEvent>>,
 
     /// The encryption info for this edit.
-    pub encryption_info: Option<EncryptionInfo>,
+    pub encryption_info: Option<Arc<EncryptionInfo>>,
 }
 
 /// Which kind of aggregation (related event) is this?

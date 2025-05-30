@@ -1557,7 +1557,7 @@ async fn mock_get_event(
         }
     });
     Mock::given(method("GET"))
-        .and(path(format!("_matrix/client/r0/rooms/{}/event/{}", room_id, event_id)))
+        .and(path(format!("_matrix/client/r0/rooms/{room_id}/event/{event_id}")))
         .and(header("authorization", "Bearer 1234"))
         .respond_with(ResponseTemplate::new(200).set_body_json(event_json))
         .expect(2)

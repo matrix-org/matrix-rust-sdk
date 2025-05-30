@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, sync::Arc};
 
 use assert_matches2::assert_let;
 use eyeball_im::VectorDiff;
@@ -87,7 +87,7 @@ async fn test_live_sanitized() {
     let new_html_content = "<edited/> <strong>better</strong> message";
     timeline
         .handle_live_event(
-            f.text_html(format!("* {}", new_plain_content), format!("* {}", new_html_content))
+            f.text_html(format!("* {new_plain_content}"), format!("* {new_html_content}"))
                 .sender(&ALICE)
                 .edit(
                     first_event_id,
@@ -167,7 +167,7 @@ async fn test_edit_updates_encryption_info() {
         .room(room_id)
         .into_raw_timeline();
 
-    let mut encryption_info = EncryptionInfo {
+    let mut encryption_info = Arc::new(EncryptionInfo {
         sender: (*ALICE).into(),
         sender_device: None,
         algorithm_info: AlgorithmInfo::MegolmV1AesSha2 {
@@ -176,7 +176,7 @@ async fn test_edit_updates_encryption_info() {
             session_id: Some("mysessionid6333".to_owned()),
         },
         verification_state: VerificationState::Verified,
-    };
+    });
 
     let original_event: TimelineEvent = DecryptedRoomEvent {
         event: original_event.cast(),
@@ -205,7 +205,7 @@ async fn test_edit_updates_encryption_info() {
         .room(room_id)
         .edit(original_event_id, MessageType::text_plain("!!edited!! **better** message").into())
         .into_raw_timeline();
-    encryption_info.verification_state =
+    Arc::make_mut(&mut encryption_info).verification_state =
         VerificationState::Unverified(VerificationLevel::UnverifiedIdentity);
     let edit_event: TimelineEvent = DecryptedRoomEvent {
         event: edit_event.cast(),

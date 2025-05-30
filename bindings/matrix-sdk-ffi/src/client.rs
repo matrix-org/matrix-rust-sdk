@@ -2339,7 +2339,7 @@ impl TryFrom<RumaJoinRule> for JoinRule {
             }
             RumaJoinRule::Invite => Ok(JoinRule::Invite),
             RumaJoinRule::_Custom(_) => Ok(JoinRule::Custom { repr: value.as_str().to_owned() }),
-            _ => Err(format!("Unknown JoinRule: {:?}", value)),
+            _ => Err(format!("Unknown JoinRule: {value:?}")),
         }
     }
 }
@@ -2356,7 +2356,7 @@ impl TryFrom<RumaAllowRule> for AllowRule {
                     .map_err(|e| format!("Couldn't serialize custom AllowRule: {e:?}"))?;
                 Ok(Self::Custom { json })
             }
-            _ => Err(format!("Invalid AllowRule: {:?}", value)),
+            _ => Err(format!("Invalid AllowRule: {value:?}")),
         }
     }
 }

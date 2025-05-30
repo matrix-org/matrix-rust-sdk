@@ -648,8 +648,7 @@ mod tests {
         let cap_assert = |capability: &str| {
             assert!(
                 permission_array.contains(&capability.to_owned()),
-                "The \"{}\" capability was missing from the element call capability list.",
-                capability
+                "The \"{capability}\" capability was missing from the element call capability list."
             );
         };
 

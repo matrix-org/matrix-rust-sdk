@@ -968,8 +968,12 @@ impl NotificationItem {
         if sender_display_name.is_none() || sender_avatar_url.is_none() {
             let sender_id = event.sender();
             for ev in state_events {
-                let Ok(ev) = ev.deserialize() else {
-                    continue;
+                let ev = match ev.deserialize() {
+                    Ok(ev) => ev,
+                    Err(error) => {
+                        warn!(?error, "Failed to deserialize a state event");
+                        continue;
+                    }
                 };
                 if ev.sender() != sender_id {
                     continue;

@@ -49,7 +49,7 @@ impl From<&MembershipState> for RoomState {
             MembershipState::Join => Self::Joined,
             MembershipState::Knock => Self::Knocked,
             MembershipState::Leave => Self::Left,
-            _ => panic!("Unexpected MembershipState: {}", membership_state),
+            _ => panic!("Unexpected MembershipState: {membership_state}"),
         }
     }
 }
