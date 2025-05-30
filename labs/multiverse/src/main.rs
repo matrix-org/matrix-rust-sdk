@@ -518,7 +518,8 @@ async fn configure_client(cli: Cli) -> Result<Client> {
             auto_enable_cross_signing: true,
             backup_download_strategy: BackupDownloadStrategy::AfterDecryptionFailure,
             auto_enable_backups: true,
-        });
+        })
+        .with_enable_share_history_on_invite(true);
 
     if let Some(proxy_url) = proxy {
         client_builder = client_builder.proxy(proxy_url).disable_ssl_verification();
