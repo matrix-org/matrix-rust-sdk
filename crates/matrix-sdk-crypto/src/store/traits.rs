@@ -38,8 +38,8 @@ use crate::{
 
 /// Represents a store that the `OlmMachine` uses to store E2EE data (such as
 /// cryptographic keys).
-#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+#[cfg_attr(target_family = "wasm", async_trait(?Send))]
+#[cfg_attr(not(target_family = "wasm"), async_trait)]
 pub trait CryptoStore: AsyncTraitDeps {
     /// The error type used by this crypto store.
     type Error: fmt::Debug + Into<CryptoStoreError>;
@@ -386,8 +386,8 @@ impl<T: fmt::Debug> fmt::Debug for EraseCryptoStoreError<T> {
     }
 }
 
-#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+#[cfg_attr(target_family = "wasm", async_trait(?Send))]
+#[cfg_attr(not(target_family = "wasm"), async_trait)]
 impl<T: CryptoStore> CryptoStore for EraseCryptoStoreError<T> {
     type Error = CryptoStoreError;
 

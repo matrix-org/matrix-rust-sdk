@@ -356,8 +356,8 @@ where
 /// [`MediaRetentionPolicy`] by wrapping this in a [`MediaService`], and to
 /// simplify the implementation of tests by being able to have complete control
 /// over the `SystemTime`s provided to the store.
-#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+#[cfg_attr(target_family = "wasm", async_trait(?Send))]
+#[cfg_attr(not(target_family = "wasm"), async_trait)]
 pub trait EventCacheStoreMedia: AsyncTraitDeps + Clone {
     /// The error type used by this media cache store.
     type Error: fmt::Debug + fmt::Display + Into<EventCacheStoreError>;
@@ -630,8 +630,8 @@ mod tests {
         }
     }
 
-    #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
-    #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+    #[cfg_attr(target_family = "wasm", async_trait(?Send))]
+    #[cfg_attr(not(target_family = "wasm"), async_trait)]
     impl EventCacheStoreMedia for MockEventCacheStoreMedia {
         type Error = MockEventCacheStoreMediaError;
 
