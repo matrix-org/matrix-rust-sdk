@@ -3,6 +3,7 @@ members = [
     "benchmarks",
     "bindings/matrix-sdk-crypto-ffi",
     "bindings/matrix-sdk-ffi",
+    "bindings/matrix-sdk-ffi-web",
     "crates/*",
     "examples/*",
     "labs/*",

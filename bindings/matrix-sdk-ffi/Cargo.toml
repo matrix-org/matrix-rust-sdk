@@ -14,7 +14,7 @@ publish = false
 release = true
 
 [lib]
-crate-type = ["cdylib", "staticlib"]
+crate-type = ["lib", "cdylib", "staticlib"]
 
 [features]
 default = []
