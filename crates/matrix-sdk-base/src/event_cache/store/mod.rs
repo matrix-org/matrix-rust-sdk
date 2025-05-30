@@ -185,8 +185,6 @@ pub type Result<T, E = EventCacheStoreError> = std::result::Result<T, E>;
 #[derive(Clone, Debug)]
 struct LockableEventCacheStore(Arc<DynEventCacheStore>);
 
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl BackingStore for LockableEventCacheStore {
     type LockError = EventCacheStoreError;
 
