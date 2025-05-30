@@ -131,20 +131,19 @@ async fn test_event_filter() {
     let second_event_id = event_id!("$Ga6Y2l0gKY");
     let edit_event_id = event_id!("$7i9In0gEmB");
     sync_builder.add_joined_room(
-        JoinedRoomBuilder::new(room_id)
-            .add_timeline_event(
-                f.text_html("Test", "<em>Test</em>")
-                    .sender(user_id!("@bob:example.org"))
-                    .event_id(second_event_id)
-                    .server_ts(152038280),
-            )
-            .add_timeline_event(
-                f.text_msg(" * hi")
-                    .sender(user_id!("@alice:example.org"))
-                    .event_id(edit_event_id)
-                    .server_ts(159056300)
-                    .edit(first_event_id, RoomMessageEventContent::text_plain("hi").into()),
-            ),
+        JoinedRoomBuilder::new(room_id).add_timeline_bulk([
+            f.text_html("Test", "<em>Test</em>")
+                .sender(user_id!("@bob:example.org"))
+                .event_id(second_event_id)
+                .server_ts(152038280)
+                .into(),
+            f.text_msg(" * hi")
+                .sender(user_id!("@alice:example.org"))
+                .event_id(edit_event_id)
+                .server_ts(159056300)
+                .edit(first_event_id, RoomMessageEventContent::text_plain("hi").into())
+                .into(),
+        ]),
     );
 
     mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
@@ -319,15 +318,10 @@ async fn test_profile_updates() {
     let event_1_id = event_id!("$YTQwYl2pl1");
     let event_2_id = event_id!("$YTQwYl2pl2");
 
-    sync_builder.add_joined_room(
-        JoinedRoomBuilder::new(room_id)
-            .add_timeline_event(
-                f.text_msg("hello").event_id(event_1_id).sender(alice).server_ts(152037280),
-            )
-            .add_timeline_event(
-                f.text_msg("hello").event_id(event_2_id).sender(bob).server_ts(152037280),
-            ),
-    );
+    sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_timeline_bulk([
+        f.text_msg("hello").event_id(event_1_id).sender(alice).server_ts(152037280).into(),
+        f.text_msg("hello").event_id(event_2_id).sender(bob).server_ts(152037280).into(),
+    ]));
 
     mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
@@ -356,18 +350,11 @@ async fn test_profile_updates() {
     let event_4_id = event_id!("$YTQwYl2pl4");
     let event_5_id = event_id!("$YTQwYl2pl5");
 
-    sync_builder.add_joined_room(
-        JoinedRoomBuilder::new(room_id)
-            .add_timeline_event(
-                f.member(bob).display_name("Member").event_id(event_3_id).server_ts(152037280),
-            )
-            .add_timeline_event(
-                f.member(alice).display_name("Alice").event_id(event_4_id).server_ts(152037280),
-            )
-            .add_timeline_event(
-                f.text_msg("hello").event_id(event_5_id).sender(alice).server_ts(152037280),
-            ),
-    );
+    sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_timeline_bulk([
+        f.member(bob).display_name("Member").event_id(event_3_id).server_ts(152037280).into(),
+        f.member(alice).display_name("Alice").event_id(event_4_id).server_ts(152037280).into(),
+        f.text_msg("hello").event_id(event_5_id).sender(alice).server_ts(152037280).into(),
+    ]));
 
     mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
