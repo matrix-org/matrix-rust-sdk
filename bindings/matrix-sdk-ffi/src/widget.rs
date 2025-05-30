@@ -2,10 +2,7 @@ use std::sync::{Arc, Mutex};
 
 use async_compat::get_runtime_handle;
 use language_tags::LanguageTag;
-use matrix_sdk::{
-    async_trait,
-    widget::{MessageLikeEventFilter, StateEventFilter, ToDeviceEventFilter},
-};
+use matrix_sdk::widget::{MessageLikeEventFilter, StateEventFilter, ToDeviceEventFilter};
 use ruma::events::MessageLikeEventType;
 use tracing::error;
 
@@ -553,7 +550,6 @@ pub trait WidgetCapabilitiesProvider: Send + Sync {
 
 struct CapabilitiesProviderWrap(Arc<dyn WidgetCapabilitiesProvider>);
 
-#[async_trait]
 impl matrix_sdk::widget::CapabilitiesProvider for CapabilitiesProviderWrap {
     async fn acquire_capabilities(
         &self,
