@@ -431,10 +431,8 @@ impl<'a> TimelineStateTransaction<'a> {
                 true
             }
 
-            TimelineFocusKind::Thread => {
-                // The thread timeline doesn't apply any additional
-                // for now. It will however do so in the future, as
-                // will the live one
+            TimelineFocusKind::Thread { .. } => {
+                // The thread timeline doesn't apply any additional filtering
                 true
             }
         }
