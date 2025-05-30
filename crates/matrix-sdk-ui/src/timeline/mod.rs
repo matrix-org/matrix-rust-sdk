@@ -21,8 +21,12 @@ use std::{fs, path::PathBuf, sync::Arc};
 use algorithms::rfind_event_by_item_id;
 use event_item::TimelineItemHandle;
 use eyeball_im::VectorDiff;
+#[cfg(feature = "unstable-msc4274")]
+use futures::SendGallery;
 use futures_core::Stream;
 use imbl::Vector;
+#[cfg(feature = "unstable-msc4274")]
+use matrix_sdk::attachment::GalleryConfig;
 use matrix_sdk::{
     attachment::AttachmentConfig,
     deserialized_responses::TimelineEvent,
@@ -414,6 +418,28 @@ impl Timeline {
         config: AttachmentConfig,
     ) -> SendAttachment<'_> {
         SendAttachment::new(self, source.into(), mime_type, config)
+    }
+
+    /// Sends a media gallery to the room.
+    ///
+    /// If the encryption feature is enabled, this method will transparently
+    /// encrypt the room message if the room is encrypted.
+    ///
+    /// The attachments and their optional thumbnails are stored in the media
+    /// cache and can be retrieved at any time, by calling
+    /// [`Media::get_media_content()`] with the `MediaSource` that can be found
+    /// in the corresponding `TimelineEventItem`, and using a
+    /// `MediaFormat::File`.
+    ///
+    /// # Arguments
+    /// * `gallery` - A configuration object containing details about the
+    ///   gallery like files, thumbnails, etc.
+    ///
+    /// [`Media::get_media_content()`]: matrix_sdk::Media::get_media_content
+    #[cfg(feature = "unstable-msc4274")]
+    #[instrument(skip_all)]
+    pub fn send_gallery(&self, gallery: GalleryConfig) -> SendGallery<'_> {
+        SendGallery::new(self, gallery)
     }
 
     /// Redact an event given its [`TimelineEventItemId`] and an optional

@@ -27,6 +27,9 @@ All notable changes to this project will be documented in this file.
   ([#5055](https://github.com/matrix-org/matrix-rust-sdk/pull/5055))
 - `Timeline::mark_as_read()` unsets the unread flag of the room if it was set.
   ([#5055](https://github.com/matrix-org/matrix-rust-sdk/pull/5055))
+- Add new method `Timeline::send_gallery` to allow sending MSC4274-style
+  galleries.
+  ([#5125](https://github.com/matrix-org/matrix-rust-sdk/pull/5125))
 
 ## [0.11.0] - 2025-04-11
 
