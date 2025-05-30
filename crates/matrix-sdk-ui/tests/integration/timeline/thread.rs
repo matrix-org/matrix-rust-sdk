@@ -16,8 +16,8 @@ use assert_matches2::assert_let;
 use eyeball_im::VectorDiff;
 use futures_util::StreamExt as _;
 use matrix_sdk::test_utils::mocks::{MatrixMockServer, RoomRelationsResponseTemplate};
-use matrix_sdk_test::{async_test, event_factory::EventFactory};
-use matrix_sdk_ui::timeline::{TimelineBuilder, TimelineFocus};
+use matrix_sdk_test::{async_test, event_factory::EventFactory, JoinedRoomBuilder};
+use matrix_sdk_ui::timeline::{RoomExt, TimelineBuilder, TimelineFocus};
 use ruma::{event_id, events::AnyTimelineEvent, owned_event_id, room_id, serde::Raw, user_id};
 use stream_assert::assert_pending;
 
@@ -151,8 +151,6 @@ async fn test_thread_backpagination() {
     // events and the thread root
     assert_eq!(timeline_updates.len(), 5);
 
-    println!("Stefan: {timeline_updates:?}");
-
     // Check the timeline diffs
     assert_let!(VectorDiff::PushFront { value } = &timeline_updates[0]);
     assert_eq!(value.as_event().unwrap().event_id().unwrap(), event_id!("$2"));
@@ -192,4 +190,48 @@ async fn test_thread_backpagination() {
         items[5].as_event().unwrap().content().as_message().unwrap().body(),
         "Threaded event 4"
     );
+}
+
+#[async_test]
+async fn test_thread_filtering() {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+
+    let room_id = room_id!("!a:b.c");
+    let sender_id = user_id!("@alice:b.c");
+    let thread_root_event_id = owned_event_id!("$root");
+
+    let room = server.sync_joined_room(&client, room_id).await;
+
+    // server.mock_room_state_encryption().plain().mount().await;
+
+    let timeline = room.timeline().await.unwrap();
+    let (_, mut timeline_stream) =
+        timeline.subscribe_filter_map(|item| item.as_event().cloned()).await;
+
+    let factory = EventFactory::new();
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id)
+                .add_timeline_event(
+                    factory
+                        .text_msg("Thread root")
+                        .sender(sender_id)
+                        .event_id(&thread_root_event_id),
+                )
+                .add_timeline_event(
+                    factory
+                        .text_msg("Within thread")
+                        .sender(sender_id)
+                        .event_id(event_id!("$original_event"))
+                        .in_thread(&thread_root_event_id, event_id!("$first_reply_in_thread")),
+                ),
+        )
+        .await;
+
+    timeline_stream.next().await;
+
+    // The main timeline only contains the date separator and the thread root
+    assert_eq!(timeline.items().await.len(), 2);
 }

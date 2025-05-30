@@ -21,7 +21,7 @@ use matrix_sdk::{
     },
     room::{IncludeRelations, RelationsOptions},
 };
-use ruma::{api::Direction, events::relation::RelationType, OwnedEventId, UInt};
+use ruma::{api::Direction, OwnedEventId, UInt};
 
 use super::traits::RoomDataProvider;
 
@@ -57,7 +57,7 @@ impl<P: RoomDataProvider> ThreadedEventsLoader<P> {
             from: token,
             dir: Direction::Backward,
             limit: Some(num_events),
-            include_relations: IncludeRelations::RelationsOfType(RelationType::Thread),
+            include_relations: IncludeRelations::AllRelations,
             recurse: true,
         };
 

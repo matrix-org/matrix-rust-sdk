@@ -162,9 +162,8 @@ impl TimelineState {
     ) {
         // Only add new items if the timeline is live.
         let should_add_new_items = match self.timeline_focus {
-            TimelineFocusKind::Live => true,
+            TimelineFocusKind::Live | TimelineFocusKind::Thread { .. } => true,
             TimelineFocusKind::Event | TimelineFocusKind::PinnedEvents => false,
-            TimelineFocusKind::Thread => false,
         };
 
         let ctx = TimelineEventContext {
@@ -178,12 +177,16 @@ impl TimelineState {
             should_add_new_items,
         };
 
+        let focus = self.timeline_focus.clone();
+
         let mut txn = self.transaction();
 
         let mut date_divider_adjuster = DateDividerAdjuster::new(date_divider_mode);
 
+        let (in_reply_to, thread_root) = txn.meta.process_relations(&content, None, &txn.items);
+
         if let Some(timeline_action) =
-            TimelineAction::from_content(content, None, &txn.items, &mut txn.meta)
+            TimelineAction::from_content(content, &focus, in_reply_to, thread_root, false)
         {
             TimelineEventHandler::new(&mut txn, ctx)
                 .handle_event(&mut date_divider_adjuster, timeline_action)
@@ -294,6 +297,6 @@ impl TimelineState {
     }
 
     pub(super) fn transaction(&mut self) -> TimelineStateTransaction<'_> {
-        TimelineStateTransaction::new(&mut self.items, &mut self.meta, self.timeline_focus)
+        TimelineStateTransaction::new(&mut self.items, &mut self.meta, self.timeline_focus.clone())
     }
 }
