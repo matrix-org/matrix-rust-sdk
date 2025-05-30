@@ -7,7 +7,6 @@ use std::{
 };
 
 use anyhow::{anyhow, Context as _};
-use async_compat::get_runtime_handle;
 use futures_util::{pin_mut, StreamExt};
 use matrix_sdk::{
     authentication::oauth::{
@@ -41,6 +40,7 @@ use matrix_sdk::{
     AuthApi, AuthSession, Client as MatrixClient, SessionChange, SessionTokens,
     STATE_STORE_DATABASE_NAME,
 };
+use matrix_sdk_common::runtime::get_runtime_handle;
 use matrix_sdk_ui::{
     notification_client::{
         NotificationClient as MatrixNotificationClient,

@@ -14,9 +14,9 @@
 
 use std::{fmt::Debug, sync::Arc};
 
-use async_compat::get_runtime_handle;
 use futures_util::pin_mut;
 use matrix_sdk::Client;
+use matrix_sdk_common::runtime::get_runtime_handle;
 use matrix_sdk_ui::{
     sync_service::{
         State as MatrixSyncServiceState, SyncService as MatrixSyncService,

@@ -15,10 +15,10 @@
 
 use std::{fmt::Debug, sync::Arc};
 
-use async_compat::get_runtime_handle;
 use eyeball_im::VectorDiff;
 use futures_util::StreamExt;
 use matrix_sdk::room_directory_search::RoomDirectorySearch as SdkRoomDirectorySearch;
+use matrix_sdk_common::runtime::get_runtime_handle;
 use ruma::ServerName;
 use tokio::sync::RwLock;
 

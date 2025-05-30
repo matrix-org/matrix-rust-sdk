@@ -14,7 +14,7 @@
 
 use std::{mem::ManuallyDrop, ops::Deref};
 
-use async_compat::get_runtime_handle;
+use matrix_sdk_common::runtime::get_runtime_handle;
 use ruma::{MilliSecondsSinceUnixEpoch, UInt};
 use tracing::warn;
 

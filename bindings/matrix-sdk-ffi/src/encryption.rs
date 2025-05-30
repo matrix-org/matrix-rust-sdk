@@ -1,11 +1,11 @@
 use std::sync::Arc;
 
-use async_compat::get_runtime_handle;
 use futures_util::StreamExt;
 use matrix_sdk::{
     encryption,
     encryption::{backups, recovery},
 };
+use matrix_sdk_common::runtime::get_runtime_handle;
 use thiserror::Error;
 use tracing::{error, info};
 use zeroize::Zeroize;
