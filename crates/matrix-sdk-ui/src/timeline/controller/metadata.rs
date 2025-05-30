@@ -17,15 +17,44 @@ use std::{
     sync::Arc,
 };
 
-use ruma::{EventId, OwnedEventId, OwnedUserId, RoomVersionId};
+use imbl::Vector;
+use matrix_sdk::deserialized_responses::EncryptionInfo;
+use ruma::{
+    events::{
+        poll::unstable_start::UnstablePollStartEventContent, relation::Replacement,
+        room::message::RelationWithoutReplacement, AnyMessageLikeEventContent,
+        AnySyncMessageLikeEvent, AnySyncTimelineEvent, BundledMessageLikeRelations,
+    },
+    serde::Raw,
+    EventId, OwnedEventId, OwnedUserId, RoomVersionId,
+};
 use tracing::trace;
 
 use super::{
     super::{subscriber::skip::SkipCount, TimelineItem, TimelineItemKind, TimelineUniqueId},
     read_receipts::ReadReceipts,
-    Aggregations, AllRemoteEvents, ObservableItemsTransaction,
+    Aggregation, AggregationKind, Aggregations, AllRemoteEvents, ObservableItemsTransaction,
+    PendingEdit, PendingEditKind,
 };
-use crate::unable_to_decrypt_hook::UtdHookManager;
+use crate::{
+    timeline::{
+        event_item::{
+            extract_bundled_edit_event_json, extract_poll_edit_content,
+            extract_room_msg_edit_content,
+        },
+        InReplyToDetails, TimelineEventItemId,
+    },
+    unable_to_decrypt_hook::UtdHookManager,
+};
+
+/// All parameters to [`TimelineAction::from_content`] that only apply if an
+/// event is a remote echo.
+pub struct RemoteEventContext<'a> {
+    pub event_id: &'a EventId,
+    pub raw_event: &'a Raw<AnySyncTimelineEvent>,
+    pub relations: BundledMessageLikeRelations<AnySyncMessageLikeEvent>,
+    pub bundled_edit_encryption_info: Option<Arc<EncryptionInfo>>,
+}
 
 #[derive(Clone, Debug)]
 pub(in crate::timeline) struct TimelineMetadata {
@@ -276,6 +305,144 @@ impl TimelineMetadata {
                     self.has_up_to_date_read_marker_item = false;
                 }
             }
+        }
+    }
+
+    pub(crate) fn process_relations(
+        &mut self,
+        content: &AnyMessageLikeEventContent,
+        remote_ctx: Option<RemoteEventContext<'_>>,
+        timeline_items: &Vector<Arc<TimelineItem>>,
+    ) -> (Option<InReplyToDetails>, Option<OwnedEventId>) {
+        match content {
+            AnyMessageLikeEventContent::Sticker(content) => {
+                let (in_reply_to, thread_root) = Self::extract_reply_and_thread_root(
+                    content.relates_to.clone().and_then(|rel| rel.try_into().ok()),
+                    timeline_items,
+                );
+
+                if let Some(event_id) = remote_ctx.map(|ctx| ctx.event_id) {
+                    Self::mark_response(self, event_id, in_reply_to.as_ref());
+                }
+
+                (in_reply_to, thread_root)
+            }
+
+            AnyMessageLikeEventContent::UnstablePollStart(UnstablePollStartEventContent::New(
+                c,
+            )) => {
+                let (in_reply_to, thread_root) =
+                    Self::extract_reply_and_thread_root(c.relates_to.clone(), timeline_items);
+
+                // Record the bundled edit in the aggregations set, if any.
+                if let Some(ctx) = remote_ctx {
+                    if let Some(new_content) = extract_poll_edit_content(ctx.relations) {
+                        // It is replacing the current event.
+                        if let Some(edit_event_id) =
+                            ctx.raw_event.get_field::<OwnedEventId>("event_id").ok().flatten()
+                        {
+                            let edit_json = extract_bundled_edit_event_json(ctx.raw_event);
+                            let aggregation = Aggregation::new(
+                                TimelineEventItemId::EventId(edit_event_id),
+                                AggregationKind::Edit(PendingEdit {
+                                    kind: PendingEditKind::Poll(Replacement::new(
+                                        ctx.event_id.to_owned(),
+                                        new_content,
+                                    )),
+                                    edit_json,
+                                    encryption_info: ctx.bundled_edit_encryption_info,
+                                }),
+                            );
+                            self.aggregations.add(
+                                TimelineEventItemId::EventId(ctx.event_id.to_owned()),
+                                aggregation,
+                            );
+                        }
+                    }
+
+                    Self::mark_response(self, ctx.event_id, in_reply_to.as_ref());
+                }
+
+                (in_reply_to, thread_root)
+            }
+
+            AnyMessageLikeEventContent::RoomMessage(msg) => {
+                let (in_reply_to, thread_root) = Self::extract_reply_and_thread_root(
+                    msg.relates_to.clone().and_then(|rel| rel.try_into().ok()),
+                    timeline_items,
+                );
+
+                // Record the bundled edit in the aggregations set, if any.
+                if let Some(ctx) = remote_ctx {
+                    if let Some(new_content) = extract_room_msg_edit_content(ctx.relations) {
+                        // It is replacing the current event.
+                        if let Some(edit_event_id) =
+                            ctx.raw_event.get_field::<OwnedEventId>("event_id").ok().flatten()
+                        {
+                            let edit_json = extract_bundled_edit_event_json(ctx.raw_event);
+                            let aggregation = Aggregation::new(
+                                TimelineEventItemId::EventId(edit_event_id),
+                                AggregationKind::Edit(PendingEdit {
+                                    kind: PendingEditKind::RoomMessage(Replacement::new(
+                                        ctx.event_id.to_owned(),
+                                        new_content,
+                                    )),
+                                    edit_json,
+                                    encryption_info: ctx.bundled_edit_encryption_info,
+                                }),
+                            );
+                            self.aggregations.add(
+                                TimelineEventItemId::EventId(ctx.event_id.to_owned()),
+                                aggregation,
+                            );
+                        }
+                    }
+
+                    Self::mark_response(self, ctx.event_id, in_reply_to.as_ref());
+                }
+
+                (in_reply_to, thread_root)
+            }
+
+            _ => (None, None),
+        }
+    }
+
+    fn extract_reply_and_thread_root(
+        relates_to: Option<RelationWithoutReplacement>,
+        timeline_items: &Vector<Arc<TimelineItem>>,
+    ) -> (Option<InReplyToDetails>, Option<OwnedEventId>) {
+        let mut thread_root = None;
+
+        let in_reply_to = relates_to.and_then(|relation| match relation {
+            RelationWithoutReplacement::Reply { in_reply_to } => {
+                Some(InReplyToDetails::new(in_reply_to.event_id, timeline_items))
+            }
+            RelationWithoutReplacement::Thread(thread) => {
+                thread_root = Some(thread.event_id);
+                thread
+                    .in_reply_to
+                    .map(|in_reply_to| InReplyToDetails::new(in_reply_to.event_id, timeline_items))
+            }
+            _ => None,
+        });
+
+        (in_reply_to, thread_root)
+    }
+
+    fn mark_response(
+        meta: &mut TimelineMetadata,
+        event_id: &EventId,
+        in_reply_to: Option<&InReplyToDetails>,
+    ) {
+        // If this message is a reply to another message, add an entry in the
+        // inverted mapping.
+        if let Some(replied_to_event_id) = in_reply_to.as_ref().map(|details| &details.event_id) {
+            // This is a reply! Add an entry.
+            meta.replies
+                .entry(replied_to_event_id.to_owned())
+                .or_default()
+                .insert(event_id.to_owned());
         }
     }
 }

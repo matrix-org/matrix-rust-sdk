@@ -207,6 +207,7 @@ impl<'a> TimelineStateTransaction<'a> {
             None,
             &self.items,
             &mut self.meta,
+            &self.timeline_focus,
         )
         .await
         {
@@ -585,6 +586,7 @@ impl<'a> TimelineStateTransaction<'a> {
                         bundled_edit_encryption_info,
                         &self.items,
                         &mut self.meta,
+                        &self.timeline_focus,
                     )
                     .await,
                     should_add,

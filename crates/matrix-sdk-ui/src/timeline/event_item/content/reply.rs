@@ -21,7 +21,7 @@ use tracing::{debug, instrument, warn};
 
 use super::TimelineItemContent;
 use crate::timeline::{
-    controller::TimelineMetadata,
+    controller::{TimelineFocusKind, TimelineMetadata},
     event_handler::TimelineAction,
     event_item::{EventTimelineItem, Profile, TimelineDetails},
     traits::RoomDataProvider,
@@ -130,6 +130,7 @@ impl RepliedToEvent {
             bundled_edit_encryption_info,
             timeline_items,
             meta,
+            &TimelineFocusKind::Live, // BRILLIANT!
         )
         .await;
 
