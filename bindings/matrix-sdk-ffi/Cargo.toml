@@ -107,11 +107,11 @@ workspace = true
 features = [
     "anyhow",
     "e2e-encryption",
-    "experimental-widgets",
+    "experimental-widgets", 
     "markdown",
-    "native-tls", # note: differ from block below
+    "rustls-tls",
     "socks",
-    "indexeddb",  # note: differ from block below
+    "indexeddb",
     "uniffi",
 ]
 
