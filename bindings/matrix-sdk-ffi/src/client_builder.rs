@@ -2,7 +2,10 @@ use std::{fs, num::NonZeroUsize, path::Path, sync::Arc, time::Duration};
 
 use futures_util::StreamExt;
 #[cfg(not(target_family = "wasm"))]
-use matrix_sdk::reqwest::{Certificate, Proxy};
+use matrix_sdk::{
+  reqwest::{Certificate, Proxy},
+  SqliteStoreConfig
+};
 use matrix_sdk::{
     authentication::oauth::qrcode::{self, DeviceCodeErrorResponseType, LoginFailureReason}, crypto::{
         types::qr_login::{LoginQrCodeDecodeError, QrCodeModeData},

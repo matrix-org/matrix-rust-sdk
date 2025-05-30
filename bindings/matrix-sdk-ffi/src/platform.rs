@@ -562,40 +562,31 @@ fn setup_multithreaded_tokio_runtime() {
     }));
 }
 
+#[cfg(not(target_family = "wasm"))]
 fn setup_lightweight_tokio_runtime() {
     async_compat::set_runtime_builder(Box::new(|| {
         eprintln!("spawning a lightweight tokio runtime");
 
-        #[cfg(not(target_family = "wasm"))]
-        {
-            // Get the number of available cores through the system, if possible.
-            let num_available_cores =
-                std::thread::available_parallelism().map(|n| n.get()).unwrap_or(1);
+          // Get the number of available cores through the system, if possible.
+          let num_available_cores =
+              std::thread::available_parallelism().map(|n| n.get()).unwrap_or(1);
 
-            // The number of worker threads will be either that or 4, whichever is smaller.
-            let num_worker_threads = num_available_cores.min(4);
+          // The number of worker threads will be either that or 4, whichever is smaller.
+          let num_worker_threads = num_available_cores.min(4);
 
-            // Chosen by a fair dice roll.
-            let num_blocking_threads = 2;
+          // Chosen by a fair dice roll.
+          let num_blocking_threads = 2;
 
-            // 1 MiB of memory per worker thread. Should be enough for everyone™.
-            let max_memory_bytes = 1024 * 1024;
+          // 1 MiB of memory per worker thread. Should be enough for everyone™.
+          let max_memory_bytes = 1024 * 1024;
 
-            let mut builder = tokio::runtime::Builder::new_multi_thread();
-            builder
-                .enable_all()
-                .worker_threads(num_worker_threads)
-                .thread_stack_size(max_memory_bytes)
-                .max_blocking_threads(num_blocking_threads);
-            builder
-        }
-
-        #[cfg(target_family = "wasm")]
-        {
-            let mut builder = tokio::runtime::Builder::new_current_thread();
-            builder.enable_all();
-            builder
-        }
+          let mut builder = tokio::runtime::Builder::new_multi_thread();
+          builder
+              .enable_all()
+              .worker_threads(num_worker_threads)
+              .thread_stack_size(max_memory_bytes)
+              .max_blocking_threads(num_blocking_threads);
+          builder
     }));
 }
 
