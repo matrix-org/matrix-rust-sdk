@@ -2,22 +2,15 @@ use std::{fs, num::NonZeroUsize, path::Path, sync::Arc, time::Duration};
 
 use futures_util::StreamExt;
 #[cfg(not(target_family = "wasm"))]
-use matrix_sdk::reqwest::Certificate;
+use matrix_sdk::reqwest::{Certificate, Proxy};
 use matrix_sdk::{
-    authentication::oauth::qrcode::{self, DeviceCodeErrorResponseType, LoginFailureReason},
-    crypto::{
+    authentication::oauth::qrcode::{self, DeviceCodeErrorResponseType, LoginFailureReason}, crypto::{
         types::qr_login::{LoginQrCodeDecodeError, QrCodeModeData},
         CollectStrategy, TrustRequirement,
-    },
-    encryption::{BackupDownloadStrategy, EncryptionSettings},
-    event_cache::EventCacheError,
-    ruma::{ServerName, UserId},
-    sliding_sync::{
+    }, encryption::{BackupDownloadStrategy, EncryptionSettings}, event_cache::EventCacheError, ruma::{ServerName, UserId}, sliding_sync::{
         Error as MatrixSlidingSyncError, VersionBuilder as MatrixSlidingSyncVersionBuilder,
         VersionBuilderError,
-    },
-    Client as MatrixClient, ClientBuildError as MatrixClientBuildError, HttpError, IdParseError,
-    RumaApiError, SendOutsideWasm, SyncOutsideWasm,
+    }, Client as MatrixClient, ClientBuildError as MatrixClientBuildError, HttpError, IdParseError, RumaApiError, SendOutsideWasm, SyncOutsideWasm
 };
 use matrix_sdk_common::runtime::get_runtime_handle;
 use ruma::api::error::{DeserializationError, FromHttpResponseError};
