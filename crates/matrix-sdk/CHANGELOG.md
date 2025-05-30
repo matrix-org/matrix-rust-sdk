@@ -8,6 +8,8 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
+- Add `ClientBuilder::with_enable_share_history_on_invite` to enable experimental support for sharing encrypted room history on invite, per [MSC4268](https://github.com/matrix-org/matrix-spec-proposals/pull/4268).
+  ([#5141](https://github.com/matrix-org/matrix-rust-sdk/pull/5141))
 - `Room::list_threads()` is a new method to list all the threads in a room.
   ([#4972](https://github.com/matrix-org/matrix-rust-sdk/pull/4972))
 - `Room::relations()` is a new method to list all the events related to another event

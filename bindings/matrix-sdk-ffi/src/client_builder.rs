@@ -287,6 +287,7 @@ pub struct ClientBuilder {
     encryption_settings: EncryptionSettings,
     room_key_recipient_strategy: CollectStrategy,
     decryption_trust_requirement: TrustRequirement,
+    enable_share_history_on_invite: bool,
     request_config: Option<RequestConfig>,
 }
 
@@ -321,6 +322,7 @@ impl ClientBuilder {
             },
             room_key_recipient_strategy: Default::default(),
             decryption_trust_requirement: TrustRequirement::Untrusted,
+            enable_share_history_on_invite: false,
             request_config: Default::default(),
         })
     }
@@ -552,6 +554,19 @@ impl ClientBuilder {
         Arc::new(builder)
     }
 
+    /// Set whether to enable the experimental support for sending and receiving
+    /// encrypted room history on invite, per [MSC4268].
+    ///
+    /// [MSC4268]: https://github.com/matrix-org/matrix-spec-proposals/pull/4268
+    pub fn enable_share_history_on_invite(
+        self: Arc<Self>,
+        enable_share_history_on_invite: bool,
+    ) -> Arc<Self> {
+        let mut builder = unwrap_or_clone_arc(self);
+        builder.enable_share_history_on_invite = enable_share_history_on_invite;
+        Arc::new(builder)
+    }
+
     /// Add a default request config to this client.
     pub fn request_config(self: Arc<Self>, config: RequestConfig) -> Arc<Self> {
         let mut builder = unwrap_or_clone_arc(self);
@@ -680,7 +695,8 @@ impl ClientBuilder {
         inner_builder = inner_builder
             .with_encryption_settings(builder.encryption_settings)
             .with_room_key_recipient_strategy(builder.room_key_recipient_strategy)
-            .with_decryption_trust_requirement(builder.decryption_trust_requirement);
+            .with_decryption_trust_requirement(builder.decryption_trust_requirement)
+            .with_enable_share_history_on_invite(builder.enable_share_history_on_invite);
 
         match builder.sliding_sync_version_builder {
             SlidingSyncVersionBuilder::None => {

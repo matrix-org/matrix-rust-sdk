@@ -105,6 +105,8 @@ pub struct ClientBuilder {
     room_key_recipient_strategy: CollectStrategy,
     #[cfg(feature = "e2e-encryption")]
     decryption_trust_requirement: TrustRequirement,
+    #[cfg(feature = "e2e-encryption")]
+    enable_share_history_on_invite: bool,
     cross_process_store_locks_holder_name: String,
 }
 
@@ -130,6 +132,8 @@ impl ClientBuilder {
             room_key_recipient_strategy: Default::default(),
             #[cfg(feature = "e2e-encryption")]
             decryption_trust_requirement: TrustRequirement::Untrusted,
+            #[cfg(feature = "e2e-encryption")]
+            enable_share_history_on_invite: false,
             cross_process_store_locks_holder_name:
                 Self::DEFAULT_CROSS_PROCESS_STORE_LOCKS_HOLDER_NAME.to_owned(),
         }
@@ -444,6 +448,19 @@ impl ClientBuilder {
         self
     }
 
+    /// Whether to enable the experimental support for sending and receiving
+    /// encrypted room history on invite, per [MSC4268].
+    ///
+    /// [MSC4268]: https://github.com/matrix-org/matrix-spec-proposals/pull/4268
+    #[cfg(feature = "e2e-encryption")]
+    pub fn with_enable_share_history_on_invite(
+        mut self,
+        enable_share_history_on_invite: bool,
+    ) -> Self {
+        self.enable_share_history_on_invite = enable_share_history_on_invite;
+        self
+    }
+
     /// Set the cross-process store locks holder name.
     ///
     /// The SDK provides cross-process store locks (see
@@ -562,6 +579,8 @@ impl ClientBuilder {
             send_queue,
             #[cfg(feature = "e2e-encryption")]
             self.encryption_settings,
+            #[cfg(feature = "e2e-encryption")]
+            self.enable_share_history_on_invite,
             self.cross_process_store_locks_holder_name,
         )
         .await;
