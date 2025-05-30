@@ -53,6 +53,8 @@ pub struct IndexedEventRelationKey(
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct IndexedGap {
-    pub id: String,
+    pub id: IndexedGapIdKey,
     pub content: MaybeEncrypted, /* GapForCache */
 }
+
+pub type IndexedGapIdKey = IndexedChunkIdKey;
