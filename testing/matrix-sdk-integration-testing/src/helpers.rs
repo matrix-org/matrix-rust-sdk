@@ -40,6 +40,7 @@ pub struct TestClientBuilder {
     username: String,
     use_sqlite_dir: Option<SqlitePath>,
     encryption_settings: EncryptionSettings,
+    enable_share_history_on_invite: bool,
     http_proxy: Option<String>,
     cross_process_store_locks_holder_name: Option<String>,
 }
@@ -56,6 +57,7 @@ impl TestClientBuilder {
             username,
             use_sqlite_dir: None,
             encryption_settings: Default::default(),
+            enable_share_history_on_invite: false,
             http_proxy: None,
             cross_process_store_locks_holder_name: None,
         }
@@ -80,6 +82,11 @@ impl TestClientBuilder {
         self
     }
 
+    pub fn enable_share_history_on_invite(mut self, enable_share_history_on_invite: bool) -> Self {
+        self.enable_share_history_on_invite = enable_share_history_on_invite;
+        self
+    }
+
     pub fn http_proxy(mut self, url: String) -> Self {
         self.http_proxy = Some(url);
         self
@@ -99,6 +106,7 @@ impl TestClientBuilder {
             .homeserver_url(homeserver_url)
             .sliding_sync_version_builder(VersionBuilder::Native)
             .with_encryption_settings(self.encryption_settings)
+            .with_enable_share_history_on_invite(self.enable_share_history_on_invite)
             .request_config(RequestConfig::short_retry());
 
         if let Some(holder_name) = &self.cross_process_store_locks_holder_name {
