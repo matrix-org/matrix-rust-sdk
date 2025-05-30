@@ -17,13 +17,14 @@
 
 use std::collections::BTreeMap;
 
+use futures_util::future::join_all;
 use matrix_sdk_base::deserialized_responses::{EncryptionInfo, RawAnySyncOrStrippedState};
 use ruma::{
     api::client::{
         account::request_openid_token::v3::{Request as OpenIdRequest, Response as OpenIdResponse},
         delayed_events::{self, update_delayed_event::unstable::UpdateAction},
         filter::RoomEventFilter,
-        to_device::send_event_to_device::{self, v3::Request as RumaToDeviceRequest},
+        to_device::send_event_to_device::{self},
     },
     assign,
     events::{
@@ -197,10 +198,11 @@ impl MatrixDriver {
                 async {}
             });
         let drop_guard_msg_like = self.room.client().event_handler_drop_guard(handle_msg_like);
-
+        let _room_id = room_id;
+        let _tx = tx;
         // Get only all state events from the state section of the sync.
         let handle_state = self.room.add_event_handler(move |raw: Raw<AnySyncStateEvent>| {
-            let _ = tx.send(attach_room_id(raw.cast_ref(), &room_id));
+            let _ = _tx.send(attach_room_id(raw.cast_ref(), &_room_id));
             async {}
         });
         let drop_guard_state = self.room.client().event_handler_drop_guard(handle_state);
@@ -224,8 +226,13 @@ impl MatrixDriver {
             // EncryptionInfo. The widgetAPI expects a boolean `encrypted` to be added
             // (!) to the raw content to know if the to-device message was encrypted or
             // not (as per MSC3819).
-            move |raw: Raw<AnyToDeviceEvent>, _: Option<EncryptionInfo>| {
-                let _ = tx.send(raw);
+            move |raw: Raw<AnyToDeviceEvent>, encryption_info: Option<EncryptionInfo>| {
+                // Only sent encrypted to-device events
+                // TODO only if the room is enxrypted
+                // self.room.
+                if encryption_info.is_some() {
+                    let _ = tx.send(raw);
+                }
                 async {}
             },
         );
@@ -247,17 +254,35 @@ impl MatrixDriver {
     ) -> Result<send_event_to_device::v3::Response> {
         let client = self.room.client();
 
+        // TODO: always encrypt based on the room encryption event
+        // Temporarly just log that the encryption flag is deprecated.
+        // TODO make encrypted a Option<bool>
         let request = if encrypted {
-            return Err(Error::UnknownError(
-                "Sending encrypted to-device events is not supported by the widget driver.".into(),
-            ));
+            // We first want to get all missing session before we start any to device
+            // sending!
+            // TODO transform this into an array of devicesLists per content.
+
+            let responses: BTreeMap<
+                OwnedUserId,
+                BTreeMap<DeviceIdOrAllDevices, Raw<AnyToDeviceEventContent>>,
+            > = join_all(messages.into_iter().map(|(user_id, device_content_map)| {
+                // TODO maybe group by content.
+                let event_type = event_type.clone();
+                async move {
+                    client.encryption().send_raw_to_device(devices, event_type, content);
+                }
+            }))
+            .await
+            .into_iter()
+            .collect();
+            //TODO do sth with the responsesn
+            response.map_err(Into::into)
         } else {
-            RumaToDeviceRequest::new_raw(event_type, TransactionId::new(), messages)
+            RumaToDeviceRequest::new_raw(event_type, TransactionId::new(), messages);
+            let response = client.send(request).await;
+
+            response.map_err(Into::into)
         };
-
-        let response = client.send(request).await;
-
-        response.map_err(Into::into)
     }
 }
 
@@ -283,10 +308,39 @@ fn attach_room_id(raw_ev: &Raw<AnySyncTimelineEvent>, room_id: &RoomId) -> Raw<A
 #[cfg(test)]
 mod tests {
     use insta;
-    use ruma::{events::AnyTimelineEvent, room_id, serde::Raw};
+    use ruma::{
+        events::{AnySyncTimelineEvent, AnyTimelineEvent},
+        room_id,
+        serde::Raw,
+    };
     use serde_json::{json, Value};
 
     use super::attach_room_id;
+    #[test]
+    fn test_app_props_to_raw() {
+        let raw = Raw::new(&json!({
+            "encrypted": true,
+            "type": "m.room.message",
+            "content": {
+                "body": "Hello world"
+            }
+        }))
+        .unwrap()
+        .cast::<AnySyncTimelineEvent>();
+        let room_id = room_id!("!my_id:example.org");
+        let new = attach_room_id(&raw, room_id);
+        assert_eq!(
+            serde_json::to_value(new).unwrap(),
+            json!({
+                "encrypted": true,
+                "room_id": "!my_id:example.org",
+                "type": "m.room.message",
+                "content": {
+                    "body": "Hello world"
+                }
+            })
+        );
+    }
 
     #[test]
     fn test_add_room_id_to_raw() {
