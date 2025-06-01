@@ -132,18 +132,13 @@ async fn test_replace_with_initial_events_and_read_marker() {
 async fn test_sticker() {
     let timeline = TestTimeline::new();
     let mut stream = timeline.subscribe_events().await;
-    let mut image_info = ImageInfo::new();
-    image_info.height = Some(398u16.into());
-    image_info.width = Some(394u16.into());
-    image_info.size = Some(31037u16.into());
-    image_info.mimetype = Some("image/jpeg".to_owned());
 
     timeline
         .handle_live_event(
             EventFactory::new()
                 .sticker(
                     "Happy sticker",
-                    image_info,
+                    ImageInfo::new(),
                     owned_mxc_uri!("mxc://server.name/JWEIFJgwEIhweiWJE"),
                 )
                 .reply_thread(event_id!("$thread_root"), event_id!("$in_reply_to"))
