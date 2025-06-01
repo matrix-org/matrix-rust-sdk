@@ -17,7 +17,6 @@ use assert_matches2::assert_let;
 use eyeball_im::VectorDiff;
 use futures_util::StreamExt;
 use imbl::vector;
-use matrix_sdk::deserialized_responses::TimelineEvent;
 use matrix_sdk_test::{
     async_test,
     event_factory::{EventFactory, PreviousMembership},
@@ -140,7 +139,7 @@ async fn test_sticker() {
     image_info.mimetype = Some("image/jpeg".to_owned());
 
     timeline
-        .handle_live_event(TimelineEvent::new(
+        .handle_live_event(
             EventFactory::new()
                 .sticker(
                     "Happy sticker",
@@ -151,8 +150,8 @@ async fn test_sticker() {
                 .event_id(event_id!("$143273582443PhrSn"))
                 .server_ts(143273582)
                 .sender(user_id!("@alice:server.name"))
-                .into(),
-        ))
+                .into_event(),
+        )
         .await;
 
     let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
