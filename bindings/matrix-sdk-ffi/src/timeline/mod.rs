@@ -67,7 +67,7 @@ use uuid::Uuid;
 use self::content::TimelineItemContent;
 pub use self::msg_like::MessageContent;
 use crate::{
-    client::{ProgressWatcher, TransmissionProgress},
+    client::{ProgressWatcher, RelativeTransmissionProgress},
     error::{ClientError, RoomError},
     event::EventOrTransactionId,
     helpers::unwrap_or_clone_arc,
@@ -278,19 +278,17 @@ pub enum EventSendProgress {
         /// thumbnail share the same index.
         index: u64,
 
-        /// Is the media a thumbnail?
-        is_thumbnail: bool,
-
-        /// The current upload progress.
-        progress: TransmissionProgress,
+        /// The current combined upload progress for both the file and,
+        /// if it exists, its thumbnail.
+        progress: RelativeTransmissionProgress,
     },
 }
 
 impl From<SdkEventSendProgress> for EventSendProgress {
     fn from(value: SdkEventSendProgress) -> Self {
         match value {
-            SdkEventSendProgress::MediaUpload { index, is_thumbnail, progress } => {
-                Self::MediaUpload { index, is_thumbnail, progress: progress.into() }
+            SdkEventSendProgress::MediaUpload { index, progress } => {
+                Self::MediaUpload { index, progress: progress.into() }
             }
         }
     }
