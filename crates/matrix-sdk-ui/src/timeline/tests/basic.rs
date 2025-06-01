@@ -148,7 +148,6 @@ async fn test_sticker() {
                 )
                 .reply_thread(event_id!("$thread_root"), event_id!("$in_reply_to"))
                 .event_id(event_id!("$143273582443PhrSn"))
-                .server_ts(143273582)
                 .sender(user_id!("@alice:server.name"))
                 .into_event(),
         )
