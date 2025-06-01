@@ -434,6 +434,15 @@ impl EventBuilder<RoomCreateEventContent> {
     }
 }
 
+impl EventBuilder<StickerEventContent> {
+    /// Add reply [`Thread`] relation to root event and set replied-to event id.
+    pub fn reply_thread(mut self, root: &EventId, reply_to_event: &EventId) -> Self {
+        self.content.relates_to =
+            Some(Relation::Thread(Thread::reply(root.to_owned(), reply_to_event.to_owned())));
+        self
+    }
+}
+
 impl<E: EventContent> From<EventBuilder<E>> for Raw<AnySyncTimelineEvent>
 where
     E::EventType: Serialize,
