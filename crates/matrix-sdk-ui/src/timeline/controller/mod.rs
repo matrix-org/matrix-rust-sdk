@@ -1340,17 +1340,11 @@ impl<P: RoomDataProvider, D: Decryptor> TimelineController<P, D> {
                     .await;
             }
 
-            RoomSendQueueUpdate::MediaUpload {
-                related_to, index, is_thumbnail, progress, ..
-            } => {
+            RoomSendQueueUpdate::MediaUpload { related_to, index, progress, .. } => {
                 self.update_event_send_state(
                     &related_to,
                     EventSendState::NotSentYet {
-                        progress: Some(EventSendProgress::MediaUpload {
-                            index,
-                            is_thumbnail,
-                            progress,
-                        }),
+                        progress: Some(EventSendProgress::MediaUpload { index, progress }),
                     },
                 )
                 .await;

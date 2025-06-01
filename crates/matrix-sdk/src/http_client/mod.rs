@@ -231,6 +231,13 @@ pub struct TransmissionProgress {
     pub total: usize,
 }
 
+/// Progress of sending or receiving a payload in percent.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct RelativeTransmissionProgress {
+    /// The completion percentage as a number between 0 and 1.
+    pub percentage: f32,
+}
+
 async fn response_to_http_response(
     mut response: reqwest::Response,
 ) -> Result<http::Response<Bytes>, reqwest::Error> {

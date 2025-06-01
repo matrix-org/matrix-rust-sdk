@@ -15,7 +15,7 @@
 use std::sync::Arc;
 
 use as_variant::as_variant;
-use matrix_sdk::{send_queue::SendHandle, Error, TransmissionProgress};
+use matrix_sdk::{send_queue::SendHandle, Error, RelativeTransmissionProgress};
 use ruma::{EventId, OwnedEventId, OwnedTransactionId};
 
 use super::TimelineEventItemId;
@@ -97,10 +97,8 @@ pub enum EventSendProgress {
         /// thumbnail share the same index.
         index: u64,
 
-        /// Is the media a thumbnail?
-        is_thumbnail: bool,
-
-        /// The current upload progress.
-        progress: TransmissionProgress,
+        /// The current combined upload progress for both the file and,
+        /// if it exists, its thumbnail.
+        progress: RelativeTransmissionProgress,
     },
 }

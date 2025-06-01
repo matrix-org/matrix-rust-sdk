@@ -224,6 +224,19 @@ impl From<matrix_sdk::TransmissionProgress> for TransmissionProgress {
     }
 }
 
+/// Progress of sending or receiving a payload in percent.
+#[derive(Clone, Copy, uniffi::Record)]
+pub struct RelativeTransmissionProgress {
+    /// The completion percentage as a number between 0 and 1.
+    pub percentage: f32,
+}
+
+impl From<matrix_sdk::RelativeTransmissionProgress> for RelativeTransmissionProgress {
+    fn from(value: matrix_sdk::RelativeTransmissionProgress) -> Self {
+        Self { percentage: value.percentage }
+    }
+}
+
 #[derive(uniffi::Object)]
 pub struct Client {
     pub(crate) inner: AsyncRuntimeDropped<MatrixClient>,
