@@ -19,7 +19,9 @@ use futures_util::StreamExt;
 use imbl::vector;
 use matrix_sdk::deserialized_responses::TimelineEvent;
 use matrix_sdk_test::{
-    async_test, event_factory::PreviousMembership, sync_timeline_event, ALICE, BOB, CAROL,
+    async_test,
+    event_factory::{EventFactory, PreviousMembership},
+    ALICE, BOB, CAROL,
 };
 use ruma::{
     event_id,
@@ -29,10 +31,11 @@ use ruma::{
             member::{MembershipState, RedactedRoomMemberEventContent},
             message::MessageType,
             topic::RedactedRoomTopicEventContent,
+            ImageInfo,
         },
         FullStateEventContent,
     },
-    mxc_uri, owned_event_id, MilliSecondsSinceUnixEpoch,
+    mxc_uri, owned_event_id, owned_mxc_uri, user_id, MilliSecondsSinceUnixEpoch,
 };
 use stream_assert::assert_next_matches;
 
@@ -130,31 +133,26 @@ async fn test_replace_with_initial_events_and_read_marker() {
 async fn test_sticker() {
     let timeline = TestTimeline::new();
     let mut stream = timeline.subscribe_events().await;
+    let mut image_info = ImageInfo::new();
+    image_info.height = Some(398u16.into());
+    image_info.width = Some(394u16.into());
+    image_info.size = Some(31037u16.into());
+    image_info.mimetype = Some("image/jpeg".to_owned());
 
     timeline
-        .handle_live_event(TimelineEvent::new(sync_timeline_event!({
-            "content": {
-                "body": "Happy sticker",
-                "info": {
-                    "h": 398,
-                    "mimetype": "image/jpeg",
-                    "size": 31037,
-                    "w": 394
-                },
-                "url": "mxc://server.name/JWEIFJgwEIhweiWJE",
-                "m.relates_to": {
-                    "rel_type": "m.thread",
-                    "event_id": "$thread_root",
-                    "m.in_reply_to": {
-                        "event_id": "$in_reply_to"
-                    }
-                }
-            },
-            "event_id": "$143273582443PhrSn",
-            "origin_server_ts": 143273582,
-            "sender": "@alice:server.name",
-            "type": "m.sticker",
-        })))
+        .handle_live_event(TimelineEvent::new(
+            EventFactory::new()
+                .sticker(
+                    "Happy sticker",
+                    image_info,
+                    owned_mxc_uri!("mxc://server.name/JWEIFJgwEIhweiWJE"),
+                )
+                .reply_thread(event_id!("$thread_root"), event_id!("$in_reply_to"))
+                .event_id(event_id!("$143273582443PhrSn"))
+                .server_ts(143273582)
+                .sender(user_id!("@alice:server.name"))
+                .into(),
+        ))
         .await;
 
     let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
