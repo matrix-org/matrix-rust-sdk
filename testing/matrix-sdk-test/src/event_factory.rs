@@ -55,7 +55,9 @@ use ruma::{
             server_acl::RoomServerAclEventContent,
             tombstone::RoomTombstoneEventContent,
             topic::RoomTopicEventContent,
+            ImageInfo,
         },
+        sticker::StickerEventContent,
         typing::TypingEventContent,
         AnyMessageLikeEvent, AnyStateEvent, AnySyncStateEvent, AnySyncTimelineEvent,
         AnyTimelineEvent, BundledMessageLikeRelations, EventContent,
@@ -899,6 +901,16 @@ impl EventFactory {
     ) -> EventBuilder<BeaconEventContent> {
         let geo_uri = format!("geo:{latitude},{longitude};u={uncertainty}");
         self.event(BeaconEventContent::new(beacon_info_event_id, geo_uri, ts))
+    }
+
+    /// Create a new `m.sticker` event.
+    pub fn sticker(
+        &self,
+        body: impl Into<String>,
+        info: ImageInfo,
+        url: OwnedMxcUri,
+    ) -> EventBuilder<StickerEventContent> {
+        self.event(StickerEventContent::new(body.into(), info, url))
     }
 
     /// Set the next server timestamp.
