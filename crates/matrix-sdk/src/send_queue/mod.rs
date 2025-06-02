@@ -2246,7 +2246,8 @@ pub enum RoomSendQueueUpdate {
         event_id: OwnedEventId,
     },
 
-    /// A media upload has made progress.
+    /// A media upload (consisting of a file and possibly a thumbnail) has made
+    /// progress.
     MediaUpload {
         /// The media event this uploaded media relates to.
         related_to: OwnedTransactionId,
@@ -2258,8 +2259,9 @@ pub enum RoomSendQueueUpdate {
         /// thumbnail share the same index.
         index: u64,
 
-        /// The transmission progress of this individual file.
-        progress: RelativeTransmissionProgress,
+        /// The combined upload progress across the file and, if existing, its
+        /// thumbnail.
+        progress: AbstractProgress,
     },
 }
 

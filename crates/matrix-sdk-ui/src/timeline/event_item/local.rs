@@ -91,14 +91,15 @@ pub enum EventSendState {
 /// This type represents the "send progress" of a local event timeline item.
 #[derive(Clone, Debug)]
 pub enum EventSendProgress {
-    /// A media is being uploaded.
+    /// A media (consisting of a file and possibly a thumbnail) is being
+    /// uploaded.
     MediaUpload {
         /// The index of the media within the transaction. A file and its
         /// thumbnail share the same index.
         index: u64,
 
-        /// The current combined upload progress for both the file and,
-        /// if it exists, its thumbnail.
-        progress: RelativeTransmissionProgress,
+        /// The combined upload progress across the file and, if existing, its
+        /// thumbnail.
+        progress: AbstractProgress,
     },
 }
