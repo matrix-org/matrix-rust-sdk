@@ -17,7 +17,7 @@ use std::{fs::File, io::Write as _, path::PathBuf, time::Duration};
 use assert_matches::assert_matches;
 use assert_matches2::assert_let;
 use eyeball_im::VectorDiff;
-use futures_util::{FutureExt, StreamExt};
+use futures_util::StreamExt;
 #[cfg(feature = "unstable-msc4274")]
 use matrix_sdk::attachment::{AttachmentInfo, BaseFileInfo, GalleryConfig, GalleryItemInfo};
 use matrix_sdk::{
@@ -39,6 +39,7 @@ use ruma::{
     room_id,
 };
 use serde_json::json;
+use stream_assert::assert_pending;
 use tempfile::TempDir;
 use tokio::time::sleep;
 use wiremock::ResponseTemplate;
@@ -92,7 +93,7 @@ async fn test_send_attachment_from_file() {
     assert_eq!(msg.body(), "hello");
 
     // No other updates.
-    assert!(timeline_stream.next().now_or_never().is_none());
+    assert_pending!(timeline_stream);
 
     // Store a file in a temporary directory.
     let (_tmp_dir, file_path) = create_temporary_file("test.bin");
@@ -164,7 +165,7 @@ async fn test_send_attachment_from_file() {
     }
 
     // That's all, folks!
-    assert!(timeline_stream.next().now_or_never().is_none());
+    assert_pending!(timeline_stream);
 }
 
 #[async_test]
@@ -196,7 +197,7 @@ async fn test_send_attachment_from_bytes() {
     assert_eq!(msg.body(), "hello");
 
     // No other updates.
-    assert!(timeline_stream.next().now_or_never().is_none());
+    assert_pending!(timeline_stream);
 
     // The data of the file.
     let filename = "test.bin";
@@ -263,7 +264,7 @@ async fn test_send_attachment_from_bytes() {
     }
 
     // That's all, folks!
-    assert!(timeline_stream.next().now_or_never().is_none());
+    assert_pending!(timeline_stream);
 }
 
 #[cfg(feature = "unstable-msc4274")]
@@ -296,7 +297,7 @@ async fn test_send_gallery_from_bytes() {
     assert_eq!(msg.body(), "hello");
 
     // No other updates.
-    assert!(timeline_stream.next().now_or_never().is_none());
+    assert_pending!(timeline_stream);
 
     // The data of the file.
     let filename = "test.bin";
@@ -385,7 +386,7 @@ async fn test_send_gallery_from_bytes() {
     }
 
     // That's all, folks!
-    assert!(timeline_stream.next().now_or_never().is_none());
+    assert_pending!(timeline_stream);
 }
 
 #[async_test]
@@ -406,7 +407,7 @@ async fn test_react_to_local_media() {
         timeline.subscribe_filter_map(|item| item.as_event().cloned()).await;
 
     assert!(items.is_empty());
-    assert!(timeline_stream.next().now_or_never().is_none());
+    assert_pending!(timeline_stream);
 
     // Store a file in a temporary directory.
     let (_tmp_dir, file_path) = create_temporary_file("test.bin");
@@ -439,5 +440,5 @@ async fn test_react_to_local_media() {
     reactions.get("🤪").unwrap().get(own_user_id).unwrap();
 
     // That's all, folks!
-    assert!(timeline_stream.next().now_or_never().is_none());
+    assert_pending!(timeline_stream);
 }
