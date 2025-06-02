@@ -15,7 +15,6 @@
 use std::{pin::pin, time::Duration};
 
 use assert_matches::assert_matches;
-use async_trait::async_trait;
 use futures_util::FutureExt;
 use matrix_sdk::{
     test_utils::mocks::{MatrixMockServer, RoomMessagesResponseTemplate},
@@ -58,13 +57,13 @@ async fn run_test_driver(
 ) -> (Client, MatrixMockServer, WidgetDriverHandle) {
     struct DummyCapabilitiesProvider;
 
-    #[async_trait]
     impl CapabilitiesProvider for DummyCapabilitiesProvider {
         async fn acquire_capabilities(&self, capabilities: Capabilities) -> Capabilities {
             // Grant all capabilities that the widget asks for
             capabilities
         }
     }
+
     let mock_server = MatrixMockServer::new().await;
     let client = mock_server.client_builder().build().await;
 

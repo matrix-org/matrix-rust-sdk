@@ -187,7 +187,6 @@ To use this module, two structs are needed:
 #[derive(Clone)]
 struct CapProv {}
 
-#[async_trait]
 impl CapabilitiesProvider for CapProv {
     async fn acquire_capabilities(&self, requested_capabilities: Capabilities) -> Capabilities {
         // Only approve capabilities the user has approved interactively

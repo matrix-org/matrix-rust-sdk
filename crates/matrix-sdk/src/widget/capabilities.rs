@@ -15,9 +15,8 @@
 //! Types and traits related to the capabilities that a widget can request from
 //! a client.
 
-use std::fmt;
+use std::{fmt, future::Future};
 
-use async_trait::async_trait;
 use serde::{ser::SerializeSeq, Deserialize, Deserializer, Serialize, Serializer};
 use tracing::{debug, warn};
 
@@ -29,12 +28,14 @@ use super::{
 /// Must be implemented by a component that provides functionality of deciding
 /// whether a widget is allowed to use certain capabilities (typically by
 /// providing a prompt to the user).
-#[async_trait]
 pub trait CapabilitiesProvider: Send + Sync + 'static {
     /// Receives a request for given capabilities and returns the actual
     /// capabilities that the clients grants to a given widget (usually by
     /// prompting the user).
-    async fn acquire_capabilities(&self, capabilities: Capabilities) -> Capabilities;
+    fn acquire_capabilities(
+        &self,
+        capabilities: Capabilities,
+    ) -> impl Future<Output = Capabilities> + Send;
 }
 
 /// Capabilities that a widget can request from a client.
