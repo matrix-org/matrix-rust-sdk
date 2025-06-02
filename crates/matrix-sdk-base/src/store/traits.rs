@@ -24,7 +24,7 @@ use async_trait::async_trait;
 use growable_bloom_filter::GrowableBloom;
 use matrix_sdk_common::AsyncTraitDeps;
 use ruma::{
-    api::MatrixVersion,
+    api::{client::discovery::get_supported_versions, MatrixVersion},
     events::{
         presence::PresenceEvent,
         receipt::{Receipt, ReceiptThread, ReceiptType},
@@ -950,12 +950,11 @@ where
     }
 }
 
-/// Server capabilities returned by the /client/versions endpoint.
+/// Useful server info such as data returned by the /client/versions and
+/// .well-known/client/matrix endpoints.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct ServerCapabilities {
+pub struct ServerInfo {
     /// Versions supported by the remote server.
-    ///
-    /// This contains [`MatrixVersion`]s converted to strings.
     pub versions: Vec<String>,
 
     /// List of unstable features and their enablement status.
@@ -966,33 +965,36 @@ pub struct ServerCapabilities {
     last_fetch_ts: f64,
 }
 
-impl ServerCapabilities {
+impl ServerInfo {
     /// The number of milliseconds after which the data is considered stale.
     pub const STALE_THRESHOLD: f64 = (1000 * 60 * 60 * 24 * 7) as _; // seven days
 
-    /// Encode server capabilities into this serializable struct.
-    pub fn new(versions: &[MatrixVersion], unstable_features: BTreeMap<String, bool>) -> Self {
-        Self {
-            versions: versions.iter().map(|item| item.to_string()).collect(),
-            unstable_features,
-            last_fetch_ts: now_timestamp_ms(),
-        }
+    /// Encode server info into this serializable struct.
+    pub fn new(versions: Vec<String>, unstable_features: BTreeMap<String, bool>) -> Self {
+        Self { versions, unstable_features, last_fetch_ts: now_timestamp_ms() }
     }
 
-    /// Decode server capabilities from this serializable struct.
+    /// Decode server info from this serializable struct.
     ///
     /// May return `None` if the data is considered stale, after
     /// [`Self::STALE_THRESHOLD`] milliseconds since the last time we stored
     /// it.
-    pub fn maybe_decode(&self) -> Option<(Vec<MatrixVersion>, BTreeMap<String, bool>)> {
+    pub fn maybe_decode(&self) -> Option<Self> {
         if now_timestamp_ms() - self.last_fetch_ts >= Self::STALE_THRESHOLD {
             None
         } else {
-            Some((
-                self.versions.iter().filter_map(|item| item.parse().ok()).collect(),
-                self.unstable_features.clone(),
-            ))
+            Some(self.clone())
         }
+    }
+
+    /// Extracts known Matrix versions from the un-typed list of strings.
+    ///
+    /// Note: Matrix versions that Ruma cannot parse, or does not know about,
+    /// are discarded.
+    pub fn known_versions(&self) -> Vec<MatrixVersion> {
+        get_supported_versions::Response::new(self.versions.clone())
+            .known_versions()
+            .collect::<Vec<_>>()
     }
 }
 
@@ -1011,8 +1013,8 @@ pub enum StateStoreDataValue {
     /// The sync token.
     SyncToken(String),
 
-    /// The server capabilities.
-    ServerCapabilities(ServerCapabilities),
+    /// The server info (versions, well-known etc).
+    ServerInfo(ServerInfo),
 
     /// A filter with the given ID.
     Filter(String),
@@ -1097,9 +1099,9 @@ impl StateStoreDataValue {
         as_variant!(self, Self::ComposerDraft)
     }
 
-    /// Get this value if it is the server capabilities metadata.
-    pub fn into_server_capabilities(self) -> Option<ServerCapabilities> {
-        as_variant!(self, Self::ServerCapabilities)
+    /// Get this value if it is the server info metadata.
+    pub fn into_server_info(self) -> Option<ServerInfo> {
+        as_variant!(self, Self::ServerInfo)
     }
 
     /// Get this value if it is the data for the ignored join requests.
@@ -1114,8 +1116,8 @@ pub enum StateStoreDataKey<'a> {
     /// The sync token.
     SyncToken,
 
-    /// The server capabilities,
-    ServerCapabilities,
+    /// The server info,
+    ServerInfo,
 
     /// A filter with the given name.
     Filter(&'a str),
@@ -1143,9 +1145,9 @@ pub enum StateStoreDataKey<'a> {
 impl StateStoreDataKey<'_> {
     /// Key to use for the [`SyncToken`][Self::SyncToken] variant.
     pub const SYNC_TOKEN: &'static str = "sync_token";
-    /// Key to use for the [`ServerCapabilities`][Self::ServerCapabilities]
+    /// Key to use for the [`ServerInfo`][Self::ServerInfo]
     /// variant.
-    pub const SERVER_CAPABILITIES: &'static str = "server_capabilities";
+    pub const SERVER_INFO: &'static str = "server_capabilities"; // Note: this is the old name, kept for backwards compatibility.
     /// Key prefix to use for the [`Filter`][Self::Filter] variant.
     pub const FILTER: &'static str = "filter";
     /// Key prefix to use for the [`UserAvatarUrl`][Self::UserAvatarUrl]
@@ -1171,21 +1173,21 @@ impl StateStoreDataKey<'_> {
 
 #[cfg(test)]
 mod tests {
-    use super::{now_timestamp_ms, ServerCapabilities};
+    use super::{now_timestamp_ms, ServerInfo};
 
     #[test]
-    fn test_stale_server_capabilities() {
-        let mut caps = ServerCapabilities {
+    fn test_stale_server_info() {
+        let mut server_info = ServerInfo {
             versions: Default::default(),
             unstable_features: Default::default(),
-            last_fetch_ts: now_timestamp_ms() - ServerCapabilities::STALE_THRESHOLD - 1.0,
+            last_fetch_ts: now_timestamp_ms() - ServerInfo::STALE_THRESHOLD - 1.0,
         };
 
         // Definitely stale.
-        assert!(caps.maybe_decode().is_none());
+        assert!(server_info.maybe_decode().is_none());
 
         // Definitely not stale.
-        caps.last_fetch_ts = now_timestamp_ms() - 1.0;
-        assert!(caps.maybe_decode().is_some());
+        server_info.last_fetch_ts = now_timestamp_ms() - 1.0;
+        assert!(server_info.maybe_decode().is_some());
     }
 }
