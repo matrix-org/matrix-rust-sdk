@@ -1302,6 +1302,9 @@ mod private {
                             self.events
                                 .replace_event_at(position, copy)
                                 .expect("should have been a valid position of an item");
+                            // We just changed the in-memory representation; synchronize this with
+                            // the store.
+                            self.propagate_changes().await?;
                         }
                         EventLocation::Store => self.save_event([copy]).await?,
                     }
