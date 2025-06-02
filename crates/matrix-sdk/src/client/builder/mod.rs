@@ -40,7 +40,7 @@ use crate::encryption::EncryptionSettings;
 use crate::http_client::HttpSettings;
 use crate::{
     authentication::{oauth::OAuthCtx, AuthCtx},
-    client::ClientServerCapabilities,
+    client::ClientServerInfo,
     config::RequestConfig,
     error::RumaApiError,
     http_client::HttpClient,
@@ -560,10 +560,8 @@ impl ClientBuilder {
         // Enable the send queue by default.
         let send_queue = Arc::new(SendQueueData::new(true));
 
-        let server_capabilities = ClientServerCapabilities {
-            server_versions: self.server_versions,
-            unstable_features: None,
-        };
+        let server_info =
+            ClientServerInfo { server_versions: self.server_versions, unstable_features: None };
 
         let event_cache = OnceCell::new();
         let inner = ClientInner::new(
@@ -573,7 +571,7 @@ impl ClientBuilder {
             sliding_sync_version,
             http_client,
             base_client,
-            server_capabilities,
+            server_info,
             self.respect_login_well_known,
             event_cache,
             send_queue,

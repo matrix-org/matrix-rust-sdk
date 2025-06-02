@@ -34,7 +34,7 @@ use serde_json::{json, value::Value as JsonValue};
 
 use super::{
     send_queue::SentRequestKey, DependentQueuedRequestKind, DisplayName, DynStateStore,
-    RoomLoadSettings, ServerCapabilities,
+    RoomLoadSettings, ServerInfo,
 };
 use crate::{
     deserialized_responses::MemberEvent,
@@ -90,8 +90,8 @@ pub trait StateStoreIntegrationTests {
     async fn test_send_queue_dependents(&self);
     /// Test an update to a send queue dependent request.
     async fn test_update_send_queue_dependent(&self);
-    /// Test saving/restoring server capabilities.
-    async fn test_server_capabilities_saving(&self);
+    /// Test saving/restoring server info.
+    async fn test_server_info_saving(&self);
     /// Test fetching room infos based on [`RoomLoadSettings`].
     async fn test_get_room_infos(&self);
 }
@@ -472,34 +472,36 @@ impl StateStoreIntegrationTests for DynStateStore {
         );
     }
 
-    async fn test_server_capabilities_saving(&self) {
+    async fn test_server_info_saving(&self) {
         let versions = &[MatrixVersion::V1_1, MatrixVersion::V1_2, MatrixVersion::V1_11];
-        let server_caps = ServerCapabilities::new(
-            versions,
+        let server_info = ServerInfo::new(
+            versions.iter().map(|version| version.to_string()).collect(),
             [("org.matrix.experimental".to_owned(), true)].into(),
         );
 
         self.set_kv_data(
-            StateStoreDataKey::ServerCapabilities,
-            StateStoreDataValue::ServerCapabilities(server_caps.clone()),
+            StateStoreDataKey::ServerInfo,
+            StateStoreDataValue::ServerInfo(server_info.clone()),
         )
         .await
         .unwrap();
 
         assert_let!(
-            Ok(Some(StateStoreDataValue::ServerCapabilities(stored_caps))) =
-                self.get_kv_data(StateStoreDataKey::ServerCapabilities).await
+            Ok(Some(StateStoreDataValue::ServerInfo(stored_info))) =
+                self.get_kv_data(StateStoreDataKey::ServerInfo).await
         );
-        assert_eq!(stored_caps, server_caps);
+        assert_eq!(stored_info, server_info);
 
-        let (stored_versions, stored_features) = stored_caps.maybe_decode().unwrap();
+        let decoded_server_info = stored_info.maybe_decode().unwrap();
+        let stored_versions = decoded_server_info.known_versions();
+        let stored_features = decoded_server_info.unstable_features;
 
         assert_eq!(stored_versions, versions);
         assert_eq!(stored_features.len(), 1);
         assert_eq!(stored_features.get("org.matrix.experimental"), Some(&true));
 
-        self.remove_kv_data(StateStoreDataKey::ServerCapabilities).await.unwrap();
-        assert_matches!(self.get_kv_data(StateStoreDataKey::ServerCapabilities).await, Ok(None));
+        self.remove_kv_data(StateStoreDataKey::ServerInfo).await.unwrap();
+        assert_matches!(self.get_kv_data(StateStoreDataKey::ServerInfo).await, Ok(None));
     }
 
     async fn test_sync_token_saving(&self) {
@@ -1807,9 +1809,9 @@ macro_rules! statestore_integration_tests {
             }
 
             #[async_test]
-            async fn test_server_capabilities_saving() {
+            async fn test_server_info_saving() {
                 let store = get_store().await.unwrap().into_state_store();
-                store.test_server_capabilities_saving().await
+                store.test_server_info_saving().await
             }
 
             #[async_test]

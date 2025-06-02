@@ -725,11 +725,11 @@ impl Client {
 
     /// Empty the server version and unstable features cache.
     ///
-    /// Since the SDK caches server capabilities (versions and unstable
-    /// features), it's possible to have a stale entry in the cache. This
-    /// functions makes it possible to force reset it.
-    pub async fn reset_server_capabilities(&self) -> Result<(), ClientError> {
-        Ok(self.inner.reset_server_capabilities().await?)
+    /// Since the SDK caches server info (versions, unstable features,
+    /// well-known etc), it's possible to have a stale entry in the cache.
+    /// This functions makes it possible to force reset it.
+    pub async fn reset_server_info(&self) -> Result<(), ClientError> {
+        Ok(self.inner.reset_server_info().await?)
     }
 }
 

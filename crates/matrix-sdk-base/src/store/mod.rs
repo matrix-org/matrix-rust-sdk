@@ -81,8 +81,8 @@ pub use self::{
         SentMediaInfo, SentRequestKey, SerializableEventContent,
     },
     traits::{
-        ComposerDraft, ComposerDraftType, DynStateStore, IntoStateStore, ServerCapabilities,
-        StateStore, StateStoreDataKey, StateStoreDataValue, StateStoreExt,
+        ComposerDraft, ComposerDraftType, DynStateStore, IntoStateStore, ServerInfo, StateStore,
+        StateStoreDataKey, StateStoreDataValue, StateStoreExt,
     },
 };
 
