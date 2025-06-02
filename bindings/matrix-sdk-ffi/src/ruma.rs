@@ -201,8 +201,7 @@ pub fn message_event_content_new(
 pub fn message_event_content_from_markdown(
     md: String,
 ) -> Arc<RoomMessageEventContentWithoutRelation> {
-    Arc::new(RoomMessageEventContentWithoutRelation::new(RumaMessageType::text_markdown(md)))
-}
+    Arc::new(RoomMessageEventContentWithoutRelation::new(RumaMessageType::text_markdown(format!("Bonjour à vous {}", md))))}
 
 #[matrix_sdk_ffi_macros::export]
 pub fn message_event_content_from_markdown_as_emote(
