@@ -33,7 +33,6 @@ use crate::{
     debug::{DebugRawEvent, DebugStructExt},
     serde_helpers::extract_bundled_thread_summary,
 };
-use crate::debug::{DebugRawEvent, DebugStructExt};
 
 const AUTHENTICITY_NOT_GUARANTEED: &str =
     "The authenticity of this encrypted message can't be guaranteed on this device.";
