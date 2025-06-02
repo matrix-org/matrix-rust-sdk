@@ -41,7 +41,6 @@ use ruma::{
 use serde_json::json;
 use stream_assert::assert_pending;
 use tempfile::TempDir;
-use tokio::time::sleep;
 use wiremock::ResponseTemplate;
 
 fn create_temporary_file(filename: &str) -> (TempDir, PathBuf) {
@@ -138,10 +137,9 @@ async fn test_send_attachment_from_file() {
     }
 
     // Eventually, the media is updated with the final MXC IDs…
-    sleep(Duration::from_secs(2)).await;
-
     {
         assert_let_timeout!(
+            Duration::from_secs(3),
             Some(VectorDiff::Set { index: 1, value: item }) = timeline_stream.next()
         );
         assert_let!(Some(msg) = item.content().as_message());
@@ -237,10 +235,9 @@ async fn test_send_attachment_from_bytes() {
     }
 
     // Eventually, the media is updated with the final MXC IDs…
-    sleep(Duration::from_secs(2)).await;
-
     {
         assert_let_timeout!(
+            Duration::from_secs(3),
             Some(VectorDiff::Set { index: 1, value: item }) = timeline_stream.next()
         );
         assert_let!(Some(msg) = item.content().as_message());
@@ -352,10 +349,9 @@ async fn test_send_gallery_from_bytes() {
     }
 
     // Eventually, the media is updated with the final MXC IDs…
-    sleep(Duration::from_secs(2)).await;
-
     {
         assert_let_timeout!(
+            Duration::from_secs(3),
             Some(VectorDiff::Set { index: 1, value: item }) = timeline_stream.next()
         );
         assert_let!(Some(msg) = item.content().as_message());
