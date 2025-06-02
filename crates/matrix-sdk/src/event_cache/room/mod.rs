@@ -1222,13 +1222,34 @@ mod private {
 
             target_event.thread_summary = ThreadSummaryStatus::Some(ThreadSummary {});
 
+            self.replace_event_at(location, target_event).await?;
+
+            Ok(())
+        }
+
+        /// Replaces a single event, be it saved in memory or in the store.
+        ///
+        /// If it was saved in memory, this will emit a notification to
+        /// observers that a single item has been replaced. Otherwise,
+        /// such a notification is not emitted, because observers are
+        /// unlikely to observe the store updates directly.
+        async fn replace_event_at(
+            &mut self,
+            location: EventLocation,
+            event: TimelineEvent,
+        ) -> Result<(), EventCacheError> {
             match location {
                 EventLocation::Memory(position) => {
                     self.events
-                        .replace_event_at(position, target_event)
+                        .replace_event_at(position, event)
                         .expect("should have been a valid position of an item");
+                    // We just changed the in-memory representation; synchronize this with
+                    // the store.
+                    self.propagate_changes().await?;
                 }
-                EventLocation::Store => self.save_event([target_event]).await?,
+                EventLocation::Store => {
+                    self.save_event([event]).await?;
+                }
             }
 
             Ok(())
@@ -1267,7 +1288,7 @@ mod private {
             };
 
             // Replace the redacted event by a redacted form, if we knew about it.
-            if let Some((location, target_event)) = self.find_event(event_id).await? {
+            if let Some((location, mut target_event)) = self.find_event(event_id).await? {
                 // Don't redact already redacted events.
                 if let Ok(deserialized) = target_event.raw().deserialize() {
                     match deserialized {
@@ -1289,31 +1310,17 @@ mod private {
                     event.raw().cast_ref::<SyncRoomRedactionEvent>(),
                     &self.room_version,
                 ) {
-                    let mut copy = target_event.clone();
-
                     // It's safe to cast `redacted_event` here:
                     // - either the event was an `AnyTimelineEvent` cast to `AnySyncTimelineEvent`
                     //   when calling .raw(), so it's still one under the hood.
                     // - or it wasn't, and it's a plain `AnySyncTimelineEvent` in this case.
-                    copy.replace_raw(redacted_event.cast());
+                    target_event.replace_raw(redacted_event.cast());
 
-                    match location {
-                        EventLocation::Memory(position) => {
-                            self.events
-                                .replace_event_at(position, copy)
-                                .expect("should have been a valid position of an item");
-                            // We just changed the in-memory representation; synchronize this with
-                            // the store.
-                            self.propagate_changes().await?;
-                        }
-                        EventLocation::Store => self.save_event([copy]).await?,
-                    }
+                    self.replace_event_at(location, target_event).await?;
                 }
             } else {
                 trace!("redacted event is missing from the linked chunk");
             }
-
-            // TODO: remove all related events too!
 
             Ok(())
         }
