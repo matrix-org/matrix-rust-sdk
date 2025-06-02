@@ -30,6 +30,7 @@ pub mod locks;
 pub mod ring_buffer;
 pub mod sleep;
 pub mod store_locks;
+pub mod stream;
 pub mod timeout;
 pub mod tracing_timer;
 pub mod ttl_cache;
