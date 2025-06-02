@@ -293,6 +293,7 @@ impl SendQueue {
 
 /// Metadata about a thumbnail needed when pushing media uploads to the send
 /// queue.
+#[derive(Clone, Debug)]
 struct QueueThumbnailInfo {
     /// Metadata about the thumbnail needed when finishing a media upload.
     finish_upload_thumbnail_info: FinishUploadThumbnailInfo,
@@ -607,7 +608,7 @@ impl RoomSendQueue {
                         match &queued_request.kind {
                             QueuedRequestKind::MediaUpload { accumulated, .. } => accumulated.len() as u64,
                             _ => default_index,
-                        };
+                        }
                     } else {
                         default_index
                     }
@@ -1401,8 +1402,13 @@ impl QueueStorage {
             return Ok(());
         };
 
-        let GalleryItemQueueInfo { content_type, upload_file_txn, file_media_request, thumbnail } =
-            first;
+        let GalleryItemQueueInfo {
+            content_type,
+            upload_file_txn,
+            file_media_request,
+            file_size,
+            thumbnail,
+        } = first;
 
         let thumbnail_info = self
             .push_thumbnail_and_media_uploads(
@@ -1412,6 +1418,7 @@ impl QueueStorage {
                 created_at,
                 upload_file_txn.clone(),
                 file_media_request.clone(),
+                *file_size,
                 thumbnail.clone(),
             )
             .await?;
@@ -1426,39 +1433,45 @@ impl QueueStorage {
                 content_type,
                 upload_file_txn,
                 file_media_request,
+                file_size,
                 thumbnail,
             } = item_queue_info;
 
-            let thumbnail_info =
-                if let Some((thumbnail_info, thumbnail_media_request, thumbnail_content_type)) =
-                    thumbnail
-                {
-                    let upload_thumbnail_txn = thumbnail_info.txn.clone();
+            let thumbnail_info = if let Some(QueueThumbnailInfo {
+                finish_upload_thumbnail_info: thumbnail_info,
+                media_request_parameters: thumbnail_media_request,
+                content_type: thumbnail_content_type,
+                file_size: thumbnail_file_size,
+            }) = thumbnail
+            {
+                let upload_thumbnail_txn = thumbnail_info.txn.clone();
 
-                    // Save the thumbnail upload request as a dependent request of the last file
-                    // upload.
-                    store
-                        .save_dependent_queued_request(
-                            &self.room_id,
-                            &last_upload_file_txn,
-                            upload_thumbnail_txn.clone().into(),
-                            created_at,
-                            DependentQueuedRequestKind::UploadFileOrThumbnail {
-                                content_type: thumbnail_content_type.to_string(),
-                                cache_key: thumbnail_media_request.clone(),
-                                related_to: send_event_txn.clone(),
-                                parent_is_thumbnail_upload: false,
-                                is_thumbnail: true,
-                            },
-                        )
-                        .await?;
+                // Save the thumbnail upload request as a dependent request of the last file
+                // upload.
+                store
+                    .save_dependent_queued_request(
+                        &self.room_id,
+                        &last_upload_file_txn,
+                        upload_thumbnail_txn.clone().into(),
+                        created_at,
+                        DependentQueuedRequestKind::UploadFileOrThumbnail {
+                            content_type: thumbnail_content_type.to_string(),
+                            cache_key: thumbnail_media_request.clone(),
+                            related_to: send_event_txn.clone(),
+                            parent_is_thumbnail_upload: false,
+                            file_size: *thumbnail_file_size,
+                            thumbnail_file_size: None,
+                            media_file_size: Some(*file_size),
+                        },
+                    )
+                    .await?;
 
-                    last_upload_file_txn = upload_thumbnail_txn;
+                last_upload_file_txn = upload_thumbnail_txn;
 
-                    Some(thumbnail_info)
-                } else {
-                    None
-                };
+                Some(thumbnail_info)
+            } else {
+                None
+            };
 
             // Save the file upload as a dependent request of the previous upload.
             store
@@ -1472,7 +1485,9 @@ impl QueueStorage {
                         cache_key: file_media_request.clone(),
                         related_to: send_event_txn.clone(),
                         parent_is_thumbnail_upload: thumbnail.is_some(),
-                        is_thumbnail: false,
+                        file_size: *file_size,
+                        thumbnail_file_size: thumbnail.as_ref().map(|t| t.file_size),
+                        media_file_size: None,
                     },
                 )
                 .await?;
@@ -2133,7 +2148,8 @@ struct GalleryItemQueueInfo {
     content_type: Mime,
     upload_file_txn: OwnedTransactionId,
     file_media_request: MediaRequestParameters,
-    thumbnail: Option<(FinishUploadThumbnailInfo, MediaRequestParameters, Mime)>,
+    file_size: usize,
+    thumbnail: Option<QueueThumbnailInfo>,
 }
 
 /// The content of a local echo.

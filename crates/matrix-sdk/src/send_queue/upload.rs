@@ -336,6 +336,7 @@ impl RoomSendQueue {
             debug!(filename, %content_type, %upload_file_txn, "uploading a gallery attachment");
 
             let file_media_request = Media::make_local_file_media_request(&upload_file_txn);
+            let file_size = data.len();
 
             let MediaCacheResult {
                 upload_thumbnail_txn,
@@ -358,6 +359,7 @@ impl RoomSendQueue {
                 content_type,
                 upload_file_txn: upload_file_txn.clone(),
                 file_media_request,
+                file_size,
                 thumbnail: queue_thumbnail_info,
             });
 
