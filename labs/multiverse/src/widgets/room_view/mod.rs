@@ -300,9 +300,28 @@ impl RoomView {
         }
     }
 
+    async fn leave_room(&mut self) {
+        let Some(room) = self
+            .selected_room
+            .as_deref()
+            .and_then(|room_id| self.ui_rooms.lock().get(room_id).cloned())
+        else {
+            self.status_handle
+                .set_message(format!("Coulnd't find the room object to leave the room"));
+            return;
+        };
+
+        let _ = room.leave().await.inspect_err(|e| {
+            self.status_handle.set_message(format!("Couldn't leave the room {e:?}"))
+        });
+
+        self.input.clear();
+    }
+
     async fn handle_command(&mut self, command: input::Command) {
         match command {
             input::Command::Invite { user_id } => self.invite_member(&user_id).await,
+            input::Command::Leave => self.leave_room().await,
         }
     }
 
