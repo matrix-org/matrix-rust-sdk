@@ -693,7 +693,7 @@ impl<T> TimelineDetails<T> {
         }
     }
 
-    pub(crate) fn is_unavailable(&self) -> bool {
+    pub fn is_unavailable(&self) -> bool {
         matches!(self, Self::Unavailable)
     }
 
@@ -804,7 +804,7 @@ mod tests {
                 member::RoomMemberEventContent,
                 message::{MessageFormat, MessageType},
             },
-            AnySyncStateEvent, BundledMessageLikeRelations,
+            AnySyncStateEvent,
         },
         room_id,
         serde::Raw,
@@ -918,23 +918,19 @@ mod tests {
 
         let original_event_id = event_id!("$original");
 
-        let mut relations = BundledMessageLikeRelations::new();
-        relations.replace = Some(Box::new(
-            f.text_html(" * Updated!", " * <b>Updated!</b>")
-                .edit(
-                    original_event_id,
-                    MessageType::text_html("Updated!", "<b>Updated!</b>").into(),
-                )
-                .event_id(event_id!("$edit"))
-                .sender(user_id)
-                .into_raw_sync(),
-        ));
-
         let event = f
             .text_html("**My M**", "<b>My M</b>")
             .sender(user_id)
             .event_id(original_event_id)
-            .bundled_relations(relations)
+            .with_bundled_edit(
+                f.text_html(" * Updated!", " * <b>Updated!</b>")
+                    .edit(
+                        original_event_id,
+                        MessageType::text_html("Updated!", "<b>Updated!</b>").into(),
+                    )
+                    .event_id(event_id!("$edit"))
+                    .sender(user_id),
+            )
             .server_ts(42)
             .into_event();
 
@@ -971,18 +967,6 @@ mod tests {
 
         let original_event_id = event_id!("$original");
 
-        let mut relations = BundledMessageLikeRelations::new();
-        relations.replace = Some(Box::new(
-            f.poll_edit(
-                original_event_id,
-                "It's one banana, Michael, how much could it cost?",
-                vec!["1 dollar", "10 dollars", "100 dollars"],
-            )
-            .event_id(event_id!("$edit"))
-            .sender(user_id)
-            .into_raw_sync(),
-        ));
-
         let event = f
             .poll_start(
                 "It's one avocado, Michael, how much could it cost? 10 dollars?",
@@ -990,7 +974,15 @@ mod tests {
                 vec!["1 dollar", "10 dollars", "100 dollars"],
             )
             .event_id(original_event_id)
-            .bundled_relations(relations)
+            .with_bundled_edit(
+                f.poll_edit(
+                    original_event_id,
+                    "It's one banana, Michael, how much could it cost?",
+                    vec!["1 dollar", "10 dollars", "100 dollars"],
+                )
+                .event_id(event_id!("$edit"))
+                .sender(user_id),
+            )
             .sender(user_id)
             .into_event();
 

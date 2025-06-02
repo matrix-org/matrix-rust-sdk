@@ -478,7 +478,7 @@ impl PaginableRoom for WeakRoom {
     }
 }
 
-#[cfg(all(not(target_arch = "wasm32"), test))]
+#[cfg(all(not(target_family = "wasm"), test))]
 mod tests {
     use std::sync::Arc;
 

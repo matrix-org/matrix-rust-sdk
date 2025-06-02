@@ -161,7 +161,7 @@ impl<'a> RoomPrivacySettings<'a> {
     }
 }
 
-#[cfg(all(test, not(target_arch = "wasm32")))]
+#[cfg(all(test, not(target_family = "wasm")))]
 mod tests {
     use std::ops::Not;
 

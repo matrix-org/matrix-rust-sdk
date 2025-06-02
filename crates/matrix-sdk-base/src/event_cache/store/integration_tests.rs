@@ -19,8 +19,8 @@ use std::sync::Arc;
 use assert_matches::assert_matches;
 use matrix_sdk_common::{
     deserialized_responses::{
-        AlgorithmInfo, DecryptedRoomEvent, EncryptionInfo, TimelineEvent, TimelineEventKind,
-        VerificationState,
+        AlgorithmInfo, DecryptedRoomEvent, EncryptionInfo, ThreadSummaryStatus, TimelineEvent,
+        TimelineEventKind, VerificationState,
     },
     linked_chunk::{lazy_loader, ChunkContent, ChunkIdentifier as CId, Position, Update},
 };
@@ -81,6 +81,7 @@ pub fn make_test_event_with_event_id(
             unsigned_encryption_info: None,
         }),
         push_actions: Some(vec![Action::Notify]),
+        thread_summary: ThreadSummaryStatus::Unknown,
     }
 }
 
@@ -1139,7 +1140,7 @@ macro_rules! event_cache_store_integration_tests {
 #[macro_export]
 macro_rules! event_cache_store_integration_tests_time {
     () => {
-        #[cfg(not(target_arch = "wasm32"))]
+        #[cfg(not(target_family = "wasm"))]
         mod event_cache_store_integration_tests_time {
             use std::time::Duration;
 

@@ -32,13 +32,13 @@ serde.workspace = true
 serde_json.workspace = true
 vodozemac.workspace = true
 
-[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+[target.'cfg(not(target_family = "wasm"))'.dependencies]
 ctor = "0.2.9"
 tokio = { workspace = true, features = ["rt", "macros"] }
 tracing-subscriber = { workspace = true, features = ["env-filter"] }
 wiremock.workspace = true
 
-[target.'cfg(target_arch = "wasm32")'.dependencies]
+[target.'cfg(target_family = "wasm")'.dependencies]
 getrandom = { version = "0.2.6", default-features = false, features = ["js"] }
 wasm-bindgen-test.workspace = true
 

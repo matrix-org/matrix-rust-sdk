@@ -1279,7 +1279,7 @@ macro_rules! cryptostore_integration_tests {
 
             #[async_test]
             // Not yet implemented in the indexedDB store so we're disabling it on WASM.
-            #[cfg_attr(target_arch = "wasm32", ignore)]
+            #[cfg_attr(target_family = "wasm", ignore)]
             async fn test_received_room_key_bundle() {
                 let store = get_store("received_room_key_bundle", None, true).await;
                 let test_room = room_id!("!room:example.org");

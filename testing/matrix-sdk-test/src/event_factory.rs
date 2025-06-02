@@ -37,7 +37,7 @@ use ruma::{
         },
         reaction::ReactionEventContent,
         receipt::{Receipt, ReceiptEventContent, ReceiptThread, ReceiptType},
-        relation::{Annotation, InReplyTo, Replacement, Thread},
+        relation::{Annotation, BundledThread, InReplyTo, Replacement, Thread},
         room::{
             avatar::{self, RoomAvatarEventContent},
             canonical_alias::RoomCanonicalAliasEventContent,
@@ -57,8 +57,9 @@ use ruma::{
             topic::RoomTopicEventContent,
         },
         typing::TypingEventContent,
-        AnySyncTimelineEvent, AnyTimelineEvent, BundledMessageLikeRelations, EventContent,
-        RedactedMessageLikeEventContent, RedactedStateEventContent,
+        AnyMessageLikeEvent, AnyStateEvent, AnySyncStateEvent, AnySyncTimelineEvent,
+        AnyTimelineEvent, BundledMessageLikeRelations, EventContent,
+        RedactedMessageLikeEventContent, RedactedStateEventContent, StateEventContent,
     },
     serde::Raw,
     server_name, EventId, Int, MilliSecondsSinceUnixEpoch, MxcUri, OwnedEventId, OwnedMxcUri,
@@ -192,18 +193,35 @@ where
         self
     }
 
-    /// Adds bundled relations to this event.
-    ///
-    /// Ideally, we'd type-check that an event passed as a relation is the same
-    /// type as this one, but it's not trivial to do so because this builder
-    /// is only generic on the event's *content*, not the event type itself;
-    /// doing so would require many changes, and this is testing code after
-    /// all.
-    pub fn bundled_relations(
+    /// Create a bundled thread summary in the unsigned bundled relations of
+    /// this event.
+    pub fn with_bundled_thread_summary(
         mut self,
-        relations: BundledMessageLikeRelations<Raw<AnySyncTimelineEvent>>,
+        latest_event: Raw<AnyMessageLikeEvent>,
+        count: usize,
+        current_user_participated: bool,
     ) -> Self {
-        self.unsigned.get_or_insert_with(Default::default).relations = Some(relations);
+        let relations = self
+            .unsigned
+            .get_or_insert_with(Default::default)
+            .relations
+            .get_or_insert_with(BundledMessageLikeRelations::new);
+        relations.thread = Some(Box::new(BundledThread::new(
+            latest_event,
+            UInt::try_from(count).unwrap(),
+            current_user_participated,
+        )));
+        self
+    }
+
+    /// Create a bundled edit in the unsigned bundled relations of this event.
+    pub fn with_bundled_edit(mut self, replacement: impl Into<Raw<AnySyncTimelineEvent>>) -> Self {
+        let relations = self
+            .unsigned
+            .get_or_insert_with(Default::default)
+            .relations
+            .get_or_insert_with(BundledMessageLikeRelations::new);
+        relations.replace = Some(Box::new(replacement.into()));
         self
     }
 
@@ -438,6 +456,24 @@ where
 {
     fn from(val: EventBuilder<E>) -> Self {
         val.into_event()
+    }
+}
+
+impl<E: StateEventContent> From<EventBuilder<E>> for Raw<AnySyncStateEvent>
+where
+    E::EventType: Serialize,
+{
+    fn from(val: EventBuilder<E>) -> Self {
+        Raw::new(&val.construct_json(false)).unwrap().cast()
+    }
+}
+
+impl<E: StateEventContent> From<EventBuilder<E>> for Raw<AnyStateEvent>
+where
+    E::EventType: Serialize,
+{
+    fn from(val: EventBuilder<E>) -> Self {
+        Raw::new(&val.construct_json(true)).unwrap().cast()
     }
 }
 

@@ -27,7 +27,7 @@ impl KnockedRoomBuilder {
 
     /// Add an event to the state.
     pub fn add_state_event(mut self, event: StrippedStateTestEvent) -> Self {
-        self.inner.knock_state.events.push(event.into_raw_event());
+        self.inner.knock_state.events.push(event.into());
         self
     }
 

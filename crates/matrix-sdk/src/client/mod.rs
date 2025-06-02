@@ -109,15 +109,15 @@ pub(crate) mod futures;
 
 pub use self::builder::{sanitize_server_name, ClientBuildError, ClientBuilder};
 
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(not(target_family = "wasm"))]
 type NotificationHandlerFut = Pin<Box<dyn Future<Output = ()> + Send>>;
-#[cfg(target_arch = "wasm32")]
+#[cfg(target_family = "wasm")]
 type NotificationHandlerFut = Pin<Box<dyn Future<Output = ()>>>;
 
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(not(target_family = "wasm"))]
 type NotificationHandlerFn =
     Box<dyn Fn(Notification, Room, Client) -> NotificationHandlerFut + Send + Sync>;
-#[cfg(target_arch = "wasm32")]
+#[cfg(target_family = "wasm")]
 type NotificationHandlerFn = Box<dyn Fn(Notification, Room, Client) -> NotificationHandlerFut>;
 
 /// Enum controlling if a loop running callbacks should continue or abort.
@@ -1499,7 +1499,7 @@ impl Client {
     /// client.public_rooms(limit, since, server).await;
     /// # };
     /// ```
-    #[cfg_attr(not(target_arch = "wasm32"), deny(clippy::future_not_send))]
+    #[cfg_attr(not(target_family = "wasm"), deny(clippy::future_not_send))]
     pub async fn public_rooms(
         &self,
         limit: Option<u32>,
@@ -2589,7 +2589,7 @@ struct ClientServerCapabilities {
 }
 
 // The http mocking library is not supported for wasm32
-#[cfg(all(test, not(target_arch = "wasm32")))]
+#[cfg(all(test, not(target_family = "wasm")))]
 pub(crate) mod tests {
     use std::{sync::Arc, time::Duration};
 
@@ -2603,7 +2603,7 @@ pub(crate) mod tests {
         async_test, test_json, GlobalAccountDataTestEvent, JoinedRoomBuilder, StateTestEvent,
         SyncResponseBuilder, DEFAULT_TEST_ROOM_ID,
     };
-    #[cfg(target_arch = "wasm32")]
+    #[cfg(target_family = "wasm")]
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
     use ruma::{

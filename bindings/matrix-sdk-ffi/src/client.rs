@@ -7,7 +7,7 @@ use std::{
 };
 
 use anyhow::{anyhow, Context as _};
-use futures_util::{pin_mut, StreamExt};
+use futures_util::pin_mut;
 use matrix_sdk::{
     authentication::oauth::{
         AccountManagementActionFull, ClientId, OAuthAuthorizationData, OAuthSession,
@@ -40,7 +40,7 @@ use matrix_sdk::{
     AuthApi, AuthSession, Client as MatrixClient, SessionChange, SessionTokens,
     STATE_STORE_DATABASE_NAME,
 };
-use matrix_sdk_common::runtime::get_runtime_handle;
+use matrix_sdk_common::{stream::StreamExt, runtime::get_runtime_handle};
 use matrix_sdk_ui::{
     notification_client::{
         NotificationClient as MatrixNotificationClient,

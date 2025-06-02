@@ -57,7 +57,8 @@ use super::{
     },
     traits::RoomDataProvider,
     EncryptedMessage, EventTimelineItem, InReplyToDetails, MsgLikeContent, MsgLikeKind, OtherState,
-    ReactionStatus, RepliedToEvent, Sticker, TimelineDetails, TimelineItem, TimelineItemContent,
+    ReactionStatus, RepliedToEvent, Sticker, ThreadSummary, TimelineDetails, TimelineItem,
+    TimelineItemContent,
 };
 use crate::timeline::controller::aggregations::PendingEdit;
 
@@ -151,6 +152,7 @@ pub(super) struct RemoteEventContext<'a> {
     raw_event: &'a Raw<AnySyncTimelineEvent>,
     relations: BundledMessageLikeRelations<AnySyncMessageLikeEvent>,
     bundled_edit_encryption_info: Option<Arc<EncryptionInfo>>,
+    thread_summary: Option<ThreadSummary>,
 }
 
 /// An action that we want to cause on the timeline.
@@ -190,10 +192,12 @@ impl TimelineAction {
     ///
     /// The return value may be `None` if handling the event (be it a new item
     /// or an aggregation) is not supported for this event type.
+    #[allow(clippy::too_many_arguments)]
     pub async fn from_event<P: RoomDataProvider>(
         event: AnySyncTimelineEvent,
         raw_event: &Raw<AnySyncTimelineEvent>,
         room_data_provider: &P,
+        thread_summary: Option<ThreadSummary>,
         unable_to_decrypt_info: Option<UnableToDecryptInfo>,
         bundled_edit_encryption_info: Option<Arc<EncryptionInfo>>,
         timeline_items: &Vector<Arc<TimelineItem>>,
@@ -257,6 +261,7 @@ impl TimelineAction {
                                 raw_event,
                                 relations: ev.relations(),
                                 bundled_edit_encryption_info,
+                                thread_summary,
                             }),
                             timeline_items,
                             meta,
@@ -272,6 +277,7 @@ impl TimelineAction {
                             raw_event,
                             relations: ev.relations(),
                             bundled_edit_encryption_info,
+                            thread_summary,
                         }),
                         timeline_items,
                         meta,
@@ -371,7 +377,7 @@ impl TimelineAction {
                     timeline_items,
                 );
 
-                if let Some(event_id) = remote_ctx.map(|ctx| ctx.event_id) {
+                if let Some(event_id) = remote_ctx.as_ref().map(|ctx| ctx.event_id) {
                     Self::mark_response(meta, event_id, in_reply_to.as_ref());
                 }
 
@@ -380,7 +386,7 @@ impl TimelineAction {
                     reactions: Default::default(),
                     thread_root,
                     in_reply_to,
-                    thread_summary: None,
+                    thread_summary: remote_ctx.and_then(|ctx| ctx.thread_summary),
                 }))
             }
 
@@ -391,7 +397,7 @@ impl TimelineAction {
                     Self::extract_reply_and_thread_root(c.relates_to.clone(), timeline_items);
 
                 // Record the bundled edit in the aggregations set, if any.
-                if let Some(ctx) = remote_ctx {
+                let thread_summary = if let Some(ctx) = remote_ctx {
                     if let Some(new_content) = extract_poll_edit_content(ctx.relations) {
                         // It is replacing the current event.
                         if let Some(edit_event_id) =
@@ -417,7 +423,11 @@ impl TimelineAction {
                     }
 
                     Self::mark_response(meta, ctx.event_id, in_reply_to.as_ref());
-                }
+
+                    ctx.thread_summary
+                } else {
+                    None
+                };
 
                 let poll_state = PollState::new(c);
 
@@ -427,7 +437,7 @@ impl TimelineAction {
                         reactions: Default::default(),
                         thread_root,
                         in_reply_to,
-                        thread_summary: None,
+                        thread_summary,
                     }),
                 }
             }
@@ -439,7 +449,7 @@ impl TimelineAction {
                 );
 
                 // Record the bundled edit in the aggregations set, if any.
-                if let Some(ctx) = remote_ctx {
+                let thread_summary = if let Some(ctx) = remote_ctx {
                     if let Some(new_content) = extract_room_msg_edit_content(ctx.relations) {
                         // It is replacing the current event.
                         if let Some(edit_event_id) =
@@ -465,7 +475,11 @@ impl TimelineAction {
                     }
 
                     Self::mark_response(meta, ctx.event_id, in_reply_to.as_ref());
-                }
+
+                    ctx.thread_summary
+                } else {
+                    None
+                };
 
                 Self::AddItem {
                     content: TimelineItemContent::message(
@@ -474,7 +488,7 @@ impl TimelineAction {
                         Default::default(),
                         thread_root,
                         in_reply_to,
-                        None,
+                        thread_summary,
                     ),
                 }
             }

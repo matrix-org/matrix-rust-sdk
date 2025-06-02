@@ -49,7 +49,7 @@ impl Pusher {
 }
 
 // The http mocking library is not supported for wasm32
-#[cfg(all(test, not(target_arch = "wasm32")))]
+#[cfg(all(test, not(target_family = "wasm")))]
 mod tests {
     use matrix_sdk_test::{async_test, test_json};
     use ruma::{

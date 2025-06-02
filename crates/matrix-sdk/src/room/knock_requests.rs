@@ -103,7 +103,7 @@ impl KnockRequestMemberInfo {
 }
 
 // The http mocking library is not supported for wasm32
-#[cfg(all(test, not(target_arch = "wasm32")))]
+#[cfg(all(test, not(target_family = "wasm")))]
 mod tests {
     use matrix_sdk_test::{async_test, event_factory::EventFactory, JoinedRoomBuilder};
     use ruma::{

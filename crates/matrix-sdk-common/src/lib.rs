@@ -29,8 +29,10 @@ pub mod linked_chunk;
 pub mod locks;
 pub mod ring_buffer;
 pub mod runtime;
+pub mod serde_helpers;
 pub mod sleep;
 pub mod store_locks;
+pub mod stream;
 pub mod timeout;
 pub mod tracing_timer;
 pub mod ttl_cache;
@@ -38,37 +40,37 @@ pub mod ttl_cache;
 // We cannot currently measure test coverage in the WASM environment, so
 // js_tracing is incorrectly flagged as untested. Disable coverage checking for
 // it.
-#[cfg(all(target_arch = "wasm32", not(tarpaulin_include)))]
+#[cfg(all(target_family = "wasm", not(tarpaulin_include)))]
 pub mod js_tracing;
 
 pub use store_locks::LEASE_DURATION_MS;
 
 /// Alias for `Send` on non-wasm, empty trait (implemented by everything) on
 /// wasm.
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(not(target_family = "wasm"))]
 pub trait SendOutsideWasm: Send {}
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(not(target_family = "wasm"))]
 impl<T: Send> SendOutsideWasm for T {}
 
 /// Alias for `Send` on non-wasm, empty trait (implemented by everything) on
 /// wasm.
-#[cfg(target_arch = "wasm32")]
+#[cfg(target_family = "wasm")]
 pub trait SendOutsideWasm {}
-#[cfg(target_arch = "wasm32")]
+#[cfg(target_family = "wasm")]
 impl<T> SendOutsideWasm for T {}
 
 /// Alias for `Sync` on non-wasm, empty trait (implemented by everything) on
 /// wasm.
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(not(target_family = "wasm"))]
 pub trait SyncOutsideWasm: Sync {}
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(not(target_family = "wasm"))]
 impl<T: Sync> SyncOutsideWasm for T {}
 
 /// Alias for `Sync` on non-wasm, empty trait (implemented by everything) on
 /// wasm.
-#[cfg(target_arch = "wasm32")]
+#[cfg(target_family = "wasm")]
 pub trait SyncOutsideWasm {}
-#[cfg(target_arch = "wasm32")]
+#[cfg(target_family = "wasm")]
 impl<T> SyncOutsideWasm for T {}
 
 /// Super trait that is used for our store traits, this trait will differ if
@@ -84,11 +86,11 @@ macro_rules! boxed_into_future {
         $crate::boxed_into_future!(extra_bounds: );
     };
     (extra_bounds: $($extra_bounds:tt)*) => {
-        #[cfg(target_arch = "wasm32")]
+        #[cfg(target_family = "wasm")]
         type IntoFuture = ::std::pin::Pin<::std::boxed::Box<
             dyn ::std::future::Future<Output = Self::Output> + $($extra_bounds)*
         >>;
-        #[cfg(not(target_arch = "wasm32"))]
+        #[cfg(not(target_family = "wasm"))]
         type IntoFuture = ::std::pin::Pin<::std::boxed::Box<
             dyn ::std::future::Future<Output = Self::Output> + Send + $($extra_bounds)*
         >>;
@@ -96,9 +98,9 @@ macro_rules! boxed_into_future {
 }
 
 /// A `Box::pin` future that is `Send` on non-wasm, and without `Send` on wasm.
-#[cfg(target_arch = "wasm32")]
+#[cfg(target_family = "wasm")]
 pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + 'a>>;
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(not(target_family = "wasm"))]
 pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 
 #[cfg(feature = "uniffi")]

@@ -11,7 +11,7 @@ use ruma::{
 use url::Url;
 
 pub mod client;
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(not(target_family = "wasm"))]
 pub mod mocks;
 
 use self::client::mock_matrix_session;
@@ -68,7 +68,7 @@ pub async fn logged_in_client(homeserver_url: Option<String>) -> Client {
 }
 
 /// Like [`test_client_builder`], but with a mocked server too.
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(not(target_family = "wasm"))]
 pub async fn test_client_builder_with_server() -> (ClientBuilder, wiremock::MockServer) {
     let server = wiremock::MockServer::start().await;
     let builder = test_client_builder(Some(server.uri()));
@@ -76,7 +76,7 @@ pub async fn test_client_builder_with_server() -> (ClientBuilder, wiremock::Mock
 }
 
 /// Like [`no_retry_test_client`], but with a mocked server too.
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(not(target_family = "wasm"))]
 pub async fn no_retry_test_client_with_server() -> (Client, wiremock::MockServer) {
     let server = wiremock::MockServer::start().await;
     let client = no_retry_test_client(Some(server.uri().to_string())).await;
@@ -84,7 +84,7 @@ pub async fn no_retry_test_client_with_server() -> (Client, wiremock::MockServer
 }
 
 /// Like [`logged_in_client`], but with a mocked server too.
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(not(target_family = "wasm"))]
 pub async fn logged_in_client_with_server() -> (Client, wiremock::MockServer) {
     let server = wiremock::MockServer::start().await;
     let client = logged_in_client(Some(server.uri().to_string())).await;

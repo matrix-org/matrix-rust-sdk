@@ -99,7 +99,8 @@ fn popup_area(area: Rect, percent_x: u16, percent_y: u16) -> Rect {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let file_writer = tracing_appender::rolling::hourly("/tmp/", "logs-");
+    let cli = Cli::parse();
+    let file_writer = tracing_appender::rolling::hourly(&cli.session_path, "logs-");
 
     tracing_subscriber::fmt()
         .with_env_filter(EnvFilter::from_default_env())
@@ -109,7 +110,6 @@ async fn main() -> Result<()> {
 
     color_eyre::install()?;
 
-    let cli = Cli::parse();
     let client = configure_client(cli).await?;
 
     let event_cache = client.event_cache();

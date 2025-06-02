@@ -546,9 +546,12 @@ mod private {
     use eyeball_im::VectorDiff;
     use matrix_sdk_base::{
         apply_redaction,
-        deserialized_responses::{TimelineEvent, TimelineEventKind},
+        deserialized_responses::{
+            ThreadSummary, ThreadSummaryStatus, TimelineEvent, TimelineEventKind,
+        },
         event_cache::{store::EventCacheStoreLock, Event, Gap},
         linked_chunk::{lazy_loader, ChunkContent, ChunkIdentifierGenerator, Position, Update},
+        serde_helpers::extract_thread_root,
     };
     use matrix_sdk_common::executor::spawn;
     use ruma::{
@@ -1175,6 +1178,7 @@ mod private {
 
             for event in &events_to_post_process {
                 self.maybe_apply_new_redaction(event).await?;
+                self.analyze_thread_root(event).await?;
             }
 
             // If we've never waited for an initial previous-batch token, and we now have at
@@ -1188,6 +1192,46 @@ mod private {
             let updates_as_vector_diffs = self.events.updates_as_vector_diffs();
 
             Ok(updates_as_vector_diffs)
+        }
+
+        /// If the event is a threaded reply, ensure the related thread's root
+        /// event (i.e. first thread event) has a thread summary.
+        #[instrument(skip_all)]
+        async fn analyze_thread_root(&mut self, event: &Event) -> Result<(), EventCacheError> {
+            let Some(thread_root) = extract_thread_root(event.raw()) else {
+                // No thread root, carry on.
+                return Ok(());
+            };
+
+            // Add a thread summary to the event which has the thread root, if we knew about
+            // it.
+            let Some((location, mut target_event)) = self.find_event(&thread_root).await? else {
+                trace!("thread root event is missing from the linked chunk");
+                return Ok(());
+            };
+
+            match target_event.thread_summary {
+                ThreadSummaryStatus::Unknown | ThreadSummaryStatus::None => {}
+                ThreadSummaryStatus::Some(_thread_summary) => {
+                    // The event already had a thread summary; ignore.
+                    // TODO: later, we might want to recompute the thread summary here, and cause
+                    // an update if it's changed.
+                    return Ok(());
+                }
+            }
+
+            target_event.thread_summary = ThreadSummaryStatus::Some(ThreadSummary {});
+
+            match location {
+                EventLocation::Memory(position) => {
+                    self.events
+                        .replace_event_at(position, target_event)
+                        .expect("should have been a valid position of an item");
+                }
+                EventLocation::Store => self.save_event([target_event]).await?,
+            }
+
+            Ok(())
         }
 
         /// If the given event is a redaction, try to retrieve the
@@ -1541,7 +1585,7 @@ mod tests {
         assert_eq!(related_event_id, associated_related_id);
     }
 
-    #[cfg(not(target_arch = "wasm32"))] // This uses the cross-process lock, so needs time support.
+    #[cfg(not(target_family = "wasm"))] // This uses the cross-process lock, so needs time support.
     #[async_test]
     async fn test_write_to_storage() {
         use matrix_sdk_base::linked_chunk::lazy_loader::from_all_chunks;
@@ -1607,11 +1651,10 @@ mod tests {
         assert!(chunks.next().is_none());
     }
 
-    #[cfg(not(target_arch = "wasm32"))] // This uses the cross-process lock, so needs time support.
+    #[cfg(not(target_family = "wasm"))] // This uses the cross-process lock, so needs time support.
     #[async_test]
     async fn test_write_to_storage_strips_bundled_relations() {
         use matrix_sdk_base::linked_chunk::lazy_loader::from_all_chunks;
-        use ruma::events::BundledMessageLikeRelations;
 
         let room_id = room_id!("!galette:saucisse.bzh");
         let f = EventFactory::new().room(room_id).sender(user_id!("@ben:saucisse.bzh"));
@@ -1636,10 +1679,11 @@ mod tests {
         let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
 
         // Propagate an update for a message with bundled relations.
-        let mut relations = BundledMessageLikeRelations::new();
-        relations.replace =
-            Some(Box::new(f.text_msg("Hello, Kind Sir").sender(*ALICE).into_raw_sync()));
-        let ev = f.text_msg("hey yo").sender(*ALICE).bundled_relations(relations).into_event();
+        let ev = f
+            .text_msg("hey yo")
+            .sender(*ALICE)
+            .with_bundled_edit(f.text_msg("Hello, Kind Sir").sender(*ALICE))
+            .into_event();
 
         let timeline = Timeline { limited: false, prev_batch: None, events: vec![ev] };
 
@@ -1689,7 +1733,7 @@ mod tests {
         assert!(chunks.next().is_none());
     }
 
-    #[cfg(not(target_arch = "wasm32"))] // This uses the cross-process lock, so needs time support.
+    #[cfg(not(target_family = "wasm"))] // This uses the cross-process lock, so needs time support.
     #[async_test]
     async fn test_clear() {
         use eyeball_im::VectorDiff;
@@ -1832,7 +1876,7 @@ mod tests {
         assert_eq!(linked_chunk.num_items(), 0);
     }
 
-    #[cfg(not(target_arch = "wasm32"))] // This uses the cross-process lock, so needs time support.
+    #[cfg(not(target_family = "wasm"))] // This uses the cross-process lock, so needs time support.
     #[async_test]
     async fn test_load_from_storage() {
         use eyeball_im::VectorDiff;
@@ -1955,7 +1999,7 @@ mod tests {
         assert_eq!(items[1].event_id().unwrap(), event_id2);
     }
 
-    #[cfg(not(target_arch = "wasm32"))] // This uses the cross-process lock, so needs time support.
+    #[cfg(not(target_family = "wasm"))] // This uses the cross-process lock, so needs time support.
     #[async_test]
     async fn test_load_from_storage_resilient_to_failure() {
         let room_id = room_id!("!fondue:patate.ch");
@@ -2021,7 +2065,7 @@ mod tests {
         assert!(raw_chunks.is_empty());
     }
 
-    #[cfg(not(target_arch = "wasm32"))] // This uses the cross-process lock, so needs time support.
+    #[cfg(not(target_family = "wasm"))] // This uses the cross-process lock, so needs time support.
     #[async_test]
     async fn test_no_useless_gaps() {
         use crate::event_cache::room::LoadMoreEventsBackwardsOutcome;
@@ -2173,7 +2217,7 @@ mod tests {
         assert_eq!(related_event_id, related_id);
     }
 
-    #[cfg(not(target_arch = "wasm32"))] // This uses the cross-process lock, so needs time support.
+    #[cfg(not(target_family = "wasm"))] // This uses the cross-process lock, so needs time support.
     #[async_test]
     async fn test_shrink_to_last_chunk() {
         use eyeball_im::VectorDiff;
@@ -2288,7 +2332,7 @@ mod tests {
         assert!(outcome.reached_start);
     }
 
-    #[cfg(not(target_arch = "wasm32"))] // This uses the cross-process lock, so needs time support.
+    #[cfg(not(target_family = "wasm"))] // This uses the cross-process lock, so needs time support.
     #[async_test]
     async fn test_auto_shrink_after_all_subscribers_are_gone() {
         use eyeball_im::VectorDiff;
