@@ -183,7 +183,22 @@ impl InvitedRoomView {
 
     fn update(&mut self) {
         if !matches!(self.room.state(), RoomState::Invited) {
-            self.mode = Mode::Done;
+            match &mut self.mode {
+                // Don't go into the `Done` mode before the task doing the join finishes. This is
+                // especially important for the shared room history feature, since we do a bunch of
+                // work after the `/join` request is sent out to import the historic room keys.
+                //
+                // This prevents the task from being aborted because switching to the joined room
+                // view is decided by the `should_switch()` function.
+                Mode::Joining { task } => {
+                    if task.is_finished() {
+                        self.mode = Mode::Done
+                    }
+                }
+                Mode::Loading { .. } | Mode::Leaving { .. } | Mode::Loaded { .. } | Mode::Done => {
+                    self.mode = Mode::Done
+                }
+            }
         } else {
             match &mut self.mode {
                 Mode::Loading { task } => {
