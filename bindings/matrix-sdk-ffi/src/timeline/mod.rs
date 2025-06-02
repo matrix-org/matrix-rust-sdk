@@ -67,7 +67,7 @@ use uuid::Uuid;
 use self::content::TimelineItemContent;
 pub use self::msg_like::MessageContent;
 use crate::{
-    client::{ProgressWatcher, RelativeTransmissionProgress},
+    client::{AbstractProgress, ProgressWatcher},
     error::{ClientError, RoomError},
     event::EventOrTransactionId,
     helpers::unwrap_or_clone_arc,
@@ -280,7 +280,7 @@ pub enum EventSendProgress {
 
         /// The current combined upload progress for both the file and,
         /// if it exists, its thumbnail.
-        progress: RelativeTransmissionProgress,
+        progress: AbstractProgress,
     },
 }
 

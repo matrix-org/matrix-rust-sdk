@@ -231,11 +231,13 @@ pub struct TransmissionProgress {
     pub total: usize,
 }
 
-/// Progress of sending or receiving a payload in percent.
+/// Progress of an operation in abstract units.
 #[derive(Clone, Copy, Debug, Default)]
-pub struct RelativeTransmissionProgress {
-    /// The completion percentage as a number between 0 and 1.
-    pub percentage: f32,
+pub struct AbstractProgress {
+    /// How many units were already transferred.
+    pub current: usize,
+    /// How many units there are in total.
+    pub total: usize,
 }
 
 async fn response_to_http_response(
