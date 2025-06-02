@@ -192,6 +192,7 @@ impl TimelineAction {
     ///
     /// The return value may be `None` if handling the event (be it a new item
     /// or an aggregation) is not supported for this event type.
+    #[allow(clippy::too_many_arguments)]
     pub async fn from_event<P: RoomDataProvider>(
         event: AnySyncTimelineEvent,
         raw_event: &Raw<AnySyncTimelineEvent>,
