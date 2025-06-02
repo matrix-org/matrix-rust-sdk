@@ -242,6 +242,7 @@ pub struct PollAnswer {
 #[derive(Clone, uniffi::Object)]
 pub struct ThreadSummary {
     pub latest_event: ThreadSummaryLatestEventDetails,
+    pub num_replies: usize,
 }
 
 #[matrix_sdk_ffi_macros::export]
@@ -275,6 +276,6 @@ impl From<matrix_sdk_ui::timeline::ThreadSummary> for ThreadSummary {
             }
         };
 
-        Self { latest_event }
+        Self { latest_event, num_replies: value.num_replies }
     }
 }

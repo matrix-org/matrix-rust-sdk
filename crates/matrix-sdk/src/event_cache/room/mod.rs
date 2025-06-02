@@ -1210,17 +1210,21 @@ mod private {
                 return Ok(());
             };
 
-            match target_event.thread_summary {
-                ThreadSummaryStatus::Unknown | ThreadSummaryStatus::None => {}
-                ThreadSummaryStatus::Some(_thread_summary) => {
-                    // The event already had a thread summary; ignore.
-                    // TODO: later, we might want to recompute the thread summary here, and cause
-                    // an update if it's changed.
-                    return Ok(());
-                }
-            }
+            // Read the latest number of thread replies from the store.
+            //
+            // Implementation note: since this is based on the `m.relates_to` field, and
+            // that field can only be present on room messages, we don't have to
+            // worry about filtering out aggregation events (like
+            // reactions/edits/etc.). Pretty neat, huh?
+            let num_replies = {
+                let store_guard = &*self.store.lock().await?;
+                let related_thread_events = store_guard
+                    .find_event_relations(&self.room, &thread_root, Some(&[RelationType::Thread]))
+                    .await?;
+                related_thread_events.len()
+            };
 
-            target_event.thread_summary = ThreadSummaryStatus::Some(ThreadSummary {});
+            target_event.thread_summary = ThreadSummaryStatus::Some(ThreadSummary { num_replies });
 
             self.replace_event_at(location, target_event).await?;
 
