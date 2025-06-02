@@ -26,7 +26,6 @@ test-send-sync = []
 
 [dependencies]
 async-compat.workspace = true
-async-trait.workspace = true
 eyeball-im.workspace = true
 futures-core.workspace = true
 futures-util.workspace = true
