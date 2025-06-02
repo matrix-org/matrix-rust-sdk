@@ -851,7 +851,7 @@ mod tests {
         assert!(values.is_sorted());
     }
 
-    #[cfg(any(target_os = "linux", target_os = "macos", target_arch = "wasm32"))]
+    #[cfg(any(target_os = "linux", target_os = "macos", target_family = "wasm"))]
     mod expiration {
         use std::{sync::atomic::Ordering, time::Duration};
 

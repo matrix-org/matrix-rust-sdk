@@ -121,11 +121,15 @@ impl RepliedToEvent {
 
         debug!(event_type = %event.event_type(), "got deserialized event");
 
+        // We don't need to fill the thread information of an embedded reply.
+        let thread_summary = None;
+
         let sender = event.sender().to_owned();
         let action = TimelineAction::from_event(
             event,
             &raw_event,
             room_data_provider,
+            thread_summary,
             unable_to_decrypt_info,
             bundled_edit_encryption_info,
             timeline_items,

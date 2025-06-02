@@ -8,7 +8,7 @@ use std::{
 
 use anyhow::{anyhow, Context as _};
 use async_compat::get_runtime_handle;
-use futures_util::{pin_mut, StreamExt};
+use futures_util::pin_mut;
 use matrix_sdk::{
     authentication::oauth::{
         AccountManagementActionFull, ClientId, OAuthAuthorizationData, OAuthSession,
@@ -41,6 +41,7 @@ use matrix_sdk::{
     AuthApi, AuthSession, Client as MatrixClient, SessionChange, SessionTokens,
     STATE_STORE_DATABASE_NAME,
 };
+use matrix_sdk_common::stream::StreamExt;
 use matrix_sdk_ui::{
     notification_client::{
         NotificationClient as MatrixNotificationClient,
@@ -2338,7 +2339,7 @@ impl TryFrom<RumaJoinRule> for JoinRule {
             }
             RumaJoinRule::Invite => Ok(JoinRule::Invite),
             RumaJoinRule::_Custom(_) => Ok(JoinRule::Custom { repr: value.as_str().to_owned() }),
-            _ => Err(format!("Unknown JoinRule: {:?}", value)),
+            _ => Err(format!("Unknown JoinRule: {value:?}")),
         }
     }
 }
@@ -2355,7 +2356,7 @@ impl TryFrom<RumaAllowRule> for AllowRule {
                     .map_err(|e| format!("Couldn't serialize custom AllowRule: {e:?}"))?;
                 Ok(Self::Custom { json })
             }
-            _ => Err(format!("Invalid AllowRule: {:?}", value)),
+            _ => Err(format!("Invalid AllowRule: {value:?}")),
         }
     }
 }

@@ -407,7 +407,7 @@ async fn test_subscribe_all_room_updates() {
 // Check that the `Room::latest_encryption_state().await?.is_encrypted()` is
 // properly deduplicated, meaning we only make a single request to the server,
 // and that multiple calls do return the same result.
-#[cfg(all(feature = "e2e-encryption", not(target_arch = "wasm32")))]
+#[cfg(all(feature = "e2e-encryption", not(target_family = "wasm")))]
 #[async_test]
 async fn test_request_encryption_event_before_sending() {
     let (client, server) = logged_in_client_with_server().await;
@@ -1217,7 +1217,7 @@ async fn test_test_ambiguity_changes() {
     assert_pending!(updates);
 }
 
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(not(target_family = "wasm"))]
 #[async_test]
 async fn test_rooms_stream() {
     use futures_util::StreamExt as _;

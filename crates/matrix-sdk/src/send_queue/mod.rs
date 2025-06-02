@@ -2488,7 +2488,7 @@ fn canonicalize_dependent_requests(
     by_txn.into_iter().flat_map(|(_parent_txn_id, entries)| entries.into_iter().cloned()).collect()
 }
 
-#[cfg(all(test, not(target_arch = "wasm32")))]
+#[cfg(all(test, not(target_family = "wasm")))]
 mod tests {
     use std::{sync::Arc, time::Duration};
 

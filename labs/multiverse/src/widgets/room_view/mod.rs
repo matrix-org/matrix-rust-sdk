@@ -8,7 +8,7 @@ use matrix_sdk::{
     locks::Mutex,
     ruma::{
         api::client::receipt::create_receipt::v3::ReceiptType,
-        events::room::message::RoomMessageEventContent, OwnedRoomId, OwnedUserId,
+        events::room::message::RoomMessageEventContent, OwnedRoomId, UserId,
     },
     RoomState,
 };
@@ -264,7 +264,7 @@ impl RoomView {
         };
     }
 
-    async fn invite_member(&mut self, user_id: OwnedUserId) {
+    async fn invite_member(&mut self, user_id: &str) {
         let Some(room) = self
             .selected_room
             .as_deref()
@@ -273,6 +273,18 @@ impl RoomView {
             self.status_handle
                 .set_message(format!("Coulnd't find the room object to invite {user_id}"));
             return;
+        };
+
+        let user_id = match UserId::parse_with_server_name(
+            user_id,
+            room.client().user_id().unwrap().server_name(),
+        ) {
+            Ok(user_id) => user_id,
+            Err(e) => {
+                self.status_handle
+                    .set_message(format!("Failed to parse {user_id} as a user ID: {e:?}"));
+                return;
+            }
         };
 
         match room.invite_user_by_id(&user_id).await {
@@ -290,7 +302,7 @@ impl RoomView {
 
     async fn handle_command(&mut self, command: input::Command) {
         match command {
-            input::Command::Invite { user_id } => self.invite_member(user_id).await,
+            input::Command::Invite { user_id } => self.invite_member(&user_id).await,
         }
     }
 

@@ -2138,8 +2138,6 @@ impl Deref for Store {
 #[derive(Clone, Debug)]
 pub struct LockableCryptoStore(Arc<dyn CryptoStore<Error = CryptoStoreError>>);
 
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl matrix_sdk_common::store_locks::BackingStore for LockableCryptoStore {
     type LockError = CryptoStoreError;
 

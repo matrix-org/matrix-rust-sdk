@@ -139,7 +139,7 @@ impl HttpClient {
     }
 }
 
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(not(target_family = "wasm"))]
 #[derive(Clone, Debug)]
 pub(crate) struct HttpSettings {
     pub(crate) disable_ssl_verification: bool,
@@ -150,7 +150,7 @@ pub(crate) struct HttpSettings {
     pub(crate) disable_built_in_root_certificates: bool,
 }
 
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(not(target_family = "wasm"))]
 impl Default for HttpSettings {
     fn default() -> Self {
         Self {
@@ -164,7 +164,7 @@ impl Default for HttpSettings {
     }
 }
 
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(not(target_family = "wasm"))]
 impl HttpSettings {
     /// Build a client with the specified configuration.
     pub(crate) fn make_client(&self) -> Result<reqwest::Client, HttpError> {

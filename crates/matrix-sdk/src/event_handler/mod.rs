@@ -68,14 +68,14 @@ mod static_events;
 
 pub use self::context::{Ctx, EventHandlerContext, RawEvent};
 
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(not(target_family = "wasm"))]
 type EventHandlerFut = Pin<Box<dyn Future<Output = ()> + Send>>;
-#[cfg(target_arch = "wasm32")]
+#[cfg(target_family = "wasm")]
 type EventHandlerFut = Pin<Box<dyn Future<Output = ()>>>;
 
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(not(target_family = "wasm"))]
 type EventHandlerFn = dyn Fn(EventHandlerData<'_>) -> EventHandlerFut + Send + Sync;
-#[cfg(target_arch = "wasm32")]
+#[cfg(target_family = "wasm")]
 type EventHandlerFn = dyn Fn(EventHandlerData<'_>) -> EventHandlerFut;
 
 type AnyMap = anymap2::Map<dyn CloneAnySendSync + Send + Sync>;
@@ -401,7 +401,7 @@ impl Client {
             };
 
             let raw_event = item.raw().json();
-            let encryption_info = item.encryption_info();
+            let encryption_info = item.encryption_info().map(|i| &**i);
             let push_actions = item.push_actions.as_deref().unwrap_or(&[]);
 
             // Event handlers for possibly-redacted timeline events
@@ -677,7 +677,7 @@ mod tests {
         InvitedRoomBuilder, JoinedRoomBuilder, DEFAULT_TEST_ROOM_ID,
     };
     use stream_assert::{assert_closed, assert_pending, assert_ready};
-    #[cfg(target_arch = "wasm32")]
+    #[cfg(target_family = "wasm")]
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
     use std::{
         future,

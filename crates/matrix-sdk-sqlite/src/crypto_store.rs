@@ -1739,7 +1739,7 @@ mod tests {
             let olm_sessions =
                 database.get_sessions(id).await.expect("Should have some olm sessions");
 
-            println!("### Session id: {:?}", id);
+            println!("### Session id: {id:?}");
             assert_eq!(olm_sessions.map_or(0, |v| v.len()), count);
         }
 

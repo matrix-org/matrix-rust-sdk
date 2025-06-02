@@ -137,7 +137,7 @@ impl<'a> IntoFuture for Enable<'a> {
                     progress.set(EnableProgress::RoomKeyUploadError);
                 }
 
-                #[cfg(not(target_arch = "wasm32"))]
+                #[cfg(not(target_family = "wasm"))]
                 progress_task.abort();
             } else {
                 recovery.client.encryption().backups().maybe_trigger_backup();

@@ -2862,20 +2862,17 @@ impl<'a> MockEndpoint<'a, RoomRelationsEndpoint> {
         match self.endpoint.spec.take() {
             Some(IncludeRelations::RelationsOfType(rel_type)) => {
                 self.mock = self.mock.and(path_regex(format!(
-                    r"^/_matrix/client/v1/rooms/.*/relations/{}/{}$",
-                    event_spec, rel_type
+                    r"^/_matrix/client/v1/rooms/.*/relations/{event_spec}/{rel_type}$"
                 )));
             }
             Some(IncludeRelations::RelationsOfTypeAndEventType(rel_type, event_type)) => {
                 self.mock = self.mock.and(path_regex(format!(
-                    r"^/_matrix/client/v1/rooms/.*/relations/{}/{}/{}$",
-                    event_spec, rel_type, event_type
+                    r"^/_matrix/client/v1/rooms/.*/relations/{event_spec}/{rel_type}/{event_type}$"
                 )));
             }
             _ => {
                 self.mock = self.mock.and(path_regex(format!(
-                    r"^/_matrix/client/v1/rooms/.*/relations/{}",
-                    event_spec,
+                    r"^/_matrix/client/v1/rooms/.*/relations/{event_spec}",
                 )));
             }
         }

@@ -108,7 +108,7 @@ impl UserIdentity {
         Self { inner: identity, client }
     }
 
-    #[cfg(all(feature = "e2e-encryption", not(target_arch = "wasm32")))]
+    #[cfg(all(feature = "e2e-encryption", not(target_family = "wasm")))]
     pub(crate) fn underlying_identity(&self) -> CryptoUserIdentity {
         self.inner.clone()
     }

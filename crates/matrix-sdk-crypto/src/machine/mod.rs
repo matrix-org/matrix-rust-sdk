@@ -1760,13 +1760,13 @@ impl OlmMachine {
         &self,
         session: &InboundGroupSession,
         sender: &UserId,
-    ) -> MegolmResult<EncryptionInfo> {
+    ) -> MegolmResult<Arc<EncryptionInfo>> {
         let (verification_state, device_id) =
             self.get_or_update_verification_state(session, sender).await?;
 
         let sender = sender.to_owned();
 
-        Ok(EncryptionInfo {
+        Ok(Arc::new(EncryptionInfo {
             sender,
             sender_device: device_id,
             algorithm_info: AlgorithmInfo::MegolmV1AesSha2 {
@@ -1779,7 +1779,7 @@ impl OlmMachine {
                 session_id: Some(session.session_id().to_owned()),
             },
             verification_state,
-        })
+        }))
     }
 
     async fn decrypt_megolm_events(
@@ -1788,7 +1788,7 @@ impl OlmMachine {
         event: &EncryptedEvent,
         content: &SupportedEventEncryptionSchemes<'_>,
         decryption_settings: &DecryptionSettings,
-    ) -> MegolmResult<(JsonObject, EncryptionInfo)> {
+    ) -> MegolmResult<(JsonObject, Arc<EncryptionInfo>)> {
         let session =
             self.get_inbound_group_session_or_error(room_id, content.session_id()).await?;
 
@@ -2200,7 +2200,7 @@ impl OlmMachine {
         &self,
         event: &Raw<EncryptedEvent>,
         room_id: &RoomId,
-    ) -> MegolmResult<EncryptionInfo> {
+    ) -> MegolmResult<Arc<EncryptionInfo>> {
         let event = event.deserialize()?;
 
         let content: SupportedEventEncryptionSchemes<'_> = match &event.content.scheme {
@@ -2233,7 +2233,7 @@ impl OlmMachine {
         room_id: &RoomId,
         session_id: &str,
         sender: &UserId,
-    ) -> MegolmResult<EncryptionInfo> {
+    ) -> MegolmResult<Arc<EncryptionInfo>> {
         let session = self.get_inbound_group_session_or_error(room_id, session_id).await?;
         self.get_encryption_info(&session, sender).await
     }

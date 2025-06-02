@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, sync::Arc};
 
 use assert_matches2::assert_let;
 use eyeball_im::VectorDiff;
@@ -23,10 +23,7 @@ use matrix_sdk_base::deserialized_responses::{DecryptedRoomEvent, TimelineEvent}
 use matrix_sdk_test::{async_test, ALICE, BOB};
 use ruma::{
     event_id,
-    events::{
-        room::message::{MessageType, RedactedRoomMessageEventContent},
-        BundledMessageLikeRelations,
-    },
+    events::room::message::{MessageType, RedactedRoomMessageEventContent},
     room_id,
 };
 use stream_assert::{assert_next_matches, assert_pending};
@@ -87,7 +84,7 @@ async fn test_live_sanitized() {
     let new_html_content = "<edited/> <strong>better</strong> message";
     timeline
         .handle_live_event(
-            f.text_html(format!("* {}", new_plain_content), format!("* {}", new_html_content))
+            f.text_html(format!("* {new_plain_content}"), format!("* {new_html_content}"))
                 .sender(&ALICE)
                 .edit(
                     first_event_id,
@@ -114,30 +111,26 @@ async fn test_aggregated_sanitized() {
 
     let f = &timeline.factory;
 
-    let mut relations = BundledMessageLikeRelations::new();
-    relations.replace = Some(Box::new(
-        f.text_html(
-            "* !!edited!! **better** message",
-            "* <edited/> <strong>better</strong> message",
-        )
-        .edit(
-            original_event_id,
-            MessageType::text_html(
-                "!!edited!! **better** message",
-                "<edited/> <strong>better</strong> message",
-            )
-            .into(),
-        )
-        .event_id(edit_event_id)
-        .sender(*ALICE)
-        .into_raw_sync(),
-    ));
-
     let ev = f
         .text_html("**original** message", "<strong>original</strong> message")
         .sender(*ALICE)
         .event_id(original_event_id)
-        .bundled_relations(relations);
+        .with_bundled_edit(
+            f.text_html(
+                "* !!edited!! **better** message",
+                "* <edited/> <strong>better</strong> message",
+            )
+            .edit(
+                original_event_id,
+                MessageType::text_html(
+                    "!!edited!! **better** message",
+                    "<edited/> <strong>better</strong> message",
+                )
+                .into(),
+            )
+            .event_id(edit_event_id)
+            .sender(*ALICE),
+        );
 
     timeline.handle_live_event(ev).await;
 
@@ -167,7 +160,7 @@ async fn test_edit_updates_encryption_info() {
         .room(room_id)
         .into_raw_timeline();
 
-    let mut encryption_info = EncryptionInfo {
+    let mut encryption_info = Arc::new(EncryptionInfo {
         sender: (*ALICE).into(),
         sender_device: None,
         algorithm_info: AlgorithmInfo::MegolmV1AesSha2 {
@@ -176,7 +169,7 @@ async fn test_edit_updates_encryption_info() {
             session_id: Some("mysessionid6333".to_owned()),
         },
         verification_state: VerificationState::Verified,
-    };
+    });
 
     let original_event: TimelineEvent = DecryptedRoomEvent {
         event: original_event.cast(),
@@ -205,7 +198,7 @@ async fn test_edit_updates_encryption_info() {
         .room(room_id)
         .edit(original_event_id, MessageType::text_plain("!!edited!! **better** message").into())
         .into_raw_timeline();
-    encryption_info.verification_state =
+    Arc::make_mut(&mut encryption_info).verification_state =
         VerificationState::Unverified(VerificationLevel::UnverifiedIdentity);
     let edit_event: TimelineEvent = DecryptedRoomEvent {
         event: edit_event.cast(),
@@ -252,20 +245,12 @@ async fn test_relations_edit_overrides_pending_edit_msg() {
     assert_pending!(stream);
 
     // Now we receive the original event, with a bundled relations group.
-    let mut relations = BundledMessageLikeRelations::new();
-    relations.replace = Some(Box::new(
+    let ev = f.text_msg("original").sender(*ALICE).event_id(original_event_id).with_bundled_edit(
         f.text_msg("* edit 2")
             .edit(original_event_id, MessageType::text_plain("edit 2").into())
             .event_id(edit2_event_id)
-            .sender(*ALICE)
-            .into_raw_sync(),
-    ));
-
-    let ev = f
-        .text_msg("original")
-        .sender(*ALICE)
-        .event_id(original_event_id)
-        .bundled_relations(relations);
+            .sender(*ALICE),
+    );
 
     timeline.handle_live_event(ev).await;
 
@@ -318,18 +303,6 @@ async fn test_relations_edit_overrides_pending_edit_poll() {
     assert_pending!(stream);
 
     // Now we receive the original event, with a bundled relations group.
-    let mut relations = BundledMessageLikeRelations::new();
-    relations.replace = Some(Box::new(
-        f.poll_edit(
-            original_event_id,
-            "Can the real slim shady please stand up?",
-            vec!["Excuse me?", "Please stand up 🎵", "Please stand up 🎶"],
-        )
-        .sender(*ALICE)
-        .event_id(edit2_event_id)
-        .into(),
-    ));
-
     let ev = f
         .poll_start(
             "Can the fake slim shady please stand down?\nExcuse me?",
@@ -338,7 +311,15 @@ async fn test_relations_edit_overrides_pending_edit_poll() {
         )
         .sender(*ALICE)
         .event_id(original_event_id)
-        .bundled_relations(relations);
+        .with_bundled_edit(
+            f.poll_edit(
+                original_event_id,
+                "Can the real slim shady please stand up?",
+                vec!["Excuse me?", "Please stand up 🎵", "Please stand up 🎶"],
+            )
+            .sender(*ALICE)
+            .event_id(edit2_event_id),
+        );
 
     timeline.handle_live_event(ev).await;
 

@@ -1111,8 +1111,7 @@ impl EventCacheStore for SqliteEventCacheStore {
                 };
 
                 let query = format!(
-                    "SELECT content FROM events WHERE relates_to = ? AND room_id = ? {}",
-                    filter_query
+                    "SELECT content FROM events WHERE relates_to = ? AND room_id = ? {filter_query}"
                 );
 
                 // Collect related events.
@@ -1238,8 +1237,8 @@ impl EventCacheStore for SqliteEventCacheStore {
     }
 }
 
-#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+#[cfg_attr(target_family = "wasm", async_trait(?Send))]
+#[cfg_attr(not(target_family = "wasm"), async_trait)]
 impl EventCacheStoreMedia for SqliteEventCacheStore {
     type Error = Error;
 

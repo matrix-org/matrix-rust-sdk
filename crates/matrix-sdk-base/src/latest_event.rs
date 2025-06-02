@@ -654,8 +654,9 @@ mod tests {
                                     "event_id": "$1"
                                 }
                             }
-                        }
-                    },
+                        },
+                        "thread_summary": "None",
+                    }
                 }
             })
         );

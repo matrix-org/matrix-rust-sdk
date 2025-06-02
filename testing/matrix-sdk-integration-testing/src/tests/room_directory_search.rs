@@ -37,7 +37,7 @@ async fn test_room_directory_search_filter() -> Result<()> {
     for index in 0..25 {
         let mut request: CreateRoomRequest = CreateRoomRequest::new();
         request.visibility = Visibility::Public;
-        let name = format!("{}_{}", search_string, index);
+        let name = format!("{search_string}_{index}");
         warn!("room name: {}", name);
         request.name = Some(name);
         alice.create_room(request).await?;
