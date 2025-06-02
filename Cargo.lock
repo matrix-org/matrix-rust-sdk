@@ -4446,6 +4446,7 @@ dependencies = [
 [[package]]
 name = "ruma"
 version = "0.12.2"
+source = "git+https://github.com/ruma/ruma?rev=a8fd1b0322649bf59e2a5cfc73ab4fe46b21edd7#a8fd1b0322649bf59e2a5cfc73ab4fe46b21edd7"
 dependencies = [
  "assign",
  "js_int",
@@ -4461,6 +4462,7 @@ dependencies = [
 [[package]]
 name = "ruma-client-api"
 version = "0.20.2"
+source = "git+https://github.com/ruma/ruma?rev=a8fd1b0322649bf59e2a5cfc73ab4fe46b21edd7#a8fd1b0322649bf59e2a5cfc73ab4fe46b21edd7"
 dependencies = [
  "as_variant",
  "assign",
@@ -4483,6 +4485,7 @@ dependencies = [
 [[package]]
 name = "ruma-common"
 version = "0.15.2"
+source = "git+https://github.com/ruma/ruma?rev=a8fd1b0322649bf59e2a5cfc73ab4fe46b21edd7#a8fd1b0322649bf59e2a5cfc73ab4fe46b21edd7"
 dependencies = [
  "as_variant",
  "base64",
@@ -4514,6 +4517,7 @@ dependencies = [
 [[package]]
 name = "ruma-events"
 version = "0.30.2"
+source = "git+https://github.com/ruma/ruma?rev=a8fd1b0322649bf59e2a5cfc73ab4fe46b21edd7#a8fd1b0322649bf59e2a5cfc73ab4fe46b21edd7"
 dependencies = [
  "as_variant",
  "indexmap",
@@ -4538,6 +4542,7 @@ dependencies = [
 [[package]]
 name = "ruma-federation-api"
 version = "0.11.1"
+source = "git+https://github.com/ruma/ruma?rev=a8fd1b0322649bf59e2a5cfc73ab4fe46b21edd7#a8fd1b0322649bf59e2a5cfc73ab4fe46b21edd7"
 dependencies = [
  "http",
  "js_int",
@@ -4551,6 +4556,7 @@ dependencies = [
 [[package]]
 name = "ruma-html"
 version = "0.4.0"
+source = "git+https://github.com/ruma/ruma?rev=a8fd1b0322649bf59e2a5cfc73ab4fe46b21edd7#a8fd1b0322649bf59e2a5cfc73ab4fe46b21edd7"
 dependencies = [
  "as_variant",
  "html5ever",
@@ -4562,6 +4568,7 @@ dependencies = [
 [[package]]
 name = "ruma-identifiers-validation"
 version = "0.10.1"
+source = "git+https://github.com/ruma/ruma?rev=a8fd1b0322649bf59e2a5cfc73ab4fe46b21edd7#a8fd1b0322649bf59e2a5cfc73ab4fe46b21edd7"
 dependencies = [
  "js_int",
  "thiserror 2.0.11",
@@ -4570,6 +4577,7 @@ dependencies = [
 [[package]]
 name = "ruma-macros"
 version = "0.15.1"
+source = "git+https://github.com/ruma/ruma?rev=a8fd1b0322649bf59e2a5cfc73ab4fe46b21edd7#a8fd1b0322649bf59e2a5cfc73ab4fe46b21edd7"
 dependencies = [
  "cfg-if",
  "proc-macro-crate",

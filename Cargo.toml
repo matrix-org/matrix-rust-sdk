@@ -59,7 +59,7 @@ reqwest = { version = "0.12.12", default-features = false }
 rmp-serde = "1.3.0"
 # Be careful to use commits from the https://github.com/ruma/ruma/tree/ruma-0.12
 # branch until a proper release with breaking changes happens.
-ruma = { path = "../ruma/crates/ruma", features = [
+ruma = { git = "https://github.com/ruma/ruma", rev = "a8fd1b0322649bf59e2a5cfc73ab4fe46b21edd7", features = [
     "client-api-c",
     "compat-upload-signatures",
     "compat-user-id",
@@ -75,7 +75,7 @@ ruma = { path = "../ruma/crates/ruma", features = [
     "unstable-msc4171",
     "unstable-msc4278",
     ] }
-ruma-common = { path = "../ruma/crates/ruma-common" }
+ruma-common = { git = "https://github.com/ruma/ruma", rev = "a8fd1b0322649bf59e2a5cfc73ab4fe46b21edd7" }
 sentry = "0.36.0"
 sentry-tracing = "0.36.0"
 serde = "1.0.217"
