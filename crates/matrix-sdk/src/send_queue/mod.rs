@@ -177,7 +177,7 @@ use crate::{
     config::RequestConfig,
     error::RetryKind,
     room::{edit::EditedContent, WeakRoom},
-    Client, Media, RelativeTransmissionProgress, Room, TransmissionProgress,
+    AbstractProgress, Client, Media, Room, TransmissionProgress,
 };
 
 mod upload;
@@ -910,18 +910,21 @@ fn compute_combined_progress(
     file_size: usize,
     thumbnail_file_size: Option<usize>,
     media_file_size: Option<usize>,
-) -> RelativeTransmissionProgress {
-    let percentage = if progress.total != 0 {
+) -> AbstractProgress {
+    if progress.total == 0 {
+        AbstractProgress { current: 0, total: 0 }
+    } else {
         // The uploaded file is possibly encrypted and, thus, larger than
         // the original one. Use the rule of 3 to proportionally map the
         // progress into units of the original file size.
-        let mut current = progress.current as f32 / progress.total as f32 * file_size as f32;
+        let mut current =
+            (progress.current as f32 / progress.total as f32 * file_size as f32).round() as usize;
         let mut total = file_size;
 
         // If a thumbnail was previously uploaded, add its file size to both
         // the current and total.
         if let Some(thumbnail_file_size) = thumbnail_file_size {
-            current += thumbnail_file_size as f32;
+            current += thumbnail_file_size;
             total += thumbnail_file_size;
         }
 
@@ -931,16 +934,8 @@ fn compute_combined_progress(
             total += media_file_size;
         }
 
-        if total != 0 {
-            current / total as f32
-        } else {
-            0.0
-        }
-    } else {
-        0.0
-    };
-
-    RelativeTransmissionProgress { percentage }
+        AbstractProgress { current, total }
+    }
 }
 
 impl From<&crate::Error> for QueueWedgeError {

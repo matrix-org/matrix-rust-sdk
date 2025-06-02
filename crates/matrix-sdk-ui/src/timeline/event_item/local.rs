@@ -15,7 +15,7 @@
 use std::sync::Arc;
 
 use as_variant::as_variant;
-use matrix_sdk::{send_queue::SendHandle, Error, RelativeTransmissionProgress};
+use matrix_sdk::{send_queue::SendHandle, AbstractProgress, Error};
 use ruma::{EventId, OwnedEventId, OwnedTransactionId};
 
 use super::TimelineEventItemId;
