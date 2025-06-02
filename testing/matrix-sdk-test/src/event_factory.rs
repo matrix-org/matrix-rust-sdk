@@ -490,7 +490,7 @@ impl EventFactory {
 
     /// Create a new plain text `m.room.message`.
     pub fn text_msg(&self, content: impl Into<String>) -> EventBuilder<RoomMessageEventContent> {
-        self.event(RoomMessageEventContent::text_plain(content.into()))
+        self.event(RoomMessageEventContent::text_plain(content.into(), "", "", ""))
     }
 
     /// Create a new plain emote `m.room.message`.
