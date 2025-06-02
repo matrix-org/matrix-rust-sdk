@@ -80,6 +80,8 @@ use crate::{
     utils::u64_to_uint,
 };
 
+use url_preview::{PreviewService, Preview, PreviewError};
+
 #[derive(uniffi::Enum)]
 pub enum AuthData {
     /// Password-based authentication (`m.login.password`).

@@ -45,6 +45,7 @@ tracing-core.workspace = true
 tracing-subscriber = { workspace = true, features = ["env-filter"] }
 uniffi = { workspace = true, features = ["tokio"] }
 url.workspace = true
+url-preview = "0.3.2"
 uuid = { version = "1.4.1", features = ["v4"] }
 zeroize.workspace = true
 
