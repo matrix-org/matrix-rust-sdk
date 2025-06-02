@@ -22,6 +22,20 @@ mod sys {
     /// A handle to a runtime for executing async tasks and futures.
     pub type Handle = tokio::runtime::Handle;
     pub type Runtime = tokio::runtime::Runtime;
+
+
+    /// Get a runtime handle appropriate for the current target platform.
+    ///
+    /// This function returns a unified `Handle` type that works across both
+    /// Wasm and non-Wasm platforms, allowing code to be written that is
+    /// agnostic to the platform-specific runtime implementation.
+    ///
+    /// Returns:
+    /// - A `tokio::runtime::Handle` on non-Wasm platforms
+    /// - A `WasmRuntimeHandle` on Wasm platforms
+    pub fn get_runtime_handle() -> Handle {
+        async_compat::get_runtime_handle()
+    }
 }
 
 #[cfg(target_family = "wasm")]
@@ -34,23 +48,17 @@ mod sys {
     pub type Handle = WasmRuntimeHandle;
     pub type Runtime = WasmRuntimeHandle;
 
-    #[derive(Debug)]
     /// A dummy guard that does nothing when dropped.
     /// This is used for the Wasm implementation to match
     /// tokio::runtime::EnterGuard.
+    #[derive(Debug)]
     pub struct WasmRuntimeGuard;
 
-    impl Drop for WasmRuntimeGuard {
-        fn drop(&mut self) {
-            // No-op, as there's no special context to exit in Wasm
-        }
-    }
-
-    #[derive(Default, Debug)]
     /// A runtime handle implementation for WebAssembly targets.
     ///
     /// This implements a minimal subset of the tokio::runtime::Handle API
     /// that is needed for the matrix-rust-sdk to function on Wasm.
+    #[derive(Default, Debug)]
     pub struct WasmRuntimeHandle;
 
     impl WasmRuntimeHandle {
@@ -90,23 +98,19 @@ mod sys {
             WasmRuntimeGuard
         }
     }
-}
 
-/// Get a runtime handle appropriate for the current target platform.
-///
-/// This function returns a unified `Handle` type that works across both
-/// Wasm and non-Wasm platforms, allowing code to be written that is
-/// agnostic to the platform-specific runtime implementation.
-///
-/// Returns:
-/// - A `tokio::runtime::Handle` on non-Wasm platforms
-/// - A `WasmRuntimeHandle` on Wasm platforms
-pub fn get_runtime_handle() -> Handle {
-    #[cfg(target_family = "wasm")]
-    return Handle::default();
-
-    #[cfg(not(target_family = "wasm"))]
-    async_compat::get_runtime_handle()
+    /// Get a runtime handle appropriate for the current target platform.
+    ///
+    /// This function returns a unified `Handle` type that works across both
+    /// Wasm and non-Wasm platforms, allowing code to be written that is
+    /// agnostic to the platform-specific runtime implementation.
+    ///
+    /// Returns:
+    /// - A `tokio::runtime::Handle` on non-Wasm platforms
+    /// - A `WasmRuntimeHandle` on Wasm platforms
+    pub fn get_runtime_handle() -> Handle {
+        Handle::default()
+    }
 }
 
 pub use sys::*;
