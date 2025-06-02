@@ -23,7 +23,6 @@ mod sys {
     pub type Handle = tokio::runtime::Handle;
     pub type Runtime = tokio::runtime::Runtime;
 
-
     /// Get a runtime handle appropriate for the current target platform.
     ///
     /// This function returns a unified `Handle` type that works across both
