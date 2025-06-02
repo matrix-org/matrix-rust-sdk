@@ -137,7 +137,7 @@ impl RoomListService {
             )
             .with_receipt_extension(assign!(http::request::Receipts::default(), {
                 enabled: Some(true),
-                rooms: Some(vec![http::request::ReceiptsRoom::AllSubscribed])
+                rooms: Some(vec![http::request::ExtensionRoomConfig::AllSubscribed])
             }))
             .with_typing_extension(assign!(http::request::Typing::default(), {
                 enabled: Some(true),
