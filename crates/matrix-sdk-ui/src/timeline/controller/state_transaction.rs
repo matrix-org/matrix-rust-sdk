@@ -558,9 +558,9 @@ impl<'a> TimelineStateTransaction<'a> {
         // TODO: do something with the thread summary!
         let TimelineEvent { push_actions, kind, thread_summary } = event;
 
-        let thread_summary = thread_summary.summary().map(|_common_summary| {
-            // TODO: later, fill the latest event in the thread summary!
-            ThreadSummary { latest_event: TimelineDetails::Unavailable }
+        let thread_summary = thread_summary.summary().map(|summary| ThreadSummary {
+            latest_event: TimelineDetails::Unavailable,
+            num_replies: summary.num_replies,
         });
 
         let encryption_info = kind.encryption_info().cloned();

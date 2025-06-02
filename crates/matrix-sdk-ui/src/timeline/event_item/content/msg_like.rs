@@ -39,6 +39,15 @@ pub enum MsgLikeKind {
 #[derive(Clone, Debug)]
 pub struct ThreadSummary {
     pub latest_event: TimelineDetails<Box<ThreadSummaryLatestEvent>>,
+
+    /// The number of events in the thread, except for the thread root.
+    ///
+    /// This can be zero if all the events in the thread have been redacted.
+    ///
+    /// Note: this doesn't interact with the timeline filter; so opening a
+    /// thread-focused timeline with the same timeline filter may result in
+    /// *fewer* events than this number.
+    pub num_replies: usize,
 }
 
 #[derive(Clone, Debug)]

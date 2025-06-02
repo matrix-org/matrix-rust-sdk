@@ -236,6 +236,7 @@ async fn test_extract_bundled_thread_summary() {
     assert_let!(Some(summary) = event_item.content().thread_summary());
     // Soon™, Stefan, soon™.
     assert!(summary.latest_event.is_unavailable());
+    assert_eq!(summary.num_replies, 42);
 
     assert_let!(VectorDiff::PushFront { value } = &timeline_updates[1]);
     assert!(value.is_date_divider());
@@ -278,8 +279,8 @@ async fn test_new_thread_reply_causes_thread_summary() {
     // When I receive a threaded reply to this event,
     let reply_event_id = event_id!("$thread_reply");
     let event = f
-        .sender(&BOB)
         .text_msg("thread reply")
+        .sender(&BOB)
         .in_thread(thread_event_id, thread_event_id)
         .event_id(reply_event_id);
 
@@ -323,4 +324,57 @@ async fn test_new_thread_reply_causes_thread_summary() {
     assert_let!(Some(summary) = event_item.content().thread_summary());
     // Soon™, Stefan, soon™.
     assert!(summary.latest_event.is_unavailable());
+    assert_eq!(summary.num_replies, 1);
+
+    assert_pending!(stream);
+
+    // A new thread reply updates the number of replies in the thread.
+    let another_reply_event_id = event_id!("$another_thread_reply");
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id).add_timeline_event(
+                f.text_msg("another thread reply")
+                    .sender(&BOB)
+                    .in_thread(thread_event_id, reply_event_id)
+                    .event_id(another_reply_event_id),
+            ),
+        )
+        .await;
+
+    assert_let_timeout!(Some(timeline_updates) = stream.next());
+    assert_eq!(timeline_updates.len(), 4);
+
+    // (Read receipt from Bob moves.)
+    assert_let!(VectorDiff::Set { index: 2, .. } = &timeline_updates[0]);
+
+    // Then we're seeing the new thread reply.
+    assert_let!(VectorDiff::PushBack { value } = &timeline_updates[1]);
+    let event_item = value.as_event().unwrap();
+    assert_eq!(event_item.event_id().unwrap(), another_reply_event_id);
+    assert!(event_item.content().thread_summary().is_none());
+    assert_eq!(event_item.content().thread_root().as_deref(), Some(thread_event_id));
+
+    // Then the first thread reply is updated with the up-to-date thread summary in
+    // the replied-to event.
+    assert_let!(VectorDiff::Set { index: 2, value } = &timeline_updates[2]);
+    let event_item = value.as_event().unwrap();
+    assert_eq!(event_item.event_id().unwrap(), reply_event_id);
+    let replied_to_details = value.as_event().unwrap().content().in_reply_to().unwrap().event;
+    assert_let!(TimelineDetails::Ready(replied_to_event) = replied_to_details);
+    // Spoiling a bit here…
+    assert_eq!(replied_to_event.content().thread_summary().unwrap().num_replies, 2);
+
+    // Then, we receive an update for the thread root itself, which now has an
+    // up-to-date thread summary.
+    assert_let!(VectorDiff::Set { index: 1, value } = &timeline_updates[3]);
+    let event_item = value.as_event().unwrap();
+    assert_eq!(event_item.event_id().unwrap(), thread_event_id);
+    assert!(event_item.content().thread_root().is_none());
+
+    assert_let!(Some(summary) = event_item.content().thread_summary());
+    // Soon™, Stefan, soon™.
+    assert!(summary.latest_event.is_unavailable());
+    // The number of replies has been updated.
+    assert_eq!(summary.num_replies, 2);
 }

@@ -124,6 +124,11 @@ pub trait EventCacheStore: AsyncTraitDeps {
 
     /// Find all the events that relate to a given event.
     ///
+    /// Note: it doesn't process relations recursively: for instance, if
+    /// requesting only thread events, it will NOT return the aggregated
+    /// events affecting the returned events. It is the responsibility of
+    /// the caller to do so, if needed.
+    ///
     /// An additional filter can be provided to only retrieve related events for
     /// a certain relationship.
     async fn find_event_relations(

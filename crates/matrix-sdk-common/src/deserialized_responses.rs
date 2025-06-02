@@ -370,10 +370,15 @@ impl<'de> Deserialize<'de> for EncryptionInfo {
 /// - the number of replies to the thread,
 /// - the full event of the latest reply to the thread,
 /// - whether the user participated or not to this thread.
-///
-/// At the moment, it contains nothing.
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct ThreadSummary {}
+pub struct ThreadSummary {
+    /// The number of replies to the thread.
+    ///
+    /// This doesn't include the thread root event itself. It can be zero if no
+    /// events in the thread are considered to be meaningful (or they've all
+    /// been redacted).
+    pub num_replies: usize,
+}
 
 /// The status of a thread summary.
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
@@ -1365,7 +1370,9 @@ mod tests {
         // When creating a timeline event from a raw event, the thread summary is always
         // extracted, if available.
         let timeline_event = TimelineEvent::new(raw);
-        assert_matches!(timeline_event.thread_summary, ThreadSummaryStatus::Some(ThreadSummary {}));
+        assert_matches!(timeline_event.thread_summary, ThreadSummaryStatus::Some(ThreadSummary { num_replies }) => {
+            assert_eq!(num_replies, 2);
+        });
 
         // When deserializing an old serialized timeline event, the thread summary is
         // also extracted, if it wasn't serialized.
@@ -1379,7 +1386,9 @@ mod tests {
 
         let timeline_event: TimelineEvent =
             serde_json::from_value(serialized_timeline_item).unwrap();
-        assert_matches!(timeline_event.thread_summary, ThreadSummaryStatus::Some(ThreadSummary {}));
+        assert_matches!(timeline_event.thread_summary, ThreadSummaryStatus::Some(ThreadSummary { num_replies }) => {
+            assert_eq!(num_replies, 2);
+        });
     }
 
     #[test]
@@ -1642,7 +1651,7 @@ mod tests {
                 )])),
             }),
             push_actions: Default::default(),
-            thread_summary: ThreadSummaryStatus::Some(ThreadSummary {}),
+            thread_summary: ThreadSummaryStatus::Some(ThreadSummary { num_replies: 2 }),
         };
 
         with_settings!({ sort_maps => true, prepend_module_to_snapshot => false }, {
