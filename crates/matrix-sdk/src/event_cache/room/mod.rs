@@ -1178,7 +1178,7 @@ mod private {
 
             for event in &events_to_post_process {
                 self.maybe_apply_new_redaction(event).await?;
-                self.extract_thread_root(event).await?;
+                self.analyze_thread_root(event).await?;
             }
 
             // If we've never waited for an initial previous-batch token, and we now have at
@@ -1194,15 +1194,17 @@ mod private {
             Ok(updates_as_vector_diffs)
         }
 
-        /// If the event has a thread root, ensure the thread root event has a thread summary.
+        /// If the event is a threaded reply, ensure the related thread's root
+        /// event (i.e. first thread event) has a thread summary.
         #[instrument(skip_all)]
-        async fn extract_thread_root(&mut self, event: &Event) -> Result<(), EventCacheError> {
+        async fn analyze_thread_root(&mut self, event: &Event) -> Result<(), EventCacheError> {
             let Some(thread_root) = extract_thread_root(event.raw()) else {
                 // No thread root, carry on.
                 return Ok(());
             };
 
-            // Add a thread summary to the event which has the thread root, if we knew about it.
+            // Add a thread summary to the event which has the thread root, if we knew about
+            // it.
             let Some((location, mut target_event)) = self.find_event(&thread_root).await? else {
                 trace!("thread root event is missing from the linked chunk");
                 return Ok(());
