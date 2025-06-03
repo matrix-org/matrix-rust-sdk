@@ -47,6 +47,7 @@ use std::{
 use axum::{body::Body, response::IntoResponse, routing::any_service};
 use http::{header, HeaderValue, Method, Request, StatusCode};
 use matrix_sdk_base::{boxed_into_future, locks::Mutex};
+use matrix_sdk_common::executor::spawn;
 use rand::{thread_rng, Rng};
 use tokio::{net::TcpListener, sync::oneshot};
 use tower::service_fn;
@@ -200,7 +201,7 @@ impl LocalServerBuilder {
             .into_future();
 
         // Spawn the server.
-        tokio::spawn(server);
+        spawn(server);
 
         Ok((
             uri,

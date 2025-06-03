@@ -234,6 +234,7 @@ pub(super) mod test {
     };
 
     use matrix_sdk_base::crypto::types::qr_login::QrCodeMode;
+    use matrix_sdk_common::executor::spawn;
     use matrix_sdk_test::async_test;
     use serde_json::json;
     use similar_asserts::assert_eq;
@@ -358,7 +359,7 @@ pub(super) mod test {
 
         let qr_code_data = alice.qr_code_data().clone();
 
-        let bob_task = tokio::spawn(async move {
+        let bob_task = spawn(async move {
             EstablishedSecureChannel::from_qr_code(
                 reqwest::Client::new(),
                 &qr_code_data,
@@ -368,7 +369,7 @@ pub(super) mod test {
             .expect("Bob should be able to fully establish the secure channel.")
         });
 
-        let alice_task = tokio::spawn(async move {
+        let alice_task = spawn(async move {
             alice
                 .connect()
                 .await
