@@ -14,10 +14,16 @@
 
 //! Abstraction over an executor so we can spawn tasks under Wasm the same way
 //! we do usually.
-
+//!
 //! On non Wasm platforms, this re-exports parts of tokio directly.  For Wasm,
 //! we provide a single-threaded solution that matches the interface that tokio
 //! provides as a drop in replacement.
+
+use std::{
+    future::Future,
+    pin::Pin,
+    task::{Context, Poll},
+};
 
 #[cfg(not(target_family = "wasm"))]
 mod sys {
@@ -140,6 +146,41 @@ mod sys {
 }
 
 pub use sys::*;
+
+/// A type ensuring a task is aborted on drop.
+#[derive(Debug)]
+pub struct AbortOnDrop<T>(JoinHandle<T>);
+
+impl<T> AbortOnDrop<T> {
+    pub fn new(join_handle: JoinHandle<T>) -> Self {
+        Self(join_handle)
+    }
+}
+
+impl<T> Drop for AbortOnDrop<T> {
+    fn drop(&mut self) {
+        self.0.abort();
+    }
+}
+
+impl<T: 'static> Future for AbortOnDrop<T> {
+    type Output = Result<T, JoinError>;
+
+    fn poll(mut self: Pin<&mut Self>, context: &mut Context<'_>) -> Poll<Self::Output> {
+        Pin::new(&mut self.0).poll(context)
+    }
+}
+
+/// Trait to create an [`AbortOnDrop`] from a [`JoinHandle`].
+pub trait JoinHandleExt<T> {
+    fn abort_on_drop(self) -> AbortOnDrop<T>;
+}
+
+impl<T> JoinHandleExt<T> for JoinHandle<T> {
+    fn abort_on_drop(self) -> AbortOnDrop<T> {
+        AbortOnDrop::new(self)
+    }
+}
 
 #[cfg(test)]
 mod tests {
