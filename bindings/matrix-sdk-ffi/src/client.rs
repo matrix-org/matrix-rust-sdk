@@ -41,7 +41,7 @@ use matrix_sdk::{
     AuthApi, AuthSession, Client as MatrixClient, SessionChange, SessionTokens,
     STATE_STORE_DATABASE_NAME,
 };
-use matrix_sdk_common::{stream::StreamExt, AsyncTraitDeps, SendOutsideWasm, SyncOutsideWasm};
+use matrix_sdk_common::{stream::StreamExt, SendOutsideWasm, SyncOutsideWasm};
 use matrix_sdk_ui::{
     notification_client::{
         NotificationClient as MatrixNotificationClient,
