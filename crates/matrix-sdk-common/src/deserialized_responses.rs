@@ -976,6 +976,7 @@ mod tests {
     use std::collections::BTreeMap;
 
     use assert_matches::assert_matches;
+    use assert_matches2::assert_let;
     use insta::{assert_json_snapshot, with_settings};
     use ruma::{
         device_id, event_id, events::room::message::RoomMessageEventContent, serde::Raw, user_id,
@@ -1468,13 +1469,10 @@ mod tests {
         let deserialized = serde_json::from_value::<EncryptionInfo>(old_format).unwrap();
         let expected_session_id = Some("mysessionid76".to_owned());
 
-        if let AlgorithmInfo::MegolmV1AesSha2 { session_id, .. } =
-            deserialized.algorithm_info.clone()
-        {
-            assert_eq!(session_id, expected_session_id);
-        } else {
-            panic!("Expected MegolmV1AesSha2");
-        }
+        assert_let!(
+            AlgorithmInfo::MegolmV1AesSha2 { session_id, .. } = deserialized.algorithm_info.clone()
+        );
+        assert_eq!(session_id, expected_session_id);
 
         assert_json_snapshot!(deserialized);
     }
