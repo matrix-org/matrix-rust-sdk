@@ -21,7 +21,6 @@ mod client;
 mod error;
 mod list;
 mod sticky_parameters;
-mod utils;
 
 use std::{
     collections::{btree_map::Entry, BTreeMap},
@@ -35,6 +34,8 @@ use async_stream::stream;
 pub use client::{Version, VersionBuilder};
 use futures_core::stream::Stream;
 use matrix_sdk_base::RequestedRequiredStates;
+#[cfg(feature = "e2e-encryption")]
+use matrix_sdk_common::executor::JoinHandleExt as _;
 use matrix_sdk_common::{executor::spawn, timer};
 use ruma::{
     api::client::{error::ErrorKind, sync::sync_events::v5 as http},
@@ -47,8 +48,6 @@ use tokio::{
 };
 use tracing::{debug, error, info, instrument, trace, warn, Instrument, Span};
 
-#[cfg(feature = "e2e-encryption")]
-use self::utils::JoinHandleExt as _;
 pub use self::{builder::*, client::VersionBuilderError, error::*, list::*};
 use self::{
     cache::restore_sliding_sync_state,
