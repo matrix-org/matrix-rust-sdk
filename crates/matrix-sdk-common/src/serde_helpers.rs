@@ -82,7 +82,10 @@ pub fn extract_bundled_thread_summary(event: &Raw<AnySyncTimelineEvent>) -> Thre
             // to happen to have that many events in real-world threads.
             let count = bundled_thread.count.try_into().unwrap_or(UInt::MAX.try_into().unwrap());
 
-            ThreadSummaryStatus::Some(ThreadSummary { num_replies: count })
+            let latest_reply =
+                bundled_thread.latest_event.get_field::<OwnedEventId>("event_id").ok().flatten();
+
+            ThreadSummaryStatus::Some(ThreadSummary { num_replies: count, latest_reply })
         }
         Ok(_) => ThreadSummaryStatus::None,
         Err(_) => ThreadSummaryStatus::Unknown,

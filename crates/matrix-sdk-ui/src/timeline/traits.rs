@@ -145,6 +145,12 @@ pub(super) trait RoomDataProvider:
     ) -> impl Future<Output = Option<Arc<EncryptionInfo>>> + SendOutsideWasm;
 
     async fn relations(&self, event_id: OwnedEventId, opts: RelationsOptions) -> Result<Relations>;
+
+    /// Loads an event from the cache or network.
+    fn load_event<'a>(
+        &'a self,
+        event_id: &'a EventId,
+    ) -> impl Future<Output = Result<TimelineEvent>> + SendOutsideWasm + 'a;
 }
 
 impl RoomDataProvider for Room {
@@ -293,6 +299,10 @@ impl RoomDataProvider for Room {
 
     async fn relations(&self, event_id: OwnedEventId, opts: RelationsOptions) -> Result<Relations> {
         self.relations(event_id, opts).await
+    }
+
+    async fn load_event<'a>(&'a self, event_id: &'a EventId) -> Result<TimelineEvent> {
+        self.load_or_fetch_event(event_id, None).await
     }
 }
 

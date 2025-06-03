@@ -37,7 +37,7 @@ use super::{
 };
 use crate::timeline::{
     event_handler::{FailedToParseEvent, RemovedItem, TimelineAction},
-    ThreadSummary, TimelineDetails, VirtualTimelineItem,
+    ThreadSummary, ThreadSummaryLatestEvent, TimelineDetails, VirtualTimelineItem,
 };
 
 pub(in crate::timeline) struct TimelineStateTransaction<'a> {
@@ -555,13 +555,54 @@ impl<'a> TimelineStateTransaction<'a> {
         settings: &TimelineSettings,
         date_divider_adjuster: &mut DateDividerAdjuster,
     ) -> RemovedItem {
-        // TODO: do something with the thread summary!
         let TimelineEvent { push_actions, kind, thread_summary } = event;
 
-        let thread_summary = thread_summary.summary().map(|summary| ThreadSummary {
-            latest_event: TimelineDetails::Unavailable,
-            num_replies: summary.num_replies,
-        });
+        let thread_summary = if let Some(summary) = thread_summary.summary() {
+            let latest_reply_item =
+                if let Some(event_id) = summary.latest_reply.as_ref() {
+                    // Attempt to load the timeline event, either from the event cache or the
+                    // storage.
+                    let event = room_data_provider
+                        .load_event(event_id)
+                        .await
+                        .inspect_err(|err| {
+                            warn!("Failed to load thread latest event: {err}");
+                        })
+                        .ok();
+
+                    if let Some(event) = event {
+                        // lol @ hack
+                        crate::timeline::RepliedToEvent::try_from_timeline_event(
+                        event,
+                        room_data_provider,
+                        &self.items,
+                        &mut self.meta,
+                    )
+                    .await
+                    .inspect_err(|err| {
+                        warn!("Failed to extract thread event into a timeline item content: {err}");
+                    })
+                    .ok()
+                    .flatten()
+                    .map(|replied_to| Box::new(ThreadSummaryLatestEvent {
+                        content: replied_to.content().clone(),
+                        sender: replied_to.sender().to_owned(),
+                        sender_profile: replied_to.sender_profile().clone(),
+                    }))
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                };
+
+            Some(ThreadSummary {
+                latest_event: TimelineDetails::from_initial_value(latest_reply_item),
+                num_replies: summary.num_replies,
+            })
+        } else {
+            None
+        };
 
         let encryption_info = kind.encryption_info().cloned();
 
