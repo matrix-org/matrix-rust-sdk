@@ -30,6 +30,8 @@ use matrix_sdk_test::{async_test, event_factory::EventFactory, JoinedRoomBuilder
 use matrix_sdk_ui::timeline::{AttachmentSource, EventSendState, RoomExt};
 #[cfg(feature = "unstable-msc4274")]
 use ruma::events::room::message::GalleryItemType;
+#[cfg(feature = "unstable-msc4274")]
+use ruma::owned_mxc_uri;
 use ruma::{
     event_id,
     events::room::{
@@ -284,14 +286,21 @@ async fn test_send_gallery_from_bytes() {
     let f = EventFactory::new();
     mock.sync_room(
         &client,
-        JoinedRoomBuilder::new(room_id).add_timeline_event(f.text_msg("hello").sender(&ALICE)),
+        JoinedRoomBuilder::new(room_id).add_timeline_event(
+            f.gallery(
+                "check out my favourite gifs".to_owned(),
+                "rickroll.gif".to_owned(),
+                owned_mxc_uri!("mxc://sdk.rs/rickroll"),
+            )
+            .sender(&ALICE),
+        ),
     )
     .await;
 
     // Sanity check.
     assert_let_timeout!(Some(VectorDiff::PushBack { value: item }) = timeline_stream.next());
     assert_let!(Some(msg) = item.content().as_message());
-    assert_eq!(msg.body(), "hello");
+    assert_eq!(msg.body(), "check out my favourite gifs");
 
     // No other updates.
     assert_pending!(timeline_stream);

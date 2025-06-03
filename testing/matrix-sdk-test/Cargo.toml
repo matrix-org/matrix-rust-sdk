@@ -27,7 +27,7 @@ matrix-sdk-test-macros = { version = "0.11.0", path = "../matrix-sdk-test-macros
 once_cell.workspace = true
 # Enable the unstable feature for polls support.
 # "client-api-s" enables need the "server" feature of ruma-client-api, which is needed to serialize Response objects to JSON.
-ruma = { workspace = true, features = ["canonical-json", "client-api-s", "rand", "unstable-msc3381"] }
+ruma = { workspace = true, features = ["canonical-json", "client-api-s", "rand", "unstable-msc3381", "unstable-msc4274"] }
 serde.workspace = true
 serde_json.workspace = true
 vodozemac.workspace = true
