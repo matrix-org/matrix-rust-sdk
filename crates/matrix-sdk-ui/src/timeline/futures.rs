@@ -4,6 +4,7 @@ use eyeball::SharedObservable;
 use matrix_sdk::{attachment::AttachmentConfig, TransmissionProgress};
 use matrix_sdk_base::boxed_into_future;
 use mime::Mime;
+use ruma::OwnedTransactionId;
 use tracing::{Instrument as _, Span};
 
 use super::{AttachmentSource, Error, Timeline};
@@ -56,7 +57,7 @@ impl<'a> SendAttachment<'a> {
 }
 
 impl<'a> IntoFuture for SendAttachment<'a> {
-    type Output = Result<(), Error>;
+    type Output = Result<Option<OwnedTransactionId>, Error>;
     boxed_into_future!(extra_bounds: 'a);
 
     fn into_future(self) -> Self::IntoFuture {
@@ -76,7 +77,8 @@ impl<'a> IntoFuture for SendAttachment<'a> {
             if use_send_queue {
                 let send_queue = timeline.room().send_queue();
                 let fut = send_queue.send_attachment(filename, mime_type, data, config);
-                fut.await.map_err(|_| Error::FailedSendingAttachment)?;
+                let handle = fut.await.map_err(|_| Error::FailedSendingAttachment)?;
+                Ok(Some(handle.transaction_id))
             } else {
                 let fut = timeline
                     .room()
@@ -84,9 +86,8 @@ impl<'a> IntoFuture for SendAttachment<'a> {
                     .with_send_progress_observable(send_progress)
                     .store_in_cache();
                 fut.await.map_err(|_| Error::FailedSendingAttachment)?;
+                Ok(None)
             }
-
-            Ok(())
         };
 
         Box::pin(fut.instrument(tracing_span))

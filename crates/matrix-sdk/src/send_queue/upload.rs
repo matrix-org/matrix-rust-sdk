@@ -46,7 +46,7 @@ use ruma::{
 };
 use tracing::{debug, error, instrument, trace, warn, Span};
 
-use super::{QueueStorage, RoomSendQueue, RoomSendQueueError};
+use super::{QueueStorage, QueueThumbnailInfo, RoomSendQueue, RoomSendQueueError};
 use crate::{
     attachment::{AttachmentConfig, Thumbnail},
     room::edit::update_media_caption,
@@ -170,7 +170,7 @@ fn update_gallery_event_after_upload(
 struct MediaCacheResult {
     upload_thumbnail_txn: Option<OwnedTransactionId>,
     event_thumbnail_info: Option<(MediaSource, Box<ThumbnailInfo>)>,
-    queue_thumbnail_info: Option<(FinishUploadThumbnailInfo, MediaRequestParameters, Mime)>,
+    queue_thumbnail_info: Option<QueueThumbnailInfo>,
 }
 
 impl RoomSendQueue {
@@ -217,6 +217,7 @@ impl RoomSendQueue {
         debug!(filename, %content_type, %upload_file_txn, "sending an attachment");
 
         let file_media_request = Media::make_local_file_media_request(&upload_file_txn);
+        let file_size = data.len();
 
         let MediaCacheResult { upload_thumbnail_txn, event_thumbnail_info, queue_thumbnail_info } =
             RoomSendQueue::cache_media(&room, data, config.thumbnail.take(), &file_media_request)
@@ -252,6 +253,7 @@ impl RoomSendQueue {
                 created_at,
                 upload_file_txn.clone(),
                 file_media_request,
+                file_size,
                 queue_thumbnail_info,
             )
             .await?;
@@ -334,6 +336,7 @@ impl RoomSendQueue {
             debug!(filename, %content_type, %upload_file_txn, "uploading a gallery attachment");
 
             let file_media_request = Media::make_local_file_media_request(&upload_file_txn);
+            let file_size = data.len();
 
             let MediaCacheResult {
                 upload_thumbnail_txn,
@@ -356,6 +359,7 @@ impl RoomSendQueue {
                 content_type,
                 upload_file_txn: upload_file_txn.clone(),
                 file_media_request,
+                file_size,
                 thumbnail: queue_thumbnail_info,
             });
 
@@ -445,6 +449,7 @@ impl RoomSendQueue {
             // Create the information required for filling the thumbnail section of the
             // event.
             let (data, content_type, thumbnail_info) = thumbnail.into_parts();
+            let file_size = data.len();
 
             // Cache thumbnail in the cache store.
             let thumbnail_media_request = Media::make_local_file_media_request(&txn);
@@ -464,11 +469,16 @@ impl RoomSendQueue {
                     thumbnail_media_request.source.clone(),
                     thumbnail_info,
                 )),
-                queue_thumbnail_info: Some((
-                    FinishUploadThumbnailInfo { txn, width: None, height: None },
-                    thumbnail_media_request,
+                queue_thumbnail_info: Some(QueueThumbnailInfo {
+                    finish_upload_thumbnail_info: FinishUploadThumbnailInfo {
+                        txn,
+                        width: None,
+                        height: None,
+                    },
+                    media_request_parameters: thumbnail_media_request,
                     content_type,
-                )),
+                    file_size,
+                }),
             })
         } else {
             Ok(Default::default())
@@ -609,6 +619,9 @@ impl QueueStorage {
         cache_key: MediaRequestParameters,
         event_txn: OwnedTransactionId,
         parent_is_thumbnail_upload: bool,
+        file_size: usize,
+        thumbnail_file_size: Option<usize>,
+        media_file_size: Option<usize>,
     ) -> Result<(), RoomSendQueueError> {
         // The previous file or thumbnail has been sent, now transform the dependent
         // file or thumbnail upload request into a ready one.
@@ -653,6 +666,9 @@ impl QueueStorage {
             related_to: event_txn,
             #[cfg(feature = "unstable-msc4274")]
             accumulated,
+            file_size,
+            thumbnail_file_size,
+            media_file_size,
         };
 
         client

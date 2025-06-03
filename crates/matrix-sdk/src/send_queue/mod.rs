@@ -138,6 +138,7 @@ use std::{
 };
 
 use as_variant::as_variant;
+use eyeball::SharedObservable;
 #[cfg(feature = "unstable-msc4274")]
 use matrix_sdk_base::store::FinishGalleryItemInfo;
 use matrix_sdk_base::{
@@ -176,7 +177,7 @@ use crate::{
     config::RequestConfig,
     error::RetryKind,
     room::{edit::EditedContent, WeakRoom},
-    Client, Media, Room,
+    AbstractProgress, Client, Media, Room, TransmissionProgress,
 };
 
 mod upload;
@@ -290,6 +291,22 @@ impl SendQueue {
     }
 }
 
+/// Metadata about a thumbnail needed when pushing media uploads to the send
+/// queue.
+#[derive(Clone, Debug)]
+struct QueueThumbnailInfo {
+    /// Metadata about the thumbnail needed when finishing a media upload.
+    finish_upload_thumbnail_info: FinishUploadThumbnailInfo,
+
+    /// The parameters for the request to retrieve the thumbnail data.
+    media_request_parameters: MediaRequestParameters,
+
+    /// The thumbnail's mime type.
+    content_type: Mime,
+
+    /// The thumbnail's file size in bytes.
+    file_size: usize,
+}
 /// A specific room's send queue ran into an error, and it has disabled itself.
 #[derive(Clone, Debug)]
 pub struct SendQueueRoomError {
@@ -572,6 +589,10 @@ impl RoomSendQueue {
 
             let related_txn_id = as_variant!(&queued_request.kind, QueuedRequestKind::MediaUpload { related_to, .. } => related_to.clone());
 
+            let file_size = as_variant!(&queued_request.kind, QueuedRequestKind::MediaUpload { file_size, .. } => *file_size).unwrap_or_default();
+            let thumbnail_file_size = as_variant!(&queued_request.kind, QueuedRequestKind::MediaUpload { thumbnail_file_size, .. } => *thumbnail_file_size).flatten();
+            let media_file_size = as_variant!(&queued_request.kind, QueuedRequestKind::MediaUpload { media_file_size, .. } => *media_file_size).flatten();
+
             let Some(room) = room.get() else {
                 if is_dropping.load(Ordering::SeqCst) {
                     break;
@@ -580,7 +601,57 @@ impl RoomSendQueue {
                 continue;
             };
 
-            match Self::handle_request(&room, queued_request, cancel_upload_rx).await {
+            let default_index = 0; // Before MSC4274 only a single file (and thumbnail) could be sent per event.
+            let index = {
+                cfg_if::cfg_if! {
+                    if #[cfg(feature = "unstable-msc4274")] {
+                        match &queued_request.kind {
+                            QueuedRequestKind::MediaUpload { accumulated, .. } => accumulated.len() as u64,
+                            _ => default_index,
+                        }
+                    } else {
+                        default_index
+                    }
+                }
+            };
+
+            // Prepare to watch and communicate the request progress.
+            let progress = if let Some(related_to) = related_txn_id.as_ref() {
+                let progress: SharedObservable<TransmissionProgress> = Default::default();
+                let mut subscriber = progress.subscribe();
+
+                let updates = updates.clone();
+                let related_to = related_to.clone();
+
+                // Watch and communicate the progress on a detached background task. Once
+                // the progress observable is dropped, next() will return None and the
+                // task will end.
+                spawn(async move {
+                    while let Some(progress) = subscriber.next().await {
+                        let _ = updates.send(RoomSendQueueUpdate::MediaUpload {
+                            related_to: related_to.clone(),
+                            file: None,
+                            index,
+                            progress: compute_combined_progress(
+                                progress,
+                                file_size,
+                                thumbnail_file_size,
+                                media_file_size,
+                            ),
+                        });
+                    }
+                });
+
+                Some(progress)
+            } else {
+                None
+            };
+
+            let result =
+                Self::handle_request(&room, queued_request, cancel_upload_rx, progress.clone())
+                    .await;
+
+            match result {
                 Ok(Some(parent_key)) => match queue.mark_as_sent(&txn_id, parent_key.clone()).await
                 {
                     Ok(()) => match parent_key {
@@ -592,9 +663,16 @@ impl RoomSendQueue {
                         }
 
                         SentRequestKey::Media(media_info) => {
-                            let _ = updates.send(RoomSendQueueUpdate::UploadedMedia {
+                            let _ = updates.send(RoomSendQueueUpdate::MediaUpload {
                                 related_to: related_txn_id.as_ref().unwrap_or(&txn_id).clone(),
-                                file: media_info.file,
+                                file: Some(media_info.file),
+                                index,
+                                progress: compute_combined_progress(
+                                    progress.unwrap_or_default().get(),
+                                    file_size,
+                                    thumbnail_file_size,
+                                    media_file_size,
+                                ),
                             });
                         }
                     },
@@ -681,6 +759,7 @@ impl RoomSendQueue {
         room: &Room,
         request: QueuedRequest,
         cancel_upload_rx: Option<oneshot::Receiver<()>>,
+        progress: Option<SharedObservable<TransmissionProgress>>,
     ) -> Result<Option<SentRequestKey>, crate::Error> {
         match request.kind {
             QueuedRequestKind::Event { content } => {
@@ -703,6 +782,7 @@ impl RoomSendQueue {
                 related_to: relates_to,
                 #[cfg(feature = "unstable-msc4274")]
                 accumulated,
+                ..
             } => {
                 trace!(%relates_to, "uploading media related to event");
 
@@ -728,18 +808,29 @@ impl RoomSendQueue {
                     let media_source = if room.latest_encryption_state().await?.is_encrypted() {
                         trace!("upload will be encrypted (encrypted room)");
                         let mut cursor = std::io::Cursor::new(data);
-                        let encrypted_file = room
-                            .client()
+                        let client = room.client();
+                        let mut req = client
                             .upload_encrypted_file(&mut cursor)
-                            .with_request_config(RequestConfig::short_retry())
-                            .await?;
+                            .with_request_config(RequestConfig::short_retry());
+
+                        if let Some(progress) = progress {
+                            req = req.with_send_progress_observable(progress);
+                        };
+
+                        let encrypted_file = req.await?;
                         MediaSource::Encrypted(Box::new(encrypted_file))
                     } else {
                         trace!("upload will be in clear text (room without encryption)");
                         let request_config = RequestConfig::short_retry()
                             .timeout(Media::reasonable_upload_timeout(&data));
-                        let res =
-                            room.client().media().upload(&mime, data, Some(request_config)).await?;
+                        let mut req =
+                            room.client().media().upload(&mime, data, Some(request_config));
+
+                        if let Some(progress) = progress {
+                            req = req.with_send_progress_observable(progress);
+                        };
+
+                        let res = req.await?;
                         MediaSource::Plain(res.content_uri)
                     };
 
@@ -747,8 +838,14 @@ impl RoomSendQueue {
                     let media_source = {
                         let request_config = RequestConfig::short_retry()
                             .timeout(Media::reasonable_upload_timeout(&data));
-                        let res =
-                            room.client().media().upload(&mime, data, Some(request_config)).await?;
+                        let mut req =
+                            room.client().media().upload(&mime, data, Some(request_config));
+
+                        if let Some(progress) = progress {
+                            req = req.with_send_progress_observable(progress);
+                        };
+
+                        let res = req.await?;
                         MediaSource::Plain(res.content_uri)
                     };
 
@@ -803,6 +900,41 @@ impl RoomSendQueue {
         if enabled {
             self.inner.notifier.notify_one();
         }
+    }
+}
+
+/// Computes the combined upload progress across a media file and its
+/// thumbnail.
+fn compute_combined_progress(
+    progress: TransmissionProgress,
+    file_size: usize,
+    thumbnail_file_size: Option<usize>,
+    media_file_size: Option<usize>,
+) -> AbstractProgress {
+    if progress.total == 0 {
+        AbstractProgress { current: 0, total: 0 }
+    } else {
+        // The uploaded file is possibly encrypted and, thus, larger than
+        // the original one. Use the rule of 3 to proportionally map the
+        // progress into units of the original file size.
+        let mut current =
+            (progress.current as f32 / progress.total as f32 * file_size as f32).round() as usize;
+        let mut total = file_size;
+
+        // If a thumbnail was previously uploaded, add its file size to both
+        // the current and total.
+        if let Some(thumbnail_file_size) = thumbnail_file_size {
+            current += thumbnail_file_size;
+            total += thumbnail_file_size;
+        }
+
+        // If a subsequent media file upload is still pending, add the media
+        // file size to the total.
+        if let Some(media_file_size) = media_file_size {
+            total += media_file_size;
+        }
+
+        AbstractProgress { current, total }
     }
 }
 
@@ -1199,7 +1331,8 @@ impl QueueStorage {
         created_at: MilliSecondsSinceUnixEpoch,
         upload_file_txn: OwnedTransactionId,
         file_media_request: MediaRequestParameters,
-        thumbnail: Option<(FinishUploadThumbnailInfo, MediaRequestParameters, Mime)>,
+        file_size: usize,
+        thumbnail: Option<QueueThumbnailInfo>,
     ) -> Result<(), RoomSendQueueStorageError> {
         let guard = self.store.lock().await;
         let client = guard.client()?;
@@ -1213,6 +1346,7 @@ impl QueueStorage {
                 created_at,
                 upload_file_txn.clone(),
                 file_media_request,
+                file_size,
                 thumbnail,
             )
             .await?;
@@ -1257,8 +1391,13 @@ impl QueueStorage {
             return Ok(());
         };
 
-        let GalleryItemQueueInfo { content_type, upload_file_txn, file_media_request, thumbnail } =
-            first;
+        let GalleryItemQueueInfo {
+            content_type,
+            upload_file_txn,
+            file_media_request,
+            file_size,
+            thumbnail,
+        } = first;
 
         let thumbnail_info = self
             .push_thumbnail_and_media_uploads(
@@ -1268,6 +1407,7 @@ impl QueueStorage {
                 created_at,
                 upload_file_txn.clone(),
                 file_media_request.clone(),
+                *file_size,
                 thumbnail.clone(),
             )
             .await?;
@@ -1282,38 +1422,45 @@ impl QueueStorage {
                 content_type,
                 upload_file_txn,
                 file_media_request,
+                file_size,
                 thumbnail,
             } = item_queue_info;
 
-            let thumbnail_info =
-                if let Some((thumbnail_info, thumbnail_media_request, thumbnail_content_type)) =
-                    thumbnail
-                {
-                    let upload_thumbnail_txn = thumbnail_info.txn.clone();
+            let thumbnail_info = if let Some(QueueThumbnailInfo {
+                finish_upload_thumbnail_info: thumbnail_info,
+                media_request_parameters: thumbnail_media_request,
+                content_type: thumbnail_content_type,
+                file_size: thumbnail_file_size,
+            }) = thumbnail
+            {
+                let upload_thumbnail_txn = thumbnail_info.txn.clone();
 
-                    // Save the thumbnail upload request as a dependent request of the last file
-                    // upload.
-                    store
-                        .save_dependent_queued_request(
-                            &self.room_id,
-                            &last_upload_file_txn,
-                            upload_thumbnail_txn.clone().into(),
-                            created_at,
-                            DependentQueuedRequestKind::UploadFileOrThumbnail {
-                                content_type: thumbnail_content_type.to_string(),
-                                cache_key: thumbnail_media_request.clone(),
-                                related_to: send_event_txn.clone(),
-                                parent_is_thumbnail_upload: false,
-                            },
-                        )
-                        .await?;
+                // Save the thumbnail upload request as a dependent request of the last file
+                // upload.
+                store
+                    .save_dependent_queued_request(
+                        &self.room_id,
+                        &last_upload_file_txn,
+                        upload_thumbnail_txn.clone().into(),
+                        created_at,
+                        DependentQueuedRequestKind::UploadFileOrThumbnail {
+                            content_type: thumbnail_content_type.to_string(),
+                            cache_key: thumbnail_media_request.clone(),
+                            related_to: send_event_txn.clone(),
+                            parent_is_thumbnail_upload: false,
+                            file_size: *thumbnail_file_size,
+                            thumbnail_file_size: None,
+                            media_file_size: Some(*file_size),
+                        },
+                    )
+                    .await?;
 
-                    last_upload_file_txn = upload_thumbnail_txn;
+                last_upload_file_txn = upload_thumbnail_txn;
 
-                    Some(thumbnail_info)
-                } else {
-                    None
-                };
+                Some(thumbnail_info)
+            } else {
+                None
+            };
 
             // Save the file upload as a dependent request of the previous upload.
             store
@@ -1327,6 +1474,9 @@ impl QueueStorage {
                         cache_key: file_media_request.clone(),
                         related_to: send_event_txn.clone(),
                         parent_is_thumbnail_upload: thumbnail.is_some(),
+                        file_size: *file_size,
+                        thumbnail_file_size: thumbnail.as_ref().map(|t| t.file_size),
+                        media_file_size: None,
                     },
                 )
                 .await?;
@@ -1371,9 +1521,16 @@ impl QueueStorage {
         created_at: MilliSecondsSinceUnixEpoch,
         upload_file_txn: OwnedTransactionId,
         file_media_request: MediaRequestParameters,
-        thumbnail: Option<(FinishUploadThumbnailInfo, MediaRequestParameters, Mime)>,
+        file_size: usize,
+        thumbnail: Option<QueueThumbnailInfo>,
     ) -> Result<Option<FinishUploadThumbnailInfo>, RoomSendQueueStorageError> {
-        if let Some((thumbnail_info, thumbnail_media_request, thumbnail_content_type)) = thumbnail {
+        if let Some(QueueThumbnailInfo {
+            finish_upload_thumbnail_info: thumbnail_info,
+            media_request_parameters: thumbnail_media_request,
+            content_type: thumbnail_content_type,
+            file_size: thumbnail_file_size,
+        }) = thumbnail
+        {
             let upload_thumbnail_txn = thumbnail_info.txn.clone();
 
             // Save the thumbnail upload request.
@@ -1389,6 +1546,9 @@ impl QueueStorage {
                         related_to: send_event_txn.clone(),
                         #[cfg(feature = "unstable-msc4274")]
                         accumulated: vec![],
+                        file_size: thumbnail_file_size,
+                        thumbnail_file_size: None,
+                        media_file_size: Some(file_size),
                     },
                     Self::LOW_PRIORITY,
                 )
@@ -1407,6 +1567,9 @@ impl QueueStorage {
                         related_to: send_event_txn,
                         #[cfg(feature = "unstable-msc4274")]
                         parent_is_thumbnail_upload: true,
+                        file_size,
+                        thumbnail_file_size: Some(thumbnail_file_size),
+                        media_file_size: None,
                     },
                 )
                 .await?;
@@ -1426,6 +1589,9 @@ impl QueueStorage {
                         related_to: send_event_txn,
                         #[cfg(feature = "unstable-msc4274")]
                         accumulated: vec![],
+                        file_size,
+                        thumbnail_file_size: None,
+                        media_file_size: None,
                     },
                     Self::LOW_PRIORITY,
                 )
@@ -1799,6 +1965,9 @@ impl QueueStorage {
                 related_to,
                 #[cfg(feature = "unstable-msc4274")]
                 parent_is_thumbnail_upload,
+                file_size,
+                thumbnail_file_size,
+                media_file_size,
             } => {
                 let Some(parent_key) = parent_key else {
                     // Not finished yet, we should retry later => false.
@@ -1824,6 +1993,9 @@ impl QueueStorage {
                     cache_key,
                     related_to,
                     parent_is_thumbnail_upload,
+                    file_size,
+                    thumbnail_file_size,
+                    media_file_size,
                 )
                 .await?;
             }
@@ -1965,7 +2137,8 @@ struct GalleryItemQueueInfo {
     content_type: Mime,
     upload_file_txn: OwnedTransactionId,
     file_media_request: MediaRequestParameters,
-    thumbnail: Option<(FinishUploadThumbnailInfo, MediaRequestParameters, Mime)>,
+    file_size: usize,
+    thumbnail: Option<QueueThumbnailInfo>,
 }
 
 /// The content of a local echo.
@@ -2062,13 +2235,22 @@ pub enum RoomSendQueueUpdate {
         event_id: OwnedEventId,
     },
 
-    /// A media has been successfully uploaded.
-    UploadedMedia {
+    /// A media upload (consisting of a file and possibly a thumbnail) has made
+    /// progress.
+    MediaUpload {
         /// The media event this uploaded media relates to.
         related_to: OwnedTransactionId,
 
-        /// The final media source for the file that was just uploaded.
-        file: MediaSource,
+        /// The final media source for the file if it has finished uploading.
+        file: Option<MediaSource>,
+
+        /// The index of the media within the transaction. A file and its
+        /// thumbnail share the same index.
+        index: u64,
+
+        /// The combined upload progress across the file and, if existing, its
+        /// thumbnail.
+        progress: AbstractProgress,
     },
 }
 
@@ -2163,7 +2345,7 @@ pub struct SendHandle {
     ///
     /// If this is a media upload, this is the "main" transaction id, i.e. the
     /// one used to send the event, and that will be seen by observers.
-    transaction_id: OwnedTransactionId,
+    pub transaction_id: OwnedTransactionId,
 
     /// Additional handles for a media upload.
     media_handles: Vec<MediaHandles>,

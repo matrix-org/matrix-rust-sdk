@@ -122,7 +122,7 @@ async fn test_send_attachment_from_file() {
 
     {
         assert_let_timeout!(Some(VectorDiff::PushBack { value: item }) = timeline_stream.next());
-        assert_matches!(item.send_state(), Some(EventSendState::NotSentYet));
+        assert_matches!(item.send_state(), Some(EventSendState::NotSentYet { progress: None }));
         assert_let!(Some(msg) = item.content().as_message());
 
         // Body is the caption, because there's both a caption and filename.
@@ -146,7 +146,7 @@ async fn test_send_attachment_from_file() {
             Some(VectorDiff::Set { index: 1, value: item }) = timeline_stream.next()
         );
         assert_let!(Some(msg) = item.content().as_message());
-        assert_matches!(item.send_state(), Some(EventSendState::NotSentYet));
+        assert_matches!(item.send_state(), Some(EventSendState::NotSentYet { progress: None }));
         assert_eq!(get_filename_and_caption(msg.msgtype()), ("test.bin", Some("caption")));
 
         // The URI now refers to the final MXC URI.
@@ -225,7 +225,7 @@ async fn test_send_attachment_from_bytes() {
 
     {
         assert_let_timeout!(Some(VectorDiff::PushBack { value: item }) = timeline_stream.next());
-        assert_matches!(item.send_state(), Some(EventSendState::NotSentYet));
+        assert_matches!(item.send_state(), Some(EventSendState::NotSentYet { progress: None }));
         assert_let!(Some(msg) = item.content().as_message());
 
         // Body is the caption, because there's both a caption and filename.
@@ -245,7 +245,7 @@ async fn test_send_attachment_from_bytes() {
             Some(VectorDiff::Set { index: 1, value: item }) = timeline_stream.next()
         );
         assert_let!(Some(msg) = item.content().as_message());
-        assert_matches!(item.send_state(), Some(EventSendState::NotSentYet));
+        assert_matches!(item.send_state(), Some(EventSendState::NotSentYet { progress: None }));
         assert_eq!(get_filename_and_caption(msg.msgtype()), (filename, Some("caption")));
 
         // The URI now refers to the final MXC URI.

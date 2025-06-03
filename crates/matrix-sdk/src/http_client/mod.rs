@@ -231,6 +231,15 @@ pub struct TransmissionProgress {
     pub total: usize,
 }
 
+/// Progress of an operation in abstract units.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct AbstractProgress {
+    /// How many units were already transferred.
+    pub current: usize,
+    /// How many units there are in total.
+    pub total: usize,
+}
+
 async fn response_to_http_response(
     mut response: reqwest::Response,
 ) -> Result<http::Response<Bytes>, reqwest::Error> {
