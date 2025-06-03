@@ -213,15 +213,17 @@ async fn test_extract_bundled_thread_summary() {
     let f = EventFactory::new().room(room_id).sender(&ALICE);
     let thread_event_id = event_id!("$thread_root");
     let latest_event_id = event_id!("$latest_event");
+    let latest_event = f.text_msg("the last one!").event_id(latest_event_id).into_event();
 
     let event = f
         .text_msg("thready thread mcthreadface")
-        .with_bundled_thread_summary(
-            f.text_msg("the last one!").event_id(latest_event_id).into_raw(),
-            42,
-            false,
-        )
+        .with_bundled_thread_summary(latest_event.raw().cast_ref().clone(), 42, false)
         .event_id(thread_event_id);
+
+    // Set up the /event for the latest thread event.
+    // FIXME(bnjbvr): shouldn't be necessary, the event cache could save the bundled
+    // latest event instead.
+    server.mock_room_event().match_event_id().ok(latest_event).mock_once().mount().await;
 
     server.sync_room(&client, JoinedRoomBuilder::new(room_id).add_timeline_event(event)).await;
 
@@ -234,8 +236,15 @@ async fn test_extract_bundled_thread_summary() {
     let event_item = value.as_event().unwrap();
     assert_eq!(event_item.event_id().unwrap(), thread_event_id);
     assert_let!(Some(summary) = event_item.content().thread_summary());
-    // Soon™, Stefan, soon™.
-    assert!(summary.latest_event.is_unavailable());
+
+    // We get the latest event from the bundled thread summary.
+    assert!(summary.latest_event.is_ready());
+    assert_let!(TimelineDetails::Ready(latest_event) = summary.latest_event);
+    assert_eq!(latest_event.content.as_message().unwrap().body(), "the last one!");
+    assert_eq!(latest_event.sender, *ALICE);
+    assert!(latest_event.sender_profile.is_unavailable());
+
+    // We get the count from the bundled thread summary.
     assert_eq!(summary.num_replies, 42);
 
     assert_let!(VectorDiff::PushFront { value } = &timeline_updates[1]);
@@ -321,9 +330,15 @@ async fn test_new_thread_reply_causes_thread_summary() {
     assert_eq!(event_item.event_id().unwrap(), thread_event_id);
     assert!(event_item.content().thread_root().is_none());
 
+    // The thread summary contains the detailed information about the latest event.
     assert_let!(Some(summary) = event_item.content().thread_summary());
-    // Soon™, Stefan, soon™.
-    assert!(summary.latest_event.is_unavailable());
+    assert!(summary.latest_event.is_ready());
+    assert_let!(TimelineDetails::Ready(latest_event) = summary.latest_event);
+    assert_eq!(latest_event.content.as_message().unwrap().body(), "thread reply");
+    assert_eq!(latest_event.sender, *BOB);
+    assert!(latest_event.sender_profile.is_unavailable());
+
+    // The thread summary contains the number of replies.
     assert_eq!(summary.num_replies, 1);
 
     assert_pending!(stream);
@@ -373,8 +388,14 @@ async fn test_new_thread_reply_causes_thread_summary() {
     assert!(event_item.content().thread_root().is_none());
 
     assert_let!(Some(summary) = event_item.content().thread_summary());
-    // Soon™, Stefan, soon™.
-    assert!(summary.latest_event.is_unavailable());
+
+    // The latest event has been updated.
+    assert!(summary.latest_event.is_ready());
+    assert_let!(TimelineDetails::Ready(latest_event) = summary.latest_event);
+    assert_eq!(latest_event.content.as_message().unwrap().body(), "another thread reply");
+    assert_eq!(latest_event.sender, *BOB);
+    assert!(latest_event.sender_profile.is_unavailable());
+
     // The number of replies has been updated.
     assert_eq!(summary.num_replies, 2);
 }
