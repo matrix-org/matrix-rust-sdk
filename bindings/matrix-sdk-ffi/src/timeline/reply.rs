@@ -62,7 +62,7 @@ impl From<TimelineDetails<Box<EmbeddedEvent>>> for EmbeddedEventDetails {
             TimelineDetails::Ready(event) => EmbeddedEventDetails::Ready {
                 content: event.content.into(),
                 sender: event.sender.to_string(),
-                sender_profile: (&event.sender_profile).into(),
+                sender_profile: event.sender_profile.into(),
             },
             TimelineDetails::Error(err) => EmbeddedEventDetails::Error { message: err.to_string() },
         }
