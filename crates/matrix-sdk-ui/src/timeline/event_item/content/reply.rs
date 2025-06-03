@@ -16,7 +16,7 @@ use std::sync::Arc;
 
 use imbl::Vector;
 use matrix_sdk::deserialized_responses::{TimelineEvent, UnsignedEventLocation};
-use ruma::{OwnedEventId, OwnedUserId, UserId};
+use ruma::{OwnedEventId, OwnedUserId};
 use tracing::{debug, instrument, warn};
 
 use super::TimelineItemContent;
@@ -71,22 +71,6 @@ pub struct EmbeddedEvent {
 }
 
 impl EmbeddedEvent {
-    // TODO: remove public getters
-    /// Get the message of this event.
-    pub fn content(&self) -> &TimelineItemContent {
-        &self.content
-    }
-
-    /// Get the sender of this event.
-    pub fn sender(&self) -> &UserId {
-        &self.sender
-    }
-
-    /// Get the profile of the sender.
-    pub fn sender_profile(&self) -> &TimelineDetails<Profile> {
-        &self.sender_profile
-    }
-
     /// Create a [`EmbeddedEvent`] from a loaded event timeline item.
     pub fn from_timeline_item(timeline_item: &EventTimelineItem) -> Self {
         Self {

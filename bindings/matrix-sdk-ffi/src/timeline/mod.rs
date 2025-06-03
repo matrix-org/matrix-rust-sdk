@@ -690,9 +690,9 @@ impl Timeline {
             Ok(Some(replied_to)) => Ok(Arc::new(InReplyToDetails::new(
                 event_id_str,
                 EmbeddedEventDetails::Ready {
-                    content: replied_to.content().clone().into(),
-                    sender: replied_to.sender().to_string(),
-                    sender_profile: replied_to.sender_profile().into(),
+                    content: replied_to.content.clone().into(),
+                    sender: replied_to.sender.to_string(),
+                    sender_profile: (&replied_to.sender_profile).into(),
                 },
             ))),
 
@@ -1144,6 +1144,7 @@ pub enum ProfileDetails {
     Error { message: String },
 }
 
+// TODO try to !use &
 impl From<&TimelineDetails<Profile>> for ProfileDetails {
     fn from(details: &TimelineDetails<Profile>) -> Self {
         match details {
