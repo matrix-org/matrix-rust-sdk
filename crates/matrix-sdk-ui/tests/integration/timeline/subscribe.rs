@@ -19,6 +19,7 @@ use assert_matches2::assert_let;
 use eyeball_im::VectorDiff;
 use futures_util::StreamExt;
 use matrix_sdk::{config::SyncSettings, test_utils::logged_in_client_with_server};
+use matrix_sdk_common::executor::spawn;
 use matrix_sdk_test::{
     async_test, event_factory::EventFactory, mocks::mock_encryption_state,
     GlobalAccountDataTestEvent, JoinedRoomBuilder, SyncResponseBuilder, ALICE, BOB,
@@ -57,7 +58,7 @@ async fn test_batched() {
     let timeline = room.timeline_builder().event_filter(|_, _| true).build().await.unwrap();
     let (_, mut timeline_stream) = timeline.subscribe().await;
 
-    let hdl = tokio::spawn(async move {
+    let hdl = spawn(async move {
         let next_batch = timeline_stream.next().await.unwrap();
         // There can be more than three updates because we add things like
         // date dividers and implicit read receipts
