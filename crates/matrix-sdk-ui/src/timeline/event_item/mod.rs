@@ -51,10 +51,10 @@ pub(super) use self::{
 };
 pub use self::{
     content::{
-        AnyOtherFullStateEventContent, EncryptedMessage, InReplyToDetails, MemberProfileChange,
-        MembershipChange, Message, MsgLikeContent, MsgLikeKind, OtherState, PollResult, PollState,
-        RepliedToEvent, RoomMembershipChange, RoomPinnedEventsChange, Sticker, ThreadSummary,
-        ThreadSummaryLatestEvent, TimelineItemContent,
+        AnyOtherFullStateEventContent, EmbeddedEvent, EncryptedMessage, InReplyToDetails,
+        MemberProfileChange, MembershipChange, Message, MsgLikeContent, MsgLikeKind, OtherState,
+        PollResult, PollState, RoomMembershipChange, RoomPinnedEventsChange, Sticker,
+        ThreadSummary, TimelineItemContent,
     },
     local::EventSendState,
 };
