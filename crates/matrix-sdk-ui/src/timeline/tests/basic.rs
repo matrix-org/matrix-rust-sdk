@@ -419,7 +419,7 @@ async fn test_reply() {
     let in_reply_to = in_reply_to.clone().unwrap();
     assert_eq!(in_reply_to.event_id, first_event_id);
     assert_let!(TimelineDetails::Ready(replied_to_event) = &in_reply_to.event);
-    assert_eq!(replied_to_event.sender(), *ALICE);
+    assert_eq!(replied_to_event.sender, *ALICE);
 }
 
 #[async_test]
@@ -461,7 +461,7 @@ async fn test_thread() {
     let in_reply_to = in_reply_to.clone().unwrap();
     assert_eq!(in_reply_to.event_id, first_event_id);
     assert_let!(TimelineDetails::Ready(replied_to_event) = &in_reply_to.event);
-    assert_eq!(replied_to_event.sender(), *ALICE);
+    assert_eq!(replied_to_event.sender, *ALICE);
 }
 
 #[async_test]

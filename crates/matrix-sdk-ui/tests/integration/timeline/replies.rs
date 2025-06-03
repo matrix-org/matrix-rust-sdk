@@ -349,9 +349,9 @@ async fn test_fetch_details_utd() {
         // The replied-to event is available, and is a UTD.
         let in_reply_to = in_reply_to.clone().unwrap();
         assert_let!(TimelineDetails::Ready(replied_to) = &in_reply_to.event);
-        assert_eq!(replied_to.sender(), *ALICE);
+        assert_eq!(replied_to.sender, *ALICE);
         assert_matches!(
-            replied_to.content(),
+            replied_to.content,
             TimelineItemContent::MsgLike(MsgLikeContent {
                 kind: MsgLikeKind::UnableToDecrypt(_),
                 ..
@@ -461,8 +461,8 @@ async fn test_fetch_details_poll() {
         // The replied-to event is available, and is the poll.
         let in_reply_to = in_reply_to.clone().unwrap();
         assert_let!(TimelineDetails::Ready(replied_to) = &in_reply_to.event);
-        assert_eq!(replied_to.sender(), *ALICE);
-        assert_let!(Some(poll_state) = replied_to.content().as_poll());
+        assert_eq!(replied_to.sender, *ALICE);
+        assert_let!(Some(poll_state) = replied_to.content.as_poll());
         assert_eq!(
             poll_state.fallback_text().unwrap(),
             "What is the best color? A. Red, B. Blue, C. Green"
@@ -572,8 +572,8 @@ async fn test_fetch_details_sticker() {
         // The replied-to event is available, and is a sticker.
         let in_reply_to = in_reply_to.clone().unwrap();
         assert_let!(TimelineDetails::Ready(replied_to) = &in_reply_to.event);
-        assert_eq!(replied_to.sender(), *ALICE);
-        assert_let!(Some(sticker) = replied_to.content().as_sticker());
+        assert_eq!(replied_to.sender, *ALICE);
+        assert_let!(Some(sticker) = replied_to.content.as_sticker());
         assert_eq!(sticker.content().body, "sticker!");
         assert_matches!(&sticker.content().source, StickerMediaSource::Plain(src) => {
             assert_eq!(*src, media_src);
@@ -894,7 +894,7 @@ async fn test_send_reply_to_threaded() {
     assert_eq!(in_reply_to.event_id, event_id_1);
 
     assert_let!(TimelineDetails::Ready(replied_to_event) = &in_reply_to.event);
-    assert_eq!(replied_to_event.sender(), *BOB);
+    assert_eq!(replied_to_event.sender, *BOB);
 
     // Wait for remote echo.
     let diff = timeout(timeline_stream.next(), Duration::from_secs(1)).await.unwrap().unwrap();
@@ -910,7 +910,7 @@ async fn test_send_reply_to_threaded() {
     assert_eq!(in_reply_to.event_id, event_id_1);
 
     assert_let!(TimelineDetails::Ready(replied_to_event) = &in_reply_to.event);
-    assert_eq!(replied_to_event.sender(), *BOB);
+    assert_eq!(replied_to_event.sender, *BOB);
 }
 
 #[async_test]

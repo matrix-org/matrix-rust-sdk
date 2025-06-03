@@ -59,14 +59,11 @@ impl From<TimelineDetails<Box<EmbeddedEvent>>> for EmbeddedEventDetails {
         match event {
             TimelineDetails::Unavailable => EmbeddedEventDetails::Unavailable,
             TimelineDetails::Pending => EmbeddedEventDetails::Pending,
-            TimelineDetails::Ready(event) => {
-                let sender_profile = event.sender_profile().into();
-                EmbeddedEventDetails::Ready {
-                    content: event.content.into(),
-                    sender: event.sender.to_string(),
-                    sender_profile,
-                }
-            }
+            TimelineDetails::Ready(event) => EmbeddedEventDetails::Ready {
+                content: event.content.into(),
+                sender: event.sender.to_string(),
+                sender_profile: (&event.sender_profile).into(),
+            },
             TimelineDetails::Error(err) => EmbeddedEventDetails::Error { message: err.to_string() },
         }
     }
