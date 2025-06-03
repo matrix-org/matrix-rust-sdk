@@ -354,7 +354,7 @@ impl OlmMachine {
             .map(|d| d.into()))
     }
 
-    /// Manually the device of the given user with the given device ID.
+    /// Manually verify the device of the given user with the given device ID.
     ///
     /// This method will attempt to sign the device using our private cross
     /// signing key.
