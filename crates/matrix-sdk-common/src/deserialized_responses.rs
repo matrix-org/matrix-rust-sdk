@@ -372,6 +372,10 @@ impl<'de> Deserialize<'de> for EncryptionInfo {
 /// - whether the user participated or not to this thread.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct ThreadSummary {
+    /// The event id for the latest reply to the thread.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub latest_reply: Option<OwnedEventId>,
+
     /// The number of replies to the thread.
     ///
     /// This doesn't include the thread root event itself. It can be zero if no
@@ -1370,8 +1374,9 @@ mod tests {
         // When creating a timeline event from a raw event, the thread summary is always
         // extracted, if available.
         let timeline_event = TimelineEvent::new(raw);
-        assert_matches!(timeline_event.thread_summary, ThreadSummaryStatus::Some(ThreadSummary { num_replies }) => {
+        assert_matches!(timeline_event.thread_summary, ThreadSummaryStatus::Some(ThreadSummary { num_replies, latest_reply }) => {
             assert_eq!(num_replies, 2);
+            assert_eq!(latest_reply.as_deref(), Some(event_id!("$latest_event:example.com")));
         });
 
         // When deserializing an old serialized timeline event, the thread summary is
@@ -1386,8 +1391,9 @@ mod tests {
 
         let timeline_event: TimelineEvent =
             serde_json::from_value(serialized_timeline_item).unwrap();
-        assert_matches!(timeline_event.thread_summary, ThreadSummaryStatus::Some(ThreadSummary { num_replies }) => {
+        assert_matches!(timeline_event.thread_summary, ThreadSummaryStatus::Some(ThreadSummary { num_replies, latest_reply }) => {
             assert_eq!(num_replies, 2);
+            assert_eq!(latest_reply.as_deref(), Some(event_id!("$latest_event:example.com")));
         });
     }
 
@@ -1651,7 +1657,10 @@ mod tests {
                 )])),
             }),
             push_actions: Default::default(),
-            thread_summary: ThreadSummaryStatus::Some(ThreadSummary { num_replies: 2 }),
+            thread_summary: ThreadSummaryStatus::Some(ThreadSummary {
+                num_replies: 2,
+                latest_reply: None,
+            }),
         };
 
         with_settings!({ sort_maps => true, prepend_module_to_snapshot => false }, {

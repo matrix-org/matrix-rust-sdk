@@ -429,7 +429,7 @@ impl RoomEventCacheInner {
             // Add the previous back-pagination token (if present), followed by the timeline
             // events themselves.
             let new_timeline_event_diffs = state
-                .with_events_mut(|room_events| {
+                .with_events_mut(true, |room_events| {
                     // If we only received duplicated events, we don't need to store the gap: if
                     // there was a gap, we'd have received an unknown event at the tail of
                     // the room's timeline (unless the server reordered sync events since the last
@@ -1161,6 +1161,7 @@ mod private {
         #[instrument(skip_all, fields(room_id = %self.room))]
         pub async fn with_events_mut<F>(
             &mut self,
+            is_live_sync: bool,
             func: F,
         ) -> Result<Vec<VectorDiff<TimelineEvent>>, EventCacheError>
         where
@@ -1173,7 +1174,7 @@ mod private {
 
             for event in &events_to_post_process {
                 self.maybe_apply_new_redaction(event).await?;
-                self.analyze_thread_root(event).await?;
+                self.analyze_thread_root(event, is_live_sync).await?;
             }
 
             // If we've never waited for an initial previous-batch token, and we now have at
@@ -1192,7 +1193,11 @@ mod private {
         /// If the event is a threaded reply, ensure the related thread's root
         /// event (i.e. first thread event) has a thread summary.
         #[instrument(skip_all)]
-        async fn analyze_thread_root(&mut self, event: &Event) -> Result<(), EventCacheError> {
+        async fn analyze_thread_root(
+            &mut self,
+            event: &Event,
+            is_live_sync: bool,
+        ) -> Result<(), EventCacheError> {
             let Some(thread_root) = extract_thread_root(event.raw()) else {
                 // No thread root, carry on.
                 return Ok(());
@@ -1219,13 +1224,34 @@ mod private {
                 related_thread_events.len()
             };
 
-            let new_summary = ThreadSummary { num_replies };
+            let prev_summary = target_event.thread_summary.summary();
+            let mut latest_reply =
+                prev_summary.as_ref().and_then(|summary| summary.latest_reply.clone());
 
-            if let ThreadSummaryStatus::Some(existing) = &target_event.thread_summary {
-                if existing == &new_summary {
-                    trace!("thread summary is already up-to-date");
-                    return Ok(());
-                }
+            // If we're live-syncing, then the latest event is always the event we're
+            // currently processing. We're processing the sync events from oldest to newest,
+            // so a a single sync response containing multiple thread events
+            // will correctly override the latest event to the most recent one.
+            //
+            // If we're back-paginating, then we shouldn't update the latest event
+            // information if it's set. If it's not set, then we should update
+            // it to the last event in the batch. TODO(bnjbvr): the code is
+            // wrong here in this particular case, because a single pagination
+            // batch may include multiple events in the same thread, and they're
+            // processed from oldest to newest; so the first in-thread event seen in that
+            // batch will be marked as the latest reply, which is incorrect.
+            // This will be fixed Later™ by using a proper linked chunk per
+            // thread.
+
+            if is_live_sync || latest_reply.is_none() {
+                latest_reply = event.event_id();
+            }
+
+            let new_summary = ThreadSummary { num_replies, latest_reply };
+
+            if prev_summary == Some(&new_summary) {
+                trace!("thread summary is already up-to-date");
+                return Ok(());
             }
 
             // Cause an update to observers.
