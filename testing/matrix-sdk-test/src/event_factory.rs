@@ -45,9 +45,9 @@ use ruma::{
             encrypted::{EncryptedEventScheme, RoomEncryptedEventContent},
             member::{MembershipState, RoomMemberEventContent},
             message::{
-                FormattedBody, ImageMessageEventContent, MessageType, Relation,
-                RelationWithoutReplacement, RoomMessageEventContent,
-                RoomMessageEventContentWithoutRelation,
+                FormattedBody, GalleryItemType, GalleryMessageEventContent,
+                ImageMessageEventContent, MessageType, Relation, RelationWithoutReplacement,
+                RoomMessageEventContent, RoomMessageEventContentWithoutRelation,
             },
             name::RoomNameEventContent,
             power_levels::RoomPowerLevelsEventContent,
@@ -809,6 +809,22 @@ impl EventFactory {
     ) -> EventBuilder<RoomMessageEventContent> {
         let image_event_content = ImageMessageEventContent::plain(filename, url);
         self.event(RoomMessageEventContent::new(MessageType::Image(image_event_content)))
+    }
+
+    /// Create a gallery event containing a single plain (unencrypted) image
+    /// referencing the given MXC ID.
+    pub fn gallery(
+        &self,
+        body: String,
+        filename: String,
+        url: OwnedMxcUri,
+    ) -> EventBuilder<RoomMessageEventContent> {
+        let gallery_event_content = GalleryMessageEventContent::new(
+            body,
+            None,
+            vec![GalleryItemType::Image(ImageMessageEventContent::plain(filename, url))],
+        );
+        self.event(RoomMessageEventContent::new(MessageType::Gallery(gallery_event_content)))
     }
 
     /// Create a typing notification event.
