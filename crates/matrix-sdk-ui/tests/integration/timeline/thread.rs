@@ -312,7 +312,7 @@ async fn test_new_thread_reply_causes_thread_summary() {
     // info.
     let replied_to_details = value.as_event().unwrap().content().in_reply_to().unwrap().event;
     assert_let!(TimelineDetails::Ready(replied_to_event) = replied_to_details);
-    assert!(replied_to_event.content().thread_summary().is_none());
+    assert!(replied_to_event.content.thread_summary().is_none());
 
     // Since the replied-to item (the thread root) has been updated, all replies get
     // updated too, including the item we just pushed.
@@ -322,7 +322,7 @@ async fn test_new_thread_reply_causes_thread_summary() {
     let replied_to_details = value.as_event().unwrap().content().in_reply_to().unwrap().event;
     assert_let!(TimelineDetails::Ready(replied_to_event) = replied_to_details);
     // Spoiling a bit here…
-    assert!(replied_to_event.content().thread_summary().is_some());
+    assert!(replied_to_event.content.thread_summary().is_some());
 
     // And finally, the thread root event receives a thread summary.
     assert_let!(VectorDiff::Set { index: 1, value } = &timeline_updates[2]);
@@ -378,7 +378,7 @@ async fn test_new_thread_reply_causes_thread_summary() {
     let replied_to_details = value.as_event().unwrap().content().in_reply_to().unwrap().event;
     assert_let!(TimelineDetails::Ready(replied_to_event) = replied_to_details);
     // Spoiling a bit here…
-    assert_eq!(replied_to_event.content().thread_summary().unwrap().num_replies, 2);
+    assert_eq!(replied_to_event.content.thread_summary().unwrap().num_replies, 2);
 
     // Then, we receive an update for the thread root itself, which now has an
     // up-to-date thread summary.

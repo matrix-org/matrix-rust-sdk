@@ -873,7 +873,7 @@ async fn test_retry_decryption_updates_response() {
         assert_eq!(reply_details.event_id, original_event_id);
 
         let replied_to = as_variant!(&reply_details.event, TimelineDetails::Ready).unwrap();
-        assert!(replied_to.content().is_unable_to_decrypt());
+        assert!(replied_to.content.is_unable_to_decrypt());
     }
 
     // Import a room key backup.
@@ -908,7 +908,7 @@ async fn test_retry_decryption_updates_response() {
         assert_eq!(reply_details.event_id, original_event_id);
 
         let replied_to = as_variant!(&reply_details.event, TimelineDetails::Ready).unwrap();
-        assert_eq!(replied_to.content().as_message().unwrap().body(), "It's a secret to everybody");
+        assert_eq!(replied_to.content.as_message().unwrap().body(), "It's a secret to everybody");
     }
 
     // The event itself is decrypted.
