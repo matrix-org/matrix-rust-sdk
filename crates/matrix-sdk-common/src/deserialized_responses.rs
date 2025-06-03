@@ -370,7 +370,7 @@ impl<'de> Deserialize<'de> for EncryptionInfo {
 /// - the number of replies to the thread,
 /// - the full event of the latest reply to the thread,
 /// - whether the user participated or not to this thread.
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct ThreadSummary {
     /// The number of replies to the thread.
     ///
@@ -381,7 +381,7 @@ pub struct ThreadSummary {
 }
 
 /// The status of a thread summary.
-#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
 pub enum ThreadSummaryStatus {
     /// We don't know if the event has a thread summary.
     #[default]

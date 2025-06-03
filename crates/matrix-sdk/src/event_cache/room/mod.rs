@@ -1224,8 +1224,17 @@ mod private {
                 related_thread_events.len()
             };
 
-            target_event.thread_summary = ThreadSummaryStatus::Some(ThreadSummary { num_replies });
+            let new_summary = ThreadSummary { num_replies };
 
+            if let ThreadSummaryStatus::Some(existing) = &target_event.thread_summary {
+                if existing == &new_summary {
+                    trace!("thread summary is already up-to-date");
+                    return Ok(());
+                }
+            }
+
+            // Cause an update to observers.
+            target_event.thread_summary = ThreadSummaryStatus::Some(new_summary);
             self.replace_event_at(location, target_event).await?;
 
             Ok(())
