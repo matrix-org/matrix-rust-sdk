@@ -965,26 +965,21 @@ mod private {
             }
 
             // In-memory events.
-            let timeline_event_diffs = if !in_memory_events.is_empty() {
-                self.with_events_mut(|room_events| {
-                    // `remove_events_by_position` sorts the positions by itself.
-                    room_events
-                        .remove_events_by_position(
-                            in_memory_events
-                                .into_iter()
-                                .map(|(_event_id, position)| position)
-                                .collect(),
-                        )
-                        .expect("failed to remove an event");
+            if in_memory_events.is_empty() {
+                // Nothing else to do, return early.
+                return Ok(Vec::new());
+            }
 
-                    vec![]
-                })
-                .await?
-            } else {
-                Vec::new()
-            };
+            // `remove_events_by_position` is responsible of sorting positions.
+            self.events
+                .remove_events_by_position(
+                    in_memory_events.into_iter().map(|(_event_id, position)| position).collect(),
+                )
+                .expect("failed to remove an event");
 
-            Ok(timeline_event_diffs)
+            self.propagate_changes().await?;
+
+            Ok(self.events.updates_as_vector_diffs())
         }
 
         /// Propagate changes to the underlying storage.
