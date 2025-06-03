@@ -36,7 +36,7 @@ use matrix_sdk_ui::timeline::{
     TimelineUniqueId as SdkTimelineUniqueId,
 };
 use mime::Mime;
-use reply::{InReplyToDetails, RepliedToEventDetails};
+use reply::{EmbeddedEventDetails, InReplyToDetails};
 use ruma::{
     events::{
         location::{AssetType as RumaAssetType, LocationContent, ZoomLevel},
@@ -689,7 +689,7 @@ impl Timeline {
         match replied_to {
             Ok(Some(replied_to)) => Ok(Arc::new(InReplyToDetails::new(
                 event_id_str,
-                RepliedToEventDetails::Ready {
+                EmbeddedEventDetails::Ready {
                     content: replied_to.content().clone().into(),
                     sender: replied_to.sender().to_string(),
                     sender_profile: replied_to.sender_profile().into(),
@@ -698,12 +698,12 @@ impl Timeline {
 
             Ok(None) => Ok(Arc::new(InReplyToDetails::new(
                 event_id_str,
-                RepliedToEventDetails::Error { message: "unsupported event".to_owned() },
+                EmbeddedEventDetails::Error { message: "unsupported event".to_owned() },
             ))),
 
             Err(e) => Ok(Arc::new(InReplyToDetails::new(
                 event_id_str,
-                RepliedToEventDetails::Error { message: e.to_string() },
+                EmbeddedEventDetails::Error { message: e.to_string() },
             ))),
         }
     }
