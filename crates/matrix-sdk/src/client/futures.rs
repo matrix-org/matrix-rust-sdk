@@ -19,9 +19,14 @@ use std::{fmt::Debug, future::IntoFuture};
 use eyeball::SharedObservable;
 #[cfg(not(target_family = "wasm"))]
 use eyeball::Subscriber;
+use js_int::UInt;
 use matrix_sdk_common::boxed_into_future;
 use oauth2::{basic::BasicErrorResponseType, RequestTokenError};
-use ruma::api::{client::error::ErrorKind, error::FromHttpResponseError, OutgoingRequest};
+use ruma::api::{
+    client::{error::ErrorKind, media},
+    error::FromHttpResponseError,
+    OutgoingRequest,
+};
 use tracing::{error, trace};
 
 use super::super::Client;
@@ -29,7 +34,8 @@ use crate::{
     authentication::oauth::OAuthError,
     config::RequestConfig,
     error::{HttpError, HttpResult},
-    RefreshTokenError, TransmissionProgress,
+    media::MediaError,
+    Error, RefreshTokenError, TransmissionProgress,
 };
 
 /// `IntoFuture` returned by [`Client::send`].
@@ -146,6 +152,65 @@ where
             }
 
             res
+        })
+    }
+}
+
+/// `IntoFuture` used to send media upload requests. It wraps another
+/// [`SendRequest`], checking its size will be accepted by the homeserver before
+/// uploading.
+#[allow(missing_debug_implementations)]
+pub struct SendMediaUploadRequest {
+    send_request: SendRequest<media::create_content::v3::Request>,
+}
+
+impl SendMediaUploadRequest {
+    pub fn new(request: SendRequest<media::create_content::v3::Request>) -> Self {
+        Self { send_request: request }
+    }
+
+    /// Replace the default `SharedObservable` used for tracking upload
+    /// progress.
+    ///
+    /// Note that any subscribers obtained from
+    /// [`subscribe_to_send_progress`][Self::subscribe_to_send_progress]
+    /// will be invalidated by this.
+    pub fn with_send_progress_observable(
+        mut self,
+        send_progress: SharedObservable<TransmissionProgress>,
+    ) -> Self {
+        self.send_request = self.send_request.with_send_progress_observable(send_progress);
+        self
+    }
+
+    /// Get a subscriber to observe the progress of sending the request
+    /// body.
+    #[cfg(not(target_family = "wasm"))]
+    pub fn subscribe_to_send_progress(&self) -> Subscriber<TransmissionProgress> {
+        self.send_request.send_progress.subscribe()
+    }
+}
+
+impl IntoFuture for SendMediaUploadRequest {
+    type Output = Result<media::create_content::v3::Response, Error>;
+    boxed_into_future!();
+
+    fn into_future(self) -> Self::IntoFuture {
+        let request_length = self.send_request.request.file.len();
+        let client = self.send_request.client.clone();
+        let send_request = self.send_request;
+
+        Box::pin(async move {
+            let max_upload_size = client.load_or_fetch_max_upload_size().await?;
+            let request_length = UInt::new_wrapping(request_length as u64);
+            if request_length > max_upload_size {
+                return Err(Error::Media(MediaError::MediaTooLargeToUpload {
+                    max: max_upload_size,
+                    current: request_length,
+                }));
+            }
+
+            send_request.into_future().await.map_err(Into::into)
         })
     }
 }

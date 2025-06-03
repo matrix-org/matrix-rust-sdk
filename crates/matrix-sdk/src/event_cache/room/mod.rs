@@ -1222,13 +1222,34 @@ mod private {
 
             target_event.thread_summary = ThreadSummaryStatus::Some(ThreadSummary {});
 
+            self.replace_event_at(location, target_event).await?;
+
+            Ok(())
+        }
+
+        /// Replaces a single event, be it saved in memory or in the store.
+        ///
+        /// If it was saved in memory, this will emit a notification to
+        /// observers that a single item has been replaced. Otherwise,
+        /// such a notification is not emitted, because observers are
+        /// unlikely to observe the store updates directly.
+        async fn replace_event_at(
+            &mut self,
+            location: EventLocation,
+            event: TimelineEvent,
+        ) -> Result<(), EventCacheError> {
             match location {
                 EventLocation::Memory(position) => {
                     self.events
-                        .replace_event_at(position, target_event)
+                        .replace_event_at(position, event)
                         .expect("should have been a valid position of an item");
+                    // We just changed the in-memory representation; synchronize this with
+                    // the store.
+                    self.propagate_changes().await?;
                 }
-                EventLocation::Store => self.save_event([target_event]).await?,
+                EventLocation::Store => {
+                    self.save_event([event]).await?;
+                }
             }
 
             Ok(())
@@ -1267,7 +1288,7 @@ mod private {
             };
 
             // Replace the redacted event by a redacted form, if we knew about it.
-            if let Some((location, target_event)) = self.find_event(event_id).await? {
+            if let Some((location, mut target_event)) = self.find_event(event_id).await? {
                 // Don't redact already redacted events.
                 if let Ok(deserialized) = target_event.raw().deserialize() {
                     match deserialized {
@@ -1289,28 +1310,17 @@ mod private {
                     event.raw().cast_ref::<SyncRoomRedactionEvent>(),
                     &self.room_version,
                 ) {
-                    let mut copy = target_event.clone();
-
                     // It's safe to cast `redacted_event` here:
                     // - either the event was an `AnyTimelineEvent` cast to `AnySyncTimelineEvent`
                     //   when calling .raw(), so it's still one under the hood.
                     // - or it wasn't, and it's a plain `AnySyncTimelineEvent` in this case.
-                    copy.replace_raw(redacted_event.cast());
+                    target_event.replace_raw(redacted_event.cast());
 
-                    match location {
-                        EventLocation::Memory(position) => {
-                            self.events
-                                .replace_event_at(position, copy)
-                                .expect("should have been a valid position of an item");
-                        }
-                        EventLocation::Store => self.save_event([copy]).await?,
-                    }
+                    self.replace_event_at(location, target_event).await?;
                 }
             } else {
                 trace!("redacted event is missing from the linked chunk");
             }
-
-            // TODO: remove all related events too!
 
             Ok(())
         }
@@ -1358,31 +1368,16 @@ pub(super) use private::RoomEventCacheState;
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
 
-    use assert_matches::assert_matches;
-    use assert_matches2::assert_let;
-    use matrix_sdk_base::{
-        event_cache::{
-            store::{EventCacheStore as _, MemoryStore},
-            Gap,
-        },
-        linked_chunk::{ChunkContent, ChunkIdentifier, Position, Update},
-        store::StoreConfig,
-        sync::{JoinedRoomUpdate, Timeline},
-    };
     use matrix_sdk_common::deserialized_responses::TimelineEvent;
-    use matrix_sdk_test::{async_test, event_factory::EventFactory, ALICE, BOB};
+    use matrix_sdk_test::{async_test, event_factory::EventFactory};
     use ruma::{
         event_id,
-        events::{
-            relation::RelationType, room::message::RoomMessageEventContentWithoutRelation,
-            AnySyncMessageLikeEvent, AnySyncTimelineEvent,
-        },
+        events::{relation::RelationType, room::message::RoomMessageEventContentWithoutRelation},
         room_id, user_id, RoomId,
     };
 
-    use crate::test_utils::{client::MockClientBuilder, logged_in_client};
+    use crate::test_utils::logged_in_client;
 
     #[async_test]
     async fn test_event_with_edit_relation() {
@@ -1585,11 +1580,85 @@ mod tests {
         assert_eq!(related_event_id, associated_related_id);
     }
 
-    #[cfg(not(target_family = "wasm"))] // This uses the cross-process lock, so needs time support.
+    async fn assert_relations(
+        room_id: &RoomId,
+        original_event: TimelineEvent,
+        related_event: TimelineEvent,
+        event_factory: EventFactory,
+    ) {
+        let client = logged_in_client(None).await;
+
+        let event_cache = client.event_cache();
+        event_cache.subscribe().unwrap();
+
+        client.base_client().get_or_create_room(room_id, matrix_sdk_base::RoomState::Joined);
+        let room = client.get_room(room_id).unwrap();
+
+        let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+
+        // Save the original event.
+        let original_event_id = original_event.event_id().unwrap();
+        room_event_cache.save_events([original_event]).await;
+
+        // Save an unrelated event to check it's not in the related events list.
+        let unrelated_id = event_id!("$2");
+        room_event_cache
+            .save_events([event_factory
+                .text_msg("An unrelated event")
+                .event_id(unrelated_id)
+                .into()])
+            .await;
+
+        // Save the related event.
+        let related_id = related_event.event_id().unwrap();
+        room_event_cache.save_events([related_event]).await;
+
+        let (event, related_events) =
+            room_event_cache.event_with_relations(&original_event_id, None).await.unwrap();
+        // Fetched event is the right one.
+        let cached_event_id = event.event_id().unwrap();
+        assert_eq!(cached_event_id, original_event_id);
+
+        // There is only the actually related event in the related ones
+        let related_event_id = related_events[0].event_id().unwrap();
+        assert_eq!(related_event_id, related_id);
+    }
+}
+
+#[cfg(all(test, not(target_family = "wasm")))] // This uses the cross-process lock, so needs time support.
+mod timed_tests {
+    use std::sync::Arc;
+
+    use assert_matches::assert_matches;
+    use assert_matches2::assert_let;
+    use eyeball_im::VectorDiff;
+    use matrix_sdk_base::{
+        event_cache::{
+            store::{EventCacheStore as _, MemoryStore},
+            Gap,
+        },
+        linked_chunk::{
+            lazy_loader::from_all_chunks, ChunkContent, ChunkIdentifier, Position, Update,
+        },
+        store::StoreConfig,
+        sync::{JoinedRoomUpdate, Timeline},
+    };
+    use matrix_sdk_test::{async_test, event_factory::EventFactory, ALICE, BOB};
+    use ruma::{
+        event_id,
+        events::{AnySyncMessageLikeEvent, AnySyncTimelineEvent},
+        room_id, user_id,
+    };
+    use tokio::task::yield_now;
+
+    use crate::{
+        assert_let_timeout,
+        event_cache::{room::LoadMoreEventsBackwardsOutcome, RoomEventCacheUpdate},
+        test_utils::client::MockClientBuilder,
+    };
+
     #[async_test]
     async fn test_write_to_storage() {
-        use matrix_sdk_base::linked_chunk::lazy_loader::from_all_chunks;
-
         let room_id = room_id!("!galette:saucisse.bzh");
         let f = EventFactory::new().room(room_id).sender(user_id!("@ben:saucisse.bzh"));
 
@@ -1651,11 +1720,8 @@ mod tests {
         assert!(chunks.next().is_none());
     }
 
-    #[cfg(not(target_family = "wasm"))] // This uses the cross-process lock, so needs time support.
     #[async_test]
     async fn test_write_to_storage_strips_bundled_relations() {
-        use matrix_sdk_base::linked_chunk::lazy_loader::from_all_chunks;
-
         let room_id = room_id!("!galette:saucisse.bzh");
         let f = EventFactory::new().room(room_id).sender(user_id!("@ben:saucisse.bzh"));
 
@@ -1733,14 +1799,8 @@ mod tests {
         assert!(chunks.next().is_none());
     }
 
-    #[cfg(not(target_family = "wasm"))] // This uses the cross-process lock, so needs time support.
     #[async_test]
     async fn test_clear() {
-        use eyeball_im::VectorDiff;
-        use matrix_sdk_base::linked_chunk::lazy_loader::from_all_chunks;
-
-        use crate::{assert_let_timeout, event_cache::RoomEventCacheUpdate};
-
         let room_id = room_id!("!galette:saucisse.bzh");
         let f = EventFactory::new().room(room_id).sender(user_id!("@ben:saucisse.bzh"));
 
@@ -1876,14 +1936,8 @@ mod tests {
         assert_eq!(linked_chunk.num_items(), 0);
     }
 
-    #[cfg(not(target_family = "wasm"))] // This uses the cross-process lock, so needs time support.
     #[async_test]
     async fn test_load_from_storage() {
-        use eyeball_im::VectorDiff;
-
-        use super::RoomEventCacheUpdate;
-        use crate::assert_let_timeout;
-
         let room_id = room_id!("!galette:saucisse.bzh");
         let f = EventFactory::new().room(room_id).sender(user_id!("@ben:saucisse.bzh"));
 
@@ -1999,7 +2053,6 @@ mod tests {
         assert_eq!(items[1].event_id().unwrap(), event_id2);
     }
 
-    #[cfg(not(target_family = "wasm"))] // This uses the cross-process lock, so needs time support.
     #[async_test]
     async fn test_load_from_storage_resilient_to_failure() {
         let room_id = room_id!("!fondue:patate.ch");
@@ -2065,11 +2118,8 @@ mod tests {
         assert!(raw_chunks.is_empty());
     }
 
-    #[cfg(not(target_family = "wasm"))] // This uses the cross-process lock, so needs time support.
     #[async_test]
     async fn test_no_useless_gaps() {
-        use crate::event_cache::room::LoadMoreEventsBackwardsOutcome;
-
         let room_id = room_id!("!galette:saucisse.bzh");
 
         let client = MockClientBuilder::new("http://localhost".to_owned()).build().await;
@@ -2173,57 +2223,8 @@ mod tests {
         }
     }
 
-    async fn assert_relations(
-        room_id: &RoomId,
-        original_event: TimelineEvent,
-        related_event: TimelineEvent,
-        event_factory: EventFactory,
-    ) {
-        let client = logged_in_client(None).await;
-
-        let event_cache = client.event_cache();
-        event_cache.subscribe().unwrap();
-
-        client.base_client().get_or_create_room(room_id, matrix_sdk_base::RoomState::Joined);
-        let room = client.get_room(room_id).unwrap();
-
-        let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
-
-        // Save the original event.
-        let original_event_id = original_event.event_id().unwrap();
-        room_event_cache.save_events([original_event]).await;
-
-        // Save an unrelated event to check it's not in the related events list.
-        let unrelated_id = event_id!("$2");
-        room_event_cache
-            .save_events([event_factory
-                .text_msg("An unrelated event")
-                .event_id(unrelated_id)
-                .into()])
-            .await;
-
-        // Save the related event.
-        let related_id = related_event.event_id().unwrap();
-        room_event_cache.save_events([related_event]).await;
-
-        let (event, related_events) =
-            room_event_cache.event_with_relations(&original_event_id, None).await.unwrap();
-        // Fetched event is the right one.
-        let cached_event_id = event.event_id().unwrap();
-        assert_eq!(cached_event_id, original_event_id);
-
-        // There is only the actually related event in the related ones
-        let related_event_id = related_events[0].event_id().unwrap();
-        assert_eq!(related_event_id, related_id);
-    }
-
-    #[cfg(not(target_family = "wasm"))] // This uses the cross-process lock, so needs time support.
     #[async_test]
     async fn test_shrink_to_last_chunk() {
-        use eyeball_im::VectorDiff;
-
-        use crate::{assert_let_timeout, event_cache::RoomEventCacheUpdate};
-
         let room_id = room_id!("!galette:saucisse.bzh");
 
         let client = MockClientBuilder::new("http://localhost".to_owned()).build().await;
@@ -2332,14 +2333,8 @@ mod tests {
         assert!(outcome.reached_start);
     }
 
-    #[cfg(not(target_family = "wasm"))] // This uses the cross-process lock, so needs time support.
     #[async_test]
     async fn test_auto_shrink_after_all_subscribers_are_gone() {
-        use eyeball_im::VectorDiff;
-        use tokio::task::yield_now;
-
-        use crate::{assert_let_timeout, event_cache::RoomEventCacheUpdate};
-
         let room_id = room_id!("!galette:saucisse.bzh");
 
         let client = MockClientBuilder::new("http://localhost".to_owned()).build().await;
