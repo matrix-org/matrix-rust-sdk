@@ -1367,3 +1367,270 @@ impl LazyTimelineItemProvider {
         self.0.contains_only_emojis()
     }
 }
+
+#[cfg(feature = "unstable-msc4274")]
+mod galleries {
+    use std::{panic, sync::Arc};
+
+    use async_compat::get_runtime_handle;
+    use matrix_sdk::{
+        attachment::{
+            AttachmentInfo, BaseAudioInfo, BaseFileInfo, BaseImageInfo, BaseVideoInfo, Thumbnail,
+        },
+        utils::formatted_body_from,
+    };
+    use matrix_sdk_ui::timeline::GalleryConfig;
+    use mime::Mime;
+    use tokio::{
+        sync::Mutex,
+        task::{AbortHandle, JoinHandle},
+    };
+    use tracing::error;
+
+    use crate::{
+        error::RoomError,
+        ruma::{AudioInfo, FileInfo, FormattedBody, ImageInfo, Mentions, VideoInfo},
+        timeline::{build_thumbnail_info, Timeline},
+    };
+
+    #[derive(uniffi::Record)]
+    pub struct GalleryUploadParameters {
+        /// Optional non-formatted caption, for clients that support it.
+        caption: Option<String>,
+        /// Optional HTML-formatted caption, for clients that support it.
+        formatted_caption: Option<FormattedBody>,
+        /// Optional intentional mentions to be sent with the gallery.
+        mentions: Option<Mentions>,
+    }
+
+    #[derive(uniffi::Enum)]
+    pub enum GalleryItemInfo {
+        Audio(AudioGalleryItemInfo),
+        File(FileGalleryItemInfo),
+        Image(ImageGalleryItemInfo),
+        Video(VideoGalleryItemInfo),
+    }
+
+    impl GalleryItemInfo {
+        fn mimetype(&self) -> &Option<String> {
+            match self {
+                GalleryItemInfo::Audio(info) => &info.audio_info.mimetype,
+                GalleryItemInfo::File(info) => &info.file_info.mimetype,
+                GalleryItemInfo::Image(info) => &info.image_info.mimetype,
+                GalleryItemInfo::Video(info) => &info.video_info.mimetype,
+            }
+        }
+
+        fn filename(&self) -> &String {
+            match self {
+                GalleryItemInfo::Audio(info) => &info.filename,
+                GalleryItemInfo::File(info) => &info.filename,
+                GalleryItemInfo::Image(info) => &info.filename,
+                GalleryItemInfo::Video(info) => &info.filename,
+            }
+        }
+
+        fn caption(&self) -> &Option<String> {
+            match self {
+                GalleryItemInfo::Audio(info) => &info.caption,
+                GalleryItemInfo::File(info) => &info.caption,
+                GalleryItemInfo::Image(info) => &info.caption,
+                GalleryItemInfo::Video(info) => &info.caption,
+            }
+        }
+
+        fn formatted_caption(&self) -> &Option<FormattedBody> {
+            match self {
+                GalleryItemInfo::Audio(info) => &info.formatted_caption,
+                GalleryItemInfo::File(info) => &info.formatted_caption,
+                GalleryItemInfo::Image(info) => &info.formatted_caption,
+                GalleryItemInfo::Video(info) => &info.formatted_caption,
+            }
+        }
+
+        fn attachment_info(&self) -> Result<AttachmentInfo, RoomError> {
+            match self {
+                GalleryItemInfo::Audio(info) => Ok(AttachmentInfo::Audio(
+                    BaseAudioInfo::try_from(&info.audio_info)
+                        .map_err(|_| RoomError::InvalidAttachmentData)?,
+                )),
+                GalleryItemInfo::File(info) => Ok(AttachmentInfo::File(
+                    BaseFileInfo::try_from(&info.file_info)
+                        .map_err(|_| RoomError::InvalidAttachmentData)?,
+                )),
+                GalleryItemInfo::Image(info) => Ok(AttachmentInfo::Image(
+                    BaseImageInfo::try_from(&info.image_info)
+                        .map_err(|_| RoomError::InvalidAttachmentData)?,
+                )),
+                GalleryItemInfo::Video(info) => Ok(AttachmentInfo::Video(
+                    BaseVideoInfo::try_from(&info.video_info)
+                        .map_err(|_| RoomError::InvalidAttachmentData)?,
+                )),
+            }
+        }
+
+        fn thumbnail(&self) -> Result<Option<Thumbnail>, RoomError> {
+            match self {
+                GalleryItemInfo::Audio(..) => Ok(None),
+                GalleryItemInfo::File(..) => Ok(None),
+                GalleryItemInfo::Image(info) => build_thumbnail_info(
+                    info.thumbnail_path.clone(),
+                    info.image_info.thumbnail_info.clone(),
+                ),
+                GalleryItemInfo::Video(info) => build_thumbnail_info(
+                    info.thumbnail_path.clone(),
+                    info.video_info.thumbnail_info.clone(),
+                ),
+            }
+        }
+    }
+
+    impl TryInto<matrix_sdk_ui::timeline::GalleryItemInfo> for GalleryItemInfo {
+        type Error = RoomError;
+
+        fn try_into(
+            self,
+        ) -> std::result::Result<matrix_sdk_ui::timeline::GalleryItemInfo, Self::Error> {
+            let mime_str = self.mimetype().as_ref().ok_or(RoomError::InvalidAttachmentMimeType)?;
+            let mime_type =
+                mime_str.parse::<Mime>().map_err(|_| RoomError::InvalidAttachmentMimeType)?;
+            Ok(matrix_sdk_ui::timeline::GalleryItemInfo {
+                source: self.filename().into(),
+                content_type: mime_type,
+                attachment_info: self.attachment_info()?,
+                caption: self.caption().clone(),
+                formatted_caption: self
+                    .formatted_caption()
+                    .clone()
+                    .map(ruma::events::room::message::FormattedBody::from),
+                thumbnail: self.thumbnail()?,
+            })
+        }
+    }
+
+    #[derive(uniffi::Record)]
+    pub struct AudioGalleryItemInfo {
+        /// Audio metadata.
+        pub audio_info: AudioInfo,
+        /// Filename.
+        pub filename: String,
+        /// Caption.
+        pub caption: Option<String>,
+        /// Rich caption.
+        pub formatted_caption: Option<FormattedBody>,
+    }
+
+    #[derive(uniffi::Record)]
+    pub struct FileGalleryItemInfo {
+        /// File metadata.
+        pub file_info: FileInfo,
+        /// Filename.
+        pub filename: String,
+        /// Caption.
+        pub caption: Option<String>,
+        /// Rich caption.
+        pub formatted_caption: Option<FormattedBody>,
+    }
+
+    #[derive(uniffi::Record)]
+    pub struct ImageGalleryItemInfo {
+        /// Image metadata.
+        pub image_info: ImageInfo,
+        /// Filename.
+        pub filename: String,
+        /// Caption.
+        pub caption: Option<String>,
+        /// Rich caption.
+        pub formatted_caption: Option<FormattedBody>,
+        /// Path to the thumbnail.
+        pub thumbnail_path: Option<String>,
+    }
+
+    #[derive(uniffi::Record)]
+    pub struct VideoGalleryItemInfo {
+        /// Video metadata.
+        pub video_info: VideoInfo,
+        /// Filename.
+        pub filename: String,
+        /// Caption.
+        pub caption: Option<String>,
+        /// Rich caption.
+        pub formatted_caption: Option<FormattedBody>,
+        /// Path to the thumbnail.
+        pub thumbnail_path: Option<String>,
+    }
+
+    #[derive(uniffi::Object)]
+    pub struct SendGalleryJoinHandle {
+        join_hdl: Arc<Mutex<JoinHandle<Result<(), RoomError>>>>,
+        abort_hdl: AbortHandle,
+    }
+
+    impl SendGalleryJoinHandle {
+        fn new(join_hdl: JoinHandle<Result<(), RoomError>>) -> Arc<Self> {
+            let abort_hdl = join_hdl.abort_handle();
+            let join_hdl = Arc::new(Mutex::new(join_hdl));
+            Arc::new(Self { join_hdl, abort_hdl })
+        }
+    }
+
+    #[matrix_sdk_ffi_macros::export]
+    impl SendGalleryJoinHandle {
+        /// Wait until the gallery has been sent.
+        ///
+        /// If the sending had been cancelled, will return immediately.
+        pub async fn join(&self) -> Result<(), RoomError> {
+            let handle = self.join_hdl.clone();
+            let mut locked_handle = handle.lock().await;
+            let join_result = (&mut *locked_handle).await;
+            match join_result {
+                Ok(res) => res,
+                Err(err) => {
+                    if err.is_cancelled() {
+                        return Ok(());
+                    }
+                    error!("task panicked! resuming panic from here.");
+                    panic::resume_unwind(err.into_panic());
+                }
+            }
+        }
+
+        /// Cancel the current sending task.
+        ///
+        /// A subsequent call to [`Self::join`] will return immediately.
+        pub fn cancel(&self) {
+            self.abort_hdl.abort();
+        }
+    }
+
+    #[matrix_sdk_ffi_macros::export]
+    impl Timeline {
+        pub fn send_gallery(
+            self: Arc<Self>,
+            params: GalleryUploadParameters,
+            item_infos: Vec<GalleryItemInfo>,
+        ) -> Result<Arc<SendGalleryJoinHandle>, RoomError> {
+            let formatted_caption = formatted_body_from(
+                params.caption.as_deref(),
+                params.formatted_caption.map(Into::into),
+            );
+
+            let mut gallery_config = GalleryConfig::new()
+                .caption(params.caption)
+                .formatted_caption(formatted_caption)
+                .mentions(params.mentions.map(Into::into));
+
+            for item_info in item_infos {
+                gallery_config = gallery_config.add_item(item_info.try_into()?);
+            }
+
+            let handle = SendGalleryJoinHandle::new(get_runtime_handle().spawn(async move {
+                let request = self.inner.send_gallery(gallery_config);
+                request.await.map_err(|_| RoomError::FailedSendingAttachment)?;
+                Ok(())
+            }));
+
+            Ok(handle)
+        }
+    }
+}

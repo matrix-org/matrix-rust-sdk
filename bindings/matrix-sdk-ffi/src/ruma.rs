@@ -345,15 +345,38 @@ impl From<Mentions> for ruma::events::Mentions {
 
 #[derive(Clone, uniffi::Enum)]
 pub enum MessageType {
-    Emote { content: EmoteMessageContent },
-    Image { content: ImageMessageContent },
-    Audio { content: AudioMessageContent },
-    Video { content: VideoMessageContent },
-    File { content: FileMessageContent },
-    Notice { content: NoticeMessageContent },
-    Text { content: TextMessageContent },
-    Location { content: LocationContent },
-    Other { msgtype: String, body: String },
+    Emote {
+        content: EmoteMessageContent,
+    },
+    Image {
+        content: ImageMessageContent,
+    },
+    Audio {
+        content: AudioMessageContent,
+    },
+    Video {
+        content: VideoMessageContent,
+    },
+    File {
+        content: FileMessageContent,
+    },
+    #[cfg(feature = "unstable-msc4274")]
+    Gallery {
+        content: GalleryMessageContent,
+    },
+    Notice {
+        content: NoticeMessageContent,
+    },
+    Text {
+        content: TextMessageContent,
+    },
+    Location {
+        content: LocationContent,
+    },
+    Other {
+        msgtype: String,
+        body: String,
+    },
 }
 
 /// From MSC2530: https://github.com/matrix-org/matrix-spec-proposals/blob/main/proposals/2530-body-as-caption.md
@@ -383,44 +406,12 @@ impl TryFrom<MessageType> for RumaMessageType {
                     formatted: content.formatted.map(Into::into),
                 }))
             }
-            MessageType::Image { content } => {
-                let (body, filename) = get_body_and_filename(content.filename, content.caption);
-                let mut event_content =
-                    RumaImageMessageEventContent::new(body, (*content.source).clone().into())
-                        .info(content.info.map(Into::into).map(Box::new));
-                event_content.formatted = content.formatted_caption.map(Into::into);
-                event_content.filename = filename;
-                Self::Image(event_content)
-            }
-            MessageType::Audio { content } => {
-                let (body, filename) = get_body_and_filename(content.filename, content.caption);
-                let mut event_content =
-                    RumaAudioMessageEventContent::new(body, (*content.source).clone().into())
-                        .info(content.info.map(Into::into).map(Box::new));
-                event_content.formatted = content.formatted_caption.map(Into::into);
-                event_content.filename = filename;
-                event_content.audio = content.audio.map(Into::into);
-                event_content.voice = content.voice.map(Into::into);
-                Self::Audio(event_content)
-            }
-            MessageType::Video { content } => {
-                let (body, filename) = get_body_and_filename(content.filename, content.caption);
-                let mut event_content =
-                    RumaVideoMessageEventContent::new(body, (*content.source).clone().into())
-                        .info(content.info.map(Into::into).map(Box::new));
-                event_content.formatted = content.formatted_caption.map(Into::into);
-                event_content.filename = filename;
-                Self::Video(event_content)
-            }
-            MessageType::File { content } => {
-                let (body, filename) = get_body_and_filename(content.filename, content.caption);
-                let mut event_content =
-                    RumaFileMessageEventContent::new(body, (*content.source).clone().into())
-                        .info(content.info.map(Into::into).map(Box::new));
-                event_content.formatted = content.formatted_caption.map(Into::into);
-                event_content.filename = filename;
-                Self::File(event_content)
-            }
+            MessageType::Image { content } => Self::Image(content.into()),
+            MessageType::Audio { content } => Self::Audio(content.into()),
+            MessageType::Video { content } => Self::Video(content.into()),
+            MessageType::File { content } => Self::File(content.into()),
+            #[cfg(feature = "unstable-msc4274")]
+            MessageType::Gallery { content } => Self::Gallery(content.try_into()?),
             MessageType::Notice { content } => {
                 Self::Notice(assign!(RumaNoticeMessageEventContent::plain(content.body), {
                     formatted: content.formatted.map(Into::into),
@@ -452,45 +443,12 @@ impl TryFrom<RumaMessageType> for MessageType {
                     formatted: c.formatted.as_ref().map(Into::into),
                 },
             },
-            RumaMessageType::Image(c) => MessageType::Image {
-                content: ImageMessageContent {
-                    filename: c.filename().to_owned(),
-                    caption: c.caption().map(ToString::to_string),
-                    formatted_caption: c.formatted_caption().map(Into::into),
-                    source: Arc::new(c.source.try_into()?),
-                    info: c.info.as_deref().map(TryInto::try_into).transpose()?,
-                },
-            },
-
-            RumaMessageType::Audio(c) => MessageType::Audio {
-                content: AudioMessageContent {
-                    filename: c.filename().to_owned(),
-                    caption: c.caption().map(ToString::to_string),
-                    formatted_caption: c.formatted_caption().map(Into::into),
-                    source: Arc::new(c.source.try_into()?),
-                    info: c.info.as_deref().map(Into::into),
-                    audio: c.audio.map(Into::into),
-                    voice: c.voice.map(Into::into),
-                },
-            },
-            RumaMessageType::Video(c) => MessageType::Video {
-                content: VideoMessageContent {
-                    filename: c.filename().to_owned(),
-                    caption: c.caption().map(ToString::to_string),
-                    formatted_caption: c.formatted_caption().map(Into::into),
-                    source: Arc::new(c.source.try_into()?),
-                    info: c.info.as_deref().map(TryInto::try_into).transpose()?,
-                },
-            },
-            RumaMessageType::File(c) => MessageType::File {
-                content: FileMessageContent {
-                    filename: c.filename().to_owned(),
-                    caption: c.caption().map(ToString::to_string),
-                    formatted_caption: c.formatted_caption().map(Into::into),
-                    source: Arc::new(c.source.try_into()?),
-                    info: c.info.as_deref().map(TryInto::try_into).transpose()?,
-                },
-            },
+            RumaMessageType::Image(c) => MessageType::Image { content: c.try_into()? },
+            RumaMessageType::Audio(c) => MessageType::Audio { content: c.try_into()? },
+            RumaMessageType::Video(c) => MessageType::Video { content: c.try_into()? },
+            RumaMessageType::File(c) => MessageType::File { content: c.try_into()? },
+            #[cfg(feature = "unstable-msc4274")]
+            RumaMessageType::Gallery(c) => MessageType::Gallery { content: c.try_into()? },
             RumaMessageType::Notice(c) => MessageType::Notice {
                 content: NoticeMessageContent {
                     body: c.body.clone(),
@@ -568,6 +526,31 @@ pub struct ImageMessageContent {
     pub info: Option<ImageInfo>,
 }
 
+impl From<ImageMessageContent> for RumaImageMessageEventContent {
+    fn from(value: ImageMessageContent) -> Self {
+        let (body, filename) = get_body_and_filename(value.filename, value.caption);
+        let mut event_content = Self::new(body, (*value.source).clone().into())
+            .info(value.info.map(Into::into).map(Box::new));
+        event_content.formatted = value.formatted_caption.map(Into::into);
+        event_content.filename = filename;
+        event_content
+    }
+}
+
+impl TryFrom<RumaImageMessageEventContent> for ImageMessageContent {
+    type Error = ClientError;
+
+    fn try_from(value: RumaImageMessageEventContent) -> Result<Self, Self::Error> {
+        Ok(Self {
+            filename: value.filename().to_owned(),
+            caption: value.caption().map(ToString::to_string),
+            formatted_caption: value.formatted_caption().map(Into::into),
+            source: Arc::new(value.source.try_into()?),
+            info: value.info.as_deref().map(TryInto::try_into).transpose()?,
+        })
+    }
+}
+
 #[derive(Clone, uniffi::Record)]
 pub struct AudioMessageContent {
     /// The computed filename, for use in a client.
@@ -580,6 +563,35 @@ pub struct AudioMessageContent {
     pub voice: Option<UnstableVoiceContent>,
 }
 
+impl From<AudioMessageContent> for RumaAudioMessageEventContent {
+    fn from(value: AudioMessageContent) -> Self {
+        let (body, filename) = get_body_and_filename(value.filename, value.caption);
+        let mut event_content = Self::new(body, (*value.source).clone().into())
+            .info(value.info.map(Into::into).map(Box::new));
+        event_content.formatted = value.formatted_caption.map(Into::into);
+        event_content.filename = filename;
+        event_content.audio = value.audio.map(Into::into);
+        event_content.voice = value.voice.map(Into::into);
+        event_content
+    }
+}
+
+impl TryFrom<RumaAudioMessageEventContent> for AudioMessageContent {
+    type Error = ClientError;
+
+    fn try_from(value: RumaAudioMessageEventContent) -> Result<Self, Self::Error> {
+        Ok(Self {
+            filename: value.filename().to_owned(),
+            caption: value.caption().map(ToString::to_string),
+            formatted_caption: value.formatted_caption().map(Into::into),
+            source: Arc::new(value.source.try_into()?),
+            info: value.info.as_deref().map(Into::into),
+            audio: value.audio.map(Into::into),
+            voice: value.voice.map(Into::into),
+        })
+    }
+}
+
 #[derive(Clone, uniffi::Record)]
 pub struct VideoMessageContent {
     /// The computed filename, for use in a client.
@@ -590,6 +602,31 @@ pub struct VideoMessageContent {
     pub info: Option<VideoInfo>,
 }
 
+impl From<VideoMessageContent> for RumaVideoMessageEventContent {
+    fn from(value: VideoMessageContent) -> Self {
+        let (body, filename) = get_body_and_filename(value.filename, value.caption);
+        let mut event_content = Self::new(body, (*value.source).clone().into())
+            .info(value.info.map(Into::into).map(Box::new));
+        event_content.formatted = value.formatted_caption.map(Into::into);
+        event_content.filename = filename;
+        event_content
+    }
+}
+
+impl TryFrom<RumaVideoMessageEventContent> for VideoMessageContent {
+    type Error = ClientError;
+
+    fn try_from(value: RumaVideoMessageEventContent) -> Result<Self, Self::Error> {
+        Ok(Self {
+            filename: value.filename().to_owned(),
+            caption: value.caption().map(ToString::to_string),
+            formatted_caption: value.formatted_caption().map(Into::into),
+            source: Arc::new(value.source.try_into()?),
+            info: value.info.as_deref().map(TryInto::try_into).transpose()?,
+        })
+    }
+}
+
 #[derive(Clone, uniffi::Record)]
 pub struct FileMessageContent {
     /// The computed filename, for use in a client.
@@ -598,6 +635,31 @@ pub struct FileMessageContent {
     pub formatted_caption: Option<FormattedBody>,
     pub source: Arc<MediaSource>,
     pub info: Option<FileInfo>,
+}
+
+impl From<FileMessageContent> for RumaFileMessageEventContent {
+    fn from(value: FileMessageContent) -> Self {
+        let (body, filename) = get_body_and_filename(value.filename, value.caption);
+        let mut event_content = Self::new(body, (*value.source).clone().into())
+            .info(value.info.map(Into::into).map(Box::new));
+        event_content.formatted = value.formatted_caption.map(Into::into);
+        event_content.filename = filename;
+        event_content
+    }
+}
+
+impl TryFrom<RumaFileMessageEventContent> for FileMessageContent {
+    type Error = ClientError;
+
+    fn try_from(value: RumaFileMessageEventContent) -> Result<Self, Self::Error> {
+        Ok(Self {
+            filename: value.filename().to_owned(),
+            caption: value.caption().map(ToString::to_string),
+            formatted_caption: value.formatted_caption().map(Into::into),
+            source: Arc::new(value.source.try_into()?),
+            info: value.info.as_deref().map(TryInto::try_into).transpose()?,
+        })
+    }
 }
 
 #[derive(Clone, uniffi::Record)]
@@ -1692,5 +1754,109 @@ impl TryFrom<RumaRoomAccountDataEvent<TagEventContent>> for RoomAccountDataEvent
 impl From<RumaRoomAccountDataEvent<UnstableMarkedUnreadEventContent>> for RoomAccountDataEvent {
     fn from(value: RumaRoomAccountDataEvent<UnstableMarkedUnreadEventContent>) -> Self {
         Self::UnstableMarkedUnread { unread: value.content.unread }
+    }
+}
+
+#[cfg(feature = "unstable-msc4274")]
+pub use galleries::*;
+
+#[cfg(feature = "unstable-msc4274")]
+mod galleries {
+    use ruma::{
+        events::room::message::{
+            FormattedBody as RumaFormattedBody, GalleryItemType as RumaGalleryItemType,
+            GalleryMessageEventContent as RumaGalleryMessageEventContent,
+        },
+        serde::JsonObject,
+    };
+
+    use crate::{
+        error::ClientError,
+        ruma::{
+            AudioMessageContent, FileMessageContent, FormattedBody, ImageMessageContent,
+            VideoMessageContent,
+        },
+    };
+
+    #[derive(Clone, uniffi::Record)]
+    pub struct GalleryMessageContent {
+        pub body: String,
+        pub formatted: Option<FormattedBody>,
+        pub itemtypes: Vec<GalleryItemType>,
+    }
+
+    impl TryFrom<GalleryMessageContent> for RumaGalleryMessageEventContent {
+        type Error = ClientError;
+
+        fn try_from(value: GalleryMessageContent) -> Result<Self, Self::Error> {
+            Ok(Self::new(
+                value.body,
+                value.formatted.map(Into::into),
+                value.itemtypes.into_iter().map(TryInto::try_into).collect::<Result<_, _>>()?,
+            ))
+        }
+    }
+
+    impl TryFrom<RumaGalleryMessageEventContent> for GalleryMessageContent {
+        type Error = ClientError;
+
+        fn try_from(value: RumaGalleryMessageEventContent) -> Result<Self, Self::Error> {
+            Ok(Self {
+                body: value.body,
+                formatted: value.formatted.as_ref().map(Into::into),
+                itemtypes: value
+                    .itemtypes
+                    .into_iter()
+                    .map(TryInto::try_into)
+                    .collect::<Result<_, _>>()?,
+            })
+        }
+    }
+
+    #[derive(Clone, uniffi::Enum)]
+    pub enum GalleryItemType {
+        Image { content: ImageMessageContent },
+        Audio { content: AudioMessageContent },
+        Video { content: VideoMessageContent },
+        File { content: FileMessageContent },
+        Other { itemtype: String, body: String },
+    }
+
+    impl TryFrom<GalleryItemType> for RumaGalleryItemType {
+        type Error = ClientError;
+
+        fn try_from(value: GalleryItemType) -> Result<Self, Self::Error> {
+            Ok(match value {
+                GalleryItemType::Image { content } => Self::Image(content.into()),
+                GalleryItemType::Audio { content } => Self::Audio(content.into()),
+                GalleryItemType::Video { content } => Self::Video(content.into()),
+                GalleryItemType::File { content } => Self::File(content.into()),
+                GalleryItemType::Other { itemtype, body } => {
+                    Self::new(&itemtype, body, JsonObject::default())?
+                }
+            })
+        }
+    }
+
+    impl TryFrom<RumaGalleryItemType> for GalleryItemType {
+        type Error = ClientError;
+
+        fn try_from(value: RumaGalleryItemType) -> Result<Self, Self::Error> {
+            Ok(match value {
+                RumaGalleryItemType::Image(c) => GalleryItemType::Image { content: c.try_into()? },
+                RumaGalleryItemType::Audio(c) => GalleryItemType::Audio { content: c.try_into()? },
+                RumaGalleryItemType::Video(c) => GalleryItemType::Video { content: c.try_into()? },
+                RumaGalleryItemType::File(c) => GalleryItemType::File { content: c.try_into()? },
+                _ => GalleryItemType::Other {
+                    itemtype: value.itemtype().to_owned(),
+                    body: value.body().to_owned(),
+                },
+            })
+        }
+    }
+
+    #[uniffi::export]
+    pub fn formatted_body_from_html(body: String) -> FormattedBody {
+        FormattedBody::from(&RumaFormattedBody::html(body))
     }
 }

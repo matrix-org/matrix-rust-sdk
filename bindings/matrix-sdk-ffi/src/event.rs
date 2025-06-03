@@ -387,6 +387,8 @@ pub enum RoomMessageEventMessageType {
     Audio,
     Emote,
     File,
+    #[cfg(feature = "unstable-msc4274")]
+    Gallery,
     Image,
     Location,
     Notice,
@@ -403,6 +405,8 @@ impl From<RumaMessageType> for RoomMessageEventMessageType {
             RumaMessageType::Audio { .. } => Self::Audio,
             RumaMessageType::Emote { .. } => Self::Emote,
             RumaMessageType::File { .. } => Self::File,
+            #[cfg(feature = "unstable-msc4274")]
+            RumaMessageType::Gallery { .. } => Self::Gallery,
             RumaMessageType::Image { .. } => Self::Image,
             RumaMessageType::Location { .. } => Self::Location,
             RumaMessageType::Notice { .. } => Self::Notice,
