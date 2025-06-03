@@ -41,7 +41,7 @@ mod sys {
 mod sys {
     use std::future::Future;
 
-    use super::super::executor::{spawn, JoinHandle};
+    use crate::executor::{spawn, JoinHandle};
 
     /// A handle to a runtime for executing async tasks and futures.
     pub type Handle = WasmRuntimeHandle;
