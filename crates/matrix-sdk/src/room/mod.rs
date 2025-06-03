@@ -385,7 +385,6 @@ impl Room {
             ))));
         }
 
-        #[cfg(all(feature = "experimental-share-history-on-invite", feature = "e2e-encryption"))]
         let inviter = if prev_room_state == RoomState::Invited {
             match self.invite_details().await {
                 Ok(details) => details.inviter,
@@ -400,10 +399,16 @@ impl Room {
 
         self.client.join_room_by_id(self.room_id()).await?;
 
-        #[cfg(all(feature = "experimental-share-history-on-invite", feature = "e2e-encryption"))]
-        if let Some(inviter) = inviter {
-            shared_room_history::maybe_accept_key_bundle(self, inviter.user_id()).await?;
+        #[cfg(feature = "e2e-encryption")]
+        if self.client.inner.enable_share_history_on_invite {
+            if let Some(inviter) = inviter {
+                shared_room_history::maybe_accept_key_bundle(self, inviter.user_id()).await?;
+            }
         }
+
+        #[cfg(not(feature = "e2e-encryption"))]
+        // Suppress "unused variable" lint
+        let _inviter = inviter;
 
         Ok(())
     }
@@ -1611,8 +1616,8 @@ impl Room {
     /// * `user_id` - The `UserId` of the user to invite to the room.
     #[instrument(skip_all)]
     pub async fn invite_user_by_id(&self, user_id: &UserId) -> Result<()> {
-        #[cfg(all(feature = "experimental-share-history-on-invite", feature = "e2e-encryption"))]
-        {
+        #[cfg(feature = "e2e-encryption")]
+        if self.client.inner.enable_share_history_on_invite {
             shared_room_history::share_room_history(self, user_id.to_owned()).await?;
         }
 

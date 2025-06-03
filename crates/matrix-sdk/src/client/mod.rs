@@ -325,6 +325,13 @@ pub(crate) struct ClientInner {
     #[cfg(feature = "e2e-encryption")]
     pub(crate) verification_state: SharedObservable<VerificationState>,
 
+    /// Whether to enable the experimental support for sending and receiving
+    /// encrypted room history on invite, per [MSC4268].
+    ///
+    /// [MSC4268]: https://github.com/matrix-org/matrix-spec-proposals/pull/4268
+    #[cfg(feature = "e2e-encryption")]
+    pub(crate) enable_share_history_on_invite: bool,
+
     /// Data related to the [`SendQueue`].
     ///
     /// [`SendQueue`]: crate::send_queue::SendQueue
@@ -350,6 +357,7 @@ impl ClientInner {
         event_cache: OnceCell<EventCache>,
         send_queue: Arc<SendQueueData>,
         #[cfg(feature = "e2e-encryption")] encryption_settings: EncryptionSettings,
+        #[cfg(feature = "e2e-encryption")] enable_share_history_on_invite: bool,
         cross_process_store_locks_holder_name: String,
     ) -> Arc<Self> {
         let caches = ClientCaches {
@@ -382,6 +390,8 @@ impl ClientInner {
             e2ee: EncryptionData::new(encryption_settings),
             #[cfg(feature = "e2e-encryption")]
             verification_state: SharedObservable::new(VerificationState::Unknown),
+            #[cfg(feature = "e2e-encryption")]
+            enable_share_history_on_invite,
         };
 
         #[allow(clippy::let_and_return)]
@@ -2493,6 +2503,8 @@ impl Client {
                 self.inner.send_queue_data.clone(),
                 #[cfg(feature = "e2e-encryption")]
                 self.inner.e2ee.encryption_settings,
+                #[cfg(feature = "e2e-encryption")]
+                self.inner.enable_share_history_on_invite,
                 cross_process_store_locks_holder_name,
             )
             .await,

@@ -19,6 +19,8 @@ Breaking changes:
 
 Additions:
 
+- Add `ClientBuilder::enable_share_history_on_invite` to enable experimental support for sharing encrypted room history on invite, per [MSC4268](https://github.com/matrix-org/matrix-spec-proposals/pull/4268).
+  ([#5141](https://github.com/matrix-org/matrix-rust-sdk/pull/5141))
 - Support for adding a Sentry layer to the FFI bindings has been added. Only `tracing` statements with
   the field `sentry=true` will be forwarded to Sentry, in addition to default Sentry filters.
 - Add room topic string to `StateEventContent`
