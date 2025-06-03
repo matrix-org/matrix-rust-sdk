@@ -2134,6 +2134,7 @@ async fn test_gallery_uploads() {
 
     // ----------------------
     // Prepare endpoints.
+    mock.mock_authenticated_media_config().ok_default().mount().await;
     mock.mock_room_state_encryption().plain().mount().await;
     mock.mock_room_send().ok(event_id!("$1")).mock_once().mount().await;
 
