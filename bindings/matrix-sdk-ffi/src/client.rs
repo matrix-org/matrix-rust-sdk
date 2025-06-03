@@ -172,13 +172,13 @@ pub trait ClientDelegate: SyncOutsideWasm + SendOutsideWasm {
 }
 
 #[matrix_sdk_ffi_macros::export(callback_interface)]
-pub trait ClientSessionDelegate: AsyncTraitDeps {
+pub trait ClientSessionDelegate: SyncOutsideWasm + SendOutsideWasm {
     fn retrieve_session_from_keychain(&self, user_id: String) -> Result<Session, ClientError>;
     fn save_session_in_keychain(&self, session: Session);
 }
 
 #[matrix_sdk_ffi_macros::export(callback_interface)]
-pub trait ProgressWatcher: SendOutsideWasm + SyncOutsideWasm {
+pub trait ProgressWatcher: SyncOutsideWasm + SendOutsideWasm {
     fn transmission_progress(&self, progress: TransmissionProgress);
 }
 
