@@ -254,6 +254,7 @@ impl ThreadSummary {
 
 #[derive(Clone, uniffi::Enum)]
 #[allow(clippy::large_enum_variant)]
+// TODO: unify with the FFI replied-to-event-details
 pub enum ThreadSummaryLatestEventDetails {
     Unavailable,
     Pending,
