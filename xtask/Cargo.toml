@@ -5,6 +5,9 @@ edition = "2021"
 publish = false
 license = "Apache-2.0"
 
+[package.metadata.release]
+release = false
+
 [[bin]]
 name = "xtask"
 test = false
@@ -12,11 +15,8 @@ test = false
 [dependencies]
 camino = "1.0.8"
 clap = { version = "4.0.18", features = ["derive"] }
-serde = { workspace = true, features = ["derive"] }
-serde_json = { workspace = true }
 fs_extra = "1"
-uniffi_bindgen = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json.workspace = true
+uniffi_bindgen.workspace = true
 xshell = "0.2.2"
-
-[package.metadata.release]
-release = false

@@ -1,5 +1,5 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind};
-use matrix_sdk_ui::room_list_service::Room;
+use matrix_sdk::Room;
 use ratatui::{prelude::*, widgets::*};
 use strum::{Display, EnumIter, FromRepr, IntoEnumIterator};
 use style::palette::tailwind;

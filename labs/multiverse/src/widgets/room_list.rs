@@ -1,8 +1,8 @@
 use std::{collections::HashMap, sync::Arc};
 
 use imbl::Vector;
-use matrix_sdk::{locks::Mutex, ruma::OwnedRoomId};
-use matrix_sdk_ui::{room_list_service, sync_service::SyncService};
+use matrix_sdk::{locks::Mutex, ruma::OwnedRoomId, Room};
+use matrix_sdk_ui::sync_service::SyncService;
 use ratatui::{prelude::*, widgets::*};
 
 use crate::{
@@ -23,7 +23,7 @@ pub struct ExtraRoomInfo {
     pub is_dm: Option<bool>,
 }
 
-pub type Rooms = Arc<Mutex<Vector<room_list_service::Room>>>;
+pub type Rooms = Arc<Mutex<Vector<Room>>>;
 pub type RoomInfos = Arc<Mutex<HashMap<OwnedRoomId, ExtraRoomInfo>>>;
 
 pub struct RoomList {
@@ -40,7 +40,7 @@ pub struct RoomList {
     room_infos: RoomInfos,
 
     /// The current room that's subscribed to in the room list's sliding sync.
-    current_room_subscription: Option<room_list_service::Room>,
+    current_room_subscription: Option<Room>,
 
     /// The sync service used for synchronizing events.
     sync_service: Arc<SyncService>,
@@ -197,7 +197,7 @@ impl Widget for &mut RoomList {
                         room_id.to_string()
                     };
 
-                    format!("#{i}{dm_marker} {}", room_name)
+                    format!("#{i}{dm_marker} {room_name}")
                 };
 
                 let line = Line::styled(line, TEXT_COLOR);

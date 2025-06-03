@@ -5,7 +5,7 @@ repository = "https://github.com/matrix-org/matrix-rust-sdk"
 description = "Web's IndexedDB Storage backend for matrix-sdk"
 license = "Apache-2.0"
 edition = "2021"
-rust-version = { workspace = true }
+rust-version.workspace = true
 readme = "README.md"
 
 [package.metadata.docs.rs]
@@ -20,44 +20,44 @@ e2e-encryption = ["dep:matrix-sdk-crypto"]
 testing = ["matrix-sdk-crypto?/testing"]
 
 [dependencies]
-anyhow = { workspace = true }
-async-trait = { workspace = true }
-base64 = { workspace = true }
+anyhow.workspace = true
+async-trait.workspace = true
+base64.workspace = true
 gloo-utils = { version = "0.2.0", features = ["serde"] }
 growable-bloom-filter = { workspace = true, optional = true }
+hkdf.workspace = true
 indexed_db_futures = "0.5.0"
-js-sys = { workspace = true }
+js-sys.workspace = true
 matrix-sdk-base = { workspace = true, features = ["js"], optional = true }
 matrix-sdk-crypto = { workspace = true, features = ["js"], optional = true }
-matrix-sdk-store-encryption = { workspace = true }
-ruma = { workspace = true }
-serde = { workspace = true }
-serde_json = { workspace = true }
+matrix-sdk-store-encryption.workspace = true
+ruma.workspace = true
+serde.workspace = true
 serde-wasm-bindgen = "0.6.5"
-thiserror = { workspace = true }
-tokio = { workspace = true }
-tracing = { workspace = true }
-wasm-bindgen = { workspace = true }
+serde_json.workspace = true
+sha2.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+wasm-bindgen.workspace = true
 web-sys = { workspace = true, features = ["IdbKeyRange"] }
-hkdf = { workspace = true }
-zeroize = { workspace = true }
-sha2 = { workspace = true }
+zeroize.workspace = true
 
-[target.'cfg(target_arch = "wasm32")'.dependencies]
+[target.'cfg(target_family = "wasm")'.dependencies]
 # for wasm32 we need to activate this
 getrandom = { workspace = true, features = ["js"] }
 
 [dev-dependencies]
-assert_matches = { workspace = true }
-assert_matches2 = { workspace = true }
+assert_matches.workspace = true
+assert_matches2.workspace = true
 matrix-sdk-base = { workspace = true, features = ["testing"] }
 matrix-sdk-common = { workspace = true, features = ["js"] }
 matrix-sdk-crypto = { workspace = true, features = ["js", "testing"] }
-matrix-sdk-test = { workspace = true }
-rand = { workspace = true }
+matrix-sdk-test.workspace = true
+rand.workspace = true
 tracing-subscriber = { workspace = true, features = ["registry", "tracing-log"] }
-uuid = { workspace = true }
-wasm-bindgen-test = { workspace = true }
+uuid.workspace = true
+wasm-bindgen-test.workspace = true
 web-sys = { workspace = true, features = ["IdbKeyRange", "Window", "Performance"] }
 
 [lints]

@@ -1,5 +1,5 @@
+use matrix_sdk::Room;
 use matrix_sdk_base::read_receipts::RoomReadReceipts;
-use matrix_sdk_ui::room_list_service::Room;
 use ratatui::{
     prelude::*,
     widgets::{Paragraph, Wrap},

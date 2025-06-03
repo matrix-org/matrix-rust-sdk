@@ -10,7 +10,7 @@ All notable changes to this project will be documented in this file.
 
 - [**breaking**] Move `session_id` from `EncryptionInfo` to `AlgorithmInfo` as it is megolm specific. 
   Use `EncryptionInfo::session_id()` helper for quick access.
-    ([4981](https://github.com/matrix-org/matrix-rust-sdk/pull/4981))
+  ([4981](https://github.com/matrix-org/matrix-rust-sdk/pull/4981))
 
 - [**breaking**] The `ProcessedToDeviceEvent::Decrypted` variant now also have an `EncryptionInfo` field.
   Format changed from `Decrypted(Raw<AnyToDeviceEvent>)` to `Decrypted { raw: Raw<AnyToDeviceEvent>, encryption_info: EncryptionInfo) }`
@@ -36,14 +36,15 @@ All notable changes to this project will be documented in this file.
   cases can cause room key oversharing.
   ([#4975](https://github.com/matrix-org/matrix-rust-sdk/pull/4975))
 
-## [0.11.0] - 2025-04-11
-
-### Features
-
 - [**breaking**] `OlmMachine.receive_sync_changes` returns now a list of `ProcessedToDeviceEvent` 
   instead of a list of `Raw<AnyToDeviceEvent>`. With variants like `Decrypted`|`UnableToDecrypt`|`PlainText`|`NotProcessed`.
   This allows for example to make the difference between an event sent in clear and an event successfully decrypted.
   For quick compatibility a helper `ProcessedToDeviceEvent::to_raw` allows to map back to the previous behaviour.
+  ([#4935](https://github.com/matrix-org/matrix-rust-sdk/pull/4935))
+
+## [0.11.0] - 2025-04-11
+
+### Features
 
 - [**breaking**] Add support for the shared history flag defined in
   [MSC3061](https://github.com/matrix-org/matrix-spec-proposals/pull/3061).

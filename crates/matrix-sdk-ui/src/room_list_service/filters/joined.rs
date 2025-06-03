@@ -32,7 +32,7 @@ where
     }
 }
 
-/// Create a new filter that will filters out rooms that are not joined (see
+/// Create a new filter that will filter out rooms that are not joined (see
 /// [`matrix_sdk_base::RoomState::Joined`]).
 pub fn new_filter() -> impl Filter {
     let matcher = JoinedRoomMatcher { state: move |room| room.state() };

@@ -398,7 +398,7 @@ impl EventTimelineItem {
     pub fn encryption_info(&self) -> Option<&EncryptionInfo> {
         match &self.kind {
             EventTimelineItemKind::Local(_) => None,
-            EventTimelineItemKind::Remote(remote_event) => remote_event.encryption_info.as_ref(),
+            EventTimelineItemKind::Remote(remote_event) => remote_event.encryption_info.as_deref(),
         }
     }
 
@@ -521,7 +521,10 @@ impl EventTimelineItem {
     }
 
     /// Clone the current event item, and update its `encryption_info`.
-    pub(super) fn with_encryption_info(&self, encryption_info: Option<EncryptionInfo>) -> Self {
+    pub(super) fn with_encryption_info(
+        &self,
+        encryption_info: Option<Arc<EncryptionInfo>>,
+    ) -> Self {
         let mut new = self.clone();
         if let EventTimelineItemKind::Remote(r) = &mut new.kind {
             r.encryption_info = encryption_info;
@@ -690,7 +693,7 @@ impl<T> TimelineDetails<T> {
         }
     }
 
-    pub(crate) fn is_unavailable(&self) -> bool {
+    pub fn is_unavailable(&self) -> bool {
         matches!(self, Self::Unavailable)
     }
 
@@ -792,9 +795,7 @@ mod tests {
         deserialized_responses::TimelineEvent, latest_event::LatestEvent, MinimalStateEvent,
         OriginalMinimalStateEvent, RequestedRequiredStates,
     };
-    use matrix_sdk_test::{
-        async_test, event_factory::EventFactory, sync_state_event, sync_timeline_event,
-    };
+    use matrix_sdk_test::{async_test, event_factory::EventFactory, sync_state_event};
     use ruma::{
         api::client::sync::sync_events::v5 as http,
         event_id,
@@ -803,7 +804,7 @@ mod tests {
                 member::RoomMemberEventContent,
                 message::{MessageFormat, MessageType},
             },
-            AnySyncStateEvent, AnySyncTimelineEvent, BundledMessageLikeRelations,
+            AnySyncStateEvent,
         },
         room_id,
         serde::Raw,
@@ -819,7 +820,12 @@ mod tests {
 
         let room_id = room_id!("!q:x.uk");
         let user_id = user_id!("@t:o.uk");
-        let event = message_event(room_id, user_id, "**My M**", "<b>My M</b>", 122344);
+        let event = EventFactory::new()
+            .room(room_id)
+            .text_html("**My M**", "<b>My M</b>")
+            .sender(user_id)
+            .server_ts(122344)
+            .into_event();
         let client = logged_in_client(None).await;
 
         // When we construct a timeline event from it
@@ -912,23 +918,19 @@ mod tests {
 
         let original_event_id = event_id!("$original");
 
-        let mut relations = BundledMessageLikeRelations::new();
-        relations.replace = Some(Box::new(
-            f.text_html(" * Updated!", " * <b>Updated!</b>")
-                .edit(
-                    original_event_id,
-                    MessageType::text_html("Updated!", "<b>Updated!</b>").into(),
-                )
-                .event_id(event_id!("$edit"))
-                .sender(user_id)
-                .into_raw_sync(),
-        ));
-
         let event = f
             .text_html("**My M**", "<b>My M</b>")
             .sender(user_id)
             .event_id(original_event_id)
-            .bundled_relations(relations)
+            .with_bundled_edit(
+                f.text_html(" * Updated!", " * <b>Updated!</b>")
+                    .edit(
+                        original_event_id,
+                        MessageType::text_html("Updated!", "<b>Updated!</b>").into(),
+                    )
+                    .event_id(event_id!("$edit"))
+                    .sender(user_id),
+            )
             .server_ts(42)
             .into_event();
 
@@ -965,18 +967,6 @@ mod tests {
 
         let original_event_id = event_id!("$original");
 
-        let mut relations = BundledMessageLikeRelations::new();
-        relations.replace = Some(Box::new(
-            f.poll_edit(
-                original_event_id,
-                "It's one banana, Michael, how much could it cost?",
-                vec!["1 dollar", "10 dollars", "100 dollars"],
-            )
-            .event_id(event_id!("$edit"))
-            .sender(user_id)
-            .into_raw_sync(),
-        ));
-
         let event = f
             .poll_start(
                 "It's one avocado, Michael, how much could it cost? 10 dollars?",
@@ -984,7 +974,15 @@ mod tests {
                 vec!["1 dollar", "10 dollars", "100 dollars"],
             )
             .event_id(original_event_id)
-            .bundled_relations(relations)
+            .with_bundled_edit(
+                f.poll_edit(
+                    original_event_id,
+                    "It's one banana, Michael, how much could it cost?",
+                    vec!["1 dollar", "10 dollars", "100 dollars"],
+                )
+                .event_id(event_id!("$edit"))
+                .sender(user_id),
+            )
             .sender(user_id)
             .into_event();
 
@@ -1016,7 +1014,11 @@ mod tests {
         use ruma::owned_mxc_uri;
         let room_id = room_id!("!q:x.uk");
         let user_id = user_id!("@t:o.uk");
-        let event = message_event(room_id, user_id, "**My M**", "<b>My M</b>", 122344);
+        let event = EventFactory::new()
+            .room(room_id)
+            .text_html("**My M**", "<b>My M</b>")
+            .sender(user_id)
+            .into_event();
         let client = logged_in_client(None).await;
         let mut room = http::response::Room::new();
         room.required_state.push(member_event_as_state_event(
@@ -1061,11 +1063,17 @@ mod tests {
         use ruma::owned_mxc_uri;
         let room_id = room_id!("!q:x.uk");
         let user_id = user_id!("@t:o.uk");
-        let event = message_event(room_id, user_id, "**My M**", "<b>My M</b>", 122344);
+        let f = EventFactory::new().room(room_id);
+        let event = f.text_html("**My M**", "<b>My M</b>").sender(user_id).into_event();
         let client = logged_in_client(None).await;
 
         let member_event = MinimalStateEvent::Original(
-            member_event(room_id, user_id, "Alice Margatroid", "mxc://e.org/SEs")
+            f.member(user_id)
+                .sender(user_id!("@example:example.org"))
+                .avatar_url("mxc://e.org/SEs".into())
+                .display_name("Alice Margatroid")
+                .reason("")
+                .into_raw_sync()
                 .deserialize_as::<OriginalMinimalStateEvent<RoomMemberEventContent>>()
                 .unwrap(),
         );
@@ -1107,8 +1115,9 @@ mod tests {
         let room_id = room_id!("!q:x.uk");
         let user_id = user_id!("@t:o.uk");
         let client = logged_in_client(None).await;
+        let f = EventFactory::new().room(room_id).sender(user_id);
 
-        let mut event = message_event(room_id, user_id, "🤷‍♂️ No boost 🤷‍♂️", "", 0);
+        let mut event = f.text_html("🤷‍♂️ No boost 🤷‍♂️", "").into_event();
         let mut timeline_item =
             EventTimelineItem::from_latest_event(client.clone(), room_id, LatestEvent::new(event))
                 .await
@@ -1117,7 +1126,7 @@ mod tests {
         assert!(!timeline_item.contains_only_emojis());
 
         // Ignores leading and trailing white spaces
-        event = message_event(room_id, user_id, " 🚀 ", "", 0);
+        event = f.text_html(" 🚀 ", "").into_event();
         timeline_item =
             EventTimelineItem::from_latest_event(client.clone(), room_id, LatestEvent::new(event))
                 .await
@@ -1126,7 +1135,7 @@ mod tests {
         assert!(timeline_item.contains_only_emojis());
 
         // Too many
-        event = message_event(room_id, user_id, "👨‍👩‍👦1️⃣🚀👳🏾‍♂️🪩👍👍🏻🫱🏼‍🫲🏾🙂👋", "", 0);
+        event = f.text_html("👨‍👩‍👦1️⃣🚀👳🏾‍♂️🪩👍👍🏻🫱🏼‍🫲🏾🙂👋", "").into_event();
         timeline_item =
             EventTimelineItem::from_latest_event(client.clone(), room_id, LatestEvent::new(event))
                 .await
@@ -1135,39 +1144,13 @@ mod tests {
         assert!(!timeline_item.contains_only_emojis());
 
         // Works with combined emojis
-        event = message_event(room_id, user_id, "👨‍👩‍👦1️⃣👳🏾‍♂️👍🏻🫱🏼‍🫲🏾", "", 0);
+        event = f.text_html("👨‍👩‍👦1️⃣👳🏾‍♂️👍🏻🫱🏼‍🫲🏾", "").into_event();
         timeline_item =
             EventTimelineItem::from_latest_event(client.clone(), room_id, LatestEvent::new(event))
                 .await
                 .unwrap();
 
         assert!(timeline_item.contains_only_emojis());
-    }
-
-    fn member_event(
-        room_id: &RoomId,
-        user_id: &UserId,
-        display_name: &str,
-        avatar_url: &str,
-    ) -> Raw<AnySyncTimelineEvent> {
-        sync_timeline_event!({
-            "type": "m.room.member",
-            "content": {
-                "avatar_url": avatar_url,
-                "displayname": display_name,
-                "membership": "join",
-                "reason": ""
-            },
-            "event_id": "$143273582443PhrSn:example.org",
-            "origin_server_ts": 143273583,
-            "room_id": room_id,
-            "sender": "@example:example.org",
-            "state_key": user_id,
-            "type": "m.room.member",
-            "unsigned": {
-              "age": 1234
-            }
-        })
     }
 
     fn member_event_as_state_event(
@@ -1200,27 +1183,5 @@ mod tests {
         let mut response = http::Response::new("6".to_owned());
         response.rooms.insert(room_id.to_owned(), room);
         response
-    }
-
-    fn message_event(
-        room_id: &RoomId,
-        user_id: &UserId,
-        body: &str,
-        formatted_body: &str,
-        ts: u64,
-    ) -> TimelineEvent {
-        TimelineEvent::new(sync_timeline_event!({
-            "event_id": "$eventid6",
-            "sender": user_id,
-            "origin_server_ts": ts,
-            "type": "m.room.message",
-            "room_id": room_id.to_string(),
-            "content": {
-                "body": body,
-                "format": "org.matrix.custom.html",
-                "formatted_body": formatted_body,
-                "msgtype": "m.text"
-            },
-        }))
     }
 }

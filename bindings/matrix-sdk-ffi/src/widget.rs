@@ -553,7 +553,8 @@ pub trait WidgetCapabilitiesProvider: Send + Sync {
 
 struct CapabilitiesProviderWrap(Arc<dyn WidgetCapabilitiesProvider>);
 
-#[async_trait]
+#[cfg_attr(target_family = "wasm", async_trait(?Send))]
+#[cfg_attr(not(target_family = "wasm"), async_trait)]
 impl matrix_sdk::widget::CapabilitiesProvider for CapabilitiesProviderWrap {
     async fn acquire_capabilities(
         &self,
@@ -647,8 +648,7 @@ mod tests {
         let cap_assert = |capability: &str| {
             assert!(
                 permission_array.contains(&capability.to_owned()),
-                "The \"{}\" capability was missing from the element call capability list.",
-                capability
+                "The \"{capability}\" capability was missing from the element call capability list."
             );
         };
 

@@ -147,7 +147,7 @@ impl<Key: Clone + Ord + std::hash::Hash> DeduplicatingHandler<Key> {
 }
 
 // Sorry wasm32, you don't have tokio::join :(
-#[cfg(all(test, not(target_arch = "wasm32")))]
+#[cfg(all(test, not(target_family = "wasm")))]
 mod tests {
     use std::sync::Arc;
 

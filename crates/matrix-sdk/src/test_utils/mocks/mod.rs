@@ -496,6 +496,13 @@ impl MatrixMockServer {
             .expect_default_access_token()
     }
 
+    /// Creates a prebuilt mock for retrieving an event with /room/.../context.
+    pub fn mock_room_event_context(&self) -> MockEndpoint<'_, RoomEventContextEndpoint> {
+        let mock = Mock::given(method("GET"));
+        self.mock_endpoint(mock, RoomEventContextEndpoint { room: None, match_event_id: false })
+            .expect_default_access_token()
+    }
+
     /// Create a prebuild mock for paginating room message with the `/messages`
     /// endpoint.
     pub fn mock_room_messages(&self) -> MockEndpoint<'_, RoomMessagesEndpoint> {
@@ -2140,6 +2147,57 @@ impl<'a> MockEndpoint<'a, RoomEventEndpoint> {
     }
 }
 
+/// A prebuilt mock for getting a single event with its context in a room.
+pub struct RoomEventContextEndpoint {
+    room: Option<OwnedRoomId>,
+    match_event_id: bool,
+}
+
+impl<'a> MockEndpoint<'a, RoomEventContextEndpoint> {
+    /// Limits the scope of this mock to a specific room.
+    pub fn room(mut self, room: impl Into<OwnedRoomId>) -> Self {
+        self.endpoint.room = Some(room.into());
+        self
+    }
+
+    /// Whether the mock checks for the event id from the event.
+    pub fn match_event_id(mut self) -> Self {
+        self.endpoint.match_event_id = true;
+        self
+    }
+
+    /// Returns an endpoint that emulates success
+    pub fn ok(
+        self,
+        event: TimelineEvent,
+        start: impl Into<String>,
+        end: impl Into<String>,
+    ) -> MatrixMock<'a> {
+        let event_path = if self.endpoint.match_event_id {
+            let event_id = event.kind.event_id().expect("an event id is required");
+            // The event id should begin with `$`, which would be taken as the end of the
+            // regex so we need to escape it
+            event_id.as_str().replace("$", "\\$")
+        } else {
+            // Event is at the end, so no need to add anything.
+            "".to_owned()
+        };
+
+        let room_path = self.endpoint.room.map_or_else(|| ".*".to_owned(), |room| room.to_string());
+
+        let mock = self
+            .mock
+            .and(path_regex(format!(r"^/_matrix/client/v3/rooms/{room_path}/context/{event_path}")))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "event": event.into_raw().json(),
+                "end": end.into(),
+                "start": start.into(),
+                "state": []
+            })));
+        MatrixMock { server: self.server, mock }
+    }
+}
+
 /// A prebuilt mock for the `/messages` endpoint.
 pub struct RoomMessagesEndpoint;
 
@@ -2705,6 +2763,14 @@ impl<'a> MockEndpoint<'a, RoomLeaveEndpoint> {
             "room_id": room_id,
         })))
     }
+
+    /// Returns a `M_FORBIDDEN` response.
+    pub fn forbidden(self) -> MatrixMock<'a> {
+        self.respond_with(ResponseTemplate::new(403).set_body_json(json!({
+            "errcode": "M_FORBIDDEN",
+            "error": "sowwy",
+        })))
+    }
 }
 
 /// A prebuilt mock for the room forget endpoint.
@@ -2796,20 +2862,17 @@ impl<'a> MockEndpoint<'a, RoomRelationsEndpoint> {
         match self.endpoint.spec.take() {
             Some(IncludeRelations::RelationsOfType(rel_type)) => {
                 self.mock = self.mock.and(path_regex(format!(
-                    r"^/_matrix/client/v1/rooms/.*/relations/{}/{}$",
-                    event_spec, rel_type
+                    r"^/_matrix/client/v1/rooms/.*/relations/{event_spec}/{rel_type}$"
                 )));
             }
             Some(IncludeRelations::RelationsOfTypeAndEventType(rel_type, event_type)) => {
                 self.mock = self.mock.and(path_regex(format!(
-                    r"^/_matrix/client/v1/rooms/.*/relations/{}/{}/{}$",
-                    event_spec, rel_type, event_type
+                    r"^/_matrix/client/v1/rooms/.*/relations/{event_spec}/{rel_type}/{event_type}$"
                 )));
             }
             _ => {
                 self.mock = self.mock.and(path_regex(format!(
-                    r"^/_matrix/client/v1/rooms/.*/relations/{}",
-                    event_spec,
+                    r"^/_matrix/client/v1/rooms/.*/relations/{event_spec}",
                 )));
             }
         }

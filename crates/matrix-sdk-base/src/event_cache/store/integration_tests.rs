@@ -14,12 +14,13 @@
 
 //! Trait and macro of integration tests for `EventCacheStore` implementations.
 
+use std::sync::Arc;
+
 use assert_matches::assert_matches;
-use async_trait::async_trait;
 use matrix_sdk_common::{
     deserialized_responses::{
-        AlgorithmInfo, DecryptedRoomEvent, EncryptionInfo, TimelineEvent, TimelineEventKind,
-        VerificationState,
+        AlgorithmInfo, DecryptedRoomEvent, EncryptionInfo, ThreadSummaryStatus, TimelineEvent,
+        TimelineEventKind, VerificationState,
     },
     linked_chunk::{lazy_loader, ChunkContent, ChunkIdentifier as CId, Position, Update},
 };
@@ -56,7 +57,7 @@ pub fn make_test_event_with_event_id(
     content: &str,
     event_id: Option<&EventId>,
 ) -> TimelineEvent {
-    let encryption_info = EncryptionInfo {
+    let encryption_info = Arc::new(EncryptionInfo {
         sender: (*ALICE).into(),
         sender_device: None,
         algorithm_info: AlgorithmInfo::MegolmV1AesSha2 {
@@ -65,7 +66,7 @@ pub fn make_test_event_with_event_id(
             session_id: Some("mysessionid9".to_owned()),
         },
         verification_state: VerificationState::Verified,
-    };
+    });
 
     let mut builder = EventFactory::new().text_msg(content).room(room_id).sender(*ALICE);
     if let Some(event_id) = event_id {
@@ -80,6 +81,7 @@ pub fn make_test_event_with_event_id(
             unsigned_encryption_info: None,
         }),
         push_actions: Some(vec![Action::Notify]),
+        thread_summary: ThreadSummaryStatus::Unknown,
     }
 }
 
@@ -114,8 +116,7 @@ pub fn check_test_event(event: &TimelineEvent, text: &str) {
 ///
 /// This trait is not meant to be used directly, but will be used with the
 /// `event_cache_store_integration_tests!` macro.
-#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+#[allow(async_fn_in_trait)]
 pub trait EventCacheStoreIntegrationTests {
     /// Test media content storage.
     async fn test_media_content(&self);
@@ -154,8 +155,6 @@ pub trait EventCacheStoreIntegrationTests {
     async fn test_save_event(&self);
 }
 
-#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 impl EventCacheStoreIntegrationTests for DynEventCacheStore {
     async fn test_media_content(&self) {
         let uri = mxc_uri!("mxc://localhost/media");
@@ -501,7 +500,7 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
             let previous_chunk =
                 self.load_previous_chunk(room_id, first_chunk).await.unwrap().unwrap();
 
-            let _ = lazy_loader::insert_new_first_chunk(&mut linked_chunk, previous_chunk).unwrap();
+            lazy_loader::insert_new_first_chunk(&mut linked_chunk, previous_chunk).unwrap();
 
             let mut rchunks = linked_chunk.rchunks();
 
@@ -538,7 +537,7 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
             let previous_chunk =
                 self.load_previous_chunk(room_id, first_chunk).await.unwrap().unwrap();
 
-            let _ = lazy_loader::insert_new_first_chunk(&mut linked_chunk, previous_chunk).unwrap();
+            lazy_loader::insert_new_first_chunk(&mut linked_chunk, previous_chunk).unwrap();
 
             let mut rchunks = linked_chunk.rchunks();
 
@@ -1141,7 +1140,7 @@ macro_rules! event_cache_store_integration_tests {
 #[macro_export]
 macro_rules! event_cache_store_integration_tests_time {
     () => {
-        #[cfg(not(target_arch = "wasm32"))]
+        #[cfg(not(target_family = "wasm"))]
         mod event_cache_store_integration_tests_time {
             use std::time::Duration;
 

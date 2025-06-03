@@ -1,7 +1,6 @@
 use crossterm::event::{Event, KeyCode, KeyEvent, MouseButton, MouseEvent, MouseEventKind};
 use futures_util::FutureExt;
-use matrix_sdk::{room::Invite, RoomState};
-use matrix_sdk_ui::room_list_service::Room;
+use matrix_sdk::{room::Invite, Room, RoomState};
 use ratatui::{prelude::*, widgets::*};
 use throbber_widgets_tui::{Throbber, ThrobberState};
 use tokio::{spawn, task::JoinHandle};

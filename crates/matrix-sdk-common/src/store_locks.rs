@@ -39,6 +39,7 @@
 
 use std::{
     error::Error,
+    future::Future,
     sync::{
         atomic::{self, AtomicU32},
         Arc,
@@ -56,18 +57,16 @@ use crate::{
 };
 
 /// Backing store for a cross-process lock.
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 pub trait BackingStore {
     type LockError: Error + Send + Sync;
 
     /// Try to take a lock using the given store.
-    async fn try_lock(
+    fn try_lock(
         &self,
         lease_duration_ms: u32,
         key: &str,
         holder: &str,
-    ) -> Result<bool, Self::LockError>;
+    ) -> impl Future<Output = Result<bool, Self::LockError>> + SendOutsideWasm;
 }
 
 /// Small state machine to handle wait times.
@@ -214,7 +213,7 @@ impl<S: BackingStore + Clone + SendOutsideWasm + 'static> CrossProcessStoreLock<
         //   operation running in a transaction.
 
         if let Some(_prev) = renew_task.take() {
-            #[cfg(not(target_arch = "wasm32"))]
+            #[cfg(not(target_family = "wasm"))]
             if !_prev.is_finished() {
                 trace!("aborting the previous renew task");
                 _prev.abort();
@@ -335,7 +334,7 @@ pub enum LockStoreError {
 }
 
 #[cfg(test)]
-#[cfg(not(target_arch = "wasm32"))] // These tests require tokio::time, which is not implemented on wasm.
+#[cfg(not(target_family = "wasm"))] // These tests require tokio::time, which is not implemented on wasm.
 mod tests {
     use std::{
         collections::HashMap,
@@ -369,8 +368,6 @@ mod tests {
     #[derive(Debug, thiserror::Error)]
     enum DummyError {}
 
-    #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
-    #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
     impl BackingStore for TestStore {
         type LockError = DummyError;
 

@@ -18,7 +18,7 @@
 #[cfg(feature = "e2e-encryption")]
 use std::io::Read;
 use std::time::Duration;
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(not(target_family = "wasm"))]
 use std::{fmt, fs::File, path::Path};
 
 use eyeball::SharedObservable;
@@ -35,9 +35,9 @@ use ruma::{
     events::room::{MediaSource, ThumbnailInfo},
     MilliSecondsSinceUnixEpoch, MxcUri, OwnedMxcUri, TransactionId, UInt,
 };
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(not(target_family = "wasm"))]
 use tempfile::{Builder as TempFileBuilder, NamedTempFile, TempDir};
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(not(target_family = "wasm"))]
 use tokio::{fs::File as TokioFile, io::AsyncWriteExt};
 
 use crate::{
@@ -69,7 +69,7 @@ pub struct Media {
 /// A file handle that takes ownership of a media file on disk. When the handle
 /// is dropped, the file will be removed from the disk.
 #[derive(Debug)]
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(not(target_family = "wasm"))]
 pub struct MediaFileHandle {
     /// The temporary file that contains the media.
     file: NamedTempFile,
@@ -79,7 +79,7 @@ pub struct MediaFileHandle {
     _directory: Option<TempDir>,
 }
 
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(not(target_family = "wasm"))]
 impl MediaFileHandle {
     /// Get the media file's path.
     pub fn path(&self) -> &Path {
@@ -96,7 +96,7 @@ impl MediaFileHandle {
 }
 
 /// Error returned when [`MediaFileHandle::persist`] fails.
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(not(target_family = "wasm"))]
 pub struct PersistError {
     /// The underlying IO error.
     pub error: std::io::Error,
@@ -104,14 +104,14 @@ pub struct PersistError {
     pub file: MediaFileHandle,
 }
 
-#[cfg(not(any(target_arch = "wasm32", tarpaulin_include)))]
+#[cfg(not(any(target_family = "wasm", tarpaulin_include)))]
 impl fmt::Debug for PersistError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "PersistError({:?})", self.error)
     }
 }
 
-#[cfg(not(any(target_arch = "wasm32", tarpaulin_include)))]
+#[cfg(not(any(target_family = "wasm", tarpaulin_include)))]
 impl fmt::Display for PersistError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "failed to persist temporary file: {}", self.error)
@@ -324,7 +324,7 @@ impl Media {
     ///   created. If not provided, a default, global temporary directory will
     ///   be used; this may not work properly on Android, where the default
     ///   location may require root access on some older Android versions.
-    #[cfg(not(target_arch = "wasm32"))]
+    #[cfg(not(target_family = "wasm"))]
     pub async fn get_media_file(
         &self,
         request: &MediaRequestParameters,

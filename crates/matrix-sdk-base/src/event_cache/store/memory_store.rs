@@ -110,8 +110,8 @@ impl MemoryStore {
     }
 }
 
-#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+#[cfg_attr(target_family = "wasm", async_trait(?Send))]
+#[cfg_attr(not(target_family = "wasm"), async_trait)]
 impl EventCacheStore for MemoryStore {
     type Error = EventCacheStoreError;
 
@@ -364,8 +364,8 @@ impl EventCacheStore for MemoryStore {
     }
 }
 
-#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+#[cfg_attr(target_family = "wasm", async_trait(?Send))]
+#[cfg_attr(not(target_family = "wasm"), async_trait)]
 impl EventCacheStoreMedia for MemoryStore {
     type Error = EventCacheStoreError;
 

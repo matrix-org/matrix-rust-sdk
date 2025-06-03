@@ -36,7 +36,7 @@ where
     }
 }
 
-/// Create a new filter that will filters out rooms that have no unread
+/// Create a new filter that will filter out rooms that have no unread
 /// notifications (different from unread messages), or is not marked as unread.
 pub fn new_filter() -> impl Filter {
     let matcher = UnreadRoomMatcher {

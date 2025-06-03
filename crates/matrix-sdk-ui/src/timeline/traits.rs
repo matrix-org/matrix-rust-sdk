@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::future::Future;
+use std::{future::Future, sync::Arc};
 
 use eyeball::Subscriber;
 use indexmap::IndexMap;
@@ -37,7 +37,7 @@ use ruma::{
 };
 use tracing::error;
 
-use super::{Profile, RedactError, TimelineBuilder};
+use super::{EventTimelineItem, Profile, RedactError, TimelineBuilder};
 use crate::timeline::{self, pinned_events_loader::PinnedEventsRoom, Timeline};
 
 pub trait RoomExt {
@@ -60,6 +60,12 @@ pub trait RoomExt {
     /// This allows to customize settings of the [`Timeline`] before
     /// constructing it.
     fn timeline_builder(&self) -> TimelineBuilder;
+
+    /// Return an optional [`EventTimelineItem`] corresponding to this room's
+    /// latest event.
+    fn latest_event_item(
+        &self,
+    ) -> impl Future<Output = Option<EventTimelineItem>> + SendOutsideWasm;
 }
 
 impl RoomExt for Room {
@@ -69,6 +75,14 @@ impl RoomExt for Room {
 
     fn timeline_builder(&self) -> TimelineBuilder {
         TimelineBuilder::new(self).track_read_marker_and_receipts()
+    }
+
+    async fn latest_event_item(&self) -> Option<EventTimelineItem> {
+        if let Some(latest_event) = (**self).latest_event() {
+            EventTimelineItem::from_latest_event(self.client(), self.room_id(), latest_event).await
+        } else {
+            None
+        }
     }
 }
 
@@ -128,7 +142,7 @@ pub(super) trait RoomDataProvider:
         &self,
         session_id: &str,
         sender: &UserId,
-    ) -> impl Future<Output = Option<EncryptionInfo>> + SendOutsideWasm;
+    ) -> impl Future<Output = Option<Arc<EncryptionInfo>>> + SendOutsideWasm;
 
     async fn relations(&self, event_id: OwnedEventId, opts: RelationsOptions) -> Result<Relations>;
 }
@@ -272,7 +286,7 @@ impl RoomDataProvider for Room {
         &self,
         session_id: &str,
         sender: &UserId,
-    ) -> Option<EncryptionInfo> {
+    ) -> Option<Arc<EncryptionInfo>> {
         // Pass directly on to `Room::get_encryption_info`
         self.get_encryption_info(session_id, sender).await
     }

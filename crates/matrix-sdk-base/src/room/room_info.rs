@@ -1241,6 +1241,7 @@ mod tests {
             "latest_event": {
                 "event": {
                     "kind": {"PlainText": {"event": {"sender": "@u:i.uk"}}},
+                    "thread_summary": "None"
                 },
             },
             "base_info": {

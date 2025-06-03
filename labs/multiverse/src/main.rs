@@ -25,13 +25,13 @@ use matrix_sdk::{
     encryption::{BackupDownloadStrategy, EncryptionSettings},
     reqwest::Url,
     ruma::OwnedRoomId,
-    AuthSession, Client, SqliteCryptoStore, SqliteEventCacheStore, SqliteStateStore,
+    AuthSession, Client, Room, SqliteCryptoStore, SqliteEventCacheStore, SqliteStateStore,
 };
 use matrix_sdk_common::locks::Mutex;
 use matrix_sdk_ui::{
     room_list_service::{self, filters::new_filter_non_left},
     sync_service::SyncService,
-    timeline::TimelineItem,
+    timeline::{RoomExt as _, TimelineItem},
     Timeline as SdkTimeline,
 };
 use ratatui::{prelude::*, style::palette::tailwind, widgets::*};
@@ -57,7 +57,7 @@ const ALT_ROW_COLOR: Color = tailwind::SLATE.c900;
 const SELECTED_STYLE_FG: Color = tailwind::BLUE.c300;
 const TEXT_COLOR: Color = tailwind::SLATE.c200;
 
-type UiRooms = Arc<Mutex<HashMap<OwnedRoomId, room_list_service::Room>>>;
+type UiRooms = Arc<Mutex<HashMap<OwnedRoomId, Room>>>;
 type Timelines = Arc<Mutex<HashMap<OwnedRoomId, Timeline>>>;
 
 #[derive(Debug, Parser)]
@@ -99,7 +99,8 @@ fn popup_area(area: Rect, percent_x: u16, percent_y: u16) -> Rect {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let file_writer = tracing_appender::rolling::hourly("/tmp/", "logs-");
+    let cli = Cli::parse();
+    let file_writer = tracing_appender::rolling::hourly(&cli.session_path, "logs-");
 
     tracing_subscriber::fmt()
         .with_env_filter(EnvFilter::from_default_env())
@@ -109,7 +110,6 @@ async fn main() -> Result<()> {
 
     color_eyre::install()?;
 
-    let cli = Cli::parse();
     let client = configure_client(cli).await?;
 
     let event_cache = client.event_cache();
@@ -245,15 +245,16 @@ impl App {
             // we couldn't do below, because it's a sync lock, and has to be
             // sync b/o rendering; and we'd have to cross await points
             // below).
-            let previous_ui_rooms = ui_rooms.lock().clone();
+            let previous_rooms = ui_rooms.lock().clone();
 
-            let mut new_ui_rooms = HashMap::new();
+            let mut new_rooms = HashMap::new();
             let mut new_timelines = Vec::new();
 
             // Update all the room info for all rooms.
             for room in all_rooms.iter() {
                 let raw_name = room.name();
-                let display_name = room.cached_display_name();
+                let display_name =
+                    room.cached_display_name().map(|display_name| display_name.to_string());
                 let is_dm = room
                     .is_direct()
                     .await
@@ -268,24 +269,13 @@ impl App {
             }
 
             // Initialize all the new rooms.
-            for ui_room in
-                all_rooms.into_iter().filter(|room| !previous_ui_rooms.contains_key(room.room_id()))
+            for room in
+                all_rooms.into_iter().filter(|room| !previous_rooms.contains_key(room.room_id()))
             {
                 // Initialize the timeline.
-                let builder = match ui_room.default_room_timeline_builder() {
-                    Ok(builder) => builder,
-                    Err(err) => {
-                        error!("error when getting default timeline builder: {err}");
-                        continue;
-                    }
-                };
-
-                let timeline = match builder.build().await {
-                    Ok(timeline) => timeline,
-                    Err(err) => {
-                        error!("error when creating default timeline: {err}");
-                        continue;
-                    }
+                let Ok(timeline) = room.timeline_builder().build().await else {
+                    error!("error when creating default timeline");
+                    continue;
                 };
 
                 // Save the timeline in the cache.
@@ -307,15 +297,15 @@ impl App {
                 });
 
                 new_timelines.push((
-                    ui_room.room_id().to_owned(),
+                    room.room_id().to_owned(),
                     Timeline { timeline: Arc::new(timeline), items, task: timeline_task },
                 ));
 
                 // Save the room list service room in the cache.
-                new_ui_rooms.insert(ui_room.room_id().to_owned(), ui_room);
+                new_rooms.insert(room.room_id().to_owned(), room);
             }
 
-            ui_rooms.lock().extend(new_ui_rooms);
+            ui_rooms.lock().extend(new_rooms);
             timelines.lock().extend(new_timelines);
         }
     }

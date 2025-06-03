@@ -11,7 +11,7 @@ use ruma::{
 use url::Url;
 
 pub mod client;
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(not(target_family = "wasm"))]
 pub mod mocks;
 
 use self::client::mock_matrix_session;
@@ -68,7 +68,7 @@ pub async fn logged_in_client(homeserver_url: Option<String>) -> Client {
 }
 
 /// Like [`test_client_builder`], but with a mocked server too.
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(not(target_family = "wasm"))]
 pub async fn test_client_builder_with_server() -> (ClientBuilder, wiremock::MockServer) {
     let server = wiremock::MockServer::start().await;
     let builder = test_client_builder(Some(server.uri()));
@@ -76,7 +76,7 @@ pub async fn test_client_builder_with_server() -> (ClientBuilder, wiremock::Mock
 }
 
 /// Like [`no_retry_test_client`], but with a mocked server too.
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(not(target_family = "wasm"))]
 pub async fn no_retry_test_client_with_server() -> (Client, wiremock::MockServer) {
     let server = wiremock::MockServer::start().await;
     let client = no_retry_test_client(Some(server.uri().to_string())).await;
@@ -84,7 +84,7 @@ pub async fn no_retry_test_client_with_server() -> (Client, wiremock::MockServer
 }
 
 /// Like [`logged_in_client`], but with a mocked server too.
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(not(target_family = "wasm"))]
 pub async fn logged_in_client_with_server() -> (Client, wiremock::MockServer) {
     let server = wiremock::MockServer::start().await;
     let client = logged_in_client(Some(server.uri().to_string())).await;
@@ -220,6 +220,50 @@ macro_rules! assert_next_eq_with_timeout {
     ($stream:expr, $expected:expr, $($msg:tt)*) => {
         $crate::assert_next_eq_with_timeout_impl!($stream, $expected, std::time::Duration::from_millis(100), $($msg)*);
     };
+}
+
+/// Given a [`TimelineEvent`] assert that the event was decrypted and that the
+/// message matches the expected value.
+///
+/// # Examples
+///
+/// ```no_run
+/// # async {
+/// # let client: matrix_sdk::Client = unreachable!();
+/// # let room_id: ruma::OwnedRoomId = unreachable!();
+/// # let event_id: ruma::OwnedEventId = unreachable!();
+/// use matrix_sdk::assert_decrypted_message_eq;
+///
+/// let room =
+///     client.get_room(&room_id).expect("Bob should have received the invite");
+///
+/// let event = room.event(&event_id, None).await?;
+///
+/// assert_decrypted_message_eq!(
+///     event,
+///     "It's a secret to everybody!",
+///     "The decrypted event should match the expected secret message"
+/// );
+/// # anyhow::Ok(()) };
+/// ```
+#[macro_export]
+macro_rules! assert_decrypted_message_eq {
+    ($event:expr, $expected:expr, $($msg:tt)*) => {{
+        assert_matches2::assert_let!($crate::deserialized_responses::TimelineEventKind::Decrypted(decrypted_event) = $event.kind);
+
+        let deserialized_event = decrypted_event
+            .event
+            .deserialize()
+            .expect("We should be able to deserialize the decrypted event");
+
+        let content =
+            deserialized_event.original_content().expect("The event should not have been redacted");
+        assert_matches2::assert_let!($crate::ruma::events::AnyMessageLikeEventContent::RoomMessage(content) = content);
+        assert_eq!(content.body(), $expected, $($msg)*);
+    }};
+    ($event:expr, $expected:expr) => {{
+        assert_decrypted_message_eq!($event, $expected, "The decrypted content did not match to the expected value");
+    }};
 }
 
 #[doc(hidden)]

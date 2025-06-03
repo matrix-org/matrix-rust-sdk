@@ -71,7 +71,7 @@ impl LeftRoomBuilder {
 
     /// Add an event to the state.
     pub fn add_state_event(mut self, event: StateTestEvent) -> Self {
-        self.inner.state.events.push(event.into_raw_event());
+        self.inner.state.events.push(event.into());
         self
     }
 
@@ -86,7 +86,7 @@ impl LeftRoomBuilder {
 
     /// Add room account data.
     pub fn add_account_data(mut self, event: RoomAccountDataTestEvent) -> Self {
-        self.inner.account_data.events.push(event.into_raw_event());
+        self.inner.account_data.events.push(event.into());
         self
     }
 

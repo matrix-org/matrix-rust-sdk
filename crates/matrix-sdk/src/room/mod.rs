@@ -28,9 +28,9 @@ use eyeball::SharedObservable;
 use futures_core::Stream;
 use futures_util::{future::join_all, stream::FuturesUnordered};
 use http::StatusCode;
-#[cfg(all(feature = "e2e-encryption", not(target_arch = "wasm32")))]
+#[cfg(all(feature = "e2e-encryption", not(target_family = "wasm")))]
 pub use identity_status_changes::IdentityStatusChanges;
-#[cfg(all(feature = "e2e-encryption", not(target_arch = "wasm32")))]
+#[cfg(all(feature = "e2e-encryption", not(target_family = "wasm")))]
 use matrix_sdk_base::crypto::{IdentityStatusChange, RoomIdentityProvider, UserIdentity};
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk_base::{
@@ -47,7 +47,7 @@ use matrix_sdk_base::{
     ComposerDraft, EncryptionState, RoomInfoNotableUpdateReasons, RoomMemberships, SendOutsideWasm,
     StateChanges, StateStoreDataKey, StateStoreDataValue,
 };
-#[cfg(all(feature = "e2e-encryption", not(target_arch = "wasm32")))]
+#[cfg(all(feature = "e2e-encryption", not(target_family = "wasm")))]
 use matrix_sdk_common::BoxFuture;
 use matrix_sdk_common::{
     deserialized_responses::TimelineEvent,
@@ -56,6 +56,8 @@ use matrix_sdk_common::{
 };
 use mime::Mime;
 use reply::Reply;
+#[cfg(feature = "unstable-msc4274")]
+use ruma::events::room::message::GalleryItemType;
 #[cfg(feature = "e2e-encryption")]
 use ruma::events::{
     room::encrypted::OriginalSyncRoomEncryptedEvent, AnySyncMessageLikeEvent, AnySyncTimelineEvent,
@@ -126,7 +128,7 @@ use serde::de::DeserializeOwned;
 use thiserror::Error;
 use tokio::{join, sync::broadcast};
 use tokio_stream::StreamExt;
-use tracing::{debug, info, instrument, warn};
+use tracing::{debug, error, info, instrument, trace, warn};
 
 use self::futures::{SendAttachment, SendMessageLikeEvent, SendRawMessageLikeEvent};
 pub use self::{
@@ -218,6 +220,88 @@ impl PushContext {
     }
 }
 
+macro_rules! make_media_type {
+    ($t:ty, $content_type: ident, $filename: ident, $source: ident, $caption: ident, $formatted_caption: ident, $info: ident, $thumbnail: ident) => {{
+        // If caption is set, use it as body, and filename as the file name; otherwise,
+        // body is the filename, and the filename is not set.
+        // https://github.com/matrix-org/matrix-spec-proposals/blob/main/proposals/2530-body-as-caption.md
+        let (body, filename) = match $caption {
+            Some(caption) => (caption, Some($filename)),
+            None => ($filename, None),
+        };
+
+        let (thumbnail_source, thumbnail_info) = $thumbnail.unzip();
+
+        match $content_type.type_() {
+            mime::IMAGE => {
+                let info = assign!($info.map(ImageInfo::from).unwrap_or_default(), {
+                    mimetype: Some($content_type.as_ref().to_owned()),
+                    thumbnail_source,
+                    thumbnail_info
+                });
+                let content = assign!(ImageMessageEventContent::new(body, $source), {
+                    info: Some(Box::new(info)),
+                    formatted: $formatted_caption,
+                    filename
+                });
+                <$t>::Image(content)
+            }
+
+            mime::AUDIO => {
+                let mut content = assign!(AudioMessageEventContent::new(body, $source), {
+                    formatted: $formatted_caption,
+                    filename
+                });
+
+                if let Some(AttachmentInfo::Voice { audio_info, waveform: Some(waveform_vec) }) =
+                    &$info
+                {
+                    if let Some(duration) = audio_info.duration {
+                        let waveform = waveform_vec.iter().map(|v| (*v).into()).collect();
+                        content.audio =
+                            Some(UnstableAudioDetailsContentBlock::new(duration, waveform));
+                    }
+                    content.voice = Some(UnstableVoiceContentBlock::new());
+                }
+
+                let mut audio_info = $info.map(AudioInfo::from).unwrap_or_default();
+                audio_info.mimetype = Some($content_type.as_ref().to_owned());
+                let content = content.info(Box::new(audio_info));
+
+                <$t>::Audio(content)
+            }
+
+            mime::VIDEO => {
+                let info = assign!($info.map(VideoInfo::from).unwrap_or_default(), {
+                    mimetype: Some($content_type.as_ref().to_owned()),
+                    thumbnail_source,
+                    thumbnail_info
+                });
+                let content = assign!(VideoMessageEventContent::new(body, $source), {
+                    info: Some(Box::new(info)),
+                    formatted: $formatted_caption,
+                    filename
+                });
+                <$t>::Video(content)
+            }
+
+            _ => {
+                let info = assign!($info.map(FileInfo::from).unwrap_or_default(), {
+                    mimetype: Some($content_type.as_ref().to_owned()),
+                    thumbnail_source,
+                    thumbnail_info
+                });
+                let content = assign!(FileMessageEventContent::new(body, $source), {
+                    info: Some(Box::new(info)),
+                    formatted: $formatted_caption,
+                    filename,
+                });
+                <$t>::File(content)
+            }
+        }
+    }};
+}
+
 impl Room {
     /// Create a new `Room`
     ///
@@ -235,6 +319,7 @@ impl Room {
     ///
     /// Only invited and joined rooms can be left.
     #[doc(alias = "reject_invitation")]
+    #[instrument(skip_all, fields(room_id = ?self.inner.room_id()))]
     pub async fn leave(&self) -> Result<()> {
         let state = self.state();
         if state == RoomState::Left {
@@ -249,12 +334,37 @@ impl Room {
         let should_forget = matches!(self.state(), RoomState::Invited);
 
         let request = leave_room::v3::Request::new(self.inner.room_id().to_owned());
-        self.client.send(request).await?;
+        let response = self.client.send(request).await;
+
+        // The server can return with an error that is acceptable to ignore. Let's find
+        // which one.
+        if let Err(error) = response {
+            #[allow(clippy::collapsible_match)]
+            let ignore_error = if let Some(error) = error.client_api_error_kind() {
+                match error {
+                    // The user is trying to leave a room but doesn't have permissions to do so.
+                    // Let's consider the user has left the room.
+                    ErrorKind::Forbidden { .. } => true,
+                    _ => false,
+                }
+            } else {
+                false
+            };
+
+            error!(?error, ignore_error, should_forget, "Failed to leave the room");
+
+            if !ignore_error {
+                return Err(error.into());
+            }
+        }
+
         self.client.base_client().room_left(self.room_id()).await?;
 
         if should_forget {
+            trace!("Trying to forget the room");
+
             if let Err(error) = self.forget().await {
-                warn!("Failed to forget room when leaving it: {error}");
+                error!(?error, "Failed to forget the room");
             }
         }
 
@@ -267,13 +377,34 @@ impl Room {
     #[doc(alias = "accept_invitation")]
     pub async fn join(&self) -> Result<()> {
         let prev_room_state = self.inner.state();
+
         if prev_room_state == RoomState::Joined {
             return Err(Error::WrongRoomState(Box::new(WrongRoomState::new(
                 "Invited or Left",
                 prev_room_state,
             ))));
         }
+
+        #[cfg(all(feature = "experimental-share-history-on-invite", feature = "e2e-encryption"))]
+        let inviter = if prev_room_state == RoomState::Invited {
+            match self.invite_details().await {
+                Ok(details) => details.inviter,
+                Err(e) => {
+                    warn!("No invite details were found, can't attempt to find a room key bundle to accept: {e:?}");
+                    None
+                }
+            }
+        } else {
+            None
+        };
+
         self.client.join_room_by_id(self.room_id()).await?;
+
+        #[cfg(all(feature = "experimental-share-history-on-invite", feature = "e2e-encryption"))]
+        if let Some(inviter) = inviter {
+            shared_room_history::maybe_accept_key_bundle(self, inviter.user_id()).await?;
+        }
+
         Ok(())
     }
 
@@ -447,7 +578,7 @@ impl Room {
     /// Note that if a user who is in pin violation leaves the room, a `Pinned`
     /// update is sent, to indicate that the warning should be removed, even
     /// though the user's identity is not necessarily pinned.
-    #[cfg(all(feature = "e2e-encryption", not(target_arch = "wasm32")))]
+    #[cfg(all(feature = "e2e-encryption", not(target_family = "wasm")))]
     pub async fn subscribe_to_identity_status_changes(
         &self,
     ) -> Result<impl Stream<Item = Vec<IdentityStatusChange>>> {
@@ -1392,7 +1523,7 @@ impl Room {
         &self,
         session_id: &str,
         sender: &UserId,
-    ) -> Option<EncryptionInfo> {
+    ) -> Option<Arc<EncryptionInfo>> {
         let machine = self.client.olm_machine().await;
         let machine = machine.as_ref()?;
         machine.get_session_encryption_info(self.room_id(), session_id, sender).await.ok()
@@ -2178,8 +2309,8 @@ impl Room {
         }
 
         let content = self
-            .make_attachment_event(
-                self.make_attachment_type(
+            .make_media_event(
+                Room::make_attachment_type(
                     content_type,
                     filename,
                     media_source,
@@ -2204,7 +2335,6 @@ impl Room {
     /// provided by its source.
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn make_attachment_type(
-        &self,
         content_type: &Mime,
         filename: String,
         source: MediaSource,
@@ -2213,88 +2343,21 @@ impl Room {
         info: Option<AttachmentInfo>,
         thumbnail: Option<(MediaSource, Box<ThumbnailInfo>)>,
     ) -> MessageType {
-        // If caption is set, use it as body, and filename as the file name; otherwise,
-        // body is the filename, and the filename is not set.
-        // https://github.com/matrix-org/matrix-spec-proposals/blob/main/proposals/2530-body-as-caption.md
-        let (body, filename) = match caption {
-            Some(caption) => (caption, Some(filename)),
-            None => (filename, None),
-        };
-
-        let (thumbnail_source, thumbnail_info) = thumbnail.unzip();
-
-        match content_type.type_() {
-            mime::IMAGE => {
-                let info = assign!(info.map(ImageInfo::from).unwrap_or_default(), {
-                    mimetype: Some(content_type.as_ref().to_owned()),
-                    thumbnail_source,
-                    thumbnail_info
-                });
-                let content = assign!(ImageMessageEventContent::new(body, source), {
-                    info: Some(Box::new(info)),
-                    formatted: formatted_caption,
-                    filename
-                });
-                MessageType::Image(content)
-            }
-
-            mime::AUDIO => {
-                let mut content = assign!(AudioMessageEventContent::new(body, source), {
-                    formatted: formatted_caption,
-                    filename
-                });
-
-                if let Some(AttachmentInfo::Voice { audio_info, waveform: Some(waveform_vec) }) =
-                    &info
-                {
-                    if let Some(duration) = audio_info.duration {
-                        let waveform = waveform_vec.iter().map(|v| (*v).into()).collect();
-                        content.audio =
-                            Some(UnstableAudioDetailsContentBlock::new(duration, waveform));
-                    }
-                    content.voice = Some(UnstableVoiceContentBlock::new());
-                }
-
-                let mut audio_info = info.map(AudioInfo::from).unwrap_or_default();
-                audio_info.mimetype = Some(content_type.as_ref().to_owned());
-                let content = content.info(Box::new(audio_info));
-
-                MessageType::Audio(content)
-            }
-
-            mime::VIDEO => {
-                let info = assign!(info.map(VideoInfo::from).unwrap_or_default(), {
-                    mimetype: Some(content_type.as_ref().to_owned()),
-                    thumbnail_source,
-                    thumbnail_info
-                });
-                let content = assign!(VideoMessageEventContent::new(body, source), {
-                    info: Some(Box::new(info)),
-                    formatted: formatted_caption,
-                    filename
-                });
-                MessageType::Video(content)
-            }
-
-            _ => {
-                let info = assign!(info.map(FileInfo::from).unwrap_or_default(), {
-                    mimetype: Some(content_type.as_ref().to_owned()),
-                    thumbnail_source,
-                    thumbnail_info
-                });
-                let content = assign!(FileMessageEventContent::new(body, source), {
-                    info: Some(Box::new(info)),
-                    formatted: formatted_caption,
-                    filename,
-                });
-                MessageType::File(content)
-            }
-        }
+        make_media_type!(
+            MessageType,
+            content_type,
+            filename,
+            source,
+            caption,
+            formatted_caption,
+            info,
+            thumbnail
+        )
     }
 
     /// Creates the [`RoomMessageEventContent`] based on the message type,
     /// mentions and reply information.
-    pub(crate) async fn make_attachment_event(
+    pub(crate) async fn make_media_event(
         &self,
         msg_type: MessageType,
         mentions: Option<Mentions>,
@@ -2310,6 +2373,31 @@ impl Room {
             content = self.make_reply_event(content.into(), reply).await?;
         }
         Ok(content)
+    }
+
+    /// Creates the inner [`GalleryItemType`] for an already-uploaded media file
+    /// provided by its source.
+    #[cfg(feature = "unstable-msc4274")]
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn make_gallery_item_type(
+        content_type: &Mime,
+        filename: String,
+        source: MediaSource,
+        caption: Option<String>,
+        formatted_caption: Option<FormattedBody>,
+        info: Option<AttachmentInfo>,
+        thumbnail: Option<(MediaSource, Box<ThumbnailInfo>)>,
+    ) -> GalleryItemType {
+        make_media_type!(
+            GalleryItemType,
+            content_type,
+            filename,
+            source,
+            caption,
+            formatted_caption,
+            info,
+            thumbnail
+        )
     }
 
     /// Update the power levels of a select set of users of this room.
@@ -3616,7 +3704,7 @@ impl Room {
     }
 }
 
-#[cfg(all(feature = "e2e-encryption", not(target_arch = "wasm32")))]
+#[cfg(all(feature = "e2e-encryption", not(target_family = "wasm")))]
 impl RoomIdentityProvider for Room {
     fn is_member<'a>(&'a self, user_id: &'a UserId) -> BoxFuture<'a, bool> {
         Box::pin(async { self.get_member(user_id).await.unwrap_or(None).is_some() })
@@ -3926,7 +4014,7 @@ pub struct RoomMemberWithSenderInfo {
     pub sender_info: Option<RoomMember>,
 }
 
-#[cfg(all(test, not(target_arch = "wasm32")))]
+#[cfg(all(test, not(target_family = "wasm")))]
 mod tests {
     use matrix_sdk_base::{store::ComposerDraftType, ComposerDraft};
     use matrix_sdk_test::{
