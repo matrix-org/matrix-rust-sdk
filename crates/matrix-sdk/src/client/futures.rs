@@ -48,6 +48,20 @@ pub struct SendRequest<R> {
 }
 
 impl<R> SendRequest<R> {
+    /// Replace the default `SharedObservable` used for tracking upload
+    /// progress.
+    ///
+    /// Note that any subscribers obtained from
+    /// [`subscribe_to_send_progress`][Self::subscribe_to_send_progress]
+    /// will be invalidated by this.
+    pub fn with_send_progress_observable(
+        mut self,
+        send_progress: SharedObservable<TransmissionProgress>,
+    ) -> Self {
+        self.send_progress = send_progress;
+        self
+    }
+
     /// Use the given [`RequestConfig`] for this send request, instead of the
     /// one provided by default.
     pub fn with_request_config(mut self, request_config: impl Into<Option<RequestConfig>>) -> Self {
@@ -165,7 +179,7 @@ impl SendMediaUploadRequest {
         mut self,
         send_progress: SharedObservable<TransmissionProgress>,
     ) -> Self {
-        self.send_request.send_progress = send_progress;
+        self.send_request = self.send_request.with_send_progress_observable(send_progress);
         self
     }
 
