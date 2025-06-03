@@ -71,9 +71,9 @@ pub(in crate::timeline) use self::message::{
 };
 pub use self::{
     message::Message,
-    msg_like::{MsgLikeContent, MsgLikeKind, ThreadSummary, ThreadSummaryLatestEvent},
+    msg_like::{MsgLikeContent, MsgLikeKind, ThreadSummary},
     polls::{PollResult, PollState},
-    reply::{InReplyToDetails, RepliedToEvent},
+    reply::{EmbeddedEvent, InReplyToDetails},
 };
 use super::ReactionsByKeyBySender;
 

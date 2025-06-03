@@ -56,8 +56,8 @@ use super::{
         TimelineEventItemId,
     },
     traits::RoomDataProvider,
-    EncryptedMessage, EventTimelineItem, InReplyToDetails, MsgLikeContent, MsgLikeKind, OtherState,
-    ReactionStatus, RepliedToEvent, Sticker, ThreadSummary, TimelineDetails, TimelineItem,
+    EmbeddedEvent, EncryptedMessage, EventTimelineItem, InReplyToDetails, MsgLikeContent,
+    MsgLikeKind, OtherState, ReactionStatus, Sticker, ThreadSummary, TimelineDetails, TimelineItem,
     TimelineItemContent,
 };
 use crate::timeline::controller::aggregations::PendingEdit;
@@ -1205,7 +1205,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
             trace!(reply_event_id = ?event_item.identifier(), "Updating response to updated event");
             let in_reply_to = InReplyToDetails {
                 event_id: in_reply_to.event_id.clone(),
-                event: TimelineDetails::Ready(Box::new(RepliedToEvent::from_timeline_item(
+                event: TimelineDetails::Ready(Box::new(EmbeddedEvent::from_timeline_item(
                     new_item,
                 ))),
             };

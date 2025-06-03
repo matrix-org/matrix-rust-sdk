@@ -69,8 +69,8 @@ use super::{
     subscriber::TimelineSubscriber,
     threaded_events_loader::ThreadedEventsLoader,
     traits::{Decryptor, RoomDataProvider},
-    DateDividerMode, Error, EventSendState, EventTimelineItem, InReplyToDetails, PaginationError,
-    Profile, RepliedToEvent, TimelineDetails, TimelineEventItemId, TimelineFocus, TimelineItem,
+    DateDividerMode, EmbeddedEvent, Error, EventSendState, EventTimelineItem, InReplyToDetails,
+    PaginationError, Profile, TimelineDetails, TimelineEventItemId, TimelineFocus, TimelineItem,
     TimelineItemContent, TimelineItemKind, VirtualTimelineItem,
 };
 use crate::{
@@ -1344,12 +1344,12 @@ impl<P: RoomDataProvider, D: Decryptor> TimelineController<P, D> {
     pub(super) async fn make_replied_to(
         &self,
         event: TimelineEvent,
-    ) -> Result<Option<RepliedToEvent>, Error> {
+    ) -> Result<Option<EmbeddedEvent>, Error> {
         // Reborrow, to avoid that the automatic deref borrows the entire guard (and we
         // can't borrow both items and meta).
         let state = &mut *self.state.write().await;
 
-        RepliedToEvent::try_from_timeline_event(
+        EmbeddedEvent::try_from_timeline_event(
             event,
             &self.room_data_provider,
             &state.items,
@@ -1560,9 +1560,9 @@ async fn fetch_replied_to_event(
     msglike: &MsgLikeContent,
     in_reply_to: &EventId,
     room: &Room,
-) -> Result<TimelineDetails<Box<RepliedToEvent>>, Error> {
+) -> Result<TimelineDetails<Box<EmbeddedEvent>>, Error> {
     if let Some((_, item)) = rfind_event_by_id(&state_guard.items, in_reply_to) {
-        let details = TimelineDetails::Ready(Box::new(RepliedToEvent::from_timeline_item(&item)));
+        let details = TimelineDetails::Ready(Box::new(EmbeddedEvent::from_timeline_item(&item)));
         trace!("Found replied-to event locally");
         return Ok(details);
     };
@@ -1587,7 +1587,7 @@ async fn fetch_replied_to_event(
         Ok(timeline_event) => {
             let state = &mut *state_lock.write().await;
 
-            let replied_to_item = RepliedToEvent::try_from_timeline_event(
+            let replied_to_item = EmbeddedEvent::try_from_timeline_event(
                 timeline_event,
                 room,
                 &state.items,
