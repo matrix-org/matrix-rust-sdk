@@ -244,7 +244,7 @@ pub fn default_event_filter(event: &AnySyncTimelineEvent, room_version: &RoomVer
                                 | MessageType::Video(_)
                                 | MessageType::VerificationRequest(_) => true,
                                 #[cfg(feature = "unstable-msc4274")]
-                                MessageType::Gallery(_) => false,
+                                MessageType::Gallery(_) => true,
                                 _ => false,
                             }
                         }
