@@ -1553,6 +1553,13 @@ impl Client {
     ) -> Result<Option<MediaPreviewConfig>, ClientError> {
         Ok(self.inner.account().fetch_media_preview_config_event_content().await?.map(Into::into))
     }
+
+    /// Gets the `max_upload_size` value from the homeserver, which controls the
+    /// max size a media upload request can have.
+    pub async fn get_max_media_upload_size(&self) -> Result<u64, ClientError> {
+        let max_upload_size = self.inner.load_or_fetch_max_upload_size().await?;
+        Ok(max_upload_size.into())
+    }
 }
 
 #[matrix_sdk_ffi_macros::export(callback_interface)]

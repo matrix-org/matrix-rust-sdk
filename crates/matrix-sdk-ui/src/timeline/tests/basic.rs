@@ -17,9 +17,10 @@ use assert_matches2::assert_let;
 use eyeball_im::VectorDiff;
 use futures_util::StreamExt;
 use imbl::vector;
-use matrix_sdk::deserialized_responses::TimelineEvent;
 use matrix_sdk_test::{
-    async_test, event_factory::PreviousMembership, sync_timeline_event, ALICE, BOB, CAROL,
+    async_test,
+    event_factory::{EventFactory, PreviousMembership},
+    ALICE, BOB, CAROL,
 };
 use ruma::{
     event_id,
@@ -29,10 +30,11 @@ use ruma::{
             member::{MembershipState, RedactedRoomMemberEventContent},
             message::MessageType,
             topic::RedactedRoomTopicEventContent,
+            ImageInfo,
         },
         FullStateEventContent,
     },
-    mxc_uri, owned_event_id, MilliSecondsSinceUnixEpoch,
+    mxc_uri, owned_event_id, owned_mxc_uri, user_id, MilliSecondsSinceUnixEpoch,
 };
 use stream_assert::assert_next_matches;
 
@@ -132,29 +134,18 @@ async fn test_sticker() {
     let mut stream = timeline.subscribe_events().await;
 
     timeline
-        .handle_live_event(TimelineEvent::new(sync_timeline_event!({
-            "content": {
-                "body": "Happy sticker",
-                "info": {
-                    "h": 398,
-                    "mimetype": "image/jpeg",
-                    "size": 31037,
-                    "w": 394
-                },
-                "url": "mxc://server.name/JWEIFJgwEIhweiWJE",
-                "m.relates_to": {
-                    "rel_type": "m.thread",
-                    "event_id": "$thread_root",
-                    "m.in_reply_to": {
-                        "event_id": "$in_reply_to"
-                    }
-                }
-            },
-            "event_id": "$143273582443PhrSn",
-            "origin_server_ts": 143273582,
-            "sender": "@alice:server.name",
-            "type": "m.sticker",
-        })))
+        .handle_live_event(
+            EventFactory::new()
+                .sticker(
+                    "Happy sticker",
+                    ImageInfo::new(),
+                    owned_mxc_uri!("mxc://server.name/JWEIFJgwEIhweiWJE"),
+                )
+                .reply_thread(event_id!("$thread_root"), event_id!("$in_reply_to"))
+                .event_id(event_id!("$143273582443PhrSn"))
+                .sender(user_id!("@alice:server.name"))
+                .into_event(),
+        )
         .await;
 
     let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);

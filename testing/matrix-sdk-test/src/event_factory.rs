@@ -45,9 +45,9 @@ use ruma::{
             encrypted::{EncryptedEventScheme, RoomEncryptedEventContent},
             member::{MembershipState, RoomMemberEventContent},
             message::{
-                FormattedBody, ImageMessageEventContent, MessageType, Relation,
-                RelationWithoutReplacement, RoomMessageEventContent,
-                RoomMessageEventContentWithoutRelation,
+                FormattedBody, GalleryItemType, GalleryMessageEventContent,
+                ImageMessageEventContent, MessageType, Relation, RelationWithoutReplacement,
+                RoomMessageEventContent, RoomMessageEventContentWithoutRelation,
             },
             name::RoomNameEventContent,
             power_levels::RoomPowerLevelsEventContent,
@@ -55,7 +55,9 @@ use ruma::{
             server_acl::RoomServerAclEventContent,
             tombstone::RoomTombstoneEventContent,
             topic::RoomTopicEventContent,
+            ImageInfo,
         },
+        sticker::StickerEventContent,
         typing::TypingEventContent,
         AnyMessageLikeEvent, AnyStateEvent, AnySyncStateEvent, AnySyncTimelineEvent,
         AnyTimelineEvent, BundledMessageLikeRelations, EventContent,
@@ -432,6 +434,15 @@ impl EventBuilder<RoomCreateEventContent> {
     }
 }
 
+impl EventBuilder<StickerEventContent> {
+    /// Add reply [`Thread`] relation to root event and set replied-to event id.
+    pub fn reply_thread(mut self, root: &EventId, reply_to_event: &EventId) -> Self {
+        self.content.relates_to =
+            Some(Relation::Thread(Thread::reply(root.to_owned(), reply_to_event.to_owned())));
+        self
+    }
+}
+
 impl<E: EventContent> From<EventBuilder<E>> for Raw<AnySyncTimelineEvent>
 where
     E::EventType: Serialize,
@@ -800,6 +811,22 @@ impl EventFactory {
         self.event(RoomMessageEventContent::new(MessageType::Image(image_event_content)))
     }
 
+    /// Create a gallery event containing a single plain (unencrypted) image
+    /// referencing the given MXC ID.
+    pub fn gallery(
+        &self,
+        body: String,
+        filename: String,
+        url: OwnedMxcUri,
+    ) -> EventBuilder<RoomMessageEventContent> {
+        let gallery_event_content = GalleryMessageEventContent::new(
+            body,
+            None,
+            vec![GalleryItemType::Image(ImageMessageEventContent::plain(filename, url))],
+        );
+        self.event(RoomMessageEventContent::new(MessageType::Gallery(gallery_event_content)))
+    }
+
     /// Create a typing notification event.
     pub fn typing(&self, user_ids: Vec<&UserId>) -> EventBuilder<TypingEventContent> {
         let mut builder = self
@@ -899,6 +926,16 @@ impl EventFactory {
     ) -> EventBuilder<BeaconEventContent> {
         let geo_uri = format!("geo:{latitude},{longitude};u={uncertainty}");
         self.event(BeaconEventContent::new(beacon_info_event_id, geo_uri, ts))
+    }
+
+    /// Create a new `m.sticker` event.
+    pub fn sticker(
+        &self,
+        body: impl Into<String>,
+        info: ImageInfo,
+        url: OwnedMxcUri,
+    ) -> EventBuilder<StickerEventContent> {
+        self.event(StickerEventContent::new(body.into(), info, url))
     }
 
     /// Set the next server timestamp.

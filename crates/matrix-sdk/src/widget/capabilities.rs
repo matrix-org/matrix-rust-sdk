@@ -30,7 +30,8 @@ use super::{
 /// Must be implemented by a component that provides functionality of deciding
 /// whether a widget is allowed to use certain capabilities (typically by
 /// providing a prompt to the user).
-#[async_trait]
+#[cfg_attr(target_family = "wasm", async_trait(?Send))]
+#[cfg_attr(not(target_family = "wasm"), async_trait)]
 pub trait CapabilitiesProvider: SendOutsideWasm + SyncOutsideWasm + 'static {
     /// Receives a request for given capabilities and returns the actual
     /// capabilities that the clients grants to a given widget (usually by
