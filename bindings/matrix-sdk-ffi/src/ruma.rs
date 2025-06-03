@@ -201,7 +201,7 @@ pub fn message_event_content_from_markdown(
     preview.description = Some(description.to_string());
     content.url_previews = Some(vec![preview]);
     
-    Arc::new(RoomMessageEventContentWithoutRelation::new(RumaMessageType::text_markdown(content)))
+    Arc::new(RoomMessageEventContentWithoutRelation::new(RumaMessageType::Text(content)))
 }
 
 #[matrix_sdk_ffi_macros::export]
@@ -427,7 +427,7 @@ impl TryFrom<MessageType> for RumaMessageType {
                 }))
             }
             MessageType::Text { content } => {
-                Self::Text(assign!(RumaTextMessageEventContent::plain(content.body, "", "", ""), {
+                Self::Text(assign!(RumaTextMessageEventContent::plain(content.body), {
                     formatted: content.formatted.map(Into::into),
                 }))
             }
