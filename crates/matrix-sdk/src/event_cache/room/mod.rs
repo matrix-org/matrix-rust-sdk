@@ -547,11 +547,13 @@ mod private {
     use matrix_sdk_base::{
         apply_redaction,
         deserialized_responses::{
-            ThreadSummary, ThreadSummaryStatus, TimelineEvent, TimelineEventKind,
+            DecryptedRoomEvent, ThreadSummary, ThreadSummaryStatus, TimelineEvent,
+            TimelineEventKind, UnableToDecryptInfo, UnableToDecryptReason,
+            UnsignedDecryptionResult, UnsignedEventLocation,
         },
         event_cache::{store::EventCacheStoreLock, Event, Gap},
         linked_chunk::{lazy_loader, ChunkContent, ChunkIdentifierGenerator, Position, Update},
-        serde_helpers::extract_thread_root,
+        serde_helpers::{extract_bundled_latest_thread_event, extract_thread_root},
     };
     use matrix_sdk_common::executor::spawn;
     use ruma::{
@@ -1175,6 +1177,7 @@ mod private {
             for event in &events_to_post_process {
                 self.maybe_apply_new_redaction(event).await?;
                 self.analyze_thread_root(event, is_live_sync).await?;
+                self.save_bundled_thread_latest_event(event).await?;
             }
 
             // If we've never waited for an initial previous-batch token, and we now have at
@@ -1188,6 +1191,93 @@ mod private {
             let updates_as_vector_diffs = self.events.updates_as_vector_diffs();
 
             Ok(updates_as_vector_diffs)
+        }
+
+        async fn save_bundled_thread_latest_event(
+            &mut self,
+            event: &Event,
+        ) -> Result<(), EventCacheError> {
+            // If the event doesn't have a bundled thread, return early.
+            let Some(latest_event) = extract_bundled_latest_thread_event(event.raw()) else {
+                return Ok(());
+            };
+
+            // XXX: gosh this is awful
+            let kind = match &event.kind {
+                TimelineEventKind::Decrypted(..) => {
+                    match event
+                        .kind
+                        .unsigned_encryption_map()
+                        .and_then(|map| map.get(&UnsignedEventLocation::RelationsThreadLatestEvent))
+                    {
+                        Some(UnsignedDecryptionResult::Decrypted(decrypted)) => {
+                            Some(TimelineEventKind::Decrypted(DecryptedRoomEvent {
+                                event: latest_event.clone(),
+                                encryption_info: decrypted.clone(),
+                                unsigned_encryption_info: None,
+                            }))
+                        }
+                        Some(UnsignedDecryptionResult::UnableToDecrypt(utd_info)) => {
+                            // Safe cast: a message-like event is a more specific timeline-event,
+                            // and sync is a subset of non-sync events.
+                            let latest_event =
+                                latest_event.cast_ref::<AnySyncTimelineEvent>().clone();
+                            Some(TimelineEventKind::UnableToDecrypt {
+                                event: latest_event,
+                                utd_info: utd_info.clone(),
+                            })
+                        }
+                        None => {
+                            // Resort to looking at the event type itself.
+                            None
+                        }
+                    }
+                }
+
+                TimelineEventKind::UnableToDecrypt { .. } => {
+                    // Resort to looking at the event type itself.
+                    None
+                }
+
+                TimelineEventKind::PlainText { .. } => {
+                    // If the thread root event was in plain text, assume the latest event is in
+                    // plain text too.
+                    let latest_event = latest_event.cast_ref().clone();
+                    Some(TimelineEventKind::PlainText { event: latest_event })
+                }
+            };
+
+            let kind = kind.unwrap_or_else(|| {
+                // Look at the event type itself.
+                match latest_event.get_field::<MessageLikeEventType>("type") {
+                    Ok(Some(MessageLikeEventType::RoomEncrypted)) => {
+                        let latest_event = latest_event.cast::<AnySyncTimelineEvent>();
+                        TimelineEventKind::UnableToDecrypt {
+                            event: latest_event,
+                            utd_info: UnableToDecryptInfo {
+                                session_id: None,
+                                reason: UnableToDecryptReason::Unknown,
+                            },
+                        }
+                    }
+                    _ => {
+                        // Could be plain thread or successfully decrypted, but assume plain-text
+                        // at the moment.
+                        TimelineEventKind::PlainText { event: latest_event.cast() }
+                    }
+                }
+            });
+
+            let event = Event {
+                kind,
+                // Let's not bother computing the push actions for this one.
+                push_actions: None,
+                // A thread's latest event can't be a new thread, because threads aren't recursive
+                // as of 2025-06-03.
+                thread_summary: ThreadSummaryStatus::None,
+            };
+
+            self.save_event([event]).await
         }
 
         /// If the event is a threaded reply, ensure the related thread's root

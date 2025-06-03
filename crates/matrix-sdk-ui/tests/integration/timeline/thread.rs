@@ -220,11 +220,6 @@ async fn test_extract_bundled_thread_summary() {
         .with_bundled_thread_summary(latest_event.raw().cast_ref().clone(), 42, false)
         .event_id(thread_event_id);
 
-    // Set up the /event for the latest thread event.
-    // FIXME(bnjbvr): shouldn't be necessary, the event cache could save the bundled
-    // latest event instead.
-    server.mock_room_event().match_event_id().ok(latest_event).mock_once().mount().await;
-
     server.sync_room(&client, JoinedRoomBuilder::new(room_id).add_timeline_event(event)).await;
 
     assert_let_timeout!(Some(timeline_updates) = stream.next());

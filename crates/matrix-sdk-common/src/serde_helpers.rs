@@ -16,7 +16,7 @@
 //! to access some fields.
 
 use ruma::{
-    events::{relation::BundledThread, AnySyncTimelineEvent},
+    events::{relation::BundledThread, AnyMessageLikeEvent, AnySyncTimelineEvent},
     serde::Raw,
     OwnedEventId, UInt,
 };
@@ -89,6 +89,18 @@ pub fn extract_bundled_thread_summary(event: &Raw<AnySyncTimelineEvent>) -> Thre
         }
         Ok(_) => ThreadSummaryStatus::None,
         Err(_) => ThreadSummaryStatus::Unknown,
+    }
+}
+
+/// Try to extract a bundled thread's latest event, if available.
+pub fn extract_bundled_latest_thread_event(
+    event: &Raw<AnySyncTimelineEvent>,
+) -> Option<Raw<AnyMessageLikeEvent>> {
+    match event.get_field::<Unsigned>("unsigned") {
+        Ok(Some(Unsigned { relations: Some(Relations { thread: Some(bundled_thread) }) })) => {
+            Some(bundled_thread.latest_event)
+        }
+        Ok(_) | Err(_) => None,
     }
 }
 
