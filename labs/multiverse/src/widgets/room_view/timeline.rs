@@ -3,12 +3,12 @@ use std::sync::Arc;
 use imbl::Vector;
 use matrix_sdk::ruma::events::room::message::MessageType;
 use matrix_sdk_ui::timeline::{
-    MembershipChange, MsgLikeContent, MsgLikeKind, TimelineItem, TimelineItemContent,
-    TimelineItemKind, VirtualTimelineItem,
+    MembershipChange, MsgLikeContent, MsgLikeKind, TimelineDetails, TimelineItem,
+    TimelineItemContent, TimelineItemKind, VirtualTimelineItem,
 };
 use ratatui::{prelude::*, widgets::*};
 
-use crate::{ALT_ROW_COLOR, NORMAL_ROW_COLOR, TEXT_COLOR};
+use crate::{ALT_ROW_COLOR, NORMAL_ROW_COLOR, SELECTED_STYLE_FG, TEXT_COLOR};
 
 pub struct TimelineView<'a> {
     items: &'a Vector<Arc<TimelineItem>>,
@@ -27,7 +27,7 @@ impl StatefulWidget for &mut TimelineView<'_> {
     where
         Self: Sized,
     {
-        let mut content = Vec::new();
+        let mut content: Vec<ListItem<'_>> = Vec::new();
 
         for item in self.items.iter() {
             match item.kind() {
@@ -39,20 +39,58 @@ impl StatefulWidget for &mut TimelineView<'_> {
                             kind: MsgLikeKind::Message(message),
                             ..
                         }) => {
+                            if ev.content().thread_root().is_some() {
+                                continue;
+                            }
+
                             if let MessageType::Text(text) = message.msgtype() {
-                                content.push(format!("{}: {}", sender, text.body))
+                                let mut lines = Vec::new();
+                                let first_line = Line::from(format!("{}: {}", sender, text.body));
+
+                                lines.push(first_line);
+
+                                if let Some(thread_summary) = ev.content().thread_summary() {
+                                    match thread_summary.latest_event {
+                                        TimelineDetails::Unavailable => {}
+                                        TimelineDetails::Pending => {}
+                                        TimelineDetails::Ready(e) => {
+                                            let sender = e.sender;
+                                            let content =
+                                                e.content.as_message().map(|m| m.msgtype());
+
+                                            if let Some(MessageType::Text(text)) = content {
+                                                let replies = if thread_summary.num_replies == 1 {
+                                                    "1 reply".to_owned()
+                                                } else {
+                                                    format!("{} replies", {
+                                                        thread_summary.num_replies
+                                                    })
+                                                };
+                                                let thread_line = Line::from(format!(
+                                                    "  💬 {replies} {sender}: {}",
+                                                    text.body
+                                                ));
+
+                                                lines.push(thread_line);
+                                            }
+                                        }
+                                        TimelineDetails::Error(_) => {}
+                                    }
+                                }
+
+                                content.push(ListItem::from(lines));
                             }
                         }
 
                         TimelineItemContent::MsgLike(MsgLikeContent {
                             kind: MsgLikeKind::Redacted,
                             ..
-                        }) => content.push(format!("{sender}: -- redacted --")),
+                        }) => content.push(format!("{sender}: -- redacted --").into()),
 
                         TimelineItemContent::MsgLike(MsgLikeContent {
                             kind: MsgLikeKind::UnableToDecrypt(_),
                             ..
-                        }) => content.push(format!("{sender}: (UTD)")),
+                        }) => content.push(format!("{sender}: (UTD)").into()),
 
                         TimelineItemContent::MembershipChange(m) => {
                             if let Some(change) = m.change() {
@@ -91,7 +129,7 @@ impl StatefulWidget for &mut TimelineView<'_> {
                                     }
                                 };
 
-                                content.push(format!("{display_name} {change}"));
+                                content.push(format!("{display_name} {change}").into());
                             }
                         }
 
@@ -116,13 +154,13 @@ impl StatefulWidget for &mut TimelineView<'_> {
 
                 TimelineItemKind::Virtual(virt) => match virt {
                     VirtualTimelineItem::DateDivider(unix_ts) => {
-                        content.push(format!("Date: {unix_ts:?}"));
+                        content.push(format!("Date: {unix_ts:?}").into());
                     }
                     VirtualTimelineItem::ReadMarker => {
-                        content.push("Read marker".to_owned());
+                        content.push("Read marker".to_owned().into());
                     }
                     VirtualTimelineItem::TimelineStart => {
-                        content.push("🥳 Timeline start! 🥳".to_owned());
+                        content.push("🥳 Timeline start! 🥳".to_owned().into());
                     }
                 },
             }
@@ -136,8 +174,8 @@ impl StatefulWidget for &mut TimelineView<'_> {
                     0 => NORMAL_ROW_COLOR,
                     _ => ALT_ROW_COLOR,
                 };
-                let line = Line::styled(line, TEXT_COLOR);
-                ListItem::new(line).bg(bg_color)
+
+                line.fg(TEXT_COLOR).bg(bg_color)
             })
             .collect::<Vec<_>>();
 
