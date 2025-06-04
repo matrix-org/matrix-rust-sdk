@@ -2979,6 +2979,7 @@ name = "matrix-sdk-common"
 version = "0.11.0"
 dependencies = [
  "assert_matches",
+ "assert_matches2",
  "eyeball-im",
  "futures-core",
  "futures-util",

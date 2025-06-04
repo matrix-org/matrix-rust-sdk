@@ -52,8 +52,6 @@ use ruma::{
 };
 use serde_json::{value::to_raw_value, Value};
 use tokio::sync::Mutex;
-#[cfg(feature = "experimental-send-custom-to-device")]
-use tracing::trace;
 use tracing::{
     debug, error,
     field::{debug, display},
@@ -1453,7 +1451,10 @@ impl OlmMachine {
                     }
                 }
 
-                Some(ProcessedToDeviceEvent::Decrypted(raw_event))
+                Some(ProcessedToDeviceEvent::Decrypted {
+                    raw: raw_event,
+                    encryption_info: decrypted.result.encryption_info,
+                })
             }
 
             e => {

@@ -22,6 +22,9 @@ use std::{
 
 use hkdf::Hkdf;
 use js_option::JsOption;
+use matrix_sdk_common::deserialized_responses::{
+    AlgorithmInfo, DeviceLinkProblem, EncryptionInfo, VerificationLevel, VerificationState,
+};
 #[cfg(test)]
 use ruma::api::client::dehydrated_device::DehydratedDeviceV1;
 use ruma::{
@@ -78,7 +81,7 @@ use crate::{
         requests::UploadSigningKeysRequest,
         CrossSigningKey, DeviceKeys, EventEncryptionAlgorithm, MasterPubkey, OneTimeKey, SignedKey,
     },
-    OlmError, SignatureError,
+    Device, OlmError, SignatureError,
 };
 
 #[derive(Debug)]
@@ -127,6 +130,7 @@ pub(crate) struct DecryptionResult {
     pub event: Box<AnyDecryptedOlmEvent>,
     pub raw_event: Raw<AnyToDeviceEvent>,
     pub sender_key: Curve25519PublicKey,
+    pub encryption_info: EncryptionInfo,
 }
 
 /// A hash of a successfully decrypted Olm message.
@@ -1469,7 +1473,7 @@ impl Account {
             // valid. The processing of the historic room key bundle depends on this being
             // here.
             Self::check_sender_device_keys(event.as_ref(), sender_key)?;
-
+            let mut sender_device: Option<Device> = None;
             if let AnyDecryptedOlmEvent::RoomKey(_) = event.as_ref() {
                 // If this event is an `m.room_key` event, defer the check for
                 // the Ed25519 key of the sender until we decrypt room events.
@@ -1502,14 +1506,67 @@ impl Account {
                     )
                     .into());
                 }
+                sender_device = Some(device);
             }
+
+            let encryption_info = Self::get_olm_encryption_info(sender_key, sender, &sender_device);
 
             Ok(DecryptionResult {
                 event,
                 raw_event: Raw::from_json(RawJsonValue::from_string(plaintext)?),
                 sender_key,
+                encryption_info,
             })
         }
+    }
+
+    /// Gets the EncryptionInfo for a successfully decrypted to-device message
+    /// that have passed the mismatched sender_key/user_id validation.
+    ///
+    /// `sender_device` is optional because for some to-device messages we defer
+    /// the check for the ed25519 key, in that case the
+    /// `verification_state` will have a `MissingDevice` link problem.
+    fn get_olm_encryption_info(
+        sender_key: Curve25519PublicKey,
+        sender_id: &UserId,
+        sender_device: &Option<Device>,
+    ) -> EncryptionInfo {
+        let verification_state = sender_device
+            .as_ref()
+            .map(|device| {
+                if device.is_verified() {
+                    // The device is locally verified or signed by a verified user
+                    VerificationState::Verified
+                } else if device.is_cross_signed_by_owner() {
+                    // The device is not verified, but it is signed by its owner
+                    if device
+                        .device_owner_identity
+                        .as_ref()
+                        .expect("A device cross-signed by the owner must have an owner identity")
+                        .was_previously_verified()
+                    {
+                        VerificationState::Unverified(VerificationLevel::VerificationViolation)
+                    } else {
+                        VerificationState::Unverified(VerificationLevel::UnverifiedIdentity)
+                    }
+                } else {
+                    // No identity or not signed
+                    VerificationState::Unverified(VerificationLevel::UnsignedDevice)
+                }
+            })
+            .unwrap_or(VerificationState::Unverified(VerificationLevel::None(
+                DeviceLinkProblem::MissingDevice,
+            )));
+
+        let encryption_info = EncryptionInfo {
+            sender: sender_id.to_owned(),
+            sender_device: sender_device.as_ref().map(|d| d.device_id().to_owned()),
+            algorithm_info: AlgorithmInfo::OlmV1Curve25519AesSha2 {
+                curve25519_public_key_base64: sender_key.to_base64(),
+            },
+            verification_state,
+        };
+        encryption_info
     }
 
     /// If the plaintext of the decrypted message includes a
