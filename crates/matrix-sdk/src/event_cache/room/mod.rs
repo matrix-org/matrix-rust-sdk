@@ -567,14 +567,11 @@ mod private {
     use tracing::{debug, error, instrument, trace, warn};
 
     use super::{
-        super::{
-            deduplicator::{DeduplicationOutcome, Deduplicator},
-            EventCacheError,
-        },
+        super::{deduplicator::DeduplicationOutcome, EventCacheError},
         events::RoomEvents,
         sort_positions_descending, EventLocation, LoadMoreEventsBackwardsOutcome,
     };
-    use crate::event_cache::RoomPaginationStatus;
+    use crate::event_cache::{deduplicator::filter_duplicate_events, RoomPaginationStatus};
 
     /// State for a single room's event cache.
     ///
@@ -592,9 +589,6 @@ mod private {
 
         /// The events of the room.
         events: RoomEvents,
-
-        /// The events deduplicator instance to help finding duplicates.
-        deduplicator: Deduplicator,
 
         /// Have we ever waited for a previous-batch-token to come from sync, in
         /// the context of pagination? We do this at most once per room,
@@ -652,14 +646,12 @@ mod private {
             };
 
             let events = RoomEvents::with_initial_linked_chunk(linked_chunk);
-            let deduplicator = Deduplicator::new(room_id.clone(), store.clone());
 
             Ok(Self {
                 room: room_id,
                 room_version,
                 store,
                 events,
-                deduplicator,
                 waited_for_initial_prev_token: false,
                 listener_count: Default::default(),
                 pagination_status,
@@ -697,7 +689,7 @@ mod private {
             events: Vec<Event>,
         ) -> Result<(DeduplicationOutcome, bool), EventCacheError> {
             let deduplication_outcome =
-                self.deduplicator.filter_duplicate_events(events, &self.events).await?;
+                filter_duplicate_events(&self.room, &self.store, events, &self.events).await?;
 
             let number_of_events = deduplication_outcome.all_events.len();
             let number_of_deduplicated_events =
