@@ -5,15 +5,13 @@ use matrix_sdk::{
     test_utils::{logged_in_client_with_server, mocks::MatrixMockServer},
     Client,
 };
-use matrix_sdk_test::{async_test, SyncResponseBuilder};
+use matrix_sdk_test::async_test;
 use ruma::{owned_device_id, owned_user_id, user_id};
 use serde_json::json;
 use wiremock::{
     matchers::{body_json, method, path},
     Mock, ResponseTemplate,
 };
-
-use crate::mock_sync_scoped;
 
 async fn bootstrap_cross_signing(client: &Client) {
     client.encryption().bootstrap_cross_signing(None).await.unwrap();
@@ -70,18 +68,12 @@ async fn test_own_verification() {
     assert!(user_identity.is_verified());
 
     // Force a keys query to pick up the cross-signing state
-    let mut sync_response_builder = SyncResponseBuilder::new();
-    sync_response_builder.add_change_device(&user_id);
-
-    {
-        let _scope = mock_sync_scoped(
-            server.server(),
-            sync_response_builder.build_json_sync_response(),
-            None,
-        )
+    server
+        .mock_sync()
+        .ok_and_run(&alice, |builder| {
+            builder.add_change_device(&user_id);
+        })
         .await;
-        alice.sync_once(Default::default()).await.unwrap();
-    }
 
     // The device should now be cross-signed
     assert_eq!(
@@ -115,18 +107,12 @@ async fn test_reset_cross_signing_resets_verification() {
     assert_eq!(alice.encryption().verification_state().get(), VerificationState::Unverified);
 
     // Force a keys query to pick up the cross-signing state
-    let mut sync_response_builder = SyncResponseBuilder::new();
-    sync_response_builder.add_change_device(&user_id);
-
-    {
-        let _scope = mock_sync_scoped(
-            server.server(),
-            sync_response_builder.build_json_sync_response(),
-            None,
-        )
+    server
+        .mock_sync()
+        .ok_and_run(&alice, |builder| {
+            builder.add_change_device(&user_id);
+        })
         .await;
-        alice.sync_once(Default::default()).await.unwrap();
-    }
 
     // The device should now be cross-signed
     assert_eq!(
@@ -141,15 +127,12 @@ async fn test_reset_cross_signing_resets_verification() {
     // Have Alice bootstrap cross-signing again, this time on her second device.
     bootstrap_cross_signing(&alice2).await;
 
-    {
-        let _scope = mock_sync_scoped(
-            server.server(),
-            sync_response_builder.build_json_sync_response(),
-            None,
-        )
+    server
+        .mock_sync()
+        .ok_and_run(&alice, |builder| {
+            builder.add_change_device(&user_id);
+        })
         .await;
-        alice.sync_once(Default::default()).await.unwrap();
-    }
 
     // The device shouldn't be cross-signed anymore.
     assert_eq!(alice.encryption().verification_state().get(), VerificationState::Unverified);
@@ -191,17 +174,8 @@ async fn test_unchecked_mutual_verification() {
     bootstrap_cross_signing(&bob).await;
 
     // Have Alice and Bob upload their signed device keys.
-    {
-        let mut sync_response_builder = SyncResponseBuilder::new();
-        let response_body = sync_response_builder.build_json_sync_response();
-        let _scope = mock_sync_scoped(server.server(), response_body, None).await;
-
-        alice
-            .sync_once(Default::default())
-            .await
-            .expect("We should be able to sync with Alice so we upload the device keys");
-        bob.sync_once(Default::default()).await.unwrap();
-    }
+    server.mock_sync().ok_and_run(&alice, |_builder| {}).await;
+    server.mock_sync().ok_and_run(&bob, |_builder| {}).await;
 
     // Have Alice track Bob, so she queries his keys later.
     {
@@ -212,20 +186,7 @@ async fn test_unchecked_mutual_verification() {
 
     // Run a sync so we do send outgoing requests, including the /keys/query for
     // getting bob's identity.
-    let mut sync_response_builder = SyncResponseBuilder::new();
-
-    {
-        let _scope = mock_sync_scoped(
-            server.server(),
-            sync_response_builder.build_json_sync_response(),
-            None,
-        )
-        .await;
-        alice
-            .sync_once(Default::default())
-            .await
-            .expect("We should be able to sync so we get theinitial set of devices");
-    }
+    server.mock_sync().ok_and_run(&alice, |_builder| {}).await;
 
     // From the point of view of Alice, Bob now has a device.
     let alice_bob_device = alice
@@ -248,20 +209,14 @@ async fn test_unchecked_mutual_verification() {
 
     alice_bob_ident.verify().await.unwrap();
 
-    {
-        // Notify Alice's devices that some identify changed, so it does another
-        // /keys/query request.
-        let _scope = mock_sync_scoped(
-            server.server(),
-            sync_response_builder.add_change_device(&bob_user_id).build_json_sync_response(),
-            None,
-        )
+    // Notify Alice's devices that some identify changed, so it does another
+    // /keys/query request.
+    server
+        .mock_sync()
+        .ok_and_run(&alice, |builder| {
+            builder.add_change_device(&bob_user_id);
+        })
         .await;
-        alice
-            .sync_once(Default::default())
-            .await
-            .expect("We should be able to sync to get notified about the changed device");
-    }
 
     let alice_bob_ident = alice
         .encryption()
