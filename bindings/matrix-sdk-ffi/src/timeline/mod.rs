@@ -1405,65 +1405,87 @@ mod galleries {
 
     #[derive(uniffi::Enum)]
     pub enum GalleryItemInfo {
-        Audio(AudioGalleryItemInfo),
-        File(FileGalleryItemInfo),
-        Image(ImageGalleryItemInfo),
-        Video(VideoGalleryItemInfo),
+        Audio {
+            audio_info: AudioInfo,
+            filename: String,
+            caption: Option<String>,
+            formatted_caption: Option<FormattedBody>,
+        },
+        File {
+            file_info: FileInfo,
+            filename: String,
+            caption: Option<String>,
+            formatted_caption: Option<FormattedBody>,
+        },
+        Image {
+            image_info: ImageInfo,
+            filename: String,
+            caption: Option<String>,
+            formatted_caption: Option<FormattedBody>,
+            thumbnail_path: Option<String>,
+        },
+        Video {
+            video_info: VideoInfo,
+            filename: String,
+            caption: Option<String>,
+            formatted_caption: Option<FormattedBody>,
+            thumbnail_path: Option<String>,
+        },
     }
 
     impl GalleryItemInfo {
         fn mimetype(&self) -> &Option<String> {
             match self {
-                GalleryItemInfo::Audio(info) => &info.audio_info.mimetype,
-                GalleryItemInfo::File(info) => &info.file_info.mimetype,
-                GalleryItemInfo::Image(info) => &info.image_info.mimetype,
-                GalleryItemInfo::Video(info) => &info.video_info.mimetype,
+                GalleryItemInfo::Audio { audio_info, .. } => &audio_info.mimetype,
+                GalleryItemInfo::File { file_info, .. } => &file_info.mimetype,
+                GalleryItemInfo::Image { image_info, .. } => &image_info.mimetype,
+                GalleryItemInfo::Video { video_info, .. } => &video_info.mimetype,
             }
         }
 
         fn filename(&self) -> &String {
             match self {
-                GalleryItemInfo::Audio(info) => &info.filename,
-                GalleryItemInfo::File(info) => &info.filename,
-                GalleryItemInfo::Image(info) => &info.filename,
-                GalleryItemInfo::Video(info) => &info.filename,
+                GalleryItemInfo::Audio { filename, .. } => filename,
+                GalleryItemInfo::File { filename, .. } => filename,
+                GalleryItemInfo::Image { filename, .. } => filename,
+                GalleryItemInfo::Video { filename, .. } => filename,
             }
         }
 
         fn caption(&self) -> &Option<String> {
             match self {
-                GalleryItemInfo::Audio(info) => &info.caption,
-                GalleryItemInfo::File(info) => &info.caption,
-                GalleryItemInfo::Image(info) => &info.caption,
-                GalleryItemInfo::Video(info) => &info.caption,
+                GalleryItemInfo::Audio { caption, .. } => caption,
+                GalleryItemInfo::File { caption, .. } => caption,
+                GalleryItemInfo::Image { caption, .. } => caption,
+                GalleryItemInfo::Video { caption, .. } => caption,
             }
         }
 
         fn formatted_caption(&self) -> &Option<FormattedBody> {
             match self {
-                GalleryItemInfo::Audio(info) => &info.formatted_caption,
-                GalleryItemInfo::File(info) => &info.formatted_caption,
-                GalleryItemInfo::Image(info) => &info.formatted_caption,
-                GalleryItemInfo::Video(info) => &info.formatted_caption,
+                GalleryItemInfo::Audio { formatted_caption, .. } => formatted_caption,
+                GalleryItemInfo::File { formatted_caption, .. } => formatted_caption,
+                GalleryItemInfo::Image { formatted_caption, .. } => formatted_caption,
+                GalleryItemInfo::Video { formatted_caption, .. } => formatted_caption,
             }
         }
 
         fn attachment_info(&self) -> Result<AttachmentInfo, RoomError> {
             match self {
-                GalleryItemInfo::Audio(info) => Ok(AttachmentInfo::Audio(
-                    BaseAudioInfo::try_from(&info.audio_info)
+                GalleryItemInfo::Audio { audio_info, .. } => Ok(AttachmentInfo::Audio(
+                    BaseAudioInfo::try_from(audio_info)
                         .map_err(|_| RoomError::InvalidAttachmentData)?,
                 )),
-                GalleryItemInfo::File(info) => Ok(AttachmentInfo::File(
-                    BaseFileInfo::try_from(&info.file_info)
+                GalleryItemInfo::File { file_info, .. } => Ok(AttachmentInfo::File(
+                    BaseFileInfo::try_from(file_info)
                         .map_err(|_| RoomError::InvalidAttachmentData)?,
                 )),
-                GalleryItemInfo::Image(info) => Ok(AttachmentInfo::Image(
-                    BaseImageInfo::try_from(&info.image_info)
+                GalleryItemInfo::Image { image_info, .. } => Ok(AttachmentInfo::Image(
+                    BaseImageInfo::try_from(image_info)
                         .map_err(|_| RoomError::InvalidAttachmentData)?,
                 )),
-                GalleryItemInfo::Video(info) => Ok(AttachmentInfo::Video(
-                    BaseVideoInfo::try_from(&info.video_info)
+                GalleryItemInfo::Video { video_info, .. } => Ok(AttachmentInfo::Video(
+                    BaseVideoInfo::try_from(video_info)
                         .map_err(|_| RoomError::InvalidAttachmentData)?,
                 )),
             }
@@ -1471,16 +1493,13 @@ mod galleries {
 
         fn thumbnail(&self) -> Result<Option<Thumbnail>, RoomError> {
             match self {
-                GalleryItemInfo::Audio(..) => Ok(None),
-                GalleryItemInfo::File(..) => Ok(None),
-                GalleryItemInfo::Image(info) => build_thumbnail_info(
-                    info.thumbnail_path.clone(),
-                    info.image_info.thumbnail_info.clone(),
-                ),
-                GalleryItemInfo::Video(info) => build_thumbnail_info(
-                    info.thumbnail_path.clone(),
-                    info.video_info.thumbnail_info.clone(),
-                ),
+                GalleryItemInfo::Audio { .. } | GalleryItemInfo::File { .. } => Ok(None),
+                GalleryItemInfo::Image { image_info, thumbnail_path, .. } => {
+                    build_thumbnail_info(thumbnail_path.clone(), image_info.thumbnail_info.clone())
+                }
+                GalleryItemInfo::Video { video_info, thumbnail_path, .. } => {
+                    build_thumbnail_info(thumbnail_path.clone(), video_info.thumbnail_info.clone())
+                }
             }
         }
     }
@@ -1506,58 +1525,6 @@ mod galleries {
                 thumbnail: self.thumbnail()?,
             })
         }
-    }
-
-    #[derive(uniffi::Record)]
-    pub struct AudioGalleryItemInfo {
-        /// Audio metadata.
-        pub audio_info: AudioInfo,
-        /// Filename.
-        pub filename: String,
-        /// Caption.
-        pub caption: Option<String>,
-        /// Rich caption.
-        pub formatted_caption: Option<FormattedBody>,
-    }
-
-    #[derive(uniffi::Record)]
-    pub struct FileGalleryItemInfo {
-        /// File metadata.
-        pub file_info: FileInfo,
-        /// Filename.
-        pub filename: String,
-        /// Caption.
-        pub caption: Option<String>,
-        /// Rich caption.
-        pub formatted_caption: Option<FormattedBody>,
-    }
-
-    #[derive(uniffi::Record)]
-    pub struct ImageGalleryItemInfo {
-        /// Image metadata.
-        pub image_info: ImageInfo,
-        /// Filename.
-        pub filename: String,
-        /// Caption.
-        pub caption: Option<String>,
-        /// Rich caption.
-        pub formatted_caption: Option<FormattedBody>,
-        /// Path to the thumbnail.
-        pub thumbnail_path: Option<String>,
-    }
-
-    #[derive(uniffi::Record)]
-    pub struct VideoGalleryItemInfo {
-        /// Video metadata.
-        pub video_info: VideoInfo,
-        /// Filename.
-        pub filename: String,
-        /// Caption.
-        pub caption: Option<String>,
-        /// Rich caption.
-        pub formatted_caption: Option<FormattedBody>,
-        /// Path to the thumbnail.
-        pub thumbnail_path: Option<String>,
     }
 
     #[derive(uniffi::Object)]
