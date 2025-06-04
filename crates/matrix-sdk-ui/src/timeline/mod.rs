@@ -939,7 +939,7 @@ impl GalleryConfig {
 impl TryFrom<GalleryConfig> for matrix_sdk::attachment::GalleryConfig {
     type Error = Error;
 
-    fn try_from(value: GalleryConfig) -> std::result::Result<Self, Self::Error> {
+    fn try_from(value: GalleryConfig) -> Result<Self, Self::Error> {
         let mut config = matrix_sdk::attachment::GalleryConfig::new();
 
         if let Some(txn_id) = value.txn_id {
@@ -981,7 +981,7 @@ pub struct GalleryItemInfo {
 impl TryFrom<GalleryItemInfo> for matrix_sdk::attachment::GalleryItemInfo {
     type Error = Error;
 
-    fn try_from(value: GalleryItemInfo) -> std::result::Result<Self, Self::Error> {
+    fn try_from(value: GalleryItemInfo) -> Result<Self, Self::Error> {
         let (data, filename) = value.source.try_into_bytes_and_filename()?;
         Ok(matrix_sdk::attachment::GalleryItemInfo {
             filename,
