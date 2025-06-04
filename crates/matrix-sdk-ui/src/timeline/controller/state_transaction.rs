@@ -206,10 +206,10 @@ impl<'a> TimelineStateTransaction<'a> {
             event.raw(),
             room_data_provider,
             None,
+            &self.meta,
             None,
             None,
-            &self.items,
-            &mut self.meta,
+            None,
         )
         .await
         {
@@ -620,6 +620,13 @@ impl<'a> TimelineStateTransaction<'a> {
         {
             // Classical path: the event is valid, can be deserialized, everything is alright.
             Ok(event) => {
+                let (in_reply_to, thread_root) = self.meta.process_event_relations(
+                    event.clone(),
+                    &raw,
+                    bundled_edit_encryption_info,
+                    &self.items,
+                );
+
                 let should_add =
                     self.should_add_event_item(room_data_provider, settings, &event, position);
                 (
@@ -631,11 +638,11 @@ impl<'a> TimelineStateTransaction<'a> {
                         event,
                         &raw,
                         room_data_provider,
-                        thread_summary,
                         utd_info,
-                        bundled_edit_encryption_info,
-                        &self.items,
-                        &mut self.meta,
+                        &self.meta,
+                        in_reply_to,
+                        thread_root,
+                        thread_summary,
                     )
                     .await,
                     should_add,

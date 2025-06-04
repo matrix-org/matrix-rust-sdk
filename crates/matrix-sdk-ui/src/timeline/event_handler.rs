@@ -15,7 +15,6 @@
 use std::{borrow::Cow, sync::Arc};
 
 use as_variant::as_variant;
-use imbl::Vector;
 use indexmap::IndexMap;
 use matrix_sdk::{
     crypto::types::events::UtdCause,
@@ -45,7 +44,7 @@ use tracing::{debug, error, field::debug, instrument, trace, warn};
 use super::{
     controller::{
         find_item_and_apply_aggregation, Aggregation, AggregationKind, ObservableItemsTransaction,
-        PendingEditKind, RemoteEventContext, TimelineMetadata, TimelineStateTransaction,
+        PendingEditKind, TimelineMetadata, TimelineStateTransaction,
     },
     date_dividers::DateDividerAdjuster,
     event_item::{
@@ -185,11 +184,11 @@ impl TimelineAction {
         event: AnySyncTimelineEvent,
         raw_event: &Raw<AnySyncTimelineEvent>,
         room_data_provider: &P,
-        thread_summary: Option<ThreadSummary>,
         unable_to_decrypt_info: Option<UnableToDecryptInfo>,
-        bundled_edit_encryption_info: Option<Arc<EncryptionInfo>>,
-        timeline_items: &Vector<Arc<TimelineItem>>,
-        meta: &mut TimelineMetadata,
+        meta: &TimelineMetadata,
+        in_reply_to: Option<InReplyToDetails>,
+        thread_root: Option<OwnedEventId>,
+        thread_summary: Option<ThreadSummary>,
     ) -> Option<Self> {
         let room_version = room_data_provider.room_version();
 
@@ -238,24 +237,12 @@ impl TimelineAction {
                             )),
                         ))
                     } else {
-                        let content = AnyMessageLikeEventContent::RoomEncrypted(content);
-
-                        let remote_ctx = Some(RemoteEventContext {
-                            event_id: ev.event_id(),
-                            raw_event,
-                            relations: ev.relations(),
-                            bundled_edit_encryption_info,
-                        });
-
-                        let (in_reply_to, thread_root) =
-                            meta.process_content_relations(&content, remote_ctx, timeline_items);
-
                         // If we get here, it means that some part of the code has created a
                         // `TimelineEvent` containing an `m.room.encrypted` event without
                         // decrypting it. Possibly this means that encryption has not been
                         // configured. We treat it the same as any other message-like event.
                         return Self::from_content(
-                            content,
+                            AnyMessageLikeEventContent::RoomEncrypted(content),
                             in_reply_to,
                             thread_root,
                             thread_summary,
@@ -264,16 +251,6 @@ impl TimelineAction {
                 }
 
                 Some(content) => {
-                    let remote_ctx = Some(RemoteEventContext {
-                        event_id: ev.event_id(),
-                        raw_event,
-                        relations: ev.relations(),
-                        bundled_edit_encryption_info,
-                    });
-
-                    let (in_reply_to, thread_root) =
-                        meta.process_content_relations(&content, remote_ctx, timeline_items);
-
                     return Self::from_content(content, in_reply_to, thread_root, thread_summary);
                 }
 
