@@ -7,7 +7,6 @@ use std::{
 };
 
 use eyeball::{Observable, SharedObservable};
-use matrix_sdk_base::{SendOutsideWasm, SyncOutsideWasm};
 use ruma::{api::client::sync::sync_events::v5 as http, events::StateEventType};
 use tokio::sync::broadcast::Sender;
 
@@ -89,9 +88,24 @@ impl SlidingSyncListBuilder {
     /// If the list was cached, then the cached fields won't be available in
     /// this callback. Use the streams to get published versions of the
     /// cached fields, once they've been set.
+    #[cfg(not(target_family = "wasm"))]
     pub fn once_built<C>(mut self, callback: C) -> Self
     where
-        C: Fn(SlidingSyncList) -> SlidingSyncList + SendOutsideWasm + SyncOutsideWasm + 'static,
+        C: Fn(SlidingSyncList) -> SlidingSyncList + Send + Sync + 'static,
+    {
+        self.once_built = Arc::new(Box::new(callback));
+        self
+    }
+
+    /// Runs a callback once the list has been built.
+    ///
+    /// If the list was cached, then the cached fields won't be available in
+    /// this callback. Use the streams to get published versions of the
+    /// cached fields, once they've been set.
+    #[cfg(target_family = "wasm")]
+    pub fn once_built<C>(mut self, callback: C) -> Self
+    where
+        C: Fn(SlidingSyncList) -> SlidingSyncList + 'static,
     {
         self.once_built = Arc::new(Box::new(callback));
         self

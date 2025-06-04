@@ -13,7 +13,7 @@
 // limitations under the License.
 
 //! Facility to track changes to the identity of members of rooms.
-#![cfg(all(feature = "e2e-encryption", not(target_family = "wasm")))]
+#![cfg(feature = "e2e-encryption")]
 
 use std::collections::BTreeMap;
 
@@ -193,7 +193,7 @@ fn wrap_room_member_events(
     (drop_guard, ReceiverStream::new(receiver))
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(target_family = "wasm")))]
 mod tests {
     use std::time::Duration;
 

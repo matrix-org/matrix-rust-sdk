@@ -226,7 +226,7 @@ impl EstablishedSecureChannel {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(target_family = "wasm")))]
 pub(super) mod test {
     use std::sync::{
         atomic::{AtomicU8, Ordering},

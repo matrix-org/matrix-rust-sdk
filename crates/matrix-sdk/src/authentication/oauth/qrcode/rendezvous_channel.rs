@@ -284,7 +284,7 @@ impl RendezvousChannel {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(target_family = "wasm")))]
 mod test {
     use matrix_sdk_test::async_test;
     use serde_json::json;
