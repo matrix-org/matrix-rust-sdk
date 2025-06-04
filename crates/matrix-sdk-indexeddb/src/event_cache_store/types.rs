@@ -63,7 +63,7 @@ pub struct GenericEvent<P> {
     /// The room ID of the event.
     pub room_id: String,
     /// The position of the event, if it is in a chunk.
-    pub position: Option<P>,
+    pub position: P,
 }
 
 /// A concrete instance of [`GenericEvent`] for in-band events, i.e.,
