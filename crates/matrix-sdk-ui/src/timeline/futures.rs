@@ -100,11 +100,11 @@ pub use galleries::*;
 mod galleries {
     use std::future::IntoFuture;
 
-    use matrix_sdk::attachment::GalleryConfig;
     use matrix_sdk_base::boxed_into_future;
     use tracing::{Instrument as _, Span};
 
     use super::{Error, Timeline};
+    use crate::timeline::GalleryConfig;
 
     pub struct SendGallery<'a> {
         timeline: &'a Timeline,
@@ -127,7 +127,7 @@ mod galleries {
 
             let fut = async move {
                 let send_queue = timeline.room().send_queue();
-                let fut = send_queue.send_gallery(gallery);
+                let fut = send_queue.send_gallery(gallery.try_into()?);
                 fut.await.map_err(|_| Error::FailedSendingAttachment)?;
 
                 Ok(())

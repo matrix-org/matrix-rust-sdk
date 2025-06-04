@@ -17,8 +17,9 @@ release = true
 crate-type = ["cdylib", "staticlib"]
 
 [features]
-default = ["bundled-sqlite", "matrix-sdk-ui/unstable-msc4274"]
+default = ["bundled-sqlite", "unstable-msc4274"]
 bundled-sqlite = ["matrix-sdk/bundled-sqlite"]
+unstable-msc4274 = ["matrix-sdk-ui/unstable-msc4274"]
 
 [dependencies]
 anyhow.workspace = true

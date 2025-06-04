@@ -26,7 +26,7 @@ use futures::SendGallery;
 use futures_core::Stream;
 use imbl::Vector;
 #[cfg(feature = "unstable-msc4274")]
-use matrix_sdk::attachment::GalleryConfig;
+use matrix_sdk::attachment::{AttachmentInfo, Thumbnail};
 use matrix_sdk::{
     attachment::AttachmentConfig,
     deserialized_responses::TimelineEvent,
@@ -51,6 +51,11 @@ use ruma::{
         AnyMessageLikeEventContent, AnySyncTimelineEvent,
     },
     EventId, OwnedEventId, RoomVersionId, UserId,
+};
+#[cfg(feature = "unstable-msc4274")]
+use ruma::{
+    events::{room::message::FormattedBody, Mentions},
+    OwnedTransactionId,
 };
 use subscriber::TimelineWithDropHandle;
 use thiserror::Error;
@@ -831,5 +836,164 @@ where
 {
     fn from(value: P) -> Self {
         Self::File(value.into())
+    }
+}
+
+/// Configuration for sending a gallery.
+///
+/// This duplicates [`matrix_sdk::attachment::GalleryConfig`] but uses an
+/// `AttachmentSource` so that we can delay loading the actual data until we're
+/// inside the SendGallery future. This allows [`Timeline::send_gallery`] to
+/// return early without blocking the caller.
+#[cfg(feature = "unstable-msc4274")]
+#[derive(Debug, Default)]
+pub struct GalleryConfig {
+    pub(crate) txn_id: Option<OwnedTransactionId>,
+    pub(crate) items: Vec<GalleryItemInfo>,
+    pub(crate) caption: Option<String>,
+    pub(crate) formatted_caption: Option<FormattedBody>,
+    pub(crate) mentions: Option<Mentions>,
+    pub(crate) reply: Option<Reply>,
+}
+
+#[cfg(feature = "unstable-msc4274")]
+impl GalleryConfig {
+    /// Create a new empty `GalleryConfig`.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Set the transaction ID to send.
+    ///
+    /// # Arguments
+    ///
+    /// * `txn_id` - A unique ID that can be attached to a `MessageEvent` held
+    ///   in its unsigned field as `transaction_id`. If not given, one is
+    ///   created for the message.
+    #[must_use]
+    pub fn txn_id(mut self, txn_id: OwnedTransactionId) -> Self {
+        self.txn_id = Some(txn_id);
+        self
+    }
+
+    /// Adds a media item to the gallery.
+    ///
+    /// # Arguments
+    ///
+    /// * `item` - Information about the item to be added.
+    #[must_use]
+    pub fn add_item(mut self, item: GalleryItemInfo) -> Self {
+        self.items.push(item);
+        self
+    }
+
+    /// Set the optional caption.
+    ///
+    /// # Arguments
+    ///
+    /// * `caption` - The optional caption.
+    pub fn caption(mut self, caption: Option<String>) -> Self {
+        self.caption = caption;
+        self
+    }
+
+    /// Set the optional formatted caption.
+    ///
+    /// # Arguments
+    ///
+    /// * `formatted_caption` - The optional formatted caption.
+    pub fn formatted_caption(mut self, formatted_caption: Option<FormattedBody>) -> Self {
+        self.formatted_caption = formatted_caption;
+        self
+    }
+
+    /// Set the mentions of the message.
+    ///
+    /// # Arguments
+    ///
+    /// * `mentions` - The mentions of the message.
+    pub fn mentions(mut self, mentions: Option<Mentions>) -> Self {
+        self.mentions = mentions;
+        self
+    }
+
+    /// Set the reply information of the message.
+    ///
+    /// # Arguments
+    ///
+    /// * `reply` - The reply information of the message.
+    pub fn reply(mut self, reply: Option<Reply>) -> Self {
+        self.reply = reply;
+        self
+    }
+
+    /// Returns the number of media items in the gallery.
+    pub fn len(&self) -> usize {
+        self.items.len()
+    }
+
+    /// Checks whether the gallery contains any media items or not.
+    pub fn is_empty(&self) -> bool {
+        self.items.is_empty()
+    }
+}
+
+#[cfg(feature = "unstable-msc4274")]
+impl TryFrom<GalleryConfig> for matrix_sdk::attachment::GalleryConfig {
+    type Error = Error;
+
+    fn try_from(value: GalleryConfig) -> Result<Self, Self::Error> {
+        let mut config = matrix_sdk::attachment::GalleryConfig::new();
+
+        if let Some(txn_id) = value.txn_id {
+            config = config.txn_id(txn_id);
+        }
+
+        for item in value.items {
+            config = config.add_item(item.try_into()?);
+        }
+
+        config = config.caption(value.caption);
+        config = config.formatted_caption(value.formatted_caption);
+        config = config.mentions(value.mentions);
+        config = config.reply(value.reply);
+
+        Ok(config)
+    }
+}
+
+#[cfg(feature = "unstable-msc4274")]
+#[derive(Debug)]
+/// Metadata for a gallery item
+pub struct GalleryItemInfo {
+    /// The attachment source.
+    pub source: AttachmentSource,
+    /// The mime type.
+    pub content_type: Mime,
+    /// The attachment info.
+    pub attachment_info: AttachmentInfo,
+    /// The caption.
+    pub caption: Option<String>,
+    /// The formatted caption.
+    pub formatted_caption: Option<FormattedBody>,
+    /// The thumbnail.
+    pub thumbnail: Option<Thumbnail>,
+}
+
+#[cfg(feature = "unstable-msc4274")]
+impl TryFrom<GalleryItemInfo> for matrix_sdk::attachment::GalleryItemInfo {
+    type Error = Error;
+
+    fn try_from(value: GalleryItemInfo) -> Result<Self, Self::Error> {
+        let (data, filename) = value.source.try_into_bytes_and_filename()?;
+        Ok(matrix_sdk::attachment::GalleryItemInfo {
+            filename,
+            content_type: value.content_type,
+            data,
+            attachment_info: value.attachment_info,
+            caption: value.caption,
+            formatted_caption: value.formatted_caption,
+            thumbnail: value.thumbnail,
+        })
     }
 }

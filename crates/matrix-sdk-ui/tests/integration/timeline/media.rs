@@ -19,7 +19,7 @@ use assert_matches2::assert_let;
 use eyeball_im::VectorDiff;
 use futures_util::StreamExt;
 #[cfg(feature = "unstable-msc4274")]
-use matrix_sdk::attachment::{AttachmentInfo, BaseFileInfo, GalleryConfig, GalleryItemInfo};
+use matrix_sdk::attachment::{AttachmentInfo, BaseFileInfo};
 use matrix_sdk::{
     assert_let_timeout,
     attachment::AttachmentConfig,
@@ -28,6 +28,8 @@ use matrix_sdk::{
 };
 use matrix_sdk_test::{async_test, event_factory::EventFactory, JoinedRoomBuilder, ALICE};
 use matrix_sdk_ui::timeline::{AttachmentSource, EventSendState, RoomExt};
+#[cfg(feature = "unstable-msc4274")]
+use matrix_sdk_ui::timeline::{GalleryConfig, GalleryItemInfo};
 #[cfg(feature = "unstable-msc4274")]
 use ruma::events::room::message::GalleryItemType;
 #[cfg(feature = "unstable-msc4274")]
@@ -328,9 +330,8 @@ async fn test_send_gallery_from_bytes() {
     // Queue sending of a gallery.
     let gallery =
         GalleryConfig::new().caption(Some("caption".to_owned())).add_item(GalleryItemInfo {
-            filename: filename.to_owned(),
+            source: AttachmentSource::Data { bytes: data, filename: filename.to_owned() },
             content_type: mime::TEXT_PLAIN,
-            data,
             attachment_info: AttachmentInfo::File(BaseFileInfo { size: None }),
             caption: Some("item caption".to_owned()),
             formatted_caption: None,
