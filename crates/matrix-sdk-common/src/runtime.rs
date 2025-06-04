@@ -103,7 +103,7 @@ mod sys {
     /// - A `tokio::runtime::Handle` on non-Wasm platforms
     /// - A `WasmRuntimeHandle` on Wasm platforms
     pub fn get_runtime_handle() -> Handle {
-        Handle::default()
+        Handle
     }
 }
 
