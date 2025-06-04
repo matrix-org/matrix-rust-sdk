@@ -290,6 +290,12 @@ pub enum AlgorithmInfo {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         session_id: Option<String>,
     },
+
+    /// The info if the event was encrypted using m.olm.v1.curve25519-aes-sha2
+    OlmV1Curve25519AesSha2 {
+        // The sender device key, base64 encoded
+        curve25519_public_key_base64: String,
+    },
 }
 
 /// Struct containing information on how an event was decrypted.
@@ -315,8 +321,11 @@ pub struct EncryptionInfo {
 impl EncryptionInfo {
     /// Helper to get the megolm session id used to encrypt.
     pub fn session_id(&self) -> Option<&str> {
-        let AlgorithmInfo::MegolmV1AesSha2 { session_id, .. } = &self.algorithm_info;
-        session_id.as_deref()
+        if let AlgorithmInfo::MegolmV1AesSha2 { session_id, .. } = &self.algorithm_info {
+            session_id.as_deref()
+        } else {
+            None
+        }
     }
 }
 
@@ -337,26 +346,22 @@ impl<'de> Deserialize<'de> for EncryptionInfo {
             pub old_session_id: Option<String>,
         }
 
-        let Helper {
-            sender,
-            sender_device,
-            algorithm_info:
-                AlgorithmInfo::MegolmV1AesSha2 { curve25519_key, sender_claimed_keys, session_id },
-            verification_state,
-            old_session_id,
-        } = Helper::deserialize(deserializer)?;
+        let Helper { sender, sender_device, algorithm_info, verification_state, old_session_id } =
+            Helper::deserialize(deserializer)?;
 
-        Ok(EncryptionInfo {
-            sender,
-            sender_device,
-            algorithm_info: AlgorithmInfo::MegolmV1AesSha2 {
-                // Migration, merge the old_session_id in algorithm_info
-                session_id: session_id.or(old_session_id),
-                curve25519_key,
-                sender_claimed_keys,
-            },
-            verification_state,
-        })
+        let algorithm_info = match algorithm_info {
+            AlgorithmInfo::MegolmV1AesSha2 { curve25519_key, sender_claimed_keys, session_id } => {
+                AlgorithmInfo::MegolmV1AesSha2 {
+                    // Migration, merge the old_session_id in algorithm_info
+                    session_id: session_id.or(old_session_id),
+                    curve25519_key,
+                    sender_claimed_keys,
+                }
+            }
+            other => other,
+        };
+
+        Ok(EncryptionInfo { sender, sender_device, algorithm_info, verification_state })
     }
 }
 
@@ -370,13 +375,22 @@ impl<'de> Deserialize<'de> for EncryptionInfo {
 /// - the number of replies to the thread,
 /// - the full event of the latest reply to the thread,
 /// - whether the user participated or not to this thread.
-///
-/// At the moment, it contains nothing.
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct ThreadSummary {}
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct ThreadSummary {
+    /// The event id for the latest reply to the thread.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub latest_reply: Option<OwnedEventId>,
+
+    /// The number of replies to the thread.
+    ///
+    /// This doesn't include the thread root event itself. It can be zero if no
+    /// events in the thread are considered to be meaningful (or they've all
+    /// been redacted).
+    pub num_replies: usize,
+}
 
 /// The status of a thread summary.
-#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
 pub enum ThreadSummaryStatus {
     /// We don't know if the event has a thread summary.
     #[default]
@@ -1038,6 +1052,7 @@ mod tests {
     use std::{collections::BTreeMap, sync::Arc};
 
     use assert_matches::assert_matches;
+    use assert_matches2::assert_let;
     use insta::{assert_json_snapshot, with_settings};
     use ruma::{
         device_id, event_id, events::room::message::RoomMessageEventContent, serde::Raw, user_id,
@@ -1365,7 +1380,10 @@ mod tests {
         // When creating a timeline event from a raw event, the thread summary is always
         // extracted, if available.
         let timeline_event = TimelineEvent::new(raw);
-        assert_matches!(timeline_event.thread_summary, ThreadSummaryStatus::Some(ThreadSummary {}));
+        assert_matches!(timeline_event.thread_summary, ThreadSummaryStatus::Some(ThreadSummary { num_replies, latest_reply }) => {
+            assert_eq!(num_replies, 2);
+            assert_eq!(latest_reply.as_deref(), Some(event_id!("$latest_event:example.com")));
+        });
 
         // When deserializing an old serialized timeline event, the thread summary is
         // also extracted, if it wasn't serialized.
@@ -1379,7 +1397,10 @@ mod tests {
 
         let timeline_event: TimelineEvent =
             serde_json::from_value(serialized_timeline_item).unwrap();
-        assert_matches!(timeline_event.thread_summary, ThreadSummaryStatus::Some(ThreadSummary {}));
+        assert_matches!(timeline_event.thread_summary, ThreadSummaryStatus::Some(ThreadSummary { num_replies, latest_reply }) => {
+            assert_eq!(num_replies, 2);
+            assert_eq!(latest_reply.as_deref(), Some(event_id!("$latest_event:example.com")));
+        });
     }
 
     #[test]
@@ -1583,7 +1604,9 @@ mod tests {
         let deserialized = serde_json::from_value::<EncryptionInfo>(old_format).unwrap();
         let expected_session_id = Some("mysessionid76".to_owned());
 
-        let AlgorithmInfo::MegolmV1AesSha2 { session_id, .. } = deserialized.algorithm_info.clone();
+        assert_let!(
+            AlgorithmInfo::MegolmV1AesSha2 { session_id, .. } = deserialized.algorithm_info.clone()
+        );
         assert_eq!(session_id, expected_session_id);
 
         assert_json_snapshot!(deserialized);
@@ -1642,7 +1665,10 @@ mod tests {
                 )])),
             }),
             push_actions: Default::default(),
-            thread_summary: ThreadSummaryStatus::Some(ThreadSummary {}),
+            thread_summary: ThreadSummaryStatus::Some(ThreadSummary {
+                num_replies: 2,
+                latest_reply: None,
+            }),
         };
 
         with_settings!({ sort_maps => true, prepend_module_to_snapshot => false }, {

@@ -898,6 +898,7 @@ mod tests {
     use event_listener::Listener;
     use futures_util::{future::join_all, pin_mut, StreamExt};
     use matrix_sdk_base::{RequestedRequiredStates, RoomMemberships};
+    use matrix_sdk_common::executor::spawn;
     use matrix_sdk_test::{async_test, event_factory::EventFactory, ALICE};
     use ruma::{
         api::client::error::ErrorKind,
@@ -2506,7 +2507,7 @@ mod tests {
         pin_mut!(stream);
 
         let cloned_sync = sliding_sync.clone();
-        tokio::spawn(async move {
+        spawn(async move {
             tokio::time::sleep(Duration::from_millis(100)).await;
 
             cloned_sync

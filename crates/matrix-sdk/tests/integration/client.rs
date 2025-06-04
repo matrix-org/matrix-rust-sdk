@@ -14,6 +14,7 @@ use matrix_sdk::{
     Client, Error, MemoryStore, StateChanges, StateStore,
 };
 use matrix_sdk_base::{sync::RoomUpdates, RoomState};
+use matrix_sdk_common::executor::spawn;
 use matrix_sdk_test::{
     async_test, sync_state_event,
     test_json::{
@@ -438,14 +439,15 @@ async fn test_request_encryption_event_before_sending() {
         .mount(&server)
         .await;
 
-    let first_handle = tokio::spawn({
+    let first_handle = spawn({
         let room = room.to_owned();
         async move { room.to_owned().latest_encryption_state().await.map(|state| state.is_encrypted()) }
     });
 
-    let second_handle = tokio::spawn(async move {
-        room.latest_encryption_state().await.map(|state| state.is_encrypted())
-    });
+    let second_handle =
+        spawn(
+            async move { room.latest_encryption_state().await.map(|state| state.is_encrypted()) },
+        );
 
     let first_encrypted =
         first_handle.await.unwrap().expect("We should be able to test if the room is encrypted.");

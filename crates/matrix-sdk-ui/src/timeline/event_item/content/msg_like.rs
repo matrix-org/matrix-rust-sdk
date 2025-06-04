@@ -13,10 +13,10 @@
 // limitations under the License.
 
 use as_variant::as_variant;
-use ruma::{OwnedEventId, OwnedUserId};
+use ruma::OwnedEventId;
 
-use super::{EncryptedMessage, InReplyToDetails, Message, PollState, Sticker, TimelineItemContent};
-use crate::timeline::{Profile, ReactionsByKeyBySender, TimelineDetails};
+use super::{EmbeddedEvent, EncryptedMessage, InReplyToDetails, Message, PollState, Sticker};
+use crate::timeline::{ReactionsByKeyBySender, TimelineDetails};
 
 #[derive(Clone, Debug)]
 pub enum MsgLikeKind {
@@ -38,14 +38,16 @@ pub enum MsgLikeKind {
 
 #[derive(Clone, Debug)]
 pub struct ThreadSummary {
-    pub latest_event: TimelineDetails<Box<ThreadSummaryLatestEvent>>,
-}
+    pub latest_event: TimelineDetails<Box<EmbeddedEvent>>,
 
-#[derive(Clone, Debug)]
-pub struct ThreadSummaryLatestEvent {
-    pub content: TimelineItemContent,
-    pub sender: OwnedUserId,
-    pub sender_profile: TimelineDetails<Profile>,
+    /// The number of events in the thread, except for the thread root.
+    ///
+    /// This can be zero if all the events in the thread have been redacted.
+    ///
+    /// Note: this doesn't interact with the timeline filter; so opening a
+    /// thread-focused timeline with the same timeline filter may result in
+    /// *fewer* events than this number.
+    pub num_replies: usize,
 }
 
 /// A special kind of [`super::TimelineItemContent`] that groups together

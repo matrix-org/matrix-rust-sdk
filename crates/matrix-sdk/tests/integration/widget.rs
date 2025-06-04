@@ -58,7 +58,8 @@ async fn run_test_driver(
 ) -> (Client, MatrixMockServer, WidgetDriverHandle) {
     struct DummyCapabilitiesProvider;
 
-    #[async_trait]
+    #[cfg_attr(target_family = "wasm", async_trait(?Send))]
+    #[cfg_attr(not(target_family = "wasm"), async_trait)]
     impl CapabilitiesProvider for DummyCapabilitiesProvider {
         async fn acquire_capabilities(&self, capabilities: Capabilities) -> Capabilities {
             // Grant all capabilities that the widget asks for

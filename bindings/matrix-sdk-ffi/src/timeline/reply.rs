@@ -12,18 +12,18 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use matrix_sdk_ui::timeline::TimelineDetails;
+use matrix_sdk_ui::timeline::{EmbeddedEvent, TimelineDetails};
 
 use super::{content::TimelineItemContent, ProfileDetails};
 
 #[derive(Clone, uniffi::Object)]
 pub struct InReplyToDetails {
     event_id: String,
-    event: RepliedToEventDetails,
+    event: EmbeddedEventDetails,
 }
 
 impl InReplyToDetails {
-    pub(crate) fn new(event_id: String, event: RepliedToEventDetails) -> Self {
+    pub(crate) fn new(event_id: String, event: EmbeddedEventDetails) -> Self {
         Self { event_id, event }
     }
 }
@@ -34,36 +34,37 @@ impl InReplyToDetails {
         self.event_id.clone()
     }
 
-    pub fn event(&self) -> RepliedToEventDetails {
+    pub fn event(&self) -> EmbeddedEventDetails {
         self.event.clone()
     }
 }
 
 impl From<matrix_sdk_ui::timeline::InReplyToDetails> for InReplyToDetails {
     fn from(inner: matrix_sdk_ui::timeline::InReplyToDetails) -> Self {
-        let event_id = inner.event_id.to_string();
-        let event = match &inner.event {
-            TimelineDetails::Unavailable => RepliedToEventDetails::Unavailable,
-            TimelineDetails::Pending => RepliedToEventDetails::Pending,
-            TimelineDetails::Ready(event) => RepliedToEventDetails::Ready {
-                content: event.content().clone().into(),
-                sender: event.sender().to_string(),
-                sender_profile: event.sender_profile().into(),
-            },
-            TimelineDetails::Error(err) => {
-                RepliedToEventDetails::Error { message: err.to_string() }
-            }
-        };
-
-        Self { event_id, event }
+        Self { event_id: inner.event_id.to_string(), event: inner.event.into() }
     }
 }
 
 #[derive(Clone, uniffi::Enum)]
 #[allow(clippy::large_enum_variant)]
-pub enum RepliedToEventDetails {
+pub enum EmbeddedEventDetails {
     Unavailable,
     Pending,
     Ready { content: TimelineItemContent, sender: String, sender_profile: ProfileDetails },
     Error { message: String },
+}
+
+impl From<TimelineDetails<Box<EmbeddedEvent>>> for EmbeddedEventDetails {
+    fn from(event: TimelineDetails<Box<EmbeddedEvent>>) -> Self {
+        match event {
+            TimelineDetails::Unavailable => EmbeddedEventDetails::Unavailable,
+            TimelineDetails::Pending => EmbeddedEventDetails::Pending,
+            TimelineDetails::Ready(event) => EmbeddedEventDetails::Ready {
+                content: event.content.into(),
+                sender: event.sender.to_string(),
+                sender_profile: event.sender_profile.into(),
+            },
+            TimelineDetails::Error(err) => EmbeddedEventDetails::Error { message: err.to_string() },
+        }
+    }
 }

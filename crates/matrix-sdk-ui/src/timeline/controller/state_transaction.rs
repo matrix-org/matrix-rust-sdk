@@ -16,9 +16,11 @@ use std::collections::{HashMap, HashSet};
 
 use eyeball_im::VectorDiff;
 use itertools::Itertools as _;
-use matrix_sdk::deserialized_responses::{TimelineEvent, TimelineEventKind, UnsignedEventLocation};
+use matrix_sdk::deserialized_responses::{
+    ThreadSummaryStatus, TimelineEvent, TimelineEventKind, UnsignedEventLocation,
+};
 use ruma::{
-    events::AnySyncTimelineEvent, push::Action, serde::Raw, MilliSecondsSinceUnixEpoch,
+    events::AnySyncTimelineEvent, push::Action, serde::Raw, EventId, MilliSecondsSinceUnixEpoch,
     OwnedEventId, OwnedTransactionId, OwnedUserId, UserId,
 };
 use tracing::{debug, instrument, warn};
@@ -37,7 +39,7 @@ use super::{
 };
 use crate::timeline::{
     event_handler::{FailedToParseEvent, RemovedItem, TimelineAction},
-    ThreadSummary, TimelineDetails, VirtualTimelineItem,
+    EmbeddedEvent, ThreadSummary, TimelineDetails, VirtualTimelineItem,
 };
 
 pub(in crate::timeline) struct TimelineStateTransaction<'a> {
@@ -544,6 +546,36 @@ impl<'a> TimelineStateTransaction<'a> {
         }
     }
 
+    // Attempt to load a thread's latest reply as an embedded timeline item, either
+    // using the event cache or the storage.
+    async fn fetch_latest_thread_reply(
+        &mut self,
+        event_id: &EventId,
+        room_data_provider: &impl RoomDataProvider,
+    ) -> Option<Box<EmbeddedEvent>> {
+        let event = room_data_provider
+            .load_event(event_id)
+            .await
+            .inspect_err(|err| {
+                warn!("Failed to load thread latest event: {err}");
+            })
+            .ok()?;
+
+        EmbeddedEvent::try_from_timeline_event(
+            event,
+            room_data_provider,
+            &self.items,
+            &mut self.meta,
+        )
+        .await
+        .inspect_err(|err| {
+            warn!("Failed to extract thread latest event into a timeline item content: {err}");
+        })
+        .ok()
+        .flatten()
+        .map(Box::new)
+    }
+
     /// Handle a remote event.
     ///
     /// Returns whether an item has been removed from the timeline.
@@ -555,13 +587,21 @@ impl<'a> TimelineStateTransaction<'a> {
         settings: &TimelineSettings,
         date_divider_adjuster: &mut DateDividerAdjuster,
     ) -> RemovedItem {
-        // TODO: do something with the thread summary!
         let TimelineEvent { push_actions, kind, thread_summary } = event;
 
-        let thread_summary = thread_summary.summary().map(|_common_summary| {
-            // TODO: later, fill the latest event in the thread summary!
-            ThreadSummary { latest_event: TimelineDetails::Unavailable }
-        });
+        let thread_summary = if let ThreadSummaryStatus::Some(summary) = thread_summary {
+            let latest_reply_item = if let Some(latest_reply) = summary.latest_reply {
+                self.fetch_latest_thread_reply(&latest_reply, room_data_provider).await
+            } else {
+                None
+            };
+            Some(ThreadSummary {
+                latest_event: TimelineDetails::from_initial_value(latest_reply_item),
+                num_replies: summary.num_replies,
+            })
+        } else {
+            None
+        };
 
         let encryption_info = kind.encryption_info().cloned();
 

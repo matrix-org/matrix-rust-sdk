@@ -437,4 +437,8 @@ impl RoomDataProvider for TestRoomDataProvider {
     ) -> Result<Relations, matrix_sdk::Error> {
         unimplemented!();
     }
+
+    async fn load_event<'a>(&'a self, _event_id: &'a EventId) -> matrix_sdk::Result<TimelineEvent> {
+        unimplemented!();
+    }
 }

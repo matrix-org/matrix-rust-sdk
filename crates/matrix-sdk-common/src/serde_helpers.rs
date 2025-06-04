@@ -18,7 +18,7 @@
 use ruma::{
     events::{relation::BundledThread, AnySyncTimelineEvent},
     serde::Raw,
-    OwnedEventId,
+    OwnedEventId, UInt,
 };
 use serde::Deserialize;
 
@@ -77,9 +77,15 @@ struct Unsigned {
 pub fn extract_bundled_thread_summary(event: &Raw<AnySyncTimelineEvent>) -> ThreadSummaryStatus {
     match event.get_field::<Unsigned>("unsigned") {
         Ok(Some(Unsigned { relations: Some(Relations { thread: Some(bundled_thread) }) })) => {
-            // Currently, we don't do anything with the bundled thread, but later we will!
-            let _ = bundled_thread;
-            ThreadSummaryStatus::Some(ThreadSummary {})
+            // Take the count from the bundled thread summary, if available. If it can't be
+            // converted to a `u64`, we use `UInt::MAX` as a fallback, as this is unlikely
+            // to happen to have that many events in real-world threads.
+            let count = bundled_thread.count.try_into().unwrap_or(UInt::MAX.try_into().unwrap());
+
+            let latest_reply =
+                bundled_thread.latest_event.get_field::<OwnedEventId>("event_id").ok().flatten();
+
+            ThreadSummaryStatus::Some(ThreadSummary { num_replies: count, latest_reply })
         }
         Ok(_) => ThreadSummaryStatus::None,
         Err(_) => ThreadSummaryStatus::Unknown,

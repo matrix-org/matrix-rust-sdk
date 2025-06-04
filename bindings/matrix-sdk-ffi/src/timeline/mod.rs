@@ -36,7 +36,7 @@ use matrix_sdk_ui::timeline::{
     TimelineUniqueId as SdkTimelineUniqueId,
 };
 use mime::Mime;
-use reply::{InReplyToDetails, RepliedToEventDetails};
+use reply::{EmbeddedEventDetails, InReplyToDetails};
 use ruma::{
     events::{
         location::{AssetType as RumaAssetType, LocationContent, ZoomLevel},
@@ -689,21 +689,21 @@ impl Timeline {
         match replied_to {
             Ok(Some(replied_to)) => Ok(Arc::new(InReplyToDetails::new(
                 event_id_str,
-                RepliedToEventDetails::Ready {
-                    content: replied_to.content().clone().into(),
-                    sender: replied_to.sender().to_string(),
-                    sender_profile: replied_to.sender_profile().into(),
+                EmbeddedEventDetails::Ready {
+                    content: replied_to.content.clone().into(),
+                    sender: replied_to.sender.to_string(),
+                    sender_profile: replied_to.sender_profile.into(),
                 },
             ))),
 
             Ok(None) => Ok(Arc::new(InReplyToDetails::new(
                 event_id_str,
-                RepliedToEventDetails::Error { message: "unsupported event".to_owned() },
+                EmbeddedEventDetails::Error { message: "unsupported event".to_owned() },
             ))),
 
             Err(e) => Ok(Arc::new(InReplyToDetails::new(
                 event_id_str,
-                RepliedToEventDetails::Error { message: e.to_string() },
+                EmbeddedEventDetails::Error { message: e.to_string() },
             ))),
         }
     }
@@ -1103,7 +1103,7 @@ impl From<matrix_sdk_ui::timeline::EventTimelineItem> for EventTimelineItem {
             is_remote: !item.is_local_echo(),
             event_or_transaction_id: item.identifier().into(),
             sender: item.sender().to_string(),
-            sender_profile: item.sender_profile().into(),
+            sender_profile: item.sender_profile().clone().into(),
             is_own: item.is_own(),
             is_editable: item.is_editable(),
             content: item.content().clone().into(),
@@ -1144,13 +1144,13 @@ pub enum ProfileDetails {
     Error { message: String },
 }
 
-impl From<&TimelineDetails<Profile>> for ProfileDetails {
-    fn from(details: &TimelineDetails<Profile>) -> Self {
+impl From<TimelineDetails<Profile>> for ProfileDetails {
+    fn from(details: TimelineDetails<Profile>) -> Self {
         match details {
             TimelineDetails::Unavailable => Self::Unavailable,
             TimelineDetails::Pending => Self::Pending,
             TimelineDetails::Ready(profile) => Self::Ready {
-                display_name: profile.display_name.clone(),
+                display_name: profile.display_name,
                 display_name_ambiguous: profile.display_name_ambiguous,
                 avatar_url: profile.avatar_url.as_ref().map(ToString::to_string),
             },

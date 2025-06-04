@@ -261,6 +261,7 @@ mod tests {
         time::Duration,
     };
 
+    use matrix_sdk_common::executor::spawn;
     use matrix_sdk_test::{async_test, test_json};
     use wiremock::{
         matchers::{method, path},
@@ -302,7 +303,7 @@ mod tests {
             .mount(&server)
             .await;
 
-        let bg_task = tokio::spawn(async move {
+        let bg_task = spawn(async move {
             futures_util::future::join_all((0..10).map(|_| client.whoami())).await
         });
 
@@ -346,7 +347,7 @@ mod tests {
             .mount(&server)
             .await;
 
-        let bg_task = tokio::spawn(async move {
+        let bg_task = spawn(async move {
             futures_util::future::join_all((0..254).map(|_| client.whoami())).await
         });
 

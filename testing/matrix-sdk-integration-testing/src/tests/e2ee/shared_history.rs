@@ -27,6 +27,7 @@ async fn test_history_share_on_invite() -> Result<()> {
     let alice = TestClientBuilder::new("alice")
         .use_sqlite()
         .encryption_settings(encryption_settings)
+        .enable_share_history_on_invite(true)
         .build()
         .await?;
 
@@ -41,7 +42,11 @@ async fn test_history_share_on_invite() -> Result<()> {
     alice_sync_service.start().await;
 
     let bob = SyncTokenAwareClient::new(
-        TestClientBuilder::new("bob").encryption_settings(encryption_settings).build().await?,
+        TestClientBuilder::new("bob")
+            .encryption_settings(encryption_settings)
+            .enable_share_history_on_invite(true)
+            .build()
+            .await?,
     );
 
     // Alice creates a room ...

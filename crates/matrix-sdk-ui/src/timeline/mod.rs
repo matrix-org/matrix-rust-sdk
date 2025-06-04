@@ -21,8 +21,12 @@ use std::{fs, path::PathBuf, sync::Arc};
 use algorithms::rfind_event_by_item_id;
 use event_item::TimelineItemHandle;
 use eyeball_im::VectorDiff;
+#[cfg(feature = "unstable-msc4274")]
+use futures::SendGallery;
 use futures_core::Stream;
 use imbl::Vector;
+#[cfg(feature = "unstable-msc4274")]
+use matrix_sdk::attachment::GalleryConfig;
 use matrix_sdk::{
     attachment::AttachmentConfig,
     deserialized_responses::TimelineEvent,
@@ -81,12 +85,12 @@ pub use self::{
     controller::default_event_filter,
     error::*,
     event_item::{
-        AnyOtherFullStateEventContent, EncryptedMessage, EventItemOrigin, EventSendState,
-        EventTimelineItem, InReplyToDetails, MemberProfileChange, MembershipChange, Message,
-        MsgLikeContent, MsgLikeKind, OtherState, PollResult, PollState, Profile, ReactionInfo,
-        ReactionStatus, ReactionsByKeyBySender, RepliedToEvent, RoomMembershipChange,
-        RoomPinnedEventsChange, Sticker, ThreadSummary, ThreadSummaryLatestEvent, TimelineDetails,
-        TimelineEventItemId, TimelineItemContent,
+        AnyOtherFullStateEventContent, EmbeddedEvent, EncryptedMessage, EventItemOrigin,
+        EventSendState, EventTimelineItem, InReplyToDetails, MemberProfileChange, MembershipChange,
+        Message, MsgLikeContent, MsgLikeKind, OtherState, PollResult, PollState, Profile,
+        ReactionInfo, ReactionStatus, ReactionsByKeyBySender, RoomMembershipChange,
+        RoomPinnedEventsChange, Sticker, ThreadSummary, TimelineDetails, TimelineEventItemId,
+        TimelineItemContent,
     },
     event_type_filter::TimelineEventTypeFilter,
     item::{TimelineItem, TimelineItemKind, TimelineUniqueId},
@@ -416,6 +420,28 @@ impl Timeline {
         SendAttachment::new(self, source.into(), mime_type, config)
     }
 
+    /// Sends a media gallery to the room.
+    ///
+    /// If the encryption feature is enabled, this method will transparently
+    /// encrypt the room message if the room is encrypted.
+    ///
+    /// The attachments and their optional thumbnails are stored in the media
+    /// cache and can be retrieved at any time, by calling
+    /// [`Media::get_media_content()`] with the `MediaSource` that can be found
+    /// in the corresponding `TimelineEventItem`, and using a
+    /// `MediaFormat::File`.
+    ///
+    /// # Arguments
+    /// * `gallery` - A configuration object containing details about the
+    ///   gallery like files, thumbnails, etc.
+    ///
+    /// [`Media::get_media_content()`]: matrix_sdk::Media::get_media_content
+    #[cfg(feature = "unstable-msc4274")]
+    #[instrument(skip_all)]
+    pub fn send_gallery(&self, gallery: GalleryConfig) -> SendGallery<'_> {
+        SendGallery::new(self, gallery)
+    }
+
     /// Redact an event given its [`TimelineEventItemId`] and an optional
     /// reason.
     pub async fn redact(
@@ -689,7 +715,7 @@ impl Timeline {
         }
     }
 
-    /// Create a [`RepliedToEvent`] from an arbitrary event, be it in the
+    /// Create a [`EmbeddedEvent`] from an arbitrary event, be it in the
     /// timeline or not.
     ///
     /// Can be `None` if the event cannot be represented as a standalone item,
@@ -697,7 +723,7 @@ impl Timeline {
     pub async fn make_replied_to(
         &self,
         event: TimelineEvent,
-    ) -> Result<Option<RepliedToEvent>, Error> {
+    ) -> Result<Option<EmbeddedEvent>, Error> {
         self.controller.make_replied_to(event).await
     }
 }

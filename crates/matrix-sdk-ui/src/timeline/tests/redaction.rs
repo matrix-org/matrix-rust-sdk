@@ -80,7 +80,7 @@ async fn test_redact_replied_to_event() {
     let msglike = second_item.content().as_msglike().unwrap();
     let in_reply_to = msglike.in_reply_to.clone().unwrap();
     assert_let!(TimelineDetails::Ready(replied_to_event) = &in_reply_to.event);
-    assert!(replied_to_event.content().is_message());
+    assert!(replied_to_event.content.is_message());
 
     timeline.handle_live_event(f.redaction(first_item.event_id().unwrap()).sender(&ALICE)).await;
 
@@ -94,7 +94,7 @@ async fn test_redact_replied_to_event() {
     let msglike = second_item_again.content().as_msglike().unwrap();
     let in_reply_to = msglike.in_reply_to.clone().unwrap();
     assert_let!(TimelineDetails::Ready(replied_to_event) = &in_reply_to.event);
-    assert!(replied_to_event.content().is_redacted());
+    assert!(replied_to_event.content.is_redacted());
 }
 
 #[async_test]

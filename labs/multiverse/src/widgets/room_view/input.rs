@@ -15,6 +15,7 @@ struct Cli {
 #[derive(Debug, Subcommand)]
 pub enum Command {
     Invite { user_id: String },
+    Leave,
 }
 
 pub enum MessageOrCommand {

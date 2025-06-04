@@ -22,6 +22,9 @@ uniffi = ["dep:uniffi", "matrix-sdk/uniffi", "matrix-sdk-base/uniffi"]
 # Add support for encrypted extensible events.
 unstable-msc3956 = ["ruma/unstable-msc3956"]
 
+# Add support for inline media galleries via msgtypes
+unstable-msc4274 = ["matrix-sdk/unstable-msc4274"]
+
 [dependencies]
 as_variant.workspace = true
 async-rx.workspace = true
@@ -41,6 +44,7 @@ indexmap.workspace = true
 itertools.workspace = true
 matrix-sdk = { workspace = true, features = ["e2e-encryption"] }
 matrix-sdk-base.workspace = true
+matrix-sdk-common.workspace = true
 mime.workspace = true
 once_cell.workspace = true
 pin-project-lite.workspace = true
