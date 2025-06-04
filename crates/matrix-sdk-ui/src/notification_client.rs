@@ -633,8 +633,9 @@ impl NotificationClient {
                     RawNotificationEvent::Timeline(timeline_event) => {
                         // Timeline events may be encrypted, so make sure they get decrypted first.
                         match self.retry_decryption(&room, timeline_event).await {
-                            Ok(Some(mut timeline_event)) => {
-                                let push_actions = timeline_event.push_actions.take();
+                            Ok(Some(timeline_event)) => {
+                                let push_actions =
+                                    timeline_event.push_actions().map(ToOwned::to_owned);
                                 (
                                     RawNotificationEvent::Timeline(timeline_event.into_raw()),
                                     push_actions,
@@ -753,13 +754,13 @@ impl NotificationClient {
             timeline_event = decrypted_event;
         }
 
-        if let Some(actions) = timeline_event.push_actions.as_ref() {
+        if let Some(actions) = timeline_event.push_actions() {
             if !actions.iter().any(|a| a.should_notify()) {
                 return Ok(None);
             }
         }
 
-        let push_actions = timeline_event.push_actions.take();
+        let push_actions = timeline_event.push_actions().map(ToOwned::to_owned);
         let notification_item = NotificationItem::new(
             &room,
             RawNotificationEvent::Timeline(timeline_event.into_raw()),

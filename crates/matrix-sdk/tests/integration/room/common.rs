@@ -649,7 +649,7 @@ async fn test_event() {
     );
     assert_eq!(event.event_id(), event_id);
 
-    let push_actions = timeline_event.push_actions.unwrap();
+    let push_actions = timeline_event.push_actions().unwrap();
     assert!(push_actions.iter().any(|a| a.is_highlight()));
     assert!(push_actions.iter().any(|a| a.should_notify()));
 

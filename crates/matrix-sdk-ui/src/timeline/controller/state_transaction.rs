@@ -587,9 +587,10 @@ impl<'a> TimelineStateTransaction<'a> {
         settings: &TimelineSettings,
         date_divider_adjuster: &mut DateDividerAdjuster,
     ) -> RemovedItem {
-        let TimelineEvent { push_actions, kind, thread_summary } = event;
+        let is_highlighted =
+            event.push_actions().is_some_and(|actions| actions.iter().any(Action::is_highlight));
 
-        let thread_summary = if let ThreadSummaryStatus::Some(summary) = thread_summary {
+        let thread_summary = if let ThreadSummaryStatus::Some(summary) = event.thread_summary {
             let latest_reply_item = if let Some(latest_reply) = summary.latest_reply {
                 self.fetch_latest_thread_reply(&latest_reply, room_data_provider).await
             } else {
@@ -603,15 +604,15 @@ impl<'a> TimelineStateTransaction<'a> {
             None
         };
 
-        let encryption_info = kind.encryption_info().cloned();
+        let encryption_info = event.kind.encryption_info().cloned();
 
-        let bundled_edit_encryption_info = kind.unsigned_encryption_map().and_then(|map| {
+        let bundled_edit_encryption_info = event.kind.unsigned_encryption_map().and_then(|map| {
             map.get(&UnsignedEventLocation::RelationsReplace)?.encryption_info().cloned()
         });
 
-        let (raw, utd_info) = match kind {
+        let (raw, utd_info) = match event.kind {
             TimelineEventKind::UnableToDecrypt { utd_info, event } => (event, Some(utd_info)),
-            _ => (kind.into_raw(), None),
+            _ => (event.kind.into_raw(), None),
         };
 
         let (event_id, sender, timestamp, txn_id, timeline_action, should_add) = match raw
@@ -682,9 +683,7 @@ impl<'a> TimelineStateTransaction<'a> {
                 } else {
                     Default::default()
                 },
-                is_highlighted: push_actions
-                    .as_ref()
-                    .is_some_and(|actions| actions.iter().any(Action::is_highlight)),
+                is_highlighted,
                 flow: Flow::Remote {
                     event_id: event_id.clone(),
                     raw_event: raw,
