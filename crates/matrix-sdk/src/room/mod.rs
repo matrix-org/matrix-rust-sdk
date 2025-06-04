@@ -4019,7 +4019,7 @@ pub struct RoomMemberWithSenderInfo {
     pub sender_info: Option<RoomMember>,
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(target_family = "wasm")))]
 mod tests {
     use matrix_sdk_base::{store::ComposerDraftType, ComposerDraft};
     use matrix_sdk_test::{
