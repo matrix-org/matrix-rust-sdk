@@ -19,9 +19,7 @@
 
 #[cfg(not(target_family = "wasm"))]
 mod sys {
-    /// A handle to a runtime for executing async tasks and futures.
-    pub type Handle = tokio::runtime::Handle;
-    pub type Runtime = tokio::runtime::Runtime;
+    pub use tokio::runtime::{Handle, Runtime};
 
     /// Get a runtime handle appropriate for the current target platform.
     ///
@@ -43,24 +41,21 @@ mod sys {
 
     use crate::executor::{spawn, JoinHandle};
 
-    /// A handle to a runtime for executing async tasks and futures.
-    pub type Handle = WasmRuntimeHandle;
-    pub type Runtime = WasmRuntimeHandle;
-
     /// A dummy guard that does nothing when dropped.
     /// This is used for the Wasm implementation to match
     /// tokio::runtime::EnterGuard.
     #[derive(Debug)]
-    pub struct WasmRuntimeGuard;
+    pub struct RuntimeGuard;
 
     /// A runtime handle implementation for WebAssembly targets.
     ///
     /// This implements a minimal subset of the tokio::runtime::Handle API
     /// that is needed for the matrix-rust-sdk to function on Wasm.
     #[derive(Default, Debug)]
-    pub struct WasmRuntimeHandle;
+    pub struct Handle;
+    pub type Runtime = Handle;
 
-    impl WasmRuntimeHandle {
+    impl Handle {
         /// Spawns a future in the wasm32 bindgen runtime.
         #[track_caller]
         pub fn spawn<F>(&self, future: F) -> JoinHandle<F::Output>
@@ -93,8 +88,8 @@ mod sys {
         /// Enters the runtime context.
         ///
         /// For WebAssembly, this is a no-op that returns a dummy guard.
-        pub fn enter(&self) -> WasmRuntimeGuard {
-            WasmRuntimeGuard
+        pub fn enter(&self) -> RuntimeGuard {
+            RuntimeGuard
         }
     }
 
