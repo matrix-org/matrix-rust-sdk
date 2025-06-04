@@ -19,7 +19,10 @@ use matrix_sdk::{
     },
     ruma::{
         api::client::{
-            discovery::get_authorization_server_metadata::msc2965::Prompt as RumaOidcPrompt,
+            discovery::{
+                discover_homeserver::RtcFocusInfo,
+                get_authorization_server_metadata::msc2965::Prompt as RumaOidcPrompt,
+            },
             push::{EmailPusherData, PusherIds, PusherInit, PusherKind as RumaPusherKind},
             room::{create_room, Visibility},
             session::get_login_types,
@@ -1487,6 +1490,16 @@ impl Client {
     /// Checks if the server supports the report room API.
     pub async fn is_report_room_api_supported(&self) -> Result<bool, ClientError> {
         Ok(self.inner.server_versions().await?.contains(&ruma::api::MatrixVersion::V1_13))
+    }
+
+    /// Checks if the server supports the LiveKit RTC focus for placing calls.
+    pub async fn is_livekit_rtc_supported(&self) -> Result<bool, ClientError> {
+        Ok(self
+            .inner
+            .rtc_foci()
+            .await?
+            .iter()
+            .any(|focus| matches!(focus, RtcFocusInfo::LiveKit(_))))
     }
 
     /// Subscribe to changes in the media preview configuration.
