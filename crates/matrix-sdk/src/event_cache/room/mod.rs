@@ -594,7 +594,7 @@ mod private {
         /// possibly misplace them. And we should not be missing
         /// events either: the already-known events would have their own
         /// previous-batch token (it might already be consumed).
-        pub async fn collect_valid_and_duplicated_events(
+        async fn collect_valid_and_duplicated_events(
             &mut self,
             events: Vec<Event>,
         ) -> Result<(DeduplicationOutcome, bool), EventCacheError> {
@@ -850,13 +850,12 @@ mod private {
         ///
         /// This method is purposely isolated because it must ensure that
         /// positions are sorted appropriately or it can be disastrous.
-        #[must_use = "Updates as `VectorDiff` must probably be propagated via `RoomEventCacheUpdate`"]
         #[instrument(skip_all)]
-        pub(crate) async fn remove_events(
+        async fn remove_events(
             &mut self,
             in_memory_events: Vec<(OwnedEventId, Position)>,
             in_store_events: Vec<(OwnedEventId, Position)>,
-        ) -> Result<Vec<VectorDiff<TimelineEvent>>, EventCacheError> {
+        ) -> Result<(), EventCacheError> {
             // In-store events.
             if !in_store_events.is_empty() {
                 let mut positions = in_store_events
@@ -878,7 +877,7 @@ mod private {
             // In-memory events.
             if in_memory_events.is_empty() {
                 // Nothing else to do, return early.
-                return Ok(Vec::new());
+                return Ok(());
             }
 
             // `remove_events_by_position` is responsible of sorting positions.
@@ -888,9 +887,7 @@ mod private {
                 )
                 .expect("failed to remove an event");
 
-            self.propagate_changes().await?;
-
-            Ok(self.events.updates_as_vector_diffs())
+            self.propagate_changes().await
         }
 
         /// Propagate changes to the underlying storage.
@@ -899,7 +896,7 @@ mod private {
             self.send_updates_to_store(updates).await
         }
 
-        pub async fn send_updates_to_store(
+        async fn send_updates_to_store(
             &mut self,
             mut updates: Vec<Update<TimelineEvent, Gap>>,
         ) -> Result<(), EventCacheError> {
@@ -991,7 +988,7 @@ mod private {
         ) -> Result<Option<(EventLocation, TimelineEvent)>, EventCacheError> {
             // There are supposedly fewer events loaded in memory than in the store. Let's
             // start by looking up in the `RoomEvents`.
-            for (position, event) in self.events().revents() {
+            for (position, event) in self.events.revents() {
                 if event.event_id().as_deref() == Some(event_id) {
                     return Ok(Some((EventLocation::Memory(position), event.clone())));
                 }
@@ -1069,13 +1066,12 @@ mod private {
         /// returns a set of events that will be post-processed. At the time of
         /// writing, all these events are passed to
         /// `Self::maybe_apply_new_redaction`.
-        #[must_use = "Updates as `VectorDiff` must probably be propagated via `RoomEventCacheUpdate`"]
         #[instrument(skip_all, fields(room_id = %self.room))]
-        pub async fn with_events_mut<F>(
+        async fn with_events_mut<F>(
             &mut self,
             is_live_sync: bool,
             func: F,
-        ) -> Result<Vec<VectorDiff<TimelineEvent>>, EventCacheError>
+        ) -> Result<(), EventCacheError>
         where
             F: FnOnce(&mut RoomEvents) -> Vec<TimelineEvent>,
         {
@@ -1103,9 +1099,7 @@ mod private {
                 self.waited_for_initial_prev_token = true;
             }
 
-            let updates_as_vector_diffs = self.events.updates_as_vector_diffs();
-
-            Ok(updates_as_vector_diffs)
+            Ok(())
         }
 
         /// If the event is a threaded reply, ensure the related thread's root
@@ -1350,52 +1344,43 @@ mod private {
                 return Ok(false);
             }
 
-            // During a sync, when a duplicated event is found, the old event is removed and
-            // the new event is added.
-            //
-            // Let's remove the old events that are duplicated.
-
             // Remove the old duplicated events.
             //
-            // We don't have to worry the removals can change the position of the
-            // existing events, because we are pushing all _new_
-            // `events` at the back.
-            let mut timeline_event_diffs = self
-                .remove_events(in_memory_duplicated_event_ids, in_store_duplicated_event_ids)
+            // We don't have to worry the removals can change the position of the existing
+            // events, because we are pushing all _new_ `events` at the back.
+            self.remove_events(in_memory_duplicated_event_ids, in_store_duplicated_event_ids)
                 .await?;
 
             // Add the previous back-pagination token (if present), followed by the timeline
             // events themselves.
-            let new_timeline_event_diffs = self
-                .with_events_mut(true, |room_events| {
-                    // If we only received duplicated events, we don't need to store the gap: if
-                    // there was a gap, we'd have received an unknown event at the tail of
-                    // the room's timeline (unless the server reordered sync events since the
-                    // last time we sync'd).
-                    if let Some(prev_token) = &prev_batch {
-                        // As a tiny optimization: remove the last chunk if it's an empty event
-                        // one, as it's not useful to keep it before a gap.
-                        let prev_chunk_to_remove = room_events.rchunks().next().and_then(|chunk| {
-                            (chunk.is_items() && chunk.num_items() == 0)
-                                .then_some(chunk.identifier())
-                        });
+            self.with_events_mut(true, |room_events| {
+                // If we only received duplicated events, we don't need to store the gap: if
+                // there was a gap, we'd have received an unknown event at the tail of
+                // the room's timeline (unless the server reordered sync events since the
+                // last time we sync'd).
+                if let Some(prev_token) = &prev_batch {
+                    // As a tiny optimization: remove the last chunk if it's an empty event
+                    // one, as it's not useful to keep it before a gap.
+                    let prev_chunk_to_remove = room_events.rchunks().next().and_then(|chunk| {
+                        (chunk.is_items() && chunk.num_items() == 0).then_some(chunk.identifier())
+                    });
 
-                        room_events.push_gap(Gap { prev_token: prev_token.clone() });
+                    room_events.push_gap(Gap { prev_token: prev_token.clone() });
 
-                        if let Some(prev_chunk_to_remove) = prev_chunk_to_remove {
-                            room_events.remove_empty_chunk_at(prev_chunk_to_remove).expect(
-                                "we just checked the chunk is there, and it's an empty item chunk",
-                            );
-                        }
+                    if let Some(prev_chunk_to_remove) = prev_chunk_to_remove {
+                        room_events.remove_empty_chunk_at(prev_chunk_to_remove).expect(
+                            "we just checked the chunk is there, and it's an empty item chunk",
+                        );
                     }
+                }
 
-                    room_events.push_events(events.clone());
+                room_events.push_events(events.clone());
 
-                    events.clone()
-                })
-                .await?;
+                events
+            })
+            .await?;
 
-            timeline_event_diffs.extend(new_timeline_event_diffs);
+            let mut timeline_event_diffs = None;
 
             if timeline.limited && prev_batch.is_some() {
                 // If there was a previous batch token for a limited timeline, unload the chunks
@@ -1404,12 +1389,13 @@ mod private {
                 //
                 // We must do this *after* the above call to `.with_events_mut`, so the new
                 // events and gaps are properly persisted to storage.
-                if let Some(diffs) = self.shrink_to_last_chunk().await? {
-                    // Override the diffs with the new ones, as per `shrink_to_last_chunk`'s API
-                    // contract.
-                    timeline_event_diffs = diffs;
-                }
+
+                // TODO(bnjbvr): could this method not return diff updates?
+                timeline_event_diffs = self.shrink_to_last_chunk().await?;
             }
+
+            let timeline_event_diffs =
+                timeline_event_diffs.unwrap_or_else(|| self.events.updates_as_vector_diffs());
 
             if !timeline_event_diffs.is_empty() {
                 let _ = sender.send(RoomEventCacheUpdate::UpdateTimelineEvents {
@@ -1454,85 +1440,81 @@ mod private {
             // ordering of [D, E, F, A, B, C], which is incorrect. So we do have to remove
             // all the events, in case this happens (see also #4746).
 
-            let mut event_diffs = if !all_duplicates {
+            if !all_duplicates {
                 // Let's forget all the previous events.
                 self.remove_events(in_memory_duplicated_event_ids, in_store_duplicated_event_ids)
-                    .await?
+                    .await?;
             } else {
                 // All new events are duplicated, they can all be ignored.
                 events.clear();
-                Default::default()
             };
 
-            let next_diffs = self
-            .with_events_mut(false, |room_events| {
-            // Reverse the order of the events as `/messages` has been called with `dir=b`
-            // (backwards). The `RoomEvents` API expects the first event to be the oldest.
-            // Let's re-order them for this block.
-            let reversed_events = events
-                .iter()
-                .rev()
-                .cloned()
-                .collect::<Vec<_>>();
+            self.with_events_mut(false, |room_events| {
+                // Reverse the order of the events as `/messages` has been called with `dir=b`
+                // (backwards). The `RoomEvents` API expects the first event to be the oldest.
+                // Let's re-order them for this block.
+                let reversed_events = events
+                    .iter()
+                    .rev()
+                    .cloned()
+                    .collect::<Vec<_>>();
 
-            let first_event_pos = room_events.events().next().map(|(item_pos, _)| item_pos);
+                let first_event_pos = room_events.events().next().map(|(item_pos, _)| item_pos);
 
-            // First, insert events.
-            let insert_new_gap_pos = if let Some(gap_id) = prev_gap_id {
-                // There is a prior gap, let's replace it by new events!
-                if all_duplicates {
-                    assert!(reversed_events.is_empty());
-                }
-
-                trace!("replacing previous gap with the back-paginated events");
-
-                // Replace the gap with the events we just deduplicated. This might get rid of the
-                // underlying gap, if the conditions are favorable to us.
-                room_events.replace_gap_at(reversed_events.clone(), gap_id)
-                    .expect("gap_identifier is a valid chunk id we read previously")
-            } else if let Some(pos) = first_event_pos {
-                // No prior gap, but we had some events: assume we need to prepend events
-                // before those.
-                trace!("inserted events before the first known event");
-
-                room_events
-                    .insert_events_at(reversed_events.clone(), pos)
-                    .expect("pos is a valid position we just read above");
-
-                Some(pos)
-            } else {
-                // No prior gap, and no prior events: push the events.
-                trace!("pushing events received from back-pagination");
-
-                room_events.push_events(reversed_events.clone());
-
-                // A new gap may be inserted before the new events, if there are any.
-                room_events.events().next().map(|(item_pos, _)| item_pos)
-            };
-
-            // And insert the new gap if needs be.
-            //
-            // We only do this when at least one new, non-duplicated event, has been added to
-            // the chunk. Otherwise it means we've back-paginated all the known events.
-            if !all_duplicates {
-                if let Some(new_gap) = new_gap {
-                    if let Some(new_pos) = insert_new_gap_pos {
-                        room_events
-                            .insert_gap_at(new_gap, new_pos)
-                            .expect("events_chunk_pos represents a valid chunk position");
-                    } else {
-                        room_events.push_gap(new_gap);
+                // First, insert events.
+                let insert_new_gap_pos = if let Some(gap_id) = prev_gap_id {
+                    // There is a prior gap, let's replace it by new events!
+                    if all_duplicates {
+                        assert!(reversed_events.is_empty());
                     }
+
+                    trace!("replacing previous gap with the back-paginated events");
+
+                    // Replace the gap with the events we just deduplicated. This might get rid of the
+                    // underlying gap, if the conditions are favorable to us.
+                    room_events.replace_gap_at(reversed_events.clone(), gap_id)
+                        .expect("gap_identifier is a valid chunk id we read previously")
+                } else if let Some(pos) = first_event_pos {
+                    // No prior gap, but we had some events: assume we need to prepend events
+                    // before those.
+                    trace!("inserted events before the first known event");
+
+                    room_events
+                        .insert_events_at(reversed_events.clone(), pos)
+                        .expect("pos is a valid position we just read above");
+
+                    Some(pos)
+                } else {
+                    // No prior gap, and no prior events: push the events.
+                    trace!("pushing events received from back-pagination");
+
+                    room_events.push_events(reversed_events.clone());
+
+                    // A new gap may be inserted before the new events, if there are any.
+                    room_events.events().next().map(|(item_pos, _)| item_pos)
+                };
+
+                // And insert the new gap if needs be.
+                //
+                // We only do this when at least one new, non-duplicated event, has been added to
+                // the chunk. Otherwise it means we've back-paginated all the known events.
+                if !all_duplicates {
+                    if let Some(new_gap) = new_gap {
+                        if let Some(new_pos) = insert_new_gap_pos {
+                            room_events
+                                .insert_gap_at(new_gap, new_pos)
+                                .expect("events_chunk_pos represents a valid chunk position");
+                        } else {
+                            room_events.push_gap(new_gap);
+                        }
+                    }
+                } else {
+                    debug!("not storing previous batch token, because we deduplicated all new back-paginated events");
                 }
-            } else {
-                debug!("not storing previous batch token, because we deduplicated all new back-paginated events");
-            }
 
-            reversed_events
-        })
-        .await?;
-
-            event_diffs.extend(next_diffs);
+                reversed_events
+            })
+            .await?;
 
             // There could be an inconsistency between the network (which thinks we hit the
             // start of the timeline) and the disk (which has the initial empty
@@ -1562,6 +1544,7 @@ mod private {
 
             let backpagination_outcome = BackPaginationOutcome { events, reached_start };
 
+            let event_diffs = self.events.updates_as_vector_diffs();
             if !event_diffs.is_empty() {
                 let _ = sender.send(RoomEventCacheUpdate::UpdateTimelineEvents {
                     diffs: event_diffs,
