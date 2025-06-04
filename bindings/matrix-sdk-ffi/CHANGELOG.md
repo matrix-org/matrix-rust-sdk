@@ -8,6 +8,8 @@ All notable changes to this project will be documented in this file.
 
 Breaking changes:
 
+- `Client::send_call_notification_if_needed` now returns `Result<bool>` instead of `Result<()>` so we can check if 
+  the event was sent.
 - `Client::upload_avatar` and `Timeline::send_attachment` now may fail if a file too large for the homeserver media
   config is uploaded.
 - `UploadParameters` replaces field `filename: String` with `source: UploadSource`.
