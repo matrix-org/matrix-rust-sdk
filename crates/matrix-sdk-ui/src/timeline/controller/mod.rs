@@ -181,11 +181,11 @@ impl Default for TimelineSettings {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub(super) enum TimelineFocusKind {
     Live,
     Event,
-    Thread,
+    Thread { root_event_id: OwnedEventId },
     PinnedEvents,
 }
 
@@ -291,10 +291,13 @@ impl<P: RoomDataProvider, D: Decryptor> TimelineController<P, D> {
 
             TimelineFocus::Thread { root_event_id, num_events } => (
                 TimelineFocusData::Thread {
-                    loader: ThreadedEventsLoader::new(room_data_provider.clone(), root_event_id),
+                    loader: ThreadedEventsLoader::new(
+                        room_data_provider.clone(),
+                        root_event_id.clone(),
+                    ),
                     num_events,
                 },
-                TimelineFocusKind::Thread,
+                TimelineFocusKind::Thread { root_event_id },
             ),
 
             TimelineFocus::PinnedEvents { max_events_to_load, max_concurrent_requests } => (

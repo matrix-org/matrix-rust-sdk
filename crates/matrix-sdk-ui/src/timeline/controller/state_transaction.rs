@@ -393,6 +393,7 @@ impl<'a> TimelineStateTransaction<'a> {
         room_data_provider: &P,
         settings: &TimelineSettings,
         event: &AnySyncTimelineEvent,
+        thread_root: &Option<OwnedEventId>,
         position: TimelineItemPosition,
     ) -> bool {
         let room_version = room_data_provider.room_version();
@@ -401,13 +402,17 @@ impl<'a> TimelineStateTransaction<'a> {
             return false;
         }
 
-        match self.timeline_focus {
+        match &self.timeline_focus {
             TimelineFocusKind::PinnedEvents => {
                 // Only add pinned events for the pinned events timeline.
                 room_data_provider.is_pinned_event(event.event_id())
             }
 
             TimelineFocusKind::Event => {
+                if thread_root.is_some() {
+                    return false;
+                }
+
                 // Retrieve the origin of the event.
                 let origin = match position {
                     TimelineItemPosition::End { origin }
@@ -429,16 +434,12 @@ impl<'a> TimelineStateTransaction<'a> {
             }
 
             TimelineFocusKind::Live => {
-                // The live timeline doesn't apply any additional
-                // filtering: the event *should* be added!
-                true
+                return thread_root.is_none();
             }
 
-            TimelineFocusKind::Thread => {
-                // The thread timeline doesn't apply any additional
-                // for now. It will however do so in the future, as
-                // will the live one
-                true
+            TimelineFocusKind::Thread { root_event_id } => {
+                event.event_id() == root_event_id
+                    || thread_root.as_ref().is_some_and(|r| r == root_event_id)
             }
         }
     }
@@ -621,8 +622,13 @@ impl<'a> TimelineStateTransaction<'a> {
                     &self.items,
                 );
 
-                let should_add =
-                    self.should_add_event_item(room_data_provider, settings, &event, position);
+                let should_add = self.should_add_event_item(
+                    room_data_provider,
+                    settings,
+                    &event,
+                    &thread_root,
+                    position,
+                );
                 (
                     event.event_id().to_owned(),
                     event.sender().to_owned(),
