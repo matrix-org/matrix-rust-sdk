@@ -1282,13 +1282,7 @@ async fn test_timeline_start_properly_inserted_when_created() {
     let timeline2 = room.timeline().await.unwrap();
 
     let (items, mut stream2) = timeline2.subscribe().await;
-    assert!(items.is_empty());
-
-    timeline2.live_back_pagination_status().await;
-
-    assert_timeline_stream! {
-        [stream2]
-        prepend --- timeline start ---;
-    };
+    assert_eq!(items.len(), 1);
+    assert!(items[0].is_timeline_start());
     assert_pending!(stream2);
 }
