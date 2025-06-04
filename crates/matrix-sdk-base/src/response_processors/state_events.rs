@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 
 use ruma::{events::AnySyncStateEvent, serde::Raw};
 use serde::Deserialize;
@@ -256,6 +256,10 @@ where
 ///
 /// Please see [`Error::InconsistentTombstonedRooms`] to learn more about the
 /// kind of invalid states it can detect.
+///
+/// WARNING: False negatives can be detected if the `m.room.create` has not been
+/// received for a room. It is necessary to detect the room version, to order
+/// rooms for this algorithm.
 pub fn check_tombstone(
     context: &mut Context,
     room_updates: &RoomUpdates,
@@ -271,13 +275,24 @@ pub fn check_tombstone(
                 room_info.base_info.tombstone.as_ref().and_then(|tombstone_event| {
                     Some(tombstone_event.as_original()?.content.replacement_room.clone())
                 }),
+                room_info.base_info.create.as_ref().and_then(|create_event| {
+                    Some(create_event.as_original()?.content.room_version.clone())
+                }),
             )
         })
-        .collect::<BTreeMap<_, _>>();
+        .collect::<Vec<_>>();
+
+    // Oldest rooms must be last.
+    room_updates.sort_by(|(_, _, room_version_left), (_, _, room_version_right)| {
+        // the oldest room is the room with the smallest room version
+        // we want oldest rooms to be last
+        room_version_right.cmp(room_version_left)
+    });
 
     let mut already_seen = BTreeSet::new();
 
-    while let Some((mut room_id, mut maybe_replacement_room_id)) = room_updates.pop_first() {
+    // Take the oldest room.
+    while let Some((mut room_id, mut maybe_replacement_room_id, _)) = room_updates.pop() {
         loop {
             if already_seen.contains(&room_id) {
                 return Err(Error::InconsistentTombstonedRooms { room_in_path: room_id });
@@ -292,20 +307,26 @@ pub fn check_tombstone(
             };
 
             // Look up a subsequent replacement room in `room_updates`.
-            let (next_room_id, next_replacement_room_id) = if let Some(next_replacement_room_id) =
-                room_updates.remove(&replacement_room_id)
-            {
-                (replacement_room_id, next_replacement_room_id)
-            }
-            // Look for for the replacement room in the known rooms.
-            else if let Some(replacement_room) = state_store.room(&replacement_room_id) {
-                (
-                    replacement_room_id,
-                    replacement_room.successor_room().map(|successor_room| successor_room.room_id),
-                )
-            } else {
-                break;
-            };
+            let (next_room_id, next_replacement_room_id) =
+                if let Some(next_replacement_room_position) =
+                    room_updates.iter().rposition(|(room_id, _, _)| room_id == &replacement_room_id)
+                {
+                    let (_, next_replacement_room_id, _) =
+                        room_updates.remove(next_replacement_room_position);
+
+                    (replacement_room_id, next_replacement_room_id)
+                }
+                // Look for for the replacement room in the known rooms.
+                else if let Some(replacement_room) = state_store.room(&replacement_room_id) {
+                    (
+                        replacement_room_id,
+                        replacement_room
+                            .successor_room()
+                            .map(|successor_room| successor_room.room_id),
+                    )
+                } else {
+                    break;
+                };
 
             room_id = next_room_id;
             maybe_replacement_room_id = next_replacement_room_id;
@@ -356,7 +377,9 @@ mod tests {
         // Create room 0.
         {
             let response = response_builder
-                .add_joined_room(JoinedRoomBuilder::new(room_id_0))
+                .add_joined_room(JoinedRoomBuilder::new(room_id_0).add_timeline_event(
+                    event_factory.create(sender, RoomVersionId::try_from("41").unwrap()),
+                ))
                 .build_sync_response();
 
             assert!(client.receive_sync_response(response).await.is_ok());
@@ -460,6 +483,85 @@ mod tests {
         }
     }
 
+    /// This test is ensuring [`check_tombstone`] is not rejecting normal room
+    /// upgrades not forming a loop or a merger, in the case where rooms updates
+    /// aren't ordered by room versions.
+    #[async_test]
+    async fn test_check_tombstone_no_loop_within_misordered_rooms() {
+        let sender = user_id!("@mnt_io:matrix.org");
+        let event_factory = EventFactory::new().sender(sender);
+        let mut response_builder = SyncResponseBuilder::new();
+        // The room IDs are important because `SyncResponseBuilder` stores them in a
+        // `HashMap`, so they are going to be re-ordered by their ID.
+        let room_id_0 = room_id!("!r1");
+        let room_id_1 = room_id!("!r0");
+        let room_id_2 = room_id!("!r2");
+
+        let client = logged_in_base_client(None).await;
+
+        // Create all rooms in a misordered way to see if `check_tombstone` will
+        // re-order them appropriately.
+        {
+            let response = response_builder
+                // room 0
+                .add_joined_room(
+                    JoinedRoomBuilder::new(room_id_0)
+                        .add_timeline_event(
+                            event_factory.create(sender, RoomVersionId::try_from("41").unwrap()),
+                        )
+                        // room 0 is tombstoned by room 1
+                        .add_timeline_event(
+                            event_factory
+                                .room_tombstone("hello", room_id_1)
+                                .room(room_id_0)
+                                .event_id(event_id!("$ev0")),
+                        ),
+                )
+                // room 1
+                .add_joined_room(
+                    JoinedRoomBuilder::new(room_id_1)
+                        // room 1 is tombstoning room 0
+                        .add_timeline_event(
+                            event_factory
+                                .create(sender, RoomVersionId::try_from("42").unwrap())
+                                .predecessor(room_id_0, event_id!("$ev0")),
+                        )
+                        // room 1 is tombstoned by room 2
+                        .add_timeline_event(
+                            event_factory
+                                .room_tombstone("hello", room_id_2)
+                                .room(room_id_1)
+                                .event_id(event_id!("$ev1")),
+                        ),
+                )
+                // room 2
+                .add_joined_room(
+                    JoinedRoomBuilder::new(room_id_2)
+                        // room 2 is tombstoning room 1
+                        .add_timeline_event(
+                            event_factory
+                                .create(sender, RoomVersionId::try_from("43").unwrap())
+                                .predecessor(room_id_1, event_id!("$ev1")),
+                        ),
+                )
+                .build_sync_response();
+
+            // At this point, we can check that `response` contains misordered room updates.
+            {
+                let mut rooms = response.rooms.join.keys();
+
+                // room 1 is before room 0!
+                assert_eq!(rooms.next().unwrap(), room_id_1);
+                assert_eq!(rooms.next().unwrap(), room_id_0);
+                assert_eq!(rooms.next().unwrap(), room_id_2);
+                assert!(rooms.next().is_none());
+            }
+
+            // But the algorithm in `check_tombstone` works nicely.
+            assert!(client.receive_sync_response(response).await.is_ok());
+        }
+    }
+
     /// This test is ensuring [`check_tombstone`] detects the smallest loop
     /// possible in tombstone: room 0 is tombstoning itself and is replacing
     /// itself.
@@ -550,7 +652,9 @@ mod tests {
         // Create room 0.
         {
             let response = response_builder
-                .add_joined_room(JoinedRoomBuilder::new(room_id_0))
+                .add_joined_room(JoinedRoomBuilder::new(room_id_0).add_timeline_event(
+                    event_factory.create(sender, RoomVersionId::try_from("41").unwrap()),
+                ))
                 .build_sync_response();
 
             assert!(client.receive_sync_response(response).await.is_ok());
@@ -679,8 +783,12 @@ mod tests {
         // Create room 0 and room 1.
         {
             let response = response_builder
-                .add_joined_room(JoinedRoomBuilder::new(room_id_0))
-                .add_joined_room(JoinedRoomBuilder::new(room_id_1))
+                .add_joined_room(JoinedRoomBuilder::new(room_id_0).add_timeline_event(
+                    event_factory.create(sender, RoomVersionId::try_from("41").unwrap()),
+                ))
+                .add_joined_room(JoinedRoomBuilder::new(room_id_1).add_timeline_event(
+                    event_factory.create(sender, RoomVersionId::try_from("42").unwrap()),
+                ))
                 .build_sync_response();
 
             assert!(client.receive_sync_response(response).await.is_ok());
@@ -723,7 +831,7 @@ mod tests {
                 .add_joined_room(
                     JoinedRoomBuilder::new(room_id_2).add_timeline_event(
                         event_factory
-                            .create(sender, RoomVersionId::try_from("42").unwrap())
+                            .create(sender, RoomVersionId::try_from("43").unwrap())
                             .predecessor(room_id_0, tombstone_event_id_for_room_0),
                     ),
                 )
