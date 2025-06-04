@@ -777,9 +777,13 @@ impl Room {
     /// It will configure the notify type: ring or notify based on:
     ///  - is this a DM room -> ring
     ///  - is this a group with more than one other member -> notify
-    pub async fn send_call_notification_if_needed(&self) -> Result<(), ClientError> {
-        self.inner.send_call_notification_if_needed().await?;
-        Ok(())
+    ///
+    /// Returns:
+    ///  - `Ok(true)` if the event was successfully sent.
+    ///  - `Ok(false)` if we didn't send it because it was unnecessary.
+    ///  - `Err(_)` if sending the event failed.
+    pub async fn send_call_notification_if_needed(&self) -> Result<bool, ClientError> {
+        Ok(self.inner.send_call_notification_if_needed().await?)
     }
 
     /// Send a call notification event in the current room.
