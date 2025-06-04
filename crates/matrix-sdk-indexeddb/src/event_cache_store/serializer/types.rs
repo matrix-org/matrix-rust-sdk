@@ -20,41 +20,45 @@ use crate::serializer::MaybeEncrypted;
 pub struct IndexedChunk {
     pub id: IndexedChunkIdKey,
     pub next: IndexedChunkIdKey,
-    pub content: MaybeEncrypted, /* ChunkForCache */
+    pub content: IndexedChunkContent,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-pub struct IndexedChunkIdKey(String /* Room ID */, String /* Chunk ID */);
+pub struct IndexedChunkIdKey(IndexedRoomId, IndexedChunkId);
+
+pub type IndexedRoomId = MaybeEncrypted;
+pub type IndexedChunkId = String;
+pub type IndexedChunkContent = MaybeEncrypted;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct IndexedEvent {
     pub id: IndexedEventIdKey,
     pub position: Option<IndexedEventPositionKey>,
     pub relation: Option<IndexedEventRelationKey>,
-    pub content: MaybeEncrypted, /* EventForCache */
+    pub content: IndexedEventContent,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-pub struct IndexedEventIdKey(String /* Room ID */, String /* Event ID */);
+pub struct IndexedEventIdKey(IndexedRoomId, IndexedEventId);
+
+pub type IndexedEventId = MaybeEncrypted;
 
 #[derive(Debug, Serialize, Deserialize)]
-pub struct IndexedEventPositionKey(
-    String, /* Room ID */
-    String, /* Chunk ID */
-    String, /* Index */
-);
+pub struct IndexedEventPositionKey(IndexedRoomId, IndexedChunkId, IndexedEventPositionIndex);
+
+pub type IndexedEventPositionIndex = String;
 
 #[derive(Debug, Serialize, Deserialize)]
-pub struct IndexedEventRelationKey(
-    String, /* Room ID */
-    String, /* Related Event ID */
-    String, /* Relation Type */
-);
+pub struct IndexedEventRelationKey(IndexedRoomId, IndexedEventId, IndexedRelationType);
+
+pub type IndexedRelationType = String;
+pub type IndexedEventContent = MaybeEncrypted;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct IndexedGap {
     pub id: IndexedGapIdKey,
-    pub content: MaybeEncrypted, /* GapForCache */
+    pub content: IndexedGapContent,
 }
 
 pub type IndexedGapIdKey = IndexedChunkIdKey;
+pub type IndexedGapContent = MaybeEncrypted;
