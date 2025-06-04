@@ -20,7 +20,7 @@ use eyeball::SharedObservable;
 #[cfg(not(target_family = "wasm"))]
 use eyeball::Subscriber;
 use js_int::UInt;
-use matrix_sdk_common::boxed_into_future;
+use matrix_sdk_common::{boxed_into_future, SendOutsideWasm, SyncOutsideWasm};
 use oauth2::{basic::BasicErrorResponseType, RequestTokenError};
 use ruma::api::{
     client::{error::ErrorKind, media},
@@ -79,8 +79,8 @@ impl<R> SendRequest<R> {
 
 impl<R> IntoFuture for SendRequest<R>
 where
-    R: OutgoingRequest + Clone + Debug + Send + Sync + 'static,
-    R::IncomingResponse: Send + Sync,
+    R: OutgoingRequest + Clone + Debug + SendOutsideWasm + SyncOutsideWasm + 'static,
+    R::IncomingResponse: SendOutsideWasm + SyncOutsideWasm,
     HttpError: From<FromHttpResponseError<R::EndpointError>>,
 {
     type Output = HttpResult<R::IncomingResponse>;

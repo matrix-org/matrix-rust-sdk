@@ -58,7 +58,11 @@ use crate::{
 
 /// Backing store for a cross-process lock.
 pub trait BackingStore {
+    #[cfg(not(target_family = "wasm"))]
     type LockError: Error + Send + Sync;
+
+    #[cfg(target_family = "wasm")]
+    type LockError: Error;
 
     /// Try to take a lock using the given store.
     fn try_lock(
@@ -190,7 +194,16 @@ impl<S: BackingStore + Clone + SendOutsideWasm + 'static> CrossProcessStoreLock<
             .store
             .try_lock(LEASE_DURATION_MS, &self.lock_key, &self.lock_holder)
             .await
-            .map_err(|err| LockStoreError::BackingStoreError(Box::new(err)))?;
+            .map_err(|err| {
+                #[cfg(not(target_family = "wasm"))]
+                {
+                    LockStoreError::BackingStoreError(Box::new(err))
+                }
+                #[cfg(target_family = "wasm")]
+                {
+                    LockStoreError::BackingStoreError(Box::new(err))
+                }
+            })?;
 
         if !acquired {
             trace!("Couldn't acquire the lock immediately.");
@@ -330,7 +343,12 @@ pub enum LockStoreError {
     LockTimeout,
 
     #[error(transparent)]
+    #[cfg(not(target_family = "wasm"))]
     BackingStoreError(#[from] Box<dyn Error + Send + Sync>),
+
+    #[error(transparent)]
+    #[cfg(target_family = "wasm")]
+    BackingStoreError(Box<dyn Error>),
 }
 
 #[cfg(test)]

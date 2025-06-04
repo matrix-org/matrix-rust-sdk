@@ -45,6 +45,9 @@ use std::{
     task::{Context, Poll},
 };
 
+#[cfg(target_family = "wasm")]
+use anymap2::any::CloneAny;
+#[cfg(not(target_family = "wasm"))]
 use anymap2::any::CloneAnySendSync;
 use eyeball::{SharedObservable, Subscriber};
 use futures_core::Stream;
@@ -78,7 +81,10 @@ type EventHandlerFn = dyn Fn(EventHandlerData<'_>) -> EventHandlerFut + Send + S
 #[cfg(target_family = "wasm")]
 type EventHandlerFn = dyn Fn(EventHandlerData<'_>) -> EventHandlerFut;
 
+#[cfg(not(target_family = "wasm"))]
 type AnyMap = anymap2::Map<dyn CloneAnySendSync + Send + Sync>;
+#[cfg(target_family = "wasm")]
+type AnyMap = anymap2::Map<dyn CloneAny>;
 
 #[derive(Default)]
 pub(crate) struct EventHandlerStore {
@@ -964,7 +970,7 @@ mod tests {
             // All of Client's async methods that do network requests (and
             // possibly some that don't) are `!Send` on wasm. We obviously want
             // to be able to use them in event handlers.
-            let _caps = client.get_capabilities().await?;
+            let _caps = client.get_capabilities().await.map_err(|e| anyhow::anyhow!("{}", e))?;
             anyhow::Ok(())
         });
     }

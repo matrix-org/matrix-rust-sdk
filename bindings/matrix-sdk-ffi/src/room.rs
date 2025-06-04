@@ -13,6 +13,7 @@ use matrix_sdk::{
     PredecessorRoom as SdkPredecessorRoom, RoomHero as SdkRoomHero, RoomMemberships, RoomState,
     SuccessorRoom as SdkSuccessorRoom,
 };
+use matrix_sdk_common::{SendOutsideWasm, SyncOutsideWasm};
 use matrix_sdk_ui::{
     timeline::{default_event_filter, RoomExt, TimelineBuilder},
     unable_to_decrypt_hook::UtdHookManager,
@@ -1173,7 +1174,7 @@ impl Room {
 
 /// A listener for receiving new live location shares in a room.
 #[matrix_sdk_ffi_macros::export(callback_interface)]
-pub trait LiveLocationShareListener: Sync + Send {
+pub trait LiveLocationShareListener: SyncOutsideWasm + SendOutsideWasm {
     fn call(&self, live_location_shares: Vec<LiveLocationShare>);
 }
 
@@ -1195,7 +1196,7 @@ impl From<matrix_sdk::room::knock_requests::KnockRequest> for KnockRequest {
 
 /// A listener for receiving new requests to a join a room.
 #[matrix_sdk_ffi_macros::export(callback_interface)]
-pub trait KnockRequestsListener: Send + Sync {
+pub trait KnockRequestsListener: SendOutsideWasm + SyncOutsideWasm {
     fn call(&self, join_requests: Vec<KnockRequest>);
 }
 
@@ -1315,17 +1316,17 @@ impl From<RumaPowerLevels> for RoomPowerLevels {
 }
 
 #[matrix_sdk_ffi_macros::export(callback_interface)]
-pub trait RoomInfoListener: Sync + Send {
+pub trait RoomInfoListener: SyncOutsideWasm + SendOutsideWasm {
     fn call(&self, room_info: RoomInfo);
 }
 
 #[matrix_sdk_ffi_macros::export(callback_interface)]
-pub trait TypingNotificationsListener: Sync + Send {
+pub trait TypingNotificationsListener: SyncOutsideWasm + SendOutsideWasm {
     fn call(&self, typing_user_ids: Vec<String>);
 }
 
 #[matrix_sdk_ffi_macros::export(callback_interface)]
-pub trait IdentityStatusChangeListener: Sync + Send {
+pub trait IdentityStatusChangeListener: SyncOutsideWasm + SendOutsideWasm {
     fn call(&self, identity_status_change: Vec<IdentityStatusChange>);
 }
 

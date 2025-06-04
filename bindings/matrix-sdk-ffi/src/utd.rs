@@ -15,12 +15,13 @@
 use std::{fmt::Debug, sync::Arc, time::Duration};
 
 use matrix_sdk::crypto::types::events::UtdCause;
+use matrix_sdk_common::{SendOutsideWasm, SyncOutsideWasm};
 use matrix_sdk_ui::unable_to_decrypt_hook::{
     UnableToDecryptHook, UnableToDecryptInfo as SdkUnableToDecryptInfo,
 };
 
 #[matrix_sdk_ffi_macros::export(callback_interface)]
-pub trait UnableToDecryptDelegate: Sync + Send {
+pub trait UnableToDecryptDelegate: SyncOutsideWasm + SendOutsideWasm {
     fn on_utd(&self, info: UnableToDecryptInfo);
 }
 

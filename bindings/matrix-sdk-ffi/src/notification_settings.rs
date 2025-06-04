@@ -9,6 +9,7 @@ use matrix_sdk::{
     ruma::events::push_rules::PushRulesEvent,
     Client as MatrixClient,
 };
+use matrix_sdk_common::{SendOutsideWasm, SyncOutsideWasm};
 use ruma::{
     push::{
         Action as SdkAction, ComparisonOperator as SdkComparisonOperator, PredefinedOverrideRuleId,
@@ -387,7 +388,7 @@ impl From<RoomNotificationMode> for SdkRoomNotificationMode {
 
 /// Delegate to notify of changes in push rules
 #[matrix_sdk_ffi_macros::export(callback_interface)]
-pub trait NotificationSettingsDelegate: Sync + Send {
+pub trait NotificationSettingsDelegate: SyncOutsideWasm + SendOutsideWasm {
     fn settings_did_change(&self);
 }
 
