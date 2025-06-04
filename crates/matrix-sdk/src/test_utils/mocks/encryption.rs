@@ -17,44 +17,32 @@
 //! tests.
 use std::{
     collections::BTreeMap,
-    sync::{
-        atomic::{AtomicU32, Ordering},
-        Arc, Mutex,
-    },
+    sync::{atomic::Ordering, Arc, Mutex},
 };
 
-use matrix_sdk_base::SessionMeta;
-use matrix_sdk_test::SyncResponseBuilder;
 use ruma::{
-    api::{client::keys::upload_signatures::v3::SignedKeys, MatrixVersion},
+    api::client::keys::upload_signatures::v3::SignedKeys,
     encryption::{CrossSigningKey, DeviceKeys, OneTimeKey},
     owned_device_id, owned_user_id,
     serde::Raw,
     CrossSigningKeyId, DeviceId, OneTimeKeyAlgorithm, OwnedDeviceId, OwnedOneTimeKeyId,
     OwnedUserId, UserId,
 };
-use serde::Serialize;
 use serde_json::json;
 use wiremock::{
-    matchers::{method, path, query_param, query_param_is_missing},
-    Mock, MockGuard, MockServer, Request, ResponseTemplate,
+    matchers::{method, path_regex},
+    Mock, Request, ResponseTemplate,
 };
 
-use crate::{authentication::matrix::MatrixSession, config::RequestConfig, Client, SessionTokens};
+use crate::{
+    test_utils::{
+        client::MockClientBuilder,
+        mocks::{Keys, MatrixMockServer},
+    },
+    Client,
+};
 
-#[derive(Debug, Default)]
-struct Keys {
-    device: BTreeMap<OwnedUserId, BTreeMap<String, Raw<DeviceKeys>>>,
-    master: BTreeMap<OwnedUserId, Raw<CrossSigningKey>>,
-    self_signing: BTreeMap<OwnedUserId, Raw<CrossSigningKey>>,
-    user_signing: BTreeMap<OwnedUserId, Raw<CrossSigningKey>>,
-    one_time_keys: BTreeMap<
-        OwnedUserId,
-        BTreeMap<OwnedDeviceId, BTreeMap<OwnedOneTimeKeyId, Raw<OneTimeKey>>>,
-    >,
-}
-
-/// A [`wiremock`] [`MockServer`] along with useful methods to help mocking
+/// Extends the `MatrixMockServer` with useful methods to help mocking
 /// matrix crypto API and perform integration test with encryption.
 ///
 /// It implements mock endpoints for the `keys/upload`, will store the uploaded
@@ -65,66 +53,26 @@ struct Keys {
 /// client running out of otks. More can be added if needed later.
 ///
 /// It works like this:
-/// * Start by creating the mock server like this [`MatrixKeysMockServer::new`].
-///   It will setup the mocks
-/// * Create your test client using [`MatrixKeysMockServer::create_client`],
-///   this is important as it will set up an access token that will allow to
-///   know what client is doing what request.
+/// * Start by creating the mock server like this [`MatrixMockServer::new`].
+/// * Then mock the crypto API endpoints
+///   [`MatrixMockServer::mock_crypto_endpoints_preset`].
+/// * Create your test client using
+///   [`MatrixMockServer::client_builder_for_crypto_end_to_end`], this is
+///   important as it will set up an access token that will allow to know what
+///   client is doing what request.
 ///
-/// # Examples
-///
-/// ```
-/// # tokio_test::block_on(async {
-/// use matrix_sdk::{
-///     ruma::{device_id, user_id},
-///     test_utils::mocks::encryption::MatrixKeysMockServer,
-/// };
-/// let mock_server = MatrixKeysMockServer::new().await;
-///
-/// let (alice, bob) = mock_server.set_up_alice_and_bob_for_encryption().await;
-///
-/// let alice_bob_device = alice
-///     .encryption()
-///     .get_device(bob.user_id().unwrap(), bob.device_id().unwrap())
-///     .await
-///     .unwrap()
-///     .expect("alice sees bob's device");
-///
-/// # anyhow::Ok(()) });
-/// ```
-pub struct MatrixKeysMockServer {
-    /// The underlying [`wiremock`] [`MockServer`]
-    pub server: MockServer,
-    keys: Arc<Mutex<Keys>>,
-    token_to_user_id_map: Arc<Mutex<BTreeMap<String, OwnedUserId>>>,
-    token_counter: AtomicU32,
-}
-
-impl MatrixKeysMockServer {
-    /// Creates a new `MatrixKeysMockServer` and mocks the crypto API end-points
-    pub async fn new() -> Self {
-        let server = MockServer::start().await;
-        let keys: Arc<Mutex<Keys>> = Default::default();
-        let mock_keys_server = Self {
-            server,
-            keys,
-            token_to_user_id_map: Default::default(),
-            token_counter: Default::default(),
-        };
-        mock_keys_server.mock_endpoints().await;
-        mock_keys_server
-    }
-
-    /// Creates a `Client` that will use this mock server.
-    pub async fn create_client(&self, user_id: &UserId, device_id: &DeviceId) -> Client {
-        let client = Client::builder()
-            .homeserver_url(self.server.uri())
-            .server_versions([MatrixVersion::V1_0])
-            .request_config(RequestConfig::new().disable_retry())
-            .build()
-            .await
-            .unwrap();
-
+/// The [`MatrixMockServer::set_up_alice_and_bob_for_encryption`] will set up
+/// two olm machines aware of each other and ready to communicate.
+impl MatrixMockServer {
+    /// Creates a new [`MockClientBuilder`] configured to use this server and
+    /// suitable for usage of the crypto API end points.
+    /// Will create a specific access token and some mapping to the associated
+    /// user_id.
+    pub fn client_builder_for_crypto_end_to_end(
+        &self,
+        user_id: &UserId,
+        device_id: &DeviceId,
+    ) -> MockClientBuilder {
         // Create an access token and store the token to user_id mapping
         let next = self.token_counter.fetch_add(1, Ordering::Relaxed);
         let access_token = format!("TOKEN_{}", next);
@@ -135,15 +83,11 @@ impl MatrixKeysMockServer {
             mappings.insert(auth_string, user_id.to_owned());
         }
 
-        client
-            .restore_session(MatrixSession {
-                meta: SessionMeta { user_id: user_id.to_owned(), device_id: device_id.to_owned() },
-                tokens: SessionTokens { access_token, refresh_token: None },
-            })
-            .await
-            .unwrap();
-
-        client
+        MockClientBuilder::new(self.server.uri()).logged_in_with_token(
+            access_token,
+            user_id.to_owned(),
+            device_id.to_owned(),
+        )
     }
 
     /// Makes the server forget about all the one-time-keys for that device.
@@ -159,11 +103,15 @@ impl MatrixKeysMockServer {
         let alice_user_id = owned_user_id!("@alice:example.org");
         let alice_device_id = owned_device_id!("4L1C3");
 
-        let alice = self.create_client(&alice_user_id, &alice_device_id).await;
+        let alice = self
+            .client_builder_for_crypto_end_to_end(&alice_user_id, &alice_device_id)
+            .build()
+            .await;
 
         let bob_user_id = owned_user_id!("@bob:example.org");
         let bob_device_id = owned_device_id!("B0B0B0B0B");
-        let bob = self.create_client(&bob_user_id, &bob_device_id).await;
+        let bob =
+            self.client_builder_for_crypto_end_to_end(&bob_user_id, &bob_device_id).build().await;
 
         // Have Alice track Bob, so she queries his keys later.
         {
@@ -174,67 +122,49 @@ impl MatrixKeysMockServer {
 
         // Have Alice and Bob upload their signed device keys.
         {
-            let mut sync_response_builder = SyncResponseBuilder::new();
-            let response_body = sync_response_builder.build_json_sync_response();
-            let _scope = mock_sync_scoped(&self.server, response_body, None).await;
-
-            alice
-                .sync_once(Default::default())
-                .await
-                .expect("We should be able to sync with Alice so we upload the device keys");
-            bob.sync_once(Default::default()).await.unwrap();
+            self.mock_sync().ok_and_run(&alice, |_x| {}).await;
+            self.mock_sync().ok_and_run(&bob, |_x| {}).await;
         }
 
         // Run a sync so we do send outgoing requests, including the /keys/query for
         // getting bob's identity.
-        let mut sync_response_builder = SyncResponseBuilder::new();
-
-        {
-            let _scope = mock_sync_scoped(
-                &self.server,
-                sync_response_builder.build_json_sync_response(),
-                None,
-            )
-            .await;
-            alice
-                .sync_once(Default::default())
-                .await
-                .expect("We should be able to sync so we get theinitial set of devices");
-        }
+        self.mock_sync().ok_and_run(&alice, |_x| {}).await;
 
         (alice, bob)
     }
 
-    async fn mock_endpoints(&self) {
+    /// Mock up the various crypto API so that it can serve back keys when
+    /// needed
+    pub async fn mock_crypto_endpoints_preset(&self) {
         let keys = &self.keys;
         let token_map = &self.token_to_user_id_map;
 
         Mock::given(method("POST"))
-            .and(path("/_matrix/client/r0/keys/query"))
+            .and(path_regex(r"^/_matrix/client/.*/keys/query"))
             .respond_with(mock_keys_query(keys.clone()))
             .mount(&self.server)
             .await;
 
         Mock::given(method("POST"))
-            .and(path("/_matrix/client/r0/keys/upload"))
+            .and(path_regex(r"^/_matrix/client/.*/keys/upload"))
             .respond_with(mock_keys_upload(keys.clone(), token_map.clone()))
             .mount(&self.server)
             .await;
 
         Mock::given(method("POST"))
-            .and(path("/_matrix/client/unstable/keys/device_signing/upload"))
+            .and(path_regex(r"^/_matrix/client/.*/keys/device_signing/upload"))
             .respond_with(mock_keys_device_signing_upload(keys.clone()))
             .mount(&self.server)
             .await;
 
         Mock::given(method("POST"))
-            .and(path("/_matrix/client/unstable/keys/signatures/upload"))
+            .and(path_regex(r"^/_matrix/client/.*/keys/signatures/upload"))
             .respond_with(mock_keys_signature_upload(keys.clone()))
             .mount(&self.server)
             .await;
 
         Mock::given(method("POST"))
-            .and(path("/_matrix/client/r0/keys/claim"))
+            .and(path_regex(r"^/_matrix/client/.*/keys/claim"))
             .respond_with(mock_keys_claimed_request(keys.clone()))
             .mount(&self.server)
             .await;
@@ -310,7 +240,7 @@ fn mock_keys_upload(
         let tokens = token_to_user_id_map.lock().unwrap();
         // Get the user
         let user_id = tokens.get(bearer_token)
-            .expect("Expect this token to be known, ensure you use `MatrixKeysMockServer::createClient`")
+            .expect("Expect this token to be known, ensure you use `MatrixKeysServer::client_builder_for_crypto_end_to_end`")
             .to_owned();
 
         if let Some(new_device_keys) = params.device_keys {
@@ -555,26 +485,4 @@ fn mock_keys_claimed_request(keys: Arc<Mutex<Keys>>) -> impl Fn(&Request) -> Res
             "one_time_keys" : found_one_time_keys
         }))
     }
-}
-
-/// Mount a Mock on the given server to handle the `GET /sync` endpoint with
-/// an optional `since` param that returns a 200 status code with the given
-/// response body.
-async fn mock_sync_scoped(
-    server: &MockServer,
-    response_body: impl Serialize,
-    since: Option<String>,
-) -> MockGuard {
-    let mut builder = Mock::given(method("GET")).and(path("/_matrix/client/r0/sync"));
-
-    if let Some(since) = since {
-        builder = builder.and(query_param("since", since));
-    } else {
-        builder = builder.and(query_param_is_missing("since"));
-    }
-
-    builder
-        .respond_with(ResponseTemplate::new(200).set_body_json(response_body))
-        .mount_as_scoped(server)
-        .await
 }

@@ -3,7 +3,7 @@
 use matrix_sdk::test_utils::logged_in_client_with_server;
 use serde::Serialize;
 use wiremock::{
-    matchers::{header, method, path, query_param, query_param_is_missing},
+    matchers::{header, method, path, path_regex, query_param, query_param_is_missing},
     Mock, MockGuard, MockServer, ResponseTemplate,
 };
 
@@ -52,7 +52,7 @@ async fn mock_sync_scoped(
     response_body: impl Serialize,
     since: Option<String>,
 ) -> MockGuard {
-    let mut builder = Mock::given(method("GET")).and(path("/_matrix/client/r0/sync"));
+    let mut builder = Mock::given(method("GET")).and(path_regex(r"/_matrix/client/.*/sync"));
 
     if let Some(since) = since {
         builder = builder.and(query_param("since", since));
