@@ -1391,7 +1391,7 @@ mod galleries {
     use crate::{
         error::RoomError,
         ruma::{AudioInfo, FileInfo, FormattedBody, ImageInfo, Mentions, VideoInfo},
-        timeline::{build_thumbnail_info, Timeline},
+        timeline::{build_thumbnail_info, ReplyParameters, Timeline},
     };
 
     #[derive(uniffi::Record)]
@@ -1402,6 +1402,8 @@ mod galleries {
         formatted_caption: Option<FormattedBody>,
         /// Optional intentional mentions to be sent with the gallery.
         mentions: Option<Mentions>,
+        /// Optional parameters for sending the media as (threaded) reply.
+        reply_params: Option<ReplyParameters>,
     }
 
     #[derive(uniffi::Enum)]
@@ -1586,7 +1588,8 @@ mod galleries {
             let mut gallery_config = GalleryConfig::new()
                 .caption(params.caption)
                 .formatted_caption(formatted_caption)
-                .mentions(params.mentions.map(Into::into));
+                .mentions(params.mentions.map(Into::into))
+                .reply(params.reply_params.map(|p| p.try_into()).transpose()?);
 
             for item_info in item_infos {
                 gallery_config = gallery_config.add_item(item_info.try_into()?);
