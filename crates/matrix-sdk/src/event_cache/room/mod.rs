@@ -730,10 +730,7 @@ mod private {
         /// pending diff updates with the result of this function.
         ///
         /// Otherwise, returns `None`.
-        #[must_use = "Updates as `VectorDiff` must probably be propagated via `RoomEventCacheUpdate`"]
-        pub(super) async fn shrink_to_last_chunk(
-            &mut self,
-        ) -> Result<Option<Vec<VectorDiff<TimelineEvent>>>, EventCacheError> {
+        pub(super) async fn shrink_to_last_chunk(&mut self) -> Result<(), EventCacheError> {
             let store_lock = self.store.lock().await?;
 
             // Attempt to load the last chunk.
@@ -762,7 +759,7 @@ mod private {
             // updates the chunk identifier generator.
             if let Err(err) = self.events.replace_with(last_chunk, chunk_identifier_generator) {
                 error!("error when replacing the linked chunk: {err}");
-                return self.reset().await.map(Some);
+                return self.reset_internal().await;
             }
 
             // Let pagination observers know that we may have not reached the start of the
@@ -774,12 +771,7 @@ mod private {
             // representation that we're doing this. Let's drain those store updates.
             let _ = self.events.store_updates().take();
 
-            // However, we want to get updates as `VectorDiff`s, for the external listeners.
-            // Check we're respecting the contract defined in the doc comment.
-            let diffs = self.events.updates_as_vector_diffs();
-            assert!(matches!(diffs[0], VectorDiff::Clear));
-
-            Ok(Some(diffs))
+            Ok(())
         }
 
         /// Automatically shrink the room if there are no listeners, as
@@ -795,10 +787,19 @@ mod private {
             if listener_count == 0 {
                 // If we are the last strong reference to the auto-shrinker, we can shrink the
                 // events data structure to its last chunk.
-                self.shrink_to_last_chunk().await
+                self.shrink_to_last_chunk().await?;
+                Ok(Some(self.events.updates_as_vector_diffs()))
             } else {
                 Ok(None)
             }
+        }
+
+        #[cfg(test)]
+        pub(crate) async fn force_shrink_to_last_chunk(
+            &mut self,
+        ) -> Result<Vec<VectorDiff<TimelineEvent>>, EventCacheError> {
+            self.shrink_to_last_chunk().await?;
+            Ok(self.events.updates_as_vector_diffs())
         }
 
         /// Removes the bundled relations from an event, if they were present.
@@ -953,6 +954,18 @@ mod private {
         /// with the result of this function.
         #[must_use = "Updates as `VectorDiff` must probably be propagated via `RoomEventCacheUpdate`"]
         pub async fn reset(&mut self) -> Result<Vec<VectorDiff<TimelineEvent>>, EventCacheError> {
+            self.reset_internal().await?;
+
+            let diff_updates = self.events.updates_as_vector_diffs();
+
+            // Ensure the contract defined in the doc comment is true:
+            debug_assert_eq!(diff_updates.len(), 1);
+            debug_assert!(matches!(diff_updates[0], VectorDiff::Clear));
+
+            Ok(diff_updates)
+        }
+
+        async fn reset_internal(&mut self) -> Result<(), EventCacheError> {
             self.events.reset();
 
             self.propagate_changes().await?;
@@ -964,13 +977,7 @@ mod private {
             // TODO: likely must cancel any ongoing back-paginations too
             self.pagination_status.set(RoomPaginationStatus::Idle { hit_timeline_start: false });
 
-            let diff_updates = self.events.updates_as_vector_diffs();
-
-            // Ensure the contract defined in the doc comment is true:
-            debug_assert_eq!(diff_updates.len(), 1);
-            debug_assert!(matches!(diff_updates[0], VectorDiff::Clear));
-
-            Ok(diff_updates)
+            Ok(())
         }
 
         /// Returns a read-only reference to the underlying events.
@@ -1376,8 +1383,6 @@ mod private {
             })
             .await?;
 
-            let mut timeline_event_diffs = None;
-
             if timeline.limited && prev_batch.is_some() {
                 // If there was a previous batch token for a limited timeline, unload the chunks
                 // so it only contains the last one; otherwise, there might be a
@@ -1385,14 +1390,10 @@ mod private {
                 //
                 // We must do this *after* the above call to `.with_events_mut`, so the new
                 // events and gaps are properly persisted to storage.
-
-                // TODO(bnjbvr): could this method not return diff updates?
-                timeline_event_diffs = self.shrink_to_last_chunk().await?;
+                self.shrink_to_last_chunk().await?;
             }
 
-            let timeline_event_diffs =
-                timeline_event_diffs.unwrap_or_else(|| self.events.updates_as_vector_diffs());
-
+            let timeline_event_diffs = self.events.updates_as_vector_diffs();
             if !timeline_event_diffs.is_empty() {
                 let _ = sender.send(RoomEventCacheUpdate::UpdateTimelineEvents {
                     diffs: timeline_event_diffs,
@@ -2508,10 +2509,9 @@ mod timed_tests {
             .state
             .write()
             .await
-            .shrink_to_last_chunk()
+            .force_shrink_to_last_chunk()
             .await
-            .expect("shrinking should succeed")
-            .unwrap();
+            .expect("shrinking should succeed");
 
         // We receive updates about the changes to the linked chunk.
         assert_eq!(diffs.len(), 2);
