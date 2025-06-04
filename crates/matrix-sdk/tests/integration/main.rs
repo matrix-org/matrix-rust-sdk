@@ -3,8 +3,8 @@
 use matrix_sdk::test_utils::logged_in_client_with_server;
 use serde::Serialize;
 use wiremock::{
-    matchers::{header, method, path, path_regex, query_param, query_param_is_missing},
-    Mock, MockGuard, MockServer, ResponseTemplate,
+    matchers::{header, method, path, query_param, query_param_is_missing},
+    Mock, MockServer, ResponseTemplate,
 };
 
 mod account;
@@ -42,26 +42,4 @@ async fn mock_sync(server: &MockServer, response_body: impl Serialize, since: Op
         .respond_with(ResponseTemplate::new(200).set_body_json(response_body))
         .mount(server)
         .await;
-}
-
-/// Mount a Mock on the given server to handle the `GET /sync` endpoint with
-/// an optional `since` param that returns a 200 status code with the given
-/// response body.
-async fn mock_sync_scoped(
-    server: &MockServer,
-    response_body: impl Serialize,
-    since: Option<String>,
-) -> MockGuard {
-    let mut builder = Mock::given(method("GET")).and(path_regex(r"/_matrix/client/.*/sync"));
-
-    if let Some(since) = since {
-        builder = builder.and(query_param("since", since));
-    } else {
-        builder = builder.and(query_param_is_missing("since"));
-    }
-
-    builder
-        .respond_with(ResponseTemplate::new(200).set_body_json(response_body))
-        .mount_as_scoped(server)
-        .await
 }
