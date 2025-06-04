@@ -26,7 +26,7 @@ use matrix_sdk::{
     deserialized_responses::TimelineEvent,
     event_cache::{
         paginator::{PaginationResult, Paginator},
-        RoomEventCache,
+        RoomEventCache, RoomPaginationStatus,
     },
     send_queue::{
         LocalEcho, LocalEchoContent, RoomSendQueueUpdate, SendHandle, SendReactionHandle,
@@ -356,6 +356,17 @@ impl<P: RoomDataProvider, D: Decryptor> TimelineController<P, D> {
                     RemoteEventOrigin::Cache,
                 )
                 .await;
+
+                match room_event_cache.pagination().status().get() {
+                    RoomPaginationStatus::Idle { hit_timeline_start } => {
+                        if hit_timeline_start {
+                            // Eagerly insert the timeline start item, since pagination claims
+                            // we've already hit the timeline start.
+                            self.insert_timeline_start_if_missing().await;
+                        }
+                    }
+                    RoomPaginationStatus::Paginating => {}
+                }
 
                 Ok(has_events)
             }
