@@ -1063,31 +1063,17 @@ mod private {
             Ok(Some((target, related)))
         }
 
-        /// Gives a temporary mutable handle to the underlying in-memory events,
-        /// and will propagate changes to the storage once done.
-        ///
-        /// Returns the updates to the linked chunk, as vector diffs, so the
-        /// caller may propagate such updates, if needs be.
-        ///
-        /// The function `func` takes a mutable reference to `RoomEvents`. It
-        /// returns a set of events that will be post-processed. At the time of
-        /// writing, all these events are passed to
-        /// `Self::maybe_apply_new_redaction`.
-        #[instrument(skip_all, fields(room_id = %self.room))]
-        async fn with_events_mut<F>(
+        /// Post-process new events, after they have been added to the in-memory
+        /// linked chunk.
+        async fn post_process_new_events(
             &mut self,
+            events: Vec<TimelineEvent>,
             is_live_sync: bool,
-            func: F,
-        ) -> Result<(), EventCacheError>
-        where
-            F: FnOnce(&mut RoomEvents) -> Vec<TimelineEvent>,
-        {
-            let events_to_post_process = func(&mut self.events);
-
+        ) -> Result<(), EventCacheError> {
             // Update the store before doing the post-processing.
             self.propagate_changes().await?;
 
-            for event in events_to_post_process {
+            for event in events {
                 self.maybe_apply_new_redaction(&event).await?;
 
                 self.analyze_thread_root(&event, is_live_sync).await?;
@@ -1352,34 +1338,31 @@ mod private {
 
             // Add the previous back-pagination token (if present), followed by the timeline
             // events themselves.
-            self.with_events_mut(true, |room_events| {
-                if let Some(prev_token) = &prev_batch {
-                    // As a tiny optimization: remove the last chunk if it's an empty event
-                    // one, as it's not useful to keep it before a gap.
-                    let prev_chunk_to_remove = room_events.rchunks().next().and_then(|chunk| {
-                        (chunk.is_items() && chunk.num_items() == 0).then_some(chunk.identifier())
-                    });
+            if let Some(prev_token) = &prev_batch {
+                // As a tiny optimization: remove the last chunk if it's an empty event
+                // one, as it's not useful to keep it before a gap.
+                let prev_chunk_to_remove = self.events.rchunks().next().and_then(|chunk| {
+                    (chunk.is_items() && chunk.num_items() == 0).then_some(chunk.identifier())
+                });
 
-                    room_events.push_gap(Gap { prev_token: prev_token.clone() });
+                self.events.push_gap(Gap { prev_token: prev_token.clone() });
 
-                    if let Some(prev_chunk_to_remove) = prev_chunk_to_remove {
-                        room_events.remove_empty_chunk_at(prev_chunk_to_remove).expect(
-                            "we just checked the chunk is there, and it's an empty item chunk",
-                        );
-                    }
+                // If we've never waited for an initial previous-batch token, and we've now
+                // inserted a gap, no need to wait for a previous-batch token later.
+                if !self.waited_for_initial_prev_token && prev_batch.is_some() {
+                    self.waited_for_initial_prev_token = true;
                 }
 
-                room_events.push_events(events.clone());
-
-                events
-            })
-            .await?;
-
-            // If we've never waited for an initial previous-batch token, and we've now
-            // inserted a gap, no need to wait for a previous-batch token later.
-            if !self.waited_for_initial_prev_token && prev_batch.is_some() {
-                self.waited_for_initial_prev_token = true;
+                if let Some(prev_chunk_to_remove) = prev_chunk_to_remove {
+                    self.events
+                        .remove_empty_chunk_at(prev_chunk_to_remove)
+                        .expect("we just checked the chunk is there, and it's an empty item chunk");
+                }
             }
+
+            self.events.push_events(events.clone());
+
+            self.post_process_new_events(events, true).await?;
 
             if timeline.limited && prev_batch.is_some() {
                 // If there was a previous batch token for a limited timeline, unload the chunks
@@ -1447,67 +1430,64 @@ mod private {
                 new_gap = None;
             };
 
-            self.with_events_mut(false, |room_events| {
-                // Reverse the order of the events as `/messages` has been called with `dir=b`
-                // (backwards). The `RoomEvents` API expects the first event to be the oldest.
-                // Let's re-order them for this block.
-                let reversed_events = events.iter().rev().cloned().collect::<Vec<_>>();
+            // Reverse the order of the events as `/messages` has been called with `dir=b`
+            // (backwards). The `RoomEvents` API expects the first event to be the oldest.
+            // Let's re-order them for this block.
+            let reversed_events = events.iter().rev().cloned().collect::<Vec<_>>();
 
-                let first_event_pos = room_events.events().next().map(|(item_pos, _)| item_pos);
+            let first_event_pos = self.events.events().next().map(|(item_pos, _)| item_pos);
 
-                // First, insert events.
-                let insert_new_gap_pos = if let Some(gap_id) = prev_gap_id {
-                    // There is a prior gap, let's replace it by new events!
-                    if all_duplicates {
-                        assert!(reversed_events.is_empty());
-                    }
-
-                    trace!("replacing previous gap with the back-paginated events");
-
-                    // Replace the gap with the events we just deduplicated. This might get rid of
-                    // the underlying gap, if the conditions are favorable to
-                    // us.
-                    room_events
-                        .replace_gap_at(reversed_events.clone(), gap_id)
-                        .expect("gap_identifier is a valid chunk id we read previously")
-                } else if let Some(pos) = first_event_pos {
-                    // No prior gap, but we had some events: assume we need to prepend events
-                    // before those.
-                    trace!("inserted events before the first known event");
-
-                    room_events
-                        .insert_events_at(reversed_events.clone(), pos)
-                        .expect("pos is a valid position we just read above");
-
-                    Some(pos)
-                } else {
-                    // No prior gap, and no prior events: push the events.
-                    trace!("pushing events received from back-pagination");
-
-                    room_events.push_events(reversed_events.clone());
-
-                    // A new gap may be inserted before the new events, if there are any.
-                    room_events.events().next().map(|(item_pos, _)| item_pos)
-                };
-
-                // And insert the new gap if needs be.
-                //
-                // We only do this when at least one new, non-duplicated event, has been added
-                // to the chunk. Otherwise it means we've back-paginated all the
-                // known events.
-                if let Some(new_gap) = new_gap {
-                    if let Some(new_pos) = insert_new_gap_pos {
-                        room_events
-                            .insert_gap_at(new_gap, new_pos)
-                            .expect("events_chunk_pos represents a valid chunk position");
-                    } else {
-                        room_events.push_gap(new_gap);
-                    }
+            // First, insert events.
+            let insert_new_gap_pos = if let Some(gap_id) = prev_gap_id {
+                // There is a prior gap, let's replace it by new events!
+                if all_duplicates {
+                    assert!(reversed_events.is_empty());
                 }
 
-                reversed_events
-            })
-            .await?;
+                trace!("replacing previous gap with the back-paginated events");
+
+                // Replace the gap with the events we just deduplicated. This might get rid of
+                // the underlying gap, if the conditions are favorable to
+                // us.
+                self.events
+                    .replace_gap_at(reversed_events.clone(), gap_id)
+                    .expect("gap_identifier is a valid chunk id we read previously")
+            } else if let Some(pos) = first_event_pos {
+                // No prior gap, but we had some events: assume we need to prepend events
+                // before those.
+                trace!("inserted events before the first known event");
+
+                self.events
+                    .insert_events_at(reversed_events.clone(), pos)
+                    .expect("pos is a valid position we just read above");
+
+                Some(pos)
+            } else {
+                // No prior gap, and no prior events: push the events.
+                trace!("pushing events received from back-pagination");
+
+                self.events.push_events(reversed_events.clone());
+
+                // A new gap may be inserted before the new events, if there are any.
+                self.events.events().next().map(|(item_pos, _)| item_pos)
+            };
+
+            // And insert the new gap if needs be.
+            //
+            // We only do this when at least one new, non-duplicated event, has been added
+            // to the chunk. Otherwise it means we've back-paginated all the
+            // known events.
+            if let Some(new_gap) = new_gap {
+                if let Some(new_pos) = insert_new_gap_pos {
+                    self.events
+                        .insert_gap_at(new_gap, new_pos)
+                        .expect("events_chunk_pos represents a valid chunk position");
+                } else {
+                    self.events.push_gap(new_gap);
+                }
+            }
+
+            self.post_process_new_events(reversed_events, false).await?;
 
             // There could be an inconsistency between the network (which thinks we hit the
             // start of the timeline) and the disk (which has the initial empty
