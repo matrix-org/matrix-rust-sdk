@@ -20,8 +20,10 @@ impl<'a> TimelineView<'a> {
     }
 }
 
-impl Widget for &mut TimelineView<'_> {
-    fn render(self, area: Rect, buf: &mut Buffer)
+impl StatefulWidget for &mut TimelineView<'_> {
+    type State = ListState;
+
+    fn render(self, area: Rect, buf: &mut Buffer, state: &mut Self::State)
     where
         Self: Sized,
     {
@@ -139,10 +141,11 @@ impl Widget for &mut TimelineView<'_> {
             })
             .collect::<Vec<_>>();
 
-        let list = List::new(list_items).highlight_spacing(HighlightSpacing::Always);
+        let list = List::new(list_items)
+            .highlight_spacing(HighlightSpacing::Always)
+            .highlight_symbol(">")
+            .highlight_style(SELECTED_STYLE_FG);
 
-        let mut dummy_list_state = ListState::default();
-
-        StatefulWidget::render(list, area, buf, &mut dummy_list_state);
+        StatefulWidget::render(list, area, buf, state);
     }
 }
