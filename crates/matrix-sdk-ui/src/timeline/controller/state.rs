@@ -182,8 +182,11 @@ impl TimelineState {
 
         let mut date_divider_adjuster = DateDividerAdjuster::new(date_divider_mode);
 
+        let (in_reply_to, thread_root) =
+            txn.meta.process_content_relations(&content, None, &txn.items);
+
         if let Some(timeline_action) =
-            TimelineAction::from_content(content, None, &txn.items, &mut txn.meta)
+            TimelineAction::from_content(content, in_reply_to, thread_root, None)
         {
             TimelineEventHandler::new(&mut txn, ctx)
                 .handle_event(&mut date_divider_adjuster, timeline_action)
