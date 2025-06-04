@@ -611,7 +611,9 @@ impl Room {
         }
 
         let mut event = TimelineEvent::new(event.cast());
-        event.push_actions = push_ctx.map(|ctx| ctx.for_event(event.raw()));
+        if let Some(push_ctx) = push_ctx {
+            event.set_push_actions(push_ctx.for_event(event.raw()));
+        }
 
         event
     }
@@ -1513,7 +1515,10 @@ impl Room {
             }
         };
 
-        event.push_actions = push_ctx.map(|ctx| ctx.for_event(event.raw()));
+        if let Some(push_ctx) = push_ctx {
+            event.set_push_actions(push_ctx.for_event(event.raw()));
+        }
+
         Ok(event)
     }
 
