@@ -54,7 +54,7 @@ use tokio::sync::{RwLock, RwLockWriteGuard};
 use tracing::{debug, error, field::debug, info, instrument, trace, warn};
 
 pub(super) use self::{
-    metadata::{RelativePosition, TimelineMetadata},
+    metadata::{RelativePosition, RemoteEventContext, TimelineMetadata},
     observable_items::{
         AllRemoteEvents, ObservableItems, ObservableItemsEntry, ObservableItemsTransaction,
         ObservableItemsTransactionEntry,
