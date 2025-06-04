@@ -1200,15 +1200,15 @@ impl TryFrom<PollData> for UnstablePollStartContentBlock {
 
 #[derive(uniffi::Object)]
 pub struct SendAttachmentJoinHandle {
-    join_hdl: Arc<Mutex<JoinHandle<Result<(), RoomError>>>>,
-    abort_hdl: AbortHandle,
+    join_handle: Arc<Mutex<JoinHandle<Result<(), RoomError>>>>,
+    abort_handle: AbortHandle,
 }
 
 impl SendAttachmentJoinHandle {
-    fn new(join_hdl: JoinHandle<Result<(), RoomError>>) -> Arc<Self> {
-        let abort_hdl = join_hdl.abort_handle();
-        let join_hdl = Arc::new(Mutex::new(join_hdl));
-        Arc::new(Self { join_hdl, abort_hdl })
+    fn new(join_handle: JoinHandle<Result<(), RoomError>>) -> Arc<Self> {
+        let abort_handle = join_handle.abort_handle();
+        let join_handle = Arc::new(Mutex::new(join_handle));
+        Arc::new(Self { join_handle, abort_handle })
     }
 }
 
@@ -1218,7 +1218,7 @@ impl SendAttachmentJoinHandle {
     ///
     /// If the sending had been cancelled, will return immediately.
     pub async fn join(&self) -> Result<(), RoomError> {
-        let handle = self.join_hdl.clone();
+        let handle = self.join_handle.clone();
         let mut locked_handle = handle.lock().await;
         let join_result = (&mut *locked_handle).await;
         match join_result {
@@ -1237,7 +1237,7 @@ impl SendAttachmentJoinHandle {
     ///
     /// A subsequent call to [`Self::join`] will return immediately.
     pub fn cancel(&self) {
-        self.abort_hdl.abort();
+        self.abort_handle.abort();
     }
 }
 
@@ -1562,15 +1562,15 @@ mod galleries {
 
     #[derive(uniffi::Object)]
     pub struct SendGalleryJoinHandle {
-        join_hdl: Arc<Mutex<JoinHandle<Result<(), RoomError>>>>,
-        abort_hdl: AbortHandle,
+        join_handle: Arc<Mutex<JoinHandle<Result<(), RoomError>>>>,
+        abort_handle: AbortHandle,
     }
 
     impl SendGalleryJoinHandle {
-        fn new(join_hdl: JoinHandle<Result<(), RoomError>>) -> Arc<Self> {
-            let abort_hdl = join_hdl.abort_handle();
-            let join_hdl = Arc::new(Mutex::new(join_hdl));
-            Arc::new(Self { join_hdl, abort_hdl })
+        fn new(join_handle: JoinHandle<Result<(), RoomError>>) -> Arc<Self> {
+            let abort_handle = join_handle.abort_handle();
+            let join_handle = Arc::new(Mutex::new(join_handle));
+            Arc::new(Self { join_handle, abort_handle })
         }
     }
 
@@ -1580,7 +1580,7 @@ mod galleries {
         ///
         /// If the sending had been cancelled, will return immediately.
         pub async fn join(&self) -> Result<(), RoomError> {
-            let handle = self.join_hdl.clone();
+            let handle = self.join_handle.clone();
             let mut locked_handle = handle.lock().await;
             let join_result = (&mut *locked_handle).await;
             match join_result {
@@ -1599,7 +1599,7 @@ mod galleries {
         ///
         /// A subsequent call to [`Self::join`] will return immediately.
         pub fn cancel(&self) {
-            self.abort_hdl.abort();
+            self.abort_handle.abort();
         }
     }
 
