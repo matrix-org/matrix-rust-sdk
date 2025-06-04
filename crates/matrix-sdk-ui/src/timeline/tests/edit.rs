@@ -171,12 +171,14 @@ async fn test_edit_updates_encryption_info() {
         verification_state: VerificationState::Verified,
     });
 
-    let original_event: TimelineEvent = DecryptedRoomEvent {
-        event: original_event.cast(),
-        encryption_info: encryption_info.clone(),
-        unsigned_encryption_info: None,
-    }
-    .into();
+    let original_event = TimelineEvent::from_decrypted(
+        DecryptedRoomEvent {
+            event: original_event.cast(),
+            encryption_info: encryption_info.clone(),
+            unsigned_encryption_info: None,
+        },
+        None,
+    );
 
     timeline.handle_live_event(original_event).await;
 
@@ -200,12 +202,14 @@ async fn test_edit_updates_encryption_info() {
         .into_raw_timeline();
     Arc::make_mut(&mut encryption_info).verification_state =
         VerificationState::Unverified(VerificationLevel::UnverifiedIdentity);
-    let edit_event: TimelineEvent = DecryptedRoomEvent {
-        event: edit_event.cast(),
-        encryption_info: encryption_info.clone(),
-        unsigned_encryption_info: None,
-    }
-    .into();
+    let edit_event = TimelineEvent::from_decrypted(
+        DecryptedRoomEvent {
+            event: edit_event.cast(),
+            encryption_info: encryption_info.clone(),
+            unsigned_encryption_info: None,
+        },
+        None,
+    );
 
     timeline.handle_live_event(edit_event).await;
 

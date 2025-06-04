@@ -1501,11 +1501,15 @@ impl Room {
         let decryption_settings = DecryptionSettings {
             sender_device_trust_requirement: self.client.base_client().decryption_trust_requirement,
         };
+
         let mut event: TimelineEvent = match machine
             .try_decrypt_room_event(event.cast_ref(), self.inner.room_id(), &decryption_settings)
             .await?
         {
-            RoomEventDecryptionResult::Decrypted(decrypted) => decrypted.into(),
+            RoomEventDecryptionResult::Decrypted(decrypted) => {
+                // Note: the push actions are set just afterwards.
+                TimelineEvent::from_decrypted(decrypted, None)
+            }
             RoomEventDecryptionResult::UnableToDecrypt(utd_info) => {
                 self.client
                     .encryption()
