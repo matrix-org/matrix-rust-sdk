@@ -192,6 +192,7 @@ impl BaseRoomInfo {
             AnySyncStateEvent::RoomName(n) => {
                 self.name = Some(n.into());
             }
+            // `m.room.create` can NOT be overwritten.
             AnySyncStateEvent::RoomCreate(c) if self.create.is_none() => {
                 self.create = Some(c.into());
             }

@@ -82,58 +82,47 @@ pub enum Error {
     #[error(transparent)]
     DeserializationError(#[from] serde_json::error::Error),
 
-    /// Tombstoned rooms are creating a loop, or a merger.
-    ///
-    /// The shortest loop is a room upgrading/replacing itself:
-    ///
-    /// ```text
-    /// m.room.tombstone
-    /// replaced by room A
-    /// ┌──────────────┐
-    /// │              │
-    /// │  ┌────────┐  │
-    /// └──┤ room A ◄──┘
-    ///    └────────┘
-    /// ```
-    ///
-    /// But a more common case can involve more rooms:
-    ///
-    /// ```text
-    ///      m.room.tombstone
-    ///      replaced by room B
-    ///     ┌───────────────────┐
-    ///     │                   │
-    /// ┌───┴────┐         ┌────▼───┐
-    /// │ room A │         │ room B │
-    /// └───▲────┘         └────┬───┘
-    ///     │                   │
-    ///     └───────────────────┘
-    ///      m.room.tombstone
-    ///      replaced by room A
-    /// ```
-    ///
-    /// A merger is when two rooms are upgrading to the same room:
-    ///
-    /// ```text
-    ///      m.room.tombstone
-    ///      replaced by room C
-    ///      ┌──────────────┐
-    ///      │              │
-    /// ┌────┴───┐          │
-    /// │ room A │          │
-    /// └────────┘     ┌────▼───┐
-    ///                │ room C │
-    /// ┌────────┐     └────▲───┘
-    /// │ room B │          │
-    /// └────┬───┘          │
-    ///      │              │
-    ///      └──────────────┘
-    ///      m.room.tombstone
-    ///      replaced by room C
-    /// ```
-    #[error("inconsistent tombstone room state: a loop or a merger is detected, it includes `{room_in_path:?}`")]
-    InconsistentTombstonedRooms {
-        /// One of the room that is part of the loop, or a merger.
+    /// A room has received an invalid upgrade regarding its predecessor. Its
+    /// predecessor doesn't have this room as its successor.
+    #[error(
+        "Room `{room:?}` was expecting `{expected_predecessor:?}` to be its predecessor, \
+        but `{expected_predecessor:?}` does not have `{room:?}` has its successor, \
+        it has `{successor_of_the_predecessor:?}`"
+    )]
+    RoomUpgradeInvalidPredecessor {
+        /// The room that has detected the error.
+        room: OwnedRoomId,
+        /// The predecessor of this `room`. It must match with this
+        /// `successor_of_the_predecessor`, but it doesn't.
+        expected_predecessor: OwnedRoomId,
+        /// The successor of the predecessor of this `room`. It must match with
+        /// this `expected_predecessor`, but it doesn't.
+        successor_of_the_predecessor: Option<OwnedRoomId>,
+    },
+
+    /// A room has received an invalid upgrade regarding its successor. Its
+    /// successor doesn't have this room as its predecessor.
+    #[error(
+        "Room `{room:?}` was expecting `{expected_successor:?}` to be its successor, \
+        but `{expected_successor:?}` does not have `{room:?}` has its predecessor, \
+        it has `{predecessor_of_the_successor:?}`"
+    )]
+    RoomUpgradeInvalidSuccessor {
+        /// The room that has detected the error.
+        room: OwnedRoomId,
+        /// The successor of this `room`. It must match with this
+        /// `predecessor_of_the_successor`, but it doesn't.
+        expected_successor: OwnedRoomId,
+        /// The predecessor of the successor of this `room`. It must match with
+        /// this `expected_successor`, but it doesn't.
+        predecessor_of_the_successor: Option<OwnedRoomId>,
+    },
+
+    /// A room is in a path that is forming a loop with its successor and
+    /// predecessor. This is of course pretty bad.
+    #[error("Room `{room_in_path:?}` is part of a loop")]
+    RoomUpgradeIsLooping {
+        /// One of the room in the path.
         room_in_path: OwnedRoomId,
     },
 }
