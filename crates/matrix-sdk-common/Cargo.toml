@@ -50,11 +50,11 @@ wasm-bindgen-futures = { version = "0.4.33", optional = true }
 web-sys = { workspace = true, features = ["console"] }
 
 [dev-dependencies]
-assert_matches = { workspace = true }
-assert_matches2. workspace = true
-proptest.workspace = true
+assert_matches.workspace = true
+assert_matches2.workspace = true
 insta.workspace = true
 matrix-sdk-test-macros = { path = "../../testing/matrix-sdk-test-macros" }
+proptest.workspace = true
 wasm-bindgen-test.workspace = true
 
 [target.'cfg(target_family = "wasm")'.dev-dependencies]
