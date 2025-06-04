@@ -197,7 +197,7 @@ pub mod builder {
 ///
 /// Updates the context data from `context.state_changes` or `room_info`.
 fn update_push_room_context(
-    context: &mut Context,
+    context: &Context,
     push_rules: &mut PushConditionRoomCtx,
     user_id: &UserId,
     room_info: &RoomInfo,
@@ -235,7 +235,7 @@ fn update_push_room_context(
 /// Returns `None` if some data couldn't be found. This should only happen
 /// in brand new rooms, while we process its state.
 pub async fn get_push_room_context(
-    context: &mut Context,
+    context: &Context,
     room: &Room,
     room_info: &RoomInfo,
     state_store: &BaseStateStore,
