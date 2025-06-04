@@ -1219,38 +1219,39 @@ mod private {
             };
 
             // Replace the redacted event by a redacted form, if we knew about it.
-            if let Some((location, mut target_event)) = self.find_event(event_id).await? {
-                // Don't redact already redacted events.
-                if let Ok(deserialized) = target_event.raw().deserialize() {
-                    match deserialized {
-                        AnySyncTimelineEvent::MessageLike(ev) => {
-                            if ev.is_redacted() {
-                                return Ok(());
-                            }
+            let Some((location, mut target_event)) = self.find_event(event_id).await? else {
+                trace!("redacted event is missing from the linked chunk");
+                return Ok(());
+            };
+
+            // Don't redact already redacted events.
+            if let Ok(deserialized) = target_event.raw().deserialize() {
+                match deserialized {
+                    AnySyncTimelineEvent::MessageLike(ev) => {
+                        if ev.is_redacted() {
+                            return Ok(());
                         }
-                        AnySyncTimelineEvent::State(ev) => {
-                            if ev.is_redacted() {
-                                return Ok(());
-                            }
+                    }
+                    AnySyncTimelineEvent::State(ev) => {
+                        if ev.is_redacted() {
+                            return Ok(());
                         }
                     }
                 }
+            }
 
-                if let Some(redacted_event) = apply_redaction(
-                    target_event.raw(),
-                    event.raw().cast_ref::<SyncRoomRedactionEvent>(),
-                    &self.room_version,
-                ) {
-                    // It's safe to cast `redacted_event` here:
-                    // - either the event was an `AnyTimelineEvent` cast to `AnySyncTimelineEvent`
-                    //   when calling .raw(), so it's still one under the hood.
-                    // - or it wasn't, and it's a plain `AnySyncTimelineEvent` in this case.
-                    target_event.replace_raw(redacted_event.cast());
+            if let Some(redacted_event) = apply_redaction(
+                target_event.raw(),
+                event.raw().cast_ref::<SyncRoomRedactionEvent>(),
+                &self.room_version,
+            ) {
+                // It's safe to cast `redacted_event` here:
+                // - either the event was an `AnyTimelineEvent` cast to `AnySyncTimelineEvent`
+                //   when calling .raw(), so it's still one under the hood.
+                // - or it wasn't, and it's a plain `AnySyncTimelineEvent` in this case.
+                target_event.replace_raw(redacted_event.cast());
 
-                    self.replace_event_at(location, target_event).await?;
-                }
-            } else {
-                trace!("redacted event is missing from the linked chunk");
+                self.replace_event_at(location, target_event).await?;
             }
 
             Ok(())
