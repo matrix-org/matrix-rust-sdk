@@ -455,7 +455,8 @@ mod private {
         },
         event_cache::{store::EventCacheStoreLock, Event, Gap},
         linked_chunk::{
-            lazy_loader, ChunkContent, ChunkIdentifierGenerator, LinkedChunkId, Position, Update,
+            lazy_loader, ChunkContent, ChunkIdentifier, ChunkIdentifierGenerator, LinkedChunkId,
+            Position, Update,
         },
         serde_helpers::extract_thread_root,
         sync::Timeline,
@@ -478,7 +479,8 @@ mod private {
         sort_positions_descending, EventLocation, LoadMoreEventsBackwardsOutcome,
     };
     use crate::event_cache::{
-        deduplicator::filter_duplicate_events, RoomEventCacheUpdate, RoomPaginationStatus,
+        deduplicator::filter_duplicate_events, BackPaginationOutcome, EventsOrigin,
+        RoomEventCacheUpdate, RoomPaginationStatus,
     };
 
     /// State for a single room's event cache.
@@ -1304,6 +1306,12 @@ mod private {
         }
 
         /// Handle the result of a sync.
+        ///
+        /// It may send room event cache updates to the given sender, if it
+        /// generated any of those.
+        ///
+        /// Returns true if a new gap (previous-batch token) has been inserted,
+        /// false otherwise.
         pub async fn handle_sync(
             &mut self,
             mut timeline: Timeline,
@@ -1407,11 +1415,162 @@ mod private {
             if !timeline_event_diffs.is_empty() {
                 let _ = sender.send(RoomEventCacheUpdate::UpdateTimelineEvents {
                     diffs: timeline_event_diffs,
-                    origin: crate::event_cache::EventsOrigin::Sync,
+                    origin: EventsOrigin::Sync,
                 });
             }
 
             Ok(prev_batch.is_some())
+        }
+
+        pub async fn handle_backpagination(
+            &mut self,
+            events: Vec<TimelineEvent>,
+            new_gap: Option<Gap>,
+            prev_gap_id: Option<ChunkIdentifier>,
+            sender: &Sender<RoomEventCacheUpdate>,
+        ) -> Result<BackPaginationOutcome, EventCacheError> {
+            // If there's no new gap (previous batch token), then we've reached the start of
+            // the timeline.
+            let network_reached_start = new_gap.is_none();
+
+            let (
+                DeduplicationOutcome {
+                    all_events: mut events,
+                    in_memory_duplicated_event_ids,
+                    in_store_duplicated_event_ids,
+                },
+                all_duplicates,
+            ) = self.collect_valid_and_duplicated_events(events).await?;
+
+            // If not all the events have been back-paginated, we need to remove the
+            // previous ones, otherwise we can end up with misordered events.
+            //
+            // Consider the following scenario:
+            // - sync returns [D, E, F]
+            // - then sync returns [] with a previous batch token PB1, so the internal
+            //   linked chunk state is [D, E, F, PB1].
+            // - back-paginating with PB1 may return [A, B, C, D, E, F].
+            //
+            // Only inserting the new events when replacing PB1 would result in a timeline
+            // ordering of [D, E, F, A, B, C], which is incorrect. So we do have to remove
+            // all the events, in case this happens (see also #4746).
+
+            let mut event_diffs = if !all_duplicates {
+                // Let's forget all the previous events.
+                self.remove_events(in_memory_duplicated_event_ids, in_store_duplicated_event_ids)
+                    .await?
+            } else {
+                // All new events are duplicated, they can all be ignored.
+                events.clear();
+                Default::default()
+            };
+
+            let next_diffs = self
+            .with_events_mut(false, |room_events| {
+            // Reverse the order of the events as `/messages` has been called with `dir=b`
+            // (backwards). The `RoomEvents` API expects the first event to be the oldest.
+            // Let's re-order them for this block.
+            let reversed_events = events
+                .iter()
+                .rev()
+                .cloned()
+                .collect::<Vec<_>>();
+
+            let first_event_pos = room_events.events().next().map(|(item_pos, _)| item_pos);
+
+            // First, insert events.
+            let insert_new_gap_pos = if let Some(gap_id) = prev_gap_id {
+                // There is a prior gap, let's replace it by new events!
+                if all_duplicates {
+                    assert!(reversed_events.is_empty());
+                }
+
+                trace!("replacing previous gap with the back-paginated events");
+
+                // Replace the gap with the events we just deduplicated. This might get rid of the
+                // underlying gap, if the conditions are favorable to us.
+                room_events.replace_gap_at(reversed_events.clone(), gap_id)
+                    .expect("gap_identifier is a valid chunk id we read previously")
+            } else if let Some(pos) = first_event_pos {
+                // No prior gap, but we had some events: assume we need to prepend events
+                // before those.
+                trace!("inserted events before the first known event");
+
+                room_events
+                    .insert_events_at(reversed_events.clone(), pos)
+                    .expect("pos is a valid position we just read above");
+
+                Some(pos)
+            } else {
+                // No prior gap, and no prior events: push the events.
+                trace!("pushing events received from back-pagination");
+
+                room_events.push_events(reversed_events.clone());
+
+                // A new gap may be inserted before the new events, if there are any.
+                room_events.events().next().map(|(item_pos, _)| item_pos)
+            };
+
+            // And insert the new gap if needs be.
+            //
+            // We only do this when at least one new, non-duplicated event, has been added to
+            // the chunk. Otherwise it means we've back-paginated all the known events.
+            if !all_duplicates {
+                if let Some(new_gap) = new_gap {
+                    if let Some(new_pos) = insert_new_gap_pos {
+                        room_events
+                            .insert_gap_at(new_gap, new_pos)
+                            .expect("events_chunk_pos represents a valid chunk position");
+                    } else {
+                        room_events.push_gap(new_gap);
+                    }
+                }
+            } else {
+                debug!("not storing previous batch token, because we deduplicated all new back-paginated events");
+            }
+
+            reversed_events
+        })
+        .await?;
+
+            event_diffs.extend(next_diffs);
+
+            // There could be an inconsistency between the network (which thinks we hit the
+            // start of the timeline) and the disk (which has the initial empty
+            // chunks), so tweak the `reached_start` value so that it reflects the disk
+            // state in priority instead.
+            let reached_start = {
+                // There are no gaps.
+                let has_gaps = self.events.chunks().any(|chunk| chunk.is_gap());
+
+                // The first chunk has no predecessors.
+                let first_chunk_is_definitive_head =
+                    self.events.chunks().next().map(|chunk| chunk.is_definitive_head());
+
+                let reached_start =
+                    !has_gaps && first_chunk_is_definitive_head.unwrap_or(network_reached_start);
+
+                trace!(
+                    ?network_reached_start,
+                    ?has_gaps,
+                    ?first_chunk_is_definitive_head,
+                    ?reached_start,
+                    "finished handling network back-pagination"
+                );
+
+                reached_start
+            };
+
+            let backpagination_outcome = BackPaginationOutcome { events, reached_start };
+
+            if !event_diffs.is_empty() {
+                let _ = sender.send(RoomEventCacheUpdate::UpdateTimelineEvents {
+                    diffs: event_diffs,
+                    origin: EventsOrigin::Pagination,
+                });
+            }
+
+            Ok(backpagination_outcome)
         }
     }
 }
