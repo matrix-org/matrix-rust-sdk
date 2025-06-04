@@ -169,7 +169,7 @@ fn build_library() -> Result<()> {
 }
 
 fn generate_uniffi(library_path: &Utf8Path, ffi_directory: &Utf8Path) -> Result<()> {
-  let manifest_path = std::env::current_dir()?.join("Cargo.toml");
+    let manifest_path = std::env::current_dir()?.join("Cargo.toml");
     println!("manifest path {:?}", manifest_path);
 
     // Get metadata using cargo_metadata

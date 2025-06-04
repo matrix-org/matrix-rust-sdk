@@ -41,8 +41,6 @@ use eyeball::{AsyncLock, SharedObservable};
 use futures_util::{Stream, StreamExt};
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk_common::ring_buffer::RingBuffer;
-#[cfg(feature = "test-send-sync")]
-use matrix_sdk_common::{SendOutsideWasm, SyncOutsideWasm};
 pub use members::{RoomMember, RoomMembersUpdate, RoomMemberships};
 pub(crate) use room_info::SyncInfo;
 pub use room_info::{

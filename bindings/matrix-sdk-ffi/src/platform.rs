@@ -340,6 +340,7 @@ impl TraceLogPacks {
     }
 }
 
+#[cfg(not(target_family = "wasm"))]
 struct SentryLoggingCtx {
     /// The Sentry client guard, which keeps the Sentry context alive.
     _guard: sentry::ClientInitGuard,
@@ -349,6 +350,7 @@ struct SentryLoggingCtx {
 }
 
 struct LoggingCtx {
+    #[cfg(not(target_family = "wasm"))]
     sentry: Option<SentryLoggingCtx>,
 }
 
@@ -390,6 +392,7 @@ impl TracingConfiguration {
         log_panics::init();
 
         // Prepare the Sentry layer, if a DSN is provided.
+        #[cfg(not(target_family = "wasm"))]
         let (sentry_layer, sentry_logging_ctx) = if let Some(sentry_dsn) = self.sentry_dsn.take() {
             // Initialize the Sentry client with the given options.
             let sentry_guard = sentry::init((
@@ -446,16 +449,21 @@ impl TracingConfiguration {
 
         let env_filter = build_tracing_filter(&self);
 
-        tracing_subscriber::registry()
+        let registry = tracing_subscriber::registry()
             .with(tracing_subscriber::EnvFilter::new(&env_filter))
-            .with(crate::platform::text_layers(self))
-            .with(sentry_layer)
-            .init();
+            .with(crate::platform::text_layers(self));
+        #[cfg(not(target_family = "wasm"))]
+        registry.with(sentry_layer).init();
+        #[cfg(target_family = "wasm")]
+        registry.init();
 
         // Log the log levels 🧠.
         tracing::info!(env_filter, "Logging has been set up");
 
-        LoggingCtx { sentry: sentry_logging_ctx }
+        #[cfg(not(target_family = "wasm"))]
+        return LoggingCtx { sentry: sentry_logging_ctx };
+        #[cfg(target_family = "wasm")]
+        LoggingCtx {}
     }
 }
 
@@ -505,15 +513,22 @@ pub fn init_platform(
     config: TracingConfiguration,
     use_lightweight_tokio_runtime: bool,
 ) -> Result<(), ClientError> {
-    LOGGING.set(config.build()).map_err(|_| ClientError::Generic {
-        msg: "logger already initialized".to_owned(),
-        details: None,
-    })?;
+    #[cfg(target_family = "wasm")]
+    {
+        console_error_panic_hook::set_once();
+    }
 
-    if use_lightweight_tokio_runtime {
-        setup_lightweight_tokio_runtime();
-    } else {
-        setup_multithreaded_tokio_runtime();
+    #[cfg(not(target_family = "wasm"))]
+    {
+        LOGGING.set(config.build()).map_err(|_| ClientError::Generic {
+            msg: "logger already initialized".to_owned(),
+            details: None,
+        })?;
+        if use_lightweight_tokio_runtime {
+            setup_lightweight_tokio_runtime();
+        } else {
+            setup_multithreaded_tokio_runtime();
+        }
     }
 
     Ok(())
@@ -524,6 +539,7 @@ pub fn init_platform(
 #[matrix_sdk_ffi_macros::export]
 pub fn enable_sentry_logging(enabled: bool) {
     if let Some(ctx) = LOGGING.get() {
+        #[cfg(not(target_family = "wasm"))]
         if let Some(sentry_ctx) = &ctx.sentry {
             sentry_ctx.enabled.store(enabled, std::sync::atomic::Ordering::SeqCst);
         } else {
@@ -535,6 +551,7 @@ pub fn enable_sentry_logging(enabled: bool) {
     };
 }
 
+#[cfg(not(target_family = "wasm"))]
 fn setup_multithreaded_tokio_runtime() {
     async_compat::set_runtime_builder(Box::new(|| {
         eprintln!("spawning a multithreaded tokio runtime");
@@ -545,6 +562,7 @@ fn setup_multithreaded_tokio_runtime() {
     }));
 }
 
+#[cfg(not(target_family = "wasm"))]
 fn setup_lightweight_tokio_runtime() {
     async_compat::set_runtime_builder(Box::new(|| {
         eprintln!("spawning a lightweight tokio runtime");

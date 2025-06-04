@@ -249,7 +249,7 @@ dependencies = [
  "memchr",
  "serde",
  "serde_derive",
- "winnow 0.7.10",
+ "winnow 0.7.11",
 ]
 
 [[package]]
@@ -867,6 +867,16 @@ dependencies = [
  "lazy_static",
  "libc",
  "windows-sys 0.52.0",
+]
+
+[[package]]
+name = "console_error_panic_hook"
+version = "0.1.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a06aeb73f470f66dcdbf7223caeebb85984942f22f1adb2a088cf9668146bbbc"
+dependencies = [
+ "cfg-if",
+ "wasm-bindgen",
 ]
 
 [[package]]
@@ -3086,6 +3096,7 @@ dependencies = [
  "anyhow",
  "as_variant",
  "async-compat",
+ "console_error_panic_hook",
  "extension-trait",
  "eyeball-im",
  "futures-util",
@@ -3124,6 +3135,14 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn",
+]
+
+[[package]]
+name = "matrix-sdk-ffi-web"
+version = "0.1.0"
+dependencies = [
+ "matrix-sdk-ffi",
+ "uniffi",
 ]
 
 [[package]]
@@ -5847,6 +5866,7 @@ dependencies = [
  "uniffi_internal_macros",
  "uniffi_meta",
  "uniffi_pipeline",
+ "uniffi_testing",
  "uniffi_udl",
 ]
 
@@ -5921,6 +5941,18 @@ dependencies = [
  "indexmap",
  "tempfile",
  "uniffi_internal_macros",
+]
+
+[[package]]
+name = "uniffi_testing"
+version = "0.29.1"
+source = "git+https://github.com/mozilla/uniffi-rs?rev=c7f6caa3d1bf20f934346cefd8e82b5093f0dc6f#c7f6caa3d1bf20f934346cefd8e82b5093f0dc6f"
+dependencies = [
+ "anyhow",
+ "camino",
+ "cargo_metadata",
+ "fs-err",
+ "once_cell",
 ]
 
 [[package]]
@@ -6559,9 +6591,9 @@ dependencies = [
 
 [[package]]
 name = "winnow"
-version = "0.7.10"
+version = "0.7.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c06928c8748d81b05c9be96aad92e1b6ff01833332f281e8cfca3be4b35fc9ec"
+checksum = "74c7b26e3480b707944fc872477815d29a8e429d2f93a1ce000f5fa84a15cbcd"
 dependencies = [
  "memchr",
 ]

@@ -6,17 +6,18 @@ use std::{
     time::Duration,
 };
 
-use anyhow::{anyhow, Context as _};
+use anyhow::anyhow;
 use futures_util::pin_mut;
+#[cfg(not(any(target_family = "wasm", feature = "js")))]
+use matrix_sdk::media::MediaFileHandle as SdkMediaFileHandle;
+#[cfg(not(target_family = "wasm"))]
+use matrix_sdk::STATE_STORE_DATABASE_NAME;
 use matrix_sdk::{
     authentication::oauth::{
         AccountManagementActionFull, ClientId, OAuthAuthorizationData, OAuthSession,
     },
     event_cache::EventCacheError,
-    media::{
-        MediaFileHandle as SdkMediaFileHandle, MediaFormat, MediaRequestParameters,
-        MediaRetentionPolicy, MediaThumbnailSettings,
-    },
+    media::{MediaFormat, MediaRequestParameters, MediaRetentionPolicy, MediaThumbnailSettings},
     ruma::{
         api::client::{
             discovery::get_authorization_server_metadata::msc2965::Prompt as RumaOidcPrompt,
@@ -38,7 +39,6 @@ use matrix_sdk::{
     sliding_sync::Version as SdkSlidingSyncVersion,
     store::RoomLoadSettings as SdkRoomLoadSettings,
     AuthApi, AuthSession, Client as MatrixClient, SessionChange, SessionTokens,
-    STATE_STORE_DATABASE_NAME,
 };
 use matrix_sdk_common::{stream::StreamExt, SendOutsideWasm, SyncOutsideWasm};
 use matrix_sdk_ui::{
@@ -299,7 +299,8 @@ impl Client {
                     let session_delegate = session_delegate.clone();
                     Box::new(move |client| {
                         let session_delegate = session_delegate.clone();
-                        let user_id = client.user_id().context("user isn't logged in")?;
+                        let user_id =
+                            client.user_id().ok_or_else(|| anyhow!("user isn't logged in"))?;
                         Ok(Self::retrieve_session(session_delegate, user_id)?)
                     })
                 },
@@ -498,22 +499,35 @@ impl Client {
         use_cache: bool,
         temp_dir: Option<String>,
     ) -> Result<Arc<MediaFileHandle>, ClientError> {
-        let source = (*media_source).clone();
-        let mime_type: mime::Mime = mime_type.parse()?;
+        #[cfg(any(target_family = "wasm", feature = "js"))]
+        {
+            return Err(ClientError::Generic {
+                msg: "get_media_file is not supported on wasm32".to_string(),
+                details: None,
+            });
+        }
+        #[cfg(not(any(target_family = "wasm", feature = "js")))]
+        {
+            let source = (*media_source).clone();
+            let mime_type: mime::Mime = mime_type.parse()?;
 
-        let handle = self
-            .inner
-            .media()
-            .get_media_file(
-                &MediaRequestParameters { source: source.media_source, format: MediaFormat::File },
-                filename,
-                &mime_type,
-                use_cache,
-                temp_dir,
-            )
-            .await?;
+            let handle = self
+                .inner
+                .media()
+                .get_media_file(
+                    &MediaRequestParameters {
+                        source: source.media_source,
+                        format: MediaFormat::File,
+                    },
+                    filename,
+                    &mime_type,
+                    use_cache,
+                    temp_dir,
+                )
+                .await?;
 
-        Ok(Arc::new(MediaFileHandle::new(handle)))
+            Ok(Arc::new(MediaFileHandle::new(handle)))
+        }
     }
 
     /// Restores the client from a `Session`.
@@ -735,7 +749,7 @@ impl Client {
 
 impl Client {
     /// Whether or not the client's homeserver supports the password login flow.
-    pub(crate) async fn supports_password_login(&self) -> anyhow::Result<bool> {
+    pub(crate) async fn supports_password_login(&self) -> Result<bool, matrix_sdk::HttpError> {
         let login_types = self.inner.matrix_auth().get_login_types().await?;
         let supports_password = login_types
             .flows
@@ -861,19 +875,23 @@ impl Client {
     }
 
     pub fn user_id(&self) -> Result<String, ClientError> {
-        let user_id = self.inner.user_id().context("No User ID found")?;
+        let user_id = self.inner.user_id().ok_or_else(|| anyhow!("No User ID found"))?;
         Ok(user_id.to_string())
     }
 
     /// The server name part of the current user ID
     pub fn user_id_server_name(&self) -> Result<String, ClientError> {
-        let user_id = self.inner.user_id().context("No User ID found")?;
+        let user_id = self.inner.user_id().ok_or_else(|| anyhow!("No User ID found"))?;
         Ok(user_id.server_name().to_string())
     }
 
     pub async fn display_name(&self) -> Result<String, ClientError> {
-        let display_name =
-            self.inner.account().get_display_name().await?.context("No User ID found")?;
+        let display_name = self
+            .inner
+            .account()
+            .get_display_name()
+            .await?
+            .ok_or_else(|| anyhow!("No User ID found"))?;
         Ok(display_name)
     }
 
@@ -882,7 +900,7 @@ impl Client {
             .account()
             .set_display_name(Some(name.as_str()))
             .await
-            .context("Unable to set display name")?;
+            .map_err(|e| anyhow!("Unable to set display name: {}", e))?;
         Ok(())
     }
 
@@ -911,7 +929,7 @@ impl Client {
     }
 
     pub fn device_id(&self) -> Result<String, ClientError> {
-        let device_id = self.inner.device_id().context("No Device ID found")?;
+        let device_id = self.inner.device_id().ok_or_else(|| anyhow!("No Device ID found"))?;
         Ok(device_id.to_string())
     }
 
@@ -948,7 +966,8 @@ impl Client {
         data: Vec<u8>,
         progress_watcher: Option<Box<dyn ProgressWatcher>>,
     ) -> Result<String, ClientError> {
-        let mime_type: mime::Mime = mime_type.parse().context("Parsing mime type")?;
+        let mime_type: mime::Mime =
+            mime_type.parse().map_err(|e| anyhow!("Parsing mime type: {}", e))?;
         let request = self.inner.media().upload(&mime_type, data, None);
 
         if let Some(progress_watcher) = progress_watcher {
@@ -1012,13 +1031,14 @@ impl Client {
         {
             return Ok(Arc::new(session_verification_controller.clone()));
         }
-        let user_id = self.inner.user_id().context("Failed retrieving current user_id")?;
+        let user_id =
+            self.inner.user_id().ok_or_else(|| anyhow!("Failed retrieving current user_id"))?;
         let user_identity = self
             .inner
             .encryption()
             .get_user_identity(user_id)
             .await?
-            .context("Failed retrieving user identity")?;
+            .ok_or_else(|| anyhow!("Failed retrieving user identity"))?;
 
         let session_verification_controller = SessionVerificationController::new(
             self.inner.encryption(),
@@ -1314,13 +1334,14 @@ impl Client {
         room_id: String,
         via_servers: Vec<String>,
     ) -> Result<Arc<RoomPreview>, ClientError> {
-        let room_id = RoomId::parse(&room_id).context("room_id is not a valid room id")?;
+        let room_id = RoomId::parse(&room_id)
+            .map_err(|e| anyhow!("room_id is not a valid room id: {}", e))?;
 
         let via_servers = via_servers
             .into_iter()
             .map(ServerName::parse)
             .collect::<Result<Vec<_>, _>>()
-            .context("at least one `via` server name is invalid")?;
+            .map_err(|e| anyhow!("at least one `via` server name is invalid: {}", e))?;
 
         // The `into()` call below doesn't work if I do `(&room_id).into()`, so I let
         // rustc win that one fight.
@@ -1336,8 +1357,8 @@ impl Client {
         &self,
         room_alias: String,
     ) -> Result<Arc<RoomPreview>, ClientError> {
-        let room_alias =
-            RoomAliasId::parse(&room_alias).context("room_alias is not a valid room alias")?;
+        let room_alias = RoomAliasId::parse(&room_alias)
+            .map_err(|e| anyhow!("room_alias is not a valid room alias: {}", e))?;
 
         // The `into()` call below doesn't work if I do `(&room_id).into()`, so I let
         // rustc win that one fight.
@@ -1432,56 +1453,62 @@ impl Client {
     /// - This will empty the media cache according to the current media
     ///   retention policy.
     pub async fn clear_caches(&self) -> Result<(), ClientError> {
-        let closure = async || -> Result<_, ClientError> {
-            // Clean up the media cache according to the current media retention policy.
-            self.inner
-                .event_cache_store()
-                .lock()
-                .await
-                .map_err(EventCacheError::from)?
-                .clean_up_media_cache()
-                .await
-                .map_err(EventCacheError::from)?;
+        #[cfg(not(target_family = "wasm"))]
+        {
+            let closure = async || -> Result<_, ClientError> {
+                // Clean up the media cache according to the current media retention policy.
+                self.inner
+                    .event_cache_store()
+                    .lock()
+                    .await
+                    .map_err(EventCacheError::from)?
+                    .clean_up_media_cache()
+                    .await
+                    .map_err(EventCacheError::from)?;
 
-            // Clear all the room chunks. It's important to *not* call
-            // `EventCacheStore::clear_all_linked_chunks` here, because there might be live
-            // observers of the linked chunks, and that would cause some very bad state
-            // mismatch.
-            self.inner.event_cache().clear_all_rooms().await?;
+                // Clear all the room chunks. It's important to *not* call
+                // `EventCacheStore::clear_all_rooms_chunks` here, because there might be live
+                // observers of the linked chunks, and that would cause some very bad state
+                // mismatch.
+                self.inner.event_cache().clear_all_rooms().await?;
 
-            // Delete the state store file, if it exists.
-            if let Some(store_path) = &self.store_path {
-                debug!("Removing the state store: {}", store_path.display());
+                // Delete the state store file, if it exists.
+                if let Some(store_path) = &self.store_path {
+                    debug!("Removing the state store: {}", store_path.display());
 
-                // The state store and the crypto store both live in the same store path, so we
-                // can't blindly delete the directory.
-                //
-                // Delete the state store SQLite file, as well as the write-ahead log (WAL) and
-                // shared-memory (SHM) files, if they exist.
+                    // The state store and the crypto store both live in the same store path, so we
+                    // can't blindly delete the directory.
+                    //
+                    // Delete the state store SQLite file, as well as the write-ahead log (WAL) and
+                    // shared-memory (SHM) files, if they exist.
 
-                for file_name in [
-                    PathBuf::from(STATE_STORE_DATABASE_NAME),
-                    PathBuf::from(format!("{STATE_STORE_DATABASE_NAME}.wal")),
-                    PathBuf::from(format!("{STATE_STORE_DATABASE_NAME}.shm")),
-                ] {
-                    let file_path = store_path.join(file_name);
-                    if file_path.exists() {
-                        debug!("Removing file: {}", file_path.display());
-                        std::fs::remove_file(&file_path).map_err(|err| ClientError::Generic {
-                            msg: format!(
-                                "couldn't delete the state store file {}: {err}",
-                                file_path.display()
-                            ),
-                            details: None,
-                        })?;
+                    for file_name in [
+                        PathBuf::from(STATE_STORE_DATABASE_NAME),
+                        PathBuf::from(format!("{STATE_STORE_DATABASE_NAME}.wal")),
+                        PathBuf::from(format!("{STATE_STORE_DATABASE_NAME}.shm")),
+                    ] {
+                        let file_path = store_path.join(file_name);
+                        if file_path.exists() {
+                            debug!("Removing file: {}", file_path.display());
+                            std::fs::remove_file(&file_path).map_err(|err| {
+                                ClientError::Generic {
+                                    msg: format!(
+                                        "couldn't delete the state store file {}: {err}",
+                                        file_path.display()
+                                    ),
+                                    details: None,
+                                }
+                            })?;
+                        }
                     }
                 }
-            }
 
-            Ok(())
-        };
+                Ok(())
+            };
 
-        closure().await
+            return closure().await;
+        }
+        Ok(())
     }
 
     /// Checks if the server supports the report room API.
@@ -1710,7 +1737,7 @@ impl Client {
     }
 
     fn session_inner(client: matrix_sdk::Client) -> Result<Session, ClientError> {
-        let auth_api = client.auth_api().context("Missing authentication API")?;
+        let auth_api = client.auth_api().ok_or_else(|| anyhow!("Missing authentication API"))?;
 
         let homeserver_url = client.homeserver().into();
         let sliding_sync_version = client.sliding_sync_version();
@@ -2028,7 +2055,7 @@ impl Session {
                 let matrix_sdk::authentication::matrix::MatrixSession {
                     meta: matrix_sdk::SessionMeta { user_id, device_id },
                     tokens: matrix_sdk::SessionTokens { access_token, refresh_token },
-                } = a.session().context("Missing session")?;
+                } = a.session().ok_or_else(|| anyhow!("Missing session"))?;
 
                 Ok(Session {
                     access_token,
@@ -2045,8 +2072,9 @@ impl Session {
                 let matrix_sdk::authentication::oauth::UserSession {
                     meta: matrix_sdk::SessionMeta { user_id, device_id },
                     tokens: matrix_sdk::SessionTokens { access_token, refresh_token },
-                } = api.user_session().context("Missing session")?;
-                let client_id = api.client_id().context("OIDC client ID is missing.")?.clone();
+                } = api.user_session().ok_or_else(|| anyhow!("Missing session"))?;
+                let client_id =
+                    api.client_id().ok_or_else(|| anyhow!("OIDC client ID is missing."))?.clone();
                 let oidc_data = OidcSessionData { client_id };
 
                 let oidc_data = serde_json::to_string(&oidc_data).ok();
@@ -2155,10 +2183,12 @@ fn gen_transaction_id() -> String {
 /// is dropped, the file will be removed from the disk.
 #[derive(uniffi::Object)]
 pub struct MediaFileHandle {
+    #[cfg(not(any(target_family = "wasm", feature = "js")))]
     inner: RwLock<Option<SdkMediaFileHandle>>,
 }
 
 impl MediaFileHandle {
+    #[cfg(not(any(target_family = "wasm", feature = "js")))]
     fn new(handle: SdkMediaFileHandle) -> Self {
         Self { inner: RwLock::new(Some(handle)) }
     }
@@ -2168,33 +2198,47 @@ impl MediaFileHandle {
 impl MediaFileHandle {
     /// Get the media file's path.
     pub fn path(&self) -> Result<String, ClientError> {
-        Ok(self
+        #[cfg(not(any(target_family = "wasm", feature = "js")))]
+        return Ok(self
             .inner
             .read()
             .unwrap()
             .as_ref()
-            .context("MediaFileHandle must not be used after calling persist")?
+            .ok_or_else(|| anyhow!("MediaFileHandle must not be used after calling persist"))?
             .path()
             .to_str()
             .unwrap()
-            .to_owned())
+            .to_owned());
+        #[cfg(any(target_family = "wasm", feature = "js"))]
+        return Err(ClientError::Generic {
+            msg: "MediaFileHandle is not supported on wasm".to_string(),
+            details: None,
+        });
     }
 
     pub fn persist(&self, path: String) -> Result<bool, ClientError> {
-        let mut guard = self.inner.write().unwrap();
-        Ok(
-            match guard
-                .take()
-                .context("MediaFileHandle was already persisted")?
-                .persist(path.as_ref())
-            {
-                Ok(_) => true,
-                Err(e) => {
-                    *guard = Some(e.file);
-                    false
-                }
-            },
-        )
+        #[cfg(not(any(target_family = "wasm", feature = "js")))]
+        {
+            let mut guard = self.inner.write().unwrap();
+            return Ok(
+                match guard
+                    .take()
+                    .ok_or_else(|| anyhow!("MediaFileHandle was already persisted"))?
+                    .persist(path.as_ref())
+                {
+                    Ok(_) => true,
+                    Err(e) => {
+                        *guard = Some(e.file);
+                        false
+                    }
+                },
+            );
+        }
+        #[cfg(any(target_family = "wasm", feature = "js"))]
+        return Err(ClientError::Generic {
+            msg: "MediaFileHandle is not supported on wasm".to_string(),
+            details: None,
+        });
     }
 }
 
