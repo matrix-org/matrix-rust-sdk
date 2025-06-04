@@ -308,6 +308,32 @@ impl TimelineMetadata {
         }
     }
 
+    pub(crate) fn process_event_relations(
+        &mut self,
+        event: AnySyncTimelineEvent,
+        raw_event: &Raw<AnySyncTimelineEvent>,
+        bundled_edit_encryption_info: Option<Arc<EncryptionInfo>>,
+        timeline_items: &Vector<Arc<TimelineItem>>,
+    ) -> (Option<InReplyToDetails>, Option<OwnedEventId>) {
+        match event {
+            AnySyncTimelineEvent::MessageLike(ev) => match ev.original_content() {
+                Some(content) => {
+                    let remote_ctx = Some(RemoteEventContext {
+                        event_id: ev.event_id(),
+                        raw_event,
+                        relations: ev.relations(),
+                        bundled_edit_encryption_info,
+                    });
+
+                    self.process_content_relations(&content, remote_ctx, timeline_items)
+                }
+
+                None => (None, None),
+            },
+            _ => (None, None),
+        }
+    }
+
     pub(crate) fn process_content_relations(
         &mut self,
         content: &AnyMessageLikeEventContent,

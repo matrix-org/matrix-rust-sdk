@@ -113,16 +113,23 @@ impl EmbeddedEvent {
         // We don't need to fill the thread information of an embedded reply.
         let thread_summary = None;
 
+        let (in_reply_to, thread_root) = meta.process_event_relations(
+            event.clone(),
+            &raw_event,
+            bundled_edit_encryption_info,
+            timeline_items,
+        );
+
         let sender = event.sender().to_owned();
         let action = TimelineAction::from_event(
             event,
             &raw_event,
             room_data_provider,
-            thread_summary,
             unable_to_decrypt_info,
-            bundled_edit_encryption_info,
-            timeline_items,
             meta,
+            in_reply_to,
+            thread_root,
+            thread_summary,
         )
         .await;
 
