@@ -492,11 +492,7 @@ impl TimelineEvent {
     /// This is a convenience constructor for a plaintext event when you don't
     /// need to set `push_action`, for example inside a test.
     pub fn from_plaintext(event: Raw<AnySyncTimelineEvent>) -> Self {
-        let (thread_summary, latest_thread_event) = extract_bundled_thread_summary(&event);
-        let kind = TimelineEventKind::PlainText { event };
-        let bundled_latest_thread_event =
-            Self::from_bundled_latest_event(&kind, latest_thread_event);
-        Self { kind, push_actions: None, thread_summary, bundled_latest_thread_event }
+        Self::new(TimelineEventKind::PlainText { event }, None)
     }
 
     /// Create a new [`TimelineEvent`] from a decrypted event.
@@ -504,22 +500,22 @@ impl TimelineEvent {
         decrypted: DecryptedRoomEvent,
         push_actions: Option<Vec<Action>>,
     ) -> Self {
-        let (thread_summary, latest_thread_event) =
-            extract_bundled_thread_summary(decrypted.event.cast_ref());
-        let kind = TimelineEventKind::Decrypted(decrypted);
-        let bundled_latest_thread_event =
-            Self::from_bundled_latest_event(&kind, latest_thread_event);
-        Self { kind, push_actions, thread_summary, bundled_latest_thread_event }
+        Self::new(TimelineEventKind::Decrypted(decrypted), push_actions)
     }
 
     /// Create a new [`TimelineEvent`] to represent the given decryption
     /// failure.
     pub fn from_utd(event: Raw<AnySyncTimelineEvent>, utd_info: UnableToDecryptInfo) -> Self {
-        let (thread_summary, latest_thread_event) = extract_bundled_thread_summary(&event);
-        let kind = TimelineEventKind::UnableToDecrypt { event, utd_info };
+        Self::new(TimelineEventKind::UnableToDecrypt { event, utd_info }, None)
+    }
+
+    /// Internal only: helps extracting a thread summary and latest thread event
+    /// when creating a new [`TimelineEvent`].
+    fn new(kind: TimelineEventKind, push_actions: Option<Vec<Action>>) -> Self {
+        let (thread_summary, latest_thread_event) = extract_bundled_thread_summary(kind.raw());
         let bundled_latest_thread_event =
             Self::from_bundled_latest_event(&kind, latest_thread_event);
-        Self { kind, push_actions: None, thread_summary, bundled_latest_thread_event }
+        Self { kind, push_actions, thread_summary, bundled_latest_thread_event }
     }
 
     /// Try to create a new [`TimelineEvent`] for the bundled latest thread
