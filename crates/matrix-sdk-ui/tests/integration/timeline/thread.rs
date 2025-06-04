@@ -213,17 +213,15 @@ async fn test_extract_bundled_thread_summary() {
     let f = EventFactory::new().room(room_id).sender(&ALICE);
     let thread_event_id = event_id!("$thread_root");
     let latest_event_id = event_id!("$latest_event");
-    let latest_event = f.text_msg("the last one!").event_id(latest_event_id).into_event();
 
     let event = f
         .text_msg("thready thread mcthreadface")
-        .with_bundled_thread_summary(latest_event.raw().cast_ref().clone(), 42, false)
+        .with_bundled_thread_summary(
+            f.text_msg("the last one!").event_id(latest_event_id).into_raw(),
+            42,
+            false,
+        )
         .event_id(thread_event_id);
-
-    // Set up the /event for the latest thread event.
-    // FIXME(bnjbvr): shouldn't be necessary, the event cache could save the bundled
-    // latest event instead.
-    server.mock_room_event().match_event_id().ok(latest_event).mock_once().mount().await;
 
     server.sync_room(&client, JoinedRoomBuilder::new(room_id).add_timeline_event(event)).await;
 
