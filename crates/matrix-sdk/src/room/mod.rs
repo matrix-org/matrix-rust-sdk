@@ -1515,7 +1515,7 @@ impl Room {
                     .encryption()
                     .backups()
                     .maybe_download_room_key(self.room_id().to_owned(), event.clone());
-                Ok(TimelineEvent::new_utd_event(event.clone().cast(), utd_info))
+                Ok(TimelineEvent::from_utd(event.clone().cast(), utd_info))
             }
         }
     }
