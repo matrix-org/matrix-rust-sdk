@@ -336,7 +336,7 @@ mod tests {
 
         cache.events.insert(
             event_id.to_owned(),
-            TimelineEvent::new(
+            TimelineEvent::from_plaintext(
                 Raw::<AnySyncTimelineEvent>::from_json_string(
                     json!({
                         "content": {

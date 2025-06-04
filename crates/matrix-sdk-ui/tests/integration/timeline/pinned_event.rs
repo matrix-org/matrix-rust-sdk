@@ -659,7 +659,7 @@ async fn mock_events_endpoint(
             .mock_room_event()
             .room(room_id.to_owned())
             .match_event_id()
-            .ok(TimelineEvent::new(event.cast()))
+            .ok(TimelineEvent::from_plaintext(event.cast()))
             .mount()
             .await;
     }

@@ -146,7 +146,7 @@ async fn test_hide_failed_to_parse() {
     // m.room.message events must have a msgtype and body in content, so this
     // event with an empty content object should fail to deserialize.
     timeline
-        .handle_live_event(TimelineEvent::new(sync_timeline_event!({
+        .handle_live_event(TimelineEvent::from_plaintext(sync_timeline_event!({
             "content": {},
             "event_id": "$eeG0HA0FAZ37wP8kXlNkxx3I",
             "origin_server_ts": 10,
@@ -158,7 +158,7 @@ async fn test_hide_failed_to_parse() {
     // Similar to above, the m.room.member state event must also not have an
     // empty content object.
     timeline
-        .handle_live_event(TimelineEvent::new(sync_timeline_event!({
+        .handle_live_event(TimelineEvent::from_plaintext(sync_timeline_event!({
             "content": {},
             "event_id": "$d5G0HA0FAZ37wP8kXlNkxx3I",
             "origin_server_ts": 2179,

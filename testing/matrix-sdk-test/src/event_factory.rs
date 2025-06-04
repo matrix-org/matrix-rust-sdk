@@ -316,7 +316,7 @@ where
     }
 
     pub fn into_event(self) -> TimelineEvent {
-        TimelineEvent::new(self.into_raw_sync())
+        TimelineEvent::from_plaintext(self.into_raw_sync())
     }
 }
 

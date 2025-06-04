@@ -610,7 +610,7 @@ impl Room {
             }
         }
 
-        let mut event = TimelineEvent::new(event.cast());
+        let mut event = TimelineEvent::from_plaintext(event.cast());
         if let Some(push_ctx) = push_ctx {
             event.set_push_actions(push_ctx.for_event(event.raw()));
         }

@@ -1204,7 +1204,7 @@ mod tests {
             last_prev_batch: Some("pb".to_owned()),
             sync_info: SyncInfo::FullySynced,
             encryption_state_synced: true,
-            latest_event: Some(Box::new(LatestEvent::new(TimelineEvent::new(
+            latest_event: Some(Box::new(LatestEvent::new(TimelineEvent::from_plaintext(
                 Raw::from_json_string(json!({"sender": "@u:i.uk"}).to_string()).unwrap(),
             )))),
             base_info: Box::new(

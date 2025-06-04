@@ -279,7 +279,7 @@ mod tests_with_e2e_encryption {
     }
 
     fn make_latest_event(event_id: &str) -> Box<LatestEvent> {
-        Box::new(LatestEvent::new(TimelineEvent::new(
+        Box::new(LatestEvent::new(TimelineEvent::from_plaintext(
             Raw::from_json_string(json!({ "event_id": event_id }).to_string()).unwrap(),
         )))
     }
