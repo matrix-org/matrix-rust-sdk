@@ -186,7 +186,7 @@ impl TestTimeline {
     }
 
     async fn handle_back_paginated_event(&self, event: Raw<AnyTimelineEvent>) {
-        let timeline_event = TimelineEvent::new(event.cast());
+        let timeline_event = TimelineEvent::from_plaintext(event.cast());
         self.controller
             .handle_remote_events_with_diffs(
                 vec![VectorDiff::PushFront { value: timeline_event }],

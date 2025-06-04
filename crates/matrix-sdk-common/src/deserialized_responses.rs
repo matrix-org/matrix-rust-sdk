@@ -483,7 +483,7 @@ impl TimelineEvent {
     ///
     /// This is a convenience constructor for a plaintext event when you don't
     /// need to set `push_action`, for example inside a test.
-    pub fn new(event: Raw<AnySyncTimelineEvent>) -> Self {
+    pub fn from_plaintext(event: Raw<AnySyncTimelineEvent>) -> Self {
         let thread_summary = extract_bundled_thread_summary(&event);
         Self { kind: TimelineEventKind::PlainText { event }, push_actions: None, thread_summary }
     }
@@ -1095,7 +1095,7 @@ mod tests {
 
     #[test]
     fn sync_timeline_debug_content() {
-        let room_event = TimelineEvent::new(Raw::new(&example_event()).unwrap().cast());
+        let room_event = TimelineEvent::from_plaintext(Raw::new(&example_event()).unwrap().cast());
         let debug_s = format!("{room_event:?}");
         assert!(
             !debug_s.contains("secret"),
@@ -1392,7 +1392,7 @@ mod tests {
 
         // When creating a timeline event from a raw event, the thread summary is always
         // extracted, if available.
-        let timeline_event = TimelineEvent::new(raw);
+        let timeline_event = TimelineEvent::from_plaintext(raw);
         assert_matches!(timeline_event.thread_summary, ThreadSummaryStatus::Some(ThreadSummary { num_replies, latest_reply }) => {
             assert_eq!(num_replies, 2);
             assert_eq!(latest_reply.as_deref(), Some(event_id!("$latest_event:example.com")));

@@ -629,7 +629,7 @@ mod tests {
             latest_event: LatestEvent,
         }
 
-        let event = TimelineEvent::new(
+        let event = TimelineEvent::from_plaintext(
             Raw::from_json_string(json!({ "event_id": "$1" }).to_string()).unwrap(),
         );
 

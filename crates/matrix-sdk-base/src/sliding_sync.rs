@@ -2514,7 +2514,7 @@ mod tests {
 
     #[cfg(feature = "e2e-encryption")]
     fn make_event(event_type: &str, id: &str) -> TimelineEvent {
-        TimelineEvent::new(make_raw_event(event_type, id))
+        TimelineEvent::from_plaintext(make_raw_event(event_type, id))
     }
 
     #[cfg(feature = "e2e-encryption")]
