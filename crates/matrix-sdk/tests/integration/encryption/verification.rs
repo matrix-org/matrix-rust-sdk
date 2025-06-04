@@ -2,7 +2,7 @@ use assert_matches2::assert_matches;
 use futures_util::FutureExt;
 use matrix_sdk::{
     encryption::VerificationState,
-    test_utils::{logged_in_client_with_server, mocks::encryption::MatrixKeysMockServer},
+    test_utils::{logged_in_client_with_server, mocks::MatrixMockServer},
     Client,
 };
 use matrix_sdk_test::{async_test, SyncResponseBuilder};
@@ -24,12 +24,12 @@ async fn bootstrap_cross_signing(client: &Client) {
 
 #[async_test]
 async fn test_own_verification() {
-    let server = MatrixKeysMockServer::new().await;
+    let server = MatrixMockServer::new().await;
+    server.mock_crypto_endpoints_preset().await;
 
     let user_id = owned_user_id!("@alice:example.org");
     let device_id = owned_device_id!("4L1C3");
-    let alice = server.create_client(&user_id, &device_id).await;
-
+    let alice = server.client_builder_for_crypto_end_to_end(&user_id, &device_id).build().await;
     // Subscribe to verification state updates
     let mut verification_state_subscriber = alice.encryption().verification_state();
     assert_eq!(alice.encryption().verification_state().get(), VerificationState::Unknown);
@@ -75,7 +75,7 @@ async fn test_own_verification() {
 
     {
         let _scope = mock_sync_scoped(
-            &server.server,
+            server.server(),
             sync_response_builder.build_json_sync_response(),
             None,
         )
@@ -93,11 +93,12 @@ async fn test_own_verification() {
 
 #[async_test]
 async fn test_reset_cross_signing_resets_verification() {
-    let server = MatrixKeysMockServer::new().await;
+    let server = MatrixMockServer::new().await;
+    server.mock_crypto_endpoints_preset().await;
 
     let user_id = owned_user_id!("@alice:example.org");
     let device_id = owned_device_id!("4L1C3");
-    let alice = server.create_client(&user_id, &device_id).await;
+    let alice = server.client_builder_for_crypto_end_to_end(&user_id, &device_id).build().await;
 
     // Subscribe to verification state updates
     let mut verification_state_subscriber = alice.encryption().verification_state();
@@ -119,7 +120,7 @@ async fn test_reset_cross_signing_resets_verification() {
 
     {
         let _scope = mock_sync_scoped(
-            &server.server,
+            server.server(),
             sync_response_builder.build_json_sync_response(),
             None,
         )
@@ -135,14 +136,14 @@ async fn test_reset_cross_signing_resets_verification() {
     assert_eq!(alice.encryption().verification_state().get(), VerificationState::Verified);
 
     let device_id = owned_device_id!("AliceDevice2");
-    let alice2 = server.create_client(&user_id, &device_id).await;
+    let alice2 = server.client_builder_for_crypto_end_to_end(&user_id, &device_id).build().await;
 
     // Have Alice bootstrap cross-signing again, this time on her second device.
     bootstrap_cross_signing(&alice2).await;
 
     {
         let _scope = mock_sync_scoped(
-            &server.server,
+            server.server(),
             sync_response_builder.build_json_sync_response(),
             None,
         )
@@ -160,16 +161,18 @@ async fn test_reset_cross_signing_resets_verification() {
 
 #[async_test]
 async fn test_unchecked_mutual_verification() {
-    let server = MatrixKeysMockServer::new().await;
+    let server = MatrixMockServer::new().await;
+    server.mock_crypto_endpoints_preset().await;
 
     let user_id = owned_user_id!("@alice:example.org");
     let device_id = owned_device_id!("4L1C3");
-    let alice = server.create_client(&user_id, &device_id).await;
+    let alice = server.client_builder_for_crypto_end_to_end(&user_id, &device_id).build().await;
 
     let bob_user_id = owned_user_id!("@bob:example.org");
     let bob_device_id = owned_device_id!("B0B0B0B0B");
 
-    let bob = server.create_client(&bob_user_id, &bob_device_id).await;
+    let bob =
+        server.client_builder_for_crypto_end_to_end(&bob_user_id, &bob_device_id).build().await;
 
     let alice_verifies_bob =
         alice.encryption().get_verification(bob.user_id().unwrap(), "flow_id").await;
@@ -191,7 +194,7 @@ async fn test_unchecked_mutual_verification() {
     {
         let mut sync_response_builder = SyncResponseBuilder::new();
         let response_body = sync_response_builder.build_json_sync_response();
-        let _scope = mock_sync_scoped(&server.server, response_body, None).await;
+        let _scope = mock_sync_scoped(server.server(), response_body, None).await;
 
         alice
             .sync_once(Default::default())
@@ -213,7 +216,7 @@ async fn test_unchecked_mutual_verification() {
 
     {
         let _scope = mock_sync_scoped(
-            &server.server,
+            server.server(),
             sync_response_builder.build_json_sync_response(),
             None,
         )
@@ -249,7 +252,7 @@ async fn test_unchecked_mutual_verification() {
         // Notify Alice's devices that some identify changed, so it does another
         // /keys/query request.
         let _scope = mock_sync_scoped(
-            &server.server,
+            server.server(),
             sync_response_builder.add_change_device(&bob_user_id).build_json_sync_response(),
             None,
         )

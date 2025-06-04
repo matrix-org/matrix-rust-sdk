@@ -18,7 +18,7 @@ use matrix_sdk_base::{
     store::{RoomLoadSettings, StoreConfig},
     SessionMeta,
 };
-use ruma::{api::MatrixVersion, owned_device_id, owned_user_id};
+use ruma::{api::MatrixVersion, owned_device_id, owned_user_id, OwnedDeviceId, OwnedUserId};
 
 use crate::{
     authentication::matrix::MatrixSession, config::RequestConfig, Client, ClientBuilder,
@@ -42,7 +42,14 @@ impl MockClientBuilder {
             .server_versions([MatrixVersion::V1_12])
             .request_config(RequestConfig::new().disable_retry());
 
-        Self { builder: default_builder, auth_state: AuthState::LoggedInWithMatrixAuth }
+        Self {
+            builder: default_builder,
+            auth_state: AuthState::LoggedInWithMatrixAuth {
+                token: None,
+                user_id: None,
+                device_id: None,
+            },
+        }
     }
 
     /// Doesn't log-in a user.
@@ -62,6 +69,21 @@ impl MockClientBuilder {
     /// The user is already logged in with the OAuth 2.0 API.
     pub fn logged_in_with_oauth(mut self) -> Self {
         self.auth_state = AuthState::LoggedInWithOAuth;
+        self
+    }
+
+    /// The user is already logged in with the Matrix Auth.
+    pub fn logged_in_with_token(
+        mut self,
+        token: String,
+        user_id: OwnedUserId,
+        device_id: OwnedDeviceId,
+    ) -> Self {
+        self.auth_state = AuthState::LoggedInWithMatrixAuth {
+            token: Some(token),
+            user_id: Some(user_id),
+            device_id: Some(device_id),
+        };
         self
     }
 
@@ -100,7 +122,11 @@ enum AuthState {
     /// The client is not logged in.
     None,
     /// The client is logged in with the native Matrix API.
-    LoggedInWithMatrixAuth,
+    LoggedInWithMatrixAuth {
+        token: Option<String>,
+        user_id: Option<OwnedUserId>,
+        device_id: Option<OwnedDeviceId>,
+    },
     /// The client is registered with the OAuth 2.0 API.
     RegisteredWithOAuth,
     /// The client is logged in with the OAuth 2.0 API.
@@ -113,10 +139,22 @@ impl AuthState {
     async fn maybe_restore_client(self, client: &Client) {
         match self {
             AuthState::None => {}
-            AuthState::LoggedInWithMatrixAuth => {
+            AuthState::LoggedInWithMatrixAuth { token, user_id, device_id } => {
                 client
                     .matrix_auth()
-                    .restore_session(mock_matrix_session(), RoomLoadSettings::default())
+                    .restore_session(
+                        MatrixSession {
+                            meta: SessionMeta {
+                                user_id: user_id.unwrap_or(owned_user_id!("@example:localhost")),
+                                device_id: device_id.unwrap_or(owned_device_id!("DEVICEID")),
+                            },
+                            tokens: SessionTokens {
+                                access_token: token.unwrap_or("1234".to_owned()).to_owned(),
+                                refresh_token: None,
+                            },
+                        },
+                        RoomLoadSettings::default(),
+                    )
                     .await
                     .unwrap();
             }
