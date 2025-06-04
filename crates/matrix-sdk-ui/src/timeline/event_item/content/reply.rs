@@ -15,7 +15,7 @@
 use std::sync::Arc;
 
 use imbl::Vector;
-use matrix_sdk::deserialized_responses::{TimelineEvent, UnsignedEventLocation};
+use matrix_sdk::deserialized_responses::TimelineEvent;
 use ruma::{OwnedEventId, OwnedUserId};
 use tracing::{debug, instrument, warn};
 
@@ -84,14 +84,8 @@ impl EmbeddedEvent {
     pub(in crate::timeline) async fn try_from_timeline_event<P: RoomDataProvider>(
         timeline_event: TimelineEvent,
         room_data_provider: &P,
-        timeline_items: &Vector<Arc<TimelineItem>>,
-        meta: &mut TimelineMetadata,
+        meta: &TimelineMetadata,
     ) -> Result<Option<Self>, TimelineError> {
-        let bundled_edit_encryption_info =
-            timeline_event.kind.unsigned_encryption_map().and_then(|map| {
-                map.get(&UnsignedEventLocation::RelationsReplace)?.encryption_info().cloned()
-            });
-
         let (raw_event, unable_to_decrypt_info) = match timeline_event.kind {
             matrix_sdk::deserialized_responses::TimelineEventKind::UnableToDecrypt {
                 utd_info,
@@ -110,15 +104,11 @@ impl EmbeddedEvent {
 
         debug!(event_type = %event.event_type(), "got deserialized event");
 
-        // We don't need to fill the thread information of an embedded reply.
+        // We don't need to fill relation information or process metadata for an
+        // embedded reply.
+        let in_reply_to = None;
+        let thread_root = None;
         let thread_summary = None;
-
-        let (in_reply_to, thread_root) = meta.process_event_relations(
-            event.clone(),
-            &raw_event,
-            bundled_edit_encryption_info,
-            timeline_items,
-        );
 
         let sender = event.sender().to_owned();
         let action = TimelineAction::from_event(
