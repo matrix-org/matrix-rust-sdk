@@ -1344,73 +1344,72 @@ mod private {
                 prev_batch = None;
             }
 
+            if all_duplicates {
+                // No new events and no gap (per the previous check), thus no need to change the
+                // room state. We're done!
+                return Ok(false);
+            }
+
             // During a sync, when a duplicated event is found, the old event is removed and
             // the new event is added.
             //
             // Let's remove the old events that are duplicated.
-            let timeline_event_diffs = if all_duplicates {
-                // No new events, thus no need to change the room events.
-                vec![]
-            } else {
-                // Remove the old duplicated events.
-                //
-                // We don't have to worry the removals can change the position of the
-                // existing events, because we are pushing all _new_
-                // `events` at the back.
-                let mut timeline_event_diffs = self
-                    .remove_events(in_memory_duplicated_event_ids, in_store_duplicated_event_ids)
-                    .await?;
 
-                // Add the previous back-pagination token (if present), followed by the timeline
-                // events themselves.
-                let new_timeline_event_diffs = self
-                    .with_events_mut(true, |room_events| {
-                        // If we only received duplicated events, we don't need to store the gap: if
-                        // there was a gap, we'd have received an unknown event at the tail of
-                        // the room's timeline (unless the server reordered sync events since the
-                        // last time we sync'd).
-                        if let Some(prev_token) = &prev_batch {
-                            // As a tiny optimization: remove the last chunk if it's an empty event
-                            // one, as it's not useful to keep it before a gap.
-                            let prev_chunk_to_remove =
-                                room_events.rchunks().next().and_then(|chunk| {
-                                    (chunk.is_items() && chunk.num_items() == 0)
-                                        .then_some(chunk.identifier())
-                                });
+            // Remove the old duplicated events.
+            //
+            // We don't have to worry the removals can change the position of the
+            // existing events, because we are pushing all _new_
+            // `events` at the back.
+            let mut timeline_event_diffs = self
+                .remove_events(in_memory_duplicated_event_ids, in_store_duplicated_event_ids)
+                .await?;
 
-                            room_events.push_gap(Gap { prev_token: prev_token.clone() });
+            // Add the previous back-pagination token (if present), followed by the timeline
+            // events themselves.
+            let new_timeline_event_diffs = self
+                .with_events_mut(true, |room_events| {
+                    // If we only received duplicated events, we don't need to store the gap: if
+                    // there was a gap, we'd have received an unknown event at the tail of
+                    // the room's timeline (unless the server reordered sync events since the
+                    // last time we sync'd).
+                    if let Some(prev_token) = &prev_batch {
+                        // As a tiny optimization: remove the last chunk if it's an empty event
+                        // one, as it's not useful to keep it before a gap.
+                        let prev_chunk_to_remove = room_events.rchunks().next().and_then(|chunk| {
+                            (chunk.is_items() && chunk.num_items() == 0)
+                                .then_some(chunk.identifier())
+                        });
 
-                            if let Some(prev_chunk_to_remove) = prev_chunk_to_remove {
-                                room_events.remove_empty_chunk_at(prev_chunk_to_remove).expect(
+                        room_events.push_gap(Gap { prev_token: prev_token.clone() });
+
+                        if let Some(prev_chunk_to_remove) = prev_chunk_to_remove {
+                            room_events.remove_empty_chunk_at(prev_chunk_to_remove).expect(
                                 "we just checked the chunk is there, and it's an empty item chunk",
                             );
-                            }
                         }
-
-                        room_events.push_events(events.clone());
-
-                        events.clone()
-                    })
-                    .await?;
-
-                timeline_event_diffs.extend(new_timeline_event_diffs);
-
-                if timeline.limited && prev_batch.is_some() {
-                    // If there was a previous batch token for a limited timeline, unload the chunks
-                    // so it only contains the last one; otherwise, there might be a
-                    // valid gap in between, and observers may not render it (yet).
-                    //
-                    // We must do this *after* the above call to `.with_events_mut`, so the new
-                    // events and gaps are properly persisted to storage.
-                    if let Some(diffs) = self.shrink_to_last_chunk().await? {
-                        // Override the diffs with the new ones, as per `shrink_to_last_chunk`'s API
-                        // contract.
-                        timeline_event_diffs = diffs;
                     }
-                }
 
-                timeline_event_diffs
-            };
+                    room_events.push_events(events.clone());
+
+                    events.clone()
+                })
+                .await?;
+
+            timeline_event_diffs.extend(new_timeline_event_diffs);
+
+            if timeline.limited && prev_batch.is_some() {
+                // If there was a previous batch token for a limited timeline, unload the chunks
+                // so it only contains the last one; otherwise, there might be a
+                // valid gap in between, and observers may not render it (yet).
+                //
+                // We must do this *after* the above call to `.with_events_mut`, so the new
+                // events and gaps are properly persisted to storage.
+                if let Some(diffs) = self.shrink_to_last_chunk().await? {
+                    // Override the diffs with the new ones, as per `shrink_to_last_chunk`'s API
+                    // contract.
+                    timeline_event_diffs = diffs;
+                }
+            }
 
             if !timeline_event_diffs.is_empty() {
                 let _ = sender.send(RoomEventCacheUpdate::UpdateTimelineEvents {
