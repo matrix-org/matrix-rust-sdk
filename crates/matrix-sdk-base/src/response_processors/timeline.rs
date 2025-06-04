@@ -61,7 +61,7 @@ pub async fn build<'notification, 'e2ee>(
     for raw_event in timeline_inputs.raw_events {
         // Start by assuming we have a plaintext event. We'll replace it with a
         // decrypted or UTD event below if necessary.
-        let mut timeline_event = TimelineEvent::new(raw_event);
+        let mut timeline_event = TimelineEvent::from_plaintext(raw_event);
 
         // Do some special stuff on the `timeline_event` before collecting it.
         match timeline_event.raw().deserialize() {

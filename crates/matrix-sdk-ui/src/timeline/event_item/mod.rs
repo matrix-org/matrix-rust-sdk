@@ -889,7 +889,7 @@ mod tests {
             .unwrap();
 
         // When we construct a timeline event from it
-        let event = TimelineEvent::new(raw_event.cast());
+        let event = TimelineEvent::from_plaintext(raw_event.cast());
         let timeline_item =
             EventTimelineItem::from_latest_event(client, room_id, LatestEvent::new(event))
                 .await
