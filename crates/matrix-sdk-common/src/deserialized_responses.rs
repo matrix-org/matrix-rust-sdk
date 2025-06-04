@@ -499,7 +499,7 @@ impl TimelineEvent {
 
     /// Create a new [`TimelineEvent`] to represent the given decryption
     /// failure.
-    pub fn new_utd_event(event: Raw<AnySyncTimelineEvent>, utd_info: UnableToDecryptInfo) -> Self {
+    pub fn from_utd(event: Raw<AnySyncTimelineEvent>, utd_info: UnableToDecryptInfo) -> Self {
         let thread_summary = extract_bundled_thread_summary(&event);
         Self {
             kind: TimelineEventKind::UnableToDecrypt { event, utd_info },

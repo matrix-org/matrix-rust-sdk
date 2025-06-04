@@ -49,7 +49,7 @@ pub async fn sync_timeline_event(
                 timeline_event
             }
             RoomEventDecryptionResult::UnableToDecrypt(utd_info) => {
-                TimelineEvent::new_utd_event(event.clone(), utd_info)
+                TimelineEvent::from_utd(event.clone(), utd_info)
             }
         },
     ))
