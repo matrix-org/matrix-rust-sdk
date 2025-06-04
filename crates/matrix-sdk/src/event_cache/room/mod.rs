@@ -24,7 +24,7 @@ use std::{
     },
 };
 
-use events::{sort_positions_descending, Gap};
+use events::sort_positions_descending;
 use eyeball::SharedObservable;
 use eyeball_im::VectorDiff;
 use matrix_sdk_base::{
@@ -44,8 +44,8 @@ use tokio::sync::{
 use tracing::{instrument, trace, warn};
 
 use super::{
-    deduplicator::DeduplicationOutcome, AutoShrinkChannelPayload, EventsOrigin, Result,
-    RoomEventCacheUpdate, RoomPagination, RoomPaginationStatus,
+    AutoShrinkChannelPayload, EventsOrigin, Result, RoomEventCacheUpdate, RoomPagination,
+    RoomPaginationStatus,
 };
 use crate::{client::WeakClient, room::WeakRoom};
 
@@ -376,9 +376,8 @@ impl RoomEventCacheInner {
         ephemeral_events: Vec<Raw<AnySyncEphemeralRoomEvent>>,
         ambiguity_changes: BTreeMap<OwnedEventId, AmbiguityChange>,
     ) -> Result<()> {
-        let mut prev_batch = timeline.prev_batch;
         if timeline.events.is_empty()
-            && prev_batch.is_none()
+            && timeline.prev_batch.is_none()
             && ephemeral_events.is_empty()
             && ambiguity_changes.is_empty()
         {
@@ -388,115 +387,18 @@ impl RoomEventCacheInner {
         // Add all the events to the backend.
         trace!("adding new events");
 
-        let mut state = self.state.write().await;
-
-        let (
-            DeduplicationOutcome {
-                all_events: events,
-                in_memory_duplicated_event_ids,
-                in_store_duplicated_event_ids,
-            },
-            all_duplicates,
-        ) = state.collect_valid_and_duplicated_events(timeline.events).await?;
-
-        // If the timeline isn't limited, and we already knew about some past events,
-        // then this definitely know what the timeline head is (either we know
-        // about all the events persisted in storage, or we have a gap
-        // somewhere). In this case, we can ditch the previous-batch
-        // token, which is an optimization to avoid unnecessary future back-pagination
-        // requests.
-        //
-        // We can also ditch it, if we knew about all the events that came from sync,
-        // viz. they were all deduplicated. In this case, using the
-        // previous-batch token would only result in fetching other events we
-        // knew about. This is slightly incorrect in the presence of
-        // network splits, but this has shown to be Good Enough™.
-        if !timeline.limited && state.events().events().next().is_some() || all_duplicates {
-            prev_batch = None;
-        }
-
-        // During a sync, when a duplicated event is found, the old event is removed and
-        // the new event is added.
-        //
-        // Let's remove the old events that are duplicated.
-        let timeline_event_diffs = if all_duplicates {
-            // No new events, thus no need to change the room events.
-            vec![]
-        } else {
-            // Remove the old duplicated events.
-            //
-            // We don't have to worry the removals can change the position of the
-            // existing events, because we are pushing all _new_
-            // `events` at the back.
-            let mut timeline_event_diffs = state
-                .remove_events(in_memory_duplicated_event_ids, in_store_duplicated_event_ids)
-                .await?;
-
-            // Add the previous back-pagination token (if present), followed by the timeline
-            // events themselves.
-            let new_timeline_event_diffs = state
-                .with_events_mut(true, |room_events| {
-                    // If we only received duplicated events, we don't need to store the gap: if
-                    // there was a gap, we'd have received an unknown event at the tail of
-                    // the room's timeline (unless the server reordered sync events since the last
-                    // time we sync'd).
-                    if let Some(prev_token) = &prev_batch {
-                        // As a tiny optimization: remove the last chunk if it's an empty event
-                        // one, as it's not useful to keep it before a gap.
-                        let prev_chunk_to_remove = room_events.rchunks().next().and_then(|chunk| {
-                            (chunk.is_items() && chunk.num_items() == 0)
-                                .then_some(chunk.identifier())
-                        });
-
-                        room_events.push_gap(Gap { prev_token: prev_token.clone() });
-
-                        if let Some(prev_chunk_to_remove) = prev_chunk_to_remove {
-                            room_events.remove_empty_chunk_at(prev_chunk_to_remove).expect(
-                                "we just checked the chunk is there, and it's an empty item chunk",
-                            );
-                        }
-                    }
-
-                    room_events.push_events(events.clone());
-
-                    events.clone()
-                })
-                .await?;
-
-            timeline_event_diffs.extend(new_timeline_event_diffs);
-
-            if timeline.limited && prev_batch.is_some() {
-                // If there was a previous batch token for a limited timeline, unload the chunks
-                // so it only contains the last one; otherwise, there might be a
-                // valid gap in between, and observers may not render it (yet).
-                //
-                // We must do this *after* the above call to `.with_events_mut`, so the new
-                // events and gaps are properly persisted to storage.
-                if let Some(diffs) = state.shrink_to_last_chunk().await? {
-                    // Override the diffs with the new ones, as per `shrink_to_last_chunk`'s API
-                    // contract.
-                    timeline_event_diffs = diffs;
-                }
-            }
-
-            timeline_event_diffs
-        };
+        let stored_prev_batch_token =
+            self.state.write().await.handle_sync(timeline, &self.sender).await?;
 
         // Now that all events have been added, we can trigger the
         // `pagination_token_notifier`.
-        if prev_batch.is_some() {
+        if stored_prev_batch_token {
             self.pagination_batch_token_notifier.notify_one();
         }
 
-        // The order of `RoomEventCacheUpdate`s is **really** important here.
+        // State sent the timeline diff updates, so we can send updates about the
+        // related events now.
         {
-            if !timeline_event_diffs.is_empty() {
-                let _ = self.sender.send(RoomEventCacheUpdate::UpdateTimelineEvents {
-                    diffs: timeline_event_diffs,
-                    origin: EventsOrigin::Sync,
-                });
-            }
-
             if !ephemeral_events.is_empty() {
                 let _ = self
                     .sender
@@ -556,6 +458,7 @@ mod private {
             lazy_loader, ChunkContent, ChunkIdentifierGenerator, LinkedChunkId, Position, Update,
         },
         serde_helpers::extract_thread_root,
+        sync::Timeline,
     };
     use matrix_sdk_common::executor::spawn;
     use ruma::{
@@ -566,6 +469,7 @@ mod private {
         serde::Raw,
         EventId, OwnedEventId, OwnedRoomId, RoomVersionId,
     };
+    use tokio::sync::broadcast::Sender;
     use tracing::{debug, error, instrument, trace, warn};
 
     use super::{
@@ -573,7 +477,9 @@ mod private {
         events::RoomEvents,
         sort_positions_descending, EventLocation, LoadMoreEventsBackwardsOutcome,
     };
-    use crate::event_cache::{deduplicator::filter_duplicate_events, RoomPaginationStatus};
+    use crate::event_cache::{
+        deduplicator::filter_duplicate_events, RoomEventCacheUpdate, RoomPaginationStatus,
+    };
 
     /// State for a single room's event cache.
     ///
@@ -1395,6 +1301,117 @@ mod private {
             .expect("joining failed")?;
 
             Ok(())
+        }
+
+        /// Handle the result of a sync.
+        pub async fn handle_sync(
+            &mut self,
+            mut timeline: Timeline,
+            sender: &Sender<RoomEventCacheUpdate>,
+        ) -> Result<bool, EventCacheError> {
+            let mut prev_batch = timeline.prev_batch.take();
+
+            let (
+                DeduplicationOutcome {
+                    all_events: events,
+                    in_memory_duplicated_event_ids,
+                    in_store_duplicated_event_ids,
+                },
+                all_duplicates,
+            ) = self.collect_valid_and_duplicated_events(timeline.events).await?;
+
+            // If the timeline isn't limited, and we already knew about some past events,
+            // then this definitely knows what the timeline head is (either we know
+            // about all the events persisted in storage, or we have a gap
+            // somewhere). In this case, we can ditch the previous-batch
+            // token, which is an optimization to avoid unnecessary future back-pagination
+            // requests.
+            //
+            // We can also ditch it if we knew about all the events that came from sync,
+            // namely, they were all deduplicated. In this case, using the
+            // previous-batch token would only result in fetching other events we
+            // knew about. This is slightly incorrect in the presence of
+            // network splits, but this has shown to be Good Enough™.
+            if !timeline.limited && self.events.events().next().is_some() || all_duplicates {
+                prev_batch = None;
+            }
+
+            // During a sync, when a duplicated event is found, the old event is removed and
+            // the new event is added.
+            //
+            // Let's remove the old events that are duplicated.
+            let timeline_event_diffs = if all_duplicates {
+                // No new events, thus no need to change the room events.
+                vec![]
+            } else {
+                // Remove the old duplicated events.
+                //
+                // We don't have to worry the removals can change the position of the
+                // existing events, because we are pushing all _new_
+                // `events` at the back.
+                let mut timeline_event_diffs = self
+                    .remove_events(in_memory_duplicated_event_ids, in_store_duplicated_event_ids)
+                    .await?;
+
+                // Add the previous back-pagination token (if present), followed by the timeline
+                // events themselves.
+                let new_timeline_event_diffs = self
+                    .with_events_mut(true, |room_events| {
+                        // If we only received duplicated events, we don't need to store the gap: if
+                        // there was a gap, we'd have received an unknown event at the tail of
+                        // the room's timeline (unless the server reordered sync events since the
+                        // last time we sync'd).
+                        if let Some(prev_token) = &prev_batch {
+                            // As a tiny optimization: remove the last chunk if it's an empty event
+                            // one, as it's not useful to keep it before a gap.
+                            let prev_chunk_to_remove =
+                                room_events.rchunks().next().and_then(|chunk| {
+                                    (chunk.is_items() && chunk.num_items() == 0)
+                                        .then_some(chunk.identifier())
+                                });
+
+                            room_events.push_gap(Gap { prev_token: prev_token.clone() });
+
+                            if let Some(prev_chunk_to_remove) = prev_chunk_to_remove {
+                                room_events.remove_empty_chunk_at(prev_chunk_to_remove).expect(
+                                "we just checked the chunk is there, and it's an empty item chunk",
+                            );
+                            }
+                        }
+
+                        room_events.push_events(events.clone());
+
+                        events.clone()
+                    })
+                    .await?;
+
+                timeline_event_diffs.extend(new_timeline_event_diffs);
+
+                if timeline.limited && prev_batch.is_some() {
+                    // If there was a previous batch token for a limited timeline, unload the chunks
+                    // so it only contains the last one; otherwise, there might be a
+                    // valid gap in between, and observers may not render it (yet).
+                    //
+                    // We must do this *after* the above call to `.with_events_mut`, so the new
+                    // events and gaps are properly persisted to storage.
+                    if let Some(diffs) = self.shrink_to_last_chunk().await? {
+                        // Override the diffs with the new ones, as per `shrink_to_last_chunk`'s API
+                        // contract.
+                        timeline_event_diffs = diffs;
+                    }
+                }
+
+                timeline_event_diffs
+            };
+
+            if !timeline_event_diffs.is_empty() {
+                let _ = sender.send(RoomEventCacheUpdate::UpdateTimelineEvents {
+                    diffs: timeline_event_diffs,
+                    origin: crate::event_cache::EventsOrigin::Sync,
+                });
+            }
+
+            Ok(prev_batch.is_some())
         }
     }
 }
