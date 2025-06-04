@@ -1854,9 +1854,4 @@ mod galleries {
             })
         }
     }
-
-    #[uniffi::export]
-    pub fn formatted_body_from_html(body: String) -> FormattedBody {
-        FormattedBody::from(&RumaFormattedBody::html(body))
-    }
 }
