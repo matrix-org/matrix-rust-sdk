@@ -561,19 +561,14 @@ impl<'a> TimelineStateTransaction<'a> {
             })
             .ok()?;
 
-        EmbeddedEvent::try_from_timeline_event(
-            event,
-            room_data_provider,
-            &self.items,
-            &mut self.meta,
-        )
-        .await
-        .inspect_err(|err| {
-            warn!("Failed to extract thread latest event into a timeline item content: {err}");
-        })
-        .ok()
-        .flatten()
-        .map(Box::new)
+        EmbeddedEvent::try_from_timeline_event(event, room_data_provider, &self.meta)
+            .await
+            .inspect_err(|err| {
+                warn!("Failed to extract thread latest event into a timeline item content: {err}");
+            })
+            .ok()
+            .flatten()
+            .map(Box::new)
     }
 
     /// Handle a remote event.
