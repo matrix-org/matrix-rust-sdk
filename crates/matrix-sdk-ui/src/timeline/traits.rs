@@ -348,7 +348,9 @@ impl Decryptor for (matrix_sdk_base::crypto::OlmMachine, ruma::OwnedRoomId) {
         };
 
         // Fill the push actions here, to mimic what `Room::decrypt_event` does.
-        timeline_event.push_actions = push_ctx.map(|ctx| ctx.for_event(timeline_event.raw()));
+        if let Some(push_ctx) = push_ctx {
+            timeline_event.set_push_actions(push_ctx.for_event(timeline_event.raw()));
+        }
 
         Ok(timeline_event)
     }

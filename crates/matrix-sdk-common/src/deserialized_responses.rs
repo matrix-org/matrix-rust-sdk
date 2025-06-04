@@ -449,7 +449,7 @@ pub struct TimelineEvent {
     /// If it's set to `None`, then it means we couldn't compute those actions,
     /// or that they could be computed but there were none.
     #[serde(skip_serializing_if = "skip_serialize_push_actions")]
-    pub push_actions: Option<Vec<Action>>,
+    push_actions: Option<Vec<Action>>,
 
     /// If the event is part of a thread, a thread summary.
     #[serde(default, skip_serializing_if = "ThreadSummaryStatus::is_unknown")]
@@ -488,6 +488,15 @@ impl TimelineEvent {
         Self { kind: TimelineEventKind::PlainText { event }, push_actions: None, thread_summary }
     }
 
+    /// Create a new [`TimelineEvent`] from a decrypted event.
+    pub fn from_decrypted(
+        decrypted: DecryptedRoomEvent,
+        push_actions: Option<Vec<Action>>,
+    ) -> Self {
+        let thread_summary = extract_bundled_thread_summary(decrypted.event.cast_ref());
+        Self { kind: TimelineEventKind::Decrypted(decrypted), push_actions, thread_summary }
+    }
+
     /// Create a new [`TimelineEvent`] to represent the given decryption
     /// failure.
     pub fn new_utd_event(event: Raw<AnySyncTimelineEvent>, utd_info: UnableToDecryptInfo) -> Self {
@@ -497,6 +506,19 @@ impl TimelineEvent {
             push_actions: None,
             thread_summary,
         }
+    }
+
+    /// Read the current push actions.
+    ///
+    /// Returns `None` if they were never computed, or if they could not be
+    /// computed.
+    pub fn push_actions(&self) -> Option<&[Action]> {
+        self.push_actions.as_deref()
+    }
+
+    /// Set the push actions for this event.
+    pub fn set_push_actions(&mut self, push_actions: Vec<Action>) {
+        self.push_actions = Some(push_actions);
     }
 
     /// Get the event id of this [`TimelineEvent`] if the event has any valid

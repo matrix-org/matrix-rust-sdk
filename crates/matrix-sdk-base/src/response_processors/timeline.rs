@@ -146,7 +146,7 @@ pub async fn build<'notification, 'e2ee>(
                         Action::should_notify,
                     );
 
-                    timeline_event.push_actions = Some(actions.to_owned());
+                    timeline_event.set_push_actions(actions.to_owned());
                 }
             }
             Err(error) => {

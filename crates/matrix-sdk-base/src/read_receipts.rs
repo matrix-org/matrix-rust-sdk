@@ -209,7 +209,7 @@ impl RoomReadReceipts {
         let mut has_notify = false;
         let mut has_mention = false;
 
-        let Some(actions) = event.push_actions.as_ref() else {
+        let Some(actions) = event.push_actions() else {
             return;
         };
 
@@ -711,7 +711,7 @@ mod tests {
                 .sender(user_id)
                 .event_id(event_id!("$ida"))
                 .into_event();
-            ev.push_actions = Some(push_actions);
+            ev.set_push_actions(push_actions);
             ev
         }
 
