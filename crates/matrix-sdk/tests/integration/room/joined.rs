@@ -27,15 +27,23 @@ use ruma::{
     api::client::{membership::Invite3pidInit, receipt::create_receipt::v3::ReceiptType},
     assign, event_id,
     events::{
+        call::{
+            member::{
+                ActiveFocus, ActiveLivekitFocus, Application, CallApplicationContent,
+                CallMemberEventContent, CallScope,
+            },
+            notify::{ApplicationType, CallNotifyEventContent, NotifyType},
+        },
         direct::DirectUserIdentifier,
         receipt::ReceiptThread,
         room::{
             member::MembershipState,
             message::{RoomMessageEventContent, RoomMessageEventContentWithoutRelation},
         },
-        RoomAccountDataEventType, TimelineEventType,
+        Mentions, RoomAccountDataEventType, TimelineEventType,
     },
-    int, mxc_uri, owned_event_id, room_id, thirdparty, user_id, OwnedUserId, TransactionId,
+    int, mxc_uri, owned_device_id, owned_event_id, room_id, thirdparty, user_id, OwnedUserId,
+    TransactionId,
 };
 use serde_json::{from_value, json, Value};
 use stream_assert::assert_pending;
@@ -828,7 +836,8 @@ async fn test_call_notifications_ring_for_dms() {
         .mount(&server)
         .await;
 
-    room.send_call_notification_if_needed().await.unwrap();
+    let sent_event = room.send_call_notification_if_needed().await.unwrap();
+    assert!(sent_event);
 }
 
 #[async_test]
@@ -871,7 +880,8 @@ async fn test_call_notifications_notify_for_rooms() {
         .mount(&server)
         .await;
 
-    room.send_call_notification_if_needed().await.unwrap();
+    let sent_event = room.send_call_notification_if_needed().await.unwrap();
+    assert!(sent_event);
 }
 
 #[async_test]
@@ -906,7 +916,65 @@ async fn test_call_notifications_dont_notify_room_without_mention_powerlevel() {
         .mount(&server)
         .await;
 
-    room.send_call_notification_if_needed().await.unwrap();
+    let sent_event = room.send_call_notification_if_needed().await.unwrap();
+    assert!(!sent_event);
+}
+
+#[async_test]
+async fn test_call_notifications_dont_notify_room_with_an_existing_call() {
+    let (client, server) = logged_in_client_with_server().await;
+
+    let mut sync_builder = SyncResponseBuilder::new();
+    let event_factory = EventFactory::new().room(&DEFAULT_TEST_ROOM_ID);
+    let call_notify_event = event_factory
+        .event(CallNotifyEventContent::new(
+            "call_id".to_owned(),
+            ApplicationType::Call,
+            NotifyType::Notify,
+            Mentions::new(),
+        ))
+        .sender(user_id!("@alice:example.org"))
+        .into_raw_sync();
+
+    let call_member_event = event_factory
+        .event(CallMemberEventContent::new(
+            Application::Call(CallApplicationContent::new("call_id".to_owned(), CallScope::Room)),
+            owned_device_id!("a-device-id"),
+            ActiveFocus::Livekit(ActiveLivekitFocus::new()),
+            Vec::new(),
+            None,
+        ))
+        .sender(user_id!("@alice:example.org"))
+        .state_key("_@alice:example.org_a-device-id")
+        .into_raw_sync()
+        .cast();
+
+    sync_builder.add_joined_room(
+        JoinedRoomBuilder::default()
+            .add_timeline_bulk([call_notify_event])
+            .add_state_bulk([call_member_event]),
+    );
+
+    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
+    mock_encryption_state(&server, false).await;
+
+    let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
+    let _response = client.sync_once(sync_settings).await.unwrap();
+
+    let room = client.get_room(&DEFAULT_TEST_ROOM_ID).unwrap();
+    assert!(room.has_active_room_call());
+    assert!(!room.is_direct().await.unwrap());
+
+    Mock::given(method("PUT"))
+        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/send/.*"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"event_id": "$event_id"})))
+        // Expect no calls of the send because we dont have permission to notify.
+        .expect(0)
+        .mount(&server)
+        .await;
+
+    let sent_event = room.send_call_notification_if_needed().await.unwrap();
+    assert!(!sent_event);
 }
 
 #[async_test]
