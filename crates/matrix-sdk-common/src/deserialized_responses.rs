@@ -34,8 +34,6 @@ use crate::{
     debug::{DebugRawEvent, DebugStructExt},
     serde_helpers::extract_bundled_thread_summary,
 };
-#[cfg(feature = "test-send-sync")]
-use crate::{SendOutsideWasm, SyncOutsideWasm};
 
 const AUTHENTICITY_NOT_GUARANTEED: &str =
     "The authenticity of this encrypted message can't be guaranteed on this device.";

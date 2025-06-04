@@ -9,16 +9,20 @@ use matrix_sdk::{
     },
     encryption::{BackupDownloadStrategy, EncryptionSettings},
     event_cache::EventCacheError,
-    reqwest::Certificate,
     ruma::{ServerName, UserId},
     sliding_sync::{
         Error as MatrixSlidingSyncError, VersionBuilder as MatrixSlidingSyncVersionBuilder,
         VersionBuilderError,
     },
     Client as MatrixClient, ClientBuildError as MatrixClientBuildError, HttpError, IdParseError,
-    RumaApiError, SqliteStoreConfig,
+    RumaApiError, SendOutsideWasm, SyncOutsideWasm,
 };
-use matrix_sdk_common::{SendOutsideWasm, SyncOutsideWasm};
+#[cfg(not(target_family = "wasm"))]
+use matrix_sdk::{
+    reqwest::{Certificate, Proxy},
+    SqliteStoreConfig,
+};
+use matrix_sdk_common::runtime::get_runtime_handle;
 use ruma::api::error::{DeserializationError, FromHttpResponseError};
 use tracing::{debug, error};
 use zeroize::Zeroizing;
@@ -577,56 +581,61 @@ impl ClientBuilder {
     pub async fn build(self: Arc<Self>) -> Result<Arc<Client>, ClientBuildError> {
         let builder = unwrap_or_clone_arc(self);
         let mut inner_builder = MatrixClient::builder();
+        let store_path;
 
         if let Some(holder_name) = &builder.cross_process_store_locks_holder_name {
             inner_builder =
                 inner_builder.cross_process_store_locks_holder_name(holder_name.clone());
         }
 
-        let store_path = if let Some(session_paths) = &builder.session_paths {
-            // This is the path where both the state store and the crypto store will live.
-            let data_path = Path::new(&session_paths.data_path);
-            // This is the path where the event cache store will live.
-            let cache_path = Path::new(&session_paths.cache_path);
-
-            debug!(
-                data_path = %data_path.to_string_lossy(),
-                event_cache_path = %cache_path.to_string_lossy(),
-                "Creating directories for data (state and crypto) and cache stores.",
-            );
-
-            fs::create_dir_all(data_path)?;
-            fs::create_dir_all(cache_path)?;
-
-            let mut sqlite_store_config = if builder.system_is_memory_constrained {
-                SqliteStoreConfig::with_low_memory_config(data_path)
-            } else {
-                SqliteStoreConfig::new(data_path)
-            };
-
-            sqlite_store_config =
-                sqlite_store_config.passphrase(builder.session_passphrase.as_deref());
-
-            if let Some(size) = builder.session_pool_max_size {
-                sqlite_store_config = sqlite_store_config.pool_max_size(size);
+        if let Some(session_paths) = &builder.session_paths {
+            #[cfg(target_family = "wasm")]
+            {
+                panic!("Session paths are not supported on wasm32.");
             }
+            #[cfg(not(target_family = "wasm"))]
+            {
+                let data_path = Path::new(&session_paths.data_path);
+                store_path = Some(data_path.to_path_buf());
+                let cache_path = Path::new(&session_paths.cache_path);
 
-            if let Some(size) = builder.session_cache_size {
-                sqlite_store_config = sqlite_store_config.cache_size(size);
+                debug!(
+                    data_path = %data_path.to_string_lossy(),
+                    cache_path = %cache_path.to_string_lossy(),
+                    "Creating directories for data and cache stores.",
+                );
+
+                fs::create_dir_all(data_path)?;
+                fs::create_dir_all(cache_path)?;
+
+                let mut sqlite_store_config = if builder.system_is_memory_constrained {
+                    SqliteStoreConfig::with_low_memory_config(data_path)
+                } else {
+                    SqliteStoreConfig::new(data_path)
+                };
+
+                sqlite_store_config =
+                    sqlite_store_config.passphrase(builder.session_passphrase.as_deref());
+
+                if let Some(size) = builder.session_pool_max_size {
+                    sqlite_store_config = sqlite_store_config.pool_max_size(size);
+                }
+
+                if let Some(size) = builder.session_cache_size {
+                    sqlite_store_config = sqlite_store_config.cache_size(size);
+                }
+
+                if let Some(limit) = builder.session_journal_size_limit {
+                    sqlite_store_config = sqlite_store_config.journal_size_limit(limit);
+                }
+
+                inner_builder = inner_builder
+                    .sqlite_store_with_config_and_cache_path(sqlite_store_config, Some(cache_path));
             }
-
-            if let Some(limit) = builder.session_journal_size_limit {
-                sqlite_store_config = sqlite_store_config.journal_size_limit(limit);
-            }
-
-            inner_builder = inner_builder
-                .sqlite_store_with_config_and_cache_path(sqlite_store_config, Some(cache_path));
-
-            Some(data_path.to_owned())
         } else {
             debug!("Not using a store path.");
-            None
-        };
+            store_path = None;
+        }
 
         // Determine server either from URL, server name or user ID.
         inner_builder = match builder.homeserver_cfg {
@@ -650,46 +659,57 @@ impl ClientBuilder {
             }
         };
 
-        let mut certificates = Vec::new();
+        #[cfg(not(target_family = "wasm"))]
+        {
+            let mut certificates = Vec::new();
 
-        for certificate in builder.additional_root_certificates {
-            // We don't really know what type of certificate we may get here, so let's try
-            // first one type, then the other.
-            match Certificate::from_der(&certificate) {
-                Ok(cert) => {
-                    certificates.push(cert);
-                }
-                Err(der_error) => {
-                    let cert = Certificate::from_pem(&certificate).map_err(|pem_error| {
+            for certificate in builder.additional_root_certificates {
+                // We don't really know what type of certificate we may get here, so let's try
+                // first one type, then the other.
+                match Certificate::from_der(&certificate) {
+                    Ok(cert) => {
+                        certificates.push(cert);
+                    }
+                    Err(der_error) => {
+                        let cert = Certificate::from_pem(&certificate).map_err(|pem_error| {
                         ClientBuildError::Generic {
                             message: format!("Failed to add a root certificate as DER ({der_error:?}) or PEM ({pem_error:?})"),
                         }
                     })?;
-                    certificates.push(cert);
+                        certificates.push(cert);
+                    }
                 }
             }
-        }
 
-        inner_builder = inner_builder.add_root_certificates(certificates);
+            inner_builder = inner_builder.add_root_certificates(certificates);
+            if builder.disable_built_in_root_certificates {
+                inner_builder = inner_builder.disable_built_in_root_certificates();
+            }
+            if let Some(proxy) = builder.proxy {
+                let Ok(proxy) = Proxy::all(proxy) else {
+                    return Err(ClientBuildError::Generic {
+                        message: "Proxy configuration is invalid.".to_owned(),
+                    });
+                };
+                let Ok(http_client) = matrix_sdk::reqwest::Client::builder().proxy(proxy).build()
+                else {
+                    return Err(ClientBuildError::Generic {
+                        message: "Http client for proxy is invalid.".to_owned(),
+                    });
+                };
+                inner_builder = inner_builder.http_client(http_client);
+            }
+            if builder.disable_ssl_verification {
+                inner_builder = inner_builder.disable_ssl_verification();
+            }
 
-        if builder.disable_built_in_root_certificates {
-            inner_builder = inner_builder.disable_built_in_root_certificates();
-        }
-
-        if let Some(proxy) = builder.proxy {
-            inner_builder = inner_builder.proxy(proxy);
-        }
-
-        if builder.disable_ssl_verification {
-            inner_builder = inner_builder.disable_ssl_verification();
+            if let Some(user_agent) = builder.user_agent {
+                inner_builder = inner_builder.user_agent(user_agent);
+            }
         }
 
         if !builder.disable_automatic_token_refresh {
             inner_builder = inner_builder.handle_refresh_tokens();
-        }
-
-        if let Some(user_agent) = builder.user_agent {
-            inner_builder = inner_builder.user_agent(user_agent);
         }
 
         inner_builder = inner_builder

@@ -111,15 +111,6 @@ impl SlidingSyncListBuilder {
         self
     }
 
-    #[cfg(target_family = "wasm")]
-    pub fn once_built<C>(mut self, callback: C) -> Self
-    where
-        C: Fn(SlidingSyncList) -> SlidingSyncList + 'static,
-    {
-        self.once_built = Arc::new(Box::new(callback));
-        self
-    }
-
     /// Which SlidingSyncMode to start this list under.
     pub fn sync_mode(mut self, value: impl Into<SlidingSyncMode>) -> Self {
         self.sync_mode = value.into();

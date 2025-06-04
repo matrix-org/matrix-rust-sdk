@@ -116,11 +116,8 @@ impl SessionVerificationController {
     /// Request verification for the current device
     pub async fn request_device_verification(&self) -> Result<(), ClientError> {
         let methods = vec![VerificationMethod::SasV1];
-        let verification_request = self
-            .user_identity
-            .request_verification_with_methods(methods)
-            .await
-            .map_err(anyhow::Error::from)?;
+        let verification_request =
+            self.user_identity.request_verification_with_methods(methods).await?;
 
         self.set_ongoing_verification_request(verification_request)
     }
@@ -141,10 +138,7 @@ impl SessionVerificationController {
 
         let methods = vec![VerificationMethod::SasV1];
 
-        let verification_request = user_identity
-            .request_verification_with_methods(methods)
-            .await
-            .map_err(anyhow::Error::from)?;
+        let verification_request = user_identity.request_verification_with_methods(methods).await?;
 
         self.set_ongoing_verification_request(verification_request)
     }
