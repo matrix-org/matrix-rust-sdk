@@ -327,7 +327,7 @@ impl<'a> LoginWithQrCode<'a> {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(target_family = "wasm")))]
 mod test {
     use assert_matches2::{assert_let, assert_matches};
     use futures_util::{join, StreamExt};

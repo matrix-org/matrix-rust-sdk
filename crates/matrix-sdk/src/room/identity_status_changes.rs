@@ -193,7 +193,7 @@ fn wrap_room_member_events(
     (drop_guard, ReceiverStream::new(receiver))
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(target_family = "wasm")))]
 mod tests {
     use std::time::Duration;
 
