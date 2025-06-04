@@ -1354,10 +1354,6 @@ mod private {
             // Add the previous back-pagination token (if present), followed by the timeline
             // events themselves.
             self.with_events_mut(true, |room_events| {
-                // If we only received duplicated events, we don't need to store the gap: if
-                // there was a gap, we'd have received an unknown event at the tail of
-                // the room's timeline (unless the server reordered sync events since the
-                // last time we sync'd).
                 if let Some(prev_token) = &prev_batch {
                     // As a tiny optimization: remove the last chunk if it's an empty event
                     // one, as it's not useful to keep it before a gap.
