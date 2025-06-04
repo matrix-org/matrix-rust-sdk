@@ -5,7 +5,7 @@ use matrix_sdk::{
     async_trait,
     widget::{MessageLikeEventFilter, StateEventFilter, ToDeviceEventFilter},
 };
-use matrix_sdk_common::runtime::get_runtime_handle;
+use matrix_sdk_common::{runtime::get_runtime_handle, SendOutsideWasm, SyncOutsideWasm};
 use ruma::events::MessageLikeEventType;
 use tracing::error;
 
@@ -547,7 +547,7 @@ impl From<matrix_sdk::widget::Filter> for WidgetEventFilter {
 }
 
 #[matrix_sdk_ffi_macros::export(callback_interface)]
-pub trait WidgetCapabilitiesProvider: Send + Sync {
+pub trait WidgetCapabilitiesProvider: SendOutsideWasm + SyncOutsideWasm {
     fn acquire_capabilities(&self, capabilities: WidgetCapabilities) -> WidgetCapabilities;
 }
 

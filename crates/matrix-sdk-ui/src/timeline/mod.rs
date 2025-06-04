@@ -779,8 +779,11 @@ impl Drop for TimelineDropHandle {
     }
 }
 
+#[cfg(not(target_family = "wasm"))]
 pub type TimelineEventFilterFn =
     dyn Fn(&AnySyncTimelineEvent, &RoomVersionId) -> bool + Send + Sync;
+#[cfg(target_family = "wasm")]
+pub type TimelineEventFilterFn = dyn Fn(&AnySyncTimelineEvent, &RoomVersionId) -> bool;
 
 /// A source for sending an attachment.
 ///

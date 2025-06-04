@@ -16,7 +16,7 @@ use std::{fmt::Debug, sync::Arc};
 
 use futures_util::pin_mut;
 use matrix_sdk::Client;
-use matrix_sdk_common::runtime::get_runtime_handle;
+use matrix_sdk_common::{runtime::get_runtime_handle, SendOutsideWasm, SyncOutsideWasm};
 use matrix_sdk_ui::{
     sync_service::{
         State as MatrixSyncServiceState, SyncService as MatrixSyncService,
@@ -51,7 +51,7 @@ impl From<MatrixSyncServiceState> for SyncServiceState {
 }
 
 #[matrix_sdk_ffi_macros::export(callback_interface)]
-pub trait SyncServiceStateObserver: Send + Sync + Debug {
+pub trait SyncServiceStateObserver: SendOutsideWasm + SyncOutsideWasm + Debug {
     fn on_update(&self, state: SyncServiceState);
 }
 

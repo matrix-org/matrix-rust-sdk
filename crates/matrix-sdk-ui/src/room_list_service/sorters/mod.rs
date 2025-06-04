@@ -35,4 +35,7 @@ pub trait Sorter: Fn(&Room, &Room) -> Ordering {}
 impl<F> Sorter for F where F: Fn(&Room, &Room) -> Ordering {}
 
 /// Type alias for a boxed sorter function.
+#[cfg(not(target_family = "wasm"))]
 pub type BoxedSorterFn = Box<dyn Sorter + Send + Sync>;
+#[cfg(target_family = "wasm")]
+pub type BoxedSorterFn = Box<dyn Sorter>;

@@ -18,7 +18,7 @@ use matrix_sdk::{
     Client as MatrixClient, ClientBuildError as MatrixClientBuildError, HttpError, IdParseError,
     RumaApiError, SqliteStoreConfig,
 };
-use matrix_sdk_common::runtime::get_runtime_handle;
+use matrix_sdk_common::{runtime::get_runtime_handle, SendOutsideWasm, SyncOutsideWasm};
 use ruma::api::error::{DeserializationError, FromHttpResponseError};
 use tracing::{debug, error};
 use zeroize::Zeroizing;
@@ -173,7 +173,7 @@ pub enum QrLoginProgress {
 }
 
 #[matrix_sdk_ffi_macros::export(callback_interface)]
-pub trait QrLoginProgressListener: Sync + Send {
+pub trait QrLoginProgressListener: SyncOutsideWasm + SendOutsideWasm {
     fn on_update(&self, state: QrLoginProgress);
 }
 
