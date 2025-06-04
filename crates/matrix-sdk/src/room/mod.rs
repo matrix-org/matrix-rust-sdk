@@ -28,9 +28,9 @@ use eyeball::SharedObservable;
 use futures_core::Stream;
 use futures_util::{future::join_all, stream::FuturesUnordered};
 use http::StatusCode;
-#[cfg(all(feature = "e2e-encryption", not(target_family = "wasm")))]
+#[cfg(feature = "e2e-encryption")]
 pub use identity_status_changes::IdentityStatusChanges;
-#[cfg(all(feature = "e2e-encryption", not(target_family = "wasm")))]
+#[cfg(feature = "e2e-encryption")]
 use matrix_sdk_base::crypto::{IdentityStatusChange, RoomIdentityProvider, UserIdentity};
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk_base::{
@@ -47,7 +47,7 @@ use matrix_sdk_base::{
     ComposerDraft, EncryptionState, RoomInfoNotableUpdateReasons, RoomMemberships, SendOutsideWasm,
     StateChanges, StateStoreDataKey, StateStoreDataValue,
 };
-#[cfg(all(feature = "e2e-encryption", not(target_family = "wasm")))]
+#[cfg(feature = "e2e-encryption")]
 use matrix_sdk_common::BoxFuture;
 use matrix_sdk_common::{
     deserialized_responses::TimelineEvent,
@@ -583,7 +583,7 @@ impl Room {
     /// Note that if a user who is in pin violation leaves the room, a `Pinned`
     /// update is sent, to indicate that the warning should be removed, even
     /// though the user's identity is not necessarily pinned.
-    #[cfg(all(feature = "e2e-encryption", not(target_family = "wasm")))]
+    #[cfg(feature = "e2e-encryption")]
     pub async fn subscribe_to_identity_status_changes(
         &self,
     ) -> Result<impl Stream<Item = Vec<IdentityStatusChange>>> {
@@ -3709,7 +3709,7 @@ impl Room {
     }
 }
 
-#[cfg(all(feature = "e2e-encryption", not(target_family = "wasm")))]
+#[cfg(feature = "e2e-encryption")]
 impl RoomIdentityProvider for Room {
     fn is_member<'a>(&'a self, user_id: &'a UserId) -> BoxFuture<'a, bool> {
         Box::pin(async { self.get_member(user_id).await.unwrap_or(None).is_some() })
@@ -4019,7 +4019,7 @@ pub struct RoomMemberWithSenderInfo {
     pub sender_info: Option<RoomMember>,
 }
 
-#[cfg(all(test, not(target_family = "wasm")))]
+#[cfg(test)]
 mod tests {
     use matrix_sdk_base::{store::ComposerDraftType, ComposerDraft};
     use matrix_sdk_test::{

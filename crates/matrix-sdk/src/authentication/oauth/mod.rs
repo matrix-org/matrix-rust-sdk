@@ -174,7 +174,7 @@ use error::{
     OAuthAuthorizationCodeError, OAuthClientRegistrationError, OAuthDiscoveryError,
     OAuthTokenRevocationError, RedirectUriQueryParseError,
 };
-#[cfg(all(feature = "e2e-encryption", not(target_family = "wasm")))]
+#[cfg(feature = "e2e-encryption")]
 use matrix_sdk_base::crypto::types::qr_login::QrCodeData;
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk_base::once_cell::sync::OnceCell;
@@ -208,7 +208,7 @@ mod cross_process;
 pub mod error;
 mod http_client;
 mod oidc_discovery;
-#[cfg(all(feature = "e2e-encryption", not(target_family = "wasm")))]
+#[cfg(feature = "e2e-encryption")]
 pub mod qrcode;
 pub mod registration;
 #[cfg(all(test, not(target_family = "wasm")))]
@@ -216,7 +216,7 @@ mod tests;
 
 #[cfg(feature = "e2e-encryption")]
 use self::cross_process::{CrossProcessRefreshLockGuard, CrossProcessRefreshManager};
-#[cfg(all(feature = "e2e-encryption", not(target_family = "wasm")))]
+#[cfg(feature = "e2e-encryption")]
 use self::qrcode::LoginWithQrCode;
 pub use self::{
     account_management_url::{AccountManagementActionFull, AccountManagementUrlBuilder},
@@ -454,7 +454,7 @@ impl OAuth {
     /// println!("Successfully logged in: {:?} {:?}", client.user_id(), client.device_id());
     /// # anyhow::Ok(()) };
     /// ```
-    #[cfg(all(feature = "e2e-encryption", not(target_family = "wasm")))]
+    #[cfg(feature = "e2e-encryption")]
     pub fn login_with_qr_code<'a>(
         &'a self,
         data: &'a QrCodeData,
@@ -1154,7 +1154,7 @@ impl OAuth {
 
     /// Request codes from the authorization server for logging in with another
     /// device.
-    #[cfg(all(feature = "e2e-encryption", not(target_family = "wasm")))]
+    #[cfg(feature = "e2e-encryption")]
     async fn request_device_authorization(
         &self,
         server_metadata: &AuthorizationServerMetadata,
@@ -1182,7 +1182,7 @@ impl OAuth {
     }
 
     /// Exchange the device code against an access token.
-    #[cfg(all(feature = "e2e-encryption", not(target_family = "wasm")))]
+    #[cfg(feature = "e2e-encryption")]
     async fn exchange_device_code(
         &self,
         server_metadata: &AuthorizationServerMetadata,

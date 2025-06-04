@@ -13,7 +13,7 @@
 // limitations under the License.
 
 //! Facility to track changes to the identity of members of rooms.
-#![cfg(all(feature = "e2e-encryption", not(target_family = "wasm")))]
+#![cfg(feature = "e2e-encryption")]
 
 use std::collections::BTreeMap;
 
