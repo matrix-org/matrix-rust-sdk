@@ -31,7 +31,7 @@ use futures_util::StreamExt;
 use matrix_sdk_base::crypto::store::LockableCryptoStore;
 use matrix_sdk_base::{
     event_cache::store::EventCacheStoreLock,
-    store::{DynStateStore, RoomLoadSettings, ServerInfo},
+    store::{DynStateStore, RoomLoadSettings, ServerInfo, WellKnownResponse},
     sync::{Notification, RoomUpdates},
     BaseClient, RoomInfoNotableUpdate, RoomState, RoomStateFilter, SendOutsideWasm, SessionMeta,
     StateStoreDataKey, StateStoreDataValue, SyncOutsideWasm,
@@ -47,6 +47,8 @@ use ruma::{
             device::{delete_devices, get_devices, update_device},
             directory::{get_public_rooms, get_public_rooms_filtered},
             discovery::{
+                discover_homeserver,
+                discover_homeserver::RtcFocusInfo,
                 get_capabilities::{self, Capabilities},
                 get_supported_versions,
             },
@@ -1740,8 +1742,8 @@ impl Client {
     pub async fn fetch_server_versions(
         &self,
         request_config: Option<RequestConfig>,
-    ) -> HttpResult<(Vec<String>, BTreeMap<String, bool>)> {
-        let resp = self
+    ) -> HttpResult<get_supported_versions::Response> {
+        let server_versions = self
             .inner
             .http_client
             .send(
@@ -1754,7 +1756,42 @@ impl Client {
             )
             .await?;
 
-        Ok((resp.versions, resp.unstable_features))
+        Ok(server_versions)
+    }
+
+    /// Fetches client well_known from network; no caching.
+    pub async fn fetch_client_well_known(&self) -> Option<discover_homeserver::Response> {
+        let server_url_string = self
+            .server()
+            .unwrap_or(
+                // Sometimes people configure their well-known directly on the homeserver so use
+                // this as a fallback when the server name is unknown.
+                &self.homeserver(),
+            )
+            .to_string();
+
+        let well_known = self
+            .inner
+            .http_client
+            .send(
+                discover_homeserver::Request::new(),
+                Some(RequestConfig::short_retry()),
+                server_url_string,
+                None,
+                &[MatrixVersion::V1_0],
+                Default::default(),
+            )
+            .await;
+
+        match well_known {
+            Ok(well_known) => Some(well_known),
+            Err(http_error) => {
+                // It is perfectly valid to not have a well-known file.
+                // Maybe we should check for a specific error code to be sure?
+                warn!("Failed to fetch client well-known: {http_error}");
+                None
+            }
+        }
     }
 
     /// Load server info from storage, or fetch them from network and cache
@@ -1777,8 +1814,13 @@ impl Client {
             }
         }
 
-        let (versions, unstable_features) = self.fetch_server_versions(None).await?;
-        let server_info = ServerInfo::new(versions.clone(), unstable_features.clone());
+        let server_versions = self.fetch_server_versions(None).await?;
+        let well_known = self.fetch_client_well_known().await;
+        let server_info = ServerInfo::new(
+            server_versions.versions.clone(),
+            server_versions.unstable_features.clone(),
+            well_known.map(Into::into),
+        );
 
         // Attempt to cache the result in storage.
         {
@@ -1821,6 +1863,7 @@ impl Client {
 
         guard.server_versions = Some(versions.into());
         guard.unstable_features = Some(server_info.unstable_features);
+        guard.well_known = server_info.well_known;
 
         // SAFETY: both fields were set above, so the function will always return some.
         Ok(f(&guard).unwrap())
@@ -1869,6 +1912,36 @@ impl Client {
     pub async fn unstable_features(&self) -> HttpResult<BTreeMap<String, bool>> {
         self.get_or_load_and_cache_server_info(|server_info| server_info.unstable_features.clone())
             .await
+    }
+
+    /// Get information about the homeserver's advertised RTC foci by fetching
+    /// the well-known file from the server or the cache.
+    ///
+    /// # Examples
+    /// ```no_run
+    /// # use matrix_sdk::{Client, config::SyncSettings, ruma::api::client::discovery::discover_homeserver::RtcFocusInfo};
+    /// # use url::Url;
+    /// # async {
+    /// # let homeserver = Url::parse("http://localhost:8080")?;
+    /// # let mut client = Client::new(homeserver).await?;
+    /// let rtc_foci = client.rtc_foci().await?;
+    /// let default_livekit_focus_info = rtc_foci.iter().find_map(|focus| match focus {
+    ///     RtcFocusInfo::LiveKit(info) => Some(info),
+    ///     _ => None,
+    /// });
+    /// if let Some(info) = default_livekit_focus_info {
+    ///     println!("Default LiveKit service URL: {}", info.service_url);
+    /// }
+    /// # anyhow::Ok(()) };
+    /// ```
+    pub async fn rtc_foci(&self) -> HttpResult<Vec<RtcFocusInfo>> {
+        self.get_or_load_and_cache_server_info(|server_info| {
+            server_info
+                .well_known
+                .as_ref()
+                .and_then(|well_known| well_known.rtc_foci.clone().into())
+        })
+        .await
     }
 
     /// Empty the server version and unstable features cache.
@@ -2625,6 +2698,8 @@ struct ClientServerInfo {
 
     /// The unstable features and their on/off state on the server.
     unstable_features: Option<BTreeMap<String, bool>>,
+
+    well_known: Option<WellKnownResponse>,
 }
 
 // The http mocking library is not supported for wasm32
@@ -2649,7 +2724,13 @@ pub(crate) mod tests {
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
     use ruma::{
-        api::{client::room::create_room::v3::Request as CreateRoomRequest, MatrixVersion},
+        api::{
+            client::{
+                discovery::discover_homeserver::RtcFocusInfo,
+                room::create_room::v3::Request as CreateRoomRequest,
+            },
+            MatrixVersion,
+        },
         assign,
         events::{
             ignored_user_list::IgnoredUserListEventContent,
@@ -3046,16 +3127,17 @@ pub(crate) mod tests {
         let server_url = server.uri();
         let domain = server_url.strip_prefix("http://").unwrap();
         let server_name = <&ServerName>::try_from(domain).unwrap();
+        let rtc_foci = vec![RtcFocusInfo::livekit("https://livekit.example.com".to_owned())];
 
-        Mock::given(method("GET"))
+        let well_known_mock = Mock::given(method("GET"))
             .and(path("/.well-known/matrix/client"))
             .respond_with(ResponseTemplate::new(200).set_body_raw(
                 test_json::WELL_KNOWN.to_string().replace("HOMESERVER_URL", server_url.as_ref()),
                 "application/json",
             ))
             .named("well known mock")
-            .expect(2)
-            .mount(&server)
+            .expect(2) // One for ClientBuilder discovery, one for the ServerInfo cache.
+            .mount_as_scoped(&server)
             .await;
 
         let versions_mock = Mock::given(method("GET"))
@@ -3079,13 +3161,14 @@ pub(crate) mod tests {
 
         assert_eq!(client.server_versions().await.unwrap().len(), 1);
 
-        // This second call hits the in-memory cache.
+        // These subsequent calls hit the in-memory cache.
         assert!(client.server_versions().await.unwrap().contains(&MatrixVersion::V1_0));
+        assert_eq!(client.rtc_foci().await.unwrap(), rtc_foci);
 
         drop(client);
 
         let client = Client::builder()
-            .insecure_server_name_no_tls(server_name)
+            .homeserver_url(server.uri()) // Configure this client directly so as to not hit the discovery endpoint.
             .store_config(
                 StoreConfig::new("cross-process-store-locks-holder-name".to_owned())
                     .state_store(memory_store.clone()),
@@ -3094,17 +3177,32 @@ pub(crate) mod tests {
             .await
             .unwrap();
 
-        // This third call hits the on-disk cache.
+        // This call to the new client hits the on-disk cache.
         assert_eq!(
             client.unstable_features().await.unwrap().get("org.matrix.e2e_cross_signing"),
             Some(&true)
         );
 
+        // Then this call hits the in-memory cache.
+        assert_eq!(client.rtc_foci().await.unwrap(), rtc_foci);
+
         drop(versions_mock);
+        drop(well_known_mock);
         server.verify().await;
 
-        // Now, reset the cache, and observe the endpoint being called again once.
+        // Now, reset the cache, and observe the endpoints being called again once.
         client.reset_server_info().await.unwrap();
+
+        Mock::given(method("GET"))
+            .and(path("/.well-known/matrix/client"))
+            .respond_with(ResponseTemplate::new(200).set_body_raw(
+                test_json::WELL_KNOWN.to_string().replace("HOMESERVER_URL", server_url.as_ref()),
+                "application/json",
+            ))
+            .named("second well known mock")
+            .expect(1)
+            .mount(&server)
+            .await;
 
         Mock::given(method("GET"))
             .and(path("/_matrix/client/versions"))
@@ -3118,6 +3216,7 @@ pub(crate) mod tests {
         assert_eq!(client.server_versions().await.unwrap().len(), 1);
         // Hits in-memory cache again.
         assert!(client.server_versions().await.unwrap().contains(&MatrixVersion::V1_0));
+        assert_eq!(client.rtc_foci().await.unwrap(), rtc_foci);
     }
 
     #[async_test]

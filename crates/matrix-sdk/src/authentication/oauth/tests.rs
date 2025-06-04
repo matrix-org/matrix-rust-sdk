@@ -516,7 +516,7 @@ async fn test_insecure_clients() -> anyhow::Result<()> {
     let server = MatrixMockServer::new().await;
     let server_url = server.server().uri();
 
-    server.mock_well_known().ok().expect(1).named("well_known").mount().await;
+    server.mock_well_known().ok().expect(1..).named("well_known").mount().await;
     server.mock_versions().ok().expect(1..).named("versions").mount().await;
 
     let oauth_server = server.oauth();

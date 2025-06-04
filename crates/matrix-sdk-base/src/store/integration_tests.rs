@@ -7,7 +7,10 @@ use assert_matches2::assert_let;
 use growable_bloom_filter::GrowableBloomBuilder;
 use matrix_sdk_test::{event_factory::EventFactory, test_json};
 use ruma::{
-    api::MatrixVersion,
+    api::{
+        client::discovery::discover_homeserver::{HomeserverInfo, RtcFocusInfo},
+        MatrixVersion,
+    },
     event_id,
     events::{
         presence::PresenceEvent,
@@ -34,7 +37,7 @@ use serde_json::{json, value::Value as JsonValue};
 
 use super::{
     send_queue::SentRequestKey, DependentQueuedRequestKind, DisplayName, DynStateStore,
-    RoomLoadSettings, ServerInfo,
+    RoomLoadSettings, ServerInfo, WellKnownResponse,
 };
 use crate::{
     deserialized_responses::MemberEvent,
@@ -477,6 +480,12 @@ impl StateStoreIntegrationTests for DynStateStore {
         let server_info = ServerInfo::new(
             versions.iter().map(|version| version.to_string()).collect(),
             [("org.matrix.experimental".to_owned(), true)].into(),
+            Some(WellKnownResponse {
+                homeserver: HomeserverInfo::new("matrix.example.com".to_owned()),
+                identity_server: None,
+                tile_server: None,
+                rtc_foci: vec![RtcFocusInfo::livekit("livekit.example.com".to_owned())],
+            }),
         );
 
         self.set_kv_data(
