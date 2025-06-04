@@ -21,100 +21,82 @@ use matrix_sdk_base::{
     event_cache::store::EventCacheStoreLock,
     linked_chunk::{LinkedChunkId, Position},
 };
-use ruma::{OwnedEventId, OwnedRoomId};
+use ruma::{OwnedEventId, RoomId};
 
 use super::{
     room::events::{Event, RoomEvents},
     EventCacheError,
 };
 
-/// An events deduplication mechanism based on the persistent storage associated
-/// to the event cache.
-///
-/// It will use queries to the persistent storage to figure when events are
-/// duplicates or not, making it entirely stateless.
-pub struct Deduplicator {
-    /// The room this deduplicator applies to.
-    room_id: OwnedRoomId,
-    /// The actual event cache store implementation used to query events.
-    store: EventCacheStoreLock,
-}
+/// Find duplicates in the given collection of events, and return both
+/// valid events (those with an event id) as well as the event ids of
+/// duplicate events along with their position.
+pub async fn filter_duplicate_events(
+    room_id: &RoomId,
+    store: &EventCacheStoreLock,
+    mut events: Vec<Event>,
+    room_events: &RoomEvents,
+) -> Result<DeduplicationOutcome, EventCacheError> {
+    // Remove all events with no ID, or that is duplicated inside `events`, i.e.
+    // `events` contains duplicated events in itself, e.g. `[$e0, $e1, $e0]`, here
+    // `$e0` is duplicated in within `events`.
+    {
+        let mut event_ids = BTreeSet::new();
 
-impl Deduplicator {
-    /// Create a new instance of a [`StoreDeduplicator`].
-    pub fn new(room_id: OwnedRoomId, store: EventCacheStoreLock) -> Self {
-        Self { room_id, store }
-    }
+        events.retain(|event| {
+            let Some(event_id) = event.event_id() else {
+                // No event ID? Bye bye.
+                return false;
+            };
 
-    /// Find duplicates in the given collection of events, and return both
-    /// valid events (those with an event id) as well as the event ids of
-    /// duplicate events along with their position.
-    pub async fn filter_duplicate_events(
-        &self,
-        mut events: Vec<Event>,
-        room_events: &RoomEvents,
-    ) -> Result<DeduplicationOutcome, EventCacheError> {
-        // Remove all events with no ID, or that is duplicated inside `events`, i.e.
-        // `events` contains duplicated events in itself, e.g. `[$e0, $e1, $e0]`, here
-        // `$e0` is duplicated in within `events`.
-        {
-            let mut event_ids = BTreeSet::new();
-
-            events.retain(|event| {
-                let Some(event_id) = event.event_id() else {
-                    // No event ID? Bye bye.
-                    return false;
-                };
-
-                // Already seen this event in `events`? Bye bye.
-                if event_ids.contains(&event_id) {
-                    return false;
-                }
-
-                event_ids.insert(event_id);
-
-                // Let's keep this event!
-                true
-            });
-        }
-
-        let store = self.store.lock().await?;
-
-        // Let the store do its magic ✨
-        let duplicated_event_ids = store
-            .filter_duplicated_events(
-                LinkedChunkId::Room(&self.room_id),
-                events.iter().filter_map(|event| event.event_id()).collect(),
-            )
-            .await?;
-
-        // Separate duplicated events in two collections: ones that are in-memory, ones
-        // that are in the store.
-        let (in_memory_duplicated_event_ids, in_store_duplicated_event_ids) = {
-            // Collect all in-memory chunk identifiers.
-            let in_memory_chunk_identifiers =
-                room_events.chunks().map(|chunk| chunk.identifier()).collect::<Vec<_>>();
-
-            let mut in_memory = vec![];
-            let mut in_store = vec![];
-
-            for (duplicated_event_id, position) in duplicated_event_ids {
-                if in_memory_chunk_identifiers.contains(&position.chunk_identifier()) {
-                    in_memory.push((duplicated_event_id, position));
-                } else {
-                    in_store.push((duplicated_event_id, position));
-                }
+            // Already seen this event in `events`? Bye bye.
+            if event_ids.contains(&event_id) {
+                return false;
             }
 
-            (in_memory, in_store)
-        };
+            event_ids.insert(event_id);
 
-        Ok(DeduplicationOutcome {
-            all_events: events,
-            in_memory_duplicated_event_ids,
-            in_store_duplicated_event_ids,
-        })
+            // Let's keep this event!
+            true
+        });
     }
+
+    let store = store.lock().await?;
+
+    // Let the store do its magic ✨
+    let duplicated_event_ids = store
+        .filter_duplicated_events(
+            LinkedChunkId::Room(room_id),
+            events.iter().filter_map(|event| event.event_id()).collect(),
+        )
+        .await?;
+
+    // Separate duplicated events in two collections: ones that are in-memory, ones
+    // that are in the store.
+    let (in_memory_duplicated_event_ids, in_store_duplicated_event_ids) = {
+        // Collect all in-memory chunk identifiers.
+        let in_memory_chunk_identifiers =
+            room_events.chunks().map(|chunk| chunk.identifier()).collect::<Vec<_>>();
+
+        let mut in_memory = vec![];
+        let mut in_store = vec![];
+
+        for (duplicated_event_id, position) in duplicated_event_ids {
+            if in_memory_chunk_identifiers.contains(&position.chunk_identifier()) {
+                in_memory.push((duplicated_event_id, position));
+            } else {
+                in_store.push((duplicated_event_id, position));
+            }
+        }
+
+        (in_memory, in_store)
+    };
+
+    Ok(DeduplicationOutcome {
+        all_events: events,
+        in_memory_duplicated_event_ids,
+        in_store_duplicated_event_ids,
+    })
 }
 
 pub(super) struct DeduplicationOutcome {
@@ -217,17 +199,17 @@ mod tests {
 
         let event_cache_store = EventCacheStoreLock::new(event_cache_store, "hodor".to_owned());
 
-        let deduplicator = Deduplicator::new(room_id.to_owned(), event_cache_store);
         let mut room_events = RoomEvents::new();
         room_events.push_events([event_2.clone(), event_3.clone()]);
 
-        let outcome = deduplicator
-            .filter_duplicate_events(
-                vec![event_0, event_1, event_2, event_3, event_4],
-                &room_events,
-            )
-            .await
-            .unwrap();
+        let outcome = filter_duplicate_events(
+            room_id,
+            &event_cache_store,
+            vec![event_0, event_1, event_2, event_3, event_4],
+            &room_events,
+        )
+        .await
+        .unwrap();
 
         // The deduplication says 5 events are valid.
         assert_eq!(outcome.all_events.len(), 5);
@@ -324,17 +306,19 @@ mod tests {
         // Wrap the store into its lock.
         let event_cache_store = EventCacheStoreLock::new(event_cache_store, "hodor".to_owned());
 
-        let deduplicator = Deduplicator::new(room_id.to_owned(), event_cache_store);
-
         let room_events = RoomEvents::new();
         let DeduplicationOutcome {
             all_events: events,
             in_memory_duplicated_event_ids,
             in_store_duplicated_event_ids,
-        } = deduplicator
-            .filter_duplicate_events(vec![ev1, ev2, ev3, ev4], &room_events)
-            .await
-            .unwrap();
+        } = filter_duplicate_events(
+            room_id,
+            &event_cache_store,
+            vec![ev1, ev2, ev3, ev4],
+            &room_events,
+        )
+        .await
+        .unwrap();
 
         assert_eq!(events.len(), 3);
         assert_eq!(events[0].event_id().as_deref(), Some(eid1));
