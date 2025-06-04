@@ -1502,28 +1502,22 @@ impl Room {
             sender_device_trust_requirement: self.client.base_client().decryption_trust_requirement,
         };
 
-        let mut event: TimelineEvent = match machine
+        match machine
             .try_decrypt_room_event(event.cast_ref(), self.inner.room_id(), &decryption_settings)
             .await?
         {
             RoomEventDecryptionResult::Decrypted(decrypted) => {
-                // Note: the push actions are set just afterwards.
-                TimelineEvent::from_decrypted(decrypted, None)
+                let push_actions = push_ctx.map(|push_ctx| push_ctx.for_event(&decrypted.event));
+                Ok(TimelineEvent::from_decrypted(decrypted, push_actions))
             }
             RoomEventDecryptionResult::UnableToDecrypt(utd_info) => {
                 self.client
                     .encryption()
                     .backups()
                     .maybe_download_room_key(self.room_id().to_owned(), event.clone());
-                TimelineEvent::new_utd_event(event.clone().cast(), utd_info)
+                Ok(TimelineEvent::new_utd_event(event.clone().cast(), utd_info))
             }
-        };
-
-        if let Some(push_ctx) = push_ctx {
-            event.set_push_actions(push_ctx.for_event(event.raw()));
         }
-
-        Ok(event)
     }
 
     /// Fetches the [`EncryptionInfo`] for the supplied session_id.
