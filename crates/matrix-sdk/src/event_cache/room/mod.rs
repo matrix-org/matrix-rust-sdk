@@ -390,16 +390,6 @@ impl RoomEventCacheInner {
 
         let mut state = self.state.write().await;
 
-        // Ditch the previous-batch token if the sync isn't limited and we've seen at
-        // least one event in the past.
-        //
-        // In this case (and only this one), we should definitely know what the head of
-        // the timeline is (either we know about all the events, or we have a
-        // gap somewhere), since storage is enabled by default.
-        if !timeline.limited && state.events().events().next().is_some() {
-            prev_batch = None;
-        }
-
         let (
             DeduplicationOutcome {
                 all_events: events,
@@ -408,6 +398,22 @@ impl RoomEventCacheInner {
             },
             all_duplicates,
         ) = state.collect_valid_and_duplicated_events(timeline.events).await?;
+
+        // If the timeline isn't limited, and we already knew about some past events,
+        // then this definitely know what the timeline head is (either we know
+        // about all the events persisted in storage, or we have a gap
+        // somewhere). In this case, we can ditch the previous-batch
+        // token, which is an optimization to avoid unnecessary future back-pagination
+        // requests.
+        //
+        // We can also ditch it, if we knew about all the events that came from sync,
+        // viz. they were all deduplicated. In this case, using the
+        // previous-batch token would only result in fetching other events we
+        // knew about. This is slightly incorrect in the presence of
+        // network splits, but this has shown to be Good Enough™.
+        if !timeline.limited && state.events().events().next().is_some() || all_duplicates {
+            prev_batch = None;
+        }
 
         // During a sync, when a duplicated event is found, the old event is removed and
         // the new event is added.
@@ -434,23 +440,20 @@ impl RoomEventCacheInner {
                     // there was a gap, we'd have received an unknown event at the tail of
                     // the room's timeline (unless the server reordered sync events since the last
                     // time we sync'd).
-                    if !all_duplicates {
-                        if let Some(prev_token) = &prev_batch {
-                            // As a tiny optimization: remove the last chunk if it's an empty event
-                            // one, as it's not useful to keep it before a gap.
-                            let prev_chunk_to_remove =
-                                room_events.rchunks().next().and_then(|chunk| {
-                                    (chunk.is_items() && chunk.num_items() == 0)
-                                        .then_some(chunk.identifier())
-                                });
+                    if let Some(prev_token) = &prev_batch {
+                        // As a tiny optimization: remove the last chunk if it's an empty event
+                        // one, as it's not useful to keep it before a gap.
+                        let prev_chunk_to_remove = room_events.rchunks().next().and_then(|chunk| {
+                            (chunk.is_items() && chunk.num_items() == 0)
+                                .then_some(chunk.identifier())
+                        });
 
-                            room_events.push_gap(Gap { prev_token: prev_token.clone() });
+                        room_events.push_gap(Gap { prev_token: prev_token.clone() });
 
-                            if let Some(prev_chunk_to_remove) = prev_chunk_to_remove {
-                                room_events.remove_empty_chunk_at(prev_chunk_to_remove).expect(
-                                    "we just checked the chunk is there, and it's an empty item chunk",
-                                );
-                            }
+                        if let Some(prev_chunk_to_remove) = prev_chunk_to_remove {
+                            room_events.remove_empty_chunk_at(prev_chunk_to_remove).expect(
+                                "we just checked the chunk is there, and it's an empty item chunk",
+                            );
                         }
                     }
 
@@ -462,11 +465,10 @@ impl RoomEventCacheInner {
 
             timeline_event_diffs.extend(new_timeline_event_diffs);
 
-            if timeline.limited && prev_batch.is_some() && !all_duplicates {
-                // If there was a previous batch token for a limited timeline, and there's at
-                // least one non-duplicated new event, unload the chunks so it
-                // only contains the last one; otherwise, there might be a valid
-                // gap in between, and observers may not render it (yet).
+            if timeline.limited && prev_batch.is_some() {
+                // If there was a previous batch token for a limited timeline, unload the chunks
+                // so it only contains the last one; otherwise, there might be a
+                // valid gap in between, and observers may not render it (yet).
                 //
                 // We must do this *after* the above call to `.with_events_mut`, so the new
                 // events and gaps are properly persisted to storage.
