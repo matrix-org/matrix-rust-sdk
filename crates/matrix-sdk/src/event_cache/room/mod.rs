@@ -1083,14 +1083,6 @@ mod private {
                 self.analyze_thread_root(event, is_live_sync).await?;
             }
 
-            // If we've never waited for an initial previous-batch token, and we now have at
-            // least one gap in the chunk, no need to wait for a previous-batch token later.
-            if !self.waited_for_initial_prev_token
-                && self.events.chunks().any(|chunk| chunk.is_gap())
-            {
-                self.waited_for_initial_prev_token = true;
-            }
-
             Ok(())
         }
 
@@ -1367,6 +1359,12 @@ mod private {
                 events
             })
             .await?;
+
+            // If we've never waited for an initial previous-batch token, and we've now
+            // inserted a gap, no need to wait for a previous-batch token later.
+            if !self.waited_for_initial_prev_token && prev_batch.is_some() {
+                self.waited_for_initial_prev_token = true;
+            }
 
             if timeline.limited && prev_batch.is_some() {
                 // If there was a previous batch token for a limited timeline, unload the chunks
