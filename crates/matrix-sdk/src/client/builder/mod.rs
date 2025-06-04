@@ -525,7 +525,7 @@ impl ClientBuilder {
         let http_client = HttpClient::new(inner_http_client.clone(), self.request_config);
 
         #[allow(unused_variables)]
-        let HomeserverDiscoveryResult { server, homeserver, supported_versions } =
+        let HomeserverDiscoveryResult { server, homeserver, supported_versions, well_known } =
             homeserver_cfg.discover(&http_client).await?;
 
         let sliding_sync_version = {
@@ -560,8 +560,11 @@ impl ClientBuilder {
         // Enable the send queue by default.
         let send_queue = Arc::new(SendQueueData::new(true));
 
-        let server_info =
-            ClientServerInfo { server_versions: self.server_versions, unstable_features: None };
+        let server_info = ClientServerInfo {
+            server_versions: self.server_versions,
+            unstable_features: None,
+            well_known: well_known.map(Into::into),
+        };
 
         let event_cache = OnceCell::new();
         let inner = ClientInner::new(

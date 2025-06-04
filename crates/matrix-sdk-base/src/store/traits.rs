@@ -24,7 +24,16 @@ use async_trait::async_trait;
 use growable_bloom_filter::GrowableBloom;
 use matrix_sdk_common::AsyncTraitDeps;
 use ruma::{
-    api::{client::discovery::get_supported_versions, MatrixVersion},
+    api::{
+        client::discovery::{
+            discover_homeserver,
+            discover_homeserver::{
+                HomeserverInfo, IdentityServerInfo, RtcFocusInfo, TileServerInfo,
+            },
+            get_supported_versions,
+        },
+        MatrixVersion,
+    },
     events::{
         presence::PresenceEvent,
         receipt::{Receipt, ReceiptThread, ReceiptType},
@@ -960,6 +969,10 @@ pub struct ServerInfo {
     /// List of unstable features and their enablement status.
     pub unstable_features: BTreeMap<String, bool>,
 
+    /// Information about the server found in the client well-known file.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub well_known: Option<WellKnownResponse>,
+
     /// Last time we fetched this data from the server, in milliseconds since
     /// epoch.
     last_fetch_ts: f64,
@@ -970,8 +983,12 @@ impl ServerInfo {
     pub const STALE_THRESHOLD: f64 = (1000 * 60 * 60 * 24 * 7) as _; // seven days
 
     /// Encode server info into this serializable struct.
-    pub fn new(versions: Vec<String>, unstable_features: BTreeMap<String, bool>) -> Self {
-        Self { versions, unstable_features, last_fetch_ts: now_timestamp_ms() }
+    pub fn new(
+        versions: Vec<String>,
+        unstable_features: BTreeMap<String, bool>,
+        well_known: Option<WellKnownResponse>,
+    ) -> Self {
+        Self { versions, unstable_features, well_known, last_fetch_ts: now_timestamp_ms() }
     }
 
     /// Decode server info from this serializable struct.
@@ -995,6 +1012,33 @@ impl ServerInfo {
         get_supported_versions::Response::new(self.versions.clone())
             .known_versions()
             .collect::<Vec<_>>()
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+/// A serialisable representation of discover_homeserver::Response.
+pub struct WellKnownResponse {
+    /// Information about the homeserver to connect to.
+    pub homeserver: HomeserverInfo,
+
+    /// Information about the identity server to connect to.
+    pub identity_server: Option<IdentityServerInfo>,
+
+    /// Information about the tile server to use to display location data.
+    pub tile_server: Option<TileServerInfo>,
+
+    /// A list of the available MatrixRTC foci, ordered by priority.
+    pub rtc_foci: Vec<RtcFocusInfo>,
+}
+
+impl From<discover_homeserver::Response> for WellKnownResponse {
+    fn from(response: discover_homeserver::Response) -> Self {
+        Self {
+            homeserver: response.homeserver,
+            identity_server: response.identity_server,
+            tile_server: response.tile_server,
+            rtc_foci: response.rtc_foci,
+        }
     }
 }
 
@@ -1180,6 +1224,7 @@ mod tests {
         let mut server_info = ServerInfo {
             versions: Default::default(),
             unstable_features: Default::default(),
+            well_known: Default::default(),
             last_fetch_ts: now_timestamp_ms() - ServerInfo::STALE_THRESHOLD - 1.0,
         };
 

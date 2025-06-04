@@ -52,6 +52,9 @@ No notable changes in this release.
   ([#4897](https://github.com/matrix-org/matrix-rust-sdk/pull/4897))
 - [**breaking**] `RoomInfo::prev_state` has been removed due to being useless.
   ([#5054](https://github.com/matrix-org/matrix-rust-sdk/pull/5054))
+- The cached `ServerCapabilities` has been renamed to `ServerInfo` and additionally contains
+  the well-known response alongside the existing server versions. Despite the old name, it
+  does not contain the server capabilities (yet?!).
 
 ## [0.10.0] - 2025-02-04
 
