@@ -947,7 +947,7 @@ fn utd_event_with_unsigned(unsigned: serde_json::Value) -> TimelineEvent {
         .unwrap(),
     );
 
-    TimelineEvent::new_utd_event(
+    TimelineEvent::from_utd(
         raw,
         matrix_sdk::deserialized_responses::UnableToDecryptInfo {
             session_id: Some("SESSION_ID".into()),

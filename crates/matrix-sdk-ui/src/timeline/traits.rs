@@ -346,7 +346,7 @@ impl Decryptor for (matrix_sdk_base::crypto::OlmMachine, ruma::OwnedRoomId) {
                 Ok(TimelineEvent::from_decrypted(decrypted, push_actions))
             }
             RoomEventDecryptionResult::UnableToDecrypt(utd_info) => {
-                Ok(TimelineEvent::new_utd_event(raw.clone(), utd_info))
+                Ok(TimelineEvent::from_utd(raw.clone(), utd_info))
             }
         }
     }

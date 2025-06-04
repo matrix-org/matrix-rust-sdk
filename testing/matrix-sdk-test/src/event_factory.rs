@@ -327,7 +327,7 @@ impl EventBuilder<RoomEncryptedEventContent> {
         let session_id = as_variant!(&self.content.scheme, EncryptedEventScheme::MegolmV1AesSha2)
             .map(|content| content.session_id.clone());
 
-        TimelineEvent::new_utd_event(
+        TimelineEvent::from_utd(
             self.into(),
             UnableToDecryptInfo {
                 session_id,
