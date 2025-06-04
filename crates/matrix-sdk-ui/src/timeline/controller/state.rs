@@ -162,9 +162,8 @@ impl TimelineState {
     ) {
         // Only add new items if the timeline is live.
         let should_add_new_items = match self.timeline_focus {
-            TimelineFocusKind::Live => true,
+            TimelineFocusKind::Live | TimelineFocusKind::Thread { .. } => true,
             TimelineFocusKind::Event | TimelineFocusKind::PinnedEvents => false,
-            TimelineFocusKind::Thread => false,
         };
 
         let ctx = TimelineEventContext {
@@ -297,6 +296,6 @@ impl TimelineState {
     }
 
     pub(super) fn transaction(&mut self) -> TimelineStateTransaction<'_> {
-        TimelineStateTransaction::new(&mut self.items, &mut self.meta, self.timeline_focus)
+        TimelineStateTransaction::new(&mut self.items, &mut self.meta, self.timeline_focus.clone())
     }
 }
