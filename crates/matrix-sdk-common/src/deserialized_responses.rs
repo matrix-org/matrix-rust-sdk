@@ -559,15 +559,6 @@ impl TimelineEvent {
     }
 }
 
-// Note: it's the responsibility of the caller to fill the `push_actions` field,
-// if necessary.
-impl From<DecryptedRoomEvent> for TimelineEvent {
-    fn from(decrypted: DecryptedRoomEvent) -> Self {
-        let thread_summary = extract_bundled_thread_summary(decrypted.event.cast_ref());
-        Self { kind: TimelineEventKind::Decrypted(decrypted), push_actions: None, thread_summary }
-    }
-}
-
 impl<'de> Deserialize<'de> for TimelineEvent {
     /// Custom deserializer for [`TimelineEvent`], to support older formats.
     ///
