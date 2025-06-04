@@ -1172,9 +1172,15 @@ mod private {
             // Update the store before doing the post-processing.
             self.propagate_changes().await?;
 
-            for event in &events_to_post_process {
-                self.maybe_apply_new_redaction(event).await?;
-                self.analyze_thread_root(event, is_live_sync).await?;
+            for event in events_to_post_process {
+                self.maybe_apply_new_redaction(&event).await?;
+
+                self.analyze_thread_root(&event, is_live_sync).await?;
+
+                // Save a bundled thread event, if there was one.
+                if let Some(bundled_thread) = event.bundled_latest_thread_event {
+                    self.save_event([*bundled_thread]).await?;
+                }
             }
 
             // If we've never waited for an initial previous-batch token, and we now have at
