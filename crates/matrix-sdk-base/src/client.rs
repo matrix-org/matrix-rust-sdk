@@ -624,7 +624,11 @@ impl BaseClient {
         }
 
         // Check if tombstoned rooms are not creating an invalid state, like a loop.
-        processors::state_events::check_tombstone(&mut context, &room_updates, &self.state_store)?;
+        processors::state_events::check_room_upgrades(
+            &mut context,
+            &room_updates,
+            &self.state_store,
+        )?;
 
         global_account_data_processor.apply(&mut context, &self.state_store).await;
 
