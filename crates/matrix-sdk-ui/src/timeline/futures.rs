@@ -49,7 +49,6 @@ impl<'a> SendAttachment<'a> {
     }
 
     /// Get a subscriber to observe the progress of sending the request body.
-    #[cfg(not(target_family = "wasm"))]
     pub fn subscribe_to_send_progress(&self) -> eyeball::Subscriber<TransmissionProgress> {
         self.send_progress.subscribe()
     }
