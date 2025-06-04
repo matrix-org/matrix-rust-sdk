@@ -837,6 +837,11 @@ where
 }
 
 /// Configuration for sending a gallery.
+///
+/// This duplicates [`matrix_sdk::attachment::GalleryConfig`] but uses an
+/// `AttachmentSource` so that we can delay loading the actual data until we're
+/// inside the SendGallery future. This allows [`Timeline::send_gallery`] to
+/// return early without blocking the caller.
 #[cfg(feature = "unstable-msc4274")]
 #[derive(Debug, Default)]
 pub struct GalleryConfig {
