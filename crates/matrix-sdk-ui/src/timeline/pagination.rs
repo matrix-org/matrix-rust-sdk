@@ -20,6 +20,7 @@ use matrix_sdk::event_cache::{self, EventCacheError, RoomPaginationStatus};
 use tracing::{instrument, warn};
 
 use super::Error;
+use crate::timeline::TimelineController;
 
 impl super::Timeline {
     /// Add more events to the start of the timeline.
@@ -112,7 +113,18 @@ impl super::Timeline {
 
         let mut status = pagination.status();
 
+        let insert_timeline_start_if_missing =
+            async |controller: &TimelineController, state| match state {
+                RoomPaginationStatus::Idle { hit_timeline_start } => {
+                    if hit_timeline_start {
+                        controller.insert_timeline_start_if_missing().await;
+                    }
+                }
+                RoomPaginationStatus::Paginating => {}
+            };
+
         let current_value = status.next_now();
+        insert_timeline_start_if_missing(&self.controller, current_value).await;
 
         let controller = self.controller.clone();
         let stream = Box::pin(stream! {
@@ -121,15 +133,7 @@ impl super::Timeline {
             pin_mut!(status_stream);
 
             while let Some(state) = status_stream.next().await {
-                match state {
-                    RoomPaginationStatus::Idle { hit_timeline_start } => {
-                        if hit_timeline_start {
-                            controller.insert_timeline_start_if_missing().await;
-                        }
-                    }
-                    RoomPaginationStatus::Paginating => {}
-                }
-
+                insert_timeline_start_if_missing(&controller, state).await;
                 yield state;
             }
         });
