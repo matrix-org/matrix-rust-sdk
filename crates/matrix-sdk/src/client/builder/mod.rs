@@ -563,7 +563,7 @@ impl ClientBuilder {
         let server_info = ClientServerInfo {
             server_versions: self.server_versions,
             unstable_features: None,
-            well_known: well_known.map(Into::into),
+            well_known: Some(well_known.map(Into::into)),
         };
 
         let event_cache = OnceCell::new();

@@ -1839,17 +1839,20 @@ impl Client {
         Ok(server_info)
     }
 
-    async fn get_or_load_and_cache_server_info<T, F: Fn(&ClientServerInfo) -> Option<T>>(
+    async fn get_or_load_and_cache_server_info<
+        Value,
+        MapFunction: Fn(&ClientServerInfo) -> Option<Value>,
+    >(
         &self,
-        f: F,
-    ) -> HttpResult<T> {
+        map: MapFunction,
+    ) -> HttpResult<Value> {
         let server_info = &self.inner.caches.server_info;
-        if let Some(val) = f(&*server_info.read().await) {
+        if let Some(val) = map(&*server_info.read().await) {
             return Ok(val);
         }
 
-        let mut guard = server_info.write().await;
-        if let Some(val) = f(&guard) {
+        let mut guarded_server_info = server_info.write().await;
+        if let Some(val) = map(&guarded_server_info) {
             return Ok(val);
         }
 
@@ -1861,12 +1864,13 @@ impl Client {
             versions.push(MatrixVersion::V1_0);
         }
 
-        guard.server_versions = Some(versions.into());
-        guard.unstable_features = Some(server_info.unstable_features);
-        guard.well_known = server_info.well_known;
+        guarded_server_info.server_versions = Some(versions.into());
+        guarded_server_info.unstable_features = Some(server_info.unstable_features);
+        guarded_server_info.well_known = Some(server_info.well_known);
 
-        // SAFETY: both fields were set above, so the function will always return some.
-        Ok(f(&guard).unwrap())
+        // SAFETY: all fields were set above, so (assuming the caller doesn't attempt to
+        // fetch an optional property), the function will always return some.
+        Ok(map(&guarded_server_info).unwrap())
     }
 
     /// Get the Matrix versions supported by the homeserver by fetching them
@@ -1935,13 +1939,11 @@ impl Client {
     /// # anyhow::Ok(()) };
     /// ```
     pub async fn rtc_foci(&self) -> HttpResult<Vec<RtcFocusInfo>> {
-        self.get_or_load_and_cache_server_info(|server_info| {
-            server_info
-                .well_known
-                .as_ref()
-                .and_then(|well_known| well_known.rtc_foci.clone().into())
-        })
-        .await
+        let well_known = self
+            .get_or_load_and_cache_server_info(|server_info| server_info.well_known.clone())
+            .await?;
+
+        Ok(well_known.map(|well_known| well_known.rtc_foci).unwrap_or_default())
     }
 
     /// Empty the server version and unstable features cache.
@@ -2693,13 +2695,18 @@ impl WeakClient {
 
 #[derive(Clone)]
 struct ClientServerInfo {
-    /// The Matrix versions the server supports (well-known ones only).
+    /// The Matrix versions the server supports (known ones only).
     server_versions: Option<Box<[MatrixVersion]>>,
 
     /// The unstable features and their on/off state on the server.
     unstable_features: Option<BTreeMap<String, bool>>,
 
-    well_known: Option<WellKnownResponse>,
+    /// The server's well-known file, if any.
+    ///
+    /// Note: The outer `Option` represents whether a value has been set or
+    /// not, and the inner `Option` represents whether the server has a
+    /// well-known file or not.
+    well_known: Option<Option<WellKnownResponse>>,
 }
 
 // The http mocking library is not supported for wasm32
@@ -3203,6 +3210,78 @@ pub(crate) mod tests {
             .expect(1)
             .mount(&server)
             .await;
+
+        Mock::given(method("GET"))
+            .and(path("/_matrix/client/versions"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(&*test_json::VERSIONS))
+            .expect(1)
+            .named("second versions mock")
+            .mount(&server)
+            .await;
+
+        // Hits network again.
+        assert_eq!(client.server_versions().await.unwrap().len(), 1);
+        // Hits in-memory cache again.
+        assert!(client.server_versions().await.unwrap().contains(&MatrixVersion::V1_0));
+        assert_eq!(client.rtc_foci().await.unwrap(), rtc_foci);
+    }
+
+    #[async_test]
+    async fn test_server_info_without_a_well_known() {
+        let server = MockServer::start().await;
+        let rtc_foci: Vec<RtcFocusInfo> = vec![];
+
+        let versions_mock = Mock::given(method("GET"))
+            .and(path("/_matrix/client/versions"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(&*test_json::VERSIONS))
+            .named("first versions mock")
+            .expect(1)
+            .mount_as_scoped(&server)
+            .await;
+
+        let memory_store = Arc::new(MemoryStore::new());
+        let client = Client::builder()
+            .homeserver_url(server.uri()) // Configure this client directly so as to not hit the discovery endpoint.
+            .store_config(
+                StoreConfig::new("cross-process-store-locks-holder-name".to_owned())
+                    .state_store(memory_store.clone()),
+            )
+            .build()
+            .await
+            .unwrap();
+
+        assert_eq!(client.server_versions().await.unwrap().len(), 1);
+
+        // These subsequent calls hit the in-memory cache.
+        assert!(client.server_versions().await.unwrap().contains(&MatrixVersion::V1_0));
+        assert_eq!(client.rtc_foci().await.unwrap(), rtc_foci);
+
+        drop(client);
+
+        let client = Client::builder()
+            .homeserver_url(server.uri()) // Configure this client directly so as to not hit the discovery endpoint.
+            .store_config(
+                StoreConfig::new("cross-process-store-locks-holder-name".to_owned())
+                    .state_store(memory_store.clone()),
+            )
+            .build()
+            .await
+            .unwrap();
+
+        // This call to the new client hits the on-disk cache.
+        assert_eq!(
+            client.unstable_features().await.unwrap().get("org.matrix.e2e_cross_signing"),
+            Some(&true)
+        );
+
+        // Then this call hits the in-memory cache.
+        assert_eq!(client.rtc_foci().await.unwrap(), rtc_foci);
+
+        drop(versions_mock);
+        server.verify().await;
+
+        // Now, reset the cache, and observe the endpoints being called again once.
+        client.reset_server_info().await.unwrap();
 
         Mock::given(method("GET"))
             .and(path("/_matrix/client/versions"))
