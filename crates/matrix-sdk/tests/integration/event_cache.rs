@@ -11,7 +11,7 @@ use matrix_sdk::{
     event_cache::{
         BackPaginationOutcome, EventCacheError, RoomEventCacheUpdate, RoomPaginationStatus,
     },
-    linked_chunk::{ChunkIdentifier, Position, Update},
+    linked_chunk::{ChunkIdentifier, LinkedChunkId, Position, Update},
     store::StoreConfig,
     test_utils::{
         assert_event_matches_msg,
@@ -1468,7 +1468,7 @@ async fn test_apply_redaction_on_an_in_store_event() {
         // 2. a chunk of 1 item, the chunk that is going to be loaded.
         event_cache_store
             .handle_linked_chunk_updates(
-                room_id,
+                LinkedChunkId::Room(room_id),
                 vec![
                     // chunk #1
                     Update::NewItemsChunk {
@@ -1676,7 +1676,7 @@ async fn test_lazy_loading() {
         // 1. a chunk of 6 items
         event_cache_store
             .handle_linked_chunk_updates(
-                room_id,
+                LinkedChunkId::Room(room_id),
                 vec![
                     // chunk #1
                     Update::NewItemsChunk {
@@ -2040,7 +2040,7 @@ async fn test_deduplication() {
         // 1. a chunk of 3 items
         event_cache_store
             .handle_linked_chunk_updates(
-                room_id,
+                LinkedChunkId::Room(room_id),
                 vec![
                     // chunk #0
                     Update::NewItemsChunk {
@@ -2346,7 +2346,7 @@ async fn test_clear_all_rooms() {
         let cid = ChunkIdentifier::new(0);
         event_cache_store
             .handle_linked_chunk_updates(
-                sleeping_room_id,
+                LinkedChunkId::Room(sleeping_room_id),
                 vec![
                     Update::NewItemsChunk { previous: None, new: cid, next: None },
                     Update::PushItems { at: Position::new(cid, 0), items: vec![ev0] },
@@ -2408,7 +2408,7 @@ async fn test_clear_all_rooms() {
 
     // The sleeping room should have been cleared too.
     let (maybe_last_chunk, _chunk_id_gen) =
-        event_cache_store.load_last_chunk(sleeping_room_id).await.unwrap();
+        event_cache_store.load_last_chunk(LinkedChunkId::Room(sleeping_room_id)).await.unwrap();
     assert!(maybe_last_chunk.is_none());
 }
 

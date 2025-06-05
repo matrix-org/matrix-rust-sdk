@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use assert_matches2::assert_matches;
-use matrix_sdk::config::SyncSettings;
+use matrix_sdk::{config::SyncSettings, linked_chunk::LinkedChunkId};
 use matrix_sdk_base::{RoomInfoNotableUpdateReasons, RoomState};
 use matrix_sdk_test::{
     async_test, test_json, GlobalAccountDataTestEvent, LeftRoomBuilder, SyncResponseBuilder,
@@ -57,7 +57,10 @@ async fn test_forget_non_direct_room() {
     {
         // There is some data in the cache store.
         let event_cache_store = client.event_cache_store().lock().await.unwrap();
-        let room_data = event_cache_store.load_all_chunks(&DEFAULT_TEST_ROOM_ID).await.unwrap();
+        let room_data = event_cache_store
+            .load_all_chunks(LinkedChunkId::Room(&DEFAULT_TEST_ROOM_ID))
+            .await
+            .unwrap();
         assert!(!room_data.is_empty());
     }
 
@@ -71,7 +74,10 @@ async fn test_forget_non_direct_room() {
     {
         // Data in the event cache store has been removed.
         let event_cache_store = client.event_cache_store().lock().await.unwrap();
-        let room_data = event_cache_store.load_all_chunks(&DEFAULT_TEST_ROOM_ID).await.unwrap();
+        let room_data = event_cache_store
+            .load_all_chunks(LinkedChunkId::Room(&DEFAULT_TEST_ROOM_ID))
+            .await
+            .unwrap();
         assert!(room_data.is_empty());
     }
 }
@@ -113,7 +119,10 @@ async fn test_forget_banned_room() {
     {
         // There is some data in the cache store.
         let event_cache_store = client.event_cache_store().lock().await.unwrap();
-        let room_data = event_cache_store.load_all_chunks(&DEFAULT_TEST_ROOM_ID).await.unwrap();
+        let room_data = event_cache_store
+            .load_all_chunks(LinkedChunkId::Room(&DEFAULT_TEST_ROOM_ID))
+            .await
+            .unwrap();
         assert!(!room_data.is_empty());
     }
 
@@ -131,7 +140,10 @@ async fn test_forget_banned_room() {
     {
         // Data in the event cache store has been removed.
         let event_cache_store = client.event_cache_store().lock().await.unwrap();
-        let room_data = event_cache_store.load_all_chunks(&DEFAULT_TEST_ROOM_ID).await.unwrap();
+        let room_data = event_cache_store
+            .load_all_chunks(LinkedChunkId::Room(&DEFAULT_TEST_ROOM_ID))
+            .await
+            .unwrap();
         assert!(room_data.is_empty());
     }
 }

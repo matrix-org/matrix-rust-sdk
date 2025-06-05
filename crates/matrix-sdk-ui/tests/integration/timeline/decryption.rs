@@ -18,7 +18,7 @@ use assert_matches::assert_matches;
 use eyeball_im::VectorDiff;
 use matrix_sdk::{
     assert_next_matches_with_timeout,
-    linked_chunk::{ChunkIdentifier, Position, Update},
+    linked_chunk::{ChunkIdentifier, LinkedChunkId, Position, Update},
     test_utils::mocks::MatrixMockServer,
 };
 use matrix_sdk_test::{async_test, event_factory::EventFactory, BOB};
@@ -74,7 +74,7 @@ async fn test_an_utd_from_the_event_cache_as_an_initial_item_is_decrypted() {
         // be decrypted. Damn. We want to see if decryption will trigger automatically.
         event_cache_store
             .handle_linked_chunk_updates(
-                room_id,
+                LinkedChunkId::Room(room_id),
                 vec![
                     // chunk #1
                     Update::NewItemsChunk {
@@ -213,7 +213,7 @@ async fn test_an_utd_from_the_event_cache_as_a_paginated_item_is_decrypted() {
         // automatically.
         event_cache_store
             .handle_linked_chunk_updates(
-                room_id,
+                LinkedChunkId::Room(room_id),
                 vec![
                     // chunk #1
                     Update::NewItemsChunk {
