@@ -1,11 +1,12 @@
 use std::collections::BTreeSet;
 
 use matrix_sdk_base::{sync::SyncResponse, RequestedRequiredStates};
+use matrix_sdk_common::deserialized_responses::ProcessedToDeviceEvent;
 use ruma::api::client::{discovery::get_supported_versions, sync::sync_events::v5 as http};
 use tracing::error;
 
 use super::{SlidingSync, SlidingSyncBuilder};
-use crate::{crypto::types::ProcessedToDeviceEvent, Client, Result};
+use crate::{Client, Result};
 
 /// A sliding sync version.
 #[derive(Clone, Debug)]

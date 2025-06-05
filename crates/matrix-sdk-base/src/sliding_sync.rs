@@ -14,8 +14,7 @@
 
 //! Extend `BaseClient` with capabilities to handle MSC4186.
 
-use matrix_sdk_common::deserialized_responses::TimelineEvent;
-use matrix_sdk_crypto::types::ProcessedToDeviceEvent;
+use matrix_sdk_common::deserialized_responses::{ProcessedToDeviceEvent, TimelineEvent};
 use ruma::{api::client::sync::sync_events::v5 as http, OwnedRoomId};
 use tracing::{instrument, trace};
 

@@ -26,6 +26,7 @@ use matrix_sdk_base::{
     sleep::sleep,
     sync::SyncResponse as BaseSyncResponse,
 };
+use matrix_sdk_common::deserialized_responses::ProcessedToDeviceEvent;
 use ruma::{
     api::client::sync::sync_events::{
         self,
@@ -38,9 +39,7 @@ use ruma::{
 };
 use tracing::{debug, error, warn};
 
-use crate::{
-    crypto::types::ProcessedToDeviceEvent, event_handler::HandlerKind, Client, Result, Room,
-};
+use crate::{event_handler::HandlerKind, Client, Result, Room};
 
 /// The processed response of a `/sync` request.
 #[derive(Clone, Default)]

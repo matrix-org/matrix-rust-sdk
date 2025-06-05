@@ -17,7 +17,7 @@ use std::{collections::BTreeMap, fmt, sync::Arc};
 #[cfg(doc)]
 use ruma::events::AnyTimelineEvent;
 use ruma::{
-    events::{AnyMessageLikeEvent, AnySyncTimelineEvent},
+    events::{AnyMessageLikeEvent, AnySyncTimelineEvent, AnyToDeviceEvent},
     push::Action,
     serde::{
         AsRefStr, AsStrAsRefStr, DebugAsRefStr, DeserializeFromCowStr, FromString, JsonObject, Raw,
@@ -1043,6 +1043,43 @@ impl From<SyncTimelineEventDeserializationHelperV0> for TimelineEvent {
             push_actions: Some(push_actions),
             // No serialized events had a thread summary at this version of the struct.
             thread_summary: ThreadSummaryStatus::Unknown,
+        }
+    }
+}
+
+/// Represents a to-device event after it has been processed by the olm machine.
+#[derive(Clone, Debug)]
+pub enum ProcessedToDeviceEvent {
+    /// A successfully-decrypted encrypted event.
+    /// Contains the raw decrypted event and encryption info
+    Decrypted {
+        /// The raw decrypted event
+        raw: Raw<AnyToDeviceEvent>,
+        /// The olm encryption info
+        encryption_info: EncryptionInfo,
+    },
+
+    /// An encrypted event which could not be decrypted.
+    UnableToDecrypt(Raw<AnyToDeviceEvent>),
+
+    /// An unencrypted event.
+    PlainText(Raw<AnyToDeviceEvent>),
+
+    /// An invalid to device event that was ignored because it is missing some
+    /// required information to be processed (like no event `type` for
+    /// example)
+    Invalid(Raw<AnyToDeviceEvent>),
+}
+
+impl ProcessedToDeviceEvent {
+    /// Converts a ProcessedToDeviceEvent to the `Raw<AnyToDeviceEvent>` it
+    /// encapsulates
+    pub fn to_raw(&self) -> Raw<AnyToDeviceEvent> {
+        match self {
+            ProcessedToDeviceEvent::Decrypted { raw, .. } => raw.clone(),
+            ProcessedToDeviceEvent::UnableToDecrypt(event) => event.clone(),
+            ProcessedToDeviceEvent::PlainText(event) => event.clone(),
+            ProcessedToDeviceEvent::Invalid(event) => event.clone(),
         }
     }
 }

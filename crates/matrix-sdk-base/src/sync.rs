@@ -16,8 +16,10 @@
 
 use std::{collections::BTreeMap, fmt};
 
-use matrix_sdk_common::{debug::DebugRawEvent, deserialized_responses::TimelineEvent};
-use matrix_sdk_crypto::types::ProcessedToDeviceEvent;
+use matrix_sdk_common::{
+    debug::DebugRawEvent,
+    deserialized_responses::{ProcessedToDeviceEvent, TimelineEvent},
+};
 pub use ruma::api::client::sync::sync_events::v3::{
     InvitedRoom as InvitedRoomUpdate, KnockedRoom as KnockedRoomUpdate,
 };

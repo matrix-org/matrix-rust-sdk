@@ -3,13 +3,13 @@ use assert_matches2::assert_let;
 use assign::assign;
 use matrix_sdk::{
     assert_decrypted_message_eq,
-    crypto::types::ProcessedToDeviceEvent,
     encryption::EncryptionSettings,
     ruma::{
         api::client::room::create_room::v3::{Request as CreateRoomRequest, RoomPreset},
         events::room::message::RoomMessageEventContent,
     },
 };
+use matrix_sdk_common::deserialized_responses::ProcessedToDeviceEvent;
 use matrix_sdk_ui::sync_service::SyncService;
 use similar_asserts::assert_eq;
 use tracing::{info, Instrument};
