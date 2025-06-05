@@ -519,7 +519,19 @@ impl BaseClient {
         };
 
         #[cfg(not(feature = "e2e-encryption"))]
-        let to_device = response.to_device.events;
+        let to_device = response
+            .to_device
+            .events
+            .into_iter()
+            .filter(|raw| {
+                if let Ok(Some(event_type)) = raw.get_field::<String>("type") {
+                    event_type != "m.room.encrypted"
+                } else {
+                    false // Exclude events with no type or encrypted
+                }
+            })
+            .map(ProcessedToDeviceEvent::PlainText)
+            .collect();
 
         let mut ambiguity_cache = AmbiguityCache::new(self.state_store.inner.clone());
 
