@@ -1764,7 +1764,7 @@ pub use galleries::*;
 mod galleries {
     use ruma::{
         events::room::message::{
-            FormattedBody as RumaFormattedBody, GalleryItemType as RumaGalleryItemType,
+            GalleryItemType as RumaGalleryItemType,
             GalleryMessageEventContent as RumaGalleryMessageEventContent,
         },
         serde::JsonObject,
