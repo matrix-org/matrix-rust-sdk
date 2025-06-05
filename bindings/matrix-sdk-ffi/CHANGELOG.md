@@ -21,6 +21,9 @@ Breaking changes:
 
 Additions:
 
+- `Client::subscribe_to_room_info` allows clients to subscribe to room info updates in rooms which may not be known yet. 
+  This is useful when displaying a room preview for an unknown room, so when we receive any membership change for it, 
+  we can automatically update the UI.
 - `Client::get_max_media_upload_size` to get the max size of a request sent to the homeserver so we can tweak our media
   uploads by compressing/transcoding the media.
 - Add `ClientBuilder::enable_share_history_on_invite` to enable experimental support for sharing encrypted room history on invite, per [MSC4268](https://github.com/matrix-org/matrix-spec-proposals/pull/4268).
