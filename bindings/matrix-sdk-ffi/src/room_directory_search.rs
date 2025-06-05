@@ -18,11 +18,11 @@ use std::{fmt::Debug, sync::Arc};
 use eyeball_im::VectorDiff;
 use futures_util::StreamExt;
 use matrix_sdk::room_directory_search::RoomDirectorySearch as SdkRoomDirectorySearch;
-use matrix_sdk_common::{runtime::get_runtime_handle, SendOutsideWasm, SyncOutsideWasm};
+use matrix_sdk_common::{SendOutsideWasm, SyncOutsideWasm};
 use ruma::ServerName;
 use tokio::sync::RwLock;
 
-use crate::{error::ClientError, task_handle::TaskHandle};
+use crate::{error::ClientError, runtime::get_runtime_handle, task_handle::TaskHandle};
 
 #[derive(uniffi::Enum)]
 pub enum PublicRoomJoinRule {

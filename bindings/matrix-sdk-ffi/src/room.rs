@@ -12,7 +12,7 @@ use matrix_sdk::{
     PredecessorRoom as SdkPredecessorRoom, RoomHero as SdkRoomHero, RoomMemberships, RoomState,
     SuccessorRoom as SdkSuccessorRoom,
 };
-use matrix_sdk_common::{runtime::get_runtime_handle, SendOutsideWasm, SyncOutsideWasm};
+use matrix_sdk_common::{SendOutsideWasm, SyncOutsideWasm};
 use matrix_sdk_ui::{
     timeline::{default_event_filter, RoomExt, TimelineBuilder},
     unable_to_decrypt_hook::UtdHookManager,
@@ -46,6 +46,7 @@ use crate::{
     room_member::{RoomMember, RoomMemberWithSenderInfo},
     room_preview::RoomPreview,
     ruma::{ImageInfo, LocationContent, Mentions, NotifyType},
+    runtime::get_runtime_handle,
     timeline::{
         configuration::{TimelineConfiguration, TimelineFilter},
         EventTimelineItem, ReceiptType, SendHandle, Timeline,

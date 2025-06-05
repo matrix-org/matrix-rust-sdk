@@ -16,7 +16,7 @@ use std::{fmt::Debug, sync::Arc};
 
 use futures_util::pin_mut;
 use matrix_sdk::Client;
-use matrix_sdk_common::{runtime::get_runtime_handle, SendOutsideWasm, SyncOutsideWasm};
+use matrix_sdk_common::{SendOutsideWasm, SyncOutsideWasm};
 use matrix_sdk_ui::{
     sync_service::{
         State as MatrixSyncServiceState, SyncService as MatrixSyncService,
@@ -26,7 +26,8 @@ use matrix_sdk_ui::{
 };
 
 use crate::{
-    error::ClientError, helpers::unwrap_or_clone_arc, room_list::RoomListService, TaskHandle,
+    error::ClientError, helpers::unwrap_or_clone_arc, room_list::RoomListService,
+    runtime::get_runtime_handle, TaskHandle,
 };
 
 #[derive(uniffi::Enum)]

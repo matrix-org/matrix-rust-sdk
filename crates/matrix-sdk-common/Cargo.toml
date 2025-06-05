@@ -25,7 +25,6 @@ uniffi = ["dep:uniffi"]
 test-send-sync = []
 
 [dependencies]
-async-compat.workspace = true
 eyeball-im.workspace = true
 futures-core.workspace = true
 futures-util.workspace = true

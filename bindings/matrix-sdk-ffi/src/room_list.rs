@@ -11,7 +11,7 @@ use matrix_sdk::{
     },
     Room as SdkRoom,
 };
-use matrix_sdk_common::{runtime::get_runtime_handle, SendOutsideWasm, SyncOutsideWasm};
+use matrix_sdk_common::{SendOutsideWasm, SyncOutsideWasm};
 use matrix_sdk_ui::{
     room_list_service::filters::{
         new_filter_all, new_filter_any, new_filter_category, new_filter_deduplicate_versions,
@@ -24,6 +24,7 @@ use matrix_sdk_ui::{
 
 use crate::{
     room::{Membership, Room},
+    runtime::get_runtime_handle,
     TaskHandle,
 };
 
