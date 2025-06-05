@@ -97,12 +97,32 @@ async fn test_thread_backpagination() {
         .await;
 
     let batch1 = vec![
-        factory.text_msg("Threaded event 4").event_id(event_id!("$3")).into_raw_sync().cast(),
-        factory.text_msg("Threaded event 3").event_id(event_id!("$4")).into_raw_sync().cast(),
+        factory
+            .text_msg("Threaded event 4")
+            .event_id(event_id!("$3"))
+            .in_thread(&thread_root_event_id, event_id!("$latest"))
+            .into_raw_sync()
+            .cast(),
+        factory
+            .text_msg("Threaded event 3")
+            .event_id(event_id!("$4"))
+            .in_thread(&thread_root_event_id, event_id!("$latest"))
+            .into_raw_sync()
+            .cast(),
     ];
     let batch2 = vec![
-        factory.text_msg("Threaded event 2").event_id(event_id!("$2")).into_raw_sync().cast(),
-        factory.text_msg("Threaded event 1").event_id(event_id!("$1")).into_raw_sync().cast(),
+        factory
+            .text_msg("Threaded event 2")
+            .event_id(event_id!("$2"))
+            .in_thread(&thread_root_event_id, event_id!("$latest"))
+            .into_raw_sync()
+            .cast(),
+        factory
+            .text_msg("Threaded event 1")
+            .event_id(event_id!("$1"))
+            .in_thread(&thread_root_event_id, event_id!("$latest"))
+            .into_raw_sync()
+            .cast(),
     ];
 
     server
@@ -396,4 +416,76 @@ async fn test_new_thread_reply_causes_thread_summary() {
 
     // The number of replies has been updated.
     assert_eq!(summary.num_replies, 2);
+}
+
+#[async_test]
+async fn test_thread_filtering() {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+
+    let room_id = room_id!("!a:b.c");
+    let sender_id = user_id!("@alice:b.c");
+    let thread_root_event_id = owned_event_id!("$root");
+
+    let room = server.sync_joined_room(&client, room_id).await;
+
+    let filtered_timeline = room
+        .timeline_builder()
+        .with_focus(TimelineFocus::Live { hide_threaded_events: true })
+        .build()
+        .await
+        .unwrap();
+
+    let (_, mut filtered_timeline_stream) = filtered_timeline.subscribe().await;
+
+    let timeline = room
+        .timeline_builder()
+        .with_focus(TimelineFocus::Live { hide_threaded_events: false })
+        .build()
+        .await
+        .unwrap();
+
+    let (_, mut timeline_stream) = timeline.subscribe().await;
+
+    let factory = EventFactory::new();
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id)
+                .add_timeline_event(
+                    factory
+                        .text_msg("Thread root")
+                        .sender(sender_id)
+                        .event_id(&thread_root_event_id),
+                )
+                .add_timeline_event(
+                    factory
+                        .text_msg("Within thread")
+                        .sender(sender_id)
+                        .event_id(event_id!("$threaded_event"))
+                        .in_thread(&thread_root_event_id, event_id!("$first_reply_in_thread")),
+                ),
+        )
+        .await;
+
+    filtered_timeline_stream.next().await;
+
+    let items = timeline.items().await;
+
+    // A thread filtered timeline should only contain the date separator and the
+    // thread root.
+    assert!(items[0].is_date_divider());
+    assert_eq!(items[1].as_event().unwrap().content().as_message().unwrap().body(), "Thread root");
+
+    timeline_stream.next().await;
+
+    let items = timeline.items().await;
+
+    // A non-thread filtered timeline should contain all the items.
+    assert!(items[0].is_date_divider());
+    assert_eq!(items[1].as_event().unwrap().content().as_message().unwrap().body(), "Thread root");
+    assert_eq!(
+        items[2].as_event().unwrap().content().as_message().unwrap().body(),
+        "Within thread"
+    );
 }
