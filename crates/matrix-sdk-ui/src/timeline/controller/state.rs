@@ -160,11 +160,16 @@ impl TimelineState {
         send_handle: Option<SendHandle>,
         content: AnyMessageLikeEventContent,
     ) {
-        // Only add new items if the timeline is live.
-        let should_add_new_items = match self.timeline_focus {
-            TimelineFocusKind::Live | TimelineFocusKind::Thread { .. } => true,
-            TimelineFocusKind::Event | TimelineFocusKind::PinnedEvents => false,
-        };
+        let timeline_focus = self.timeline_focus.clone();
+
+        let mut txn = self.transaction();
+
+        let mut date_divider_adjuster = DateDividerAdjuster::new(date_divider_mode);
+
+        let (in_reply_to, thread_root) =
+            txn.meta.process_content_relations(&content, None, &txn.items);
+
+        let should_add_new_items = Self::should_add_event_item(&timeline_focus, &thread_root);
 
         let ctx = TimelineEventContext {
             sender: own_user_id,
@@ -177,13 +182,6 @@ impl TimelineState {
             should_add_new_items,
         };
 
-        let mut txn = self.transaction();
-
-        let mut date_divider_adjuster = DateDividerAdjuster::new(date_divider_mode);
-
-        let (in_reply_to, thread_root) =
-            txn.meta.process_content_relations(&content, None, &txn.items);
-
         if let Some(timeline_action) =
             TimelineAction::from_content(content, in_reply_to, thread_root, None)
         {
@@ -194,6 +192,21 @@ impl TimelineState {
         }
 
         txn.commit();
+    }
+
+    fn should_add_event_item(
+        timeline_focus: &TimelineFocusKind,
+        thread_root: &Option<OwnedEventId>,
+    ) -> bool {
+        match &timeline_focus {
+            TimelineFocusKind::Live => thread_root.is_none(),
+
+            TimelineFocusKind::Thread { root_event_id } => {
+                thread_root.as_ref().is_some_and(|r| r == root_event_id)
+            }
+
+            TimelineFocusKind::Event | TimelineFocusKind::PinnedEvents => false,
+        }
     }
 
     pub(super) async fn retry_event_decryption<P: RoomDataProvider, Fut>(

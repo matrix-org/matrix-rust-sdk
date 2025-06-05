@@ -433,9 +433,7 @@ impl<'a> TimelineStateTransaction<'a> {
                 }
             }
 
-            TimelineFocusKind::Live => {
-                return thread_root.is_none();
-            }
+            TimelineFocusKind::Live => thread_root.is_none(),
 
             TimelineFocusKind::Thread { root_event_id } => {
                 event.event_id() == root_event_id
