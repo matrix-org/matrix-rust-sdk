@@ -1,134 +1,35 @@
 #![cfg(feature = "experimental-send-custom-to-device")]
 
-use std::{future, sync::Arc, time::Duration};
+use std::{future, sync::Arc};
 
-use assert_matches2::{assert_let, assert_matches};
-use matrix_sdk::{
-    authentication::matrix::MatrixSession,
-    config::{RequestConfig, SyncSettings},
-    test_utils::client::mock_session_tokens,
-    Client,
-};
-use matrix_sdk_base::SessionMeta;
+use assert_matches::assert_matches;
+use assert_matches2::assert_let;
+use matrix_sdk::test_utils::mocks::MatrixMockServer;
 use matrix_sdk_common::{
     deserialized_responses::{AlgorithmInfo, EncryptionInfo},
     locks::Mutex,
 };
-use matrix_sdk_test::{async_test, test_json, SyncResponseBuilder};
+use matrix_sdk_test::{async_test, test_json};
 use ruma::{
-    api::{client::to_device::send_event_to_device::v3::Messages, MatrixVersion},
-    events::AnyToDeviceEvent,
-    owned_device_id, owned_user_id,
-    serde::Raw,
-    MilliSecondsSinceUnixEpoch, OwnedUserId,
+    api::client::to_device::send_event_to_device::v3::Messages, events::AnyToDeviceEvent,
+    serde::Raw, MilliSecondsSinceUnixEpoch, OwnedUserId,
 };
 use serde_json::{json, Value};
-use tracing::info;
 use wiremock::{
-    matchers::{method, path, path_regex},
+    matchers::{method, path_regex},
     Mock, Request, ResponseTemplate,
 };
 
-use crate::{mock_sync, mock_sync_scoped};
-
-async fn set_up_alice_and_bob_for_encryption(
-    server: &mut crate::encryption::verification::MockedServer,
-) -> (Client, Client) {
-    let alice_user_id = owned_user_id!("@alice:example.org");
-    let alice_device_id = owned_device_id!("4L1C3");
-    let alice = Client::builder()
-        .homeserver_url(server.server.uri())
-        .server_versions([MatrixVersion::V1_0])
-        .request_config(RequestConfig::new().disable_retry())
-        .build()
-        .await
-        .unwrap();
-    alice
-        .restore_session(MatrixSession {
-            meta: SessionMeta {
-                user_id: alice_user_id.clone(),
-                device_id: alice_device_id.clone(),
-            },
-            tokens: mock_session_tokens(),
-        })
-        .await
-        .unwrap();
-
-    let bob = Client::builder()
-        .homeserver_url(server.server.uri())
-        .server_versions([MatrixVersion::V1_0])
-        .request_config(RequestConfig::new().disable_retry())
-        .build()
-        .await
-        .unwrap();
-
-    let bob_user_id = owned_user_id!("@bob:example.org");
-    let bob_device_id = owned_device_id!("B0B0B0B0B");
-    bob.restore_session(MatrixSession {
-        meta: SessionMeta { user_id: bob_user_id.clone(), device_id: bob_device_id.clone() },
-        tokens: mock_session_tokens(),
-    })
-    .await
-    .unwrap();
-
-    server.add_known_device(&alice_device_id);
-    server.add_known_device(&bob_device_id);
-
-    // Have Alice track Bob, so she queries his keys later.
-    {
-        let alice_olm = alice.olm_machine_for_testing().await;
-        let alice_olm = alice_olm.as_ref().unwrap();
-        alice_olm.update_tracked_users([bob_user_id.as_ref()]).await.unwrap();
-    }
-
-    // let bob be aware of Alice keys in order to be able to decrypt custom to
-    // device
-    {
-        let bob_olm = bob.olm_machine_for_testing().await;
-        let bob_olm = bob_olm.as_ref().unwrap();
-        bob_olm.update_tracked_users([alice_user_id.as_ref()]).await.unwrap();
-    }
-
-    // Have Alice and Bob upload their signed device keys.
-    {
-        let mut sync_response_builder = SyncResponseBuilder::new();
-        let response_body = sync_response_builder.build_json_sync_response();
-        let _scope = mock_sync_scoped(&server.server, response_body, None).await;
-
-        alice
-            .sync_once(Default::default())
-            .await
-            .expect("We should be able to sync with Alice so we upload the device keys");
-        bob.sync_once(Default::default()).await.unwrap();
-    }
-
-    {
-        // Run a sync so we do send outgoing requests, including the /keys/query for
-        // getting bob's identity.
-        let mut sync_response_builder = SyncResponseBuilder::new();
-
-        let _scope = mock_sync_scoped(
-            &server.server,
-            sync_response_builder.build_json_sync_response(),
-            None,
-        )
-        .await;
-        alice
-            .sync_once(Default::default())
-            .await
-            .expect("We should be able to sync so we get the initial set of devices");
-    }
-
-    (alice, bob)
-}
 #[async_test]
 async fn test_encrypt_and_send_to_device() {
     // ===========
     // Happy path, will encrypt and send
     // ============
-    let mut server = crate::encryption::verification::MockedServer::new().await;
 
-    let (alice, bob) = set_up_alice_and_bob_for_encryption(&mut server).await;
+    let matrix_mock_server = MatrixMockServer::new().await;
+    matrix_mock_server.mock_crypto_endpoints_preset().await;
+
+    let (alice, bob) = matrix_mock_server.set_up_alice_and_bob_for_encryption().await;
     let bob_user_id = bob.user_id().unwrap();
     let bob_device_id = bob.device_id().unwrap();
 
@@ -155,12 +56,12 @@ async fn test_encrypt_and_send_to_device() {
     .cast();
 
     Mock::given(method("PUT"))
-        .and(path_regex(r"^/_matrix/client/r0/sendToDevice/m.room.encrypted/.*"))
+        .and(path_regex(r"^/_matrix/client/.*/sendToDevice/m.room.encrypted/.*"))
         .respond_with(ResponseTemplate::new(200).set_body_json(&*test_json::EMPTY))
         // Should be called once
         .expect(1)
         .named("send_to_device")
-        .mount(&server.server)
+        .mount(matrix_mock_server.server())
         .await;
 
     alice
@@ -176,9 +77,11 @@ async fn test_encrypt_and_send_to_device_report_failures_server() {
     // Error case, when the to-device fails to send
     // ============
 
-    let mut server = crate::encryption::verification::MockedServer::new().await;
+    let matrix_mock_server = MatrixMockServer::new().await;
+    matrix_mock_server.mock_crypto_endpoints_preset().await;
 
-    let (alice, bob) = set_up_alice_and_bob_for_encryption(&mut server).await;
+    let (alice, bob) = matrix_mock_server.set_up_alice_and_bob_for_encryption().await;
+
     let bob_user_id = bob.user_id().unwrap();
     let bob_device_id = bob.device_id().unwrap();
 
@@ -198,12 +101,12 @@ async fn test_encrypt_and_send_to_device_report_failures_server() {
 
     // Fail
     Mock::given(method("PUT"))
-        .and(path_regex(r"^/_matrix/client/r0/sendToDevice/m.room.encrypted/.*"))
+        .and(path_regex(r"^/_matrix/client/.*/sendToDevice/m.room.encrypted/.*"))
         .respond_with(ResponseTemplate::new(500))
         // There is retries in place, assert it
         .expect(3)
         .named("send_to_device")
-        .mount(&server.server)
+        .mount(matrix_mock_server.server())
         .await;
 
     let alice_bob_device = alice
@@ -262,9 +165,10 @@ async fn test_to_device_event_handler_olm_encryption_info() {
     // ===========
     // Happy path, will encrypt and send
     // ============
-    let mut server = crate::encryption::verification::MockedServer::new().await;
+    let server = MatrixMockServer::new().await;
+    server.mock_crypto_endpoints_preset().await;
 
-    let (alice, bob) = set_up_alice_and_bob_for_encryption(&mut server).await;
+    let (alice, bob) = server.set_up_alice_and_bob_for_encryption().await;
     let bob_user_id = bob.user_id().unwrap();
     let bob_device_id = bob.device_id().unwrap();
 
@@ -292,7 +196,7 @@ async fn test_to_device_event_handler_olm_encryption_info() {
 
     let captured_event: Arc<Mutex<Option<Value>>> = Arc::new(Mutex::new(None));
     Mock::given(method("PUT"))
-        .and(path_regex(r"^/_matrix/client/r0/sendToDevice/m.room.encrypted/.*"))
+        .and(path_regex(r"^/_matrix/client/.*/sendToDevice/m.room.encrypted/.*"))
         .respond_with(mock_send_encrypted_to_device_responder(
             alice.user_id().unwrap().to_owned(),
             captured_event.clone(),
@@ -300,7 +204,7 @@ async fn test_to_device_event_handler_olm_encryption_info() {
         // Should be called once
         .expect(1)
         .named("send_to_device")
-        .mount(&server.server)
+        .mount(&server.server())
         .await;
 
     alice
@@ -324,14 +228,15 @@ async fn test_to_device_event_handler_olm_encryption_info() {
         }
     });
 
-    // feed back the event to bob client
-    let mut sync_response_builder = SyncResponseBuilder::new();
+    // feed back the event to Bob's client
     let lock = captured_event.lock();
-    sync_response_builder.add_to_device_event(lock.clone().unwrap());
-
-    mock_sync(&server.server, sync_response_builder.build_json_sync_response(), None).await;
-    let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
-    let _response = bob.sync_once(sync_settings.clone()).await.unwrap();
+    let event = lock.clone().unwrap();
+    server
+        .mock_sync()
+        .ok_and_run(&bob, |builder| {
+            builder.add_to_device_event(event);
+        })
+        .await;
 
     let captured = captured_processed_event.lock().clone();
     assert_eq!(captured.is_some(), true);
@@ -346,9 +251,10 @@ async fn test_encrypt_and_send_to_device_report_failures_encryption_error() {
     // Error case, when the encryption fails
     // ============
 
-    let mut server = crate::encryption::verification::MockedServer::new().await;
+    let matrix_mock_server = MatrixMockServer::new().await;
+    matrix_mock_server.mock_crypto_endpoints_preset().await;
 
-    let (alice, bob) = set_up_alice_and_bob_for_encryption(&mut server).await;
+    let (alice, bob) = matrix_mock_server.set_up_alice_and_bob_for_encryption().await;
     let bob_user_id = bob.user_id().unwrap();
     let bob_device_id = bob.device_id().unwrap();
 
@@ -368,12 +274,12 @@ async fn test_encrypt_and_send_to_device_report_failures_encryption_error() {
 
     // Should not be called
     Mock::given(method("PUT"))
-        .and(path_regex(r"^/_matrix/client/r0/sendToDevice/m.room.encrypted/.*"))
+        .and(path_regex(r"^/_matrix/client/.*/sendToDevice/m.room.encrypted/.*"))
         .respond_with(ResponseTemplate::new(200).set_body_json(&*test_json::EMPTY))
         // Should be called once
         .expect(0)
         .named("send_to_device")
-        .mount(&server.server)
+        .mount(matrix_mock_server.server())
         .await;
 
     let alice_bob_device = alice
@@ -385,13 +291,13 @@ async fn test_encrypt_and_send_to_device_report_failures_encryption_error() {
 
     // Simulate exhausting all one-time keys
     Mock::given(method("POST"))
-        .and(path("/_matrix/client/r0/keys/claim"))
+        .and(path_regex(r"^/_matrix/client/.*/keys/claim"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "one_time_keys": {}
         })))
         // Take priority
         .with_priority(1)
-        .mount(&server.server)
+        .mount(matrix_mock_server.server())
         .await;
 
     let result = alice
