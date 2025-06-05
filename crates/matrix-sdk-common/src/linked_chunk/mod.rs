@@ -97,7 +97,8 @@ pub mod relational;
 mod updates;
 
 use std::{
-    cmp, fmt,
+    cmp,
+    fmt::{self, Display},
     marker::PhantomData,
     ptr::NonNull,
     sync::atomic::{self, AtomicU64},
@@ -115,10 +116,25 @@ pub enum LinkedChunkId<'a> {
     // Thread(&'a RoomId, &'a EventId),
 }
 
-impl<'a> LinkedChunkId<'a> {
-    fn to_owned(&self) -> OwnedLinkedChunkId {
+impl AsRef<[u8]> for LinkedChunkId<'_> {
+    fn as_ref(&self) -> &[u8] {
+        match self {
+            LinkedChunkId::Room(room_id) => room_id.as_ref(),
+            // ouch, good luck future me for handling thread keys here
+        }
+    }
+}
+
+impl LinkedChunkId<'_> {
+    pub fn to_owned(&self) -> OwnedLinkedChunkId {
         match self {
             LinkedChunkId::Room(room_id) => OwnedLinkedChunkId::Room((*room_id).to_owned()),
+        }
+    }
+
+    pub fn room_id(&self) -> &RoomId {
+        match self {
+            LinkedChunkId::Room(room_id) => room_id,
         }
     }
 }
@@ -166,10 +182,25 @@ pub enum OwnedLinkedChunkId {
     // Thread(RoomId, EventId),
 }
 
+impl Display for OwnedLinkedChunkId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            OwnedLinkedChunkId::Room(room_id) => write!(f, "{room_id}"),
+            // ouch, good luck future me for handling thread keys here
+        }
+    }
+}
+
 impl OwnedLinkedChunkId {
     fn as_ref(&self) -> LinkedChunkId<'_> {
         match self {
             OwnedLinkedChunkId::Room(room_id) => LinkedChunkId::Room(room_id.as_ref()),
+        }
+    }
+
+    pub fn room_id(&self) -> &RoomId {
+        match self {
+            OwnedLinkedChunkId::Room(room_id) => room_id,
         }
     }
 }
