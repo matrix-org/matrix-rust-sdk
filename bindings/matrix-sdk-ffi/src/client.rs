@@ -6,7 +6,7 @@ use std::{
     time::Duration,
 };
 
-use anyhow::anyhow;
+use anyhow::{anyhow, Context};
 use futures_util::pin_mut;
 #[cfg(not(any(target_family = "wasm", feature = "js")))]
 use matrix_sdk::media::MediaFileHandle as SdkMediaFileHandle;
@@ -299,8 +299,7 @@ impl Client {
                     let session_delegate = session_delegate.clone();
                     Box::new(move |client| {
                         let session_delegate = session_delegate.clone();
-                        let user_id =
-                            client.user_id().ok_or_else(|| anyhow!("user isn't logged in"))?;
+                        let user_id = client.user_id().context("user isn't logged in")?;
                         Ok(Self::retrieve_session(session_delegate, user_id)?)
                     })
                 },
@@ -875,23 +874,19 @@ impl Client {
     }
 
     pub fn user_id(&self) -> Result<String, ClientError> {
-        let user_id = self.inner.user_id().ok_or_else(|| anyhow!("No User ID found"))?;
+        let user_id = self.inner.user_id().context("No User ID found")?;
         Ok(user_id.to_string())
     }
 
     /// The server name part of the current user ID
     pub fn user_id_server_name(&self) -> Result<String, ClientError> {
-        let user_id = self.inner.user_id().ok_or_else(|| anyhow!("No User ID found"))?;
+        let user_id = self.inner.user_id().context("No User ID found")?;
         Ok(user_id.server_name().to_string())
     }
 
     pub async fn display_name(&self) -> Result<String, ClientError> {
-        let display_name = self
-            .inner
-            .account()
-            .get_display_name()
-            .await?
-            .ok_or_else(|| anyhow!("No User ID found"))?;
+        let display_name =
+            self.inner.account().get_display_name().await?.context("No User ID found")?;
         Ok(display_name)
     }
 
@@ -929,7 +924,7 @@ impl Client {
     }
 
     pub fn device_id(&self) -> Result<String, ClientError> {
-        let device_id = self.inner.device_id().ok_or_else(|| anyhow!("No Device ID found"))?;
+        let device_id = self.inner.device_id().context("No Device ID found")?;
         Ok(device_id.to_string())
     }
 
@@ -966,8 +961,7 @@ impl Client {
         data: Vec<u8>,
         progress_watcher: Option<Box<dyn ProgressWatcher>>,
     ) -> Result<String, ClientError> {
-        let mime_type: mime::Mime =
-            mime_type.parse().map_err(|e| anyhow!("Parsing mime type: {}", e))?;
+        let mime_type: mime::Mime = mime_type.parse().context("Parsing mime type")?;
         let request = self.inner.media().upload(&mime_type, data, None);
 
         if let Some(progress_watcher) = progress_watcher {
@@ -1031,14 +1025,13 @@ impl Client {
         {
             return Ok(Arc::new(session_verification_controller.clone()));
         }
-        let user_id =
-            self.inner.user_id().ok_or_else(|| anyhow!("Failed retrieving current user_id"))?;
+        let user_id = self.inner.user_id().context("Failed retrieving current user_id")?;
         let user_identity = self
             .inner
             .encryption()
             .get_user_identity(user_id)
             .await?
-            .ok_or_else(|| anyhow!("Failed retrieving user identity"))?;
+            .context("Failed retrieving user identity")?;
 
         let session_verification_controller = SessionVerificationController::new(
             self.inner.encryption(),
@@ -1334,14 +1327,13 @@ impl Client {
         room_id: String,
         via_servers: Vec<String>,
     ) -> Result<Arc<RoomPreview>, ClientError> {
-        let room_id = RoomId::parse(&room_id)
-            .map_err(|e| anyhow!("room_id is not a valid room id: {}", e))?;
+        let room_id = RoomId::parse(&room_id).context("room_id is not a valid room id")?;
 
         let via_servers = via_servers
             .into_iter()
             .map(ServerName::parse)
             .collect::<Result<Vec<_>, _>>()
-            .map_err(|e| anyhow!("at least one `via` server name is invalid: {}", e))?;
+            .context("at least one `via` server name is invalid")?;
 
         // The `into()` call below doesn't work if I do `(&room_id).into()`, so I let
         // rustc win that one fight.
@@ -1357,8 +1349,8 @@ impl Client {
         &self,
         room_alias: String,
     ) -> Result<Arc<RoomPreview>, ClientError> {
-        let room_alias = RoomAliasId::parse(&room_alias)
-            .map_err(|e| anyhow!("room_alias is not a valid room alias: {}", e))?;
+        let room_alias =
+            RoomAliasId::parse(&room_alias).context("room_alias is not a valid room alias")?;
 
         // The `into()` call below doesn't work if I do `(&room_id).into()`, so I let
         // rustc win that one fight.
@@ -1737,7 +1729,7 @@ impl Client {
     }
 
     fn session_inner(client: matrix_sdk::Client) -> Result<Session, ClientError> {
-        let auth_api = client.auth_api().ok_or_else(|| anyhow!("Missing authentication API"))?;
+        let auth_api = client.auth_api().context("Missing authentication API")?;
 
         let homeserver_url = client.homeserver().into();
         let sliding_sync_version = client.sliding_sync_version();
@@ -2055,7 +2047,7 @@ impl Session {
                 let matrix_sdk::authentication::matrix::MatrixSession {
                     meta: matrix_sdk::SessionMeta { user_id, device_id },
                     tokens: matrix_sdk::SessionTokens { access_token, refresh_token },
-                } = a.session().ok_or_else(|| anyhow!("Missing session"))?;
+                } = a.session().context("Missing session")?;
 
                 Ok(Session {
                     access_token,
@@ -2072,9 +2064,8 @@ impl Session {
                 let matrix_sdk::authentication::oauth::UserSession {
                     meta: matrix_sdk::SessionMeta { user_id, device_id },
                     tokens: matrix_sdk::SessionTokens { access_token, refresh_token },
-                } = api.user_session().ok_or_else(|| anyhow!("Missing session"))?;
-                let client_id =
-                    api.client_id().ok_or_else(|| anyhow!("OIDC client ID is missing."))?.clone();
+                } = api.user_session().context("Missing session")?;
+                let client_id = api.client_id().context("OIDC client ID is missing.")?.clone();
                 let oidc_data = OidcSessionData { client_id };
 
                 let oidc_data = serde_json::to_string(&oidc_data).ok();
@@ -2204,7 +2195,7 @@ impl MediaFileHandle {
             .read()
             .unwrap()
             .as_ref()
-            .ok_or_else(|| anyhow!("MediaFileHandle must not be used after calling persist"))?
+            .context("MediaFileHandle must not be used after calling persist")?
             .path()
             .to_str()
             .unwrap()
@@ -2223,7 +2214,7 @@ impl MediaFileHandle {
             return Ok(
                 match guard
                     .take()
-                    .ok_or_else(|| anyhow!("MediaFileHandle was already persisted"))?
+                    .context("MediaFileHandle was already persisted")?
                     .persist(path.as_ref())
                 {
                     Ok(_) => true,
