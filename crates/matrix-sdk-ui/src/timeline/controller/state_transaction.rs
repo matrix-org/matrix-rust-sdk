@@ -408,8 +408,8 @@ impl<'a> TimelineStateTransaction<'a> {
                 room_data_provider.is_pinned_event(event.event_id())
             }
 
-            TimelineFocusKind::Event => {
-                if thread_root.is_some() {
+            TimelineFocusKind::Event { hide_threaded_events } => {
+                if thread_root.is_some() && *hide_threaded_events {
                     return false;
                 }
 
@@ -433,7 +433,9 @@ impl<'a> TimelineStateTransaction<'a> {
                 }
             }
 
-            TimelineFocusKind::Live => thread_root.is_none(),
+            TimelineFocusKind::Live { hide_threaded_events } => {
+                thread_root.is_none() || thread_root.is_some() && !hide_threaded_events
+            }
 
             TimelineFocusKind::Thread { root_event_id } => {
                 event.event_id() == root_event_id
