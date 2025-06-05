@@ -550,7 +550,9 @@ mod private {
             ThreadSummary, ThreadSummaryStatus, TimelineEvent, TimelineEventKind,
         },
         event_cache::{store::EventCacheStoreLock, Event, Gap},
-        linked_chunk::{lazy_loader, ChunkContent, ChunkIdentifierGenerator, Position, Update},
+        linked_chunk::{
+            lazy_loader, ChunkContent, ChunkIdentifierGenerator, LinkedChunkId, Position, Update,
+        },
         serde_helpers::extract_thread_root,
     };
     use matrix_sdk_common::executor::spawn;
@@ -625,8 +627,9 @@ mod private {
         ) -> Result<Self, EventCacheError> {
             let store_lock = store.lock().await?;
 
+            let linked_chunk_id = LinkedChunkId::Room(&room_id);
             let linked_chunk = match store_lock
-                .load_last_chunk(&room_id)
+                .load_last_chunk(linked_chunk_id)
                 .await
                 .map_err(EventCacheError::from)
                 .and_then(|(last_chunk, chunk_identifier_generator)| {
@@ -639,7 +642,9 @@ mod private {
                     error!("error when reloading a linked chunk from memory: {err}");
 
                     // Clear storage for this room.
-                    store_lock.handle_linked_chunk_updates(&room_id, vec![Update::Clear]).await?;
+                    store_lock
+                        .handle_linked_chunk_updates(linked_chunk_id, vec![Update::Clear])
+                        .await?;
 
                     // Restart with an empty linked chunk.
                     None
@@ -746,28 +751,31 @@ mod private {
             let store = self.store.lock().await?;
 
             // The first chunk is not a gap, we can load its previous chunk.
-            let new_first_chunk =
-                match store.load_previous_chunk(&self.room, first_chunk_identifier).await {
-                    Ok(Some(new_first_chunk)) => {
-                        // All good, let's continue with this chunk.
-                        new_first_chunk
-                    }
+            let linked_chunk_id = LinkedChunkId::Room(&self.room);
+            let new_first_chunk = match store
+                .load_previous_chunk(linked_chunk_id, first_chunk_identifier)
+                .await
+            {
+                Ok(Some(new_first_chunk)) => {
+                    // All good, let's continue with this chunk.
+                    new_first_chunk
+                }
 
-                    Ok(None) => {
-                        // There's no previous chunk. The chunk is now fully-loaded. Conclude.
-                        return Ok(self.conclude_load_more_for_fully_loaded_chunk());
-                    }
+                Ok(None) => {
+                    // There's no previous chunk. The chunk is now fully-loaded. Conclude.
+                    return Ok(self.conclude_load_more_for_fully_loaded_chunk());
+                }
 
-                    Err(err) => {
-                        error!("error when loading the previous chunk of a linked chunk: {err}");
+                Err(err) => {
+                    error!("error when loading the previous chunk of a linked chunk: {err}");
 
-                        // Clear storage for this room.
-                        store.handle_linked_chunk_updates(&self.room, vec![Update::Clear]).await?;
+                    // Clear storage for this room.
+                    store.handle_linked_chunk_updates(linked_chunk_id, vec![Update::Clear]).await?;
 
-                        // Return the error.
-                        return Err(err.into());
-                    }
-                };
+                    // Return the error.
+                    return Err(err.into());
+                }
+            };
 
             let chunk_content = new_first_chunk.content.clone();
 
@@ -782,7 +790,7 @@ mod private {
                 error!("error when inserting the previous chunk into its linked chunk: {err}");
 
                 // Clear storage for this room.
-                store.handle_linked_chunk_updates(&self.room, vec![Update::Clear]).await?;
+                store.handle_linked_chunk_updates(linked_chunk_id, vec![Update::Clear]).await?;
 
                 // Return the error.
                 return Err(err.into());
@@ -827,23 +835,24 @@ mod private {
             let store_lock = self.store.lock().await?;
 
             // Attempt to load the last chunk.
-            let (last_chunk, chunk_identifier_generator) = match store_lock
-                .load_last_chunk(&self.room)
-                .await
-            {
-                Ok(pair) => pair,
+            let linked_chunk_id = LinkedChunkId::Room(&self.room);
+            let (last_chunk, chunk_identifier_generator) =
+                match store_lock.load_last_chunk(linked_chunk_id).await {
+                    Ok(pair) => pair,
 
-                Err(err) => {
-                    // If loading the last chunk failed, clear the entire linked chunk.
-                    error!("error when reloading a linked chunk from memory: {err}");
+                    Err(err) => {
+                        // If loading the last chunk failed, clear the entire linked chunk.
+                        error!("error when reloading a linked chunk from memory: {err}");
 
-                    // Clear storage for this room.
-                    store_lock.handle_linked_chunk_updates(&self.room, vec![Update::Clear]).await?;
+                        // Clear storage for this room.
+                        store_lock
+                            .handle_linked_chunk_updates(linked_chunk_id, vec![Update::Clear])
+                            .await?;
 
-                    // Restart with an empty linked chunk.
-                    (None, ChunkIdentifierGenerator::new_from_scratch())
-                }
-            };
+                        // Restart with an empty linked chunk.
+                        (None, ChunkIdentifierGenerator::new_from_scratch())
+                    }
+                };
 
             debug!("unloading the linked chunk, and resetting it to its last chunk");
 
@@ -1026,7 +1035,8 @@ mod private {
                 let store = store.lock().await?;
 
                 trace!(?updates, "sending linked chunk updates to the store");
-                store.handle_linked_chunk_updates(&room_id, updates).await?;
+                let linked_chunk_id = LinkedChunkId::Room(&room_id);
+                store.handle_linked_chunk_updates(linked_chunk_id, updates).await?;
                 trace!("linked chunk updates applied");
 
                 super::Result::Ok(())
@@ -1678,7 +1688,8 @@ mod timed_tests {
             Gap,
         },
         linked_chunk::{
-            lazy_loader::from_all_chunks, ChunkContent, ChunkIdentifier, Position, Update,
+            lazy_loader::from_all_chunks, ChunkContent, ChunkIdentifier, LinkedChunkId, Position,
+            Update,
         },
         store::StoreConfig,
         sync::{JoinedRoomUpdate, Timeline},
@@ -1734,10 +1745,11 @@ mod timed_tests {
             .await
             .unwrap();
 
-        let linked_chunk =
-            from_all_chunks::<3, _, _>(event_cache_store.load_all_chunks(room_id).await.unwrap())
-                .unwrap()
-                .unwrap();
+        let linked_chunk = from_all_chunks::<3, _, _>(
+            event_cache_store.load_all_chunks(LinkedChunkId::Room(room_id)).await.unwrap(),
+        )
+        .unwrap()
+        .unwrap();
 
         assert_eq!(linked_chunk.chunks().count(), 2);
 
@@ -1816,10 +1828,11 @@ mod timed_tests {
         }
 
         // The one in storage does not.
-        let linked_chunk =
-            from_all_chunks::<3, _, _>(event_cache_store.load_all_chunks(room_id).await.unwrap())
-                .unwrap()
-                .unwrap();
+        let linked_chunk = from_all_chunks::<3, _, _>(
+            event_cache_store.load_all_chunks(LinkedChunkId::Room(room_id)).await.unwrap(),
+        )
+        .unwrap()
+        .unwrap();
 
         assert_eq!(linked_chunk.chunks().count(), 1);
 
@@ -1855,7 +1868,7 @@ mod timed_tests {
         // Prefill the store with some data.
         event_cache_store
             .handle_linked_chunk_updates(
-                room_id,
+                LinkedChunkId::Room(room_id),
                 vec![
                     // An empty items chunk.
                     Update::NewItemsChunk {
@@ -1965,10 +1978,11 @@ mod timed_tests {
         assert!(items.is_empty());
 
         // The event cache store too.
-        let linked_chunk =
-            from_all_chunks::<3, _, _>(event_cache_store.load_all_chunks(room_id).await.unwrap())
-                .unwrap()
-                .unwrap();
+        let linked_chunk = from_all_chunks::<3, _, _>(
+            event_cache_store.load_all_chunks(LinkedChunkId::Room(room_id)).await.unwrap(),
+        )
+        .unwrap()
+        .unwrap();
 
         // Note: while the event cache store could return `None` here, clearing it will
         // reset it to its initial form, maintaining the invariant that it
@@ -1992,7 +2006,7 @@ mod timed_tests {
         // Prefill the store with some data.
         event_cache_store
             .handle_linked_chunk_updates(
-                room_id,
+                LinkedChunkId::Room(room_id),
                 vec![
                     // An empty items chunk.
                     Update::NewItemsChunk {
@@ -2108,7 +2122,7 @@ mod timed_tests {
         // Prefill the store with invalid data: two chunks that form a cycle.
         event_cache_store
             .handle_linked_chunk_updates(
-                room_id,
+                LinkedChunkId::Room(room_id),
                 vec![
                     Update::NewItemsChunk {
                         previous: None,
@@ -2154,7 +2168,8 @@ mod timed_tests {
 
         // Storage doesn't contain anything. It would also be valid that it contains a
         // single initial empty items chunk.
-        let raw_chunks = event_cache_store.load_all_chunks(room_id).await.unwrap();
+        let raw_chunks =
+            event_cache_store.load_all_chunks(LinkedChunkId::Room(room_id)).await.unwrap();
         assert!(raw_chunks.is_empty());
     }
 
@@ -2283,7 +2298,7 @@ mod timed_tests {
             let store = store.lock().await.unwrap();
             store
                 .handle_linked_chunk_updates(
-                    room_id,
+                    LinkedChunkId::Room(room_id),
                     vec![
                         Update::NewItemsChunk {
                             previous: None,
@@ -2393,7 +2408,7 @@ mod timed_tests {
             let store = store.lock().await.unwrap();
             store
                 .handle_linked_chunk_updates(
-                    room_id,
+                    LinkedChunkId::Room(room_id),
                     vec![
                         Update::NewItemsChunk {
                             previous: None,
