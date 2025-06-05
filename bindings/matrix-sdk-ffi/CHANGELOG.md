@@ -34,6 +34,8 @@ Additions:
   ([#4994](https://github.com/matrix-org/matrix-rust-sdk/pull/4994))
 - Add `Timeline::send_gallery` to send MSC4274-style galleries.
   ([#5163](https://github.com/matrix-org/matrix-rust-sdk/pull/5163))
+- Add `reply_params` to `GalleryUploadParameters` to allow sending galleries as (threaded) replies.
+  ([#5173](https://github.com/matrix-org/matrix-rust-sdk/pull/5173))
 
 Breaking changes:
 
