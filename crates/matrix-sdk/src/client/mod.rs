@@ -1841,18 +1841,18 @@ impl Client {
 
     async fn get_or_load_and_cache_server_info<
         Value,
-        MapFunction: Fn(&ClientServerInfo) -> Option<Value>,
+        MapFunction: Fn(&ClientServerInfo) -> CachedValue<Value>,
     >(
         &self,
         map: MapFunction,
     ) -> HttpResult<Value> {
         let server_info = &self.inner.caches.server_info;
-        if let Some(val) = map(&*server_info.read().await) {
+        if let CachedValue::Cached(val) = map(&*server_info.read().await) {
             return Ok(val);
         }
 
         let mut guarded_server_info = server_info.write().await;
-        if let Some(val) = map(&guarded_server_info) {
+        if let CachedValue::Cached(val) = map(&guarded_server_info) {
             return Ok(val);
         }
 
@@ -1864,13 +1864,13 @@ impl Client {
             versions.push(MatrixVersion::V1_0);
         }
 
-        guarded_server_info.server_versions = Some(versions.into());
-        guarded_server_info.unstable_features = Some(server_info.unstable_features);
-        guarded_server_info.well_known = Some(server_info.well_known);
+        guarded_server_info.server_versions = CachedValue::Cached(versions.into());
+        guarded_server_info.unstable_features = CachedValue::Cached(server_info.unstable_features);
+        guarded_server_info.well_known = CachedValue::Cached(server_info.well_known);
 
         // SAFETY: all fields were set above, so (assuming the caller doesn't attempt to
         // fetch an optional property), the function will always return some.
-        Ok(map(&guarded_server_info).unwrap())
+        Ok(map(&guarded_server_info).unwrap_cached_value())
     }
 
     /// Get the Matrix versions supported by the homeserver by fetching them
@@ -1954,8 +1954,8 @@ impl Client {
     pub async fn reset_server_info(&self) -> Result<()> {
         // Empty the in-memory caches.
         let mut guard = self.inner.caches.server_info.write().await;
-        guard.server_versions = None;
-        guard.unstable_features = None;
+        guard.server_versions = CachedValue::NotSet;
+        guard.unstable_features = CachedValue::NotSet;
 
         // Empty the store cache.
         Ok(self.state_store().remove_kv_data(StateStoreDataKey::ServerInfo).await?)
@@ -2696,17 +2696,38 @@ impl WeakClient {
 #[derive(Clone)]
 struct ClientServerInfo {
     /// The Matrix versions the server supports (known ones only).
-    server_versions: Option<Box<[MatrixVersion]>>,
+    server_versions: CachedValue<Box<[MatrixVersion]>>,
 
     /// The unstable features and their on/off state on the server.
-    unstable_features: Option<BTreeMap<String, bool>>,
+    unstable_features: CachedValue<BTreeMap<String, bool>>,
 
     /// The server's well-known file, if any.
+    well_known: CachedValue<Option<WellKnownResponse>>,
+}
+
+/// A cached value that can either be set or not set, used to avoid confusion
+/// between a value that is set to `None` (because it doesn't exist) and a value
+/// that has not been cached yet.
+#[derive(Clone)]
+enum CachedValue<Value> {
+    /// A value has been cached.
+    Cached(Value),
+    /// Nothing has been cached yet.
+    NotSet,
+}
+
+impl<Value> CachedValue<Value> {
+    /// Unwraps the cached value, returning it if it exists.
     ///
-    /// Note: The outer `Option` represents whether a value has been set or
-    /// not, and the inner `Option` represents whether the server has a
-    /// well-known file or not.
-    well_known: Option<Option<WellKnownResponse>>,
+    /// # Panics
+    ///
+    /// If the cached value is not set, this will panic.
+    fn unwrap_cached_value(self) -> Value {
+        match self {
+            CachedValue::Cached(value) => value,
+            CachedValue::NotSet => panic!("Tried to unwrap a cached value that wasn't set"),
+        }
+    }
 }
 
 // The http mocking library is not supported for wasm32

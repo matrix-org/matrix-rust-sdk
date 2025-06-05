@@ -40,7 +40,10 @@ use crate::encryption::EncryptionSettings;
 use crate::http_client::HttpSettings;
 use crate::{
     authentication::{oauth::OAuthCtx, AuthCtx},
-    client::ClientServerInfo,
+    client::{
+        CachedValue::{Cached, NotSet},
+        ClientServerInfo,
+    },
     config::RequestConfig,
     error::RumaApiError,
     http_client::HttpClient,
@@ -561,9 +564,12 @@ impl ClientBuilder {
         let send_queue = Arc::new(SendQueueData::new(true));
 
         let server_info = ClientServerInfo {
-            server_versions: self.server_versions,
-            unstable_features: None,
-            well_known: Some(well_known.map(Into::into)),
+            server_versions: match self.server_versions {
+                Some(versions) => Cached(versions),
+                None => NotSet,
+            },
+            unstable_features: NotSet,
+            well_known: Cached(well_known.map(Into::into)),
         };
 
         let event_cache = OnceCell::new();
