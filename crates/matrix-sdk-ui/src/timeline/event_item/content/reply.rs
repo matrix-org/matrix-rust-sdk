@@ -16,7 +16,7 @@ use std::sync::Arc;
 
 use imbl::Vector;
 use matrix_sdk::deserialized_responses::{TimelineEvent, UnsignedEventLocation};
-use ruma::{OwnedEventId, OwnedUserId, UserId};
+use ruma::{OwnedEventId, OwnedUserId};
 use tracing::{debug, instrument, warn};
 
 use super::TimelineItemContent;
@@ -40,7 +40,7 @@ pub struct InReplyToDetails {
     /// unavailable.
     ///
     /// [`Timeline::fetch_details_for_event`]: crate::Timeline::fetch_details_for_event
-    pub event: TimelineDetails<Box<RepliedToEvent>>,
+    pub event: TimelineDetails<Box<EmbeddedEvent>>,
 }
 
 impl InReplyToDetails {
@@ -52,37 +52,26 @@ impl InReplyToDetails {
             .iter()
             .filter_map(|it| it.as_event())
             .find(|it| it.event_id() == Some(&*event_id))
-            .map(|item| Box::new(RepliedToEvent::from_timeline_item(item)));
+            .map(|item| Box::new(EmbeddedEvent::from_timeline_item(item)));
 
         InReplyToDetails { event_id, event: TimelineDetails::from_initial_value(event) }
     }
 }
 
-/// An event that is replied to.
+/// An event that is embedded in another event, such as a replied-to event, or a
+/// thread latest event.
 #[derive(Clone, Debug)]
-pub struct RepliedToEvent {
-    content: TimelineItemContent,
-    sender: OwnedUserId,
-    sender_profile: TimelineDetails<Profile>,
+pub struct EmbeddedEvent {
+    /// The content of the embedded item.
+    pub content: TimelineItemContent,
+    /// The user ID of the sender of the related embedded event.
+    pub sender: OwnedUserId,
+    /// The profile of the sender of the related embedded event.
+    pub sender_profile: TimelineDetails<Profile>,
 }
 
-impl RepliedToEvent {
-    /// Get the message of this event.
-    pub fn content(&self) -> &TimelineItemContent {
-        &self.content
-    }
-
-    /// Get the sender of this event.
-    pub fn sender(&self) -> &UserId {
-        &self.sender
-    }
-
-    /// Get the profile of the sender.
-    pub fn sender_profile(&self) -> &TimelineDetails<Profile> {
-        &self.sender_profile
-    }
-
-    /// Create a [`RepliedToEvent`] from a loaded event timeline item.
+impl EmbeddedEvent {
+    /// Create a [`EmbeddedEvent`] from a loaded event timeline item.
     pub fn from_timeline_item(timeline_item: &EventTimelineItem) -> Self {
         Self {
             content: timeline_item.content.clone(),
@@ -121,11 +110,15 @@ impl RepliedToEvent {
 
         debug!(event_type = %event.event_type(), "got deserialized event");
 
+        // We don't need to fill the thread information of an embedded reply.
+        let thread_summary = None;
+
         let sender = event.sender().to_owned();
         let action = TimelineAction::from_event(
             event,
             &raw_event,
             room_data_provider,
+            thread_summary,
             unable_to_decrypt_info,
             bundled_edit_encryption_info,
             timeline_items,

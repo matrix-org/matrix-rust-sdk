@@ -135,7 +135,7 @@ impl TryFrom<AnySyncStateEvent> for StateEventContent {
             }
             AnySyncStateEvent::SpaceChild(_) => StateEventContent::SpaceChild,
             AnySyncStateEvent::SpaceParent(_) => StateEventContent::SpaceParent,
-            _ => bail!("Unsupported state event"),
+            _ => bail!("Unsupported state event: {:?}", value.event_type()),
         };
         Ok(event)
     }
@@ -244,7 +244,7 @@ impl TryFrom<AnySyncMessageLikeEvent> for MessageLikeEventContent {
                 MessageLikeEventContent::RoomRedaction { redacted_event_id, reason }
             }
             AnySyncMessageLikeEvent::Sticker(_) => MessageLikeEventContent::Sticker,
-            _ => bail!("Unsupported Event Type"),
+            _ => bail!("Unsupported Event Type: {:?}", value.event_type()),
         };
         Ok(content)
     }
@@ -387,6 +387,8 @@ pub enum RoomMessageEventMessageType {
     Audio,
     Emote,
     File,
+    #[cfg(feature = "unstable-msc4274")]
+    Gallery,
     Image,
     Location,
     Notice,
@@ -403,6 +405,8 @@ impl From<RumaMessageType> for RoomMessageEventMessageType {
             RumaMessageType::Audio { .. } => Self::Audio,
             RumaMessageType::Emote { .. } => Self::Emote,
             RumaMessageType::File { .. } => Self::File,
+            #[cfg(feature = "unstable-msc4274")]
+            RumaMessageType::Gallery { .. } => Self::Gallery,
             RumaMessageType::Image { .. } => Self::Image,
             RumaMessageType::Location { .. } => Self::Location,
             RumaMessageType::Notice { .. } => Self::Notice,

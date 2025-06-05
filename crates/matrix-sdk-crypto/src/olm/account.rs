@@ -1469,23 +1469,35 @@ impl Account {
             .into())
         } else {
             // If the event contained sender_device_keys, check them now.
+            // WARN: If you move or modify this check, ensure that the code below is still
+            // valid. The processing of the historic room key bundle depends on this being
+            // here.
             Self::check_sender_device_keys(event.as_ref(), sender_key)?;
-
             let mut sender_device: Option<Device> = None;
-            // If this event is an `m.room_key` event, defer the check for the
-            // Ed25519 key of the sender until we decrypt room events. This
-            // ensures that we receive the room key even if we don't have access
-            // to the device.
-            if !matches!(*event, AnyDecryptedOlmEvent::RoomKey(_)) {
-                let Some(device) =
-                    store.get_device_from_curve_key(event.sender(), sender_key).await?
-                else {
-                    return Err(EventError::MissingSigningKey.into());
-                };
+            if let AnyDecryptedOlmEvent::RoomKey(_) = event.as_ref() {
+                // If this event is an `m.room_key` event, defer the check for
+                // the Ed25519 key of the sender until we decrypt room events.
+                // This ensures that we receive the room key even if we don't
+                // have access to the device.
+            } else if let AnyDecryptedOlmEvent::RoomKeyBundle(_) = event.as_ref() {
+                // If this is a room key bundle we're requiring the device keys to be part of
+                // the `AnyDecryptedOlmEvent`. This ensures that we can skip the check for the
+                // Ed25519 key below since `Self::check_sender_device_keys` already did so.
+                //
+                // If the event didn't contain any sender device keys we'll throw an error
+                // refusing to decrypt the room key bundle.
+                event.sender_device_keys().ok_or(EventError::MissingSigningKey).inspect_err(
+                    |_| {
+                        warn!("The room key bundle was missing the sender device keys in the event")
+                    },
+                )?;
+            } else {
+                let device = store
+                    .get_device_from_curve_key(event.sender(), sender_key)
+                    .await?
+                    .ok_or(EventError::MissingSigningKey)?;
 
-                let Some(key) = device.ed25519_key() else {
-                    return Err(EventError::MissingSigningKey.into());
-                };
+                let key = device.ed25519_key().ok_or(EventError::MissingSigningKey)?;
 
                 if key != event.keys().ed25519 {
                     return Err(EventError::MismatchedKeys(
@@ -1497,43 +1509,7 @@ impl Account {
                 sender_device = Some(device);
             }
 
-            let verification_state = sender_device
-                .as_ref()
-                .map(|device| {
-                    if device.is_verified() {
-                        // The device is locally verified or signed by a verified user
-                        VerificationState::Verified
-                    } else if device.is_cross_signed_by_owner() {
-                        // The device is not verified, but it is signed by its owner
-                        if device
-                            .device_owner_identity
-                            .as_ref()
-                            .expect(
-                                "A device cross-signed by the owner must have an owner identity",
-                            )
-                            .was_previously_verified()
-                        {
-                            VerificationState::Unverified(VerificationLevel::VerificationViolation)
-                        } else {
-                            VerificationState::Unverified(VerificationLevel::UnverifiedIdentity)
-                        }
-                    } else {
-                        // No identity or not signed
-                        VerificationState::Unverified(VerificationLevel::UnsignedDevice)
-                    }
-                })
-                .unwrap_or(VerificationState::Unverified(VerificationLevel::None(
-                    DeviceLinkProblem::MissingDevice,
-                )));
-
-            let encryption_info = EncryptionInfo {
-                sender: event.sender().to_owned(),
-                sender_device: sender_device.map(|d| d.device_id().to_owned()),
-                algorithm_info: AlgorithmInfo::OlmV1Curve25519AesSha2 {
-                    curve25519_public_key_base64: sender_key.to_base64(),
-                },
-                verification_state,
-            };
+            let encryption_info = Self::get_olm_encryption_info(sender_key, sender, &sender_device);
 
             Ok(DecryptionResult {
                 event,
@@ -1542,6 +1518,55 @@ impl Account {
                 encryption_info,
             })
         }
+    }
+
+    /// Gets the EncryptionInfo for a successfully decrypted to-device message
+    /// that have passed the mismatched sender_key/user_id validation.
+    ///
+    /// `sender_device` is optional because for some to-device messages we defer
+    /// the check for the ed25519 key, in that case the
+    /// `verification_state` will have a `MissingDevice` link problem.
+    fn get_olm_encryption_info(
+        sender_key: Curve25519PublicKey,
+        sender_id: &UserId,
+        sender_device: &Option<Device>,
+    ) -> EncryptionInfo {
+        let verification_state = sender_device
+            .as_ref()
+            .map(|device| {
+                if device.is_verified() {
+                    // The device is locally verified or signed by a verified user
+                    VerificationState::Verified
+                } else if device.is_cross_signed_by_owner() {
+                    // The device is not verified, but it is signed by its owner
+                    if device
+                        .device_owner_identity
+                        .as_ref()
+                        .expect("A device cross-signed by the owner must have an owner identity")
+                        .was_previously_verified()
+                    {
+                        VerificationState::Unverified(VerificationLevel::VerificationViolation)
+                    } else {
+                        VerificationState::Unverified(VerificationLevel::UnverifiedIdentity)
+                    }
+                } else {
+                    // No identity or not signed
+                    VerificationState::Unverified(VerificationLevel::UnsignedDevice)
+                }
+            })
+            .unwrap_or(VerificationState::Unverified(VerificationLevel::None(
+                DeviceLinkProblem::MissingDevice,
+            )));
+
+        let encryption_info = EncryptionInfo {
+            sender: sender_id.to_owned(),
+            sender_device: sender_device.as_ref().map(|d| d.device_id().to_owned()),
+            algorithm_info: AlgorithmInfo::OlmV1Curve25519AesSha2 {
+                curve25519_public_key_base64: sender_key.to_base64(),
+            },
+            verification_state,
+        };
+        encryption_info
     }
 
     /// If the plaintext of the decrypted message includes a

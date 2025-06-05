@@ -35,7 +35,7 @@ where
     }
 }
 
-/// Create a new filter that will filters out left rooms.
+/// Create a new filter that will filter out left rooms.
 pub fn new_filter() -> impl Filter {
     let matcher = NonLeftRoomMatcher { state: move |room| room.state() };
 

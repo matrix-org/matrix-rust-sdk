@@ -590,7 +590,7 @@ impl SessionManager {
 mod tests {
     use std::{collections::BTreeMap, iter, ops::Deref, sync::Arc, time::Duration};
 
-    use matrix_sdk_common::locks::RwLock as StdRwLock;
+    use matrix_sdk_common::{executor::spawn, locks::RwLock as StdRwLock};
     use matrix_sdk_test::{async_test, ruma_response_from_json};
     use ruma::{
         api::client::keys::claim_keys::v3::Response as KeyClaimResponse, device_id,
@@ -747,9 +747,9 @@ mod tests {
             let bob_user_id = bob.user_id().to_owned();
 
             #[allow(unknown_lints, clippy::redundant_async_block)] // false positive
-            tokio::spawn(async move {
-                manager.get_missing_sessions(iter::once(bob_user_id.deref())).await
-            })
+            spawn(
+                async move { manager.get_missing_sessions(iter::once(bob_user_id.deref())).await },
+            )
         };
 
         // the initial `/keys/query` completes, and we start another
@@ -840,7 +840,8 @@ mod tests {
         let time = SystemTime::now() - Duration::from_secs(3601);
         session.creation_time = SecondsSinceUnixEpoch::from_system_time(time).unwrap();
 
-        manager.store.save_device_data(&[bob_device.clone()]).await.unwrap();
+        let devices = std::slice::from_ref(&bob_device);
+        manager.store.save_device_data(devices).await.unwrap();
         manager.store.save_sessions(&[session]).await.unwrap();
 
         assert!(manager.get_missing_sessions(iter::once(bob.user_id())).await.unwrap().is_none());

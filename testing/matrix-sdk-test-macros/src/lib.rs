@@ -15,8 +15,8 @@ pub fn async_test(_attr: TokenStream, item: TokenStream) -> TokenStream {
     // on the regular return-case, we can just use cfg_attr and quit early
     if fun.sig.output == syn::ReturnType::Default {
         let attrs = r#"
-            #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
-            #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+            #[cfg_attr(not(target_family = "wasm"), tokio::test)]
+            #[cfg_attr(target_family = "wasm", wasm_bindgen_test::wasm_bindgen_test)]
         "#;
 
         let mut out: TokenStream = attrs.parse().expect("Static works");
@@ -33,7 +33,7 @@ pub fn async_test(_attr: TokenStream, item: TokenStream) -> TokenStream {
     // that calls the first in wasm32 cases.
 
     let attrs = r#"
-        #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+        #[cfg_attr(not(target_family = "wasm"), tokio::test)]
     "#;
 
     let mut out: TokenStream = attrs.parse().expect("Static works.");
@@ -64,7 +64,7 @@ pub fn async_test(_attr: TokenStream, item: TokenStream) -> TokenStream {
     out.extend(inner);
 
     let attrs = r#"
-        #[cfg(target_arch = "wasm32")]
+        #[cfg(target_family = "wasm")]
         #[wasm_bindgen_test::wasm_bindgen_test]
     "#;
     let outer_attrs: TokenStream = attrs.parse().expect("Static works.");

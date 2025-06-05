@@ -2,24 +2,29 @@
 
 use std::{fmt::Debug, mem::MaybeUninit, ptr::addr_of_mut, sync::Arc, time::Duration};
 
-use async_compat::get_runtime_handle;
 use eyeball_im::VectorDiff;
 use futures_util::{pin_mut, StreamExt};
-use matrix_sdk::ruma::{
-    api::client::sync::sync_events::UnreadNotificationsCount as RumaUnreadNotificationsCount,
-    RoomId,
+use matrix_sdk::{
+    ruma::{
+        api::client::sync::sync_events::UnreadNotificationsCount as RumaUnreadNotificationsCount,
+        RoomId,
+    },
+    Room as SdkRoom,
 };
-use matrix_sdk_ui::room_list_service::filters::{
-    new_filter_all, new_filter_any, new_filter_category, new_filter_favourite,
-    new_filter_fuzzy_match_room_name, new_filter_invite, new_filter_joined, new_filter_non_left,
-    new_filter_none, new_filter_normalized_match_room_name, new_filter_unread, BoxedFilterFn,
-    RoomCategory,
+use matrix_sdk_common::{runtime::get_runtime_handle, SendOutsideWasm, SyncOutsideWasm};
+use matrix_sdk_ui::{
+    room_list_service::filters::{
+        new_filter_all, new_filter_any, new_filter_category, new_filter_deduplicate_versions,
+        new_filter_favourite, new_filter_fuzzy_match_room_name, new_filter_invite,
+        new_filter_joined, new_filter_non_left, new_filter_none,
+        new_filter_normalized_match_room_name, new_filter_unread, BoxedFilterFn, RoomCategory,
+    },
+    unable_to_decrypt_hook::UtdHookManager,
 };
-use ruma::{OwnedRoomOrAliasId, OwnedServerName, ServerName};
 
 use crate::{
-    error::ClientError, room::Membership, room_info::RoomInfo, room_preview::RoomPreview,
-    timeline::EventTimelineItem, utils::AsyncRuntimeDropped, TaskHandle,
+    room::{Membership, Room},
+    TaskHandle,
 };
 
 #[derive(Debug, thiserror::Error, uniffi::Error)]
@@ -62,6 +67,7 @@ impl From<ruma::IdParseError> for RoomListError {
 #[derive(uniffi::Object)]
 pub struct RoomListService {
     pub(crate) inner: Arc<matrix_sdk_ui::RoomListService>,
+    pub(crate) utd_hook: Option<Arc<UtdHookManager>>,
 }
 
 #[matrix_sdk_ffi_macros::export]
@@ -78,10 +84,10 @@ impl RoomListService {
         })))
     }
 
-    fn room(&self, room_id: String) -> Result<Arc<RoomListItem>, RoomListError> {
+    fn room(&self, room_id: String) -> Result<Arc<Room>, RoomListError> {
         let room_id = <&RoomId>::try_from(room_id.as_str()).map_err(RoomListError::from)?;
 
-        Ok(Arc::new(RoomListItem { inner: Arc::new(self.inner.room(room_id)?) }))
+        Ok(Arc::new(Room::new(self.inner.room(room_id)?, self.utd_hook.clone())))
     }
 
     async fn all_rooms(self: Arc<Self>) -> Result<Arc<RoomList>, RoomListError> {
@@ -210,11 +216,17 @@ impl RoomList {
         let dynamic_entries_controller =
             Arc::new(RoomListDynamicEntriesController::new(dynamic_entries_controller));
 
+        let utd_hook = this.room_list_service.utd_hook.clone();
         let entries_stream = Arc::new(TaskHandle::new(get_runtime_handle().spawn(async move {
             pin_mut!(entries_stream);
 
             while let Some(diffs) = entries_stream.next().await {
-                listener.on_update(diffs.into_iter().map(RoomListEntriesUpdate::from).collect());
+                listener.on_update(
+                    diffs
+                        .into_iter()
+                        .map(|room| RoomListEntriesUpdate::from(utd_hook.clone(), room))
+                        .collect(),
+                );
             }
         })));
 
@@ -239,7 +251,7 @@ impl RoomList {
         Arc::new(unsafe { result.assume_init() })
     }
 
-    fn room(&self, room_id: String) -> Result<Arc<RoomListItem>, RoomListError> {
+    fn room(&self, room_id: String) -> Result<Arc<Room>, RoomListError> {
         self.room_list_service.room(room_id)
     }
 }
@@ -330,60 +342,60 @@ impl From<matrix_sdk_ui::room_list_service::RoomListLoadingState> for RoomListLo
 }
 
 #[matrix_sdk_ffi_macros::export(callback_interface)]
-pub trait RoomListServiceStateListener: Send + Sync + Debug {
+pub trait RoomListServiceStateListener: SendOutsideWasm + SyncOutsideWasm + Debug {
     fn on_update(&self, state: RoomListServiceState);
 }
 
 #[matrix_sdk_ffi_macros::export(callback_interface)]
-pub trait RoomListLoadingStateListener: Send + Sync + Debug {
+pub trait RoomListLoadingStateListener: SendOutsideWasm + SyncOutsideWasm + Debug {
     fn on_update(&self, state: RoomListLoadingState);
 }
 
 #[matrix_sdk_ffi_macros::export(callback_interface)]
-pub trait RoomListServiceSyncIndicatorListener: Send + Sync + Debug {
+pub trait RoomListServiceSyncIndicatorListener: SendOutsideWasm + SyncOutsideWasm + Debug {
     fn on_update(&self, sync_indicator: RoomListServiceSyncIndicator);
 }
 
 #[derive(uniffi::Enum)]
 pub enum RoomListEntriesUpdate {
-    Append { values: Vec<Arc<RoomListItem>> },
+    Append { values: Vec<Arc<Room>> },
     Clear,
-    PushFront { value: Arc<RoomListItem> },
-    PushBack { value: Arc<RoomListItem> },
+    PushFront { value: Arc<Room> },
+    PushBack { value: Arc<Room> },
     PopFront,
     PopBack,
-    Insert { index: u32, value: Arc<RoomListItem> },
-    Set { index: u32, value: Arc<RoomListItem> },
+    Insert { index: u32, value: Arc<Room> },
+    Set { index: u32, value: Arc<Room> },
     Remove { index: u32 },
     Truncate { length: u32 },
-    Reset { values: Vec<Arc<RoomListItem>> },
+    Reset { values: Vec<Arc<Room>> },
 }
 
 impl RoomListEntriesUpdate {
-    fn from(vector_diff: VectorDiff<matrix_sdk_ui::room_list_service::Room>) -> Self {
+    fn from(utd_hook: Option<Arc<UtdHookManager>>, vector_diff: VectorDiff<SdkRoom>) -> Self {
         match vector_diff {
             VectorDiff::Append { values } => Self::Append {
                 values: values
                     .into_iter()
-                    .map(|value| Arc::new(RoomListItem::from(value)))
+                    .map(|value| Arc::new(Room::new(value, utd_hook.clone())))
                     .collect(),
             },
             VectorDiff::Clear => Self::Clear,
             VectorDiff::PushFront { value } => {
-                Self::PushFront { value: Arc::new(RoomListItem::from(value)) }
+                Self::PushFront { value: Arc::new(Room::new(value, utd_hook)) }
             }
             VectorDiff::PushBack { value } => {
-                Self::PushBack { value: Arc::new(RoomListItem::from(value)) }
+                Self::PushBack { value: Arc::new(Room::new(value, utd_hook)) }
             }
             VectorDiff::PopFront => Self::PopFront,
             VectorDiff::PopBack => Self::PopBack,
             VectorDiff::Insert { index, value } => Self::Insert {
                 index: u32::try_from(index).unwrap(),
-                value: Arc::new(RoomListItem::from(value)),
+                value: Arc::new(Room::new(value, utd_hook)),
             },
             VectorDiff::Set { index, value } => Self::Set {
                 index: u32::try_from(index).unwrap(),
-                value: Arc::new(RoomListItem::from(value)),
+                value: Arc::new(Room::new(value, utd_hook)),
             },
             VectorDiff::Remove { index } => Self::Remove { index: u32::try_from(index).unwrap() },
             VectorDiff::Truncate { length } => {
@@ -392,7 +404,7 @@ impl RoomListEntriesUpdate {
             VectorDiff::Reset { values } => Self::Reset {
                 values: values
                     .into_iter()
-                    .map(|value| Arc::new(RoomListItem::from(value)))
+                    .map(|value| Arc::new(Room::new(value, utd_hook.clone())))
                     .collect(),
             },
         }
@@ -400,7 +412,7 @@ impl RoomListEntriesUpdate {
 }
 
 #[matrix_sdk_ffi_macros::export(callback_interface)]
-pub trait RoomListEntriesListener: Send + Sync + Debug {
+pub trait RoomListEntriesListener: SendOutsideWasm + SyncOutsideWasm + Debug {
     fn on_update(&self, room_entries_update: Vec<RoomListEntriesUpdate>);
 }
 
@@ -445,6 +457,7 @@ pub enum RoomListEntriesDynamicFilterKind {
     None,
     NormalizedMatchRoomName { pattern: String },
     FuzzyMatchRoomName { pattern: String },
+    DeduplicateVersions,
 }
 
 #[derive(uniffi::Enum)]
@@ -486,104 +499,8 @@ impl From<RoomListEntriesDynamicFilterKind> for BoxedFilterFn {
             Kind::FuzzyMatchRoomName { pattern } => {
                 Box::new(new_filter_fuzzy_match_room_name(&pattern))
             }
+            Kind::DeduplicateVersions => Box::new(new_filter_deduplicate_versions()),
         }
-    }
-}
-
-#[derive(uniffi::Object)]
-pub struct RoomListItem {
-    inner: Arc<matrix_sdk_ui::room_list_service::Room>,
-}
-
-impl RoomListItem {
-    fn from(value: matrix_sdk_ui::room_list_service::Room) -> Self {
-        Self { inner: Arc::new(value) }
-    }
-}
-
-#[matrix_sdk_ffi_macros::export]
-impl RoomListItem {
-    fn id(&self) -> String {
-        self.inner.id().to_string()
-    }
-
-    /// Returns the room's name from the state event if available, otherwise
-    /// compute a room name based on the room's nature (DM or not) and number of
-    /// members.
-    fn display_name(&self) -> Option<String> {
-        self.inner.cached_display_name()
-    }
-
-    fn avatar_url(&self) -> Option<String> {
-        self.inner.avatar_url().map(|uri| uri.to_string())
-    }
-
-    async fn is_direct(&self) -> bool {
-        self.inner.inner_room().is_direct().await.unwrap_or(false)
-    }
-
-    fn canonical_alias(&self) -> Option<String> {
-        self.inner.inner_room().canonical_alias().map(|alias| alias.to_string())
-    }
-
-    async fn room_info(&self) -> Result<RoomInfo, ClientError> {
-        RoomInfo::new(self.inner.inner_room()).await
-    }
-
-    /// The room's current membership state.
-    fn membership(&self) -> Membership {
-        self.inner.inner_room().state().into()
-    }
-
-    /// Builds a `RoomPreview` from a room list item. This is intended for
-    /// invited, knocked or banned rooms.
-    async fn preview_room(&self, via: Vec<String>) -> Result<Arc<RoomPreview>, ClientError> {
-        // Validate parameters first.
-        let server_names: Vec<OwnedServerName> = via
-            .into_iter()
-            .map(|server| ServerName::parse(server).map_err(ClientError::from))
-            .collect::<Result<_, ClientError>>()?;
-
-        // Do the thing.
-        let client = self.inner.client();
-        let (room_or_alias_id, mut server_names) = if let Some(alias) = self.inner.canonical_alias()
-        {
-            let room_or_alias_id: OwnedRoomOrAliasId = alias.into();
-            (room_or_alias_id, Vec::new())
-        } else {
-            let room_or_alias_id: OwnedRoomOrAliasId = self.inner.id().to_owned().into();
-            (room_or_alias_id, server_names)
-        };
-
-        // If no server names are provided and the room's membership is invited,
-        // add the server name from the sender's user id as a fallback value
-        if server_names.is_empty() {
-            if let Ok(invite_details) = self.inner.invite_details().await {
-                if let Some(inviter) = invite_details.inviter {
-                    server_names.push(inviter.user_id().server_name().to_owned());
-                }
-            }
-        }
-
-        let room_preview = client.get_room_preview(&room_or_alias_id, server_names).await?;
-
-        Ok(Arc::new(RoomPreview::new(AsyncRuntimeDropped::new(client), room_preview)))
-    }
-
-    /// Checks whether the room is encrypted or not.
-    ///
-    /// **Note**: this info may not be reliable if you don't set up
-    /// `m.room.encryption` as required state.
-    async fn is_encrypted(&self) -> bool {
-        self.inner
-            .latest_encryption_state()
-            .await
-            .map(|state| state.is_encrypted())
-            .unwrap_or(false)
-    }
-
-    async fn latest_event(&self) -> Option<EventTimelineItem> {
-        self.inner.latest_event().await.map(Into::into)
     }
 }
 

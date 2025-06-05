@@ -14,6 +14,7 @@ use matrix_sdk::{
     test_utils::mocks::MatrixMockServer,
 };
 use matrix_sdk_base::{EncryptionState, RoomMembersUpdate, RoomState};
+use matrix_sdk_common::executor::spawn;
 use matrix_sdk_test::{
     async_test,
     event_factory::EventFactory,
@@ -157,6 +158,30 @@ async fn test_leave_invited_room_also_forgets_it() -> Result<(), anyhow::Error> 
     let room_id = *DEFAULT_TEST_ROOM_ID;
 
     server.mock_room_leave().ok(room_id).mock_once().mount().await;
+    server.mock_room_forget().ok().mock_once().mount().await;
+
+    let invited_room_builder = InvitedRoomBuilder::new(room_id);
+    let room = server.sync_room(&client, invited_room_builder).await;
+
+    room.leave().await?;
+
+    assert_eq!(room.state(), RoomState::Left);
+
+    let forgotten_room = client.get_room(room_id);
+    assert!(forgotten_room.is_none());
+
+    Ok(())
+}
+
+/// This test reflects a particular use case where a user is trying to leave a
+/// room and the server replies the user is forbidden to do so.
+#[async_test]
+async fn test_leave_invited_room_with_no_permissions() -> Result<(), anyhow::Error> {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+    let room_id = *DEFAULT_TEST_ROOM_ID;
+
+    server.mock_room_leave().forbidden().mock_once().mount().await;
     server.mock_room_forget().ok().mock_once().mount().await;
 
     let invited_room_builder = InvitedRoomBuilder::new(room_id);
@@ -487,7 +512,7 @@ async fn test_room_redact() {
     assert_eq!(response.event_id, event_id);
 }
 
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(not(target_family = "wasm"))]
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn test_fetch_members_deduplication() {
     let server = MatrixMockServer::new().await;
@@ -504,7 +529,7 @@ async fn test_fetch_members_deduplication() {
     // Create N tasks that try to fetch the members.
     for _ in 0..5 {
         #[allow(unknown_lints, clippy::redundant_async_block)] // false positive
-        let task = tokio::spawn({
+        let task = spawn({
             let room = room.clone();
             async move { room.sync_members().await }
         });
@@ -588,7 +613,7 @@ async fn test_subscribe_to_typing_notifications() {
     let room = server.sync_joined_room(&client, room_id).await;
 
     // Send to typing notification
-    let join_handle = tokio::spawn({
+    let join_handle = spawn({
         let typing_sequences = Arc::clone(&typing_sequences);
         async move {
             let (_drop_guard, mut subscriber) = room.subscribe_to_typing_notifications();
@@ -854,7 +879,7 @@ async fn test_call_notifications_dont_notify_room_without_mention_powerlevel() {
     let (client, server) = logged_in_client_with_server().await;
 
     let mut sync_builder = SyncResponseBuilder::new();
-    let mut power_level_event = StateTestEvent::PowerLevels.into_json_value();
+    let mut power_level_event: Value = StateTestEvent::PowerLevels.into();
     // Allow noone to send room notify events.
     *power_level_event.get_mut("content").unwrap().get_mut("notifications").unwrap() =
         json!({"room": 101});

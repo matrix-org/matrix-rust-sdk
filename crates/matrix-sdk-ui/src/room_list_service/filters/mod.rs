@@ -54,6 +54,7 @@
 mod all;
 mod any;
 mod category;
+mod deduplicate_versions;
 mod favourite;
 mod fuzzy_match_room_name;
 mod invite;
@@ -67,12 +68,14 @@ mod unread;
 pub use all::new_filter as new_filter_all;
 pub use any::new_filter as new_filter_any;
 pub use category::{new_filter as new_filter_category, RoomCategory};
+pub use deduplicate_versions::new_filter as new_filter_deduplicate_versions;
 pub use favourite::new_filter as new_filter_favourite;
 pub use fuzzy_match_room_name::new_filter as new_filter_fuzzy_match_room_name;
 pub use invite::new_filter as new_filter_invite;
 pub use joined::new_filter as new_filter_joined;
 #[cfg(test)]
 use matrix_sdk::Client;
+use matrix_sdk::Room;
 #[cfg(test)]
 use matrix_sdk_test::{JoinedRoomBuilder, SyncResponseBuilder};
 pub use non_left::new_filter as new_filter_non_left;
@@ -89,8 +92,6 @@ use wiremock::{
     Mock, MockServer, ResponseTemplate,
 };
 
-use super::Room;
-
 /// A trait “alias” that represents a _filter_.
 ///
 /// A filter is simply a function that receives a `&Room` and returns a `bool`.
@@ -99,7 +100,10 @@ pub trait Filter: Fn(&Room) -> bool {}
 impl<F> Filter for F where F: Fn(&Room) -> bool {}
 
 /// Type alias for a boxed filter function.
+#[cfg(not(target_family = "wasm"))]
 pub type BoxedFilterFn = Box<dyn Filter + Send + Sync>;
+#[cfg(target_family = "wasm")]
+pub type BoxedFilterFn = Box<dyn Filter>;
 
 /// Normalize a string, i.e. decompose it into NFD (Normalization Form D, i.e. a
 /// canonical decomposition, see http://www.unicode.org/reports/tr15/) and
@@ -131,7 +135,7 @@ pub(super) async fn new_rooms<const N: usize>(
 
     let _response = client.sync_once(Default::default()).await.unwrap();
 
-    room_ids.map(|room_id| Room::new(client.get_room(room_id).unwrap()))
+    room_ids.map(|room_id| client.get_room(room_id).unwrap())
 }
 
 #[cfg(test)]

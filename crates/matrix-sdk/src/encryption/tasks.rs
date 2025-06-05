@@ -57,7 +57,7 @@ pub(crate) struct BackupUploadingTask {
 #[cfg(feature = "e2e-encryption")]
 impl Drop for BackupUploadingTask {
     fn drop(&mut self) {
-        #[cfg(not(target_arch = "wasm32"))]
+        #[cfg(not(target_family = "wasm"))]
         self.join_handle.abort();
     }
 }
@@ -134,7 +134,7 @@ pub(crate) struct BackupDownloadTask {
 #[cfg(feature = "e2e-encryption")]
 impl Drop for BackupDownloadTask {
     fn drop(&mut self) {
-        #[cfg(not(target_arch = "wasm32"))]
+        #[cfg(not(target_family = "wasm"))]
         self.join_handle.abort();
     }
 }
@@ -389,7 +389,7 @@ impl BackupDownloadTaskListenerState {
     }
 }
 
-#[cfg(all(test, not(target_arch = "wasm32")))]
+#[cfg(all(test, not(target_family = "wasm")))]
 mod test {
     use matrix_sdk_test::async_test;
     use ruma::{event_id, room_id};

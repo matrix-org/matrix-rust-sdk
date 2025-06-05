@@ -24,6 +24,7 @@ mod members;
 mod room_info;
 mod state;
 mod tags;
+mod tombstone;
 
 #[cfg(feature = "e2e-encryption")]
 use std::sync::RwLock as SyncRwLock;
@@ -57,7 +58,6 @@ use ruma::{
             history_visibility::HistoryVisibility,
             join_rules::JoinRule,
             power_levels::{RoomPowerLevels, RoomPowerLevelsEventContent},
-            tombstone::RoomTombstoneEventContent,
         },
     },
     room::RoomType,
@@ -67,6 +67,7 @@ use serde::{Deserialize, Serialize};
 pub use state::{RoomState, RoomStateFilter};
 pub(crate) use tags::RoomNotableTags;
 use tokio::sync::broadcast;
+pub use tombstone::{PredecessorRoom, SuccessorRoom};
 use tracing::{info, instrument, warn};
 
 use crate::{
@@ -375,16 +376,6 @@ impl Room {
         self.inner.read().name().map(ToOwned::to_owned)
     }
 
-    /// Has the room been tombstoned.
-    pub fn is_tombstoned(&self) -> bool {
-        self.inner.read().base_info.tombstone.is_some()
-    }
-
-    /// Get the `m.room.tombstone` content of this room if there is one.
-    pub fn tombstone(&self) -> Option<RoomTombstoneEventContent> {
-        self.inner.read().tombstone().cloned()
-    }
-
     /// Get the topic of the room.
     pub fn topic(&self) -> Option<String> {
         self.inner.read().topic().map(ToOwned::to_owned)
@@ -490,7 +481,10 @@ unsafe impl Sync for Room {}
 #[test]
 // See https://github.com/matrix-org/matrix-rust-sdk/pull/3749#issuecomment-2312939823.
 fn test_send_sync_for_room() {
-    fn assert_send_sync<T: Send + Sync>() {}
+    fn assert_send_sync<
+        T: matrix_sdk_common::SendOutsideWasm + matrix_sdk_common::SyncOutsideWasm,
+    >() {
+    }
 
     assert_send_sync::<Room>();
 }

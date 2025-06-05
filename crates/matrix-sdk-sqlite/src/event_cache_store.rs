@@ -178,6 +178,15 @@ impl SqliteEventCacheStore {
     async fn acquire(&self) -> Result<SqliteAsyncConn> {
         let connection = self.pool.get().await?;
 
+        // Specify a busy timeout so that operations are automatically retried, in case
+        // the database was marked as locked, which can happen under very
+        // peculiar circumstances in WAL mode.
+        //
+        // The timeout value is in milliseconds.
+        //
+        // See also https://www.sqlite.org/wal.html#sometimes_queries_return_sqlite_busy_in_wal_mode.
+        connection.execute_batch("PRAGMA busy_timeout = 2000;").await?;
+
         // Per https://www.sqlite.org/foreignkeys.html#fk_enable, foreign key
         // support must be enabled on a per-connection basis. Execute it every
         // time we try to get a connection, since we can't guarantee a previous
@@ -1111,8 +1120,7 @@ impl EventCacheStore for SqliteEventCacheStore {
                 };
 
                 let query = format!(
-                    "SELECT content FROM events WHERE relates_to = ? AND room_id = ? {}",
-                    filter_query
+                    "SELECT content FROM events WHERE relates_to = ? AND room_id = ? {filter_query}"
                 );
 
                 // Collect related events.
@@ -1238,8 +1246,8 @@ impl EventCacheStore for SqliteEventCacheStore {
     }
 }
 
-#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+#[cfg_attr(target_family = "wasm", async_trait(?Send))]
+#[cfg_attr(not(target_family = "wasm"), async_trait)]
 impl EventCacheStoreMedia for SqliteEventCacheStore {
     type Error = Error;
 

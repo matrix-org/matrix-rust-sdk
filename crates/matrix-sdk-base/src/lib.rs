@@ -15,7 +15,7 @@
 
 #![doc = include_str!("../README.md")]
 #![cfg_attr(docsrs, feature(doc_auto_cfg))]
-#![cfg_attr(target_arch = "wasm32", allow(clippy::arc_with_non_send_sync))]
+#![cfg_attr(target_family = "wasm", allow(clippy::arc_with_non_send_sync))]
 #![warn(missing_docs, missing_debug_implementations)]
 
 pub use matrix_sdk_common::*;
@@ -55,9 +55,9 @@ pub use http;
 pub use matrix_sdk_crypto as crypto;
 pub use once_cell;
 pub use room::{
-    apply_redaction, EncryptionState, Room, RoomCreateWithCreatorEventContent, RoomDisplayName,
-    RoomHero, RoomInfo, RoomInfoNotableUpdate, RoomInfoNotableUpdateReasons, RoomMember,
-    RoomMembersUpdate, RoomMemberships, RoomState, RoomStateFilter,
+    apply_redaction, EncryptionState, PredecessorRoom, Room, RoomCreateWithCreatorEventContent,
+    RoomDisplayName, RoomHero, RoomInfo, RoomInfoNotableUpdate, RoomInfoNotableUpdateReasons,
+    RoomMember, RoomMembersUpdate, RoomMemberships, RoomState, RoomStateFilter, SuccessorRoom,
 };
 pub use store::{
     ComposerDraft, ComposerDraftType, QueueWedgeError, StateChanges, StateStore, StateStoreDataKey,

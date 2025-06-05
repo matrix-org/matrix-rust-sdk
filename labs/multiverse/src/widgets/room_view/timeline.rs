@@ -45,12 +45,12 @@ impl Widget for &mut TimelineView<'_> {
                         TimelineItemContent::MsgLike(MsgLikeContent {
                             kind: MsgLikeKind::Redacted,
                             ..
-                        }) => content.push(format!("{}: -- redacted --", sender)),
+                        }) => content.push(format!("{sender}: -- redacted --")),
 
                         TimelineItemContent::MsgLike(MsgLikeContent {
                             kind: MsgLikeKind::UnableToDecrypt(_),
                             ..
-                        }) => content.push(format!("{}: (UTD)", sender)),
+                        }) => content.push(format!("{sender}: (UTD)")),
 
                         TimelineItemContent::MembershipChange(m) => {
                             if let Some(change) = m.change() {

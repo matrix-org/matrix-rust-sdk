@@ -52,7 +52,6 @@
 //! machine's state, which can be pretty helpful for the client app.
 
 pub mod filters;
-mod room;
 mod room_list;
 pub mod sorters;
 mod state;
@@ -63,10 +62,9 @@ use async_stream::stream;
 use eyeball::Subscriber;
 use futures_util::{pin_mut, Stream, StreamExt};
 use matrix_sdk::{
-    event_cache::EventCacheError, timeout::timeout, Client, Error as SlidingSyncError, SlidingSync,
-    SlidingSyncList, SlidingSyncMode,
+    event_cache::EventCacheError, timeout::timeout, Client, Error as SlidingSyncError, Room,
+    SlidingSync, SlidingSyncList, SlidingSyncMode,
 };
-pub use room::*;
 pub use room_list::*;
 use ruma::{
     api::client::sync::sync_events::v5 as http, assign, directory::RoomTypeFilter,
@@ -139,7 +137,7 @@ impl RoomListService {
             )
             .with_receipt_extension(assign!(http::request::Receipts::default(), {
                 enabled: Some(true),
-                rooms: Some(vec![http::request::ReceiptsRoom::AllSubscribed])
+                rooms: Some(vec![http::request::ExtensionRoomConfig::AllSubscribed])
             }))
             .with_typing_extension(assign!(http::request::Typing::default(), {
                 enabled: Some(true),
@@ -377,9 +375,7 @@ impl RoomListService {
 
     /// Get a [`Room`] if it exists.
     pub fn room(&self, room_id: &RoomId) -> Result<Room, Error> {
-        Ok(Room::new(
-            self.client.get_room(room_id).ok_or_else(|| Error::RoomNotFound(room_id.to_owned()))?,
-        ))
+        self.client.get_room(room_id).ok_or_else(|| Error::RoomNotFound(room_id.to_owned()))
     }
 
     /// Subscribe to rooms.

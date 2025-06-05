@@ -23,14 +23,7 @@ pub async fn update_for_rooms(
     room_updates: &RoomUpdates,
     state_store: &BaseStateStore,
 ) {
-    for room in room_updates
-        .left
-        .keys()
-        .chain(room_updates.joined.keys())
-        .chain(room_updates.invited.keys())
-        .chain(room_updates.knocked.keys())
-        .filter_map(|room_id| state_store.room(room_id))
-    {
+    for room in room_updates.iter_all_room_ids().filter_map(|room_id| state_store.room(room_id)) {
         // Compute the display name. If it's different, let's register the `RoomInfo` in
         // the `StateChanges`.
         if let Ok(UpdatedRoomDisplayName::New(_)) = room.compute_display_name().await {

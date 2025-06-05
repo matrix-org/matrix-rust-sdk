@@ -96,7 +96,7 @@ pub struct NotificationClient {
     /// Note: we do this to make it so that the FFI `NotificationClient` keeps
     /// the FFI `Client` and thus the SDK `Client` alive. Otherwise, we
     /// would need to repeat the hack done in the FFI `Client::drop` method.
-    pub(crate) _client: Arc<Client>,
+    pub(crate) client: Arc<Client>,
 }
 
 #[matrix_sdk_ffi_macros::export]
@@ -108,7 +108,8 @@ impl NotificationClient {
     pub fn get_room(&self, room_id: String) -> Result<Option<Arc<Room>>, ClientError> {
         let room_id = RoomId::parse(room_id)?;
         let sdk_room = self.inner.get_room(&room_id);
-        let room = sdk_room.map(|room| Arc::new(Room::new(room, None)));
+        let room = sdk_room
+            .map(|room| Arc::new(Room::new(room, self.client.utd_hook_manager.get().cloned())));
         Ok(room)
     }
 

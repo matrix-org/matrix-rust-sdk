@@ -17,9 +17,12 @@ use std::{collections::BTreeMap, iter, ops::Not, sync::Arc, time::Duration};
 use assert_matches2::{assert_let, assert_matches};
 use futures_util::{pin_mut, FutureExt, StreamExt};
 use itertools::Itertools;
-use matrix_sdk_common::deserialized_responses::{
-    AlgorithmInfo, UnableToDecryptInfo, UnableToDecryptReason, UnsignedDecryptionResult,
-    UnsignedEventLocation, VerificationLevel, VerificationState, WithheldCode,
+use matrix_sdk_common::{
+    deserialized_responses::{
+        AlgorithmInfo, UnableToDecryptInfo, UnableToDecryptReason, UnsignedDecryptionResult,
+        UnsignedEventLocation, VerificationLevel, VerificationState, WithheldCode,
+    },
+    executor::spawn,
 };
 use matrix_sdk_test::{async_test, message_like_event_content, ruma_response_from_json, test_json};
 use ruma::{
@@ -443,12 +446,12 @@ async fn test_session_encryption_info_can_be_fetched() {
 
     // Then the expected info is returned
     assert_eq!(encryption_info.sender, alice_id());
-    assert_eq!(encryption_info.sender_device.unwrap(), alice_device_id());
+    assert_eq!(encryption_info.sender_device.as_deref(), Some(alice_device_id()));
     assert_matches!(
-        encryption_info.algorithm_info,
+        &encryption_info.algorithm_info,
         AlgorithmInfo::MegolmV1AesSha2 { curve25519_key, .. }
     );
-    assert_eq!(curve25519_key, alice_session.sender_key().to_string());
+    assert_eq!(*curve25519_key, alice_session.sender_key().to_string());
     assert_eq!(
         encryption_info.verification_state,
         VerificationState::Unverified(VerificationLevel::UnsignedDevice)
@@ -637,7 +640,8 @@ async fn test_megolm_encryption() {
         .unwrap()
         .inbound_group_session
         .unwrap();
-    bob.store().save_inbound_group_sessions(&[group_session.clone()]).await.unwrap();
+    let sessions = std::slice::from_ref(&group_session);
+    bob.store().save_inbound_group_sessions(sessions).await.unwrap();
 
     // when we decrypt the room key, the
     // inbound_group_session_streamroom_keys_received_stream should tell us
@@ -1253,7 +1257,7 @@ async fn test_wait_on_key_query_doesnt_block_store() {
     // Start a background task that will wait for the key query to finish silently
     // in the background.
     let machine_cloned = machine.clone();
-    let wait = tokio::spawn(async move {
+    let wait = spawn(async move {
         let machine = machine_cloned;
         let user_devices =
             machine.get_user_devices(alice_id(), Some(Duration::from_secs(10))).await.unwrap();

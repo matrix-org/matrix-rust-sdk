@@ -18,7 +18,7 @@
 #[cfg(feature = "e2e-encryption")]
 use std::io::Read;
 use std::time::Duration;
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(not(target_family = "wasm"))]
 use std::{fmt, fs::File, path::Path};
 
 use eyeball::SharedObservable;
@@ -35,14 +35,14 @@ use ruma::{
     events::room::{MediaSource, ThumbnailInfo},
     MilliSecondsSinceUnixEpoch, MxcUri, OwnedMxcUri, TransactionId, UInt,
 };
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(not(target_family = "wasm"))]
 use tempfile::{Builder as TempFileBuilder, NamedTempFile, TempDir};
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(not(target_family = "wasm"))]
 use tokio::{fs::File as TokioFile, io::AsyncWriteExt};
 
 use crate::{
-    attachment::Thumbnail, config::RequestConfig, futures::SendRequest, Client, Error, Result,
-    TransmissionProgress,
+    attachment::Thumbnail, client::futures::SendMediaUploadRequest, config::RequestConfig, Client,
+    Error, Result, TransmissionProgress,
 };
 
 /// A conservative upload speed of 1Mbps
@@ -69,7 +69,7 @@ pub struct Media {
 /// A file handle that takes ownership of a media file on disk. When the handle
 /// is dropped, the file will be removed from the disk.
 #[derive(Debug)]
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(not(target_family = "wasm"))]
 pub struct MediaFileHandle {
     /// The temporary file that contains the media.
     file: NamedTempFile,
@@ -79,7 +79,7 @@ pub struct MediaFileHandle {
     _directory: Option<TempDir>,
 }
 
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(not(target_family = "wasm"))]
 impl MediaFileHandle {
     /// Get the media file's path.
     pub fn path(&self) -> &Path {
@@ -96,7 +96,7 @@ impl MediaFileHandle {
 }
 
 /// Error returned when [`MediaFileHandle::persist`] fails.
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(not(target_family = "wasm"))]
 pub struct PersistError {
     /// The underlying IO error.
     pub error: std::io::Error,
@@ -104,14 +104,14 @@ pub struct PersistError {
     pub file: MediaFileHandle,
 }
 
-#[cfg(not(any(target_arch = "wasm32", tarpaulin_include)))]
+#[cfg(not(any(target_family = "wasm", tarpaulin_include)))]
 impl fmt::Debug for PersistError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "PersistError({:?})", self.error)
     }
 }
 
-#[cfg(not(any(target_arch = "wasm32", tarpaulin_include)))]
+#[cfg(not(any(target_family = "wasm", tarpaulin_include)))]
 impl fmt::Display for PersistError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "failed to persist temporary file: {}", self.error)
@@ -142,10 +142,20 @@ pub enum MediaError {
     /// Local-only media content was not found.
     #[error("local-only media content was not found")]
     LocalMediaNotFound,
-}
 
-/// `IntoFuture` returned by [`Media::upload`].
-pub type SendUploadRequest = SendRequest<media::create_content::v3::Request>;
+    /// The provided media is too large to upload.
+    #[error("The provided media is too large to upload. Maximum upload length is {max} bytes, tried to upload {current} bytes")]
+    MediaTooLargeToUpload {
+        /// The `max_upload_size` value for this homeserver.
+        max: UInt,
+        /// The size of the current media to upload.
+        current: UInt,
+    },
+
+    /// Fetching the `max_upload_size` value from the homeserver failed.
+    #[error("Fetching the `max_upload_size` value from the homeserver failed: {0}")]
+    FetchMaxUploadSizeFailed(String),
+}
 
 impl Media {
     pub(crate) fn new(client: Client) -> Self {
@@ -188,7 +198,7 @@ impl Media {
         content_type: &Mime,
         data: Vec<u8>,
         request_config: Option<RequestConfig>,
-    ) -> SendUploadRequest {
+    ) -> SendMediaUploadRequest {
         let request_config = request_config.unwrap_or_else(|| {
             self.client.request_config().timeout(Self::reasonable_upload_timeout(&data))
         });
@@ -197,7 +207,8 @@ impl Media {
             content_type: Some(content_type.essence_str().to_owned()),
         });
 
-        self.client.send(request).with_request_config(request_config)
+        let request = self.client.send(request).with_request_config(request_config);
+        SendMediaUploadRequest::new(request)
     }
 
     /// Returns a reasonable upload timeout for an upload, based on the size of
@@ -324,7 +335,7 @@ impl Media {
     ///   created. If not provided, a default, global temporary directory will
     ///   be used; this may not work properly on Android, where the default
     ///   location may require root access on some older Android versions.
-    #[cfg(not(target_arch = "wasm32"))]
+    #[cfg(not(target_family = "wasm"))]
     pub async fn get_media_file(
         &self,
         request: &MediaRequestParameters,
@@ -721,10 +732,7 @@ impl Media {
         let upload_thumbnail = self.upload_thumbnail(thumbnail, send_progress.clone());
 
         let upload_attachment = async move {
-            self.upload(content_type, data, None)
-                .with_send_progress_observable(send_progress)
-                .await
-                .map_err(Error::from)
+            self.upload(content_type, data, None).with_send_progress_observable(send_progress).await
         };
 
         let (thumbnail, response) = try_join(upload_thumbnail, upload_attachment).await?;

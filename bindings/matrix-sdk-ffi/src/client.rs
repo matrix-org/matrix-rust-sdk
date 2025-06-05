@@ -1,13 +1,13 @@
 use std::{
     collections::HashMap,
     fmt::Debug,
+    path::PathBuf,
     sync::{Arc, OnceLock, RwLock},
     time::Duration,
 };
 
 use anyhow::{anyhow, Context as _};
-use async_compat::get_runtime_handle;
-use futures_util::{pin_mut, StreamExt};
+use futures_util::pin_mut;
 use matrix_sdk::{
     authentication::oauth::{
         AccountManagementActionFull, ClientId, OAuthAuthorizationData, OAuthSession,
@@ -38,6 +38,10 @@ use matrix_sdk::{
     sliding_sync::Version as SdkSlidingSyncVersion,
     store::RoomLoadSettings as SdkRoomLoadSettings,
     AuthApi, AuthSession, Client as MatrixClient, SessionChange, SessionTokens,
+    STATE_STORE_DATABASE_NAME,
+};
+use matrix_sdk_common::{
+    runtime::get_runtime_handle, stream::StreamExt, SendOutsideWasm, SyncOutsideWasm,
 };
 use matrix_sdk_ui::{
     notification_client::{
@@ -164,24 +168,24 @@ impl From<PushFormat> for RumaPushFormat {
 }
 
 #[matrix_sdk_ffi_macros::export(callback_interface)]
-pub trait ClientDelegate: Sync + Send {
+pub trait ClientDelegate: SyncOutsideWasm + SendOutsideWasm {
     fn did_receive_auth_error(&self, is_soft_logout: bool);
 }
 
 #[matrix_sdk_ffi_macros::export(callback_interface)]
-pub trait ClientSessionDelegate: Sync + Send {
+pub trait ClientSessionDelegate: SyncOutsideWasm + SendOutsideWasm {
     fn retrieve_session_from_keychain(&self, user_id: String) -> Result<Session, ClientError>;
     fn save_session_in_keychain(&self, session: Session);
 }
 
 #[matrix_sdk_ffi_macros::export(callback_interface)]
-pub trait ProgressWatcher: Send + Sync {
+pub trait ProgressWatcher: SyncOutsideWasm + SendOutsideWasm {
     fn transmission_progress(&self, progress: TransmissionProgress);
 }
 
 /// A listener to the global (client-wide) error reporter of the send queue.
 #[matrix_sdk_ffi_macros::export(callback_interface)]
-pub trait SendQueueRoomErrorListener: Sync + Send {
+pub trait SendQueueRoomErrorListener: SyncOutsideWasm + SendOutsideWasm {
     /// Called every time the send queue has ran into an error for a given room,
     /// which will disable the send queue for that particular room.
     fn on_error(&self, room_id: String, error: ClientError);
@@ -189,14 +193,14 @@ pub trait SendQueueRoomErrorListener: Sync + Send {
 
 /// A listener for changes of global account data events.
 #[matrix_sdk_ffi_macros::export(callback_interface)]
-pub trait AccountDataListener: Sync + Send {
+pub trait AccountDataListener: SyncOutsideWasm + SendOutsideWasm {
     /// Called when a global account data event has changed.
     fn on_change(&self, event: AccountDataEvent);
 }
 
 /// A listener for changes of room account data events.
 #[matrix_sdk_ffi_macros::export(callback_interface)]
-pub trait RoomAccountDataListener: Sync + Send {
+pub trait RoomAccountDataListener: SyncOutsideWasm + SendOutsideWasm {
     /// Called when a room account data event was changed.
     fn on_change(&self, event: RoomAccountDataEvent, room_id: String);
 }
@@ -220,9 +224,13 @@ impl From<matrix_sdk::TransmissionProgress> for TransmissionProgress {
 pub struct Client {
     pub(crate) inner: AsyncRuntimeDropped<MatrixClient>,
     delegate: OnceLock<Arc<dyn ClientDelegate>>,
-    utd_hook_manager: OnceLock<Arc<UtdHookManager>>,
+    pub(crate) utd_hook_manager: OnceLock<Arc<UtdHookManager>>,
     session_verification_controller:
         Arc<tokio::sync::RwLock<Option<SessionVerificationController>>>,
+    /// The path to the directory where the state store and the crypto store are
+    /// located, if the `Client` instance has been built with a SQLite store
+    /// backend.
+    store_path: Option<PathBuf>,
 }
 
 impl Client {
@@ -230,6 +238,7 @@ impl Client {
         sdk_client: MatrixClient,
         enable_oidc_refresh_lock: bool,
         session_delegate: Option<Arc<dyn ClientSessionDelegate>>,
+        store_path: Option<PathBuf>,
     ) -> Result<Self, ClientError> {
         let session_verification_controller: Arc<
             tokio::sync::RwLock<Option<SessionVerificationController>>,
@@ -267,6 +276,7 @@ impl Client {
             delegate: OnceLock::new(),
             utd_hook_manager: OnceLock::new(),
             session_verification_controller,
+            store_path,
         };
 
         if enable_oidc_refresh_lock {
@@ -1141,12 +1151,12 @@ impl Client {
         Ok(Arc::new(NotificationClient {
             inner: MatrixNotificationClient::new((*self.inner).clone(), process_setup.into())
                 .await?,
-            _client: self.clone(),
+            client: self.clone(),
         }))
     }
 
     pub fn sync_service(&self) -> Arc<SyncServiceBuilder> {
-        SyncServiceBuilder::new((*self.inner).clone())
+        SyncServiceBuilder::new((*self.inner).clone(), self.utd_hook_manager.get().cloned())
     }
 
     pub async fn get_notification_settings(&self) -> Arc<NotificationSettings> {
@@ -1408,14 +1418,30 @@ impl Client {
 
     /// Clear all the non-critical caches for this Client instance.
     ///
+    /// WARNING: This will clear all the caches, including the base store (state
+    /// store), so callers must make sure that any sync is inactive before
+    /// calling this method. In particular, the `SyncService` must not be
+    /// running. After the method returns, the Client will be in an unstable
+    /// state, and it is required that the caller reinstantiates a new
+    /// Client instance, be it via dropping the previous and re-creating it,
+    /// restarting their application, or any other similar means.
+    ///
+    /// - This will get rid of the backing state store file, if provided.
     /// - This will empty all the room's persisted event caches, so all rooms
     ///   will start as if they were empty.
     /// - This will empty the media cache according to the current media
     ///   retention policy.
     pub async fn clear_caches(&self) -> Result<(), ClientError> {
-        let closure = async || -> Result<_, EventCacheError> {
+        let closure = async || -> Result<_, ClientError> {
             // Clean up the media cache according to the current media retention policy.
-            self.inner.event_cache_store().lock().await?.clean_up_media_cache().await?;
+            self.inner
+                .event_cache_store()
+                .lock()
+                .await
+                .map_err(EventCacheError::from)?
+                .clean_up_media_cache()
+                .await
+                .map_err(EventCacheError::from)?;
 
             // Clear all the room chunks. It's important to *not* call
             // `EventCacheStore::clear_all_rooms_chunks` here, because there might be live
@@ -1423,10 +1449,39 @@ impl Client {
             // mismatch.
             self.inner.event_cache().clear_all_rooms().await?;
 
+            // Delete the state store file, if it exists.
+            if let Some(store_path) = &self.store_path {
+                debug!("Removing the state store: {}", store_path.display());
+
+                // The state store and the crypto store both live in the same store path, so we
+                // can't blindly delete the directory.
+                //
+                // Delete the state store SQLite file, as well as the write-ahead log (WAL) and
+                // shared-memory (SHM) files, if they exist.
+
+                for file_name in [
+                    PathBuf::from(STATE_STORE_DATABASE_NAME),
+                    PathBuf::from(format!("{STATE_STORE_DATABASE_NAME}.wal")),
+                    PathBuf::from(format!("{STATE_STORE_DATABASE_NAME}.shm")),
+                ] {
+                    let file_path = store_path.join(file_name);
+                    if file_path.exists() {
+                        debug!("Removing file: {}", file_path.display());
+                        std::fs::remove_file(&file_path).map_err(|err| ClientError::Generic {
+                            msg: format!(
+                                "couldn't delete the state store file {}: {err}",
+                                file_path.display()
+                            ),
+                            details: None,
+                        })?;
+                    }
+                }
+            }
+
             Ok(())
         };
 
-        Ok(closure().await?)
+        closure().await
     }
 
     /// Checks if the server supports the report room API.
@@ -1442,11 +1497,11 @@ impl Client {
         let (initial_value, stream) = self.inner.account().observe_media_preview_config().await?;
         Ok(Arc::new(TaskHandle::new(get_runtime_handle().spawn(async move {
             // Send the initial value to the listener.
-            listener.on_change(initial_value.into());
+            listener.on_change(initial_value.map(|config| config.into()));
             // Listen for changes and notify the listener.
             pin_mut!(stream);
             while let Some(media_preview_config) = stream.next().await {
-                listener.on_change(media_preview_config.into());
+                listener.on_change(Some(media_preview_config.into()));
             }
         }))))
     }
@@ -1462,9 +1517,14 @@ impl Client {
 
     /// Get the media previews timeline display policy
     /// currently stored in the cache.
-    pub async fn get_media_preview_display_policy(&self) -> Result<MediaPreviews, ClientError> {
+    pub async fn get_media_preview_display_policy(
+        &self,
+    ) -> Result<Option<MediaPreviews>, ClientError> {
         let configuration = self.inner.account().get_media_preview_config_event_content().await?;
-        Ok(configuration.media_previews.into())
+        match configuration {
+            Some(configuration) => Ok(Some(configuration.media_previews.into())),
+            None => Ok(None),
+        }
     }
 
     /// Set the invite request avatars display policy
@@ -1478,19 +1538,38 @@ impl Client {
 
     /// Get the invite request avatars display policy
     /// currently stored in the cache.
-    pub async fn get_invite_avatars_display_policy(&self) -> Result<InviteAvatars, ClientError> {
+    pub async fn get_invite_avatars_display_policy(
+        &self,
+    ) -> Result<Option<InviteAvatars>, ClientError> {
         let configuration = self.inner.account().get_media_preview_config_event_content().await?;
-        Ok(configuration.invite_avatars.into())
+        match configuration {
+            Some(configuration) => Ok(Some(configuration.invite_avatars.into())),
+            None => Ok(None),
+        }
+    }
+
+    /// Fetch the media preview configuration from the server.
+    pub async fn fetch_media_preview_config(
+        &self,
+    ) -> Result<Option<MediaPreviewConfig>, ClientError> {
+        Ok(self.inner.account().fetch_media_preview_config_event_content().await?.map(Into::into))
+    }
+
+    /// Gets the `max_upload_size` value from the homeserver, which controls the
+    /// max size a media upload request can have.
+    pub async fn get_max_media_upload_size(&self) -> Result<u64, ClientError> {
+        let max_upload_size = self.inner.load_or_fetch_max_upload_size().await?;
+        Ok(max_upload_size.into())
     }
 }
 
 #[matrix_sdk_ffi_macros::export(callback_interface)]
-pub trait MediaPreviewConfigListener: Sync + Send {
-    fn on_change(&self, media_preview_config: MediaPreviewConfig);
+pub trait MediaPreviewConfigListener: SyncOutsideWasm + SendOutsideWasm {
+    fn on_change(&self, media_preview_config: Option<MediaPreviewConfig>);
 }
 
 #[matrix_sdk_ffi_macros::export(callback_interface)]
-pub trait IgnoredUsersListener: Sync + Send {
+pub trait IgnoredUsersListener: SyncOutsideWasm + SendOutsideWasm {
     fn call(&self, ignored_user_ids: Vec<String>);
 }
 
@@ -2268,7 +2347,7 @@ impl TryFrom<RumaJoinRule> for JoinRule {
             }
             RumaJoinRule::Invite => Ok(JoinRule::Invite),
             RumaJoinRule::_Custom(_) => Ok(JoinRule::Custom { repr: value.as_str().to_owned() }),
-            _ => Err(format!("Unknown JoinRule: {:?}", value)),
+            _ => Err(format!("Unknown JoinRule: {value:?}")),
         }
     }
 }
@@ -2285,7 +2364,7 @@ impl TryFrom<RumaAllowRule> for AllowRule {
                     .map_err(|e| format!("Couldn't serialize custom AllowRule: {e:?}"))?;
                 Ok(Self::Custom { json })
             }
-            _ => Err(format!("Invalid AllowRule: {:?}", value)),
+            _ => Err(format!("Invalid AllowRule: {value:?}")),
         }
     }
 }

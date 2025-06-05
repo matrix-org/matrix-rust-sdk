@@ -39,7 +39,12 @@ where
 /// "a" < "b".
 pub fn new_sorter() -> impl Sorter {
     let matcher = NameMatcher {
-        names: move |left, right| (left.cached_display_name(), right.cached_display_name()),
+        names: move |left, right| {
+            (
+                left.cached_display_name().map(|display_name| display_name.to_string()),
+                right.cached_display_name().map(|display_name| display_name.to_string()),
+            )
+        },
     };
 
     move |left, right| -> Ordering { matcher.matches(left, right) }

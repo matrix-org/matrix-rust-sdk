@@ -462,7 +462,7 @@ async fn test_edit_to_replied_updates_reply() {
         assert_eq!(in_reply_to.event_id, eid1);
 
         assert_let!(TimelineDetails::Ready(replied_to) = &in_reply_to.event);
-        assert_eq!(replied_to.content().as_message().unwrap().body(), "bonjour");
+        assert_eq!(replied_to.content.as_message().unwrap().body(), "bonjour");
     });
 
     assert_next_matches!(timeline_stream, VectorDiff::PushBack { value: reply_item } => {
@@ -474,7 +474,7 @@ async fn test_edit_to_replied_updates_reply() {
         assert_eq!(in_reply_to.event_id, eid1);
 
         assert_let!(TimelineDetails::Ready(replied_to) = &in_reply_to.event);
-        assert_eq!(replied_to.content().as_message().unwrap().body(), "bonjour");
+        assert_eq!(replied_to.content.as_message().unwrap().body(), "bonjour");
     });
 
     server.mock_room_send().ok(event_id!("$edit_event")).mock_once().mount().await;
@@ -509,7 +509,7 @@ async fn test_edit_to_replied_updates_reply() {
         let in_reply_to = msglike.in_reply_to.clone().unwrap();
         assert_eq!(in_reply_to.event_id, eid1);
         assert_let!(TimelineDetails::Ready(replied_to) = &in_reply_to.event);
-        assert_eq!(replied_to.content().as_message().unwrap().body(), "hello world");
+        assert_eq!(replied_to.content.as_message().unwrap().body(), "hello world");
     });
 
     assert_next_matches!(timeline_stream, VectorDiff::Set { index: 2, value } => {
@@ -521,7 +521,7 @@ async fn test_edit_to_replied_updates_reply() {
         let in_reply_to = msglike.in_reply_to.clone().unwrap();
         assert_eq!(in_reply_to.event_id, eid1);
         assert_let!(TimelineDetails::Ready(replied_to) = &in_reply_to.event);
-        assert_eq!(replied_to.content().as_message().unwrap().body(), "hello world");
+        assert_eq!(replied_to.content.as_message().unwrap().body(), "hello world");
     });
 
     sleep(Duration::from_millis(200)).await;

@@ -18,6 +18,7 @@ All notable changes to this project will be documented in this file.
   `Timeline` where items could be inserted in the wrong _regions_, such as
   a remote timeline item before the `TimelineStart` virtual timeline item.
   ([#5000](https://github.com/matrix-org/matrix-rust-sdk/pull/5000))
+- `NotificationClient` will filter out events sent by ignored users on `get_notification` and `get_notifications`. ([#5081](https://github.com/matrix-org/matrix-rust-sdk/pull/5081))
 
 ### Features
 
@@ -26,6 +27,9 @@ All notable changes to this project will be documented in this file.
   ([#5055](https://github.com/matrix-org/matrix-rust-sdk/pull/5055))
 - `Timeline::mark_as_read()` unsets the unread flag of the room if it was set.
   ([#5055](https://github.com/matrix-org/matrix-rust-sdk/pull/5055))
+- Add new method `Timeline::send_gallery` to allow sending MSC4274-style
+  galleries.
+  ([#5125](https://github.com/matrix-org/matrix-rust-sdk/pull/5125))
 
 ## [0.11.0] - 2025-04-11
 

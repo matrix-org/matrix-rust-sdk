@@ -8,6 +8,11 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
+- Added `SendMediaUploadRequest` wrapper for `SendRequest`, which checks the size of the request to
+  upload making sure it doesn't exceed the `m.upload.size` value that can be fetched through
+  `Client::load_or_fetch_max_upload_size`.
+- Add `ClientBuilder::with_enable_share_history_on_invite` to enable experimental support for sharing encrypted room history on invite, per [MSC4268](https://github.com/matrix-org/matrix-spec-proposals/pull/4268).
+  ([#5141](https://github.com/matrix-org/matrix-rust-sdk/pull/5141))
 - `Room::list_threads()` is a new method to list all the threads in a room.
   ([#4972](https://github.com/matrix-org/matrix-rust-sdk/pull/4972))
 - `Room::relations()` is a new method to list all the events related to another event
@@ -33,12 +38,20 @@ All notable changes to this project will be documented in this file.
 - `Room::send_single_receipt()` and `Room::send_multiple_receipts()` now also unset the unread
   flag of the room if an unthreaded read receipt is sent.
   ([#5055](https://github.com/matrix-org/matrix-rust-sdk/pull/5055))
+- `Client::is_user_ignored(&UserId)` can be used to check if a user is currently ignored. 
+- ([#5081](https://github.com/matrix-org/matrix-rust-sdk/pull/5081))
+- `RoomSendQueue::send_gallery` has been added to allow sending MSC4274-style media galleries
+  via the send queue under the `unstable-msc4274` feature.
+  ([#4977](https://github.com/matrix-org/matrix-rust-sdk/pull/4977))
 
 ### Bug fixes
 
 - A invited DM room joined with `Client::join_room_by_id()` or `Client::join_room_by_id_or_alias()`
   will now be correctly marked as a DM.
   ([#5043](https://github.com/matrix-org/matrix-rust-sdk/pull/5043))
+- API responses with an HTTP status code `520` won't be retried anymore, as this is used by some proxies 
+  (including Cloudflare) to warn that an unknown error has happened in the actual server.
+  ([#5105](https://github.com/matrix-org/matrix-rust-sdk/pull/5105))
 
 ### Refactor
 

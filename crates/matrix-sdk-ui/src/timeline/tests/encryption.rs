@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#![cfg(not(target_arch = "wasm32"))]
+#![cfg(not(target_family = "wasm"))]
 
 use std::{
     io::Cursor,
@@ -690,8 +690,11 @@ async fn test_retry_fetching_encryption_info() {
     assert_pending!(stream);
 }
 
-fn make_encryption_info(session_id: &str, verification_state: VerificationState) -> EncryptionInfo {
-    EncryptionInfo {
+fn make_encryption_info(
+    session_id: &str,
+    verification_state: VerificationState,
+) -> Arc<EncryptionInfo> {
+    Arc::new(EncryptionInfo {
         sender: BOB.to_owned(),
         sender_device: Some(owned_device_id!("BOBDEVICE")),
         algorithm_info: AlgorithmInfo::MegolmV1AesSha2 {
@@ -700,7 +703,7 @@ fn make_encryption_info(session_id: &str, verification_state: VerificationState)
             session_id: Some(session_id.to_owned()),
         },
         verification_state,
-    }
+    })
 }
 
 #[async_test]
@@ -870,7 +873,7 @@ async fn test_retry_decryption_updates_response() {
         assert_eq!(reply_details.event_id, original_event_id);
 
         let replied_to = as_variant!(&reply_details.event, TimelineDetails::Ready).unwrap();
-        assert!(replied_to.content().is_unable_to_decrypt());
+        assert!(replied_to.content.is_unable_to_decrypt());
     }
 
     // Import a room key backup.
@@ -905,7 +908,7 @@ async fn test_retry_decryption_updates_response() {
         assert_eq!(reply_details.event_id, original_event_id);
 
         let replied_to = as_variant!(&reply_details.event, TimelineDetails::Ready).unwrap();
-        assert_eq!(replied_to.content().as_message().unwrap().body(), "It's a secret to everybody");
+        assert_eq!(replied_to.content.as_message().unwrap().body(), "It's a secret to everybody");
     }
 
     // The event itself is decrypted.

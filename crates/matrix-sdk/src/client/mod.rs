@@ -89,6 +89,7 @@ use crate::{
         EventHandlerStore, ObservableEventHandler, SyncEvent,
     },
     http_client::HttpClient,
+    media::MediaError,
     notification_settings::NotificationSettings,
     room_preview::RoomPreview,
     send_queue::SendQueueData,
@@ -109,15 +110,15 @@ pub(crate) mod futures;
 
 pub use self::builder::{sanitize_server_name, ClientBuildError, ClientBuilder};
 
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(not(target_family = "wasm"))]
 type NotificationHandlerFut = Pin<Box<dyn Future<Output = ()> + Send>>;
-#[cfg(target_arch = "wasm32")]
+#[cfg(target_family = "wasm")]
 type NotificationHandlerFut = Pin<Box<dyn Future<Output = ()>>>;
 
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(not(target_family = "wasm"))]
 type NotificationHandlerFn =
     Box<dyn Fn(Notification, Room, Client) -> NotificationHandlerFut + Send + Sync>;
-#[cfg(target_arch = "wasm32")]
+#[cfg(target_family = "wasm")]
 type NotificationHandlerFn = Box<dyn Fn(Notification, Room, Client) -> NotificationHandlerFut>;
 
 /// Enum controlling if a loop running callbacks should continue or abort.
@@ -325,10 +326,21 @@ pub(crate) struct ClientInner {
     #[cfg(feature = "e2e-encryption")]
     pub(crate) verification_state: SharedObservable<VerificationState>,
 
+    /// Whether to enable the experimental support for sending and receiving
+    /// encrypted room history on invite, per [MSC4268].
+    ///
+    /// [MSC4268]: https://github.com/matrix-org/matrix-spec-proposals/pull/4268
+    #[cfg(feature = "e2e-encryption")]
+    pub(crate) enable_share_history_on_invite: bool,
+
     /// Data related to the [`SendQueue`].
     ///
     /// [`SendQueue`]: crate::send_queue::SendQueue
     pub(crate) send_queue_data: Arc<SendQueueData>,
+
+    /// The `max_upload_size` value of the homeserver, it contains the max
+    /// request size you can send.
+    pub(crate) server_max_upload_size: Mutex<OnceCell<UInt>>,
 }
 
 impl ClientInner {
@@ -350,6 +362,7 @@ impl ClientInner {
         event_cache: OnceCell<EventCache>,
         send_queue: Arc<SendQueueData>,
         #[cfg(feature = "e2e-encryption")] encryption_settings: EncryptionSettings,
+        #[cfg(feature = "e2e-encryption")] enable_share_history_on_invite: bool,
         cross_process_store_locks_holder_name: String,
     ) -> Arc<Self> {
         let caches = ClientCaches {
@@ -382,6 +395,9 @@ impl ClientInner {
             e2ee: EncryptionData::new(encryption_settings),
             #[cfg(feature = "e2e-encryption")]
             verification_state: SharedObservable::new(VerificationState::Unknown),
+            #[cfg(feature = "e2e-encryption")]
+            enable_share_history_on_invite,
+            server_max_upload_size: Mutex::new(OnceCell::new()),
         };
 
         #[allow(clippy::let_and_return)]
@@ -1499,7 +1515,7 @@ impl Client {
     /// client.public_rooms(limit, since, server).await;
     /// # };
     /// ```
-    #[cfg_attr(not(target_arch = "wasm32"), deny(clippy::future_not_send))]
+    #[cfg_attr(not(target_family = "wasm"), deny(clippy::future_not_send))]
     pub async fn public_rooms(
         &self,
         limit: Option<u32>,
@@ -2493,6 +2509,8 @@ impl Client {
                 self.inner.send_queue_data.clone(),
                 #[cfg(feature = "e2e-encryption")]
                 self.inner.e2ee.encryption_settings,
+                #[cfg(feature = "e2e-encryption")]
+                self.inner.enable_share_history_on_invite,
                 cross_process_store_locks_holder_name,
             )
             .await,
@@ -2541,6 +2559,35 @@ impl Client {
         let base_room = self.inner.base_client.room_knocked(&response.room_id).await?;
         Ok(Room::new(self.clone(), base_room))
     }
+
+    /// Checks whether the provided `user_id` belongs to an ignored user.
+    pub async fn is_user_ignored(&self, user_id: &UserId) -> bool {
+        self.base_client().is_user_ignored(user_id).await
+    }
+
+    /// Gets the `max_upload_size` value from the homeserver, getting either a
+    /// cached value or with a `/_matrix/client/v1/media/config` request if it's
+    /// missing.
+    ///
+    /// Check the spec for more info:
+    /// <https://spec.matrix.org/v1.14/client-server-api/#get_matrixclientv1mediaconfig>
+    pub async fn load_or_fetch_max_upload_size(&self) -> Result<UInt> {
+        let max_upload_size_lock = self.inner.server_max_upload_size.lock().await;
+        if let Some(data) = max_upload_size_lock.get() {
+            return Ok(data.to_owned());
+        }
+
+        let response = self
+            .send(ruma::api::client::authenticated_media::get_media_config::v1::Request::default())
+            .await?;
+
+        match max_upload_size_lock.set(response.upload_size) {
+            Ok(_) => Ok(response.upload_size),
+            Err(error) => {
+                Err(Error::Media(MediaError::FetchMaxUploadSizeFailed(error.to_string())))
+            }
+        }
+    }
 }
 
 /// A weak reference to the inner client, useful when trying to get a handle
@@ -2584,12 +2631,15 @@ struct ClientServerCapabilities {
 }
 
 // The http mocking library is not supported for wasm32
-#[cfg(all(test, not(target_arch = "wasm32")))]
+#[cfg(all(test, not(target_family = "wasm")))]
 pub(crate) mod tests {
     use std::{sync::Arc, time::Duration};
 
     use assert_matches::assert_matches;
+    use assert_matches2::assert_let;
+    use eyeball::SharedObservable;
     use futures_util::{pin_mut, FutureExt};
+    use js_int::{uint, UInt};
     use matrix_sdk_base::{
         store::{MemoryStore, StoreConfig},
         RoomState,
@@ -2598,7 +2648,7 @@ pub(crate) mod tests {
         async_test, test_json, GlobalAccountDataTestEvent, JoinedRoomBuilder, StateTestEvent,
         SyncResponseBuilder, DEFAULT_TEST_ROOM_ID,
     };
-    #[cfg(target_arch = "wasm32")]
+    #[cfg(target_family = "wasm")]
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
     use ruma::{
@@ -2624,13 +2674,15 @@ pub(crate) mod tests {
 
     use super::Client;
     use crate::{
-        client::WeakClient,
+        client::{futures::SendMediaUploadRequest, WeakClient},
         config::{RequestConfig, SyncSettings},
+        futures::SendRequest,
+        media::MediaError,
         test_utils::{
             logged_in_client, mocks::MatrixMockServer, no_retry_test_client, set_client_session,
             test_client_builder, test_client_builder_with_server,
         },
-        Error,
+        Error, TransmissionProgress,
     };
 
     #[async_test]
@@ -3356,6 +3408,7 @@ pub(crate) mod tests {
         let (initial_value, stream) =
             client.account().observe_media_preview_config().await.unwrap();
 
+        let initial_value: MediaPreviewConfigEventContent = initial_value.unwrap();
         assert_eq!(initial_value.invite_avatars, InviteAvatars::Off);
         assert_eq!(initial_value.media_previews, MediaPreviews::Private);
         pin_mut!(stream);
@@ -3406,6 +3459,7 @@ pub(crate) mod tests {
         let (initial_value, stream) =
             client.account().observe_media_preview_config().await.unwrap();
 
+        let initial_value: MediaPreviewConfigEventContent = initial_value.unwrap();
         assert_eq!(initial_value.invite_avatars, InviteAvatars::Off);
         assert_eq!(initial_value.media_previews, MediaPreviews::Private);
         pin_mut!(stream);
@@ -3442,7 +3496,45 @@ pub(crate) mod tests {
 
         let (initial_value, _) = client.account().observe_media_preview_config().await.unwrap();
 
-        assert_eq!(initial_value.invite_avatars, InviteAvatars::On);
-        assert_eq!(initial_value.media_previews, MediaPreviews::On);
+        assert!(initial_value.is_none());
+    }
+
+    #[async_test]
+    async fn test_load_or_fetch_max_upload_size() {
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+
+        assert!(!client.inner.server_max_upload_size.lock().await.initialized());
+
+        server.mock_authenticated_media_config().ok(uint!(2)).mock_once().mount().await;
+        client.load_or_fetch_max_upload_size().await.unwrap();
+
+        assert_eq!(*client.inner.server_max_upload_size.lock().await.get().unwrap(), uint!(2));
+    }
+
+    #[async_test]
+    async fn test_uploading_a_too_large_media_file() {
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+
+        server.mock_authenticated_media_config().ok(uint!(1)).mock_once().mount().await;
+        client.load_or_fetch_max_upload_size().await.unwrap();
+        assert_eq!(*client.inner.server_max_upload_size.lock().await.get().unwrap(), uint!(1));
+
+        let data = vec![1, 2];
+        let upload_request =
+            ruma::api::client::media::create_content::v3::Request::new(data.clone());
+        let request = SendRequest {
+            client: client.clone(),
+            request: upload_request,
+            config: None,
+            send_progress: SharedObservable::new(TransmissionProgress::default()),
+        };
+        let media_request = SendMediaUploadRequest::new(request);
+
+        let error = media_request.await.err();
+        assert_let!(Some(Error::Media(MediaError::MediaTooLargeToUpload { max, current })) = error);
+        assert_eq!(max, uint!(1));
+        assert_eq!(current, UInt::new_wrapping(data.len() as u64));
     }
 }

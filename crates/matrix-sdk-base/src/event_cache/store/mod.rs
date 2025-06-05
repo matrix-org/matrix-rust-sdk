@@ -126,7 +126,13 @@ impl Deref for EventCacheStoreLockGuard<'_> {
 pub enum EventCacheStoreError {
     /// An error happened in the underlying database backend.
     #[error(transparent)]
+    #[cfg(not(target_family = "wasm"))]
     Backend(Box<dyn std::error::Error + Send + Sync>),
+
+    /// An error happened in the underlying database backend.
+    #[error(transparent)]
+    #[cfg(target_family = "wasm")]
+    Backend(Box<dyn std::error::Error>),
 
     /// The store is locked with a passphrase and an incorrect passphrase
     /// was given.
@@ -169,9 +175,22 @@ impl EventCacheStoreError {
     ///
     /// Shorthand for `EventCacheStoreError::Backend(Box::new(error))`.
     #[inline]
+    #[cfg(not(target_family = "wasm"))]
     pub fn backend<E>(error: E) -> Self
     where
         E: std::error::Error + Send + Sync + 'static,
+    {
+        Self::Backend(Box::new(error))
+    }
+
+    /// Create a new [`Backend`][Self::Backend] error.
+    ///
+    /// Shorthand for `EventCacheStoreError::Backend(Box::new(error))`.
+    #[inline]
+    #[cfg(target_family = "wasm")]
+    pub fn backend<E>(error: E) -> Self
+    where
+        E: std::error::Error + 'static,
     {
         Self::Backend(Box::new(error))
     }
@@ -185,8 +204,6 @@ pub type Result<T, E = EventCacheStoreError> = std::result::Result<T, E>;
 #[derive(Clone, Debug)]
 struct LockableEventCacheStore(Arc<DynEventCacheStore>);
 
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl BackingStore for LockableEventCacheStore {
     type LockError = EventCacheStoreError;
 

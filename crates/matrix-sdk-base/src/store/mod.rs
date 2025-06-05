@@ -61,7 +61,7 @@ use crate::{
     deserialized_responses::DisplayName,
     event_cache::store as event_cache_store,
     room::{RoomInfo, RoomInfoNotableUpdate, RoomState},
-    MinimalRoomMemberEvent, Room, RoomStateFilter, SessionMeta,
+    MinimalRoomMemberEvent, Room, RoomStateFilter, SendOutsideWasm, SessionMeta, SyncOutsideWasm,
 };
 
 pub(crate) mod ambiguity_map;
@@ -72,7 +72,7 @@ mod send_queue;
 #[cfg(any(test, feature = "testing"))]
 pub use self::integration_tests::StateStoreIntegrationTests;
 #[cfg(feature = "unstable-msc4274")]
-pub use self::send_queue::AccumulatedSentMediaInfo;
+pub use self::send_queue::{AccumulatedSentMediaInfo, FinishGalleryItemInfo};
 pub use self::{
     memory_store::MemoryStore,
     send_queue::{
@@ -90,8 +90,14 @@ pub use self::{
 #[derive(Debug, thiserror::Error)]
 pub enum StoreError {
     /// An error happened in the underlying database backend.
+    #[cfg(not(target_family = "wasm"))]
     #[error(transparent)]
     Backend(Box<dyn std::error::Error + Send + Sync>),
+
+    /// An error happened in the underlying database backend.
+    #[cfg(target_family = "wasm")]
+    #[error(transparent)]
+    Backend(Box<dyn std::error::Error>),
     /// An error happened while serializing or deserializing some data.
     #[error(transparent)]
     Json(#[from] serde_json::Error),
@@ -134,7 +140,7 @@ impl StoreError {
     #[inline]
     pub fn backend<E>(error: E) -> Self
     where
-        E: std::error::Error + Send + Sync + 'static,
+        E: std::error::Error + SendOutsideWasm + SyncOutsideWasm + 'static,
     {
         Self::Backend(Box::new(error))
     }

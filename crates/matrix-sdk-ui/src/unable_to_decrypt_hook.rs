@@ -30,7 +30,9 @@ use matrix_sdk::{
     sleep::sleep,
     Client,
 };
-use matrix_sdk_base::{StateStoreDataKey, StateStoreDataValue, StoreError};
+use matrix_sdk_base::{
+    SendOutsideWasm, StateStoreDataKey, StateStoreDataValue, StoreError, SyncOutsideWasm,
+};
 use ruma::{
     time::{Duration, Instant},
     EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedServerName, UserId,
@@ -40,7 +42,7 @@ use tracing::{error, trace};
 
 /// A generic interface which methods get called whenever we observe a
 /// unable-to-decrypt (UTD) event.
-pub trait UnableToDecryptHook: std::fmt::Debug + Send + Sync {
+pub trait UnableToDecryptHook: std::fmt::Debug + SendOutsideWasm + SyncOutsideWasm {
     /// Called every time the hook observes an encrypted event that couldn't be
     /// decrypted.
     ///
@@ -649,7 +651,7 @@ mod tests {
         }
     }
 
-    #[cfg(not(target_arch = "wasm32"))] // wasm32 has no time for that
+    #[cfg(not(target_family = "wasm"))] // wasm32 has no time for that
     #[async_test]
     async fn test_delayed_utd() {
         // If I create a dummy hook,
@@ -693,7 +695,7 @@ mod tests {
         assert!(wrapper.pending_delayed.lock().unwrap().is_empty());
     }
 
-    #[cfg(not(target_arch = "wasm32"))] // wasm32 has no time for that
+    #[cfg(not(target_family = "wasm"))] // wasm32 has no time for that
     #[async_test]
     async fn test_delayed_late_decryption() {
         // If I create a dummy hook,

@@ -41,7 +41,7 @@ use super::{
     SessionCreationError, SessionKey,
 };
 #[cfg(doc)]
-use crate::types::{events::room_key::RoomKeyContent, room_history::HistoricRoomKey};
+use crate::types::events::room_key::RoomKeyContent;
 use crate::{
     error::{EventError, MegolmResult},
     types::{
@@ -55,10 +55,10 @@ use crate::{
             room::encrypted::{EncryptedEvent, RoomEventEncryptionScheme},
             room_key,
         },
+        room_history::HistoricRoomKey,
         serialize_curve_key, EventEncryptionAlgorithm, SigningKeys,
     },
 };
-
 // TODO: add creation times to the inbound group sessions so we can export
 // sessions that were created between some time period, this should only be set
 // for non-imported sessions.
@@ -670,6 +670,44 @@ pub struct PickledInboundGroupSession {
 
 fn default_algorithm() -> EventEncryptionAlgorithm {
     EventEncryptionAlgorithm::MegolmV1AesSha2
+}
+
+impl TryFrom<&HistoricRoomKey> for InboundGroupSession {
+    type Error = SessionCreationError;
+
+    fn try_from(key: &HistoricRoomKey) -> Result<Self, Self::Error> {
+        let HistoricRoomKey {
+            algorithm,
+            room_id,
+            sender_key,
+            session_id,
+            session_key,
+            sender_claimed_keys,
+        } = key;
+
+        let config = OutboundGroupSession::session_config(algorithm)?;
+        let session = InnerSession::import(session_key, config);
+        let first_known_index = session.first_known_index();
+
+        Ok(InboundGroupSession {
+            inner: Mutex::new(session).into(),
+            session_id: session_id.to_owned().into(),
+            creator_info: SessionCreatorInfo {
+                curve25519_key: *sender_key,
+                signing_keys: sender_claimed_keys.to_owned().into(),
+            },
+            // TODO: How do we remember that this is a historic room key and events decrypted using
+            // this room key should always show some form of warning.
+            sender_data: SenderData::default(),
+            history_visibility: None.into(),
+            first_known_index,
+            room_id: room_id.to_owned(),
+            imported: true,
+            algorithm: algorithm.to_owned().into(),
+            backed_up: AtomicBool::from(false).into(),
+            shared_history: true,
+        })
+    }
 }
 
 impl TryFrom<&ExportedRoomKey> for InboundGroupSession {

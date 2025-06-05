@@ -327,11 +327,12 @@ impl<'a> LoginWithQrCode<'a> {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(target_family = "wasm")))]
 mod test {
     use assert_matches2::{assert_let, assert_matches};
     use futures_util::{join, StreamExt};
     use matrix_sdk_base::crypto::types::{qr_login::QrCodeModeData, SecretsBundle};
+    use matrix_sdk_common::executor::spawn;
     use matrix_sdk_test::async_test;
     use serde_json::json;
 
@@ -469,7 +470,7 @@ mod test {
         let login_bob = oauth.login_with_qr_code(&qr_code, Some(&registration_data));
         let mut updates = login_bob.subscribe_to_progress();
 
-        let updates_task = tokio::spawn(async move {
+        let updates_task = spawn(async move {
             let mut sender = Some(sender);
 
             while let Some(update) = updates.next().await {
@@ -487,7 +488,7 @@ mod test {
             }
         });
         let alice_task =
-            tokio::spawn(async { grant_login(alice, receiver, AliceBehaviour::HappyPath).await });
+            spawn(async { grant_login(alice, receiver, AliceBehaviour::HappyPath).await });
 
         join!(
             async {
@@ -557,7 +558,7 @@ mod test {
         let login_bob = oauth.login_with_qr_code(&qr_code, Some(&registration_data));
         let mut updates = login_bob.subscribe_to_progress();
 
-        let _updates_task = tokio::spawn(async move {
+        let _updates_task = spawn(async move {
             let mut sender = Some(sender);
 
             while let Some(update) = updates.next().await {
@@ -574,8 +575,7 @@ mod test {
                 }
             }
         });
-        let _alice_task =
-            tokio::spawn(async move { grant_login(alice, receiver, alice_behavior).await });
+        let _alice_task = spawn(async move { grant_login(alice, receiver, alice_behavior).await });
         login_bob.await
     }
 
@@ -681,7 +681,7 @@ mod test {
         let login_bob = oauth.login_with_qr_code(&qr_code, Some(&registration_data));
         let mut updates = login_bob.subscribe_to_progress();
 
-        let _updates_task = tokio::spawn(async move {
+        let _updates_task = spawn(async move {
             let mut sender = Some(sender);
 
             while let Some(update) = updates.next().await {
@@ -699,9 +699,7 @@ mod test {
             }
         });
         let _alice_task =
-            tokio::spawn(
-                async move { grant_login(alice, receiver, AliceBehaviour::HappyPath).await },
-            );
+            spawn(async move { grant_login(alice, receiver, AliceBehaviour::HappyPath).await });
         let error = login_bob.await.unwrap_err();
 
         assert_matches!(

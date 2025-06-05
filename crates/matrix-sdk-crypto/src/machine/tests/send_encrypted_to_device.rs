@@ -15,7 +15,7 @@
 use assert_matches2::{assert_let, assert_matches};
 use insta::assert_json_snapshot;
 use matrix_sdk_common::deserialized_responses::{
-    AlgorithmInfo, DeviceLinkProblem, EncryptionInfo, VerificationLevel, VerificationState,
+    AlgorithmInfo, VerificationLevel, VerificationState,
 };
 use matrix_sdk_test::async_test;
 use ruma::{events::AnyToDeviceEvent, serde::Raw, to_device::DeviceIdOrAllDevices};
@@ -528,49 +528,4 @@ async fn test_send_encrypted_to_device_no_session() {
         .await;
 
     assert_matches!(encryption_result, Err(OlmError::MissingSession));
-}
-
-#[async_test]
-async fn test_migration_old_olm_decrypted_processed_event() {
-    // Old format was:
-    // Decrypted(Raw<AnyToDeviceEvent>)
-    // Now it is Decrypted { raw: Raw<AnyToDeviceEvent>, encryption_info:
-    // EncryptionInfo },
-    let old_processed = json!({
-      "Decrypted": {
-        "$serde_json::private::RawValue": "{\"sender\":\"@alice:example.org\",\"content\":{\"device_id\":\"XYZABCDE\",\"rooms\":[\"!726s6s6q:example.com\"]},\"type\":\"m.new_device\",\"keys\":{\"ed25519\":\"jyRZplhaPXXZx6Miu8fWYxJKF2NS8bDeQ27O/+DN/+U\"},\"recipient\":\"@bob:example.com\",\"recipient_keys\":{\"ed25519\":\"hZXl8irs7TOrytL338C7rK611agxwFLzZL6B5tfD54I\"},\"sender_device_keys\":{\"algorithms\":[\"m.olm.v1.curve25519-aes-sha2\",\"m.megolm.v1.aes-sha2\"],\"device_id\":\"JLAFKJWSCS\",\"keys\":{\"curve25519:JLAFKJWSCS\":\"R33ydtOeGBADVsIxeu1A4qIKKgePRZ4iePq8GyadnHY\",\"ed25519:JLAFKJWSCS\":\"jyRZplhaPXXZx6Miu8fWYxJKF2NS8bDeQ27O/+DN/+U\"},\"signatures\":{\"@alice:example.org\":{\"ed25519:JLAFKJWSCS\":\"NhKwKPvxOw/ynjLtCKol7k6HkCqBsciurn52eEAwEuTMLb7sAsgvqDLLk3k1wsJHGFI/BppuoQdlI9LfOf4rAA\"}},\"user_id\":\"@alice:example.org\"}}"
-      }
-    });
-
-    let processed_event: ProcessedToDeviceEvent = serde_json::from_value(old_processed).unwrap();
-
-    insta::with_settings!({ prepend_module_to_snapshot => false }, {
-        assert_json_snapshot!(processed_event);
-    });
-
-    assert_eq!(
-        processed_event.to_raw().deserialize().unwrap().sender().as_str(),
-        "@alice:example.org"
-    );
-
-    assert_matches!(
-        processed_event.clone(),
-        ProcessedToDeviceEvent::Decrypted {
-            raw: _,
-            encryption_info: EncryptionInfo {
-                verification_state: VerificationState::Unverified(VerificationLevel::None(
-                    DeviceLinkProblem::MissingDevice
-                )),
-                ..
-            }
-        }
-    );
-
-    // Serialize to new format and deserialize again
-    let json = serde_json::to_value(processed_event).unwrap();
-    let deserialized: ProcessedToDeviceEvent = serde_json::from_value(json).unwrap();
-    assert_eq!(
-        deserialized.to_raw().deserialize().unwrap().sender().as_str(),
-        "@alice:example.org"
-    );
 }

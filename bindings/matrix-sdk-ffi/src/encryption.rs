@@ -1,11 +1,11 @@
 use std::sync::Arc;
 
-use async_compat::get_runtime_handle;
 use futures_util::StreamExt;
 use matrix_sdk::{
     encryption,
     encryption::{backups, recovery},
 };
+use matrix_sdk_common::{runtime::get_runtime_handle, SendOutsideWasm, SyncOutsideWasm};
 use thiserror::Error;
 use tracing::{error, info};
 use zeroize::Zeroize;
@@ -25,22 +25,22 @@ pub struct Encryption {
 }
 
 #[matrix_sdk_ffi_macros::export(callback_interface)]
-pub trait BackupStateListener: Sync + Send {
+pub trait BackupStateListener: SyncOutsideWasm + SendOutsideWasm {
     fn on_update(&self, status: BackupState);
 }
 
 #[matrix_sdk_ffi_macros::export(callback_interface)]
-pub trait BackupSteadyStateListener: Sync + Send {
+pub trait BackupSteadyStateListener: SyncOutsideWasm + SendOutsideWasm {
     fn on_update(&self, status: BackupUploadState);
 }
 
 #[matrix_sdk_ffi_macros::export(callback_interface)]
-pub trait RecoveryStateListener: Sync + Send {
+pub trait RecoveryStateListener: SyncOutsideWasm + SendOutsideWasm {
     fn on_update(&self, status: RecoveryState);
 }
 
 #[matrix_sdk_ffi_macros::export(callback_interface)]
-pub trait VerificationStateListener: Sync + Send {
+pub trait VerificationStateListener: SyncOutsideWasm + SendOutsideWasm {
     fn on_update(&self, status: VerificationState);
 }
 
@@ -164,7 +164,7 @@ impl From<recovery::RecoveryState> for RecoveryState {
 }
 
 #[matrix_sdk_ffi_macros::export(callback_interface)]
-pub trait EnableRecoveryProgressListener: Sync + Send {
+pub trait EnableRecoveryProgressListener: SyncOutsideWasm + SendOutsideWasm {
     fn on_update(&self, status: EnableRecoveryProgress);
 }
 

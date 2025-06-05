@@ -187,6 +187,9 @@ impl BaseClient {
             }
         }
 
+        // Check if tombstoned rooms are not creating an invalid state, like a loop.
+        processors::state_events::check_tombstone(&mut context, &room_updates, &self.state_store)?;
+
         // Handle read receipts and typing notifications independently of the rooms:
         // these both live in a different subsection of the server's response,
         // so they may exist without any update for the associated room.
