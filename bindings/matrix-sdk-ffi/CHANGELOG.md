@@ -18,6 +18,8 @@ Breaking changes:
 - `RoomInfo` replaces its field `is_tombstoned: bool` with `tombstone: Option<RoomTombstoneInfo>`,
   containing the data needed to implement the room migration UI, a message and the replacement room id.
   ([#5027](https://github.com/matrix-org/matrix-rust-sdk/pull/5027))
+- Encapsulate the configuration of the sqlite system into a builder `SqliteSessionBuilder` to allow for 
+  swapping with `IndexedDbSessionBuilder` on Wasm platforms.
 
 Additions:
 

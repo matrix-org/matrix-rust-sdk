@@ -1,6 +1,12 @@
-use std::{fs, num::NonZeroUsize, path::Path, sync::Arc, time::Duration};
+#[cfg(not(target_family = "wasm"))]
+use std::{fs, path::Path};
+use std::{num::NonZeroUsize, sync::Arc, time::Duration};
 
 use futures_util::StreamExt;
+#[cfg(not(target_family = "wasm"))]
+use matrix_sdk::reqwest::{Certificate, Proxy};
+#[cfg(not(target_family = "wasm"))]
+use matrix_sdk::SqliteStoreConfig;
 use matrix_sdk::{
     authentication::oauth::qrcode::{self, DeviceCodeErrorResponseType, LoginFailureReason},
     crypto::{
@@ -9,14 +15,13 @@ use matrix_sdk::{
     },
     encryption::{BackupDownloadStrategy, EncryptionSettings},
     event_cache::EventCacheError,
-    reqwest::Certificate,
     ruma::{ServerName, UserId},
     sliding_sync::{
         Error as MatrixSlidingSyncError, VersionBuilder as MatrixSlidingSyncVersionBuilder,
         VersionBuilderError,
     },
     Client as MatrixClient, ClientBuildError as MatrixClientBuildError, HttpError, IdParseError,
-    RumaApiError, SqliteStoreConfig,
+    RumaApiError,
 };
 use matrix_sdk_common::{runtime::get_runtime_handle, SendOutsideWasm, SyncOutsideWasm};
 use ruma::api::error::{DeserializationError, FromHttpResponseError};
@@ -265,24 +270,162 @@ impl From<ClientError> for ClientBuildError {
 }
 
 #[derive(Clone, uniffi::Object)]
-pub struct ClientBuilder {
-    session_paths: Option<SessionPaths>,
-    session_passphrase: Zeroizing<Option<String>>,
-    session_pool_max_size: Option<usize>,
-    session_cache_size: Option<u32>,
-    session_journal_size_limit: Option<u32>,
+pub struct SqliteSessionBuilder {
+    paths: Option<SessionPaths>,
+    passphrase: Zeroizing<Option<String>>,
+    pool_max_size: Option<usize>,
+    cache_size: Option<u32>,
+    journal_size_limit: Option<u32>,
     system_is_memory_constrained: bool,
+}
+
+#[matrix_sdk_ffi_macros::export]
+impl SqliteSessionBuilder {
+    #[uniffi::constructor]
+    pub fn new() -> Self {
+        Self {
+            paths: None,
+            passphrase: Zeroizing::new(None),
+            pool_max_size: None,
+            cache_size: None,
+            journal_size_limit: None,
+            system_is_memory_constrained: false,
+        }
+    }
+
+    /// Sets the paths that the client will use to store its data and caches.
+    /// Both paths **must** be unique per session as the SDK stores aren't
+    /// capable of handling multiple users, however it is valid to use the
+    /// same path for both stores on a single session.
+    ///
+    /// Leaving this unset tells the client to use an in-memory data store.
+    pub fn paths(self: Arc<Self>, data_path: String, cache_path: String) -> Arc<Self> {
+        let mut builder = unwrap_or_clone_arc(self);
+        builder.paths = Some(SessionPaths { data_path, cache_path });
+        Arc::new(builder)
+    }
+
+    /// Set the passphrase for the stores given to
+    /// [`ClientBuilder::paths`].
+    pub fn passphrase(self: Arc<Self>, passphrase: Option<String>) -> Arc<Self> {
+        let mut builder = unwrap_or_clone_arc(self);
+        builder.passphrase = Zeroizing::new(passphrase);
+        Arc::new(builder)
+    }
+
+    /// Set the pool max size for the SQLite stores given to
+    /// [`ClientBuilder::session_paths`].
+    ///
+    /// Each store exposes an async pool of connections. This method controls
+    /// the size of the pool. The larger the pool is, the more memory is
+    /// consumed, but also the more the app is reactive because it doesn't need
+    /// to wait on a pool to be available to run queries.
+    ///
+    /// See [`SqliteStoreConfig::pool_max_size`] to learn more.
+    pub fn pool_max_size(self: Arc<Self>, pool_max_size: Option<u32>) -> Arc<Self> {
+        let mut builder = unwrap_or_clone_arc(self);
+        builder.pool_max_size = pool_max_size
+            .map(|size| size.try_into().expect("`pool_max_size` is too large to fit in `usize`"));
+        Arc::new(builder)
+    }
+
+    /// Set the cache size for the SQLite stores given to
+    /// [`ClientBuilder::session_paths`].
+    ///
+    /// Each store exposes a SQLite connection. This method controls the cache
+    /// size, in **bytes (!)**.
+    ///
+    /// The cache represents data SQLite holds in memory at once per open
+    /// database file. The default cache implementation does not allocate the
+    /// full amount of cache memory all at once. Cache memory is allocated
+    /// in smaller chunks on an as-needed basis.
+    ///
+    /// See [`SqliteStoreConfig::cache_size`] to learn more.
+    pub fn cache_size(self: Arc<Self>, cache_size: Option<u32>) -> Arc<Self> {
+        let mut builder = unwrap_or_clone_arc(self);
+        builder.cache_size = cache_size;
+        Arc::new(builder)
+    }
+
+    /// Set the size limit for the SQLite WAL files of stores given to
+    /// [`ClientBuilder::session_paths`].
+    ///
+    /// Each store uses the WAL journal mode. This method controls the size
+    /// limit of the WAL files, in **bytes (!)**.
+    ///
+    /// See [`SqliteStoreConfig::journal_size_limit`] to learn more.
+    pub fn journal_size_limit(self: Arc<Self>, limit: Option<u32>) -> Arc<Self> {
+        let mut builder = unwrap_or_clone_arc(self);
+        builder.journal_size_limit = limit;
+        Arc::new(builder)
+    }
+
+    /// Tell the client that the system is memory constrained, like in a push
+    /// notification process for example.
+    ///
+    /// So far, at the time of writing (2025-04-07), it changes the defaults of
+    /// [`SqliteStoreConfig`], so one might not need to call
+    /// [`ClientBuilder::session_cache_size`] and siblings for example. Please
+    /// check [`SqliteStoreConfig::with_low_memory_config`].
+    pub fn system_is_memory_constrained(self: Arc<Self>) -> Arc<Self> {
+        let mut builder = unwrap_or_clone_arc(self);
+        builder.system_is_memory_constrained = true;
+        Arc::new(builder)
+    }
+}
+
+#[derive(Clone, uniffi::Object)]
+pub struct IndexedDbSessionBuilder {
+    #[cfg_attr(not(target_family = "wasm"), allow(unused))]
+    name: String,
+    passphrase: Option<String>,
+}
+
+#[matrix_sdk_ffi_macros::export]
+impl IndexedDbSessionBuilder {
+    #[uniffi::constructor]
+    pub fn new(name: String) -> Arc<Self> {
+        Arc::new(Self { name, passphrase: None })
+    }
+
+    /// Set the passphrase for the IndexedDB store.
+    pub fn passphrase(self: Arc<Self>, passphrase: Option<String>) -> Arc<Self> {
+        let mut builder = unwrap_or_clone_arc(self);
+        builder.passphrase = passphrase;
+        Arc::new(builder)
+    }
+}
+
+#[derive(Clone)]
+pub enum ClientSessionConfig {
+    /// Setup the client to use the SQLite store.
+    #[cfg_attr(target_family = "wasm", allow(unused))]
+    Sqlite(SqliteSessionBuilder),
+
+    /// Setup the client to use the IndexedDB store.
+    #[cfg_attr(not(target_family = "wasm"), allow(unused))]
+    IndexedDb(IndexedDbSessionBuilder),
+}
+
+#[derive(Clone, uniffi::Object)]
+pub struct ClientBuilder {
+    session: Option<ClientSessionConfig>,
     username: Option<String>,
     homeserver_cfg: Option<HomeserverConfig>,
+    /// Ignored on wasm32
     user_agent: Option<String>,
     sliding_sync_version_builder: SlidingSyncVersionBuilder,
+    /// Ignored on wasm32
     proxy: Option<String>,
+    /// Ignored on wasm32
     disable_ssl_verification: bool,
     disable_automatic_token_refresh: bool,
     cross_process_store_locks_holder_name: Option<String>,
     enable_oidc_refresh_lock: bool,
     session_delegate: Option<Arc<dyn ClientSessionDelegate>>,
+    /// Ignored on wasm32
     additional_root_certificates: Vec<Vec<u8>>,
+    /// Ignored on wasm32
     disable_built_in_root_certificates: bool,
     encryption_settings: EncryptionSettings,
     room_key_recipient_strategy: CollectStrategy,
@@ -296,12 +439,7 @@ impl ClientBuilder {
     #[uniffi::constructor]
     pub fn new() -> Arc<Self> {
         Arc::new(Self {
-            session_paths: None,
-            session_passphrase: Zeroizing::new(None),
-            session_pool_max_size: None,
-            session_cache_size: None,
-            session_journal_size_limit: None,
-            system_is_memory_constrained: false,
+            session: None,
             username: None,
             homeserver_cfg: None,
             user_agent: None,
@@ -327,6 +465,18 @@ impl ClientBuilder {
         })
     }
 
+    pub fn session_sqlite(self: Arc<Self>, config: Arc<SqliteSessionBuilder>) -> Arc<Self> {
+        let mut builder = unwrap_or_clone_arc(self);
+        builder.session = Some(ClientSessionConfig::Sqlite(config.as_ref().clone()));
+        Arc::new(builder)
+    }
+
+    pub fn session_indexeddb(self: Arc<Self>, config: Arc<IndexedDbSessionBuilder>) -> Arc<Self> {
+        let mut builder = unwrap_or_clone_arc(self);
+        builder.session = Some(ClientSessionConfig::IndexedDb(config.as_ref().clone()));
+        Arc::new(builder)
+    }
+
     pub fn cross_process_store_locks_holder_name(
         self: Arc<Self>,
         holder_name: String,
@@ -348,86 +498,6 @@ impl ClientBuilder {
     ) -> Arc<Self> {
         let mut builder = unwrap_or_clone_arc(self);
         builder.session_delegate = Some(session_delegate.into());
-        Arc::new(builder)
-    }
-
-    /// Sets the paths that the client will use to store its data and caches.
-    /// Both paths **must** be unique per session as the SDK stores aren't
-    /// capable of handling multiple users, however it is valid to use the
-    /// same path for both stores on a single session.
-    ///
-    /// Leaving this unset tells the client to use an in-memory data store.
-    pub fn session_paths(self: Arc<Self>, data_path: String, cache_path: String) -> Arc<Self> {
-        let mut builder = unwrap_or_clone_arc(self);
-        builder.session_paths = Some(SessionPaths { data_path, cache_path });
-        Arc::new(builder)
-    }
-
-    /// Set the passphrase for the stores given to
-    /// [`ClientBuilder::session_paths`].
-    pub fn session_passphrase(self: Arc<Self>, passphrase: Option<String>) -> Arc<Self> {
-        let mut builder = unwrap_or_clone_arc(self);
-        builder.session_passphrase = Zeroizing::new(passphrase);
-        Arc::new(builder)
-    }
-
-    /// Set the pool max size for the SQLite stores given to
-    /// [`ClientBuilder::session_paths`].
-    ///
-    /// Each store exposes an async pool of connections. This method controls
-    /// the size of the pool. The larger the pool is, the more memory is
-    /// consumed, but also the more the app is reactive because it doesn't need
-    /// to wait on a pool to be available to run queries.
-    ///
-    /// See [`SqliteStoreConfig::pool_max_size`] to learn more.
-    pub fn session_pool_max_size(self: Arc<Self>, pool_max_size: Option<u32>) -> Arc<Self> {
-        let mut builder = unwrap_or_clone_arc(self);
-        builder.session_pool_max_size = pool_max_size
-            .map(|size| size.try_into().expect("`pool_max_size` is too large to fit in `usize`"));
-        Arc::new(builder)
-    }
-
-    /// Set the cache size for the SQLite stores given to
-    /// [`ClientBuilder::session_paths`].
-    ///
-    /// Each store exposes a SQLite connection. This method controls the cache
-    /// size, in **bytes (!)**.
-    ///
-    /// The cache represents data SQLite holds in memory at once per open
-    /// database file. The default cache implementation does not allocate the
-    /// full amount of cache memory all at once. Cache memory is allocated
-    /// in smaller chunks on an as-needed basis.
-    ///
-    /// See [`SqliteStoreConfig::cache_size`] to learn more.
-    pub fn session_cache_size(self: Arc<Self>, cache_size: Option<u32>) -> Arc<Self> {
-        let mut builder = unwrap_or_clone_arc(self);
-        builder.session_cache_size = cache_size;
-        Arc::new(builder)
-    }
-
-    /// Set the size limit for the SQLite WAL files of stores given to
-    /// [`ClientBuilder::session_paths`].
-    ///
-    /// Each store uses the WAL journal mode. This method controls the size
-    /// limit of the WAL files, in **bytes (!)**.
-    ///
-    /// See [`SqliteStoreConfig::journal_size_limit`] to learn more.
-    pub fn session_journal_size_limit(self: Arc<Self>, limit: Option<u32>) -> Arc<Self> {
-        let mut builder = unwrap_or_clone_arc(self);
-        builder.session_journal_size_limit = limit;
-        Arc::new(builder)
-    }
-
-    /// Tell the client that the system is memory constrained, like in a push
-    /// notification process for example.
-    ///
-    /// So far, at the time of writing (2025-04-07), it changes the defaults of
-    /// [`SqliteStoreConfig`], so one might not need to call
-    /// [`ClientBuilder::session_cache_size`] and siblings for example. Please
-    /// check [`SqliteStoreConfig::with_low_memory_config`].
-    pub fn system_is_memory_constrained(self: Arc<Self>) -> Arc<Self> {
-        let mut builder = unwrap_or_clone_arc(self);
-        builder.system_is_memory_constrained = true;
         Arc::new(builder)
     }
 
@@ -455,12 +525,6 @@ impl ClientBuilder {
         Arc::new(builder)
     }
 
-    pub fn user_agent(self: Arc<Self>, user_agent: String) -> Arc<Self> {
-        let mut builder = unwrap_or_clone_arc(self);
-        builder.user_agent = Some(user_agent);
-        Arc::new(builder)
-    }
-
     pub fn sliding_sync_version_builder(
         self: Arc<Self>,
         version_builder: SlidingSyncVersionBuilder,
@@ -470,40 +534,9 @@ impl ClientBuilder {
         Arc::new(builder)
     }
 
-    pub fn proxy(self: Arc<Self>, url: String) -> Arc<Self> {
-        let mut builder = unwrap_or_clone_arc(self);
-        builder.proxy = Some(url);
-        Arc::new(builder)
-    }
-
-    pub fn disable_ssl_verification(self: Arc<Self>) -> Arc<Self> {
-        let mut builder = unwrap_or_clone_arc(self);
-        builder.disable_ssl_verification = true;
-        Arc::new(builder)
-    }
-
     pub fn disable_automatic_token_refresh(self: Arc<Self>) -> Arc<Self> {
         let mut builder = unwrap_or_clone_arc(self);
         builder.disable_automatic_token_refresh = true;
-        Arc::new(builder)
-    }
-
-    pub fn add_root_certificates(
-        self: Arc<Self>,
-        certificates: Vec<CertificateBytes>,
-    ) -> Arc<Self> {
-        let mut builder = unwrap_or_clone_arc(self);
-        builder.additional_root_certificates = certificates;
-
-        Arc::new(builder)
-    }
-
-    /// Don't trust any system root certificates, only trust the certificates
-    /// provided through
-    /// [`add_root_certificates`][ClientBuilder::add_root_certificates].
-    pub fn disable_built_in_root_certificates(self: Arc<Self>) -> Arc<Self> {
-        let mut builder = unwrap_or_clone_arc(self);
-        builder.disable_built_in_root_certificates = true;
         Arc::new(builder)
     }
 
@@ -583,50 +616,69 @@ impl ClientBuilder {
                 inner_builder.cross_process_store_locks_holder_name(holder_name.clone());
         }
 
-        let store_path = if let Some(session_paths) = &builder.session_paths {
-            // This is the path where both the state store and the crypto store will live.
-            let data_path = Path::new(&session_paths.data_path);
-            // This is the path where the event cache store will live.
-            let cache_path = Path::new(&session_paths.cache_path);
+        let mut store_path = None;
+        match builder.session {
+            #[cfg(target_family = "wasm")]
+            Some(ClientSessionConfig::Sqlite(_)) => {
+                panic!("SQLite session config is not supported on wasm32.");
+            }
+            #[cfg(not(target_family = "wasm"))]
+            Some(ClientSessionConfig::Sqlite(config)) => {
+                if let Some(session_paths) = config.paths {
+                    let data_path = Path::new(&session_paths.data_path);
+                    let cache_path = Path::new(&session_paths.cache_path);
 
-            debug!(
-                data_path = %data_path.to_string_lossy(),
-                event_cache_path = %cache_path.to_string_lossy(),
-                "Creating directories for data (state and crypto) and cache stores.",
-            );
+                    debug!(
+                        data_path = %data_path.to_string_lossy(),
+                        cache_path = %cache_path.to_string_lossy(),
+                        "Creating directories for data and cache stores.",
+                    );
 
-            fs::create_dir_all(data_path)?;
-            fs::create_dir_all(cache_path)?;
+                    fs::create_dir_all(data_path)?;
+                    fs::create_dir_all(cache_path)?;
 
-            let mut sqlite_store_config = if builder.system_is_memory_constrained {
-                SqliteStoreConfig::with_low_memory_config(data_path)
-            } else {
-                SqliteStoreConfig::new(data_path)
-            };
+                    let mut sqlite_store_config = if config.system_is_memory_constrained {
+                        SqliteStoreConfig::with_low_memory_config(data_path)
+                    } else {
+                        SqliteStoreConfig::new(data_path)
+                    };
 
-            sqlite_store_config =
-                sqlite_store_config.passphrase(builder.session_passphrase.as_deref());
+                    sqlite_store_config =
+                        sqlite_store_config.passphrase(config.passphrase.as_deref());
 
-            if let Some(size) = builder.session_pool_max_size {
-                sqlite_store_config = sqlite_store_config.pool_max_size(size);
+                    if let Some(size) = config.pool_max_size {
+                        sqlite_store_config = sqlite_store_config.pool_max_size(size);
+                    }
+
+                    if let Some(size) = config.cache_size {
+                        sqlite_store_config = sqlite_store_config.cache_size(size);
+                    }
+
+                    if let Some(limit) = config.journal_size_limit {
+                        sqlite_store_config = sqlite_store_config.journal_size_limit(limit);
+                    }
+
+                    inner_builder = inner_builder.sqlite_store_with_config_and_cache_path(
+                        sqlite_store_config,
+                        Some(cache_path),
+                    );
+                    store_path = Some(data_path.to_owned())
+                } else {
+                    debug!("Not using a store path.");
+                }
+            }
+            #[cfg(not(target_family = "wasm"))]
+            Some(ClientSessionConfig::IndexedDb(_)) => {
+                panic!("IndexedDB session config is not supported outside of wasm32.");
             }
 
-            if let Some(size) = builder.session_cache_size {
-                sqlite_store_config = sqlite_store_config.cache_size(size);
+            #[cfg(target_family = "wasm")]
+            Some(ClientSessionConfig::IndexedDb(config)) => {
+                inner_builder =
+                    inner_builder.indexeddb_store(&config.name, config.passphrase.as_deref());
             }
-
-            if let Some(limit) = builder.session_journal_size_limit {
-                sqlite_store_config = sqlite_store_config.journal_size_limit(limit);
-            }
-
-            inner_builder = inner_builder
-                .sqlite_store_with_config_and_cache_path(sqlite_store_config, Some(cache_path));
-
-            Some(data_path.to_owned())
-        } else {
-            debug!("Not using a store path.");
-            None
-        };
+            None => debug!("Not using a session store."),
+        }
 
         // Determine server either from URL, server name or user ID.
         inner_builder = match builder.homeserver_cfg {
@@ -650,46 +702,57 @@ impl ClientBuilder {
             }
         };
 
-        let mut certificates = Vec::new();
+        #[cfg(not(target_family = "wasm"))]
+        {
+            let mut certificates = Vec::new();
 
-        for certificate in builder.additional_root_certificates {
-            // We don't really know what type of certificate we may get here, so let's try
-            // first one type, then the other.
-            match Certificate::from_der(&certificate) {
-                Ok(cert) => {
-                    certificates.push(cert);
-                }
-                Err(der_error) => {
-                    let cert = Certificate::from_pem(&certificate).map_err(|pem_error| {
+            for certificate in builder.additional_root_certificates {
+                // We don't really know what type of certificate we may get here, so let's try
+                // first one type, then the other.
+                match Certificate::from_der(&certificate) {
+                    Ok(cert) => {
+                        certificates.push(cert);
+                    }
+                    Err(der_error) => {
+                        let cert = Certificate::from_pem(&certificate).map_err(|pem_error| {
                         ClientBuildError::Generic {
                             message: format!("Failed to add a root certificate as DER ({der_error:?}) or PEM ({pem_error:?})"),
                         }
                     })?;
-                    certificates.push(cert);
+                        certificates.push(cert);
+                    }
                 }
             }
-        }
 
-        inner_builder = inner_builder.add_root_certificates(certificates);
+            inner_builder = inner_builder.add_root_certificates(certificates);
+            if builder.disable_built_in_root_certificates {
+                inner_builder = inner_builder.disable_built_in_root_certificates();
+            }
+            if let Some(proxy) = builder.proxy {
+                let Ok(proxy) = Proxy::all(proxy) else {
+                    return Err(ClientBuildError::Generic {
+                        message: "Proxy configuration is invalid.".to_owned(),
+                    });
+                };
+                let Ok(http_client) = matrix_sdk::reqwest::Client::builder().proxy(proxy).build()
+                else {
+                    return Err(ClientBuildError::Generic {
+                        message: "Http client for proxy is invalid.".to_owned(),
+                    });
+                };
+                inner_builder = inner_builder.http_client(http_client);
+            }
+            if builder.disable_ssl_verification {
+                inner_builder = inner_builder.disable_ssl_verification();
+            }
 
-        if builder.disable_built_in_root_certificates {
-            inner_builder = inner_builder.disable_built_in_root_certificates();
-        }
-
-        if let Some(proxy) = builder.proxy {
-            inner_builder = inner_builder.proxy(proxy);
-        }
-
-        if builder.disable_ssl_verification {
-            inner_builder = inner_builder.disable_ssl_verification();
+            if let Some(user_agent) = builder.user_agent {
+                inner_builder = inner_builder.user_agent(user_agent);
+            }
         }
 
         if !builder.disable_automatic_token_refresh {
             inner_builder = inner_builder.handle_refresh_tokens();
-        }
-
-        if let Some(user_agent) = builder.user_agent {
-            inner_builder = inner_builder.user_agent(user_agent);
         }
 
         inner_builder = inner_builder
@@ -804,6 +867,66 @@ impl ClientBuilder {
     }
 }
 
+#[matrix_sdk_ffi_macros::export]
+impl ClientBuilder {
+    pub fn disable_ssl_verification(self: Arc<Self>) -> Arc<Self> {
+        #[cfg(target_family = "wasm")]
+        {
+            panic!("Not supported on wasm32.");
+        }
+        let mut builder = unwrap_or_clone_arc(self);
+        builder.disable_ssl_verification = true;
+        Arc::new(builder)
+    }
+
+    pub fn add_root_certificates(
+        self: Arc<Self>,
+        certificates: Vec<CertificateBytes>,
+    ) -> Arc<Self> {
+        #[cfg(target_family = "wasm")]
+        {
+            panic!("Not supported on wasm32.");
+        }
+        let mut builder = unwrap_or_clone_arc(self);
+        builder.additional_root_certificates = certificates;
+
+        Arc::new(builder)
+    }
+
+    /// Don't trust any system root certificates, only trust the certificates
+    /// provided through
+    /// [`add_root_certificates`][ClientBuilder::add_root_certificates].
+    pub fn disable_built_in_root_certificates(self: Arc<Self>) -> Arc<Self> {
+        #[cfg(target_family = "wasm")]
+        {
+            panic!("Not supported on wasm32.");
+        }
+
+        let mut builder = unwrap_or_clone_arc(self);
+        builder.disable_built_in_root_certificates = true;
+        Arc::new(builder)
+    }
+
+    pub fn user_agent(self: Arc<Self>, user_agent: String) -> Arc<Self> {
+        #[cfg(target_family = "wasm")]
+        {
+            panic!("Not supported on wasm32.");
+        }
+        let mut builder = unwrap_or_clone_arc(self);
+        builder.user_agent = Some(user_agent);
+        Arc::new(builder)
+    }
+
+    pub fn proxy(self: Arc<Self>, url: String) -> Arc<Self> {
+        #[cfg(target_family = "wasm")]
+        {
+            panic!("Not supported on wasm32.");
+        }
+        let mut builder = unwrap_or_clone_arc(self);
+        builder.proxy = Some(url);
+        Arc::new(builder)
+    }
+}
 /// The store paths the client will use when built.
 #[derive(Clone)]
 struct SessionPaths {
