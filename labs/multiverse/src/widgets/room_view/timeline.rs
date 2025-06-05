@@ -54,6 +54,8 @@ impl StatefulWidget for &mut TimelineView<'_> {
 fn format_timeline_item(item: &Arc<TimelineItem>) -> Option<ListItem<'_>> {
     let item = match item.kind() {
         TimelineItemKind::Event(ev) => {
+            // TODO: Once the SDK allows you to filter out messages that are part of a
+            // thread, switch to that mechanism instead of manually returning `None` here.
             if ev.content().thread_root().is_some() {
                 return None;
             }
@@ -119,8 +121,10 @@ fn format_text_message(
 
         if let Some(thread_summary) = thread_summary {
             match thread_summary.latest_event {
-                TimelineDetails::Unavailable => {}
-                TimelineDetails::Pending => {}
+                TimelineDetails::Unavailable | TimelineDetails::Pending => {
+                    let thread_line = Line::from("  💬 ...");
+                    lines.push(thread_line);
+                }
                 TimelineDetails::Ready(e) => {
                     let sender = e.sender;
                     let content = e.content.as_message().map(|m| m.msgtype());
