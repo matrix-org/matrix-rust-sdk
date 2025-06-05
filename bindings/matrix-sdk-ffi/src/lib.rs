@@ -26,6 +26,7 @@ mod room_list;
 mod room_member;
 mod room_preview;
 mod ruma;
+mod runtime;
 mod session_verification;
 mod sync_service;
 mod task_handle;

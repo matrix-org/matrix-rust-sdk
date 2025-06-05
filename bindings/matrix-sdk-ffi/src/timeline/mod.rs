@@ -30,7 +30,6 @@ use matrix_sdk::{
         reply::{EnforceThread, Reply},
     },
 };
-use matrix_sdk_common::runtime::get_runtime_handle;
 use matrix_sdk_ui::timeline::{
     self, AttachmentSource, EventItemOrigin, Profile, TimelineDetails,
     TimelineUniqueId as SdkTimelineUniqueId,
@@ -75,6 +74,7 @@ use crate::{
         AssetType, AudioInfo, FileInfo, FormattedBody, ImageInfo, Mentions, PollKind,
         ThumbnailInfo, VideoInfo,
     },
+    runtime::get_runtime_handle,
     task_handle::TaskHandle,
     utils::Timestamp,
 };

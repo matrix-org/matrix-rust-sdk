@@ -18,7 +18,7 @@ use matrix_sdk::{
     Client as MatrixClient, ClientBuildError as MatrixClientBuildError, HttpError, IdParseError,
     RumaApiError, SqliteStoreConfig,
 };
-use matrix_sdk_common::{runtime::get_runtime_handle, SendOutsideWasm, SyncOutsideWasm};
+use matrix_sdk_common::{SendOutsideWasm, SyncOutsideWasm};
 use ruma::api::error::{DeserializationError, FromHttpResponseError};
 use tracing::{debug, error};
 use zeroize::Zeroizing;
@@ -26,7 +26,7 @@ use zeroize::Zeroizing;
 use super::client::Client;
 use crate::{
     authentication::OidcConfiguration, client::ClientSessionDelegate, error::ClientError,
-    helpers::unwrap_or_clone_arc, task_handle::TaskHandle,
+    helpers::unwrap_or_clone_arc, runtime::get_runtime_handle, task_handle::TaskHandle,
 };
 
 /// A list of bytes containing a certificate in DER or PEM form.

@@ -5,11 +5,11 @@ use matrix_sdk::{
     async_trait,
     widget::{MessageLikeEventFilter, StateEventFilter, ToDeviceEventFilter},
 };
-use matrix_sdk_common::{runtime::get_runtime_handle, SendOutsideWasm, SyncOutsideWasm};
+use matrix_sdk_common::{SendOutsideWasm, SyncOutsideWasm};
 use ruma::events::MessageLikeEventType;
 use tracing::error;
 
-use crate::room::Room;
+use crate::{room::Room, runtime::get_runtime_handle};
 
 #[derive(uniffi::Record)]
 pub struct WidgetDriverAndHandle {
