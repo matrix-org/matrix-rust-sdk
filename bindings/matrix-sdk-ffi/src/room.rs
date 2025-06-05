@@ -1,7 +1,6 @@
 use std::{collections::HashMap, pin::pin, sync::Arc};
 
 use anyhow::{Context, Result};
-use async_compat::get_runtime_handle;
 use futures_util::{pin_mut, StreamExt};
 use matrix_sdk::{
     crypto::LocalTrust,
@@ -13,7 +12,7 @@ use matrix_sdk::{
     PredecessorRoom as SdkPredecessorRoom, RoomHero as SdkRoomHero, RoomMemberships, RoomState,
     SuccessorRoom as SdkSuccessorRoom,
 };
-use matrix_sdk_common::{SendOutsideWasm, SyncOutsideWasm};
+use matrix_sdk_common::{runtime::get_runtime_handle, SendOutsideWasm, SyncOutsideWasm};
 use matrix_sdk_ui::{
     timeline::{default_event_filter, RoomExt, TimelineBuilder},
     unable_to_decrypt_hook::UtdHookManager,

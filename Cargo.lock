@@ -2980,8 +2980,10 @@ version = "0.11.0"
 dependencies = [
  "assert_matches",
  "assert_matches2",
+ "async-compat",
  "eyeball-im",
  "futures-core",
+ "futures-executor",
  "futures-util",
  "getrandom 0.2.15",
  "gloo-timers",

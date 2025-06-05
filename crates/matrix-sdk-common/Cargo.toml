@@ -25,6 +25,7 @@ uniffi = ["dep:uniffi"]
 test-send-sync = []
 
 [dependencies]
+async-compat.workspace = true
 eyeball-im.workspace = true
 futures-core.workspace = true
 futures-util.workspace = true
@@ -41,9 +42,10 @@ uniffi = { workspace = true, optional = true }
 tokio = { workspace = true, features = ["rt", "time", "macros"] }
 
 [target.'cfg(target_family = "wasm")'.dependencies]
+futures-executor.workspace = true
 futures-util = { workspace = true, features = ["channel"] }
 gloo-timers = { workspace = true, features = ["futures"] }
-tokio = { workspace = true, features = ["macros"] }
+tokio = { workspace = true, features = ["sync", "macros", "time"] }
 tracing-subscriber = { workspace = true, features = ["fmt", "ansi"] }
 wasm-bindgen.workspace = true
 wasm-bindgen-futures = { version = "0.4.33", optional = true }
