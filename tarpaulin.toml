@@ -4,6 +4,7 @@ verbose = false
 exclude-files = [
     "examples/*",
     "testing/*",
+    "labs/*",
     "**/tests/*",
 ]
 workspace = true
