@@ -64,7 +64,7 @@ use serde_json::value::RawValue as RawJsonValue;
 use tracing::{debug, error, field::debug, instrument, warn};
 
 use self::maps::EventHandlerMaps;
-use crate::{crypto::types::ProcessedToDeviceEvent, Client, Room};
+use crate::{Client, Room};
 
 mod context;
 mod maps;
