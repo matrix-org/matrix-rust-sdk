@@ -183,8 +183,8 @@ impl Default for TimelineSettings {
 
 #[derive(Debug, Clone)]
 pub(super) enum TimelineFocusKind {
-    Live,
-    Event,
+    Live { hide_threaded_events: bool },
+    Event { hide_threaded_events: bool },
     Thread { root_event_id: OwnedEventId },
     PinnedEvents,
 }
@@ -279,13 +279,15 @@ impl<P: RoomDataProvider, D: Decryptor> TimelineController<P, D> {
         is_room_encrypted: bool,
     ) -> Self {
         let (focus_data, focus_kind) = match focus {
-            TimelineFocus::Live => (TimelineFocusData::Live, TimelineFocusKind::Live),
+            TimelineFocus::Live { hide_threaded_events } => {
+                (TimelineFocusData::Live, TimelineFocusKind::Live { hide_threaded_events })
+            }
 
-            TimelineFocus::Event { target, num_context_events } => {
+            TimelineFocus::Event { target, num_context_events, hide_threaded_events } => {
                 let paginator = Paginator::new(room_data_provider.clone());
                 (
                     TimelineFocusData::Event { paginator, event_id: target, num_context_events },
-                    TimelineFocusKind::Event,
+                    TimelineFocusKind::Event { hide_threaded_events },
                 )
             }
 

@@ -199,13 +199,15 @@ impl TimelineState {
         thread_root: &Option<OwnedEventId>,
     ) -> bool {
         match &timeline_focus {
-            TimelineFocusKind::Live => thread_root.is_none(),
+            TimelineFocusKind::Live { hide_threaded_events } => {
+                thread_root.is_none() || thread_root.is_some() && !hide_threaded_events
+            }
 
             TimelineFocusKind::Thread { root_event_id } => {
                 thread_root.as_ref().is_some_and(|r| r == root_event_id)
             }
 
-            TimelineFocusKind::Event | TimelineFocusKind::PinnedEvents => false,
+            TimelineFocusKind::Event { .. } | TimelineFocusKind::PinnedEvents => false,
         }
     }
 

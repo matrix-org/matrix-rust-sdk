@@ -62,7 +62,7 @@ impl TimelineBuilder {
             room: room.clone(),
             settings: TimelineSettings::default(),
             unable_to_decrypt_hook: None,
-            focus: TimelineFocus::Live,
+            focus: TimelineFocus::Live { hide_threaded_events: false },
             internal_id_prefix: None,
         }
     }
@@ -168,7 +168,7 @@ impl TimelineBuilder {
         let (room_event_cache, event_cache_drop) = room.event_cache().await?;
         let (_, event_subscriber) = room_event_cache.subscribe().await;
 
-        let is_live = matches!(focus, TimelineFocus::Live);
+        let is_live = matches!(focus, TimelineFocus::Live { .. });
         let is_pinned_events = matches!(focus, TimelineFocus::PinnedEvents { .. });
         let is_room_encrypted = room
             .latest_encryption_state()
