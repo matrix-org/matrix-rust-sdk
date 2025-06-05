@@ -726,11 +726,8 @@ mod tests {
         },
     };
 
-    use assert_matches2::{assert_let, assert_matches};
-    use matrix_sdk_common::{
-        deserialized_responses::{AlgorithmInfo, EncryptionInfo},
-        locks::Mutex,
-    };
+    use assert_matches2::assert_let;
+    use matrix_sdk_common::{deserialized_responses::EncryptionInfo, locks::Mutex};
     use matrix_sdk_test::{StateTestEvent, StrippedStateTestEvent, SyncResponseBuilder};
     use once_cell::sync::Lazy;
     use ruma::{
@@ -894,11 +891,7 @@ mod tests {
         assert_let!(Some(received_event) = captured);
         assert_eq!(received_event.event_type().to_string(), "m.custom.to.device.type");
         let info = captured_info.lock().clone();
-        assert_let!(Some(encryption_info) = info);
-        assert_matches!(
-            encryption_info.algorithm_info,
-            AlgorithmInfo::OlmV1Curve25519AesSha2 { .. }
-        );
+        assert!(info.is_none());
         Ok(())
     }
 
