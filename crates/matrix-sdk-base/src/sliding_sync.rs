@@ -14,7 +14,9 @@
 
 //! Extend `BaseClient` with capabilities to handle MSC4186.
 
-use matrix_sdk_common::deserialized_responses::{ProcessedToDeviceEvent, TimelineEvent};
+#[cfg(feature = "e2e-encryption")]
+use matrix_sdk_common::deserialized_responses::ProcessedToDeviceEvent;
+use matrix_sdk_common::deserialized_responses::TimelineEvent;
 use ruma::{api::client::sync::sync_events::v5 as http, OwnedRoomId};
 use tracing::{instrument, trace};
 

@@ -530,7 +530,7 @@ impl BaseClient {
                     false // Exclude events with no type or encrypted
                 }
             })
-            .map(ProcessedToDeviceEvent::PlainText)
+            .map(matrix_sdk_common::deserialized_responses::ProcessedToDeviceEvent::PlainText)
             .collect();
 
         let mut ambiguity_cache = AmbiguityCache::new(self.state_store.inner.clone());
