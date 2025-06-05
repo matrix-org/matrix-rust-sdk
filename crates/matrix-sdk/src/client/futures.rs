@@ -182,7 +182,6 @@ impl SendMediaUploadRequest {
 
     /// Get a subscriber to observe the progress of sending the request
     /// body.
-    #[cfg(not(target_family = "wasm"))]
     pub fn subscribe_to_send_progress(&self) -> Subscriber<TransmissionProgress> {
         self.send_request.send_progress.subscribe()
     }
