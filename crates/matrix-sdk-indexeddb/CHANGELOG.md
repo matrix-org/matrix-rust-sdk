@@ -6,6 +6,12 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased] - ReleaseDate
 
+### Features
+
+- Add `IndexeddbEventCacheStore` for providing an IndexedDB implementation
+  of the `EventCacheStore`. Expose the type through `IndexeddbEventCacheStoreBuilder`
+  which ensures object stores in IndexedDB are properly initialized.
+
 ## [0.11.0] - 2025-04-11
 
 No notable changes in this release.
