@@ -338,11 +338,14 @@ macro_rules! assert_timeline_stream {
     };
 
     ( [ $stream:ident ] $( $all:tt )* ) => {
-        let mut timeline_updates = $stream
-            .next()
-            .await
-            .expect("Failed to poll the stream")
-            .into_iter();
+        let mut timeline_updates = tokio::time::timeout(
+            std::time::Duration::from_secs(1),
+            $stream .next()
+        )
+        .await
+        .expect("Timeline stream never sent an update")
+        .expect("Failed to poll the stream")
+        .into_iter();
 
         assert_timeline_stream!( @_ [ timeline_updates ] [ $( $all )* ] [] )
     };

@@ -39,7 +39,8 @@ pub async fn sync_timeline_event(
     Ok(Some(
         match olm.try_decrypt_room_event(event.cast_ref(), room_id, &decryption_settings).await? {
             RoomEventDecryptionResult::Decrypted(decrypted) => {
-                let timeline_event = TimelineEvent::from(decrypted);
+                // Note: the push actions are set by the caller.
+                let timeline_event = TimelineEvent::from_decrypted(decrypted, None);
 
                 if let Ok(sync_timeline_event) = timeline_event.raw().deserialize() {
                     verification::process_if_relevant(&sync_timeline_event, e2ee, room_id).await?;
@@ -48,7 +49,7 @@ pub async fn sync_timeline_event(
                 timeline_event
             }
             RoomEventDecryptionResult::UnableToDecrypt(utd_info) => {
-                TimelineEvent::new_utd_event(event.clone(), utd_info)
+                TimelineEvent::from_utd(event.clone(), utd_info)
             }
         },
     ))

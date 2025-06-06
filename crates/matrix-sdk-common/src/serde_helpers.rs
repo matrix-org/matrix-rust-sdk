@@ -16,7 +16,7 @@
 //! to access some fields.
 
 use ruma::{
-    events::{relation::BundledThread, AnySyncTimelineEvent},
+    events::{relation::BundledThread, AnyMessageLikeEvent, AnySyncTimelineEvent},
     serde::Raw,
     OwnedEventId, UInt,
 };
@@ -74,7 +74,9 @@ struct Unsigned {
 }
 
 /// Try to extract a bundled thread summary of a timeline event, if available.
-pub fn extract_bundled_thread_summary(event: &Raw<AnySyncTimelineEvent>) -> ThreadSummaryStatus {
+pub fn extract_bundled_thread_summary(
+    event: &Raw<AnySyncTimelineEvent>,
+) -> (ThreadSummaryStatus, Option<Raw<AnyMessageLikeEvent>>) {
     match event.get_field::<Unsigned>("unsigned") {
         Ok(Some(Unsigned { relations: Some(Relations { thread: Some(bundled_thread) }) })) => {
             // Take the count from the bundled thread summary, if available. If it can't be
@@ -85,10 +87,13 @@ pub fn extract_bundled_thread_summary(event: &Raw<AnySyncTimelineEvent>) -> Thre
             let latest_reply =
                 bundled_thread.latest_event.get_field::<OwnedEventId>("event_id").ok().flatten();
 
-            ThreadSummaryStatus::Some(ThreadSummary { num_replies: count, latest_reply })
+            (
+                ThreadSummaryStatus::Some(ThreadSummary { num_replies: count, latest_reply }),
+                Some(bundled_thread.latest_event),
+            )
         }
-        Ok(_) => ThreadSummaryStatus::None,
-        Err(_) => ThreadSummaryStatus::Unknown,
+        Ok(_) => (ThreadSummaryStatus::None, None),
+        Err(_) => (ThreadSummaryStatus::Unknown, None),
     }
 }
 
@@ -215,7 +220,7 @@ mod tests {
 
         assert_matches!(
             extract_bundled_thread_summary(&event),
-            ThreadSummaryStatus::Some(ThreadSummary { .. })
+            (ThreadSummaryStatus::Some(ThreadSummary { .. }), Some(..))
         );
 
         // When there's a bundled thread summary, we can assert it with certainty.
@@ -228,7 +233,7 @@ mod tests {
         .unwrap()
         .cast();
 
-        assert_matches!(extract_bundled_thread_summary(&event), ThreadSummaryStatus::None);
+        assert_matches!(extract_bundled_thread_summary(&event), (ThreadSummaryStatus::None, None));
 
         // When there's a bundled replace, we can assert there's no thread summary.
         let event = Raw::new(&json!({
@@ -257,7 +262,7 @@ mod tests {
         .unwrap()
         .cast();
 
-        assert_matches!(extract_bundled_thread_summary(&event), ThreadSummaryStatus::None);
+        assert_matches!(extract_bundled_thread_summary(&event), (ThreadSummaryStatus::None, None));
 
         // When the bundled thread summary is malformed, we return
         // `ThreadSummaryStatus::Unknown`.
@@ -277,6 +282,9 @@ mod tests {
         .unwrap()
         .cast();
 
-        assert_matches!(extract_bundled_thread_summary(&event), ThreadSummaryStatus::Unknown);
+        assert_matches!(
+            extract_bundled_thread_summary(&event),
+            (ThreadSummaryStatus::Unknown, None)
+        );
     }
 }

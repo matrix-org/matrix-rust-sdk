@@ -129,7 +129,6 @@ impl super::Timeline {
                     }
                     RoomPaginationStatus::Paginating => {}
                 }
-
                 yield state;
             }
         });

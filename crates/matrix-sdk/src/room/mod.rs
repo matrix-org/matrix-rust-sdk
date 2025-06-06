@@ -610,8 +610,10 @@ impl Room {
             }
         }
 
-        let mut event = TimelineEvent::new(event.cast());
-        event.push_actions = push_ctx.map(|ctx| ctx.for_event(event.raw()));
+        let mut event = TimelineEvent::from_plaintext(event.cast());
+        if let Some(push_ctx) = push_ctx {
+            event.set_push_actions(push_ctx.for_event(event.raw()));
+        }
 
         event
     }
@@ -1499,22 +1501,23 @@ impl Room {
         let decryption_settings = DecryptionSettings {
             sender_device_trust_requirement: self.client.base_client().decryption_trust_requirement,
         };
-        let mut event: TimelineEvent = match machine
+
+        match machine
             .try_decrypt_room_event(event.cast_ref(), self.inner.room_id(), &decryption_settings)
             .await?
         {
-            RoomEventDecryptionResult::Decrypted(decrypted) => decrypted.into(),
+            RoomEventDecryptionResult::Decrypted(decrypted) => {
+                let push_actions = push_ctx.map(|push_ctx| push_ctx.for_event(&decrypted.event));
+                Ok(TimelineEvent::from_decrypted(decrypted, push_actions))
+            }
             RoomEventDecryptionResult::UnableToDecrypt(utd_info) => {
                 self.client
                     .encryption()
                     .backups()
                     .maybe_download_room_key(self.room_id().to_owned(), event.clone());
-                TimelineEvent::new_utd_event(event.clone().cast(), utd_info)
+                Ok(TimelineEvent::from_utd(event.clone().cast(), utd_info))
             }
-        };
-
-        event.push_actions = push_ctx.map(|ctx| ctx.for_event(event.raw()));
-        Ok(event)
+        }
     }
 
     /// Fetches the [`EncryptionInfo`] for the supplied session_id.
@@ -3308,28 +3311,45 @@ impl Room {
     /// It will configure the notify type: ring or notify based on:
     ///  - is this a DM room -> ring
     ///  - is this a group with more than one other member -> notify
-    pub async fn send_call_notification_if_needed(&self) -> Result<()> {
+    ///
+    /// Returns:
+    ///  - `Ok(true)` if the event was successfully sent.
+    ///  - `Ok(false)` if we didn't send it because it was unnecessary.
+    ///  - `Err(_)` if sending the event failed.
+    pub async fn send_call_notification_if_needed(&self) -> Result<bool> {
+        debug!("Sending call notification for room {} if needed", self.inner.room_id());
+
         if self.has_active_room_call() {
-            return Ok(());
+            warn!("Room {} has active room call, not sending a new notify event.", self.room_id());
+            return Ok(false);
         }
 
         if !self.can_user_trigger_room_notification(self.own_user_id()).await? {
-            return Ok(());
+            warn!(
+                "User can't send notifications to everyone in the room {}. \
+                Not sending a new notify event.",
+                self.room_id()
+            );
+            return Ok(false);
         }
+
+        let notify_type = if self.is_direct().await.unwrap_or(false) {
+            NotifyType::Ring
+        } else {
+            NotifyType::Notify
+        };
+
+        debug!("Sending `m.call.notify` event with notify type: {notify_type:?}");
 
         self.send_call_notification(
             self.room_id().to_string().to_owned(),
             ApplicationType::Call,
-            if self.is_direct().await.unwrap_or(false) {
-                NotifyType::Ring
-            } else {
-                NotifyType::Notify
-            },
+            notify_type,
             Mentions::with_room_mention(),
         )
         .await?;
 
-        Ok(())
+        Ok(true)
     }
 
     /// Get the beacon information event in the room for the `user_id`.

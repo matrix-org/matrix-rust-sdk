@@ -337,19 +337,17 @@ impl Decryptor for (matrix_sdk_base::crypto::OlmMachine, ruma::OwnedRoomId) {
         let decryption_settings =
             DecryptionSettings { sender_device_trust_requirement: TrustRequirement::Untrusted };
 
-        let mut timeline_event = match olm_machine
+        match olm_machine
             .try_decrypt_room_event(raw.cast_ref(), room_id, &decryption_settings)
             .await?
         {
-            RoomEventDecryptionResult::Decrypted(decrypted) => decrypted.into(),
-            RoomEventDecryptionResult::UnableToDecrypt(utd_info) => {
-                TimelineEvent::new_utd_event(raw.clone(), utd_info)
+            RoomEventDecryptionResult::Decrypted(decrypted) => {
+                let push_actions = push_ctx.map(|push_ctx| push_ctx.for_event(&decrypted.event));
+                Ok(TimelineEvent::from_decrypted(decrypted, push_actions))
             }
-        };
-
-        // Fill the push actions here, to mimic what `Room::decrypt_event` does.
-        timeline_event.push_actions = push_ctx.map(|ctx| ctx.for_event(timeline_event.raw()));
-
-        Ok(timeline_event)
+            RoomEventDecryptionResult::UnableToDecrypt(utd_info) => {
+                Ok(TimelineEvent::from_utd(raw.clone(), utd_info))
+            }
+        }
     }
 }

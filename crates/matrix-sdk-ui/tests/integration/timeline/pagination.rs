@@ -1191,21 +1191,18 @@ async fn test_from_an_empty_timeline_paginate_zero_event_and_then_sync_some_even
 
     // Receive 3 events.
     mock_server
-        .mock_sync()
-        .ok_and_run(&client, |sync_builder| {
-            sync_builder.add_joined_room({
-                let mut room = JoinedRoomBuilder::new(room_id);
+        .sync_room(&client, {
+            let mut room = JoinedRoomBuilder::new(room_id);
 
-                for nth in 0..3 {
-                    room = room.add_timeline_event(
-                        event_factory
-                            .text_msg("foo")
-                            .event_id(&EventId::parse(format!("$ev{nth}")).unwrap()),
-                    );
-                }
+            for nth in 0..3 {
+                room = room.add_timeline_event(
+                    event_factory
+                        .text_msg("foo")
+                        .event_id(&EventId::parse(format!("$ev{nth}")).unwrap()),
+                );
+            }
 
-                room
-            });
+            room
         })
         .await;
 
@@ -1229,4 +1226,63 @@ async fn test_from_an_empty_timeline_paginate_zero_event_and_then_sync_some_even
 
     // Nothing more!
     assert_pending!(timeline_stream);
+}
+
+#[async_test]
+async fn test_timeline_start_properly_inserted_when_created() {
+    let room_id = room_id!("!foo:bar.baz");
+
+    let mock_server = MatrixMockServer::new().await;
+    let client = mock_server.client_builder().build().await;
+
+    client.event_cache().subscribe().unwrap();
+
+    let room = mock_server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id).set_timeline_prev_batch("previous-batch"),
+        )
+        .await;
+
+    let timeline = room.timeline().await.unwrap();
+    let (initial_items, mut stream) = timeline.subscribe().await;
+
+    assert!(initial_items.is_empty());
+    assert_pending!(stream);
+
+    // Paginate to reach the timeline start.
+    {
+        let _network_pagination = mock_server
+            .mock_room_messages()
+            .match_from("previous-batch")
+            .ok(
+                // No previous batch token, the beginning of the timeline is reached.
+                // It returns zero event, we want an empty timeline.
+                RoomMessagesResponseTemplate::default(),
+            )
+            .mock_once()
+            .mount_as_scoped()
+            .await;
+
+        let hit_end_of_timeline = timeline.paginate_backwards(5).await.unwrap();
+
+        assert!(hit_end_of_timeline);
+
+        // The start of the timeline is inserted.
+        assert_timeline_stream! {
+            [stream]
+            prepend --- timeline start ---;
+        };
+        assert_pending!(stream);
+    }
+
+    // Create a new timeline while this one is alive (so that the room event cache
+    // doesn't unload the linked chunk), and make sure it contains the timeline
+    // start as soon as possible.
+    let timeline2 = room.timeline().await.unwrap();
+
+    let (items, mut stream2) = timeline2.subscribe().await;
+    assert_eq!(items.len(), 1);
+    assert!(items[0].is_timeline_start());
+    assert_pending!(stream2);
 }

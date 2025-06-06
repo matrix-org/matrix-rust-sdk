@@ -118,7 +118,8 @@ async fn decrypt_sync_room_event(
         .await?
     {
         RoomEventDecryptionResult::Decrypted(decrypted) => {
-            let event: TimelineEvent = decrypted.into();
+            // We're fine not setting the push actions for the latest event.
+            let event = TimelineEvent::from_decrypted(decrypted, None);
 
             if let Ok(sync_timeline_event) = event.raw().deserialize() {
                 verification::process_if_relevant(&sync_timeline_event, e2ee.clone(), room_id)
@@ -129,7 +130,7 @@ async fn decrypt_sync_room_event(
         }
 
         RoomEventDecryptionResult::UnableToDecrypt(utd_info) => {
-            TimelineEvent::new_utd_event(event.clone(), utd_info)
+            TimelineEvent::from_utd(event.clone(), utd_info)
         }
     };
 

@@ -11,6 +11,8 @@ All notable changes to this project will be documented in this file.
 - `Client::add_event_handler`: Set `Option<EncryptionInfo>` in `EventHandlerData` for to-device messages.
   If the to-device message was encrypted, the `EncryptionInfo` will be set. If it is `None` the message was sent in clear.
   ([#5099](https://github.com/matrix-org/matrix-rust-sdk/pull/5099))
+- `Client::send_call_notification_if_needed` now returns `Result<bool>` instead of `Result<()>` so we can check if
+  the event was sent.
 - Added `SendMediaUploadRequest` wrapper for `SendRequest`, which checks the size of the request to
   upload making sure it doesn't exceed the `m.upload.size` value that can be fetched through
   `Client::load_or_fetch_max_upload_size`.

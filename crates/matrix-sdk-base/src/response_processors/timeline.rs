@@ -61,7 +61,7 @@ pub async fn build<'notification, 'e2ee>(
     for raw_event in timeline_inputs.raw_events {
         // Start by assuming we have a plaintext event. We'll replace it with a
         // decrypted or UTD event below if necessary.
-        let mut timeline_event = TimelineEvent::new(raw_event);
+        let mut timeline_event = TimelineEvent::from_plaintext(raw_event);
 
         // Do some special stuff on the `timeline_event` before collecting it.
         match timeline_event.raw().deserialize() {
@@ -146,7 +146,7 @@ pub async fn build<'notification, 'e2ee>(
                         Action::should_notify,
                     );
 
-                    timeline_event.push_actions = Some(actions.to_owned());
+                    timeline_event.set_push_actions(actions.to_owned());
                 }
             }
             Err(error) => {
@@ -197,7 +197,7 @@ pub mod builder {
 ///
 /// Updates the context data from `context.state_changes` or `room_info`.
 fn update_push_room_context(
-    context: &mut Context,
+    context: &Context,
     push_rules: &mut PushConditionRoomCtx,
     user_id: &UserId,
     room_info: &RoomInfo,
@@ -235,7 +235,7 @@ fn update_push_room_context(
 /// Returns `None` if some data couldn't be found. This should only happen
 /// in brand new rooms, while we process its state.
 pub async fn get_push_room_context(
-    context: &mut Context,
+    context: &Context,
     room: &Room,
     room_info: &RoomInfo,
     state_store: &BaseStateStore,

@@ -441,7 +441,7 @@ impl Client {
 
             let raw_event = item.raw().json();
             let encryption_info = item.encryption_info().map(|i| &**i);
-            let push_actions = item.push_actions.as_deref().unwrap_or(&[]);
+            let push_actions = item.push_actions().unwrap_or(&[]);
 
             // Event handlers for possibly-redacted timeline events
             self.call_event_handlers(
