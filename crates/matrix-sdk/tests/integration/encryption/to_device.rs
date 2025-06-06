@@ -153,8 +153,7 @@ fn mock_send_encrypted_to_device_responder(
             "content": content,
         });
 
-        let mut lock = to_device.lock();
-        *lock = Some(event);
+        *to_device.lock() = Some(event);
 
         ResponseTemplate::new(200).set_body_json(&*test_json::EMPTY)
     }
@@ -194,12 +193,13 @@ async fn test_to_device_event_handler_olm_encryption_info() {
     .unwrap()
     .cast();
 
-    let captured_event: Arc<Mutex<Option<Value>>> = Arc::new(Mutex::new(None));
+    // Capture the event sent by Alice to feed it back to Bob's client later.
+    let event_as_sent_by_alice: Arc<Mutex<Option<Value>>> = Default::default();
     Mock::given(method("PUT"))
         .and(path_regex(r"^/_matrix/client/.*/sendToDevice/m.room.encrypted/.*"))
         .respond_with(mock_send_encrypted_to_device_responder(
             alice.user_id().unwrap().to_owned(),
-            captured_event.clone(),
+            event_as_sent_by_alice.clone(),
         ))
         // Should be called once
         .expect(1)
@@ -213,35 +213,30 @@ async fn test_to_device_event_handler_olm_encryption_info() {
         .await
         .unwrap();
 
-    let captured_processed_event: Arc<Mutex<Option<AnyToDeviceEvent>>> = Arc::new(Mutex::new(None));
-    let captured_info: Arc<Mutex<Option<EncryptionInfo>>> = Arc::new(Mutex::new(None));
+    let handled_event_info: Arc<Mutex<(Option<AnyToDeviceEvent>, Option<EncryptionInfo>)>> =
+        Default::default();
 
     bob.add_event_handler({
-        let captured = captured_processed_event.clone();
-        let captured_info = captured_info.clone();
+        let handled_event_info = handled_event_info.clone();
         move |ev: AnyToDeviceEvent, encryption_info: Option<EncryptionInfo>| {
-            let mut captured_lock = captured.lock();
-            *captured_lock = Some(ev);
-            let mut captured_info_lock = captured_info.lock();
-            *captured_info_lock = encryption_info;
+            *handled_event_info.lock() = (Some(ev), encryption_info);
             future::ready(())
         }
     });
 
     // feed back the event to Bob's client
-    let lock = captured_event.lock();
-    let event = lock.clone().unwrap();
+    let event_as_sent_by_alice = event_as_sent_by_alice.lock().clone().unwrap();
     server
         .mock_sync()
         .ok_and_run(&bob, |builder| {
-            builder.add_to_device_event(event);
+            builder.add_to_device_event(event_as_sent_by_alice);
         })
         .await;
 
-    let captured = captured_processed_event.lock().clone();
-    assert_eq!(captured.is_some(), true);
-    let info = captured_info.lock().clone();
-    assert_let!(Some(encryption_info) = info);
+    let (event, encryption_info) = handled_event_info.lock().clone();
+    assert_let!(Some(event) = event);
+    assert_eq!(event.event_type().to_string(), "call.keys");
+    assert_let!(Some(encryption_info) = encryption_info);
     assert_matches!(encryption_info.algorithm_info, AlgorithmInfo::OlmV1Curve25519AesSha2 { .. });
 }
 
