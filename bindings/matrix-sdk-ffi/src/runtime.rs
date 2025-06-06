@@ -19,7 +19,7 @@
 
 #[cfg(not(target_family = "wasm"))]
 mod sys {
-    pub use tokio::runtime::{Handle, Runtime};
+    pub use tokio::runtime::Handle;
 
     /// Get a runtime handle appropriate for the current target platform.
     ///

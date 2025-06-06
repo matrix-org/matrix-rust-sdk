@@ -78,7 +78,6 @@ jobs:
           CARGO_PROFILE_COV_DEBUG: 1
           HOMESERVER_URL: "http://localhost:8008"
           HOMESERVER_DOMAIN: "synapse"
-          SLIDING_SYNC_PROXY_URL: "http://localhost:8118"
 
       # Copied with minimal adjustments, source:
       # https://github.com/google/mdbook-i18n-helpers/blob/2168b9cea1f4f76b55426591a9bcc308a620194f/.github/workflows/test.yml

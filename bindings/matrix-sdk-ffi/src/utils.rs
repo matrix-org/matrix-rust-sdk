@@ -14,9 +14,10 @@
 
 use std::{mem::ManuallyDrop, ops::Deref};
 
-use matrix_sdk_common::runtime::get_runtime_handle;
 use ruma::{MilliSecondsSinceUnixEpoch, UInt};
 use tracing::warn;
+
+use crate::runtime::get_runtime_handle;
 
 #[derive(Debug, Clone)]
 pub struct Timestamp(u64);

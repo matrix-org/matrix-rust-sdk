@@ -10,11 +10,13 @@ use matrix_sdk::{
     ruma::events::key::verification::VerificationMethod,
     Account,
 };
-use matrix_sdk_common::{runtime::get_runtime_handle, SendOutsideWasm, SyncOutsideWasm};
+use matrix_sdk_common::{SendOutsideWasm, SyncOutsideWasm};
 use ruma::UserId;
 use tracing::{error, warn};
 
-use crate::{client::UserProfile, error::ClientError, utils::Timestamp};
+use crate::{
+    client::UserProfile, error::ClientError, runtime::get_runtime_handle, utils::Timestamp,
+};
 
 #[derive(uniffi::Object)]
 pub struct SessionVerificationEmoji {

@@ -37,12 +37,11 @@ use matrix_sdk::{
     },
     sliding_sync::Version as SdkSlidingSyncVersion,
     store::RoomLoadSettings as SdkRoomLoadSettings,
+    sync::RoomUpdate,
     AuthApi, AuthSession, Client as MatrixClient, SessionChange, SessionTokens,
     STATE_STORE_DATABASE_NAME,
 };
-use matrix_sdk_common::{
-    runtime::get_runtime_handle, stream::StreamExt, SendOutsideWasm, SyncOutsideWasm,
-};
+use matrix_sdk_common::{stream::StreamExt, SendOutsideWasm, SyncOutsideWasm};
 use matrix_sdk_ui::{
     notification_client::{
         NotificationClient as MatrixNotificationClient,
@@ -93,13 +92,15 @@ use crate::{
     encryption::Encryption,
     notification::NotificationClient,
     notification_settings::NotificationSettings,
-    room::RoomHistoryVisibility,
+    room::{RoomHistoryVisibility, RoomInfoListener},
     room_directory_search::RoomDirectorySearch,
+    room_info::RoomInfo,
     room_preview::RoomPreview,
     ruma::{
         AccountDataEvent, AccountDataEventType, AuthData, InviteAvatars, MediaPreviewConfig,
         MediaPreviews, MediaSource, RoomAccountDataEvent, RoomAccountDataEventType,
     },
+    runtime::get_runtime_handle,
     sync_service::{SyncService, SyncServiceBuilder},
     task_handle::TaskHandle,
     utd::{UnableToDecryptDelegate, UtdHook},
@@ -1560,6 +1561,47 @@ impl Client {
     pub async fn get_max_media_upload_size(&self) -> Result<u64, ClientError> {
         let max_upload_size = self.inner.load_or_fetch_max_upload_size().await?;
         Ok(max_upload_size.into())
+    }
+
+    /// Subscribe to [`RoomInfo`] updates given a provided [`RoomId`].
+    ///
+    /// This works even for rooms we haven't received yet, so we can subscribe
+    /// to this and wait until we receive updates from them when sync responses
+    /// are processed.
+    ///
+    /// Note this method should be used sparingly since using callback
+    /// interfaces is expensive, as well as keeping them alive for a long
+    /// time. Usages of this method should be short-lived and dropped as
+    /// soon as possible.
+    pub async fn subscribe_to_room_info(
+        &self,
+        room_id: String,
+        listener: Box<dyn RoomInfoListener>,
+    ) -> Result<Arc<TaskHandle>, ClientError> {
+        let room_id = RoomId::parse(room_id)?;
+        let receiver = self.inner.subscribe_to_room_updates(&room_id);
+
+        // Emit the initial event, if present
+        if let Some(room) = self.inner.get_room(&room_id) {
+            if let Ok(room_info) = RoomInfo::new(&room).await {
+                listener.call(room_info);
+            }
+        }
+
+        Ok(Arc::new(TaskHandle::new(get_runtime_handle().spawn(async move {
+            pin_mut!(receiver);
+            while let Ok(room_update) = receiver.recv().await {
+                let room = match room_update {
+                    RoomUpdate::Invited { room, .. } => room,
+                    RoomUpdate::Joined { room, .. } => room,
+                    RoomUpdate::Knocked { room, .. } => room,
+                    RoomUpdate::Left { room, .. } => room,
+                };
+                if let Ok(room_info) = RoomInfo::new(&room).await {
+                    listener.call(room_info);
+                }
+            }
+        }))))
     }
 }
 

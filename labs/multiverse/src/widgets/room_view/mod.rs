@@ -48,6 +48,8 @@ pub struct RoomView {
 
     mode: Mode,
 
+    timeline_list: ListState,
+
     input: Input,
 }
 
@@ -61,6 +63,7 @@ impl RoomView {
             current_pagination: Default::default(),
             mode: Mode::Normal { invited_room_view: None },
             input: Input::new(),
+            timeline_list: ListState::default(),
         }
     }
 
@@ -124,6 +127,14 @@ impl RoomView {
                                 }
                             }
                         }
+
+                        (_, Down) | (KeyModifiers::CONTROL, Char('n')) => {
+                            self.timeline_list.select_next()
+                        }
+                        (_, Up) | (KeyModifiers::CONTROL, Char('p')) => {
+                            self.timeline_list.select_previous()
+                        }
+                        (_, Esc) => self.timeline_list.select(None),
 
                         _ => self.input.handle_key_press(key),
                     }
@@ -197,6 +208,7 @@ impl RoomView {
             }
         }
 
+        self.timeline_list = ListState::default();
         self.selected_room = room;
     }
 
@@ -458,7 +470,7 @@ impl Widget for &mut RoomView {
                     let items = items.lock();
                     let mut timeline = TimelineView::new(items.deref());
 
-                    timeline.render(timeline_area, buf);
+                    timeline.render(timeline_area, buf, &mut self.timeline_list);
                 }
             }
         } else {
