@@ -640,7 +640,14 @@ impl Widget for &mut RoomView {
                     let [timeline_area, details_area] = vertical.areas(middle_area);
                     Clear.render(details_area, buf);
 
-                    view.render(details_area, buf, &mut maybe_room);
+                    let items =
+                        self.timelines.lock().get(room_id).map(|timeline| timeline.items.clone());
+                    if let Some(items) = items {
+                        let items = items.lock();
+                        view.render(details_area, buf, &mut (maybe_room, Some(items.deref())));
+                    } else {
+                        view.render(details_area, buf, &mut (maybe_room, None));
+                    }
 
                     Some(timeline_area)
                 }
