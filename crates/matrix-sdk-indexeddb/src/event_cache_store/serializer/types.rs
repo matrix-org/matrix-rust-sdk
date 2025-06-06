@@ -22,7 +22,7 @@
 //! allows the data to be encrypted, while still allowing for efficient querying
 //! and retrieval of data.
 //!
-//! Each type top-level type represents an object store in IndexedDB and each
+//! Each top-level type represents an object store in IndexedDB and each
 //! field - except the content field - represents an index on that object store.
 //! These types mimic the structure of the object stores and indices created in
 //! [`crate::event_cache_store::migrations`].
@@ -45,7 +45,7 @@ pub struct IndexedChunk {
     pub content: IndexedChunkContent,
 }
 
-/// The value associated with the [primary key]([`IndexedChunk::id`]) of the
+/// The value associated with the [primary key](IndexedChunk::id) of the
 /// [`LINKED_CHUNKS`][1] object store, which is constructed from:
 ///
 /// - The (possibly) encrypted Room ID
@@ -76,7 +76,7 @@ pub struct IndexedEvent {
     pub content: IndexedEventContent,
 }
 
-/// The value associated with the [primary key]([`IndexedEvent::id`]) of the
+/// The value associated with the [primary key](IndexedEvent::id) of the
 /// [`EVENTS`][1] object store, which is constructed from:
 ///
 /// - The (possibly) encrypted Room ID
