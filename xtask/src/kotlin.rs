@@ -1,11 +1,12 @@
 use std::fs::create_dir_all;
 
 use camino::{Utf8Path, Utf8PathBuf};
+use cargo_metadata::MetadataCommand;
 use clap::{Args, Subcommand, ValueEnum};
 use uniffi_bindgen::{bindings::KotlinBindingGenerator, library_mode::generate_bindings};
 use xshell::cmd;
 
-use crate::{sh, workspace, Result};
+use crate::{config_supplier::CrateConfigSupplier, sh, workspace, Result};
 
 struct PackageValues {
     name: &'static str,
@@ -121,7 +122,24 @@ fn build_android_library(
 fn generate_uniffi_bindings(library_path: &Utf8Path, ffi_generated_dir: &Utf8Path) -> Result<()> {
     println!("-- library_path = {library_path}");
 
-    generate_bindings(library_path, None, &KotlinBindingGenerator, None, ffi_generated_dir, false)?;
+    let manifest_path = std::env::current_dir()?.join("Cargo.toml");
+    println!("manifest path {:?}", manifest_path);
+
+    // Get metadata using cargo_metadata
+    let metadata = MetadataCommand::new().manifest_path(&manifest_path).exec()?;
+
+    // Convert the Metadata into a CrateConfigSupplier using From
+    let config_supplier = CrateConfigSupplier::from(metadata);
+
+    generate_bindings(
+        library_path,
+        None,
+        &KotlinBindingGenerator,
+        &config_supplier,
+        None,
+        ffi_generated_dir,
+        false,
+    )?;
     Ok(())
 }
 

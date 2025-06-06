@@ -13,10 +13,13 @@ name = "xtask"
 test = false
 
 [dependencies]
+anyhow = "1.0.96"
 camino = "1.0.8"
+cargo_metadata = "0.19.2"
 clap = { version = "4.0.18", features = ["derive"] }
 fs_extra = "1"
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
+toml = "0.5.11"
 uniffi_bindgen.workspace = true
 xshell = "0.2.2"
