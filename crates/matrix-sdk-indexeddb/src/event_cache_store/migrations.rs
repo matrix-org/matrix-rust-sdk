@@ -16,20 +16,24 @@ use indexed_db_futures::{
     idb_object_store::IdbObjectStoreParameters, request::IdbOpenDbRequestLike, IdbDatabase,
     IdbVersionChangeEvent,
 };
+use thiserror::Error;
 use wasm_bindgen::JsValue;
 use web_sys::{DomException, IdbIndexParameters};
 
-const CURRENT_DB_VERSION: u32 = v1::VERSION;
+const CURRENT_DB_VERSION: Version = Version::V1;
 
+/// Opens a connection to the IndexedDB database and takes care of upgrading it
+/// if necessary.
 #[allow(unused)]
 pub async fn open_and_upgrade_db(name: &str) -> Result<IdbDatabase, DomException> {
-    let mut request = IdbDatabase::open_u32(name, CURRENT_DB_VERSION)?;
+    let mut request = IdbDatabase::open_u32(name, CURRENT_DB_VERSION as u32)?;
     request.set_on_upgrade_needed(Some(|event: &IdbVersionChangeEvent| -> Result<(), JsValue> {
-        let mut version = event.old_version() as u32;
+        let mut version =
+            Version::try_from(event.old_version() as u32).map_err(DomException::from)?;
         while version < CURRENT_DB_VERSION {
-            version = match version {
-                v0::VERSION => v0::upgrade(event.db())?,
-                _ => CURRENT_DB_VERSION, /* No more upgrades to apply, jump forward! */
+            version = match version.upgrade(event.db())? {
+                Some(next) => next,
+                None => CURRENT_DB_VERSION, /* No more upgrades to apply, jump forward! */
             };
         }
         Ok(())
@@ -37,22 +41,65 @@ pub async fn open_and_upgrade_db(name: &str) -> Result<IdbDatabase, DomException
     request.await
 }
 
+/// Represents the version of the IndexedDB database.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[repr(u32)]
+pub enum Version {
+    /// Version 0 of the database, for details see [`v0`]
+    V0 = 0,
+    /// Version 1 of the database, for details see [`v1`]
+    V1 = 1,
+}
+
+impl Version {
+    /// Upgrade the database to the next version, if one exists.
+    pub fn upgrade(self, db: &IdbDatabase) -> Result<Option<Self>, DomException> {
+        match self {
+            Self::V0 => v0::upgrade(db).map(Some),
+            Self::V1 => Ok(None),
+        }
+    }
+}
+
+#[derive(Debug, Error)]
+#[error("unknown version: {0}")]
+pub struct UnknownVersionError(u32);
+
+impl TryFrom<u32> for Version {
+    type Error = UnknownVersionError;
+
+    fn try_from(value: u32) -> Result<Self, Self::Error> {
+        match value {
+            0 => Ok(Version::V0),
+            1 => Ok(Version::V1),
+            v => Err(UnknownVersionError(v)),
+        }
+    }
+}
+
+impl From<UnknownVersionError> for DomException {
+    fn from(value: UnknownVersionError) -> Self {
+        let message = format!("unknown version: {}", value.0);
+        let name = "UnknownVersionError";
+        match DomException::new_with_message_and_name(&message, name) {
+            Ok(inner) => inner,
+            Err(err) => err.into(),
+        }
+    }
+}
+
 pub mod v0 {
     use super::*;
 
-    pub const VERSION: u32 = 0;
-
     /// Upgrade database from `v0` to `v1`
-    pub fn upgrade(db: &IdbDatabase) -> Result<u32, DomException> {
+    pub fn upgrade(db: &IdbDatabase) -> Result<Version, DomException> {
         v1::create_object_stores(db)?;
-        Ok(v1::VERSION)
+        Ok(Version::V1)
     }
 }
 
 pub mod v1 {
     use super::*;
-
-    pub const VERSION: u32 = 1;
 
     pub mod keys {
         pub const CORE: &str = "core";
