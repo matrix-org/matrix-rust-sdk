@@ -15,7 +15,7 @@
 use assert_matches2::{assert_let, assert_matches};
 use insta::assert_json_snapshot;
 use matrix_sdk_common::deserialized_responses::{
-    AlgorithmInfo, VerificationLevel, VerificationState,
+    AlgorithmInfo, ProcessedToDeviceEvent, VerificationLevel, VerificationState,
 };
 use matrix_sdk_test::async_test;
 use ruma::{events::AnyToDeviceEvent, serde::Raw, to_device::DeviceIdOrAllDevices};
@@ -33,7 +33,6 @@ use crate::{
     types::{
         events::{ToDeviceCustomEvent, ToDeviceEvent},
         requests::ToDeviceRequest,
-        ProcessedToDeviceEvent,
     },
     utilities::json_convert,
     verification::tests::bob_id,

@@ -56,6 +56,7 @@ use matrix_sdk_base::{
     deserialized_responses::{EncryptionInfo, TimelineEvent},
     SendOutsideWasm, SyncOutsideWasm,
 };
+use matrix_sdk_common::deserialized_responses::ProcessedToDeviceEvent;
 use pin_project_lite::pin_project;
 use ruma::{events::AnySyncStateEvent, push::Action, serde::Raw, OwnedRoomId};
 use serde::{de::DeserializeOwned, Deserialize};
@@ -350,6 +351,38 @@ impl Client {
         for raw_event in events {
             let event_type = raw_event.deserialize_as::<ExtractType<'_>>()?.event_type;
             self.call_event_handlers(room, raw_event.json(), kind, &event_type, None, &[]).await;
+        }
+
+        Ok(())
+    }
+
+    pub(crate) async fn handle_sync_to_device_events(
+        &self,
+        events: &[ProcessedToDeviceEvent],
+    ) -> serde_json::Result<()> {
+        #[derive(Deserialize)]
+        struct ExtractType<'a> {
+            #[serde(borrow, rename = "type")]
+            event_type: Cow<'a, str>,
+        }
+
+        for processed_to_device in events {
+            let (raw_event, encryption_info) = match processed_to_device {
+                ProcessedToDeviceEvent::Decrypted { raw, encryption_info } => {
+                    (raw, Some(encryption_info))
+                }
+                other => (&other.to_raw(), None),
+            };
+            let event_type = raw_event.deserialize_as::<ExtractType<'_>>()?.event_type;
+            self.call_event_handlers(
+                None,
+                raw_event.json(),
+                HandlerKind::ToDevice,
+                &event_type,
+                encryption_info,
+                &[],
+            )
+            .await;
         }
 
         Ok(())
@@ -693,6 +726,8 @@ mod tests {
         },
     };
 
+    use assert_matches2::assert_let;
+    use matrix_sdk_common::{deserialized_responses::EncryptionInfo, locks::Mutex};
     use matrix_sdk_test::{StateTestEvent, StrippedStateTestEvent, SyncResponseBuilder};
     use once_cell::sync::Lazy;
     use ruma::{
@@ -704,7 +739,7 @@ mod tests {
                 power_levels::OriginalSyncRoomPowerLevelsEvent,
             },
             typing::SyncTypingEvent,
-            AnySyncStateEvent, AnySyncTimelineEvent,
+            AnySyncStateEvent, AnySyncTimelineEvent, AnyToDeviceEvent,
         },
         room_id,
         serde::Raw,
@@ -818,6 +853,45 @@ mod tests {
         assert_eq!(power_levels_count.load(SeqCst), 1);
         assert_eq!(invited_member_count.load(SeqCst), 1);
 
+        Ok(())
+    }
+
+    #[async_test]
+    #[allow(dependency_on_unit_never_type_fallback)]
+    async fn test_add_to_device_event_handler() -> crate::Result<()> {
+        let client = logged_in_client(None).await;
+
+        let captured_event: Arc<Mutex<Option<AnyToDeviceEvent>>> = Arc::new(Mutex::new(None));
+        let captured_info: Arc<Mutex<Option<EncryptionInfo>>> = Arc::new(Mutex::new(None));
+
+        client.add_event_handler({
+            let captured = captured_event.clone();
+            let captured_info = captured_info.clone();
+            move |ev: AnyToDeviceEvent, encryption_info: Option<EncryptionInfo>| {
+                let mut captured_lock = captured.lock();
+                *captured_lock = Some(ev);
+                let mut captured_info_lock = captured_info.lock();
+                *captured_info_lock = encryption_info;
+                future::ready(())
+            }
+        });
+
+        let response = SyncResponseBuilder::default()
+            .add_to_device_event(json!({
+              "sender": "@alice:example.com",
+              "type": "m.custom.to.device.type",
+              "content": {
+                "a": "test",
+              }
+            }))
+            .build_sync_response();
+        client.process_sync(response).await?;
+
+        let captured = captured_event.lock().clone();
+        assert_let!(Some(received_event) = captured);
+        assert_eq!(received_event.event_type().to_string(), "m.custom.to.device.type");
+        let info = captured_info.lock().clone();
+        assert!(info.is_none());
         Ok(())
     }
 

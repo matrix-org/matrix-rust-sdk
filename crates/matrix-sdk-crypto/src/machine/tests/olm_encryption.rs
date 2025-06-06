@@ -18,6 +18,7 @@ use std::{
 };
 
 use assert_matches2::assert_let;
+use matrix_sdk_common::deserialized_responses::ProcessedToDeviceEvent;
 use matrix_sdk_test::async_test;
 use ruma::{
     device_id,
@@ -38,7 +39,7 @@ use crate::{
     },
     olm::utility::SignJson,
     store::Changes,
-    types::{events::ToDeviceEvent, DeviceKeys, ProcessedToDeviceEvent},
+    types::{events::ToDeviceEvent, DeviceKeys},
     DeviceData, OlmMachine,
 };
 

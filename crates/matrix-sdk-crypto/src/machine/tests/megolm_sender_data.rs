@@ -17,6 +17,7 @@ use std::{fmt::Debug, iter, pin::Pin};
 use assert_matches::assert_matches;
 use futures_core::Stream;
 use futures_util::{FutureExt, StreamExt};
+use matrix_sdk_common::deserialized_responses::ProcessedToDeviceEvent;
 use matrix_sdk_test::async_test;
 use ruma::{room_id, user_id, RoomId, TransactionId, UserId};
 use serde::Serialize;
@@ -33,10 +34,7 @@ use crate::{
     },
     olm::{InboundGroupSession, SenderData},
     store::RoomKeyInfo,
-    types::{
-        events::{room::encrypted::ToDeviceEncryptedEventContent, EventType, ToDeviceEvent},
-        ProcessedToDeviceEvent,
-    },
+    types::events::{room::encrypted::ToDeviceEncryptedEventContent, EventType, ToDeviceEvent},
     DeviceData, EncryptionSettings, EncryptionSyncChanges, OlmMachine, Session,
 };
 

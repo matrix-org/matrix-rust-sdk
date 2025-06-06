@@ -1,4 +1,5 @@
 use anyhow::Result;
+use assert_matches2::assert_let;
 use assign::assign;
 use matrix_sdk::{
     assert_decrypted_message_eq,
@@ -8,6 +9,7 @@ use matrix_sdk::{
         events::room::message::RoomMessageEventContent,
     },
 };
+use matrix_sdk_common::deserialized_responses::ProcessedToDeviceEvent;
 use matrix_sdk_ui::sync_service::SyncService;
 use similar_asserts::assert_eq;
 use tracing::{info, Instrument};
@@ -78,8 +80,9 @@ async fn test_history_share_on_invite() -> Result<()> {
     // Bob should have received a to-device event with the payload
     assert_eq!(bob_response.to_device.len(), 1);
     let to_device_event = &bob_response.to_device[0];
+    assert_let!(ProcessedToDeviceEvent::Decrypted { raw, .. } = to_device_event);
     assert_eq!(
-        to_device_event.get_field::<String>("type").unwrap().unwrap(),
+        raw.get_field::<String>("type").unwrap().unwrap(),
         "io.element.msc4268.room_key_bundle"
     );
 
