@@ -37,7 +37,6 @@ use matrix_sdk::{
     },
     sliding_sync::Version as SdkSlidingSyncVersion,
     store::RoomLoadSettings as SdkRoomLoadSettings,
-    sync::RoomUpdate,
     AuthApi, AuthSession, Client as MatrixClient, SessionChange, SessionTokens,
     STATE_STORE_DATABASE_NAME,
 };
@@ -1579,7 +1578,6 @@ impl Client {
         listener: Box<dyn RoomInfoListener>,
     ) -> Result<Arc<TaskHandle>, ClientError> {
         let room_id = RoomId::parse(room_id)?;
-        let receiver = self.inner.subscribe_to_room_updates(&room_id);
 
         // Emit the initial event, if present
         if let Some(room) = self.inner.get_room(&room_id) {
@@ -1588,17 +1586,20 @@ impl Client {
             }
         }
 
-        Ok(Arc::new(TaskHandle::new(get_runtime_handle().spawn(async move {
-            pin_mut!(receiver);
-            while let Ok(room_update) = receiver.recv().await {
-                let room = match room_update {
-                    RoomUpdate::Invited { room, .. } => room,
-                    RoomUpdate::Joined { room, .. } => room,
-                    RoomUpdate::Knocked { room, .. } => room,
-                    RoomUpdate::Left { room, .. } => room,
-                };
-                if let Ok(room_info) = RoomInfo::new(&room).await {
-                    listener.call(room_info);
+        Ok(Arc::new(TaskHandle::new(get_runtime_handle().spawn({
+            let client = self.inner.clone();
+            let mut receiver = client.room_info_notable_update_receiver();
+            async move {
+                while let Ok(room_update) = receiver.recv().await {
+                    if room_update.room_id != room_id {
+                        continue;
+                    }
+
+                    if let Some(room) = client.get_room(&room_id) {
+                        if let Ok(room_info) = RoomInfo::new(&room).await {
+                            listener.call(room_info);
+                        }
+                    }
                 }
             }
         }))))
