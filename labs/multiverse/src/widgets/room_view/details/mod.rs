@@ -1,5 +1,9 @@
+use std::sync::Arc;
+
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind};
+use imbl::Vector;
 use matrix_sdk::Room;
+use matrix_sdk_ui::timeline::TimelineItem;
 use ratatui::{prelude::*, widgets::*};
 use strum::{Display, EnumIter, FromRepr, IntoEnumIterator};
 use style::palette::tailwind;
@@ -76,18 +80,20 @@ impl SelectedTab {
 }
 
 impl<'a> StatefulWidget for &'a SelectedTab {
-    type State = Option<&'a Room>;
+    type State = (Option<&'a Room>, Option<&'a Vector<Arc<TimelineItem>>>);
 
-    fn render(self, area: Rect, buf: &mut Buffer, room: &mut Self::State)
+    fn render(self, area: Rect, buf: &mut Buffer, state: &mut Self::State)
     where
         Self: Sized,
     {
+        let (room, items) = state;
+
         match self {
             SelectedTab::Events => {
                 EventsView::new(room.as_deref()).render(area, buf);
             }
             SelectedTab::ReadReceipts => {
-                ReadReceipts::new(room.as_deref()).render(area, buf);
+                ReadReceipts::new(room.as_deref(), items.as_deref()).render(area, buf);
             }
             SelectedTab::LinkedChunks => LinkedChunkView::new(room.as_deref()).render(area, buf),
         }
@@ -170,7 +176,7 @@ impl RoomDetails {
 }
 
 impl<'a> StatefulWidget for &'a mut RoomDetails {
-    type State = Option<&'a Room>;
+    type State = (Option<&'a Room>, Option<&'a Vector<Arc<TimelineItem>>>);
 
     fn render(self, area: Rect, buf: &mut Buffer, state: &mut Self::State)
     where
