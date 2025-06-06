@@ -110,7 +110,7 @@ features = [
     "e2e-encryption",
     "experimental-widgets", 
     "markdown",
-    "rustls-tls",
+    "native-tls",
     "socks",
     "indexeddb",
     "uniffi",
