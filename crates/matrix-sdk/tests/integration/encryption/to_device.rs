@@ -150,8 +150,7 @@ fn mock_send_encrypted_to_device_responder(
             "content": content,
         });
 
-        let mut lock = to_device.lock();
-        *lock = Some(event);
+        *to_device.lock() = Some(event);
 
         ResponseTemplate::new(200).set_body_json(&*test_json::EMPTY)
     }
