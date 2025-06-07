@@ -123,7 +123,7 @@ impl TestTimelineBuilder {
     fn build(self) -> TestTimeline {
         let mut controller = TimelineController::new(
             self.provider.unwrap_or_default(),
-            TimelineFocus::Live,
+            TimelineFocus::Live { hide_threaded_events: false },
             self.internal_id_prefix,
             self.utd_hook,
             self.is_room_encrypted,

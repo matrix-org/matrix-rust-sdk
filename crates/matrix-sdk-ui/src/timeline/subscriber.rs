@@ -249,7 +249,7 @@ pub mod skip {
         /// Update the skip count if and only if the timeline has a live focus
         /// ([`TimelineFocusKind::Live`]).
         pub fn update(&self, count: usize, focus_kind: &TimelineFocusKind) {
-            if matches!(focus_kind, TimelineFocusKind::Live) {
+            if matches!(focus_kind, TimelineFocusKind::Live { .. }) {
                 self.count.set_if_not_eq(count);
             }
         }

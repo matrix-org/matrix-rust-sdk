@@ -206,10 +206,10 @@ impl<'a> TimelineStateTransaction<'a> {
             event.raw(),
             room_data_provider,
             None,
+            &self.meta,
             None,
             None,
-            &self.items,
-            &mut self.meta,
+            None,
         )
         .await
         {
@@ -393,6 +393,7 @@ impl<'a> TimelineStateTransaction<'a> {
         room_data_provider: &P,
         settings: &TimelineSettings,
         event: &AnySyncTimelineEvent,
+        thread_root: &Option<OwnedEventId>,
         position: TimelineItemPosition,
     ) -> bool {
         let room_version = room_data_provider.room_version();
@@ -401,13 +402,17 @@ impl<'a> TimelineStateTransaction<'a> {
             return false;
         }
 
-        match self.timeline_focus {
+        match &self.timeline_focus {
             TimelineFocusKind::PinnedEvents => {
                 // Only add pinned events for the pinned events timeline.
                 room_data_provider.is_pinned_event(event.event_id())
             }
 
-            TimelineFocusKind::Event => {
+            TimelineFocusKind::Event { hide_threaded_events } => {
+                if thread_root.is_some() && *hide_threaded_events {
+                    return false;
+                }
+
                 // Retrieve the origin of the event.
                 let origin = match position {
                     TimelineItemPosition::End { origin }
@@ -428,17 +433,13 @@ impl<'a> TimelineStateTransaction<'a> {
                 }
             }
 
-            TimelineFocusKind::Live => {
-                // The live timeline doesn't apply any additional
-                // filtering: the event *should* be added!
-                true
+            TimelineFocusKind::Live { hide_threaded_events } => {
+                thread_root.is_none() || thread_root.is_some() && !hide_threaded_events
             }
 
-            TimelineFocusKind::Thread => {
-                // The thread timeline doesn't apply any additional
-                // for now. It will however do so in the future, as
-                // will the live one
-                true
+            TimelineFocusKind::Thread { root_event_id } => {
+                event.event_id() == root_event_id
+                    || thread_root.as_ref().is_some_and(|r| r == root_event_id)
             }
         }
     }
@@ -561,19 +562,14 @@ impl<'a> TimelineStateTransaction<'a> {
             })
             .ok()?;
 
-        EmbeddedEvent::try_from_timeline_event(
-            event,
-            room_data_provider,
-            &self.items,
-            &mut self.meta,
-        )
-        .await
-        .inspect_err(|err| {
-            warn!("Failed to extract thread latest event into a timeline item content: {err}");
-        })
-        .ok()
-        .flatten()
-        .map(Box::new)
+        EmbeddedEvent::try_from_timeline_event(event, room_data_provider, &self.meta)
+            .await
+            .inspect_err(|err| {
+                warn!("Failed to extract thread latest event into a timeline item content: {err}");
+            })
+            .ok()
+            .flatten()
+            .map(Box::new)
     }
 
     /// Handle a remote event.
@@ -620,8 +616,20 @@ impl<'a> TimelineStateTransaction<'a> {
         {
             // Classical path: the event is valid, can be deserialized, everything is alright.
             Ok(event) => {
-                let should_add =
-                    self.should_add_event_item(room_data_provider, settings, &event, position);
+                let (in_reply_to, thread_root) = self.meta.process_event_relations(
+                    event.clone(),
+                    &raw,
+                    bundled_edit_encryption_info,
+                    &self.items,
+                );
+
+                let should_add = self.should_add_event_item(
+                    room_data_provider,
+                    settings,
+                    &event,
+                    &thread_root,
+                    position,
+                );
                 (
                     event.event_id().to_owned(),
                     event.sender().to_owned(),
@@ -631,11 +639,11 @@ impl<'a> TimelineStateTransaction<'a> {
                         event,
                         &raw,
                         room_data_provider,
-                        thread_summary,
                         utd_info,
-                        bundled_edit_encryption_info,
-                        &self.items,
-                        &mut self.meta,
+                        &self.meta,
+                        in_reply_to,
+                        thread_root,
+                        thread_summary,
                     )
                     .await,
                     should_add,

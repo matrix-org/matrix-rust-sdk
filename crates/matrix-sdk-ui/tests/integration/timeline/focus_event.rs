@@ -74,6 +74,7 @@ async fn test_new_focused() {
         .with_focus(TimelineFocus::Event {
             target: target_event.to_owned(),
             num_context_events: 20,
+            hide_threaded_events: false,
         })
         .build()
         .await
@@ -222,6 +223,7 @@ async fn test_live_aggregations_are_reflected_on_focused_timelines() {
         .with_focus(TimelineFocus::Event {
             target: target_event.to_owned(),
             num_context_events: 20,
+            hide_threaded_events: false,
         })
         .build()
         .await
@@ -304,6 +306,7 @@ async fn test_focused_timeline_local_echoes() {
         .with_focus(TimelineFocus::Event {
             target: target_event.to_owned(),
             num_context_events: 20,
+            hide_threaded_events: false,
         })
         .build()
         .await
@@ -383,6 +386,7 @@ async fn test_focused_timeline_doesnt_show_local_echoes() {
         .with_focus(TimelineFocus::Event {
             target: target_event.to_owned(),
             num_context_events: 20,
+            hide_threaded_events: false,
         })
         .build()
         .await
