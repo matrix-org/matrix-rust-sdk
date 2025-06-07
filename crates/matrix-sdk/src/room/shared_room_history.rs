@@ -160,7 +160,7 @@ pub(super) async fn maybe_accept_key_bundle(room: &Room, inviter: &UserId) -> Re
                 .await?;
         }
         Err(err) => {
-            warn!("Failed to deserialize room key bundle: {}", err);
+            warn!("Failed to deserialize room key bundle: {err}");
         }
     }
 

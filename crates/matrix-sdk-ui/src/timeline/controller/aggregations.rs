@@ -658,7 +658,7 @@ fn edit_item(item: &mut Cow<'_, EventTimelineItem>, edit: PendingEdit) -> bool {
     }
 
     let TimelineItemContent::MsgLike(content) = item.content() else {
-        info!("Edit of message event applies to {:?}, discarding", item.content().debug_string(),);
+        info!("Edit of message event applies to {:?}, discarding", item.content().debug_string());
         return false;
     };
 

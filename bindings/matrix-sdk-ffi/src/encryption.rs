@@ -440,7 +440,7 @@ impl Encryption {
                 info!("No identity found in the store.");
             }
             Err(error) => {
-                error!("Failed fetching identity from the store: {}", error);
+                error!("Failed fetching identity from the store: {error}");
             }
         };
 

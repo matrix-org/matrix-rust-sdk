@@ -429,7 +429,11 @@ impl OtherUserIdentity {
 
     /// Remove the requirement for this identity to be verified.
     pub async fn withdraw_verification(&self) -> Result<(), CryptoStoreError> {
-        info!(master_key = ?self.master_key.get_first_key(), "Withdrawing verification status and pinning current identity for user '{}'", self.user_id());
+        info!(
+            master_key = ?self.master_key.get_first_key(),
+            user = ?self.user_id(),
+            "Withdrawing verification status and pinning current identity"
+        );
         self.inner.withdraw_verification();
         let to_save = UserIdentityData::Other(self.inner.clone());
         let changes = Changes {

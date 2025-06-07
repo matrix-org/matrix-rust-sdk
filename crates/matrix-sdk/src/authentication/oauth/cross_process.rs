@@ -100,12 +100,7 @@ impl CrossProcessRefreshManager {
             (Some(db), Some(known)) => db != known,
         };
 
-        trace!(
-            "Hash mismatch? {:?} (prev. known={:?}, db={:?})",
-            hash_mismatch,
-            *prev_hash,
-            db_hash
-        );
+        trace!(hash_mismatch, ?prev_hash, ?db_hash);
 
         let guard = CrossProcessRefreshLockGuard {
             hash_guard: prev_hash,

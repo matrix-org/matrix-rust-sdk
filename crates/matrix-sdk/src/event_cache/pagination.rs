@@ -105,7 +105,10 @@ impl RoomPagination {
                         events,
                     });
                 }
-                trace!("restarting back-pagination, because we haven't reached the start or obtained enough events yet");
+                trace!(
+                    "restarting back-pagination, because we haven't reached \
+                     the start or obtained enough events yet"
+                );
             }
 
             debug!("restarting back-pagination because of a timeline reset.");
@@ -353,71 +356,72 @@ impl RoomPagination {
 
         let next_diffs = state
             .with_events_mut(false, |room_events| {
-            // Reverse the order of the events as `/messages` has been called with `dir=b`
-            // (backwards). The `RoomEvents` API expects the first event to be the oldest.
-            // Let's re-order them for this block.
-            let reversed_events = events
-                .iter()
-                .rev()
-                .cloned()
-                .collect::<Vec<_>>();
+                // Reverse the order of the events as `/messages` has been called with `dir=b`
+                // (backwards). The `RoomEvents` API expects the first event to be the oldest.
+                // Let's re-order them for this block.
+                let reversed_events = events.iter().rev().cloned().collect::<Vec<_>>();
 
-            let first_event_pos = room_events.events().next().map(|(item_pos, _)| item_pos);
+                let first_event_pos = room_events.events().next().map(|(item_pos, _)| item_pos);
 
-            // First, insert events.
-            let insert_new_gap_pos = if let Some(gap_id) = prev_gap_id {
-                // There is a prior gap, let's replace it by new events!
-                if all_duplicates {
-                    assert!(reversed_events.is_empty());
-                }
-
-                trace!("replacing previous gap with the back-paginated events");
-
-                // Replace the gap with the events we just deduplicated. This might get rid of the
-                // underlying gap, if the conditions are favorable to us.
-                room_events.replace_gap_at(reversed_events.clone(), gap_id)
-                    .expect("gap_identifier is a valid chunk id we read previously")
-            } else if let Some(pos) = first_event_pos {
-                // No prior gap, but we had some events: assume we need to prepend events
-                // before those.
-                trace!("inserted events before the first known event");
-
-                room_events
-                    .insert_events_at(reversed_events.clone(), pos)
-                    .expect("pos is a valid position we just read above");
-
-                Some(pos)
-            } else {
-                // No prior gap, and no prior events: push the events.
-                trace!("pushing events received from back-pagination");
-
-                room_events.push_events(reversed_events.clone());
-
-                // A new gap may be inserted before the new events, if there are any.
-                room_events.events().next().map(|(item_pos, _)| item_pos)
-            };
-
-            // And insert the new gap if needs be.
-            //
-            // We only do this when at least one new, non-duplicated event, has been added to
-            // the chunk. Otherwise it means we've back-paginated all the known events.
-            if !all_duplicates {
-                if let Some(new_gap) = new_gap {
-                    if let Some(new_pos) = insert_new_gap_pos {
-                        room_events
-                            .insert_gap_at(new_gap, new_pos)
-                            .expect("events_chunk_pos represents a valid chunk position");
-                    } else {
-                        room_events.push_gap(new_gap);
+                // First, insert events.
+                let insert_new_gap_pos = if let Some(gap_id) = prev_gap_id {
+                    // There is a prior gap, let's replace it by new events!
+                    if all_duplicates {
+                        assert!(reversed_events.is_empty());
                     }
-                }
-            } else {
-                debug!("not storing previous batch token, because we deduplicated all new back-paginated events");
-            }
 
-            reversed_events
-        })
-        .await?;
+                    trace!("replacing previous gap with the back-paginated events");
+
+                    // Replace the gap with the events we just deduplicated. This might get rid of
+                    // the underlying gap, if the conditions are favorable to
+                    // us.
+                    room_events
+                        .replace_gap_at(reversed_events.clone(), gap_id)
+                        .expect("gap_identifier is a valid chunk id we read previously")
+                } else if let Some(pos) = first_event_pos {
+                    // No prior gap, but we had some events: assume we need to prepend events
+                    // before those.
+                    trace!("inserted events before the first known event");
+
+                    room_events
+                        .insert_events_at(reversed_events.clone(), pos)
+                        .expect("pos is a valid position we just read above");
+
+                    Some(pos)
+                } else {
+                    // No prior gap, and no prior events: push the events.
+                    trace!("pushing events received from back-pagination");
+
+                    room_events.push_events(reversed_events.clone());
+
+                    // A new gap may be inserted before the new events, if there are any.
+                    room_events.events().next().map(|(item_pos, _)| item_pos)
+                };
+
+                // And insert the new gap if needs be.
+                //
+                // We only do this when at least one new, non-duplicated event, has been added
+                // to the chunk. Otherwise it means we've back-paginated all the known events.
+                if !all_duplicates {
+                    if let Some(new_gap) = new_gap {
+                        if let Some(new_pos) = insert_new_gap_pos {
+                            room_events
+                                .insert_gap_at(new_gap, new_pos)
+                                .expect("events_chunk_pos represents a valid chunk position");
+                        } else {
+                            room_events.push_gap(new_gap);
+                        }
+                    }
+                } else {
+                    debug!(
+                        "not storing previous batch token, because we \
+                         deduplicated all new back-paginated events"
+                    );
+                }
+
+                reversed_events
+            })
+            .await?;
 
         event_diffs.extend(next_diffs);
 
