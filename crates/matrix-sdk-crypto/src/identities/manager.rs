@@ -1129,10 +1129,7 @@ impl IdentityManager {
     ) -> Result<(), CryptoStoreError> {
         match SenderDataFinder::find_using_device_data(&self.store, device.clone(), session).await {
             Ok(sender_data) => {
-                debug!(
-                    "Updating existing InboundGroupSession with new SenderData {:?}",
-                    sender_data
-                );
+                debug!("Updating existing InboundGroupSession with new SenderData {sender_data:?}");
                 session.sender_data = sender_data;
             }
             Err(SessionDeviceCheckError::CryptoStoreError(e)) => {
@@ -1142,8 +1139,7 @@ impl IdentityManager {
                 warn!(
                     ?session,
                     ?device,
-                    "cannot update existing InboundGroupSession due to ownership error: {}",
-                    e
+                    "cannot update existing InboundGroupSession due to ownership error: {e}",
                 );
             }
         };
