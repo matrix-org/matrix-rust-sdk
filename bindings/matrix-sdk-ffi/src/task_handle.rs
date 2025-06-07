@@ -1,4 +1,4 @@
-use tokio::task::JoinHandle;
+use matrix_sdk_common::executor::JoinHandle;
 use tracing::debug;
 
 /// A task handle is a way to keep the handle a task running by itself in
