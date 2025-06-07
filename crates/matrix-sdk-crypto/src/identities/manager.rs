@@ -32,7 +32,10 @@ use tracing::{debug, enabled, info, instrument, trace, warn, Level};
 use crate::{
     error::OlmResult,
     identities::{DeviceData, OtherUserIdentityData, OwnUserIdentityData, UserIdentityData},
-    olm::{InboundGroupSession, PrivateCrossSigningIdentity, SenderDataFinder, SenderDataType},
+    olm::{
+        sender_data_finder::SessionDeviceCheckError, InboundGroupSession,
+        PrivateCrossSigningIdentity, SenderDataFinder, SenderDataType,
+    },
     store::{
         caches::SequenceNumber, Changes, DeviceChanges, IdentityChanges, KeyQueryManager,
         Result as StoreResult, Store, StoreCache, StoreCacheGuard, UserKeyQueryResult,
@@ -1124,8 +1127,6 @@ impl IdentityManager {
         session: &mut InboundGroupSession,
         device: &DeviceData,
     ) -> Result<(), CryptoStoreError> {
-        use crate::olm::sender_data_finder::SessionDeviceCheckError::*;
-
         match SenderDataFinder::find_using_device_data(&self.store, device.clone(), session).await {
             Ok(sender_data) => {
                 debug!(
@@ -1134,10 +1135,10 @@ impl IdentityManager {
                 );
                 session.sender_data = sender_data;
             }
-            Err(CryptoStoreError(e)) => {
+            Err(SessionDeviceCheckError::CryptoStoreError(e)) => {
                 return Err(e);
             }
-            Err(MismatchedIdentityKeys(e)) => {
+            Err(SessionDeviceCheckError::MismatchedIdentityKeys(e)) => {
                 warn!(
                     ?session,
                     ?device,
