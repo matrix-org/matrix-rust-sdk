@@ -2,3 +2,13 @@
 package_name = "org.matrix.rustcomponents.sdk"
 cdylib_name = "matrix_sdk_ffi"
 android_cleaner = true
+
+[bindings.typescript]
+[bindings.typescript.customTypes.Date64]
+typeName = "Date"
+intoCustom = """((v: FfiType) => {
+    return new Date(Number(v));
+})({})"""
+fromCustom = """((v: TsType) => {
+    return BigInt(v.getTime());
+})({})"""
