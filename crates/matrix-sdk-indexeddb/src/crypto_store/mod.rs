@@ -29,8 +29,11 @@ use matrix_sdk_crypto::{
         StaticAccountData,
     },
     store::{
-        BackupKeys, Changes, CryptoStore, CryptoStoreError, DehydratedDeviceKey, PendingChanges,
-        RoomKeyCounts, RoomSettings, StoredRoomKeyBundleData,
+        types::{
+            BackupKeys, Changes, DehydratedDeviceKey, PendingChanges, RoomKeyCounts, RoomSettings,
+            StoredRoomKeyBundleData,
+        },
+        CryptoStore, CryptoStoreError,
     },
     types::events::room_key_withheld::RoomKeyWithheldEvent,
     vodozemac::base64_encode,
@@ -1964,7 +1967,7 @@ mod encrypted_tests {
     use matrix_sdk_crypto::{
         cryptostore_integration_tests,
         olm::Account,
-        store::{CryptoStore, PendingChanges},
+        store::{types::PendingChanges, CryptoStore},
         vodozemac::base64_encode,
     };
     use matrix_sdk_test::async_test;

@@ -898,7 +898,7 @@ mod tests {
 
     use crate::{
         olm::{Account, PrivateCrossSigningIdentity},
-        store::{Changes, CryptoStoreWrapper, MemoryStore},
+        store::{types::Changes, CryptoStoreWrapper, MemoryStore},
         verification::{
             event_enums::{DoneContent, OutgoingContent, StartContent},
             FlowId, VerificationStore,

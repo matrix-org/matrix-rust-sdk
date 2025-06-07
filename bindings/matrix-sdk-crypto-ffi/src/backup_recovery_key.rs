@@ -3,7 +3,7 @@ use std::{collections::HashMap, iter, ops::DerefMut, sync::Arc};
 use hmac::Hmac;
 use matrix_sdk_crypto::{
     backups::DecryptionError,
-    store::{BackupDecryptionKey, CryptoStoreError as InnerStoreError},
+    store::{types::BackupDecryptionKey, CryptoStoreError as InnerStoreError},
 };
 use pbkdf2::pbkdf2;
 use rand::{distributions::Alphanumeric, thread_rng, Rng};

@@ -32,7 +32,7 @@ use crate::{
         tests::to_device_requests_to_content,
     },
     olm::{InboundGroupSession, SenderData},
-    store::RoomKeyInfo,
+    store::types::RoomKeyInfo,
     types::{
         events::{room::encrypted::ToDeviceEncryptedEventContent, EventType, ToDeviceEvent},
         ProcessedToDeviceEvent,

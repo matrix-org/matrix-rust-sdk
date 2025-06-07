@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use matrix_sdk_base::crypto::store::RoomKeyCounts;
+use matrix_sdk_base::crypto::store::types::RoomKeyCounts;
 use ruma::{
     events::{EventContent, GlobalAccountDataEventType},
     exports::ruma_macros::EventContent,

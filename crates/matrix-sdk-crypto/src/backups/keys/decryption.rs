@@ -28,7 +28,7 @@ use zeroize::{Zeroize, Zeroizing};
 use super::MegolmV1BackupKey;
 use crate::{
     olm::BackedUpRoomKey,
-    store::BackupDecryptionKey,
+    store::types::BackupDecryptionKey,
     types::{MegolmV1AuthData, RoomKeyBackupInfo},
 };
 

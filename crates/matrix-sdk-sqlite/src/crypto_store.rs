@@ -28,8 +28,11 @@ use matrix_sdk_crypto::{
         PrivateCrossSigningIdentity, SenderDataType, Session, StaticAccountData,
     },
     store::{
-        BackupKeys, Changes, CryptoStore, DehydratedDeviceKey, PendingChanges, RoomKeyCounts,
-        RoomSettings, StoredRoomKeyBundleData,
+        types::{
+            BackupKeys, Changes, DehydratedDeviceKey, PendingChanges, RoomKeyCounts, RoomSettings,
+            StoredRoomKeyBundleData,
+        },
+        CryptoStore,
     },
     types::events::room_key_withheld::RoomKeyWithheldEvent,
     Account, DeviceData, GossipRequest, GossippedSecret, SecretInfo, TrackedUser, UserIdentityData,

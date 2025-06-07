@@ -20,7 +20,7 @@ use std::{
 use futures_core::Stream;
 use futures_util::{pin_mut, StreamExt};
 use matrix_sdk::{
-    crypto::store::RoomKeyInfo,
+    crypto::store::types::RoomKeyInfo,
     encryption::backups::BackupState,
     event_cache::{EventsOrigin, RoomEventCache, RoomEventCacheListener, RoomEventCacheUpdate},
     executor::spawn,

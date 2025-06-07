@@ -55,7 +55,10 @@ use tracing::{instrument, trace};
 use vodozemac::{DehydratedDeviceError, LibolmPickleError};
 
 use crate::{
-    store::{Changes, CryptoStoreWrapper, DehydratedDeviceKey, MemoryStore, RoomKeyInfo, Store},
+    store::{
+        types::{Changes, DehydratedDeviceKey, RoomKeyInfo},
+        CryptoStoreWrapper, MemoryStore, Store,
+    },
     verification::VerificationMachine,
     Account, CryptoStoreError, EncryptionSyncChanges, OlmError, OlmMachine, SignatureError,
 };
@@ -113,7 +116,9 @@ impl DehydratedDevices {
 
         let store =
             Store::new(account.static_data().clone(), user_identity, store, verification_machine);
-        store.save_pending_changes(crate::store::PendingChanges { account: Some(account) }).await?;
+        store
+            .save_pending_changes(crate::store::types::PendingChanges { account: Some(account) })
+            .await?;
 
         Ok(DehydratedDevice { store })
     }
@@ -210,7 +215,7 @@ impl RehydratedDevice {
     ///
     /// ```no_run
     /// # use anyhow::Result;
-    /// # use matrix_sdk_crypto::{ OlmMachine, store::DehydratedDeviceKey };
+    /// # use matrix_sdk_crypto::{ OlmMachine, store::types::DehydratedDeviceKey };
     /// # use ruma::{api::client::dehydrated_device, DeviceId};
     /// # async fn example() -> Result<()> {
     /// # let machine: OlmMachine = unimplemented!();
@@ -326,7 +331,7 @@ impl DehydratedDevice {
     ///
     /// ```no_run
     /// # use matrix_sdk_crypto::OlmMachine;    /// #
-    /// use matrix_sdk_crypto::store::DehydratedDeviceKey;
+    /// use matrix_sdk_crypto::store::types::DehydratedDeviceKey;
     ///
     /// async fn example() -> anyhow::Result<()> {
     /// # let machine: OlmMachine = unimplemented!();
@@ -415,7 +420,7 @@ mod tests {
             tests::to_device_requests_to_content,
         },
         olm::OutboundGroupSession,
-        store::DehydratedDeviceKey,
+        store::types::DehydratedDeviceKey,
         types::{events::ToDeviceEvent, DeviceKeys as DeviceKeysType},
         utilities::json_convert,
         EncryptionSettings, OlmMachine,

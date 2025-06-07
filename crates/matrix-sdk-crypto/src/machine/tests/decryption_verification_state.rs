@@ -36,7 +36,7 @@ use crate::{
         tests,
     },
     olm::{InboundGroupSession, OutboundGroupSession, SenderData},
-    store::{Changes, IdentityChanges},
+    store::types::{Changes, IdentityChanges},
     types::{
         events::{
             room::encrypted::{EncryptedEvent, RoomEventEncryptionScheme},

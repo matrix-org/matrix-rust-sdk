@@ -37,8 +37,9 @@ use crate::{
         PrivateCrossSigningIdentity, SenderDataFinder, SenderDataType,
     },
     store::{
-        caches::SequenceNumber, Changes, DeviceChanges, IdentityChanges, KeyQueryManager,
-        Result as StoreResult, Store, StoreCache, StoreCacheGuard, UserKeyQueryResult,
+        caches::{SequenceNumber, StoreCache, StoreCacheGuard},
+        types::{Changes, DeviceChanges, IdentityChanges, UserKeyQueryResult},
+        KeyQueryManager, Result as StoreResult, Store,
     },
     types::{
         requests::KeysQueryRequest, CrossSigningKey, DeviceKeys, MasterPubkey, SelfSigningPubkey,
@@ -1230,7 +1231,7 @@ pub(crate) mod testing {
     use crate::{
         identities::IdentityManager,
         olm::{Account, PrivateCrossSigningIdentity},
-        store::{CryptoStoreWrapper, MemoryStore, PendingChanges, Store},
+        store::{types::PendingChanges, CryptoStoreWrapper, MemoryStore, Store},
         types::{requests::UploadSigningKeysRequest, DeviceKeys},
         verification::VerificationMachine,
     };
@@ -1538,6 +1539,7 @@ pub(crate) mod tests {
     use crate::{
         identities::manager::testing::{other_key_query_cross_signed, own_key_query},
         olm::PrivateCrossSigningIdentity,
+        store::types::Changes,
         CrossSigningKeyExport, OlmMachine,
     };
 
@@ -1871,7 +1873,6 @@ pub(crate) mod tests {
             manager.receive_keys_query_response(&reqid, &own_key_query()).await.unwrap();
         assert_eq!(device_changes.new.len(), 1);
         let test_device_id = device_changes.new.first().unwrap().device_id().to_owned();
-        use crate::store::Changes;
         let changes =
             Changes { devices: device_changes, identities: identity_changes, ..Changes::default() };
         manager.store.save_changes(changes).await.unwrap();
@@ -2436,7 +2437,7 @@ pub(crate) mod tests {
         use crate::{
             identities::manager::testing::{other_user_id, user_id},
             olm::{InboundGroupSession, SenderData},
-            store::{Changes, DeviceChanges},
+            store::types::{Changes, DeviceChanges},
             Account, DeviceData, EncryptionSettings,
         };
 

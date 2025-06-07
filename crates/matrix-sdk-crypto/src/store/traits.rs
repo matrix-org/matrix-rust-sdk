@@ -22,8 +22,11 @@ use ruma::{
 use vodozemac::Curve25519PublicKey;
 
 use super::{
-    BackupKeys, Changes, CryptoStoreError, DehydratedDeviceKey, PendingChanges, Result,
-    RoomKeyCounts, RoomSettings, StoredRoomKeyBundleData,
+    types::{
+        BackupKeys, Changes, DehydratedDeviceKey, PendingChanges, RoomKeyCounts, RoomSettings,
+        StoredRoomKeyBundleData, TrackedUser,
+    },
+    CryptoStoreError, Result,
 };
 #[cfg(doc)]
 use crate::olm::SenderData;
@@ -33,7 +36,7 @@ use crate::{
         SenderDataType, Session,
     },
     types::events::room_key_withheld::RoomKeyWithheldEvent,
-    Account, DeviceData, GossipRequest, GossippedSecret, SecretInfo, TrackedUser, UserIdentityData,
+    Account, DeviceData, GossipRequest, GossippedSecret, SecretInfo, UserIdentityData,
 };
 
 /// Represents a store that the `OlmMachine` uses to store E2EE data (such as

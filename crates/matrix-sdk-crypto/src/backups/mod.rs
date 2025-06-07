@@ -37,7 +37,10 @@ use tracing::{debug, info, instrument, trace, warn};
 
 use crate::{
     olm::{BackedUpRoomKey, ExportedRoomKey, InboundGroupSession, SignedJsonObject},
-    store::{BackupDecryptionKey, BackupKeys, Changes, RoomKeyCounts, Store},
+    store::{
+        types::{BackupDecryptionKey, BackupKeys, Changes, RoomKeyCounts},
+        Store,
+    },
     types::{requests::KeysBackupRequest, MegolmV1AuthData, RoomKeyBackupInfo, Signatures},
     CryptoStoreError, Device, RoomKeyImportResult, SignatureError,
 };
@@ -644,7 +647,10 @@ mod tests {
     use super::BackupMachine;
     use crate::{
         olm::BackedUpRoomKey,
-        store::{BackupDecryptionKey, Changes, CryptoStore, MemoryStore},
+        store::{
+            types::{BackupDecryptionKey, Changes},
+            CryptoStore, MemoryStore,
+        },
         types::RoomKeyBackupInfo,
         OlmError, OlmMachine,
     };

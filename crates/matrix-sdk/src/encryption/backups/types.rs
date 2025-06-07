@@ -17,7 +17,7 @@ use std::{
     time::Duration,
 };
 
-use matrix_sdk_base::crypto::{store::RoomKeyCounts, RoomKeyImportResult};
+use matrix_sdk_base::crypto::{store::types::RoomKeyCounts, RoomKeyImportResult};
 use tokio::sync::broadcast;
 
 use crate::utils::ChannelObservable;

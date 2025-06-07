@@ -324,10 +324,12 @@ impl<'de> Deserialize<'de> for AnyDecryptedOlmEvent {
         let json = json.get();
 
         Ok(match helper.event_type {
-            "m.room_key" => AnyDecryptedOlmEvent::RoomKey(from_str(json)?),
-            "m.forwarded_room_key" => AnyDecryptedOlmEvent::ForwardedRoomKey(from_str(json)?),
-            "m.secret.send" => AnyDecryptedOlmEvent::SecretSend(from_str(json)?),
-            "m.dummy" => AnyDecryptedOlmEvent::Dummy(from_str(json)?),
+            RoomKeyContent::EVENT_TYPE => AnyDecryptedOlmEvent::RoomKey(from_str(json)?),
+            ForwardedRoomKeyContent::EVENT_TYPE => {
+                AnyDecryptedOlmEvent::ForwardedRoomKey(from_str(json)?)
+            }
+            SecretSendContent::EVENT_TYPE => AnyDecryptedOlmEvent::SecretSend(from_str(json)?),
+            DummyEventContent::EVENT_TYPE => AnyDecryptedOlmEvent::Dummy(from_str(json)?),
             RoomKeyBundleContent::EVENT_TYPE => {
                 AnyDecryptedOlmEvent::RoomKeyBundle(from_str(json)?)
             }

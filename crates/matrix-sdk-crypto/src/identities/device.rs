@@ -44,7 +44,9 @@ use crate::{
         InboundGroupSession, OutboundGroupSession, Session, ShareInfo, SignedJsonObject, VerifyJson,
     },
     store::{
-        caches::SequenceNumber, Changes, CryptoStoreWrapper, DeviceChanges, Result as StoreResult,
+        caches::SequenceNumber,
+        types::{Changes, DeviceChanges},
+        CryptoStoreWrapper, Result as StoreResult,
     },
     types::{
         events::{

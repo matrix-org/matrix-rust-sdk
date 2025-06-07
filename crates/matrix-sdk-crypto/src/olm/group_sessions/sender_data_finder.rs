@@ -345,7 +345,7 @@ mod tests {
             group_sessions::sender_data_finder::SessionDeviceKeysCheckError, InboundGroupSession,
             KnownSenderData, PrivateCrossSigningIdentity, SenderData,
         },
-        store::{Changes, CryptoStoreWrapper, MemoryStore, Store},
+        store::{types::Changes, CryptoStoreWrapper, MemoryStore, Store},
         types::{
             events::{
                 olm_v1::DecryptedRoomKeyEvent,

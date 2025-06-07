@@ -26,7 +26,7 @@ use futures_core::Stream;
 use futures_util::StreamExt;
 use matrix_sdk_base::crypto::{
     backups::MegolmV1BackupKey,
-    store::BackupDecryptionKey,
+    store::types::BackupDecryptionKey,
     types::{requests::KeysBackupRequest, RoomKeyBackupInfo},
     OlmMachine, RoomKeyImportResult,
 };

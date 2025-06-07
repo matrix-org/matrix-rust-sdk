@@ -46,7 +46,7 @@ use crate::{
         InboundGroupSession, OutboundGroupSession, SenderData, SenderDataFinder, Session,
         ShareInfo, ShareState,
     },
-    store::{Changes, CryptoStoreWrapper, Result as StoreResult, Store},
+    store::{types::Changes, CryptoStoreWrapper, Result as StoreResult, Store},
     types::{
         events::{
             room::encrypted::{RoomEncryptedEventContent, ToDeviceEncryptedEventContent},

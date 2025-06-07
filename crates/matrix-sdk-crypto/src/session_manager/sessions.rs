@@ -34,7 +34,7 @@ use vodozemac::Curve25519PublicKey;
 use crate::{
     error::OlmResult,
     gossiping::GossipMachine,
-    store::{Changes, Result as StoreResult, Store},
+    store::{types::Changes, Result as StoreResult, Store},
     types::{
         events::EventType,
         requests::{OutgoingRequest, ToDeviceRequest},
@@ -606,7 +606,10 @@ mod tests {
         identities::{DeviceData, IdentityManager},
         olm::{Account, PrivateCrossSigningIdentity},
         session_manager::GroupSessionCache,
-        store::{Changes, CryptoStoreWrapper, DeviceChanges, MemoryStore, PendingChanges, Store},
+        store::{
+            types::{Changes, DeviceChanges, PendingChanges},
+            CryptoStoreWrapper, MemoryStore, Store,
+        },
         verification::VerificationMachine,
     };
 

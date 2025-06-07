@@ -98,7 +98,8 @@ pub use olm::{Account, CrossSigningStatus, EncryptionSettings, Session};
 use serde::{Deserialize, Serialize};
 pub use session_manager::CollectStrategy;
 pub use store::{
-    CrossSigningKeyExport, CryptoStoreError, SecretImportError, SecretInfo, TrackedUser,
+    types::{CrossSigningKeyExport, TrackedUser},
+    CryptoStoreError, SecretImportError, SecretInfo,
 };
 pub use verification::{
     format_emojis, AcceptSettings, AcceptedProtocols, CancelInfo, Emoji, EmojiShortAuthString, Sas,

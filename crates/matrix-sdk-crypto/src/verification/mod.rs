@@ -53,7 +53,7 @@ use crate::{
     error::SignatureError,
     gossiping::{GossipMachine, GossipRequest},
     olm::{PrivateCrossSigningIdentity, StaticAccountData},
-    store::{Changes, CryptoStoreWrapper},
+    store::{types::Changes, CryptoStoreWrapper},
     types::{requests::OutgoingVerificationRequest, Signatures},
     CryptoStoreError, DeviceData, LocalTrust, OwnUserIdentityData, UserIdentityData,
 };
@@ -596,7 +596,7 @@ impl IdentitiesBeingVerified {
             changes.key_requests = secret_requests;
         }
 
-        // TODO store the signature upload request as well.
+        // TODO: store the signature upload request as well.
         self.store.save_changes(changes).await?;
 
         Ok(merged_request
@@ -747,7 +747,10 @@ pub(crate) mod tests {
     use super::{event_enums::OutgoingContent, VerificationStore};
     use crate::{
         olm::PrivateCrossSigningIdentity,
-        store::{Changes, CryptoStore, CryptoStoreWrapper, IdentityChanges, MemoryStore},
+        store::{
+            types::{Changes, IdentityChanges},
+            CryptoStore, CryptoStoreWrapper, MemoryStore,
+        },
         types::{
             events::ToDeviceEvents,
             requests::{AnyOutgoingRequest, OutgoingRequest, OutgoingVerificationRequest},
