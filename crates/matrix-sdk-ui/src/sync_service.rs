@@ -189,7 +189,7 @@ impl SyncTaskSupervisor {
                 //
                 // Still, as a precaution, we're going to sleep here for a while in the Error
                 // case.
-                match client.fetch_server_capabilities(Some(request_config)).await {
+                match client.fetch_server_versions(Some(request_config)).await {
                     Ok(_) => break,
                     Err(_) => sleep(Duration::from_millis(100)).await,
                 }

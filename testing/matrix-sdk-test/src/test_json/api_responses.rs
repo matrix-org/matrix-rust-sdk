@@ -359,7 +359,13 @@ pub static WELL_KNOWN: Lazy<JsonValue> = Lazy::new(|| {
     json!({
         "m.homeserver": {
             "base_url": "HOMESERVER_URL"
-        }
+        },
+        "m.rtc_foci": [
+            {
+                "type": "livekit",
+                "livekit_service_url": "https://livekit.example.com",
+            }
+        ]
     })
 });
 

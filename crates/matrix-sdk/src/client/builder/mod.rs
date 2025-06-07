@@ -40,7 +40,10 @@ use crate::encryption::EncryptionSettings;
 use crate::http_client::HttpSettings;
 use crate::{
     authentication::{oauth::OAuthCtx, AuthCtx},
-    client::ClientServerCapabilities,
+    client::{
+        CachedValue::{Cached, NotSet},
+        ClientServerInfo,
+    },
     config::RequestConfig,
     error::RumaApiError,
     http_client::HttpClient,
@@ -525,7 +528,7 @@ impl ClientBuilder {
         let http_client = HttpClient::new(inner_http_client.clone(), self.request_config);
 
         #[allow(unused_variables)]
-        let HomeserverDiscoveryResult { server, homeserver, supported_versions } =
+        let HomeserverDiscoveryResult { server, homeserver, supported_versions, well_known } =
             homeserver_cfg.discover(&http_client).await?;
 
         let sliding_sync_version = {
@@ -560,9 +563,13 @@ impl ClientBuilder {
         // Enable the send queue by default.
         let send_queue = Arc::new(SendQueueData::new(true));
 
-        let server_capabilities = ClientServerCapabilities {
-            server_versions: self.server_versions,
-            unstable_features: None,
+        let server_info = ClientServerInfo {
+            server_versions: match self.server_versions {
+                Some(versions) => Cached(versions),
+                None => NotSet,
+            },
+            unstable_features: NotSet,
+            well_known: Cached(well_known.map(Into::into)),
         };
 
         let event_cache = OnceCell::new();
@@ -573,7 +580,7 @@ impl ClientBuilder {
             sliding_sync_version,
             http_client,
             base_client,
-            server_capabilities,
+            server_info,
             self.respect_login_well_known,
             event_cache,
             send_queue,
