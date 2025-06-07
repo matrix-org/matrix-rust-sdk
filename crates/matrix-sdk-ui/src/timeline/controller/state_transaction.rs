@@ -355,13 +355,13 @@ impl<'a> TimelineStateTransaction<'a> {
 
         if !duplicates.is_empty() {
             #[cfg(any(debug_assertions, test))]
-            panic!("duplicate read receipts in this timeline:{:?}\n{:?}", duplicates, self.items);
+            panic!("duplicate read receipts in this timeline: {duplicates:?}\n{:?}", self.items);
 
             #[cfg(not(any(debug_assertions, test)))]
             tracing::error!(
-                "duplicate read receipts in this timeline:{:?}\n{:?}",
-                duplicates,
-                self.items
+                ?duplicates,
+                items = ?self.items,
+                "duplicate read receipts in this timeline",
             );
         }
     }
@@ -376,13 +376,13 @@ impl<'a> TimelineStateTransaction<'a> {
 
         if !duplicates.is_empty() {
             #[cfg(any(debug_assertions, test))]
-            panic!("duplicate unique ids in this timeline:{:?}\n{:?}", duplicates, self.items);
+            panic!("duplicate unique ids in this timeline: {duplicates:?}\n{:?}", self.items);
 
             #[cfg(not(any(debug_assertions, test)))]
             tracing::error!(
-                "duplicate unique ids in this timeline:{:?}\n{:?}",
-                duplicates,
-                self.items
+                ?duplicates,
+                items = ?self.items,
+                "duplicate unique ids in this timeline",
             );
         }
     }

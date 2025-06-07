@@ -1092,7 +1092,7 @@ impl_crypto_store! {
                 idb_object.needs_backup = false;
                 object_store.put_key_val(&key, &serde_wasm_bindgen::to_value(&idb_object)?)?;
             } else {
-                warn!("Could not find inbound group session to mark it as backed up. key={:?}", key);
+                warn!(?key, "Could not find inbound group session to mark it as backed up.");
             }
         }
 

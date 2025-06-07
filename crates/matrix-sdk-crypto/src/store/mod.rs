@@ -1428,7 +1428,10 @@ impl Store {
 
             self.save_changes(changes).await?;
         } else {
-            warn!("No public identity found while importing cross-signing keys, a /keys/query needs to be done");
+            warn!(
+                "No public identity found while importing cross-signing keys, \
+                 a /keys/query needs to be done"
+            );
         }
 
         Ok(self.inner.identity.lock().await.status().await)
@@ -2115,7 +2118,11 @@ impl Store {
                 // We have at least some good keys, if we also have some bad ones let's mention
                 // that here.
                 if !bad.is_empty() {
-                    warn!(bad_key_count = bad.len(), "The room key bundle contained some room keys that were meant for a different room");
+                    warn!(
+                        bad_key_count = bad.len(),
+                        "The room key bundle contained some room keys \
+                         that were meant for a different room"
+                    );
                 }
 
                 self.import_sessions_impl(good, None, progress_listener).await?;

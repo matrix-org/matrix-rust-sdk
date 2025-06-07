@@ -652,7 +652,7 @@ async fn test_recovery_disabling() {
         .await;
 
     Mock::given(method("PUT"))
-        .and(path(format!("_matrix/client/r0/user/{user_id}/account_data/m.megolm_backup.v1",)))
+        .and(path(format!("_matrix/client/r0/user/{user_id}/account_data/m.megolm_backup.v1")))
         .and(header("authorization", "Bearer 1234"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({})))
         .expect(1..)

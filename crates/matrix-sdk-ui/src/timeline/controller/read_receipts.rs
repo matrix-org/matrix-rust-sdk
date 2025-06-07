@@ -181,7 +181,15 @@ impl ReadReceipts {
         //   more recent because it has a place in the timeline.
 
         if !is_own_user_id {
-            trace!(from_event = ?old_event_id, from_visible_event = ?old_item_event_id, to_event = ?new_receipt.event_id, to_visible_event = ?new_item_event_id, ?old_item_pos, ?new_item_pos, "moving read receipt");
+            trace!(
+                from_event = ?old_event_id,
+                from_visible_event = ?old_item_event_id,
+                to_event = ?new_receipt.event_id,
+                to_visible_event = ?new_item_event_id,
+                ?old_item_pos,
+                ?new_item_pos,
+                "moving read receipt",
+            );
 
             // Remove the old receipt from the old event.
             if let Some(old_event_id) = old_event_id.cloned() {
@@ -443,13 +451,18 @@ impl ReadReceiptTimelineUpdate {
         });
 
         let Some(item_pos) = item_pos else {
-            debug!(%event_id, %user_id, "inconsistent state: new event item for read receipt was not found");
+            debug!(
+                %event_id, %user_id,
+                "inconsistent state: new event item for read receipt was not found",
+            );
             return;
         };
 
         debug_assert!(
             item_pos >= self.old_item_pos.unwrap_or(0),
-            "The new receipt must be added on a timeline item that is _after_ the timeline item that was holding the old receipt");
+            "The new receipt must be added on a timeline item that is _after_ the timeline item \
+             that was holding the old receipt"
+        );
 
         let event_item = &items[item_pos];
         let event_item_id = event_item.unique_id().to_owned();

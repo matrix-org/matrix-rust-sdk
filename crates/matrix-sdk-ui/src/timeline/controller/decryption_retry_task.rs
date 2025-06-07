@@ -90,7 +90,7 @@ impl<D: Decryptor> DecryptionRetryTask<D> {
             self.sender.send(DecryptionRetryRequest { decryptor, session_ids, settings }).await;
 
         if let Err(error) = res {
-            error!("Failed to send decryption retry request: {}", error);
+            error!("Failed to send decryption retry request: {error}");
         }
     }
 }

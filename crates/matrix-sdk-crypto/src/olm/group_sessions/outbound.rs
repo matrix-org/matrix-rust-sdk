@@ -436,7 +436,7 @@ impl OutboundGroupSession {
 
             error!(
                 all_request_ids = ?request_ids,
-                request_id = ?request_id,
+                ?request_id,
                 "Marking to-device request carrying a room key as sent but no \
                  request found with the given id"
             );

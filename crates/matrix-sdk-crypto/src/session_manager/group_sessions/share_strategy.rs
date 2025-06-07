@@ -230,10 +230,7 @@ pub(crate) async fn collect_recipients_for_share_strategy(
     match share_strategy {
         CollectStrategy::AllDevices => {
             for user_id in users {
-                trace!(
-                    "CollectStrategy::AllDevices: Considering recipient devices for user {}",
-                    user_id
-                );
+                trace!(?user_id, "CollectStrategy::AllDevices: Considering recipient devices",);
                 let user_devices = store.get_device_data_for_user_filtered(user_id).await?;
                 let device_owner_identity = store.get_user_identity(user_id).await?;
 
@@ -250,7 +247,10 @@ pub(crate) async fn collect_recipients_for_share_strategy(
                 Default::default();
 
             for user_id in users {
-                trace!("CollectStrategy::ErrorOnVerifiedUserProblem: Considering recipient devices for user {}", user_id);
+                trace!(
+                    ?user_id,
+                    "CollectStrategy::ErrorOnVerifiedUserProblem: Considering recipient devices"
+                );
                 let user_devices = store.get_device_data_for_user_filtered(user_id).await?;
 
                 let device_owner_identity = store.get_user_identity(user_id).await?;
@@ -315,7 +315,10 @@ pub(crate) async fn collect_recipients_for_share_strategy(
             }
 
             for user_id in users {
-                trace!("CollectStrategy::IdentityBasedStrategy: Considering recipient devices for user {}", user_id);
+                trace!(
+                    ?user_id,
+                    "CollectStrategy::IdentityBasedStrategy: Considering recipient devices"
+                );
                 let user_devices = store.get_device_data_for_user_filtered(user_id).await?;
 
                 let device_owner_identity = store.get_user_identity(user_id).await?;
@@ -340,7 +343,10 @@ pub(crate) async fn collect_recipients_for_share_strategy(
 
         CollectStrategy::OnlyTrustedDevices => {
             for user_id in users {
-                trace!("CollectStrategy::OnlyTrustedDevices: Considering recipient devices for user {}", user_id);
+                trace!(
+                    ?user_id,
+                    "CollectStrategy::OnlyTrustedDevices: Considering recipient devices"
+                );
                 let user_devices = store.get_device_data_for_user_filtered(user_id).await?;
                 let device_owner_identity = store.get_user_identity(user_id).await?;
 

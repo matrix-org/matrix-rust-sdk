@@ -715,7 +715,10 @@ impl WidgetMachine {
         // mutably)
         match self.pending_state_updates.take() {
             None => {
-                error!("Initial state updates must only be set to `None` once all requests are complete; dropping state response");
+                error!(
+                    "Initial state updates must only be set to `None` once all requests \
+                     are complete; dropping state response"
+                );
                 None
             }
 

@@ -100,7 +100,7 @@ async fn sas_verification_handler(client: Client, sas: SasVerification) {
 }
 
 async fn request_verification_handler(client: Client, request: VerificationRequest) {
-    println!("Accepting verification request from {}", request.other_user_id(),);
+    println!("Accepting verification request from {}", request.other_user_id());
     request.accept().await.expect("Can't accept verification request");
 
     let mut stream = request.changes();
