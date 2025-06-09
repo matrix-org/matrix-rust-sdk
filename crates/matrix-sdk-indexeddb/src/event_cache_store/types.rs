@@ -60,8 +60,6 @@ impl From<Event> for TimelineEvent {
 pub struct GenericEvent<P> {
     /// The full content of the event.
     pub content: TimelineEvent,
-    /// The room ID of the event.
-    pub room_id: String,
     /// The position of the event, if it is in a chunk.
     pub position: P,
 }
