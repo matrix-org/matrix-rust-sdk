@@ -55,7 +55,7 @@ pub struct IndexedChunk {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct IndexedChunkIdKey(IndexedRoomId, IndexedChunkId);
 
-pub type IndexedRoomId = MaybeEncrypted;
+pub type IndexedRoomId = String;
 pub type IndexedChunkId = String;
 pub type IndexedChunkContent = MaybeEncrypted;
 
@@ -86,7 +86,7 @@ pub struct IndexedEvent {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct IndexedEventIdKey(IndexedRoomId, IndexedEventId);
 
-pub type IndexedEventId = MaybeEncrypted;
+pub type IndexedEventId = String;
 
 /// The value associated with the [`position`](IndexedEvent::position) index of
 /// the [`EVENTS`][1] object store, which is constructed from:
