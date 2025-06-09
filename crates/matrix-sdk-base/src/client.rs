@@ -623,9 +623,6 @@ impl BaseClient {
             room_updates.knocked.insert(room_id, knocked_room_update);
         }
 
-        // Check if tombstoned rooms are not creating an invalid state, like a loop.
-        processors::state_events::check_tombstone(&mut context, &room_updates, &self.state_store)?;
-
         global_account_data_processor.apply(&mut context, &self.state_store).await;
 
         context.state_changes.presence = response
