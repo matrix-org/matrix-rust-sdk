@@ -6,6 +6,12 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased] - ReleaseDate
 
+### Bug Fixes
+- Remove a wildcard enum variant import which breaks compilation if used with
+  `tracing-attributes` version `0.1.29`. This is a workaround for a bug in
+  `tracing-attributes`.
+  ([#5190](https://github.com/matrix-org/matrix-rust-sdk/issues/5190)) ([#5191](https://github.com/matrix-org/matrix-rust-sdk/issues/5190)) ([#5193](https://github.com/matrix-org/matrix-rust-sdk/issues/5193))
+
 ## [0.11.0] - 2025-04-11
 
 ### Features
