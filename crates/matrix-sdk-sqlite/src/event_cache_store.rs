@@ -988,7 +988,7 @@ impl EventCacheStore for SqliteEventCacheStore {
             .await
     }
 
-    async fn clear_all_rooms_chunks(&self) -> Result<(), Self::Error> {
+    async fn clear_all_linked_chunks(&self) -> Result<(), Self::Error> {
         self.acquire()
             .await?
             .with_transaction(move |txn| {

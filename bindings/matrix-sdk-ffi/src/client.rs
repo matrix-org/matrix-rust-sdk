@@ -1444,7 +1444,7 @@ impl Client {
                 .map_err(EventCacheError::from)?;
 
             // Clear all the room chunks. It's important to *not* call
-            // `EventCacheStore::clear_all_rooms_chunks` here, because there might be live
+            // `EventCacheStore::clear_all_linked_chunks` here, because there might be live
             // observers of the linked chunks, and that would cause some very bad state
             // mismatch.
             self.inner.event_cache().clear_all_rooms().await?;

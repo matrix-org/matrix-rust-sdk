@@ -171,7 +171,7 @@ impl EventCacheStore for MemoryStore {
             .map_err(|err| EventCacheStoreError::InvalidData { details: err })
     }
 
-    async fn clear_all_rooms_chunks(&self) -> Result<(), Self::Error> {
+    async fn clear_all_linked_chunks(&self) -> Result<(), Self::Error> {
         self.inner.write().unwrap().events.clear();
         Ok(())
     }

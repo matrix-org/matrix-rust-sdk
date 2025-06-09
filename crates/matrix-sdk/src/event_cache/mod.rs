@@ -442,7 +442,7 @@ impl EventCacheInner {
         .await;
 
         // Clear the storage for all the rooms, using the storage facility.
-        self.store.lock().await?.clear_all_rooms_chunks().await?;
+        self.store.lock().await?.clear_all_linked_chunks().await?;
 
         // At this point, all the in-memory linked chunks are desynchronized from the
         // storage. Resynchronize them manually by calling reset(), and
