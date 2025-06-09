@@ -99,7 +99,7 @@ pub type IndexedEventId = String;
 #[derive(Debug, Serialize, Deserialize)]
 pub struct IndexedEventPositionKey(IndexedRoomId, IndexedChunkId, IndexedEventPositionIndex);
 
-pub type IndexedEventPositionIndex = String;
+pub type IndexedEventPositionIndex = usize;
 
 /// The value associated with the [`relation`](IndexedEvent::relation) index of
 /// the [`EVENTS`][1] object store, which is constructed from:
