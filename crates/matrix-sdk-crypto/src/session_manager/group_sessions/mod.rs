@@ -779,7 +779,10 @@ impl GroupSessionManager {
         // Only allow conservative sharing strategies
         let collect_strategy = match collect_strategy {
             CollectStrategy::AllDevices | CollectStrategy::ErrorOnVerifiedUserProblem => {
-                warn!("Ignoring request to use unsafe sharing strategy {:?} for room key history sharing", collect_strategy);
+                warn!(
+                    "Ignoring request to use unsafe sharing strategy {collect_strategy:?} \
+                     for room key history sharing",
+                );
                 &CollectStrategy::IdentityBasedStrategy
             }
             CollectStrategy::IdentityBasedStrategy | CollectStrategy::OnlyTrustedDevices => {

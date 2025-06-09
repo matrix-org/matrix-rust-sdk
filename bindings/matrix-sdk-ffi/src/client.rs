@@ -822,7 +822,7 @@ impl Client {
         .with_max_delay(UTD_HOOK_GRACE_PERIOD);
 
         if let Err(e) = utd_hook_manager.reload_from_store().await {
-            error!("Unable to reload UTD hook data from data store: {}", e);
+            error!("Unable to reload UTD hook data from data store: {e}");
             // Carry on with the setup anyway; we shouldn't fail setup just
             // because the UTD hook failed to load its data.
         }

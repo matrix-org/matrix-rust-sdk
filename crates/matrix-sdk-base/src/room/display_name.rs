@@ -209,10 +209,10 @@ impl Room {
                         names.push(member.name().to_owned());
                     }
                     Ok(None) => {
-                        warn!("Ignoring hero, no member info for {}", hero.user_id);
+                        warn!(user_id = ?hero.user_id, "Ignoring hero, no member info");
                     }
                     Err(error) => {
-                        warn!("Ignoring hero, error getting member: {}", error);
+                        warn!("Ignoring hero, error getting member: {error}");
                     }
                 }
             }

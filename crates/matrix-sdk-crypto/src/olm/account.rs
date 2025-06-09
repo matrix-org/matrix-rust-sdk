@@ -1589,8 +1589,8 @@ impl Account {
         // Check the signature within the device_keys structure
         let sender_device_data = DeviceData::try_from(sender_device_keys).map_err(|err| {
             warn!(
-                "Received a to-device message with sender_device_keys with invalid signature: {:?}",
-                err
+                "Received a to-device message with sender_device_keys with \
+                 invalid signature: {err:?}",
             );
             OlmError::EventError(EventError::InvalidSenderDeviceKeys)
         })?;
@@ -1599,10 +1599,11 @@ impl Account {
         // key in the `keys` field in the event.
         if sender_device_data.ed25519_key() != Some(event.keys().ed25519) {
             warn!(
-                    "Received a to-device message with sender_device_keys with incorrect ed25519 key: expected {:?}, got {:?}",
-                    event.keys().ed25519,
-                    sender_device_data.ed25519_key(),
-                );
+                "Received a to-device message with sender_device_keys with incorrect \
+                 ed25519 key: expected {:?}, got {:?}",
+                event.keys().ed25519,
+                sender_device_data.ed25519_key(),
+            );
             return Err(OlmError::EventError(EventError::InvalidSenderDeviceKeys));
         }
 
@@ -1610,10 +1611,10 @@ impl Account {
         // was used for the Olm session.
         if sender_device_data.curve25519_key() != Some(sender_key) {
             warn!(
-                    "Received a to-device message with sender_device_keys with incorrect curve25519 key: expected {:?}, got {:?}",
-                    sender_key,
-                    sender_device_data.curve25519_key(),
-                );
+                "Received a to-device message with sender_device_keys with incorrect \
+                 curve25519 key: expected {sender_key:?}, got {:?}",
+                sender_device_data.curve25519_key(),
+            );
             return Err(OlmError::EventError(EventError::InvalidSenderDeviceKeys));
         }
 

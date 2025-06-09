@@ -380,8 +380,7 @@ impl RoomView {
                 ));
             }
             Err(err) => {
-                self.status_handle
-                    .set_message(format!("error when marking a room as read: {err}",));
+                self.status_handle.set_message(format!("error when marking a room as read: {err}"));
             }
         }
     }

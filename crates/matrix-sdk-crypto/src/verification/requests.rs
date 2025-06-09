@@ -949,7 +949,7 @@ impl InnerRequest {
     fn cancel(&self, cancelled_by_us: bool, cancel_code: &CancelCode) -> Option<InnerRequest> {
         let print_info = || {
             trace!(
-                cancelled_by_us = cancelled_by_us,
+                cancelled_by_us,
                 code = cancel_code.as_str(),
                 "Verification request going into the cancelled state"
             );
