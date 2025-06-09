@@ -378,6 +378,7 @@ impl TimelineMetadata {
                                 )),
                                 edit_json,
                                 encryption_info: ctx.bundled_edit_encryption_info,
+                                bundled_item_owner: Some(ctx.event_id.to_owned()),
                             }),
                         );
                         self.aggregations.add(
@@ -414,6 +415,7 @@ impl TimelineMetadata {
                                 )),
                                 edit_json,
                                 encryption_info: ctx.bundled_edit_encryption_info,
+                                bundled_item_owner: Some(ctx.event_id.to_owned()),
                             }),
                         );
                         self.aggregations.add(

@@ -574,6 +574,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                 kind: edit_kind,
                 edit_json: self.ctx.flow.raw_event().cloned(),
                 encryption_info,
+                bundled_item_owner: None,
             }),
         );
 
