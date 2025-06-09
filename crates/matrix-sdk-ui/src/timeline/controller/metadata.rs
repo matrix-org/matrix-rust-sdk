@@ -38,6 +38,7 @@ use super::{
 };
 use crate::{
     timeline::{
+        controller::TimelineFocusKind,
         event_item::{
             extract_bundled_edit_event_json, extract_poll_edit_content,
             extract_room_msg_edit_content,
@@ -316,6 +317,7 @@ impl TimelineMetadata {
         raw_event: &Raw<AnySyncTimelineEvent>,
         bundled_edit_encryption_info: Option<Arc<EncryptionInfo>>,
         timeline_items: &Vector<Arc<TimelineItem>>,
+        timeline_focus: &TimelineFocusKind,
     ) -> (Option<InReplyToDetails>, Option<OwnedEventId>) {
         if let AnySyncTimelineEvent::MessageLike(ev) = event {
             if let Some(content) = ev.original_content() {
@@ -325,7 +327,12 @@ impl TimelineMetadata {
                     relations: ev.relations(),
                     bundled_edit_encryption_info,
                 });
-                return self.process_content_relations(&content, remote_ctx, timeline_items);
+                return self.process_content_relations(
+                    &content,
+                    remote_ctx,
+                    timeline_items,
+                    timeline_focus,
+                );
             }
         }
         (None, None)
@@ -341,12 +348,14 @@ impl TimelineMetadata {
         content: &AnyMessageLikeEventContent,
         remote_ctx: Option<RemoteEventContext<'_>>,
         timeline_items: &Vector<Arc<TimelineItem>>,
+        timeline_focus: &TimelineFocusKind,
     ) -> (Option<InReplyToDetails>, Option<OwnedEventId>) {
         match content {
             AnyMessageLikeEventContent::Sticker(content) => {
                 let (in_reply_to, thread_root) = Self::extract_reply_and_thread_root(
                     content.relates_to.clone().and_then(|rel| rel.try_into().ok()),
                     timeline_items,
+                    timeline_focus,
                 );
 
                 if let Some(event_id) = remote_ctx.map(|ctx| ctx.event_id) {
@@ -359,8 +368,11 @@ impl TimelineMetadata {
             AnyMessageLikeEventContent::UnstablePollStart(UnstablePollStartEventContent::New(
                 c,
             )) => {
-                let (in_reply_to, thread_root) =
-                    Self::extract_reply_and_thread_root(c.relates_to.clone(), timeline_items);
+                let (in_reply_to, thread_root) = Self::extract_reply_and_thread_root(
+                    c.relates_to.clone(),
+                    timeline_items,
+                    timeline_focus,
+                );
 
                 // Record the bundled edit in the aggregations set, if any.
                 if let Some(ctx) = remote_ctx {
@@ -398,6 +410,7 @@ impl TimelineMetadata {
                 let (in_reply_to, thread_root) = Self::extract_reply_and_thread_root(
                     msg.relates_to.clone().and_then(|rel| rel.try_into().ok()),
                     timeline_items,
+                    timeline_focus,
                 );
 
                 // Record the bundled edit in the aggregations set, if any.
@@ -441,6 +454,7 @@ impl TimelineMetadata {
     fn extract_reply_and_thread_root(
         relates_to: Option<RelationWithoutReplacement>,
         timeline_items: &Vector<Arc<TimelineItem>>,
+        timeline_focus: &TimelineFocusKind,
     ) -> (Option<InReplyToDetails>, Option<OwnedEventId>) {
         let mut thread_root = None;
 
@@ -450,9 +464,25 @@ impl TimelineMetadata {
             }
             RelationWithoutReplacement::Thread(thread) => {
                 thread_root = Some(thread.event_id);
-                thread
-                    .in_reply_to
-                    .map(|in_reply_to| InReplyToDetails::new(in_reply_to.event_id, timeline_items))
+
+                if matches!(timeline_focus, TimelineFocusKind::Thread { .. })
+                    && thread.is_falling_back
+                {
+                    // In general, a threaded event is marked as a response to the previous message
+                    // in the thread, to maintain backwards compatibility with clients not
+                    // supporting threads.
+                    //
+                    // But we can have actual replies to other in-thread events. The
+                    // `is_falling_back` bool helps distinguishing both use cases.
+                    //
+                    // If this timeline is thread-focused, we only mark non-falling-back replies as
+                    // actual in-thread replies.
+                    None
+                } else {
+                    thread.in_reply_to.map(|in_reply_to| {
+                        InReplyToDetails::new(in_reply_to.event_id, timeline_items)
+                    })
+                }
             }
             _ => None,
         });

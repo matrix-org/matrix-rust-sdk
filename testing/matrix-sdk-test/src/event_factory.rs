@@ -345,11 +345,19 @@ impl EventBuilder<RoomMessageEventContent> {
         self
     }
 
-    /// Adds a thread relation to the root event, setting the latest thread
-    /// event id too.
+    /// Adds a thread relation to the root event, setting the reply fallback to
+    /// the latest in-thread event.
     pub fn in_thread(mut self, root: &EventId, latest_thread_event: &EventId) -> Self {
         self.content.relates_to =
             Some(Relation::Thread(Thread::plain(root.to_owned(), latest_thread_event.to_owned())));
+        self
+    }
+
+    /// Adds a thread relation to the root event, that's a non-fallback reply to
+    /// another thread event.
+    pub fn in_thread_reply(mut self, root: &EventId, replied_to: &EventId) -> Self {
+        self.content.relates_to =
+            Some(Relation::Thread(Thread::reply(root.to_owned(), replied_to.to_owned())));
         self
     }
 

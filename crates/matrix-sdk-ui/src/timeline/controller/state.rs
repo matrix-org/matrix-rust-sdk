@@ -165,7 +165,7 @@ impl TimelineState {
         let mut date_divider_adjuster = DateDividerAdjuster::new(date_divider_mode);
 
         let (in_reply_to, thread_root) =
-            txn.meta.process_content_relations(&content, None, &txn.items);
+            txn.meta.process_content_relations(&content, None, &txn.items, &txn.timeline_focus);
 
         // TODO merge with other should_add, one way or another?
         let should_add_new_items = match &txn.timeline_focus {
