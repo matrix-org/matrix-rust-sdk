@@ -292,10 +292,10 @@ pub fn check_room_upgrades(
 
     let mut room_updates = room_updates
         .iter_all_room_ids()
-        // Ignore rooms with no `RoomInfos`.
-        .filter_map(|room_id| context.state_changes.room_infos.get(room_id))
         // Ignore all rooms that have no predecessor **and** no successor.
-        .filter_map(|room_info| {
+        .filter_map(|room_id| {
+            let room_info = context.state_changes.room_infos.get(room_id)?;
+
             let links = Links {
                 predecessor: room_info.base_info.create.as_ref().and_then(|create_event| {
                     Some(create_event.as_original()?.content.predecessor.as_ref()?.room_id.clone())
@@ -634,7 +634,7 @@ mod tests {
 
         let client = logged_in_base_client(None).await;
 
-        // Create all rooms in a misordered way to see if `check_tombstone` will
+        // Create all rooms in a misordered way to see if `check_room_upgrades` will
         // re-order them appropriately.
         {
             let response = response_builder
@@ -690,7 +690,7 @@ mod tests {
                 assert!(rooms.next().is_none());
             }
 
-            // But the algorithm in `check_tombstone` works nicely.
+            // But the algorithm in `check_room_upgrades` works nicely.
             assert!(client.receive_sync_response(response).await.is_ok());
         }
     }
