@@ -626,6 +626,7 @@ impl<'a> TimelineStateTransaction<'a> {
                     &raw,
                     bundled_edit_encryption_info,
                     &self.items,
+                    &self.timeline_focus,
                 );
 
                 let should_add = self.should_add_event_item(

@@ -102,7 +102,7 @@ async fn test_thread_backpagination() {
         factory
             .text_msg("Threaded event 4")
             .event_id(event_id!("$4"))
-            .in_thread(&thread_root_event_id, event_id!("$3"))
+            .in_thread_reply(&thread_root_event_id, event_id!("$2"))
             .into_raw_sync()
             .cast(),
         factory
@@ -159,14 +159,17 @@ async fn test_thread_backpagination() {
     assert_eq!(items.len(), 2 + 1); //  A date divider + the 2 events
     assert!(items[0].is_date_divider());
 
-    assert_eq!(
-        items[1].as_event().unwrap().content().as_message().unwrap().body(),
-        "Threaded event 3"
-    );
-    assert_eq!(
-        items[2].as_event().unwrap().content().as_message().unwrap().body(),
-        "Threaded event 4"
-    );
+    let event_item = items[1].as_event().unwrap();
+    assert_eq!(event_item.content().as_message().unwrap().body(), "Threaded event 3");
+    // In a threaded timeline, threads aren't using the reply fallback, unless
+    // they're an actual reply to another thread event.
+    assert_matches!(event_item.content().in_reply_to(), None);
+
+    let event_item = items[2].as_event().unwrap();
+    assert_eq!(event_item.content().as_message().unwrap().body(), "Threaded event 4");
+    // But this one is an actual reply to another thread event, so it has the
+    // replied-to event correctly set.
+    assert_eq!(event_item.content().in_reply_to().unwrap().event_id, event_id!("$2"));
 
     let hit_start = timeline.paginate_backwards(100).await.unwrap();
     assert!(hit_start);
@@ -181,12 +184,12 @@ async fn test_thread_backpagination() {
     assert_let!(VectorDiff::PushFront { value } = &timeline_updates[0]);
     let event_item = value.as_event().unwrap();
     assert_eq!(event_item.event_id().unwrap(), event_id!("$2"));
-    assert_eq!(event_item.content().in_reply_to().unwrap().event_id, event_id!("$1"));
+    assert_matches!(event_item.content().in_reply_to(), None);
 
     assert_let!(VectorDiff::PushFront { value } = &timeline_updates[1]);
     let event_item = value.as_event().unwrap();
     assert_eq!(event_item.event_id().unwrap(), event_id!("$1"));
-    assert_eq!(event_item.content().in_reply_to().unwrap().event_id, event_id!("$root"));
+    assert_matches!(event_item.content().in_reply_to(), None);
 
     assert_let!(VectorDiff::PushFront { value } = &timeline_updates[2]);
     assert_eq!(value.as_event().unwrap().event_id().unwrap(), event_id!("$root"));
