@@ -291,7 +291,7 @@ pub fn check_tombstone(
                 break;
             };
 
-            // Look up a subsequent replacement room in `room_updates`.
+            // Look up for the replacement room in the `room_updates`.
             let (next_room_id, next_replacement_room_id) = if let Some(next_replacement_room_id) =
                 room_updates.remove(&replacement_room_id)
             {
