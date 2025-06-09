@@ -1,0 +1,17 @@
+[package]
+name = "matrix-sdk-ffi-web"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+matrix-sdk-ffi = { path = "../matrix-sdk-ffi/", features = ["js"] }
+uniffi = { workspace = true }
+
+[build-dependencies]
+uniffi = { workspace = true, features = ["build"] }
+
+[dev-dependencies]
+uniffi = { workspace = true, features = ["bindgen-tests"] }
+
+[lib]
+crate-type = ["lib", "staticlib", "cdylib"]
