@@ -56,7 +56,7 @@ pub struct IndexedChunk {
 pub struct IndexedChunkIdKey(IndexedRoomId, IndexedChunkId);
 
 pub type IndexedRoomId = String;
-pub type IndexedChunkId = String;
+pub type IndexedChunkId = u64;
 pub type IndexedChunkContent = MaybeEncrypted;
 
 /// Represents the [`EVENTS`][1] object store.
