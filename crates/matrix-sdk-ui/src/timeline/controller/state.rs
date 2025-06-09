@@ -160,8 +160,6 @@ impl TimelineState {
         send_handle: Option<SendHandle>,
         content: AnyMessageLikeEventContent,
     ) {
-        let timeline_focus = self.timeline_focus.clone();
-
         let mut txn = self.transaction();
 
         let mut date_divider_adjuster = DateDividerAdjuster::new(date_divider_mode);
@@ -169,7 +167,20 @@ impl TimelineState {
         let (in_reply_to, thread_root) =
             txn.meta.process_content_relations(&content, None, &txn.items);
 
-        let should_add_new_items = Self::should_add_event_item(&timeline_focus, &thread_root);
+        // TODO merge with other should_add, one way or another?
+        let should_add_new_items = match &txn.timeline_focus {
+            TimelineFocusKind::Live { hide_threaded_events } => {
+                thread_root.is_none() || !hide_threaded_events
+            }
+            TimelineFocusKind::Thread { root_event_id } => {
+                thread_root.as_ref().is_some_and(|r| r == root_event_id)
+            }
+            TimelineFocusKind::Event { .. } | TimelineFocusKind::PinnedEvents => {
+                // Don't add new items to these timelines; aggregations are added independently
+                // of the `should_add_new_items` value.
+                false
+            }
+        };
 
         let ctx = TimelineEventContext {
             sender: own_user_id,
@@ -192,23 +203,6 @@ impl TimelineState {
         }
 
         txn.commit();
-    }
-
-    fn should_add_event_item(
-        timeline_focus: &TimelineFocusKind,
-        thread_root: &Option<OwnedEventId>,
-    ) -> bool {
-        match &timeline_focus {
-            TimelineFocusKind::Live { hide_threaded_events } => {
-                thread_root.is_none() || thread_root.is_some() && !hide_threaded_events
-            }
-
-            TimelineFocusKind::Thread { root_event_id } => {
-                thread_root.as_ref().is_some_and(|r| r == root_event_id)
-            }
-
-            TimelineFocusKind::Event { .. } | TimelineFocusKind::PinnedEvents => false,
-        }
     }
 
     pub(super) async fn retry_event_decryption<P: RoomDataProvider, Fut>(

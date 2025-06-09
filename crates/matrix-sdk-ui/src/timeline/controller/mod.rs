@@ -1363,10 +1363,7 @@ impl<P: RoomDataProvider, D: Decryptor> TimelineController<P, D> {
         &self,
         event: TimelineEvent,
     ) -> Result<Option<EmbeddedEvent>, Error> {
-        // Reborrow, to avoid that the automatic deref borrows the entire guard (and we
-        // can't borrow both items and meta).
-        let state = &*self.state.write().await;
-
+        let state = self.state.read().await;
         EmbeddedEvent::try_from_timeline_event(event, &self.room_data_provider, &state.meta).await
     }
 }
@@ -1597,7 +1594,7 @@ async fn fetch_replied_to_event(
     trace!("Fetching replied-to event");
     let res = match room.load_or_fetch_event(in_reply_to, None).await {
         Ok(timeline_event) => {
-            let state = &*state_lock.write().await;
+            let state = state_lock.read().await;
 
             let replied_to_item =
                 EmbeddedEvent::try_from_timeline_event(timeline_event, room, &state.meta).await?;
