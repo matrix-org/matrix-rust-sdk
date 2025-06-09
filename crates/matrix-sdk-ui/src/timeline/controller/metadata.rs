@@ -376,28 +376,26 @@ impl TimelineMetadata {
 
                 // Record the bundled edit in the aggregations set, if any.
                 if let Some(ctx) = remote_ctx {
-                    if let Some(new_content) = extract_poll_edit_content(ctx.relations) {
-                        // It is replacing the current event.
-                        if let Some(edit_event_id) =
-                            ctx.raw_event.get_field::<OwnedEventId>("event_id").ok().flatten()
-                        {
-                            let edit_json = extract_bundled_edit_event_json(ctx.raw_event);
-                            let aggregation = Aggregation::new(
-                                TimelineEventItemId::EventId(edit_event_id),
-                                AggregationKind::Edit(PendingEdit {
-                                    kind: PendingEditKind::Poll(Replacement::new(
-                                        ctx.event_id.to_owned(),
-                                        new_content,
-                                    )),
-                                    edit_json,
-                                    encryption_info: ctx.bundled_edit_encryption_info,
-                                }),
-                            );
-                            self.aggregations.add(
-                                TimelineEventItemId::EventId(ctx.event_id.to_owned()),
-                                aggregation,
-                            );
-                        }
+                    // Extract a potentially bundled edit.
+                    if let Some((edit_event_id, new_content)) =
+                        extract_poll_edit_content(ctx.relations)
+                    {
+                        let edit_json = extract_bundled_edit_event_json(ctx.raw_event);
+                        let aggregation = Aggregation::new(
+                            TimelineEventItemId::EventId(edit_event_id),
+                            AggregationKind::Edit(PendingEdit {
+                                kind: PendingEditKind::Poll(Replacement::new(
+                                    ctx.event_id.to_owned(),
+                                    new_content,
+                                )),
+                                edit_json,
+                                encryption_info: ctx.bundled_edit_encryption_info,
+                            }),
+                        );
+                        self.aggregations.add(
+                            TimelineEventItemId::EventId(ctx.event_id.to_owned()),
+                            aggregation,
+                        );
                     }
 
                     self.mark_response(ctx.event_id, in_reply_to.as_ref());
@@ -415,28 +413,26 @@ impl TimelineMetadata {
 
                 // Record the bundled edit in the aggregations set, if any.
                 if let Some(ctx) = remote_ctx {
-                    if let Some(new_content) = extract_room_msg_edit_content(ctx.relations) {
-                        // It is replacing the current event.
-                        if let Some(edit_event_id) =
-                            ctx.raw_event.get_field::<OwnedEventId>("event_id").ok().flatten()
-                        {
-                            let edit_json = extract_bundled_edit_event_json(ctx.raw_event);
-                            let aggregation = Aggregation::new(
-                                TimelineEventItemId::EventId(edit_event_id),
-                                AggregationKind::Edit(PendingEdit {
-                                    kind: PendingEditKind::RoomMessage(Replacement::new(
-                                        ctx.event_id.to_owned(),
-                                        new_content,
-                                    )),
-                                    edit_json,
-                                    encryption_info: ctx.bundled_edit_encryption_info,
-                                }),
-                            );
-                            self.aggregations.add(
-                                TimelineEventItemId::EventId(ctx.event_id.to_owned()),
-                                aggregation,
-                            );
-                        }
+                    // Extract a potentially bundled edit.
+                    if let Some((edit_event_id, new_content)) =
+                        extract_room_msg_edit_content(ctx.relations)
+                    {
+                        let edit_json = extract_bundled_edit_event_json(ctx.raw_event);
+                        let aggregation = Aggregation::new(
+                            TimelineEventItemId::EventId(edit_event_id),
+                            AggregationKind::Edit(PendingEdit {
+                                kind: PendingEditKind::RoomMessage(Replacement::new(
+                                    ctx.event_id.to_owned(),
+                                    new_content,
+                                )),
+                                edit_json,
+                                encryption_info: ctx.bundled_edit_encryption_info,
+                            }),
+                        );
+                        self.aggregations.add(
+                            TimelineEventItemId::EventId(ctx.event_id.to_owned()),
+                            aggregation,
+                        );
                     }
 
                     self.mark_response(ctx.event_id, in_reply_to.as_ref());

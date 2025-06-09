@@ -638,6 +638,9 @@ fn resolve_edits(
 }
 
 /// Apply the selected edit to the given EventTimelineItem.
+///
+/// Returns true if the edit was applied, false otherwise (because the edit and
+/// original timeline item types didn't match, for instance).
 fn edit_item(item: &mut Cow<'_, EventTimelineItem>, edit: PendingEdit) -> bool {
     let PendingEdit { kind: edit_kind, edit_json, encryption_info } = edit;
 
