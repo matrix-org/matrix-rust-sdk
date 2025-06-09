@@ -18,7 +18,6 @@
 use matrix_sdk_common::store_locks::LockStoreError;
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk_crypto::{CryptoStoreError, MegolmError, OlmError};
-use ruma::OwnedRoomId;
 use thiserror::Error;
 
 use crate::event_cache::store::EventCacheStoreError;
@@ -81,59 +80,4 @@ pub enum Error {
     /// There was a [`serde_json`] deserialization error.
     #[error(transparent)]
     DeserializationError(#[from] serde_json::error::Error),
-
-    /// Tombstoned rooms are creating a loop, or a merger.
-    ///
-    /// The shortest loop is a room upgrading/replacing itself:
-    ///
-    /// ```text
-    /// m.room.tombstone
-    /// replaced by room A
-    /// ┌──────────────┐
-    /// │              │
-    /// │  ┌────────┐  │
-    /// └──┤ room A ◄──┘
-    ///    └────────┘
-    /// ```
-    ///
-    /// But a more common case can involve more rooms:
-    ///
-    /// ```text
-    ///      m.room.tombstone
-    ///      replaced by room B
-    ///     ┌───────────────────┐
-    ///     │                   │
-    /// ┌───┴────┐         ┌────▼───┐
-    /// │ room A │         │ room B │
-    /// └───▲────┘         └────┬───┘
-    ///     │                   │
-    ///     └───────────────────┘
-    ///      m.room.tombstone
-    ///      replaced by room A
-    /// ```
-    ///
-    /// A merger is when two rooms are upgrading to the same room:
-    ///
-    /// ```text
-    ///      m.room.tombstone
-    ///      replaced by room C
-    ///      ┌──────────────┐
-    ///      │              │
-    /// ┌────┴───┐          │
-    /// │ room A │          │
-    /// └────────┘     ┌────▼───┐
-    ///                │ room C │
-    /// ┌────────┐     └────▲───┘
-    /// │ room B │          │
-    /// └────┬───┘          │
-    ///      │              │
-    ///      └──────────────┘
-    ///      m.room.tombstone
-    ///      replaced by room C
-    /// ```
-    #[error("inconsistent tombstone room state: a loop or a merger is detected, it includes `{room_in_path:?}`")]
-    InconsistentTombstonedRooms {
-        /// One of the room that is part of the loop, or a merger.
-        room_in_path: OwnedRoomId,
-    },
 }
