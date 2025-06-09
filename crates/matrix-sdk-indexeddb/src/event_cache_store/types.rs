@@ -9,9 +9,9 @@ pub struct Chunk {
     /// [`ChunkIdentifier`](matrix_sdk_base::linked_chunk::ChunkIdentifier).
     pub identifier: u64,
     /// The previous chunk in the list.
-    pub previous: Option<Box<Chunk>>,
+    pub previous: Option<u64>,
     /// The next chunk in the list.
-    pub next: Option<Box<Chunk>>,
+    pub next: Option<u64>,
     /// The type of the chunk.
     pub chunk_type: ChunkType,
 }
