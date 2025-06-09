@@ -63,10 +63,28 @@ impl From<FilterTimelineEventType> for TimelineEventType {
 
 #[derive(uniffi::Enum)]
 pub enum TimelineFocus {
-    Live { hide_threaded_events: bool },
-    Event { event_id: String, num_context_events: u16, hide_threaded_events: bool },
-    Thread { root_event_id: String, num_events: u16 },
-    PinnedEvents { max_events_to_load: u16, max_concurrent_requests: u16 },
+    Live {
+        /// Whether to hide in-thread replies from the live timeline.
+        hide_threaded_events: bool,
+    },
+    Event {
+        /// The initial event to focus on. This is usually the target of a
+        /// permalink.
+        event_id: String,
+        /// The number of context events to load around the focused event.
+        num_context_events: u16,
+        /// Whether to hide in-thread replies from the live timeline.
+        hide_threaded_events: bool,
+    },
+    Thread {
+        /// The thread root event ID to focus on.
+        root_event_id: String,
+        num_events: u16,
+    },
+    PinnedEvents {
+        max_events_to_load: u16,
+        max_concurrent_requests: u16,
+    },
 }
 
 impl TryFrom<TimelineFocus> for matrix_sdk_ui::timeline::TimelineFocus {

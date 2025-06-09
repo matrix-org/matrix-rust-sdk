@@ -393,7 +393,7 @@ impl<'a> TimelineStateTransaction<'a> {
         room_data_provider: &P,
         settings: &TimelineSettings,
         event: &AnySyncTimelineEvent,
-        thread_root: &Option<OwnedEventId>,
+        thread_root: Option<&EventId>,
         position: TimelineItemPosition,
     ) -> bool {
         let room_version = room_data_provider.room_version();
@@ -409,6 +409,8 @@ impl<'a> TimelineStateTransaction<'a> {
             }
 
             TimelineFocusKind::Event { hide_threaded_events } => {
+                // If the timeline's filtering out in-thread events, don't add items for
+                // threaded events.
                 if thread_root.is_some() && *hide_threaded_events {
                     return false;
                 }
@@ -434,10 +436,13 @@ impl<'a> TimelineStateTransaction<'a> {
             }
 
             TimelineFocusKind::Live { hide_threaded_events } => {
-                thread_root.is_none() || thread_root.is_some() && !hide_threaded_events
+                // If the timeline's filtering out in-thread events, don't add items for
+                // threaded events.
+                thread_root.is_none() || !hide_threaded_events
             }
 
             TimelineFocusKind::Thread { root_event_id } => {
+                // Add new items only for the thread root and the thread replies.
                 event.event_id() == root_event_id
                     || thread_root.as_ref().is_some_and(|r| r == root_event_id)
             }
@@ -616,7 +621,7 @@ impl<'a> TimelineStateTransaction<'a> {
             // Classical path: the event is valid, can be deserialized, everything is alright.
             Ok(event) => {
                 let (in_reply_to, thread_root) = self.meta.process_event_relations(
-                    event.clone(),
+                    &event,
                     &raw,
                     bundled_edit_encryption_info,
                     &self.items,
@@ -626,9 +631,10 @@ impl<'a> TimelineStateTransaction<'a> {
                     room_data_provider,
                     settings,
                     &event,
-                    &thread_root,
+                    thread_root.as_deref(),
                     position,
                 );
+
                 (
                     event.event_id().to_owned(),
                     event.sender().to_owned(),

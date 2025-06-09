@@ -49,7 +49,7 @@ use crate::{
 
 /// All parameters to [`TimelineAction::from_content`] that only apply if an
 /// event is a remote echo.
-pub struct RemoteEventContext<'a> {
+pub(crate) struct RemoteEventContext<'a> {
     pub event_id: &'a EventId,
     pub raw_event: &'a Raw<AnySyncTimelineEvent>,
     pub relations: BundledMessageLikeRelations<AnySyncMessageLikeEvent>,
@@ -308,32 +308,34 @@ impl TimelineMetadata {
         }
     }
 
+    /// Extract the content from a remote message-like event and process its
+    /// relations.
     pub(crate) fn process_event_relations(
         &mut self,
-        event: AnySyncTimelineEvent,
+        event: &AnySyncTimelineEvent,
         raw_event: &Raw<AnySyncTimelineEvent>,
         bundled_edit_encryption_info: Option<Arc<EncryptionInfo>>,
         timeline_items: &Vector<Arc<TimelineItem>>,
     ) -> (Option<InReplyToDetails>, Option<OwnedEventId>) {
-        match event {
-            AnySyncTimelineEvent::MessageLike(ev) => match ev.original_content() {
-                Some(content) => {
-                    let remote_ctx = Some(RemoteEventContext {
-                        event_id: ev.event_id(),
-                        raw_event,
-                        relations: ev.relations(),
-                        bundled_edit_encryption_info,
-                    });
-
-                    self.process_content_relations(&content, remote_ctx, timeline_items)
-                }
-
-                None => (None, None),
-            },
-            _ => (None, None),
+        if let AnySyncTimelineEvent::MessageLike(ev) = event {
+            if let Some(content) = ev.original_content() {
+                let remote_ctx = Some(RemoteEventContext {
+                    event_id: ev.event_id(),
+                    raw_event,
+                    relations: ev.relations(),
+                    bundled_edit_encryption_info,
+                });
+                return self.process_content_relations(&content, remote_ctx, timeline_items);
+            }
         }
+        (None, None)
     }
 
+    /// Extracts the in-reply-to details and thread root from the content of a
+    /// message-like event, and take care of internal bookkeeping as well
+    /// (like marking responses).
+    ///
+    /// Returns the in-reply-to details and the thread root event ID, if any.
     pub(crate) fn process_content_relations(
         &mut self,
         content: &AnyMessageLikeEventContent,
@@ -434,6 +436,8 @@ impl TimelineMetadata {
         }
     }
 
+    /// Extracts the in-reply-to details and thread root from a relation, if
+    /// available.
     fn extract_reply_and_thread_root(
         relates_to: Option<RelationWithoutReplacement>,
         timeline_items: &Vector<Arc<TimelineItem>>,
@@ -456,6 +460,7 @@ impl TimelineMetadata {
         (in_reply_to, thread_root)
     }
 
+    /// Mark a message as a response to another message, if it is a reply.
     fn mark_response(&mut self, event_id: &EventId, in_reply_to: Option<&InReplyToDetails>) {
         // If this message is a reply to another message, add an entry in the
         // inverted mapping.
