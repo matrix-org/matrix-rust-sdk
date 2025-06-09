@@ -58,7 +58,7 @@ pub trait EventCacheStore: AsyncTraitDeps {
     /// in-memory. This method aims at forwarding this update inside this store.
     async fn handle_linked_chunk_updates(
         &self,
-        lcid: LinkedChunkId<'_>,
+        linked_chunk_id: LinkedChunkId<'_>,
         updates: Vec<Update<Event, Gap>>,
     ) -> Result<(), Self::Error>;
 
@@ -74,7 +74,7 @@ pub trait EventCacheStore: AsyncTraitDeps {
     #[doc(hidden)]
     async fn load_all_chunks(
         &self,
-        lcid: LinkedChunkId<'_>,
+        linked_chunk_id: LinkedChunkId<'_>,
     ) -> Result<Vec<RawChunk<Event, Gap>>, Self::Error>;
 
     /// Load the last chunk of the `LinkedChunk` holding all events of the room
@@ -83,7 +83,7 @@ pub trait EventCacheStore: AsyncTraitDeps {
     /// This is used to iteratively load events for the `EventCache`.
     async fn load_last_chunk(
         &self,
-        lcid: LinkedChunkId<'_>,
+        linked_chunk_id: LinkedChunkId<'_>,
     ) -> Result<(Option<RawChunk<Event, Gap>>, ChunkIdentifierGenerator), Self::Error>;
 
     /// Load the chunk before the chunk identified by `before_chunk_identifier`
@@ -93,7 +93,7 @@ pub trait EventCacheStore: AsyncTraitDeps {
     /// This is used to iteratively load events for the `EventCache`.
     async fn load_previous_chunk(
         &self,
-        lcid: LinkedChunkId<'_>,
+        linked_chunk_id: LinkedChunkId<'_>,
         before_chunk_identifier: ChunkIdentifier,
     ) -> Result<Option<RawChunk<Event, Gap>>, Self::Error>;
 
@@ -113,7 +113,7 @@ pub trait EventCacheStore: AsyncTraitDeps {
     /// position if there are any.
     async fn filter_duplicated_events(
         &self,
-        lcid: LinkedChunkId<'_>,
+        linked_chunk_id: LinkedChunkId<'_>,
         events: Vec<OwnedEventId>,
     ) -> Result<Vec<(OwnedEventId, Position)>, Self::Error>;
 
@@ -300,32 +300,35 @@ impl<T: EventCacheStore> EventCacheStore for EraseEventCacheStoreError<T> {
 
     async fn handle_linked_chunk_updates(
         &self,
-        lcid: LinkedChunkId<'_>,
+        linked_chunk_id: LinkedChunkId<'_>,
         updates: Vec<Update<Event, Gap>>,
     ) -> Result<(), Self::Error> {
-        self.0.handle_linked_chunk_updates(lcid, updates).await.map_err(Into::into)
+        self.0.handle_linked_chunk_updates(linked_chunk_id, updates).await.map_err(Into::into)
     }
 
     async fn load_all_chunks(
         &self,
-        lcid: LinkedChunkId<'_>,
+        linked_chunk_id: LinkedChunkId<'_>,
     ) -> Result<Vec<RawChunk<Event, Gap>>, Self::Error> {
-        self.0.load_all_chunks(lcid).await.map_err(Into::into)
+        self.0.load_all_chunks(linked_chunk_id).await.map_err(Into::into)
     }
 
     async fn load_last_chunk(
         &self,
-        lcid: LinkedChunkId<'_>,
+        linked_chunk_id: LinkedChunkId<'_>,
     ) -> Result<(Option<RawChunk<Event, Gap>>, ChunkIdentifierGenerator), Self::Error> {
-        self.0.load_last_chunk(lcid).await.map_err(Into::into)
+        self.0.load_last_chunk(linked_chunk_id).await.map_err(Into::into)
     }
 
     async fn load_previous_chunk(
         &self,
-        lcid: LinkedChunkId<'_>,
+        linked_chunk_id: LinkedChunkId<'_>,
         before_chunk_identifier: ChunkIdentifier,
     ) -> Result<Option<RawChunk<Event, Gap>>, Self::Error> {
-        self.0.load_previous_chunk(lcid, before_chunk_identifier).await.map_err(Into::into)
+        self.0
+            .load_previous_chunk(linked_chunk_id, before_chunk_identifier)
+            .await
+            .map_err(Into::into)
     }
 
     async fn clear_all_linked_chunks(&self) -> Result<(), Self::Error> {
@@ -334,10 +337,10 @@ impl<T: EventCacheStore> EventCacheStore for EraseEventCacheStoreError<T> {
 
     async fn filter_duplicated_events(
         &self,
-        lcid: LinkedChunkId<'_>,
+        linked_chunk_id: LinkedChunkId<'_>,
         events: Vec<OwnedEventId>,
     ) -> Result<Vec<(OwnedEventId, Position)>, Self::Error> {
-        self.0.filter_duplicated_events(lcid, events).await.map_err(Into::into)
+        self.0.filter_duplicated_events(linked_chunk_id, events).await.map_err(Into::into)
     }
 
     async fn find_event(

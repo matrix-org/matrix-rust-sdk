@@ -1756,11 +1756,11 @@ mod tests {
         let store = get_event_cache_store().await.expect("creating cache store failed");
 
         let room_id = &DEFAULT_TEST_ROOM_ID;
-        let lcid = LinkedChunkId::Room(room_id);
+        let linked_chunk_id = LinkedChunkId::Room(room_id);
 
         store
             .handle_linked_chunk_updates(
-                lcid,
+                linked_chunk_id,
                 vec![
                     Update::NewItemsChunk {
                         previous: None,
@@ -1783,7 +1783,7 @@ mod tests {
             .await
             .unwrap();
 
-        let mut chunks = store.load_all_chunks(lcid).await.unwrap();
+        let mut chunks = store.load_all_chunks(linked_chunk_id).await.unwrap();
 
         assert_eq!(chunks.len(), 3);
 
@@ -1820,11 +1820,11 @@ mod tests {
         let store = get_event_cache_store().await.expect("creating cache store failed");
 
         let room_id = &DEFAULT_TEST_ROOM_ID;
-        let lcid = LinkedChunkId::Room(room_id);
+        let linked_chunk_id = LinkedChunkId::Room(room_id);
 
         store
             .handle_linked_chunk_updates(
-                lcid,
+                linked_chunk_id,
                 vec![Update::NewGapChunk {
                     previous: None,
                     new: ChunkIdentifier::new(42),
@@ -1835,7 +1835,7 @@ mod tests {
             .await
             .unwrap();
 
-        let mut chunks = store.load_all_chunks(lcid).await.unwrap();
+        let mut chunks = store.load_all_chunks(linked_chunk_id).await.unwrap();
 
         assert_eq!(chunks.len(), 1);
 
@@ -1854,12 +1854,12 @@ mod tests {
         let store = get_event_cache_store().await.expect("creating cache store failed");
 
         let room_id = &DEFAULT_TEST_ROOM_ID;
-        let lcid = LinkedChunkId::Room(room_id);
+        let linked_chunk_id = LinkedChunkId::Room(room_id);
         let event_id = event_id!("$world");
 
         store
             .handle_linked_chunk_updates(
-                lcid,
+                linked_chunk_id,
                 vec![
                     Update::NewItemsChunk {
                         previous: None,
@@ -1882,7 +1882,7 @@ mod tests {
             .await
             .unwrap();
 
-        let mut chunks = store.load_all_chunks(lcid).await.unwrap();
+        let mut chunks = store.load_all_chunks(linked_chunk_id).await.unwrap();
 
         assert_eq!(chunks.len(), 1);
 
@@ -1902,11 +1902,11 @@ mod tests {
         let store = get_event_cache_store().await.expect("creating cache store failed");
 
         let room_id = &DEFAULT_TEST_ROOM_ID;
-        let lcid = LinkedChunkId::Room(room_id);
+        let linked_chunk_id = LinkedChunkId::Room(room_id);
 
         store
             .handle_linked_chunk_updates(
-                lcid,
+                linked_chunk_id,
                 vec![
                     Update::NewGapChunk {
                         previous: None,
@@ -1932,7 +1932,7 @@ mod tests {
             .await
             .unwrap();
 
-        let mut chunks = store.load_all_chunks(lcid).await.unwrap();
+        let mut chunks = store.load_all_chunks(linked_chunk_id).await.unwrap();
 
         assert_eq!(chunks.len(), 2);
 
@@ -1979,11 +1979,11 @@ mod tests {
         let store = get_event_cache_store().await.expect("creating cache store failed");
 
         let room_id = &DEFAULT_TEST_ROOM_ID;
-        let lcid = LinkedChunkId::Room(room_id);
+        let linked_chunk_id = LinkedChunkId::Room(room_id);
 
         store
             .handle_linked_chunk_updates(
-                lcid,
+                linked_chunk_id,
                 vec![
                     Update::NewItemsChunk {
                         previous: None,
@@ -2006,7 +2006,7 @@ mod tests {
             .await
             .unwrap();
 
-        let mut chunks = store.load_all_chunks(lcid).await.unwrap();
+        let mut chunks = store.load_all_chunks(linked_chunk_id).await.unwrap();
 
         assert_eq!(chunks.len(), 1);
 
@@ -2028,11 +2028,11 @@ mod tests {
         let store = get_event_cache_store().await.expect("creating cache store failed");
 
         let room_id = *DEFAULT_TEST_ROOM_ID;
-        let lcid = LinkedChunkId::Room(room_id);
+        let linked_chunk_id = LinkedChunkId::Room(room_id);
 
         store
             .handle_linked_chunk_updates(
-                lcid,
+                linked_chunk_id,
                 vec![
                     Update::NewItemsChunk {
                         previous: None,
@@ -2058,7 +2058,7 @@ mod tests {
             .await
             .unwrap();
 
-        let mut chunks = store.load_all_chunks(lcid).await.unwrap();
+        let mut chunks = store.load_all_chunks(linked_chunk_id).await.unwrap();
 
         assert_eq!(chunks.len(), 1);
 
@@ -2083,7 +2083,7 @@ mod tests {
             .with_transaction(move |txn| {
                 txn.query_row(
                     "SELECT COUNT(*) FROM event_chunks WHERE chunk_id = 42 AND linked_chunk_id = ? AND position IN (2, 3, 4)",
-                    (store.encode_key(keys::LINKED_CHUNKS, lcid.storage_key()),),
+                    (store.encode_key(keys::LINKED_CHUNKS, linked_chunk_id.storage_key()),),
                     |row| row.get(0),
                 )
             })
@@ -2097,11 +2097,11 @@ mod tests {
         let store = get_event_cache_store().await.expect("creating cache store failed");
 
         let room_id = *DEFAULT_TEST_ROOM_ID;
-        let lcid = LinkedChunkId::Room(room_id);
+        let linked_chunk_id = LinkedChunkId::Room(room_id);
 
         store
             .handle_linked_chunk_updates(
-                lcid,
+                linked_chunk_id,
                 vec![
                     Update::NewItemsChunk {
                         previous: None,
@@ -2122,7 +2122,7 @@ mod tests {
             .await
             .unwrap();
 
-        let mut chunks = store.load_all_chunks(lcid).await.unwrap();
+        let mut chunks = store.load_all_chunks(linked_chunk_id).await.unwrap();
 
         assert_eq!(chunks.len(), 1);
 
@@ -2141,14 +2141,14 @@ mod tests {
         let store = get_event_cache_store().await.expect("creating cache store failed");
 
         let room_id = *DEFAULT_TEST_ROOM_ID;
-        let lcid = LinkedChunkId::Room(room_id);
+        let linked_chunk_id = LinkedChunkId::Room(room_id);
 
         // Same updates and checks as test_linked_chunk_push_items, but with extra
         // `StartReattachItems` and `EndReattachItems` updates, which must have no
         // effects.
         store
             .handle_linked_chunk_updates(
-                lcid,
+                linked_chunk_id,
                 vec![
                     Update::NewItemsChunk {
                         previous: None,
@@ -2170,7 +2170,7 @@ mod tests {
             .await
             .unwrap();
 
-        let mut chunks = store.load_all_chunks(lcid).await.unwrap();
+        let mut chunks = store.load_all_chunks(linked_chunk_id).await.unwrap();
 
         assert_eq!(chunks.len(), 1);
 
@@ -2191,14 +2191,14 @@ mod tests {
         let store = get_event_cache_store().await.expect("creating cache store failed");
 
         let room_id = *DEFAULT_TEST_ROOM_ID;
-        let lcid = LinkedChunkId::Room(room_id);
+        let linked_chunk_id = LinkedChunkId::Room(room_id);
         let event_0 = make_test_event(room_id, "hello");
         let event_1 = make_test_event(room_id, "world");
         let event_2 = make_test_event(room_id, "howdy");
 
         store
             .handle_linked_chunk_updates(
-                lcid,
+                linked_chunk_id,
                 vec![
                     Update::NewItemsChunk {
                         previous: None,
@@ -2221,7 +2221,7 @@ mod tests {
             .await
             .unwrap();
 
-        let chunks = store.load_all_chunks(lcid).await.unwrap();
+        let chunks = store.load_all_chunks(linked_chunk_id).await.unwrap();
         assert!(chunks.is_empty());
 
         // Check that cascading worked. Yes, SQLite, I doubt you.
@@ -2248,7 +2248,7 @@ mod tests {
         // It's okay to re-insert a past event.
         store
             .handle_linked_chunk_updates(
-                lcid,
+                linked_chunk_id,
                 vec![
                     Update::NewItemsChunk {
                         previous: None,
@@ -2270,16 +2270,16 @@ mod tests {
         let store = get_event_cache_store().await.expect("creating cache store failed");
 
         let room1 = room_id!("!realcheeselovers:raclette.fr");
-        let lcid1 = LinkedChunkId::Room(room1);
+        let linked_chunk_id1 = LinkedChunkId::Room(room1);
         let room2 = room_id!("!realcheeselovers:fondue.ch");
-        let lcid2 = LinkedChunkId::Room(room2);
+        let linked_chunk_id2 = LinkedChunkId::Room(room2);
 
         // Check that applying updates to one room doesn't affect the others.
         // Use the same chunk identifier in both rooms to battle-test search.
 
         store
             .handle_linked_chunk_updates(
-                lcid1,
+                linked_chunk_id1,
                 vec![
                     Update::NewItemsChunk {
                         previous: None,
@@ -2300,7 +2300,7 @@ mod tests {
 
         store
             .handle_linked_chunk_updates(
-                lcid2,
+                linked_chunk_id2,
                 vec![
                     Update::NewItemsChunk {
                         previous: None,
@@ -2317,7 +2317,7 @@ mod tests {
             .unwrap();
 
         // Check chunks from room 1.
-        let mut chunks_room1 = store.load_all_chunks(lcid1).await.unwrap();
+        let mut chunks_room1 = store.load_all_chunks(linked_chunk_id1).await.unwrap();
         assert_eq!(chunks_room1.len(), 1);
 
         let c = chunks_room1.remove(0);
@@ -2328,7 +2328,7 @@ mod tests {
         });
 
         // Check chunks from room 2.
-        let mut chunks_room2 = store.load_all_chunks(lcid2).await.unwrap();
+        let mut chunks_room2 = store.load_all_chunks(linked_chunk_id2).await.unwrap();
         assert_eq!(chunks_room2.len(), 1);
 
         let c = chunks_room2.remove(0);
@@ -2343,13 +2343,13 @@ mod tests {
         let store = get_event_cache_store().await.expect("creating cache store failed");
 
         let room_id = *DEFAULT_TEST_ROOM_ID;
-        let lcid = LinkedChunkId::Room(room_id);
+        let linked_chunk_id = LinkedChunkId::Room(room_id);
 
         // Trigger a violation of the unique constraint on the (room id, chunk id)
         // couple.
         let err = store
             .handle_linked_chunk_updates(
-                lcid,
+                linked_chunk_id,
                 vec![
                     Update::NewItemsChunk {
                         previous: None,
@@ -2374,7 +2374,7 @@ mod tests {
         // If the updates have been handled transactionally, then no new chunks should
         // have been added; failure of the second update leads to the first one being
         // rolled back.
-        let chunks = store.load_all_chunks(lcid).await.unwrap();
+        let chunks = store.load_all_chunks(linked_chunk_id).await.unwrap();
         assert!(chunks.is_empty());
     }
 
@@ -2383,22 +2383,22 @@ mod tests {
         let store = get_event_cache_store().await.expect("creating cache store failed");
 
         let room_id = *DEFAULT_TEST_ROOM_ID;
-        let lcid = LinkedChunkId::Room(room_id);
-        let duplicates = store.filter_duplicated_events(lcid, Vec::new()).await.unwrap();
+        let linked_chunk_id = LinkedChunkId::Room(room_id);
+        let duplicates = store.filter_duplicated_events(linked_chunk_id, Vec::new()).await.unwrap();
         assert!(duplicates.is_empty());
     }
 
     #[async_test]
     async fn test_load_last_chunk() {
         let room_id = room_id!("!r0:matrix.org");
-        let lcid = LinkedChunkId::Room(room_id);
+        let linked_chunk_id = LinkedChunkId::Room(room_id);
         let event = |msg: &str| make_test_event(room_id, msg);
         let store = get_event_cache_store().await.expect("creating cache store failed");
 
         // Case #1: no last chunk.
         {
             let (last_chunk, chunk_identifier_generator) =
-                store.load_last_chunk(lcid).await.unwrap();
+                store.load_last_chunk(linked_chunk_id).await.unwrap();
 
             assert!(last_chunk.is_none());
             assert_eq!(chunk_identifier_generator.current(), 0);
@@ -2408,7 +2408,7 @@ mod tests {
         {
             store
                 .handle_linked_chunk_updates(
-                    lcid,
+                    linked_chunk_id,
                     vec![
                         Update::NewItemsChunk {
                             previous: None,
@@ -2425,7 +2425,7 @@ mod tests {
                 .unwrap();
 
             let (last_chunk, chunk_identifier_generator) =
-                store.load_last_chunk(lcid).await.unwrap();
+                store.load_last_chunk(linked_chunk_id).await.unwrap();
 
             assert_matches!(last_chunk, Some(last_chunk) => {
                 assert_eq!(last_chunk.identifier, 42);
@@ -2444,7 +2444,7 @@ mod tests {
         {
             store
                 .handle_linked_chunk_updates(
-                    lcid,
+                    linked_chunk_id,
                     vec![
                         Update::NewItemsChunk {
                             previous: Some(ChunkIdentifier::new(42)),
@@ -2461,7 +2461,7 @@ mod tests {
                 .unwrap();
 
             let (last_chunk, chunk_identifier_generator) =
-                store.load_last_chunk(lcid).await.unwrap();
+                store.load_last_chunk(linked_chunk_id).await.unwrap();
 
             assert_matches!(last_chunk, Some(last_chunk) => {
                 assert_eq!(last_chunk.identifier, 7);
@@ -2483,12 +2483,12 @@ mod tests {
     #[async_test]
     async fn test_load_last_chunk_with_a_cycle() {
         let room_id = room_id!("!r0:matrix.org");
-        let lcid = LinkedChunkId::Room(room_id);
+        let linked_chunk_id = LinkedChunkId::Room(room_id);
         let store = get_event_cache_store().await.expect("creating cache store failed");
 
         store
             .handle_linked_chunk_updates(
-                lcid,
+                linked_chunk_id,
                 vec![
                     Update::NewItemsChunk {
                         previous: None,
@@ -2508,21 +2508,23 @@ mod tests {
             .await
             .unwrap();
 
-        store.load_last_chunk(lcid).await.unwrap_err();
+        store.load_last_chunk(linked_chunk_id).await.unwrap_err();
     }
 
     #[async_test]
     async fn test_load_previous_chunk() {
         let room_id = room_id!("!r0:matrix.org");
-        let lcid = LinkedChunkId::Room(room_id);
+        let linked_chunk_id = LinkedChunkId::Room(room_id);
         let event = |msg: &str| make_test_event(room_id, msg);
         let store = get_event_cache_store().await.expect("creating cache store failed");
 
         // Case #1: no chunk at all, equivalent to having an nonexistent
         // `before_chunk_identifier`.
         {
-            let previous_chunk =
-                store.load_previous_chunk(lcid, ChunkIdentifier::new(153)).await.unwrap();
+            let previous_chunk = store
+                .load_previous_chunk(linked_chunk_id, ChunkIdentifier::new(153))
+                .await
+                .unwrap();
 
             assert!(previous_chunk.is_none());
         }
@@ -2532,7 +2534,7 @@ mod tests {
         {
             store
                 .handle_linked_chunk_updates(
-                    lcid,
+                    linked_chunk_id,
                     vec![Update::NewItemsChunk {
                         previous: None,
                         new: ChunkIdentifier::new(42),
@@ -2543,7 +2545,7 @@ mod tests {
                 .unwrap();
 
             let previous_chunk =
-                store.load_previous_chunk(lcid, ChunkIdentifier::new(42)).await.unwrap();
+                store.load_previous_chunk(linked_chunk_id, ChunkIdentifier::new(42)).await.unwrap();
 
             assert!(previous_chunk.is_none());
         }
@@ -2552,7 +2554,7 @@ mod tests {
         {
             store
                 .handle_linked_chunk_updates(
-                    lcid,
+                    linked_chunk_id,
                     vec![
                         // new chunk before the one that exists.
                         Update::NewItemsChunk {
@@ -2570,7 +2572,7 @@ mod tests {
                 .unwrap();
 
             let previous_chunk =
-                store.load_previous_chunk(lcid, ChunkIdentifier::new(42)).await.unwrap();
+                store.load_previous_chunk(linked_chunk_id, ChunkIdentifier::new(42)).await.unwrap();
 
             assert_matches!(previous_chunk, Some(previous_chunk) => {
                 assert_eq!(previous_chunk.identifier, 7);

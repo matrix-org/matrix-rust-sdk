@@ -128,46 +128,46 @@ impl EventCacheStore for MemoryStore {
 
     async fn handle_linked_chunk_updates(
         &self,
-        lcid: LinkedChunkId<'_>,
+        linked_chunk_id: LinkedChunkId<'_>,
         updates: Vec<Update<Event, Gap>>,
     ) -> Result<(), Self::Error> {
         let mut inner = self.inner.write().unwrap();
-        inner.events.apply_updates(lcid, updates);
+        inner.events.apply_updates(linked_chunk_id, updates);
 
         Ok(())
     }
 
     async fn load_all_chunks(
         &self,
-        lcid: LinkedChunkId<'_>,
+        linked_chunk_id: LinkedChunkId<'_>,
     ) -> Result<Vec<RawChunk<Event, Gap>>, Self::Error> {
         let inner = self.inner.read().unwrap();
         inner
             .events
-            .load_all_chunks(lcid)
+            .load_all_chunks(linked_chunk_id)
             .map_err(|err| EventCacheStoreError::InvalidData { details: err })
     }
 
     async fn load_last_chunk(
         &self,
-        lcid: LinkedChunkId<'_>,
+        linked_chunk_id: LinkedChunkId<'_>,
     ) -> Result<(Option<RawChunk<Event, Gap>>, ChunkIdentifierGenerator), Self::Error> {
         let inner = self.inner.read().unwrap();
         inner
             .events
-            .load_last_chunk(lcid)
+            .load_last_chunk(linked_chunk_id)
             .map_err(|err| EventCacheStoreError::InvalidData { details: err })
     }
 
     async fn load_previous_chunk(
         &self,
-        lcid: LinkedChunkId<'_>,
+        linked_chunk_id: LinkedChunkId<'_>,
         before_chunk_identifier: ChunkIdentifier,
     ) -> Result<Option<RawChunk<Event, Gap>>, Self::Error> {
         let inner = self.inner.read().unwrap();
         inner
             .events
-            .load_previous_chunk(lcid, before_chunk_identifier)
+            .load_previous_chunk(linked_chunk_id, before_chunk_identifier)
             .map_err(|err| EventCacheStoreError::InvalidData { details: err })
     }
 
@@ -178,7 +178,7 @@ impl EventCacheStore for MemoryStore {
 
     async fn filter_duplicated_events(
         &self,
-        lcid: LinkedChunkId<'_>,
+        linked_chunk_id: LinkedChunkId<'_>,
         mut events: Vec<OwnedEventId>,
     ) -> Result<Vec<(OwnedEventId, Position)>, Self::Error> {
         // Collect all duplicated events.
@@ -186,7 +186,7 @@ impl EventCacheStore for MemoryStore {
 
         let mut duplicated_events = Vec::new();
 
-        for (event, position) in inner.events.unordered_linked_chunk_items(lcid) {
+        for (event, position) in inner.events.unordered_linked_chunk_items(linked_chunk_id) {
             // If `events` is empty, we can short-circuit.
             if events.is_empty() {
                 break;
@@ -212,8 +212,8 @@ impl EventCacheStore for MemoryStore {
     ) -> Result<Option<Event>, Self::Error> {
         let inner = self.inner.read().unwrap();
 
-        let event = inner.events.items().find_map(|(event, this_lcid)| {
-            (room_id == this_lcid.room_id() && event.event_id()? == event_id)
+        let event = inner.events.items().find_map(|(event, this_linked_chunk_id)| {
+            (room_id == this_linked_chunk_id.room_id() && event.event_id()? == event_id)
                 .then_some(event.clone())
         });
 
@@ -233,9 +233,9 @@ impl EventCacheStore for MemoryStore {
         let related_events = inner
             .events
             .items()
-            .filter_map(|(event, this_lcid)| {
+            .filter_map(|(event, this_linked_chunk_id)| {
                 // Must be in the same room.
-                if room_id != this_lcid.room_id() {
+                if room_id != this_linked_chunk_id.room_id() {
                     return None;
                 }
 

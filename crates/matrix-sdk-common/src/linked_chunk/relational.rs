@@ -209,7 +209,7 @@ where
                         ItemRow { linked_chunk_id: linked_chunk_id_candidate, position, .. },
                     ) in self.items_chunks.iter_mut().enumerate()
                     {
-                        // Filter by room ID.
+                        // Filter by linked chunk id.
                         if linked_chunk_id != &*linked_chunk_id_candidate {
                             continue;
                         }
@@ -367,7 +367,7 @@ where
         }
     }
 
-    /// Return an iterator that yields items of a particular room, in no
+    /// Return an iterator that yields items of a particular linked chunk, in no
     /// particular order.
     pub fn unordered_linked_chunk_items<'a>(
         &'a self,
@@ -387,8 +387,8 @@ where
         })
     }
 
-    /// Return an iterator over all items of all rooms, without their actual
-    /// positions.
+    /// Return an iterator over all items of all room linked chunks, without
+    /// their actual positions.
     ///
     /// This will include out-of-band items.
     pub fn items(&self) -> impl Iterator<Item = (&Item, LinkedChunkId<'_>)> {
@@ -1038,15 +1038,15 @@ mod tests {
     #[test]
     fn test_clear() {
         let r0 = room_id!("!r0:matrix.org");
-        let lcid0 = OwnedLinkedChunkId::Room(r0.to_owned());
+        let linked_chunk_id0 = OwnedLinkedChunkId::Room(r0.to_owned());
 
         let r1 = room_id!("!r1:matrix.org");
-        let lcid1 = OwnedLinkedChunkId::Room(r1.to_owned());
+        let linked_chunk_id1 = OwnedLinkedChunkId::Room(r1.to_owned());
 
         let mut relational_linked_chunk = RelationalLinkedChunk::<_, char, ()>::new();
 
         relational_linked_chunk.apply_updates(
-            lcid0.as_ref(),
+            linked_chunk_id0.as_ref(),
             vec![
                 // new chunk (this is not mandatory for this test, but let's try to be realistic)
                 Update::NewItemsChunk { previous: None, new: CId::new(0), next: None },
@@ -1056,7 +1056,7 @@ mod tests {
         );
 
         relational_linked_chunk.apply_updates(
-            lcid1.as_ref(),
+            linked_chunk_id1.as_ref(),
             vec![
                 // new chunk (this is not mandatory for this test, but let's try to be realistic)
                 Update::NewItemsChunk { previous: None, new: CId::new(0), next: None },
@@ -1070,13 +1070,13 @@ mod tests {
             relational_linked_chunk.chunks,
             &[
                 ChunkRow {
-                    linked_chunk_id: lcid0.to_owned(),
+                    linked_chunk_id: linked_chunk_id0.to_owned(),
                     previous_chunk: None,
                     chunk: CId::new(0),
                     next_chunk: None,
                 },
                 ChunkRow {
-                    linked_chunk_id: lcid1.to_owned(),
+                    linked_chunk_id: linked_chunk_id1.to_owned(),
                     previous_chunk: None,
                     chunk: CId::new(0),
                     next_chunk: None,
@@ -1089,22 +1089,22 @@ mod tests {
             relational_linked_chunk.items_chunks,
             &[
                 ItemRow {
-                    linked_chunk_id: lcid0.to_owned(),
+                    linked_chunk_id: linked_chunk_id0.to_owned(),
                     position: Position::new(CId::new(0), 0),
                     item: Either::Item('a')
                 },
                 ItemRow {
-                    linked_chunk_id: lcid0.to_owned(),
+                    linked_chunk_id: linked_chunk_id0.to_owned(),
                     position: Position::new(CId::new(0), 1),
                     item: Either::Item('b')
                 },
                 ItemRow {
-                    linked_chunk_id: lcid0.to_owned(),
+                    linked_chunk_id: linked_chunk_id0.to_owned(),
                     position: Position::new(CId::new(0), 2),
                     item: Either::Item('c')
                 },
                 ItemRow {
-                    linked_chunk_id: lcid1.to_owned(),
+                    linked_chunk_id: linked_chunk_id1.to_owned(),
                     position: Position::new(CId::new(0), 0),
                     item: Either::Item('x')
                 },
@@ -1112,13 +1112,13 @@ mod tests {
         );
 
         // Now, time for a clean up.
-        relational_linked_chunk.apply_updates(lcid0.as_ref(), vec![Update::Clear]);
+        relational_linked_chunk.apply_updates(linked_chunk_id0.as_ref(), vec![Update::Clear]);
 
         // Only items from r1 remain.
         assert_eq!(
             relational_linked_chunk.chunks,
             &[ChunkRow {
-                linked_chunk_id: lcid1.to_owned(),
+                linked_chunk_id: linked_chunk_id1.to_owned(),
                 previous_chunk: None,
                 chunk: CId::new(0),
                 next_chunk: None,
@@ -1128,7 +1128,7 @@ mod tests {
         assert_eq!(
             relational_linked_chunk.items_chunks,
             &[ItemRow {
-                linked_chunk_id: lcid1.to_owned(),
+                linked_chunk_id: linked_chunk_id1.to_owned(),
                 position: Position::new(CId::new(0), 0),
                 item: Either::Item('x')
             },],
@@ -1263,15 +1263,15 @@ mod tests {
     #[test]
     fn test_unordered_events() {
         let room_id = room_id!("!r0:matrix.org");
-        let lcid = OwnedLinkedChunkId::Room(room_id.to_owned());
+        let linked_chunk_id = OwnedLinkedChunkId::Room(room_id.to_owned());
 
         let other_room_id = room_id!("!r1:matrix.org");
-        let other_lcid = OwnedLinkedChunkId::Room(other_room_id.to_owned());
+        let other_linked_chunk_id = OwnedLinkedChunkId::Room(other_room_id.to_owned());
 
         let mut relational_linked_chunk = RelationalLinkedChunk::<_, char, ()>::new();
 
         relational_linked_chunk.apply_updates(
-            lcid.as_ref(),
+            linked_chunk_id.as_ref(),
             vec![
                 Update::NewItemsChunk { previous: None, new: CId::new(0), next: None },
                 Update::PushItems { at: Position::new(CId::new(0), 0), items: vec!['a', 'b', 'c'] },
@@ -1281,14 +1281,15 @@ mod tests {
         );
 
         relational_linked_chunk.apply_updates(
-            other_lcid.as_ref(),
+            other_linked_chunk_id.as_ref(),
             vec![
                 Update::NewItemsChunk { previous: None, new: CId::new(0), next: None },
                 Update::PushItems { at: Position::new(CId::new(0), 0), items: vec!['x', 'y', 'z'] },
             ],
         );
 
-        let mut events = relational_linked_chunk.unordered_linked_chunk_items(lcid.as_ref());
+        let mut events =
+            relational_linked_chunk.unordered_linked_chunk_items(linked_chunk_id.as_ref());
 
         assert_eq!(events.next().unwrap(), (&'a', Position::new(CId::new(0), 0)));
         assert_eq!(events.next().unwrap(), (&'b', Position::new(CId::new(0), 1)));
@@ -1302,14 +1303,14 @@ mod tests {
     #[test]
     fn test_load_last_chunk() {
         let room_id = room_id!("!r0:matrix.org");
-        let lcid = OwnedLinkedChunkId::Room(room_id.to_owned());
+        let linked_chunk_id = OwnedLinkedChunkId::Room(room_id.to_owned());
 
         let mut relational_linked_chunk = RelationalLinkedChunk::<_, char, ()>::new();
 
         // Case #1: no last chunk.
         {
             let (last_chunk, chunk_identifier_generator) =
-                relational_linked_chunk.load_last_chunk(lcid.as_ref()).unwrap();
+                relational_linked_chunk.load_last_chunk(linked_chunk_id.as_ref()).unwrap();
 
             assert!(last_chunk.is_none());
             assert_eq!(chunk_identifier_generator.current(), 0);
@@ -1318,7 +1319,7 @@ mod tests {
         // Case #2: only one chunk is present.
         {
             relational_linked_chunk.apply_updates(
-                lcid.as_ref(),
+                linked_chunk_id.as_ref(),
                 vec![
                     Update::NewItemsChunk { previous: None, new: CId::new(42), next: None },
                     Update::PushItems { at: Position::new(CId::new(42), 0), items: vec!['a', 'b'] },
@@ -1326,7 +1327,7 @@ mod tests {
             );
 
             let (last_chunk, chunk_identifier_generator) =
-                relational_linked_chunk.load_last_chunk(lcid.as_ref()).unwrap();
+                relational_linked_chunk.load_last_chunk(linked_chunk_id.as_ref()).unwrap();
 
             assert_matches!(last_chunk, Some(last_chunk) => {
                 assert_eq!(last_chunk.identifier, 42);
@@ -1343,7 +1344,7 @@ mod tests {
         // Case #3: more chunks are present.
         {
             relational_linked_chunk.apply_updates(
-                lcid.as_ref(),
+                linked_chunk_id.as_ref(),
                 vec![
                     Update::NewItemsChunk {
                         previous: Some(CId::new(42)),
@@ -1358,7 +1359,7 @@ mod tests {
             );
 
             let (last_chunk, chunk_identifier_generator) =
-                relational_linked_chunk.load_last_chunk(lcid.as_ref()).unwrap();
+                relational_linked_chunk.load_last_chunk(linked_chunk_id.as_ref()).unwrap();
 
             assert_matches!(last_chunk, Some(last_chunk) => {
                 assert_eq!(last_chunk.identifier, 7);
@@ -1378,11 +1379,11 @@ mod tests {
     #[test]
     fn test_load_last_chunk_with_a_cycle() {
         let room_id = room_id!("!r0:matrix.org");
-        let lcid = OwnedLinkedChunkId::Room(room_id.to_owned());
+        let linked_chunk_id = OwnedLinkedChunkId::Room(room_id.to_owned());
         let mut relational_linked_chunk = RelationalLinkedChunk::<_, char, ()>::new();
 
         relational_linked_chunk.apply_updates(
-            lcid.as_ref(),
+            linked_chunk_id.as_ref(),
             vec![
                 Update::NewItemsChunk { previous: None, new: CId::new(0), next: None },
                 Update::NewItemsChunk {
@@ -1396,20 +1397,21 @@ mod tests {
             ],
         );
 
-        relational_linked_chunk.load_last_chunk(lcid.as_ref()).unwrap_err();
+        relational_linked_chunk.load_last_chunk(linked_chunk_id.as_ref()).unwrap_err();
     }
 
     #[test]
     fn test_load_previous_chunk() {
         let room_id = room_id!("!r0:matrix.org");
-        let lcid = OwnedLinkedChunkId::Room(room_id.to_owned());
+        let linked_chunk_id = OwnedLinkedChunkId::Room(room_id.to_owned());
         let mut relational_linked_chunk = RelationalLinkedChunk::<_, char, ()>::new();
 
         // Case #1: no chunk at all, equivalent to having an inexistent
         // `before_chunk_identifier`.
         {
-            let previous_chunk =
-                relational_linked_chunk.load_previous_chunk(lcid.as_ref(), CId::new(153)).unwrap();
+            let previous_chunk = relational_linked_chunk
+                .load_previous_chunk(linked_chunk_id.as_ref(), CId::new(153))
+                .unwrap();
 
             assert!(previous_chunk.is_none());
         }
@@ -1418,12 +1420,13 @@ mod tests {
         // one, it doesn't exist.
         {
             relational_linked_chunk.apply_updates(
-                lcid.as_ref(),
+                linked_chunk_id.as_ref(),
                 vec![Update::NewItemsChunk { previous: None, new: CId::new(42), next: None }],
             );
 
-            let previous_chunk =
-                relational_linked_chunk.load_previous_chunk(lcid.as_ref(), CId::new(42)).unwrap();
+            let previous_chunk = relational_linked_chunk
+                .load_previous_chunk(linked_chunk_id.as_ref(), CId::new(42))
+                .unwrap();
 
             assert!(previous_chunk.is_none());
         }
@@ -1431,7 +1434,7 @@ mod tests {
         // Case #3: there is two chunks.
         {
             relational_linked_chunk.apply_updates(
-                lcid.as_ref(),
+                linked_chunk_id.as_ref(),
                 vec![
                     // new chunk before the one that exists.
                     Update::NewItemsChunk {
@@ -1446,8 +1449,9 @@ mod tests {
                 ],
             );
 
-            let previous_chunk =
-                relational_linked_chunk.load_previous_chunk(lcid.as_ref(), CId::new(42)).unwrap();
+            let previous_chunk = relational_linked_chunk
+                .load_previous_chunk(linked_chunk_id.as_ref(), CId::new(42))
+                .unwrap();
 
             assert_matches!(previous_chunk, Some(previous_chunk) => {
                 assert_eq!(previous_chunk.identifier, 7);
