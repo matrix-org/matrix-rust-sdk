@@ -17,7 +17,10 @@
 
 use std::collections::BTreeSet;
 
-use matrix_sdk_base::{event_cache::store::EventCacheStoreLock, linked_chunk::Position};
+use matrix_sdk_base::{
+    event_cache::store::EventCacheStoreLock,
+    linked_chunk::{LinkedChunkId, Position},
+};
 use ruma::{OwnedEventId, OwnedRoomId};
 
 use super::{
@@ -80,7 +83,7 @@ impl Deduplicator {
         // Let the store do its magic ✨
         let duplicated_event_ids = store
             .filter_duplicated_events(
-                &self.room_id,
+                LinkedChunkId::Room(&self.room_id),
                 events.iter().filter_map(|event| event.event_id()).collect(),
             )
             .await?;
@@ -187,7 +190,7 @@ mod tests {
         // Prefill the store with ev1 and ev2.
         event_cache_store
             .handle_linked_chunk_updates(
-                room_id,
+                LinkedChunkId::Room(room_id),
                 vec![
                     Update::NewItemsChunk {
                         previous: None,
@@ -291,7 +294,7 @@ mod tests {
         // Prefill the store with ev1 and ev2.
         event_cache_store
             .handle_linked_chunk_updates(
-                room_id,
+                LinkedChunkId::Room(room_id),
                 vec![
                     // Non empty items chunk.
                     Update::NewItemsChunk {

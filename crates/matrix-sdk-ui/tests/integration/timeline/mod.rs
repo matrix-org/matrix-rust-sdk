@@ -19,7 +19,7 @@ use assert_matches2::assert_let;
 use eyeball_im::VectorDiff;
 use futures_util::StreamExt;
 use matrix_sdk::{
-    linked_chunk::{ChunkIdentifier, Position, Update},
+    linked_chunk::{ChunkIdentifier, LinkedChunkId, Position, Update},
     test_utils::mocks::MatrixMockServer,
 };
 use matrix_sdk_test::{
@@ -724,7 +724,7 @@ async fn test_timeline_receives_a_limited_number_of_events_when_subscribing() {
         // The event cache contains 30 events.
         event_cache_store
             .handle_linked_chunk_updates(
-                room_id,
+                LinkedChunkId::Room(room_id),
                 vec![
                     Update::NewItemsChunk {
                         previous: None,
