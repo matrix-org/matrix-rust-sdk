@@ -306,7 +306,7 @@ impl SqliteSessionBuilder {
     }
 
     /// Set the passphrase for the stores given to
-    /// [`ClientBuilder::paths`].
+    /// [`SqliteSessionBuilder::paths`].
     pub fn passphrase(self: Arc<Self>, passphrase: Option<String>) -> Arc<Self> {
         let mut builder = unwrap_or_clone_arc(self);
         builder.passphrase = Zeroizing::new(passphrase);
