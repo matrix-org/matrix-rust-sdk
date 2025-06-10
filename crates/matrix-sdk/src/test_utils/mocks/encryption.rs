@@ -17,21 +17,25 @@
 //! tests.
 use std::{
     collections::BTreeMap,
+    future::Future,
     sync::{atomic::Ordering, Arc, Mutex},
 };
 
+use matrix_sdk_test::test_json;
 use ruma::{
-    api::client::keys::upload_signatures::v3::SignedKeys,
+    api::client::{
+        keys::upload_signatures::v3::SignedKeys, to_device::send_event_to_device::v3::Messages,
+    },
     encryption::{CrossSigningKey, DeviceKeys, OneTimeKey},
     owned_device_id, owned_user_id,
     serde::Raw,
-    CrossSigningKeyId, DeviceId, OneTimeKeyAlgorithm, OwnedDeviceId, OwnedOneTimeKeyId,
-    OwnedUserId, UserId,
+    CrossSigningKeyId, DeviceId, MilliSecondsSinceUnixEpoch, OneTimeKeyAlgorithm, OwnedDeviceId,
+    OwnedOneTimeKeyId, OwnedUserId, UserId,
 };
-use serde_json::json;
+use serde_json::{json, Value};
 use wiremock::{
     matchers::{method, path_regex},
-    Mock, Request, ResponseTemplate,
+    Mock, MockGuard, Request, ResponseTemplate,
 };
 
 use crate::{
@@ -177,6 +181,70 @@ impl MatrixMockServer {
             .respond_with(mock_keys_claimed_request(keys.clone()))
             .mount(&self.server)
             .await;
+    }
+
+    /// Creates a response handler for mocking encrypted to-device message
+    /// requests.
+    ///
+    /// This function creates a response handler that captures encrypted
+    /// to-device messages sent via the `/sendToDevice` endpoint.
+    ///
+    /// # Arguments
+    ///
+    /// * `sender` - The user ID of the message sender
+    ///
+    /// # Returns
+    ///
+    /// Returns a tuple containing:
+    /// - A `MockGuard` the end-point mock is scoped to this guard
+    /// - A `Future` that resolves to a `Value` containing the captured
+    ///   encrypted to-device message.
+    pub async fn mock_capture_put_to_device(
+        &self,
+        sender_user_id: &UserId,
+    ) -> (MockGuard, impl Future<Output = Value>) {
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        let tx = Arc::new(Mutex::new(Some(tx)));
+
+        let sender = sender_user_id.to_owned();
+        let guard = Mock::given(method("PUT"))
+            .and(path_regex(r"^/_matrix/client/.*/sendToDevice/m.room.encrypted/.*"))
+            .respond_with(move |req: &Request| {
+                #[derive(Debug, serde::Deserialize)]
+                struct Parameters {
+                    messages: Messages,
+                }
+
+                let params: Parameters = req.body_json().unwrap();
+
+                let (_, device_to_content) = params.messages.first_key_value().unwrap();
+                let content = device_to_content.first_key_value().unwrap().1;
+
+                let event = json!({
+                    "origin_server_ts": MilliSecondsSinceUnixEpoch::now(),
+                    "sender": sender,
+                    "type": "m.room.encrypted",
+                    "content": content,
+                });
+
+                if let Ok(mut guard) = tx.lock() {
+                    if let Some(tx) = guard.take() {
+                        let _ = tx.send(event);
+                    }
+                }
+
+                ResponseTemplate::new(200).set_body_json(&*test_json::EMPTY)
+            })
+            // Should be called once
+            .expect(1)
+            .named("send_to_device")
+            .mount_as_scoped(self.server())
+            .await;
+
+        let future =
+            async move { rx.await.expect("Failed to receive captured value - sender was dropped") };
+
+        (guard, future)
     }
 }
 

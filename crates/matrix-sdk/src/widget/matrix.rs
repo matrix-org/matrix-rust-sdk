@@ -40,10 +40,13 @@ use tokio::sync::{
     broadcast::{error::RecvError, Receiver},
     mpsc::{unbounded_channel, UnboundedReceiver},
 };
-use tracing::{error, warn, trace};
+use tracing::{error, trace, warn};
 
 use super::{machine::SendEventResponse, StateKeySelector};
-use crate::{event_handler::EventHandlerDropGuard, room::MessagesOptions, sync::RoomUpdate, Client, Error, Result, Room};
+use crate::{
+    event_handler::EventHandlerDropGuard, room::MessagesOptions, sync::RoomUpdate, Client, Error,
+    Result, Room,
+};
 
 /// Thin wrapper around a [`Room`] that provides functionality relevant for
 /// widgets.
