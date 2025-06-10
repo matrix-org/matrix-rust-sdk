@@ -29,6 +29,7 @@ use matrix_sdk_test::{
     async_test, event_factory::EventFactory, JoinedRoomBuilder, StateTestEvent, ALICE, BOB,
 };
 use once_cell::sync::Lazy;
+use proptest::collection::vec;
 use ruma::{
     event_id,
     events::{
@@ -43,7 +44,7 @@ use serde::Serialize;
 use serde_json::{json, Value as JsonValue};
 use tracing::error;
 use wiremock::{
-    matchers::{method, path_regex},
+    matchers::{body_bytes, method, path_regex},
     Mock, ResponseTemplate,
 };
 

@@ -125,37 +125,6 @@ async fn test_encrypt_and_send_to_device_report_failures_server() {
     assert_eq!(bob_device_id.to_owned(), failure.1);
 }
 
-// A simple mock to capture an encrypted to device message via `sendToDevice`.
-// Expect the request payload to be for an encrypted event and to only have one
-// message.
-fn mock_send_encrypted_to_device_responder(
-    sender: OwnedUserId,
-    to_device: Arc<Mutex<Option<Value>>>,
-) -> impl Fn(&Request) -> ResponseTemplate {
-    move |req: &Request| {
-        #[derive(Debug, serde::Deserialize)]
-        struct Parameters {
-            messages: Messages,
-        }
-
-        let params: Parameters = req.body_json().unwrap();
-
-        let (_, device_to_content) = params.messages.first_key_value().unwrap();
-        let content = device_to_content.first_key_value().unwrap().1;
-
-        let event = json!({
-            "origin_server_ts": MilliSecondsSinceUnixEpoch::now(),
-            "sender": sender,
-            "type": "m.room.encrypted",
-            "content": content,
-        });
-
-        *to_device.lock() = Some(event);
-
-        ResponseTemplate::new(200).set_body_json(&*test_json::EMPTY)
-    }
-}
-
 #[async_test]
 async fn test_to_device_event_handler_olm_encryption_info() {
     // ===========
@@ -193,6 +162,9 @@ async fn test_to_device_event_handler_olm_encryption_info() {
     // Capture the event sent by Alice to feed it back to Bob's client later.
     let bob_received_to_device_future =
         server.mock_capture_put_to_device_then_sync_back(alice.user_id().unwrap(), &bob).await;
+
+    let (guard, event_as_sent_by_alice) =
+        server.mock_capture_put_to_device(alice.user_id().unwrap()).await;
 
     alice
         .encryption()
