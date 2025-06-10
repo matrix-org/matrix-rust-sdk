@@ -1,5 +1,5 @@
 use clap::{Args, Subcommand, ValueEnum};
-use xshell::cmd;
+use xshell::{cmd, Cmd};
 
 use crate::{sh, Result};
 
@@ -99,17 +99,21 @@ fn check_prerequisites() {
     }
 }
 
+fn append_options<'a>(command: Cmd<'a>, execute: &bool, package: &Option<String>) -> Cmd<'a> {
+    let command = if *execute { command.arg("--execute") } else { command };
+    if let Some(package) = package.as_deref() {
+        command.args(["--package", package])
+    } else {
+        command.arg("--workspace")
+    }
+}
+
 fn prepare(version: ReleaseVersion, execute: bool, package: Option<String>) -> Result<()> {
     let sh = sh();
+
     let cmd = cmd!(sh, "cargo release --no-publish --no-tag --no-push");
+    let cmd = append_options(cmd, &execute, &package);
 
-    let cmd = if let Some(package) = package {
-        cmd.args(["--package", &package])
-    } else {
-        cmd.arg("--workspace")
-    };
-
-    let cmd = if execute { cmd.arg("--execute") } else { cmd };
     let cmd = cmd.arg(version.as_str());
 
     cmd.run()?;
@@ -129,30 +133,15 @@ fn publish(execute: bool, package: Option<String>) -> Result<()> {
     let sh = sh();
 
     let cmd = cmd!(sh, "cargo release tag");
-    let cmd = if execute { cmd.arg("--execute") } else { cmd };
-    let cmd = if let Some(package) = package.as_deref() {
-        cmd.args(["--package", package])
-    } else {
-        cmd.arg("--workspace")
-    };
+    let cmd = append_options(cmd, &execute, &package);
     cmd.run()?;
 
     let cmd = cmd!(sh, "cargo release publish");
-    let cmd = if execute { cmd.arg("--execute") } else { cmd };
-    let cmd = if let Some(package) = package.as_deref() {
-        cmd.args(["--package", &package])
-    } else {
-        cmd.arg("--workspace")
-    };
+    let cmd = append_options(cmd, &execute, &package);
     cmd.run()?;
 
     let cmd = cmd!(sh, "cargo release push");
-    let cmd = if execute { cmd.arg("--execute") } else { cmd };
-    let cmd = if let Some(package) = package.as_deref() {
-        cmd.args(["--package", &package])
-    } else {
-        cmd.arg("--workspace")
-    };
+    let cmd = append_options(cmd, &execute, &package);
     cmd.run()?;
 
     Ok(())
