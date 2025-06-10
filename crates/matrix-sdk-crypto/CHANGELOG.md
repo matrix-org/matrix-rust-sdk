@@ -6,6 +6,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased] - ReleaseDate
 
+## [0.11.1] - 2025-06-10
+
 ### Security Fixes
 - Check the sender of an event matches owner of session, preventing sender
   spoofing by homeserver owners.
