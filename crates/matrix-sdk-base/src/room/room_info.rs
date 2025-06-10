@@ -192,6 +192,7 @@ impl BaseRoomInfo {
             AnySyncStateEvent::RoomName(n) => {
                 self.name = Some(n.into());
             }
+            // `m.room.create` can NOT be overwritten.
             AnySyncStateEvent::RoomCreate(c) if self.create.is_none() => {
                 self.create = Some(c.into());
             }
@@ -882,7 +883,13 @@ impl RoomInfo {
         (!name.is_empty()).then_some(name)
     }
 
-    pub(super) fn tombstone(&self) -> Option<&RoomTombstoneEventContent> {
+    /// Get the content of the `m.room.create` event if any.
+    pub fn create(&self) -> Option<&RoomCreateWithCreatorEventContent> {
+        Some(&self.base_info.create.as_ref()?.as_original()?.content)
+    }
+
+    /// Get the content of the `m.room.tombstone` event if any.
+    pub fn tombstone(&self) -> Option<&RoomTombstoneEventContent> {
         Some(&self.base_info.tombstone.as_ref()?.as_original()?.content)
     }
 
