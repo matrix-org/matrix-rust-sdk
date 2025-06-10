@@ -397,7 +397,7 @@ impl IndexedDbSessionBuilder {
 }
 
 #[derive(Clone)]
-pub enum ClientSessionConfig {
+enum ClientSessionConfig {
     /// Setup the client to use the SQLite store.
     #[cfg_attr(target_family = "wasm", allow(unused))]
     Sqlite(SqliteSessionBuilder),
