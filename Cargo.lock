@@ -3089,7 +3089,7 @@ dependencies = [
 
 [[package]]
 name = "matrix-sdk-ffi"
-version = "0.12.0"
+version = "0.11.0"
 dependencies = [
  "anyhow",
  "as_variant",
@@ -4800,6 +4800,7 @@ dependencies = [
  "sentry-backtrace",
  "sentry-contexts",
  "sentry-core",
+ "sentry-debug-images",
  "sentry-panic",
  "sentry-tracing",
  "tokio",
@@ -4844,6 +4845,17 @@ dependencies = [
  "sentry-types",
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "sentry-debug-images"
+version = "0.36.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2a60bc2154e6df59beed0ac13d58f8dfaf5ad20a88548a53e29e4d92e8e835c2"
+dependencies = [
+ "findshlibs",
+ "once_cell",
+ "sentry-core",
 ]
 
 [[package]]

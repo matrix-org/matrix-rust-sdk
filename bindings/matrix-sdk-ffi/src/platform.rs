@@ -1,5 +1,8 @@
-use std::sync::{atomic::AtomicBool, Arc, OnceLock};
+use std::sync::OnceLock;
+#[cfg(feature = "sentry")]
+use std::sync::{atomic::AtomicBool, Arc};
 
+#[cfg(feature = "sentry")]
 use tracing::warn;
 use tracing_appender::rolling::{RollingFileAppender, Rotation};
 use tracing_core::Subscriber;
@@ -340,6 +343,7 @@ impl TraceLogPacks {
     }
 }
 
+#[cfg(feature = "sentry")]
 struct SentryLoggingCtx {
     /// The Sentry client guard, which keeps the Sentry context alive.
     _guard: sentry::ClientInitGuard,
@@ -349,6 +353,7 @@ struct SentryLoggingCtx {
 }
 
 struct LoggingCtx {
+    #[cfg(feature = "sentry")]
     sentry: Option<SentryLoggingCtx>,
 }
 
@@ -376,12 +381,14 @@ pub struct TracingConfiguration {
     write_to_files: Option<TracingFileConfiguration>,
 
     /// If set, the Sentry DSN to use for error reporting.
+    #[cfg(feature = "sentry")]
     sentry_dsn: Option<String>,
 }
 
 impl TracingConfiguration {
     /// Sets up the tracing configuration and return a [`Logger`] instance
     /// holding onto it.
+    #[cfg_attr(not(feature = "sentry"), allow(unused_mut))]
     fn build(mut self) -> LoggingCtx {
         // Show full backtraces, if we run into panics.
         std::env::set_var("RUST_BACKTRACE", "1");
@@ -389,74 +396,86 @@ impl TracingConfiguration {
         // Log panics.
         log_panics::init();
 
-        // Prepare the Sentry layer, if a DSN is provided.
-        let (sentry_layer, sentry_logging_ctx) = if let Some(sentry_dsn) = self.sentry_dsn.take() {
-            // Initialize the Sentry client with the given options.
-            let sentry_guard = sentry::init((
-                sentry_dsn,
-                sentry::ClientOptions {
-                    traces_sample_rate: 0.0,
-                    attach_stacktrace: true,
-                    release: Some(env!("VERGEN_GIT_SHA").into()),
-                    ..sentry::ClientOptions::default()
-                },
-            ));
-
-            let sentry_enabled = Arc::new(AtomicBool::new(true));
-
-            // Add a Sentry layer to the tracing subscriber.
-            //
-            // Pass custom event and span filters, which will ignore anything, if the Sentry
-            // support has been globally disabled, or if the statement doesn't include a
-            // `sentry` field set to `true`.
-            let sentry_layer = sentry_tracing::layer()
-                .event_filter({
-                    let enabled = sentry_enabled.clone();
-
-                    move |metadata| {
-                        if enabled.load(std::sync::atomic::Ordering::SeqCst)
-                            && metadata.fields().field("sentry").is_some()
-                        {
-                            sentry_tracing::default_event_filter(metadata)
-                        } else {
-                            // Ignore the event.
-                            sentry_tracing::EventFilter::Ignore
-                        }
-                    }
-                })
-                .span_filter({
-                    let enabled = sentry_enabled.clone();
-
-                    move |metadata| {
-                        if enabled.load(std::sync::atomic::Ordering::SeqCst) {
-                            sentry_tracing::default_span_filter(metadata)
-                        } else {
-                            // Ignore, if sentry is globally disabled.
-                            false
-                        }
-                    }
-                });
-
-            (
-                Some(sentry_layer),
-                Some(SentryLoggingCtx { _guard: sentry_guard, enabled: sentry_enabled }),
-            )
-        } else {
-            (None, None)
-        };
-
         let env_filter = build_tracing_filter(&self);
 
-        tracing_subscriber::registry()
-            .with(tracing_subscriber::EnvFilter::new(&env_filter))
-            .with(crate::platform::text_layers(self))
-            .with(sentry_layer)
-            .init();
+        let logging_ctx;
+        #[cfg(feature = "sentry")]
+        {
+            // Prepare the Sentry layer, if a DSN is provided.
+            let (sentry_layer, sentry_logging_ctx) = if let Some(sentry_dsn) = self.sentry_dsn.take() {
+                // Initialize the Sentry client with the given options.
+                let sentry_guard = sentry::init((
+                    sentry_dsn,
+                    sentry::ClientOptions {
+                        traces_sample_rate: 0.0,
+                        attach_stacktrace: true,
+                        release: Some(env!("VERGEN_GIT_SHA").into()),
+                        ..sentry::ClientOptions::default()
+                    },
+                ));
+
+                let sentry_enabled = Arc::new(AtomicBool::new(true));
+
+                // Add a Sentry layer to the tracing subscriber.
+                //
+                // Pass custom event and span filters, which will ignore anything, if the Sentry
+                // support has been globally disabled, or if the statement doesn't include a
+                // `sentry` field set to `true`.
+                let sentry_layer = sentry_tracing::layer()
+                    .event_filter({
+                        let enabled = sentry_enabled.clone();
+
+                        move |metadata| {
+                            if enabled.load(std::sync::atomic::Ordering::SeqCst)
+                                && metadata.fields().field("sentry").is_some()
+                            {
+                                sentry_tracing::default_event_filter(metadata)
+                            } else {
+                                // Ignore the event.
+                                sentry_tracing::EventFilter::Ignore
+                            }
+                        }
+                    })
+                    .span_filter({
+                        let enabled = sentry_enabled.clone();
+
+                        move |metadata| {
+                            if enabled.load(std::sync::atomic::Ordering::SeqCst) {
+                                sentry_tracing::default_span_filter(metadata)
+                            } else {
+                                // Ignore, if sentry is globally disabled.
+                                false
+                            }
+                        }
+                    });
+
+                (
+                    Some(sentry_layer),
+                    Some(SentryLoggingCtx { _guard: sentry_guard, enabled: sentry_enabled }),
+                )
+            } else {
+                (None, None)
+            };
+            tracing_subscriber::registry()
+                .with(tracing_subscriber::EnvFilter::new(&env_filter))
+                .with(crate::platform::text_layers(self))
+                .with(sentry_layer)
+                .init();
+            logging_ctx = LoggingCtx { sentry: sentry_logging_ctx };
+        }
+        #[cfg(not(feature = "sentry"))]
+        {
+            tracing_subscriber::registry()
+                .with(tracing_subscriber::EnvFilter::new(&env_filter))
+                .with(crate::platform::text_layers(self))
+                .init();
+            logging_ctx = LoggingCtx {};
+        }
 
         // Log the log levels 🧠.
         tracing::info!(env_filter, "Logging has been set up");
 
-        LoggingCtx { sentry: sentry_logging_ctx }
+        logging_ctx
     }
 }
 
@@ -523,6 +542,7 @@ pub fn init_platform(
 /// Set the global enablement level for the Sentry layer (after the logs have
 /// been set up).
 #[matrix_sdk_ffi_macros::export]
+#[cfg(feature = "sentry")]
 pub fn enable_sentry_logging(enabled: bool) {
     if let Some(ctx) = LOGGING.get() {
         if let Some(sentry_ctx) = &ctx.sentry {
@@ -588,6 +608,7 @@ mod tests {
             extra_targets: vec!["super_duper_app".to_owned()],
             write_to_stdout_or_system: true,
             write_to_files: None,
+            #[cfg(feature = "sentry")]
             sentry_dsn: None,
         };
 
@@ -625,6 +646,7 @@ mod tests {
             extra_targets: vec!["super_duper_app".to_owned(), "some_other_span".to_owned()],
             write_to_stdout_or_system: true,
             write_to_files: None,
+            #[cfg(feature = "sentry")]
             sentry_dsn: None,
         };
 
@@ -663,6 +685,7 @@ mod tests {
             extra_targets: vec!["super_duper_app".to_owned()],
             write_to_stdout_or_system: true,
             write_to_files: None,
+            #[cfg(feature = "sentry")]
             sentry_dsn: None,
         };
 
