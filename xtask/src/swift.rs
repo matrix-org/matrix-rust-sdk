@@ -172,10 +172,8 @@ fn generate_uniffi(library_path: &Utf8Path, ffi_directory: &Utf8Path) -> Result<
     let manifest_path = std::env::current_dir()?.join("Cargo.toml");
     println!("manifest path {:?}", manifest_path);
 
-    // Get metadata using cargo_metadata
     let metadata = MetadataCommand::new().manifest_path(&manifest_path).exec()?;
 
-    // Convert the Metadata into a CrateConfigSupplier using From
     let config_supplier = CrateConfigSupplier::from(metadata);
 
     generate_bindings(

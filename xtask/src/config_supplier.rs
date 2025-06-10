@@ -6,6 +6,8 @@ use cargo_metadata::Metadata;
 use toml::value::Table;
 use uniffi_bindgen::BindgenCrateConfigSupplier;
 
+/// An implementation of `BindgenCrateConfigSupplier` that uses the
+/// `uniffi.toml` files found in the crates of a Cargo workspace.
 #[derive(Debug, Clone, Default)]
 pub struct CrateConfigSupplier {
     paths: HashMap<String, Utf8PathBuf>,
