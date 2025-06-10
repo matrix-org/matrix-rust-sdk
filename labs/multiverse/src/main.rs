@@ -31,7 +31,7 @@ use matrix_sdk_common::locks::Mutex;
 use matrix_sdk_ui::{
     room_list_service::{self, filters::new_filter_non_left},
     sync_service::SyncService,
-    timeline::{RoomExt as _, TimelineItem},
+    timeline::{RoomExt as _, TimelineFocus, TimelineItem},
     Timeline as SdkTimeline,
 };
 use ratatui::{prelude::*, style::palette::tailwind, widgets::*};
@@ -260,7 +260,12 @@ impl App {
                 all_rooms.into_iter().filter(|room| !previous_rooms.contains(room.room_id()))
             {
                 // Initialize the timeline.
-                let Ok(timeline) = room.timeline_builder().build().await else {
+                let Ok(timeline) = room
+                    .timeline_builder()
+                    .with_focus(TimelineFocus::Live { hide_threaded_events: true })
+                    .build()
+                    .await
+                else {
                     error!("error when creating default timeline");
                     continue;
                 };
