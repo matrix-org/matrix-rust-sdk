@@ -269,6 +269,7 @@ impl From<ClientError> for ClientBuildError {
     }
 }
 
+#[cfg(any(not(target_family = "wasm"), feature = "cross-platform-api"))]
 #[derive(Clone, uniffi::Object)]
 pub struct SqliteSessionBuilder {
     paths: Option<SessionPaths>,
@@ -279,6 +280,7 @@ pub struct SqliteSessionBuilder {
     system_is_memory_constrained: bool,
 }
 
+#[cfg(any(not(target_family = "wasm"), feature = "cross-platform-api"))]
 #[matrix_sdk_ffi_macros::export]
 impl SqliteSessionBuilder {
     #[uniffi::constructor]
@@ -374,6 +376,7 @@ impl SqliteSessionBuilder {
     }
 }
 
+#[cfg(any(target_family = "wasm", feature = "cross-platform-api"))]
 #[derive(Clone, uniffi::Object)]
 pub struct IndexedDbSessionBuilder {
     #[cfg_attr(not(target_family = "wasm"), allow(unused))]
@@ -381,6 +384,7 @@ pub struct IndexedDbSessionBuilder {
     passphrase: Option<String>,
 }
 
+#[cfg(any(target_family = "wasm", feature = "cross-platform-api"))]
 #[matrix_sdk_ffi_macros::export]
 impl IndexedDbSessionBuilder {
     #[uniffi::constructor]
@@ -399,10 +403,12 @@ impl IndexedDbSessionBuilder {
 #[derive(Clone)]
 enum ClientSessionConfig {
     /// Setup the client to use the SQLite store.
+    #[cfg(any(not(target_family = "wasm"), feature = "cross-platform-api"))]
     #[cfg_attr(target_family = "wasm", allow(unused))]
     Sqlite(SqliteSessionBuilder),
 
     /// Setup the client to use the IndexedDB store.
+    #[cfg(any(target_family = "wasm", feature = "cross-platform-api"))]
     #[cfg_attr(not(target_family = "wasm"), allow(unused))]
     IndexedDb(IndexedDbSessionBuilder),
 }
@@ -463,18 +469,6 @@ impl ClientBuilder {
             enable_share_history_on_invite: false,
             request_config: Default::default(),
         })
-    }
-
-    pub fn session_sqlite(self: Arc<Self>, config: Arc<SqliteSessionBuilder>) -> Arc<Self> {
-        let mut builder = unwrap_or_clone_arc(self);
-        builder.session = Some(ClientSessionConfig::Sqlite(config.as_ref().clone()));
-        Arc::new(builder)
-    }
-
-    pub fn session_indexeddb(self: Arc<Self>, config: Arc<IndexedDbSessionBuilder>) -> Arc<Self> {
-        let mut builder = unwrap_or_clone_arc(self);
-        builder.session = Some(ClientSessionConfig::IndexedDb(config.as_ref().clone()));
-        Arc::new(builder)
     }
 
     pub fn cross_process_store_locks_holder_name(
@@ -618,7 +612,7 @@ impl ClientBuilder {
 
         let mut store_path = None;
         match builder.session {
-            #[cfg(target_family = "wasm")]
+            #[cfg(all(target_family = "wasm", feature = "cross-platform-api"))]
             Some(ClientSessionConfig::Sqlite(_)) => {
                 panic!("SQLite session config is not supported on wasm32.");
             }
@@ -667,7 +661,7 @@ impl ClientBuilder {
                     debug!("Not using a store path.");
                 }
             }
-            #[cfg(not(target_family = "wasm"))]
+            #[cfg(all(not(target_family = "wasm"), feature = "cross-platform-api"))]
             Some(ClientSessionConfig::IndexedDb(_)) => {
                 panic!("IndexedDB session config is not supported outside of wasm32.");
             }
@@ -867,8 +861,23 @@ impl ClientBuilder {
     }
 }
 
+#[cfg(any(not(target_family = "wasm"), feature = "cross-platform-api"))]
 #[matrix_sdk_ffi_macros::export]
 impl ClientBuilder {
+    #[cfg_attr(target_family = "wasm", allow(unused))]
+    pub fn session_sqlite(self: Arc<Self>, config: Arc<SqliteSessionBuilder>) -> Arc<Self> {
+        #[cfg(target_family = "wasm")]
+        {
+            panic!("SQLite session config is not supported on wasm32.");
+        }
+        #[cfg(not(target_family = "wasm"))]
+        {
+            let mut builder = unwrap_or_clone_arc(self);
+            builder.session = Some(ClientSessionConfig::Sqlite(config.as_ref().clone()));
+            Arc::new(builder)
+        }
+    }
+
     pub fn disable_ssl_verification(self: Arc<Self>) -> Arc<Self> {
         #[cfg(target_family = "wasm")]
         {
@@ -927,6 +936,25 @@ impl ClientBuilder {
         Arc::new(builder)
     }
 }
+
+#[cfg(any(target_family = "wasm", feature = "cross-platform-api"))]
+#[matrix_sdk_ffi_macros::export]
+impl ClientBuilder {
+    #[cfg_attr(not(target_family = "wasm"), allow(unused))]
+    pub fn session_indexeddb(self: Arc<Self>, config: Arc<IndexedDbSessionBuilder>) -> Arc<Self> {
+        #[cfg(not(target_family = "wasm"))]
+        {
+            panic!("IndexedDB session config is not supported outside of wasm32.");
+        }
+        #[cfg(target_family = "wasm")]
+        {
+            let mut builder = unwrap_or_clone_arc(self);
+            builder.session = Some(ClientSessionConfig::IndexedDb(config.as_ref().clone()));
+            Arc::new(builder)
+        }
+    }
+}
+
 /// The store paths the client will use when built.
 #[derive(Clone)]
 struct SessionPaths {

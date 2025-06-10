@@ -20,7 +20,7 @@ crate-type = ["cdylib", "staticlib", "lib"]
 default = ["bundled-sqlite", "unstable-msc4274"]
 bundled-sqlite = ["matrix-sdk/bundled-sqlite"]
 unstable-msc4274 = ["matrix-sdk-ui/unstable-msc4274"]
-js = []
+cross-platform-api = []
 
 [dependencies]
 anyhow.workspace = true
@@ -86,7 +86,7 @@ features = [
     "e2e-encryption",
     "experimental-widgets",
     "markdown",
-    "rustls-tls",
+    "native-tls",
     "socks",
     "indexeddb",
     "uniffi",
