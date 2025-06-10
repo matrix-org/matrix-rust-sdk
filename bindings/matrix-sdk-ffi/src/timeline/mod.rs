@@ -587,7 +587,8 @@ impl Timeline {
         description: Option<String>,
         zoom_level: Option<u8>,
         asset_type: Option<AssetType>,
-    ) {
+        reply_params: Option<ReplyParameters>,
+    ) -> Result<(), ClientError> {
         let mut location_event_message_content =
             LocationMessageEventContent::new(body, geo_uri.clone());
 
@@ -604,8 +605,13 @@ impl Timeline {
         let room_message_event_content = RoomMessageEventContentWithoutRelation::new(
             MessageType::Location(location_event_message_content),
         );
-        // Errors are logged in `Self::send` already.
-        let _ = self.send(Arc::new(room_message_event_content)).await;
+
+        if let Some(reply_params) = reply_params {
+            self.send_reply(Arc::new(room_message_event_content), reply_params).await
+        } else {
+            self.send(Arc::new(room_message_event_content)).await?;
+            Ok(())
+        }
     }
 
     /// Toggle a reaction on an event.
