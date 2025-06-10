@@ -387,8 +387,8 @@ impl RoomEventCacheInner {
         // Add all the events to the backend.
         trace!("adding new events");
 
-        let stored_prev_batch_token =
-            self.state.write().await.handle_sync(timeline, &self.sender).await?;
+        let (stored_prev_batch_token, timeline_event_diffs) =
+            self.state.write().await.handle_sync(timeline).await?;
 
         // Now that all events have been added, we can trigger the
         // `pagination_token_notifier`.
@@ -396,18 +396,23 @@ impl RoomEventCacheInner {
             self.pagination_batch_token_notifier.notify_one();
         }
 
-        // State sent the timeline diff updates, so we can send updates about the
-        // related events now.
-        {
-            if !ephemeral_events.is_empty() {
-                let _ = self
-                    .sender
-                    .send(RoomEventCacheUpdate::AddEphemeralEvents { events: ephemeral_events });
-            }
+        // The order matters here: first send the timeline event diffs, then only the
+        // related events (read receipts, etc.).
+        if !timeline_event_diffs.is_empty() {
+            let _ = self.sender.send(RoomEventCacheUpdate::UpdateTimelineEvents {
+                diffs: timeline_event_diffs,
+                origin: EventsOrigin::Sync,
+            });
+        }
 
-            if !ambiguity_changes.is_empty() {
-                let _ = self.sender.send(RoomEventCacheUpdate::UpdateMembers { ambiguity_changes });
-            }
+        if !ephemeral_events.is_empty() {
+            let _ = self
+                .sender
+                .send(RoomEventCacheUpdate::AddEphemeralEvents { events: ephemeral_events });
+        }
+
+        if !ambiguity_changes.is_empty() {
+            let _ = self.sender.send(RoomEventCacheUpdate::UpdateMembers { ambiguity_changes });
         }
 
         Ok(())
@@ -470,7 +475,6 @@ mod private {
         serde::Raw,
         EventId, OwnedEventId, OwnedRoomId, RoomVersionId,
     };
-    use tokio::sync::broadcast::Sender;
     use tracing::{debug, error, instrument, trace, warn};
 
     use super::{
@@ -479,8 +483,7 @@ mod private {
         sort_positions_descending, EventLocation, LoadMoreEventsBackwardsOutcome,
     };
     use crate::event_cache::{
-        deduplicator::filter_duplicate_events, BackPaginationOutcome, EventsOrigin,
-        RoomEventCacheUpdate, RoomPaginationStatus,
+        deduplicator::filter_duplicate_events, BackPaginationOutcome, RoomPaginationStatus,
     };
 
     /// State for a single room's event cache.
@@ -776,7 +779,7 @@ mod private {
 
         /// Automatically shrink the room if there are no listeners, as
         /// indicated by the atomic number of active listeners.
-        #[must_use = "Updates as `VectorDiff` must probably be propagated via `RoomEventCacheUpdate`"]
+        #[must_use = "Propagate `VectorDiff` updates via `RoomEventCacheUpdate`"]
         pub(crate) async fn auto_shrink_if_no_listeners(
             &mut self,
         ) -> Result<Option<Vec<VectorDiff<TimelineEvent>>>, EventCacheError> {
@@ -952,7 +955,7 @@ mod private {
         /// Return a single diff update that is a clear of all events; as a
         /// result, the caller may override any pending diff updates
         /// with the result of this function.
-        #[must_use = "Updates as `VectorDiff` must probably be propagated via `RoomEventCacheUpdate`"]
+        #[must_use = "Propagate `VectorDiff` updates via `RoomEventCacheUpdate`"]
         pub async fn reset(&mut self) -> Result<Vec<VectorDiff<TimelineEvent>>, EventCacheError> {
             self.reset_internal().await?;
 
@@ -1292,11 +1295,11 @@ mod private {
         ///
         /// Returns true if a new gap (previous-batch token) has been inserted,
         /// false otherwise.
+        #[must_use = "Propagate `VectorDiff` updates via `RoomEventCacheUpdate`"]
         pub async fn handle_sync(
             &mut self,
             mut timeline: Timeline,
-            sender: &Sender<RoomEventCacheUpdate>,
-        ) -> Result<bool, EventCacheError> {
+        ) -> Result<(bool, Vec<VectorDiff<TimelineEvent>>), EventCacheError> {
             let mut prev_batch = timeline.prev_batch.take();
 
             let (
@@ -1327,7 +1330,7 @@ mod private {
             if all_duplicates {
                 // No new events and no gap (per the previous check), thus no need to change the
                 // room state. We're done!
-                return Ok(false);
+                return Ok((false, Vec::new()));
             }
 
             // Remove the old duplicated events.
@@ -1376,23 +1379,18 @@ mod private {
             }
 
             let timeline_event_diffs = self.events.updates_as_vector_diffs();
-            if !timeline_event_diffs.is_empty() {
-                let _ = sender.send(RoomEventCacheUpdate::UpdateTimelineEvents {
-                    diffs: timeline_event_diffs,
-                    origin: EventsOrigin::Sync,
-                });
-            }
 
-            Ok(prev_batch.is_some())
+            Ok((prev_batch.is_some(), timeline_event_diffs))
         }
 
+        #[must_use = "Propagate `VectorDiff` updates via `RoomEventCacheUpdate`"]
         pub async fn handle_backpagination(
             &mut self,
             events: Vec<TimelineEvent>,
             mut new_gap: Option<Gap>,
             prev_gap_id: Option<ChunkIdentifier>,
-            sender: &Sender<RoomEventCacheUpdate>,
-        ) -> Result<BackPaginationOutcome, EventCacheError> {
+        ) -> Result<(BackPaginationOutcome, Vec<VectorDiff<TimelineEvent>>), EventCacheError>
+        {
             // If there's no new gap (previous batch token), then we've reached the start of
             // the timeline.
             let network_reached_start = new_gap.is_none();
@@ -1516,17 +1514,10 @@ mod private {
                 reached_start
             };
 
+            let event_diffs = self.events.updates_as_vector_diffs();
             let backpagination_outcome = BackPaginationOutcome { events, reached_start };
 
-            let event_diffs = self.events.updates_as_vector_diffs();
-            if !event_diffs.is_empty() {
-                let _ = sender.send(RoomEventCacheUpdate::UpdateTimelineEvents {
-                    diffs: event_diffs,
-                    origin: EventsOrigin::Pagination,
-                });
-            }
-
-            Ok(backpagination_outcome)
+            Ok((backpagination_outcome, event_diffs))
         }
     }
 }

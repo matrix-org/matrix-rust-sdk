@@ -301,10 +301,17 @@ impl RoomPagination {
             None
         };
 
-        state
-            .handle_backpagination(events, new_gap, prev_gap_chunk_id, &self.inner.sender)
-            .await
-            .map(Some)
+        let (outcome, timeline_event_diffs) =
+            state.handle_backpagination(events, new_gap, prev_gap_chunk_id).await?;
+
+        if !timeline_event_diffs.is_empty() {
+            let _ = self.inner.sender.send(RoomEventCacheUpdate::UpdateTimelineEvents {
+                diffs: timeline_event_diffs,
+                origin: EventsOrigin::Pagination,
+            });
+        }
+
+        Ok(Some(outcome))
     }
 
     /// Returns a subscriber to the pagination status used for the
