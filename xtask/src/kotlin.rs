@@ -9,6 +9,7 @@ use crate::{sh, workspace, Result};
 
 struct PackageValues {
     name: &'static str,
+    features: &'static str,
 }
 
 #[derive(ValueEnum, Clone)]
@@ -20,8 +21,10 @@ enum Package {
 impl Package {
     fn values(self) -> PackageValues {
         match self {
-            Package::CryptoSDK => PackageValues { name: "matrix-sdk-crypto-ffi" },
-            Package::FullSDK => PackageValues { name: "matrix-sdk-ffi" },
+            Package::CryptoSDK => PackageValues { name: "matrix-sdk-crypto-ffi", features: "" },
+            Package::FullSDK => {
+                PackageValues { name: "matrix-sdk-ffi", features: "rustls-tls,sentry" }
+            }
         }
     }
 }
@@ -85,6 +88,7 @@ fn build_android_library(
 ) -> Result<()> {
     let package_values = package.values();
     let package_name = package_values.name;
+    let package_features = package_values.features;
 
     let jni_libs_dir = src_dir.join("jniLibs");
     let jni_libs_dir_str = jni_libs_dir.as_str();
@@ -94,21 +98,46 @@ fn build_android_library(
 
     let uniffi_lib_path = if let Some(target) = only_target {
         println!("-- Building for {target} [1/1]");
-        build_for_android_target(target.as_str(), profile, jni_libs_dir_str, package_name)?
+        build_for_android_target(
+            target.as_str(),
+            profile,
+            jni_libs_dir_str,
+            package_name,
+            package_features,
+        )?
     } else {
         println!("-- Building for x86_64-linux-android[1/4]");
-        build_for_android_target("x86_64-linux-android", profile, jni_libs_dir_str, package_name)?;
+        build_for_android_target(
+            "x86_64-linux-android",
+            profile,
+            jni_libs_dir_str,
+            package_name,
+            package_features,
+        )?;
         println!("-- Building for aarch64-linux-android[2/4]");
-        build_for_android_target("aarch64-linux-android", profile, jni_libs_dir_str, package_name)?;
+        build_for_android_target(
+            "aarch64-linux-android",
+            profile,
+            jni_libs_dir_str,
+            package_name,
+            package_features,
+        )?;
         println!("-- Building for armv7-linux-androideabi[3/4]");
         build_for_android_target(
             "armv7-linux-androideabi",
             profile,
             jni_libs_dir_str,
             package_name,
+            package_features,
         )?;
         println!("-- Building for i686-linux-android[4/4]");
-        build_for_android_target("i686-linux-android", profile, jni_libs_dir_str, package_name)?
+        build_for_android_target(
+            "i686-linux-android",
+            profile,
+            jni_libs_dir_str,
+            package_name,
+            package_features,
+        )?
     };
 
     println!("-- Generate uniffi files");
@@ -130,11 +159,12 @@ fn build_for_android_target(
     profile: &str,
     dest_dir: &str,
     package_name: &str,
+    features: &str,
 ) -> Result<Utf8PathBuf> {
     let sh = sh();
     cmd!(
         sh,
-        "cargo ndk --target {target} -o {dest_dir} build --profile {profile} -p {package_name}"
+        "cargo ndk --target {target} -o {dest_dir} build --profile {profile} -p {package_name} --features {features}"
     )
     .run()?;
 

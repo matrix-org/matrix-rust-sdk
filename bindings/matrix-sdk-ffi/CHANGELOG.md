@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 <!-- next-header -->
 
 ## [Unreleased] - ReleaseDate
-
+- Adjust features in the `matrix-sdk-ffi` crate to expose more platform-specific knobs
 ## [0.12.0] - 2025-06-10
 
 Breaking changes:
