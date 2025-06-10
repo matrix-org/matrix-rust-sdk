@@ -173,7 +173,7 @@ fn format_membership_change(membership: &RoomMembershipChange) -> Option<ListIte
             MembershipChange::None
             | MembershipChange::Error
             | MembershipChange::InvitationRevoked
-            | MembershipChange::NotImplemented => "has changed it's membership status",
+            | MembershipChange::NotImplemented => "has changed its membership status",
         };
 
         Some(format!("{display_name} {change}").into())
