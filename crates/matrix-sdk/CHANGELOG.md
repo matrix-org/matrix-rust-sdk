@@ -6,6 +6,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased] - ReleaseDate
 
+## [0.12.0] - 2025-06-10
+
 ### Features
 
 - `Client::send_call_notification_if_needed` now returns `Result<bool>` instead of `Result<()>` so we can check if

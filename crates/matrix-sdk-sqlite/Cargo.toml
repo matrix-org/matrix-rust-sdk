@@ -1,6 +1,6 @@
 [package]
 name = "matrix-sdk-sqlite"
-version = "0.11.0"
+version = "0.12.0"
 edition = "2021"
 repository = "https://github.com/matrix-org/matrix-rust-sdk"
 description = "Sqlite storage backend for matrix-sdk"
