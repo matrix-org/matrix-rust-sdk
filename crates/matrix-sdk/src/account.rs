@@ -890,25 +890,34 @@ impl Account {
 
     /// Adds the given user ID to the account's ignore list.
     pub async fn ignore_user(&self, user_id: &UserId) -> Result<()> {
+        let own_user_id = self.client.user_id().ok_or(Error::AuthenticationRequired)?;
+        if user_id == own_user_id {
+            return Err(Error::CantIgnoreLoggedInUser);
+        }
+
         let mut ignored_user_list = self.get_ignored_user_list_event_content().await?;
         ignored_user_list.ignored_users.insert(user_id.to_owned(), IgnoredUser::new());
 
-        // Updating the account data
         self.set_account_data(ignored_user_list).await?;
-        // TODO: I think I should reset all the storage and perform a new local sync
-        // here but I don't know how
+
+        // In theory, we should also clear some caches here, because they may include
+        // events sent by the ignored user. In practice, we expect callers to
+        // take care of this, or subsystems to listen to user list changes and
+        // clear caches accordingly.
+
         Ok(())
     }
 
     /// Removes the given user ID from the account's ignore list.
     pub async fn unignore_user(&self, user_id: &UserId) -> Result<()> {
         let mut ignored_user_list = self.get_ignored_user_list_event_content().await?;
-        ignored_user_list.ignored_users.remove(user_id);
 
-        // Updating the account data
-        self.set_account_data(ignored_user_list).await?;
-        // TODO: I think I should reset all the storage and perform a new local sync
-        // here but I don't know how
+        // Only update account data if the user was ignored in the first place.
+        if ignored_user_list.ignored_users.remove(user_id).is_some() {
+            self.set_account_data(ignored_user_list).await?;
+        }
+
+        // See comment in `ignore_user`.
         Ok(())
     }
 
@@ -1157,4 +1166,23 @@ fn get_raw_content<Ev, C>(raw: Option<Raw<Ev>>) -> Result<Option<Raw<C>>> {
         .map(|event| event.deserialize_as::<GetRawContent<C>>())
         .transpose()?
         .map(|get_raw| get_raw.content))
+}
+
+#[cfg(test)]
+mod tests {
+    use assert_matches::assert_matches;
+    use matrix_sdk_test::async_test;
+
+    use crate::{test_utils::client::MockClientBuilder, Error};
+
+    #[async_test]
+    async fn test_dont_ignore_oneself() {
+        let client = MockClientBuilder::new("https://example.org".to_owned()).build().await;
+
+        // It's forbidden to ignore the logged-in user.
+        assert_matches!(
+            client.account().ignore_user(client.user_id().unwrap()).await,
+            Err(Error::CantIgnoreLoggedInUser)
+        );
+    }
 }
