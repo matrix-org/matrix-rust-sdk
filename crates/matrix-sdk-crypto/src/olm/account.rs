@@ -42,10 +42,7 @@ use ruma::{
     SecondsSinceUnixEpoch, UInt, UserId,
 };
 use serde::{de::Error, Deserialize, Serialize};
-use serde_json::{
-    value::{to_raw_value, RawValue as RawJsonValue},
-    Value,
-};
+use serde_json::{json, value::to_raw_value, Value};
 use sha2::{Digest, Sha256};
 use tokio::sync::Mutex;
 use tracing::{debug, field::debug, info, instrument, trace, warn, Span};
@@ -128,6 +125,7 @@ pub(crate) struct OlmDecryptionInfo {
 pub(crate) struct DecryptionResult {
     // AnyDecryptedOlmEvent is pretty big at 512 bytes, box it to reduce stack size
     pub event: Box<AnyDecryptedOlmEvent>,
+    // The raw decrypted event, with only `type`, `sender` and `content` fields.
     pub raw_event: Raw<AnyToDeviceEvent>,
     pub sender_key: Curve25519PublicKey,
     pub encryption_info: EncryptionInfo,
@@ -1511,12 +1509,17 @@ impl Account {
 
             let encryption_info = Self::get_olm_encryption_info(sender_key, sender, &sender_device);
 
-            Ok(DecryptionResult {
-                event,
-                raw_event: Raw::from_json(RawJsonValue::from_string(plaintext)?),
-                sender_key,
-                encryption_info,
-            })
+            let parsed: Value = serde_json::from_str(&plaintext)?;
+
+            let raw_event = json!({
+                "type": event.event_type().to_owned(),
+                "content": parsed["content"].clone(),
+                "sender": event.sender().to_owned(),
+            });
+
+            let raw_event: Raw<AnyToDeviceEvent> = Raw::from_json_string(raw_event.to_string())?;
+
+            Ok(DecryptionResult { event, raw_event, sender_key, encryption_info })
         }
     }
 

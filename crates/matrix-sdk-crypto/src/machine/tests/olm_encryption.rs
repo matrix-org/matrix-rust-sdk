@@ -24,7 +24,7 @@ use ruma::{
     events::{dummy::ToDeviceDummyEventContent, AnyToDeviceEvent},
     user_id, DeviceKeyAlgorithm, DeviceKeyId, SecondsSinceUnixEpoch,
 };
-use serde_json::json;
+use serde_json::{json, Value};
 use vodozemac::Ed25519SecretKey;
 
 use crate::{
@@ -209,8 +209,7 @@ async fn olm_encryption_test_helper(use_fallback_key: bool) {
         content.deserialize_as().expect("We should be able to deserialize the encrypted content"),
     );
 
-    // Decrypting the first time should succeed.
-    let decrypted = bob
+    let raw_event = bob
         .store()
         .with_transaction(|mut tr| async {
             let res = bob.decrypt_to_device_event(&mut tr, &event, &mut Changes::default()).await?;
@@ -219,12 +218,28 @@ async fn olm_encryption_test_helper(use_fallback_key: bool) {
         .await
         .expect("We should be able to decrypt the event.")
         .result
-        .raw_event
+        .raw_event;
+
+    // Decrypting the first time should succeed.
+    let decrypted = raw_event
+        .clone()
         .deserialize()
         .expect("We should be able to deserialize the decrypted event.");
 
     assert_let!(AnyToDeviceEvent::Dummy(decrypted) = decrypted);
     assert_eq!(&decrypted.sender, alice.user_id());
+
+    let value: Value = serde_json::from_str(raw_event.json().get()).unwrap();
+    // Ensure the extra internal fields are not present.
+    assert!(!value.as_object().unwrap().contains_key("keys"));
+    assert!(!value.as_object().unwrap().contains_key("sender_key"));
+    assert!(!value.as_object().unwrap().contains_key("recipient_keys"));
+    assert!(!value.as_object().unwrap().contains_key("sender_device_keys"));
+    // There should only be 3 fields, `type`, `sender` and `content`.
+    assert_eq!(value.as_object().unwrap().keys().len(), 3);
+    assert!(value.as_object().unwrap().contains_key("type"));
+    assert!(value.as_object().unwrap().contains_key("sender"));
+    assert!(value.as_object().unwrap().contains_key("content"));
 
     // Replaying the event should now result in a decryption failure.
     bob.store()
