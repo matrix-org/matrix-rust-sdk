@@ -172,7 +172,7 @@ impl CiArgs {
 
 fn check_bindings() -> Result<()> {
     let sh = sh();
-    cmd!(sh, "rustup run stable cargo build -p matrix-sdk-crypto-ffi -p matrix-sdk-ffi").run()?;
+    cmd!(sh, "rustup run stable cargo build -p matrix-sdk-crypto-ffi -p matrix-sdk-ffi --features native-tls,sentry").run()?;
     cmd!(
         sh,
         "
