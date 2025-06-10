@@ -1,24 +1,35 @@
 use std::sync::Arc;
 
 use crossterm::event::{Event, KeyCode, KeyModifiers};
+use futures_util::StreamExt as _;
 use imbl::Vector;
 use input::MessageOrCommand;
 use invited_room::InvitedRoomView;
 use matrix_sdk::{
     locks::Mutex,
+    room::reply::{EnforceThread::Threaded, Reply},
     ruma::{
         api::client::receipt::create_receipt::v3::ReceiptType,
-        events::room::message::RoomMessageEventContent, OwnedRoomId, UserId,
+        events::room::message::{
+            ReplyWithinThread, RoomMessageEventContent, RoomMessageEventContentWithoutRelation,
+        },
+        OwnedEventId, OwnedRoomId, UserId,
     },
     Client, Room, RoomState,
 };
-use matrix_sdk_ui::{timeline::TimelineItem, Timeline};
+use matrix_sdk_ui::{
+    timeline::{TimelineBuilder, TimelineFocus, TimelineItem},
+    Timeline,
+};
 use ratatui::{prelude::*, widgets::*};
-use tokio::{spawn, task::JoinHandle};
+use tokio::{spawn, sync::OnceCell, task::JoinHandle};
 
 use self::{details::RoomDetails, input::Input, timeline::TimelineView};
 use super::status::StatusHandle;
-use crate::{widgets::recovery::ShouldExit, Timelines, HEADER_BG, NORMAL_ROW_COLOR, TEXT_COLOR};
+use crate::{
+    widgets::{recovery::ShouldExit, room_view::timeline::TimelineListState},
+    Timelines, HEADER_BG, NORMAL_ROW_COLOR, TEXT_COLOR,
+};
 
 mod details;
 mod input;
@@ -30,6 +41,23 @@ const DEFAULT_TILING_DIRECTION: Direction = Direction::Horizontal;
 enum Mode {
     Normal { invited_room_view: Option<InvitedRoomView> },
     Details { tiling_direction: Direction, view: RoomDetails },
+}
+
+enum TimelineKind {
+    Room,
+
+    Thread {
+        /// The root event ID of the thread.
+        root: OwnedEventId,
+        /// The threaded-focused timeline for this thread.
+        timeline: Arc<OnceCell<Arc<Timeline>>>,
+        /// Items in the thread timeline (to avoid recomputing them every single
+        /// time).
+        items: Arc<Mutex<Vector<Arc<TimelineItem>>>>,
+        /// Task listening to updates from the threaded timeline, to maintain
+        /// the `items` field over time.
+        task: JoinHandle<()>,
+    },
 }
 
 pub struct RoomView {
@@ -45,8 +73,9 @@ pub struct RoomView {
     current_pagination: Arc<Mutex<Option<JoinHandle<()>>>>,
 
     mode: Mode,
+    kind: TimelineKind,
 
-    timeline_list: ListState,
+    timeline_list: TimelineListState,
 
     input: Input,
 }
@@ -60,9 +89,17 @@ impl RoomView {
             status_handle,
             current_pagination: Default::default(),
             mode: Mode::Normal { invited_room_view: None },
+            kind: TimelineKind::Room,
             input: Input::new(),
-            timeline_list: ListState::default(),
+            timeline_list: TimelineListState::default(),
         }
+    }
+
+    fn switch_to_room_timeline(&mut self) {
+        if let TimelineKind::Thread { task, .. } = &self.kind {
+            task.abort();
+        }
+        self.kind = TimelineKind::Room;
     }
 
     pub async fn handle_event(&mut self, event: Event) {
@@ -91,6 +128,14 @@ impl RoomView {
                                     }
                                 }
                             }
+                        }
+
+                        // Pressing Escape on a threaded timeline will get back to the room
+                        // timeline.
+                        (KeyModifiers::NONE, Esc)
+                            if matches!(self.kind, TimelineKind::Thread { .. }) =>
+                        {
+                            self.switch_to_room_timeline();
                         }
 
                         (KeyModifiers::CONTROL, Char('l')) => {
@@ -132,7 +177,95 @@ impl RoomView {
                         (_, Up) | (KeyModifiers::CONTROL, Char('p')) => {
                             self.timeline_list.select_previous()
                         }
-                        (_, Esc) => self.timeline_list.select(None),
+                        (_, Esc) => self.timeline_list.unselect(),
+
+                        (KeyModifiers::CONTROL, Char('t'))
+                            if matches!(self.kind, TimelineKind::Room) =>
+                        {
+                            let Some(timeline_list_nth) = self.timeline_list.selected() else {
+                                return;
+                            };
+
+                            let Some(items) = self.get_selected_timeline_items() else {
+                                self.status_handle
+                                    .set_message("missing timeline for room".to_owned());
+                                return;
+                            };
+
+                            let Some(root_event) =
+                                items.get(timeline_list_nth).and_then(|item| item.as_event())
+                            else {
+                                self.status_handle.set_message(
+                                    "no event associated to this timeline item".to_owned(),
+                                );
+                                return;
+                            };
+
+                            if root_event.content().as_message().is_none() {
+                                self.status_handle
+                                    .set_message("this event can't be a thread start!".to_owned());
+                                return;
+                            }
+
+                            let Some(root_event_id) = root_event.event_id().map(ToOwned::to_owned)
+                            else {
+                                self.status_handle
+                                    .set_message("can't open thread on a local echo".to_owned());
+                                return;
+                            };
+
+                            let Some(room) = self
+                                .selected_room
+                                .as_ref()
+                                .and_then(|room_id| self.client.get_room(room_id))
+                            else {
+                                return;
+                            };
+
+                            self.status_handle.set_message(format!(
+                                "Opening thread for event {root_event_id} in room {}",
+                                room.room_id()
+                            ));
+
+                            let thread_timeline = Arc::new(OnceCell::new());
+                            let items = Arc::new(Mutex::new(Default::default()));
+
+                            let i = items.clone();
+                            let t = thread_timeline.clone();
+                            let r = root_event_id.clone();
+                            let task = spawn(async move {
+                                let timeline = TimelineBuilder::new(&room)
+                                    .with_focus(TimelineFocus::Thread {
+                                        root_event_id: r.clone(),
+                                        num_events: 2,
+                                    })
+                                    .build()
+                                    .await
+                                    .unwrap();
+
+                                let items = i;
+                                let (initial_items, mut stream) = timeline.subscribe().await;
+
+                                t.set(Arc::new(timeline)).unwrap();
+                                *items.lock() = initial_items;
+
+                                while let Some(diffs) = stream.next().await {
+                                    let mut items = items.lock();
+                                    for diff in diffs {
+                                        diff.apply(&mut items);
+                                    }
+                                }
+                            });
+
+                            self.timeline_list.unselect();
+
+                            self.kind = TimelineKind::Thread {
+                                root: root_event_id,
+                                timeline: thread_timeline,
+                                items,
+                                task,
+                            };
+                        }
 
                         _ => self.input.handle_key_press(key),
                     }
@@ -190,10 +323,11 @@ impl RoomView {
             let maybe_room = self.client.get_room(room_id);
 
             if let Some(room) = maybe_room {
+                self.switch_to_room_timeline();
+
                 if matches!(room.state(), RoomState::Invited) {
-                    let room = room.clone();
                     let view = InvitedRoomView::new(room);
-                    self.mode = Mode::Normal { invited_room_view: Some(view) }
+                    self.mode = Mode::Normal { invited_room_view: Some(view) };
                 } else {
                     match &mut self.mode {
                         Mode::Normal { invited_room_view } => {
@@ -205,20 +339,28 @@ impl RoomView {
             }
         }
 
-        self.timeline_list = ListState::default();
+        self.timeline_list = TimelineListState::default();
         self.selected_room = room;
     }
 
     fn get_selected_timeline(&self) -> Option<Arc<Timeline>> {
-        self.selected_room
-            .as_deref()
-            .and_then(|room_id| Some(self.timelines.lock().get(room_id)?.timeline.clone()))
+        match &self.kind {
+            TimelineKind::Room => self
+                .selected_room
+                .as_deref()
+                .and_then(|room_id| Some(self.timelines.lock().get(room_id)?.timeline.clone())),
+            TimelineKind::Thread { timeline, .. } => timeline.get().cloned(),
+        }
     }
 
     fn get_selected_timeline_items(&self) -> Option<Vector<Arc<TimelineItem>>> {
-        self.selected_room
-            .as_deref()
-            .and_then(|room_id| self.timelines.lock().get(room_id).map(|t| t.items.lock().clone()))
+        match &self.kind {
+            TimelineKind::Room => self
+                .selected_room
+                .as_deref()
+                .and_then(|room_id| Some(self.timelines.lock().get(room_id)?.items.lock().clone())),
+            TimelineKind::Thread { items, .. } => Some(items.lock().clone()),
+        }
     }
 
     /// Run a small back-pagination (expect a batch of 20 events, continue until
@@ -336,17 +478,70 @@ impl RoomView {
     }
 
     async fn send_message(&mut self, message: String) {
-        if let Some(sdk_timeline) = self.get_selected_timeline() {
-            match sdk_timeline.send(RoomMessageEventContent::text_plain(message).into()).await {
-                Ok(_) => {
-                    self.input.clear();
-                }
-                Err(err) => {
-                    self.status_handle.set_message(format!("error when sending event: {err}"));
+        match &self.kind {
+            TimelineKind::Room => {
+                if let Some(sdk_timeline) = self.get_selected_timeline() {
+                    match sdk_timeline
+                        .send(RoomMessageEventContent::text_plain(message).into())
+                        .await
+                    {
+                        Ok(_) => {
+                            self.input.clear();
+                        }
+                        Err(err) => {
+                            self.status_handle
+                                .set_message(format!("error when sending event: {err}"));
+                        }
+                    }
+                } else {
+                    self.status_handle.set_message("missing timeline for room".to_owned());
                 }
             }
-        } else {
-            self.status_handle.set_message("missing timeline for room".to_owned());
+
+            TimelineKind::Thread { root, .. } => {
+                let root = root.clone();
+                if let Some(sdk_timeline) = self.get_selected_timeline() {
+                    // Pretend a reply to the previous item that can be
+                    // replied to.
+                    let prev_item_event_id = {
+                        let items = sdk_timeline.items().await;
+                        items
+                            .iter()
+                            .rev()
+                            .find_map(|item| {
+                                let event_item = item.as_event()?;
+                                if event_item.can_be_replied_to() {
+                                    event_item.event_id().map(ToOwned::to_owned)
+                                } else {
+                                    None
+                                }
+                            })
+                            .unwrap_or(root)
+                    };
+
+                    // TODO: ogod this is awful
+                    match sdk_timeline
+                        .send_reply(
+                            RoomMessageEventContentWithoutRelation::text_plain(message),
+                            Reply {
+                                event_id: prev_item_event_id,
+                                enforce_thread: Threaded(ReplyWithinThread::No),
+                            },
+                        )
+                        .await
+                    {
+                        Ok(_) => {
+                            self.input.clear();
+                        }
+                        Err(err) => {
+                            self.status_handle
+                                .set_message(format!("error when sending event: {err}"));
+                        }
+                    }
+                } else {
+                    self.status_handle.set_message("missing timeline for room".to_owned());
+                }
+            }
         }
     }
 
@@ -394,11 +589,14 @@ impl Widget for &mut RoomView {
             Layout::vertical([Constraint::Length(1), Constraint::Min(0), Constraint::Length(1)]);
         let [header_area, middle_area, input_area] = vertical.areas(area);
 
+        let is_thread_view = matches!(self.kind, TimelineKind::Thread { .. });
+        let title = if is_thread_view { "Thread view" } else { "Room view" };
+
         let header_block = Block::default()
             .borders(Borders::NONE)
             .fg(TEXT_COLOR)
             .bg(HEADER_BG)
-            .title("Room view")
+            .title(title)
             .title_alignment(Alignment::Center);
 
         let middle_block = Block::default()
@@ -450,7 +648,8 @@ impl Widget for &mut RoomView {
 
             if let Some(timeline_area) = timeline_area {
                 if let Some(items) = self.get_selected_timeline_items() {
-                    let mut timeline = TimelineView::new(&items);
+                    let is_thread = matches!(self.kind, TimelineKind::Thread { .. });
+                    let mut timeline = TimelineView::new(&items, is_thread);
                     timeline.render(timeline_area, buf, &mut self.timeline_list);
                 }
             }
