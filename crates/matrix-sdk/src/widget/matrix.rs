@@ -322,7 +322,6 @@ impl MatrixDriver {
     pub(crate) async fn send_to_device(
         &self,
         event_type: ToDeviceEventType,
-        encrypted: bool,
         messages: BTreeMap<
             OwnedUserId,
             BTreeMap<DeviceIdOrAllDevices, Raw<AnyToDeviceEventContent>>,
@@ -330,13 +329,7 @@ impl MatrixDriver {
     ) -> Result<send_event_to_device::v3::Response> {
         let client = self.room.client();
 
-        let request = if encrypted {
-            return Err(Error::UnknownError(
-                "Sending encrypted to-device events is not supported by the widget driver.".into(),
-            ));
-        } else {
-            RumaToDeviceRequest::new_raw(event_type, TransactionId::new(), messages)
-        };
+        let request =  RumaToDeviceRequest::new_raw(event_type, TransactionId::new(), messages);
 
         let response = client.send(request).await;
 

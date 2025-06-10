@@ -246,7 +246,6 @@ impl WidgetDriver {
                         matrix_driver
                             .send_to_device(
                                 send_to_device_request.event_type.into(),
-                                send_to_device_request.encrypted,
                                 send_to_device_request.messages,
                             )
                             .await
