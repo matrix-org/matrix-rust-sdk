@@ -1,7 +1,8 @@
-use std::{ops::Deref, sync::Arc};
+use std::sync::Arc;
 
 use color_eyre::Result;
 use crossterm::event::{Event, KeyCode, KeyModifiers};
+use imbl::Vector;
 use input::MessageOrCommand;
 use invited_room::InvitedRoomView;
 use matrix_sdk::{
@@ -12,6 +13,7 @@ use matrix_sdk::{
     },
     Client, Room, RoomState,
 };
+use matrix_sdk_ui::{timeline::TimelineItem, Timeline};
 use ratatui::{prelude::*, widgets::*};
 use tokio::{spawn, task::JoinHandle};
 
@@ -208,12 +210,22 @@ impl RoomView {
         self.selected_room = room;
     }
 
+    fn get_selected_timeline(&self) -> Option<Arc<Timeline>> {
+        self.selected_room
+            .as_deref()
+            .and_then(|room_id| Some(self.timelines.lock().get(room_id)?.timeline.clone()))
+    }
+
+    fn get_selected_timeline_items(&self) -> Option<Vector<Arc<TimelineItem>>> {
+        self.selected_room
+            .as_deref()
+            .and_then(|room_id| self.timelines.lock().get(room_id).map(|t| t.items.lock().clone()))
+    }
+
     /// Run a small back-pagination (expect a batch of 20 events, continue until
     /// we get 10 timeline items or hit the timeline start).
     pub fn back_paginate(&mut self) {
-        let Some(sdk_timeline) = self.selected_room.as_deref().and_then(|room_id| {
-            self.timelines.lock().get(room_id).map(|timeline| timeline.timeline.clone())
-        }) else {
+        let Some(sdk_timeline) = self.get_selected_timeline() else {
             self.status_handle.set_message("missing timeline for room".to_owned());
             return;
         };
@@ -236,39 +248,30 @@ impl RoomView {
     }
 
     pub async fn toggle_reaction_to_latest_msg(&mut self) {
-        let selected = self.selected_room.as_deref();
-
-        if let Some((sdk_timeline, items)) = selected.and_then(|room_id| {
-            self.timelines
-                .lock()
-                .get(room_id)
-                .map(|timeline| (timeline.timeline.clone(), timeline.items.clone()))
-        }) {
-            // Look for the latest (most recent) room message.
-            let item_id = {
-                let items = items.lock();
-                items.iter().rev().find_map(|it| {
-                    it.as_event()
-                        .and_then(|ev| ev.content().as_message().is_some().then(|| ev.identifier()))
-                })
-            };
-
-            // If found, send a reaction.
-            if let Some(item_id) = item_id {
-                match sdk_timeline.toggle_reaction(&item_id, "🥰").await {
-                    Ok(_) => {
-                        self.status_handle.set_message("reaction sent!".to_owned());
-                    }
-                    Err(err) => {
-                        self.status_handle.set_message(format!("error when reacting: {err}"))
-                    }
-                }
-            } else {
-                self.status_handle.set_message("no item to react to".to_owned());
-            }
-        } else {
+        let Some((sdk_timeline, items)) =
+            self.get_selected_timeline().zip(self.get_selected_timeline_items())
+        else {
             self.status_handle.set_message("missing timeline for room".to_owned());
+            return;
         };
+
+        // Look for the latest (most recent) room message.
+        let Some(item_id) = items.iter().rev().find_map(|it| {
+            let event_item = it.as_event()?;
+            event_item.content().as_message()?;
+            Some(event_item.identifier())
+        }) else {
+            self.status_handle.set_message("no item to react to".to_owned());
+            return;
+        };
+
+        // If found, send a reaction.
+        match sdk_timeline.toggle_reaction(&item_id, "🥰").await {
+            Ok(_) => {
+                self.status_handle.set_message("reaction sent!".to_owned());
+            }
+            Err(err) => self.status_handle.set_message(format!("error when reacting: {err}")),
+        }
     }
 
     /// Attempt to find the currently selected room and pass it to the async
@@ -345,9 +348,7 @@ impl RoomView {
     }
 
     async fn send_message_impl(&self, message: String) -> Result<()> {
-        if let Some(sdk_timeline) = self.selected_room.as_deref().and_then(|room_id| {
-            self.timelines.lock().get(room_id).map(|timeline| timeline.timeline.clone())
-        }) {
+        if let Some(sdk_timeline) = self.get_selected_timeline() {
             sdk_timeline.send(RoomMessageEventContent::text_plain(message).into()).await?;
         } else {
             self.status_handle.set_message("missing timeline for room".to_owned());
@@ -358,9 +359,7 @@ impl RoomView {
 
     /// Mark the currently selected room as read.
     pub async fn mark_as_read(&mut self) {
-        let Some(sdk_timeline) = self.selected_room.as_deref().and_then(|room_id| {
-            self.timelines.lock().get(room_id).map(|timeline| timeline.timeline.clone())
-        }) else {
+        let Some(sdk_timeline) = self.get_selected_timeline() else {
             self.status_handle.set_message("missing timeline for room".to_owned());
             return;
         };
@@ -457,12 +456,8 @@ impl Widget for &mut RoomView {
             };
 
             if let Some(timeline_area) = timeline_area {
-                if let Some(items) =
-                    self.timelines.lock().get(room_id).map(|timeline| timeline.items.clone())
-                {
-                    let items = items.lock();
-                    let mut timeline = TimelineView::new(items.deref());
-
+                if let Some(items) = self.get_selected_timeline_items() {
+                    let mut timeline = TimelineView::new(&items);
                     timeline.render(timeline_area, buf, &mut self.timeline_list);
                 }
             }
