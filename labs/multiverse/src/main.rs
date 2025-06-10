@@ -158,7 +158,7 @@ struct App {
     /// Task listening to room list service changes, and spawning timelines.
     listen_task: JoinHandle<()>,
 
-    /// The status widet at the bottom of the screen.
+    /// The status widget at the bottom of the screen.
     status: Status,
 
     state: AppState,

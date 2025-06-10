@@ -231,8 +231,7 @@ impl RoomView {
 
         let status_handle = self.status_handle.clone();
 
-        // Start a new one, request batches of 20 events, stop after 10 timeline items
-        // have been added.
+        // Request to back-paginate 20 events.
         *pagination = Some(spawn(async move {
             if let Err(err) = sdk_timeline.paginate_backwards(20).await {
                 status_handle.set_message(format!("Error during backpagination: {err}"));
@@ -448,6 +447,7 @@ impl Widget for &mut RoomView {
                         Some(middle_area)
                     }
                 }
+
                 Mode::Details { tiling_direction, view } => {
                     let vertical = Layout::new(
                         *tiling_direction,
@@ -462,10 +462,10 @@ impl Widget for &mut RoomView {
                 }
             };
 
-            if let Some(items) =
-                self.timelines.lock().get(room_id).map(|timeline| timeline.items.clone())
-            {
-                if let Some(timeline_area) = timeline_area {
+            if let Some(timeline_area) = timeline_area {
+                if let Some(items) =
+                    self.timelines.lock().get(room_id).map(|timeline| timeline.items.clone())
+                {
                     let items = items.lock();
                     let mut timeline = TimelineView::new(items.deref());
 
