@@ -10,16 +10,14 @@ use matrix_sdk::{
         api::client::receipt::create_receipt::v3::ReceiptType,
         events::room::message::RoomMessageEventContent, OwnedRoomId, UserId,
     },
-    Room, RoomState,
+    Client, Room, RoomState,
 };
 use ratatui::{prelude::*, widgets::*};
 use tokio::{spawn, task::JoinHandle};
 
 use self::{details::RoomDetails, input::Input, timeline::TimelineView};
 use super::status::StatusHandle;
-use crate::{
-    widgets::recovery::ShouldExit, Timelines, UiRooms, HEADER_BG, NORMAL_ROW_COLOR, TEXT_COLOR,
-};
+use crate::{widgets::recovery::ShouldExit, Timelines, HEADER_BG, NORMAL_ROW_COLOR, TEXT_COLOR};
 
 mod details;
 mod input;
@@ -36,8 +34,7 @@ enum Mode {
 pub struct RoomView {
     selected_room: Option<OwnedRoomId>,
 
-    /// Room list service rooms known to the app.
-    ui_rooms: UiRooms,
+    client: Client,
 
     /// Timelines data structures for each room.
     timelines: Timelines,
@@ -54,10 +51,10 @@ pub struct RoomView {
 }
 
 impl RoomView {
-    pub fn new(ui_rooms: UiRooms, timelines: Timelines, status_handle: StatusHandle) -> Self {
+    pub fn new(client: Client, timelines: Timelines, status_handle: StatusHandle) -> Self {
         Self {
+            client,
             selected_room: None,
-            ui_rooms,
             timelines,
             status_handle,
             current_pagination: Default::default(),
@@ -189,8 +186,7 @@ impl RoomView {
 
     pub fn set_selected_room(&mut self, room: Option<OwnedRoomId>) {
         if let Some(room_id) = room.as_deref() {
-            let rooms = self.ui_rooms.lock();
-            let maybe_room = rooms.get(room_id);
+            let maybe_room = self.client.get_room(room_id);
 
             if let Some(room) = maybe_room {
                 if matches!(room.state(), RoomState::Invited) {
@@ -278,10 +274,8 @@ impl RoomView {
     /// Attempt to find the currently selected room and pass it to the async
     /// callback.
     async fn call_with_room(&self, function: impl AsyncFnOnce(Room, &StatusHandle)) {
-        let Some(room) = self
-            .selected_room
-            .as_deref()
-            .and_then(|room_id| self.ui_rooms.lock().get(room_id).cloned())
+        let Some(room) =
+            self.selected_room.as_deref().and_then(|room_id| self.client.get_room(room_id))
         else {
             self.status_handle
                 .set_message("Couldn't find a room selected room to perform an action".to_owned());
@@ -433,8 +427,8 @@ impl Widget for &mut RoomView {
         };
 
         if let Some(room_id) = self.selected_room.as_deref() {
-            let rooms = self.ui_rooms.lock();
-            let mut maybe_room = rooms.get(room_id);
+            let maybe_room = self.client.get_room(room_id);
+            let mut maybe_room = maybe_room.as_ref();
 
             let timeline_area = match &mut self.mode {
                 Mode::Normal { invited_room_view } => {
