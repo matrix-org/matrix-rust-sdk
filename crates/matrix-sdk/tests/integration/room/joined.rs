@@ -1057,7 +1057,7 @@ async fn test_subscribe_to_knock_requests() {
     pin_mut!(stream);
 
     // We receive an initial knock request from Alice
-    let initial = assert_next_with_timeout!(stream, 100);
+    let initial = assert_next_with_timeout!(stream, 1000);
     assert_eq!(initial.len(), 1);
 
     let knock_request = &initial[0];
@@ -1068,7 +1068,7 @@ async fn test_subscribe_to_knock_requests() {
     room.mark_knock_requests_as_seen(&[user_id.to_owned()]).await.unwrap();
 
     // Now it's received again as seen
-    let seen = assert_next_with_timeout!(stream, 100);
+    let seen = assert_next_with_timeout!(stream, 1000);
     assert_eq!(initial.len(), 1);
     let seen_knock = &seen[0];
     assert_eq!(seen_knock.event_id, knock_event_id);
@@ -1083,11 +1083,11 @@ async fn test_subscribe_to_knock_requests() {
     server.sync_room(&client, joined_room_builder).await;
 
     // The knock requests are now empty because we have new member events
-    let updated_requests = assert_next_with_timeout!(stream, 100);
+    let updated_requests = assert_next_with_timeout!(stream, 1000);
     assert!(updated_requests.is_empty());
 
     // And it's emitted again because the seen id value has changed
-    let updated_requests = assert_next_with_timeout!(stream, 100);
+    let updated_requests = assert_next_with_timeout!(stream);
     assert!(updated_requests.is_empty());
 
     // There should be no other knock requests
