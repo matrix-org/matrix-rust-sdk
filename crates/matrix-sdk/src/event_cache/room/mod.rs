@@ -28,7 +28,8 @@ use events::sort_positions_descending;
 use eyeball::SharedObservable;
 use eyeball_im::VectorDiff;
 use matrix_sdk_base::{
-    deserialized_responses::{AmbiguityChange, TimelineEvent},
+    deserialized_responses::AmbiguityChange,
+    event_cache::Event,
     linked_chunk::Position,
     sync::{JoinedRoomUpdate, LeftRoomUpdate, Timeline},
 };
@@ -162,7 +163,7 @@ impl RoomEventCache {
     ///
     /// Use [`RoomEventCache::subscribe`] to get all current events, plus a
     /// listener/subscriber.
-    pub async fn events(&self) -> Vec<TimelineEvent> {
+    pub async fn events(&self) -> Vec<Event> {
         let state = self.inner.state.read().await;
 
         state.events().events().map(|(_position, item)| item.clone()).collect()
@@ -174,7 +175,7 @@ impl RoomEventCache {
     /// Use [`RoomEventCache::events`] to get all current events without the
     /// listener/subscriber. Creating, and especially dropping, a
     /// [`RoomEventCacheListener`] isn't free.
-    pub async fn subscribe(&self) -> (Vec<TimelineEvent>, RoomEventCacheListener) {
+    pub async fn subscribe(&self) -> (Vec<Event>, RoomEventCacheListener) {
         let state = self.inner.state.read().await;
         let events = state.events().events().map(|(_position, item)| item.clone()).collect();
 
@@ -199,7 +200,7 @@ impl RoomEventCache {
     }
 
     /// Try to find an event by id in this room.
-    pub async fn event(&self, event_id: &EventId) -> Option<TimelineEvent> {
+    pub async fn event(&self, event_id: &EventId) -> Option<Event> {
         self.inner
             .state
             .read()
@@ -219,7 +220,7 @@ impl RoomEventCache {
         &self,
         event_id: &EventId,
         filter: Option<Vec<RelationType>>,
-    ) -> Option<(TimelineEvent, Vec<TimelineEvent>)> {
+    ) -> Option<(Event, Vec<Event>)> {
         // Search in all loaded or stored events.
         self.inner
             .state
@@ -250,7 +251,7 @@ impl RoomEventCache {
 
     /// Save some events in the event cache, for further retrieval with
     /// [`Self::event`].
-    pub(crate) async fn save_events(&self, events: impl IntoIterator<Item = TimelineEvent>) {
+    pub(crate) async fn save_events(&self, events: impl IntoIterator<Item = Event>) {
         if let Err(err) = self.inner.state.write().await.save_event(events).await {
             warn!("couldn't save event in the event cache: {err}");
         }
@@ -434,11 +435,7 @@ pub(super) enum LoadMoreEventsBackwardsOutcome {
     StartOfTimeline,
 
     /// Events have been inserted.
-    Events {
-        events: Vec<TimelineEvent>,
-        timeline_event_diffs: Vec<VectorDiff<TimelineEvent>>,
-        reached_start: bool,
-    },
+    Events { events: Vec<Event>, timeline_event_diffs: Vec<VectorDiff<Event>>, reached_start: bool },
 
     /// The caller must wait for the initial previous-batch token, and retry.
     WaitForInitialPrevToken,
@@ -455,9 +452,7 @@ mod private {
     use eyeball_im::VectorDiff;
     use matrix_sdk_base::{
         apply_redaction,
-        deserialized_responses::{
-            ThreadSummary, ThreadSummaryStatus, TimelineEvent, TimelineEventKind,
-        },
+        deserialized_responses::{ThreadSummary, ThreadSummaryStatus, TimelineEventKind},
         event_cache::{store::EventCacheStoreLock, Event, Gap},
         linked_chunk::{
             lazy_loader, ChunkContent, ChunkIdentifier, ChunkIdentifierGenerator, LinkedChunkId,
@@ -782,7 +777,7 @@ mod private {
         #[must_use = "Propagate `VectorDiff` updates via `RoomEventCacheUpdate`"]
         pub(crate) async fn auto_shrink_if_no_listeners(
             &mut self,
-        ) -> Result<Option<Vec<VectorDiff<TimelineEvent>>>, EventCacheError> {
+        ) -> Result<Option<Vec<VectorDiff<Event>>>, EventCacheError> {
             let listener_count = self.listener_count.load(std::sync::atomic::Ordering::SeqCst);
 
             trace!(listener_count, "received request to auto-shrink");
@@ -800,7 +795,7 @@ mod private {
         #[cfg(test)]
         pub(crate) async fn force_shrink_to_last_chunk(
             &mut self,
-        ) -> Result<Vec<VectorDiff<TimelineEvent>>, EventCacheError> {
+        ) -> Result<Vec<VectorDiff<Event>>, EventCacheError> {
             self.shrink_to_last_chunk().await?;
             Ok(self.events.updates_as_vector_diffs())
         }
@@ -824,7 +819,7 @@ mod private {
             let _ = closure();
         }
 
-        fn strip_relations_from_event(ev: &mut TimelineEvent) {
+        fn strip_relations_from_event(ev: &mut Event) {
             match &mut ev.kind {
                 TimelineEventKind::Decrypted(decrypted) => {
                     // Remove all information about encryption info for
@@ -843,7 +838,7 @@ mod private {
         }
 
         /// Strips the bundled relations from a collection of events.
-        fn strip_relations_from_events(items: &mut [TimelineEvent]) {
+        fn strip_relations_from_events(items: &mut [Event]) {
             for ev in items.iter_mut() {
                 Self::strip_relations_from_event(ev);
             }
@@ -902,7 +897,7 @@ mod private {
 
         async fn send_updates_to_store(
             &mut self,
-            mut updates: Vec<Update<TimelineEvent, Gap>>,
+            mut updates: Vec<Update<Event, Gap>>,
         ) -> Result<(), EventCacheError> {
             if updates.is_empty() {
                 return Ok(());
@@ -956,7 +951,7 @@ mod private {
         /// result, the caller may override any pending diff updates
         /// with the result of this function.
         #[must_use = "Propagate `VectorDiff` updates via `RoomEventCacheUpdate`"]
-        pub async fn reset(&mut self) -> Result<Vec<VectorDiff<TimelineEvent>>, EventCacheError> {
+        pub async fn reset(&mut self) -> Result<Vec<VectorDiff<Event>>, EventCacheError> {
             self.reset_internal().await?;
 
             let diff_updates = self.events.updates_as_vector_diffs();
@@ -995,7 +990,7 @@ mod private {
         pub async fn find_event(
             &self,
             event_id: &EventId,
-        ) -> Result<Option<(EventLocation, TimelineEvent)>, EventCacheError> {
+        ) -> Result<Option<(EventLocation, Event)>, EventCacheError> {
             // There are supposedly fewer events loaded in memory than in the store. Let's
             // start by looking up in the `RoomEvents`.
             for (position, event) in self.events.revents() {
@@ -1021,7 +1016,7 @@ mod private {
             &self,
             event_id: &EventId,
             filters: Option<Vec<RelationType>>,
-        ) -> Result<Option<(TimelineEvent, Vec<TimelineEvent>)>, EventCacheError> {
+        ) -> Result<Option<(Event, Vec<Event>)>, EventCacheError> {
             let store = self.store.lock().await?;
 
             // First, hit storage to get the target event and its related events.
@@ -1070,7 +1065,7 @@ mod private {
         /// linked chunk.
         async fn post_process_new_events(
             &mut self,
-            events: Vec<TimelineEvent>,
+            events: Vec<Event>,
             is_live_sync: bool,
         ) -> Result<(), EventCacheError> {
             // Update the store before doing the post-processing.
@@ -1170,7 +1165,7 @@ mod private {
         async fn replace_event_at(
             &mut self,
             location: EventLocation,
-            event: TimelineEvent,
+            event: Event,
         ) -> Result<(), EventCacheError> {
             match location {
                 EventLocation::Memory(position) => {
@@ -1268,7 +1263,7 @@ mod private {
         /// the event. Instead, an update to the linked chunk must be used.
         pub async fn save_event(
             &self,
-            events: impl IntoIterator<Item = TimelineEvent>,
+            events: impl IntoIterator<Item = Event>,
         ) -> Result<(), EventCacheError> {
             let store = self.store.clone();
             let room_id = self.room.clone();
@@ -1299,7 +1294,7 @@ mod private {
         pub async fn handle_sync(
             &mut self,
             mut timeline: Timeline,
-        ) -> Result<(bool, Vec<VectorDiff<TimelineEvent>>), EventCacheError> {
+        ) -> Result<(bool, Vec<VectorDiff<Event>>), EventCacheError> {
             let mut prev_batch = timeline.prev_batch.take();
 
             let (
@@ -1386,11 +1381,10 @@ mod private {
         #[must_use = "Propagate `VectorDiff` updates via `RoomEventCacheUpdate`"]
         pub async fn handle_backpagination(
             &mut self,
-            events: Vec<TimelineEvent>,
+            events: Vec<Event>,
             mut new_gap: Option<Gap>,
             prev_gap_id: Option<ChunkIdentifier>,
-        ) -> Result<(BackPaginationOutcome, Vec<VectorDiff<TimelineEvent>>), EventCacheError>
-        {
+        ) -> Result<(BackPaginationOutcome, Vec<VectorDiff<Event>>), EventCacheError> {
             // If there's no new gap (previous batch token), then we've reached the start of
             // the timeline.
             let network_reached_start = new_gap.is_none();
@@ -1535,8 +1529,7 @@ pub(super) use private::RoomEventCacheState;
 
 #[cfg(test)]
 mod tests {
-
-    use matrix_sdk_common::deserialized_responses::TimelineEvent;
+    use matrix_sdk_base::event_cache::Event;
     use matrix_sdk_test::{async_test, event_factory::EventFactory};
     use ruma::{
         event_id,
@@ -1749,8 +1742,8 @@ mod tests {
 
     async fn assert_relations(
         room_id: &RoomId,
-        original_event: TimelineEvent,
-        related_event: TimelineEvent,
+        original_event: Event,
+        related_event: Event,
         event_factory: EventFactory,
     ) {
         let client = logged_in_client(None).await;
