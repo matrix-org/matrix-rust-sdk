@@ -308,6 +308,26 @@ impl SenderData {
             Self::SenderVerified { .. } => SenderDataType::SenderVerified,
         }
     }
+
+    /// Return our best guess of the owner of the associated megolm session.
+    ///
+    /// For `SenderData::UnknownDevice`, we don't record any information about
+    /// the owner of the sender, so returns `None`.
+    pub(crate) fn user_id(&self) -> Option<OwnedUserId> {
+        match &self {
+            SenderData::UnknownDevice { .. } => None,
+            SenderData::DeviceInfo { device_keys, .. } => Some(device_keys.user_id.clone()),
+            SenderData::VerificationViolation(known_sender_data) => {
+                Some(known_sender_data.user_id.clone())
+            }
+            SenderData::SenderUnverified(known_sender_data) => {
+                Some(known_sender_data.user_id.clone())
+            }
+            SenderData::SenderVerified(known_sender_data) => {
+                Some(known_sender_data.user_id.clone())
+            }
+        }
+    }
 }
 
 /// Used when deserialising and the sender_data property is missing.

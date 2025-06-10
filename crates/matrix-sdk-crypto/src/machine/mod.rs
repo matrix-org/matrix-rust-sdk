@@ -1630,20 +1630,72 @@ impl OlmMachine {
         self.inner.key_request_machine.request_key(room_id, &event).await
     }
 
-    /// Find whether the supplied session is verified, and provide
-    /// explanation of what is missing/wrong if not.
+    /// Find whether an event decrypted via the supplied session is verified,
+    /// and provide explanation of what is missing/wrong if not.
+    ///
+    /// Stores the updated [`SenderData`] for the session in the store
+    /// if we find an updated value for it.
+    ///
+    /// # Arguments
+    ///
+    /// * `session` - The inbound Megolm session that was used to decrypt the
+    ///   event.
+    /// * `sender` - The `sender` of that event (as claimed by the envelope of
+    ///   the event).
+    async fn get_room_event_verification_state(
+        &self,
+        session: &InboundGroupSession,
+        sender: &UserId,
+    ) -> MegolmResult<(VerificationState, Option<OwnedDeviceId>)> {
+        let sender_data = self.get_or_update_sender_data(session, sender).await?;
+
+        // If the user ID in the sender data doesn't match that in the event envelope,
+        // this event is not from who it appears to be from.
+        //
+        // If `sender_data.user_id()` returns `None`, that means we don't have any
+        // information about the owner of the session (i.e. we have
+        // `SenderData::UnknownDevice`); in that case we fall through to the
+        // logic in `sender_data_to_verification_state` which will pick an appropriate
+        // `DeviceLinkProblem` for `VerificationLevel::None`.
+        let (verification_state, device_id) = match sender_data.user_id() {
+            Some(i) if i != sender => {
+                // For backwards compatibility, we treat this the same as "Unknown device".
+                // TODO: use a dedicated VerificationLevel here.
+                (
+                    VerificationState::Unverified(VerificationLevel::None(
+                        DeviceLinkProblem::MissingDevice,
+                    )),
+                    None,
+                )
+            }
+
+            Some(_) | None => {
+                sender_data_to_verification_state(sender_data, session.has_been_imported())
+            }
+        };
+
+        Ok((verification_state, device_id))
+    }
+
+    /// Get an up-to-date [`SenderData`] for the given session, suitable for
+    /// determining if messages decrypted using that session are verified.
     ///
     /// Checks both the stored verification state of the session and a
     /// recalculated verification state based on our current knowledge, and
     /// returns the more trusted of the two.
     ///
-    /// Store the updated [`SenderData`] for this session in the store
+    /// Stores the updated [`SenderData`] for the session in the store
     /// if we find an updated value for it.
-    async fn get_or_update_verification_state(
+    ///
+    /// # Arguments
+    ///
+    /// * `session` - The Megolm session that was used to decrypt the event.
+    /// * `sender` - The claimed sender of that event.
+    async fn get_or_update_sender_data(
         &self,
         session: &InboundGroupSession,
         sender: &UserId,
-    ) -> MegolmResult<(VerificationState, Option<OwnedDeviceId>)> {
+    ) -> MegolmResult<SenderData> {
         /// Whether we should recalculate the Megolm sender's data, given the
         /// current sender data. We only want to recalculate if it might
         /// increase trust and allow us to decrypt messages that we
@@ -1664,7 +1716,24 @@ impl OlmMachine {
         }
 
         let sender_data = if should_recalculate_sender_data(&session.sender_data) {
-            // The session is not sure of the sender yet. Calculate it.
+            // The session is not sure of the sender yet. Try to find a matching device
+            // belonging to the claimed sender of the recently-received event.
+            //
+            // It's worth noting that this could in theory result in unintuitive changes,
+            // like a session which initially appears to belong to Alice turning into a
+            // session which belongs to Bob [1]. This could mean that a session initially
+            // successfully decrypts events from Alice, but then stops decrypting those same
+            // events once we get an update.
+            //
+            // That's ok though: if we get good evidence that the session belongs to Bob,
+            // it's correct to update the session even if we previously had weak
+            // evidence it belonged to Alice.
+            //
+            // [1] For example: maybe Alice and Bob both publish devices with the *same*
+            // keys (presumably because they are colluding). Initially we think
+            // the session belongs to Alice, but then we do a device lookup for
+            // Bob, we find a matching device with a cross-signature, so prefer
+            // that.
             let calculated_sender_data = SenderDataFinder::find_using_curve_key(
                 self.store(),
                 session.sender_key(),
@@ -1690,7 +1759,7 @@ impl OlmMachine {
             session.sender_data.clone()
         };
 
-        Ok(sender_data_to_verification_state(sender_data, session.has_been_imported()))
+        Ok(sender_data)
     }
 
     /// Request missing local secrets from our devices (cross signing private
@@ -1763,7 +1832,7 @@ impl OlmMachine {
         sender: &UserId,
     ) -> MegolmResult<Arc<EncryptionInfo>> {
         let (verification_state, device_id) =
-            self.get_or_update_verification_state(session, sender).await?;
+            self.get_room_event_verification_state(session, sender).await?;
 
         let sender = sender.to_owned();
 
@@ -2216,7 +2285,7 @@ impl OlmMachine {
         self.get_session_encryption_info(room_id, content.session_id(), &event.sender).await
     }
 
-    /// Get encryption info for a megolm session.
+    /// Get encryption info for an event decrypted with a megolm session.
     ///
     /// This recalculates the [`EncryptionInfo`] data that is returned by
     /// [`OlmMachine::decrypt_room_event`], based on the current
@@ -2228,7 +2297,8 @@ impl OlmMachine {
     ///
     /// * `room_id` - The ID of the room where the session is being used.
     /// * `session_id` - The ID of the session to get information for.
-    /// * `sender` - The user ID of the sender who created this session.
+    /// * `sender` - The (claimed) sender of the event where the session was
+    ///   used.
     pub async fn get_session_encryption_info(
         &self,
         room_id: &RoomId,
