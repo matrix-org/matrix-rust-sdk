@@ -6,6 +6,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased] - ReleaseDate
 
+## [0.12.0] - 2025-06-10
+
 ### Bug Fixes
 
 - Fix a `UNIQUE` constraint violation in the event cache store
