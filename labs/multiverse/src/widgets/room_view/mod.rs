@@ -1,6 +1,5 @@
 use std::sync::Arc;
 
-use color_eyre::Result;
 use crossterm::event::{Event, KeyCode, KeyModifiers};
 use imbl::Vector;
 use input::MessageOrCommand;
@@ -337,24 +336,18 @@ impl RoomView {
     }
 
     async fn send_message(&mut self, message: String) {
-        match self.send_message_impl(message).await {
-            Ok(_) => {
-                self.input.clear();
-            }
-            Err(err) => {
-                self.status_handle.set_message(format!("error when sending event: {err}"));
-            }
-        }
-    }
-
-    async fn send_message_impl(&self, message: String) -> Result<()> {
         if let Some(sdk_timeline) = self.get_selected_timeline() {
-            sdk_timeline.send(RoomMessageEventContent::text_plain(message).into()).await?;
+            match sdk_timeline.send(RoomMessageEventContent::text_plain(message).into()).await {
+                Ok(_) => {
+                    self.input.clear();
+                }
+                Err(err) => {
+                    self.status_handle.set_message(format!("error when sending event: {err}"));
+                }
+            }
         } else {
             self.status_handle.set_message("missing timeline for room".to_owned());
-        };
-
-        Ok(())
+        }
     }
 
     /// Mark the currently selected room as read.
