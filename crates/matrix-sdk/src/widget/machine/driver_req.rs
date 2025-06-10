@@ -296,9 +296,6 @@ pub(crate) struct SendToDeviceRequest {
     /// The type of the to-device message.
     #[serde(rename = "type")]
     pub(crate) event_type: String,
-    /// If the to-device message should be encrypted or not.
-    /// TODO: As per MSC 3819 should default to true
-    pub(crate) encrypted: bool,
     /// The messages to be sent.
     /// They are organized in a map of user ID -> device ID -> content like the
     /// cs api request.
