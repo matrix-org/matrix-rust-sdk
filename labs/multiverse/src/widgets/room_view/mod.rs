@@ -13,7 +13,7 @@ use matrix_sdk::{
         events::room::message::{
             ReplyWithinThread, RoomMessageEventContent, RoomMessageEventContentWithoutRelation,
         },
-        OwnedEventId, OwnedRoomId, UserId,
+        OwnedEventId, OwnedRoomId, RoomId, UserId,
     },
     Client, Room, RoomState,
 };
@@ -44,9 +44,12 @@ enum Mode {
 }
 
 enum TimelineKind {
-    Room,
+    Room {
+        room: Option<OwnedRoomId>,
+    },
 
     Thread {
+        room: OwnedRoomId,
         /// The root event ID of the thread.
         root: OwnedEventId,
         /// The threaded-focused timeline for this thread.
@@ -61,8 +64,6 @@ enum TimelineKind {
 }
 
 pub struct RoomView {
-    selected_room: Option<OwnedRoomId>,
-
     client: Client,
 
     /// Timelines data structures for each room.
@@ -84,22 +85,38 @@ impl RoomView {
     pub fn new(client: Client, timelines: Timelines, status_handle: StatusHandle) -> Self {
         Self {
             client,
-            selected_room: None,
             timelines,
             status_handle,
             current_pagination: Default::default(),
             mode: Mode::Normal { invited_room_view: None },
-            kind: TimelineKind::Room,
+            kind: TimelineKind::Room { room: None },
             input: Input::new(),
             timeline_list: TimelineListState::default(),
         }
     }
 
-    fn switch_to_room_timeline(&mut self) {
-        if let TimelineKind::Thread { task, .. } = &self.kind {
-            task.abort();
+    fn switch_to_room_timeline(&mut self, room: Option<OwnedRoomId>) {
+        match &mut self.kind {
+            TimelineKind::Room { room: prev_room } => {
+                self.kind = TimelineKind::Room { room: room.or(prev_room.take()) };
+            }
+            TimelineKind::Thread { task, room, .. } => {
+                // If we were in a thread, abort the task.
+                task.abort();
+                self.kind = TimelineKind::Room { room: Some(room.clone()) };
+            }
         }
-        self.kind = TimelineKind::Room;
+    }
+
+    fn room_id(&self) -> Option<&RoomId> {
+        match &self.kind {
+            TimelineKind::Room { room } => room.as_deref(),
+            TimelineKind::Thread { room, .. } => Some(room),
+        }
+    }
+
+    fn room(&self) -> Option<Room> {
+        self.room_id().and_then(|room_id| self.client.get_room(room_id))
     }
 
     pub async fn handle_event(&mut self, event: Event) {
@@ -135,7 +152,7 @@ impl RoomView {
                         (KeyModifiers::NONE, Esc)
                             if matches!(self.kind, TimelineKind::Thread { .. }) =>
                         {
-                            self.switch_to_room_timeline();
+                            self.switch_to_room_timeline(None);
                         }
 
                         (KeyModifiers::CONTROL, Char('l')) => {
@@ -145,7 +162,7 @@ impl RoomView {
                         (KeyModifiers::NONE, PageUp) => self.back_paginate(),
 
                         (KeyModifiers::ALT, Char('e')) => {
-                            if self.selected_room.is_some() {
+                            if let TimelineKind::Room { room: Some(_) } = self.kind {
                                 self.mode = Mode::Details {
                                     tiling_direction: DEFAULT_TILING_DIRECTION,
                                     view: RoomDetails::with_events_as_selected(),
@@ -154,7 +171,7 @@ impl RoomView {
                         }
 
                         (KeyModifiers::ALT, Char('r')) => {
-                            if self.selected_room.is_some() {
+                            if let TimelineKind::Room { room: Some(_) } = self.kind {
                                 self.mode = Mode::Details {
                                     tiling_direction: DEFAULT_TILING_DIRECTION,
                                     view: RoomDetails::with_receipts_as_selected(),
@@ -163,7 +180,7 @@ impl RoomView {
                         }
 
                         (KeyModifiers::ALT, Char('l')) => {
-                            if self.selected_room.is_some() {
+                            if let TimelineKind::Room { room: Some(_) } = self.kind {
                                 self.mode = Mode::Details {
                                     tiling_direction: DEFAULT_TILING_DIRECTION,
                                     view: RoomDetails::with_chunks_as_selected(),
@@ -180,8 +197,12 @@ impl RoomView {
                         (_, Esc) => self.timeline_list.unselect(),
 
                         (KeyModifiers::CONTROL, Char('t'))
-                            if matches!(self.kind, TimelineKind::Room) =>
+                            if matches!(self.kind, TimelineKind::Room { .. }) =>
                         {
+                            let Some(room) = self.room() else {
+                                return;
+                            };
+
                             let Some(timeline_list_nth) = self.timeline_list.selected() else {
                                 return;
                             };
@@ -214,14 +235,6 @@ impl RoomView {
                                 return;
                             };
 
-                            let Some(room) = self
-                                .selected_room
-                                .as_ref()
-                                .and_then(|room_id| self.client.get_room(room_id))
-                            else {
-                                return;
-                            };
-
                             self.status_handle.set_message(format!(
                                 "Opening thread for event {root_event_id} in room {}",
                                 room.room_id()
@@ -232,11 +245,12 @@ impl RoomView {
 
                             let i = items.clone();
                             let t = thread_timeline.clone();
-                            let r = root_event_id.clone();
+                            let root = root_event_id.clone();
+                            let r = room.clone();
                             let task = spawn(async move {
-                                let timeline = TimelineBuilder::new(&room)
+                                let timeline = TimelineBuilder::new(&r)
                                     .with_focus(TimelineFocus::Thread {
-                                        root_event_id: r.clone(),
+                                        root_event_id: root.clone(),
                                         num_events: 2,
                                     })
                                     .build()
@@ -260,6 +274,7 @@ impl RoomView {
                             self.timeline_list.unselect();
 
                             self.kind = TimelineKind::Thread {
+                                room: room.room_id().to_owned(),
                                 root: root_event_id,
                                 timeline: thread_timeline,
                                 items,
@@ -318,12 +333,12 @@ impl RoomView {
         }
     }
 
-    pub fn set_selected_room(&mut self, room: Option<OwnedRoomId>) {
-        if let Some(room_id) = room.as_deref() {
+    pub fn set_selected_room(&mut self, room_id: Option<OwnedRoomId>) {
+        if let Some(room_id) = room_id.as_deref() {
             let maybe_room = self.client.get_room(room_id);
 
             if let Some(room) = maybe_room {
-                self.switch_to_room_timeline();
+                self.switch_to_room_timeline(Some(room_id.to_owned()));
 
                 if matches!(room.state(), RoomState::Invited) {
                     let view = InvitedRoomView::new(room);
@@ -340,13 +355,11 @@ impl RoomView {
         }
 
         self.timeline_list = TimelineListState::default();
-        self.selected_room = room;
     }
 
     fn get_selected_timeline(&self) -> Option<Arc<Timeline>> {
         match &self.kind {
-            TimelineKind::Room => self
-                .selected_room
+            TimelineKind::Room { room } => room
                 .as_deref()
                 .and_then(|room_id| Some(self.timelines.lock().get(room_id)?.timeline.clone())),
             TimelineKind::Thread { timeline, .. } => timeline.get().cloned(),
@@ -355,8 +368,7 @@ impl RoomView {
 
     fn get_selected_timeline_items(&self) -> Option<Vector<Arc<TimelineItem>>> {
         match &self.kind {
-            TimelineKind::Room => self
-                .selected_room
+            TimelineKind::Room { room } => room
                 .as_deref()
                 .and_then(|room_id| Some(self.timelines.lock().get(room_id)?.items.lock().clone())),
             TimelineKind::Thread { items, .. } => Some(items.lock().clone()),
@@ -418,15 +430,12 @@ impl RoomView {
     /// Attempt to find the currently selected room and pass it to the async
     /// callback.
     async fn call_with_room(&self, function: impl AsyncFnOnce(Room, &StatusHandle)) {
-        let Some(room) =
-            self.selected_room.as_deref().and_then(|room_id| self.client.get_room(room_id))
-        else {
+        if let Some(room) = self.room() {
+            function(room, &self.status_handle).await
+        } else {
             self.status_handle
                 .set_message("Couldn't find a room selected room to perform an action".to_owned());
-            return;
-        };
-
-        function(room, &self.status_handle).await
+        }
     }
 
     async fn invite_member(&mut self, user_id: &str) {
@@ -479,7 +488,7 @@ impl RoomView {
 
     async fn send_message(&mut self, message: String) {
         match &self.kind {
-            TimelineKind::Room => {
+            TimelineKind::Room { .. } => {
                 if let Some(sdk_timeline) = self.get_selected_timeline() {
                     match sdk_timeline
                         .send(RoomMessageEventContent::text_plain(message).into())
@@ -616,7 +625,7 @@ impl Widget for &mut RoomView {
                 .render(middle_area, buf);
         };
 
-        if let Some(room_id) = self.selected_room.as_deref() {
+        if let Some(room_id) = self.room_id() {
             let maybe_room = self.client.get_room(room_id);
             let mut maybe_room = maybe_room.as_ref();
 
