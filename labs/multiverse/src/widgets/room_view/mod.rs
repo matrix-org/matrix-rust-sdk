@@ -108,6 +108,79 @@ impl RoomView {
         }
     }
 
+    fn switch_to_thread_timeline(&mut self) {
+        let Some(room) = self.room() else {
+            return;
+        };
+
+        let Some(timeline_list_nth) = self.timeline_list.selected() else {
+            return;
+        };
+
+        let Some(items) = self.get_selected_timeline_items() else {
+            self.status_handle.set_message("missing timeline for room".to_owned());
+            return;
+        };
+
+        let Some(root_event) = items.get(timeline_list_nth).and_then(|item| item.as_event()) else {
+            self.status_handle.set_message("no event associated to this timeline item".to_owned());
+            return;
+        };
+
+        if root_event.content().as_message().is_none() {
+            self.status_handle.set_message("this event can't be a thread start!".to_owned());
+            return;
+        }
+
+        let Some(root_event_id) = root_event.event_id().map(ToOwned::to_owned) else {
+            self.status_handle.set_message("can't open thread on a local echo".to_owned());
+            return;
+        };
+
+        self.status_handle.set_message(format!(
+            "Opening thread for event {root_event_id} in room {}",
+            room.room_id()
+        ));
+
+        let thread_timeline = Arc::new(OnceCell::new());
+        let items = Arc::new(Mutex::new(Default::default()));
+
+        let i = items.clone();
+        let t = thread_timeline.clone();
+        let root = root_event_id.clone();
+        let r = room.clone();
+        let task = spawn(async move {
+            let timeline = TimelineBuilder::new(&r)
+                .with_focus(TimelineFocus::Thread { root_event_id: root.clone(), num_events: 2 })
+                .build()
+                .await
+                .unwrap();
+
+            let items = i;
+            let (initial_items, mut stream) = timeline.subscribe().await;
+
+            t.set(Arc::new(timeline)).unwrap();
+            *items.lock() = initial_items;
+
+            while let Some(diffs) = stream.next().await {
+                let mut items = items.lock();
+                for diff in diffs {
+                    diff.apply(&mut items);
+                }
+            }
+        });
+
+        self.timeline_list.unselect();
+
+        self.kind = TimelineKind::Thread {
+            room: room.room_id().to_owned(),
+            root: root_event_id,
+            timeline: thread_timeline,
+            items,
+            task,
+        };
+    }
+
     fn room_id(&self) -> Option<&RoomId> {
         match &self.kind {
             TimelineKind::Room { room } => room.as_deref(),
@@ -199,87 +272,7 @@ impl RoomView {
                         (KeyModifiers::CONTROL, Char('t'))
                             if matches!(self.kind, TimelineKind::Room { .. }) =>
                         {
-                            let Some(room) = self.room() else {
-                                return;
-                            };
-
-                            let Some(timeline_list_nth) = self.timeline_list.selected() else {
-                                return;
-                            };
-
-                            let Some(items) = self.get_selected_timeline_items() else {
-                                self.status_handle
-                                    .set_message("missing timeline for room".to_owned());
-                                return;
-                            };
-
-                            let Some(root_event) =
-                                items.get(timeline_list_nth).and_then(|item| item.as_event())
-                            else {
-                                self.status_handle.set_message(
-                                    "no event associated to this timeline item".to_owned(),
-                                );
-                                return;
-                            };
-
-                            if root_event.content().as_message().is_none() {
-                                self.status_handle
-                                    .set_message("this event can't be a thread start!".to_owned());
-                                return;
-                            }
-
-                            let Some(root_event_id) = root_event.event_id().map(ToOwned::to_owned)
-                            else {
-                                self.status_handle
-                                    .set_message("can't open thread on a local echo".to_owned());
-                                return;
-                            };
-
-                            self.status_handle.set_message(format!(
-                                "Opening thread for event {root_event_id} in room {}",
-                                room.room_id()
-                            ));
-
-                            let thread_timeline = Arc::new(OnceCell::new());
-                            let items = Arc::new(Mutex::new(Default::default()));
-
-                            let i = items.clone();
-                            let t = thread_timeline.clone();
-                            let root = root_event_id.clone();
-                            let r = room.clone();
-                            let task = spawn(async move {
-                                let timeline = TimelineBuilder::new(&r)
-                                    .with_focus(TimelineFocus::Thread {
-                                        root_event_id: root.clone(),
-                                        num_events: 2,
-                                    })
-                                    .build()
-                                    .await
-                                    .unwrap();
-
-                                let items = i;
-                                let (initial_items, mut stream) = timeline.subscribe().await;
-
-                                t.set(Arc::new(timeline)).unwrap();
-                                *items.lock() = initial_items;
-
-                                while let Some(diffs) = stream.next().await {
-                                    let mut items = items.lock();
-                                    for diff in diffs {
-                                        diff.apply(&mut items);
-                                    }
-                                }
-                            });
-
-                            self.timeline_list.unselect();
-
-                            self.kind = TimelineKind::Thread {
-                                room: room.room_id().to_owned(),
-                                root: root_event_id,
-                                timeline: thread_timeline,
-                                items,
-                                task,
-                            };
+                            self.switch_to_thread_timeline();
                         }
 
                         _ => self.input.handle_key_press(key),
