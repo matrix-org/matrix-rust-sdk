@@ -319,6 +319,14 @@ impl RoomView {
                             }
                         }
 
+                        (_, Down) | (KeyModifiers::CONTROL, Char('n')) => {
+                            self.timeline_list.select_next()
+                        }
+
+                        (_, Up) | (KeyModifiers::CONTROL, Char('p')) => {
+                            self.timeline_list.select_previous()
+                        }
+
                         _ => match view.handle_key_press(key) {
                             ShouldExit::No => {}
                             ShouldExit::OnlySubScreen => {}
