@@ -1,7 +1,3 @@
-use std::{ops::Deref, sync::Arc};
-
-use imbl::Vector;
-use matrix_sdk::Room;
 use matrix_sdk_base::read_receipts::RoomReadReceipts;
 use matrix_sdk_ui::timeline::TimelineItem;
 use ratatui::{
@@ -9,16 +5,15 @@ use ratatui::{
     widgets::{Block, Borders, HighlightSpacing, List, ListItem, ListState, Paragraph, Wrap},
 };
 
-use crate::{SELECTED_STYLE_FG, TEXT_COLOR};
+use crate::{widgets::room_view::DetailsState, SELECTED_STYLE_FG, TEXT_COLOR};
 
 pub struct ReadReceipts<'a> {
-    room: Option<&'a Room>,
-    items: Option<&'a Vector<Arc<TimelineItem>>>,
+    state: &'a DetailsState<'a>,
 }
 
 impl<'a> ReadReceipts<'a> {
-    pub fn new(room: Option<&'a Room>, items: Option<&'a Vector<Arc<TimelineItem>>>) -> Self {
-        Self { room, items }
+    pub(super) fn new(state: &'a DetailsState<'a>) -> Self {
+        Self { state }
     }
 }
 
@@ -27,7 +22,7 @@ impl Widget for &mut ReadReceipts<'_> {
     where
         Self: Sized,
     {
-        match self.room {
+        match self.state.selected_room {
             Some(room) => {
                 let RoomReadReceipts { num_unread, num_notifications, num_mentions, .. } =
                     room.read_receipts();
@@ -51,20 +46,30 @@ impl Widget for &mut ReadReceipts<'_> {
                     .block(Block::new().borders(Borders::BOTTOM))
                     .render(top, buf);
 
-                if let Some(items) = self.items {
-                    let list_items =
-                        items.into_iter().map(Deref::deref).filter_map(format_timeline_item);
+                if let Some(items) = self.state.timeline_items {
+                    let mut list_items = Vec::new();
+                    let mut selected_item = None;
+
+                    for (index, item) in items.into_iter().enumerate() {
+                        let Some(event) = item.as_event() else { continue };
+
+                        if event.event_id() == self.state.selected_event.as_deref() {
+                            selected_item = Some(index);
+                        }
+
+                        let Some(list_item) = format_timeline_item(item) else {
+                            continue;
+                        };
+
+                        list_items.push(list_item);
+                    }
 
                     let list = List::new(list_items)
                         .highlight_spacing(HighlightSpacing::Always)
                         .highlight_symbol(">")
                         .highlight_style(SELECTED_STYLE_FG);
 
-                    // TODO: Do we want to synchronize the selection with the timeline?
-                    // Probably not? Otherwise we'll have to ensure that the same number of items
-                    // is rendered Which isn't a given considering virtual timeline items won't
-                    // have read receipts.
-                    let mut state = ListState::default();
+                    let mut state = ListState::default().with_selected(selected_item);
                     StatefulWidget::render(list, bottom, buf, &mut state);
                 }
             }
