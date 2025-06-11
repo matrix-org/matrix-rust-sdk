@@ -546,7 +546,7 @@ mod tests {
             assert!(room_0.successor_room().is_none());
         }
 
-        // Room 0 <-> room 1.
+        // Room 0 and room 1.
         {
             let tombstone_event_id = event_id!("$ev0");
             let response = response_builder
@@ -585,7 +585,7 @@ mod tests {
             assert!(room_1.successor_room().is_none(), "room 1 must not have a successor");
         }
 
-        // Room 1 <-> room 2.
+        // Room 1 and room 2.
         {
             let tombstone_event_id = event_id!("$ev1");
             let response = response_builder
@@ -743,7 +743,7 @@ mod tests {
 
         let client = logged_in_base_client(None).await;
 
-        // Room 0 -> room 0.
+        // Room 0.
         {
             let tombstone_event_id = event_id!("$ev0");
             let response = response_builder
@@ -780,7 +780,7 @@ mod tests {
 
         let client = logged_in_base_client(None).await;
 
-        // Room 0 <-> room 1.
+        // Room 0 and room 1.
         {
             let tombstone_event_id = event_id!("$ev0");
             let response = response_builder
@@ -819,7 +819,7 @@ mod tests {
             assert!(room_1.successor_room().is_none(), "room 1 must not have a successor");
         }
 
-        // Room 1 <-> room 2 -> room 0.
+        // Room 1, room 2 and room 0.
         {
             let tombstone_event_id = event_id!("$ev1");
             let response = response_builder
@@ -891,7 +891,7 @@ mod tests {
 
         let client = logged_in_base_client(None).await;
 
-        // Room 0 <- room 0.
+        // Room 0.
         {
             let tombstone_event_id = event_id!("$ev0");
             let response = response_builder
@@ -927,7 +927,7 @@ mod tests {
 
         let client = logged_in_base_client(None).await;
 
-        // Room 0 <-> room 0.
+        // Room 0.
         {
             let tombstone_event_id = event_id!("$ev0");
             let response = response_builder
@@ -970,7 +970,7 @@ mod tests {
 
         let client = logged_in_base_client(None).await;
 
-        // Room 0 <-> room 1 <-> room 2 <-> room 0.
+        // Room 0, room 1 and room 2.
         //
         // Doing that in one sync, it's the only way to create such loop (otherwise it
         // implies overwriting the `m.room.create` event, or not setting it first, then
