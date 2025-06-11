@@ -12,47 +12,129 @@
 // See the License for the specific language governing permissions and
 // limitations under the License
 
+//! Types used for (de)serialization of event cache store data.
+//!
+//! These types are wrappers around the types found in
+//! [`crate::event_cache_store::types`] and prepare those types for
+//! serialization in IndexedDB. They are constructed by extracting
+//! relevant values from the inner types, storing those values in indexed
+//! fields, and then storing the full types in a possibly encrypted form. This
+//! allows the data to be encrypted, while still allowing for efficient querying
+//! and retrieval of data.
+//!
+//! Each top-level type represents an object store in IndexedDB and each
+//! field - except the content field - represents an index on that object store.
+//! These types mimic the structure of the object stores and indices created in
+//! [`crate::event_cache_store::migrations`].
+
 use serde::{Deserialize, Serialize};
 
 use crate::serializer::MaybeEncrypted;
 
+/// Represents the [`LINKED_CHUNKS`][1] object store.
+///
+/// [1]: crate::event_cache_store::migrations::v1::create_linked_chunks_object_store
 #[derive(Debug, Serialize, Deserialize)]
 pub struct IndexedChunk {
+    /// The primary key of the object store.
     pub id: IndexedChunkIdKey,
+    /// An indexed key on the object store, which represents the
+    /// [`IndexedChunkIdKey`] of the next chunk in the linked list.
     pub next: IndexedChunkIdKey,
-    pub content: MaybeEncrypted, /* ChunkForCache */
+    /// The (possibly) encrypted content of the chunk.
+    pub content: IndexedChunkContent,
 }
 
+/// The value associated with the [primary key](IndexedChunk::id) of the
+/// [`LINKED_CHUNKS`][1] object store, which is constructed from:
+///
+/// - The (possibly) encrypted Room ID
+/// - The Chunk ID.
+///
+/// [1]: crate::event_cache_store::migrations::v1::create_linked_chunks_object_store
 #[derive(Debug, Serialize, Deserialize)]
-pub struct IndexedChunkIdKey(String /* Room ID */, String /* Chunk ID */);
+pub struct IndexedChunkIdKey(IndexedRoomId, IndexedChunkId);
 
+pub type IndexedRoomId = MaybeEncrypted;
+pub type IndexedChunkId = String;
+pub type IndexedChunkContent = MaybeEncrypted;
+
+/// Represents the [`EVENTS`][1] object store.
+///
+/// [1]: crate::event_cache_store::migrations::v1::create_events_object_store
 #[derive(Debug, Serialize, Deserialize)]
 pub struct IndexedEvent {
+    /// The primary key of the object store.
     pub id: IndexedEventIdKey,
+    /// An indexed key on the object store, which represents the position of the
+    /// event, if it is in a chunk.
     pub position: Option<IndexedEventPositionKey>,
+    /// An indexed key on the object store, which represents the relationship
+    /// between this event and another event, if one exists.
     pub relation: Option<IndexedEventRelationKey>,
-    pub content: MaybeEncrypted, /* EventForCache */
+    /// The (possibly) encrypted content of the event.
+    pub content: IndexedEventContent,
 }
 
+/// The value associated with the [primary key](IndexedEvent::id) of the
+/// [`EVENTS`][1] object store, which is constructed from:
+///
+/// - The (possibly) encrypted Room ID
+/// - The (possibly) encrypted Event ID.
+///
+/// [1]: crate::event_cache_store::migrations::v1::create_events_object_store
 #[derive(Debug, Serialize, Deserialize)]
-pub struct IndexedEventIdKey(String /* Room ID */, String /* Event ID */);
+pub struct IndexedEventIdKey(IndexedRoomId, IndexedEventId);
 
+pub type IndexedEventId = MaybeEncrypted;
+
+/// The value associated with the [`position`](IndexedEvent::position) index of
+/// the [`EVENTS`][1] object store, which is constructed from:
+///
+/// - The (possibly) encrypted Room ID
+/// - The Chunk ID
+/// - The index of the event in the chunk.
+///
+/// [1]: crate::event_cache_store::migrations::v1::create_events_object_store
 #[derive(Debug, Serialize, Deserialize)]
-pub struct IndexedEventPositionKey(
-    String, /* Room ID */
-    String, /* Chunk ID */
-    String, /* Index */
-);
+pub struct IndexedEventPositionKey(IndexedRoomId, IndexedChunkId, IndexedEventPositionIndex);
 
+pub type IndexedEventPositionIndex = String;
+
+/// The value associated with the [`relation`](IndexedEvent::relation) index of
+/// the [`EVENTS`][1] object store, which is constructed from:
+///
+/// - The (possibly) encrypted Room ID
+/// - The (possibly) encrypted Event ID of the related event
+/// - The type of relationship between the events
+///
+/// [1]: crate::event_cache_store::migrations::v1::create_events_object_store
 #[derive(Debug, Serialize, Deserialize)]
-pub struct IndexedEventRelationKey(
-    String, /* Room ID */
-    String, /* Related Event ID */
-    String, /* Relation Type */
-);
+pub struct IndexedEventRelationKey(IndexedRoomId, IndexedEventId, IndexedRelationType);
 
+/// A representation of the relationship between two events (see
+/// [`RelationType`](ruma::events::relation::RelationType))
+pub type IndexedRelationType = String;
+
+pub type IndexedEventContent = MaybeEncrypted;
+
+/// Represents the [`GAPS`][1] object store.
+///
+/// [1]: crate::event_cache_store::migrations::v1::create_gaps_object_store
 #[derive(Debug, Serialize, Deserialize)]
 pub struct IndexedGap {
-    pub id: String,
-    pub content: MaybeEncrypted, /* GapForCache */
+    /// The primary key of the object store
+    pub id: IndexedGapIdKey,
+    /// The (possibly) encrypted content of the gap
+    pub content: IndexedGapContent,
 }
+
+/// The primary key of the [`GAPS`][1] object store, which is constructed from:
+///
+/// - The (possibly) encrypted Room ID
+/// - The Chunk ID
+///
+/// [1]: crate::event_cache_store::migrations::v1::create_gaps_object_store
+pub type IndexedGapIdKey = IndexedChunkIdKey;
+
+pub type IndexedGapContent = MaybeEncrypted;
