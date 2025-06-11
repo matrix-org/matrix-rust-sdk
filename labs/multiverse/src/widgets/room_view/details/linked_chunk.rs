@@ -1,9 +1,9 @@
 use matrix_sdk::Room;
+use matrix_sdk_common::executor::Handle;
 use ratatui::{
     prelude::*,
     widgets::{Paragraph, Wrap},
 };
-use tokio::runtime::Handle;
 
 use crate::TEXT_COLOR;
 
