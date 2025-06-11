@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use crossterm::event::{Event, KeyCode, KeyModifiers};
-use futures_util::StreamExt as _;
+use futures_util::StreamExt;
 use imbl::Vector;
 use input::MessageOrCommand;
 use invited_room::InvitedRoomView;
@@ -38,6 +38,12 @@ mod invited_room;
 mod timeline;
 
 const DEFAULT_TILING_DIRECTION: Direction = Direction::Horizontal;
+
+pub struct DetailsState<'a> {
+    selected_room: Option<&'a Room>,
+    timeline_items: Option<&'a Vector<Arc<TimelineItem>>>,
+    selected_event: Option<OwnedEventId>,
+}
 
 enum Mode {
     Normal { invited_room_view: Option<InvitedRoomView> },
@@ -565,6 +571,18 @@ impl RoomView {
         }
     }
 
+    fn get_selected_event_id(&self) -> Option<OwnedEventId> {
+        let selected = self.timeline_list.selected()?;
+        let selected_room = self.room_id()?;
+
+        let timelines = self.timelines.lock();
+        let current_timeline = timelines.get(selected_room)?;
+        let items = current_timeline.items.lock();
+        let item = items.get(selected)?;
+
+        item.as_event()?.event_id().map(|e| e.to_owned())
+    }
+
     fn update(&mut self) {
         match &mut self.mode {
             Mode::Normal { invited_room_view } => {
@@ -616,9 +634,13 @@ impl Widget for &mut RoomView {
                 .render(middle_area, buf);
         };
 
+        let selected_event = self.get_selected_event_id();
+
         if let Some(room_id) = self.room_id() {
             let maybe_room = self.client.get_room(room_id);
             let mut maybe_room = maybe_room.as_ref();
+
+            let items = self.get_selected_timeline_items();
 
             let timeline_area = match &mut self.mode {
                 Mode::Normal { invited_room_view } => {
@@ -640,13 +662,22 @@ impl Widget for &mut RoomView {
                     let [timeline_area, details_area] = vertical.areas(middle_area);
                     Clear.render(details_area, buf);
 
-                    let items =
-                        self.timelines.lock().get(room_id).map(|timeline| timeline.items.clone());
                     if let Some(items) = items {
-                        let items = items.lock();
-                        view.render(details_area, buf, &mut (maybe_room, Some(items.deref())));
+                        let mut state = DetailsState {
+                            selected_room: maybe_room,
+                            timeline_items: Some(&items),
+                            selected_event,
+                        };
+
+                        view.render(details_area, buf, &mut state);
                     } else {
-                        view.render(details_area, buf, &mut (maybe_room, None));
+                        let mut state = DetailsState {
+                            selected_room: maybe_room,
+                            timeline_items: None,
+                            selected_event,
+                        };
+
+                        view.render(details_area, buf, &mut state);
                     }
 
                     Some(timeline_area)
