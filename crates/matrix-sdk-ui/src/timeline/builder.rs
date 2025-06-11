@@ -172,8 +172,6 @@ impl TimelineBuilder {
         let (room_event_cache, event_cache_drop) = room.event_cache().await?;
         let (_, event_subscriber) = room_event_cache.subscribe().await;
 
-        let is_live = matches!(focus, TimelineFocus::Live { .. });
-        let is_pinned_events = matches!(focus, TimelineFocus::PinnedEvents { .. });
         let is_room_encrypted = room
             .latest_encryption_state()
             .await
@@ -192,7 +190,7 @@ impl TimelineBuilder {
 
         let has_events = controller.init_focus(&room_event_cache).await?;
 
-        let pinned_events_join_handle = if is_pinned_events {
+        let pinned_events_join_handle = if matches!(focus, TimelineFocus::PinnedEvents { .. }) {
             Some(spawn(pinned_events_task(room.pinned_event_ids_stream(), controller.clone())))
         } else {
             None
@@ -219,7 +217,7 @@ impl TimelineBuilder {
                 room_event_cache.clone(),
                 controller.clone(),
                 event_subscriber,
-                is_live,
+                focus.clone(),
             )
             .instrument(span)
         });
@@ -359,7 +357,7 @@ async fn room_event_cache_updates_task(
     room_event_cache: RoomEventCache,
     timeline_controller: TimelineController,
     mut event_subscriber: RoomEventCacheListener,
-    is_live: bool,
+    timeline_focus: TimelineFocus,
 ) {
     trace!("Spawned the event subscriber task.");
 
@@ -404,7 +402,10 @@ async fn room_event_cache_updates_task(
 
                 let has_diffs = !diffs.is_empty();
 
-                if is_live {
+                if matches!(
+                    timeline_focus,
+                    TimelineFocus::Live { .. } | TimelineFocus::Thread { .. }
+                ) {
                     timeline_controller.handle_remote_events_with_diffs(diffs, origin).await;
                 } else {
                     // Only handle the remote aggregation for a non-live timeline.
