@@ -57,9 +57,9 @@ impl Widget for &mut ReadReceipts<'_> {
                 }
                 (Some(items), Some(selected_event)) => {
                     let item =
-                        items.into_iter().find(|&item| find_selected_event(item, &selected_event));
+                        items.into_iter().find(|&item| find_selected_event(item, selected_event));
 
-                    if let Some(item) = item.map(|i| format_timeline_item(i)).flatten() {
+                    if let Some(item) = item.and_then(|i| format_timeline_item(i)) {
                         let second_item = ListItem::from(selected_event.to_string());
 
                         let list = List::new(vec![second_item, item])

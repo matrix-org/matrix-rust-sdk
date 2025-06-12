@@ -75,11 +75,11 @@ impl MatrixMockServer {
     ) -> MockClientBuilder {
         // Create an access token and store the token to user_id mapping
         let next = self.token_counter.fetch_add(1, Ordering::Relaxed);
-        let access_token = format!("TOKEN_{}", next);
+        let access_token = format!("TOKEN_{next}");
 
         {
             let mut mappings = self.token_to_user_id_map.lock().unwrap();
-            let auth_string = format!("Bearer {}", access_token);
+            let auth_string = format!("Bearer {access_token}");
             mappings.insert(auth_string, user_id.to_owned());
         }
 
