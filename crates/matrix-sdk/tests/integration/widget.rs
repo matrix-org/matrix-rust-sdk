@@ -1300,23 +1300,204 @@ async fn test_error_to_device_event_no_permission() {
 
 #[async_test]
 async fn test_send_encrypted_to_device_event() {
-    send_to_device_test_helper(
-        "my.custom.to_device_type",
-        json!({
-            "type": "my.custom.to_device_type",
-            "encrypted": true,
-            "messages":{
-                "@username:test.org": {
-                    "DEVICEID": {
-                        "param1":"test",
-                    },
-                },
-            }
-        }),
-        json! {{"error":{"message":"Sending encrypted to-device events is not supported by the widget driver."}}},
-        0,
+    let (alice, bob, mock_server, driver_handle) = run_test_driver_e2e(false).await;
+    let carl = mock_server.set_up_carl_for_encryption(&alice, &bob).await;
+
+    negotiate_capabilities(
+        &driver_handle,
+        json!(["org.matrix.msc3819.send.to_device:my.custom.to_device_type",]),
     )
     .await;
+
+    let request_id = "0000000";
+
+    let data = json!({
+        "type": "my.custom.to_device_type",
+        "messages": {
+            bob.user_id().unwrap().to_string(): {
+                bob.device_id().unwrap().to_string(): {
+                    "param1":"test",
+                },
+            },
+            carl.user_id().unwrap().to_string(): {
+                carl.device_id().unwrap().to_string(): {
+                    "param1":"test",
+                },
+            },
+        }
+    });
+
+    let (guard, event_as_sent_by_alice) =
+        mock_server.mock_capture_put_to_device(alice.user_id().unwrap()).await;
+
+    send_request(&driver_handle, request_id, "send_to_device", data).await;
+
+    let event_as_sent_by_alice = event_as_sent_by_alice.await;
+    drop(guard);
+    assert_eq!(event_as_sent_by_alice["type"], "m.room.encrypted");
+
+    // Receive the response
+    let msg = recv_message(&driver_handle).await;
+    assert_eq!(msg["api"], "fromWidget");
+    assert_eq!(msg["action"], "send_to_device");
+    let response = msg["response"].clone();
+    assert_eq!(serde_json::to_string(&response).unwrap(), "{}");
+}
+
+#[async_test]
+async fn test_send_encrypted_to_device_event_unknown_device() {
+    let (_, _, driver_handle) = run_test_driver(false, true).await;
+
+    negotiate_capabilities(
+        &driver_handle,
+        json!(["org.matrix.msc3819.send.to_device:my.custom.to_device_type",]),
+    )
+    .await;
+
+    let request_id = "0000000";
+
+    let data = json!({
+        "type": "my.custom.to_device_type",
+        "messages": {
+            "@carl:example.org": {
+                "UNKNOWN_DEVICE": {
+                    "param1":"test",
+                },
+            },
+        }
+    });
+
+    send_request(&driver_handle, request_id, "send_to_device", data).await;
+
+    // Receive the response
+    let msg = recv_message(&driver_handle).await;
+
+    println!("{msg:?}");
+    assert_eq!(msg["api"], "fromWidget");
+    assert_eq!(msg["action"], "send_to_device");
+    let response = msg["response"].clone();
+    assert_eq!(
+        response,
+        json!(
+            {
+                "failures": {
+                    "@carl:example.org": ["UNKNOWN_DEVICE"]
+                }
+            }
+        )
+    );
+}
+
+#[async_test]
+async fn test_send_encrypted_to_device_event_partial_error() {
+    let (alice, bob, mock_server, driver_handle) = run_test_driver_e2e(false).await;
+
+    negotiate_capabilities(
+        &driver_handle,
+        json!(["org.matrix.msc3819.send.to_device:my.custom.to_device_type",]),
+    )
+    .await;
+
+    let request_id = "0000000";
+
+    let data = json!({
+        "type": "my.custom.to_device_type",
+        "messages": {
+            "@carl:example.org": {
+                "UNKNOWN_DEVICE": {
+                    "param1":"test",
+                },
+            },
+            bob.user_id().unwrap().to_string(): {
+                bob.device_id().unwrap().to_string(): {
+                    "param1":"test",
+                },
+            },
+        }
+    });
+
+    let (guard, event_as_sent_by_alice) =
+        mock_server.mock_capture_put_to_device(alice.user_id().unwrap()).await;
+
+    send_request(&driver_handle, request_id, "send_to_device", data).await;
+
+    // It was sent to bob even though other recipients failed
+    let event_as_sent_by_alice = event_as_sent_by_alice.await;
+    drop(guard);
+    assert_eq!(event_as_sent_by_alice["type"], "m.room.encrypted");
+
+    // Receive the response
+    let msg = recv_message(&driver_handle).await;
+
+    println!("{msg:?}");
+    assert_eq!(msg["api"], "fromWidget");
+    assert_eq!(msg["action"], "send_to_device");
+    let response = msg["response"].clone();
+    assert_eq!(
+        response,
+        json!(
+            {
+                "failures": {
+                    "@carl:example.org": ["UNKNOWN_DEVICE"]
+                }
+            }
+        )
+    );
+}
+
+/// The existing widget-apis allows to encrypt and send different content per
+/// device, ensure this works.
+#[async_test]
+async fn test_send_encrypted_to_device_different_content() {
+    let (alice, bob, mock_server, driver_handle) = run_test_driver_e2e(false).await;
+
+    let carl = mock_server.set_up_carl_for_encryption(&alice, &bob).await;
+
+    negotiate_capabilities(
+        &driver_handle,
+        json!(["org.matrix.msc3819.send.to_device:my.custom.to_device_type",]),
+    )
+    .await;
+
+    let request_id = "0000000";
+
+    let data = json!({
+        "type": "my.custom.to_device_type",
+        "messages": {
+             carl.user_id().unwrap().to_string(): {
+                carl.device_id().unwrap().to_string(): {
+                    "body":"test but for carl",
+                    "param2": "val",
+                },
+            },
+            bob.user_id().unwrap().to_string(): {
+                bob.device_id().unwrap().to_string(): {
+                    "param1":"test",
+                    "param2":"val",
+                },
+            },
+        }
+    });
+
+    // the current implementation would send 2 different to-device messages, one per
+    // content
+    Mock::given(method("PUT"))
+        .and(path_regex(r"^/_matrix/client/.*/sendToDevice/m.room.encrypted/.*"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({})))
+        .expect(2)
+        .mount(mock_server.server())
+        .await;
+
+    send_request(&driver_handle, request_id, "send_to_device", data).await;
+
+    // Receive the response
+    let msg = recv_message(&driver_handle).await;
+
+    println!("{msg:?}");
+    assert_eq!(msg["api"], "fromWidget");
+    assert_eq!(msg["action"], "send_to_device");
+    let response = msg["response"].clone();
+    assert_eq!(response, json!({}));
 }
 
 async fn negotiate_capabilities(driver_handle: &WidgetDriverHandle, caps: JsonValue) {

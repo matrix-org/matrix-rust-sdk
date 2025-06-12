@@ -15,7 +15,7 @@
 //! Matrix driver implementation that exposes Matrix functionality
 //! that is relevant for the widget API.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use matrix_sdk_base::deserialized_responses::{EncryptionInfo, RawAnySyncOrStrippedState};
 use ruma::{
@@ -23,7 +23,7 @@ use ruma::{
         account::request_openid_token::v3::{Request as OpenIdRequest, Response as OpenIdResponse},
         delayed_events::{self, update_delayed_event::unstable::UpdateAction},
         filter::RoomEventFilter,
-        to_device::send_event_to_device::{self, v3::Request as RumaToDeviceRequest},
+        to_device::send_event_to_device::v3::Request as RumaToDeviceRequest,
     },
     assign,
     events::{
@@ -33,7 +33,7 @@ use ruma::{
     },
     serde::{from_raw_json_value, Raw},
     to_device::DeviceIdOrAllDevices,
-    EventId, OwnedUserId, RoomId, TransactionId,
+    EventId, OwnedDeviceId, OwnedUserId, RoomId, TransactionId,
 };
 use serde_json::{value::RawValue as RawJsonValue, Value};
 use tokio::sync::{
@@ -44,8 +44,8 @@ use tracing::{error, trace, warn};
 
 use super::{machine::SendEventResponse, StateKeySelector};
 use crate::{
-    event_handler::EventHandlerDropGuard, room::MessagesOptions, sync::RoomUpdate, Client, Error,
-    Result, Room,
+    encryption::identities::Device, event_handler::EventHandlerDropGuard, room::MessagesOptions,
+    sync::RoomUpdate, widget::machine::SendToDeviceEventResponse, Client, Error, Result, Room,
 };
 
 /// Thin wrapper around a [`Room`] that provides functionality relevant for
@@ -317,8 +317,9 @@ impl MatrixDriver {
         filtered
     }
 
-    /// It will ignore all devices where errors occurred or where the device is
-    /// not verified or where th user has a has_verification_violation.
+    /// If the room the widget is in is encrypted, then the to-device message
+    /// will be encrypted. If one of the named devices does not exist, then
+    /// the call will fail with an error.
     pub(crate) async fn send_to_device(
         &self,
         event_type: ToDeviceEventType,
@@ -326,14 +327,124 @@ impl MatrixDriver {
             OwnedUserId,
             BTreeMap<DeviceIdOrAllDevices, Raw<AnyToDeviceEventContent>>,
         >,
-    ) -> Result<send_event_to_device::v3::Response> {
+    ) -> Result<SendToDeviceEventResponse> {
+        // TODO: block this at the negotiation stage, no reason to let widget believe
+        // they can do that
+        if Self::is_internal_type(event_type.to_string()) {
+            warn!("Widget tried to send internal to-device message <{}>, ignoring", event_type);
+            // Silently return a success response, the widget will not receive the message
+            // TODO! this will later be blocked at negociation level
+            return Ok(Default::default());
+        }
+
         let client = self.room.client();
 
-        let request =  RumaToDeviceRequest::new_raw(event_type, TransactionId::new(), messages);
+        let mut failures: BTreeMap<OwnedUserId, Vec<OwnedDeviceId>> = BTreeMap::new();
 
-        let response = client.send(request).await;
+        let room_encrypted = self
+            .room
+            .latest_encryption_state()
+            .await
+            .map(|s| s.is_encrypted())
+            // Default consider encrypted
+            .unwrap_or(true);
 
-        response.map_err(Into::into)
+        if room_encrypted {
+            trace!("Sending to-device message in encrypted room <{}>", self.room.room_id());
+
+            //  Attempt to re-batch these by content to batch them up into a single request
+            let mut content_grouped: BTreeMap<
+                &str,
+                BTreeMap<OwnedUserId, Vec<DeviceIdOrAllDevices>>,
+            > = BTreeMap::new();
+
+            for (user_id, device_map) in messages.iter() {
+                for (device_id, content) in device_map.iter() {
+                    content_grouped
+                        .entry(content.json().get())
+                        .or_default()
+                        .entry(user_id.clone())
+                        .or_default()
+                        .push(device_id.to_owned());
+                }
+            }
+
+            // Encrypt and send
+            for (content, user_map) in content_grouped {
+                // let's get all the devices for this content
+                let mut device_set: BTreeSet<(OwnedUserId, OwnedDeviceId)> = BTreeSet::new();
+                for (user_id, device_id_or_alias) in user_map {
+                    for id_or_alias in device_id_or_alias {
+                        match id_or_alias {
+                            DeviceIdOrAllDevices::DeviceId(device_id) => {
+                                device_set.insert((user_id.clone(), device_id.clone()));
+                            }
+                            DeviceIdOrAllDevices::AllDevices => {
+                                // get all the devices and add them
+                                let user_devices =
+                                    client.encryption().get_user_devices(&user_id).await?;
+                                let devices = user_devices.devices();
+                                devices.for_each(|device| {
+                                    device_set.insert((
+                                        device.user_id().to_owned(),
+                                        device.device_id().to_owned(),
+                                    ));
+                                })
+                            }
+                        }
+                    }
+                }
+
+                let mut recipients = Vec::<Device>::new();
+                for (u, d) in device_set {
+                    let found_device = client.encryption().get_device(&u, &d).await?;
+                    let Some(device) = found_device else {
+                        warn!("Device {} not found for user {}", d, u);
+                        // device not found, skip it and log
+                        failures.entry(u).or_default().push(d);
+                        continue;
+                    };
+                    recipients.push(device);
+                }
+
+                if !recipients.is_empty() {
+                    // need to group by content
+                    let send_response = client
+                        .encryption()
+                        .encrypt_and_send_raw_to_device(
+                            recipients.iter().collect(),
+                            &event_type.to_string(),
+                            Raw::from_json_string(content.to_owned())?,
+                        )
+                        .await?;
+
+                    for (user_id, device_id) in send_response {
+                        failures.entry(user_id).or_default().push(device_id)
+                    }
+                }
+            }
+
+            let failures = if failures.is_empty() {
+                None
+            } else {
+                Some(
+                    failures
+                        .into_iter()
+                        .map(|(u, list_of_devices)| {
+                            (u.into(), list_of_devices.into_iter().map(|d| d.into()).collect())
+                        })
+                        .collect(),
+                )
+            };
+
+            let response = SendToDeviceEventResponse { failures };
+            Ok(response)
+        } else {
+            // send in clear
+            let request = RumaToDeviceRequest::new_raw(event_type, TransactionId::new(), messages);
+            client.send(request).await?;
+            Ok(Default::default())
+        }
     }
 }
 
