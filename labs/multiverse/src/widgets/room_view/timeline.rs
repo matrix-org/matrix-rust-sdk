@@ -31,7 +31,19 @@ pub struct TimelineListState {
 
 impl TimelineListState {
     pub fn select_next(&mut self) {
-        self.state.select_next();
+        // Ratatui doesn't know how many items the list will have. It learns this only
+        // at render time. So when we select the next item it sets things to 0
+        // and figures where to put things at the end.
+        //
+        // This is a bit annoying since it lets us select things past the rendered list.
+        //
+        // We do remember how many items we have rendered so we can tell it to not go to
+        // the next item if we're already at the end.
+        if let Some(selected) = self.selected() {
+            if selected < self.list_index_to_item_index.len().saturating_sub(1) {
+                self.state.select_next();
+            }
+        }
     }
     pub fn select_previous(&mut self) {
         self.state.select_previous();
