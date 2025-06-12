@@ -6,6 +6,13 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased] - ReleaseDate
 
+### Features:
+
+- Add `HomeserverLoginDetails::supports_sso_login` for legacy SSO support information.
+  This is primarily for Element X to give a dedicated error message in case
+  it connects a homeserver with only this method available.
+  ([#5222](https://github.com/matrix-org/matrix-rust-sdk/pull/5222))
+
 ### Breaking changes:
 
 - The `event_id` field of `PredecessorRoom` was removed, due to its removal in the Matrix

@@ -341,7 +341,24 @@ impl Client {
             }
         };
 
-        let supports_password_login = self.supports_password_login().await.ok().unwrap_or(false);
+        let login_types = self.inner.matrix_auth().get_login_types().await.ok();
+        let supports_password_login = login_types
+            .as_ref()
+            .map(|login_types| {
+                login_types.flows.iter().any(|login_type| {
+                    matches!(login_type, get_login_types::v3::LoginType::Password(_))
+                })
+            })
+            .unwrap_or(false);
+        let supports_sso_login = login_types
+            .as_ref()
+            .map(|login_types| {
+                login_types
+                    .flows
+                    .iter()
+                    .any(|login_type| matches!(login_type, get_login_types::v3::LoginType::Sso(_)))
+            })
+            .unwrap_or(false);
         let sliding_sync_version = self.sliding_sync_version();
 
         Arc::new(HomeserverLoginDetails {
@@ -349,6 +366,7 @@ impl Client {
             sliding_sync_version,
             supports_oidc_login,
             supported_oidc_prompts,
+            supports_sso_login,
             supports_password_login,
         })
     }
@@ -805,18 +823,6 @@ impl Client {
             .await?;
 
         Ok(Arc::new(MediaFileHandle::new(handle)))
-    }
-}
-
-impl Client {
-    /// Whether or not the client's homeserver supports the password login flow.
-    pub(crate) async fn supports_password_login(&self) -> anyhow::Result<bool> {
-        let login_types = self.inner.matrix_auth().get_login_types().await?;
-        let supports_password = login_types
-            .flows
-            .iter()
-            .any(|login_type| matches!(login_type, get_login_types::v3::LoginType::Password(_)));
-        Ok(supports_password)
     }
 }
 
