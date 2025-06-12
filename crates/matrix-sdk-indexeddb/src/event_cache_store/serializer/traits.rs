@@ -63,3 +63,14 @@ pub trait IndexedKey<T: Indexed> {
         serializer: &IndexeddbSerializer,
     ) -> Self;
 }
+
+/// A trait for constructing the bounds of an [`IndexedKey`].
+///
+/// This is useful when constructing range queries in IndexedDB.
+pub trait IndexedKeyBounds<T: Indexed>: IndexedKey<T> {
+    /// Encodes the lower bound of the key.
+    fn encode_lower(room_id: &RoomId, serializer: &IndexeddbSerializer) -> Self;
+
+    /// Encodes the upper bound of the key.
+    fn encode_upper(room_id: &RoomId, serializer: &IndexeddbSerializer) -> Self;
+}
