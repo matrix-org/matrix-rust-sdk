@@ -23,6 +23,7 @@ use matrix_sdk_ui::{
 };
 use ratatui::{prelude::*, widgets::*};
 use tokio::{spawn, sync::OnceCell, task::JoinHandle};
+use tracing::info;
 
 use self::{details::RoomDetails, input::Input, timeline::TimelineView};
 use super::status::StatusHandle;
@@ -137,10 +138,7 @@ impl RoomView {
             return;
         };
 
-        self.status_handle.set_message(format!(
-            "Opening thread for event {root_event_id} in room {}",
-            room.room_id()
-        ));
+        info!("Opening thread view for event {root_event_id} in room {}", room.room_id());
 
         let thread_timeline = Arc::new(OnceCell::new());
         let items = Arc::new(Mutex::new(Default::default()));
