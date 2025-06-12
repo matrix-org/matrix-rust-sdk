@@ -489,10 +489,13 @@ mod private {
     use matrix_sdk_base::{
         apply_redaction,
         deserialized_responses::{ThreadSummary, ThreadSummaryStatus, TimelineEventKind},
-        event_cache::{store::EventCacheStoreLock, Event, Gap},
+        event_cache::{
+            store::{DynEventCacheStore, EventCacheStoreLock, DEFAULT_CHUNK_CAPACITY},
+            Event, Gap,
+        },
         linked_chunk::{
-            lazy_loader, ChunkContent, ChunkIdentifier, ChunkIdentifierGenerator, LinkedChunkId,
-            Position, Update,
+            lazy_loader, ChunkContent, ChunkIdentifier, ChunkIdentifierGenerator, LinkedChunk,
+            LinkedChunkId, Position, Update,
         },
         serde_helpers::extract_thread_root,
         sync::Timeline,
@@ -566,30 +569,39 @@ mod private {
             let store_lock = store.lock().await?;
 
             let linked_chunk_id = LinkedChunkId::Room(&room_id);
-            let linked_chunk = match store_lock
+
+            // Load the full linked chunk, so as to feed the order tracker.
+            //
+            // If loading the full linked chunk failed, we'll clear the event cache, as it
+            // indicates that at some point, there's some malformed data.
+            let fully_loaded_linked_chunk =
+                match Self::load_full_linked_chunk(&*store_lock, linked_chunk_id).await {
+                    Ok(linked_chunk) => linked_chunk,
+                    Err(err) => {
+                        error!("error when fully reloading a linked chunk from memory: {err}");
+
+                        // Clear storage for this room.
+                        store_lock
+                            .handle_linked_chunk_updates(linked_chunk_id, vec![Update::Clear])
+                            .await?;
+
+                        // Restart with an empty linked chunk.
+                        None
+                    }
+                };
+
+            let linked_chunk = store_lock
                 .load_last_chunk(linked_chunk_id)
                 .await
                 .map_err(EventCacheError::from)
                 .and_then(|(last_chunk, chunk_identifier_generator)| {
                     lazy_loader::from_last_chunk(last_chunk, chunk_identifier_generator)
                         .map_err(EventCacheError::from)
-                }) {
-                Ok(linked_chunk) => linked_chunk,
+                })
+                .expect("fully loading the linked chunk just worked, so loading it partially should also work");
 
-                Err(err) => {
-                    error!("error when reloading a linked chunk from memory: {err}");
-
-                    // Clear storage for this room.
-                    store_lock
-                        .handle_linked_chunk_updates(linked_chunk_id, vec![Update::Clear])
-                        .await?;
-
-                    // Restart with an empty linked chunk.
-                    None
-                }
-            };
-
-            let events = RoomEvents::with_initial_linked_chunk(linked_chunk);
+            let events =
+                RoomEvents::with_initial_linked_chunk(linked_chunk, fully_loaded_linked_chunk);
 
             Ok(Self {
                 room: room_id,
@@ -600,6 +612,44 @@ mod private {
                 subscriber_count: Default::default(),
                 pagination_status,
             })
+        }
+
+        /// Loads a full linked chunk from the store, from the last chunk to the
+        /// first chunk.
+        ///
+        /// Returns `None` if there's no such linked chunk in the store, or an
+        /// error if the linked chunk is malformed.
+        async fn load_full_linked_chunk(
+            store: &DynEventCacheStore,
+            linked_chunk_id: LinkedChunkId<'_>,
+        ) -> Result<Option<LinkedChunk<DEFAULT_CHUNK_CAPACITY, Event, Gap>>, EventCacheError>
+        {
+            let (last_chunk, chunk_identifier_generator) =
+                store.load_last_chunk(linked_chunk_id).await.map_err(EventCacheError::from)?;
+
+            if last_chunk.is_none() {
+                return Ok(None);
+            }
+
+            let lc = lazy_loader::from_last_chunk::<DEFAULT_CHUNK_CAPACITY, _, _>(
+                last_chunk,
+                chunk_identifier_generator,
+            )
+            .map_err(EventCacheError::from)?;
+
+            let Some(mut lc) = lc else { return Ok(None) };
+
+            loop {
+                // SAFETY: a linked chunk always has at least one chunk.
+                let first_chunk_id = lc.chunks().next().unwrap().identifier();
+                if let Some(prev) =
+                    store.load_previous_chunk(linked_chunk_id, first_chunk_id).await?
+                {
+                    lazy_loader::insert_new_first_chunk(&mut lc, prev)?;
+                } else {
+                    return Ok(Some(lc));
+                }
+            }
         }
 
         /// Given a fully-loaded linked chunk with no gaps, return the
@@ -792,6 +842,11 @@ mod private {
             Ok(self.events.updates_as_vector_diffs())
         }
 
+        #[cfg(test)]
+        pub(crate) fn room_event_order(&self, event_pos: Position) -> Option<usize> {
+            self.events.event_order(event_pos)
+        }
+
         /// Removes the bundled relations from an event, if they were present.
         ///
         /// Only replaces the present if it contained bundled relations.
@@ -856,13 +911,12 @@ mod private {
 
                 sort_positions_descending(&mut positions);
 
-                self.send_updates_to_store(
-                    positions
-                        .into_iter()
-                        .map(|position| Update::RemoveItem { at: position })
-                        .collect(),
-                )
-                .await?;
+                let updates = positions
+                    .into_iter()
+                    .map(|pos| Update::RemoveItem { at: pos })
+                    .collect::<Vec<_>>();
+
+                self.apply_store_only_updates(updates).await?;
             }
 
             // In-memory events.
@@ -884,6 +938,20 @@ mod private {
         /// Propagate changes to the underlying storage.
         async fn propagate_changes(&mut self) -> Result<(), EventCacheError> {
             let updates = self.events.store_updates().take();
+            self.send_updates_to_store(updates).await
+        }
+
+        /// Apply some updates that are effective only on the store itself.
+        ///
+        /// This method should be used only for updates that happen *outside*
+        /// the in-memory linked chunk. Such updates must be applied
+        /// onto the ordering tracker as well as to the persistent
+        /// storage.
+        async fn apply_store_only_updates(
+            &mut self,
+            updates: Vec<Update<Event, Gap>>,
+        ) -> Result<(), EventCacheError> {
+            self.events.order_tracker.map_updates(&updates);
             self.send_updates_to_store(updates).await
         }
 
@@ -2558,6 +2626,141 @@ mod timed_tests {
         assert_eq!(outcome.events.len(), 1);
         assert_eq!(outcome.events[0].event_id().as_deref(), Some(evid1));
         assert!(outcome.reached_start);
+    }
+
+    #[async_test]
+    async fn test_room_ordering() {
+        let room_id = room_id!("!galette:saucisse.bzh");
+
+        let client = MockClientBuilder::new("http://localhost".to_owned()).build().await;
+
+        let f = EventFactory::new().room(room_id).sender(*ALICE);
+
+        let evid1 = event_id!("$1");
+        let evid2 = event_id!("$2");
+        let evid3 = event_id!("$3");
+
+        let ev1 = f.text_msg("hello world").event_id(evid1).into_event();
+        let ev2 = f.text_msg("howdy").sender(*BOB).event_id(evid2).into_event();
+        let ev3 = f.text_msg("yo").event_id(evid3).into_event();
+
+        // Fill the event cache store with an initial linked chunk with 2 events chunks.
+        {
+            let store = client.event_cache_store();
+            let store = store.lock().await.unwrap();
+            store
+                .handle_linked_chunk_updates(
+                    LinkedChunkId::Room(room_id),
+                    vec![
+                        Update::NewItemsChunk {
+                            previous: None,
+                            new: ChunkIdentifier::new(0),
+                            next: None,
+                        },
+                        Update::PushItems {
+                            at: Position::new(ChunkIdentifier::new(0), 0),
+                            items: vec![ev1, ev2],
+                        },
+                        Update::NewItemsChunk {
+                            previous: Some(ChunkIdentifier::new(0)),
+                            new: ChunkIdentifier::new(1),
+                            next: None,
+                        },
+                        Update::PushItems {
+                            at: Position::new(ChunkIdentifier::new(1), 0),
+                            items: vec![ev3.clone()],
+                        },
+                    ],
+                )
+                .await
+                .unwrap();
+        }
+
+        let event_cache = client.event_cache();
+        event_cache.subscribe().unwrap();
+
+        client.base_client().get_or_create_room(room_id, matrix_sdk_base::RoomState::Joined);
+        let room = client.get_room(room_id).unwrap();
+        let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+
+        // Initially, the linked chunk only contains the last chunk, so only ev3 is
+        // loaded.
+        {
+            let state = room_event_cache.inner.state.read().await;
+
+            // But we can get the order of ev1.
+            assert_eq!(state.room_event_order(Position::new(ChunkIdentifier::new(0), 0)), Some(0));
+
+            // And that of ev2 as well.
+            assert_eq!(state.room_event_order(Position::new(ChunkIdentifier::new(0), 1)), Some(1));
+
+            // ev3, which is loaded, also has a known ordering.
+            let mut events = state.events().events();
+            let (pos, ev) = events.next().unwrap();
+            assert_eq!(pos, Position::new(ChunkIdentifier::new(1), 0));
+            assert_eq!(ev.event_id().as_deref(), Some(evid3));
+            assert_eq!(state.room_event_order(pos), Some(2));
+
+            // No other loaded events.
+            assert!(events.next().is_none());
+        }
+
+        // Force loading the full linked chunk by back-paginating.
+        let outcome = room_event_cache.pagination().run_backwards_once(20).await.unwrap();
+        assert!(outcome.reached_start);
+
+        // All events are now loaded, so their order is precisely their enumerated index
+        // in a linear iteration.
+        {
+            let state = room_event_cache.inner.state.read().await;
+            for (i, (pos, _)) in state.events().events().enumerate() {
+                assert_eq!(state.room_event_order(pos), Some(i));
+            }
+        }
+
+        // Handle a gappy sync with two events (including one duplicate, so
+        // deduplication kicks in), so that the linked chunk is shrunk to the
+        // last chunk, and that the linked chunk only contains the last two
+        // events.
+        let evid4 = event_id!("$4");
+        room_event_cache
+            .inner
+            .handle_joined_room_update(JoinedRoomUpdate {
+                timeline: Timeline {
+                    limited: true,
+                    prev_batch: Some("fondue".to_owned()),
+                    events: vec![ev3, f.text_msg("sup").event_id(evid4).into_event()],
+                },
+                ..Default::default()
+            })
+            .await
+            .unwrap();
+
+        {
+            let state = room_event_cache.inner.state.read().await;
+
+            // After the shrink, only evid3 and evid4 are loaded.
+            let mut events = state.events().events();
+
+            let (pos, ev) = events.next().unwrap();
+            assert_eq!(ev.event_id().as_deref(), Some(evid3));
+            assert_eq!(state.room_event_order(pos), Some(2));
+
+            let (pos, ev) = events.next().unwrap();
+            assert_eq!(ev.event_id().as_deref(), Some(evid4));
+            assert_eq!(state.room_event_order(pos), Some(3));
+
+            // No other loaded events.
+            assert!(events.next().is_none());
+
+            // But we can still get the order of previous events.
+            assert_eq!(state.room_event_order(Position::new(ChunkIdentifier::new(0), 0)), Some(0));
+            assert_eq!(state.room_event_order(Position::new(ChunkIdentifier::new(0), 1)), Some(1));
+
+            // ev3 doesn't have an order with its previous position, since it's been
+            // deduplicated.
+            assert_eq!(state.room_event_order(Position::new(ChunkIdentifier::new(1), 0)), None);
+        }
     }
 
     #[async_test]
