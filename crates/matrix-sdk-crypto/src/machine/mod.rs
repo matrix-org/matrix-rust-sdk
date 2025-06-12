@@ -1663,14 +1663,7 @@ impl OlmMachine {
         // `DeviceLinkProblem` for `VerificationLevel::None`.
         let (verification_state, device_id) = match sender_data.user_id() {
             Some(i) if i != sender => {
-                // For backwards compatibility, we treat this the same as "Unknown device".
-                // TODO: use a dedicated VerificationLevel here.
-                (
-                    VerificationState::Unverified(VerificationLevel::None(
-                        DeviceLinkProblem::MissingDevice,
-                    )),
-                    None,
-                )
+                (VerificationState::Unverified(VerificationLevel::MismatchedSender), None)
             }
 
             Some(_) | None => {
@@ -1967,6 +1960,7 @@ impl OlmMachine {
 
                     // Case 4
                     (VerificationLevel::VerificationViolation, _)
+                    | (VerificationLevel::MismatchedSender, _)
                     | (VerificationLevel::UnsignedDevice, false)
                     | (VerificationLevel::None(_), false) => false,
                 }
@@ -1978,6 +1972,7 @@ impl OlmMachine {
                 VerificationLevel::UnverifiedIdentity => true,
 
                 VerificationLevel::VerificationViolation
+                | VerificationLevel::MismatchedSender
                 | VerificationLevel::UnsignedDevice
                 | VerificationLevel::None(_) => false,
             },
@@ -2270,6 +2265,7 @@ impl OlmMachine {
     ///
     /// * `event` - The event to get information for.
     /// * `room_id` - The ID of the room where the event was sent to.
+    #[instrument(skip(self, event), fields(event_id, sender, session_id))]
     pub async fn get_room_event_encryption_info(
         &self,
         event: &Raw<EncryptedEvent>,
@@ -2285,6 +2281,11 @@ impl OlmMachine {
                 return Err(EventError::UnsupportedAlgorithm.into());
             }
         };
+
+        Span::current()
+            .record("sender", debug(&event.sender))
+            .record("event_id", debug(&event.event_id))
+            .record("session_id", content.session_id());
 
         self.get_session_encryption_info(room_id, content.session_id(), &event.sender).await
     }

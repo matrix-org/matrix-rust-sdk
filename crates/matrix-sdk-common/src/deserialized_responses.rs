@@ -42,6 +42,8 @@ const VERIFICATION_VIOLATION: &str =
     "Encrypted by a previously-verified user who is no longer verified.";
 const UNSIGNED_DEVICE: &str = "Encrypted by a device not verified by its owner.";
 const UNKNOWN_DEVICE: &str = "Encrypted by an unknown or deleted device.";
+const MISMATCHED_SENDER: &str =
+    "The sender of the event does not match the owner of the device that created the Megolm session.";
 pub const SENT_IN_CLEAR: &str = "Not encrypted.";
 
 /// Represents the state of verification for a decrypted message sent by a
@@ -117,6 +119,10 @@ impl VerificationState {
                         message: AUTHENTICITY_NOT_GUARANTEED,
                     },
                 },
+                VerificationLevel::MismatchedSender => ShieldState::Red {
+                    code: ShieldStateCode::MismatchedSender,
+                    message: MISMATCHED_SENDER,
+                },
             },
         }
     }
@@ -171,6 +177,10 @@ impl VerificationState {
                         }
                     }
                 },
+                VerificationLevel::MismatchedSender => ShieldState::Red {
+                    code: ShieldStateCode::MismatchedSender,
+                    message: MISMATCHED_SENDER,
+                },
             },
         }
     }
@@ -198,6 +208,10 @@ pub enum VerificationLevel {
     /// deleted) or because the key to decrypt the message was obtained from
     /// an insecure source.
     None(DeviceLinkProblem),
+
+    /// The `sender` field on the event does not match the owner of the device
+    /// that established the Megolm session.
+    MismatchedSender,
 }
 
 impl fmt::Display for VerificationLevel {
@@ -211,6 +225,7 @@ impl fmt::Display for VerificationLevel {
                 "The sending device was not signed by the user's identity"
             }
             VerificationLevel::None(..) => "The sending device is not known",
+            VerificationLevel::MismatchedSender => MISMATCHED_SENDER,
         };
         write!(f, "{display}")
     }
@@ -271,6 +286,9 @@ pub enum ShieldStateCode {
     /// The sender was previously verified but changed their identity.
     #[serde(alias = "PreviouslyVerified")]
     VerificationViolation,
+    /// The `sender` field on the event does not match the owner of the device
+    /// that established the Megolm session.
+    MismatchedSender,
 }
 
 /// The algorithm specific information of a decrypted event.

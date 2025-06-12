@@ -46,8 +46,8 @@ use crate::{
         CrossSigningKey, DeviceKeys, EventEncryptionAlgorithm, MasterPubkey, SelfSigningPubkey,
     },
     utilities::json_convert,
-    CryptoStoreError, DecryptionSettings, DeviceData, EncryptionSettings, LocalTrust, OlmMachine,
-    OtherUserIdentityData, TrustRequirement, UserIdentity,
+    CryptoStoreError, DecryptionSettings, DeviceData, EncryptionSettings, LocalTrust, MegolmError,
+    OlmMachine, OtherUserIdentityData, TrustRequirement, UserIdentity,
 };
 
 #[async_test]
@@ -311,23 +311,37 @@ pub async fn mark_alice_identity_as_verified_test_helper(alice: &OlmMachine, bob
         .is_verified());
 }
 
+#[async_test]
+async fn test_verification_states_spoofed_sender_untrusted() {
+    test_verification_states_spoofed_sender(TrustRequirement::Untrusted).await;
+}
+
+#[async_test]
+async fn test_verification_states_spoofed_sender_cross_signed() {
+    test_verification_states_spoofed_sender(TrustRequirement::CrossSigned).await;
+}
+
 /// Test that the verification state is set correctly when the sender of an
 /// event does not match the owner of the device that sent us the session.
 ///
 /// In this test, Bob receives an event from Alice, but the HS admin has
 /// rewritten the `sender` of the event to look like another user.
-#[async_test]
-async fn test_verification_states_spoofed_sender() {
+///
+/// We run this test a couple of times, with different [`TrustRequirement`]s.
+async fn test_verification_states_spoofed_sender(
+    sender_device_trust_requirement: TrustRequirement,
+) {
     let (alice, bob) = get_machine_pair_with_setup_sessions_test_helper(
         tests::alice_id(),
         tests::user_id(),
         false,
     )
     .await;
+    bob.bootstrap_cross_signing(false).await.unwrap();
+    set_up_alice_cross_signing(&alice, &bob).await;
 
     let room_id = room_id!("!test:example.org");
-    let decryption_settings =
-        DecryptionSettings { sender_device_trust_requirement: TrustRequirement::Untrusted };
+    let decryption_settings = DecryptionSettings { sender_device_trust_requirement };
 
     // Alice sends a message to Bob.
     let (event, _) = encrypt_message(&alice, room_id, &bob, "Secret message").await;
@@ -337,7 +351,7 @@ async fn test_verification_states_spoofed_sender() {
     let event_encryption_info = bob.get_room_event_encryption_info(&event, room_id).await.unwrap();
     assert_matches!(
         &event_encryption_info.verification_state,
-        VerificationState::Unverified(VerificationLevel::UnsignedDevice)
+        VerificationState::Unverified(VerificationLevel::UnverifiedIdentity)
     );
 
     // Alice now sends a second message to Bob, using the same room key, but the HS
@@ -360,18 +374,28 @@ async fn test_verification_states_spoofed_sender() {
     });
     let event = json_convert(&event).unwrap();
 
-    bob.decrypt_room_event(&event, room_id, &decryption_settings)
-        .await
-        .expect("Bob could not decrypt spoofed event");
+    let decryption_result = bob.decrypt_room_event(&event, room_id, &decryption_settings).await;
 
-    // The verification_state of the event should be `MissingDevice` (since it
-    // manifests as a message from Charlie which does not correspond to one of
-    // Charlie's devices).
-    let event_encryption_info = bob.get_room_event_encryption_info(&event, room_id).await.unwrap();
-    assert_matches!(
-        &event_encryption_info.verification_state,
-        VerificationState::Unverified(VerificationLevel::None(DeviceLinkProblem::MissingDevice))
-    );
+    if matches!(sender_device_trust_requirement, TrustRequirement::Untrusted) {
+        // In "Untrusted" mode, the event is decrypted correctly, but the
+        // verification_state should be `MismatchedSender`.
+        decryption_result.expect("Bob could not decrypt spoofed event");
+
+        let event_encryption_info =
+            bob.get_room_event_encryption_info(&event, room_id).await.unwrap();
+        assert_matches!(
+            &event_encryption_info.verification_state,
+            VerificationState::Unverified(VerificationLevel::MismatchedSender)
+        );
+    } else {
+        // In "CrossSigned" mode, we refuse to decrypt the event altogether.
+        let err =
+            decryption_result.expect_err("Bob was unexpectedly able to decrypt spoofed event");
+        assert_matches!(
+            err,
+            MegolmError::SenderIdentityNotTrusted(VerificationLevel::MismatchedSender)
+        );
+    }
 }
 
 #[async_test]
