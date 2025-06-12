@@ -317,11 +317,15 @@ impl RoomEvents {
 
     /// Return a nice debug string (a vector of lines) for the linked chunk of
     /// events for this room.
-    pub fn debug_string(&self) -> Vec<String> {
+    pub fn debug_string(&mut self) -> Vec<String> {
         let mut result = Vec::new();
 
-        for chunk in self.chunks() {
-            let content = chunk_debug_string(chunk.content());
+        for chunk in self.chunks.chunks() {
+            let content = chunk_debug_string(
+                chunk.identifier(),
+                chunk.content(),
+                self.chunk_ordering.as_mut(),
+            );
             let lazy_previous = if let Some(cid) = chunk.lazy_previous() {
                 format!(" (lazy previous = {})", cid.index())
             } else {
@@ -360,7 +364,11 @@ impl RoomEvents {
 }
 
 /// Create a debug string for a [`ChunkContent`] for an event/gap pair.
-fn chunk_debug_string(content: &ChunkContent<Event, Gap>) -> String {
+fn chunk_debug_string(
+    chunk_id: ChunkIdentifier,
+    content: &ChunkContent<Event, Gap>,
+    mut chunk_ordering: Option<&mut AsOrdering<Event, Gap>>,
+) -> String {
     match content {
         ChunkContent::Gap(Gap { prev_token }) => {
             format!("gap['{prev_token}']")
@@ -368,11 +376,23 @@ fn chunk_debug_string(content: &ChunkContent<Event, Gap>) -> String {
         ChunkContent::Items(vec) => {
             let items = vec
                 .iter()
-                .map(|event| {
-                    // Limit event ids to 8 chars *after* the $.
+                .enumerate()
+                .map(|(i, event)| {
                     event.event_id().map_or_else(
                         || "<no event id>".to_owned(),
-                        |id| id.as_str().chars().take(1 + 8).collect(),
+                        |id| {
+                            let pos = Position::new(chunk_id, i);
+                            let order = if let Some(co) = chunk_ordering.as_mut() {
+                                format!("#{}: ", co.ordering(pos).unwrap())
+                            } else {
+                                "".to_owned()
+                            };
+
+                            // Limit event ids to 8 chars *after* the $.
+                            let event_id = id.as_str().chars().take(1 + 8).collect::<String>();
+
+                            format!("{order}{event_id}")
+                        },
                     )
                 })
                 .collect::<Vec<_>>()

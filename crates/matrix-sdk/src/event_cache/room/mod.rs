@@ -260,7 +260,7 @@ impl RoomEventCache {
     /// Return a nice debug string (a vector of lines) for the linked chunk of
     /// events for this room.
     pub async fn debug_string(&self) -> Vec<String> {
-        self.inner.state.read().await.events().debug_string()
+        self.inner.state.write().await.events_mut().debug_string()
     }
 }
 
@@ -1025,6 +1025,11 @@ mod private {
         /// Returns a read-only reference to the underlying events.
         pub fn events(&self) -> &RoomEvents {
             &self.events
+        }
+
+        /// Returns a read-only reference to the underlying events.
+        pub fn events_mut(&mut self) -> &mut RoomEvents {
+            &mut self.events
         }
 
         /// Find a single event in this room.
