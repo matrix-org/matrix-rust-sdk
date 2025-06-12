@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::collections::BTreeMap;
+
 use as_variant::as_variant;
 use ruma::{
     api::client::{
@@ -23,9 +25,16 @@ use ruma::{
     OwnedEventId, OwnedRoomId,
 };
 use serde::{Deserialize, Serialize};
+use tracing::error;
 
-use super::{driver_req::SendToDeviceRequest, SendEventRequest, UpdateDelayedEventRequest};
-use crate::{widget::StateKeySelector, Error, HttpError, RumaApiError};
+use super::{
+    driver_req::SendToDeviceRequest, MatrixDriverResponse, SendEventRequest,
+    UpdateDelayedEventRequest,
+};
+use crate::{
+    widget::{machine::driver_req::FromMatrixDriverResponse, StateKeySelector},
+    Error, HttpError, RumaApiError,
+};
 
 #[derive(Deserialize, Debug)]
 #[serde(tag = "action", rename_all = "snake_case", content = "data")]
@@ -245,10 +254,23 @@ impl From<update_delayed_event::unstable::Response> for UpdateDelayedEventRespon
     }
 }
 
-/// The response to the widget that it received the to-device event.
-/// Only used as the response for the successful send case.
-/// FromWidgetErrorResponse will be used otherwise.
-/// This is intentionally an empty tuple struct (not a unit struct), so that it
-/// serializes to `{}` instead of `Null` when returned to the widget as json.
-#[derive(Serialize, Debug)]
-pub(crate) struct SendToDeviceEventResponse {}
+/// Send to device request response.
+#[derive(Serialize, Debug, Default)]
+pub(crate) struct SendToDeviceEventResponse {
+    /// It is possible that sending to some device failed (failed to encrypt or
+    /// failed to send)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub failures: Option<BTreeMap<String, Vec<String>>>,
+}
+
+impl FromMatrixDriverResponse for SendToDeviceEventResponse {
+    fn from_response(matrix_driver_response: MatrixDriverResponse) -> Option<Self> {
+        match matrix_driver_response {
+            MatrixDriverResponse::ToDeviceSent(resp) => Some(Self { failures: resp.failures }),
+            _ => {
+                error!("bug in MatrixDriver, received wrong event response");
+                None
+            }
+        }
+    }
+}
