@@ -746,7 +746,8 @@ impl Client {
         Ok(supports_password)
     }
 
-    /// Whether or not the client's homeserver supports the legacy SSO login flow.
+    /// Whether or not the client's homeserver supports the legacy SSO login
+    /// flow.
     pub(crate) async fn supports_sso_login(&self) -> anyhow::Result<bool> {
         let login_types = self.inner.matrix_auth().get_login_types().await?;
         let supports_password = login_types
