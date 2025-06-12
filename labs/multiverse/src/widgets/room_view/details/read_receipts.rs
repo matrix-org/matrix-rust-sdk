@@ -1,4 +1,4 @@
-use matrix_sdk::{ruma::EventId, Room};
+use matrix_sdk::Room;
 use matrix_sdk_base::read_receipts::RoomReadReceipts;
 use matrix_sdk_ui::timeline::TimelineItem;
 use ratatui::{
@@ -38,31 +38,16 @@ fn render_room_stats(room: &Room, area: Rect, buf: &mut Buffer) {
         .render(area, buf);
 }
 
-fn find_selected_event(item: &TimelineItem, selected_event: &EventId) -> bool {
-    match item.as_event() {
-        Some(event) => event.event_id() == Some(selected_event),
-        None => false,
-    }
-}
-
 impl Widget for &mut ReadReceipts<'_> {
     fn render(self, area: Rect, buf: &mut Buffer)
     where
         Self: Sized,
     {
-        match self.state.selected_room {
-            Some(room) => match (self.state.timeline_items, self.state.selected_event.as_deref()) {
-                (None, None) | (None, Some(_)) | (Some(_), None) => {
-                    render_room_stats(room, area, buf)
-                }
-                (Some(items), Some(selected_event)) => {
-                    let item =
-                        items.into_iter().find(|&item| find_selected_event(item, selected_event));
-
-                    if let Some(item) = item.and_then(|i| format_timeline_item(i)) {
-                        let second_item = ListItem::from(selected_event.to_string());
-
-                        let list = List::new(vec![second_item, item])
+        if let Some(room) = self.state.selected_room {
+            match self.state.selected_item.as_deref() {
+                Some(selected_event) => {
+                    if let Some(item) = format_timeline_item(selected_event) {
+                        let list = List::new(vec![item])
                             .highlight_spacing(HighlightSpacing::Always)
                             .highlight_symbol(">")
                             .highlight_style(SELECTED_STYLE_FG);
@@ -74,11 +59,11 @@ impl Widget for &mut ReadReceipts<'_> {
                         render_room_stats(room, area, buf);
                     }
                 }
-            },
-            None => {
-                let content = "(room disappeared in the room list service)";
-                Paragraph::new(content).fg(TEXT_COLOR).wrap(Wrap { trim: false }).render(area, buf);
+                None => render_room_stats(room, area, buf),
             }
+        } else {
+            let content = "(room disappeared in the room list service)";
+            Paragraph::new(content).fg(TEXT_COLOR).wrap(Wrap { trim: false }).render(area, buf);
         }
     }
 }

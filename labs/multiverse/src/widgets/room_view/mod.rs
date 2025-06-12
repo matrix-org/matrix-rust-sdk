@@ -41,8 +41,7 @@ const DEFAULT_TILING_DIRECTION: Direction = Direction::Horizontal;
 
 pub struct DetailsState<'a> {
     selected_room: Option<&'a Room>,
-    timeline_items: Option<&'a Vector<Arc<TimelineItem>>>,
-    selected_event: Option<OwnedEventId>,
+    selected_item: Option<Arc<TimelineItem>>,
 }
 
 enum Mode {
@@ -579,16 +578,10 @@ impl RoomView {
         }
     }
 
-    fn get_selected_event_id(&self) -> Option<OwnedEventId> {
+    fn get_selected_event(&self) -> Option<Arc<TimelineItem>> {
         let selected = self.timeline_list.selected()?;
-        let selected_room = self.room_id()?;
-
-        let timelines = self.timelines.lock();
-        let current_timeline = timelines.get(selected_room)?;
-        let items = current_timeline.items.lock();
-        let item = items.get(selected)?;
-
-        item.as_event()?.event_id().map(|e| e.to_owned())
+        let items = self.get_selected_timeline_items()?;
+        items.get(selected).cloned()
     }
 
     fn update(&mut self) {
@@ -642,13 +635,11 @@ impl Widget for &mut RoomView {
                 .render(middle_area, buf);
         };
 
-        let selected_event = self.get_selected_event_id();
-
         if let Some(room_id) = self.room_id() {
             let maybe_room = self.client.get_room(room_id);
             let mut maybe_room = maybe_room.as_ref();
 
-            let items = self.get_selected_timeline_items();
+            let selected_event = self.get_selected_event();
 
             let timeline_area = match &mut self.mode {
                 Mode::Normal { invited_room_view } => {
@@ -670,23 +661,10 @@ impl Widget for &mut RoomView {
                     let [timeline_area, details_area] = vertical.areas(middle_area);
                     Clear.render(details_area, buf);
 
-                    if let Some(items) = items {
-                        let mut state = DetailsState {
-                            selected_room: maybe_room,
-                            timeline_items: Some(&items),
-                            selected_event,
-                        };
+                    let mut state =
+                        DetailsState { selected_room: maybe_room, selected_item: selected_event };
 
-                        view.render(details_area, buf, &mut state);
-                    } else {
-                        let mut state = DetailsState {
-                            selected_room: maybe_room,
-                            timeline_items: None,
-                            selected_event,
-                        };
-
-                        view.render(details_area, buf, &mut state);
-                    }
+                    view.render(details_area, buf, &mut state);
 
                     Some(timeline_area)
                 }
