@@ -104,14 +104,18 @@ async fn process(
             processed_to_device_events: encryption_sync_changes
                 .to_device_events
                 .into_iter()
-                .filter(|raw| {
+                .map(|raw| {
                     if let Ok(Some(event_type)) = raw.get_field::<String>("type") {
-                        event_type != "m.room.encrypted"
+                        if event_type == "m.room.encrypted" {
+                            ProcessedToDeviceEvent::UnableToDecrypt(raw)
+                        } else {
+                            ProcessedToDeviceEvent::PlainText(raw)
+                        }
                     } else {
-                        false // Exclude events with no type or encrypted
+                        // Exclude events with no type
+                        ProcessedToDeviceEvent::Invalid(raw)
                     }
                 })
-                .map(ProcessedToDeviceEvent::PlainText)
                 .collect(),
             room_key_updates: None,
         }

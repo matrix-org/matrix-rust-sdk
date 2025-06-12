@@ -523,14 +523,17 @@ impl BaseClient {
             .to_device
             .events
             .into_iter()
-            .filter(|raw| {
+            .map(|raw| {
                 if let Ok(Some(event_type)) = raw.get_field::<String>("type") {
-                    event_type != "m.room.encrypted"
+                    if event_type == "m.room.encrypted" {
+                        matrix_sdk_common::deserialized_responses::ProcessedToDeviceEvent::UnableToDecrypt(raw)
+                    } else {
+                        matrix_sdk_common::deserialized_responses::ProcessedToDeviceEvent::PlainText(raw)
+                    }
                 } else {
-                    false // Exclude events with no type or encrypted
+                    matrix_sdk_common::deserialized_responses::ProcessedToDeviceEvent::Invalid(raw) // Exclude events with no type
                 }
             })
-            .map(matrix_sdk_common::deserialized_responses::ProcessedToDeviceEvent::PlainText)
             .collect();
 
         let mut ambiguity_cache = AmbiguityCache::new(self.state_store.inner.clone());
