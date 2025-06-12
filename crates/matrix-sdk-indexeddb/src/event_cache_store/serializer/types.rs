@@ -37,7 +37,7 @@ use crate::{
     event_cache_store::{
         migrations::current::keys,
         serializer::traits::{Indexed, IndexedKey, IndexedKeyBounds},
-        types::{Chunk, Event, Position},
+        types::{Chunk, Event, Gap, Position},
     },
     serializer::{IndexeddbSerializer, MaybeEncrypted},
 };
@@ -405,6 +405,33 @@ pub struct IndexedGap {
     pub content: IndexedGapContent,
 }
 
+impl Indexed for Gap {
+    type IndexedType = IndexedGap;
+    type Error = CryptoStoreError;
+
+    fn to_indexed(
+        &self,
+        room_id: &RoomId,
+        serializer: &IndexeddbSerializer,
+    ) -> Result<Self::IndexedType, Self::Error> {
+        Ok(IndexedGap {
+            id: <IndexedGapIdKey as IndexedKey<Gap>>::encode(
+                room_id,
+                &ChunkIdentifier::new(self.chunk_identifier),
+                serializer,
+            ),
+            content: serializer.maybe_encrypt_value(self)?,
+        })
+    }
+
+    fn from_indexed(
+        indexed: Self::IndexedType,
+        serializer: &IndexeddbSerializer,
+    ) -> Result<Self, Self::Error> {
+        serializer.maybe_decrypt_value(indexed.content)
+    }
+}
+
 /// The primary key of the [`GAPS`][1] object store, which is constructed from:
 ///
 /// - The (possibly) encrypted Room ID
@@ -412,5 +439,27 @@ pub struct IndexedGap {
 ///
 /// [1]: crate::event_cache_store::migrations::v1::create_gaps_object_store
 pub type IndexedGapIdKey = IndexedChunkIdKey;
+
+impl IndexedKey<Gap> for IndexedGapIdKey {
+    type KeyComponents = <IndexedChunkIdKey as IndexedKey<Chunk>>::KeyComponents;
+
+    fn encode(
+        room_id: &RoomId,
+        components: &Self::KeyComponents,
+        serializer: &IndexeddbSerializer,
+    ) -> Self {
+        <IndexedChunkIdKey as IndexedKey<Chunk>>::encode(room_id, components, serializer)
+    }
+}
+
+impl IndexedKeyBounds<Gap> for IndexedGapIdKey {
+    fn encode_lower(room_id: &RoomId, serializer: &IndexeddbSerializer) -> Self {
+        <IndexedChunkIdKey as IndexedKeyBounds<Chunk>>::encode_lower(room_id, serializer)
+    }
+
+    fn encode_upper(room_id: &RoomId, serializer: &IndexeddbSerializer) -> Self {
+        <IndexedChunkIdKey as IndexedKeyBounds<Chunk>>::encode_upper(room_id, serializer)
+    }
+}
 
 pub type IndexedGapContent = MaybeEncrypted;
