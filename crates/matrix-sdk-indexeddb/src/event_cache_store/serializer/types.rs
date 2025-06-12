@@ -173,6 +173,12 @@ pub enum IndexedNextChunkIdKey {
     Some(IndexedChunkIdKey),
 }
 
+impl IndexedNextChunkIdKey {
+    pub fn none(room_id: IndexedRoomId) -> Self {
+        Self::None((room_id,))
+    }
+}
+
 impl IndexedKey<Chunk> for IndexedNextChunkIdKey {
     type KeyComponents = Option<ChunkIdentifier>;
 
