@@ -53,7 +53,7 @@ pub mod requests;
 pub mod room_history;
 
 pub use self::{backup::*, cross_signing::*, device_keys::*, one_time_keys::*};
-use crate::store::BackupDecryptionKey;
+use crate::store::types::BackupDecryptionKey;
 
 macro_rules! from_base64 {
     ($foo:ident, $name:ident) => {

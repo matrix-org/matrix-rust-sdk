@@ -1,5 +1,5 @@
 use clap::{Args, Subcommand, ValueEnum};
-use xshell::cmd;
+use xshell::{cmd, Cmd};
 
 use crate::{sh, Result};
 
@@ -13,15 +13,19 @@ pub struct ReleaseArgs {
 enum ReleaseCommand {
     /// Prepare the release of the matrix-sdk workspace.
     ///
-    /// This command will update the `README.md`, prepend the `CHANGELOG.md`
-    /// file using `git cliff`, and bump the versions in the `Cargo.toml`
-    /// files.
+    /// This command will update the `README.md`, update the `CHANGELOG.md` file
+    /// using, and bump the versions in the `Cargo.toml` files.
     Prepare {
         /// What type of version bump we should perform.
         version: ReleaseVersion,
         /// Actually prepare a release. Dry-run mode is the default.
         #[clap(long)]
         execute: bool,
+        /// The crate or package that should be released. Use this if you'd like
+        /// to release only one specific crate. The default is to
+        /// release all crates.
+        #[clap(long)]
+        package: Option<String>,
     },
     /// Publish the release.
     ///
@@ -31,6 +35,11 @@ enum ReleaseCommand {
         /// Actually publish a release. Dry-run mode is the default
         #[clap(long)]
         execute: bool,
+        /// The crate or package that should be released. Use this if you'd like
+        /// to release only one specific crate. The default is to
+        /// release all crates.
+        #[clap(long)]
+        package: Option<String>,
     },
     /// Get a list of interesting changes that happened in the last week.
     WeeklyReport,
@@ -63,8 +72,10 @@ impl ReleaseArgs {
         check_prerequisites();
 
         match self.cmd {
-            ReleaseCommand::Prepare { version, execute } => prepare(version, execute),
-            ReleaseCommand::Publish { execute } => publish(execute),
+            ReleaseCommand::Prepare { version, execute, package } => {
+                prepare(version, execute, package)
+            }
+            ReleaseCommand::Publish { execute, package } => publish(execute, package),
             ReleaseCommand::WeeklyReport => weekly_report(),
         }
     }
@@ -88,11 +99,21 @@ fn check_prerequisites() {
     }
 }
 
-fn prepare(version: ReleaseVersion, execute: bool) -> Result<()> {
-    let sh = sh();
-    let cmd = cmd!(sh, "cargo release --workspace --no-publish --no-tag --no-push");
+fn append_options<'a>(command: Cmd<'a>, execute: &bool, package: &Option<String>) -> Cmd<'a> {
+    let command = if *execute { command.arg("--execute") } else { command };
+    if let Some(package) = package.as_deref() {
+        command.args(["--package", package])
+    } else {
+        command.arg("--workspace")
+    }
+}
 
-    let cmd = if execute { cmd.arg("--execute") } else { cmd };
+fn prepare(version: ReleaseVersion, execute: bool, package: Option<String>) -> Result<()> {
+    let sh = sh();
+
+    let cmd = cmd!(sh, "cargo release --no-publish --no-tag --no-push");
+    let cmd = append_options(cmd, &execute, &package);
+
     let cmd = cmd.arg(version.as_str());
 
     cmd.run()?;
@@ -108,19 +129,19 @@ fn prepare(version: ReleaseVersion, execute: bool) -> Result<()> {
     Ok(())
 }
 
-fn publish(execute: bool) -> Result<()> {
+fn publish(execute: bool, package: Option<String>) -> Result<()> {
     let sh = sh();
 
-    let cmd = cmd!(sh, "cargo release tag --workspace");
-    let cmd = if execute { cmd.arg("--execute") } else { cmd };
+    let cmd = cmd!(sh, "cargo release tag");
+    let cmd = append_options(cmd, &execute, &package);
     cmd.run()?;
 
-    let cmd = cmd!(sh, "cargo release publish --workspace");
-    let cmd = if execute { cmd.arg("--execute") } else { cmd };
+    let cmd = cmd!(sh, "cargo release publish");
+    let cmd = append_options(cmd, &execute, &package);
     cmd.run()?;
 
-    let cmd = cmd!(sh, "cargo release push --workspace");
-    let cmd = if execute { cmd.arg("--execute") } else { cmd };
+    let cmd = cmd!(sh, "cargo release push");
+    let cmd = append_options(cmd, &execute, &package);
     cmd.run()?;
 
     Ok(())

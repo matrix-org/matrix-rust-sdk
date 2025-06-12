@@ -1,7 +1,7 @@
 #![allow(clippy::large_enum_variant)]
 
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     io::{self, stdout, Write},
     path::{Path, PathBuf},
     sync::Arc,
@@ -25,13 +25,13 @@ use matrix_sdk::{
     encryption::{BackupDownloadStrategy, EncryptionSettings},
     reqwest::Url,
     ruma::OwnedRoomId,
-    AuthSession, Client, Room, SqliteCryptoStore, SqliteEventCacheStore, SqliteStateStore,
+    AuthSession, Client, SqliteCryptoStore, SqliteEventCacheStore, SqliteStateStore,
 };
 use matrix_sdk_common::locks::Mutex;
 use matrix_sdk_ui::{
     room_list_service::{self, filters::new_filter_non_left},
     sync_service::SyncService,
-    timeline::{RoomExt as _, TimelineItem},
+    timeline::{RoomExt as _, TimelineFocus, TimelineItem},
     Timeline as SdkTimeline,
 };
 use ratatui::{prelude::*, style::palette::tailwind, widgets::*};
@@ -57,7 +57,6 @@ const ALT_ROW_COLOR: Color = tailwind::SLATE.c900;
 const SELECTED_STYLE_FG: Color = tailwind::BLUE.c300;
 const TEXT_COLOR: Color = tailwind::SLATE.c200;
 
-type UiRooms = Arc<Mutex<HashMap<OwnedRoomId, Room>>>;
 type Timelines = Arc<Mutex<HashMap<OwnedRoomId, Timeline>>>;
 
 #[derive(Debug, Parser)]
@@ -158,7 +157,7 @@ struct App {
     /// Task listening to room list service changes, and spawning timelines.
     listen_task: JoinHandle<()>,
 
-    /// The status widet at the bottom of the screen.
+    /// The status widget at the bottom of the screen.
     status: Status,
 
     state: AppState,
@@ -174,7 +173,6 @@ impl App {
 
         let rooms = Rooms::default();
         let room_infos = RoomInfos::default();
-        let ui_rooms = UiRooms::default();
         let timelines = Timelines::default();
 
         let room_list_service = sync_service.room_list_service();
@@ -183,7 +181,6 @@ impl App {
         let listen_task = spawn(Self::listen_task(
             rooms.clone(),
             room_infos.clone(),
-            ui_rooms.clone(),
             timelines.clone(),
             all_rooms,
         ));
@@ -193,15 +190,10 @@ impl App {
         sync_service.start().await;
 
         let status = Status::new();
-        let room_list = RoomList::new(
-            rooms,
-            ui_rooms.clone(),
-            room_infos,
-            sync_service.clone(),
-            status.handle(),
-        );
+        let room_list =
+            RoomList::new(client.clone(), rooms, room_infos, sync_service.clone(), status.handle());
 
-        let room_view = RoomView::new(ui_rooms, timelines.clone(), status.handle());
+        let room_view = RoomView::new(client.clone(), timelines.clone(), status.handle());
 
         Ok(Self {
             sync_service,
@@ -219,7 +211,6 @@ impl App {
     async fn listen_task(
         rooms: Rooms,
         room_infos: RoomInfos,
-        ui_rooms: UiRooms,
         timelines: Timelines,
         all_rooms: room_list_service::RoomList,
     ) {
@@ -227,6 +218,8 @@ impl App {
         entries_controller.set_filter(Box::new(new_filter_non_left()));
 
         pin_mut!(stream);
+
+        let mut previous_rooms = HashSet::new();
 
         while let Some(diffs) = stream.next().await {
             let all_rooms = {
@@ -240,12 +233,6 @@ impl App {
                 // Collect rooms early to release the room entries list lock.
                 (*rooms).clone()
             };
-
-            // Clone the previous set of ui rooms to avoid keeping the ui_rooms lock (which
-            // we couldn't do below, because it's a sync lock, and has to be
-            // sync b/o rendering; and we'd have to cross await points
-            // below).
-            let previous_rooms = ui_rooms.lock().clone();
 
             let mut new_rooms = HashMap::new();
             let mut new_timelines = Vec::new();
@@ -270,10 +257,15 @@ impl App {
 
             // Initialize all the new rooms.
             for room in
-                all_rooms.into_iter().filter(|room| !previous_rooms.contains_key(room.room_id()))
+                all_rooms.into_iter().filter(|room| !previous_rooms.contains(room.room_id()))
             {
                 // Initialize the timeline.
-                let Ok(timeline) = room.timeline_builder().build().await else {
+                let Ok(timeline) = room
+                    .timeline_builder()
+                    .with_focus(TimelineFocus::Live { hide_threaded_events: true })
+                    .build()
+                    .await
+                else {
                     error!("error when creating default timeline");
                     continue;
                 };
@@ -305,7 +297,8 @@ impl App {
                 new_rooms.insert(room.room_id().to_owned(), room);
             }
 
-            ui_rooms.lock().extend(new_rooms);
+            previous_rooms.extend(new_rooms.into_keys());
+
             timelines.lock().extend(new_timelines);
         }
     }

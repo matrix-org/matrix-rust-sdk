@@ -171,7 +171,7 @@ impl OidcConfiguration {
                 .iter()
                 .filter_map(|(issuer, client_id)| {
                     let Ok(issuer) = Url::parse(issuer) else {
-                        tracing::error!("Failed to parse {:?}", issuer);
+                        tracing::error!("Failed to parse {issuer:?}");
                         return None;
                     };
                     Some((issuer, ClientId::new(client_id.clone())))

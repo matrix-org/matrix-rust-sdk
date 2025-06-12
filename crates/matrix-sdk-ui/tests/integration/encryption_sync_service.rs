@@ -13,7 +13,7 @@ use matrix_sdk::{
         client::mock_matrix_session, logged_in_client_with_server, test_client_builder_with_server,
     },
 };
-use matrix_sdk_base::crypto::store::Changes;
+use matrix_sdk_base::crypto::store::types::Changes;
 use matrix_sdk_test::async_test;
 use matrix_sdk_ui::encryption_sync_service::{
     EncryptionSyncPermit, EncryptionSyncService, WithLocking,

@@ -18,7 +18,6 @@
 use matrix_sdk_common::store_locks::LockStoreError;
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk_crypto::{CryptoStoreError, MegolmError, OlmError};
-use ruma::OwnedRoomId;
 use thiserror::Error;
 
 use crate::event_cache::store::EventCacheStoreError;
@@ -81,48 +80,4 @@ pub enum Error {
     /// There was a [`serde_json`] deserialization error.
     #[error(transparent)]
     DeserializationError(#[from] serde_json::error::Error),
-
-    /// A room has received an invalid upgrade regarding its predecessor. Its
-    /// predecessor doesn't have this room as its successor.
-    #[error(
-        "Room `{room:?}` was expecting `{expected_predecessor:?}` to be its predecessor, \
-        but `{expected_predecessor:?}` does not have `{room:?}` has its successor, \
-        it has `{successor_of_the_predecessor:?}`"
-    )]
-    RoomUpgradeInvalidPredecessor {
-        /// The room that has detected the error.
-        room: OwnedRoomId,
-        /// The predecessor of this `room`. It must match with this
-        /// `successor_of_the_predecessor`, but it doesn't.
-        expected_predecessor: OwnedRoomId,
-        /// The successor of the predecessor of this `room`. It must match with
-        /// this `expected_predecessor`, but it doesn't.
-        successor_of_the_predecessor: Option<OwnedRoomId>,
-    },
-
-    /// A room has received an invalid upgrade regarding its successor. Its
-    /// successor doesn't have this room as its predecessor.
-    #[error(
-        "Room `{room:?}` was expecting `{expected_successor:?}` to be its successor, \
-        but `{expected_successor:?}` does not have `{room:?}` has its predecessor, \
-        it has `{predecessor_of_the_successor:?}`"
-    )]
-    RoomUpgradeInvalidSuccessor {
-        /// The room that has detected the error.
-        room: OwnedRoomId,
-        /// The successor of this `room`. It must match with this
-        /// `predecessor_of_the_successor`, but it doesn't.
-        expected_successor: OwnedRoomId,
-        /// The predecessor of the successor of this `room`. It must match with
-        /// this `expected_successor`, but it doesn't.
-        predecessor_of_the_successor: Option<OwnedRoomId>,
-    },
-
-    /// A room is in a path that is forming a loop with its successor and
-    /// predecessor. This is of course pretty bad.
-    #[error("Room `{room_in_path:?}` is part of a loop")]
-    RoomUpgradeIsLooping {
-        /// One of the room in the path.
-        room_in_path: OwnedRoomId,
-    },
 }

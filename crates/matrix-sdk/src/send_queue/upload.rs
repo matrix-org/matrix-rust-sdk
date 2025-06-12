@@ -124,7 +124,7 @@ fn update_gallery_event_after_upload(
         match itemtype {
             GalleryItemType::Audio(event) => match sent.get(&event.source.unique_key()) {
                 Some(sent) => event.source = sent.file.clone(),
-                None => error!("key for item {:?} does not exist on gallery event", &event.source),
+                None => error!("key for item {:?} does not exist on gallery event", event.source),
             },
             GalleryItemType::File(event) => match sent.get(&event.source.unique_key()) {
                 Some(sent) => {
@@ -133,7 +133,7 @@ fn update_gallery_event_after_upload(
                         info.thumbnail_source = sent.thumbnail.clone();
                     }
                 }
-                None => error!("key for item {:?} does not exist on gallery event", &event.source),
+                None => error!("key for item {:?} does not exist on gallery event", event.source),
             },
             GalleryItemType::Image(event) => match sent.get(&event.source.unique_key()) {
                 Some(sent) => {
@@ -142,7 +142,7 @@ fn update_gallery_event_after_upload(
                         info.thumbnail_source = sent.thumbnail.clone();
                     }
                 }
-                None => error!("key for item {:?} does not exist on gallery event", &event.source),
+                None => error!("key for item {:?} does not exist on gallery event", event.source),
             },
             GalleryItemType::Video(event) => match sent.get(&event.source.unique_key()) {
                 Some(sent) => {
@@ -151,7 +151,7 @@ fn update_gallery_event_after_upload(
                         info.thumbnail_source = sent.thumbnail.clone();
                     }
                 }
-                None => error!("key for item {:?} does not exist on gallery event", &event.source),
+                None => error!("key for item {:?} does not exist on gallery event", event.source),
             },
 
             _ => {
@@ -160,7 +160,7 @@ fn update_gallery_event_after_upload(
                 // been tampered with in the database.
                 error!("Invalid gallery item types in database");
                 // Only crash debug builds.
-                debug_assert!(false, "invalid gallery item type in database {:?}", itemtype);
+                debug_assert!(false, "invalid gallery item type in database {itemtype:?}");
             }
         }
     }
@@ -625,7 +625,11 @@ impl QueueStorage {
             }
         }
 
-        trace!(related_to = %event_txn, "done uploading file or thumbnail, now queuing the dependent file or thumbnail upload request");
+        trace!(
+            related_to = %event_txn,
+            "done uploading file or thumbnail, now queuing the dependent file \
+             or thumbnail upload request",
+        );
 
         // If the parent request was a thumbnail upload, don't add it to the list of
         // accumulated medias yet because its dependent file upload is still

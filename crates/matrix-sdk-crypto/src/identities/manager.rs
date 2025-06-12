@@ -32,10 +32,14 @@ use tracing::{debug, enabled, info, instrument, trace, warn, Level};
 use crate::{
     error::OlmResult,
     identities::{DeviceData, OtherUserIdentityData, OwnUserIdentityData, UserIdentityData},
-    olm::{InboundGroupSession, PrivateCrossSigningIdentity, SenderDataFinder, SenderDataType},
+    olm::{
+        sender_data_finder::SessionDeviceCheckError, InboundGroupSession,
+        PrivateCrossSigningIdentity, SenderDataFinder, SenderDataType,
+    },
     store::{
-        caches::SequenceNumber, Changes, DeviceChanges, IdentityChanges, KeyQueryManager,
-        Result as StoreResult, Store, StoreCache, StoreCacheGuard, UserKeyQueryResult,
+        caches::{SequenceNumber, StoreCache, StoreCacheGuard},
+        types::{Changes, DeviceChanges, IdentityChanges, UserKeyQueryResult},
+        KeyQueryManager, Result as StoreResult, Store,
     },
     types::{
         requests::KeysQueryRequest, CrossSigningKey, DeviceKeys, MasterPubkey, SelfSigningPubkey,
@@ -1124,25 +1128,19 @@ impl IdentityManager {
         session: &mut InboundGroupSession,
         device: &DeviceData,
     ) -> Result<(), CryptoStoreError> {
-        use crate::olm::sender_data_finder::SessionDeviceCheckError::*;
-
         match SenderDataFinder::find_using_device_data(&self.store, device.clone(), session).await {
             Ok(sender_data) => {
-                debug!(
-                    "Updating existing InboundGroupSession with new SenderData {:?}",
-                    sender_data
-                );
+                debug!("Updating existing InboundGroupSession with new SenderData {sender_data:?}");
                 session.sender_data = sender_data;
             }
-            Err(CryptoStoreError(e)) => {
+            Err(SessionDeviceCheckError::CryptoStoreError(e)) => {
                 return Err(e);
             }
-            Err(MismatchedIdentityKeys(e)) => {
+            Err(SessionDeviceCheckError::MismatchedIdentityKeys(e)) => {
                 warn!(
                     ?session,
                     ?device,
-                    "cannot update existing InboundGroupSession due to ownership error: {}",
-                    e
+                    "cannot update existing InboundGroupSession due to ownership error: {e}",
                 );
             }
         };
@@ -1229,7 +1227,7 @@ pub(crate) mod testing {
     use crate::{
         identities::IdentityManager,
         olm::{Account, PrivateCrossSigningIdentity},
-        store::{CryptoStoreWrapper, MemoryStore, PendingChanges, Store},
+        store::{types::PendingChanges, CryptoStoreWrapper, MemoryStore, Store},
         types::{requests::UploadSigningKeysRequest, DeviceKeys},
         verification::VerificationMachine,
     };
@@ -1537,6 +1535,7 @@ pub(crate) mod tests {
     use crate::{
         identities::manager::testing::{other_key_query_cross_signed, own_key_query},
         olm::PrivateCrossSigningIdentity,
+        store::types::Changes,
         CrossSigningKeyExport, OlmMachine,
     };
 
@@ -1870,7 +1869,6 @@ pub(crate) mod tests {
             manager.receive_keys_query_response(&reqid, &own_key_query()).await.unwrap();
         assert_eq!(device_changes.new.len(), 1);
         let test_device_id = device_changes.new.first().unwrap().device_id().to_owned();
-        use crate::store::Changes;
         let changes =
             Changes { devices: device_changes, identities: identity_changes, ..Changes::default() };
         manager.store.save_changes(changes).await.unwrap();
@@ -2435,7 +2433,7 @@ pub(crate) mod tests {
         use crate::{
             identities::manager::testing::{other_user_id, user_id},
             olm::{InboundGroupSession, SenderData},
-            store::{Changes, DeviceChanges},
+            store::types::{Changes, DeviceChanges},
             Account, DeviceData, EncryptionSettings,
         };
 

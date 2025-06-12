@@ -15,7 +15,7 @@
 use std::collections::BTreeMap;
 
 use matrix_sdk_common::deserialized_responses::ProcessedToDeviceEvent;
-use matrix_sdk_crypto::{store::RoomKeyInfo, EncryptionSyncChanges, OlmMachine};
+use matrix_sdk_crypto::{store::types::RoomKeyInfo, EncryptionSyncChanges, OlmMachine};
 use ruma::{
     api::client::sync::sync_events::{v3, v5, DeviceLists},
     events::AnyToDeviceEvent,

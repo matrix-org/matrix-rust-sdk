@@ -6,6 +6,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased] - ReleaseDate
 
+## [0.12.0] - 2025-06-10
+
 ### Features
 
 - `Client::add_event_handler`: Set `Option<EncryptionInfo>` in `EventHandlerData` for to-device messages.
@@ -13,16 +15,18 @@ All notable changes to this project will be documented in this file.
   ([#5099](https://github.com/matrix-org/matrix-rust-sdk/pull/5099))
 - `Client::send_call_notification_if_needed` now returns `Result<bool>` instead of `Result<()>` so we can check if
   the event was sent.
+  ([#5171](https://github.com/matrix-org/matrix-rust-sdk/pull/5171))
 - Added `SendMediaUploadRequest` wrapper for `SendRequest`, which checks the size of the request to
   upload making sure it doesn't exceed the `m.upload.size` value that can be fetched through
   `Client::load_or_fetch_max_upload_size`.
+  ([#5119](https://github.com/matrix-org/matrix-rust-sdk/pull/5119))
 - Add `ClientBuilder::with_enable_share_history_on_invite` to enable experimental support for sharing encrypted room history on invite, per [MSC4268](https://github.com/matrix-org/matrix-spec-proposals/pull/4268).
   ([#5141](https://github.com/matrix-org/matrix-rust-sdk/pull/5141))
 - `Room::list_threads()` is a new method to list all the threads in a room.
-  ([#4972](https://github.com/matrix-org/matrix-rust-sdk/pull/4972))
+  ([#4973](https://github.com/matrix-org/matrix-rust-sdk/pull/4973))
 - `Room::relations()` is a new method to list all the events related to another event
   ("relations"), with additional filters for relation type or relation type + event type.
-  ([#4972](https://github.com/matrix-org/matrix-rust-sdk/pull/4972))
+  ([#4973](https://github.com/matrix-org/matrix-rust-sdk/pull/4973))
 - The `EventCache`'s persistent storage has been enabled by default. This means that all the events
   received by sync or back-paginations will be stored, in memory or on disk, by default, as soon as
   `EventCache::subscribe()` has been called (which happens automatically if you're using the
@@ -44,7 +48,7 @@ All notable changes to this project will be documented in this file.
   flag of the room if an unthreaded read receipt is sent.
   ([#5055](https://github.com/matrix-org/matrix-rust-sdk/pull/5055))
 - `Client::is_user_ignored(&UserId)` can be used to check if a user is currently ignored. 
-- ([#5081](https://github.com/matrix-org/matrix-rust-sdk/pull/5081))
+  ([#5081](https://github.com/matrix-org/matrix-rust-sdk/pull/5081))
 - `RoomSendQueue::send_gallery` has been added to allow sending MSC4274-style media galleries
   via the send queue under the `unstable-msc4274` feature.
   ([#4977](https://github.com/matrix-org/matrix-rust-sdk/pull/4977))

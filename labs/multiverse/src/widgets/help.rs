@@ -24,11 +24,15 @@ impl Widget for &mut HelpView {
         let rows = vec![
             Row::new(vec![Cell::from("F1"), Cell::from("Open Help")]),
             Row::new(vec![Cell::from("F10"), Cell::from("Open the encryption settings")]),
-            Row::new(vec![Cell::from("ALT-l"), Cell::from("Open the linked chunk details view")]),
-            Row::new(vec![Cell::from("ALT-e"), Cell::from("Open the events details view")]),
-            Row::new(vec![Cell::from("ALT-r"), Cell::from("Open the read receipt details view")]),
+            Row::new(vec![Cell::from("Alt-l"), Cell::from("Open the linked chunk details view")]),
+            Row::new(vec![Cell::from("Alt-e"), Cell::from("Open the events details view")]),
+            Row::new(vec![Cell::from("Alt-r"), Cell::from("Open the read receipt details view")]),
             Row::new(vec![
-                Cell::from("ALT-m"),
+                Cell::from("Alt-t"),
+                Cell::from("Switch the detail view tiling direction"),
+            ]),
+            Row::new(vec![
+                Cell::from("Alt-m"),
                 Cell::from("Mark the currently selected room as read"),
             ]),
             Row::new(vec![Cell::from("Ctrl-q"), Cell::from("Quit Multiverse")]),
@@ -47,6 +51,18 @@ impl Widget for &mut HelpView {
             Row::new(vec![
                 Cell::from("Ctrl-l"),
                 Cell::from("Like the last message in the selected room"),
+            ]),
+            Row::new(vec![
+                Cell::from("Ctrl-n"),
+                Cell::from("Focus on the next item in the timeline view"),
+            ]),
+            Row::new(vec![
+                Cell::from("Ctrl-p"),
+                Cell::from("Focus on the previous item in the timeline view"),
+            ]),
+            Row::new(vec![
+                Cell::from("Ctrl-t"),
+                Cell::from("Open a thread on the focused timeline item"),
             ]),
         ];
         let widths = [Constraint::Length(5), Constraint::Length(5)];

@@ -1448,7 +1448,7 @@ mod tests {
 
         #[cfg(feature = "e2e-encryption")]
         {
-            use matrix_sdk_base::crypto::store::Changes;
+            use matrix_sdk_base::crypto::store::types::Changes;
             if let Some(olm_machine) = &*client.olm_machine().await {
                 olm_machine
                     .store()

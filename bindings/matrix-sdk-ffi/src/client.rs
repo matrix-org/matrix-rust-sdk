@@ -822,7 +822,7 @@ impl Client {
         .with_max_delay(UTD_HOOK_GRACE_PERIOD);
 
         if let Err(e) = utd_hook_manager.reload_from_store().await {
-            error!("Unable to reload UTD hook data from data store: {}", e);
+            error!("Unable to reload UTD hook data from data store: {e}");
             // Carry on with the setup anyway; we shouldn't fail setup just
             // because the UTD hook failed to load its data.
         }
@@ -1444,7 +1444,7 @@ impl Client {
                 .map_err(EventCacheError::from)?;
 
             // Clear all the room chunks. It's important to *not* call
-            // `EventCacheStore::clear_all_rooms_chunks` here, because there might be live
+            // `EventCacheStore::clear_all_linked_chunks` here, because there might be live
             // observers of the linked chunks, and that would cause some very bad state
             // mismatch.
             self.inner.event_cache().clear_all_rooms().await?;

@@ -2,7 +2,7 @@ use std::{sync::Arc, time::Duration};
 
 use criterion::{criterion_group, criterion_main, BatchSize, BenchmarkId, Criterion, Throughput};
 use matrix_sdk::{
-    linked_chunk::{lazy_loader, LinkedChunk, Update},
+    linked_chunk::{lazy_loader, LinkedChunk, LinkedChunkId, Update},
     SqliteEventCacheStore,
 };
 use matrix_sdk_base::event_cache::{
@@ -29,6 +29,7 @@ fn writing(c: &mut Criterion) {
         .expect("Failed to create an asynchronous runtime");
 
     let room_id = room_id!("!foo:bar.baz");
+    let linked_chunk_id = LinkedChunkId::Room(room_id);
     let event_factory = EventFactory::new().room(room_id).sender(&ALICE);
 
     let mut group = c.benchmark_group("writing");
@@ -115,9 +116,9 @@ fn writing(c: &mut Criterion) {
 
                             if let Some(store) = &store {
                                 let updates = linked_chunk.updates().unwrap().take();
-                                store.handle_linked_chunk_updates(room_id, updates).await.unwrap();
+                                store.handle_linked_chunk_updates(linked_chunk_id, updates).await.unwrap();
                                 // Empty the store.
-                                store.handle_linked_chunk_updates(room_id, vec![Update::Clear]).await.unwrap();
+                                store.handle_linked_chunk_updates(linked_chunk_id, vec![Update::Clear]).await.unwrap();
                             }
 
                         },
@@ -145,6 +146,7 @@ fn reading(c: &mut Criterion) {
         .expect("Failed to create an asynchronous runtime");
 
     let room_id = room_id!("!foo:bar.baz");
+    let linked_chunk_id = LinkedChunkId::Room(room_id);
     let event_factory = EventFactory::new().room(room_id).sender(&ALICE);
 
     let mut group = c.benchmark_group("reading");
@@ -195,7 +197,9 @@ fn reading(c: &mut Criterion) {
 
                 // Now persist the updates to recreate this full linked chunk.
                 let updates = lc.updates().unwrap().take();
-                runtime.block_on(store.handle_linked_chunk_updates(room_id, updates)).unwrap();
+                runtime
+                    .block_on(store.handle_linked_chunk_updates(linked_chunk_id, updates))
+                    .unwrap();
             }
 
             // Define the throughput.
@@ -206,7 +210,8 @@ fn reading(c: &mut Criterion) {
                 // Bench the routine.
                 bencher.to_async(&runtime).iter(|| async {
                     // Load the last chunk first,
-                    let (last_chunk, chunk_id_gen) = store.load_last_chunk(room_id).await.unwrap();
+                    let (last_chunk, chunk_id_gen) =
+                        store.load_last_chunk(linked_chunk_id).await.unwrap();
 
                     let mut lc =
                         lazy_loader::from_last_chunk::<128, _, _>(last_chunk, chunk_id_gen)
@@ -216,7 +221,7 @@ fn reading(c: &mut Criterion) {
                     // Then load until the start of the linked chunk.
                     let mut cur_chunk_id = lc.chunks().next().unwrap().identifier();
                     while let Some(prev) =
-                        store.load_previous_chunk(room_id, cur_chunk_id).await.unwrap()
+                        store.load_previous_chunk(linked_chunk_id, cur_chunk_id).await.unwrap()
                     {
                         cur_chunk_id = prev.identifier;
                         lazy_loader::insert_new_first_chunk(&mut lc, prev)

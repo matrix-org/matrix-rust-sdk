@@ -1047,7 +1047,10 @@ impl QueueStorage {
 
         let prev_txn = was_being_sent.as_ref().map(|info| info.transaction_id.as_ref());
         if prev_txn != Some(transaction_id) {
-            error!(prev_txn = ?prev_txn, "previous active request didn't match that we expect (after permanent error)");
+            error!(
+                ?prev_txn,
+                "previous active request didn't match that we expect (after permanent error)",
+            );
         }
 
         Ok(guard
@@ -1086,7 +1089,10 @@ impl QueueStorage {
 
         let prev_txn = was_being_sent.as_ref().map(|info| info.transaction_id.as_ref());
         if prev_txn != Some(transaction_id) {
-            error!(prev_txn = ?prev_txn, "previous active request didn't match that we expect (after successful send");
+            error!(
+                ?prev_txn,
+                "previous active request didn't match that we expect (after successful send)",
+            );
         }
 
         let client = guard.client()?;

@@ -46,7 +46,7 @@ use crate::{
         InboundGroupSession, OutboundGroupSession, SenderData, SenderDataFinder, Session,
         ShareInfo, ShareState,
     },
-    store::{Changes, CryptoStoreWrapper, Result as StoreResult, Store},
+    store::{types::Changes, CryptoStoreWrapper, Result as StoreResult, Store},
     types::{
         events::{
             room::encrypted::{RoomEncryptedEventContent, ToDeviceEncryptedEventContent},
@@ -779,7 +779,10 @@ impl GroupSessionManager {
         // Only allow conservative sharing strategies
         let collect_strategy = match collect_strategy {
             CollectStrategy::AllDevices | CollectStrategy::ErrorOnVerifiedUserProblem => {
-                warn!("Ignoring request to use unsafe sharing strategy {:?} for room key history sharing", collect_strategy);
+                warn!(
+                    "Ignoring request to use unsafe sharing strategy {collect_strategy:?} \
+                     for room key history sharing",
+                );
                 &CollectStrategy::IdentityBasedStrategy
             }
             CollectStrategy::IdentityBasedStrategy | CollectStrategy::OnlyTrustedDevices => {

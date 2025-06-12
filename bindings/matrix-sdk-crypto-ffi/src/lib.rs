@@ -37,8 +37,11 @@ use matrix_sdk_common::deserialized_responses::{ShieldState as RustShieldState, 
 use matrix_sdk_crypto::{
     olm::{IdentityKeys, InboundGroupSession, SenderData, Session},
     store::{
-        Changes, CryptoStore, DehydratedDeviceKey as InnerDehydratedDeviceKey, PendingChanges,
-        RoomSettings as RustRoomSettings,
+        types::{
+            Changes, DehydratedDeviceKey as InnerDehydratedDeviceKey, PendingChanges,
+            RoomSettings as RustRoomSettings,
+        },
+        CryptoStore,
     },
     types::{
         DeviceKey, DeviceKeys, EventEncryptionAlgorithm as RustEventEncryptionAlgorithm, SigningKey,
@@ -221,7 +224,7 @@ async fn migrate_data(
     passphrase: Option<String>,
     progress_listener: Box<dyn ProgressListener>,
 ) -> anyhow::Result<()> {
-    use matrix_sdk_crypto::{olm::PrivateCrossSigningIdentity, store::BackupDecryptionKey};
+    use matrix_sdk_crypto::{olm::PrivateCrossSigningIdentity, store::types::BackupDecryptionKey};
     use vodozemac::olm::Account;
     use zeroize::Zeroize;
 
@@ -818,10 +821,10 @@ impl BackupKeys {
     }
 }
 
-impl TryFrom<matrix_sdk_crypto::store::BackupKeys> for BackupKeys {
+impl TryFrom<matrix_sdk_crypto::store::types::BackupKeys> for BackupKeys {
     type Error = ();
 
-    fn try_from(keys: matrix_sdk_crypto::store::BackupKeys) -> Result<Self, Self::Error> {
+    fn try_from(keys: matrix_sdk_crypto::store::types::BackupKeys) -> Result<Self, Self::Error> {
         Ok(Self {
             recovery_key: BackupRecoveryKey {
                 inner: keys.decryption_key.ok_or(())?,
@@ -866,8 +869,8 @@ impl From<InnerDehydratedDeviceKey> for DehydratedDeviceKey {
     }
 }
 
-impl From<matrix_sdk_crypto::store::RoomKeyCounts> for RoomKeyCounts {
-    fn from(count: matrix_sdk_crypto::store::RoomKeyCounts) -> Self {
+impl From<matrix_sdk_crypto::store::types::RoomKeyCounts> for RoomKeyCounts {
+    fn from(count: matrix_sdk_crypto::store::types::RoomKeyCounts) -> Self {
         Self { total: count.total as i64, backed_up: count.backed_up as i64 }
     }
 }

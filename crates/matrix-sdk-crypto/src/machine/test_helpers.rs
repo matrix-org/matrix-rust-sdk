@@ -39,7 +39,7 @@ use tokio::sync::Mutex;
 use crate::{
     machine::tests,
     olm::PrivateCrossSigningIdentity,
-    store::{Changes, CryptoStoreWrapper, MemoryStore},
+    store::{types::Changes, CryptoStoreWrapper, MemoryStore},
     types::{
         events::ToDeviceEvent,
         requests::{AnyOutgoingRequest, ToDeviceRequest},

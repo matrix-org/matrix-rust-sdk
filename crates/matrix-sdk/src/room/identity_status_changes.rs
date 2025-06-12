@@ -161,8 +161,10 @@ async fn wrap_identity_updates(client: &Client) -> Result<impl Stream<Item = Roo
         .map(|item| RoomIdentityChange::IdentityUpdates(to_base_updates(item))))
 }
 
-fn to_base_updates(input: IdentityUpdates) -> matrix_sdk_base::crypto::store::IdentityUpdates {
-    matrix_sdk_base::crypto::store::IdentityUpdates {
+fn to_base_updates(
+    input: IdentityUpdates,
+) -> matrix_sdk_base::crypto::store::types::IdentityUpdates {
+    matrix_sdk_base::crypto::store::types::IdentityUpdates {
         new: to_base_identities(input.new),
         changed: to_base_identities(input.changed),
         unchanged: Default::default(),
