@@ -121,8 +121,8 @@ impl MatrixMockServer {
         }
 
         // let bob be aware of Alice keys in order to be able to decrypt custom
-        // to-device (the device keys check are not delayed for non-crypto to-device
-        // messages)
+        // to-device (the device keys check are deferred for `m.room.key` so this is not
+        // needed for sending room messages for example).
         {
             let bob_olm = bob.olm_machine_for_testing().await;
             let bob_olm = bob_olm.as_ref().unwrap();
