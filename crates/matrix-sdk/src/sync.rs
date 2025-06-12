@@ -22,7 +22,10 @@ use std::{
 
 pub use matrix_sdk_base::sync::*;
 use matrix_sdk_base::{
-    debug::{DebugInvitedRoom, DebugKnockedRoom, DebugListOfRawEventsNoId},
+    debug::{
+        DebugInvitedRoom, DebugKnockedRoom, DebugListOfProcessedToDeviceEvents,
+        DebugListOfRawEventsNoId,
+    },
     sleep::sleep,
     sync::SyncResponse as BaseSyncResponse,
 };
@@ -75,12 +78,7 @@ impl fmt::Debug for SyncResponse {
             .field("next_batch", &self.next_batch)
             .field("rooms", &self.rooms)
             .field("account_data", &DebugListOfRawEventsNoId(&self.account_data))
-            .field(
-                "to_device",
-                &DebugListOfRawEventsNoId(
-                    self.to_device.iter().map(|p| p.to_raw()).collect::<Vec<_>>().as_slice(),
-                ),
-            )
+            .field("to_device", &DebugListOfProcessedToDeviceEvents(&self.to_device))
             .field("notifications", &self.notifications)
             .finish_non_exhaustive()
     }

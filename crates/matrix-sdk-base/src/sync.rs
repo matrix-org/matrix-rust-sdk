@@ -36,7 +36,10 @@ use ruma::{
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    debug::{DebugInvitedRoom, DebugKnockedRoom, DebugListOfRawEvents, DebugListOfRawEventsNoId},
+    debug::{
+        DebugInvitedRoom, DebugKnockedRoom, DebugListOfProcessedToDeviceEvents,
+        DebugListOfRawEvents, DebugListOfRawEventsNoId,
+    },
     deserialized_responses::{AmbiguityChange, RawAnySyncOrStrippedTimelineEvent},
 };
 
@@ -64,12 +67,7 @@ impl fmt::Debug for SyncResponse {
         f.debug_struct("SyncResponse")
             .field("rooms", &self.rooms)
             .field("account_data", &DebugListOfRawEventsNoId(&self.account_data))
-            .field(
-                "to_device",
-                &DebugListOfRawEventsNoId(
-                    self.to_device.iter().map(|p| p.to_raw()).collect::<Vec<_>>().as_slice(),
-                ),
-            )
+            .field("to_device", &DebugListOfProcessedToDeviceEvents(&self.to_device))
             .field("notifications", &self.notifications)
             .finish_non_exhaustive()
     }

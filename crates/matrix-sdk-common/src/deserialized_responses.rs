@@ -1182,6 +1182,16 @@ impl ProcessedToDeviceEvent {
             ProcessedToDeviceEvent::Invalid(event) => event.clone(),
         }
     }
+
+    /// Gets the raw to-device event.
+    pub fn as_raw(&self) -> &Raw<AnyToDeviceEvent> {
+        match self {
+            ProcessedToDeviceEvent::Decrypted { raw, .. } => raw,
+            ProcessedToDeviceEvent::UnableToDecrypt(event) => event,
+            ProcessedToDeviceEvent::PlainText(event) => event,
+            ProcessedToDeviceEvent::Invalid(event) => event,
+        }
+    }
 }
 
 #[cfg(test)]
