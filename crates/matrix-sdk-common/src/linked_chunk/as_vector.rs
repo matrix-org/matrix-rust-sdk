@@ -128,26 +128,38 @@ where
         }
     }
 
+    /// Apply some ad-hoc updates to the ordering tracker.
+    pub fn map_updates(&mut self, updates: &[Update<Item, Gap>]) {
+        let _ = self.mapper.map(updates);
+    }
+
     /// Given an event's position, returns its final ordering in the current
     /// state of the linked chunk as a vector.
     ///
     /// Useful to compare the ordering of multiple events.
     ///
+    /// Precondition: the reader must be up to date, i.e.
+    /// [`Self::flush_updates`] must have been called before this method.
+    ///
     /// Will return `None` if the event is not found in the linked chunk.
-    pub fn ordering(&mut self, event_pos: Position) -> Option<usize> {
-        // First, consume all the pending updates for this observer.
-        self.flush_updates(false);
+    pub fn ordering(&self, event_pos: Position) -> Option<usize> {
+        // Check the precondition: there must not be any pending updates for this
+        // reader.
+        assert!(self.updates.read().unwrap().is_reader_up_to_date(self.token));
 
-        // Then, find the event's position in the linked chunk.
+        // Find the chunk that contained the event.
         let mut ordering = 0;
         for (chunk_id, chunk_length) in self.mapper.chunks.iter() {
-            if chunk_id == &event_pos.chunk_identifier() {
+            if *chunk_id == event_pos.chunk_identifier() {
                 // The final ordering is the number of items before the event, plus its own
                 // index within the chunk.
                 return Some(ordering + event_pos.index());
             }
+            // This is not the target chunk yet, so add the size of the current chunk to the
+            // number of seen items, and continue.
             ordering += *chunk_length;
         }
+
         None
     }
 }

@@ -260,7 +260,7 @@ impl RoomEventCache {
     /// Return a nice debug string (a vector of lines) for the linked chunk of
     /// events for this room.
     pub async fn debug_string(&self) -> Vec<String> {
-        self.inner.state.write().await.events_mut().debug_string()
+        self.inner.state.read().await.events().debug_string()
     }
 }
 
@@ -908,13 +908,12 @@ mod private {
 
                 sort_positions_descending(&mut positions);
 
-                self.send_updates_to_store(
-                    positions
-                        .into_iter()
-                        .map(|position| Update::RemoveItem { at: position })
-                        .collect(),
-                )
-                .await?;
+                let updates = positions
+                    .into_iter()
+                    .map(|pos| Update::RemoveItem { at: pos })
+                    .collect::<Vec<_>>();
+
+                self.apply_store_only_updates(updates).await?;
             }
 
             // In-memory events.
@@ -936,6 +935,22 @@ mod private {
         /// Propagate changes to the underlying storage.
         async fn propagate_changes(&mut self) -> Result<(), EventCacheError> {
             let updates = self.events.store_updates().take();
+            self.send_updates_to_store(updates).await
+        }
+
+        /// Apply some updates that are effective only the store itself.
+        ///
+        /// This method should be used only for updates that happen *outside*
+        /// the in-memory linked chunk. Such updates must be applied
+        /// onto the ordering tracker as well as to the persistent
+        /// storage.
+        async fn apply_store_only_updates(
+            &mut self,
+            updates: Vec<Update<Event, Gap>>,
+        ) -> Result<(), EventCacheError> {
+            if let Some(tracker) = self.events.chunk_ordering.as_mut() {
+                tracker.map_updates(&updates);
+            }
             self.send_updates_to_store(updates).await
         }
 
@@ -1025,11 +1040,6 @@ mod private {
         /// Returns a read-only reference to the underlying events.
         pub fn events(&self) -> &RoomEvents {
             &self.events
-        }
-
-        /// Returns a read-only reference to the underlying events.
-        pub fn events_mut(&mut self) -> &mut RoomEvents {
-            &mut self.events
         }
 
         /// Find a single event in this room.
@@ -1130,10 +1140,6 @@ mod private {
                     self.save_event([*bundled_thread]).await?;
                 }
             }
-
-            // Assert that the orderings are fully correct for all the events present in the
-            // in-memory linked chunk.
-            self.events.assert_event_ordering();
 
             Ok(())
         }

@@ -38,7 +38,7 @@ pub struct RoomEvents {
     /// [`Update`]: matrix_sdk_base::linked_chunk::Update
     chunks_updates_as_vectordiffs: AsVector<Event, Gap>,
 
-    chunk_ordering: Option<AsOrdering<Event, Gap>>,
+    pub chunk_ordering: Option<AsOrdering<Event, Gap>>,
 }
 
 impl Default for RoomEvents {
@@ -264,12 +264,12 @@ impl RoomEvents {
         self.chunks.items()
     }
 
-    pub(super) fn event_ordering(&mut self, event_pos: Position) -> Option<usize> {
-        self.chunk_ordering.as_mut().and_then(|tracker| tracker.ordering(event_pos))
+    pub fn event_ordering(&self, event_pos: Position) -> Option<usize> {
+        self.chunk_ordering.as_ref().and_then(|tracker| tracker.ordering(event_pos))
     }
 
-    pub(super) fn assert_event_ordering(&mut self) {
-        let Some(order_tracker) = self.chunk_ordering.as_mut() else {
+    fn assert_event_ordering(&self) {
+        let Some(order_tracker) = self.chunk_ordering.as_ref() else {
             return;
         };
 
@@ -301,7 +301,14 @@ impl RoomEvents {
     ///
     /// [`Update`]: matrix_sdk_base::linked_chunk::Update
     pub fn updates_as_vector_diffs(&mut self) -> Vec<VectorDiff<Event>> {
-        self.chunks_updates_as_vectordiffs.take()
+        let updates = self.chunks_updates_as_vectordiffs.take();
+        if let Some(tracker) = &mut self.chunk_ordering {
+            tracker.flush_updates(false);
+            // Assert that the orderings are fully correct for all the events present in the
+            // in-memory linked chunk.
+            self.assert_event_ordering();
+        }
+        updates
     }
 
     /// Get a mutable reference to the [`LinkedChunk`] updates, aka
@@ -317,14 +324,14 @@ impl RoomEvents {
 
     /// Return a nice debug string (a vector of lines) for the linked chunk of
     /// events for this room.
-    pub fn debug_string(&mut self) -> Vec<String> {
+    pub fn debug_string(&self) -> Vec<String> {
         let mut result = Vec::new();
 
         for chunk in self.chunks.chunks() {
             let content = chunk_debug_string(
                 chunk.identifier(),
                 chunk.content(),
-                self.chunk_ordering.as_mut(),
+                self.chunk_ordering.as_ref(),
             );
             let lazy_previous = if let Some(cid) = chunk.lazy_previous() {
                 format!(" (lazy previous = {})", cid.index())
@@ -367,7 +374,7 @@ impl RoomEvents {
 fn chunk_debug_string(
     chunk_id: ChunkIdentifier,
     content: &ChunkContent<Event, Gap>,
-    mut chunk_ordering: Option<&mut AsOrdering<Event, Gap>>,
+    chunk_ordering: Option<&AsOrdering<Event, Gap>>,
 ) -> String {
     match content {
         ChunkContent::Gap(Gap { prev_token }) => {
@@ -382,7 +389,7 @@ fn chunk_debug_string(
                         || "<no event id>".to_owned(),
                         |id| {
                             let pos = Position::new(chunk_id, i);
-                            let order = if let Some(co) = chunk_ordering.as_mut() {
+                            let order = if let Some(co) = chunk_ordering {
                                 format!("#{}: ", co.ordering(pos).unwrap())
                             } else {
                                 "".to_owned()
