@@ -25,6 +25,7 @@ use super::{
     updates::{ReaderToken, Update, UpdatesInner},
     ChunkContent, ChunkIdentifier, Iter, Position,
 };
+use crate::linked_chunk::ObservableUpdates;
 
 /// A type alias to represent a chunk's length. This is purely for commodity.
 type ChunkLength = usize;
@@ -80,6 +81,74 @@ impl<Item, Gap> AsVector<Item, Gap> {
         let mut updates = self.updates.write().unwrap();
 
         self.mapper.map(updates.take_with_token(self.token))
+    }
+}
+
+#[derive(Debug)]
+pub struct AsOrdering<Item, Gap> {
+    /// Strong reference to [`UpdatesInner`].
+    updates: Arc<RwLock<UpdatesInner<Item, Gap>>>,
+
+    /// The token to read the updates.
+    token: ReaderToken,
+
+    /// Mapper from `Update` to `VectorDiff`.
+    mapper: UpdateToVectorDiff,
+}
+
+impl<Item, Gap> AsOrdering<Item, Gap>
+where
+    Item: Clone,
+{
+    /// Create a new [`AsOrdering`].
+    ///
+    /// `all_chunks_iterator` is the iterator of all [`Chunk`](super::Chunk)s,
+    /// used to set up its internal state. Note this must include *all* the
+    /// chunks that have ever been known, even in the presence of
+    /// lazy-loading.
+    pub(super) fn new<const CAP: usize>(
+        updates: &mut ObservableUpdates<Item, Gap>,
+        all_chunks_iterator: Iter<'_, CAP, Item, Gap>,
+    ) -> Self {
+        let token = updates.new_reader_token();
+        let updates = updates.inner.clone();
+        Self { updates, token, mapper: UpdateToVectorDiff::new(all_chunks_iterator) }
+    }
+
+    /// Force flushing of the updates manually.
+    pub fn flush_updates(&mut self, inhibit: bool) {
+        if inhibit {
+            // Ignore the updates.
+            let _ = self.updates.write().unwrap().take_with_token(self.token);
+        } else {
+            // Consume the updates.
+            let mut updater = self.updates.write().unwrap();
+            let updates = updater.take_with_token(self.token);
+            let _ = self.mapper.map(updates);
+        }
+    }
+
+    /// Given an event's position, returns its final ordering in the current
+    /// state of the linked chunk as a vector.
+    ///
+    /// Useful to compare the ordering of multiple events.
+    ///
+    /// Will return `None` if the event is not found in the linked chunk.
+    pub fn ordering(&mut self, event_pos: Position) -> Option<usize> {
+        // First, consume all the pending updates for this observer.
+        self.flush_updates(false);
+
+        // Then, find the event's position in the linked chunk.
+        let mut ordering = 0;
+        for (chunk_id, chunk_length) in self.mapper.chunks.iter() {
+            if chunk_id == &event_pos.chunk_identifier() {
+                // The final ordering is the number of items before the event, plus its own
+                // index within the chunk.
+                return Some(ordering + event_pos.index());
+            }
+            ordering += *chunk_length;
+        }
+        None
     }
 }
 

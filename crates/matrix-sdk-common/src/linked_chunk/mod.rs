@@ -1085,6 +1085,17 @@ impl<const CAP: usize, Item, Gap> LinkedChunk<CAP, Item, Gap> {
         Some(AsVector::new(updates, token, chunk_iterator))
     }
 
+    pub fn as_ordering(
+        &mut self,
+        all_initial_chunks: Iter<'_, CAP, Item, Gap>,
+    ) -> Option<AsOrdering<Item, Gap>>
+    where
+        Item: Clone,
+    {
+        let updates = self.updates.as_mut()?;
+        Some(AsOrdering::new(updates, all_initial_chunks))
+    }
+
     /// Returns the number of items of the linked chunk.
     pub fn num_items(&self) -> usize {
         self.items().count()
