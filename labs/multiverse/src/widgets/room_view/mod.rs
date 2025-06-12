@@ -580,12 +580,7 @@ impl RoomView {
 
     fn get_selected_event(&self) -> Option<Arc<TimelineItem>> {
         let selected = self.timeline_list.selected()?;
-        let selected_room = self.room_id()?;
-
-        let timelines = self.timelines.lock();
-        let current_timeline = timelines.get(selected_room)?;
-        let items = current_timeline.items.lock();
-
+        let items = self.get_selected_timeline_items()?;
         items.get(selected).cloned()
     }
 
