@@ -1,4 +1,8 @@
-use matrix_sdk_base::{deserialized_responses::TimelineEvent, linked_chunk::ChunkIdentifier};
+use matrix_sdk_base::{
+    deserialized_responses::TimelineEvent, event_cache::store::extract_event_relation,
+    linked_chunk::ChunkIdentifier,
+};
+use ruma::OwnedEventId;
 use serde::{Deserialize, Serialize};
 
 /// Representation of a [`Chunk`](matrix_sdk_base::linked_chunk::Chunk)
@@ -50,6 +54,34 @@ impl From<Event> for TimelineEvent {
     }
 }
 
+impl Event {
+    /// The [`OwnedEventId`] of the underlying event.
+    pub fn event_id(&self) -> Option<OwnedEventId> {
+        match self {
+            Event::InBand(e) => e.event_id(),
+            Event::OutOfBand(e) => e.event_id(),
+        }
+    }
+
+    /// The [`Position`] of the underlying event, if it is in a chunk.
+    pub fn position(&self) -> Option<Position> {
+        match self {
+            Event::InBand(e) => Some(e.position),
+            Event::OutOfBand(_) => None,
+        }
+    }
+
+    /// The [`OwnedEventId`] and
+    /// [`RelationType`](ruma::events::relation::RelationType) of the underlying
+    /// event as a [`String`].
+    pub fn relation(&self) -> Option<(OwnedEventId, String)> {
+        match self {
+            Event::InBand(e) => e.relation(),
+            Event::OutOfBand(e) => e.relation(),
+        }
+    }
+}
+
 /// A generic representation of an
 /// [`Event`](matrix_sdk_base::event_cache::Event) which can be stored in
 /// IndexedDB.
@@ -62,6 +94,21 @@ pub struct GenericEvent<P> {
     pub content: TimelineEvent,
     /// The position of the event, if it is in a chunk.
     pub position: P,
+}
+
+impl<P> GenericEvent<P> {
+    /// The [`OwnedEventId`] of the underlying event.
+    pub fn event_id(&self) -> Option<OwnedEventId> {
+        self.content.event_id()
+    }
+
+    /// The event that the underlying event relates to, if any.
+    ///
+    /// Returns the related [`OwnedEventId`] and the
+    /// [`RelationType`](ruma::events::relation::RelationType) as a [`String`].
+    pub fn relation(&self) -> Option<(OwnedEventId, String)> {
+        extract_event_relation(self.content.raw())
+    }
 }
 
 /// A concrete instance of [`GenericEvent`] for in-band events, i.e.,

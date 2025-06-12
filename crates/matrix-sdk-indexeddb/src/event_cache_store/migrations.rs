@@ -120,6 +120,8 @@ pub mod v1 {
         pub const EVENTS_POSITION_KEY_PATH: &str = "position";
         pub const EVENTS_RELATION: &str = "events_relation";
         pub const EVENTS_RELATION_KEY_PATH: &str = "relation";
+        pub const EVENTS_RELATION_RELATED_EVENTS: &str = "events_relation_related_event";
+        pub const EVENTS_RELATION_RELATION_TYPES: &str = "events_relation_relation_type";
         pub const GAPS: &str = "gaps";
         pub const GAPS_KEY_PATH: &str = "id";
     }

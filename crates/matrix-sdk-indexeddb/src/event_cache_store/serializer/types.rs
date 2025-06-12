@@ -29,17 +29,21 @@
 
 use matrix_sdk_base::linked_chunk::ChunkIdentifier;
 use matrix_sdk_crypto::CryptoStoreError;
-use ruma::RoomId;
+use ruma::{events::relation::RelationType, EventId, OwnedEventId, RoomId};
 use serde::{Deserialize, Serialize};
+use thiserror::Error;
 
 use crate::{
     event_cache_store::{
         migrations::current::keys,
         serializer::traits::{Indexed, IndexedKey, IndexedKeyBounds},
-        types::Chunk,
+        types::{Chunk, Event, Position},
     },
     serializer::{IndexeddbSerializer, MaybeEncrypted},
 };
+
+const INDEXED_KEY_LOWER_CHARACTER: char = '\u{0000}';
+const INDEXED_KEY_UPPER_CHARACTER: char = '\u{FFFF}';
 
 /// Represents the [`LINKED_CHUNKS`][1] object store.
 ///
@@ -206,6 +210,46 @@ pub struct IndexedEvent {
     pub content: IndexedEventContent,
 }
 
+#[derive(Debug, Error)]
+pub enum IndexedEventError {
+    #[error("no event id")]
+    NoEventId,
+    #[error("crypto store: {0}")]
+    CryptoStore(#[from] CryptoStoreError),
+}
+
+impl Indexed for Event {
+    type IndexedType = IndexedEvent;
+    type Error = IndexedEventError;
+
+    fn to_indexed(
+        &self,
+        room_id: &RoomId,
+        serializer: &IndexeddbSerializer,
+    ) -> Result<Self::IndexedType, Self::Error> {
+        let event_id = self.event_id().ok_or(Self::Error::NoEventId)?;
+        let id = IndexedEventIdKey::encode(room_id, &event_id, serializer);
+        let position = self
+            .position()
+            .map(|position| IndexedEventPositionKey::encode(room_id, &position, serializer));
+        let relation = self.relation().map(|(related_event, relation_type)| {
+            IndexedEventRelationKey::encode(
+                room_id,
+                &(related_event, RelationType::from(relation_type)),
+                serializer,
+            )
+        });
+        Ok(IndexedEvent { id, position, relation, content: serializer.maybe_encrypt_value(self)? })
+    }
+
+    fn from_indexed(
+        indexed: Self::IndexedType,
+        serializer: &IndexeddbSerializer,
+    ) -> Result<Self, Self::Error> {
+        serializer.maybe_decrypt_value(indexed.content).map_err(Into::into)
+    }
+}
+
 /// The value associated with the [primary key](IndexedEvent::id) of the
 /// [`EVENTS`][1] object store, which is constructed from:
 ///
@@ -215,6 +259,30 @@ pub struct IndexedEvent {
 /// [1]: crate::event_cache_store::migrations::v1::create_events_object_store
 #[derive(Debug, Serialize, Deserialize)]
 pub struct IndexedEventIdKey(IndexedRoomId, IndexedEventId);
+
+impl IndexedKey<Event> for IndexedEventIdKey {
+    type KeyComponents = EventId;
+
+    fn encode(room_id: &RoomId, event_id: &EventId, serializer: &IndexeddbSerializer) -> Self {
+        let room_id = serializer.encode_key_as_string(keys::ROOMS, room_id);
+        let event_id = serializer.encode_key_as_string(keys::EVENTS, event_id);
+        Self(room_id, event_id)
+    }
+}
+
+impl IndexedKeyBounds<Event> for IndexedEventIdKey {
+    fn encode_lower(room_id: &RoomId, serializer: &IndexeddbSerializer) -> Self {
+        let room_id = serializer.encode_key_as_string(keys::ROOMS, room_id);
+        let event_id = String::from(INDEXED_KEY_LOWER_CHARACTER);
+        Self(room_id, event_id)
+    }
+
+    fn encode_upper(room_id: &RoomId, serializer: &IndexeddbSerializer) -> Self {
+        let room_id = serializer.encode_key_as_string(keys::ROOMS, room_id);
+        let event_id = String::from(INDEXED_KEY_UPPER_CHARACTER);
+        Self(room_id, event_id)
+    }
+}
 
 pub type IndexedEventId = String;
 
@@ -229,6 +297,36 @@ pub type IndexedEventId = String;
 #[derive(Debug, Serialize, Deserialize)]
 pub struct IndexedEventPositionKey(IndexedRoomId, IndexedChunkId, IndexedEventPositionIndex);
 
+impl IndexedKey<Event> for IndexedEventPositionKey {
+    type KeyComponents = Position;
+
+    fn encode(room_id: &RoomId, position: &Position, serializer: &IndexeddbSerializer) -> Self {
+        let room_id = serializer.encode_key_as_string(keys::ROOMS, room_id);
+        Self(room_id, position.chunk_identifier, position.index)
+    }
+}
+
+impl IndexedKeyBounds<Event> for IndexedEventPositionKey {
+    fn encode_lower(room_id: &RoomId, serializer: &IndexeddbSerializer) -> Self {
+        <Self as IndexedKey<Event>>::encode(
+            room_id,
+            &Position { chunk_identifier: 0, index: 0 },
+            serializer,
+        )
+    }
+
+    fn encode_upper(room_id: &RoomId, serializer: &IndexeddbSerializer) -> Self {
+        <Self as IndexedKey<Event>>::encode(
+            room_id,
+            &Position {
+                chunk_identifier: js_sys::Number::MAX_SAFE_INTEGER as u64,
+                index: js_sys::Number::MAX_SAFE_INTEGER as usize,
+            },
+            serializer,
+        )
+    }
+}
+
 pub type IndexedEventPositionIndex = usize;
 
 /// The value associated with the [`relation`](IndexedEvent::relation) index of
@@ -241,6 +339,39 @@ pub type IndexedEventPositionIndex = usize;
 /// [1]: crate::event_cache_store::migrations::v1::create_events_object_store
 #[derive(Debug, Serialize, Deserialize)]
 pub struct IndexedEventRelationKey(IndexedRoomId, IndexedEventId, IndexedRelationType);
+
+impl IndexedKey<Event> for IndexedEventRelationKey {
+    type KeyComponents = (OwnedEventId, RelationType);
+
+    fn encode(
+        room_id: &RoomId,
+        (related_event_id, relation_type): &(OwnedEventId, RelationType),
+        serializer: &IndexeddbSerializer,
+    ) -> Self {
+        let room_id = serializer.encode_key_as_string(keys::ROOMS, room_id);
+        let related_event_id =
+            serializer.encode_key_as_string(keys::EVENTS_RELATION_RELATED_EVENTS, related_event_id);
+        let relation_type = serializer
+            .encode_key_as_string(keys::EVENTS_RELATION_RELATION_TYPES, relation_type.to_string());
+        Self(room_id, related_event_id, relation_type)
+    }
+}
+
+impl IndexedKeyBounds<Event> for IndexedEventRelationKey {
+    fn encode_lower(room_id: &RoomId, serializer: &IndexeddbSerializer) -> Self {
+        let room_id = serializer.encode_key_as_string(keys::ROOMS, room_id);
+        let related_event_id = String::from(INDEXED_KEY_LOWER_CHARACTER);
+        let relation_type = String::from(INDEXED_KEY_LOWER_CHARACTER);
+        Self(room_id, related_event_id, relation_type)
+    }
+
+    fn encode_upper(room_id: &RoomId, serializer: &IndexeddbSerializer) -> Self {
+        let room_id = serializer.encode_key_as_string(keys::ROOMS, room_id);
+        let related_event_id = String::from(INDEXED_KEY_UPPER_CHARACTER);
+        let relation_type = String::from(INDEXED_KEY_UPPER_CHARACTER);
+        Self(room_id, related_event_id, relation_type)
+    }
+}
 
 /// A representation of the relationship between two events (see
 /// [`RelationType`](ruma::events::relation::RelationType))
