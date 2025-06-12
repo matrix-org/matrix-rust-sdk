@@ -249,6 +249,10 @@ impl ThreadSummary {
     pub fn latest_event(&self) -> EmbeddedEventDetails {
         self.latest_event.clone()
     }
+
+    pub fn num_replies(&self) -> u64 {
+        self.num_replies as u64
+    }
 }
 
 impl From<matrix_sdk_ui::timeline::ThreadSummary> for ThreadSummary {
