@@ -145,6 +145,8 @@ impl From<matrix_sdk_base::linked_chunk::Position> for Position {
 /// which can be stored in IndexedDB.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Gap {
+    /// The identifier of the chunk containing this gap.
+    pub chunk_identifier: u64,
     /// The token to use in the query, extracted from a previous "from" /
     /// "end" field of a `/messages` response.
     pub prev_token: String,
