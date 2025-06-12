@@ -1147,7 +1147,7 @@ impl From<SyncTimelineEventDeserializationHelperV0> for TimelineEvent {
     }
 }
 
-/// Represents a to-device event after it has been processed by the olm machine.
+/// Represents a to-device event after it has been processed by the Olm machine.
 #[derive(Clone, Debug)]
 pub enum ProcessedToDeviceEvent {
     /// A successfully-decrypted encrypted event.
@@ -1155,7 +1155,7 @@ pub enum ProcessedToDeviceEvent {
     Decrypted {
         /// The raw decrypted event
         raw: Raw<AnyToDeviceEvent>,
-        /// The olm encryption info
+        /// The Olm encryption info
         encryption_info: EncryptionInfo,
     },
 
