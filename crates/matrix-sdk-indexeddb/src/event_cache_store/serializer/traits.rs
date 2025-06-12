@@ -42,3 +42,24 @@ pub trait Indexed: Sized {
         serializer: &IndexeddbSerializer,
     ) -> Result<Self, Self::Error>;
 }
+
+/// A trait for encoding types which will be used as keys in IndexedDB.
+///
+/// Each implementation represents a key on an [`Indexed`] type.
+pub trait IndexedKey<T: Indexed> {
+    /// Any extra data used to construct the key.
+    type KeyComponents;
+
+    /// Encodes the key components into a type that can be used as a key in
+    /// IndexedDB.
+    ///
+    /// Note that this function takes an [`IndexeddbSerializer`] as an
+    /// argument, which provides the necessary context for encryption and
+    /// decryption, in the case that certain components of the key must be
+    /// encrypted before storage.
+    fn encode(
+        room_id: &RoomId,
+        components: &Self::KeyComponents,
+        serializer: &IndexeddbSerializer,
+    ) -> Self;
+}
