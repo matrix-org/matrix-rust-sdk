@@ -20,20 +20,26 @@ use thiserror::Error;
 use wasm_bindgen::JsValue;
 use web_sys::{DomException, IdbIndexParameters};
 
-const CURRENT_DB_VERSION: Version = Version::V1;
+/// The current version and keys used in the database.
+pub mod current {
+    use super::{v1, Version};
+
+    pub const VERSION: Version = Version::V1;
+    pub use v1::keys;
+}
 
 /// Opens a connection to the IndexedDB database and takes care of upgrading it
 /// if necessary.
 #[allow(unused)]
 pub async fn open_and_upgrade_db(name: &str) -> Result<IdbDatabase, DomException> {
-    let mut request = IdbDatabase::open_u32(name, CURRENT_DB_VERSION as u32)?;
+    let mut request = IdbDatabase::open_u32(name, current::VERSION as u32)?;
     request.set_on_upgrade_needed(Some(|event: &IdbVersionChangeEvent| -> Result<(), JsValue> {
         let mut version =
             Version::try_from(event.old_version() as u32).map_err(DomException::from)?;
-        while version < CURRENT_DB_VERSION {
+        while version < current::VERSION {
             version = match version.upgrade(event.db())? {
                 Some(next) => next,
-                None => CURRENT_DB_VERSION, /* No more upgrades to apply, jump forward! */
+                None => current::VERSION, /* No more upgrades to apply, jump forward! */
             };
         }
         Ok(())
