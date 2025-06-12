@@ -27,9 +27,19 @@
 //! These types mimic the structure of the object stores and indices created in
 //! [`crate::event_cache_store::migrations`].
 
+use matrix_sdk_base::linked_chunk::ChunkIdentifier;
+use matrix_sdk_crypto::CryptoStoreError;
+use ruma::RoomId;
 use serde::{Deserialize, Serialize};
 
-use crate::serializer::MaybeEncrypted;
+use crate::{
+    event_cache_store::{
+        migrations::current::keys,
+        serializer::traits::{Indexed, IndexedKey, IndexedKeyBounds},
+        types::Chunk,
+    },
+    serializer::{IndexeddbSerializer, MaybeEncrypted},
+};
 
 /// Represents the [`LINKED_CHUNKS`][1] object store.
 ///
@@ -46,6 +56,38 @@ pub struct IndexedChunk {
     pub content: IndexedChunkContent,
 }
 
+impl Indexed for Chunk {
+    type IndexedType = IndexedChunk;
+    type Error = CryptoStoreError;
+
+    fn to_indexed(
+        &self,
+        room_id: &RoomId,
+        serializer: &IndexeddbSerializer,
+    ) -> Result<Self::IndexedType, Self::Error> {
+        Ok(IndexedChunk {
+            id: <IndexedChunkIdKey as IndexedKey<Chunk>>::encode(
+                room_id,
+                &ChunkIdentifier::new(self.identifier),
+                serializer,
+            ),
+            next: IndexedNextChunkIdKey::encode(
+                room_id,
+                &self.next.map(ChunkIdentifier::new),
+                serializer,
+            ),
+            content: serializer.maybe_encrypt_value(self)?,
+        })
+    }
+
+    fn from_indexed(
+        indexed: Self::IndexedType,
+        serializer: &IndexeddbSerializer,
+    ) -> Result<Self, Self::Error> {
+        serializer.maybe_decrypt_value(indexed.content)
+    }
+}
+
 /// The value associated with the [primary key](IndexedChunk::id) of the
 /// [`LINKED_CHUNKS`][1] object store, which is constructed from:
 ///
@@ -55,6 +97,34 @@ pub struct IndexedChunk {
 /// [1]: crate::event_cache_store::migrations::v1::create_linked_chunks_object_store
 #[derive(Debug, Serialize, Deserialize)]
 pub struct IndexedChunkIdKey(IndexedRoomId, IndexedChunkId);
+
+impl IndexedKey<Chunk> for IndexedChunkIdKey {
+    type KeyComponents = ChunkIdentifier;
+
+    fn encode(
+        room_id: &RoomId,
+        chunk_id: &ChunkIdentifier,
+        serializer: &IndexeddbSerializer,
+    ) -> Self {
+        let room_id = serializer.encode_key_as_string(keys::ROOMS, room_id);
+        let chunk_id = chunk_id.index();
+        Self(room_id, chunk_id)
+    }
+}
+
+impl IndexedKeyBounds<Chunk> for IndexedChunkIdKey {
+    fn encode_lower(room_id: &RoomId, serializer: &IndexeddbSerializer) -> Self {
+        <Self as IndexedKey<Chunk>>::encode(room_id, &ChunkIdentifier::new(0), serializer)
+    }
+
+    fn encode_upper(room_id: &RoomId, serializer: &IndexeddbSerializer) -> Self {
+        <Self as IndexedKey<Chunk>>::encode(
+            room_id,
+            &ChunkIdentifier::new(js_sys::Number::MAX_SAFE_INTEGER as u64),
+            serializer,
+        )
+    }
+}
 
 pub type IndexedRoomId = String;
 pub type IndexedChunkId = u64;
@@ -82,6 +152,41 @@ pub enum IndexedNextChunkIdKey {
     None((IndexedRoomId,)),
     /// The identifier of the next chunk in the list.
     Some(IndexedChunkIdKey),
+}
+
+impl IndexedKey<Chunk> for IndexedNextChunkIdKey {
+    type KeyComponents = Option<ChunkIdentifier>;
+
+    fn encode(
+        room_id: &RoomId,
+        next_chunk_id: &Option<ChunkIdentifier>,
+        serializer: &IndexeddbSerializer,
+    ) -> Self {
+        next_chunk_id
+            .map(|id| {
+                Self::Some(<IndexedChunkIdKey as IndexedKey<Chunk>>::encode(
+                    room_id, &id, serializer,
+                ))
+            })
+            .unwrap_or_else(|| {
+                let room_id = serializer.encode_key_as_string(keys::ROOMS, room_id);
+                Self::none(room_id)
+            })
+    }
+}
+
+impl IndexedKeyBounds<Chunk> for IndexedNextChunkIdKey {
+    fn encode_lower(room_id: &RoomId, serializer: &IndexeddbSerializer) -> Self {
+        <Self as IndexedKey<Chunk>>::encode(room_id, &None, serializer)
+    }
+
+    fn encode_upper(room_id: &RoomId, serializer: &IndexeddbSerializer) -> Self {
+        <Self as IndexedKey<Chunk>>::encode(
+            room_id,
+            &Some(ChunkIdentifier::new(js_sys::Number::MAX_SAFE_INTEGER as u64)),
+            serializer,
+        )
+    }
 }
 
 /// Represents the [`EVENTS`][1] object store.
