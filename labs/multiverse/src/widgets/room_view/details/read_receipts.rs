@@ -3,10 +3,10 @@ use matrix_sdk_base::read_receipts::RoomReadReceipts;
 use matrix_sdk_ui::timeline::TimelineItem;
 use ratatui::{
     prelude::*,
-    widgets::{Block, Borders, HighlightSpacing, List, ListItem, ListState, Paragraph, Wrap},
+    widgets::{Block, Borders, Paragraph, Wrap},
 };
 
-use crate::{widgets::room_view::DetailsState, SELECTED_STYLE_FG, TEXT_COLOR};
+use crate::{widgets::room_view::DetailsState, TEXT_COLOR};
 
 pub struct ReadReceipts<'a> {
     state: &'a DetailsState<'a>,
@@ -47,14 +47,11 @@ impl Widget for &mut ReadReceipts<'_> {
             match self.state.selected_item.as_deref() {
                 Some(selected_event) => {
                     if let Some(item) = format_timeline_item(selected_event) {
-                        let list = List::new(vec![item])
-                            .highlight_spacing(HighlightSpacing::Always)
-                            .highlight_symbol(">")
-                            .highlight_style(SELECTED_STYLE_FG);
-
-                        let mut state = ListState::default();
-
-                        StatefulWidget::render(list, area, buf, &mut state);
+                        Paragraph::new(item)
+                            .fg(TEXT_COLOR)
+                            .wrap(Wrap { trim: false })
+                            .block(Block::new().borders(Borders::BOTTOM))
+                            .render(area, buf);
                     } else {
                         render_room_stats(room, area, buf);
                     }
@@ -68,7 +65,7 @@ impl Widget for &mut ReadReceipts<'_> {
     }
 }
 
-fn format_timeline_item(item: &TimelineItem) -> Option<ListItem<'_>> {
+fn format_timeline_item(item: &TimelineItem) -> Option<Vec<Line<'_>>> {
     let event = item.as_event()?;
     let receipts = event.read_receipts();
     let sender = event.sender();
@@ -77,5 +74,5 @@ fn format_timeline_item(item: &TimelineItem) -> Option<ListItem<'_>> {
     let first_line = Line::from(format!("{sender} - {event_id:?}"));
     let second_line = Line::from(format!("{receipts:?}"));
 
-    Some(ListItem::from(vec![first_line, second_line]))
+    Some(vec![first_line, second_line])
 }
