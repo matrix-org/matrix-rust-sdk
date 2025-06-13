@@ -78,6 +78,9 @@ All notable changes to this project will be documented in this file.
   ([#5047](https://github.com/matrix-org/matrix-rust-sdk/pull/5047))
 - `Room::set_unread_flag()` is now a no-op if the unread flag already has the wanted value.
   ([#5055](https://github.com/matrix-org/matrix-rust-sdk/pull/5055))
+- `ClientServerCapabilities` has been renamed to `ClientServerInfo`. Alongside this,
+  `Client::reset_server_info` is now `Client::reset_server_info` and `Client::fetch_server_capabilities`
+  is now `Client::fetch_server_versions`, returning the server versions response directly.
 
 ## [0.11.0] - 2025-04-11
 

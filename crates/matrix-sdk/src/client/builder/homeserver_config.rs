@@ -53,6 +53,7 @@ pub(super) struct HomeserverDiscoveryResult {
     pub server: Option<Url>,
     pub homeserver: Url,
     pub supported_versions: Option<get_supported_versions::Response>,
+    pub well_known: Option<discover_homeserver::Response>,
 }
 
 impl HomeserverConfig {
@@ -68,6 +69,7 @@ impl HomeserverConfig {
                     server: None, // We can't know the `server` if we only have a `homeserver`.
                     homeserver,
                     supported_versions: None,
+                    well_known: None,
                 }
             }
 
@@ -79,18 +81,19 @@ impl HomeserverConfig {
                     server: Some(server),
                     homeserver: Url::parse(&well_known.homeserver.base_url)?,
                     supported_versions: None,
+                    well_known: Some(well_known),
                 }
             }
 
             Self::ServerNameOrHomeserverUrl(server_name_or_url) => {
-                let (server, homeserver, supported_versions) =
+                let (server, homeserver, supported_versions, well_known) =
                     discover_homeserver_from_server_name_or_url(
                         server_name_or_url.to_owned(),
                         http_client,
                     )
                     .await?;
 
-                HomeserverDiscoveryResult { server, homeserver, supported_versions }
+                HomeserverDiscoveryResult { server, homeserver, supported_versions, well_known }
             }
         })
     }
@@ -102,7 +105,15 @@ impl HomeserverConfig {
 async fn discover_homeserver_from_server_name_or_url(
     mut server_name_or_url: String,
     http_client: &HttpClient,
-) -> Result<(Option<Url>, Url, Option<get_supported_versions::Response>), ClientBuildError> {
+) -> Result<
+    (
+        Option<Url>,
+        Url,
+        Option<get_supported_versions::Response>,
+        Option<discover_homeserver::Response>,
+    ),
+    ClientBuildError,
+> {
     let mut discovery_error: Option<ClientBuildError> = None;
 
     // Attempt discovery as a server name first.
@@ -117,7 +128,12 @@ async fn discover_homeserver_from_server_name_or_url(
 
         match discover_homeserver(server_name, &protocol, http_client).await {
             Ok((server, well_known)) => {
-                return Ok((Some(server), Url::parse(&well_known.homeserver.base_url)?, None));
+                return Ok((
+                    Some(server),
+                    Url::parse(&well_known.homeserver.base_url)?,
+                    None,
+                    Some(well_known),
+                ));
             }
             Err(e) => {
                 debug!(error = %e, "Well-known discovery failed.");
@@ -138,7 +154,7 @@ async fn discover_homeserver_from_server_name_or_url(
         // Make sure the URL is definitely for a homeserver.
         match get_supported_versions(&homeserver_url, http_client).await {
             Ok(response) => {
-                return Ok((None, homeserver_url, Some(response)));
+                return Ok((None, homeserver_url, Some(response), None));
             }
             Err(e) => {
                 debug!(error = %e, "Checking supported versions failed.");
