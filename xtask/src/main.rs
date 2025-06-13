@@ -1,6 +1,7 @@
 #![allow(unexpected_cfgs)]
 
 mod ci;
+mod config_supplier;
 mod fixup;
 mod kotlin;
 mod release;
