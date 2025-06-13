@@ -3479,33 +3479,42 @@ impl Room {
     }
 
     /// Store the given `ComposerDraft` in the state store using the current
-    /// room id, as identifier.
-    pub async fn save_composer_draft(&self, draft: ComposerDraft) -> Result<()> {
+    /// room id and optional thread root id as identifier.
+    pub async fn save_composer_draft(
+        &self,
+        draft: ComposerDraft,
+        thread_root: Option<&EventId>,
+    ) -> Result<()> {
         self.client
             .state_store()
             .set_kv_data(
-                StateStoreDataKey::ComposerDraft(self.room_id()),
+                StateStoreDataKey::ComposerDraft(self.room_id(), thread_root),
                 StateStoreDataValue::ComposerDraft(draft),
             )
             .await?;
         Ok(())
     }
 
-    /// Retrieve the `ComposerDraft` stored in the state store for this room.
-    pub async fn load_composer_draft(&self) -> Result<Option<ComposerDraft>> {
+    /// Retrieve the `ComposerDraft` stored in the state store for this room
+    /// and given thread, if any.
+    pub async fn load_composer_draft(
+        &self,
+        thread_root: Option<&EventId>,
+    ) -> Result<Option<ComposerDraft>> {
         let data = self
             .client
             .state_store()
-            .get_kv_data(StateStoreDataKey::ComposerDraft(self.room_id()))
+            .get_kv_data(StateStoreDataKey::ComposerDraft(self.room_id(), thread_root))
             .await?;
         Ok(data.and_then(|d| d.into_composer_draft()))
     }
 
-    /// Remove the `ComposerDraft` stored in the state store for this room.
-    pub async fn clear_composer_draft(&self) -> Result<()> {
+    /// Remove the `ComposerDraft` stored in the state store for this room
+    /// and given thread, if any.
+    pub async fn clear_composer_draft(&self, thread_root: Option<&EventId>) -> Result<()> {
         self.client
             .state_store()
-            .remove_kv_data(StateStoreDataKey::ComposerDraft(self.room_id()))
+            .remove_kv_data(StateStoreDataKey::ComposerDraft(self.room_id(), thread_root))
             .await?;
         Ok(())
     }
@@ -4235,18 +4244,46 @@ mod tests {
         client.base_client().receive_sync_response(response).await.unwrap();
         let room = client.get_room(&DEFAULT_TEST_ROOM_ID).expect("Room should exist");
 
-        assert_eq!(room.load_composer_draft().await.unwrap(), None);
+        assert_eq!(room.load_composer_draft(None).await.unwrap(), None);
+
+        // Save 2 drafts, one for the room and one for a thread.
 
         let draft = ComposerDraft {
             plain_text: "Hello, world!".to_owned(),
             html_text: Some("<strong>Hello</strong>, world!".to_owned()),
             draft_type: ComposerDraftType::NewMessage,
         };
-        room.save_composer_draft(draft.clone()).await.unwrap();
-        assert_eq!(room.load_composer_draft().await.unwrap(), Some(draft));
 
-        room.clear_composer_draft().await.unwrap();
-        assert_eq!(room.load_composer_draft().await.unwrap(), None);
+        room.save_composer_draft(draft.clone(), None).await.unwrap();
+
+        let thread_root = owned_event_id!("$thread_root:b.c");
+        let thread_draft = ComposerDraft {
+            plain_text: "Hello, thread!".to_owned(),
+            html_text: Some("<strong>Hello</strong>, thread!".to_owned()),
+            draft_type: ComposerDraftType::NewMessage,
+        };
+
+        room.save_composer_draft(thread_draft.clone(), Some(&thread_root)).await.unwrap();
+
+        // Check that the room draft was saved correctly
+        assert_eq!(room.load_composer_draft(None).await.unwrap(), Some(draft));
+
+        // Check that the thread draft was saved correctly
+        assert_eq!(
+            room.load_composer_draft(Some(&thread_root)).await.unwrap(),
+            Some(thread_draft.clone())
+        );
+
+        // Clear the room draft
+        room.clear_composer_draft(None).await.unwrap();
+        assert_eq!(room.load_composer_draft(None).await.unwrap(), None);
+
+        // Check that the thread one is still there
+        assert_eq!(room.load_composer_draft(Some(&thread_root)).await.unwrap(), Some(thread_draft));
+
+        // Clear the thread draft as well
+        room.clear_composer_draft(Some(&thread_root)).await.unwrap();
+        assert_eq!(room.load_composer_draft(Some(&thread_root)).await.unwrap(), None);
     }
 
     #[async_test]

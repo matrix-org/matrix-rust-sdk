@@ -1134,7 +1134,7 @@ pub enum StateStoreDataKey<'a> {
     /// To learn more, see [`ComposerDraft`].
     ///
     /// [`ComposerDraft`]: Self::ComposerDraft
-    ComposerDraft(&'a RoomId),
+    ComposerDraft(&'a RoomId, Option<&'a EventId>),
 
     /// A list of knock request ids marked as seen in a room.
     SeenKnockRequests(&'a RoomId),
