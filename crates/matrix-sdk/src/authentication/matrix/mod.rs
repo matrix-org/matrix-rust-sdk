@@ -802,7 +802,7 @@ impl MatrixAuth {
                 _ => None,
             };
 
-            self.client.encryption().spawn_initialization_task(auth_data);
+            self.client.encryption().spawn_initialization_task(auth_data).await;
         }
 
         Ok(())
