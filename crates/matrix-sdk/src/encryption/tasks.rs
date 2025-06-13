@@ -454,13 +454,13 @@ impl BundleReceiverTask {
 
 #[cfg(all(test, not(target_family = "wasm")))]
 mod test {
-    use matrix_sdk_test::async_test;
-    use ruma::{event_id, room_id};
+    use matrix_sdk_test::{async_test, InvitedRoomBuilder, JoinedRoomBuilder};
+    use ruma::{event_id, room_id, user_id};
     use serde_json::json;
     use wiremock::MockServer;
 
     use super::*;
-    use crate::test_utils::logged_in_client;
+    use crate::test_utils::{logged_in_client, mocks::MatrixMockServer};
 
     // Test that, if backups are not enabled, we don't incorrectly mark a room key
     // as downloaded.
@@ -517,5 +517,45 @@ mod test {
                 "Backups are not enabled, we should not mark any room keys as downloaded."
             )
         }
+    }
+
+    /// Test that ensures that we only accept a bundle if a certain set of
+    /// conditions is met.
+    #[async_test]
+    async fn test_should_accept_bundle() {
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().logged_in_with_oauth().build().await;
+
+        let user_id = user_id!("@alice:localhost");
+        let joined_room_id = room_id!("!joined:localhost");
+        let invited_rom_id = room_id!("!invited:localhost");
+
+        server
+            .mock_sync()
+            .ok_and_run(&client, |builder| {
+                builder
+                    .add_joined_room(JoinedRoomBuilder::new(joined_room_id))
+                    .add_invited_room(InvitedRoomBuilder::new(invited_rom_id));
+            })
+            .await;
+
+        let room =
+            client.get_room(joined_room_id).expect("We should have access to our joined room now");
+
+        let bundle_info =
+            RoomKeyBundleInfo { sender: user_id.to_owned(), room_id: joined_room_id.to_owned() };
+
+        assert!(BundleReceiverTask::should_accept_bundle(&room, &bundle_info));
+
+        let invited_room =
+            client.get_room(invited_rom_id).expect("We should have access to our invited room now");
+
+        assert!(
+            !BundleReceiverTask::should_accept_bundle(&invited_room, &bundle_info),
+            "We should not accept a bundle if we didn't join the room."
+        );
+
+        // TODO: Add more cases here once we figure out the correct acceptance
+        // rules.
     }
 }
