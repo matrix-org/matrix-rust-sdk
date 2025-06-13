@@ -63,10 +63,28 @@ impl From<FilterTimelineEventType> for TimelineEventType {
 
 #[derive(uniffi::Enum)]
 pub enum TimelineFocus {
-    Live,
-    Event { event_id: String, num_context_events: u16 },
-    Thread { root_event_id: String, num_events: u16 },
-    PinnedEvents { max_events_to_load: u16, max_concurrent_requests: u16 },
+    Live {
+        /// Whether to hide in-thread replies from the live timeline.
+        hide_threaded_events: bool,
+    },
+    Event {
+        /// The initial event to focus on. This is usually the target of a
+        /// permalink.
+        event_id: String,
+        /// The number of context events to load around the focused event.
+        num_context_events: u16,
+        /// Whether to hide in-thread replies from the live timeline.
+        hide_threaded_events: bool,
+    },
+    Thread {
+        /// The thread root event ID to focus on.
+        root_event_id: String,
+        num_events: u16,
+    },
+    PinnedEvents {
+        max_events_to_load: u16,
+        max_concurrent_requests: u16,
+    },
 }
 
 impl TryFrom<TimelineFocus> for matrix_sdk_ui::timeline::TimelineFocus {
@@ -76,15 +94,19 @@ impl TryFrom<TimelineFocus> for matrix_sdk_ui::timeline::TimelineFocus {
         value: TimelineFocus,
     ) -> Result<matrix_sdk_ui::timeline::TimelineFocus, Self::Error> {
         match value {
-            TimelineFocus::Live => Ok(Self::Live),
-            TimelineFocus::Event { event_id, num_context_events } => {
+            TimelineFocus::Live { hide_threaded_events } => Ok(Self::Live { hide_threaded_events }),
+            TimelineFocus::Event { event_id, num_context_events, hide_threaded_events } => {
                 let parsed_event_id =
                     EventId::parse(&event_id).map_err(|err| FocusEventError::InvalidEventId {
                         event_id: event_id.clone(),
                         err: err.to_string(),
                     })?;
 
-                Ok(Self::Event { target: parsed_event_id, num_context_events })
+                Ok(Self::Event {
+                    target: parsed_event_id,
+                    num_context_events,
+                    hide_threaded_events,
+                })
             }
             TimelineFocus::Thread { root_event_id, num_events } => {
                 let parsed_root_event_id = EventId::parse(&root_event_id).map_err(|err| {

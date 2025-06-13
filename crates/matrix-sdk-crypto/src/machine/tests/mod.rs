@@ -64,8 +64,8 @@ use crate::{
     olm::{BackedUpRoomKey, ExportedRoomKey, SenderData, VerifyJson},
     session_manager::CollectStrategy,
     store::{
-        BackupDecryptionKey, Changes, CryptoStore, DeviceChanges, MemoryStore, PendingChanges,
-        RoomKeyInfo,
+        types::{BackupDecryptionKey, Changes, DeviceChanges, PendingChanges, RoomKeyInfo},
+        CryptoStore, MemoryStore,
     },
     types::{
         events::{

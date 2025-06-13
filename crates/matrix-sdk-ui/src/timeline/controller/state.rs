@@ -160,11 +160,26 @@ impl TimelineState {
         send_handle: Option<SendHandle>,
         content: AnyMessageLikeEventContent,
     ) {
-        // Only add new items if the timeline is live.
-        let should_add_new_items = match self.timeline_focus {
-            TimelineFocusKind::Live => true,
-            TimelineFocusKind::Event | TimelineFocusKind::PinnedEvents => false,
-            TimelineFocusKind::Thread => false,
+        let mut txn = self.transaction();
+
+        let mut date_divider_adjuster = DateDividerAdjuster::new(date_divider_mode);
+
+        let (in_reply_to, thread_root) =
+            txn.meta.process_content_relations(&content, None, &txn.items, &txn.timeline_focus);
+
+        // TODO merge with other should_add, one way or another?
+        let should_add_new_items = match &txn.timeline_focus {
+            TimelineFocusKind::Live { hide_threaded_events } => {
+                thread_root.is_none() || !hide_threaded_events
+            }
+            TimelineFocusKind::Thread { root_event_id } => {
+                thread_root.as_ref().is_some_and(|r| r == root_event_id)
+            }
+            TimelineFocusKind::Event { .. } | TimelineFocusKind::PinnedEvents => {
+                // Don't add new items to these timelines; aggregations are added independently
+                // of the `should_add_new_items` value.
+                false
+            }
         };
 
         let ctx = TimelineEventContext {
@@ -178,12 +193,8 @@ impl TimelineState {
             should_add_new_items,
         };
 
-        let mut txn = self.transaction();
-
-        let mut date_divider_adjuster = DateDividerAdjuster::new(date_divider_mode);
-
         if let Some(timeline_action) =
-            TimelineAction::from_content(content, None, &txn.items, &mut txn.meta)
+            TimelineAction::from_content(content, in_reply_to, thread_root, None)
         {
             TimelineEventHandler::new(&mut txn, ctx)
                 .handle_event(&mut date_divider_adjuster, timeline_action)
@@ -294,6 +305,6 @@ impl TimelineState {
     }
 
     pub(super) fn transaction(&mut self) -> TimelineStateTransaction<'_> {
-        TimelineStateTransaction::new(&mut self.items, &mut self.meta, self.timeline_focus)
+        TimelineStateTransaction::new(&mut self.items, &mut self.meta, self.timeline_focus.clone())
     }
 }

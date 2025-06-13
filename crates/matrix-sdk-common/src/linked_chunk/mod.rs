@@ -97,14 +97,87 @@ pub mod relational;
 mod updates;
 
 use std::{
-    fmt,
+    fmt::{self, Display},
     marker::PhantomData,
     ptr::NonNull,
-    sync::atomic::{AtomicU64, Ordering},
+    sync::atomic::{self, AtomicU64},
 };
 
 pub use as_vector::*;
+use ruma::{OwnedRoomId, RoomId};
 pub use updates::*;
+
+/// An identifier for a linked chunk; borrowed variant.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum LinkedChunkId<'a> {
+    Room(&'a RoomId),
+    // TODO(bnjbvr): Soon™.
+    // Thread(&'a RoomId, &'a EventId),
+}
+
+impl LinkedChunkId<'_> {
+    pub fn storage_key(&self) -> impl '_ + AsRef<[u8]> {
+        match self {
+            LinkedChunkId::Room(room_id) => room_id,
+        }
+    }
+
+    pub fn to_owned(&self) -> OwnedLinkedChunkId {
+        match self {
+            LinkedChunkId::Room(room_id) => OwnedLinkedChunkId::Room((*room_id).to_owned()),
+        }
+    }
+
+    pub fn room_id(&self) -> &RoomId {
+        match self {
+            LinkedChunkId::Room(room_id) => room_id,
+        }
+    }
+}
+
+impl PartialEq<&OwnedLinkedChunkId> for LinkedChunkId<'_> {
+    fn eq(&self, other: &&OwnedLinkedChunkId) -> bool {
+        match (self, other) {
+            (LinkedChunkId::Room(a), OwnedLinkedChunkId::Room(b)) => *a == b,
+        }
+    }
+}
+
+impl PartialEq<LinkedChunkId<'_>> for OwnedLinkedChunkId {
+    fn eq(&self, other: &LinkedChunkId<'_>) -> bool {
+        other.eq(&self)
+    }
+}
+
+/// An identifier for a linked chunk; owned variant.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub enum OwnedLinkedChunkId {
+    Room(OwnedRoomId),
+    // TODO(bnjbvr): Soon™.
+    // Thread(OwnedRoomId, OwnedEventId),
+}
+
+impl Display for OwnedLinkedChunkId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            OwnedLinkedChunkId::Room(room_id) => write!(f, "{room_id}"),
+        }
+    }
+}
+
+impl OwnedLinkedChunkId {
+    fn as_ref(&self) -> LinkedChunkId<'_> {
+        match self {
+            OwnedLinkedChunkId::Room(room_id) => LinkedChunkId::Room(room_id.as_ref()),
+        }
+    }
+
+    pub fn room_id(&self) -> &RoomId {
+        match self {
+            OwnedLinkedChunkId::Room(room_id) => room_id,
+        }
+    }
+}
 
 /// Errors of [`LinkedChunk`].
 #[derive(thiserror::Error, Debug)]
@@ -1080,7 +1153,7 @@ impl ChunkIdentifierGenerator {
     /// Note that it can fail if there is no more unique identifier available.
     /// In this case, this method will panic.
     fn next(&self) -> ChunkIdentifier {
-        let previous = self.next.fetch_add(1, Ordering::Relaxed);
+        let previous = self.next.fetch_add(1, atomic::Ordering::Relaxed);
 
         // Check for overflows.
         // unlikely — TODO: call `std::intrinsics::unlikely` once it's stable.
@@ -1096,7 +1169,7 @@ impl ChunkIdentifierGenerator {
     // This is hidden because it's used only in the tests.
     #[doc(hidden)]
     pub fn current(&self) -> ChunkIdentifier {
-        ChunkIdentifier(self.next.load(Ordering::Relaxed))
+        ChunkIdentifier(self.next.load(atomic::Ordering::Relaxed))
     }
 }
 

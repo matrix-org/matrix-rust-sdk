@@ -1,13 +1,13 @@
 use std::{collections::HashMap, sync::Arc};
 
 use imbl::Vector;
-use matrix_sdk::{locks::Mutex, ruma::OwnedRoomId, Room};
+use matrix_sdk::{locks::Mutex, ruma::OwnedRoomId, Client, Room};
 use matrix_sdk_ui::sync_service::SyncService;
 use ratatui::{prelude::*, widgets::*};
 
 use crate::{
-    widgets::status::StatusHandle, UiRooms, ALT_ROW_COLOR, HEADER_BG, NORMAL_ROW_COLOR,
-    SELECTED_STYLE_FG, TEXT_COLOR,
+    widgets::status::StatusHandle, ALT_ROW_COLOR, HEADER_BG, NORMAL_ROW_COLOR, SELECTED_STYLE_FG,
+    TEXT_COLOR,
 };
 
 /// Extra room information, like its display name, etc.
@@ -33,8 +33,7 @@ pub struct RoomList {
 
     pub rooms: Rooms,
 
-    /// Room list service rooms known to the app.
-    ui_rooms: UiRooms,
+    client: Client,
 
     /// Extra information about rooms.
     room_infos: RoomInfos,
@@ -48,19 +47,20 @@ pub struct RoomList {
 
 impl RoomList {
     pub fn new(
+        client: Client,
         rooms: Rooms,
-        ui_rooms: UiRooms,
+
         room_infos: RoomInfos,
         sync_service: Arc<SyncService>,
         status_handle: StatusHandle,
     ) -> Self {
         Self {
+            client,
             state: Default::default(),
             rooms,
             status_handle,
             room_infos,
             current_room_subscription: None,
-            ui_rooms,
             sync_service,
         }
     }
@@ -126,9 +126,8 @@ impl RoomList {
         self.current_room_subscription.take();
 
         // Subscribe to the new room.
-        if let Some(room) = self
-            .get_room_id_of_entry(index)
-            .and_then(|room_id| self.ui_rooms.lock().get(&room_id).cloned())
+        if let Some(room) =
+            self.get_room_id_of_entry(index).and_then(|room_id| self.client.get_room(&room_id))
         {
             self.sync_service.room_list_service().subscribe_to_rooms(&[room.room_id()]);
             self.current_room_subscription = Some(room);

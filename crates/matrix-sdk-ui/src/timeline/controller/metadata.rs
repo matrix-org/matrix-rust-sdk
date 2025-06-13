@@ -17,15 +17,45 @@ use std::{
     sync::Arc,
 };
 
-use ruma::{EventId, OwnedEventId, OwnedUserId, RoomVersionId};
+use imbl::Vector;
+use matrix_sdk::deserialized_responses::EncryptionInfo;
+use ruma::{
+    events::{
+        poll::unstable_start::UnstablePollStartEventContent, relation::Replacement,
+        room::message::RelationWithoutReplacement, AnyMessageLikeEventContent,
+        AnySyncMessageLikeEvent, AnySyncTimelineEvent, BundledMessageLikeRelations,
+    },
+    serde::Raw,
+    EventId, OwnedEventId, OwnedUserId, RoomVersionId,
+};
 use tracing::trace;
 
 use super::{
     super::{subscriber::skip::SkipCount, TimelineItem, TimelineItemKind, TimelineUniqueId},
     read_receipts::ReadReceipts,
-    Aggregations, AllRemoteEvents, ObservableItemsTransaction,
+    Aggregation, AggregationKind, Aggregations, AllRemoteEvents, ObservableItemsTransaction,
+    PendingEdit, PendingEditKind,
 };
-use crate::unable_to_decrypt_hook::UtdHookManager;
+use crate::{
+    timeline::{
+        controller::TimelineFocusKind,
+        event_item::{
+            extract_bundled_edit_event_json, extract_poll_edit_content,
+            extract_room_msg_edit_content,
+        },
+        InReplyToDetails, TimelineEventItemId,
+    },
+    unable_to_decrypt_hook::UtdHookManager,
+};
+
+/// All parameters to [`TimelineAction::from_content`] that only apply if an
+/// event is a remote echo.
+pub(crate) struct RemoteEventContext<'a> {
+    pub event_id: &'a EventId,
+    pub raw_event: &'a Raw<AnySyncTimelineEvent>,
+    pub relations: BundledMessageLikeRelations<AnySyncMessageLikeEvent>,
+    pub bundled_edit_encryption_info: Option<Arc<EncryptionInfo>>,
+}
 
 #[derive(Clone, Debug)]
 pub(in crate::timeline) struct TimelineMetadata {
@@ -276,6 +306,198 @@ impl TimelineMetadata {
                     self.has_up_to_date_read_marker_item = false;
                 }
             }
+        }
+    }
+
+    /// Extract the content from a remote message-like event and process its
+    /// relations.
+    pub(crate) fn process_event_relations(
+        &mut self,
+        event: &AnySyncTimelineEvent,
+        raw_event: &Raw<AnySyncTimelineEvent>,
+        bundled_edit_encryption_info: Option<Arc<EncryptionInfo>>,
+        timeline_items: &Vector<Arc<TimelineItem>>,
+        timeline_focus: &TimelineFocusKind,
+    ) -> (Option<InReplyToDetails>, Option<OwnedEventId>) {
+        if let AnySyncTimelineEvent::MessageLike(ev) = event {
+            if let Some(content) = ev.original_content() {
+                let remote_ctx = Some(RemoteEventContext {
+                    event_id: ev.event_id(),
+                    raw_event,
+                    relations: ev.relations(),
+                    bundled_edit_encryption_info,
+                });
+                return self.process_content_relations(
+                    &content,
+                    remote_ctx,
+                    timeline_items,
+                    timeline_focus,
+                );
+            }
+        }
+        (None, None)
+    }
+
+    /// Extracts the in-reply-to details and thread root from the content of a
+    /// message-like event, and take care of internal bookkeeping as well
+    /// (like marking responses).
+    ///
+    /// Returns the in-reply-to details and the thread root event ID, if any.
+    pub(crate) fn process_content_relations(
+        &mut self,
+        content: &AnyMessageLikeEventContent,
+        remote_ctx: Option<RemoteEventContext<'_>>,
+        timeline_items: &Vector<Arc<TimelineItem>>,
+        timeline_focus: &TimelineFocusKind,
+    ) -> (Option<InReplyToDetails>, Option<OwnedEventId>) {
+        match content {
+            AnyMessageLikeEventContent::Sticker(content) => {
+                let (in_reply_to, thread_root) = Self::extract_reply_and_thread_root(
+                    content.relates_to.clone().and_then(|rel| rel.try_into().ok()),
+                    timeline_items,
+                    timeline_focus,
+                );
+
+                if let Some(event_id) = remote_ctx.map(|ctx| ctx.event_id) {
+                    self.mark_response(event_id, in_reply_to.as_ref());
+                }
+
+                (in_reply_to, thread_root)
+            }
+
+            AnyMessageLikeEventContent::UnstablePollStart(UnstablePollStartEventContent::New(
+                c,
+            )) => {
+                let (in_reply_to, thread_root) = Self::extract_reply_and_thread_root(
+                    c.relates_to.clone(),
+                    timeline_items,
+                    timeline_focus,
+                );
+
+                // Record the bundled edit in the aggregations set, if any.
+                if let Some(ctx) = remote_ctx {
+                    // Extract a potentially bundled edit.
+                    if let Some((edit_event_id, new_content)) =
+                        extract_poll_edit_content(ctx.relations)
+                    {
+                        let edit_json = extract_bundled_edit_event_json(ctx.raw_event);
+                        let aggregation = Aggregation::new(
+                            TimelineEventItemId::EventId(edit_event_id),
+                            AggregationKind::Edit(PendingEdit {
+                                kind: PendingEditKind::Poll(Replacement::new(
+                                    ctx.event_id.to_owned(),
+                                    new_content,
+                                )),
+                                edit_json,
+                                encryption_info: ctx.bundled_edit_encryption_info,
+                                bundled_item_owner: Some(ctx.event_id.to_owned()),
+                            }),
+                        );
+                        self.aggregations.add(
+                            TimelineEventItemId::EventId(ctx.event_id.to_owned()),
+                            aggregation,
+                        );
+                    }
+
+                    self.mark_response(ctx.event_id, in_reply_to.as_ref());
+                }
+
+                (in_reply_to, thread_root)
+            }
+
+            AnyMessageLikeEventContent::RoomMessage(msg) => {
+                let (in_reply_to, thread_root) = Self::extract_reply_and_thread_root(
+                    msg.relates_to.clone().and_then(|rel| rel.try_into().ok()),
+                    timeline_items,
+                    timeline_focus,
+                );
+
+                // Record the bundled edit in the aggregations set, if any.
+                if let Some(ctx) = remote_ctx {
+                    // Extract a potentially bundled edit.
+                    if let Some((edit_event_id, new_content)) =
+                        extract_room_msg_edit_content(ctx.relations)
+                    {
+                        let edit_json = extract_bundled_edit_event_json(ctx.raw_event);
+                        let aggregation = Aggregation::new(
+                            TimelineEventItemId::EventId(edit_event_id),
+                            AggregationKind::Edit(PendingEdit {
+                                kind: PendingEditKind::RoomMessage(Replacement::new(
+                                    ctx.event_id.to_owned(),
+                                    new_content,
+                                )),
+                                edit_json,
+                                encryption_info: ctx.bundled_edit_encryption_info,
+                                bundled_item_owner: Some(ctx.event_id.to_owned()),
+                            }),
+                        );
+                        self.aggregations.add(
+                            TimelineEventItemId::EventId(ctx.event_id.to_owned()),
+                            aggregation,
+                        );
+                    }
+
+                    self.mark_response(ctx.event_id, in_reply_to.as_ref());
+                }
+
+                (in_reply_to, thread_root)
+            }
+
+            _ => (None, None),
+        }
+    }
+
+    /// Extracts the in-reply-to details and thread root from a relation, if
+    /// available.
+    fn extract_reply_and_thread_root(
+        relates_to: Option<RelationWithoutReplacement>,
+        timeline_items: &Vector<Arc<TimelineItem>>,
+        timeline_focus: &TimelineFocusKind,
+    ) -> (Option<InReplyToDetails>, Option<OwnedEventId>) {
+        let mut thread_root = None;
+
+        let in_reply_to = relates_to.and_then(|relation| match relation {
+            RelationWithoutReplacement::Reply { in_reply_to } => {
+                Some(InReplyToDetails::new(in_reply_to.event_id, timeline_items))
+            }
+            RelationWithoutReplacement::Thread(thread) => {
+                thread_root = Some(thread.event_id);
+
+                if matches!(timeline_focus, TimelineFocusKind::Thread { .. })
+                    && thread.is_falling_back
+                {
+                    // In general, a threaded event is marked as a response to the previous message
+                    // in the thread, to maintain backwards compatibility with clients not
+                    // supporting threads.
+                    //
+                    // But we can have actual replies to other in-thread events. The
+                    // `is_falling_back` bool helps distinguishing both use cases.
+                    //
+                    // If this timeline is thread-focused, we only mark non-falling-back replies as
+                    // actual in-thread replies.
+                    None
+                } else {
+                    thread.in_reply_to.map(|in_reply_to| {
+                        InReplyToDetails::new(in_reply_to.event_id, timeline_items)
+                    })
+                }
+            }
+            _ => None,
+        });
+
+        (in_reply_to, thread_root)
+    }
+
+    /// Mark a message as a response to another message, if it is a reply.
+    fn mark_response(&mut self, event_id: &EventId, in_reply_to: Option<&InReplyToDetails>) {
+        // If this message is a reply to another message, add an entry in the
+        // inverted mapping.
+        if let Some(replied_to_event_id) = in_reply_to.as_ref().map(|details| &details.event_id) {
+            // This is a reply! Add an entry.
+            self.replies
+                .entry(replied_to_event_id.to_owned())
+                .or_default()
+                .insert(event_id.to_owned());
         }
     }
 }

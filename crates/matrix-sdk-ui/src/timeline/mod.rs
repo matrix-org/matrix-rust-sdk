@@ -126,13 +126,31 @@ pub struct Timeline {
 pub enum TimelineFocus {
     /// Focus on live events, i.e. receive events from sync and append them in
     /// real-time.
-    Live,
+    Live {
+        /// Whether to hide in-thread replies from the live timeline.
+        ///
+        /// This should be set to true when the client can create
+        /// [`Self::Thread`]-focused timelines from the thread roots themselves.
+        hide_threaded_events: bool,
+    },
 
     /// Focus on a specific event, e.g. after clicking a permalink.
-    Event { target: OwnedEventId, num_context_events: u16 },
+    Event {
+        target: OwnedEventId,
+        num_context_events: u16,
+        /// Whether to hide in-thread replies from the live timeline.
+        ///
+        /// This should be set to true when the client can create
+        /// [`Self::Thread`]-focused timelines from the thread roots themselves.
+        hide_threaded_events: bool,
+    },
 
     /// Focus on a specific thread
-    Thread { root_event_id: OwnedEventId, num_events: u16 },
+    Thread {
+        root_event_id: OwnedEventId,
+        /// Number of initial events to load on the first /relations request.
+        num_events: u16,
+    },
 
     /// Only show pinned events.
     PinnedEvents { max_events_to_load: u16, max_concurrent_requests: u16 },
@@ -141,7 +159,7 @@ pub enum TimelineFocus {
 impl TimelineFocus {
     pub(super) fn debug_string(&self) -> String {
         match self {
-            TimelineFocus::Live => "live".to_owned(),
+            TimelineFocus::Live { .. } => "live".to_owned(),
             TimelineFocus::Event { target, .. } => format!("permalink:{target}"),
             TimelineFocus::Thread { root_event_id, .. } => format!("thread:{root_event_id}"),
             TimelineFocus::PinnedEvents { .. } => "pinned-events".to_owned(),

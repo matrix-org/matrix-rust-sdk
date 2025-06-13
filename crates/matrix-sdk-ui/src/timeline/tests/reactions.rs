@@ -185,7 +185,7 @@ async fn test_reactions_store_timestamp() {
     let timestamp = reactions.values().next().unwrap().timestamp;
 
     let now = MilliSecondsSinceUnixEpoch::now();
-    assert!((timestamp_before..=now).contains(&timestamp),);
+    assert!((timestamp_before..=now).contains(&timestamp));
 }
 
 #[async_test]

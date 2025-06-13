@@ -12,25 +12,55 @@ use crate::{ALT_ROW_COLOR, NORMAL_ROW_COLOR, SELECTED_STYLE_FG, TEXT_COLOR};
 
 pub struct TimelineView<'a> {
     items: &'a Vector<Arc<TimelineItem>>,
+    is_thread: bool,
 }
 
 impl<'a> TimelineView<'a> {
-    pub fn new(items: &'a Vector<Arc<TimelineItem>>) -> Self {
-        Self { items }
+    pub fn new(items: &'a Vector<Arc<TimelineItem>>, is_thread: bool) -> Self {
+        Self { items, is_thread }
+    }
+}
+
+#[derive(Default)]
+pub struct TimelineListState {
+    state: ListState,
+    /// An index from a rendered list item to the original timeline item index
+    /// (since some timeline items may not be rendered).
+    list_index_to_item_index: Vec<usize>,
+}
+
+impl TimelineListState {
+    pub fn select_next(&mut self) {
+        self.state.select_next();
+    }
+    pub fn select_previous(&mut self) {
+        self.state.select_previous();
+    }
+    pub fn unselect(&mut self) {
+        self.state.select(None);
+    }
+    pub fn selected(&self) -> Option<usize> {
+        let rendered_index = self.state.selected()?;
+        self.list_index_to_item_index.get(rendered_index).copied()
     }
 }
 
 impl StatefulWidget for &mut TimelineView<'_> {
-    type State = ListState;
+    type State = TimelineListState;
 
-    fn render(self, area: Rect, buf: &mut Buffer, state: &mut Self::State)
+    fn render(self, area: Rect, buf: &mut Buffer, timeline_list_state: &mut Self::State)
     where
         Self: Sized,
     {
-        let content = self.items.iter().map(format_timeline_item);
+        timeline_list_state.list_index_to_item_index.clear();
+
+        let content = self.items.iter().enumerate().filter_map(|(i, item)| {
+            let result = format_timeline_item(item, self.is_thread)?;
+            timeline_list_state.list_index_to_item_index.push(i);
+            Some(result)
+        });
 
         let list_items = content
-            .flatten()
             .enumerate()
             .map(|(i, line)| {
                 let bg_color = match i % 2 {
@@ -47,26 +77,24 @@ impl StatefulWidget for &mut TimelineView<'_> {
             .highlight_symbol(">")
             .highlight_style(SELECTED_STYLE_FG);
 
-        StatefulWidget::render(list, area, buf, state);
+        StatefulWidget::render(list, area, buf, &mut timeline_list_state.state);
     }
 }
 
-fn format_timeline_item(item: &Arc<TimelineItem>) -> Option<ListItem<'_>> {
+fn format_timeline_item(item: &Arc<TimelineItem>, is_thread: bool) -> Option<ListItem<'_>> {
     let item = match item.kind() {
         TimelineItemKind::Event(ev) => {
-            // TODO: Once the SDK allows you to filter out messages that are part of a
-            // thread, switch to that mechanism instead of manually returning `None` here.
-            if ev.content().thread_root().is_some() {
-                return None;
-            }
-
             let sender = ev.sender();
 
             match ev.content() {
                 TimelineItemContent::MsgLike(MsgLikeContent {
                     kind: MsgLikeKind::Message(message),
                     ..
-                }) => format_text_message(sender, message, ev.content().thread_summary())?,
+                }) => {
+                    let thread_summary =
+                        if is_thread { None } else { ev.content().thread_summary() };
+                    format_text_message(sender, message, thread_summary)?
+                }
 
                 TimelineItemContent::MsgLike(MsgLikeContent {
                     kind: MsgLikeKind::Redacted,
@@ -173,7 +201,7 @@ fn format_membership_change(membership: &RoomMembershipChange) -> Option<ListIte
             MembershipChange::None
             | MembershipChange::Error
             | MembershipChange::InvitationRevoked
-            | MembershipChange::NotImplemented => "has changed it's membership status",
+            | MembershipChange::NotImplemented => "has changed its membership status",
         };
 
         Some(format!("{display_name} {change}").into())

@@ -5,7 +5,7 @@ use matrix_sdk_crypto::{
         DehydratedDevice as InnerDehydratedDevice, DehydratedDevices as InnerDehydratedDevices,
         RehydratedDevice as InnerRehydratedDevice,
     },
-    store::DehydratedDeviceKey as InnerDehydratedDeviceKey,
+    store::types::DehydratedDeviceKey as InnerDehydratedDeviceKey,
 };
 use ruma::{api::client::dehydrated_device, events::AnyToDeviceEvent, serde::Raw, OwnedDeviceId};
 use serde_json::json;

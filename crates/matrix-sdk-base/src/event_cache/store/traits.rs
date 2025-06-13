@@ -16,7 +16,9 @@ use std::{fmt, sync::Arc};
 
 use async_trait::async_trait;
 use matrix_sdk_common::{
-    linked_chunk::{ChunkIdentifier, ChunkIdentifierGenerator, Position, RawChunk, Update},
+    linked_chunk::{
+        ChunkIdentifier, ChunkIdentifierGenerator, LinkedChunkId, Position, RawChunk, Update,
+    },
     AsyncTraitDeps,
 };
 use ruma::{events::relation::RelationType, EventId, MxcUri, OwnedEventId, RoomId};
@@ -56,7 +58,7 @@ pub trait EventCacheStore: AsyncTraitDeps {
     /// in-memory. This method aims at forwarding this update inside this store.
     async fn handle_linked_chunk_updates(
         &self,
-        room_id: &RoomId,
+        linked_chunk_id: LinkedChunkId<'_>,
         updates: Vec<Update<Event, Gap>>,
     ) -> Result<(), Self::Error>;
 
@@ -64,7 +66,7 @@ pub trait EventCacheStore: AsyncTraitDeps {
     async fn remove_room(&self, room_id: &RoomId) -> Result<(), Self::Error> {
         // Right now, this means removing all the linked chunk. If implementations
         // override this behavior, they should *also* include this code.
-        self.handle_linked_chunk_updates(room_id, vec![Update::Clear]).await
+        self.handle_linked_chunk_updates(LinkedChunkId::Room(room_id), vec![Update::Clear]).await
     }
 
     /// Return all the raw components of a linked chunk, so the caller may
@@ -72,7 +74,7 @@ pub trait EventCacheStore: AsyncTraitDeps {
     #[doc(hidden)]
     async fn load_all_chunks(
         &self,
-        room_id: &RoomId,
+        linked_chunk_id: LinkedChunkId<'_>,
     ) -> Result<Vec<RawChunk<Event, Gap>>, Self::Error>;
 
     /// Load the last chunk of the `LinkedChunk` holding all events of the room
@@ -81,7 +83,7 @@ pub trait EventCacheStore: AsyncTraitDeps {
     /// This is used to iteratively load events for the `EventCache`.
     async fn load_last_chunk(
         &self,
-        room_id: &RoomId,
+        linked_chunk_id: LinkedChunkId<'_>,
     ) -> Result<(Option<RawChunk<Event, Gap>>, ChunkIdentifierGenerator), Self::Error>;
 
     /// Load the chunk before the chunk identified by `before_chunk_identifier`
@@ -91,7 +93,7 @@ pub trait EventCacheStore: AsyncTraitDeps {
     /// This is used to iteratively load events for the `EventCache`.
     async fn load_previous_chunk(
         &self,
-        room_id: &RoomId,
+        linked_chunk_id: LinkedChunkId<'_>,
         before_chunk_identifier: ChunkIdentifier,
     ) -> Result<Option<RawChunk<Event, Gap>>, Self::Error>;
 
@@ -105,17 +107,17 @@ pub trait EventCacheStore: AsyncTraitDeps {
     /// ⚠ This is meant only for super specific use cases, where there shouldn't
     /// be any live in-memory linked chunks. In general, prefer using
     /// `EventCache::clear_all_rooms()` from the common SDK crate.
-    async fn clear_all_rooms_chunks(&self) -> Result<(), Self::Error>;
+    async fn clear_all_linked_chunks(&self) -> Result<(), Self::Error>;
 
     /// Given a set of event IDs, return the duplicated events along with their
     /// position if there are any.
     async fn filter_duplicated_events(
         &self,
-        room_id: &RoomId,
+        linked_chunk_id: LinkedChunkId<'_>,
         events: Vec<OwnedEventId>,
     ) -> Result<Vec<(OwnedEventId, Position)>, Self::Error>;
 
-    /// Find an event by its ID.
+    /// Find an event by its ID in a room.
     async fn find_event(
         &self,
         room_id: &RoomId,
@@ -298,44 +300,47 @@ impl<T: EventCacheStore> EventCacheStore for EraseEventCacheStoreError<T> {
 
     async fn handle_linked_chunk_updates(
         &self,
-        room_id: &RoomId,
+        linked_chunk_id: LinkedChunkId<'_>,
         updates: Vec<Update<Event, Gap>>,
     ) -> Result<(), Self::Error> {
-        self.0.handle_linked_chunk_updates(room_id, updates).await.map_err(Into::into)
+        self.0.handle_linked_chunk_updates(linked_chunk_id, updates).await.map_err(Into::into)
     }
 
     async fn load_all_chunks(
         &self,
-        room_id: &RoomId,
+        linked_chunk_id: LinkedChunkId<'_>,
     ) -> Result<Vec<RawChunk<Event, Gap>>, Self::Error> {
-        self.0.load_all_chunks(room_id).await.map_err(Into::into)
+        self.0.load_all_chunks(linked_chunk_id).await.map_err(Into::into)
     }
 
     async fn load_last_chunk(
         &self,
-        room_id: &RoomId,
+        linked_chunk_id: LinkedChunkId<'_>,
     ) -> Result<(Option<RawChunk<Event, Gap>>, ChunkIdentifierGenerator), Self::Error> {
-        self.0.load_last_chunk(room_id).await.map_err(Into::into)
+        self.0.load_last_chunk(linked_chunk_id).await.map_err(Into::into)
     }
 
     async fn load_previous_chunk(
         &self,
-        room_id: &RoomId,
+        linked_chunk_id: LinkedChunkId<'_>,
         before_chunk_identifier: ChunkIdentifier,
     ) -> Result<Option<RawChunk<Event, Gap>>, Self::Error> {
-        self.0.load_previous_chunk(room_id, before_chunk_identifier).await.map_err(Into::into)
+        self.0
+            .load_previous_chunk(linked_chunk_id, before_chunk_identifier)
+            .await
+            .map_err(Into::into)
     }
 
-    async fn clear_all_rooms_chunks(&self) -> Result<(), Self::Error> {
-        self.0.clear_all_rooms_chunks().await.map_err(Into::into)
+    async fn clear_all_linked_chunks(&self) -> Result<(), Self::Error> {
+        self.0.clear_all_linked_chunks().await.map_err(Into::into)
     }
 
     async fn filter_duplicated_events(
         &self,
-        room_id: &RoomId,
+        linked_chunk_id: LinkedChunkId<'_>,
         events: Vec<OwnedEventId>,
     ) -> Result<Vec<(OwnedEventId, Position)>, Self::Error> {
-        self.0.filter_duplicated_events(room_id, events).await.map_err(Into::into)
+        self.0.filter_duplicated_events(linked_chunk_id, events).await.map_err(Into::into)
     }
 
     async fn find_event(

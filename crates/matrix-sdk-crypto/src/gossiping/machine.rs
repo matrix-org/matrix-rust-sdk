@@ -47,7 +47,7 @@ use crate::{
     identities::IdentityManager,
     olm::{InboundGroupSession, Session},
     session_manager::GroupSessionCache,
-    store::{Changes, CryptoStoreError, SecretImportError, Store, StoreCache},
+    store::{caches::StoreCache, types::Changes, CryptoStoreError, SecretImportError, Store},
     types::{
         events::{
             forwarded_room_key::ForwardedRoomKeyContent,
@@ -1119,7 +1119,7 @@ mod tests {
     use crate::{
         gossiping::KeyForwardDecision,
         olm::OutboundGroupSession,
-        store::{CryptoStore, DeviceChanges},
+        store::{types::DeviceChanges, CryptoStore},
         types::requests::AnyOutgoingRequest,
         types::{
             events::{
@@ -1134,7 +1134,10 @@ mod tests {
         identities::{DeviceData, IdentityManager, LocalTrust},
         olm::{Account, PrivateCrossSigningIdentity},
         session_manager::GroupSessionCache,
-        store::{Changes, CryptoStoreWrapper, MemoryStore, PendingChanges, Store},
+        store::{
+            types::{Changes, PendingChanges},
+            CryptoStoreWrapper, MemoryStore, Store,
+        },
         types::events::room::encrypted::{
             EncryptedEvent, EncryptedToDeviceEvent, RoomEncryptedEventContent,
         },
@@ -2018,7 +2021,7 @@ mod tests {
         alice_machine.store().save_device_data(&[bob_device.inner]).await.unwrap();
         bob_machine.store().save_device_data(&[alice_device.inner]).await.unwrap();
 
-        let decryption_key = crate::store::BackupDecryptionKey::new().unwrap();
+        let decryption_key = crate::store::types::BackupDecryptionKey::new().unwrap();
         alice_machine
             .backup_machine()
             .save_decryption_key(Some(decryption_key), None)

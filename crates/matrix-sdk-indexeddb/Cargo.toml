@@ -1,6 +1,6 @@
 [package]
 name = "matrix-sdk-indexeddb"
-version = "0.11.0"
+version = "0.12.0"
 repository = "https://github.com/matrix-org/matrix-rust-sdk"
 description = "Web's IndexedDB Storage backend for matrix-sdk"
 license = "Apache-2.0"
@@ -14,7 +14,8 @@ default-target = "wasm32-unknown-unknown"
 rustdoc-args = ["--cfg", "docsrs", "--generate-link-to-definition"]
 
 [features]
-default = ["e2e-encryption", "state-store"]
+default = ["e2e-encryption", "state-store", "event-cache-store"]
+event-cache-store = ["dep:matrix-sdk-base"]
 state-store = ["dep:matrix-sdk-base", "growable-bloom-filter"]
 e2e-encryption = ["dep:matrix-sdk-crypto"]
 testing = ["matrix-sdk-crypto?/testing"]
@@ -55,10 +56,17 @@ matrix-sdk-common = { workspace = true, features = ["js"] }
 matrix-sdk-crypto = { workspace = true, features = ["js", "testing"] }
 matrix-sdk-test.workspace = true
 rand.workspace = true
-tracing-subscriber = { workspace = true, features = ["registry", "tracing-log"] }
+tracing-subscriber = { workspace = true, features = [
+    "registry",
+    "tracing-log",
+] }
 uuid.workspace = true
 wasm-bindgen-test.workspace = true
-web-sys = { workspace = true, features = ["IdbKeyRange", "Window", "Performance"] }
+web-sys = { workspace = true, features = [
+    "IdbKeyRange",
+    "Window",
+    "Performance",
+] }
 
 [lints]
 workspace = true

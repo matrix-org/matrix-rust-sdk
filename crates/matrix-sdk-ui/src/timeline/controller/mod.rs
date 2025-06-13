@@ -181,11 +181,11 @@ impl Default for TimelineSettings {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub(super) enum TimelineFocusKind {
-    Live,
-    Event,
-    Thread,
+    Live { hide_threaded_events: bool },
+    Event { hide_threaded_events: bool },
+    Thread { root_event_id: OwnedEventId },
     PinnedEvents,
 }
 
@@ -279,22 +279,27 @@ impl<P: RoomDataProvider, D: Decryptor> TimelineController<P, D> {
         is_room_encrypted: bool,
     ) -> Self {
         let (focus_data, focus_kind) = match focus {
-            TimelineFocus::Live => (TimelineFocusData::Live, TimelineFocusKind::Live),
+            TimelineFocus::Live { hide_threaded_events } => {
+                (TimelineFocusData::Live, TimelineFocusKind::Live { hide_threaded_events })
+            }
 
-            TimelineFocus::Event { target, num_context_events } => {
+            TimelineFocus::Event { target, num_context_events, hide_threaded_events } => {
                 let paginator = Paginator::new(room_data_provider.clone());
                 (
                     TimelineFocusData::Event { paginator, event_id: target, num_context_events },
-                    TimelineFocusKind::Event,
+                    TimelineFocusKind::Event { hide_threaded_events },
                 )
             }
 
             TimelineFocus::Thread { root_event_id, num_events } => (
                 TimelineFocusData::Thread {
-                    loader: ThreadedEventsLoader::new(room_data_provider.clone(), root_event_id),
+                    loader: ThreadedEventsLoader::new(
+                        room_data_provider.clone(),
+                        root_event_id.clone(),
+                    ),
                     num_events,
                 },
-                TimelineFocusKind::Thread,
+                TimelineFocusKind::Thread { root_event_id },
             ),
 
             TimelineFocus::PinnedEvents { max_events_to_load, max_concurrent_requests } => (
@@ -1358,17 +1363,8 @@ impl<P: RoomDataProvider, D: Decryptor> TimelineController<P, D> {
         &self,
         event: TimelineEvent,
     ) -> Result<Option<EmbeddedEvent>, Error> {
-        // Reborrow, to avoid that the automatic deref borrows the entire guard (and we
-        // can't borrow both items and meta).
-        let state = &mut *self.state.write().await;
-
-        EmbeddedEvent::try_from_timeline_event(
-            event,
-            &self.room_data_provider,
-            &state.items,
-            &mut state.meta,
-        )
-        .await
+        let state = self.state.read().await;
+        EmbeddedEvent::try_from_timeline_event(event, &self.room_data_provider, &state.meta).await
     }
 }
 
@@ -1598,15 +1594,10 @@ async fn fetch_replied_to_event(
     trace!("Fetching replied-to event");
     let res = match room.load_or_fetch_event(in_reply_to, None).await {
         Ok(timeline_event) => {
-            let state = &mut *state_lock.write().await;
+            let state = state_lock.read().await;
 
-            let replied_to_item = EmbeddedEvent::try_from_timeline_event(
-                timeline_event,
-                room,
-                &state.items,
-                &mut state.meta,
-            )
-            .await?;
+            let replied_to_item =
+                EmbeddedEvent::try_from_timeline_event(timeline_event, room, &state.meta).await?;
 
             if let Some(item) = replied_to_item {
                 TimelineDetails::Ready(Box::new(item))

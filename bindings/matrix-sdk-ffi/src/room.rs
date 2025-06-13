@@ -828,18 +828,31 @@ impl Room {
 
     /// Store the given `ComposerDraft` in the state store using the current
     /// room id, as identifier.
-    pub async fn save_composer_draft(&self, draft: ComposerDraft) -> Result<(), ClientError> {
-        Ok(self.inner.save_composer_draft(draft.try_into()?).await?)
+    pub async fn save_composer_draft(
+        &self,
+        draft: ComposerDraft,
+        thread_root: Option<String>,
+    ) -> Result<(), ClientError> {
+        let thread_root = thread_root.map(EventId::parse).transpose()?;
+        Ok(self.inner.save_composer_draft(draft.try_into()?, thread_root.as_deref()).await?)
     }
 
     /// Retrieve the `ComposerDraft` stored in the state store for this room.
-    pub async fn load_composer_draft(&self) -> Result<Option<ComposerDraft>, ClientError> {
-        Ok(self.inner.load_composer_draft().await?.map(Into::into))
+    pub async fn load_composer_draft(
+        &self,
+        thread_root: Option<String>,
+    ) -> Result<Option<ComposerDraft>, ClientError> {
+        let thread_root = thread_root.map(EventId::parse).transpose()?;
+        Ok(self.inner.load_composer_draft(thread_root.as_deref()).await?.map(Into::into))
     }
 
     /// Remove the `ComposerDraft` stored in the state store for this room.
-    pub async fn clear_composer_draft(&self) -> Result<(), ClientError> {
-        Ok(self.inner.clear_composer_draft().await?)
+    pub async fn clear_composer_draft(
+        &self,
+        thread_root: Option<String>,
+    ) -> Result<(), ClientError> {
+        let thread_root = thread_root.map(EventId::parse).transpose()?;
+        Ok(self.inner.clear_composer_draft(thread_root.as_deref()).await?)
     }
 
     /// Edit an event given its event id.

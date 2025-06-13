@@ -22,7 +22,9 @@ use matrix_sdk_common::{
         AlgorithmInfo, DecryptedRoomEvent, EncryptionInfo, TimelineEvent, TimelineEventKind,
         VerificationState,
     },
-    linked_chunk::{lazy_loader, ChunkContent, ChunkIdentifier as CId, Position, Update},
+    linked_chunk::{
+        lazy_loader, ChunkContent, ChunkIdentifier as CId, LinkedChunkId, Position, Update,
+    },
 };
 use matrix_sdk_test::{event_factory::EventFactory, ALICE, DEFAULT_TEST_ROOM_ID};
 use ruma::{
@@ -132,7 +134,7 @@ pub trait EventCacheStoreIntegrationTests {
     async fn test_rebuild_empty_linked_chunk(&self);
 
     /// Test that clear all the rooms' linked chunks works.
-    async fn test_clear_all_rooms_chunks(&self);
+    async fn test_clear_all_linked_chunks(&self);
 
     /// Test that removing a room from storage empties all associated data.
     async fn test_remove_room(&self);
@@ -337,9 +339,10 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
 
     async fn test_handle_updates_and_rebuild_linked_chunk(&self) {
         let room_id = room_id!("!r0:matrix.org");
+        let linked_chunk_id = LinkedChunkId::Room(room_id);
 
         self.handle_linked_chunk_updates(
-            room_id,
+            linked_chunk_id,
             vec![
                 // new chunk
                 Update::NewItemsChunk { previous: None, new: CId::new(0), next: None },
@@ -371,10 +374,11 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
         .unwrap();
 
         // The linked chunk is correctly reloaded.
-        let lc =
-            lazy_loader::from_all_chunks::<3, _, _>(self.load_all_chunks(room_id).await.unwrap())
-                .unwrap()
-                .unwrap();
+        let lc = lazy_loader::from_all_chunks::<3, _, _>(
+            self.load_all_chunks(linked_chunk_id).await.unwrap(),
+        )
+        .unwrap()
+        .unwrap();
 
         let mut chunks = lc.chunks();
 
@@ -415,19 +419,20 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
 
     async fn test_linked_chunk_incremental_loading(&self) {
         let room_id = room_id!("!r0:matrix.org");
+        let linked_chunk_id = LinkedChunkId::Room(room_id);
         let event = |msg: &str| make_test_event(room_id, msg);
 
         // Load the last chunk, but none exists yet.
         {
             let (last_chunk, chunk_identifier_generator) =
-                self.load_last_chunk(room_id).await.unwrap();
+                self.load_last_chunk(linked_chunk_id).await.unwrap();
 
             assert!(last_chunk.is_none());
             assert_eq!(chunk_identifier_generator.current(), 0);
         }
 
         self.handle_linked_chunk_updates(
-            room_id,
+            linked_chunk_id,
             vec![
                 // new chunk for items
                 Update::NewItemsChunk { previous: None, new: CId::new(0), next: None },
@@ -458,7 +463,7 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
         // Load the last chunk.
         let mut linked_chunk = {
             let (last_chunk, chunk_identifier_generator) =
-                self.load_last_chunk(room_id).await.unwrap();
+                self.load_last_chunk(linked_chunk_id).await.unwrap();
 
             assert_eq!(chunk_identifier_generator.current(), 2);
 
@@ -493,7 +498,7 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
         {
             let first_chunk = linked_chunk.chunks().next().unwrap().identifier();
             let previous_chunk =
-                self.load_previous_chunk(room_id, first_chunk).await.unwrap().unwrap();
+                self.load_previous_chunk(linked_chunk_id, first_chunk).await.unwrap().unwrap();
 
             lazy_loader::insert_new_first_chunk(&mut linked_chunk, previous_chunk).unwrap();
 
@@ -530,7 +535,7 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
         {
             let first_chunk = linked_chunk.chunks().next().unwrap().identifier();
             let previous_chunk =
-                self.load_previous_chunk(room_id, first_chunk).await.unwrap().unwrap();
+                self.load_previous_chunk(linked_chunk_id, first_chunk).await.unwrap().unwrap();
 
             lazy_loader::insert_new_first_chunk(&mut linked_chunk, previous_chunk).unwrap();
 
@@ -579,7 +584,8 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
         // Load the previous chunk: there is none.
         {
             let first_chunk = linked_chunk.chunks().next().unwrap().identifier();
-            let previous_chunk = self.load_previous_chunk(room_id, first_chunk).await.unwrap();
+            let previous_chunk =
+                self.load_previous_chunk(linked_chunk_id, first_chunk).await.unwrap();
 
             assert!(previous_chunk.is_none());
         }
@@ -631,19 +637,21 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
     async fn test_rebuild_empty_linked_chunk(&self) {
         // When I rebuild a linked chunk from an empty store, it's empty.
         let linked_chunk = lazy_loader::from_all_chunks::<3, _, _>(
-            self.load_all_chunks(&DEFAULT_TEST_ROOM_ID).await.unwrap(),
+            self.load_all_chunks(LinkedChunkId::Room(&DEFAULT_TEST_ROOM_ID)).await.unwrap(),
         )
         .unwrap();
         assert!(linked_chunk.is_none());
     }
 
-    async fn test_clear_all_rooms_chunks(&self) {
+    async fn test_clear_all_linked_chunks(&self) {
         let r0 = room_id!("!r0:matrix.org");
+        let linked_chunk_id0 = LinkedChunkId::Room(r0);
         let r1 = room_id!("!r1:matrix.org");
+        let linked_chunk_id1 = LinkedChunkId::Room(r1);
 
         // Add updates for the first room.
         self.handle_linked_chunk_updates(
-            r0,
+            linked_chunk_id0,
             vec![
                 // new chunk
                 Update::NewItemsChunk { previous: None, new: CId::new(0), next: None },
@@ -659,7 +667,7 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
 
         // Add updates for the second room.
         self.handle_linked_chunk_updates(
-            r1,
+            linked_chunk_id1,
             vec![
                 // Empty items chunk.
                 Update::NewItemsChunk { previous: None, new: CId::new(0), next: None },
@@ -683,32 +691,42 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
         .unwrap();
 
         // Sanity check: both linked chunks can be reloaded.
-        assert!(lazy_loader::from_all_chunks::<3, _, _>(self.load_all_chunks(r0).await.unwrap())
-            .unwrap()
-            .is_some());
-        assert!(lazy_loader::from_all_chunks::<3, _, _>(self.load_all_chunks(r1).await.unwrap())
-            .unwrap()
-            .is_some());
+        assert!(lazy_loader::from_all_chunks::<3, _, _>(
+            self.load_all_chunks(linked_chunk_id0).await.unwrap()
+        )
+        .unwrap()
+        .is_some());
+        assert!(lazy_loader::from_all_chunks::<3, _, _>(
+            self.load_all_chunks(linked_chunk_id1).await.unwrap()
+        )
+        .unwrap()
+        .is_some());
 
         // Clear the chunks.
-        self.clear_all_rooms_chunks().await.unwrap();
+        self.clear_all_linked_chunks().await.unwrap();
 
         // Both rooms now have no linked chunk.
-        assert!(lazy_loader::from_all_chunks::<3, _, _>(self.load_all_chunks(r0).await.unwrap())
-            .unwrap()
-            .is_none());
-        assert!(lazy_loader::from_all_chunks::<3, _, _>(self.load_all_chunks(r1).await.unwrap())
-            .unwrap()
-            .is_none());
+        assert!(lazy_loader::from_all_chunks::<3, _, _>(
+            self.load_all_chunks(linked_chunk_id0).await.unwrap()
+        )
+        .unwrap()
+        .is_none());
+        assert!(lazy_loader::from_all_chunks::<3, _, _>(
+            self.load_all_chunks(linked_chunk_id1).await.unwrap()
+        )
+        .unwrap()
+        .is_none());
     }
 
     async fn test_remove_room(&self) {
         let r0 = room_id!("!r0:matrix.org");
+        let linked_chunk_id0 = LinkedChunkId::Room(r0);
         let r1 = room_id!("!r1:matrix.org");
+        let linked_chunk_id1 = LinkedChunkId::Room(r1);
 
         // Add updates to the first room.
         self.handle_linked_chunk_updates(
-            r0,
+            linked_chunk_id0,
             vec![
                 // new chunk
                 Update::NewItemsChunk { previous: None, new: CId::new(0), next: None },
@@ -724,7 +742,7 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
 
         // Add updates to the second room.
         self.handle_linked_chunk_updates(
-            r1,
+            linked_chunk_id1,
             vec![
                 // new chunk
                 Update::NewItemsChunk { previous: None, new: CId::new(0), next: None },
@@ -742,17 +760,19 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
         self.remove_room(r0).await.unwrap();
 
         // Check that r0 doesn't have a linked chunk anymore.
-        let r0_linked_chunk = self.load_all_chunks(r0).await.unwrap();
+        let r0_linked_chunk = self.load_all_chunks(linked_chunk_id0).await.unwrap();
         assert!(r0_linked_chunk.is_empty());
 
         // Check that r1 is unaffected.
-        let r1_linked_chunk = self.load_all_chunks(r1).await.unwrap();
+        let r1_linked_chunk = self.load_all_chunks(linked_chunk_id1).await.unwrap();
         assert!(!r1_linked_chunk.is_empty());
     }
 
     async fn test_filter_duplicated_events(&self) {
         let room_id = room_id!("!r0:matrix.org");
+        let linked_chunk_id = LinkedChunkId::Room(room_id);
         let another_room_id = room_id!("!r1:matrix.org");
+        let another_linked_chunk_id = LinkedChunkId::Room(another_room_id);
         let event = |msg: &str| make_test_event(room_id, msg);
 
         let event_comte = event("comté");
@@ -764,7 +784,7 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
         let event_mont_dor = event("mont d'or");
 
         self.handle_linked_chunk_updates(
-            room_id,
+            linked_chunk_id,
             vec![
                 Update::NewItemsChunk { previous: None, new: CId::new(0), next: None },
                 Update::PushItems {
@@ -790,7 +810,7 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
         // Add other events in another room, to ensure filtering take the `room_id` into
         // account.
         self.handle_linked_chunk_updates(
-            another_room_id,
+            another_linked_chunk_id,
             vec![
                 Update::NewItemsChunk { previous: None, new: CId::new(0), next: None },
                 Update::PushItems {
@@ -804,7 +824,7 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
 
         let duplicated_events = self
             .filter_duplicated_events(
-                room_id,
+                linked_chunk_id,
                 vec![
                     event_comte.event_id().unwrap().to_owned(),
                     event_raclette.event_id().unwrap().to_owned(),
@@ -835,6 +855,7 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
     async fn test_find_event(&self) {
         let room_id = room_id!("!r0:matrix.org");
         let another_room_id = room_id!("!r1:matrix.org");
+        let another_linked_chunk_id = LinkedChunkId::Room(another_room_id);
         let event = |msg: &str| make_test_event(room_id, msg);
 
         let event_comte = event("comté");
@@ -842,7 +863,7 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
 
         // Add one event in one room.
         self.handle_linked_chunk_updates(
-            room_id,
+            LinkedChunkId::Room(room_id),
             vec![
                 Update::NewItemsChunk { previous: None, new: CId::new(0), next: None },
                 Update::PushItems {
@@ -856,7 +877,7 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
 
         // Add another event in another room.
         self.handle_linked_chunk_updates(
-            another_room_id,
+            another_linked_chunk_id,
             vec![
                 Update::NewItemsChunk { previous: None, new: CId::new(0), next: None },
                 Update::PushItems {
@@ -885,7 +906,7 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
             .is_none());
 
         // Clearing the rooms also clears the event's storage.
-        self.clear_all_rooms_chunks().await.expect("failed to clear all rooms chunks");
+        self.clear_all_linked_chunks().await.expect("failed to clear all rooms chunks");
         assert!(self
             .find_event(room_id, event_comte.event_id().unwrap().as_ref())
             .await
@@ -1085,10 +1106,10 @@ macro_rules! event_cache_store_integration_tests {
             }
 
             #[async_test]
-            async fn test_clear_all_rooms_chunks() {
+            async fn test_clear_all_linked_chunks() {
                 let event_cache_store =
                     get_event_cache_store().await.unwrap().into_event_cache_store();
-                event_cache_store.test_clear_all_rooms_chunks().await;
+                event_cache_store.test_clear_all_linked_chunks().await;
             }
 
             #[async_test]

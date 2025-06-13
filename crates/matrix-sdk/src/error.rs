@@ -404,6 +404,10 @@ pub enum Error {
     #[error("backups are not enabled")]
     BackupNotEnabled,
 
+    /// It's forbidden to ignore your own user.
+    #[error("can't ignore the logged-in user")]
+    CantIgnoreLoggedInUser,
+
     /// An error happened during handling of a media subrequest.
     #[error(transparent)]
     Media(#[from] MediaError),

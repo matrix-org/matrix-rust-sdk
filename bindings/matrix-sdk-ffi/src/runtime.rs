@@ -39,7 +39,7 @@ mod sys {
 mod sys {
     use std::future::Future;
 
-    use crate::executor::{spawn, JoinHandle};
+    use matrix_sdk_common::executor::{spawn, JoinHandle};
 
     /// A dummy guard that does nothing when dropped.
     /// This is used for the Wasm implementation to match
