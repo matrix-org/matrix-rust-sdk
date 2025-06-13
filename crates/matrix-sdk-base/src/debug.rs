@@ -17,6 +17,7 @@
 use std::fmt;
 
 pub use matrix_sdk_common::debug::*;
+use matrix_sdk_common::deserialized_responses::ProcessedToDeviceEvent;
 use ruma::{
     api::client::sync::sync_events::v3::{InvitedRoom, KnockedRoom},
     serde::Raw,
@@ -31,6 +32,19 @@ impl<T> fmt::Debug for DebugListOfRawEventsNoId<'_, T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut list = f.debug_list();
         list.entries(self.0.iter().map(DebugRawEventNoId));
+        list.finish()
+    }
+}
+
+/// A wrapper around a slice of `ProcessedToDeviceEvent` events that implements
+/// `Debug` in a way that only prints the event type of each item.
+pub struct DebugListOfProcessedToDeviceEvents<'a>(pub &'a [ProcessedToDeviceEvent]);
+
+#[cfg(not(tarpaulin_include))]
+impl fmt::Debug for DebugListOfProcessedToDeviceEvents<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mut list = f.debug_list();
+        list.entries(self.0.iter().map(|e| DebugRawEventNoId(e.as_raw())));
         list.finish()
     }
 }

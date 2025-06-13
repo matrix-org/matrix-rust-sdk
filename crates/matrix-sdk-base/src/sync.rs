@@ -16,7 +16,10 @@
 
 use std::{collections::BTreeMap, fmt};
 
-use matrix_sdk_common::{debug::DebugRawEvent, deserialized_responses::TimelineEvent};
+use matrix_sdk_common::{
+    debug::DebugRawEvent,
+    deserialized_responses::{ProcessedToDeviceEvent, TimelineEvent},
+};
 pub use ruma::api::client::sync::sync_events::v3::{
     InvitedRoom as InvitedRoomUpdate, KnockedRoom as KnockedRoomUpdate,
 };
@@ -24,7 +27,7 @@ use ruma::{
     api::client::sync::sync_events::UnreadNotificationsCount as RumaUnreadNotificationsCount,
     events::{
         presence::PresenceEvent, AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent,
-        AnySyncEphemeralRoomEvent, AnySyncStateEvent, AnyToDeviceEvent,
+        AnySyncEphemeralRoomEvent, AnySyncStateEvent,
     },
     push::Action,
     serde::Raw,
@@ -33,7 +36,10 @@ use ruma::{
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    debug::{DebugInvitedRoom, DebugKnockedRoom, DebugListOfRawEvents, DebugListOfRawEventsNoId},
+    debug::{
+        DebugInvitedRoom, DebugKnockedRoom, DebugListOfProcessedToDeviceEvents,
+        DebugListOfRawEvents, DebugListOfRawEventsNoId,
+    },
     deserialized_responses::{AmbiguityChange, RawAnySyncOrStrippedTimelineEvent},
 };
 
@@ -50,7 +56,7 @@ pub struct SyncResponse {
     /// The global private data created by this user.
     pub account_data: Vec<Raw<AnyGlobalAccountDataEvent>>,
     /// Messages sent directly between devices.
-    pub to_device: Vec<Raw<AnyToDeviceEvent>>,
+    pub to_device: Vec<ProcessedToDeviceEvent>,
     /// New notifications per room.
     pub notifications: BTreeMap<OwnedRoomId, Vec<Notification>>,
 }
@@ -61,7 +67,7 @@ impl fmt::Debug for SyncResponse {
         f.debug_struct("SyncResponse")
             .field("rooms", &self.rooms)
             .field("account_data", &DebugListOfRawEventsNoId(&self.account_data))
-            .field("to_device", &DebugListOfRawEventsNoId(&self.to_device))
+            .field("to_device", &DebugListOfProcessedToDeviceEvents(&self.to_device))
             .field("notifications", &self.notifications)
             .finish_non_exhaustive()
     }

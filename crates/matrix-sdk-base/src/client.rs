@@ -496,7 +496,7 @@ impl BaseClient {
         #[cfg(feature = "e2e-encryption")]
         let to_device = {
             let processors::e2ee::to_device::Output {
-                decrypted_to_device_events: to_device,
+                processed_to_device_events: to_device,
                 room_key_updates,
             } = processors::e2ee::to_device::from_sync_v2(&response, olm_machine.as_ref()).await?;
 
@@ -519,7 +519,22 @@ impl BaseClient {
         };
 
         #[cfg(not(feature = "e2e-encryption"))]
-        let to_device = response.to_device.events;
+        let to_device = response
+            .to_device
+            .events
+            .into_iter()
+            .map(|raw| {
+                if let Ok(Some(event_type)) = raw.get_field::<String>("type") {
+                    if event_type == "m.room.encrypted" {
+                        matrix_sdk_common::deserialized_responses::ProcessedToDeviceEvent::UnableToDecrypt(raw)
+                    } else {
+                        matrix_sdk_common::deserialized_responses::ProcessedToDeviceEvent::PlainText(raw)
+                    }
+                } else {
+                    matrix_sdk_common::deserialized_responses::ProcessedToDeviceEvent::Invalid(raw) // Exclude events with no type
+                }
+            })
+            .collect();
 
         let mut ambiguity_cache = AmbiguityCache::new(self.state_store.inner.clone());
 

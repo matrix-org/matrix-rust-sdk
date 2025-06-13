@@ -1034,7 +1034,7 @@ mod tests {
     };
 
     use assert_matches2::assert_let;
-    use matrix_sdk_common::deserialized_responses::WithheldCode;
+    use matrix_sdk_common::deserialized_responses::{ProcessedToDeviceEvent, WithheldCode};
     use matrix_sdk_test::{async_test, ruma_response_from_json};
     use ruma::{
         api::client::{
@@ -1066,7 +1066,7 @@ mod tests {
                 room_key_withheld::RoomKeyWithheldContent::{self, MegolmV1AesSha2},
             },
             requests::ToDeviceRequest,
-            DeviceKeys, EventEncryptionAlgorithm, ProcessedToDeviceEvent,
+            DeviceKeys, EventEncryptionAlgorithm,
         },
         EncryptionSettings, LocalTrust, OlmMachine,
     };

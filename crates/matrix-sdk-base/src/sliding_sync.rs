@@ -14,10 +14,10 @@
 
 //! Extend `BaseClient` with capabilities to handle MSC4186.
 
+#[cfg(feature = "e2e-encryption")]
+use matrix_sdk_common::deserialized_responses::ProcessedToDeviceEvent;
 use matrix_sdk_common::deserialized_responses::TimelineEvent;
 use ruma::{api::client::sync::sync_events::v5 as http, OwnedRoomId};
-#[cfg(feature = "e2e-encryption")]
-use ruma::{events::AnyToDeviceEvent, serde::Raw};
 use tracing::{instrument, trace};
 
 use super::BaseClient;
@@ -44,7 +44,7 @@ impl BaseClient {
         &self,
         to_device: Option<&http::response::ToDevice>,
         e2ee: &http::response::E2EE,
-    ) -> Result<Option<Vec<Raw<AnyToDeviceEvent>>>> {
+    ) -> Result<Option<Vec<ProcessedToDeviceEvent>>> {
         if to_device.is_none() && e2ee.is_empty() {
             return Ok(None);
         }
@@ -62,7 +62,7 @@ impl BaseClient {
 
         let mut context = processors::Context::default();
 
-        let processors::e2ee::to_device::Output { decrypted_to_device_events, room_key_updates } =
+        let processors::e2ee::to_device::Output { processed_to_device_events, room_key_updates } =
             processors::e2ee::to_device::from_msc4186(to_device, e2ee, olm_machine.as_ref())
                 .await?;
 
@@ -89,7 +89,7 @@ impl BaseClient {
         )
         .await?;
 
-        Ok(Some(decrypted_to_device_events))
+        Ok(Some(processed_to_device_events))
     }
 
     /// Process a response from a sliding sync call.

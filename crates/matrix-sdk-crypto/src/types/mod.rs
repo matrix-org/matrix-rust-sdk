@@ -34,11 +34,10 @@ use std::{
 };
 
 use as_variant::as_variant;
-use matrix_sdk_common::deserialized_responses::{EncryptionInfo, PrivOwnedStr};
+use matrix_sdk_common::deserialized_responses::PrivOwnedStr;
 use ruma::{
-    events::AnyToDeviceEvent,
-    serde::{Raw, StringEnum},
-    DeviceKeyAlgorithm, DeviceKeyId, OwnedDeviceKeyId, OwnedUserId, RoomId, UserId,
+    serde::StringEnum, DeviceKeyAlgorithm, DeviceKeyId, OwnedDeviceKeyId, OwnedUserId, RoomId,
+    UserId,
 };
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use vodozemac::{Curve25519PublicKey, Ed25519PublicKey, Ed25519Signature, KeyError};
@@ -520,6 +519,18 @@ where
     keys.serialize(s)
 }
 
+/// Trait to express the various room key export formats we have in a unified
+/// manner.
+pub trait RoomKeyExport {
+    /// The ID of the room where the exported room key was used.
+    fn room_id(&self) -> &RoomId;
+    /// The unique ID of the exported room key.
+    fn session_id(&self) -> &str;
+    /// The [Curve25519PublicKey] long-term identity key of the sender of this
+    /// room key.
+    fn sender_key(&self) -> Curve25519PublicKey;
+}
+
 #[cfg(test)]
 mod test {
     use insta::{assert_debug_snapshot, assert_json_snapshot, with_settings};
@@ -627,52 +638,4 @@ mod test {
 
         assert_json_snapshot!(secret_bundle);
     }
-}
-
-/// Represents a to-device event after it has been processed by the olm machine.
-#[derive(Clone, Debug)]
-pub enum ProcessedToDeviceEvent {
-    /// A successfully-decrypted encrypted event.
-    /// Contains the raw decrypted event and encryption info
-    Decrypted {
-        /// The raw decrypted event
-        raw: Raw<AnyToDeviceEvent>,
-        /// The olm encryption info
-        encryption_info: EncryptionInfo,
-    },
-
-    /// An encrypted event which could not be decrypted.
-    UnableToDecrypt(Raw<AnyToDeviceEvent>),
-
-    /// An unencrypted event.
-    PlainText(Raw<AnyToDeviceEvent>),
-
-    /// An invalid to device event that was ignored because it is missing some
-    /// required information to be processed (like no event `type` for
-    /// example)
-    Invalid(Raw<AnyToDeviceEvent>),
-}
-impl ProcessedToDeviceEvent {
-    /// Converts a ProcessedToDeviceEvent to the `Raw<AnyToDeviceEvent>` it
-    /// encapsulates
-    pub fn to_raw(&self) -> Raw<AnyToDeviceEvent> {
-        match self {
-            ProcessedToDeviceEvent::Decrypted { raw, .. } => raw.clone(),
-            ProcessedToDeviceEvent::UnableToDecrypt(event) => event.clone(),
-            ProcessedToDeviceEvent::PlainText(event) => event.clone(),
-            ProcessedToDeviceEvent::Invalid(event) => event.clone(),
-        }
-    }
-}
-
-/// Trait to express the various room key export formats we have in a unified
-/// manner.
-pub trait RoomKeyExport {
-    /// The ID of the room where the exported room key was used.
-    fn room_id(&self) -> &RoomId;
-    /// The unique ID of the exported room key.
-    fn session_id(&self) -> &str;
-    /// The [Curve25519PublicKey] long-term identity key of the sender of this
-    /// room key.
-    fn sender_key(&self) -> Curve25519PublicKey;
 }

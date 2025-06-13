@@ -120,6 +120,15 @@ impl MatrixMockServer {
             alice_olm.update_tracked_users([bob_user_id.as_ref()]).await.unwrap();
         }
 
+        // let bob be aware of Alice keys in order to be able to decrypt custom
+        // to-device (the device keys check are deferred for `m.room.key` so this is not
+        // needed for sending room messages for example).
+        {
+            let bob_olm = bob.olm_machine_for_testing().await;
+            let bob_olm = bob_olm.as_ref().unwrap();
+            bob_olm.update_tracked_users([alice_user_id.as_ref()]).await.unwrap();
+        }
+
         // Have Alice and Bob upload their signed device keys.
         {
             self.mock_sync().ok_and_run(&alice, |_x| {}).await;

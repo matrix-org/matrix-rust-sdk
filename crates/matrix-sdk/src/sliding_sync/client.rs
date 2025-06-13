@@ -1,11 +1,8 @@
 use std::collections::BTreeSet;
 
 use matrix_sdk_base::{sync::SyncResponse, RequestedRequiredStates};
-use ruma::{
-    api::client::{discovery::get_supported_versions, sync::sync_events::v5 as http},
-    events::AnyToDeviceEvent,
-    serde::Raw,
-};
+use matrix_sdk_common::deserialized_responses::ProcessedToDeviceEvent;
+use ruma::api::client::{discovery::get_supported_versions, sync::sync_events::v5 as http};
 use tracing::error;
 
 use super::{SlidingSync, SlidingSyncBuilder};
@@ -154,7 +151,7 @@ impl Client {
 #[must_use]
 pub(crate) struct SlidingSyncResponseProcessor {
     client: Client,
-    to_device_events: Vec<Raw<AnyToDeviceEvent>>,
+    to_device_events: Vec<ProcessedToDeviceEvent>,
     response: Option<SyncResponse>,
 }
 

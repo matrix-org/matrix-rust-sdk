@@ -22,16 +22,20 @@ use std::{
 
 pub use matrix_sdk_base::sync::*;
 use matrix_sdk_base::{
-    debug::{DebugInvitedRoom, DebugKnockedRoom, DebugListOfRawEventsNoId},
+    debug::{
+        DebugInvitedRoom, DebugKnockedRoom, DebugListOfProcessedToDeviceEvents,
+        DebugListOfRawEventsNoId,
+    },
     sleep::sleep,
     sync::SyncResponse as BaseSyncResponse,
 };
+use matrix_sdk_common::deserialized_responses::ProcessedToDeviceEvent;
 use ruma::{
     api::client::sync::sync_events::{
         self,
         v3::{InvitedRoom, KnockedRoom},
     },
-    events::{presence::PresenceEvent, AnyGlobalAccountDataEvent, AnyToDeviceEvent},
+    events::{presence::PresenceEvent, AnyGlobalAccountDataEvent},
     serde::Raw,
     time::Instant,
     OwnedRoomId, RoomId,
@@ -53,7 +57,7 @@ pub struct SyncResponse {
     /// The global private data created by this user.
     pub account_data: Vec<Raw<AnyGlobalAccountDataEvent>>,
     /// Messages sent directly between devices.
-    pub to_device: Vec<Raw<AnyToDeviceEvent>>,
+    pub to_device: Vec<ProcessedToDeviceEvent>,
     /// New notifications per room.
     pub notifications: BTreeMap<OwnedRoomId, Vec<Notification>>,
 }
@@ -74,7 +78,7 @@ impl fmt::Debug for SyncResponse {
             .field("next_batch", &self.next_batch)
             .field("rooms", &self.rooms)
             .field("account_data", &DebugListOfRawEventsNoId(&self.account_data))
-            .field("to_device", &DebugListOfRawEventsNoId(&self.to_device))
+            .field("to_device", &DebugListOfProcessedToDeviceEvents(&self.to_device))
             .field("notifications", &self.notifications)
             .finish_non_exhaustive()
     }
@@ -173,7 +177,7 @@ impl Client {
         let now = Instant::now();
         self.handle_sync_events(HandlerKind::GlobalAccountData, None, account_data).await?;
         self.handle_sync_events(HandlerKind::Presence, None, presence).await?;
-        self.handle_sync_events(HandlerKind::ToDevice, None, to_device).await?;
+        self.handle_sync_to_device_events(to_device).await?;
 
         // Ignore errors when there are no receivers.
         let _ = self.inner.room_updates_sender.send(rooms.clone());
