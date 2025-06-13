@@ -110,9 +110,12 @@ impl Platform {
         }
     }
 }
-
 /// The base name of the FFI library.
 const FFI_LIBRARY_NAME: &str = "libmatrix_sdk_ffi.a";
+
+/// The features enabled for the FFI library.
+const FFI_FEATURES: &str = "native-tls,sentry";
+
 /// The list of targets supported by the SDK.
 const TARGETS: &[Target] = &[
     Target { triple: "aarch64-apple-ios", platform: Platform::Ios, description: "iOS" },
@@ -149,7 +152,7 @@ fn build_library() -> Result<()> {
     create_dir_all(ffi_directory.as_path())?;
 
     let sh = sh();
-    cmd!(sh, "rustup run stable cargo build -p matrix-sdk-ffi").run()?;
+    cmd!(sh, "rustup run stable cargo build -p matrix-sdk-ffi --features {FFI_FEATURES}").run()?;
 
     rename(lib_output_dir.join(FFI_LIBRARY_NAME), ffi_directory.join(FFI_LIBRARY_NAME))?;
     let swift_directory = root_directory.join("bindings/apple/generated/swift");
@@ -274,13 +277,12 @@ fn build_targets(
     sequentially: bool,
 ) -> Result<HashMap<Platform, Vec<Utf8PathBuf>>> {
     let sh = sh();
-
     if sequentially {
         for target in &targets {
             let triple = target.triple;
 
             println!("-- Building for {}", target.description);
-            cmd!(sh, "rustup run stable cargo build -p matrix-sdk-ffi --target {triple} --profile {profile}")
+            cmd!(sh, "rustup run stable cargo build -p matrix-sdk-ffi --target {triple} --profile {profile} --features {FFI_FEATURES}")
                 .run()?;
         }
     } else {
@@ -289,7 +291,7 @@ fn build_targets(
         for triple in triples {
             cmd = cmd.arg("--target").arg(triple);
         }
-        cmd = cmd.arg("--profile").arg(profile);
+        cmd = cmd.arg("--profile").arg(profile).arg("--features").arg(FFI_FEATURES);
 
         println!("-- Building for {} targets", triples.len());
         cmd.run()?;
