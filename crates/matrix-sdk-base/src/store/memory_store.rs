@@ -51,7 +51,7 @@ use crate::{
 #[allow(clippy::type_complexity)]
 struct MemoryStoreInner {
     recently_visited_rooms: HashMap<OwnedUserId, Vec<OwnedRoomId>>,
-    composer_drafts: HashMap<OwnedRoomId, ComposerDraft>,
+    composer_drafts: HashMap<(OwnedRoomId, Option<OwnedEventId>), ComposerDraft>,
     user_avatar_url: HashMap<OwnedUserId, OwnedMxcUri>,
     sync_token: Option<String>,
     server_capabilities: Option<ServerCapabilities>,
@@ -166,8 +166,9 @@ impl StateStore for MemoryStore {
             StateStoreDataKey::UtdHookManagerData => {
                 inner.utd_hook_manager_data.clone().map(StateStoreDataValue::UtdHookManagerData)
             }
-            StateStoreDataKey::ComposerDraft(room_id) => {
-                inner.composer_drafts.get(room_id).cloned().map(StateStoreDataValue::ComposerDraft)
+            StateStoreDataKey::ComposerDraft(room_id, thread_root) => {
+                let key = (room_id.to_owned(), thread_root.map(ToOwned::to_owned));
+                inner.composer_drafts.get(&key).cloned().map(StateStoreDataValue::ComposerDraft)
             }
             StateStoreDataKey::SeenKnockRequests(room_id) => inner
                 .seen_knock_requests
@@ -215,9 +216,9 @@ impl StateStore for MemoryStore {
                         .expect("Session data not the hook manager data"),
                 );
             }
-            StateStoreDataKey::ComposerDraft(room_id) => {
+            StateStoreDataKey::ComposerDraft(room_id, thread_root) => {
                 inner.composer_drafts.insert(
-                    room_id.to_owned(),
+                    (room_id.to_owned(), thread_root.map(ToOwned::to_owned)),
                     value.into_composer_draft().expect("Session data not a composer draft"),
                 );
             }
@@ -256,8 +257,9 @@ impl StateStore for MemoryStore {
                 inner.recently_visited_rooms.remove(user_id);
             }
             StateStoreDataKey::UtdHookManagerData => inner.utd_hook_manager_data = None,
-            StateStoreDataKey::ComposerDraft(room_id) => {
-                inner.composer_drafts.remove(room_id);
+            StateStoreDataKey::ComposerDraft(room_id, thread_root) => {
+                let key = (room_id.to_owned(), thread_root.map(ToOwned::to_owned));
+                inner.composer_drafts.remove(&key);
             }
             StateStoreDataKey::SeenKnockRequests(room_id) => {
                 inner.seen_knock_requests.remove(room_id);

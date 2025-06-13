@@ -425,8 +425,15 @@ impl SqliteStateStore {
             StateStoreDataKey::UtdHookManagerData => {
                 Cow::Borrowed(StateStoreDataKey::UTD_HOOK_MANAGER_DATA)
             }
-            StateStoreDataKey::ComposerDraft(room_id) => {
-                Cow::Owned(format!("{}:{room_id}", StateStoreDataKey::COMPOSER_DRAFT))
+            StateStoreDataKey::ComposerDraft(room_id, thread_root) => {
+                if let Some(thread_root) = thread_root {
+                    Cow::Owned(format!(
+                        "{}:{room_id}:{thread_root}",
+                        StateStoreDataKey::COMPOSER_DRAFT
+                    ))
+                } else {
+                    Cow::Owned(format!("{}:{room_id}", StateStoreDataKey::COMPOSER_DRAFT))
+                }
             }
             StateStoreDataKey::SeenKnockRequests(room_id) => {
                 Cow::Owned(format!("{}:{room_id}", StateStoreDataKey::SEEN_KNOCK_REQUESTS))
@@ -1037,7 +1044,7 @@ impl StateStore for SqliteStateStore {
                     StateStoreDataKey::UtdHookManagerData => {
                         StateStoreDataValue::UtdHookManagerData(self.deserialize_value(&data)?)
                     }
-                    StateStoreDataKey::ComposerDraft(_) => {
+                    StateStoreDataKey::ComposerDraft(_, _) => {
                         StateStoreDataValue::ComposerDraft(self.deserialize_value(&data)?)
                     }
                     StateStoreDataKey::SeenKnockRequests(_) => {
@@ -1074,7 +1081,7 @@ impl StateStore for SqliteStateStore {
             StateStoreDataKey::UtdHookManagerData => self.serialize_value(
                 &value.into_utd_hook_manager_data().expect("Session data not UtdHookManagerData"),
             )?,
-            StateStoreDataKey::ComposerDraft(_) => self.serialize_value(
+            StateStoreDataKey::ComposerDraft(_, _) => self.serialize_value(
                 &value.into_composer_draft().expect("Session data not a composer draft"),
             )?,
             StateStoreDataKey::SeenKnockRequests(_) => self.serialize_value(
