@@ -655,7 +655,7 @@ async fn test_accept_encrypted_to_device_in_e2ee_room() {
     // assert_eq!(data.len(), 3);
 }
 
-/// Test that "iternal" to-device messages are never forwarded to the widgets.
+/// Test that "internal" to-device messages are never forwarded to the widgets.
 /// Here we test that a `m.room_key` message is never forwarded to the widget.
 /// These events are already zeroized by the sdk, but let's not leak them
 /// anyhow.
