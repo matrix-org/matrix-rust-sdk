@@ -14,23 +14,24 @@
 
 use std::{collections::BTreeMap, sync::Arc, time::Duration};
 
+use futures_core::Stream;
+use futures_util::{pin_mut, StreamExt};
+use matrix_sdk_base::{crypto::store::types::RoomKeyBundleInfo, RoomState};
 use matrix_sdk_common::failures_cache::FailuresCache;
 use ruma::{
     events::room::encrypted::{EncryptedEventScheme, OriginalSyncRoomEncryptedEvent},
     serde::Raw,
     OwnedEventId, OwnedRoomId,
 };
-use tokio::sync::{
-    mpsc::{self, UnboundedReceiver},
-    Mutex,
-};
-use tracing::{debug, trace, warn};
+use tokio::sync::{mpsc, Mutex};
+use tracing::{debug, info, instrument, trace, warn};
 
 use crate::{
     client::WeakClient,
     encryption::backups::UploadState,
     executor::{spawn, JoinHandle},
-    Client,
+    room::shared_room_history,
+    Client, Room,
 };
 
 /// A cache of room keys we already downloaded.
@@ -41,6 +42,7 @@ pub(crate) struct ClientTasks {
     pub(crate) upload_room_keys: Option<BackupUploadingTask>,
     pub(crate) download_room_keys: Option<BackupDownloadTask>,
     pub(crate) update_recovery_state_after_backup: Option<JoinHandle<()>>,
+    pub(crate) receive_historic_room_key_bundles: Option<BundleReceiverTask>,
     pub(crate) setup_e2ee: Option<JoinHandle<()>>,
 }
 
@@ -72,7 +74,7 @@ impl BackupUploadingTask {
         let _ = self.sender.send(());
     }
 
-    pub(crate) async fn listen(client: WeakClient, mut receiver: UnboundedReceiver<()>) {
+    pub(crate) async fn listen(client: WeakClient, mut receiver: mpsc::UnboundedReceiver<()>) {
         while receiver.recv().await.is_some() {
             if let Some(client) = client.get() {
                 let upload_progress = &client.inner.e2ee.backup_state.upload_progress;
@@ -176,7 +178,10 @@ impl BackupDownloadTask {
     /// # Arguments
     ///
     /// * `receiver` - The source of incoming [`RoomKeyDownloadRequest`]s.
-    async fn listen(client: WeakClient, mut receiver: UnboundedReceiver<RoomKeyDownloadRequest>) {
+    async fn listen(
+        client: WeakClient,
+        mut receiver: mpsc::UnboundedReceiver<RoomKeyDownloadRequest>,
+    ) {
         let state = Arc::new(Mutex::new(BackupDownloadTaskListenerState::new(client)));
 
         while let Some(room_key_download_request) = receiver.recv().await {
@@ -382,6 +387,68 @@ impl BackupDownloadTaskListenerState {
 
         debug!(?download_request, "Performing backup download");
         true
+    }
+}
+
+pub(crate) struct BundleReceiverTask {
+    _handle: JoinHandle<()>,
+}
+
+impl BundleReceiverTask {
+    pub async fn new(client: &Client) -> Self {
+        let stream = client.encryption().historic_room_key_stream().await.expect("E2EE tasks should only be initialized once we have logged in and have access to an OlmMachine");
+        let weak_client = WeakClient::from_client(client);
+        let handle = spawn(Self::listen_task(weak_client, stream));
+
+        Self { _handle: handle }
+    }
+
+    async fn listen_task(client: WeakClient, stream: impl Stream<Item = RoomKeyBundleInfo>) {
+        pin_mut!(stream);
+
+        // TODO: Listening to this stream is not enough for iOS due to the NSE killing
+        // our OlmMachine and thus also this stream. We need to add an event handler
+        // that will listen for the bundle event. To be able to add an event handler,
+        // we'll have to implement the bundle event in Ruma.
+        while let Some(bundle_info) = stream.next().await {
+            let Some(client) = client.get() else {
+                // The client was dropped while we were waiting on the stream. Let's end the
+                // loop, since this means that the application has shut down.
+                break;
+            };
+
+            let Some(room) = client.get_room(&bundle_info.room_id) else {
+                warn!(room_id = %bundle_info.room_id, "Received a historic room key bundle for an unknown room");
+                continue;
+            };
+
+            Self::handle_bundle(&room, &bundle_info).await;
+        }
+    }
+
+    #[instrument(skip(room), fields(room_id = %room.room_id()))]
+    async fn handle_bundle(room: &Room, bundle_info: &RoomKeyBundleInfo) {
+        if Self::should_accept_bundle(room, bundle_info) {
+            info!("Accepting a late key bundle.");
+
+            if let Err(e) =
+                shared_room_history::maybe_accept_key_bundle(room, &bundle_info.sender).await
+            {
+                warn!("Couldn't accept a late room key bundle {e:?}");
+            }
+        } else {
+            info!("Refusing to accept a historic room key bundle.");
+        }
+    }
+
+    fn should_accept_bundle(room: &Room, _bundle_info: &RoomKeyBundleInfo) -> bool {
+        // TODO: Check that the person that invited us to this room is the same as the
+        // sender, of the bundle. Otherwise don't ignore the bundle.
+        // TODO: Check that we joined the room "recently". (How do you do this if you
+        // accept the invite on another client? I guess we remember when the transition
+        // from Invited to Joined happened, but can't the server force us into a joined
+        // state if we do this?
+        room.state() == RoomState::Joined
     }
 }
 
