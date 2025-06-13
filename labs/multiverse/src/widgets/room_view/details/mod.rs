@@ -1,10 +1,10 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind};
-use matrix_sdk::Room;
 use ratatui::{prelude::*, widgets::*};
 use strum::{Display, EnumIter, FromRepr, IntoEnumIterator};
 use style::palette::tailwind;
 
 use self::{events::EventsView, linked_chunk::LinkedChunkView, read_receipts::ReadReceipts};
+use super::DetailsState;
 use crate::widgets::recovery::ShouldExit;
 
 mod events;
@@ -76,20 +76,22 @@ impl SelectedTab {
 }
 
 impl<'a> StatefulWidget for &'a SelectedTab {
-    type State = Option<&'a Room>;
+    type State = DetailsState<'a>;
 
-    fn render(self, area: Rect, buf: &mut Buffer, room: &mut Self::State)
+    fn render(self, area: Rect, buf: &mut Buffer, state: &mut Self::State)
     where
         Self: Sized,
     {
         match self {
             SelectedTab::Events => {
-                EventsView::new(room.as_deref()).render(area, buf);
+                EventsView::new(state.selected_room).render(area, buf);
             }
             SelectedTab::ReadReceipts => {
-                ReadReceipts::new(room.as_deref()).render(area, buf);
+                ReadReceipts::new(state).render(area, buf);
             }
-            SelectedTab::LinkedChunks => LinkedChunkView::new(room.as_deref()).render(area, buf),
+            SelectedTab::LinkedChunks => {
+                LinkedChunkView::new(state.selected_room).render(area, buf)
+            }
         }
     }
 }
@@ -170,7 +172,7 @@ impl RoomDetails {
 }
 
 impl<'a> StatefulWidget for &'a mut RoomDetails {
-    type State = Option<&'a Room>;
+    type State = DetailsState<'a>;
 
     fn render(self, area: Rect, buf: &mut Buffer, state: &mut Self::State)
     where

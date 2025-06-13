@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use crossterm::event::{Event, KeyCode, KeyModifiers};
-use futures_util::StreamExt as _;
+use futures_util::StreamExt;
 use imbl::Vector;
 use input::MessageOrCommand;
 use invited_room::InvitedRoomView;
@@ -38,6 +38,11 @@ mod invited_room;
 mod timeline;
 
 const DEFAULT_TILING_DIRECTION: Direction = Direction::Horizontal;
+
+pub struct DetailsState<'a> {
+    selected_room: Option<&'a Room>,
+    selected_item: Option<Arc<TimelineItem>>,
+}
 
 enum Mode {
     Normal { invited_room_view: Option<InvitedRoomView> },
@@ -313,6 +318,14 @@ impl RoomView {
                             }
                         }
 
+                        (_, Down) | (KeyModifiers::CONTROL, Char('n')) => {
+                            self.timeline_list.select_next()
+                        }
+
+                        (_, Up) | (KeyModifiers::CONTROL, Char('p')) => {
+                            self.timeline_list.select_previous()
+                        }
+
                         _ => match view.handle_key_press(key) {
                             ShouldExit::No => {}
                             ShouldExit::OnlySubScreen => {}
@@ -565,6 +578,12 @@ impl RoomView {
         }
     }
 
+    fn get_selected_event(&self) -> Option<Arc<TimelineItem>> {
+        let selected = self.timeline_list.selected()?;
+        let items = self.get_selected_timeline_items()?;
+        items.get(selected).cloned()
+    }
+
     fn update(&mut self) {
         match &mut self.mode {
             Mode::Normal { invited_room_view } => {
@@ -620,6 +639,8 @@ impl Widget for &mut RoomView {
             let maybe_room = self.client.get_room(room_id);
             let mut maybe_room = maybe_room.as_ref();
 
+            let selected_event = self.get_selected_event();
+
             let timeline_area = match &mut self.mode {
                 Mode::Normal { invited_room_view } => {
                     if let Some(view) = invited_room_view {
@@ -640,7 +661,10 @@ impl Widget for &mut RoomView {
                     let [timeline_area, details_area] = vertical.areas(middle_area);
                     Clear.render(details_area, buf);
 
-                    view.render(details_area, buf, &mut maybe_room);
+                    let mut state =
+                        DetailsState { selected_room: maybe_room, selected_item: selected_event };
+
+                    view.render(details_area, buf, &mut state);
 
                     Some(timeline_area)
                 }
