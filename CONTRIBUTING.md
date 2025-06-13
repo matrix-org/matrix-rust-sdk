@@ -87,6 +87,42 @@ be a good PR title.
 (An additional bad example of a bad PR title would be `mynickname/branch name`,
 that is, just the branch name.)
 
+## Low-Quality and AI-Generated Contributions
+
+To protect the integrity, maintainability, and security of the Matrix Rust SDK,
+we apply strict standards to all contributions — whether written by humans or
+assisted by AI.
+
+We appreciate contributors of all kinds, but low-quality PRs will be closed,
+regardless of origin. This includes but is not limited to AI-generated code,
+copy-pasted snippets, or unclear bulk edits.
+
+This policy ensures we can safely and sustainably maintain a high-quality SDK. 
+
+### What qualifies as a low-quality PR?
+
+- Does not respect the existing architecture, abstractions, or module boundaries.
+- Introduces changes without understanding their implications or rationale.
+- Lacks tests, documentation, or a clear rationale for the change.
+- Shifts a disproportionate review burden to maintainers to assess architectural
+or security risk.
+- Includes code with unclear copyright status.
+- Contains overly verbose, sycophantic, or generic language often produced by
+AI tools.
+
+Note: These problems are not unique to AI use. But AI tools increase the volume
+of such PRs that make FOSS projects maintenance even less sustainable.
+
+### Requirements for all contributors
+
+In addition to the guidance already provided in this document, contributors
+must:
+* Demonstrate understanding of the SDK’s structure and provide context for your
+changes.
+Be concise and direct in PR descriptions and comments.
+Disclose AI use if relevant, but you remain responsible for the correctness,
+copyright compatibility, and appropriateness of all content.
+
 # Writing changelog entries
 
 Our goal is to maintain clear, concise, and informative changelogs that
