@@ -456,7 +456,7 @@ async fn test_read_room_members() {
 
 #[async_test]
 async fn test_receive_live_events() {
-    let (client, mock_server, driver_handle) = run_test_driver(false, true).await;
+    let (client, mock_server, driver_handle) = run_test_driver(false, false).await;
 
     negotiate_capabilities(
         &driver_handle,
