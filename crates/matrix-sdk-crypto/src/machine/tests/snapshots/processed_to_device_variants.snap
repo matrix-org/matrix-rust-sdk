@@ -13,20 +13,6 @@ expression: "processed_event.to_raw().deserialize_as::<Value>().unwrap()"
       }
     ]
   },
-  "keys": {
-    "ed25519": "[sender_ed25519_key]"
-  },
-  "recipient": "@bob:example.com",
-  "recipient_keys": {
-    "ed25519": "[recipient_sender_key]"
-  },
   "sender": "@alice:example.org",
-  "sender_device_keys": {
-    "algorithms": "++REDACTED++",
-    "device_id": "[ABCDEFGH]",
-    "keys": "++REDACTED++",
-    "signatures": "++REDACTED++",
-    "user_id": "@alice:example.org"
-  },
   "type": "rtc.call.encryption_keys"
 }
