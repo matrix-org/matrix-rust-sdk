@@ -1,5 +1,6 @@
 use std::{mem::ManuallyDrop, sync::Arc};
 
+use matrix_sdk_common::executor::Handle;
 use matrix_sdk_crypto::{
     dehydrated_devices::{
         DehydratedDevice as InnerDehydratedDevice, DehydratedDevices as InnerDehydratedDevices,
@@ -9,7 +10,6 @@ use matrix_sdk_crypto::{
 };
 use ruma::{api::client::dehydrated_device, events::AnyToDeviceEvent, serde::Raw, OwnedDeviceId};
 use serde_json::json;
-use tokio::runtime::Handle;
 
 use crate::{CryptoStoreError, DehydratedDeviceKey};
 

@@ -30,6 +30,7 @@ use matrix_sdk::{
         reply::{EnforceThread, Reply},
     },
 };
+use matrix_sdk_common::executor::{AbortHandle, JoinHandle};
 use matrix_sdk_ui::timeline::{
     self, AttachmentSource, EventItemOrigin, Profile, TimelineDetails,
     TimelineUniqueId as SdkTimelineUniqueId,
@@ -56,10 +57,7 @@ use ruma::{
     },
     EventId, UInt,
 };
-use tokio::{
-    sync::Mutex,
-    task::{AbortHandle, JoinHandle},
-};
+use tokio::sync::Mutex;
 use tracing::{error, warn};
 use uuid::Uuid;
 
@@ -1386,12 +1384,10 @@ mod galleries {
         },
         utils::formatted_body_from,
     };
+    use matrix_sdk_common::executor::{AbortHandle, JoinHandle};
     use matrix_sdk_ui::timeline::GalleryConfig;
     use mime::Mime;
-    use tokio::{
-        sync::Mutex,
-        task::{AbortHandle, JoinHandle},
-    };
+    use tokio::sync::Mutex;
     use tracing::error;
 
     use crate::{
