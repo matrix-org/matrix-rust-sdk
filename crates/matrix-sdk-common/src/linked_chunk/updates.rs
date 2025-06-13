@@ -294,6 +294,10 @@ impl<Item, Gap> UpdatesInner<Item, Gap> {
         slice
     }
 
+    pub(super) fn is_reader_up_to_date(&self, token: ReaderToken) -> bool {
+        *self.last_index_per_reader.get(&token).expect("unknown reader token") == self.updates.len()
+    }
+
     /// Return the number of updates in the buffer.
     #[cfg(test)]
     fn len(&self) -> usize {

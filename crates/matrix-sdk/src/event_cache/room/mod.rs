@@ -553,7 +553,51 @@ mod private {
                 }
             };
 
-            let events = RoomEvents::with_initial_linked_chunk(linked_chunk);
+            let fully_loaded_linked_chunk = {
+                match store_lock
+                    .load_last_chunk(linked_chunk_id)
+                    .await
+                    .map_err(EventCacheError::from)
+                    .and_then(|(last_chunk, chunk_identifier_generator)| {
+                        lazy_loader::from_last_chunk::<128, _, _>(
+                            last_chunk,
+                            chunk_identifier_generator,
+                        )
+                        .map_err(EventCacheError::from)
+                    }) {
+                    Ok(lc) => {
+                        if let Some(mut lc) = lc {
+                            loop {
+                                let first_chunk_id = lc.chunks().next().unwrap().identifier();
+                                match store_lock
+                                    .load_previous_chunk(linked_chunk_id, first_chunk_id)
+                                    .await
+                                {
+                                    Ok(Some(prev)) => {
+                                        if lazy_loader::insert_new_first_chunk(&mut lc, prev)
+                                            .is_err()
+                                        {
+                                            break None;
+                                        }
+                                    }
+                                    Ok(None) => break Some(lc),
+                                    Err(_) => break None,
+                                }
+                            }
+                        } else {
+                            None
+                        }
+                    }
+
+                    Err(_) => {
+                        // Do nothing here.
+                        None
+                    }
+                }
+            };
+
+            let events =
+                RoomEvents::with_initial_linked_chunk(linked_chunk, fully_loaded_linked_chunk);
 
             Ok(Self {
                 room: room_id,
@@ -864,13 +908,12 @@ mod private {
 
                 sort_positions_descending(&mut positions);
 
-                self.send_updates_to_store(
-                    positions
-                        .into_iter()
-                        .map(|position| Update::RemoveItem { at: position })
-                        .collect(),
-                )
-                .await?;
+                let updates = positions
+                    .into_iter()
+                    .map(|pos| Update::RemoveItem { at: pos })
+                    .collect::<Vec<_>>();
+
+                self.apply_store_only_updates(updates).await?;
             }
 
             // In-memory events.
@@ -892,6 +935,22 @@ mod private {
         /// Propagate changes to the underlying storage.
         async fn propagate_changes(&mut self) -> Result<(), EventCacheError> {
             let updates = self.events.store_updates().take();
+            self.send_updates_to_store(updates).await
+        }
+
+        /// Apply some updates that are effective only the store itself.
+        ///
+        /// This method should be used only for updates that happen *outside*
+        /// the in-memory linked chunk. Such updates must be applied
+        /// onto the ordering tracker as well as to the persistent
+        /// storage.
+        async fn apply_store_only_updates(
+            &mut self,
+            updates: Vec<Update<Event, Gap>>,
+        ) -> Result<(), EventCacheError> {
+            if let Some(tracker) = self.events.chunk_ordering.as_mut() {
+                tracker.map_updates(&updates);
+            }
             self.send_updates_to_store(updates).await
         }
 
