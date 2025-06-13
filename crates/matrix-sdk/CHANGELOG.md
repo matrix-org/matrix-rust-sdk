@@ -6,13 +6,14 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased] - ReleaseDate
 
+- `Client::add_event_handler`: Set `Option<EncryptionInfo>` in `EventHandlerData` for to-device messages.
+  If the to-device message was encrypted, the `EncryptionInfo` will be set. If it is `None` the message was sent in clear.
+  ([#5099](https://github.com/matrix-org/matrix-rust-sdk/pull/5099))
+
 ## [0.12.0] - 2025-06-10
 
 ### Features
 
-- `Client::add_event_handler`: Set `Option<EncryptionInfo>` in `EventHandlerData` for to-device messages.
-  If the to-device message was encrypted, the `EncryptionInfo` will be set. If it is `None` the message was sent in clear.
-  ([#5099](https://github.com/matrix-org/matrix-rust-sdk/pull/5099))
 - `Client::send_call_notification_if_needed` now returns `Result<bool>` instead of `Result<()>` so we can check if
   the event was sent.
   ([#5171](https://github.com/matrix-org/matrix-rust-sdk/pull/5171))
