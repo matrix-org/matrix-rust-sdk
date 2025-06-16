@@ -173,6 +173,69 @@ impl MatrixMockServer {
         carl
     }
 
+    /// Creates a new device and returns a new client for it.
+    /// The new and old clients will be aware of each other.
+    /// If possible, the new client will import the secret bundle from the
+    /// initial client
+    ///
+    /// # Arguments
+    ///
+    /// * `existing_client` - The original client for which a new device will be
+    ///   created
+    /// * `device_id` - The device ID to use for the new client
+    /// * `clients_to_update` - A vector of client references that should be
+    ///   notified about the new device. These clients will receive a device
+    ///   list change notification during their next sync.
+    ///
+    /// # Returns
+    ///
+    /// Returns the newly created client instance configured for the new device.
+    pub async fn set_up_new_device_for_encryption(
+        &self,
+        existing_client: &Client,
+        device_id: &DeviceId,
+        clients_to_update: Vec<&Client>,
+    ) -> Client {
+        let user_id = existing_client.user_id().unwrap().to_owned();
+        let new_device_id = device_id.to_owned();
+
+        let new_client =
+            self.client_builder_for_crypto_end_to_end(&user_id, &new_device_id).build().await;
+
+        // sync the keys
+        self.mock_sync().ok_and_run(&new_client, |_| {}).await;
+
+        {
+            // If cross-signing is enabled, import the secret bundle from the old device.
+            let olm = existing_client.olm_machine_for_testing().await;
+            let olm = olm.as_ref().unwrap();
+            let bundle = olm.store().export_secrets_bundle().await;
+            if let Ok(bundle) = bundle {
+                new_client.encryption().import_secrets_bundle(&bundle).await.unwrap();
+            }
+        }
+
+        // sync the keys
+        self.mock_sync().ok_and_run(&new_client, |_| {}).await;
+
+        // Notify existing device of a change
+        self.mock_sync()
+            .ok_and_run(existing_client, |builder| {
+                builder.add_change_device(&user_id);
+            })
+            .await;
+
+        for client_to_update in clients_to_update {
+            self.mock_sync()
+                .ok_and_run(client_to_update, |builder| {
+                    builder.add_change_device(&user_id);
+                })
+                .await;
+        }
+
+        new_client
+    }
+
     async fn update_tracked_users(client: &Client, user_ids: impl IntoIterator<Item = &UserId>) {
         let olm = client.olm_machine_for_testing().await;
         let olm = olm.as_ref().unwrap();
