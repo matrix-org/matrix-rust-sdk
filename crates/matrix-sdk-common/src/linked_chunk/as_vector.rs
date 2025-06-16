@@ -15,7 +15,7 @@
 use std::{
     collections::VecDeque,
     iter::repeat_n,
-    ops::{ControlFlow, Not},
+    ops::ControlFlow,
     sync::{Arc, RwLock},
 };
 
@@ -203,7 +203,12 @@ impl<Item, Acc: UpdatesAccumulator<Item>> UpdateToVectorDiff<Item, Acc> {
     {
         let mut acc = Acc::new(updates.len());
 
-        // A flag specifying when updates are reattaching detached items.
+        // Flags specifying when updates are reattaching detached items.
+        //
+        // TL;DR: This is an optimization to avoid that insertions in the middle of a
+        // chunk cause a large series of `VectorDiff::Remove` and
+        // `VectorDiff::Insert` updates for the elements placed after the
+        // inserted item.
         //
         // Why is it useful?
         //
@@ -373,7 +378,7 @@ impl<Item, Acc: UpdatesAccumulator<Item>> UpdateToVectorDiff<Item, Acc> {
                     }
 
                     // Optimisation: we can emit a `VectorDiff::Append` in this particular case.
-                    if is_pushing_back && detaching.not() {
+                    if is_pushing_back && !detaching {
                         acc.fold([VectorDiff::Append { values: items.into() }]);
                     }
                     // No optimisation: let's emit `VectorDiff::Insert`.
