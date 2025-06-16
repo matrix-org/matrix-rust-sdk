@@ -243,7 +243,6 @@ impl MatrixDriver {
                 // Some to-device traffic is used by the sdk for internal machinery.
                 // They should not be exposed to widgets.
                 if Self::should_filter_message_to_widget(&raw) {
-                    trace!("Internal or UTD to-device message filtered out by widget driver.");
                     return;
                 }
 
@@ -285,18 +284,14 @@ impl MatrixDriver {
 
     fn should_filter_message_to_widget(raw_message: &Raw<AnyToDeviceEvent>) -> bool {
         let Ok(Some(event_type)) = raw_message.get_field::<String>("type") else {
+            trace!("Invalid to-device message (no type) filtered out by widget driver.");
             return true;
         };
-
-        if event_type == "m.room.encrypted" {
-            // Unable to decrypt,
-            return true;
-        }
 
         // Filter out all the internal crypto related traffic.
         // The SDK has already zeroized the critical data, but let's not leak any
         // information
-        matches!(
+        let filtered = matches!(
             event_type.as_str(),
             "m.dummy"
                 | "m.room_key"
@@ -312,7 +307,17 @@ impl MatrixDriver {
                 | "m.key.verification.done"
                 | "m.secret.request"
                 | "m.secret.send"
-        )
+                // drop utd traffic
+                | "m.room.encrypted"
+        );
+
+        if filtered {
+            trace!(
+                "To-device message of type <{}> filtered out by widget driver.",
+                event_type.as_str()
+            );
+        }
+        filtered
     }
 
     /// It will ignore all devices where errors occurred or where the device is
