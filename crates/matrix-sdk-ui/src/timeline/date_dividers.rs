@@ -207,8 +207,7 @@ impl DateDividerAdjuster {
 
         // Then check invariants.
         if let Some(report) = self.check_invariants(items, initial_state) {
-            warn!("Errors encountered when checking invariants.");
-            warn!("{report}");
+            error!(sentry = true, %report, "day divider invariants violated");
             #[cfg(any(debug_assertions, test))]
             panic!("There was an error checking date separator invariants");
         }
