@@ -134,8 +134,6 @@ impl PinnedEventsLoader {
                 .unwrap_or_else(|_| MilliSecondsSinceUnixEpoch::now())
         });
 
-        tracing::warn!("loaded pinned events: {:#?}", loaded_events);
-
         // We've successfully loaded *some* pinned events, so we can update the list of
         // previously seen pinned events.
         *self.previous_pinned_event_ids.lock().await = pinned_event_ids;
