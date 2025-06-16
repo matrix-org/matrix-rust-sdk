@@ -378,7 +378,7 @@ impl Timeline {
             Ok(handle) => Ok(Arc::new(SendHandle::new(handle))),
             Err(err) => {
                 error!("error when sending a message: {err}");
-                Err(anyhow::anyhow!(err).into())
+                Err(err.into())
             }
         }
     }
@@ -531,10 +531,7 @@ impl Timeline {
         msg: Arc<RoomMessageEventContentWithoutRelation>,
         reply_params: ReplyParameters,
     ) -> Result<(), ClientError> {
-        self.inner
-            .send_reply((*msg).clone(), reply_params.try_into()?)
-            .await
-            .map_err(|err| anyhow::anyhow!(err))?;
+        self.inner.send_reply((*msg).clone(), reply_params.try_into()?).await?;
         Ok(())
     }
 
@@ -634,7 +631,10 @@ impl Timeline {
 
     pub async fn fetch_details_for_event(&self, event_id: String) -> Result<(), ClientError> {
         let event_id = <&EventId>::try_from(event_id.as_str())?;
-        self.inner.fetch_details_for_event(event_id).await.context("Fetching event details")?;
+        self.inner
+            .fetch_details_for_event(event_id)
+            .await
+            .map_err(|_| ClientError::from_str("Fetching event details".to_owned(), None))?;
         Ok(())
     }
 
@@ -1233,7 +1233,10 @@ impl SendAttachmentJoinHandle {
                     return Ok(());
                 }
                 error!("task panicked! resuming panic from here.");
+                #[cfg(not(target_family = "wasm"))]
                 panic::resume_unwind(err.into_panic());
+                #[cfg(target_family = "wasm")]
+                panic!("task panicked! {err}");
             }
         }
     }
