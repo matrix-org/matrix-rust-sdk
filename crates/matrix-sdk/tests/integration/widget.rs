@@ -30,13 +30,15 @@ use matrix_sdk_test::{
 };
 use once_cell::sync::Lazy;
 use ruma::{
-    event_id,
+    api::client::to_device::send_event_to_device::v3::Messages,
+    device_id, event_id,
     events::{
         room::{member::MembershipState, message::RoomMessageEventContent},
         AnySyncStateEvent, MessageLikeEventType, StateEventType,
     },
     owned_room_id, room_id,
     serde::{JsonObject, Raw},
+    to_device::DeviceIdOrAllDevices,
     user_id, OwnedRoomId,
 };
 use serde::Serialize;
@@ -44,7 +46,7 @@ use serde_json::{json, Value as JsonValue};
 use tracing::error;
 use wiremock::{
     matchers::{method, path_regex},
-    Mock, ResponseTemplate,
+    Mock, Request, ResponseTemplate,
 };
 
 /// Create a JSON string from a [`json!`][serde_json::json] "literal".
@@ -1335,6 +1337,76 @@ async fn test_send_encrypted_to_device_event() {
     let event_as_sent_by_alice = event_as_sent_by_alice.await;
     drop(guard);
     assert_eq!(event_as_sent_by_alice["type"], "m.room.encrypted");
+
+    // Receive the response
+    let msg = recv_message(&driver_handle).await;
+    assert_eq!(msg["api"], "fromWidget");
+    assert_eq!(msg["action"], "send_to_device");
+    let response = msg["response"].clone();
+    assert_eq!(serde_json::to_string(&response).unwrap(), "{}");
+}
+
+#[async_test]
+async fn test_send_encrypted_to_device_event_wildcard() {
+    let (alice, bob, mock_server, driver_handle) = run_test_driver_e2e(false).await;
+
+    let bob_2 = mock_server
+        .set_up_new_device_for_encryption(&bob, device_id!("BOB2BOB2"), vec![&alice])
+        .await;
+
+    mock_server
+        .mock_sync()
+        .ok_and_run(&alice, |builder| {
+            builder.add_change_device(bob.user_id().unwrap());
+        })
+        .await;
+
+    negotiate_capabilities(
+        &driver_handle,
+        json!(["org.matrix.msc3819.send.to_device:my.custom.to_device_type",]),
+    )
+    .await;
+
+    let request_id = "0000000";
+
+    let data = json!({
+        "type": "my.custom.to_device_type",
+        "messages": {
+            bob.user_id().unwrap().to_string(): {
+                "*": {
+                    "param1":"test",
+                },
+            },
+        }
+    });
+
+    Mock::given(method("PUT"))
+        .and(path_regex(r"^/_matrix/client/.*/sendToDevice/m.room.encrypted/.*"))
+        .respond_with(move |req: &Request| {
+            // there should be two messages, one for bob and one for bob_2
+            #[derive(Debug, serde::Deserialize)]
+            struct Parameters {
+                messages: Messages,
+            }
+
+            let params: Parameters = req.body_json().unwrap();
+            assert_eq!(params.messages.len(), 1);
+            let for_bob = params.messages.get(bob.user_id().unwrap()).unwrap();
+            assert_eq!(for_bob.len(), 2);
+            assert!(for_bob
+                .get(&DeviceIdOrAllDevices::DeviceId(bob.device_id().unwrap().to_owned()))
+                .is_some());
+            assert!(for_bob
+                .get(&DeviceIdOrAllDevices::DeviceId(bob_2.device_id().unwrap().to_owned()))
+                .is_some());
+
+            ResponseTemplate::new(200)
+        })
+        .expect(1)
+        .mount(mock_server.server())
+        .await;
+
+    send_request(&driver_handle, request_id, "send_to_device", data).await;
 
     // Receive the response
     let msg = recv_message(&driver_handle).await;
