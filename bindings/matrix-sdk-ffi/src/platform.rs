@@ -397,6 +397,7 @@ impl TracingConfiguration {
                 sentry::ClientOptions {
                     traces_sample_rate: 0.0,
                     attach_stacktrace: true,
+                    release: Some(env!("VERGEN_GIT_SHA").into()),
                     ..sentry::ClientOptions::default()
                 },
             ));
