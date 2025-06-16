@@ -1444,11 +1444,6 @@ impl OlmMachine {
                     Ok(event) => {
                         self.handle_to_device_event(changes, &event).await;
 
-                        // TODO: we should have access to some decryption settings here
-                        // (TrustRequirement) and use it (at least for
-                        // custom to-devices) to manually reject the decryption.
-                        // Similar to check_sender_trust_requirement for room events
-
                         raw_event = event
                             .serialize_zeroized()
                             .expect("Zeroizing and reserializing our events should always work")

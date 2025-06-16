@@ -1509,6 +1509,11 @@ impl Account {
                     )
                     .into());
                 }
+
+                // TODO: we should have access to some decryption settings here
+                // (TrustRequirement) and use it to manually reject the decryption.
+                // Similar to check_sender_trust_requirement for room events
+
                 sender_device = Some(device);
             }
 
