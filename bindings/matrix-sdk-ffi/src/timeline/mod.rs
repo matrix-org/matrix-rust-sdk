@@ -634,7 +634,7 @@ impl Timeline {
         self.inner
             .fetch_details_for_event(event_id)
             .await
-            .map_err(|_| ClientError::from_str("Fetching event details".to_owned(), None))?;
+            .map_err(|e| ClientError::from_str(e, Some("Fetching event details".to_owned())))?;
         Ok(())
     }
 
