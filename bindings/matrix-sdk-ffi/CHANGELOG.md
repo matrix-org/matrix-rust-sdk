@@ -6,6 +6,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased] - ReleaseDate
 
+### Refactor
+
 - Adjust features in the `matrix-sdk-ffi` crate to expose more platform-specific knobs.
   Previously the `matrix-sdk-ffi` was configured primarily by target configs, choosing
   between the tls flavor (`rustls-tls` or `native-tls`) and features like `sentry` based 
