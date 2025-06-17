@@ -20,7 +20,7 @@ crate-type = ["cdylib", "staticlib", "lib"]
 default = ["bundled-sqlite", "unstable-msc4274"]
 bundled-sqlite = ["matrix-sdk/bundled-sqlite"]
 unstable-msc4274 = ["matrix-sdk-ui/unstable-msc4274"]
-# Required when targeting a js environment, like wasm in a browser.
+# Required when targeting a Javascript environment, like Wasm in a browser.
 js = ["matrix-sdk-ui/js"]
 # Use native-tls system, necessary on ios and wasm platforms.
 native-tls = ["matrix-sdk/native-tls", "sentry?/native-tls"]
