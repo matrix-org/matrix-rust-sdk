@@ -8,7 +8,7 @@ use std::{
 };
 
 use js_int::UInt;
-use matrix_sdk_common::deserialized_responses::AlgorithmInfo;
+use matrix_sdk_common::{deserialized_responses::AlgorithmInfo, executor::Runtime};
 use matrix_sdk_crypto::{
     backups::{
         MegolmV1BackupKey as RustBackupKey, SignatureState,
@@ -47,7 +47,6 @@ use ruma::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{value::RawValue, Value};
-use tokio::runtime::Runtime;
 use zeroize::Zeroize;
 
 use crate::{

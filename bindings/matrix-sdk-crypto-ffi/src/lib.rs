@@ -33,7 +33,10 @@ pub use error::{
 use js_int::UInt;
 pub use logger::{set_logger, Logger};
 pub use machine::{KeyRequestPair, OlmMachine, SignatureVerification};
-use matrix_sdk_common::deserialized_responses::{ShieldState as RustShieldState, ShieldStateCode};
+use matrix_sdk_common::{
+    deserialized_responses::{ShieldState as RustShieldState, ShieldStateCode},
+    executor::Runtime,
+};
 use matrix_sdk_crypto::{
     olm::{IdentityKeys, InboundGroupSession, SenderData, Session},
     store::{
@@ -59,7 +62,6 @@ use ruma::{
     RoomId, SecondsSinceUnixEpoch, UserId,
 };
 use serde::{Deserialize, Serialize};
-use tokio::runtime::Runtime;
 pub use users::UserIdentity;
 pub use verification::{
     CancelInfo, ConfirmVerificationResult, QrCode, QrCodeListener, QrCodeState,
