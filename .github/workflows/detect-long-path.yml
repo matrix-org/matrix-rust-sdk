@@ -20,7 +20,7 @@ jobs:
       - uses: actions/checkout@v4
       - name: Check for changed files
         id: changed-files
-        uses: tj-actions/changed-files@115870536a85eaf050e369291c7895748ff12aea
+        uses: tj-actions/changed-files@v46.0.5
       - name: Detect long path
         env:
           ALL_CHANGED_FILES: ${{ steps.changed-files.outputs.all_changed_files }} # ignore the deleted files
