@@ -15,7 +15,7 @@ All notable changes to this project will be documented in this file.
   the cross product of target specific features has become somewhat chaotic, and we
   have shifted to externalize these choices as feature flags.  
 
-  To maintain existing compatibilty on the major platforms, these features should be used:
+  To maintain existing compatibility on the major platforms, these features should be used:
   Android: `"bundled-sqlite,unstable-msc4274,rustls-tls,sentry"`
   iOS: `"bundled-sqlite,unstable-msc4274,native-tls,sentry"`
   Javascript/Wasm: `"unstable-msc4274,native-tls"` 
