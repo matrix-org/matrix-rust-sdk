@@ -312,10 +312,7 @@ impl MatrixDriver {
         );
 
         if filtered {
-            trace!(
-                "To-device message of type <{}> filtered out by widget driver.",
-                event_type.as_str()
-            );
+            trace!("To-device message of type <{event_type}> filtered out by widget driver.",);
         }
         filtered
     }
