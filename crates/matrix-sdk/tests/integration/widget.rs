@@ -25,14 +25,17 @@ use matrix_sdk::{
     Client,
 };
 use matrix_sdk_common::{executor::spawn, timeout::timeout};
-use matrix_sdk_test::{async_test, event_factory::EventFactory, JoinedRoomBuilder, ALICE, BOB};
+use matrix_sdk_test::{
+    async_test, event_factory::EventFactory, JoinedRoomBuilder, StateTestEvent, ALICE, BOB,
+};
 use once_cell::sync::Lazy;
 use ruma::{
     event_id,
     events::{
-        room::member::MembershipState, AnySyncStateEvent, MessageLikeEventType, StateEventType,
+        room::{member::MembershipState, message::RoomMessageEventContent},
+        AnySyncStateEvent, MessageLikeEventType, StateEventType,
     },
-    owned_room_id,
+    owned_room_id, room_id,
     serde::{JsonObject, Raw},
     user_id, OwnedRoomId,
 };
@@ -55,6 +58,7 @@ static ROOM_ID: Lazy<OwnedRoomId> = Lazy::new(|| owned_room_id!("!a98sd12bjh:exa
 
 async fn run_test_driver(
     init_on_content_load: bool,
+    is_room_e2ee: bool,
 ) -> (Client, MatrixMockServer, WidgetDriverHandle) {
     struct DummyCapabilitiesProvider;
 
@@ -70,7 +74,12 @@ async fn run_test_driver(
     let client = mock_server.client_builder().build().await;
 
     let room = mock_server.sync_joined_room(&client, &ROOM_ID).await;
-    mock_server.mock_room_state_encryption().plain().mount().await;
+
+    if is_room_e2ee {
+        mock_server.mock_room_state_encryption().encrypted().mount().await;
+    } else {
+        mock_server.mock_room_state_encryption().plain().mount().await;
+    }
 
     let (driver, handle) = WidgetDriver::new(
         WidgetSettings::new(WIDGET_ID.to_owned(), init_on_content_load, "https://foo.bar/widget")
@@ -84,6 +93,40 @@ async fn run_test_driver(
     });
 
     (client, mock_server, handle)
+}
+
+async fn run_test_driver_e2e(
+    init_on_content_load: bool,
+) -> (Client, Client, MatrixMockServer, WidgetDriverHandle) {
+    struct DummyCapabilitiesProvider;
+
+    #[cfg_attr(target_family = "wasm", async_trait(?Send))]
+    #[cfg_attr(not(target_family = "wasm"), async_trait)]
+    impl CapabilitiesProvider for DummyCapabilitiesProvider {
+        async fn acquire_capabilities(&self, capabilities: Capabilities) -> Capabilities {
+            // Grant all capabilities that the widget asks for
+            capabilities
+        }
+    }
+    let mock_server = MatrixMockServer::new().await;
+    mock_server.mock_crypto_endpoints_preset().await;
+    let (alice, bob) = mock_server.set_up_alice_and_bob_for_encryption().await;
+
+    let room = mock_server.sync_joined_room(&alice, &ROOM_ID).await;
+
+    mock_server.mock_room_state_encryption().encrypted().mount().await;
+    let (driver, handle) = WidgetDriver::new(
+        WidgetSettings::new(WIDGET_ID.to_owned(), init_on_content_load, "https://foo.bar/widget")
+            .unwrap(),
+    );
+
+    spawn(async move {
+        if let Err(()) = driver.run(room, DummyCapabilitiesProvider).await {
+            error!("An error encountered in running the WidgetDriver (no details available yet)");
+        }
+    });
+
+    (alice, bob, mock_server, handle)
 }
 
 async fn recv_message(driver_handle: &WidgetDriverHandle) -> JsonObject {
@@ -132,7 +175,7 @@ async fn send_response(
 
 #[async_test]
 async fn test_negotiate_capabilities_immediately() {
-    let (_, _, driver_handle) = run_test_driver(false).await;
+    let (_, _, driver_handle) = run_test_driver(false, false).await;
 
     let caps = json!(["org.matrix.msc2762.receive.event:m.room.message"]);
 
@@ -215,7 +258,7 @@ static TOMBSTONE_EVENT: Lazy<JsonValue> = Lazy::new(|| {
 
 #[async_test]
 async fn test_read_messages() {
-    let (_, mock_server, driver_handle) = run_test_driver(true).await;
+    let (_, mock_server, driver_handle) = run_test_driver(true, false).await;
 
     {
         // Tell the driver that we're ready for communication
@@ -275,7 +318,7 @@ async fn test_read_messages() {
 
 #[async_test]
 async fn test_read_messages_with_msgtype_capabilities() {
-    let (_, mock_server, driver_handle) = run_test_driver(true).await;
+    let (_, mock_server, driver_handle) = run_test_driver(true, false).await;
 
     {
         // Tell the driver that we're ready for communication
@@ -345,7 +388,7 @@ async fn assert_state_synced(driver_handle: &WidgetDriverHandle, state: JsonValu
 
 #[async_test]
 async fn test_read_room_members() {
-    let (_, mock_server, driver_handle) = run_test_driver(false).await;
+    let (_, mock_server, driver_handle) = run_test_driver(false, false).await;
 
     negotiate_capabilities(
         &driver_handle,
@@ -413,7 +456,7 @@ async fn test_read_room_members() {
 
 #[async_test]
 async fn test_receive_live_events() {
-    let (client, mock_server, driver_handle) = run_test_driver(false).await;
+    let (client, mock_server, driver_handle) = run_test_driver(false, false).await;
 
     negotiate_capabilities(
         &driver_handle,
@@ -525,8 +568,169 @@ async fn test_receive_live_events() {
 }
 
 #[async_test]
+async fn test_block_clear_to_device_in_e2ee_room() {
+    let (client, mock_server, driver_handle) = run_test_driver(false, true).await;
+
+    negotiate_capabilities(
+        &driver_handle,
+        json!(["org.matrix.msc3819.receive.to_device:my.custom.to.device"]),
+    )
+    .await;
+
+    // No messages from the driver yet
+    assert_matches!(recv_message(&driver_handle).now_or_never(), None);
+
+    mock_server
+        .mock_sync()
+        .ok_and_run(&client, |sync_builder| {
+            sync_builder.add_to_device_event(json!({
+                    "sender": "@alice:example.com",
+                    "type": "my.custom.to.device",
+                    "content": {
+                      "a": "test",
+                    }
+                  }
+            ));
+        })
+        .await;
+
+    // The message should be filtered out because it is not encrypted and the room
+    // is encrypted
+    assert_matches!(recv_message(&driver_handle).now_or_never(), None);
+}
+
+#[async_test]
+async fn test_accept_encrypted_to_device_in_e2ee_room() {
+    let (alice, bob, mock_server, driver_handle) = run_test_driver_e2e(false).await;
+
+    negotiate_capabilities(
+        &driver_handle,
+        json!(["org.matrix.msc3819.receive.to_device:my.custom.to.device"]),
+    )
+    .await;
+
+    let bob_alice_device = bob
+        .encryption()
+        .get_device(alice.user_id().unwrap(), alice.device_id().unwrap())
+        .await
+        .unwrap()
+        .unwrap();
+
+    let content_raw = Raw::new(&json!({
+        "call_id": "",
+    }))
+    .unwrap()
+    .cast();
+
+    let event_synced_future =
+        mock_server.mock_capture_put_to_device_then_sync_back(bob.user_id().unwrap(), &alice).await;
+
+    bob.encryption()
+        .encrypt_and_send_raw_to_device(vec![&bob_alice_device], "my.custom.to.device", content_raw)
+        .await
+        .unwrap();
+
+    // No messages from the driver yet
+    assert_matches!(recv_message(&driver_handle).now_or_never(), None);
+
+    event_synced_future.await;
+
+    let msg = recv_message(&driver_handle).await;
+    assert_eq!(msg["api"], "toWidget");
+    assert_eq!(msg["action"], "send_to_device");
+
+    let data = msg["data"].as_object().unwrap();
+    assert_eq!(data["type"], "my.custom.to.device");
+    assert_eq!(data["content"]["call_id"], "");
+    assert_eq!(data["sender"], "@bob:example.org");
+    // TODO: Currently the rust-sdk is exposing more than type/content/sender in
+    // the event this should be exposed to the widget but it should be fixed
+    // at the crypto crate level see https://github.com/matrix-org/matrix-rust-sdk/pull/5201
+    // assert_eq!(data.len(), 3);
+}
+
+/// Test that "internal" to-device messages are never forwarded to the widgets.
+/// Here we test that a `m.room_key` message is never forwarded to the widget.
+/// These events are already zeroized by the SDK, but let's not leak them
+/// anyhow.
+#[async_test]
+async fn test_should_block_internal_to_device() {
+    let (alice, bob, mock_server, driver_handle) = run_test_driver_e2e(false).await;
+
+    negotiate_capabilities(
+        &driver_handle,
+        json!(["org.matrix.msc3819.receive.to_device:m.room_key"]),
+    )
+    .await;
+
+    let room_id = room_id!("!room_id:localhost");
+
+    let alice_member_state = json!({
+        "content": {
+            "avatar_url": null,
+            "displayname": "Alice",
+            "membership": "join"
+        },
+        "event_id": "$151800140517rfvjc:localhost",
+        "membership": "join",
+        "origin_server_ts": 151800140,
+        "sender": alice.user_id().unwrap().to_string(),
+        "state_key": alice.user_id().unwrap().to_string(),
+        "type": "m.room.member",
+        "unsigned": {
+            "age": 297036,
+        }
+    });
+
+    // Let's emulate what `MatrixMockServer::sync_joined_room()` does.
+    mock_server
+        .mock_sync()
+        .ok_and_run(&bob, |builder| {
+            builder.add_joined_room(
+                JoinedRoomBuilder::new(room_id)
+                    .add_state_event(StateTestEvent::Encryption)
+                    .add_state_event(StateTestEvent::Custom(alice_member_state.clone())),
+            );
+        })
+        .await;
+
+    // Needed for the message to be sent in an encrypted room
+    mock_server
+        .mock_get_members()
+        .ok(vec![serde_json::from_value(alice_member_state).unwrap()])
+        .mock_once()
+        .mount()
+        .await;
+
+    let (guard, room_key_event) =
+        mock_server.mock_capture_put_to_device(bob.user_id().unwrap()).await;
+
+    let msg = RoomMessageEventContent::text_plain("Hello world");
+    let room_bob_pov = bob.get_room(room_id).unwrap();
+
+    // We don't need to mock the room send end point for our test, just let the
+    // event in queue the important part is the room key
+    let _ = room_bob_pov.send(msg).await;
+
+    // this is the room key event!
+    let sent_event = room_key_event.await;
+    drop(guard);
+
+    // feed it back
+    mock_server
+        .mock_sync()
+        .ok_and_run(&alice, |sync_builder| {
+            sync_builder.add_to_device_event(sent_event.deserialize_as().unwrap());
+        })
+        .await;
+
+    // the driver should block the message and the widget should see nothing
+    assert_matches!(recv_message(&driver_handle).now_or_never(), None);
+}
+
+#[async_test]
 async fn test_receive_state() {
-    let (client, mock_server, driver_handle) = run_test_driver(false).await;
+    let (client, mock_server, driver_handle) = run_test_driver(false, false).await;
 
     let f = EventFactory::new().room(&ROOM_ID);
     let name_event_1: Raw<AnySyncStateEvent> = f.room_name("room name").sender(&BOB).into();
@@ -625,7 +829,7 @@ async fn test_receive_state() {
 
 #[async_test]
 async fn test_send_room_message() {
-    let (_, mock_server, driver_handle) = run_test_driver(false).await;
+    let (_, mock_server, driver_handle) = run_test_driver(false, false).await;
 
     negotiate_capabilities(&driver_handle, json!(["org.matrix.msc2762.send.event:m.room.message"]))
         .await;
@@ -662,7 +866,7 @@ async fn test_send_room_message() {
 
 #[async_test]
 async fn test_send_room_name() {
-    let (_, mock_server, driver_handle) = run_test_driver(false).await;
+    let (_, mock_server, driver_handle) = run_test_driver(false, false).await;
 
     negotiate_capabilities(
         &driver_handle,
@@ -702,7 +906,7 @@ async fn test_send_room_name() {
 
 #[async_test]
 async fn test_send_delayed_message_event() {
-    let (_, mock_server, driver_handle) = run_test_driver(false).await;
+    let (_, mock_server, driver_handle) = run_test_driver(false, false).await;
 
     negotiate_capabilities(
         &driver_handle,
@@ -748,7 +952,7 @@ async fn test_send_delayed_message_event() {
 
 #[async_test]
 async fn test_send_delayed_state_event() {
-    let (_, mock_server, driver_handle) = run_test_driver(false).await;
+    let (_, mock_server, driver_handle) = run_test_driver(false, false).await;
 
     negotiate_capabilities(
         &driver_handle,
@@ -795,7 +999,7 @@ async fn test_send_delayed_state_event() {
 
 #[async_test]
 async fn test_fail_sending_delay_rate_limit() {
-    let (_, mock_server, driver_handle) = run_test_driver(false).await;
+    let (_, mock_server, driver_handle) = run_test_driver(false, false).await;
 
     negotiate_capabilities(
         &driver_handle,
@@ -854,7 +1058,7 @@ async fn test_fail_sending_delay_rate_limit() {
 
 #[async_test]
 async fn test_try_send_delayed_state_event_without_permission() {
-    let (_, _mock_server, driver_handle) = run_test_driver(false).await;
+    let (_, _mock_server, driver_handle) = run_test_driver(false, false).await;
 
     negotiate_capabilities(
         &driver_handle,
@@ -890,7 +1094,7 @@ async fn test_try_send_delayed_state_event_without_permission() {
 
 #[async_test]
 async fn test_update_delayed_event() {
-    let (_, mock_server, driver_handle) = run_test_driver(false).await;
+    let (_, mock_server, driver_handle) = run_test_driver(false, false).await;
 
     negotiate_capabilities(&driver_handle, json!(["org.matrix.msc4157.update_delayed_event",]))
         .await;
@@ -923,7 +1127,7 @@ async fn test_update_delayed_event() {
 
 #[async_test]
 async fn test_try_update_delayed_event_without_permission() {
-    let (_, _mock_server, driver_handle) = run_test_driver(false).await;
+    let (_, _mock_server, driver_handle) = run_test_driver(false, false).await;
 
     negotiate_capabilities(&driver_handle, json!([])).await;
 
@@ -951,7 +1155,7 @@ async fn test_try_update_delayed_event_without_permission() {
 
 #[async_test]
 async fn test_try_update_delayed_event_without_permission_negotiate() {
-    let (_, _mock_server, driver_handle) = run_test_driver(false).await;
+    let (_, _mock_server, driver_handle) = run_test_driver(false, false).await;
 
     send_request(
         &driver_handle,
@@ -981,7 +1185,7 @@ async fn test_try_update_delayed_event_without_permission_negotiate() {
 
 #[async_test]
 async fn test_send_redaction() {
-    let (_, mock_server, driver_handle) = run_test_driver(false).await;
+    let (_, mock_server, driver_handle) = run_test_driver(false, false).await;
 
     negotiate_capabilities(
         &driver_handle,
@@ -1023,7 +1227,7 @@ async fn send_to_device_test_helper(
     expected_response: JsonValue,
     calls: u64,
 ) -> JsonValue {
-    let (_, mock_server, driver_handle) = run_test_driver(false).await;
+    let (_, mock_server, driver_handle) = run_test_driver(false, false).await;
 
     negotiate_capabilities(
         &driver_handle,
