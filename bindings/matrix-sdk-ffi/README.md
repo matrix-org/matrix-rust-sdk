@@ -11,6 +11,7 @@ Given the number of platforms targeted, we have broken out a number of features
 
 ### Functionality
 - `sentry`: Enable error monitoring using Sentry, not supports on Wasm platforms.
+- `bundled-sqlite`: Use an embedded version of sqlite instead of the system provided one.
 
 ### Unstable specs
 - `unstable-msc4274`: Adds support for gallery message types, which contain multiple media elements.
