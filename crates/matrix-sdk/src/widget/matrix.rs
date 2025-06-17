@@ -240,7 +240,7 @@ impl MatrixDriver {
 
             async move |raw: Raw<AnyToDeviceEvent>, encryption_info: Option<EncryptionInfo>, client: Client| {
 
-                // Some to-device traffic is used by the sdk for internal machinery.
+                // Some to-device traffic is used by the SDK for internal machinery.
                 // They should not be exposed to widgets.
                 if Self::should_filter_message_to_widget(&raw) {
                     return;
@@ -249,7 +249,7 @@ impl MatrixDriver {
                 // Encryption can be enabled after the widget has been instantiated,
                 // we want to keep track of the latest status
                 let Some(room) = client.get_room(&room_id) else {
-                    warn!("Room {} not found in client.", room_id);
+                    warn!("Room {room_id} not found in client.");
                     return;
                 };
 
@@ -267,7 +267,7 @@ impl MatrixDriver {
                         return;
                     };
 
-                    // There no per-room specific decryption setting, so we can just send to the
+                    // There are no per-room specific decryption settings, so we can just send to the
                     // widget
                     let _ = tx.send(raw);
                 } else {
