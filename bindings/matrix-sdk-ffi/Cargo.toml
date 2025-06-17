@@ -1,6 +1,6 @@
 [package]
 name = "matrix-sdk-ffi"
-version = "0.11.0"
+version = "0.12.0"
 edition = "2021"
 homepage = "https://github.com/matrix-org/matrix-rust-sdk"
 keywords = ["matrix", "chat", "messaging", "ffi"]
@@ -22,11 +22,11 @@ bundled-sqlite = ["matrix-sdk/bundled-sqlite"]
 unstable-msc4274 = ["matrix-sdk-ui/unstable-msc4274"]
 # Required when targeting a Javascript environment, like Wasm in a browser.
 js = ["matrix-sdk-ui/js"]
-# Use native-tls system, necessary on ios and wasm platforms.
+# Use the TLS implementation provided by the host system, necessary on iOS and Wasm platforms.
 native-tls = ["matrix-sdk/native-tls", "sentry?/native-tls"]
 # Use Rustls as the TLS implementation, necessary on Android platforms.
 rustls-tls = ["matrix-sdk/rustls-tls", "sentry?/rustls"]
-# Enable sentry, not compatible with wasm platforms.
+# Enable sentry error monitoring, not compatible on Wasm platforms.
 sentry = ["dep:sentry", "dep:sentry-tracing"]
 
 [dependencies]
