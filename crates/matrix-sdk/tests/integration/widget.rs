@@ -622,7 +622,8 @@ async fn test_accept_encrypted_to_device_in_e2ee_room() {
     .unwrap()
     .cast();
 
-    let (guard, sent_event) = mock_server.mock_capture_put_to_device(bob.user_id().unwrap()).await;
+    let event_synced_future =
+        mock_server.mock_capture_put_to_device_then_sync_back(bob.user_id().unwrap(), &alice).await;
 
     bob.encryption()
         .encrypt_and_send_raw_to_device(vec![&bob_alice_device], "my.custom.to.device", content_raw)
@@ -632,14 +633,7 @@ async fn test_accept_encrypted_to_device_in_e2ee_room() {
     // No messages from the driver yet
     assert_matches!(recv_message(&driver_handle).now_or_never(), None);
 
-    let sent_event = sent_event.await;
-    drop(guard);
-    mock_server
-        .mock_sync()
-        .ok_and_run(&alice, |sync_builder| {
-            sync_builder.add_to_device_event(sent_event);
-        })
-        .await;
+    event_synced_future.await;
 
     let msg = recv_message(&driver_handle).await;
     assert_eq!(msg["api"], "toWidget");
@@ -726,7 +720,7 @@ async fn test_should_block_internal_to_device() {
     mock_server
         .mock_sync()
         .ok_and_run(&alice, |sync_builder| {
-            sync_builder.add_to_device_event(sent_event);
+            sync_builder.add_to_device_event(sent_event.deserialize_as().unwrap());
         })
         .await;
 

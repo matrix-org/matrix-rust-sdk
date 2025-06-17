@@ -160,9 +160,8 @@ async fn test_to_device_event_handler_olm_encryption_info() {
     .cast();
 
     // Capture the event sent by Alice to feed it back to Bob's client later.
-
-    let (guard, event_as_sent_by_alice) =
-        server.mock_capture_put_to_device(alice.user_id().unwrap()).await;
+    let bob_received_to_device_future =
+        server.mock_capture_put_to_device_then_sync_back(alice.user_id().unwrap(), &bob).await;
 
     alice
         .encryption()
@@ -181,15 +180,8 @@ async fn test_to_device_event_handler_olm_encryption_info() {
         }
     });
 
-    // feed back the event to Bob's client
-    let event_as_sent_by_alice = event_as_sent_by_alice.await;
-    drop(guard);
-    server
-        .mock_sync()
-        .ok_and_run(&bob, |builder| {
-            builder.add_to_device_event(event_as_sent_by_alice);
-        })
-        .await;
+    // wait for event to be fed back to Bob's client
+    bob_received_to_device_future.await;
 
     let (event, encryption_info) = handled_event_info.lock().clone();
     assert_let!(Some(event) = event);
