@@ -248,7 +248,6 @@ impl MatrixMockServer {
     ///     drop(guard);
     /// }
     /// ```
-
     pub async fn mock_capture_put_to_device(
         &self,
         sender_user_id: &UserId,
