@@ -291,8 +291,17 @@ impl MatrixDriver {
         // Filter out all the internal crypto related traffic.
         // The SDK has already zeroized the critical data, but let's not leak any
         // information
-        let filtered = matches!(
-            event_type.as_str(),
+        let filtered = Self::is_internal_type(event_type.as_str());
+
+        if filtered {
+            trace!("To-device message of type <{event_type}> filtered out by widget driver.",);
+        }
+        filtered
+    }
+
+    fn is_internal_type(event_type: &str) -> bool {
+        matches!(
+            event_type,
             "m.dummy"
                 | "m.room_key"
                 | "m.room_key_request"
@@ -309,14 +318,8 @@ impl MatrixDriver {
                 | "m.secret.send"
                 // drop utd traffic
                 | "m.room.encrypted"
-        );
-
-        if filtered {
-            trace!("To-device message of type <{event_type}> filtered out by widget driver.",);
-        }
-        filtered
+        )
     }
-
     /// If the room the widget is in is encrypted, then the to-device message
     /// will be encrypted. If one of the named devices does not exist, then
     /// the call will fail with an error.
@@ -330,8 +333,8 @@ impl MatrixDriver {
     ) -> Result<SendToDeviceEventResponse> {
         // TODO: block this at the negotiation stage, no reason to let widget believe
         // they can do that
-        if Self::is_internal_type(event_type.to_string()) {
-            warn!("Widget tried to send internal to-device message <{}>, ignoring", event_type);
+        if Self::is_internal_type(&event_type.to_string()) {
+            warn!("Widget tried to send internal to-device message <{event_type}>, ignoring");
             // Silently return a success response, the widget will not receive the message
             // TODO! this will later be blocked at negociation level
             return Ok(Default::default());

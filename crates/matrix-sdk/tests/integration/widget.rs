@@ -1334,9 +1334,10 @@ async fn test_send_encrypted_to_device_event() {
 
     send_request(&driver_handle, request_id, "send_to_device", data).await;
 
-    let event_as_sent_by_alice = event_as_sent_by_alice.await;
+    let event_as_sent_by_alice = event_as_sent_by_alice.await.deserialize().unwrap();
     drop(guard);
-    assert_eq!(event_as_sent_by_alice["type"], "m.room.encrypted");
+    assert_eq!(event_as_sent_by_alice.algorithm().as_str(), "m.olm.v1.curve25519-aes-sha2");
+
 
     // Receive the response
     let msg = recv_message(&driver_handle).await;
@@ -1494,9 +1495,9 @@ async fn test_send_encrypted_to_device_event_partial_error() {
     send_request(&driver_handle, request_id, "send_to_device", data).await;
 
     // It was sent to bob even though other recipients failed
-    let event_as_sent_by_alice = event_as_sent_by_alice.await;
+    let event_as_sent_by_alice = event_as_sent_by_alice.await.deserialize().unwrap();
     drop(guard);
-    assert_eq!(event_as_sent_by_alice["type"], "m.room.encrypted");
+    assert_eq!(event_as_sent_by_alice.algorithm().as_str(), "m.olm.v1.curve25519-aes-sha2");
 
     // Receive the response
     let msg = recv_message(&driver_handle).await;

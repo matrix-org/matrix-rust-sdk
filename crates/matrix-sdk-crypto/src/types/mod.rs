@@ -34,10 +34,7 @@ use std::{
 };
 
 use as_variant::as_variant;
-use matrix_sdk_common::deserialized_responses::{
-    AlgorithmInfo, DeviceLinkProblem, EncryptionInfo, PrivOwnedStr, VerificationLevel,
-    VerificationState,
-};
+use matrix_sdk_common::deserialized_responses::PrivOwnedStr;
 use ruma::{
     serde::StringEnum, DeviceKeyAlgorithm, DeviceKeyId, OwnedDeviceKeyId, OwnedUserId, RoomId,
     UserId,

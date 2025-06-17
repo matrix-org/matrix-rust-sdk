@@ -32,7 +32,7 @@ use ruma::{
     CrossSigningKeyId, DeviceId, MilliSecondsSinceUnixEpoch, OneTimeKeyAlgorithm, OwnedDeviceId,
     OwnedOneTimeKeyId, OwnedUserId, UserId,
 };
-use serde_json::{json, Value};
+use serde_json::json;
 use wiremock::{
     matchers::{method, path_regex},
     Mock, MockGuard, Request, ResponseTemplate,

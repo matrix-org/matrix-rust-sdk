@@ -163,9 +163,6 @@ async fn test_to_device_event_handler_olm_encryption_info() {
     let bob_received_to_device_future =
         server.mock_capture_put_to_device_then_sync_back(alice.user_id().unwrap(), &bob).await;
 
-    let (guard, event_as_sent_by_alice) =
-        server.mock_capture_put_to_device(alice.user_id().unwrap()).await;
-
     alice
         .encryption()
         .encrypt_and_send_raw_to_device(vec![&alice_bob_device], "call.keys", content_raw)
