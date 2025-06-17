@@ -24,7 +24,7 @@ unstable-msc4274 = ["matrix-sdk-ui/unstable-msc4274"]
 js = ["matrix-sdk-ui/js"]
 # Use native-tls system, necessary on ios and wasm platforms.
 native-tls = ["matrix-sdk/native-tls", "sentry?/native-tls"]
-# Use the rustls-tls system, necessary on android platforms.
+# Use Rustls as the TLS implementation, necessary on Android platforms.
 rustls-tls = ["matrix-sdk/rustls-tls", "sentry?/rustls"]
 # Enable sentry, not compatible with wasm platforms.
 sentry = ["dep:sentry", "dep:sentry-tracing"]
