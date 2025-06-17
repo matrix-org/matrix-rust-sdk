@@ -200,6 +200,55 @@ impl MatrixMockServer {
     /// - A `MockGuard` the end-point mock is scoped to this guard
     /// - A `Future` that resolves to a `Raw<EncryptedToDeviceEvent>>`
     ///   containing the captured encrypted to-device message.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// # use ruma::{ device_id,  user_id, serde::Raw};
+    /// # use serde_json::json;
+    ///
+    /// # use matrix_sdk_test::async_test;
+    /// # use matrix_sdk::test_utils::mocks::MatrixMockServer;
+    /// #
+    /// #[async_test]
+    /// async fn test_mock_capture_put_to_device() {
+    ///     let server = MatrixMockServer::new().await;
+    ///     server.mock_crypto_endpoints_preset().await;
+    ///
+    ///     let (alice, bob) = server.set_up_alice_and_bob_for_encryption().await;
+    ///     let bob_user_id = bob.user_id().unwrap();
+    ///     let bob_device_id = bob.device_id().unwrap();
+    ///
+    ///     // From the point of view of Alice, Bob now has a device.
+    ///     let alice_bob_device = alice
+    ///         .encryption()
+    ///         .get_device(bob_user_id, bob_device_id)
+    ///         .await
+    ///         .unwrap()
+    ///         .expect("alice sees bob's device");
+    ///
+    ///     let content_raw = Raw::new(&json!({ /*...*/ })).unwrap().cast();
+    ///
+    ///     // Set up the mock to capture encrypted to-device messages
+    ///     let (guard, captured) =
+    ///         server.mock_capture_put_to_device(alice.user_id().unwrap()).await;
+    ///
+    ///     alice
+    ///         .encryption()
+    ///         .encrypt_and_send_raw_to_device(
+    ///             vec![&alice_bob_device],
+    ///             "call.keys",
+    ///             content_raw,
+    ///         )
+    ///         .await
+    ///         .unwrap();
+    ///
+    ///     // this is the captured event as sent by alice!
+    ///     let sent_event = captured.await;
+    ///     drop(guard);
+    /// }
+    /// ```
+
     pub async fn mock_capture_put_to_device(
         &self,
         sender_user_id: &UserId,
