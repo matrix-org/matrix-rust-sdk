@@ -19,12 +19,18 @@
 
 mod account;
 mod group_sessions;
+mod olm_account_data;
+mod olm_session_data;
+mod olm_types;
 mod session;
 mod signing;
 pub(crate) mod utility;
 
 pub use account::{Account, OlmMessageHash, PickledAccount, StaticAccountData};
 pub(crate) use account::{OlmDecryptionInfo, SessionType};
+pub use olm_account_data::OlmAccountData;
+pub use olm_session_data::OlmSessionData;
+pub use olm_types::{DecryptedOlmEvent, OlmPreKeyBundle};
 pub(crate) use group_sessions::{
     sender_data_finder::{self, SenderDataFinder},
     ShareState,

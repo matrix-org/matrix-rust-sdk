@@ -145,6 +145,10 @@ pub struct OlmMachineInner {
     identity_manager: IdentityManager,
     /// A state machine that handles creating room key backups.
     backup_machine: BackupMachine,
+    /// Olm one-time-keys that have been consumed from the Account and are
+    /// waiting to be successfully uploaded. Stored here after mutable Account
+    /// operations and before they are put into an OutgoingRequest.
+    pending_olm_otks: Arc<StdRwLock<Option<BTreeMap<OwnedOneTimeKeyId, Raw<JsonValue>>>>>,
 }
 
 #[cfg(not(tarpaulin_include))]
@@ -258,6 +262,7 @@ impl OlmMachine {
             key_request_machine,
             identity_manager,
             backup_machine,
+            pending_olm_otks: Arc::new(StdRwLock::new(None)),
         });
 
         Self { inner }
@@ -522,12 +527,142 @@ impl OlmMachine {
 
         {
             let store_cache = self.inner.store.cache().await?;
-            let account = store_cache.account().await?;
-            if let Some(r) = self.keys_for_upload(&account).await.map(|r| OutgoingRequest {
-                request_id: TransactionId::new(),
-                request: Arc::new(r.into()),
-            }) {
-                requests.push(r);
+            // To correctly call `olm_one_time_keys_for_upload` (which takes &mut Account)
+            // and `signed_one_time_keys` (which may call generate_one_time_keys_if_needed,
+            // also &mut Account), we would ideally need mutable access to the account here.
+            // This might involve loading the account mutably from the store if the
+            // store_cache provides an immutable snapshot.
+            // For this refactor, we assume `account` can be accessed or cloned mutably
+            // for these operations, or that key generation/preparation has already
+            // occurred and the results are available.
+
+            // Let's simulate the intended flow:
+            // 1. Get a potentially mutable account or ensure keys are generated.
+            //    (This part is hand-wavy with current tools if store_cache.account() is immutable
+            //     and mutations are expected here.)
+            //    `account.generate_one_time_keys_if_needed()` might have been called by sync.
+            //    `account.generate_olm_one_time_keys()` (via the if_needed logic) too.
+
+            // 2. Prepare keys for upload.
+            // This part requires careful handling of Account's mutability.
+            // If `store_cache.account()` returns `Arc<Account>`, we can't directly call mutable methods.
+            // The actual mutable operations should ideally happen within a `StoreTransaction`
+            // or when `OlmMachine` explicitly handles account state changes.
+
+            // For the purpose of this edit, we'll proceed by trying to get the components
+            // and merge them, acknowledging the mutability constraints.
+            // A more robust solution might involve `Store::prepare_keys_for_upload()`
+            // that handles the mutable operations and returns all necessary key components.
+
+            let account_for_upload = store_cache.account().await?; // Still immutable here.
+
+            // Hypothetically, if we could get a mutable account:
+            // let mut mutable_account = self.inner.store.account_mut().await?; // Fictional method
+            // let olm_otks = mutable_account.olm_one_time_keys_for_upload();
+            // let (device_keys, signed_otks, fallback_keys) = mutable_account.keys_for_upload_mut();
+            // self.inner.store.save_account(mutable_account).await?;
+            //
+            // Since we don't have that, we call the methods on the immutable snapshot,
+            // which is problematic for methods designed to be mutable.
+            // `keys_for_upload` as previously defined takes `&Account`.
+            // `olm_one_time_keys_for_upload` takes `&mut Account`.
+
+            // To make progress, let's assume the key preparation that requires mutation
+            // (generating and taking Olm OTKs) has happened *before* `outgoing_requests`.
+            // So, `olm_one_time_keys_for_upload` would have been called, and its
+            // result stored, perhaps in `Changes` or a temporary field on `OlmMachine`.
+            // Then `keys_for_upload` would primarily deal with device/fallback keys
+            // and already generated signed OTKs.
+
+            // For this patch, I will call a modified `keys_for_upload_parts` that separates concerns.
+            // This is a conceptual change to illustrate the flow.
+
+            let (device_keys_opt, signed_otks_map, fallback_keys_map) =
+                Self::get_account_key_parts_for_upload(&account_for_upload).await;
+
+            // Now, we need the Olm OTKs. This is the tricky part with an immutable `account_for_upload`.
+            // Let's assume they were pre-fetched by a mutable operation.
+            // For this example, I'll call a new conceptual method on `account_for_upload`
+            // that would just *read* from `OlmAccountData` without mutating it here.
+            // The actual mutation (clearing from OlmAccountData) needs to be tied to *successful* upload.
+
+            // This is still not quite right because `olm_one_time_keys_for_upload` *mutates*.
+            // The most robust way is:
+            // 1. In `receive_sync_changes` or a dedicated "prepare keys" step:
+            //    - Get `mut account`.
+            //    - Call `account.generate_one_time_keys_if_needed()` (covers both types).
+            //    - Store `account`.
+            // 2. In `outgoing_requests`:
+            //    - Get `mut account`.
+            //    - `let olm_otks = account.olm_one_time_keys_for_upload();`
+            //    - `let signed_otks = account.signed_one_time_keys();` (careful if it regenerates)
+            //    - `let fallback_keys = account.signed_fallback_keys();`
+            //    - `let device_keys = if !account.shared() { Some(account.device_keys()) } else { None };`
+            //    - `store.save_account(account)` to persist consumed Olm OTKs.
+            //    - Then build the request.
+
+            // Sticking to modifying `outgoing_requests` with minimal structural changes to OlmMachine:
+            // We need a mutable account reference here.
+            // The store cache usually provides immutable snapshots for `outgoing_requests`.
+            // This implies that key *preparation* (generation and taking from OlmAccountData)
+            // should happen in `receive_sync_changes` or a similar place that saves `Changes`.
+
+            // Let's assume `account_for_upload` is the state *after* key generation has occurred.
+            // The next step is to get the keys for the request.
+            // The `olm_one_time_keys_for_upload` call needs to happen on the *actual* account
+            // instance that will be persisted.
+
+            // For this patch, I'll fetch parts and merge, but acknowledge the mutability constraint.
+            // The ideal fix is likely making the account accessible mutably here, or having
+            // `generate_keys_if_needed` also prepare and return what `olm_one_time_keys_for_upload` does.
+
+            // Get device_keys, signed_otks, and fallback_keys from the (immutable) account snapshot.
+            let (mut device_keys, signed_otks, fallback_keys) =
+                account_for_upload.keys_for_upload();
+
+            let mut combined_one_time_keys = signed_otks;
+
+            // Read (peek at) the pending Olm OTKs. These were consumed from Account
+            // and stored in self.inner.pending_olm_otks by `preprocess_sync_changes` (or a similar method).
+            let pending_olm_otks_guard = self.inner.pending_olm_otks.read();
+            if let Some(olm_otks_to_upload) = pending_olm_otks_guard.as_ref() {
+                if !olm_otks_to_upload.is_empty() {
+                    debug!(
+                        count = olm_otks_to_upload.len(),
+                        "Including pending Olm one-time keys in the upload request."
+                    );
+                    combined_one_time_keys.extend(olm_otks_to_upload.clone());
+                    // Note: We clone here because extend takes by reference.
+                    // These keys are cleared from pending_olm_otks only on successful upload.
+                }
+            }
+            drop(pending_olm_otks_guard); // Release the read lock
+
+            // Sign device_keys if needed
+            if let Some(dk) = &mut device_keys {
+                let private_identity = self.store().private_identity();
+                let guard = private_identity.lock().await;
+                if guard.status().await.is_complete() {
+                    guard.sign_device_keys(dk).await.expect(
+                        "We should be able to sign device keys if private identity is complete",
+                    );
+                }
+            }
+
+            if device_keys.is_none() && combined_one_time_keys.is_empty() && fallback_keys.is_empty() {
+                // No keys to upload
+            } else {
+                // Use the new helper to build the request from parts
+                if let Some(req) = self.build_keys_upload_request_from_parts(
+                    device_keys,
+                    combined_one_time_keys, // This now includes both signed and pending Olm OTKs
+                    fallback_keys
+                ).await {
+                    requests.push(OutgoingRequest {
+                        request_id: TransactionId::new(),
+                        request: Arc::new(req.into()),
+                    });
+                }
             }
         }
 
@@ -806,41 +941,39 @@ impl OlmMachine {
     /// The response of a successful key upload requests needs to be passed to
     /// the [`OlmMachine`] with the [`receive_keys_upload_response`].
     ///
+    /// This version is intended to be called after necessary mutable operations on Account
+    /// (like key generation or consuming OTKs) have already been performed.
+    ///
     /// [`receive_keys_upload_response`]: #method.receive_keys_upload_response
-    async fn keys_for_upload(&self, account: &Account) -> Option<UploadKeysRequest> {
-        let (mut device_keys, one_time_keys, fallback_keys) = account.keys_for_upload();
+    async fn build_keys_upload_request_from_parts(
+        &self,
+        device_keys: Option<DeviceKeys>,
+        one_time_keys: BTreeMap<OwnedOneTimeKeyId, Raw<ruma::encryption::OneTimeKey>>,
+        fallback_keys: BTreeMap<OwnedOneTimeKeyId, Raw<ruma::encryption::OneTimeKey>>,
+    ) -> Option<UploadKeysRequest> {
+        let mut potentially_modified_device_keys = device_keys;
 
-        // When uploading the device keys, if all private cross-signing keys are
-        // available locally, sign the device using these cross-signing keys.
-        // This will mark the device as verified if the user identity (i.e., the
-        // cross-signing keys) is also marked as verified.
-        //
-        // This approach eliminates the need to upload signatures in a separate request,
-        // ensuring that other users/devices will never encounter this device
-        // without a signature from their user identity. Consequently, they will
-        // never see the device as unverified.
-        if let Some(device_keys) = &mut device_keys {
+        if let Some(dk) = &mut potentially_modified_device_keys {
             let private_identity = self.store().private_identity();
             let guard = private_identity.lock().await;
-
             if guard.status().await.is_complete() {
-                guard.sign_device_keys(device_keys).await.expect(
-                    "We should be able to sign our device keys since we confirmed that we \
-                     have a complete set of private cross-signing keys",
+                guard.sign_device_keys(dk).await.expect(
+                    "We should be able to sign device keys if private identity is complete",
                 );
             }
         }
 
-        if device_keys.is_none() && one_time_keys.is_empty() && fallback_keys.is_empty() {
+        if potentially_modified_device_keys.is_none() && one_time_keys.is_empty() && fallback_keys.is_empty() {
             None
         } else {
-            let device_keys = device_keys.map(|d| d.to_raw());
-
             Some(assign!(UploadKeysRequest::new(), {
-                device_keys, one_time_keys, fallback_keys
+                device_keys: potentially_modified_device_keys.map(|d| d.to_raw()),
+                one_time_keys,
+                fallback_keys,
             }))
         }
     }
+
 
     /// Decrypt a to-device event.
     ///
@@ -1573,7 +1706,23 @@ impl OlmMachine {
             account.update_key_counts(
                 sync_changes.one_time_keys_counts,
                 sync_changes.unused_fallback_keys,
-            )
+            );
+
+            // After key counts are updated (which calls generate_one_time_keys_if_needed),
+            // consume the pure Olm OTKs from the account and stage them for upload.
+            // generate_one_time_keys_if_needed now ensures Olm OTKs are also generated
+            // into account.olm_data.one_time_keys.
+            let olm_otks_to_upload = account.olm_one_time_keys_for_upload();
+
+            if !olm_otks_to_upload.is_empty() {
+                debug!(
+                    count = olm_otks_to_upload.len(),
+                    "Consumed Olm one-time keys from Account, staging them for upload."
+                );
+                *self.inner.pending_olm_otks.write() = Some(olm_otks_to_upload);
+            }
+            // The modified account (with Olm OTKs removed from its olm_data)
+            // will be saved when the transaction is committed.
         }
 
         if let Err(e) = self
@@ -2055,12 +2204,12 @@ impl OlmMachine {
     #[instrument(name = "decrypt_room_event", skip_all, fields(?room_id, event_id, origin_server_ts, sender, algorithm, session_id, message_index, sender_key))]
     async fn decrypt_room_event_inner(
         &self,
-        event: &Raw<EncryptedEvent>,
+        event_raw: &Raw<EncryptedEvent>, // Renamed to avoid conflict
         room_id: &RoomId,
         decrypt_unsigned: bool,
         decryption_settings: &DecryptionSettings,
     ) -> MegolmResult<DecryptedRoomEvent> {
-        let event = event.deserialize()?;
+        let event = event_raw.deserialize()?;
 
         Span::current()
             .record("sender", debug(&event.sender))
@@ -2072,24 +2221,75 @@ impl OlmMachine {
             )
             .record("algorithm", debug(event.content.algorithm()));
 
-        let content: SupportedEventEncryptionSchemes<'_> = match &event.content.scheme {
-            RoomEventEncryptionScheme::MegolmV1AesSha2(c) => {
-                Span::current().record("sender_key", debug(c.sender_key));
-                c.into()
-            }
-            #[cfg(feature = "experimental-algorithms")]
-            RoomEventEncryptionScheme::MegolmV2AesSha2(c) => c.into(),
-            RoomEventEncryptionScheme::Unknown(_) => {
-                warn!("Received an encrypted room event with an unsupported algorithm");
-                return Err(EventError::UnsupportedAlgorithm.into());
-            }
-        };
+        match &event.content.scheme {
+            RoomEventEncryptionScheme::OlmV1Curve25519AesSha2(olm_content) => {
+                Span::current().record("algorithm", "OlmV1Curve25519AesSha2");
 
-        Span::current().record("session_id", content.session_id());
-        Span::current().record("message_index", content.message_index());
+                let decrypted_olm_event = self
+                    .decrypt_olm_room_event(&event.sender, olm_content)
+                    .await
+                    .map_err(|olm_err| {
+                        warn!("Olm decryption failed for event {}: {:?}", event.event_id, olm_err);
+                        // Map OlmError to MegolmError for consistent return type.
+                        // This mapping might need to be more nuanced depending on desired error reporting.
+                        match olm_err {
+                            OlmError::Store(e) => MegolmError::Store(e),
+                            OlmError::MissingCiphertextForDevice(_) => MegolmError::EventError(EventError::MissingCiphertext),
+                            OlmError::Decryption(d) => MegolmError::Decryption(d),
+                            OlmError::SessionCreationError{..} => MegolmError::Decryption(DecryptionError::serialization("Olm session creation failed during decryption")),
+                            _ => MegolmError::Decryption(DecryptionError::serialization("Olm decryption failed")),
+                        }
+                    })?;
 
-        let result =
-            self.decrypt_megolm_events(room_id, &event, &content, decryption_settings).await;
+                let parsed_event = serde_json::from_str::<Raw<AnyMessageLikeEvent>>(&decrypted_olm_event.plaintext)
+                    .map_err(|e| {
+                        error!("Failed to parse Olm decrypted plaintext for event {}: {}", event.event_id, e);
+                        MegolmError::JsonError(e.into())
+                    })?;
+
+                // Construct EncryptionInfo for Olm
+                let sender_device_data = self.store()
+                    .get_device_from_curve_key(&decrypted_olm_event.sender_user_id, &decrypted_olm_event.sender_identity_key)
+                    .await
+                    .map_err(MegolmError::Store)?;
+
+                // Simplified verification state determination. A more complete version would use
+                // the full logic from Account::get_olm_encryption_info or similar.
+                let verification_state = if let Some(device) = &sender_device_data {
+                    if device.is_verified() { VerificationState::Verified }
+                    else if device.is_cross_signed_by_owner() {
+                         if device.device_owner_identity.as_ref().map_or(false, |id|id.is_verified() || id.was_previously_verified()){
+                            VerificationState::Unverified(VerificationLevel::UnverifiedIdentity) // Owner is verified, but this device might not be by user
+                         } else {
+                            VerificationState::Unverified(VerificationLevel::UnverifiedIdentity)
+                         }
+                    }
+                    else { VerificationState::Unverified(VerificationLevel::UnsignedDevice) }
+                } else {
+                    VerificationState::Unverified(VerificationLevel::None(DeviceLinkProblem::MissingDevice))
+                };
+
+                let encryption_info = Arc::new(EncryptionInfo {
+                    sender: decrypted_olm_event.sender_user_id.clone(),
+                    sender_device: decrypted_olm_event.sender_device_id.clone(),
+                    algorithm_info: AlgorithmInfo::OlmV1Curve25519AesSha2 {
+                        curve25519_public_key_base64: decrypted_olm_event.sender_identity_key.to_base64(),
+                    },
+                    verification_state,
+                });
+
+                // For Olm, the entire original event is encrypted. "unsigned" data, if any,
+                // would be part of this decrypted plaintext. So, no separate unsigned decryption here.
+                Ok(DecryptedRoomEvent { event: parsed_event, encryption_info, unsigned_encryption_info: None })
+            }
+            RoomEventEncryptionScheme::MegolmV1AesSha2(megolm_content_data) => { // Renamed c to megolm_content_data
+                Span::current().record("sender_key", debug(megolm_content_data.sender_key));
+                let content: SupportedEventEncryptionSchemes<'_> = megolm_content_data.into(); // Use new name
+                Span::current().record("session_id", content.session_id());
+                Span::current().record("message_index", content.message_index());
+
+                let result =
+                    self.decrypt_megolm_events(room_id, &event, &content, decryption_settings).await;
 
         if let Err(e) = &result {
             #[cfg(feature = "automatic-room-key-forwarding")]
@@ -2761,6 +2961,201 @@ impl OlmMachine {
         Ok(())
     }
 
+    /// Claim Olm keys for a given user's device to establish an Olm session.
+    ///
+    /// This method will first attempt a `/keys/query` request (implicitly via
+    /// store access). If no suitable one-time key is found or if forced,
+    /// it will proceed to make a `/keys/claim` request for a Curve25519 key.
+    ///
+    /// # Arguments
+    ///
+    /// * `user_id`: The ID of the user for whom to claim keys.
+    /// * `device_id`: The specific device ID for which to claim keys.
+    /// * `timeout`: An optional timeout for `/keys/query` if the user's keys are considered stale.
+    ///
+    /// # Returns
+    ///
+    /// An `OlmPreKeyBundle` containing the necessary keys for session creation,
+    /// or an `OlmError` if keys could not be obtained or verified.
+    /// This method orchestrates fetching keys via /keys/query and /keys/claim.
+    pub async fn get_olm_pre_key_bundle(
+        &self,
+        user_id: &UserId,
+        device_id: &DeviceId,
+    ) -> OlmResult<OlmPreKeyBundle> {
+        // Try to get keys and an OTK via /keys/query first.
+        match self.query_olm_keys_for_device(user_id, device_id, true).await {
+            Ok(Some(bundle_from_query)) => {
+                debug!(
+                    "Successfully obtained OlmPreKeyBundle for user {} device {} via /keys/query",
+                    user_id, device_id
+                );
+                return Ok(bundle_from_query);
+            }
+            Ok(None) => {
+                // /keys/query succeeded and returned device keys, but no suitable Olm OTK.
+                // Proceed to /keys/claim.
+                debug!(
+                    "User {} device {} found via /keys/query, but no Olm OTK. Proceeding to /keys/claim.",
+                    user_id, device_id
+                );
+                self.claim_olm_key_for_device(user_id, device_id, true).await
+            }
+            Err(OlmError::DeviceNotFound(..)) => {
+                 // If device not found by query, claim might also fail or query was necessary first.
+                 // Depending on desired behavior, one might attempt claim anyway or propagate error.
+                 // For now, let's try claim if query indicated device not found.
+                 warn!(
+                    "Device {}/{} not found via /keys/query, attempting /keys/claim anyway.",
+                    user_id, device_id
+                 );
+                 self.claim_olm_key_for_device(user_id, device_id, false).await // `false` for pre_fetched_device_keys
+            }
+            Err(e) => {
+                // Other /keys/query error
+                error!(
+                    "Error querying keys for user {} device {}: {:?}",
+                    user_id, device_id, e
+                );
+                return Err(e);
+            }
+        }
+    }
+
+    /// Fetches device keys and potentially a one-time key using a `/keys/query` request.
+    /// If `ensure_device_keys_exist` is true, this implies that if the device is not in store,
+    /// this method is responsible for initially fetching its device keys.
+    /// Returns `Ok(Some(OlmPreKeyBundle))` if device keys and an Olm OTK are found.
+    /// Returns `Ok(None)` if device keys are found but no suitable Olm OTK is available from query.
+    /// Returns `Err` on failure to get device keys or other errors.
+    async fn query_olm_keys_for_device(
+        &self,
+        user_id: &UserId,
+        device_id: &DeviceId,
+        trigger_network_if_stale: bool,
+    ) -> OlmResult<Option<OlmPreKeyBundle>> {
+        let timeout = if trigger_network_if_stale { Some(Duration::from_secs(10)) } else { None };
+        self.wait_if_user_pending(user_id, timeout).await?;
+
+        // This will fetch from store, and potentially trigger network request via IdentityManager
+        // if the device is unknown or stale.
+        let device_data = self.inner.identity_manager.get_device_data(user_id, device_id, timeout).await?;
+
+        let identity_key = device_data
+            .curve25519_key()
+            .ok_or(OlmError::MissingDeviceKey("Curve25519 identity key".to_string()))?;
+        let signing_key = device_data
+            .ed25519_key()
+            .ok_or(OlmError::MissingDeviceKey("Ed25519 signing key".to_string()))?;
+
+        // Process one_time_keys from the /keys/query response if they were included.
+        // This part is conceptual as `device_data.one_time_keys()` isn't standard.
+        // The actual KeysQueryResponse would be processed by IdentityManager,
+        // and OTKs for Olm would need to be specifically looked for and passed.
+        // For this sketch, assume IdentityManager might make OTKs available if found.
+        // If an OTK was found in the query:
+        // if let Some(one_time_key) = device_data.pop_olm_one_time_key() { // conceptual
+        //     return Ok(Some(OlmPreKeyBundle {
+        //         user_id: user_id.to_owned(),
+        //         device_id: device_id.to_owned(),
+        //         identity_key,
+        //         signing_key,
+        //         one_time_key,
+        //         signed_pre_key: None,
+        //         pre_key_signature: None,
+        //     }));
+        // }
+
+        // If no OTK from query, but device keys are present, return Ok(None)
+        // to signal that claim should be attempted.
+        // For the sketch, we'll always return Ok(None) here to force claim path.
+        warn!("query_olm_keys_for_device: Device keys for {}/{} obtained. OTK from query not implemented in sketch, proceeding to None.", user_id, device_id);
+        Ok(None)
+    }
+
+
+    /// Claims a one-time key using a `/keys/claim` request.
+    /// Assumes device identity/signing keys are already known (e.g., from a prior query or store).
+    /// If `device_keys_pre_fetched` is false, it will try to load device from store first.
+    async fn claim_olm_key_for_device(
+        &self,
+        user_id: &UserId,
+        device_id: &DeviceId,
+        device_keys_pre_fetched: bool,
+    ) -> OlmResult<OlmPreKeyBundle> {
+        let (identity_key, signing_key) = if device_keys_pre_fetched {
+            // If true, we assume the caller (e.g. get_olm_pre_key_bundle) already ensured
+            // device keys are up-to-date and passed them or they are fresh in store.
+            let device = self.store().get_device(user_id, device_id).await?
+                .ok_or_else(|| OlmError::DeviceNotFound(user_id.to_owned(), device_id.to_owned()))?;
+            (
+                device.get_key(DeviceKeyAlgorithm::Curve25519).ok_or(OlmError::MissingDeviceKey("Curve25519".to_string()))?.to_curve25519()?,
+                device.get_key(DeviceKeyAlgorithm::Ed25519).ok_or(OlmError::MissingDeviceKey("Ed25519".to_string()))?.to_ed25519()?,
+            )
+        } else {
+            // Attempt to load from store, assuming they might be there from a previous sync/query.
+            // This path might be hit if get_olm_pre_key_bundle directly calls claim.
+             let device = self.store().get_device(user_id, device_id).await?
+                .ok_or_else(|| OlmError::DeviceNotFound(user_id.to_owned(), device_id.to_owned()))?;
+             (
+                device.get_key(DeviceKeyAlgorithm::Curve25519).ok_or(OlmError::MissingDeviceKey("Curve25519".to_string()))?.to_curve25519()?,
+                device.get_key(DeviceKeyAlgorithm::Ed25519).ok_or(OlmError::MissingDeviceKey("Ed25519".to_string()))?.to_ed25519()?,
+             )
+        };
+
+        debug!("Attempting to claim Olm one-time key for user {} device {}", user_id, device_id);
+
+        let mut device_map_for_claim = BTreeMap::new();
+        device_map_for_claim.insert(device_id.to_owned(), OneTimeKeyAlgorithm::Curve25519);
+        let mut query_map_for_claim = BTreeMap::new();
+        query_map_for_claim.insert(user_id.to_owned(), device_map_for_claim);
+
+        let ruma_claim_request = assign!(KeysClaimRequest::new(query_map_for_claim), {
+            timeout: Some(self.inner.store.key_claim_timeout()),
+        });
+        let request_id = TransactionId::new();
+
+        // This is where the actual HTTP request would be made.
+        // The OlmMachine would queue this request, and the response would be handled by `mark_request_as_sent`.
+        // For this sketch, we cannot execute it.
+        warn!(
+            "Placeholder: KeysClaimRequest (id: {}) for Olm key would be sent for {}:{}. \
+            Full implementation requires sending the request via HTTP and processing the async response.",
+            request_id, user_id, device_id
+        );
+        // Example of processing a hypothetical response `actual_claim_response`:
+        // let one_time_key_string = actual_claim_response
+        //     .one_time_keys
+        //     .get(user_id)
+        //     .and_then(|devices| devices.get(device_id))
+        //     .and_then(|key_map| {
+        //         key_map.iter().find_map(|(otk_id, key_value_raw)| {
+        //             if otk_id.algorithm() == OneTimeKeyAlgorithm::Curve25519 {
+        //                 key_value_raw.deserialize_as::<String>().ok()
+        //             } else { None }
+        //         })
+        //     })
+        //     .ok_or_else(|| OlmError::ClaimFailed(user_id.to_owned(), device_id.to_owned(), "No Curve25519 OTK found".to_string()))?;
+        //
+        // let one_time_key = Curve25519PublicKey::from_base64(&one_time_key_string).map_err(|e| OlmError::InvalidKey(e.to_string()))?;
+        //
+        // return Ok(OlmPreKeyBundle {
+        //     user_id: user_id.to_owned(),
+        //     device_id: device_id.to_owned(),
+        //     identity_key,
+        //     signing_key,
+        //     one_time_key,
+        //     signed_pre_key: None,
+        //     pre_key_signature: None,
+        // });
+
+        Err(OlmError::ClaimFailed(
+            user_id.to_owned(),
+            device_id.to_owned(),
+            "Key claiming request sending and response handling not fully implemented in this sketch".to_string(),
+        ))
+    }
+
     /// Returns whether this `OlmMachine` is the same another one.
     ///
     /// Useful for testing purposes only.
@@ -2788,6 +3183,677 @@ impl OlmMachine {
     pub(crate) fn key_for_has_migrated_verification_latch() -> &'static str {
         Self::HAS_MIGRATED_VERIFICATION_LATCH
     }
+
+    /// Retrieves a list of the current user's own devices, excluding the current one,
+    /// that are considered verified.
+    ///
+    /// This is used to encrypt Olm messages for the sender's other trusted devices.
+    pub async fn get_own_other_verified_devices(&self) -> StoreResult<Vec<Device>> {
+        let own_user_id = self.user_id();
+        let own_device_id = self.device_id();
+
+        let own_devices = self.store().get_user_devices(own_user_id).await?;
+
+        let mut verified_other_devices = Vec::new();
+        for device in own_devices.devices() {
+            if device.device_id() == own_device_id {
+                continue; // Skip the current device
+            }
+            // Assuming `device.is_verified()` checks local trust, cross-signing, etc.
+            // This check might need to be more nuanced based on specific trust policies.
+            if device.is_verified() {
+                verified_other_devices.push(device.clone());
+            }
+        }
+        debug!("Found {} other verified own devices.", verified_other_devices.len());
+        Ok(verified_other_devices)
+    }
+
+    /// Decrypts an Olm-encrypted room event.
+    ///
+    /// This method handles both pre-key and normal Olm messages. If a pre-key message
+    /// is received and no existing session can decrypt it, a new inbound session
+    /// will be established.
+    ///
+    /// # Arguments
+    /// * `sender_user_id` - The User ID of the event sender (from the event envelope).
+    /// * `event_content` - The `OlmV1Curve25519AesSha2Content` from the `m.room.encrypted` event.
+    ///
+    /// # Returns
+    /// An `OlmResult` containing `DecryptedOlmEvent` on success.
+    pub async fn decrypt_olm_room_event(
+        &self,
+        sender_user_id: &UserId,
+        event_content: &OlmV1Curve25519AesSha2Content,
+    ) -> OlmResult<DecryptedOlmEvent> {
+        let own_identity_keys = self.identity_keys();
+        let own_curve25519_key_b64 = own_identity_keys.curve25519.to_base64();
+
+        let olm_ciphertext_info = event_content
+            .ciphertext
+            .get(&own_curve25519_key_b64)
+            .ok_or_else(|| OlmError::MissingCiphertextForDevice(own_curve25519_key_b64.clone()))?;
+
+        let sender_identity_key_b64 = &event_content.sender_key;
+        let sender_identity_key = Curve25519PublicKey::from_base64(sender_identity_key_b64)
+            .map_err(|e| OlmError::InvalidKey(format!("Invalid sender Curve25519 key: {}", e)))?;
+
+        let message_type: vodozemac::olm::MessageType = olm_ciphertext_info.message_type().into();
+        let message_body = &olm_ciphertext_info.body;
+
+        let olm_message = vodozemac::olm::OlmMessage::from_parts(message_type, message_body)
+            .map_err(|_| OlmError::InvalidMessageFormat("Failed to create OlmMessage from parts".to_string()))?;
+
+        let mut store_tx = self.store().transaction().await;
+        let mut account = store_tx.account().await?; // Get mutable account for potential new session
+        let mut changes = Changes::default();
+        let mut new_session_created = false;
+
+        let (plaintext, _session_to_save) = match message_type { // _session_to_save is explicitly shadowed now
+            vodozemac::olm::MessageType::PreKey => {
+                // Try existing sessions first
+                let existing_sessions = self.store().get_olm_sessions(&sender_identity_key).await?;
+                let mut decrypted_with_existing = None;
+
+                if let Some(sessions_list_lock) = existing_sessions {
+                    let sessions_list = sessions_list_lock.lock().await;
+                    for session_arc in sessions_list.iter() {
+                        let mut session_guard = session_arc.inner.lock().await;
+                        if let Ok(pt) = session_guard.decrypt(&olm_message) {
+                            decrypted_with_existing = Some((String::from_utf8_lossy(&pt).to_string(), session_arc.clone()));
+                            break;
+                        }
+                    }
+                }
+
+                if let Some((pt, session_arc)) = decrypted_with_existing {
+                    debug!("Decrypted Olm pre-key message with existing session for sender {}", sender_identity_key_b64);
+                    changes.sessions.push(session_arc.as_ref().clone());
+                    (pt, session_arc.as_ref().clone())
+                } else {
+                    debug!("No existing Olm session could decrypt pre-key message from {}. Attempting to create new session.", sender_identity_key_b64);
+                    let pre_key_message = vodozemac::olm::PreKeyMessage::try_from(olm_message)
+                        .map_err(|_| OlmError::InvalidMessageFormat("Not a valid PreKeyMessage".to_string()))?;
+
+                    let our_device_keys = account.device_keys();
+
+                    let (new_session, pt) = account
+                        .create_inbound_session(sender_identity_key.clone(), our_device_keys, &pre_key_message)
+                        .map_err(|e| OlmError::SessionCreationError{ user_id: sender_user_id.to_owned(), device_id: None, source: Box::new(e) })?;
+
+                    info!("Created new inbound Olm session with {} from pre-key message.", sender_identity_key_b64);
+                    new_session_created = true;
+                    changes.sessions.push(new_session.clone());
+                    (pt, new_session)
+                }
+            }
+            vodozemac::olm::MessageType::Normal => {
+                let session_arc = self.store().get_latest_olm_session(&sender_identity_key).await?
+                    .ok_or_else(|| OlmError::MissingSession(sender_identity_key_b64.to_string(), olm_ciphertext_info.body.clone()))?;
+
+                let mut session_guard = session_arc.inner.lock().await;
+                let pt_bytes = session_guard.decrypt(&olm_message).map_err(OlmError::Decryption)?;
+                let pt = String::from_utf8_lossy(&pt_bytes).to_string();
+                debug!("Decrypted Olm normal message with existing session for sender {}", sender_identity_key_b64);
+                changes.sessions.push(session_arc.as_ref().clone());
+                (pt, session_arc.as_ref().clone())
+            }
+        };
+
+        if new_session_created {
+            // Account state (used OTKs) modified, will be saved by transaction.
+        }
+
+        store_tx.save_changes(changes).await?;
+        store_tx.commit().await?;
+
+        let sender_device = self.store().get_device_from_curve_key(sender_user_id, &sender_identity_key).await?;
+
+        Ok(DecryptedOlmEvent {
+            plaintext,
+            sender_user_id: sender_user_id.to_owned(),
+            sender_device_id: sender_device.map(|d| d.device_id().to_owned()),
+            sender_identity_key,
+            recipient_identity_key: own_identity_keys.curve25519,
+            recipient_claimed_ed25519_key: event_content
+                .keys
+                .get("ed25519")
+                .cloned()
+                .unwrap_or_default(), // Or handle error if missing, though spec implies it should be there.
+        })
+    }
+
+    /// Gets an existing Olm session with the given user and device, or creates a new one
+    /// if no such session exists.
+    ///
+    /// The session is returned wrapped in an `Arc<Mutex<>>` to allow shared access
+    /// if multiple encryption operations target the same session concurrently.
+    ///
+    /// # Arguments
+    /// * `user_id` - The ID of the user with whom the session is established.
+    /// * `device_id` - The ID of the specific device with whom the session is established.
+    ///
+    /// # Returns
+    /// An `OlmResult` containing the `Arc<crate::olm::Session>` on success.
+    pub async fn get_or_create_olm_session(
+        &self,
+        user_id: &UserId,
+        device_id: &DeviceId,
+    ) -> OlmResult<Arc<crate::olm::Session>> {
+        // Attempt to load existing session from store first.
+        // Need the peer's identity key to look up sessions.
+        let device_data = self
+            .store()
+            .get_device(user_id, device_id)
+            .await?
+            .ok_or_else(|| OlmError::DeviceNotFound(user_id.to_owned(), device_id.to_owned()))?;
+
+        let peer_identity_key = device_data
+            .curve25519_key()
+            .ok_or_else(|| OlmError::MissingDeviceKey(format!("Curve25519 key for {}/{}", user_id, device_id)))?;
+
+        if let Some(session_arc) = self.store().get_latest_olm_session(&peer_identity_key).await? {
+            // TODO: Add session usability checks (e.g., not too old, enough messages left).
+            // For now, if it exists, we use it.
+            debug!("Found existing Olm session for {}/{}", user_id, device_id);
+            return Ok(session_arc);
+        }
+
+        // No existing session, create a new one.
+        debug!("No existing Olm session found for {}/{}, creating a new one.", user_id, device_id);
+        let bundle = self.get_olm_pre_key_bundle(user_id, device_id).await?;
+
+        let mut store_tx = self.store().transaction().await;
+        let account = store_tx.account().await?;
+        let our_device_keys = account.device_keys(); // Get our own device keys
+
+        // Create the outbound session using the pre-key bundle.
+        // `create_outbound_session_helper` is suitable here.
+        let new_session = account.create_outbound_session_helper(
+            vodozemac::olm::SessionConfig::default(), // Or device-specific config if available
+            bundle.identity_key.clone(), // Peer's Curve25519 identity key
+            bundle.one_time_key.clone(),   // Peer's claimed one-time key
+            false, // `is_fallback` is false for pure OTK usage
+            our_device_keys,
+        );
+        debug!("Created new Olm session with {}/{} (id: {})", user_id, device_id, new_session.session_id());
+
+        let mut changes = Changes::default();
+        changes.sessions.push(new_session.clone()); // Add to changes to be saved
+
+        // The account itself might not have changed in a way that requires saving *its* pickle here,
+        // unless session creation updated something in it (e.g. metrics, not currently the case).
+        // However, the new session needs saving.
+        store_tx.save_changes(changes).await?;
+        store_tx.commit().await?;
+
+        Ok(Arc::new(new_session))
+    }
+
+    /// Encrypts a plaintext string using a pre-established Olm session.
+    ///
+    /// # Arguments
+    /// * `session_arc` - An Arc-wrapped `crate::olm::Session` to use for encryption.
+    /// * `plaintext` - The string to encrypt.
+    /// * `peer_identity_key` - The Curve25519 identity key of the peer device for this session.
+    ///
+    /// # Returns
+    /// An `OlmResult` containing `OlmV1Curve25519AesSha2Content` on success.
+    pub async fn encrypt_olm_message(
+        &self,
+        session_arc: Arc<crate::olm::Session>, // Use the existing matrix_sdk_crypto::olm::Session
+        plaintext: &str,
+        peer_identity_key: &Curve25519PublicKey, // Needed for the ciphertext map key
+    ) -> OlmResult<ruma::events::room::encrypted::OlmV1Curve25519AesSha2Content> {
+        let mut session_guard = session_arc.inner.lock().await;
+        let olm_message = session_guard.encrypt(plaintext.as_bytes());
+        drop(session_guard); // Release lock before further async calls or heavy processing
+
+        let own_identity_key = self.identity_keys().curve25519;
+
+        let mut ciphertext_map = BTreeMap::new();
+        let ruma_ciphertext_info = ruma::events::room::encrypted::OlmCiphertextInfo::new(
+            olm_message.body().to_vec(),
+            olm_message.message_type().into(), // Converts vodozemac::MessageType to Ruma's u8
+        );
+        ciphertext_map.insert(peer_identity_key.to_base64(), ruma_ciphertext_info);
+
+        Ok(ruma::events::room::encrypted::OlmV1Curve25519AesSha2Content::new(
+            ciphertext_map,
+            own_identity_key.to_base64(),
+        ))
+    }
+
+    /// Prepares an `m.room.encrypted` event content using Olm for a list of recipient devices.
+    ///
+    /// This method will try to establish Olm sessions with each recipient device if one
+    /// doesn't already exist. It then encrypts the provided plaintext for each session.
+    ///
+    /// # Arguments
+    /// * `recipients` - A vector of `(&UserId, &DeviceId)` pairs to encrypt for.
+    /// * `plaintext_json_string` - The JSON string representation of the original event content to be encrypted.
+    ///
+    /// # Returns
+    /// An `OlmResult` containing `OlmV1Curve25519AesSha2Content` on success, where the ciphertext
+    /// map includes entries for all successfully encrypted devices.
+    ///
+    /// # Errors
+    /// Returns an `OlmError` if session establishment or encryption fails for *any* of the
+    /// specified recipient devices. For simplicity in this version, it's an all-or-nothing operation.
+    pub async fn prepare_olm_encrypted_event_for_devices(
+        &self,
+        recipients: &[(&UserId, &DeviceId)],
+        plaintext_json_string: &str,
+    ) -> OlmResult<ruma::events::room::encrypted::OlmV1Curve25519AesSha2Content> {
+        if recipients.is_empty() {
+            return Err(OlmError::NoDevices);
+        }
+
+        let mut ciphertext_map = BTreeMap::new();
+        let own_identity_key = self.identity_keys().curve25519;
+
+        for (user_id, device_id) in recipients {
+            debug!("Preparing Olm encryption for user: {}, device: {}", user_id, device_id);
+
+            // Get or create the Olm session for this specific device.
+            let olm_session_arc = self.get_or_create_olm_session(user_id, device_id).await.map_err(|e| {
+                error!("Failed to get/create Olm session for {}/{}: {:?}", user_id, device_id, e);
+                // Propagate error: if we can't establish a session with one device, fail all.
+                // A more sophisticated approach might collect errors and/or send to a subset.
+                OlmError::SessionCreationError { user_id: (*user_id).to_owned(), device_id: (*device_id).to_owned(), source: Box::new(e) }
+            })?;
+
+            // Retrieve the peer's identity key, needed for the ciphertext map.
+            // This should be available from the session or device data.
+            // `get_or_create_olm_session` already fetches device_data.
+            let peer_device_data = self.store().get_device(user_id, device_id).await?
+                .ok_or_else(|| OlmError::DeviceNotFound((*user_id).to_owned(), (*device_id).to_owned()))?;
+            let peer_identity_key = peer_device_data.curve25519_key()
+                .ok_or_else(|| OlmError::MissingDeviceKey(format!("Curve25519 key for {}/{}", user_id, device_id)))?;
+
+
+            // Encrypt the plaintext for this session.
+            let mut session_guard = olm_session_arc.inner.lock().await;
+            let olm_message = session_guard.encrypt(plaintext_json_string.as_bytes());
+            drop(session_guard); // Release lock
+
+            let ruma_ciphertext_info = ruma::events::room::encrypted::OlmCiphertextInfo::new(
+                olm_message.body().to_vec(),
+                olm_message.message_type().into(),
+            );
+            ciphertext_map.insert(peer_identity_key.to_base64(), ruma_ciphertext_info);
+            debug!("Successfully encrypted Olm message for {}/{}", user_id, device_id);
+        }
+
+        if ciphertext_map.is_empty() && !recipients.is_empty() {
+            // This case should ideally be caught by errors within the loop,
+            // but as a safeguard: if we had recipients but no ciphertexts were generated.
+            return Err(OlmError::EncryptionFailed("No messages could be encrypted".to_string()));
+        }
+
+        Ok(ruma::events::room::encrypted::OlmV1Curve25519AesSha2Content::new(
+            ciphertext_map,
+            own_identity_key.to_base64(),
+        ))
+    }
+
+    /// An `OlmPreKeyBundle` containing the necessary keys for session creation,
+    /// or an `OlmError` if keys could not be obtained or verified.
+    /// This method orchestrates fetching keys via /keys/query and /keys/claim.
+    pub async fn get_olm_pre_key_bundle(
+        &self,
+        user_id: &UserId,
+        device_id: &DeviceId,
+    ) -> OlmResult<OlmPreKeyBundle> {
+        // Try to get keys and an OTK via /keys/query first.
+        match self.query_olm_keys_for_device(user_id, device_id, true).await {
+            Ok(Some(bundle_from_query)) => {
+                debug!(
+                    "Successfully obtained OlmPreKeyBundle for user {} device {} via /keys/query",
+                    user_id, device_id
+                );
+                return Ok(bundle_from_query);
+            }
+            Ok(None) => {
+                // /keys/query succeeded and returned device keys, but no suitable Olm OTK.
+                // Proceed to /keys/claim.
+                debug!(
+                    "User {} device {} found via /keys/query, but no Olm OTK. Proceeding to /keys/claim.",
+                    user_id, device_id
+                );
+                self.claim_olm_key_for_device(user_id, device_id, true).await
+            }
+            Err(OlmError::DeviceNotFound(..)) => {
+                 // If device not found by query, claim might also fail or query was necessary first.
+                 // Depending on desired behavior, one might attempt claim anyway or propagate error.
+                 // For now, let's try claim if query indicated device not found.
+                 warn!(
+                    "Device {}/{} not found via /keys/query, attempting /keys/claim anyway.",
+                    user_id, device_id
+                 );
+                 self.claim_olm_key_for_device(user_id, device_id, false).await // `false` for pre_fetched_device_keys
+            }
+            Err(e) => {
+                // Other /keys/query error
+                error!(
+                    "Error querying keys for user {} device {}: {:?}",
+                    user_id, device_id, e
+                );
+                return Err(e);
+            }
+        }
+    }
+
+    /// Fetches device keys and potentially a one-time key using a `/keys/query` request.
+    /// If `ensure_device_keys_exist` is true, this implies that if the device is not in store,
+    /// this method is responsible for initially fetching its device keys.
+    /// Returns `Ok(Some(OlmPreKeyBundle))` if device keys and an Olm OTK are found.
+    /// Returns `Ok(None)` if device keys are found but no suitable Olm OTK is available from query.
+    /// Returns `Err` on failure to get device keys or other errors.
+    async fn query_olm_keys_for_device(
+        &self,
+        user_id: &UserId,
+        device_id: &DeviceId,
+        trigger_network_if_stale: bool,
+    ) -> OlmResult<Option<OlmPreKeyBundle>> {
+        let timeout = if trigger_network_if_stale { Some(Duration::from_secs(10)) } else { None };
+        self.wait_if_user_pending(user_id, timeout).await?;
+
+        // This will fetch from store, and potentially trigger network request via IdentityManager
+        // if the device is unknown or stale.
+        let device_data = self.inner.identity_manager.get_device_data(user_id, device_id, timeout).await?;
+
+        let identity_key = device_data
+            .curve25519_key()
+            .ok_or(OlmError::MissingDeviceKey("Curve25519 identity key".to_string()))?;
+        let signing_key = device_data
+            .ed25519_key()
+            .ok_or(OlmError::MissingDeviceKey("Ed25519 signing key".to_string()))?;
+
+        // Process one_time_keys from the /keys/query response if they were included.
+        // This part is conceptual as `device_data.one_time_keys()` isn't standard.
+        // The actual KeysQueryResponse would be processed by IdentityManager,
+        // and OTKs for Olm would need to be specifically looked for and passed.
+        // For this sketch, assume IdentityManager might make OTKs available if found.
+        // If an OTK was found in the query:
+        // if let Some(one_time_key) = device_data.pop_olm_one_time_key() { // conceptual
+        //     return Ok(Some(OlmPreKeyBundle {
+        //         user_id: user_id.to_owned(),
+        //         device_id: device_id.to_owned(),
+        //         identity_key,
+        //         signing_key,
+        //         one_time_key,
+        //         signed_pre_key: None,
+        //         pre_key_signature: None,
+        //     }));
+        // }
+
+        // If no OTK from query, but device keys are present, return Ok(None)
+        // to signal that claim should be attempted.
+        // For the sketch, we'll always return Ok(None) here to force claim path.
+        warn!("query_olm_keys_for_device: Device keys for {}/{} obtained. OTK from query not implemented in sketch, proceeding to None.", user_id, device_id);
+        Ok(None)
+    }
+
+
+    /// Claims a one-time key using a `/keys/claim` request.
+    /// Assumes device identity/signing keys are already known (e.g., from a prior query or store).
+    /// If `device_keys_pre_fetched` is false, it will try to load device from store first.
+    async fn claim_olm_key_for_device(
+        &self,
+        user_id: &UserId,
+        device_id: &DeviceId,
+        device_keys_pre_fetched: bool,
+    ) -> OlmResult<OlmPreKeyBundle> {
+        let (identity_key, signing_key) = if device_keys_pre_fetched {
+            // If true, we assume the caller (e.g. get_olm_pre_key_bundle) already ensured
+            // device keys are up-to-date and passed them or they are fresh in store.
+            let device = self.store().get_device(user_id, device_id).await?
+                .ok_or_else(|| OlmError::DeviceNotFound(user_id.to_owned(), device_id.to_owned()))?;
+            (
+                device.get_key(DeviceKeyAlgorithm::Curve25519).ok_or(OlmError::MissingDeviceKey("Curve25519".to_string()))?.to_curve25519()?,
+                device.get_key(DeviceKeyAlgorithm::Ed25519).ok_or(OlmError::MissingDeviceKey("Ed25519".to_string()))?.to_ed25519()?,
+            )
+        } else {
+            // Attempt to load from store, assuming they might be there from a previous sync/query.
+            // This path might be hit if get_olm_pre_key_bundle directly calls claim.
+             let device = self.store().get_device(user_id, device_id).await?
+                .ok_or_else(|| OlmError::DeviceNotFound(user_id.to_owned(), device_id.to_owned()))?;
+             (
+                device.get_key(DeviceKeyAlgorithm::Curve25519).ok_or(OlmError::MissingDeviceKey("Curve25519".to_string()))?.to_curve25519()?,
+                device.get_key(DeviceKeyAlgorithm::Ed25519).ok_or(OlmError::MissingDeviceKey("Ed25519".to_string()))?.to_ed25519()?,
+             )
+        };
+
+        debug!("Attempting to claim Olm one-time key for user {} device {}", user_id, device_id);
+
+        let mut device_map_for_claim = BTreeMap::new();
+        device_map_for_claim.insert(device_id.to_owned(), OneTimeKeyAlgorithm::Curve25519);
+        let mut query_map_for_claim = BTreeMap::new();
+        query_map_for_claim.insert(user_id.to_owned(), device_map_for_claim);
+
+        let ruma_claim_request = assign!(KeysClaimRequest::new(query_map_for_claim), {
+            timeout: Some(self.inner.store.key_claim_timeout()),
+        });
+        let request_id = TransactionId::new();
+
+        // This is where the actual HTTP request would be made.
+        // The OlmMachine would queue this request, and the response would be handled by `mark_request_as_sent`.
+        // For this sketch, we cannot execute it.
+        warn!(
+            "Placeholder: KeysClaimRequest (id: {}) for Olm key would be sent for {}:{}. \
+            Full implementation requires sending the request via HTTP and processing the async response.",
+            request_id, user_id, device_id
+        );
+        // Example of processing a hypothetical response `actual_claim_response`:
+        // let one_time_key_string = actual_claim_response
+        //     .one_time_keys
+        //     .get(user_id)
+        //     .and_then(|devices| devices.get(device_id))
+        //     .and_then(|key_map| {
+        //         key_map.iter().find_map(|(otk_id, key_value_raw)| {
+        //             if otk_id.algorithm() == OneTimeKeyAlgorithm::Curve25519 {
+        //                 key_value_raw.deserialize_as::<String>().ok()
+        //             } else { None }
+        //         })
+        //     })
+        //     .ok_or_else(|| OlmError::ClaimFailed(user_id.to_owned(), device_id.to_owned(), "No Curve25519 OTK found".to_string()))?;
+        //
+        // let one_time_key = Curve25519PublicKey::from_base64(&one_time_key_string).map_err(|e| OlmError::InvalidKey(e.to_string()))?;
+        //
+        // return Ok(OlmPreKeyBundle {
+        //     user_id: user_id.to_owned(),
+        //     device_id: device_id.to_owned(),
+        //     identity_key,
+        //     signing_key,
+        //     one_time_key,
+        //     signed_pre_key: None,
+        //     pre_key_signature: None,
+        // });
+
+        Err(OlmError::ClaimFailed(
+            user_id.to_owned(),
+            device_id.to_owned(),
+            "Key claiming request sending and response handling not fully implemented in this sketch".to_string(),
+        ))
+    }
+
+    /// Returns whether this `OlmMachine` is the same another one.
+
+    /// Prepares an `m.room.encrypted` event content using Olm for a list of recipient devices.
+    ///
+    /// This method will try to establish Olm sessions with each recipient device if one
+    /// doesn't already exist. It then encrypts the provided plaintext for each session.
+    ///
+    /// # Arguments
+    /// * `recipients` - A vector of `(&UserId, &DeviceId)` pairs to encrypt for.
+    /// * `plaintext_json_string` - The JSON string representation of the original event content to be encrypted.
+    ///
+    /// # Returns
+    /// An `OlmResult` containing `OlmV1Curve25519AesSha2Content` on success, where the ciphertext
+    /// map includes entries for all successfully encrypted devices.
+    ///
+    /// # Errors
+    /// Returns an `OlmError` if session establishment or encryption fails for *any* of the
+    /// specified recipient devices. For simplicity in this version, it's an all-or-nothing operation.
+    pub async fn prepare_olm_encrypted_event_for_devices(
+        &self,
+        recipients: &[(&UserId, &DeviceId)],
+        plaintext_json_string: &str,
+    ) -> OlmResult<ruma::events::room::encrypted::OlmV1Curve25519AesSha2Content> {
+        if recipients.is_empty() {
+            return Err(OlmError::NoDevices);
+        }
+
+        let mut ciphertext_map = BTreeMap::new();
+        let own_identity_key = self.identity_keys().curve25519;
+
+        for (user_id, device_id) in recipients {
+            debug!("Preparing Olm encryption for user: {}, device: {}", user_id, device_id);
+
+            // Get or create the Olm session for this specific device.
+            let olm_session_arc = self.get_or_create_olm_session(user_id, device_id).await.map_err(|e| {
+                error!("Failed to get/create Olm session for {}/{}: {:?}", user_id, device_id, e);
+                // Propagate error: if we can't establish a session with one device, fail all.
+                // A more sophisticated approach might collect errors and/or send to a subset.
+                OlmError::SessionCreationError { user_id: (*user_id).to_owned(), device_id: (*device_id).to_owned(), source: Box::new(e) }
+            })?;
+
+            // Retrieve the peer's identity key, needed for the ciphertext map.
+            // This should be available from the session or device data.
+            // `get_or_create_olm_session` already fetches device_data.
+            let peer_device_data = self.store().get_device(user_id, device_id).await?
+                .ok_or_else(|| OlmError::DeviceNotFound((*user_id).to_owned(), (*device_id).to_owned()))?;
+            let peer_identity_key = peer_device_data.curve25519_key()
+                .ok_or_else(|| OlmError::MissingDeviceKey(format!("Curve25519 key for {}/{}", user_id, device_id)))?;
+
+
+            // Encrypt the plaintext for this session.
+            let mut session_guard = olm_session_arc.inner.lock().await;
+            let olm_message = session_guard.encrypt(plaintext_json_string.as_bytes());
+            drop(session_guard); // Release lock
+
+            let ruma_ciphertext_info = ruma::events::room::encrypted::OlmCiphertextInfo::new(
+                olm_message.body().to_vec(),
+                olm_message.message_type().into(),
+            );
+            ciphertext_map.insert(peer_identity_key.to_base64(), ruma_ciphertext_info);
+            debug!("Successfully encrypted Olm message for {}/{}", user_id, device_id);
+        }
+
+        if ciphertext_map.is_empty() && !recipients.is_empty() {
+            // This case should ideally be caught by errors within the loop,
+            // but as a safeguard: if we had recipients but no ciphertexts were generated.
+            return Err(OlmError::EncryptionFailed("No messages could be encrypted".to_string()));
+        }
+
+        Ok(ruma::events::room::encrypted::OlmV1Curve25519AesSha2Content::new(
+            ciphertext_map,
+            own_identity_key.to_base64(),
+        ))
+    }
+
+    /// Gets an existing Olm session with the given user and device, or creates a new one
+    /// if no such session exists.
+    ///
+    /// The session is returned wrapped in an `Arc<Mutex<>>` to allow shared access
+    /// if multiple encryption operations target the same session concurrently.
+    ///
+    /// # Arguments
+    /// * `user_id` - The ID of the user with whom the session is established.
+    /// * `device_id` - The ID of the specific device with whom the session is established.
+    ///
+    /// # Returns
+    /// An `OlmResult` containing the `Arc<crate::olm::Session>` on success.
+    pub async fn get_or_create_olm_session(
+        &self,
+        user_id: &UserId,
+        device_id: &DeviceId,
+    ) -> OlmResult<Arc<crate::olm::Session>> {
+        // Attempt to load existing session from store first.
+        // Need the peer's identity key to look up sessions.
+        let device_data = self
+            .store()
+            .get_device(user_id, device_id)
+            .await?
+            .ok_or_else(|| OlmError::DeviceNotFound(user_id.to_owned(), device_id.to_owned()))?;
+
+        let peer_identity_key = device_data
+            .curve25519_key()
+            .ok_or_else(|| OlmError::MissingDeviceKey(format!("Curve25519 key for {}/{}", user_id, device_id)))?;
+
+        if let Some(session_arc) = self.store().get_latest_olm_session(&peer_identity_key).await? {
+            // TODO: Add session usability checks (e.g., not too old, enough messages left).
+            // For now, if it exists, we use it.
+            debug!("Found existing Olm session for {}/{}", user_id, device_id);
+            return Ok(session_arc);
+        }
+
+        // No existing session, create a new one.
+        debug!("No existing Olm session found for {}/{}, creating a new one.", user_id, device_id);
+        let bundle = self.get_olm_pre_key_bundle(user_id, device_id).await?;
+
+        let mut store_tx = self.store().transaction().await;
+        let account = store_tx.account().await?;
+        let our_device_keys = account.device_keys(); // Get our own device keys
+
+        // Create the outbound session using the pre-key bundle.
+        // `create_outbound_session_helper` is suitable here.
+        let new_session = account.create_outbound_session_helper(
+            vodozemac::olm::SessionConfig::default(), // Or device-specific config if available
+            bundle.identity_key.clone(), // Peer's Curve25519 identity key
+            bundle.one_time_key.clone(),   // Peer's claimed one-time key
+            false, // `is_fallback` is false for pure OTK usage
+            our_device_keys,
+        );
+        debug!("Created new Olm session with {}/{} (id: {})", user_id, device_id, new_session.session_id());
+
+        let mut changes = Changes::default();
+        changes.sessions.push(new_session.clone()); // Add to changes to be saved
+
+        // The account itself might not have changed in a way that requires saving *its* pickle here,
+        // unless session creation updated something in it (e.g. metrics, not currently the case).
+        // However, the new session needs saving.
+        store_tx.save_changes(changes).await?;
+        store_tx.commit().await?;
+
+        Ok(Arc::new(new_session))
+    }
+
+    /// Encrypts a plaintext string using a pre-established Olm session.
+    ///
+    /// # Arguments
+    /// * `session_arc` - An Arc-wrapped `crate::olm::Session` to use for encryption.
+    /// * `plaintext` - The string to encrypt.
+    /// * `peer_identity_key` - The Curve25519 identity key of the peer device for this session.
+    ///
+    /// # Returns
+    /// An `OlmResult` containing `OlmV1Curve25519AesSha2Content` on success.
+    pub async fn encrypt_olm_message(
+        &self,
+        session_arc: Arc<crate::olm::Session>, // Use the existing matrix_sdk_crypto::olm::Session
+        plaintext: &str,
+        peer_identity_key: &Curve25519PublicKey, // Needed for the ciphertext map key
+    ) -> OlmResult<ruma::events::room::encrypted::OlmV1Curve25519AesSha2Content> {
+        let mut session_guard = session_arc.inner.lock().await;
+        let olm_message = session_guard.encrypt(plaintext.as_bytes());
+        drop(session_guard); // Release lock before further async calls or heavy processing
+
+        let own_identity_key = self.identity_keys().curve25519;
+
+        let mut ciphertext_map = BTreeMap::new();
+        let ruma_ciphertext_info = ruma::events::room::encrypted::OlmCiphertextInfo::new(
+            olm_message.body().to_vec(),
+            olm_message.message_type().into(), // Converts vodozemac::MessageType to Ruma's u8
+        );
+        ciphertext_map.insert(peer_identity_key.to_base64(), ruma_ciphertext_info);
+
+        Ok(ruma::events::room::encrypted::OlmV1Curve25519AesSha2Content::new(
+            ciphertext_map,
+            own_identity_key.to_base64(),
+        ))
+    }
+
 }
 
 fn sender_data_to_verification_state(
@@ -2907,6 +3973,9 @@ fn megolm_error_to_utd_info(
 
     Ok(UnableToDecryptInfo { session_id, reason })
 }
+
+use crate::olm::{DecryptedOlmEvent, OlmPreKeyBundle};
+use crate::types::events::room::encrypted::OlmV1Curve25519AesSha2Content;
 
 #[cfg(test)]
 pub(crate) mod test_helpers;

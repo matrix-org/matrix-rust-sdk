@@ -27,8 +27,8 @@ use zeroize::{Zeroize, ZeroizeOnDrop};
 use super::{DehydrationError, GossipRequest};
 use crate::{
     olm::{
-        InboundGroupSession, OlmMessageHash, OutboundGroupSession, PrivateCrossSigningIdentity,
-        SenderData,
+        olm_account_data::OlmAccountData, InboundGroupSession, OlmMessageHash,
+        OutboundGroupSession, PrivateCrossSigningIdentity, SenderData,
     },
     types::{
         events::{room_key_bundle::RoomKeyBundleContent, room_key_withheld::RoomKeyWithheldEvent},
@@ -76,6 +76,7 @@ pub struct Changes {
     pub room_settings: HashMap<OwnedRoomId, RoomSettings>,
     pub secrets: Vec<GossippedSecret>,
     pub next_batch_token: Option<String>,
+    pub olm_account: Option<OlmAccountData>,
 
     /// Historical room key history bundles that we have received and should
     /// store.
@@ -128,6 +129,7 @@ impl Changes {
             && self.room_settings.is_empty()
             && self.secrets.is_empty()
             && self.next_batch_token.is_none()
+            && self.olm_account.is_none()
             && self.received_room_key_bundles.is_empty()
     }
 }

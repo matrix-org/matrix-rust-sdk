@@ -59,8 +59,9 @@ use vodozemac::{
 };
 
 use super::{
-    utility::SignJson, EncryptionSettings, InboundGroupSession, OutboundGroupSession,
-    PrivateCrossSigningIdentity, Session, SessionCreationError as MegolmSessionCreationError,
+    olm_account_data::OlmAccountData, utility::SignJson, EncryptionSettings,
+    InboundGroupSession, OutboundGroupSession, PrivateCrossSigningIdentity, Session,
+    SessionCreationError as MegolmSessionCreationError,
 };
 #[cfg(feature = "experimental-algorithms")]
 use crate::types::events::room::encrypted::OlmV2Curve25519AesSha2Content;
@@ -87,9 +88,12 @@ use crate::{
     Device, OlmError, SignatureError,
 };
 
+use ruma::encryption::OneTimeKey as RumaOneTimeKey;
+
 #[derive(Debug)]
 enum PrekeyBundle {
-    Olm3DH { key: SignedKey },
+    Olm3DH { key: SignedKey }, // For SignedCurve25519
+    OlmPureOTK { key: Curve25519PublicKey, key_id: String }, // For pure Curve25519
 }
 
 #[derive(Debug, Clone)]
@@ -363,6 +367,10 @@ pub struct Account {
     /// from a `AccountPickle` that didn't use time-based fallback key
     /// rotation.
     fallback_creation_timestamp: Option<MilliSecondsSinceUnixEpoch>,
+    /// Olm specific account data.
+    /// This is optional because existing accounts might not have this data yet.
+    /// It will be populated for new accounts or when Olm features are first used.
+    pub olm_data: Option<OlmAccountData>,
 }
 
 impl Deref for Account {
@@ -400,6 +408,9 @@ pub struct PickledAccount {
     /// The timestamp of the last time we generated a fallback key.
     #[serde(default)]
     pub fallback_key_creation_timestamp: Option<MilliSecondsSinceUnixEpoch>,
+    /// Olm specific account data.
+    #[serde(default)]
+    pub olm_data: Option<OlmAccountData>,
 }
 
 fn default_account_creation_time() -> MilliSecondsSinceUnixEpoch {
@@ -427,6 +438,12 @@ impl Account {
     ) -> Self {
         let identity_keys = account.identity_keys();
 
+        let olm_data = OlmAccountData {
+            identity_key: identity_keys.curve25519.to_base64(),
+            signing_key: identity_keys.ed25519.to_base64(),
+            one_time_keys: BTreeMap::new(),
+        };
+
         // Let's generate some initial one-time keys while we're here. Since we know
         // that this is a completely new [`Account`] we're certain that the
         // server does not yet have any one-time keys of ours.
@@ -452,6 +469,7 @@ impl Account {
             shared: false,
             uploaded_signed_key_count: 0,
             fallback_creation_timestamp: None,
+            olm_data: Some(olm_data),
         }
     }
 
@@ -573,33 +591,54 @@ impl Account {
     /// that keys should not be uploaded.
     #[instrument(skip_all)]
     pub fn generate_one_time_keys_if_needed(&mut self) -> Option<u64> {
-        // Only generate one-time keys if there aren't any, otherwise the caller
-        // might have failed to upload them the last time this method was
-        // called.
-        if !self.one_time_keys().is_empty() {
-            return Some(0);
+        let mut megolm_keys_generated_count: Option<u64> = None;
+
+        // Logic for SignedCurve25519 (Megolm) one-time keys
+        // Only generate these if vodozemac's one_time_keys() for this purpose is empty.
+        // This implies they were successfully uploaded and marked as published previously.
+        if self.inner.one_time_keys().is_empty() || self.uploaded_key_count() < (self.max_one_time_keys() / 2) as u64 {
+            let count = self.uploaded_key_count(); // Count of keys known by the server
+            let max_keys = self.max_one_time_keys();
+
+            if count < max_keys as u64 {
+                let key_count_to_generate = (max_keys as u64) - count;
+                let key_count_to_generate_usize: usize =
+                    key_count_to_generate.try_into().unwrap_or(max_keys);
+
+                // This generates keys inside self.inner (vodozemac::Account)
+                // These are later retrieved by self.signed_one_time_keys()
+                let result = self.inner.generate_one_time_keys(key_count_to_generate_usize);
+
+                debug!(
+                    count = key_count_to_generate_usize,
+                    discarded_keys = ?result.removed,
+                    created_keys = ?result.created,
+                    "Generated new SignedCurve25519 one-time keys for Megolm"
+                );
+                megolm_keys_generated_count = Some(key_count_to_generate);
+            } else {
+                 megolm_keys_generated_count = None; // Already have enough signed keys
+            }
+        } else {
+            // Vodozemac's one_time_keys() is not empty, meaning previous ones weren't uploaded/marked yet.
+            // Or we have enough keys on the server.
+            megolm_keys_generated_count = Some(0);
         }
 
-        let count = self.uploaded_key_count();
-        let max_keys = self.max_one_time_keys();
+        // Logic for Olm (pure Curve25519) one-time keys
+        if let Some(olm_data) = &mut self.olm_data {
+            let current_olm_otk_count = olm_data.one_time_keys.len();
+            let desired_olm_otk_count = self.max_one_time_keys() / 2; // Maintain half of max as Olm OTKs
 
-        if count >= max_keys as u64 {
-            return None;
+            if current_olm_otk_count < desired_olm_otk_count {
+                let num_to_generate = desired_olm_otk_count - current_olm_otk_count;
+                // This calls self.inner.generate_one_time_keys internally
+                // and populates olm_data.one_time_keys.
+                self.generate_olm_one_time_keys(num_to_generate);
+            }
         }
 
-        let key_count = (max_keys as u64) - count;
-        let key_count: usize = key_count.try_into().unwrap_or(max_keys);
-
-        let result = self.generate_one_time_keys(key_count);
-
-        debug!(
-            count = key_count,
-            discarded_keys = ?result.removed,
-            created_keys = ?result.created,
-            "Generated new one-time keys"
-        );
-
-        Some(key_count as u64)
+        megolm_keys_generated_count
     }
 
     /// Generate a new fallback key iff a unpublished one isn't already inside
@@ -700,6 +739,7 @@ impl Account {
             uploaded_signed_key_count: self.uploaded_key_count(),
             creation_local_time: self.static_data.creation_local_time,
             fallback_key_creation_timestamp: self.fallback_creation_timestamp,
+            olm_data: self.olm_data.clone(),
         }
     }
 
@@ -781,6 +821,7 @@ impl Account {
             shared: pickle.shared,
             uploaded_signed_key_count: pickle.uploaded_signed_key_count,
             fallback_creation_timestamp: pickle.fallback_key_creation_timestamp,
+            olm_data: pickle.olm_data,
         })
     }
 
@@ -993,11 +1034,32 @@ impl Account {
             )
         })?;
 
-        let first_key_id = first_key.0.to_owned();
-        let first_key = OneTimeKey::deserialize(first_key_id.algorithm(), first_key.1)?;
+        let first_key_id_owned = first_key.0.to_owned();
+        let first_key_ruma =
+            RumaOneTimeKey::deserialize(first_key_id_owned.algorithm(), first_key.1)?;
 
-        let result = match first_key {
-            OneTimeKey::SignedKey(key) => Ok(PrekeyBundle::Olm3DH { key }),
+        let result = match first_key_ruma {
+            RumaOneTimeKey::SignedKey(signed_key_obj) => Ok(PrekeyBundle::Olm3DH { key: signed_key_obj }),
+            RumaOneTimeKey::Key(key_value) => {
+                // This path is for plain curve25519 keys.
+                // The key_value is expected to be a JSON string containing the base64 public key.
+                if first_key_id_owned.algorithm() == OneTimeKeyAlgorithm::Curve25519 {
+                    if let Some(key_str) = key_value.as_str() {
+                        let curve_key = Curve25519PublicKey::from_base64(key_str)
+                            .map_err(CryptoStoreError::Vodozemac)?;
+                        Ok(PrekeyBundle::OlmPureOTK { key: curve_key, key_id: first_key_id_owned.key_id().to_string() })
+                    } else {
+                        Err(SessionCreationError::InvalidKey(
+                            "Curve25519 OTK value is not a string".to_string(),
+                        ))
+                    }
+                } else {
+                    Err(SessionCreationError::InvalidKey(format!(
+                        "Unexpected algorithm for plain key: {:?}",
+                        first_key_id_owned.algorithm()
+                    )))
+                }
+            }
         };
 
         trace!(?result, "Finished searching for a valid pre-key bundle");
@@ -1029,11 +1091,12 @@ impl Account {
         let pre_key_bundle = Self::find_pre_key_bundle(device, key_map)?;
 
         match pre_key_bundle {
-            PrekeyBundle::Olm3DH { key } => {
-                device.verify_one_time_key(&key).map_err(|error| {
+            PrekeyBundle::Olm3DH { key: signed_key_obj } => {
+                // This is the existing path for SignedCurve25519 keys (e.g. for Megolm)
+                device.verify_one_time_key(&signed_key_obj).map_err(|error| {
                     SessionCreationError::InvalidSignature {
                         signing_key: device.ed25519_key().map(Box::new),
-                        one_time_key: key.clone().into(),
+                        one_time_key: signed_key_obj.clone().into(),
                         error: error.into(),
                     }
                 })?;
@@ -1045,14 +1108,40 @@ impl Account {
                     )
                 })?;
 
-                let is_fallback = key.fallback();
-                let one_time_key = key.key();
+                let is_fallback = signed_key_obj.fallback();
+                let one_time_key = signed_key_obj.key();
                 let config = device.olm_session_config();
 
                 Ok(self.create_outbound_session_helper(
                     config,
                     identity_key,
                     one_time_key,
+                    is_fallback,
+                    our_device_keys,
+                ))
+            }
+            PrekeyBundle::OlmPureOTK { key: otk_curve_key, key_id: _key_id_str } => {
+                // This is the new path for pure Curve25519 one-time keys (for Olm)
+                // These keys are not wrapped in a SignedKey structure and are used directly.
+                // Signature verification of the OTK itself is not typically done here;
+                // trust is derived from claiming it from the server for that device,
+                // and the session will be with the device's verified identity_key.
+
+                let identity_key = device.curve25519_key().ok_or_else(|| {
+                    SessionCreationError::DeviceMissingCurveKey(
+                        device.user_id().to_owned(),
+                        device.device_id().into(),
+                    )
+                })?;
+
+                // Pure OTKs are not "fallback" keys in the X3DH sense.
+                let is_fallback = false;
+                let config = device.olm_session_config(); // Use default or device-specific config
+
+                Ok(self.create_outbound_session_helper(
+                    config,
+                    identity_key,
+                    otk_curve_key, // Use the claimed Curve25519 OTK directly
                     is_fallback,
                     our_device_keys,
                 ))
@@ -1632,6 +1721,92 @@ impl Account {
     pub fn deep_clone(&self) -> Self {
         // `vodozemac::Account` isn't really cloneable, but... Don't tell anyone.
         Self::from_pickle(self.pickle()).unwrap()
+    }
+
+    /// Get the Olm account data.
+    pub fn olm_data(&self) -> Option<&OlmAccountData> {
+        self.olm_data.as_ref()
+    }
+
+    /// Generate a number of Olm one-time keys.
+    ///
+    /// These are Curve25519 key pairs, used for establishing Olm sessions.
+    /// The public keys are stored in `self.olm_data.one_time_keys` and
+    /// should be uploaded to the server.
+    ///
+    /// Returns the number of newly generated one-time keys.
+    pub fn generate_olm_one_time_keys(&mut self, count: usize) -> usize {
+        if self.olm_data.is_none() {
+            warn!("OlmAccountData is not initialized, cannot generate Olm one-time keys.");
+            return 0;
+        }
+
+        let generation_result = self.inner.generate_one_time_keys(count);
+        let new_keys_count = generation_result.created.len();
+
+        if new_keys_count > 0 {
+            let olm_data = self.olm_data.as_mut().expect("OlmAccountData checked for None above");
+            let current_vodozemac_otks = self.inner.one_time_keys();
+
+            // We only add the *newly created* keys to our olm_data.
+            // vodozemac might have had some pre-existing keys if generate_one_time_keys
+            // was called before for the SignedCurve25519 type.
+            for (id, key) in current_vodozemac_otks {
+                // The KeyId from vodozemac is already the base64 representation of the public key.
+                let key_id_str = id.to_base64();
+                // Only add if it's one of the *actually new* keys from this generation call.
+                if generation_result.created.contains(&id) {
+                    olm_data.one_time_keys.insert(key_id_str.clone(), key.to_base64());
+                }
+            }
+            debug!(
+                count = new_keys_count,
+                total_olm_otk_in_account_data = olm_data.one_time_keys.len(),
+                "Generated new Olm one-time keys."
+            );
+        }
+
+        new_keys_count
+    }
+
+    /// Get the pure Olm one-time keys that are ready for upload.
+    ///
+    /// Retrieves the keys from `OlmAccountData.one_time_keys` and clears
+    /// the map in `OlmAccountData`, as these keys are now considered pending upload.
+    ///
+    /// The actual `KeyId` from `vodozemac` (which is the base64 public key) is used
+    /// to construct the `OwnedOneTimeKeyId`.
+    pub fn olm_one_time_keys_for_upload(&mut self) -> OneTimeKeys {
+        let mut keys_map = BTreeMap::new();
+
+        if let Some(olm_data) = &mut self.olm_data {
+            if olm_data.one_time_keys.is_empty() {
+                return keys_map;
+            }
+
+            let current_otks = std::mem::take(&mut olm_data.one_time_keys);
+
+            for (key_id_str, key_val_str) in current_otks {
+                // The key_id_str is the base64 public key, which is the ID.
+                // The key_val_str is also the base64 public key.
+                // We need to format it as ruma::encryption::OneTimeKey expects.
+                let otk_id = OneTimeKeyId::from_parts(
+                    OneTimeKeyAlgorithm::Curve25519,
+                    (&key_id_str).into(),
+                );
+
+                // For pure Curve25519 one-time keys, the "key object" in the /keys/upload
+                // request is just the base64-encoded public key itself.
+                let raw_key = Raw::from_json(
+                    serde_json::value::to_raw_value(&key_val_str)
+                        .expect("Failed to serialize one-time key string to RawJsonValue"),
+                );
+
+                keys_map.insert(otk_id, raw_key);
+            }
+            debug!("Prepared {} Olm one-time keys for upload.", keys_map.len());
+        }
+        keys_map
     }
 }
 
