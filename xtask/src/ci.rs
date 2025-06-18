@@ -3,7 +3,7 @@ use std::{
     env::consts::{DLL_PREFIX, DLL_SUFFIX},
 };
 
-use clap::{Args, Subcommand};
+use clap::{Args, Subcommand, ValueEnum};
 use xshell::cmd;
 
 use crate::{build_docs, sh, workspace, DenyWarnings, Result, NIGHTLY};
@@ -57,6 +57,30 @@ enum CiCommand {
 
     /// Check that the examples compile
     Examples,
+
+    /// Run the workspace tests and create a code coverage report using
+    /// llvm-cov.
+    ///
+    /// Note: This requires the docker container for the integration tests to be
+    /// running.
+    Coverage {
+        /// Specify the output format that we're going to use.
+        #[arg(long, short)]
+        output_format: CoverageOutputFormat,
+    },
+}
+
+#[derive(Clone, Debug, Default, ValueEnum)]
+enum CoverageOutputFormat {
+    /// Output the coverage report to stdout.
+    #[default]
+    Text,
+    /// Output the coverage report as a HTML report in the target/llvm-cov/html
+    /// folder.
+    Html,
+    /// Output the coverage report as the custom Codecov coverage format.
+    /// folder.
+    Codecov,
 }
 
 #[derive(Subcommand, PartialEq, Eq, PartialOrd, Ord)]
@@ -117,6 +141,7 @@ impl CiArgs {
                 CiCommand::TestCrypto => run_crypto_tests(),
                 CiCommand::Bindings => check_bindings(),
                 CiCommand::Examples => check_examples(),
+                CiCommand::Coverage { output_format } => run_coverage(output_format),
             },
             None => {
                 check_style()?;
@@ -412,6 +437,30 @@ fn run_wasm_pack_tests(cmd: Option<WasmFeatureSet>) -> Result<()> {
             }
         }
     }
+
+    Ok(())
+}
+
+fn run_coverage(output_format: CoverageOutputFormat) -> Result<()> {
+    let sh = sh();
+    let cmd = cmd!(sh, "rustup run stable cargo llvm-cov nextest");
+    let cmd = cmd.args([
+        "--workspace",
+        "--exclude",
+        "matrix-sdk-indexeddb",
+        "--ignore-filename-regex",
+        "testing/*|bindings/*|uniffi-bindgen|labs/*",
+    ]);
+
+    let cmd = match output_format {
+        CoverageOutputFormat::Text => cmd,
+        CoverageOutputFormat::Html => cmd.arg("--html"),
+        CoverageOutputFormat::Codecov => {
+            cmd.args(["--codecov", "--output-path", "coverage.xml", "--profile", "ci"])
+        }
+    };
+
+    cmd.run()?;
 
     Ok(())
 }
