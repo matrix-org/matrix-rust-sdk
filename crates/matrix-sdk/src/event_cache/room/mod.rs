@@ -1295,8 +1295,8 @@ mod private {
         /// It may send room event cache updates to the given sender, if it
         /// generated any of those.
         ///
-        /// Returns true if a new gap (previous-batch token) has been inserted,
-        /// false otherwise.
+        /// Returns `true` for the first part of the tuple if a new gap
+        /// (previous-batch token) has been inserted, `false` otherwise.
         #[must_use = "Propagate `VectorDiff` updates via `RoomEventCacheUpdate`"]
         pub async fn handle_sync(
             &mut self,
