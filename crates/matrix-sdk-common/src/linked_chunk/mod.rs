@@ -93,6 +93,7 @@ macro_rules! assert_items_eq {
 
 mod as_vector;
 pub mod lazy_loader;
+mod order_tracker;
 pub mod relational;
 mod updates;
 
@@ -104,6 +105,7 @@ use std::{
 };
 
 pub use as_vector::*;
+pub use order_tracker::OrderTracker;
 use ruma::{OwnedRoomId, RoomId};
 pub use updates::*;
 
@@ -1083,6 +1085,35 @@ impl<const CAP: usize, Item, Gap> LinkedChunk<CAP, Item, Gap> {
         let chunk_iterator = self.chunks();
 
         Some(AsVector::new(updates, token, chunk_iterator))
+    }
+
+    /// Get an [`OrderTracker`] for the linked chunk, which can be used to
+    /// compare the relative position of two events in this linked chunk.
+    ///
+    /// A pre-requisite is that the linked chunk has been constructed with
+    /// [`Self::new_with_update_history`], and that if the linked chunk is
+    /// lazily-loaded, an iterator over the fully-loaded linked chunk is
+    /// passed at construction time here.
+    pub fn order_tracker(
+        &mut self,
+        all_chunks_iterator: Option<Iter<'_, CAP, Item, Gap>>,
+    ) -> Option<OrderTracker<Item, Gap>>
+    where
+        Item: Clone,
+    {
+        let (updates, token) = self
+            .updates
+            .as_mut()
+            .map(|updates| (updates.inner.clone(), updates.new_reader_token()))?;
+
+        Some(OrderTracker::new(
+            updates,
+            token,
+            all_chunks_iterator.unwrap_or_else(|| {
+                // Consider the linked chunk as fully loaded.
+                self.chunks()
+            }),
+        ))
     }
 
     /// Returns the number of items of the linked chunk.
