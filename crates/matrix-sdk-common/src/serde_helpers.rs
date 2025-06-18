@@ -15,8 +15,6 @@
 //! A collection of serde helpers to avoid having to deserialize an entire event
 //! to access some fields.
 
-use std::usize;
-
 use ruma::{
     events::{relation::BundledThread, AnyMessageLikeEvent, AnySyncTimelineEvent},
     serde::Raw,
@@ -82,9 +80,9 @@ pub fn extract_bundled_thread_summary(
     match event.get_field::<Unsigned>("unsigned") {
         Ok(Some(Unsigned { relations: Some(Relations { thread: Some(bundled_thread) }) })) => {
             // Take the count from the bundled thread summary, if available. If it can't be
-            // converted to a `usize`, we use `usize::MAX` as a fallback, as this is unlikely
+            // converted to a `u32`, we use `u32::MAX` as a fallback, as this is unlikely
             // to happen to have that many events in real-world threads.
-            let count = bundled_thread.count.try_into().unwrap_or(usize::MAX);
+            let count = bundled_thread.count.try_into().unwrap_or(u32::MAX);
 
             let latest_reply =
                 bundled_thread.latest_event.get_field::<OwnedEventId>("event_id").ok().flatten();

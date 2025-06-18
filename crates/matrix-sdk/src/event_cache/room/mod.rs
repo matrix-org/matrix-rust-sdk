@@ -1116,7 +1116,7 @@ mod private {
                 let related_thread_events = store_guard
                     .find_event_relations(&self.room, &thread_root, Some(&[RelationType::Thread]))
                     .await?;
-                related_thread_events.len()
+                related_thread_events.len().try_into().unwrap_or(u32::MAX)
             };
 
             let prev_summary = target_event.thread_summary.summary();
