@@ -26,7 +26,7 @@ js = ["matrix-sdk-ui/js"]
 native-tls = ["matrix-sdk/native-tls", "sentry?/native-tls"]
 # Use Rustls as the TLS implementation, necessary on Android platforms.
 rustls-tls = ["matrix-sdk/rustls-tls", "sentry?/rustls"]
-# Enable sentry error monitoring, not compatible on Wasm platforms.
+# Enable sentry error monitoring, not compatible with Wasm platforms.
 sentry = ["dep:sentry", "dep:sentry-tracing"]
 
 [dependencies]
