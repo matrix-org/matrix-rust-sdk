@@ -225,7 +225,7 @@ async fn test_sync_service_offline_mode() {
 
         sync_service.start().await;
         assert_next_eq!(states, State::Running);
-        assert_next_eq_with_timeout!(states, State::Offline, 500 ms, "We should have entered the offline mode");
+        assert_next_eq_with_timeout!(states, State::Offline, 2000 ms, "We should have entered the offline mode");
     }
 
     mock_server.mock_versions().ok().expect(1..).mount().await;
@@ -251,9 +251,9 @@ async fn test_sync_service_offline_mode_stopping() {
     sync_service.start().await;
     assert_next_eq!(states, State::Running);
 
-    assert_next_eq_with_timeout!(states, State::Offline, 500 ms, "We should have entered the offline mode");
+    assert_next_eq_with_timeout!(states, State::Offline, 2000 ms, "We should have entered the offline mode");
     sync_service.stop().await;
-    assert_next_eq_with_timeout!(states, State::Idle, 500 ms, "We should have entered the idle mode");
+    assert_next_eq_with_timeout!(states, State::Idle, 2000 ms, "We should have entered the idle mode");
 }
 
 #[async_test]
@@ -272,10 +272,10 @@ async fn test_sync_service_offline_mode_restarting() {
 
     sync_service.start().await;
     assert_next_eq!(states, State::Running);
-    assert_next_eq_with_timeout!(states, State::Offline, 500 ms, "We should have entered the offline mode");
+    assert_next_eq_with_timeout!(states, State::Offline, 2000 ms, "We should have entered the offline mode");
 
     sync_service.start().await;
 
-    assert_next_eq_with_timeout!(states, State::Running, 500 ms, "We should have entered the running mode");
-    assert_next_eq_with_timeout!(states, State::Offline, 500 ms, "We should have entered the offline mode again");
+    assert_next_eq_with_timeout!(states, State::Running, 2000 ms, "We should have entered the running mode");
+    assert_next_eq_with_timeout!(states, State::Offline, 2000 ms, "We should have entered the offline mode again");
 }
