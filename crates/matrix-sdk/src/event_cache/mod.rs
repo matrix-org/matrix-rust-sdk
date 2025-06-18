@@ -193,13 +193,13 @@ impl EventCache {
             // Force-initialize the sender in the [`RoomEventCacheInner`].
             self.inner.auto_shrink_sender.get_or_init(|| tx);
 
-            let auto_shrink_linked_chunk_tasks =
+            let auto_shrink_linked_chunk_task =
                 spawn(Self::auto_shrink_linked_chunk_task(self.inner.clone(), rx));
 
             Arc::new(EventCacheDropHandles {
                 listen_updates_task,
                 ignore_user_list_update_task,
-                auto_shrink_linked_chunk_task: auto_shrink_linked_chunk_tasks,
+                auto_shrink_linked_chunk_task,
             })
         });
 
