@@ -188,13 +188,15 @@ impl EventCache {
                 client.subscribe_to_ignore_user_list_changes(),
             ));
 
-            let (tx, rx) = mpsc::channel(32);
+            let (auto_shrink_sender, auto_shrink_receiver) = mpsc::channel(32);
 
             // Force-initialize the sender in the [`RoomEventCacheInner`].
-            self.inner.auto_shrink_sender.get_or_init(|| tx);
+            self.inner.auto_shrink_sender.get_or_init(|| auto_shrink_sender);
 
-            let auto_shrink_linked_chunk_task =
-                spawn(Self::auto_shrink_linked_chunk_task(self.inner.clone(), rx));
+            let auto_shrink_linked_chunk_task = spawn(Self::auto_shrink_linked_chunk_task(
+                self.inner.clone(),
+                auto_shrink_receiver,
+            ));
 
             Arc::new(EventCacheDropHandles {
                 listen_updates_task,
