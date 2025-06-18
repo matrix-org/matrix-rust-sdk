@@ -710,7 +710,7 @@ impl Client {
 #[matrix_sdk_ffi_macros::export]
 impl Client {
     /// Retrieves a media file from the media source
-    /// 
+    ///
     /// Not available on Wasm platforms, due to lack of accessible file system.
     pub async fn get_media_file(
         &self,
