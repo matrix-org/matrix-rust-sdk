@@ -14,7 +14,7 @@ publish = false
 release = true
 
 [lib]
-crate-type = ["cdylib", "staticlib", "lib"]
+crate-type = ["cdylib", "staticlib"]
 
 [features]
 default = ["bundled-sqlite", "unstable-msc4274"]
