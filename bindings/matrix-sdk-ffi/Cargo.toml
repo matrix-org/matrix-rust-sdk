@@ -74,7 +74,7 @@ zeroize.workspace = true
 
 [target.'cfg(target_family = "wasm")'.dependencies]
 tokio = { workspace = true, features = ["sync", "macros"] }
-uniffi = { workspace = true, features = [] }
+uniffi.workspace = true
 
 [target.'cfg(not(target_family = "wasm"))'.dependencies]
 async-compat.workspace = true
