@@ -18,6 +18,7 @@ mod live_location_share;
 mod notification;
 mod notification_settings;
 mod platform;
+mod qr_code;
 mod room;
 mod room_alias;
 mod room_directory_search;
