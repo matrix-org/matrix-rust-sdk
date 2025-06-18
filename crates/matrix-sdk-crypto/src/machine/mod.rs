@@ -843,10 +843,15 @@ impl OlmMachine {
         }
     }
 
-    /// Decrypt a to-device event.
+    /// Decrypt and handle a to-device event.
     ///
-    /// Returns a decrypted `ToDeviceEvent` if the decryption was successful,
-    /// an error indicating why decryption failed otherwise.
+    /// If decryption (or checking the sender device) fails, returns an error.
+    ///
+    /// If the sender device is dehydrated, does no handling and immediately
+    /// returns `Ok(None)`.
+    ///
+    /// Otherwise, handles the decrypted event and returns it (decrypted) as
+    /// `Ok(ToDeviceEvent)`.
     ///
     /// # Arguments
     ///
@@ -856,20 +861,32 @@ impl OlmMachine {
         transaction: &mut StoreTransaction,
         event: &EncryptedToDeviceEvent,
         changes: &mut Changes,
-    ) -> OlmResult<OlmDecryptionInfo> {
+    ) -> OlmResult<Option<OlmDecryptionInfo>> {
+        // Decrypt the event
         let mut decrypted =
             transaction.account().await?.decrypt_to_device_event(&self.inner.store, event).await?;
 
-        // We ignore all to-device events from dehydrated devices - we should not
-        // receive any
-        if !self.to_device_event_is_from_dehydrated_device(&decrypted, &event.sender).await? {
-            // Handle the decrypted event, e.g. fetch out Megolm sessions out of
-            // the event.
+        let from_dehydrated_device =
+            self.to_device_event_is_from_dehydrated_device(&decrypted, &event.sender).await?;
+
+        // Check whether this event is from a dehydrated device - if so, return Ok(None)
+        // to skip it because we don't expect ever to receive an event from a
+        // dehydrated device.
+        if from_dehydrated_device {
+            // Device is dehydrated: ignore this event
+            warn!(
+                sender = ?event.sender,
+                session = ?decrypted.session,
+                "Received a to-device event from a dehydrated device. This is unexpected: ignoring event"
+            );
+            Ok(None)
+        } else {
+            // Device is not dehydrated: handle it as normal e.g. create a Megolm session
             self.handle_decrypted_to_device_event(transaction.cache(), &mut decrypted, changes)
                 .await?;
-        }
 
-        Ok(decrypted)
+            Ok(Some(decrypted))
+        }
     }
 
     #[instrument(
@@ -1409,7 +1426,7 @@ impl OlmMachine {
         e: ToDeviceEvent<ToDeviceEncryptedEventContent>,
     ) -> Option<ProcessedToDeviceEvent> {
         let decrypted = match self.decrypt_to_device_event(transaction, &e, changes).await {
-            Ok(e) => e,
+            Ok(decrypted) => decrypted?,
             Err(err) => {
                 if let OlmError::SessionWedged(sender, curve_key) = err {
                     if let Err(e) =
@@ -1425,26 +1442,6 @@ impl OlmMachine {
                 return Some(ProcessedToDeviceEvent::UnableToDecrypt(raw_event));
             }
         };
-
-        // We ignore all to-device events from dehydrated devices - we should not
-        // receive any
-        match self.to_device_event_is_from_dehydrated_device(&decrypted, &e.sender).await {
-            Ok(true) => {
-                warn!(
-                    sender = ?e.sender,
-                    session = ?decrypted.session,
-                    "Received a to-device event from a dehydrated device. This is unexpected: ignoring event"
-                );
-                return None;
-            }
-            Ok(false) => {}
-            Err(err) => {
-                error!(
-                    error = ?err,
-                    "Couldn't check whether the event is from a dehydrated device",
-                );
-            }
-        }
 
         // New sessions modify the account so we need to save that
         // one as well.
