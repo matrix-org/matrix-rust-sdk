@@ -82,7 +82,7 @@ pub fn extract_bundled_thread_summary(
     match event.get_field::<Unsigned>("unsigned") {
         Ok(Some(Unsigned { relations: Some(Relations { thread: Some(bundled_thread) }) })) => {
             // Take the count from the bundled thread summary, if available. If it can't be
-            // converted to a `u64`, we use `usize::MAX` as a fallback, as this is unlikely
+            // converted to a `usize`, we use `usize::MAX` as a fallback, as this is unlikely
             // to happen to have that many events in real-world threads.
             let count = bundled_thread.count.try_into().unwrap_or(usize::MAX);
 
