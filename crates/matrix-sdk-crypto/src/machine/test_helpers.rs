@@ -268,7 +268,10 @@ pub async fn get_machine_pair_with_setup_sessions_test_helper(
     let decrypted = bob
         .store()
         .with_transaction(|mut tr| async {
-            let res = bob.decrypt_to_device_event(&mut tr, &event, &mut Changes::default()).await?;
+            let res = bob
+                .decrypt_to_device_event(&mut tr, &event, &mut Changes::default())
+                .await?
+                .expect("event unexpectedly from dehydrated device");
             Ok((tr, res))
         })
         .await
