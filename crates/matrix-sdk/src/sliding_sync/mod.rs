@@ -124,6 +124,12 @@ impl SlidingSync {
         Self { inner: Arc::new(inner) }
     }
 
+    /// Whether the current sliding sync instance has set a sync position
+    /// marker.
+    pub async fn has_pos(&self) -> bool {
+        self.inner.position.lock().await.pos.is_some()
+    }
+
     async fn cache_to_storage(&self, position: &SlidingSyncPositionMarkers) -> Result<()> {
         cache::store_sliding_sync_state(self, position).await
     }
