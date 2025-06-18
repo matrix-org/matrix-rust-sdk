@@ -17,8 +17,12 @@ env:
   RUST_LOG: info,matrix_sdk=trace
 
 jobs:
+  xtask:
+    uses: ./.github/workflows/xtask.yml
+
   code_coverage:
     name: Code Coverage
+    needs: xtask
     runs-on: "ubuntu-latest"
 
     # run several docker containers with the same networking stack so the hostname 'synapse'
@@ -58,21 +62,27 @@ jobs:
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
-      - name: Install tarpaulin
-        uses: taiki-e/install-action@v2
-        with:
-          tool: cargo-tarpaulin
+      - name: Install cargo-llvm-cov
+        uses: taiki-e/install-action@cargo-llvm-cov
+
+      - name: Install nextest
+        uses: taiki-e/install-action@nextest
 
       # set up backend for integration tests
       - uses: actions/setup-python@v5
         with:
           python-version: 3.8
 
-      - name: Run tarpaulin
+      - name: Get xtask
+        uses: actions/cache/restore@v4
+        with:
+          path: target/debug/xtask
+          key: "${{ needs.xtask.outputs.cachekey-linux }}"
+          fail-on-cache-miss: true
+
+      - name: Create the coverage report
         run: |
-          rustup run stable cargo tarpaulin \
-            --skip-clean --profile cov --out xml \
-            --features experimental-widgets,testing
+          target/debug/xtask ci coverage -o codecov 
         env:
           CARGO_PROFILE_COV_INHERITS: 'dev'
           CARGO_PROFILE_COV_DEBUG: 1
@@ -97,7 +107,8 @@ jobs:
         with:
           name: codecov_report
           path: |
-            cobertura.xml
+            coverage.xml
+            target/nextest/ci/junit.xml
             pr_number.txt
             commit_sha.txt
           if-no-files-found: error
