@@ -12,7 +12,7 @@ All notable changes to this project will be documented in this file.
   Previously the `matrix-sdk-ffi` was configured primarily by target configs, choosing
   between the tls flavor (`rustls-tls` or `native-tls`) and features like `sentry` based 
   purely on the target. As we work to add an additional Wasm target to this crate,
-  the cross product of target specific features has become complex, and we
+  the cross product of target specific features has become somewhat chaotic, and we
   have shifted to externalize these choices as feature flags.
 
   To maintain existing compatibility on the major platforms, these features should be used:
