@@ -14,7 +14,14 @@ publish = false
 release = true
 
 [lib]
-crate-type = ["cdylib", "staticlib", "lib"]
+crate-type = [
+  # Needed by uniffi for Android bindings
+  "cdylib",
+  # Needed by uniffi for iOS bindings
+  "staticlib",
+  # Needed by uniffi for JS/Wasm platforms, which use rust as an intermediate language
+  "lib"
+]
 
 [features]
 default = ["bundled-sqlite", "unstable-msc4274"]
