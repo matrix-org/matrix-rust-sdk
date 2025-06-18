@@ -82,36 +82,6 @@ impl RoomEvents {
         self.chunks.clear();
     }
 
-    fn inhibit_updates_to_ordering_tracker<F: FnOnce(&mut Self) -> R, R>(&mut self, f: F) -> R {
-        // Start by flushing previous pending updates to the chunk ordering, if any.
-        self.order_tracker.flush_updates(false);
-
-        // Call the function.
-        let r = f(self);
-
-        // Now, flush other pending updates which have been caused by the function, and
-        // ignore them.
-        self.order_tracker.flush_updates(true);
-
-        r
-    }
-
-    /// Replace the events with the given last chunk of events and generator.
-    ///
-    /// This clears all the chunks in memory before resetting to the new chunk,
-    /// if provided.
-    pub(super) fn replace_with(
-        &mut self,
-        last_chunk: Option<RawChunk<Event, Gap>>,
-        chunk_identifier_generator: ChunkIdentifierGenerator,
-    ) -> Result<(), LazyLoaderError> {
-        // Since `replace_with` is used only to unload some chunks, we don't want it to
-        // affect the chunk ordering.
-        self.inhibit_updates_to_ordering_tracker(move |this| {
-            lazy_loader::replace_with(&mut this.chunks, last_chunk, chunk_identifier_generator)
-        })
-    }
-
     /// Push events after all events or gaps.
     ///
     /// The last event in `events` is the most recent one.
@@ -347,8 +317,49 @@ impl RoomEvents {
     }
 }
 
-// Private implementations, implementation specific.
+// Methods related to lazy-loading.
 impl RoomEvents {
+    /// Inhibits all the linked chunk updates caused by the function `f` on the
+    /// ordering tracker.
+    ///
+    /// Updates to the linked chunk that happen because of lazy loading must not
+    /// be taken into account by the order tracker, otherwise the
+    /// fully-loaded state (tracked by the order tracker) wouldn't match
+    /// reality anymore. This provides a facility to help applying such
+    /// updates.
+    fn inhibit_updates_to_ordering_tracker<F: FnOnce(&mut Self) -> R, R>(&mut self, f: F) -> R {
+        // Start by flushing previous pending updates to the chunk ordering, if any.
+        self.order_tracker.flush_updates(false);
+
+        // Call the function.
+        let r = f(self);
+
+        // Now, flush other pending updates which have been caused by the function, and
+        // ignore them.
+        self.order_tracker.flush_updates(true);
+
+        r
+    }
+
+    /// Replace the events with the given last chunk of events and generator.
+    ///
+    /// Happens only during lazy loading.
+    ///
+    /// This clears all the chunks in memory before resetting to the new chunk,
+    /// if provided.
+    pub(super) fn replace_with(
+        &mut self,
+        last_chunk: Option<RawChunk<Event, Gap>>,
+        chunk_identifier_generator: ChunkIdentifierGenerator,
+    ) -> Result<(), LazyLoaderError> {
+        // Since `replace_with` is used only to unload some chunks, we don't want it to
+        // affect the chunk ordering.
+        self.inhibit_updates_to_ordering_tracker(move |this| {
+            lazy_loader::replace_with(&mut this.chunks, last_chunk, chunk_identifier_generator)
+        })
+    }
+
+    /// Prepends a lazily-loaded chunk at the beginning of the linked chunk.
     pub(super) fn insert_new_chunk_as_first(
         &mut self,
         raw_new_first_chunk: RawChunk<Event, Gap>,
