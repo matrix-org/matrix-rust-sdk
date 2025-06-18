@@ -58,21 +58,25 @@ jobs:
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
-      - name: Install tarpaulin
-        uses: taiki-e/install-action@v2
-        with:
-          tool: cargo-tarpaulin
+      - name: Install cargo-llvm-cov
+        uses: taiki-e/install-action@cargo-llvm-cov
+
+      - name: Install nextest
+        uses: taiki-e/install-action@nextest
 
       # set up backend for integration tests
       - uses: actions/setup-python@v5
         with:
           python-version: 3.8
 
-      - name: Run tarpaulin
+      - name: Build xtask
+        if: steps.xtask-cache.outputs.cache-hit != 'true'
         run: |
-          rustup run stable cargo tarpaulin \
-            --skip-clean --profile cov --out xml \
-            --features experimental-widgets,testing
+          cargo build -p xtask
+
+      - name: Create the coverage report
+        run: |
+          target/debug/xtask ci coverage -o codecov 
         env:
           CARGO_PROFILE_COV_INHERITS: 'dev'
           CARGO_PROFILE_COV_DEBUG: 1
@@ -97,7 +101,8 @@ jobs:
         with:
           name: codecov_report
           path: |
-            cobertura.xml
+            coverage.xml
+            target/nextest/ci/junit.xml
             pr_number.txt
             commit_sha.txt
           if-no-files-found: error
