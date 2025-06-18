@@ -45,8 +45,8 @@ use tokio::sync::{
 use tracing::{instrument, trace, warn};
 
 use super::{
-    AutoShrinkChannelPayload, EventsOrigin, Result, RoomEventCacheUpdate, RoomPagination,
-    RoomPaginationStatus,
+    AutoShrinkChannelPayload, EventsOrigin, Result, RoomEventCacheGenericUpdate,
+    RoomEventCacheUpdate, RoomPagination, RoomPaginationStatus,
 };
 use crate::{client::WeakClient, room::WeakRoom};
 
@@ -154,6 +154,7 @@ impl RoomEventCache {
         pagination_status: SharedObservable<RoomPaginationStatus>,
         room_id: OwnedRoomId,
         auto_shrink_sender: mpsc::Sender<AutoShrinkChannelPayload>,
+        generic_update_sender: Sender<RoomEventCacheGenericUpdate>,
     ) -> Self {
         Self {
             inner: Arc::new(RoomEventCacheInner::new(
@@ -162,6 +163,7 @@ impl RoomEventCache {
                 pagination_status,
                 room_id,
                 auto_shrink_sender,
+                generic_update_sender,
             )),
         }
     }
@@ -274,7 +276,7 @@ impl RoomEventCache {
 /// The (non-cloneable) details of the `RoomEventCache`.
 pub(super) struct RoomEventCacheInner {
     /// The room id for this room.
-    room_id: OwnedRoomId,
+    pub(super) room_id: OwnedRoomId,
 
     pub weak_room: WeakRoom,
 
@@ -294,6 +296,13 @@ pub(super) struct RoomEventCacheInner {
     /// See doc comment around [`EventCache::auto_shrink_linked_chunk_task`] for
     /// more details.
     auto_shrink_sender: mpsc::Sender<AutoShrinkChannelPayload>,
+
+    /// A clone of [`EventCacheInner::room_event_cache_generic_update_sender`].
+    ///
+    /// Whilst `EventCacheInner` handles the generic updates from the sync, or
+    /// the storage, it doesn't handle the update from pagination. Having a
+    /// clone here allows to access it from [`RoomPagination`].
+    pub(super) generic_update_sender: Sender<RoomEventCacheGenericUpdate>,
 }
 
 impl RoomEventCacheInner {
@@ -305,6 +314,7 @@ impl RoomEventCacheInner {
         pagination_status: SharedObservable<RoomPaginationStatus>,
         room_id: OwnedRoomId,
         auto_shrink_sender: mpsc::Sender<AutoShrinkChannelPayload>,
+        generic_update_sender: Sender<RoomEventCacheGenericUpdate>,
     ) -> Self {
         let sender = Sender::new(32);
         let weak_room = WeakRoom::new(client, room_id);
@@ -316,6 +326,7 @@ impl RoomEventCacheInner {
             pagination_batch_token_notifier: Default::default(),
             auto_shrink_sender,
             pagination_status,
+            generic_update_sender,
         }
     }
 
@@ -366,7 +377,6 @@ impl RoomEventCacheInner {
             updates.ambiguity_changes,
         )
         .await?;
-
         self.handle_account_data(updates.account_data);
 
         Ok(())
@@ -375,9 +385,12 @@ impl RoomEventCacheInner {
     #[instrument(skip_all, fields(room_id = %self.room_id))]
     pub(super) async fn handle_left_room_update(&self, updates: LeftRoomUpdate) -> Result<()> {
         self.handle_timeline(updates.timeline, Vec::new(), updates.ambiguity_changes).await?;
+
         Ok(())
     }
 
+    /// Handle a [`Timeline`], i.e. new events received by a sync for this
+    /// room.
     async fn handle_timeline(
         &self,
         timeline: Timeline,
@@ -404,6 +417,8 @@ impl RoomEventCacheInner {
             self.pagination_batch_token_notifier.notify_one();
         }
 
+        let mut events_update_the_timeline = false;
+
         // The order matters here: first send the timeline event diffs, then only the
         // related events (read receipts, etc.).
         if !timeline_event_diffs.is_empty() {
@@ -411,16 +426,25 @@ impl RoomEventCacheInner {
                 diffs: timeline_event_diffs,
                 origin: EventsOrigin::Sync,
             });
+            events_update_the_timeline = true;
         }
 
         if !ephemeral_events.is_empty() {
             let _ = self
                 .sender
                 .send(RoomEventCacheUpdate::AddEphemeralEvents { events: ephemeral_events });
+            events_update_the_timeline = true;
         }
 
         if !ambiguity_changes.is_empty() {
             let _ = self.sender.send(RoomEventCacheUpdate::UpdateMembers { ambiguity_changes });
+            events_update_the_timeline = true;
+        }
+
+        if events_update_the_timeline {
+            let _ = self.generic_update_sender.send(RoomEventCacheGenericUpdate::TimelineUpdated {
+                room_id: self.room_id.clone(),
+            });
         }
 
         Ok(())
@@ -1799,6 +1823,7 @@ mod timed_tests {
     use assert_matches::assert_matches;
     use assert_matches2::assert_let;
     use eyeball_im::VectorDiff;
+    use futures_util::FutureExt;
     use matrix_sdk_base::{
         event_cache::{
             store::{EventCacheStore as _, MemoryStore},
@@ -1819,6 +1844,7 @@ mod timed_tests {
     };
     use tokio::task::yield_now;
 
+    use super::RoomEventCacheGenericUpdate;
     use crate::{
         assert_let_timeout,
         event_cache::{room::LoadMoreEventsBackwardsOutcome, RoomEventCacheUpdate},
@@ -1847,6 +1873,7 @@ mod timed_tests {
         client.base_client().get_or_create_room(room_id, matrix_sdk_base::RoomState::Joined);
         let room = client.get_room(room_id).unwrap();
 
+        let mut generic_stream = event_cache.subscribe_to_room_generic_updates();
         let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
 
         // Propagate an update for a message and a prev-batch token.
@@ -1862,6 +1889,15 @@ mod timed_tests {
             .await
             .unwrap();
 
+        // Just checking the generic update is correct.
+        assert_matches!(
+            generic_stream.recv().await,
+            Ok(RoomEventCacheGenericUpdate::TimelineUpdated { room_id: expected_room_id }) => {
+                assert_eq!(expected_room_id, room_id);
+            }
+        );
+
+        // Check the storage.
         let linked_chunk = from_all_chunks::<3, _, _>(
             event_cache_store.load_all_chunks(LinkedChunkId::Room(room_id)).await.unwrap(),
         )
@@ -1911,6 +1947,7 @@ mod timed_tests {
         client.base_client().get_or_create_room(room_id, matrix_sdk_base::RoomState::Joined);
         let room = client.get_room(room_id).unwrap();
 
+        let mut generic_stream = event_cache.subscribe_to_room_generic_updates();
         let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
 
         // Propagate an update for a message with bundled relations.
@@ -1927,6 +1964,14 @@ mod timed_tests {
             .handle_joined_room_update(JoinedRoomUpdate { timeline, ..Default::default() })
             .await
             .unwrap();
+
+        // Just checking the generic update is correct.
+        assert_matches!(
+            generic_stream.recv().await,
+            Ok(RoomEventCacheGenericUpdate::TimelineUpdated { room_id: expected_room_id }) => {
+                assert_eq!(expected_room_id, room_id);
+            }
+        );
 
         // The in-memory linked chunk keeps the bundled relation.
         {
@@ -2176,10 +2221,22 @@ mod timed_tests {
         // Don't forget to subscribe and like^W enable storage!
         event_cache.subscribe().unwrap();
 
+        // Let's check whether the generic updates are received for the initialisation.
+        let mut generic_stream = event_cache.subscribe_to_room_generic_updates();
+
         client.base_client().get_or_create_room(room_id, matrix_sdk_base::RoomState::Joined);
         let room = client.get_room(room_id).unwrap();
 
         let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+
+        // The room event cache has been loaded. A generic update must have been
+        // triggered.
+        assert_matches!(
+            generic_stream.recv().await,
+            Ok(RoomEventCacheGenericUpdate::TimelineUpdated { room_id: expected_room_id }) => {
+                assert_eq!(room_id, expected_room_id);
+            }
+        );
 
         let (items, mut stream) = room_event_cache.subscribe().await;
 
@@ -2206,13 +2263,26 @@ mod timed_tests {
 
         assert!(stream.is_empty());
 
+        // A generic update is triggered too.
+        assert_matches!(
+            generic_stream.recv().await,
+            Ok(RoomEventCacheGenericUpdate::TimelineUpdated { room_id: expected_room_id }) => {
+                assert_eq!(expected_room_id, room_id);
+            }
+        );
+
         // A new update with one of these events leads to deduplication.
         let timeline = Timeline { limited: false, prev_batch: None, events: vec![ev2] };
+
         room_event_cache
             .inner
             .handle_joined_room_update(JoinedRoomUpdate { timeline, ..Default::default() })
             .await
             .unwrap();
+
+        // Just checking the generic update is correct. There is a duplicate event, so
+        // no generic changes whatsoever!
+        assert!(generic_stream.recv().now_or_never().is_none());
 
         // The stream doesn't report these changes *yet*. Use the items vector given
         // when subscribing, to check that the items correspond to their new
@@ -2302,6 +2372,7 @@ mod timed_tests {
         client.base_client().get_or_create_room(room_id, matrix_sdk_base::RoomState::Joined);
         let room = client.get_room(room_id).unwrap();
         let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+        let mut generic_stream = event_cache.subscribe_to_room_generic_updates();
 
         let f = EventFactory::new().room(room_id).sender(*ALICE);
 
@@ -2319,6 +2390,14 @@ mod timed_tests {
             })
             .await
             .unwrap();
+
+        // Just checking the generic update is correct.
+        assert_matches!(
+            generic_stream.recv().await,
+            Ok(RoomEventCacheGenericUpdate::TimelineUpdated { room_id: expected_room_id }) => {
+                assert_eq!(expected_room_id, room_id);
+            }
+        );
 
         {
             let mut state = room_event_cache.inner.state.write().await;
@@ -2372,6 +2451,14 @@ mod timed_tests {
             })
             .await
             .unwrap();
+
+        // Just checking the generic update is correct.
+        assert_matches!(
+            generic_stream.recv().await,
+            Ok(RoomEventCacheGenericUpdate::TimelineUpdated { room_id: expected_room_id }) => {
+                assert_eq!(expected_room_id, room_id);
+            }
+        );
 
         {
             let state = room_event_cache.inner.state.read().await;

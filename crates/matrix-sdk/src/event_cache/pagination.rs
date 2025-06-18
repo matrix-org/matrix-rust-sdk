@@ -26,7 +26,10 @@ use super::{
     room::{events::Gap, LoadMoreEventsBackwardsOutcome, RoomEventCacheInner},
     BackPaginationOutcome, EventsOrigin, Result, RoomEventCacheUpdate,
 };
-use crate::{event_cache::EventCacheError, room::MessagesOptions};
+use crate::{
+    event_cache::{EventCacheError, RoomEventCacheGenericUpdate},
+    room::MessagesOptions,
+};
 
 /// Status for the back-pagination on a room event cache.
 #[derive(Debug, PartialEq, Clone, Copy)]
@@ -151,6 +154,15 @@ impl RoomPagination {
                 // Notify subscribers that pagination ended.
                 status_observable
                     .set(RoomPaginationStatus::Idle { hit_timeline_start: outcome.reached_start });
+
+                // Send a room event cache generic update.
+                if !outcome.events.is_empty() {
+                    let _ = self.inner.generic_update_sender.send(
+                        RoomEventCacheGenericUpdate::TimelineUpdated {
+                            room_id: self.inner.room_id.clone(),
+                        },
+                    );
+                }
 
                 Ok(Some(outcome))
             }
