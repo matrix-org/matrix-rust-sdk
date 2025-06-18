@@ -68,6 +68,11 @@ impl fmt::Debug for RoomEventCache {
 
 /// Thin wrapper for a room event cache listener, so as to trigger side-effects
 /// when all listeners are gone.
+///
+/// The current side-effect is: auto-shrinking the [`RoomEventCache`] when no
+/// more listeners are active. This is an optimisation to reduce the number of
+/// data held in memory by a [`RoomEventCache`]: when no more listeners are
+/// active, all data are reduced to the minimum.
 #[allow(missing_debug_implementations)]
 pub struct RoomEventCacheListener {
     /// Underlying receiver of the room event cache's updates.
@@ -174,7 +179,7 @@ impl RoomEventCache {
     ///
     /// Use [`RoomEventCache::events`] to get all current events without the
     /// listener/subscriber. Creating, and especially dropping, a
-    /// [`RoomEventCacheListener`] isn't free.
+    /// [`RoomEventCacheListener`] isn't free, as it triggers side-effects.
     pub async fn subscribe(&self) -> (Vec<Event>, RoomEventCacheListener) {
         let state = self.inner.state.read().await;
         let events = state.events().events().map(|(_position, item)| item.clone()).collect();
