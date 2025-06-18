@@ -2,7 +2,7 @@ use std::{
     env,
     error::Error,
     path::{Path, PathBuf},
-    process::Command,
+    process::{self, Command},
 };
 
 use vergen::EmitBuilder;
@@ -56,7 +56,31 @@ fn get_clang_major_version(clang_path: &Path) -> String {
     clang_version.split('.').next().expect("could not parse clang output").to_owned()
 }
 
+fn env_is_set(var_name: &str) -> bool {
+    env::var_os(var_name).is_some()
+}
+
+fn ensure(cond: bool, err: &str) {
+    if !cond {
+        eprintln!(
+            "\n\
+            ┏━━━━━━━━{pad}━┓\n\
+            ┃ error: {err} ┃\n\
+            ┗━━━━━━━━{pad}━┛\n\
+            ",
+            pad = "━".repeat(err.len()),
+        );
+        process::exit(1);
+    }
+}
+
 fn main() -> Result<(), Box<dyn Error>> {
+    let sqlite_set = env_is_set("CARGO_FEATURE_SQLITE");
+    let indexeddb_set = env_is_set("CARGO_FEATURE_INDEXEDDB");
+    ensure(
+        sqlite_set || indexeddb_set,
+        "one of the features 'sqlite' or 'indexeddb' must be enabled",
+    );
     setup_x86_64_android_workaround();
     uniffi::generate_scaffolding("./src/api.udl").expect("Building the UDL file failed");
     EmitBuilder::builder().git_sha(true).emit()?;

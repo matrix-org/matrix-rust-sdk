@@ -31,14 +31,12 @@ unstable-msc4274 = ["matrix-sdk-ui/unstable-msc4274"]
 indexeddb = ["matrix-sdk/indexeddb"]
 # Use sqlite for session storage, not supported on Wasm platforms.
 sqlite = ["matrix-sdk/sqlite"]
-# provide a unified API regardless of target platforms, for use with multi-target platforms like react-native
-react-native = []
 # Required when targeting a Javascript environment, like Wasm in a browser.
 js = ["matrix-sdk-ui/js", "uuid/js"]
 # Use the TLS implementation provided by the host system, necessary on iOS and Wasm platforms.
-native-tls = ["matrix-sdk/native-tls", "sentry?/native-tls", "graphql_client/reqwest"]
+native-tls = ["matrix-sdk/native-tls", "sentry?/native-tls"]
 # Use Rustls as the TLS implementation, necessary on Android platforms.
-rustls-tls = ["matrix-sdk/rustls-tls", "sentry?/rustls", "graphql_client/reqwest-rustls"]
+rustls-tls = ["matrix-sdk/rustls-tls", "sentry?/rustls"]
 # Enable sentry error monitoring, not compatible on Wasm platforms.
 sentry = ["dep:sentry", "dep:sentry-tracing"]
 
