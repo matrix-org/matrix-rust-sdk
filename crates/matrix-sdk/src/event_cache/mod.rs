@@ -63,7 +63,7 @@ mod room;
 
 pub mod paginator;
 pub use pagination::{PaginationToken, RoomPagination, RoomPaginationStatus};
-pub use room::{RoomEventCache, RoomEventCacheListener};
+pub use room::{RoomEventCache, RoomEventCacheSubscriber};
 
 /// An error observed in the [`EventCache`].
 #[derive(thiserror::Error, Debug)]
@@ -276,14 +276,14 @@ impl EventCache {
     /// The auto-shrink mechanism works this way:
     ///
     /// - Each time there's a new subscriber to a [`RoomEventCache`], it will
-    ///   increment the active number of listeners to that room, aka
-    ///   [`RoomEventCacheState::listener_count`].
+    ///   increment the active number of subscribers to that room, aka
+    ///   [`RoomEventCacheState::subscriber_count`].
     /// - When that subscriber is dropped, it will decrement that count; and
     ///   notify the task below if it reached 0.
     /// - The task spawned here, owned by the [`EventCacheInner`], will listen
     ///   to such notifications that a room may be shrunk. It will attempt an
     ///   auto-shrink, by letting the inner state decide whether this is a good
-    ///   time to do so (new listeners might have spawned in the meanwhile).
+    ///   time to do so (new subscribers might have spawned in the meanwhile).
     #[instrument(skip_all)]
     async fn auto_shrink_linked_chunk_task(
         inner: Arc<EventCacheInner>,
@@ -303,11 +303,11 @@ impl EventCache {
             trace!("waiting for state lock…");
             let mut state = room.inner.state.write().await;
 
-            match state.auto_shrink_if_no_listeners().await {
+            match state.auto_shrink_if_no_subscribers().await {
                 Ok(diffs) => {
                     if let Some(diffs) = diffs {
                         // Hey, fun stuff: we shrunk the linked chunk, so there shouldn't be any
-                        // listeners, right? RIGHT? Especially because the state is guarded behind
+                        // subscribers, right? RIGHT? Especially because the state is guarded behind
                         // a lock.
                         //
                         // However, better safe than sorry, and it's cheap to send an update here,
