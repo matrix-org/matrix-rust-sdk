@@ -286,7 +286,7 @@ pub struct ClientBuilder {
     enable_share_history_on_invite: bool,
     request_config: Option<RequestConfig>,
 
-    // The settings below here will be ignored on Wasm platforms,
+    // The options below here will be ignored on Wasm platforms,
     // because the network stack does not support them.
     user_agent: Option<String>,
     proxy: Option<String>,
