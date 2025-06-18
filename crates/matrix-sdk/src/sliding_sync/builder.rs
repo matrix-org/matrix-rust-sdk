@@ -222,9 +222,6 @@ impl SlidingSyncBuilder {
     }
 
     /// Build the Sliding Sync.
-    ///
-    /// If `self.storage_key` is `Some(_)`, load the cached data from cold
-    /// storage.
     #[allow(clippy::unused_async)] // Async is only used if the e2e-encryption feature is enabled.
     pub async fn build(self) -> Result<SlidingSync> {
         let client = self.client;
