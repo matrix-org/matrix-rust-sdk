@@ -19,7 +19,7 @@ crate-type = [
   "cdylib",
   # Needed by uniffi for iOS bindings
   "staticlib",
-  # Needed by uniffi for JS/Wasm platforms, which use rust as an intermediate language
+  # Needed by uniffi for JS/Wasm bindings, which use rust as an intermediate language
   "lib"
 ]
 
