@@ -129,12 +129,6 @@ impl LinkedChunkId<'_> {
             LinkedChunkId::Room(room_id) => OwnedLinkedChunkId::Room((*room_id).to_owned()),
         }
     }
-
-    pub fn room_id(&self) -> &RoomId {
-        match self {
-            LinkedChunkId::Room(room_id) => room_id,
-        }
-    }
 }
 
 impl PartialEq<&OwnedLinkedChunkId> for LinkedChunkId<'_> {
@@ -168,6 +162,7 @@ impl Display for OwnedLinkedChunkId {
 }
 
 impl OwnedLinkedChunkId {
+    #[cfg(test)]
     fn as_ref(&self) -> LinkedChunkId<'_> {
         match self {
             OwnedLinkedChunkId::Room(room_id) => LinkedChunkId::Room(room_id.as_ref()),
