@@ -12,6 +12,8 @@ use tracing::{trace, warn};
 use super::{FrozenSlidingSyncList, SlidingSync, SlidingSyncPositionMarkers};
 #[cfg(feature = "e2e-encryption")]
 use crate::sliding_sync::FrozenSlidingSyncPos;
+#[cfg(doc)]
+use crate::sliding_sync::SlidingSyncList;
 use crate::{sliding_sync::SlidingSyncListCachePolicy, Client, Result};
 
 /// Be careful: as this is used as a storage key; changing it requires migrating
@@ -142,7 +144,7 @@ pub(super) async fn restore_sliding_sync_list(
     Ok(None)
 }
 
-/// Fields restored during `restore_sliding_sync_state`.
+/// Fields restored during [`restore_sliding_sync_state`].
 #[derive(Default)]
 pub(super) struct RestoredFields {
     pub to_device_token: Option<String>,

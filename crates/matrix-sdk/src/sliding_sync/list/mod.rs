@@ -211,7 +211,6 @@ impl SlidingSyncList {
     }
 
     /// Set the maximum number of rooms.
-    #[cfg(test)]
     pub(super) fn set_maximum_number_of_rooms(&self, maximum_number_of_rooms: Option<u32>) {
         self.inner.maximum_number_of_rooms.set(maximum_number_of_rooms);
     }
