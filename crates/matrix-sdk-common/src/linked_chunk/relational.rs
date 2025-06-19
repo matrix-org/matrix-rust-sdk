@@ -15,7 +15,10 @@
 //! Implementation for a _relational linked chunk_, see
 //! [`RelationalLinkedChunk`].
 
-use std::{collections::HashMap, hash::Hash};
+use std::{
+    collections::{BTreeMap, HashMap},
+    hash::Hash,
+};
 
 use ruma::{OwnedEventId, OwnedRoomId};
 
@@ -81,7 +84,7 @@ pub struct RelationalLinkedChunk<ItemId, Item, Gap> {
     items_chunks: Vec<ItemRow<ItemId, Gap>>,
 
     /// The items' content themselves.
-    items: HashMap<OwnedLinkedChunkId, HashMap<ItemId, (Item, Option<Position>)>>,
+    items: HashMap<OwnedLinkedChunkId, BTreeMap<ItemId, (Item, Option<Position>)>>,
 }
 
 /// The [`IndexableItem`] trait is used to mark items that can be indexed into a
@@ -105,7 +108,7 @@ impl IndexableItem for TimelineEvent {
 impl<ItemId, Item, Gap> RelationalLinkedChunk<ItemId, Item, Gap>
 where
     Item: IndexableItem<ItemId = ItemId>,
-    ItemId: Hash + PartialEq + Eq + Clone,
+    ItemId: Hash + PartialEq + Eq + Clone + Ord,
 {
     /// Create a new relational linked chunk.
     pub fn new() -> Self {
@@ -409,7 +412,7 @@ impl<ItemId, Item, Gap> RelationalLinkedChunk<ItemId, Item, Gap>
 where
     Gap: Clone,
     Item: Clone,
-    ItemId: Hash + PartialEq + Eq,
+    ItemId: Hash + PartialEq + Eq + Ord,
 {
     /// Loads all the chunks.
     ///
@@ -527,7 +530,7 @@ where
 impl<ItemId, Item, Gap> Default for RelationalLinkedChunk<ItemId, Item, Gap>
 where
     Item: IndexableItem<ItemId = ItemId>,
-    ItemId: Hash + PartialEq + Eq + Clone,
+    ItemId: Hash + PartialEq + Eq + Clone + Ord,
 {
     fn default() -> Self {
         Self::new()
@@ -546,7 +549,7 @@ fn load_raw_chunk<ItemId, Item, Gap>(
 where
     Item: Clone,
     Gap: Clone,
-    ItemId: Hash + PartialEq + Eq,
+    ItemId: Hash + PartialEq + Eq + Ord,
 {
     // Find all items that correspond to the chunk.
     let mut items = relational_linked_chunk
