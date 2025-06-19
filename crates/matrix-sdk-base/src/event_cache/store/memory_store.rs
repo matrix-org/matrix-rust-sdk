@@ -223,8 +223,10 @@ impl EventCacheStore for MemoryStore {
     ) -> Result<Option<Event>, Self::Error> {
         let inner = self.inner.read().unwrap();
 
+        let target_linked_chunk_id = LinkedChunkId::Room(room_id);
+
         let event = inner.events.items().find_map(|(event, this_linked_chunk_id)| {
-            (room_id == this_linked_chunk_id.room_id() && event.event_id()? == event_id)
+            (target_linked_chunk_id == this_linked_chunk_id && event.event_id()? == event_id)
                 .then_some(event.clone())
         });
 
@@ -239,14 +241,16 @@ impl EventCacheStore for MemoryStore {
     ) -> Result<Vec<Event>, Self::Error> {
         let inner = self.inner.read().unwrap();
 
+        let target_linked_chunk_id = LinkedChunkId::Room(room_id);
+
         let filters = compute_filters_string(filters);
 
         let related_events = inner
             .events
             .items()
             .filter_map(|(event, this_linked_chunk_id)| {
-                // Must be in the same room.
-                if room_id != this_linked_chunk_id.room_id() {
+                // Must be in the same linked chunk.
+                if target_linked_chunk_id != this_linked_chunk_id {
                     return None;
                 }
 
