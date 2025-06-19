@@ -17,22 +17,19 @@
 use std::{collections::BTreeMap, marker::PhantomData};
 
 use ruma::{
-    api::client::{
-        account::request_openid_token, delayed_events::update_delayed_event,
-        to_device::send_event_to_device,
-    },
+    api::client::{account::request_openid_token, delayed_events::update_delayed_event},
     events::{AnyStateEvent, AnyTimelineEvent, AnyToDeviceEventContent},
     serde::Raw,
     to_device::DeviceIdOrAllDevices,
     OwnedUserId,
 };
-use serde::{de, Deserialize};
+use serde::Deserialize;
 use serde_json::value::RawValue as RawJsonValue;
 use tracing::error;
 
 use super::{
     from_widget::SendEventResponse, incoming::MatrixDriverResponse, Action,
-    MatrixDriverRequestMeta, WidgetMachine,
+    MatrixDriverRequestMeta, SendToDeviceEventResponse, WidgetMachine,
 };
 use crate::widget::{Capabilities, StateKeySelector};
 
@@ -296,9 +293,6 @@ pub(crate) struct SendToDeviceRequest {
     /// The type of the to-device message.
     #[serde(rename = "type")]
     pub(crate) event_type: String,
-    /// If the to-device message should be encrypted or not.
-    /// TODO: As per MSC 3819 should default to true
-    pub(crate) encrypted: bool,
     /// The messages to be sent.
     /// They are organized in a map of user ID -> device ID -> content like the
     /// cs api request.
@@ -313,18 +307,7 @@ impl From<SendToDeviceRequest> for MatrixDriverRequestData {
 }
 
 impl MatrixDriverRequest for SendToDeviceRequest {
-    type Response = send_event_to_device::v3::Response;
-}
-
-impl TryInto<send_event_to_device::v3::Response> for MatrixDriverResponse {
-    type Error = de::value::Error;
-
-    fn try_into(self) -> Result<send_event_to_device::v3::Response, Self::Error> {
-        match self {
-            MatrixDriverResponse::ToDeviceSent(response) => Ok(response),
-            _ => Err(de::Error::custom("bug in MatrixDriver, received wrong event response")),
-        }
-    }
+    type Response = SendToDeviceEventResponse;
 }
 
 /// Ask the client to send a UpdateDelayedEventRequest with the given `delay_id`
