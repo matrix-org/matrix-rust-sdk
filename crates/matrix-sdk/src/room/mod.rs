@@ -113,10 +113,10 @@ use ruma::{
         tag::{TagInfo, TagName},
         typing::SyncTypingEvent,
         AnyRoomAccountDataEvent, AnyRoomAccountDataEventContent, AnyTimelineEvent, EmptyStateKey,
-        Mentions, MessageLikeEventContent, MessageLikeEventType, OriginalSyncStateEvent,
-        RedactContent, RedactedStateEventContent, RoomAccountDataEvent,
-        RoomAccountDataEventContent, RoomAccountDataEventType, StateEventContent, StateEventType,
-        StaticEventContent, StaticStateEventContent, SyncStateEvent,
+        Mentions, MessageLikeEventContent, OriginalSyncStateEvent, RedactContent,
+        RedactedStateEventContent, RoomAccountDataEvent, RoomAccountDataEventContent,
+        RoomAccountDataEventType, StateEventContent, StateEventType, StaticEventContent,
+        StaticStateEventContent, SyncStateEvent,
     },
     push::{Action, PushConditionRoomCtx, Ruleset},
     serde::Raw,
@@ -2759,89 +2759,6 @@ impl Room {
         self.client.send(request).await
     }
 
-    /// Returns true if the user with the given user_id is able to redact
-    /// their own messages in the room.
-    ///
-    /// The call may fail if there is an error in getting the power levels.
-    pub async fn can_user_redact_own(&self, user_id: &UserId) -> Result<bool> {
-        Ok(self.power_levels().await?.user_can_redact_own_event(user_id))
-    }
-
-    /// Returns true if the user with the given user_id is able to redact
-    /// messages of other users in the room.
-    ///
-    /// The call may fail if there is an error in getting the power levels.
-    pub async fn can_user_redact_other(&self, user_id: &UserId) -> Result<bool> {
-        Ok(self.power_levels().await?.user_can_redact_event_of_other(user_id))
-    }
-
-    /// Returns true if the user with the given user_id is able to ban in the
-    /// room.
-    ///
-    /// The call may fail if there is an error in getting the power levels.
-    pub async fn can_user_ban(&self, user_id: &UserId) -> Result<bool> {
-        Ok(self.power_levels().await?.user_can_ban(user_id))
-    }
-
-    /// Returns true if the user with the given user_id is able to kick in the
-    /// room.
-    ///
-    /// The call may fail if there is an error in getting the power levels.
-    pub async fn can_user_invite(&self, user_id: &UserId) -> Result<bool> {
-        Ok(self.power_levels().await?.user_can_invite(user_id))
-    }
-
-    /// Returns true if the user with the given user_id is able to kick in the
-    /// room.
-    ///
-    /// The call may fail if there is an error in getting the power levels.
-    pub async fn can_user_kick(&self, user_id: &UserId) -> Result<bool> {
-        Ok(self.power_levels().await?.user_can_kick(user_id))
-    }
-
-    /// Returns true if the user with the given user_id is able to send a
-    /// specific state event type in the room.
-    ///
-    /// The call may fail if there is an error in getting the power levels.
-    pub async fn can_user_send_state(
-        &self,
-        user_id: &UserId,
-        state_event: StateEventType,
-    ) -> Result<bool> {
-        Ok(self.power_levels().await?.user_can_send_state(user_id, state_event))
-    }
-
-    /// Returns true if the user with the given user_id is able to send a
-    /// specific message type in the room.
-    ///
-    /// The call may fail if there is an error in getting the power levels.
-    pub async fn can_user_send_message(
-        &self,
-        user_id: &UserId,
-        message: MessageLikeEventType,
-    ) -> Result<bool> {
-        Ok(self.power_levels().await?.user_can_send_message(user_id, message))
-    }
-
-    /// Returns true if the user with the given user_id is able to pin or unpin
-    /// events in the room.
-    ///
-    /// The call may fail if there is an error in getting the power levels.
-    pub async fn can_user_pin_unpin(&self, user_id: &UserId) -> Result<bool> {
-        Ok(self
-            .power_levels()
-            .await?
-            .user_can_send_state(user_id, StateEventType::RoomPinnedEvents))
-    }
-
-    /// Returns true if the user with the given user_id is able to trigger a
-    /// notification in the room.
-    ///
-    /// The call may fail if there is an error in getting the power levels.
-    pub async fn can_user_trigger_room_notification(&self, user_id: &UserId) -> Result<bool> {
-        Ok(self.power_levels().await?.user_can_trigger_room_notification(user_id))
-    }
-
     /// Get a list of servers that should know this room.
     ///
     /// Uses the synced members of the room and the suggested [routing
@@ -3330,7 +3247,10 @@ impl Room {
             return Ok(false);
         }
 
-        if !self.can_user_trigger_room_notification(self.own_user_id()).await? {
+        let can_user_trigger_room_notification =
+            self.power_levels().await?.user_can_trigger_room_notification(self.own_user_id());
+
+        if !can_user_trigger_room_notification {
             warn!(
                 "User can't send notifications to everyone in the room {}. \
                 Not sending a new notify event.",
