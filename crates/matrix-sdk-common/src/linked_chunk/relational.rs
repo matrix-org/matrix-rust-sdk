@@ -81,7 +81,7 @@ pub struct RelationalLinkedChunk<ItemId, Item, Gap> {
     items_chunks: Vec<ItemRow<ItemId, Gap>>,
 
     /// The items' content themselves.
-    items: HashMap<OwnedLinkedChunkId, HashMap<ItemId, Item>>,
+    items: HashMap<OwnedLinkedChunkId, HashMap<ItemId, (Item, Option<Position>)>>,
 }
 
 /// The [`IndexableItem`] trait is used to mark items that can be indexed into a
@@ -175,7 +175,7 @@ where
                         self.items
                             .entry(linked_chunk_id.to_owned())
                             .or_default()
-                            .insert(item_id.clone(), item);
+                            .insert(item_id.clone(), (item, Some(at)));
                         self.items_chunks.push(ItemRow {
                             linked_chunk_id: linked_chunk_id.to_owned(),
                             position: at,
@@ -199,7 +199,7 @@ where
                     self.items
                         .entry(linked_chunk_id.to_owned())
                         .or_default()
-                        .insert(item_id.clone(), item);
+                        .insert(item_id.clone(), (item, Some(at)));
                     existing.item = Either::Item(item_id);
                 }
 
@@ -366,18 +366,12 @@ where
     pub fn unordered_linked_chunk_items<'a>(
         &'a self,
         target: LinkedChunkId<'a>,
-    ) -> impl Iterator<Item = (&'a Item, Position)> {
-        self.items_chunks.iter().filter_map(move |item_row| {
-            if item_row.linked_chunk_id == target {
-                match &item_row.item {
-                    Either::Item(item_id) => {
-                        Some((self.items.get(&target.to_owned())?.get(item_id)?, item_row.position))
-                    }
-                    Either::Gap(..) => None,
-                }
-            } else {
-                None
-            }
+    ) -> impl 'a + Iterator<Item = (&'a Item, Position)> {
+        let target = &target.to_owned();
+
+        self.items.get(target).into_iter().flat_map(|items| {
+            // Only keep items which have a position.
+            items.values().filter_map(|(item, pos)| pos.map(|pos| (item, pos)))
         })
     }
 
@@ -387,7 +381,7 @@ where
     /// This will include out-of-band items.
     pub fn items(&self) -> impl Iterator<Item = (&Item, LinkedChunkId<'_>)> {
         self.items.iter().flat_map(|(linked_chunk_id, items)| {
-            items.values().map(|item| (item, linked_chunk_id.as_ref()))
+            items.values().map(|(item, _pos)| (item, linked_chunk_id.as_ref()))
         })
     }
 
@@ -395,7 +389,14 @@ where
     pub fn save_item(&mut self, room_id: OwnedRoomId, item: Item) {
         let id = item.id();
         let linked_chunk_id = OwnedLinkedChunkId::Room(room_id);
-        self.items.entry(linked_chunk_id).or_default().insert(id, item);
+
+        let map = self.items.entry(linked_chunk_id).or_default();
+        if let Some(prev_value) = map.get_mut(&id) {
+            // If the item already exists, we keep the position.
+            prev_value.0 = item;
+        } else {
+            map.insert(id, (item, None));
+        }
     }
 }
 
@@ -591,11 +592,14 @@ where
                     collected_items
                         .into_iter()
                         .filter_map(|(item_id, _index)| {
-                            relational_linked_chunk
-                                .items
-                                .get(&linked_chunk_id.to_owned())?
-                                .get(item_id)
-                                .cloned()
+                            Some(
+                                relational_linked_chunk
+                                    .items
+                                    .get(&linked_chunk_id.to_owned())?
+                                    .get(item_id)?
+                                    .0
+                                    .clone(),
+                            )
                         })
                         .collect(),
                 ),
