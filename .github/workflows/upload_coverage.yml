@@ -77,3 +77,20 @@ jobs:
           working-directory: ${{ github.workspace }}/repo_root
           # Location where coverage report files are searched for
           directory: ${{ github.workspace }}
+
+      - name: Upload test results to Codecov
+        uses: codecov/test-results-action@v1
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          fail_ci_if_error: true
+
+          # Manual overrides for these parameters are needed because automatic detection
+          # in codecov-action does not work for non-`pull_request` workflows.
+          # In `main` branch push, these default to empty strings since we want to run
+          # the analysis on HEAD.
+          override_commit: ${{ steps.parse_previous_artifacts.outputs.override_commit || '' }}
+          override_pr: ${{ steps.parse_previous_artifacts.outputs.override_pr || '' }}
+          working-directory: ${{ github.workspace }}/repo_root
+
+          # Location where coverage report files are searched for
+          directory: ${{ github.workspace }}
