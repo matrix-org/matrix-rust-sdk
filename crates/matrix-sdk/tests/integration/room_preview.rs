@@ -6,20 +6,20 @@ use matrix_sdk::{
 };
 use matrix_sdk_base::{RequestedRequiredStates, RoomState};
 use matrix_sdk_test::{
-    async_test, InvitedRoomBuilder, JoinedRoomBuilder, KnockedRoomBuilder, SyncResponseBuilder,
+    InvitedRoomBuilder, JoinedRoomBuilder, KnockedRoomBuilder, SyncResponseBuilder, async_test,
 };
 use ruma::{
+    RoomId,
     api::client::sync::sync_events::{v5 as sliding_sync_http, v5::response::Hero},
     assign,
     events::room::member::MembershipState,
     owned_user_id, room_id,
     space::SpaceRoomJoinRule,
-    RoomId,
 };
 use serde_json::json;
 use wiremock::{
-    matchers::{header, method, path_regex},
     Mock, MockServer, ResponseTemplate,
+    matchers::{header, method, path_regex},
 };
 
 use crate::mock_sync;

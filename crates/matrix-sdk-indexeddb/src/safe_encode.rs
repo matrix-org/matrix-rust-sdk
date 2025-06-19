@@ -1,17 +1,16 @@
 //! Helpers for wasm32/browser environments
 
 use base64::{
-    alphabet,
-    engine::{general_purpose, GeneralPurpose},
-    Engine,
+    Engine, alphabet,
+    engine::{GeneralPurpose, general_purpose},
 };
 use matrix_sdk_store_encryption::StoreCipher;
 use ruma::{
-    events::{
-        receipt::ReceiptType, GlobalAccountDataEventType, RoomAccountDataEventType, StateEventType,
-    },
     DeviceId, EventId, MxcUri, OwnedEventId, OwnedRoomId, OwnedUserId, RoomId, TransactionId,
     UserId,
+    events::{
+        GlobalAccountDataEventType, RoomAccountDataEventType, StateEventType, receipt::ReceiptType,
+    },
 };
 use wasm_bindgen::JsValue;
 use web_sys::IdbKeyRange;

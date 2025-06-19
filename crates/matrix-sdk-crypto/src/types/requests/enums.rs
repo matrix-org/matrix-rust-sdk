@@ -15,6 +15,7 @@
 use std::sync::Arc;
 
 use ruma::{
+    TransactionId,
     api::client::{
         backup::add_backup_keys::v3::Response as KeysBackupResponse,
         keys::{
@@ -29,7 +30,6 @@ use ruma::{
         message::send_message_event::v3::Response as RoomMessageResponse,
         to_device::send_event_to_device::v3::Response as ToDeviceResponse,
     },
-    TransactionId,
 };
 
 use super::{

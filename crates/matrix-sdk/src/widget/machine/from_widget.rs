@@ -14,18 +14,18 @@
 
 use as_variant::as_variant;
 use ruma::{
+    OwnedEventId, OwnedRoomId,
     api::client::{
         delayed_events::{delayed_message_event, delayed_state_event, update_delayed_event},
         error::{ErrorBody, StandardErrorBody},
     },
     events::AnyTimelineEvent,
     serde::Raw,
-    OwnedEventId, OwnedRoomId,
 };
 use serde::{Deserialize, Serialize};
 
-use super::{driver_req::SendToDeviceRequest, SendEventRequest, UpdateDelayedEventRequest};
-use crate::{widget::StateKeySelector, Error, HttpError, RumaApiError};
+use super::{SendEventRequest, UpdateDelayedEventRequest, driver_req::SendToDeviceRequest};
+use crate::{Error, HttpError, RumaApiError, widget::StateKeySelector};
 
 #[derive(Deserialize, Debug)]
 #[serde(tag = "action", rename_all = "snake_case", content = "data")]

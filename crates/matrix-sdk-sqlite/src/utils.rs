@@ -20,12 +20,12 @@ use deadpool_sqlite::Object as SqliteAsyncConn;
 use itertools::Itertools;
 use matrix_sdk_store_encryption::StoreCipher;
 use ruma::time::SystemTime;
-use rusqlite::{limits::Limit, OptionalExtension, Params, Row, Statement, Transaction};
-use serde::{de::DeserializeOwned, Serialize};
+use rusqlite::{OptionalExtension, Params, Row, Statement, Transaction, limits::Limit};
+use serde::{Serialize, de::DeserializeOwned};
 
 use crate::{
-    error::{Error, Result},
     OpenStoreError, RuntimeConfig,
+    error::{Error, Result},
 };
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]

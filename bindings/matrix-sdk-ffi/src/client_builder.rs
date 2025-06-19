@@ -2,10 +2,12 @@ use std::{fs, num::NonZeroUsize, path::Path, sync::Arc, time::Duration};
 
 use futures_util::StreamExt;
 use matrix_sdk::{
+    Client as MatrixClient, ClientBuildError as MatrixClientBuildError, HttpError, IdParseError,
+    RumaApiError, SqliteStoreConfig,
     authentication::oauth::qrcode::{self, DeviceCodeErrorResponseType, LoginFailureReason},
     crypto::{
-        types::qr_login::{LoginQrCodeDecodeError, QrCodeModeData},
         CollectStrategy, TrustRequirement,
+        types::qr_login::{LoginQrCodeDecodeError, QrCodeModeData},
     },
     encryption::{BackupDownloadStrategy, EncryptionSettings},
     event_cache::EventCacheError,
@@ -15,8 +17,6 @@ use matrix_sdk::{
         Error as MatrixSlidingSyncError, VersionBuilder as MatrixSlidingSyncVersionBuilder,
         VersionBuilderError,
     },
-    Client as MatrixClient, ClientBuildError as MatrixClientBuildError, HttpError, IdParseError,
-    RumaApiError, SqliteStoreConfig,
 };
 use matrix_sdk_common::{SendOutsideWasm, SyncOutsideWasm};
 use ruma::api::error::{DeserializationError, FromHttpResponseError};

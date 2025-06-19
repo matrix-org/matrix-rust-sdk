@@ -16,35 +16,35 @@ use std::{
     collections::HashMap,
     ops::{Deref, DerefMut},
     sync::{
-        atomic::{AtomicBool, Ordering},
         Arc,
+        atomic::{AtomicBool, Ordering},
     },
 };
 
 use as_variant::as_variant;
 use matrix_sdk_common::locks::RwLock;
 use ruma::{
+    DeviceId, EventId, OwnedDeviceId, OwnedUserId, RoomId, UserId,
     api::client::keys::upload_signatures::v3::Request as SignatureUploadRequest,
     events::{
         key::verification::VerificationMethod, room::message::KeyVerificationRequestEventContent,
     },
-    DeviceId, EventId, OwnedDeviceId, OwnedUserId, RoomId, UserId,
 };
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 use tracing::{error, info};
 
 use crate::{
+    CryptoStoreError, DeviceData, VerificationRequest,
     error::SignatureError,
     store::{
-        types::{Changes, IdentityChanges},
         Store,
+        types::{Changes, IdentityChanges},
     },
     types::{
-        requests::OutgoingVerificationRequest, MasterPubkey, SelfSigningPubkey, UserSigningPubkey,
+        MasterPubkey, SelfSigningPubkey, UserSigningPubkey, requests::OutgoingVerificationRequest,
     },
     verification::VerificationMachine,
-    CryptoStoreError, DeviceData, VerificationRequest,
 };
 
 /// Enum over the different user identity types we can have.
@@ -1211,11 +1211,12 @@ where
 pub(crate) mod testing {
     use matrix_sdk_test::ruma_response_from_json;
     use ruma::{
+        UserId,
         api::client::keys::{
             get_keys::v3::Response as KeyQueryResponse,
             upload_signatures::v3::Request as SignatureUploadRequest,
         },
-        user_id, UserId,
+        user_id,
     };
     use serde_json::json;
 
@@ -1224,8 +1225,8 @@ pub(crate) mod testing {
     use crate::{identities::manager::testing::other_user_id, olm::PrivateCrossSigningIdentity};
     use crate::{
         identities::{
-            manager::testing::{other_key_query, own_key_query},
             DeviceData,
+            manager::testing::{other_key_query, own_key_query},
         },
         store::Store,
         types::CrossSigningKey,
@@ -1413,29 +1414,29 @@ pub(crate) mod tests {
 
     use assert_matches::assert_matches;
     use matrix_sdk_test::{async_test, test_json};
-    use ruma::{device_id, user_id, TransactionId};
-    use serde_json::{json, Value};
+    use ruma::{TransactionId, device_id, user_id};
+    use serde_json::{Value, json};
     use tokio::sync::Mutex;
 
     use super::{
-        testing::{device, get_other_identity, get_own_identity},
         OtherUserIdentityDataSerializerV2, OwnUserIdentityData, OwnUserIdentityVerifiedState,
         UserIdentityData,
+        testing::{device, get_other_identity, get_own_identity},
     };
     use crate::{
+        CrossSigningKeyExport, OlmMachine, OtherUserIdentityData,
         identities::{
+            Device,
             manager::testing::own_key_query,
             user::{
-                testing::simulate_key_query_response_for_verification,
                 OtherUserIdentityDataSerializer,
+                testing::simulate_key_query_response_for_verification,
             },
-            Device,
         },
         olm::{Account, PrivateCrossSigningIdentity},
         store::{CryptoStoreWrapper, MemoryStore},
         types::{CrossSigningKey, MasterPubkey, SelfSigningPubkey, Signatures, UserSigningPubkey},
         verification::VerificationMachine,
-        CrossSigningKeyExport, OlmMachine, OtherUserIdentityData,
     };
 
     #[test]

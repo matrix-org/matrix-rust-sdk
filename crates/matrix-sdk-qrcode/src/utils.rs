@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use qrcode::{bits::Bits, EcLevel, QrCode, Version};
+use qrcode::{EcLevel, QrCode, Version, bits::Bits};
 use ruma_common::serde::Base64;
 use vodozemac::Ed25519PublicKey;
 

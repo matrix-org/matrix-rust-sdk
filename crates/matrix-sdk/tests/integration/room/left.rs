@@ -4,18 +4,19 @@ use assert_matches2::assert_matches;
 use matrix_sdk::{config::SyncSettings, linked_chunk::LinkedChunkId};
 use matrix_sdk_base::{RoomInfoNotableUpdateReasons, RoomState};
 use matrix_sdk_test::{
-    async_test, test_json, GlobalAccountDataTestEvent, LeftRoomBuilder, SyncResponseBuilder,
-    DEFAULT_TEST_ROOM_ID,
+    DEFAULT_TEST_ROOM_ID, GlobalAccountDataTestEvent, LeftRoomBuilder, SyncResponseBuilder,
+    async_test, test_json,
 };
 use ruma::{
+    OwnedRoomOrAliasId,
     events::direct::{DirectEventContent, DirectUserIdentifier},
-    user_id, OwnedRoomOrAliasId,
+    user_id,
 };
 use serde_json::json;
 use tokio::task::yield_now;
 use wiremock::{
-    matchers::{header, method, path, path_regex},
     Mock, ResponseTemplate,
+    matchers::{header, method, path, path_regex},
 };
 
 use crate::{logged_in_client_with_server, mock_sync};

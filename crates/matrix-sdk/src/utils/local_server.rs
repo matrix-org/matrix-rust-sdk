@@ -45,10 +45,10 @@ use std::{
 };
 
 use axum::{body::Body, response::IntoResponse, routing::any_service};
-use http::{header, HeaderValue, Method, Request, StatusCode};
+use http::{HeaderValue, Method, Request, StatusCode, header};
 use matrix_sdk_base::{boxed_into_future, locks::Mutex};
 use matrix_sdk_common::executor::spawn;
-use rand::{thread_rng, Rng};
+use rand::{Rng, thread_rng};
 use tokio::{net::TcpListener, sync::oneshot};
 use tower::service_fn;
 use url::Url;

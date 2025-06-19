@@ -5,18 +5,18 @@ use futures_util::StreamExt;
 use matrix_sdk_common::store_locks::CrossProcessStoreLock;
 use ruma::{DeviceId, OwnedDeviceId, OwnedUserId, UserId};
 use tokio::sync::{
-    broadcast::{self},
     Mutex,
+    broadcast::{self},
 };
-use tokio_stream::wrappers::{errors::BroadcastStreamRecvError, BroadcastStream};
+use tokio_stream::wrappers::{BroadcastStream, errors::BroadcastStreamRecvError};
 use tracing::{debug, trace, warn};
 
-use super::{caches::SessionStore, DeviceChanges, IdentityChanges, LockableCryptoStore};
+use super::{DeviceChanges, IdentityChanges, LockableCryptoStore, caches::SessionStore};
 use crate::{
+    CryptoStoreError, GossippedSecret, OwnUserIdentityData, Session, UserIdentityData,
     olm::InboundGroupSession,
     store,
     store::{Changes, DynCryptoStore, IntoCryptoStore, RoomKeyInfo, RoomKeyWithheldInfo},
-    CryptoStoreError, GossippedSecret, OwnUserIdentityData, Session, UserIdentityData,
 };
 
 /// A wrapper for crypto store implementations that adds update notifiers.
@@ -178,7 +178,9 @@ impl CryptoStoreWrapper {
                 let own_identity_is_verified = own_identity_after.is_verified();
 
                 if !own_identity_was_verified_before_change && own_identity_is_verified {
-                    debug!("Own identity is now verified, check all known identities for verification status changes");
+                    debug!(
+                        "Own identity is now verified, check all known identities for verification status changes"
+                    );
                     // We need to review all the other identities to see if they are verified now
                     // and mark them as such
                     self.check_all_identities_and_update_was_previously_verified_flag_if_needed(

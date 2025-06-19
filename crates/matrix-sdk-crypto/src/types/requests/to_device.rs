@@ -15,10 +15,10 @@
 use std::{collections::BTreeMap, iter};
 
 use ruma::{
+    OwnedDeviceId, OwnedTransactionId, OwnedUserId, TransactionId, UserId,
     events::{AnyToDeviceEventContent, EventContent, ToDeviceEventType},
     serde::Raw,
     to_device::DeviceIdOrAllDevices,
-    OwnedDeviceId, OwnedTransactionId, OwnedUserId, TransactionId, UserId,
 };
 use serde::{Deserialize, Serialize};
 

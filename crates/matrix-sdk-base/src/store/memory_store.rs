@@ -20,31 +20,31 @@ use std::{
 use async_trait::async_trait;
 use growable_bloom_filter::GrowableBloom;
 use ruma::{
-    canonical_json::{redact, RedactedBecause},
+    CanonicalJsonObject, EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedMxcUri,
+    OwnedRoomId, OwnedTransactionId, OwnedUserId, RoomId, RoomVersionId, TransactionId, UserId,
+    canonical_json::{RedactedBecause, redact},
     events::{
+        AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent, AnyStrippedStateEvent,
+        AnySyncStateEvent, GlobalAccountDataEventType, RoomAccountDataEventType, StateEventType,
         presence::PresenceEvent,
         receipt::{Receipt, ReceiptThread, ReceiptType},
         room::member::{MembershipState, StrippedRoomMemberEvent, SyncRoomMemberEvent},
-        AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent, AnyStrippedStateEvent,
-        AnySyncStateEvent, GlobalAccountDataEventType, RoomAccountDataEventType, StateEventType,
     },
     serde::Raw,
     time::Instant,
-    CanonicalJsonObject, EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedMxcUri,
-    OwnedRoomId, OwnedTransactionId, OwnedUserId, RoomId, RoomVersionId, TransactionId, UserId,
 };
 use tracing::{debug, instrument, warn};
 
 use super::{
-    send_queue::{ChildTransactionId, QueuedRequest, SentRequestKey},
-    traits::{ComposerDraft, ServerCapabilities},
     DependentQueuedRequest, DependentQueuedRequestKind, QueuedRequestKind, Result, RoomInfo,
     RoomLoadSettings, StateChanges, StateStore, StoreError,
+    send_queue::{ChildTransactionId, QueuedRequest, SentRequestKey},
+    traits::{ComposerDraft, ServerCapabilities},
 };
 use crate::{
+    MinimalRoomMemberEvent, RoomMemberships, StateStoreDataKey, StateStoreDataValue,
     deserialized_responses::{DisplayName, RawAnySyncOrStrippedState},
     store::QueueWedgeError,
-    MinimalRoomMemberEvent, RoomMemberships, StateStoreDataKey, StateStoreDataValue,
 };
 
 #[derive(Debug, Default)]

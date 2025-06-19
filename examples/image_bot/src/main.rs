@@ -1,10 +1,10 @@
 use std::{env, fs, process::exit};
 
 use matrix_sdk::{
+    Client, Room, RoomState,
     attachment::AttachmentConfig,
     config::SyncSettings,
     ruma::events::room::message::{MessageType, OriginalSyncRoomMessageEvent},
-    Client, Room, RoomState,
 };
 use url::Url;
 

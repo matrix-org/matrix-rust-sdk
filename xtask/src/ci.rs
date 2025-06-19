@@ -6,7 +6,7 @@ use std::{
 use clap::{Args, Subcommand, ValueEnum};
 use xshell::cmd;
 
-use crate::{build_docs, sh, workspace, DenyWarnings, Result, NIGHTLY};
+use crate::{DenyWarnings, NIGHTLY, Result, build_docs, sh, workspace};
 
 const WASM_TIMEOUT_ENV_KEY: &str = "WASM_BINDGEN_TEST_TIMEOUT";
 const WASM_TIMEOUT_VALUE: &str = "120";
@@ -399,10 +399,7 @@ fn run_wasm_pack_tests(cmd: Option<WasmFeatureSet>) -> Result<()> {
                 "--no-default-features --features js,indexeddb,e2e-encryption,rustls-tls,testing --lib",
             ),
         ),
-        (
-            WasmFeatureSet::IndexeddbAllFeatures,
-            ("crates/matrix-sdk-indexeddb", ""),
-        ),
+        (WasmFeatureSet::IndexeddbAllFeatures, ("crates/matrix-sdk-indexeddb", "")),
         (
             WasmFeatureSet::IndexeddbCrypto,
             ("crates/matrix-sdk-indexeddb", "--no-default-features --features e2e-encryption"),

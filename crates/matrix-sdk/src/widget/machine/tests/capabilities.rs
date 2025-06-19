@@ -17,12 +17,12 @@ use assert_matches2::assert_let;
 use ruma::owned_room_id;
 use serde_json::{from_value, json};
 
-use super::{parse_msg, WIDGET_ID};
+use super::{WIDGET_ID, parse_msg};
 use crate::widget::{
     capabilities::{READ_EVENT, READ_STATE, READ_TODEVICE},
     machine::{
-        incoming::MatrixDriverResponse, Action, IncomingMessage, MatrixDriverRequestData,
-        WidgetMachine,
+        Action, IncomingMessage, MatrixDriverRequestData, WidgetMachine,
+        incoming::MatrixDriverResponse,
     },
 };
 

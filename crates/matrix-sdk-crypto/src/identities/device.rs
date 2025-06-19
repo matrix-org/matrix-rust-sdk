@@ -16,48 +16,48 @@ use std::{
     collections::{BTreeMap, HashMap},
     ops::Deref,
     sync::{
-        atomic::{AtomicBool, Ordering},
         Arc,
+        atomic::{AtomicBool, Ordering},
     },
 };
 
 use matrix_sdk_common::locks::RwLock;
 use ruma::{
-    api::client::keys::upload_signatures::v3::Request as SignatureUploadRequest,
-    events::{key::verification::VerificationMethod, AnyToDeviceEventContent},
-    serde::Raw,
     DeviceId, DeviceKeyAlgorithm, DeviceKeyId, MilliSecondsSinceUnixEpoch, OwnedDeviceId,
     OwnedDeviceKeyId, UInt, UserId,
+    api::client::keys::upload_signatures::v3::Request as SignatureUploadRequest,
+    events::{AnyToDeviceEventContent, key::verification::VerificationMethod},
+    serde::Raw,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tracing::{instrument, trace};
-use vodozemac::{olm::SessionConfig, Curve25519PublicKey, Ed25519PublicKey};
+use vodozemac::{Curve25519PublicKey, Ed25519PublicKey, olm::SessionConfig};
 
 use super::{atomic_bool_deserializer, atomic_bool_serializer};
 #[cfg(any(test, feature = "testing", doc))]
 use crate::OlmMachine;
 use crate::{
+    Account, Sas, VerificationRequest,
     error::{MismatchedIdentityKeysError, OlmError, OlmResult, SignatureError},
     identities::{OwnUserIdentityData, UserIdentityData},
     olm::{
         InboundGroupSession, OutboundGroupSession, Session, ShareInfo, SignedJsonObject, VerifyJson,
     },
     store::{
+        CryptoStoreWrapper, Result as StoreResult,
         caches::SequenceNumber,
         types::{Changes, DeviceChanges},
-        CryptoStoreWrapper, Result as StoreResult,
     },
     types::{
+        DeviceKey, DeviceKeys, EventEncryptionAlgorithm, Signatures, SignedKey,
         events::{
-            forwarded_room_key::ForwardedRoomKeyContent,
-            room::encrypted::ToDeviceEncryptedEventContent, EventType,
+            EventType, forwarded_room_key::ForwardedRoomKeyContent,
+            room::encrypted::ToDeviceEncryptedEventContent,
         },
         requests::{OutgoingVerificationRequest, ToDeviceRequest},
-        DeviceKey, DeviceKeys, EventEncryptionAlgorithm, Signatures, SignedKey,
     },
     verification::VerificationMachine,
-    Account, Sas, VerificationRequest,
 };
 
 pub enum MaybeEncryptedRoomKey {
@@ -1045,12 +1045,12 @@ pub(crate) mod testing {
 
 #[cfg(test)]
 pub(crate) mod tests {
-    use ruma::{user_id, MilliSecondsSinceUnixEpoch};
+    use ruma::{MilliSecondsSinceUnixEpoch, user_id};
     use serde_json::json;
     use vodozemac::{Curve25519PublicKey, Ed25519PublicKey};
 
     use super::testing::{device_keys, get_device};
-    use crate::{identities::LocalTrust, DeviceData};
+    use crate::{DeviceData, identities::LocalTrust};
 
     #[test]
     fn create_a_device() {

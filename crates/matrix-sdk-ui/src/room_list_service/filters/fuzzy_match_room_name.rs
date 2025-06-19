@@ -12,9 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-pub use fuzzy_matcher::{skim::SkimMatcherV2, FuzzyMatcher as _};
+pub use fuzzy_matcher::{FuzzyMatcher as _, skim::SkimMatcherV2};
 
-use super::{normalize_string, Filter};
+use super::{Filter, normalize_string};
 
 struct FuzzyMatcher {
     matcher: SkimMatcherV2,

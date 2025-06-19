@@ -1,5 +1,6 @@
 use matrix_sdk_base::Room as BaseRoom;
 use ruma::{
+    OwnedRoomAliasId, RoomAliasId,
     api::client::{
         directory::{get_room_visibility, set_room_visibility},
         room::Visibility,
@@ -7,14 +8,13 @@ use ruma::{
     },
     assign,
     events::{
+        EmptyStateKey,
         room::{
             canonical_alias::RoomCanonicalAliasEventContent,
             history_visibility::{HistoryVisibility, RoomHistoryVisibilityEventContent},
             join_rules::{JoinRule, RoomJoinRulesEventContent},
         },
-        EmptyStateKey,
     },
-    OwnedRoomAliasId, RoomAliasId,
 };
 
 use crate::{Client, Result};
@@ -165,13 +165,13 @@ impl<'a> RoomPrivacySettings<'a> {
 mod tests {
     use std::ops::Not;
 
-    use matrix_sdk_test::{async_test, JoinedRoomBuilder, StateTestEvent};
+    use matrix_sdk_test::{JoinedRoomBuilder, StateTestEvent, async_test};
     use ruma::{
         api::client::room::Visibility,
         event_id,
         events::{
-            room::{history_visibility::HistoryVisibility, join_rules::JoinRule},
             StateEventType,
+            room::{history_visibility::HistoryVisibility, join_rules::JoinRule},
         },
         owned_room_alias_id, room_id,
     };

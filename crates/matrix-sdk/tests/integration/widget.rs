@@ -17,33 +17,33 @@ use std::{pin::pin, time::Duration};
 use assert_matches::assert_matches;
 use futures_util::FutureExt;
 use matrix_sdk::{
+    Client,
     test_utils::mocks::{MatrixMockServer, RoomMessagesResponseTemplate},
     widget::{
         Capabilities, CapabilitiesProvider, WidgetDriver, WidgetDriverHandle, WidgetSettings,
     },
-    Client,
 };
 use matrix_sdk_common::{executor::spawn, timeout::timeout};
 use matrix_sdk_test::{
-    async_test, event_factory::EventFactory, JoinedRoomBuilder, StateTestEvent, ALICE, BOB,
+    ALICE, BOB, JoinedRoomBuilder, StateTestEvent, async_test, event_factory::EventFactory,
 };
 use once_cell::sync::Lazy;
 use ruma::{
-    event_id,
+    OwnedRoomId, event_id,
     events::{
-        room::{member::MembershipState, message::RoomMessageEventContent},
         AnySyncStateEvent, MessageLikeEventType, StateEventType,
+        room::{member::MembershipState, message::RoomMessageEventContent},
     },
     owned_room_id, room_id,
     serde::{JsonObject, Raw},
-    user_id, OwnedRoomId,
+    user_id,
 };
 use serde::Serialize;
-use serde_json::{json, Value as JsonValue};
+use serde_json::{Value as JsonValue, json};
 use tracing::error;
 use wiremock::{
-    matchers::{method, path_regex},
     Mock, ResponseTemplate,
+    matchers::{method, path_regex},
 };
 
 /// Create a JSON string from a [`json!`][serde_json::json] "literal".

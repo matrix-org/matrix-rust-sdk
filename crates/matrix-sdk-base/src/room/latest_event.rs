@@ -16,7 +16,7 @@
 use std::{collections::BTreeMap, num::NonZeroUsize};
 
 #[cfg(feature = "e2e-encryption")]
-use ruma::{events::AnySyncTimelineEvent, serde::Raw, OwnedRoomId};
+use ruma::{OwnedRoomId, events::AnySyncTimelineEvent, serde::Raw};
 
 use super::Room;
 #[cfg(feature = "e2e-encryption")]
@@ -88,11 +88,11 @@ mod tests_with_e2e_encryption {
     use serde_json::json;
 
     use crate::{
+        BaseClient, Room, RoomInfoNotableUpdate, RoomInfoNotableUpdateReasons, RoomState,
+        SessionMeta, StateChanges,
         latest_event::LatestEvent,
         response_processors as processors,
         store::{MemoryStore, RoomLoadSettings, StoreConfig},
-        BaseClient, Room, RoomInfoNotableUpdate, RoomInfoNotableUpdateReasons, RoomState,
-        SessionMeta, StateChanges,
     };
 
     fn make_room_test_helper(room_type: RoomState) -> (Arc<MemoryStore>, Room) {

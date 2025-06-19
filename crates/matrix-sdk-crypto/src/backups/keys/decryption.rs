@@ -20,8 +20,8 @@ use std::{
 use ruma::api::client::backup::EncryptedSessionData;
 use thiserror::Error;
 use vodozemac::{
-    pk_encryption::{Message, PkDecryption},
     Curve25519PublicKey, Curve25519SecretKey,
+    pk_encryption::{Message, PkDecryption},
 };
 use zeroize::{Zeroize, Zeroizing};
 

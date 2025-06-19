@@ -18,13 +18,13 @@ use std::{collections::BTreeMap, fmt, ops::Deref};
 
 use as_variant::as_variant;
 use ruma::{
-    events::{
-        room::{message::RoomMessageEventContent, MediaSource},
-        AnyMessageLikeEventContent, EventContent as _, RawExt as _,
-    },
-    serde::Raw,
     MilliSecondsSinceUnixEpoch, OwnedDeviceId, OwnedEventId, OwnedTransactionId, OwnedUserId,
     TransactionId, UInt,
+    events::{
+        AnyMessageLikeEventContent, EventContent as _, RawExt as _,
+        room::{MediaSource, message::RoomMessageEventContent},
+    },
+    serde::Raw,
 };
 use serde::{Deserialize, Serialize};
 

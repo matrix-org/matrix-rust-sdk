@@ -24,18 +24,18 @@ use mime::Mime;
 #[cfg(doc)]
 use ruma::events::{MessageLikeUnsigned, SyncMessageLikeEvent};
 use ruma::{
+    OwnedTransactionId, TransactionId,
     api::client::message::send_message_event,
     assign,
     events::{AnyMessageLikeEventContent, MessageLikeEventContent},
     serde::Raw,
-    OwnedTransactionId, TransactionId,
 };
-use tracing::{info, trace, Instrument, Span};
+use tracing::{Instrument, Span, info, trace};
 
 use super::Room;
 use crate::{
-    attachment::AttachmentConfig, config::RequestConfig, utils::IntoRawMessageLikeEventContent,
-    Result, TransmissionProgress,
+    Result, TransmissionProgress, attachment::AttachmentConfig, config::RequestConfig,
+    utils::IntoRawMessageLikeEventContent,
 };
 
 /// Future returned by [`Room::send`].

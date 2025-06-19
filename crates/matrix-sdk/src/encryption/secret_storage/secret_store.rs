@@ -14,19 +14,19 @@
 
 use std::fmt;
 
-use matrix_sdk_base::crypto::{secret_storage::SecretStorageKey, CrossSigningKeyExport};
+use matrix_sdk_base::crypto::{CrossSigningKeyExport, secret_storage::SecretStorageKey};
 use ruma::{
     events::{
-        secret::request::SecretName, secret_storage::secret::SecretEventContent,
-        GlobalAccountDataEventType,
+        GlobalAccountDataEventType, secret::request::SecretName,
+        secret_storage::secret::SecretEventContent,
     },
     serde::Raw,
 };
 use serde_json::value::to_raw_value;
 use tracing::{
-    error,
+    Span, error,
     field::{debug, display},
-    info, instrument, warn, Span,
+    info, instrument, warn,
 };
 use zeroize::Zeroize;
 

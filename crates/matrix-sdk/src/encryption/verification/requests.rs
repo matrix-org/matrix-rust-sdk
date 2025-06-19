@@ -16,7 +16,7 @@ use futures_util::{Stream, StreamExt};
 use matrix_sdk_base::crypto::{
     CancelInfo, DeviceData, VerificationRequest as BaseVerificationRequest,
 };
-use ruma::{events::key::verification::VerificationMethod, RoomId};
+use ruma::{RoomId, events::key::verification::VerificationMethod};
 
 #[cfg(feature = "qrcode")]
 use super::{QrVerification, QrVerificationData};

@@ -23,17 +23,17 @@ use language_tags::LanguageTag;
 use matrix_sdk_base::deserialized_responses::PrivOwnedStr;
 use oauth2::{AsyncHttpClient, ClientId, HttpClientError, RequestTokenError};
 use ruma::{
+    SecondsSinceUnixEpoch,
     api::client::discovery::get_authorization_server_metadata::msc2965::{GrantType, ResponseType},
     serde::{PartialEqAsRefStr, Raw, StringEnum},
-    SecondsSinceUnixEpoch,
 };
-use serde::{ser::SerializeMap, Deserialize, Serialize};
+use serde::{Deserialize, Serialize, ser::SerializeMap};
 use url::Url;
 
 use super::{
+    OAuthHttpClient,
     error::OAuthClientRegistrationError,
     http_client::{check_http_response_json_content_type, check_http_response_status_code},
-    OAuthHttpClient,
 };
 
 /// Register a client with an OAuth 2.0 authorization server.

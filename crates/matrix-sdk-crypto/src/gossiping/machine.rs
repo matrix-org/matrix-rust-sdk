@@ -21,45 +21,45 @@
 // let the users introspect that object.
 
 use std::{
-    collections::{btree_map::Entry, BTreeMap, BTreeSet},
+    collections::{BTreeMap, BTreeSet, btree_map::Entry},
     mem,
     sync::{
-        atomic::{AtomicBool, Ordering},
         Arc,
+        atomic::{AtomicBool, Ordering},
     },
 };
 
 use matrix_sdk_common::locks::RwLock as StdRwLock;
 use ruma::{
+    DeviceId, OneTimeKeyAlgorithm, OwnedDeviceId, OwnedTransactionId, OwnedUserId, RoomId,
+    TransactionId, UserId,
     api::client::keys::claim_keys::v3::Request as KeysClaimRequest,
     events::secret::request::{
         RequestAction, SecretName, ToDeviceSecretRequestEvent as SecretRequestEvent,
     },
-    DeviceId, OneTimeKeyAlgorithm, OwnedDeviceId, OwnedTransactionId, OwnedUserId, RoomId,
-    TransactionId, UserId,
 };
-use tracing::{debug, field::debug, info, instrument, trace, warn, Span};
-use vodozemac::{megolm::SessionOrdering, Curve25519PublicKey};
+use tracing::{Span, debug, field::debug, info, instrument, trace, warn};
+use vodozemac::{Curve25519PublicKey, megolm::SessionOrdering};
 
 use super::{GossipRequest, GossippedSecret, RequestEvent, RequestInfo, SecretInfo, WaitQueue};
 use crate::{
+    Device, MegolmError,
     error::{EventError, OlmError, OlmResult},
     identities::IdentityManager,
     olm::{InboundGroupSession, Session},
     session_manager::GroupSessionCache,
-    store::{caches::StoreCache, types::Changes, CryptoStoreError, SecretImportError, Store},
+    store::{CryptoStoreError, SecretImportError, Store, caches::StoreCache, types::Changes},
     types::{
         events::{
+            EventType,
             forwarded_room_key::ForwardedRoomKeyContent,
             olm_v1::{DecryptedForwardedRoomKeyEvent, DecryptedSecretSendEvent},
             room::encrypted::EncryptedEvent,
             room_key_request::RoomKeyRequestEvent,
             secret_send::SecretSendContent,
-            EventType,
         },
         requests::{OutgoingRequest, ToDeviceRequest},
     },
-    Device, MegolmError,
 };
 
 #[derive(Clone, Debug)]
@@ -1103,40 +1103,40 @@ mod tests {
     use assert_matches::assert_matches;
     use matrix_sdk_test::{async_test, message_like_event_content};
     use ruma::{
-        device_id, event_id,
+        DeviceId, RoomId, UserId, device_id, event_id,
         events::{
-            secret::request::{RequestAction, SecretName, ToDeviceSecretRequestEventContent},
             ToDeviceEvent as RumaToDeviceEvent,
+            secret::request::{RequestAction, SecretName, ToDeviceSecretRequestEventContent},
         },
         room_id,
         serde::Raw,
-        user_id, DeviceId, RoomId, UserId,
+        user_id,
     };
     use tokio::sync::Mutex;
 
     use super::GossipMachine;
     #[cfg(feature = "automatic-room-key-forwarding")]
     use crate::{
+        EncryptionSettings,
         gossiping::KeyForwardDecision,
         olm::OutboundGroupSession,
-        store::{types::DeviceChanges, CryptoStore},
+        store::{CryptoStore, types::DeviceChanges},
         types::requests::AnyOutgoingRequest,
         types::{
+            EventEncryptionAlgorithm,
             events::{
                 forwarded_room_key::ForwardedRoomKeyContent, olm_v1::AnyDecryptedOlmEvent,
                 olm_v1::DecryptedOlmV1Event,
             },
-            EventEncryptionAlgorithm,
         },
-        EncryptionSettings,
     };
     use crate::{
         identities::{DeviceData, IdentityManager, LocalTrust},
         olm::{Account, PrivateCrossSigningIdentity},
         session_manager::GroupSessionCache,
         store::{
-            types::{Changes, PendingChanges},
             CryptoStoreWrapper, MemoryStore, Store,
+            types::{Changes, PendingChanges},
         },
         types::events::room::encrypted::{
             EncryptedEvent, EncryptedToDeviceEvent, RoomEncryptedEventContent,
@@ -1517,13 +1517,15 @@ mod tests {
             content,
         );
 
-        assert!(machine
-            .inner
-            .store
-            .get_inbound_group_session(session.room_id(), session.session_id(),)
-            .await
-            .unwrap()
-            .is_none());
+        assert!(
+            machine
+                .inner
+                .store
+                .get_inbound_group_session(session.room_id(), session.session_id(),)
+                .await
+                .unwrap()
+                .is_none()
+        );
 
         let first_session = machine
             .receive_forwarded_room_key(alice_device.curve25519_key().unwrap(), &event)
@@ -1741,13 +1743,15 @@ mod tests {
         bob_machine.mark_outgoing_request_as_sent(&request.request_id).await.unwrap();
 
         // Check that alice doesn't have the session.
-        assert!(alice_machine
-            .inner
-            .store
-            .get_inbound_group_session(room_id(), group_session.session_id())
-            .await
-            .unwrap()
-            .is_none());
+        assert!(
+            alice_machine
+                .inner
+                .store
+                .get_inbound_group_session(room_id(), group_session.session_id())
+                .await
+                .unwrap()
+                .is_none()
+        );
 
         let decrypted = alice_machine
             .inner
@@ -1822,13 +1826,15 @@ mod tests {
         bob_machine.mark_outgoing_request_as_sent(&request.request_id).await.unwrap();
 
         // Check that alice doesn't have the session.
-        assert!(alice_machine
-            .inner
-            .store
-            .get_inbound_group_session(room_id(), group_session.session_id())
-            .await
-            .unwrap()
-            .is_none());
+        assert!(
+            alice_machine
+                .inner
+                .store
+                .get_inbound_group_session(room_id(), group_session.session_id())
+                .await
+                .unwrap()
+                .is_none()
+        );
 
         let decrypted = alice_machine
             .inner
@@ -1965,14 +1971,14 @@ mod tests {
 
     #[async_test]
     async fn test_secret_broadcasting() {
-        use futures_util::{pin_mut, FutureExt};
+        use futures_util::{FutureExt, pin_mut};
         use ruma::api::client::to_device::send_event_to_device::v3::Response as ToDeviceResponse;
         use serde_json::value::to_raw_value;
         use tokio_stream::StreamExt;
 
         use crate::{
-            machine::test_helpers::get_machine_pair_with_setup_sessions_test_helper,
             EncryptionSyncChanges,
+            machine::test_helpers::get_machine_pair_with_setup_sessions_test_helper,
         };
 
         let alice_id = user_id!("@alice:localhost");
@@ -2144,13 +2150,15 @@ mod tests {
         bob_machine.mark_outgoing_request_as_sent(&request.request_id).await.unwrap();
 
         // Check that alice doesn't have the session.
-        assert!(alice_machine
-            .inner
-            .store
-            .get_inbound_group_session(room_id(), group_session.session_id())
-            .await
-            .unwrap()
-            .is_none());
+        assert!(
+            alice_machine
+                .inner
+                .store
+                .get_inbound_group_session(room_id(), group_session.session_id())
+                .await
+                .unwrap()
+                .is_none()
+        );
 
         let decrypted = alice_machine
             .inner

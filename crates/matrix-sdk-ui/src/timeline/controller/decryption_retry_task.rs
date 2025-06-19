@@ -20,16 +20,16 @@ use matrix_sdk::{
     deserialized_responses::TimelineEventKind as SdkTimelineEventKind, executor::JoinHandle,
 };
 use tokio::sync::{
-    mpsc::{self, Receiver, Sender},
     RwLock,
+    mpsc::{self, Receiver, Sender},
 };
-use tracing::{debug, error, field, info, info_span, Instrument as _};
+use tracing::{Instrument as _, debug, error, field, info, info_span};
 
 use crate::timeline::{
+    EncryptedMessage, EventTimelineItem, TimelineItem, TimelineItemKind,
     controller::{TimelineSettings, TimelineState},
     event_item::EventTimelineItemKind,
     traits::{Decryptor, RoomDataProvider},
-    EncryptedMessage, EventTimelineItem, TimelineItem, TimelineItemKind,
 };
 
 /// Holds a long-running task that is used to retry decryption of items in the
@@ -195,11 +195,7 @@ fn compute_event_indices_to_retry_decryption(
         // Break the result into 2 lists: (utds, decrypted)
         .partition_map(
             |(idx, event)| {
-                if event.content().is_unable_to_decrypt() {
-                    Left(idx)
-                } else {
-                    Right(idx)
-                }
+                if event.content().is_unable_to_decrypt() { Left(idx) } else { Right(idx) }
             },
         )
 }
@@ -331,6 +327,7 @@ mod tests {
         deserialized_responses::{AlgorithmInfo, EncryptionInfo, VerificationState},
     };
     use ruma::{
+        MilliSecondsSinceUnixEpoch, OwnedTransactionId,
         events::room::{
             encrypted::{
                 EncryptedEventScheme, MegolmV1AesSha2Content, MegolmV1AesSha2ContentInit,
@@ -338,19 +335,18 @@ mod tests {
             },
             message::RoomMessageEventContent,
         },
-        owned_device_id, owned_event_id, owned_user_id, MilliSecondsSinceUnixEpoch,
-        OwnedTransactionId,
+        owned_device_id, owned_event_id, owned_user_id,
     };
 
     use crate::timeline::{
+        EncryptedMessage, EventSendState, EventTimelineItem, MsgLikeContent,
+        ReactionsByKeyBySender, TimelineDetails, TimelineItem, TimelineItemContent,
+        TimelineItemKind, TimelineUniqueId, VirtualTimelineItem,
         controller::decryption_retry_task::compute_event_indices_to_retry_decryption,
         event_item::{
             EventTimelineItemKind, LocalEventTimelineItem, RemoteEventOrigin,
             RemoteEventTimelineItem,
         },
-        EncryptedMessage, EventSendState, EventTimelineItem, MsgLikeContent,
-        ReactionsByKeyBySender, TimelineDetails, TimelineItem, TimelineItemContent,
-        TimelineItemKind, TimelineUniqueId, VirtualTimelineItem,
     };
 
     #[test]

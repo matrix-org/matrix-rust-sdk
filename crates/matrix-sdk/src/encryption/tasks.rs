@@ -16,21 +16,21 @@ use std::{collections::BTreeMap, sync::Arc, time::Duration};
 
 use matrix_sdk_common::failures_cache::FailuresCache;
 use ruma::{
+    OwnedEventId, OwnedRoomId,
     events::room::encrypted::{EncryptedEventScheme, OriginalSyncRoomEncryptedEvent},
     serde::Raw,
-    OwnedEventId, OwnedRoomId,
 };
 use tokio::sync::{
-    mpsc::{self, UnboundedReceiver},
     Mutex,
+    mpsc::{self, UnboundedReceiver},
 };
 use tracing::{debug, trace, warn};
 
 use crate::{
+    Client,
     client::WeakClient,
     encryption::backups::UploadState,
-    executor::{spawn, JoinHandle},
-    Client,
+    executor::{JoinHandle, spawn},
 };
 
 /// A cache of room keys we already downloaded.
@@ -360,7 +360,10 @@ impl BackupDownloadTaskListenerState {
             .await
             .unwrap_or(false)
         {
-            debug!(?download_request, "Not performing backup download because key became available while we were sleeping");
+            debug!(
+                ?download_request,
+                "Not performing backup download because key became available while we were sleeping"
+            );
             return false;
         }
 

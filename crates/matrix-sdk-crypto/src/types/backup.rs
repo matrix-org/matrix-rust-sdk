@@ -18,7 +18,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use vodozemac::Curve25519PublicKey;
 
-use super::{deserialize_curve_key, serialize_curve_key, Signatures};
+use super::{Signatures, deserialize_curve_key, serialize_curve_key};
 
 /// Auth data for the `m.megolm_backup.v1.curve25519-aes-sha2` backup algorithm
 /// as defined in the [spec].
@@ -112,8 +112,8 @@ mod tests {
 
     use assert_matches::assert_matches;
     use insta::{assert_json_snapshot, with_settings};
-    use ruma::{user_id, DeviceKeyAlgorithm, KeyId};
-    use serde_json::{json, Value};
+    use ruma::{DeviceKeyAlgorithm, KeyId, user_id};
+    use serde_json::{Value, json};
     use vodozemac::{Curve25519PublicKey, Ed25519Signature};
 
     use super::RoomKeyBackupInfo;

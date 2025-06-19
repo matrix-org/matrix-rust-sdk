@@ -28,34 +28,34 @@ use imbl::Vector;
 #[cfg(feature = "unstable-msc4274")]
 use matrix_sdk::attachment::{AttachmentInfo, Thumbnail};
 use matrix_sdk::{
+    Client, Result,
     attachment::AttachmentConfig,
     deserialized_responses::TimelineEvent,
     event_cache::{EventCacheDropHandles, RoomEventCache},
     event_handler::EventHandlerHandle,
     executor::JoinHandle,
-    room::{edit::EditedContent, reply::Reply, Receipts, Room},
+    room::{Receipts, Room, edit::EditedContent, reply::Reply},
     send_queue::{RoomSendQueueError, SendHandle},
-    Client, Result,
 };
 use mime::Mime;
 use pinned_events_loader::PinnedEventsRoom;
 use ruma::{
+    EventId, OwnedEventId, RoomVersionId, UserId,
     api::client::receipt::create_receipt::v3::ReceiptType,
     events::{
+        AnyMessageLikeEventContent, AnySyncTimelineEvent,
         poll::unstable_start::{NewUnstablePollStartEventContent, UnstablePollStartEventContent},
         receipt::{Receipt, ReceiptThread},
         room::{
             message::RoomMessageEventContentWithoutRelation,
             pinned_events::RoomPinnedEventsEventContent,
         },
-        AnyMessageLikeEventContent, AnySyncTimelineEvent,
     },
-    EventId, OwnedEventId, RoomVersionId, UserId,
 };
 #[cfg(feature = "unstable-msc4274")]
 use ruma::{
-    events::{room::message::FormattedBody, Mentions},
     OwnedTransactionId,
+    events::{Mentions, room::message::FormattedBody},
 };
 use subscriber::TimelineWithDropHandle;
 use thiserror::Error;

@@ -18,27 +18,27 @@ use as_variant::as_variant;
 #[cfg(test)]
 use ruma::time::Instant;
 use ruma::{
-    events::key::verification::{cancel::CancelCode, ShortAuthenticationString},
     TransactionId, UserId,
+    events::key::verification::{ShortAuthenticationString, cancel::CancelCode},
 };
 use tracing::trace;
 
 use super::{
+    FlowId,
     sas_state::{
         Accepted, Confirmed, Created, Done, KeyReceived, KeySent, KeysExchanged, MacReceived,
         SasState, Started, WaitingForDone, WeAccepted,
     },
-    FlowId,
 };
 use crate::{
+    OwnUserIdentityData,
     identities::{DeviceData, UserIdentityData},
     olm::StaticAccountData,
     verification::{
+        Cancelled, Emoji,
         cache::RequestInfo,
         event_enums::{AnyVerificationContent, OutgoingContent, OwnedAcceptContent, StartContent},
-        Cancelled, Emoji,
     },
-    OwnUserIdentityData,
 };
 
 #[derive(Clone, Debug)]

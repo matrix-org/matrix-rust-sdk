@@ -12,7 +12,7 @@ use tracing::{trace, warn};
 use super::{FrozenSlidingSyncList, SlidingSync, SlidingSyncPositionMarkers};
 #[cfg(feature = "e2e-encryption")]
 use crate::sliding_sync::FrozenSlidingSyncPos;
-use crate::{sliding_sync::SlidingSyncListCachePolicy, Client, Result};
+use crate::{Client, Result, sliding_sync::SlidingSyncListCachePolicy};
 
 /// Be careful: as this is used as a storage key; changing it requires migrating
 /// data!
@@ -201,7 +201,7 @@ mod tests {
         super::SlidingSyncList, format_storage_key_for_sliding_sync_list,
         format_storage_key_prefix, restore_sliding_sync_state, store_sliding_sync_state,
     };
-    use crate::{test_utils::logged_in_client, Result};
+    use crate::{Result, test_utils::logged_in_client};
 
     #[allow(clippy::await_holding_lock)]
     #[async_test]
@@ -214,19 +214,23 @@ mod tests {
         let storage_key = format_storage_key_prefix(sync_id, client.user_id().unwrap());
 
         // Store entries don't exist.
-        assert!(store
-            .get_custom_value(
-                format_storage_key_for_sliding_sync_list(&storage_key, "list_foo").as_bytes()
-            )
-            .await?
-            .is_none());
+        assert!(
+            store
+                .get_custom_value(
+                    format_storage_key_for_sliding_sync_list(&storage_key, "list_foo").as_bytes()
+                )
+                .await?
+                .is_none()
+        );
 
-        assert!(store
-            .get_custom_value(
-                format_storage_key_for_sliding_sync_list(&storage_key, "list_bar").as_bytes()
-            )
-            .await?
-            .is_none());
+        assert!(
+            store
+                .get_custom_value(
+                    format_storage_key_for_sliding_sync_list(&storage_key, "list_bar").as_bytes()
+                )
+                .await?
+                .is_none()
+        );
 
         // Create a new `SlidingSync` instance, and store it.
         let storage_key = {
@@ -256,20 +260,24 @@ mod tests {
         };
 
         // Store entries now exist for `list_foo`.
-        assert!(store
-            .get_custom_value(
-                format_storage_key_for_sliding_sync_list(&storage_key, "list_foo").as_bytes()
-            )
-            .await?
-            .is_some());
+        assert!(
+            store
+                .get_custom_value(
+                    format_storage_key_for_sliding_sync_list(&storage_key, "list_foo").as_bytes()
+                )
+                .await?
+                .is_some()
+        );
 
         // But not for `list_bar`.
-        assert!(store
-            .get_custom_value(
-                format_storage_key_for_sliding_sync_list(&storage_key, "list_bar").as_bytes()
-            )
-            .await?
-            .is_none());
+        assert!(
+            store
+                .get_custom_value(
+                    format_storage_key_for_sliding_sync_list(&storage_key, "list_bar").as_bytes()
+                )
+                .await?
+                .is_none()
+        );
 
         // Create a new `SlidingSync`, and it should be read from the cache.
         let max_number_of_room_stream = Arc::new(RwLock::new(None));

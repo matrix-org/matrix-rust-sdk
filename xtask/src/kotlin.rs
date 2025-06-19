@@ -5,7 +5,7 @@ use clap::{Args, Subcommand, ValueEnum};
 use uniffi_bindgen::{bindings::KotlinBindingGenerator, library_mode::generate_bindings};
 use xshell::cmd;
 
-use crate::{sh, workspace, Result};
+use crate::{Result, sh, workspace};
 
 struct PackageValues {
     name: &'static str,

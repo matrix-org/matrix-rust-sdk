@@ -16,8 +16,8 @@ use super::{
     SlidingSyncListStickyParameters, SlidingSyncMode,
 };
 use crate::{
-    sliding_sync::{cache::restore_sliding_sync_list, sticky_parameters::SlidingSyncStickyManager},
     Client,
+    sliding_sync::{cache::restore_sliding_sync_list, sticky_parameters::SlidingSyncStickyManager},
 };
 
 /// Data that might have been read from the cache.

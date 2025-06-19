@@ -19,8 +19,8 @@ use std::{
     fmt,
     ops::{Deref, DerefMut},
     sync::{
-        atomic::{AtomicUsize, Ordering},
         Arc,
+        atomic::{AtomicUsize, Ordering},
     },
 };
 
@@ -34,13 +34,14 @@ use matrix_sdk_base::{
     sync::{JoinedRoomUpdate, LeftRoomUpdate, Timeline},
 };
 use ruma::{
-    events::{relation::RelationType, AnyRoomAccountDataEvent, AnySyncEphemeralRoomEvent},
-    serde::Raw,
     EventId, OwnedEventId, OwnedRoomId,
+    events::{AnyRoomAccountDataEvent, AnySyncEphemeralRoomEvent, relation::RelationType},
+    serde::Raw,
 };
 use tokio::sync::{
+    Notify, RwLock,
     broadcast::{Receiver, Sender},
-    mpsc, Notify, RwLock,
+    mpsc,
 };
 use tracing::{instrument, trace, warn};
 
@@ -108,7 +109,9 @@ impl Drop for RoomEventCacheListener {
                 if num_attempts > 1024 {
                     // If we've tried too many times, just give up with a warning; after all, this
                     // is only an optimization.
-                    warn!("couldn't send notification to the auto-shrink channel after 1024 attempts; giving up");
+                    warn!(
+                        "couldn't send notification to the auto-shrink channel after 1024 attempts; giving up"
+                    );
                     return;
                 }
 
@@ -445,7 +448,7 @@ pub(super) enum LoadMoreEventsBackwardsOutcome {
 mod private {
     use std::{
         collections::HashSet,
-        sync::{atomic::AtomicUsize, Arc},
+        sync::{Arc, atomic::AtomicUsize},
     };
 
     use eyeball::SharedObservable;
@@ -453,32 +456,33 @@ mod private {
     use matrix_sdk_base::{
         apply_redaction,
         deserialized_responses::{ThreadSummary, ThreadSummaryStatus, TimelineEventKind},
-        event_cache::{store::EventCacheStoreLock, Event, Gap},
+        event_cache::{Event, Gap, store::EventCacheStoreLock},
         linked_chunk::{
-            lazy_loader, ChunkContent, ChunkIdentifier, ChunkIdentifierGenerator, LinkedChunkId,
-            Position, Update,
+            ChunkContent, ChunkIdentifier, ChunkIdentifierGenerator, LinkedChunkId, Position,
+            Update, lazy_loader,
         },
         serde_helpers::extract_thread_root,
         sync::Timeline,
     };
     use matrix_sdk_common::executor::spawn;
     use ruma::{
+        EventId, OwnedEventId, OwnedRoomId, RoomVersionId,
         events::{
-            relation::RelationType, room::redaction::SyncRoomRedactionEvent, AnySyncTimelineEvent,
-            MessageLikeEventType,
+            AnySyncTimelineEvent, MessageLikeEventType, relation::RelationType,
+            room::redaction::SyncRoomRedactionEvent,
         },
         serde::Raw,
-        EventId, OwnedEventId, OwnedRoomId, RoomVersionId,
     };
     use tracing::{debug, error, instrument, trace, warn};
 
     use super::{
-        super::{deduplicator::DeduplicationOutcome, EventCacheError},
+        super::{EventCacheError, deduplicator::DeduplicationOutcome},
+        EventLocation, LoadMoreEventsBackwardsOutcome,
         events::RoomEvents,
-        sort_positions_descending, EventLocation, LoadMoreEventsBackwardsOutcome,
+        sort_positions_descending,
     };
     use crate::event_cache::{
-        deduplicator::filter_duplicate_events, BackPaginationOutcome, RoomPaginationStatus,
+        BackPaginationOutcome, RoomPaginationStatus, deduplicator::filter_duplicate_events,
     };
 
     /// State for a single room's event cache.
@@ -1532,9 +1536,9 @@ mod tests {
     use matrix_sdk_base::event_cache::Event;
     use matrix_sdk_test::{async_test, event_factory::EventFactory};
     use ruma::{
-        event_id,
+        RoomId, event_id,
         events::{relation::RelationType, room::message::RoomMessageEventContentWithoutRelation},
-        room_id, user_id, RoomId,
+        room_id, user_id,
     };
 
     use crate::test_utils::logged_in_client;
@@ -1794,17 +1798,17 @@ mod timed_tests {
     use eyeball_im::VectorDiff;
     use matrix_sdk_base::{
         event_cache::{
-            store::{EventCacheStore as _, MemoryStore},
             Gap,
+            store::{EventCacheStore as _, MemoryStore},
         },
         linked_chunk::{
-            lazy_loader::from_all_chunks, ChunkContent, ChunkIdentifier, LinkedChunkId, Position,
-            Update,
+            ChunkContent, ChunkIdentifier, LinkedChunkId, Position, Update,
+            lazy_loader::from_all_chunks,
         },
         store::StoreConfig,
         sync::{JoinedRoomUpdate, Timeline},
     };
-    use matrix_sdk_test::{async_test, event_factory::EventFactory, ALICE, BOB};
+    use matrix_sdk_test::{ALICE, BOB, async_test, event_factory::EventFactory};
     use ruma::{
         event_id,
         events::{AnySyncMessageLikeEvent, AnySyncTimelineEvent},
@@ -1814,7 +1818,7 @@ mod timed_tests {
 
     use crate::{
         assert_let_timeout,
-        event_cache::{room::LoadMoreEventsBackwardsOutcome, RoomEventCacheUpdate},
+        event_cache::{RoomEventCacheUpdate, room::LoadMoreEventsBackwardsOutcome},
         test_utils::client::MockClientBuilder,
     };
 

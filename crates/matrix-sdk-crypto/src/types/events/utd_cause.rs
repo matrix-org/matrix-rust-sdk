@@ -15,7 +15,7 @@
 use matrix_sdk_common::deserialized_responses::{
     UnableToDecryptInfo, UnableToDecryptReason, VerificationLevel, WithheldCode,
 };
-use ruma::{events::AnySyncTimelineEvent, serde::Raw, MilliSecondsSinceUnixEpoch};
+use ruma::{MilliSecondsSinceUnixEpoch, events::AnySyncTimelineEvent, serde::Raw};
 use serde::Deserialize;
 
 /// Our best guess at the reason why an event can't be decrypted.
@@ -242,10 +242,10 @@ mod tests {
     use matrix_sdk_common::deserialized_responses::{
         DeviceLinkProblem, UnableToDecryptInfo, UnableToDecryptReason, VerificationLevel,
     };
-    use ruma::{events::AnySyncTimelineEvent, serde::Raw, MilliSecondsSinceUnixEpoch};
+    use ruma::{MilliSecondsSinceUnixEpoch, events::AnySyncTimelineEvent, serde::Raw};
     use serde_json::{json, value::to_raw_value};
 
-    use crate::types::events::{utd_cause::CryptoContextInfo, UtdCause};
+    use crate::types::events::{UtdCause, utd_cause::CryptoContextInfo};
 
     const EVENT_TIME: usize = 5555;
     const BEFORE_EVENT_TIME: usize = 1111;

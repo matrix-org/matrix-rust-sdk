@@ -6,9 +6,11 @@ use std::{
     time::Duration,
 };
 
-use anyhow::{anyhow, Context as _};
+use anyhow::{Context as _, anyhow};
 use futures_util::pin_mut;
 use matrix_sdk::{
+    AuthApi, AuthSession, Client as MatrixClient, STATE_STORE_DATABASE_NAME, SessionChange,
+    SessionTokens,
     authentication::oauth::{
         AccountManagementActionFull, ClientId, OAuthAuthorizationData, OAuthSession,
     },
@@ -18,29 +20,27 @@ use matrix_sdk::{
         MediaRetentionPolicy, MediaThumbnailSettings,
     },
     ruma::{
+        EventEncryptionAlgorithm, RoomId, TransactionId, UInt, UserId,
         api::client::{
             discovery::get_authorization_server_metadata::msc2965::Prompt as RumaOidcPrompt,
             push::{EmailPusherData, PusherIds, PusherInit, PusherKind as RumaPusherKind},
-            room::{create_room, Visibility},
+            room::{Visibility, create_room},
             session::get_login_types,
             user_directory::search_users,
         },
         events::{
+            AnyInitialStateEvent, InitialStateEvent,
             room::{
                 avatar::RoomAvatarEventContent, encryption::RoomEncryptionEventContent,
                 message::MessageType,
             },
-            AnyInitialStateEvent, InitialStateEvent,
         },
         serde::Raw,
-        EventEncryptionAlgorithm, RoomId, TransactionId, UInt, UserId,
     },
     sliding_sync::Version as SdkSlidingSyncVersion,
     store::RoomLoadSettings as SdkRoomLoadSettings,
-    AuthApi, AuthSession, Client as MatrixClient, SessionChange, SessionTokens,
-    STATE_STORE_DATABASE_NAME,
 };
-use matrix_sdk_common::{stream::StreamExt, SendOutsideWasm, SyncOutsideWasm};
+use matrix_sdk_common::{SendOutsideWasm, SyncOutsideWasm, stream::StreamExt};
 use matrix_sdk_ui::{
     notification_client::{
         NotificationClient as MatrixNotificationClient,
@@ -50,8 +50,12 @@ use matrix_sdk_ui::{
 };
 use mime::Mime;
 use ruma::{
+    OwnedServerName, RoomAliasId, RoomOrAliasId, ServerName,
     api::client::{alias::get_alias, error::ErrorKind, uiaa::UserIdentifier},
     events::{
+        GlobalAccountDataEvent as RumaGlobalAccountDataEvent,
+        GlobalAccountDataEventType as RumaGlobalAccountDataEventType,
+        RoomAccountDataEvent as RumaRoomAccountDataEvent,
         direct::DirectEventContent,
         fully_read::FullyReadEventContent,
         identity_server::IdentityServerEventContent,
@@ -71,21 +75,18 @@ use ruma::{
             default_key::SecretStorageDefaultKeyEventContent, key::SecretStorageKeyEventContent,
         },
         tag::TagEventContent,
-        GlobalAccountDataEvent as RumaGlobalAccountDataEvent,
-        GlobalAccountDataEventType as RumaGlobalAccountDataEventType,
-        RoomAccountDataEvent as RumaRoomAccountDataEvent,
     },
     push::{HttpPusherData as RumaHttpPusherData, PushFormat as RumaPushFormat},
-    OwnedServerName, RoomAliasId, RoomOrAliasId, ServerName,
 };
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use tokio::sync::broadcast::error::RecvError;
 use tracing::{debug, error};
 use url::Url;
 
 use super::{room::Room, session_verification::SessionVerificationController};
 use crate::{
+    ClientError,
     authentication::{HomeserverLoginDetails, OidcConfiguration, OidcError, SsoError, SsoHandler},
     client,
     encryption::Encryption,
@@ -104,7 +105,6 @@ use crate::{
     task_handle::TaskHandle,
     utd::{UnableToDecryptDelegate, UtdHook},
     utils::AsyncRuntimeDropped,
-    ClientError,
 };
 
 #[derive(Clone, uniffi::Record)]

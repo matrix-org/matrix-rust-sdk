@@ -18,11 +18,11 @@ use ruma::{
     events::{AnyStateEvent, AnyTimelineEvent, AnyToDeviceEvent},
     serde::Raw,
 };
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use serde_json::value::RawValue as RawJsonValue;
 use tracing::error;
 
-use super::{openid::OpenIdResponse, Action, ToWidgetRequestMeta, WidgetMachine};
+use super::{Action, ToWidgetRequestMeta, WidgetMachine, openid::OpenIdResponse};
 use crate::widget::Capabilities;
 
 /// A handle to a pending `toWidget` request.

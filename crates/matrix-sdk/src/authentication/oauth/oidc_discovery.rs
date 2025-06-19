@@ -24,9 +24,9 @@ use ruma::{
 use url::Url;
 
 use super::{
+    OAuthHttpClient,
     error::OAuthDiscoveryError,
     http_client::{check_http_response_json_content_type, check_http_response_status_code},
-    OAuthHttpClient,
 };
 
 /// Fetch the OpenID Connect provider metadata.

@@ -18,33 +18,33 @@
 use std::{
     collections::BTreeMap,
     future::Future,
-    sync::{atomic::Ordering, Arc, Mutex},
+    sync::{Arc, Mutex, atomic::Ordering},
 };
 
 use matrix_sdk_test::test_json;
 use ruma::{
+    CrossSigningKeyId, DeviceId, MilliSecondsSinceUnixEpoch, OneTimeKeyAlgorithm, OwnedDeviceId,
+    OwnedOneTimeKeyId, OwnedUserId, UserId,
     api::client::{
         keys::upload_signatures::v3::SignedKeys, to_device::send_event_to_device::v3::Messages,
     },
     encryption::{CrossSigningKey, DeviceKeys, OneTimeKey},
     owned_device_id, owned_user_id,
     serde::Raw,
-    CrossSigningKeyId, DeviceId, MilliSecondsSinceUnixEpoch, OneTimeKeyAlgorithm, OwnedDeviceId,
-    OwnedOneTimeKeyId, OwnedUserId, UserId,
 };
 use serde_json::json;
 use wiremock::{
-    matchers::{method, path_regex},
     Mock, MockGuard, Request, ResponseTemplate,
+    matchers::{method, path_regex},
 };
 
 use crate::{
+    Client,
     crypto::types::events::room::encrypted::EncryptedToDeviceEvent,
     test_utils::{
         client::MockClientBuilder,
         mocks::{Keys, MatrixMockServer},
     },
-    Client,
 };
 
 /// Extends the `MatrixMockServer` with useful methods to help mocking

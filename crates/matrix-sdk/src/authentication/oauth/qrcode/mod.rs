@@ -22,14 +22,14 @@
 //! [`OAuth::login_with_qr_code()`] method.
 
 use as_variant::as_variant;
+use matrix_sdk_base::crypto::SecretImportError;
 pub use matrix_sdk_base::crypto::types::qr_login::{
     LoginQrCodeDecodeError, QrCodeData, QrCodeMode, QrCodeModeData,
 };
-use matrix_sdk_base::crypto::SecretImportError;
 pub use oauth2::{
-    basic::{BasicErrorResponse, BasicRequestTokenError},
     ConfigurationError, DeviceCodeErrorResponse, DeviceCodeErrorResponseType, HttpClientError,
     RequestTokenError, StandardErrorResponse,
+    basic::{BasicErrorResponse, BasicRequestTokenError},
 };
 use thiserror::Error;
 use url::Url;
@@ -187,6 +187,8 @@ pub enum SecureChannelError {
 
     /// Both devices have advertised the same intent in the login attempt, i.e.
     /// both sides claim to be a new device.
-    #[error("The secure channel could not have been established, the two devices have the same login intent")]
+    #[error(
+        "The secure channel could not have been established, the two devices have the same login intent"
+    )]
     InvalidIntent,
 }

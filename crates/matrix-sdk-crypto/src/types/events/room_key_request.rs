@@ -22,7 +22,7 @@ use serde_json::Value;
 use vodozemac::Curve25519PublicKey;
 
 use super::{EventType, ToDeviceEvent};
-use crate::types::{deserialize_curve_key, serialize_curve_key, EventEncryptionAlgorithm};
+use crate::types::{EventEncryptionAlgorithm, deserialize_curve_key, serialize_curve_key};
 
 /// The `m.room_key_request` to-device event.
 pub type RoomKeyRequestEvent = ToDeviceEvent<RoomKeyRequestContent>;
@@ -287,7 +287,7 @@ impl TryFrom<RequestedKeyInfoHelper> for RequestedKeyInfo {
 #[cfg(test)]
 mod tests {
     use assert_matches::assert_matches;
-    use serde_json::{json, Value};
+    use serde_json::{Value, json};
 
     use super::{Action, RequestedKeyInfo, RoomKeyRequestEvent};
 

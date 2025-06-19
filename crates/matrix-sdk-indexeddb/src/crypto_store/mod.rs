@@ -23,26 +23,26 @@ use hkdf::Hkdf;
 use indexed_db_futures::prelude::*;
 use js_sys::Array;
 use matrix_sdk_crypto::{
+    Account, DeviceData, GossipRequest, GossippedSecret, SecretInfo, TrackedUser, UserIdentityData,
     olm::{
         Curve25519PublicKey, InboundGroupSession, OlmMessageHash, OutboundGroupSession,
         PickledInboundGroupSession, PrivateCrossSigningIdentity, SenderDataType, Session,
         StaticAccountData,
     },
     store::{
+        CryptoStore, CryptoStoreError,
         types::{
             BackupKeys, Changes, DehydratedDeviceKey, PendingChanges, RoomKeyCounts, RoomSettings,
             StoredRoomKeyBundleData,
         },
-        CryptoStore, CryptoStoreError,
     },
     types::events::room_key_withheld::RoomKeyWithheldEvent,
     vodozemac::base64_encode,
-    Account, DeviceData, GossipRequest, GossippedSecret, SecretInfo, TrackedUser, UserIdentityData,
 };
 use matrix_sdk_store_encryption::StoreCipher;
 use ruma::{
-    events::secret::request::SecretName, DeviceId, MilliSecondsSinceUnixEpoch, OwnedDeviceId,
-    RoomId, TransactionId, UserId,
+    DeviceId, MilliSecondsSinceUnixEpoch, OwnedDeviceId, RoomId, TransactionId, UserId,
+    events::secret::request::SecretName,
 };
 use sha2::Sha256;
 use tokio::sync::Mutex;
@@ -146,7 +146,9 @@ pub enum IndexeddbCryptoStoreError {
     },
     #[error(transparent)]
     CryptoStoreError(#[from] CryptoStoreError),
-    #[error("The schema version of the crypto store is too new. Existing version: {current_version}; max supported version: {max_supported_version}")]
+    #[error(
+        "The schema version of the crypto store is too new. Existing version: {current_version}; max supported version: {max_supported_version}"
+    )]
     SchemaTooNewError { max_supported_version: u32, current_version: u32 },
 }
 
@@ -243,11 +245,7 @@ impl PendingIndexeddbChanges {
             .iter()
             .filter_map(
                 |(store, pending_operations)| {
-                    if !pending_operations.is_empty() {
-                        Some(*store)
-                    } else {
-                        None
-                    }
+                    if !pending_operations.is_empty() { Some(*store) } else { None }
                 },
             )
             .collect()
@@ -1559,7 +1557,9 @@ async fn import_store_cipher_with_key(
             // Loading the cipher with the passphrase was successful. Let's update the
             // stored version of the cipher so that it is encrypted with a key,
             // to save doing this again.
-            debug!("IndexedDbCryptoStore: Migrating passphrase-encrypted store cipher to key-encryption");
+            debug!(
+                "IndexedDbCryptoStore: Migrating passphrase-encrypted store cipher to key-encryption"
+            );
 
             let export = cipher.export_with_key(chacha_key).map_err(CryptoStoreError::backend)?;
             save_store_cipher(db, &export).await?;
@@ -1794,9 +1794,9 @@ mod unit_tests {
         // Testing the exact JSON here is theoretically flaky in the face of
         // serialization changes in serde_json but it seems unlikely, and it's
         // simple enough to fix if we need to.
-        assert!(serde_json::to_string(&session_needs_backup)
-            .unwrap()
-            .contains(r#""needs_backup":1"#),);
+        assert!(
+            serde_json::to_string(&session_needs_backup).unwrap().contains(r#""needs_backup":1"#),
+        );
     }
 
     #[test]
@@ -1967,7 +1967,7 @@ mod encrypted_tests {
     use matrix_sdk_crypto::{
         cryptostore_integration_tests,
         olm::Account,
-        store::{types::PendingChanges, CryptoStore},
+        store::{CryptoStore, types::PendingChanges},
         vodozemac::base64_encode,
     };
     use matrix_sdk_test::async_test;

@@ -24,8 +24,8 @@ use matrix_sdk_base::{
 use ruma::{OwnedEventId, RoomId};
 
 use super::{
-    room::events::{Event, RoomEvents},
     EventCacheError,
+    room::events::{Event, RoomEvents},
 };
 
 /// Find duplicates in the given collection of events, and return both
@@ -128,7 +128,7 @@ pub(super) struct DeduplicationOutcome {
 mod tests {
     use matrix_sdk_base::{deserialized_responses::TimelineEvent, linked_chunk::ChunkIdentifier};
     use matrix_sdk_test::{async_test, event_factory::EventFactory};
-    use ruma::{owned_event_id, serde::Raw, user_id, EventId};
+    use ruma::{EventId, owned_event_id, serde::Raw, user_id};
 
     use super::*;
 

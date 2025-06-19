@@ -15,14 +15,13 @@
 use std::sync::Arc;
 
 use base64::{
-    alphabet,
-    engine::{general_purpose, GeneralPurpose},
-    Engine,
+    Engine, alphabet,
+    engine::{GeneralPurpose, general_purpose},
 };
 use gloo_utils::format::JsValueSerdeExt;
 use matrix_sdk_crypto::CryptoStoreError;
 use matrix_sdk_store_encryption::{EncryptedValueBase64, StoreCipher};
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use wasm_bindgen::JsValue;
 use web_sys::IdbKeyRange;
 use zeroize::Zeroizing;

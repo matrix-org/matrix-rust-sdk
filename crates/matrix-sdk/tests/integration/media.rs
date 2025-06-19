@@ -1,21 +1,21 @@
 use matrix_sdk::{
+    Client,
     config::RequestConfig,
     media::{MediaFormat, MediaRequestParameters, MediaThumbnailSettings},
     store::RoomLoadSettings,
     test_utils::{client::mock_matrix_session, logged_in_client_with_server},
-    Client,
 };
 use matrix_sdk_test::async_test;
 use ruma::{
     api::client::media::get_content_thumbnail::v3::Method,
     assign,
-    events::room::{message::ImageMessageEventContent, ImageInfo, MediaSource},
+    events::room::{ImageInfo, MediaSource, message::ImageMessageEventContent},
     mxc_uri, owned_mxc_uri, uint,
 };
 use serde_json::json;
 use wiremock::{
-    matchers::{header, method, path, query_param},
     Mock, ResponseTemplate,
+    matchers::{header, method, path, query_param},
 };
 
 #[async_test]

@@ -10,8 +10,8 @@ use matrix_sdk::{
     test_utils::{logged_in_client_with_server, mocks::MatrixMockServer},
 };
 use matrix_sdk_test::{
-    async_test, event_factory::EventFactory, mocks::mock_encryption_state, JoinedRoomBuilder,
-    SyncResponseBuilder,
+    JoinedRoomBuilder, SyncResponseBuilder, async_test, event_factory::EventFactory,
+    mocks::mock_encryption_state,
 };
 use matrix_sdk_ui::{
     notification_client::{
@@ -22,18 +22,18 @@ use matrix_sdk_ui::{
 };
 use ruma::{
     event_id,
-    events::{room::member::MembershipState, AnyStateEvent, TimelineEventType},
+    events::{AnyStateEvent, TimelineEventType, room::member::MembershipState},
     mxc_uri, room_id, user_id,
 };
 use serde_json::json;
 use wiremock::{
-    matchers::{header, method, path},
     Mock, Request, ResponseTemplate,
+    matchers::{header, method, path},
 };
 
 use crate::{
     mock_sync,
-    sliding_sync::{check_requests, PartialSlidingSyncRequest, SlidingSyncMatcher},
+    sliding_sync::{PartialSlidingSyncRequest, SlidingSyncMatcher, check_requests},
 };
 
 #[async_test]

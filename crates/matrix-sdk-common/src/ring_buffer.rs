@@ -14,8 +14,8 @@
 
 use std::{
     collections::{
-        vec_deque::{Drain, Iter, IterMut},
         VecDeque,
+        vec_deque::{Drain, Iter, IterMut},
     },
     num::NonZeroUsize,
     ops::RangeBounds,

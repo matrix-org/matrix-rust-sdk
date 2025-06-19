@@ -45,7 +45,7 @@ impl EventType for DummyEventContent {
 
 #[cfg(test)]
 pub(super) mod tests {
-    use serde_json::{json, Value};
+    use serde_json::{Value, json};
 
     use super::DummyEvent;
 

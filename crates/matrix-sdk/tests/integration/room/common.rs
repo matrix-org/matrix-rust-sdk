@@ -3,27 +3,27 @@ use std::{collections::BTreeMap, iter, time::Duration};
 use assert_matches2::{assert_let, assert_matches};
 use js_int::uint;
 use matrix_sdk::{
-    config::SyncSettings, room::RoomMember, test_utils::mocks::MatrixMockServer, RoomDisplayName,
-    RoomMemberships,
+    RoomDisplayName, RoomMemberships, config::SyncSettings, room::RoomMember,
+    test_utils::mocks::MatrixMockServer,
 };
 use matrix_sdk_test::{
-    async_test, bulk_room_members, event_factory::EventFactory, sync_state_event, test_json,
-    GlobalAccountDataTestEvent, JoinedRoomBuilder, LeftRoomBuilder, StateTestEvent,
-    SyncResponseBuilder, BOB, DEFAULT_TEST_ROOM_ID,
+    BOB, DEFAULT_TEST_ROOM_ID, GlobalAccountDataTestEvent, JoinedRoomBuilder, LeftRoomBuilder,
+    StateTestEvent, SyncResponseBuilder, async_test, bulk_room_members,
+    event_factory::EventFactory, sync_state_event, test_json,
 };
 use ruma::{
     event_id,
     events::{
+        AnySyncStateEvent, AnySyncTimelineEvent, StateEventType,
         direct::DirectUserIdentifier,
         room::{avatar, member::MembershipState, message::RoomMessageEventContent},
-        AnySyncStateEvent, AnySyncTimelineEvent, StateEventType,
     },
     mxc_uri, owned_room_alias_id, room_id, room_version_id, user_id,
 };
 use serde_json::json;
 use wiremock::{
-    matchers::{body_json, header, method, path, path_regex},
     Mock, ResponseTemplate,
+    matchers::{body_json, header, method, path, path_regex},
 };
 
 use crate::{logged_in_client_with_server, mock_sync};

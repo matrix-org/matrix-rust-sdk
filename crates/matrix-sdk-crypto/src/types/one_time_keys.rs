@@ -20,12 +20,12 @@
 
 use std::collections::BTreeMap;
 
-use ruma::{serde::Raw, OneTimeKeyAlgorithm};
+use ruma::{OneTimeKeyAlgorithm, serde::Raw};
 use serde::{Deserialize, Deserializer, Serialize};
-use serde_json::{value::to_raw_value, Value};
+use serde_json::{Value, value::to_raw_value};
 use vodozemac::Curve25519PublicKey;
 
-use super::{deserialize_curve_key, serialize_curve_key, Signatures};
+use super::{Signatures, deserialize_curve_key, serialize_curve_key};
 
 /// A key for the SignedCurve25519 algorithm
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -133,7 +133,7 @@ impl OneTimeKey {
 
 #[cfg(test)]
 mod tests {
-    use ruma::{device_id, user_id, DeviceKeyAlgorithm, DeviceKeyId};
+    use ruma::{DeviceKeyAlgorithm, DeviceKeyId, device_id, user_id};
     use serde_json::json;
     use vodozemac::{Curve25519PublicKey, Ed25519Signature};
 

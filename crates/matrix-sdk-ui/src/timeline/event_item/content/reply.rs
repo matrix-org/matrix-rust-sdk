@@ -21,11 +21,11 @@ use tracing::{debug, instrument, warn};
 
 use super::TimelineItemContent;
 use crate::timeline::{
+    Error as TimelineError, TimelineItem,
     controller::TimelineMetadata,
     event_handler::TimelineAction,
     event_item::{EventTimelineItem, Profile, TimelineDetails},
     traits::RoomDataProvider,
-    Error as TimelineError, TimelineItem,
 };
 
 /// Details about an event being replied to.

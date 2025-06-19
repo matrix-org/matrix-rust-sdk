@@ -25,7 +25,7 @@ use futures_core::Stream;
 use imbl::Vector;
 use pin_project_lite::pin_project;
 
-use super::{controller::ObservableItems, item::TimelineItem, TimelineDropHandle};
+use super::{TimelineDropHandle, controller::ObservableItems, item::TimelineItem};
 
 pin_project! {
     /// A stream that wraps a [`TimelineDropHandle`] so that the `Timeline`
@@ -227,8 +227,8 @@ pub mod skip {
         ///
         /// [`Skip`]: eyeball_im_util::vector::Skip
         #[allow(unused)] // this is not used yet because only a live timeline is using it, but as soon as
-                         // other kind of timelines will use it, we would need it, it's better to have
-                         // this in case of; everything is tested, the logic is made more robust.
+        // other kind of timelines will use it, we would need it, it's better to have
+        // this in case of; everything is tested, the logic is made more robust.
         pub fn compute_next_when_paginating_forwards(&self, _page_size: usize) -> usize {
             // Nothing to do, the count remains unchanged as we skip the first values, not
             // the last values; paginating forwards will add items at the end, not at the

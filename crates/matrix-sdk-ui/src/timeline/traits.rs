@@ -19,26 +19,26 @@ use indexmap::IndexMap;
 #[cfg(test)]
 use matrix_sdk::crypto::{DecryptionSettings, RoomEventDecryptionResult, TrustRequirement};
 use matrix_sdk::{
+    AsyncTraitDeps, Result, Room, SendOutsideWasm,
     crypto::types::events::CryptoContextInfo,
     deserialized_responses::{EncryptionInfo, TimelineEvent},
     event_cache::paginator::PaginableRoom,
     room::{PushContext, Relations, RelationsOptions},
-    AsyncTraitDeps, Result, Room, SendOutsideWasm,
 };
-use matrix_sdk_base::{latest_event::LatestEvent, RoomInfo};
+use matrix_sdk_base::{RoomInfo, latest_event::LatestEvent};
 use ruma::{
+    EventId, OwnedEventId, OwnedTransactionId, OwnedUserId, RoomVersionId, UserId,
     events::{
+        AnyMessageLikeEventContent, AnySyncTimelineEvent,
         fully_read::FullyReadEventContent,
         receipt::{Receipt, ReceiptThread, ReceiptType},
-        AnyMessageLikeEventContent, AnySyncTimelineEvent,
     },
     serde::Raw,
-    EventId, OwnedEventId, OwnedTransactionId, OwnedUserId, RoomVersionId, UserId,
 };
 use tracing::error;
 
 use super::{EventTimelineItem, Profile, RedactError, TimelineBuilder};
-use crate::timeline::{self, pinned_events_loader::PinnedEventsRoom, Timeline};
+use crate::timeline::{self, Timeline, pinned_events_loader::PinnedEventsRoom};
 
 pub trait RoomExt {
     /// Get a [`Timeline`] for this room.
@@ -49,7 +49,7 @@ pub trait RoomExt {
     ///
     /// This is the same as using `room.timeline_builder().build()`.
     fn timeline(&self)
-        -> impl Future<Output = Result<Timeline, timeline::Error>> + SendOutsideWasm;
+    -> impl Future<Output = Result<Timeline, timeline::Error>> + SendOutsideWasm;
 
     /// Get a [`TimelineBuilder`] for this room.
     ///
@@ -93,7 +93,7 @@ pub(super) trait RoomDataProvider:
     fn room_version(&self) -> RoomVersionId;
 
     fn crypto_context_info(&self)
-        -> impl Future<Output = CryptoContextInfo> + SendOutsideWasm + '_;
+    -> impl Future<Output = CryptoContextInfo> + SendOutsideWasm + '_;
 
     fn profile_from_user_id<'a>(
         &'a self,

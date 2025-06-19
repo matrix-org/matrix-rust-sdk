@@ -15,7 +15,11 @@
 //! Facilities to edit existing events.
 
 use ruma::{
+    EventId, RoomId, UserId,
     events::{
+        AnyMessageLikeEvent, AnyMessageLikeEventContent, AnySyncMessageLikeEvent,
+        AnySyncTimelineEvent, AnyTimelineEvent, Mentions, MessageLikeEvent,
+        OriginalMessageLikeEvent, SyncMessageLikeEvent,
         poll::unstable_start::{
             ReplacementUnstablePollStartEventContent, UnstablePollStartContentBlock,
             UnstablePollStartEventContent,
@@ -24,11 +28,7 @@ use ruma::{
             FormattedBody, MessageType, Relation, ReplacementMetadata, RoomMessageEventContent,
             RoomMessageEventContentWithoutRelation,
         },
-        AnyMessageLikeEvent, AnyMessageLikeEventContent, AnySyncMessageLikeEvent,
-        AnySyncTimelineEvent, AnyTimelineEvent, Mentions, MessageLikeEvent,
-        OriginalMessageLikeEvent, SyncMessageLikeEvent,
     },
-    EventId, RoomId, UserId,
 };
 use thiserror::Error;
 use tracing::{instrument, warn};
@@ -99,7 +99,9 @@ pub enum EditError {
     Deserialize(#[from] serde_json::Error),
 
     /// We tried to edit an event of type A with content of type B.
-    #[error("The original event type ({target}) isn't the same as the parameter's new content type ({new_content})")]
+    #[error(
+        "The original event type ({target}) isn't the same as the parameter's new content type ({new_content})"
+    )]
     IncompatibleEditType {
         /// The type of the target event.
         target: String,
@@ -336,16 +338,16 @@ mod tests {
     use matrix_sdk_base::deserialized_responses::TimelineEvent;
     use matrix_sdk_test::{async_test, event_factory::EventFactory};
     use ruma::{
-        event_id,
+        EventId, OwnedEventId, event_id,
         events::{
-            room::message::{MessageType, Relation, RoomMessageEventContentWithoutRelation},
             AnyMessageLikeEventContent, AnySyncTimelineEvent, Mentions,
+            room::message::{MessageType, Relation, RoomMessageEventContentWithoutRelation},
         },
-        owned_mxc_uri, owned_user_id, room_id, user_id, EventId, OwnedEventId,
+        owned_mxc_uri, owned_user_id, room_id, user_id,
     };
 
-    use super::{make_edit_event, EditError, EventSource};
-    use crate::{room::edit::EditedContent, Error};
+    use super::{EditError, EventSource, make_edit_event};
+    use crate::{Error, room::edit::EditedContent};
 
     #[derive(Default)]
     struct TestEventCache {

@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use ruma::time::Instant;
-use tracing::{callsite::DefaultCallsite, Callsite as _};
+use tracing::{Callsite as _, callsite::DefaultCallsite};
 
 /// A named RAII that will show on `Drop` how long its covered section took to
 /// execute.
@@ -124,7 +124,7 @@ mod tests {
     #[cfg(not(target_family = "wasm"))]
     #[matrix_sdk_test_macros::async_test]
     async fn test_timer_name() {
-        use tracing::{span, Level};
+        use tracing::{Level, span};
 
         tracing::warn!("Starting test...");
 

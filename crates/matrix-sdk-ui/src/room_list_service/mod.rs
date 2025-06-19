@@ -60,15 +60,15 @@ use std::{sync::Arc, time::Duration};
 
 use async_stream::stream;
 use eyeball::Subscriber;
-use futures_util::{pin_mut, Stream, StreamExt};
+use futures_util::{Stream, StreamExt, pin_mut};
 use matrix_sdk::{
-    event_cache::EventCacheError, timeout::timeout, Client, Error as SlidingSyncError, Room,
-    SlidingSync, SlidingSyncList, SlidingSyncMode,
+    Client, Error as SlidingSyncError, Room, SlidingSync, SlidingSyncList, SlidingSyncMode,
+    event_cache::EventCacheError, timeout::timeout,
 };
 pub use room_list::*;
 use ruma::{
-    api::client::sync::sync_events::v5 as http, assign, directory::RoomTypeFilter,
-    events::StateEventType, OwnedRoomId, RoomId, UInt,
+    OwnedRoomId, RoomId, UInt, api::client::sync::sync_events::v5 as http, assign,
+    directory::RoomTypeFilter, events::StateEventType,
 };
 pub use state::*;
 use thiserror::Error;
@@ -457,16 +457,16 @@ pub enum SyncIndicator {
 mod tests {
     use std::future::ready;
 
-    use futures_util::{pin_mut, StreamExt};
+    use futures_util::{StreamExt, pin_mut};
     use matrix_sdk::{
-        config::RequestConfig, test_utils::client::mock_matrix_session, Client, SlidingSyncMode,
+        Client, SlidingSyncMode, config::RequestConfig, test_utils::client::mock_matrix_session,
     };
     use matrix_sdk_test::async_test;
     use ruma::api::MatrixVersion;
     use serde_json::json;
-    use wiremock::{http::Method, Match, Mock, MockServer, Request, ResponseTemplate};
+    use wiremock::{Match, Mock, MockServer, Request, ResponseTemplate, http::Method};
 
-    use super::{Error, RoomListService, State, ALL_ROOMS_LIST_NAME};
+    use super::{ALL_ROOMS_LIST_NAME, Error, RoomListService, State};
 
     async fn new_client() -> (Client, MockServer) {
         let session = mock_matrix_session();

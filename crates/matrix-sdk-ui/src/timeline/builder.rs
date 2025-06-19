@@ -18,25 +18,25 @@ use std::{
 };
 
 use futures_core::Stream;
-use futures_util::{pin_mut, StreamExt};
+use futures_util::{StreamExt, pin_mut};
 use matrix_sdk::{
+    Room,
     crypto::store::types::RoomKeyInfo,
     encryption::backups::BackupState,
     event_cache::{EventsOrigin, RoomEventCache, RoomEventCacheListener, RoomEventCacheUpdate},
     executor::spawn,
     send_queue::RoomSendQueueUpdate,
-    Room,
 };
 use matrix_sdk_base::{SendOutsideWasm, SyncOutsideWasm};
-use ruma::{events::AnySyncTimelineEvent, OwnedEventId, RoomVersionId};
-use tokio::sync::broadcast::{error::RecvError, Receiver};
+use ruma::{OwnedEventId, RoomVersionId, events::AnySyncTimelineEvent};
+use tokio::sync::broadcast::{Receiver, error::RecvError};
 use tokio_stream::wrappers::errors::BroadcastStreamRecvError;
-use tracing::{info_span, instrument, trace, warn, Instrument, Span};
+use tracing::{Instrument, Span, info_span, instrument, trace, warn};
 
 use super::{
+    DateDividerMode, Error, Timeline, TimelineDropHandle, TimelineFocus,
     controller::{TimelineController, TimelineSettings},
     to_device::{handle_forwarded_room_key_event, handle_room_key_event},
-    DateDividerMode, Error, Timeline, TimelineDropHandle, TimelineFocus,
 };
 use crate::{timeline::event_item::RemoteEventOrigin, unable_to_decrypt_hook::UtdHookManager};
 

@@ -15,15 +15,15 @@
 mod pk_signing;
 
 use std::sync::{
-    atomic::{AtomicBool, Ordering},
     Arc,
+    atomic::{AtomicBool, Ordering},
 };
 
 pub use pk_signing::{MasterSigning, PickledSignings, SelfSigning, SigningError, UserSigning};
 use ruma::{
+    DeviceKeyAlgorithm, DeviceKeyId, OwnedDeviceId, OwnedDeviceKeyId, OwnedUserId, UserId,
     api::client::keys::upload_signatures::v3::{Request as SignatureUploadRequest, SignedKeys},
     events::secret::request::SecretName,
-    DeviceKeyAlgorithm, DeviceKeyId, OwnedDeviceId, OwnedDeviceKeyId, OwnedUserId, UserId,
 };
 use serde::{Deserialize, Serialize};
 use tokio::sync::Mutex;
@@ -31,13 +31,13 @@ use vodozemac::Ed25519Signature;
 
 use super::StaticAccountData;
 use crate::{
+    Account, DeviceData, OtherUserIdentityData, OwnUserIdentity, OwnUserIdentityData,
     error::SignatureError,
     store::SecretImportError,
     types::{
-        requests::UploadSigningKeysRequest, DeviceKeys, MasterPubkey, SelfSigningPubkey,
-        UserSigningPubkey,
+        DeviceKeys, MasterPubkey, SelfSigningPubkey, UserSigningPubkey,
+        requests::UploadSigningKeysRequest,
     },
-    Account, DeviceData, OtherUserIdentityData, OwnUserIdentity, OwnUserIdentityData,
 };
 
 /// Private cross signing identity.
@@ -637,10 +637,10 @@ mod tests {
     use std::sync::Arc;
 
     use matrix_sdk_test::async_test;
-    use ruma::{device_id, user_id, CanonicalJsonValue, DeviceKeyAlgorithm, DeviceKeyId, UserId};
+    use ruma::{CanonicalJsonValue, DeviceKeyAlgorithm, DeviceKeyId, UserId, device_id, user_id};
     use serde_json::json;
 
-    use super::{pk_signing::Signing, PrivateCrossSigningIdentity};
+    use super::{PrivateCrossSigningIdentity, pk_signing::Signing};
     use crate::{
         identities::{DeviceData, OtherUserIdentityData},
         olm::{Account, SignedJsonObject, VerifyJson},

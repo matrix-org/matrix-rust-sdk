@@ -26,8 +26,8 @@ use matrix_sdk_ui::{
 };
 
 use crate::{
-    error::ClientError, helpers::unwrap_or_clone_arc, room_list::RoomListService,
-    runtime::get_runtime_handle, TaskHandle,
+    TaskHandle, error::ClientError, helpers::unwrap_or_clone_arc, room_list::RoomListService,
+    runtime::get_runtime_handle,
 };
 
 #[derive(uniffi::Enum)]

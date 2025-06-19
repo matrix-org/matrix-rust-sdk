@@ -13,14 +13,14 @@
 use std::{env, process::exit};
 
 use matrix_sdk::{
+    Client, Room, RoomState,
     config::SyncSettings,
     ruma::events::room::{
         member::StrippedRoomMemberEvent,
         message::{MessageType, OriginalSyncRoomMessageEvent, RoomMessageEventContent},
     },
-    Client, Room, RoomState,
 };
-use tokio::time::{sleep, Duration};
+use tokio::time::{Duration, sleep};
 
 /// This is the starting point of the app. `main` is called by rust binaries to
 /// run the program in this case, we use tokio (a reactor) to allow us to use

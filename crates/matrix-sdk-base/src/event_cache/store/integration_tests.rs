@@ -23,25 +23,26 @@ use matrix_sdk_common::{
         VerificationState,
     },
     linked_chunk::{
-        lazy_loader, ChunkContent, ChunkIdentifier as CId, LinkedChunkId, Position, Update,
+        ChunkContent, ChunkIdentifier as CId, LinkedChunkId, Position, Update, lazy_loader,
     },
 };
-use matrix_sdk_test::{event_factory::EventFactory, ALICE, DEFAULT_TEST_ROOM_ID};
+use matrix_sdk_test::{ALICE, DEFAULT_TEST_ROOM_ID, event_factory::EventFactory};
 use ruma::{
+    EventId, RoomId,
     api::client::media::get_content_thumbnail::v3::Method,
     event_id,
     events::{
         relation::RelationType,
-        room::{message::RoomMessageEventContentWithoutRelation, MediaSource},
+        room::{MediaSource, message::RoomMessageEventContentWithoutRelation},
     },
     mxc_uri,
     push::Action,
-    room_id, uint, EventId, RoomId,
+    room_id, uint,
 };
 
-use super::{media::IgnoreMediaRetentionPolicy, DynEventCacheStore};
+use super::{DynEventCacheStore, media::IgnoreMediaRetentionPolicy};
 use crate::{
-    event_cache::{store::DEFAULT_CHUNK_CAPACITY, Gap},
+    event_cache::{Gap, store::DEFAULT_CHUNK_CAPACITY},
     media::{MediaFormat, MediaRequestParameters, MediaThumbnailSettings},
 };
 
@@ -691,31 +692,39 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
         .unwrap();
 
         // Sanity check: both linked chunks can be reloaded.
-        assert!(lazy_loader::from_all_chunks::<3, _, _>(
-            self.load_all_chunks(linked_chunk_id0).await.unwrap()
-        )
-        .unwrap()
-        .is_some());
-        assert!(lazy_loader::from_all_chunks::<3, _, _>(
-            self.load_all_chunks(linked_chunk_id1).await.unwrap()
-        )
-        .unwrap()
-        .is_some());
+        assert!(
+            lazy_loader::from_all_chunks::<3, _, _>(
+                self.load_all_chunks(linked_chunk_id0).await.unwrap()
+            )
+            .unwrap()
+            .is_some()
+        );
+        assert!(
+            lazy_loader::from_all_chunks::<3, _, _>(
+                self.load_all_chunks(linked_chunk_id1).await.unwrap()
+            )
+            .unwrap()
+            .is_some()
+        );
 
         // Clear the chunks.
         self.clear_all_linked_chunks().await.unwrap();
 
         // Both rooms now have no linked chunk.
-        assert!(lazy_loader::from_all_chunks::<3, _, _>(
-            self.load_all_chunks(linked_chunk_id0).await.unwrap()
-        )
-        .unwrap()
-        .is_none());
-        assert!(lazy_loader::from_all_chunks::<3, _, _>(
-            self.load_all_chunks(linked_chunk_id1).await.unwrap()
-        )
-        .unwrap()
-        .is_none());
+        assert!(
+            lazy_loader::from_all_chunks::<3, _, _>(
+                self.load_all_chunks(linked_chunk_id0).await.unwrap()
+            )
+            .unwrap()
+            .is_none()
+        );
+        assert!(
+            lazy_loader::from_all_chunks::<3, _, _>(
+                self.load_all_chunks(linked_chunk_id1).await.unwrap()
+            )
+            .unwrap()
+            .is_none()
+        );
     }
 
     async fn test_remove_room(&self) {
@@ -899,19 +908,21 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
         assert_eq!(event.event_id(), event_comte.event_id());
 
         // Now let's try to find an event that exists, but not in the expected room.
-        assert!(self
-            .find_event(room_id, event_gruyere.event_id().unwrap().as_ref())
-            .await
-            .expect("failed to query for finding an event")
-            .is_none());
+        assert!(
+            self.find_event(room_id, event_gruyere.event_id().unwrap().as_ref())
+                .await
+                .expect("failed to query for finding an event")
+                .is_none()
+        );
 
         // Clearing the rooms also clears the event's storage.
         self.clear_all_linked_chunks().await.expect("failed to clear all rooms chunks");
-        assert!(self
-            .find_event(room_id, event_comte.event_id().unwrap().as_ref())
-            .await
-            .expect("failed to query for finding an event")
-            .is_none());
+        assert!(
+            self.find_event(room_id, event_comte.event_id().unwrap().as_ref())
+                .await
+                .expect("failed to query for finding an event")
+                .is_none()
+        );
     }
 
     async fn test_find_event_relations(&self) {
@@ -1018,16 +1029,18 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
         assert_eq!(event.event_id(), event_gruyere.event_id());
 
         // But they won't be returned when searching in the wrong room.
-        assert!(self
-            .find_event(another_room_id, event_comte.event_id().unwrap().as_ref())
-            .await
-            .expect("failed to query for finding an event")
-            .is_none());
-        assert!(self
-            .find_event(room_id, event_gruyere.event_id().unwrap().as_ref())
-            .await
-            .expect("failed to query for finding an event")
-            .is_none());
+        assert!(
+            self.find_event(another_room_id, event_comte.event_id().unwrap().as_ref())
+                .await
+                .expect("failed to query for finding an event")
+                .is_none()
+        );
+        assert!(
+            self.find_event(room_id, event_gruyere.event_id().unwrap().as_ref())
+                .await
+                .expect("failed to query for finding an event")
+                .is_none()
+        );
     }
 }
 
@@ -1050,8 +1063,8 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
 /// mod tests {
 ///     use super::{EventCacheStore, EventCacheStoreResult, MyStore};
 ///
-///     async fn get_event_cache_store(
-///     ) -> EventCacheStoreResult<impl EventCacheStore> {
+///     async fn get_event_cache_store()
+///     -> EventCacheStoreResult<impl EventCacheStore> {
 ///         Ok(MyStore::new())
 ///     }
 ///

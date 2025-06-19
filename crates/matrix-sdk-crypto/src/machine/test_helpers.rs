@@ -21,6 +21,7 @@ use as_variant::as_variant;
 use matrix_sdk_common::deserialized_responses::ProcessedToDeviceEvent;
 use matrix_sdk_test::{ruma_response_from_json, test_json};
 use ruma::{
+    DeviceId, OwnedOneTimeKeyId, TransactionId, UserId,
     api::client::keys::{
         claim_keys,
         get_keys::{self, v3::Response as KeysQueryResponse},
@@ -31,24 +32,24 @@ use ruma::{
     events::dummy::ToDeviceDummyEventContent,
     serde::Raw,
     to_device::DeviceIdOrAllDevices,
-    user_id, DeviceId, OwnedOneTimeKeyId, TransactionId, UserId,
+    user_id,
 };
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use tokio::sync::Mutex;
 
 use crate::{
+    Account, CrossSigningBootstrapRequests, Device, DeviceData, EncryptionSyncChanges, OlmMachine,
+    OtherUserIdentityData,
     machine::tests,
     olm::PrivateCrossSigningIdentity,
-    store::{types::Changes, CryptoStoreWrapper, MemoryStore},
+    store::{CryptoStoreWrapper, MemoryStore, types::Changes},
     types::{
+        DeviceKeys,
         events::ToDeviceEvent,
         requests::{AnyOutgoingRequest, ToDeviceRequest},
-        DeviceKeys,
     },
     utilities::json_convert,
     verification::VerificationMachine,
-    Account, CrossSigningBootstrapRequests, Device, DeviceData, EncryptionSyncChanges, OlmMachine,
-    OtherUserIdentityData,
 };
 
 /// These keys need to be periodically uploaded to the server.

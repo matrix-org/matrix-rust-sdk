@@ -23,20 +23,20 @@ use matrix_sdk_common::{
     locks::RwLock as StdRwLock, store_locks::memory_store_helper::try_take_leased_lock,
 };
 use ruma::{
-    events::secret::request::SecretName, time::Instant, DeviceId, OwnedDeviceId, OwnedRoomId,
-    OwnedTransactionId, OwnedUserId, RoomId, TransactionId, UserId,
+    DeviceId, OwnedDeviceId, OwnedRoomId, OwnedTransactionId, OwnedUserId, RoomId, TransactionId,
+    UserId, events::secret::request::SecretName, time::Instant,
 };
 use tokio::sync::{Mutex, RwLock};
 use tracing::warn;
 use vodozemac::Curve25519PublicKey;
 
 use super::{
+    Account, CryptoStore, InboundGroupSession, Session,
     caches::DeviceStore,
     types::{
         BackupKeys, Changes, DehydratedDeviceKey, PendingChanges, RoomKeyCounts, RoomSettings,
         StoredRoomKeyBundleData, TrackedUser,
     },
-    Account, CryptoStore, InboundGroupSession, Session,
 };
 use crate::{
     gossiping::{GossipRequest, GossippedSecret, SecretInfo},
@@ -747,22 +747,22 @@ mod tests {
     use std::collections::HashMap;
 
     use matrix_sdk_test::async_test;
-    use ruma::{room_id, user_id, RoomId};
+    use ruma::{RoomId, room_id, user_id};
     use vodozemac::{Curve25519PublicKey, Ed25519PublicKey};
 
     use super::SessionId;
     use crate::{
+        DeviceData,
         identities::device::testing::get_device,
         olm::{
-            tests::get_account_and_session_test_helper, Account, InboundGroupSession,
-            OlmMessageHash, PrivateCrossSigningIdentity, SenderData,
+            Account, InboundGroupSession, OlmMessageHash, PrivateCrossSigningIdentity, SenderData,
+            tests::get_account_and_session_test_helper,
         },
         store::{
+            CryptoStore,
             memorystore::MemoryStore,
             types::{Changes, DeviceChanges, PendingChanges},
-            CryptoStore,
         },
-        DeviceData,
     };
 
     #[async_test]
@@ -1239,26 +1239,26 @@ mod integration_tests {
 
     use async_trait::async_trait;
     use ruma::{
-        events::secret::request::SecretName, DeviceId, OwnedDeviceId, RoomId, TransactionId, UserId,
+        DeviceId, OwnedDeviceId, RoomId, TransactionId, UserId, events::secret::request::SecretName,
     };
     use vodozemac::Curve25519PublicKey;
 
     use super::MemoryStore;
     use crate::{
+        Account, DeviceData, GossipRequest, GossippedSecret, SecretInfo, Session, UserIdentityData,
         cryptostore_integration_tests, cryptostore_integration_tests_time,
         olm::{
             InboundGroupSession, OlmMessageHash, OutboundGroupSession, PrivateCrossSigningIdentity,
             SenderDataType, StaticAccountData,
         },
         store::{
+            CryptoStore,
             types::{
                 BackupKeys, Changes, DehydratedDeviceKey, PendingChanges, RoomKeyCounts,
                 RoomSettings, StoredRoomKeyBundleData, TrackedUser,
             },
-            CryptoStore,
         },
         types::events::room_key_withheld::RoomKeyWithheldEvent,
-        Account, DeviceData, GossipRequest, GossippedSecret, SecretInfo, Session, UserIdentityData,
     };
 
     /// Holds on to a MemoryStore during a test, and moves it back into STORES

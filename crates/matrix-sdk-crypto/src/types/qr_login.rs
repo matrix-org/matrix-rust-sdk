@@ -24,7 +24,7 @@ use std::{
 use byteorder::{BigEndian, ReadBytesExt};
 use thiserror::Error;
 use url::Url;
-use vodozemac::{base64_decode, base64_encode, Curve25519PublicKey};
+use vodozemac::{Curve25519PublicKey, base64_decode, base64_encode};
 
 /// The version of the QR code data, currently only one version is specified.
 const VERSION: u8 = 0x02;
@@ -299,8 +299,7 @@ mod test {
     ];
 
     // Test vector for the QR code data in base64 format, self-generated.
-    const QR_CODE_DATA_BASE64: &str =
-        "TUFUUklYAgS0yzZ1QVpQ1jlnoxWX3d5jrWRFfELxjS2gN7pz9y+3PABaaHR0\
+    const QR_CODE_DATA_BASE64: &str = "TUFUUklYAgS0yzZ1QVpQ1jlnoxWX3d5jrWRFfELxjS2gN7pz9y+3PABaaHR0\
          cHM6Ly9zeW5hcHNlLW9pZGMubGFiLmVsZW1lbnQuZGV2L19zeW5hcHNlL2Ns\
          aWVudC9yZW5kZXp2b3VzLzAxSFg5SzAwUTFINktQRDQ3RUc0RzFUM1hHACVo\
          dHRwczovL3N5bmFwc2Utb2lkYy5sYWIuZWxlbWVudC5kZXYv";

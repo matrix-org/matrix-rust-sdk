@@ -17,23 +17,23 @@ use std::{
     fmt,
     ops::Deref,
     sync::{
-        atomic::{AtomicBool, Ordering::SeqCst},
         Arc,
+        atomic::{AtomicBool, Ordering::SeqCst},
     },
 };
 
 use ruma::{
-    events::room::history_visibility::HistoryVisibility, serde::JsonObject, DeviceKeyAlgorithm,
-    OwnedRoomId, RoomId,
+    DeviceKeyAlgorithm, OwnedRoomId, RoomId, events::room::history_visibility::HistoryVisibility,
+    serde::JsonObject,
 };
 use serde::{Deserialize, Serialize};
 use tokio::sync::Mutex;
 use vodozemac::{
+    Curve25519PublicKey, Ed25519PublicKey, PickleError,
     megolm::{
         DecryptedMessage, DecryptionError, InboundGroupSession as InnerSession,
         InboundGroupSessionPickle, MegolmMessage, SessionConfig, SessionOrdering,
     },
-    Curve25519PublicKey, Ed25519PublicKey, PickleError,
 };
 
 use super::{
@@ -45,7 +45,7 @@ use crate::types::events::room_key::RoomKeyContent;
 use crate::{
     error::{EventError, MegolmResult},
     types::{
-        deserialize_curve_key,
+        EventEncryptionAlgorithm, SigningKeys, deserialize_curve_key,
         events::{
             forwarded_room_key::{
                 ForwardedMegolmV1AesSha2Content, ForwardedMegolmV2AesSha2Content,
@@ -56,7 +56,7 @@ use crate::{
             room_key,
         },
         room_history::HistoricRoomKey,
-        serialize_curve_key, EventEncryptionAlgorithm, SigningKeys,
+        serialize_curve_key,
     },
 };
 // TODO: add creation times to the inbound group sessions so we can export
@@ -829,20 +829,20 @@ mod tests {
     use insta::assert_json_snapshot;
     use matrix_sdk_test::async_test;
     use ruma::{
-        device_id, events::room::history_visibility::HistoryVisibility, owned_room_id, room_id,
-        user_id, DeviceId, UserId,
+        DeviceId, UserId, device_id, events::room::history_visibility::HistoryVisibility,
+        owned_room_id, room_id, user_id,
     };
     use serde_json::json;
     use similar_asserts::assert_eq;
     use vodozemac::{
-        megolm::{SessionKey, SessionOrdering},
         Curve25519PublicKey, Ed25519PublicKey,
+        megolm::{SessionKey, SessionOrdering},
     };
 
     use crate::{
-        olm::{BackedUpRoomKey, ExportedRoomKey, InboundGroupSession, KnownSenderData, SenderData},
-        types::{events::room_key, EventEncryptionAlgorithm},
         Account,
+        olm::{BackedUpRoomKey, ExportedRoomKey, InboundGroupSession, KnownSenderData, SenderData},
+        types::{EventEncryptionAlgorithm, events::room_key},
     };
 
     fn alice_id() -> &'static UserId {

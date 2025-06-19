@@ -21,8 +21,13 @@ use std::{
 use extension_trait::extension_trait;
 use matrix_sdk::attachment::{BaseAudioInfo, BaseFileInfo, BaseImageInfo, BaseVideoInfo};
 use ruma::{
-    assign,
+    KeyDerivationAlgorithm as RumaKeyDerivationAlgorithm, MatrixToUri, MatrixUri as RumaMatrixUri,
+    OwnedRoomId, OwnedUserId, UInt, UserId, assign,
     events::{
+        GlobalAccountDataEvent as RumaGlobalAccountDataEvent,
+        GlobalAccountDataEventType as RumaGlobalAccountDataEventType,
+        RoomAccountDataEvent as RumaRoomAccountDataEvent,
+        RoomAccountDataEventType as RumaRoomAccountDataEventType,
         call::notify::NotifyType as RumaNotifyType,
         direct::DirectEventContent,
         fully_read::FullyReadEventContent,
@@ -37,6 +42,8 @@ use ruma::{
         poll::start::PollKind as RumaPollKind,
         push_rules::PushRulesEventContent,
         room::{
+            ImageInfo as RumaImageInfo, MediaSource as RumaMediaSource,
+            ThumbnailInfo as RumaThumbnailInfo,
             message::{
                 AudioInfo as RumaAudioInfo,
                 AudioMessageEventContent as RumaAudioMessageEventContent,
@@ -54,8 +61,6 @@ use ruma::{
                 VideoInfo as RumaVideoInfo,
                 VideoMessageEventContent as RumaVideoMessageEventContent,
             },
-            ImageInfo as RumaImageInfo, MediaSource as RumaMediaSource,
-            ThumbnailInfo as RumaThumbnailInfo,
         },
         secret_storage::{
             default_key::SecretStorageDefaultKeyEventContent,
@@ -70,10 +75,6 @@ use ruma::{
             TagEventContent, TagInfo as RumaTagInfo, TagName as RumaTagName,
             UserTagName as RumaUserTagName,
         },
-        GlobalAccountDataEvent as RumaGlobalAccountDataEvent,
-        GlobalAccountDataEventType as RumaGlobalAccountDataEventType,
-        RoomAccountDataEvent as RumaRoomAccountDataEvent,
-        RoomAccountDataEventType as RumaRoomAccountDataEventType,
     },
     matrix_uri::MatrixId as RumaMatrixId,
     push::{
@@ -81,8 +82,6 @@ use ruma::{
         Ruleset as RumaRuleset, SimplePushRule as RumaSimplePushRule,
     },
     serde::JsonObject,
-    KeyDerivationAlgorithm as RumaKeyDerivationAlgorithm, MatrixToUri, MatrixUri as RumaMatrixUri,
-    OwnedRoomId, OwnedUserId, UInt, UserId,
 };
 use tracing::info;
 
@@ -389,11 +388,7 @@ pub enum MessageType {
 ///   is its own field.
 /// - if a media only has a filename, then body is the filename.
 fn get_body_and_filename(filename: String, caption: Option<String>) -> (String, Option<String>) {
-    if let Some(caption) = caption {
-        (caption, Some(filename))
-    } else {
-        (filename, None)
-    }
+    if let Some(caption) = caption { (caption, Some(filename)) } else { (filename, None) }
 }
 
 impl TryFrom<MessageType> for RumaMessageType {

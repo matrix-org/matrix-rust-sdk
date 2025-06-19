@@ -11,7 +11,7 @@ use std::{
 
 use eyeball::{Observable, SharedObservable, Subscriber};
 use futures_core::Stream;
-use ruma::{api::client::sync::sync_events::v5 as http, assign, TransactionId};
+use ruma::{TransactionId, api::client::sync::sync_events::v5 as http, assign};
 use serde::{Deserialize, Serialize};
 use tokio::sync::broadcast::Sender;
 use tracing::{instrument, warn};
@@ -20,8 +20,8 @@ pub use self::builder::*;
 use self::sticky::SlidingSyncListStickyParameters;
 pub(super) use self::{frozen::FrozenSlidingSyncList, request_generator::*};
 use super::{
-    sticky_parameters::{LazyTransactionId, SlidingSyncStickyManager},
     Error, SlidingSyncInternalMessage,
+    sticky_parameters::{LazyTransactionId, SlidingSyncStickyManager},
 };
 use crate::Result;
 
@@ -534,7 +534,7 @@ mod tests {
     use tokio::sync::broadcast::{channel, error::TryRecvError};
 
     use super::{SlidingSyncList, SlidingSyncListLoadingState, SlidingSyncMode};
-    use crate::sliding_sync::{sticky_parameters::LazyTransactionId, SlidingSyncInternalMessage};
+    use crate::sliding_sync::{SlidingSyncInternalMessage, sticky_parameters::LazyTransactionId};
 
     macro_rules! assert_json_roundtrip {
         (from $type:ty: $rust_value:expr => $json_value:expr) => {
@@ -1090,7 +1090,7 @@ mod tests {
         list.set_sync_mode(SlidingSyncMode::new_selective());
 
         assert_eq!(list.state(), SlidingSyncListLoadingState::PartiallyLoaded); // we had some partial state, but we can't be sure it's fully loaded until the
-                                                                                // next request
+        // next request
 
         // We need to update the ranges, of course, as they are not managed
         // automatically anymore.

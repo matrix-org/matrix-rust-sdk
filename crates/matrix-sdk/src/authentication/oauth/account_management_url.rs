@@ -17,8 +17,8 @@
 //! This is a Matrix extension introduced in [MSC4191](https://github.com/matrix-org/matrix-spec-proposals/pull/4191).
 
 use ruma::{
-    api::client::discovery::get_authorization_server_metadata::msc2965::AccountManagementAction,
     OwnedDeviceId,
+    api::client::discovery::get_authorization_server_metadata::msc2965::AccountManagementAction,
 };
 use url::Url;
 

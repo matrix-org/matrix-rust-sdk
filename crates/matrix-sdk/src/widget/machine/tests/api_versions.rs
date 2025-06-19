@@ -14,7 +14,7 @@
 
 use assert_matches2::assert_let;
 use ruma::owned_room_id;
-use serde_json::{json, Value as JsonValue};
+use serde_json::{Value as JsonValue, json};
 
 use super::WIDGET_ID;
 use crate::widget::machine::{Action, IncomingMessage, WidgetMachine};

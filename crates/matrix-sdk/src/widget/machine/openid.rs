@@ -15,7 +15,7 @@
 use std::time::Duration;
 
 use ruma::{
-    api::client::account::request_openid_token, authentication::TokenType, OwnedServerName,
+    OwnedServerName, api::client::account::request_openid_token, authentication::TokenType,
 };
 use serde::{Deserialize, Serialize};
 

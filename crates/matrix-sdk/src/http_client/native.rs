@@ -24,11 +24,11 @@ use bytes::Bytes;
 use bytesize::ByteSize;
 use eyeball::SharedObservable;
 use http::header::CONTENT_LENGTH;
-use reqwest::{tls, Certificate};
-use ruma::api::{error::FromHttpResponseError, IncomingResponse, OutgoingRequest};
+use reqwest::{Certificate, tls};
+use ruma::api::{IncomingResponse, OutgoingRequest, error::FromHttpResponseError};
 use tracing::{debug, info, warn};
 
-use super::{response_to_http_response, HttpClient, TransmissionProgress, DEFAULT_REQUEST_TIMEOUT};
+use super::{DEFAULT_REQUEST_TIMEOUT, HttpClient, TransmissionProgress, response_to_http_response};
 use crate::{
     config::RequestConfig,
     error::{HttpError, RetryKind},
@@ -127,11 +127,7 @@ impl HttpClient {
                         // If we ran into a network failure, only retry if there's some retry limit
                         // associated to this request's configuration; otherwise, we would end up
                         // running an infinite loop of network requests in offline mode.
-                        if has_retry_limit {
-                            default_timeout
-                        } else {
-                            None
-                        }
+                        if has_retry_limit { default_timeout } else { None }
                     }
                 }
             })

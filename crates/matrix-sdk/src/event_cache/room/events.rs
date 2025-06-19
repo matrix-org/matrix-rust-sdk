@@ -18,8 +18,8 @@ pub use matrix_sdk_base::event_cache::{Event, Gap};
 use matrix_sdk_base::{
     event_cache::store::DEFAULT_CHUNK_CAPACITY,
     linked_chunk::{
-        lazy_loader::{self, LazyLoaderError},
         ChunkContent, ChunkIdentifierGenerator, RawChunk,
+        lazy_loader::{self, LazyLoaderError},
     },
 };
 use matrix_sdk_common::linked_chunk::{
@@ -336,8 +336,8 @@ pub(super) fn sort_positions_descending(positions: &mut [Position]) {
 mod tests {
     use assert_matches::assert_matches;
     use assert_matches2::assert_let;
-    use matrix_sdk_test::{event_factory::EventFactory, ALICE, DEFAULT_TEST_ROOM_ID};
-    use ruma::{event_id, user_id, EventId, OwnedEventId};
+    use matrix_sdk_test::{ALICE, DEFAULT_TEST_ROOM_ID, event_factory::EventFactory};
+    use ruma::{EventId, OwnedEventId, event_id, user_id};
 
     use super::*;
 

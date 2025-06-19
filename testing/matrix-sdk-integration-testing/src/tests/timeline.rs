@@ -22,27 +22,26 @@ use eyeball_im::{Vector, VectorDiff};
 use futures::pin_mut;
 use futures_util::{FutureExt, StreamExt};
 use matrix_sdk::{
-    assert_next_with_timeout,
+    Client, Room, RoomState, assert_next_with_timeout,
     config::SyncSettings,
     deserialized_responses::{VerificationLevel, VerificationState},
-    encryption::{backups::BackupState, EncryptionSettings},
+    encryption::{EncryptionSettings, backups::BackupState},
     room::edit::EditedContent,
     ruma::{
+        MilliSecondsSinceUnixEpoch, OwnedEventId, RoomId, UserId,
         api::client::room::create_room::v3::{Request as CreateRoomRequest, RoomPreset},
         events::{
-            room::{encryption::RoomEncryptionEventContent, message::RoomMessageEventContent},
             InitialStateEvent,
+            room::{encryption::RoomEncryptionEventContent, message::RoomMessageEventContent},
         },
-        MilliSecondsSinceUnixEpoch, OwnedEventId, RoomId, UserId,
     },
-    Client, Room, RoomState,
 };
 use matrix_sdk_ui::{
+    Timeline,
     notification_client::NotificationClient,
     room_list_service::RoomListLoadingState,
     sync_service::SyncService,
     timeline::{EventSendState, EventTimelineItem, ReactionStatus, RoomExt, TimelineItem},
-    Timeline,
 };
 use similar_asserts::assert_eq;
 use stream_assert::assert_pending;
@@ -397,9 +396,10 @@ async fn test_enabling_backups_retries_decryption() {
 
     debug!("Creating room…");
 
-    let initial_state =
-        vec![InitialStateEvent::new(RoomEncryptionEventContent::with_recommended_defaults())
-            .to_raw_any()];
+    let initial_state = vec![
+        InitialStateEvent::new(RoomEncryptionEventContent::with_recommended_defaults())
+            .to_raw_any(),
+    ];
 
     let room = alice
         .create_room(assign!(CreateRoomRequest::new(), {
@@ -410,11 +410,12 @@ async fn test_enabling_backups_retries_decryption() {
         .await
         .unwrap();
 
-    assert!(room
-        .latest_encryption_state()
-        .await
-        .expect("We should be able to check that the room is encrypted")
-        .is_encrypted());
+    assert!(
+        room.latest_encryption_state()
+            .await
+            .expect("We should be able to check that the room is encrypted")
+            .is_encrypted()
+    );
 
     let event_id = room
         .send(RoomMessageEventContent::text_plain("It's a secret to everybody!"))
@@ -533,9 +534,10 @@ async fn test_room_keys_received_on_notification_client_trigger_redecryption() {
     debug!("Creating the room…");
 
     // The room needs to be encrypted.
-    let initial_state =
-        vec![InitialStateEvent::new(RoomEncryptionEventContent::with_recommended_defaults())
-            .to_raw_any()];
+    let initial_state = vec![
+        InitialStateEvent::new(RoomEncryptionEventContent::with_recommended_defaults())
+            .to_raw_any(),
+    ];
 
     let alice_room = alice
         .create_room(assign!(CreateRoomRequest::new(), {
@@ -546,11 +548,13 @@ async fn test_room_keys_received_on_notification_client_trigger_redecryption() {
         .await
         .unwrap();
 
-    assert!(alice_room
-        .latest_encryption_state()
-        .await
-        .expect("We should be able to check that the room is encrypted")
-        .is_encrypted());
+    assert!(
+        alice_room
+            .latest_encryption_state()
+            .await
+            .expect("We should be able to check that the room is encrypted")
+            .is_encrypted()
+    );
 
     // Create stream listening for devices.
     let devices_stream = alice
@@ -795,11 +799,12 @@ async fn test_new_users_first_messages_dont_warn_about_insecure_device_if_it_is_
         .await
         .expect("should not fail to create room");
 
-        assert!(room
-            .latest_encryption_state()
-            .await
-            .expect("should be able to check that the room is encrypted")
-            .is_encrypted());
+        assert!(
+            room.latest_encryption_state()
+                .await
+                .expect("should be able to check that the room is encrypted")
+                .is_encrypted()
+        );
 
         room
     }

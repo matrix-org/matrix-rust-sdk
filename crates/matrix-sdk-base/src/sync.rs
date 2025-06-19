@@ -24,14 +24,14 @@ pub use ruma::api::client::sync::sync_events::v3::{
     InvitedRoom as InvitedRoomUpdate, KnockedRoom as KnockedRoomUpdate,
 };
 use ruma::{
+    OwnedEventId, OwnedRoomId,
     api::client::sync::sync_events::UnreadNotificationsCount as RumaUnreadNotificationsCount,
     events::{
-        presence::PresenceEvent, AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent,
-        AnySyncEphemeralRoomEvent, AnySyncStateEvent,
+        AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent, AnySyncEphemeralRoomEvent,
+        AnySyncStateEvent, presence::PresenceEvent,
     },
     push::Action,
     serde::Raw,
-    OwnedEventId, OwnedRoomId,
 };
 use serde::{Deserialize, Serialize};
 

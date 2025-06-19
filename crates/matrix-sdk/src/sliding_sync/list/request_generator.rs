@@ -31,7 +31,7 @@
 use std::cmp::min;
 
 use super::{Range, Ranges, SlidingSyncMode};
-use crate::{sliding_sync::Error, SlidingSyncListLoadingState};
+use crate::{SlidingSyncListLoadingState, sliding_sync::Error};
 
 /// The kind of request generator.
 #[derive(Debug, PartialEq)]
@@ -336,9 +336,9 @@ mod tests {
     use assert_matches::assert_matches;
 
     use super::{
-        create_range, SlidingSyncListRequestGenerator, SlidingSyncListRequestGeneratorKind,
+        SlidingSyncListRequestGenerator, SlidingSyncListRequestGeneratorKind, create_range,
     };
-    use crate::{sliding_sync::Error, SlidingSyncMode};
+    use crate::{SlidingSyncMode, sliding_sync::Error};
 
     #[test]
     fn test_create_range_from() {

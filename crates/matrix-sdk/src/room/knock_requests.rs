@@ -15,7 +15,7 @@
 use js_int::UInt;
 use ruma::{EventId, OwnedEventId, OwnedMxcUri, OwnedUserId, RoomId};
 
-use crate::{room::RoomMember, Error, Room};
+use crate::{Error, Room, room::RoomMember};
 
 /// A request to join a room with `knock` join rule.
 #[derive(Debug, Clone)]
@@ -105,15 +105,15 @@ impl KnockRequestMemberInfo {
 // The http mocking library is not supported for wasm32
 #[cfg(all(test, not(target_family = "wasm")))]
 mod tests {
-    use matrix_sdk_test::{async_test, event_factory::EventFactory, JoinedRoomBuilder};
+    use matrix_sdk_test::{JoinedRoomBuilder, async_test, event_factory::EventFactory};
     use ruma::{
-        event_id, events::room::member::MembershipState, owned_user_id, room_id, user_id, EventId,
+        EventId, event_id, events::room::member::MembershipState, owned_user_id, room_id, user_id,
     };
 
     use crate::{
+        Room,
         room::knock_requests::{KnockRequest, KnockRequestMemberInfo},
         test_utils::mocks::MatrixMockServer,
-        Room,
     };
 
     #[async_test]
@@ -125,12 +125,13 @@ mod tests {
         let user_id = user_id!("@alice:b.c");
 
         let f = EventFactory::new().room(room_id);
-        let joined_room_builder = JoinedRoomBuilder::new(room_id).add_state_bulk(vec![f
-            .member(user_id)
-            .membership(MembershipState::Knock)
-            .event_id(event_id)
-            .into_raw_timeline()
-            .cast()]);
+        let joined_room_builder = JoinedRoomBuilder::new(room_id).add_state_bulk(vec![
+            f.member(user_id)
+                .membership(MembershipState::Knock)
+                .event_id(event_id)
+                .into_raw_timeline()
+                .cast(),
+        ]);
         let room = server.sync_room(&client, joined_room_builder).await;
 
         let knock_request = make_knock_request(&room, Some(event_id));

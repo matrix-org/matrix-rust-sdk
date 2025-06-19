@@ -16,8 +16,8 @@ async fn mock_secret_store_with_backup_key(
 ) {
     use serde_json::json;
     use wiremock::{
-        matchers::{header, method, path},
         Mock, ResponseTemplate,
+        matchers::{header, method, path},
     };
 
     Mock::given(method("GET"))

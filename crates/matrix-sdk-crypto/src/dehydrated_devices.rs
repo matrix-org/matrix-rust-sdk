@@ -44,23 +44,23 @@
 use std::sync::Arc;
 
 use ruma::{
-    api::client::dehydrated_device::{put_dehydrated_device, DehydratedDeviceData},
+    DeviceId,
+    api::client::dehydrated_device::{DehydratedDeviceData, put_dehydrated_device},
     assign,
     events::AnyToDeviceEvent,
     serde::Raw,
-    DeviceId,
 };
 use thiserror::Error;
 use tracing::{instrument, trace};
 use vodozemac::{DehydratedDeviceError, LibolmPickleError};
 
 use crate::{
+    Account, CryptoStoreError, EncryptionSyncChanges, OlmError, OlmMachine, SignatureError,
     store::{
-        types::{Changes, DehydratedDeviceKey, RoomKeyInfo},
         CryptoStoreWrapper, MemoryStore, Store,
+        types::{Changes, DehydratedDeviceKey, RoomKeyInfo},
     },
     verification::VerificationMachine,
-    Account, CryptoStoreError, EncryptionSyncChanges, OlmError, OlmMachine, SignatureError,
 };
 
 /// Error type for device dehydration issues.
@@ -401,6 +401,7 @@ mod tests {
     use js_option::JsOption;
     use matrix_sdk_test::async_test;
     use ruma::{
+        DeviceId, RoomId, TransactionId, UserId,
         api::client::{
             dehydrated_device::put_dehydrated_device,
             keys::get_keys::v3::Response as KeysQueryResponse,
@@ -410,10 +411,11 @@ mod tests {
         events::AnyToDeviceEvent,
         room_id,
         serde::Raw,
-        user_id, DeviceId, RoomId, TransactionId, UserId,
+        user_id,
     };
 
     use crate::{
+        EncryptionSettings, OlmMachine,
         dehydrated_devices::DehydratedDevice,
         machine::{
             test_helpers::{create_session, get_prepared_machine_test_helper},
@@ -421,9 +423,8 @@ mod tests {
         },
         olm::OutboundGroupSession,
         store::types::DehydratedDeviceKey,
-        types::{events::ToDeviceEvent, DeviceKeys as DeviceKeysType},
+        types::{DeviceKeys as DeviceKeysType, events::ToDeviceEvent},
         utilities::json_convert,
-        EncryptionSettings, OlmMachine,
     };
 
     fn pickle_key() -> DehydratedDeviceKey {

@@ -8,31 +8,30 @@ use assert_matches::assert_matches;
 use assert_matches2::assert_let;
 use assign::assign;
 use matrix_sdk::{
-    assert_next_eq_with_timeout,
-    crypto::{format_emojis, SasState},
+    Client, assert_next_eq_with_timeout,
+    crypto::{SasState, format_emojis},
     encryption::{
+        BackupDownloadStrategy, EncryptionSettings, LocalTrust,
         backups::BackupState,
         recovery::{Recovery, RecoveryState},
         verification::{
             QrVerificationData, QrVerificationState, Verification, VerificationRequestState,
         },
-        BackupDownloadStrategy, EncryptionSettings, LocalTrust,
     },
     ruma::{
+        OwnedEventId,
         api::client::room::create_room::v3::Request as CreateRoomRequest,
         events::{
-            key::verification::{request::ToDeviceKeyVerificationRequestEvent, VerificationMethod},
+            GlobalAccountDataEventType, OriginalSyncMessageLikeEvent,
+            key::verification::{VerificationMethod, request::ToDeviceKeyVerificationRequestEvent},
             room::message::{
                 MessageType, OriginalSyncRoomMessageEvent, RoomMessageEventContent,
                 SyncRoomMessageEvent,
             },
             secret_storage::secret::SecretEventContent,
-            GlobalAccountDataEventType, OriginalSyncMessageLikeEvent,
         },
-        OwnedEventId,
     },
     timeout::timeout,
-    Client,
 };
 use matrix_sdk_ui::{
     notification_client::{NotificationClient, NotificationProcessSetup},
@@ -51,8 +50,8 @@ mod shared_history;
 // processed twice, meaning incorrect verification states will be found and the
 // process will fail, especially with user verification.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn test_mutual_sas_verification_with_notification_client_ignores_verification_events(
-) -> Result<()> {
+async fn test_mutual_sas_verification_with_notification_client_ignores_verification_events()
+-> Result<()> {
     let encryption_settings =
         EncryptionSettings { auto_enable_cross_signing: true, ..Default::default() };
     let alice = TestClientBuilder::new("alice")

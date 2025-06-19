@@ -20,15 +20,18 @@ use matrix_sdk_common::deserialized_responses::{
 };
 use matrix_sdk_test::{async_test, ruma_response_from_json, test_json};
 use ruma::{
-    events::{room::message::RoomMessageEventContent, AnyMessageLikeEventContent},
+    MilliSecondsSinceUnixEpoch, RoomId, TransactionId,
+    events::{AnyMessageLikeEventContent, room::message::RoomMessageEventContent},
     room_id,
     serde::Raw,
-    user_id, MilliSecondsSinceUnixEpoch, RoomId, TransactionId,
+    user_id,
 };
 use serde_json::json;
 use vodozemac::{Curve25519PublicKey, Ed25519PublicKey};
 
 use crate::{
+    CryptoStoreError, DecryptionSettings, DeviceData, EncryptionSettings, LocalTrust, MegolmError,
+    OlmMachine, OtherUserIdentityData, TrustRequirement, UserIdentity,
     machine::{
         test_helpers::{
             get_machine_pair_with_setup_sessions_test_helper, get_prepared_machine_test_helper,
@@ -38,16 +41,14 @@ use crate::{
     olm::{InboundGroupSession, OutboundGroupSession, SenderData},
     store::types::{Changes, IdentityChanges},
     types::{
+        CrossSigningKey, DeviceKeys, EventEncryptionAlgorithm, MasterPubkey, SelfSigningPubkey,
         events::{
-            room::encrypted::{EncryptedEvent, RoomEventEncryptionScheme},
             ToDeviceEvent,
+            room::encrypted::{EncryptedEvent, RoomEventEncryptionScheme},
         },
         requests::AnyOutgoingRequest,
-        CrossSigningKey, DeviceKeys, EventEncryptionAlgorithm, MasterPubkey, SelfSigningPubkey,
     },
     utilities::json_convert,
-    CryptoStoreError, DecryptionSettings, DeviceData, EncryptionSettings, LocalTrust, MegolmError,
-    OlmMachine, OtherUserIdentityData, TrustRequirement, UserIdentity,
 };
 
 #[async_test]
@@ -301,14 +302,15 @@ pub async fn mark_alice_identity_as_verified_test_helper(alice: &OlmMachine, bob
 
     // so alice identity should be now trusted
 
-    assert!(bob
-        .get_identity(alice.user_id(), None)
-        .await
-        .unwrap()
-        .unwrap()
-        .other()
-        .unwrap()
-        .is_verified());
+    assert!(
+        bob.get_identity(alice.user_id(), None)
+            .await
+            .unwrap()
+            .unwrap()
+            .other()
+            .unwrap()
+            .is_verified()
+    );
 }
 
 #[async_test]
@@ -604,9 +606,11 @@ async fn set_up_alice_cross_signing(alice: &OlmMachine, bob: &OlmMachine) {
     bob.store()
         .save_changes(Changes {
             identities: IdentityChanges {
-                new: vec![OtherUserIdentityData::new(alice_msk.clone(), alice_ssk.clone())
-                    .unwrap()
-                    .into()],
+                new: vec![
+                    OtherUserIdentityData::new(alice_msk.clone(), alice_ssk.clone())
+                        .unwrap()
+                        .into(),
+                ],
                 ..Default::default()
             },
             ..Default::default()

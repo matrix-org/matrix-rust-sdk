@@ -18,16 +18,16 @@ use std::sync::Arc;
 
 use indexmap::IndexSet;
 use ruma::{
+    RoomId,
     api::client::push::{
         delete_pushrule, set_pushrule, set_pushrule_actions, set_pushrule_enabled,
     },
     events::push_rules::PushRulesEvent,
     push::{Action, NewPushRule, PredefinedUnderrideRuleId, RuleKind, Ruleset, Tweak},
-    RoomId,
 };
 use tokio::sync::{
-    broadcast::{self, Receiver},
     RwLock,
+    broadcast::{self, Receiver},
 };
 use tracing::{debug, error};
 
@@ -40,8 +40,8 @@ mod rules;
 pub use matrix_sdk_base::notification_settings::RoomNotificationMode;
 
 use crate::{
-    config::RequestConfig, error::NotificationSettingsError, event_handler::EventHandlerDropGuard,
-    Client, Result,
+    Client, Result, config::RequestConfig, error::NotificationSettingsError,
+    event_handler::EventHandlerDropGuard,
 };
 
 /// Whether or not a room is encrypted
@@ -55,11 +55,7 @@ pub enum IsEncrypted {
 
 impl From<bool> for IsEncrypted {
     fn from(value: bool) -> Self {
-        if value {
-            Self::Yes
-        } else {
-            Self::No
-        }
+        if value { Self::Yes } else { Self::No }
     }
 }
 
@@ -74,11 +70,7 @@ pub enum IsOneToOne {
 
 impl From<bool> for IsOneToOne {
     fn from(value: bool) -> Self {
-        if value {
-            Self::Yes
-        } else {
-            Self::No
-        }
+        if value { Self::Yes } else { Self::No }
     }
 }
 
@@ -573,8 +565,8 @@ impl NotificationSettings {
 #[cfg(all(test, not(target_family = "wasm")))]
 mod tests {
     use std::sync::{
-        atomic::{AtomicBool, Ordering},
         Arc,
+        atomic::{AtomicBool, Ordering},
     };
 
     use assert_matches::assert_matches;
@@ -584,28 +576,28 @@ mod tests {
         test_json,
     };
     use ruma::{
+        OwnedRoomId, RoomId,
         push::{
             Action, AnyPushRuleRef, NewPatternedPushRule, NewPushRule, PredefinedOverrideRuleId,
             PredefinedUnderrideRuleId, RuleKind,
         },
-        OwnedRoomId, RoomId,
     };
     use serde_json::json;
     use stream_assert::{assert_next_eq, assert_pending};
     use tokio_stream::wrappers::BroadcastStream;
     use wiremock::{
-        matchers::{header, method, path, path_regex},
         Mock, MockServer, ResponseTemplate,
+        matchers::{header, method, path, path_regex},
     };
 
     use crate::{
+        Client,
         config::SyncSettings,
         error::NotificationSettingsError,
         notification_settings::{
             IsEncrypted, IsOneToOne, NotificationSettings, RoomNotificationMode,
         },
         test_utils::logged_in_client,
-        Client,
     };
 
     fn get_test_room_id() -> OwnedRoomId {

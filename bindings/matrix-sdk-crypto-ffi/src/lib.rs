@@ -31,22 +31,22 @@ pub use error::{
     CryptoStoreError, DecryptionError, KeyImportError, SecretImportError, SignatureError,
 };
 use js_int::UInt;
-pub use logger::{set_logger, Logger};
+pub use logger::{Logger, set_logger};
 pub use machine::{KeyRequestPair, OlmMachine, SignatureVerification};
 use matrix_sdk_common::deserialized_responses::{ShieldState as RustShieldState, ShieldStateCode};
 use matrix_sdk_crypto::{
+    CollectStrategy, EncryptionSettings as RustEncryptionSettings,
     olm::{IdentityKeys, InboundGroupSession, SenderData, Session},
     store::{
+        CryptoStore,
         types::{
             Changes, DehydratedDeviceKey as InnerDehydratedDeviceKey, PendingChanges,
             RoomSettings as RustRoomSettings,
         },
-        CryptoStore,
     },
     types::{
         DeviceKey, DeviceKeys, EventEncryptionAlgorithm as RustEventEncryptionAlgorithm, SigningKey,
     },
-    CollectStrategy, EncryptionSettings as RustEncryptionSettings,
 };
 use matrix_sdk_sqlite::SqliteCryptoStore;
 pub use responses::{
@@ -54,9 +54,9 @@ pub use responses::{
     Request, RequestType, SignatureUploadRequest, UploadSigningKeysRequest,
 };
 use ruma::{
-    events::room::history_visibility::HistoryVisibility as RustHistoryVisibility,
     DeviceKeyAlgorithm, DeviceKeyId, MilliSecondsSinceUnixEpoch, OwnedDeviceId, OwnedUserId,
     RoomId, SecondsSinceUnixEpoch, UserId,
+    events::room::history_visibility::HistoryVisibility as RustHistoryVisibility,
 };
 use serde::{Deserialize, Serialize};
 use tokio::runtime::Runtime;
@@ -1034,11 +1034,11 @@ uniffi::setup_scaffolding!();
 #[cfg(test)]
 mod tests {
     use anyhow::Result;
-    use serde_json::{json, Value};
+    use serde_json::{Value, json};
     use tempfile::tempdir;
 
     use super::MigrationData;
-    use crate::{migrate, EventEncryptionAlgorithm, OlmMachine, RoomSettings};
+    use crate::{EventEncryptionAlgorithm, OlmMachine, RoomSettings, migrate};
 
     #[test]
     fn android_migration() -> Result<()> {

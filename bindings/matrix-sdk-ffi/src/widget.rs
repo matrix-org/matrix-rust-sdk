@@ -656,9 +656,15 @@ mod tests {
         cap_assert("org.matrix.msc2762.receive.event:org.matrix.rageshake_request");
         cap_assert("org.matrix.msc2762.receive.event:io.element.call.encryption_keys");
         cap_assert("org.matrix.msc2762.receive.state_event:m.room.create");
-        cap_assert("org.matrix.msc2762.send.state_event:org.matrix.msc3401.call.member#@my_user:my_domain.org");
-        cap_assert("org.matrix.msc2762.send.state_event:org.matrix.msc3401.call.member#@my_user:my_domain.org_ABCDEFGHI");
-        cap_assert("org.matrix.msc2762.send.state_event:org.matrix.msc3401.call.member#_@my_user:my_domain.org_ABCDEFGHI");
+        cap_assert(
+            "org.matrix.msc2762.send.state_event:org.matrix.msc3401.call.member#@my_user:my_domain.org",
+        );
+        cap_assert(
+            "org.matrix.msc2762.send.state_event:org.matrix.msc3401.call.member#@my_user:my_domain.org_ABCDEFGHI",
+        );
+        cap_assert(
+            "org.matrix.msc2762.send.state_event:org.matrix.msc3401.call.member#_@my_user:my_domain.org_ABCDEFGHI",
+        );
         cap_assert("org.matrix.msc2762.send.event:org.matrix.rageshake_request");
         cap_assert("org.matrix.msc2762.send.event:io.element.call.encryption_keys");
     }

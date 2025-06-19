@@ -23,29 +23,29 @@ use futures_util::future::join_all;
 use itertools::Itertools;
 use matrix_sdk_common::{executor::spawn, failures_cache::FailuresCache};
 use ruma::{
-    api::client::keys::get_keys::v3::Response as KeysQueryResponse, serde::Raw, OwnedDeviceId,
-    OwnedServerName, OwnedTransactionId, OwnedUserId, ServerName, TransactionId, UserId,
+    OwnedDeviceId, OwnedServerName, OwnedTransactionId, OwnedUserId, ServerName, TransactionId,
+    UserId, api::client::keys::get_keys::v3::Response as KeysQueryResponse, serde::Raw,
 };
 use tokio::sync::Mutex;
-use tracing::{debug, enabled, info, instrument, trace, warn, Level};
+use tracing::{Level, debug, enabled, info, instrument, trace, warn};
 
 use crate::{
+    CryptoStoreError, LocalTrust, OwnUserIdentity, SignatureError, UserIdentity,
     error::OlmResult,
     identities::{DeviceData, OtherUserIdentityData, OwnUserIdentityData, UserIdentityData},
     olm::{
-        sender_data_finder::SessionDeviceCheckError, InboundGroupSession,
-        PrivateCrossSigningIdentity, SenderDataFinder, SenderDataType,
+        InboundGroupSession, PrivateCrossSigningIdentity, SenderDataFinder, SenderDataType,
+        sender_data_finder::SessionDeviceCheckError,
     },
     store::{
+        KeyQueryManager, Result as StoreResult, Store,
         caches::{SequenceNumber, StoreCache, StoreCacheGuard},
         types::{Changes, DeviceChanges, IdentityChanges, UserKeyQueryResult},
-        KeyQueryManager, Result as StoreResult, Store,
     },
     types::{
-        requests::KeysQueryRequest, CrossSigningKey, DeviceKeys, MasterPubkey, SelfSigningPubkey,
-        UserSigningPubkey,
+        CrossSigningKey, DeviceKeys, MasterPubkey, SelfSigningPubkey, UserSigningPubkey,
+        requests::KeysQueryRequest,
     },
-    CryptoStoreError, LocalTrust, OwnUserIdentity, SignatureError, UserIdentity,
 };
 
 enum DeviceChange {
@@ -596,7 +596,9 @@ impl IdentityManager {
                 {
                     Some((master_key, self_signing))
                 } else {
-                    warn!("A user identity didn't contain a self signing pubkey or the key was invalid");
+                    warn!(
+                        "A user identity didn't contain a self signing pubkey or the key was invalid"
+                    );
                     None
                 }
             }
@@ -1218,8 +1220,8 @@ pub(crate) mod testing {
 
     use matrix_sdk_test::ruma_response_from_json;
     use ruma::{
-        api::client::keys::get_keys::v3::Response as KeyQueryResponse, device_id, user_id,
-        DeviceId, UserId,
+        DeviceId, UserId, api::client::keys::get_keys::v3::Response as KeyQueryResponse, device_id,
+        user_id,
     };
     use serde_json::json;
     use tokio::sync::Mutex;
@@ -1227,8 +1229,8 @@ pub(crate) mod testing {
     use crate::{
         identities::IdentityManager,
         olm::{Account, PrivateCrossSigningIdentity},
-        store::{types::PendingChanges, CryptoStoreWrapper, MemoryStore, Store},
-        types::{requests::UploadSigningKeysRequest, DeviceKeys},
+        store::{CryptoStoreWrapper, MemoryStore, Store, types::PendingChanges},
+        types::{DeviceKeys, requests::UploadSigningKeysRequest},
         verification::VerificationMachine,
     };
 
@@ -1523,8 +1525,8 @@ pub(crate) mod tests {
     use futures_util::pin_mut;
     use matrix_sdk_test::{async_test, ruma_response_from_json, test_json};
     use ruma::{
-        api::client::keys::get_keys::v3::Response as KeysQueryResponse, device_id, user_id,
-        TransactionId,
+        TransactionId, api::client::keys::get_keys::v3::Response as KeysQueryResponse, device_id,
+        user_id,
     };
     use serde_json::json;
     use stream_assert::{assert_closed, assert_pending, assert_ready};
@@ -1533,10 +1535,10 @@ pub(crate) mod tests {
         device_id, key_query, manager_test_helper, other_key_query, other_user_id, user_id,
     };
     use crate::{
+        CrossSigningKeyExport, OlmMachine,
         identities::manager::testing::{other_key_query_cross_signed, own_key_query},
         olm::PrivateCrossSigningIdentity,
         store::types::Changes,
-        CrossSigningKeyExport, OlmMachine,
     };
 
     fn key_query_with_failures() -> KeysQueryResponse {
@@ -1820,21 +1822,25 @@ pub(crate) mod tests {
         let response = key_query_with_failures();
         manager.receive_keys_query_response(&reqid, &response).await.unwrap();
         assert!(manager.failures.contains(alice.server_name()));
-        assert!(!manager
-            .users_for_key_query()
-            .await
-            .unwrap()
-            .iter()
-            .any(|(_, r)| r.device_keys.contains_key(alice)));
+        assert!(
+            !manager
+                .users_for_key_query()
+                .await
+                .unwrap()
+                .iter()
+                .any(|(_, r)| r.device_keys.contains_key(alice))
+        );
 
         // clearing the failure flag should make the user reappear in the query list.
         manager.failures.remove([alice.server_name().to_owned()].iter());
-        assert!(manager
-            .users_for_key_query()
-            .await
-            .unwrap()
-            .iter()
-            .any(|(_, r)| r.device_keys.contains_key(alice)));
+        assert!(
+            manager
+                .users_for_key_query()
+                .await
+                .unwrap()
+                .iter()
+                .any(|(_, r)| r.device_keys.contains_key(alice))
+        );
     }
 
     #[async_test]
@@ -2431,10 +2437,10 @@ pub(crate) mod tests {
 
         use super::{device_id, manager_test_helper};
         use crate::{
+            Account, DeviceData, EncryptionSettings,
             identities::manager::testing::{other_user_id, user_id},
             olm::{InboundGroupSession, SenderData},
             store::types::{Changes, DeviceChanges},
-            Account, DeviceData, EncryptionSettings,
         };
 
         #[async_test]

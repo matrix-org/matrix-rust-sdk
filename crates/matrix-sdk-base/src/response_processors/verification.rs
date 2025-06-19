@@ -13,11 +13,11 @@
 // limitations under the License.
 
 use ruma::{
-    events::{
-        room::message::MessageType, AnySyncMessageLikeEvent, AnySyncTimelineEvent,
-        SyncMessageLikeEvent,
-    },
     RoomId,
+    events::{
+        AnySyncMessageLikeEvent, AnySyncTimelineEvent, SyncMessageLikeEvent,
+        room::message::MessageType,
+    },
 };
 
 use super::e2ee::E2EE;

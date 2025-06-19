@@ -21,22 +21,22 @@ use futures_util::StreamExt;
 #[cfg(feature = "qrcode")]
 use matrix_sdk_qrcode::QrVerificationData;
 use ruma::{
+    DeviceId, MilliSecondsSinceUnixEpoch, OwnedDeviceId, OwnedUserId, RoomId, TransactionId,
+    UserId,
     events::{
+        AnyMessageLikeEventContent, AnyToDeviceEventContent,
         key::verification::{
+            VerificationMethod,
             cancel::CancelCode,
             ready::{KeyVerificationReadyEventContent, ToDeviceKeyVerificationReadyEventContent},
             request::ToDeviceKeyVerificationRequestEventContent,
             start::StartMethod,
-            VerificationMethod,
         },
         relation::Reference,
         room::message::KeyVerificationRequestEventContent,
-        AnyMessageLikeEventContent, AnyToDeviceEventContent,
     },
     time::Instant,
     to_device::DeviceIdOrAllDevices,
-    DeviceId, MilliSecondsSinceUnixEpoch, OwnedDeviceId, OwnedUserId, RoomId, TransactionId,
-    UserId,
 };
 #[cfg(feature = "qrcode")]
 use tracing::debug;
@@ -45,16 +45,16 @@ use tracing::{info, trace, warn};
 #[cfg(feature = "qrcode")]
 use super::qrcode::{QrVerification, QrVerificationState, ScanError};
 use super::{
+    CancelInfo, Cancelled, FlowId, Verification, VerificationStore,
     cache::VerificationCache,
     event_enums::{
         CancelContent, DoneContent, OutgoingContent, ReadyContent, RequestContent, StartContent,
     },
-    CancelInfo, Cancelled, FlowId, Verification, VerificationStore,
 };
 use crate::{
+    CryptoStoreError, DeviceData, Sas,
     olm::StaticAccountData,
     types::requests::{OutgoingVerificationRequest, RoomMessageRequest, ToDeviceRequest},
-    CryptoStoreError, DeviceData, Sas,
 };
 
 const SUPPORTED_METHODS: &[VerificationMethod] = &[
@@ -973,7 +973,7 @@ impl InnerRequest {
                 s.clone().into_canceled(cancelled_by_us, cancel_code)
             }
             InnerRequest::Passive(_) | InnerRequest::Done(_) | InnerRequest::Cancelled(_) => {
-                return None
+                return None;
             }
         });
 
@@ -1390,11 +1390,15 @@ async fn receive_start<T: Clone>(
                                 ),
                                 (Ordering::Greater, _) | (Ordering::Equal, Ordering::Greater)
                             ) {
-                                info!("Started a new SAS verification, replacing an already started one.");
+                                info!(
+                                    "Started a new SAS verification, replacing an already started one."
+                                );
                                 request_state.verification_cache.replace_sas(new.to_owned());
                                 Ok(Some(state.to_transitioned(request_state, new.into())))
                             } else {
-                                info!("Ignored incoming SAS verification from lexicographically larger user/device ID.");
+                                info!(
+                                    "Ignored incoming SAS verification from lexicographically larger user/device ID."
+                                );
                                 Ok(None)
                             }
                         }
@@ -1629,22 +1633,22 @@ mod tests {
     use matrix_sdk_qrcode::QrVerificationData;
     use matrix_sdk_test::async_test;
     use ruma::{
-        event_id, events::key::verification::VerificationMethod, room_id,
-        to_device::DeviceIdOrAllDevices, UserId,
+        UserId, event_id, events::key::verification::VerificationMethod, room_id,
+        to_device::DeviceIdOrAllDevices,
     };
 
     use super::VerificationRequest;
     use crate::{
+        DeviceData, VerificationRequestState,
         types::requests::OutgoingVerificationRequest,
         verification::{
+            FlowId, Verification, VerificationStore,
             cache::VerificationCache,
             event_enums::{
                 CancelContent, OutgoingContent, ReadyContent, RequestContent, StartContent,
             },
             tests::{alice_id, bob_id, setup_stores},
-            FlowId, Verification, VerificationStore,
         },
-        DeviceData, VerificationRequestState,
     };
 
     #[async_test]

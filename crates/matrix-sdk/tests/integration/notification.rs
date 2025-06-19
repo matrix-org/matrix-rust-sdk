@@ -2,10 +2,10 @@ use assert_matches2::assert_matches;
 use matrix_sdk::{config::SyncSettings, sync::Notification};
 use matrix_sdk_base::deserialized_responses::RawAnySyncOrStrippedTimelineEvent;
 use matrix_sdk_test::{
-    async_test, event_factory::EventFactory, stripped_state_event, sync_state_event, test_json,
-    InvitedRoomBuilder, JoinedRoomBuilder, SyncResponseBuilder,
+    InvitedRoomBuilder, JoinedRoomBuilder, SyncResponseBuilder, async_test,
+    event_factory::EventFactory, stripped_state_event, sync_state_event, test_json,
 };
-use ruma::{event_id, events::StateEventType, room_id, serde::Raw, user_id, OwnedRoomId};
+use ruma::{OwnedRoomId, event_id, events::StateEventType, room_id, serde::Raw, user_id};
 use stream_assert::{assert_pending, assert_ready};
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;

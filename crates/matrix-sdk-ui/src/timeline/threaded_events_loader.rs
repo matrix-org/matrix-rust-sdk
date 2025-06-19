@@ -16,12 +16,12 @@ use std::{fmt::Formatter, sync::Mutex};
 
 use matrix_sdk::{
     event_cache::{
-        paginator::{PaginationResult, PaginatorError},
         PaginationToken,
+        paginator::{PaginationResult, PaginatorError},
     },
     room::{IncludeRelations, RelationsOptions},
 };
-use ruma::{api::Direction, OwnedEventId, UInt};
+use ruma::{OwnedEventId, UInt, api::Direction};
 
 use super::traits::RoomDataProvider;
 

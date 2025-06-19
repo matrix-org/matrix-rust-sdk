@@ -16,11 +16,11 @@ use std::{fmt, sync::Arc};
 
 use async_trait::async_trait;
 use matrix_sdk_common::{
-    executor::{spawn, JoinHandle},
-    locks::Mutex,
     AsyncTraitDeps, SendOutsideWasm, SyncOutsideWasm,
+    executor::{JoinHandle, spawn},
+    locks::Mutex,
 };
-use ruma::{time::SystemTime, MxcUri};
+use ruma::{MxcUri, time::SystemTime};
 use tokio::sync::Mutex as AsyncMutex;
 use tracing::error;
 
@@ -538,15 +538,15 @@ mod tests {
     use matrix_sdk_common::locks::Mutex;
     use matrix_sdk_test::async_test;
     use ruma::{
+        MxcUri, OwnedMxcUri,
         events::room::MediaSource,
         mxc_uri,
         time::{Duration, SystemTime},
-        MxcUri, OwnedMxcUri,
     };
 
     use super::{EventCacheStoreMedia, IgnoreMediaRetentionPolicy, MediaService, TimeProvider};
     use crate::{
-        event_cache::store::{media::MediaRetentionPolicy, EventCacheStoreError},
+        event_cache::store::{EventCacheStoreError, media::MediaRetentionPolicy},
         media::{MediaFormat, MediaRequestParameters, UniqueKey},
     };
 

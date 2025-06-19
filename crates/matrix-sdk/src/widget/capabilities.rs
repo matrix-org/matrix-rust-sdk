@@ -18,12 +18,12 @@
 use std::{fmt, future::Future};
 
 use matrix_sdk_common::{SendOutsideWasm, SyncOutsideWasm};
-use serde::{ser::SerializeSeq, Deserialize, Deserializer, Serialize, Serializer};
+use serde::{Deserialize, Deserializer, Serialize, Serializer, ser::SerializeSeq};
 use tracing::{debug, warn};
 
 use super::{
-    filter::{Filter, FilterInput, ToDeviceEventFilter},
     MessageLikeEventFilter, StateEventFilter,
+    filter::{Filter, FilterInput, ToDeviceEventFilter},
 };
 
 /// Must be implemented by a component that provides functionality of deciding

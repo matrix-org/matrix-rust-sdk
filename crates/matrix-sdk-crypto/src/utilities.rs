@@ -16,8 +16,8 @@ use std::num::NonZeroU8;
 
 use ruma::MilliSecondsSinceUnixEpoch;
 use time::{
-    format_description::well_known::{iso8601, Iso8601},
     OffsetDateTime,
+    format_description::well_known::{Iso8601, iso8601},
 };
 
 #[cfg(test)]

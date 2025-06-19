@@ -60,7 +60,7 @@ impl_partial_eq!(UserSigningPubkey);
 #[cfg(test)]
 mod tests {
     use matrix_sdk_test::async_test;
-    use ruma::{encryption::KeyUsage, user_id, DeviceKeyId};
+    use ruma::{DeviceKeyId, encryption::KeyUsage, user_id};
     use serde_json::json;
     use vodozemac::Ed25519Signature;
 

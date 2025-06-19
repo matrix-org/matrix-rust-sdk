@@ -19,15 +19,18 @@
 
 use std::fmt;
 
-pub use hmac::digest::MacError;
 use hmac::Hmac;
+pub use hmac::digest::MacError;
 use pbkdf2::pbkdf2;
 use rand::{
+    RngCore,
     distributions::{Alphanumeric, DistString},
-    thread_rng, RngCore,
+    thread_rng,
 };
 use ruma::{
+    UInt,
     events::{
+        EventContent, GlobalAccountDataEventType,
         secret::request::SecretName,
         secret_storage::{
             key::{
@@ -36,10 +39,8 @@ use ruma::{
             },
             secret::SecretEncryptedData,
         },
-        EventContent, GlobalAccountDataEventType,
     },
     serde::Base64,
-    UInt,
 };
 use serde::de::Error;
 use sha2::Sha512;
@@ -78,11 +79,15 @@ pub enum DecodeError {
     Mac(#[from] MacError),
     /// The MAC of the secret storage key for the MAC check has an incorrect
     /// length.
-    #[error("The MAC of for the secret storage MAC check has an incorrect length, expected: {0}, got: {1}")]
+    #[error(
+        "The MAC of for the secret storage MAC check has an incorrect length, expected: {0}, got: {1}"
+    )]
     MacLength(usize, usize),
     /// The IV of the secret storage key for the MAC check has an incorrect
     /// length.
-    #[error("The IV of for the secret storage key MAC check has an incorrect length, expected: {0}, got: {1}")]
+    #[error(
+        "The IV of for the secret storage key MAC check has an incorrect length, expected: {0}, got: {1}"
+    )]
     IvLength(usize, usize),
     /// The secret storage key is using an unsupported secret encryption
     /// algorithm. Currently only the [`m.secret_storage.v1.aes-hmac-sha2`]
@@ -624,11 +629,13 @@ mod test {
         let content = to_raw_value(key.event_content())
             .expect("We should be able to serialize the secret storage key event content");
 
-        let content =
-            SecretStorageKeyEventContent::from_parts(&key.event_type().to_string(), &content)
-                .expect(
-                "We should be able to parse our, just serialized, secret storage key event content",
-            );
+        let content = SecretStorageKeyEventContent::from_parts(
+            &key.event_type().to_string(),
+            &content,
+        )
+        .expect(
+            "We should be able to parse our, just serialized, secret storage key event content",
+        );
 
         let key = SecretStorageKey::from_account_data(passphrase, content)
             .expect("We should be able to restore our secret storage key");
@@ -655,11 +662,13 @@ mod test {
         let content = to_raw_value(key.event_content())
             .expect("We should be able to serialize the secret storage key event content");
 
-        let content =
-            SecretStorageKeyEventContent::from_parts(&key.event_type().to_string(), &content)
-                .expect(
-                "We should be able to parse our, just serialized, secret storage key event content",
-            );
+        let content = SecretStorageKeyEventContent::from_parts(
+            &key.event_type().to_string(),
+            &content,
+        )
+        .expect(
+            "We should be able to parse our, just serialized, secret storage key event content",
+        );
 
         let base58_key = key.to_base58();
 
@@ -732,11 +741,13 @@ mod test {
         let content = to_raw_value(key.event_content())
             .expect("We should be able to serialize the secret storage key event content");
 
-        let content =
-            SecretStorageKeyEventContent::from_parts(&key.event_type().to_string(), &content)
-                .expect(
-                "We should be able to parse our, just serialized, secret storage key event content",
-            );
+        let content = SecretStorageKeyEventContent::from_parts(
+            &key.event_type().to_string(),
+            &content,
+        )
+        .expect(
+            "We should be able to parse our, just serialized, secret storage key event content",
+        );
 
         assert_matches!(
             SecretStorageKey::from_account_data("It's a secret to nobody", content.to_owned()),

@@ -28,21 +28,22 @@ use std::{sync::Arc, time::Duration};
 
 use eyeball::{SharedObservable, Subscriber};
 use futures_util::{
-    future::{select, Either},
-    pin_mut, StreamExt as _,
+    StreamExt as _,
+    future::{Either, select},
+    pin_mut,
 };
 use matrix_sdk::{
-    config::RequestConfig,
-    executor::{spawn, JoinHandle},
-    sleep::sleep,
     Client,
+    config::RequestConfig,
+    executor::{JoinHandle, spawn},
+    sleep::sleep,
 };
 use thiserror::Error;
 use tokio::sync::{
-    mpsc::{Receiver, Sender},
     Mutex as AsyncMutex, OwnedMutexGuard,
+    mpsc::{Receiver, Sender},
 };
-use tracing::{error, info, instrument, trace, warn, Instrument, Level, Span};
+use tracing::{Instrument, Level, Span, error, info, instrument, trace, warn};
 
 use crate::{
     encryption_sync_service::{self, EncryptionSyncPermit, EncryptionSyncService, WithLocking},

@@ -18,16 +18,16 @@ use std::{
 };
 
 use ruma::{
+    RoomId,
     events::{
-        direct::OwnedDirectUserIdentifier, AnyGlobalAccountDataEvent, GlobalAccountDataEventType,
+        AnyGlobalAccountDataEvent, GlobalAccountDataEventType, direct::OwnedDirectUserIdentifier,
     },
     serde::Raw,
-    RoomId,
 };
 use tracing::{debug, instrument, trace, warn};
 
 use super::super::Context;
-use crate::{store::BaseStateStore, RoomInfo, StateChanges};
+use crate::{RoomInfo, StateChanges, store::BaseStateStore};
 
 /// Create the [`Global`] account data processor.
 pub fn global(events: &[Raw<AnyGlobalAccountDataEvent>]) -> Global {

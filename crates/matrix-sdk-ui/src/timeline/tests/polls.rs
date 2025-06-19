@@ -1,9 +1,10 @@
 use assert_matches2::assert_let;
 use fakes::poll_a2;
-use matrix_sdk_test::{async_test, ALICE, BOB};
+use matrix_sdk_test::{ALICE, BOB, async_test};
 use ruma::{
-    event_id,
+    EventId, OwnedEventId, UserId, event_id,
     events::{
+        AnyMessageLikeEventContent,
         poll::{
             unstable_end::UnstablePollEndEventContent,
             unstable_response::UnstablePollResponseEventContent,
@@ -12,12 +13,11 @@ use ruma::{
                 UnstablePollStartContentBlock,
             },
         },
-        AnyMessageLikeEventContent,
     },
-    server_name, EventId, OwnedEventId, UserId,
+    server_name,
 };
 
-use crate::timeline::{event_item::PollState, tests::TestTimeline, EventTimelineItem};
+use crate::timeline::{EventTimelineItem, event_item::PollState, tests::TestTimeline};
 
 #[async_test]
 async fn test_poll_is_displayed() {

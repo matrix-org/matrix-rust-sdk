@@ -16,15 +16,14 @@
 
 use ruma::{
     events::{
-        self,
-        presence::{PresenceEvent, PresenceEventContent},
-        AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent, AnyStrippedStateEvent,
+        self, AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent, AnyStrippedStateEvent,
         AnySyncEphemeralRoomEvent, AnySyncMessageLikeEvent, AnySyncStateEvent,
         AnySyncTimelineEvent, AnyToDeviceEvent, EphemeralRoomEventContent,
         GlobalAccountDataEventContent, MessageLikeEventContent, PossiblyRedactedStateEventContent,
         RedactContent, RedactedMessageLikeEventContent, RedactedStateEventContent,
         RoomAccountDataEventContent, StaticEventContent, StaticStateEventContent,
         ToDeviceEventContent,
+        presence::{PresenceEvent, PresenceEventContent},
     },
     serde::Raw,
 };

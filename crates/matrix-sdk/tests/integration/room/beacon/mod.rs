@@ -1,28 +1,28 @@
 use std::time::{Duration, UNIX_EPOCH};
 
-use futures_util::{pin_mut, FutureExt, StreamExt as _};
+use futures_util::{FutureExt, StreamExt as _, pin_mut};
 use js_int::uint;
 use matrix_sdk::{
     config::SyncSettings, live_location_share::LiveLocationShare,
     test_utils::mocks::MatrixMockServer,
 };
 use matrix_sdk_test::{
-    async_test, event_factory::EventFactory, mocks::mock_encryption_state, test_json,
-    JoinedRoomBuilder, SyncResponseBuilder, DEFAULT_TEST_ROOM_ID,
+    DEFAULT_TEST_ROOM_ID, JoinedRoomBuilder, SyncResponseBuilder, async_test,
+    event_factory::EventFactory, mocks::mock_encryption_state, test_json,
 };
 use ruma::{
-    event_id,
+    EventId, MilliSecondsSinceUnixEpoch, event_id,
     events::{
         beacon::BeaconEventContent, beacon_info::BeaconInfoEventContent, location::AssetType,
     },
     owned_event_id, room_id,
     time::SystemTime,
-    user_id, EventId, MilliSecondsSinceUnixEpoch,
+    user_id,
 };
 use serde_json::json;
 use wiremock::{
-    matchers::{body_partial_json, header, method, path_regex},
     Mock, ResponseTemplate,
+    matchers::{body_partial_json, header, method, path_regex},
 };
 
 use crate::{logged_in_client_with_server, mock_sync};
@@ -392,13 +392,14 @@ async fn test_observing_live_location_does_not_return_own_beacon_updates() {
 
     let f = EventFactory::new().room(room_id);
 
-    let joined_room_builder = JoinedRoomBuilder::new(room_id).add_state_bulk(vec![f
-        .event(BeaconInfoEventContent::new(None, Duration::from_secs(60), false, None))
-        .event_id(event_id)
-        .sender(user_id)
-        .state_key(user_id)
-        .into_raw_timeline()
-        .cast()]);
+    let joined_room_builder = JoinedRoomBuilder::new(room_id).add_state_bulk(vec![
+        f.event(BeaconInfoEventContent::new(None, Duration::from_secs(60), false, None))
+            .event_id(event_id)
+            .sender(user_id)
+            .state_key(user_id)
+            .into_raw_timeline()
+            .cast(),
+    ]);
 
     let room = server.sync_room(&client, joined_room_builder).await;
 

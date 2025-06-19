@@ -10,6 +10,7 @@ use std::{
 use js_int::UInt;
 use matrix_sdk_common::deserialized_responses::AlgorithmInfo;
 use matrix_sdk_crypto::{
+    DecryptionSettings, LocalTrust, OlmMachine as InnerMachine, UserIdentity as SdkUserIdentity,
     backups::{
         MegolmV1BackupKey as RustBackupKey, SignatureState,
         SignatureVerification as RustSignatureCheckResult,
@@ -18,10 +19,12 @@ use matrix_sdk_crypto::{
     olm::ExportedRoomKey,
     store::types::{BackupDecryptionKey, Changes},
     types::requests::ToDeviceRequest,
-    DecryptionSettings, LocalTrust, OlmMachine as InnerMachine, UserIdentity as SdkUserIdentity,
 };
 use ruma::{
+    DeviceKeyAlgorithm, EventId, OneTimeKeyAlgorithm, OwnedTransactionId, OwnedUserId, RoomId,
+    UserId,
     api::{
+        IncomingResponse,
         client::{
             backup::add_backup_keys::v3::Response as KeysBackupResponse,
             keys::{
@@ -31,35 +34,32 @@ use ruma::{
                 upload_signatures::v3::Response as SignatureUploadResponse,
             },
             message::send_message_event::v3::Response as RoomMessageResponse,
-            sync::sync_events::{v3::ToDevice, DeviceLists as RumaDeviceLists},
+            sync::sync_events::{DeviceLists as RumaDeviceLists, v3::ToDevice},
             to_device::send_event_to_device::v3::Response as ToDeviceResponse,
         },
-        IncomingResponse,
     },
     events::{
-        key::verification::VerificationMethod, room::message::MessageType, AnyMessageLikeEvent,
-        AnySyncMessageLikeEvent, MessageLikeEvent,
+        AnyMessageLikeEvent, AnySyncMessageLikeEvent, MessageLikeEvent,
+        key::verification::VerificationMethod, room::message::MessageType,
     },
     serde::Raw,
     to_device::DeviceIdOrAllDevices,
-    DeviceKeyAlgorithm, EventId, OneTimeKeyAlgorithm, OwnedTransactionId, OwnedUserId, RoomId,
-    UserId,
 };
 use serde::{Deserialize, Serialize};
-use serde_json::{value::RawValue, Value};
+use serde_json::{Value, value::RawValue};
 use tokio::runtime::Runtime;
 use zeroize::Zeroize;
 
 use crate::{
-    dehydrated_devices::DehydratedDevices,
-    error::{CryptoStoreError, DecryptionError, SecretImportError, SignatureError},
-    parse_user_id,
-    responses::{response_from_string, OwnedResponse},
     BackupKeys, BackupRecoveryKey, BootstrapCrossSigningResult, CrossSigningKeyExport,
     CrossSigningStatus, DecodeError, DecryptedEvent, Device, DeviceLists, EncryptionSettings,
     EventEncryptionAlgorithm, KeyImportError, KeysImportResult, MegolmV1BackupKey,
     ProgressListener, Request, RequestType, RequestVerificationResult, RoomKeyCounts, RoomSettings,
     Sas, SignatureUploadRequest, StartSasResult, UserIdentity, Verification, VerificationRequest,
+    dehydrated_devices::DehydratedDevices,
+    error::{CryptoStoreError, DecryptionError, SecretImportError, SignatureError},
+    parse_user_id,
+    responses::{OwnedResponse, response_from_string},
 };
 
 /// The return value for the [`OlmMachine::receive_sync_changes()`] method.

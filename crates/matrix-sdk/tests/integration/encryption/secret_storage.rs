@@ -9,19 +9,19 @@ use matrix_sdk::{
 use matrix_sdk_base::SessionMeta;
 use matrix_sdk_test::async_test;
 use ruma::{
-    device_id,
+    UserId, device_id,
     events::{
         secret::request::SecretName,
         secret_storage::{
             default_key::SecretStorageDefaultKeyEventContent, secret::SecretEventContent,
         },
     },
-    user_id, UserId,
+    user_id,
 };
 use serde_json::json;
 use wiremock::{
-    matchers::{header, method, path, path_regex},
     Mock, MockServer, ResponseTemplate,
+    matchers::{header, method, path, path_regex},
 };
 
 use crate::logged_in_client_with_server;

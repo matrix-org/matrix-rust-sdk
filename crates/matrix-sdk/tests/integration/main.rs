@@ -3,8 +3,8 @@
 use matrix_sdk::test_utils::logged_in_client_with_server;
 use serde::Serialize;
 use wiremock::{
-    matchers::{header, method, path, query_param, query_param_is_missing},
     Mock, MockServer, ResponseTemplate,
+    matchers::{header, method, path, query_param, query_param_is_missing},
 };
 
 mod account;

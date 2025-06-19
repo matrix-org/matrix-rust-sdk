@@ -17,7 +17,7 @@ use ruma::{
     events::{AnyStateEvent, AnyTimelineEvent, AnyToDeviceEvent},
     serde::Raw,
 };
-use serde::{de, Deserialize, Deserializer};
+use serde::{Deserialize, Deserializer, de};
 use serde_json::value::RawValue as RawJsonValue;
 use uuid::Uuid;
 

@@ -21,14 +21,15 @@ use assert_matches2::assert_let;
 use matrix_sdk_common::deserialized_responses::ProcessedToDeviceEvent;
 use matrix_sdk_test::async_test;
 use ruma::{
-    device_id,
-    events::{dummy::ToDeviceDummyEventContent, AnyToDeviceEvent},
-    user_id, DeviceKeyAlgorithm, DeviceKeyId, SecondsSinceUnixEpoch,
+    DeviceKeyAlgorithm, DeviceKeyId, SecondsSinceUnixEpoch, device_id,
+    events::{AnyToDeviceEvent, dummy::ToDeviceDummyEventContent},
+    user_id,
 };
 use serde_json::json;
 use vodozemac::Ed25519SecretKey;
 
 use crate::{
+    DeviceData, OlmMachine,
     machine::{
         test_helpers::{
             create_session, get_machine_pair, get_machine_pair_with_session,
@@ -39,8 +40,7 @@ use crate::{
     },
     olm::utility::SignJson,
     store::types::Changes,
-    types::{events::ToDeviceEvent, DeviceKeys},
-    DeviceData, OlmMachine,
+    types::{DeviceKeys, events::ToDeviceEvent},
 };
 
 #[async_test]

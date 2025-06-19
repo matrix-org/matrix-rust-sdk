@@ -1,19 +1,19 @@
 use std::{collections::HashMap, error::Error, fmt, fmt::Display};
 
 use matrix_sdk::{
+    HttpError, IdParseError, NotificationSettingsError as SdkNotificationSettingsError,
+    QueueWedgeError as SdkQueueWedgeError, StoreError,
     authentication::oauth::OAuthError,
-    encryption::{identities::RequestVerificationError, CryptoStoreError},
+    encryption::{CryptoStoreError, identities::RequestVerificationError},
     event_cache::EventCacheError,
     reqwest,
     room::edit::EditError,
     send_queue::RoomSendQueueError,
-    HttpError, IdParseError, NotificationSettingsError as SdkNotificationSettingsError,
-    QueueWedgeError as SdkQueueWedgeError, StoreError,
 };
 use matrix_sdk_ui::{encryption_sync_service, notification_client, sync_service, timeline};
 use ruma::{
-    api::client::error::{ErrorBody, ErrorKind as RumaApiErrorKind, RetryAfter},
     MilliSecondsSinceUnixEpoch,
+    api::client::error::{ErrorBody, ErrorKind as RumaApiErrorKind, RetryAfter},
 };
 use tracing::warn;
 use uniffi::UnexpectedUniFFICallbackError;

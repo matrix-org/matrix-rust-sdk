@@ -15,7 +15,7 @@
 //! The SDK's representation of the result of a `/sync` request.
 
 use std::{
-    collections::{btree_map, BTreeMap},
+    collections::{BTreeMap, btree_map},
     fmt,
     time::Duration,
 };
@@ -31,18 +31,18 @@ use matrix_sdk_base::{
 };
 use matrix_sdk_common::deserialized_responses::ProcessedToDeviceEvent;
 use ruma::{
+    OwnedRoomId, RoomId,
     api::client::sync::sync_events::{
         self,
         v3::{InvitedRoom, KnockedRoom},
     },
-    events::{presence::PresenceEvent, AnyGlobalAccountDataEvent},
+    events::{AnyGlobalAccountDataEvent, presence::PresenceEvent},
     serde::Raw,
     time::Instant,
-    OwnedRoomId, RoomId,
 };
 use tracing::{debug, error, warn};
 
-use crate::{event_handler::HandlerKind, Client, Result, Room};
+use crate::{Client, Result, Room, event_handler::HandlerKind};
 
 /// The processed response of a `/sync` request.
 #[derive(Clone, Default)]

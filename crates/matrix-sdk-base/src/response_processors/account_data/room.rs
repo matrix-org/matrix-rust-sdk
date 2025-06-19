@@ -13,16 +13,16 @@
 // limitations under the License.
 
 use ruma::{
-    events::{marked_unread::MarkedUnreadEventContent, AnyRoomAccountDataEvent},
-    serde::Raw,
     RoomId,
+    events::{AnyRoomAccountDataEvent, marked_unread::MarkedUnreadEventContent},
+    serde::Raw,
 };
 use tracing::{instrument, warn};
 
 use super::super::{Context, RoomInfoNotableUpdates};
 use crate::{
-    room::AccountDataSource, store::BaseStateStore, RoomInfo, RoomInfoNotableUpdateReasons,
-    StateChanges,
+    RoomInfo, RoomInfoNotableUpdateReasons, StateChanges, room::AccountDataSource,
+    store::BaseStateStore,
 };
 
 #[instrument(skip_all, fields(?room_id))]

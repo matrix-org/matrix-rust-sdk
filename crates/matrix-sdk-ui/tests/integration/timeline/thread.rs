@@ -21,7 +21,7 @@ use matrix_sdk::{
     assert_let_timeout,
     test_utils::mocks::{MatrixMockServer, RoomRelationsResponseTemplate},
 };
-use matrix_sdk_test::{async_test, event_factory::EventFactory, JoinedRoomBuilder, ALICE, BOB};
+use matrix_sdk_test::{ALICE, BOB, JoinedRoomBuilder, async_test, event_factory::EventFactory};
 use matrix_sdk_ui::timeline::{RoomExt as _, TimelineBuilder, TimelineDetails, TimelineFocus};
 use ruma::{event_id, events::AnyTimelineEvent, owned_event_id, room_id, serde::Raw, user_id};
 use stream_assert::assert_pending;

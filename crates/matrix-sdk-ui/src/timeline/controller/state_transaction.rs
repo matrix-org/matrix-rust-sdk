@@ -20,8 +20,8 @@ use matrix_sdk::deserialized_responses::{
     ThreadSummaryStatus, TimelineEvent, TimelineEventKind, UnsignedEventLocation,
 };
 use ruma::{
-    events::AnySyncTimelineEvent, push::Action, serde::Raw, EventId, MilliSecondsSinceUnixEpoch,
-    OwnedEventId, OwnedTransactionId, OwnedUserId, UserId,
+    EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, OwnedUserId, UserId,
+    events::AnySyncTimelineEvent, push::Action, serde::Raw,
 };
 use tracing::{debug, instrument, warn};
 
@@ -33,13 +33,13 @@ use super::{
         event_item::RemoteEventOrigin,
         traits::RoomDataProvider,
     },
-    metadata::EventMeta,
     ObservableItems, ObservableItemsTransaction, TimelineFocusKind, TimelineMetadata,
     TimelineSettings,
+    metadata::EventMeta,
 };
 use crate::timeline::{
-    event_handler::{FailedToParseEvent, RemovedItem, TimelineAction},
     EmbeddedEvent, ThreadSummary, TimelineDetails, VirtualTimelineItem,
+    event_handler::{FailedToParseEvent, RemovedItem, TimelineAction},
 };
 
 pub(in crate::timeline) struct TimelineStateTransaction<'a> {
@@ -159,7 +159,10 @@ impl<'a> TimelineStateTransaction<'a> {
                         )
                         .await;
                     } else {
-                        warn!(event_index, "Set update dropped because there wasn't any attached timeline item index.");
+                        warn!(
+                            event_index,
+                            "Set update dropped because there wasn't any attached timeline item index."
+                        );
                     }
                 }
 
@@ -316,7 +319,10 @@ impl<'a> TimelineStateTransaction<'a> {
                         )
                         .await;
                     } else {
-                        warn!(event_index, "Set update dropped because there wasn't any attached timeline item index.");
+                        warn!(
+                            event_index,
+                            "Set update dropped because there wasn't any attached timeline item index."
+                        );
                     }
                 }
 

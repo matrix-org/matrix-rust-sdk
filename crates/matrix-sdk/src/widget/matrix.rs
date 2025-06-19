@@ -19,6 +19,7 @@ use std::collections::BTreeMap;
 
 use matrix_sdk_base::deserialized_responses::{EncryptionInfo, RawAnySyncOrStrippedState};
 use ruma::{
+    EventId, OwnedUserId, RoomId, TransactionId,
     api::client::{
         account::request_openid_token::v3::{Request as OpenIdRequest, Response as OpenIdResponse},
         delayed_events::{self, update_delayed_event::unstable::UpdateAction},
@@ -31,21 +32,20 @@ use ruma::{
         AnySyncTimelineEvent, AnyTimelineEvent, AnyToDeviceEvent, AnyToDeviceEventContent,
         MessageLikeEventType, StateEventType, TimelineEventType, ToDeviceEventType,
     },
-    serde::{from_raw_json_value, Raw},
+    serde::{Raw, from_raw_json_value},
     to_device::DeviceIdOrAllDevices,
-    EventId, OwnedUserId, RoomId, TransactionId,
 };
-use serde_json::{value::RawValue as RawJsonValue, Value};
+use serde_json::{Value, value::RawValue as RawJsonValue};
 use tokio::sync::{
-    broadcast::{error::RecvError, Receiver},
-    mpsc::{unbounded_channel, UnboundedReceiver},
+    broadcast::{Receiver, error::RecvError},
+    mpsc::{UnboundedReceiver, unbounded_channel},
 };
 use tracing::{error, trace, warn};
 
-use super::{machine::SendEventResponse, StateKeySelector};
+use super::{StateKeySelector, machine::SendEventResponse};
 use crate::{
-    event_handler::EventHandlerDropGuard, room::MessagesOptions, sync::RoomUpdate, Client, Error,
-    Result, Room,
+    Client, Error, Result, Room, event_handler::EventHandlerDropGuard, room::MessagesOptions,
+    sync::RoomUpdate,
 };
 
 /// Thin wrapper around a [`Room`] that provides functionality relevant for
@@ -399,7 +399,7 @@ fn attach_room_id_state(raw_ev: &Raw<AnySyncStateEvent>, room_id: &RoomId) -> Ra
 mod tests {
     use insta;
     use ruma::{events::AnyTimelineEvent, room_id, serde::Raw};
-    use serde_json::{json, Value};
+    use serde_json::{Value, json};
 
     use super::attach_room_id;
 

@@ -23,7 +23,7 @@ use eyeball::{SharedObservable, Subscriber};
 use matrix_sdk_common::boxed_into_future;
 use ruma::events::room::{EncryptedFile, EncryptedFileInit};
 
-use crate::{config::RequestConfig, Client, Media, Result, TransmissionProgress};
+use crate::{Client, Media, Result, TransmissionProgress, config::RequestConfig};
 
 /// Future returned by [`Client::upload_encrypted_file`].
 #[allow(missing_debug_implementations)]

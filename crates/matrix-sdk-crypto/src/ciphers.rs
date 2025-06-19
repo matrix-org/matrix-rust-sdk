@@ -13,17 +13,17 @@
 // limitations under the License.
 
 use aes::{
-    cipher::{generic_array::GenericArray, IvSizeUser, KeyIvInit, KeySizeUser, StreamCipher},
     Aes256,
+    cipher::{IvSizeUser, KeyIvInit, KeySizeUser, StreamCipher, generic_array::GenericArray},
 };
 use ctr::Ctr128BE;
 use hkdf::Hkdf;
 use hmac::{
-    digest::{FixedOutput, MacError},
     Hmac, Mac as _,
+    digest::{FixedOutput, MacError},
 };
 use pbkdf2::pbkdf2;
-use rand::{thread_rng, RngCore};
+use rand::{RngCore, thread_rng};
 use sha2::{Sha256, Sha512};
 use zeroize::{Zeroize, ZeroizeOnDrop};
 

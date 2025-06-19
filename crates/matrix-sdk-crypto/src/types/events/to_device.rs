@@ -15,7 +15,9 @@
 use std::{collections::BTreeMap, fmt::Debug};
 
 use ruma::{
+    OwnedUserId, UserId,
     events::{
+        EventContent, ToDeviceEventType,
         key::verification::{
             accept::ToDeviceKeyVerificationAcceptEvent, cancel::ToDeviceKeyVerificationCancelEvent,
             done::ToDeviceKeyVerificationDoneEvent, key::ToDeviceKeyVerificationKeyEvent,
@@ -23,19 +25,18 @@ use ruma::{
             request::ToDeviceKeyVerificationRequestEvent, start::ToDeviceKeyVerificationStartEvent,
         },
         secret::request::{SecretName, ToDeviceSecretRequestEvent},
-        EventContent, ToDeviceEventType,
     },
     serde::Raw,
-    OwnedUserId, UserId,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{
-    value::{to_raw_value, RawValue},
     Value,
+    value::{RawValue, to_raw_value},
 };
 use zeroize::Zeroize;
 
 use super::{
+    EventType,
     dummy::DummyEvent,
     forwarded_room_key::{ForwardedRoomKeyContent, ForwardedRoomKeyEvent},
     room::encrypted::EncryptedToDeviceEvent,
@@ -43,7 +44,6 @@ use super::{
     room_key_request::RoomKeyRequestEvent,
     room_key_withheld::RoomKeyWithheldEvent,
     secret_send::SecretSendEvent,
-    EventType,
 };
 use crate::types::events::from_str;
 
@@ -407,7 +407,7 @@ impl Serialize for ToDeviceEvents {
 #[cfg(test)]
 mod tests {
     use assert_matches::assert_matches;
-    use serde_json::{json, Value};
+    use serde_json::{Value, json};
     use similar_asserts::assert_eq;
 
     use super::ToDeviceEvents;

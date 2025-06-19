@@ -17,29 +17,28 @@ use std::future::IntoFuture;
 use eyeball::SharedObservable;
 use futures_core::Stream;
 use matrix_sdk_base::{
-    boxed_into_future,
+    SessionMeta, boxed_into_future,
     crypto::types::qr_login::{QrCodeData, QrCodeMode},
     store::RoomLoadSettings,
-    SessionMeta,
 };
 use oauth2::{DeviceCodeErrorResponseType, StandardDeviceAuthorizationResponse};
 use ruma::{
-    api::client::discovery::get_authorization_server_metadata::msc2965::AuthorizationServerMetadata,
     OwnedDeviceId,
+    api::client::discovery::get_authorization_server_metadata::msc2965::AuthorizationServerMetadata,
 };
 use tracing::trace;
-use vodozemac::{ecies::CheckCode, Curve25519PublicKey};
+use vodozemac::{Curve25519PublicKey, ecies::CheckCode};
 
 use super::{
+    DeviceAuthorizationOAuthError, QRCodeLoginError, SecureChannelError,
     messages::{LoginFailureReason, QrAuthMessage},
     secure_channel::EstablishedSecureChannel,
-    DeviceAuthorizationOAuthError, QRCodeLoginError, SecureChannelError,
 };
 #[cfg(doc)]
 use crate::authentication::oauth::OAuth;
 use crate::{
-    authentication::oauth::{ClientRegistrationData, OAuthError},
     Client,
+    authentication::oauth::{ClientRegistrationData, OAuthError},
 };
 
 async fn send_unexpected_message_error(
@@ -330,8 +329,8 @@ impl<'a> LoginWithQrCode<'a> {
 #[cfg(all(test, not(target_family = "wasm")))]
 mod test {
     use assert_matches2::{assert_let, assert_matches};
-    use futures_util::{join, StreamExt};
-    use matrix_sdk_base::crypto::types::{qr_login::QrCodeModeData, SecretsBundle};
+    use futures_util::{StreamExt, join};
+    use matrix_sdk_base::crypto::types::{SecretsBundle, qr_login::QrCodeModeData};
     use matrix_sdk_common::executor::spawn;
     use matrix_sdk_test::async_test;
     use serde_json::json;
@@ -340,7 +339,7 @@ mod test {
     use crate::{
         authentication::oauth::qrcode::{
             messages::LoginProtocolType,
-            secure_channel::{test::MockedRendezvousServer, SecureChannel},
+            secure_channel::{SecureChannel, test::MockedRendezvousServer},
         },
         config::RequestConfig,
         http_client::HttpClient,

@@ -25,17 +25,17 @@ use std::{
 
 use growable_bloom_filter::{GrowableBloom, GrowableBloomBuilder};
 use matrix_sdk::{
-    crypto::types::events::UtdCause,
-    executor::{spawn, JoinHandle},
-    sleep::sleep,
     Client,
+    crypto::types::events::UtdCause,
+    executor::{JoinHandle, spawn},
+    sleep::sleep,
 };
 use matrix_sdk_base::{
     SendOutsideWasm, StateStoreDataKey, StateStoreDataValue, StoreError, SyncOutsideWasm,
 };
 use ruma::{
-    time::{Duration, Instant},
     EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedServerName, UserId,
+    time::{Duration, Instant},
 };
 use tokio::sync::{Mutex as AsyncMutex, MutexGuard};
 use tracing::{error, trace};

@@ -18,13 +18,13 @@
 use std::{collections::HashMap, iter::zip};
 
 use matrix_sdk_base::{
+    RoomState,
     event_cache::store::media::IgnoreMediaRetentionPolicy,
     media::{MediaFormat, MediaRequestParameters},
     store::{
         ChildTransactionId, DependentQueuedRequestKind, FinishUploadThumbnailInfo,
         QueuedRequestKind, SentMediaInfo, SentRequestKey, SerializableEventContent,
     },
-    RoomState,
 };
 #[cfg(feature = "unstable-msc4274")]
 use matrix_sdk_base::{
@@ -35,26 +35,26 @@ use mime::Mime;
 #[cfg(feature = "unstable-msc4274")]
 use ruma::events::room::message::{GalleryItemType, GalleryMessageEventContent};
 use ruma::{
-    events::{
-        room::{
-            message::{FormattedBody, MessageType, RoomMessageEventContent},
-            MediaSource, ThumbnailInfo,
-        },
-        AnyMessageLikeEventContent, Mentions,
-    },
     MilliSecondsSinceUnixEpoch, OwnedTransactionId, TransactionId,
+    events::{
+        AnyMessageLikeEventContent, Mentions,
+        room::{
+            MediaSource, ThumbnailInfo,
+            message::{FormattedBody, MessageType, RoomMessageEventContent},
+        },
+    },
 };
-use tracing::{debug, error, instrument, trace, warn, Span};
+use tracing::{Span, debug, error, instrument, trace, warn};
 
 use super::{QueueStorage, RoomSendQueue, RoomSendQueueError};
 use crate::{
+    Client, Media, Room,
     attachment::{AttachmentConfig, Thumbnail},
     room::edit::update_media_caption,
     send_queue::{
         LocalEcho, LocalEchoContent, MediaHandles, RoomSendQueueStorageError, RoomSendQueueUpdate,
         SendHandle,
     },
-    Client, Media, Room,
 };
 #[cfg(feature = "unstable-msc4274")]
 use crate::{

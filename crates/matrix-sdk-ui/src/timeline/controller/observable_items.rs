@@ -14,7 +14,7 @@
 
 use std::{
     cmp::Ordering,
-    collections::{vec_deque::Iter, VecDeque},
+    collections::{VecDeque, vec_deque::Iter},
     iter::{Enumerate, Skip, Take},
     ops::{Deref, RangeBounds},
     sync::Arc,
@@ -28,7 +28,7 @@ use eyeball_im::{
 use imbl::Vector;
 use ruma::EventId;
 
-use super::{metadata::EventMeta, TimelineItem};
+use super::{TimelineItem, metadata::EventMeta};
 
 /// An `ObservableItems` is a type similar to
 /// [`ObservableVector<Arc<TimelineItem>>`] except the API is limited and,
@@ -450,11 +450,7 @@ impl<'observable_items> ObservableItemsTransaction<'observable_items> {
     /// Return the index where to insert the first remote timeline
     /// item.
     pub fn first_remotes_region_index(&self) -> usize {
-        if self.items.get(0).is_some_and(|item| item.is_timeline_start()) {
-            1
-        } else {
-            0
-        }
+        if self.items.get(0).is_some_and(|item| item.is_timeline_start()) { 1 } else { 0 }
     }
 
     /// Iterate over all timeline items in the _remotes_ region.
@@ -719,17 +715,18 @@ mod observable_items_tests {
     use assert_matches::assert_matches;
     use eyeball_im::VectorDiff;
     use ruma::{
+        MilliSecondsSinceUnixEpoch,
         events::room::message::{MessageType, TextMessageEventContent},
-        owned_user_id, uint, MilliSecondsSinceUnixEpoch,
+        owned_user_id, uint,
     };
     use stream_assert::{assert_next_matches, assert_pending};
 
     use super::*;
     use crate::timeline::{
-        controller::{EventTimelineItemKind, RemoteEventOrigin},
-        event_item::{LocalEventTimelineItem, RemoteEventTimelineItem},
         EventSendState, EventTimelineItem, Message, MsgLikeContent, MsgLikeKind, TimelineDetails,
         TimelineItemContent, TimelineItemKind, TimelineUniqueId, VirtualTimelineItem,
+        controller::{EventTimelineItemKind, RemoteEventOrigin},
+        event_item::{LocalEventTimelineItem, RemoteEventTimelineItem},
     };
 
     fn item(event_id: &str) -> Arc<TimelineItem> {

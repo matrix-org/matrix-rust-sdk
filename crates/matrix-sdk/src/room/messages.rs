@@ -17,19 +17,20 @@ use std::fmt;
 use futures_util::future::join_all;
 use matrix_sdk_common::{debug::DebugStructExt as _, deserialized_responses::TimelineEvent};
 use ruma::{
+    OwnedEventId, RoomId, UInt,
     api::{
+        Direction,
         client::{
             filter::RoomEventFilter,
             message::get_message_events,
             relations,
             threads::get_threads::{self, v1::IncludeThreads},
         },
-        Direction,
     },
     assign,
-    events::{relation::RelationType, AnyStateEvent, TimelineEventType},
+    events::{AnyStateEvent, TimelineEventType, relation::RelationType},
     serde::Raw,
-    uint, OwnedEventId, RoomId, UInt,
+    uint,
 };
 
 use super::Room;

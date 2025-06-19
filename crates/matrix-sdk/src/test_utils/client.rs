@@ -15,14 +15,14 @@
 //! Augmented [`ClientBuilder`] that can set up an already logged-in user.
 
 use matrix_sdk_base::{
-    store::{RoomLoadSettings, StoreConfig},
     SessionMeta,
+    store::{RoomLoadSettings, StoreConfig},
 };
-use ruma::{api::MatrixVersion, owned_device_id, owned_user_id, OwnedDeviceId, OwnedUserId};
+use ruma::{OwnedDeviceId, OwnedUserId, api::MatrixVersion, owned_device_id, owned_user_id};
 
 use crate::{
-    authentication::matrix::MatrixSession, config::RequestConfig, Client, ClientBuilder,
-    SessionTokens,
+    Client, ClientBuilder, SessionTokens, authentication::matrix::MatrixSession,
+    config::RequestConfig,
 };
 
 /// An augmented [`ClientBuilder`] that also allows for handling session login.
@@ -215,11 +215,11 @@ pub mod oauth {
     use url::Url;
 
     use crate::{
-        authentication::oauth::{
-            registration::{ApplicationType, ClientMetadata, Localized, OAuthGrantType},
-            ClientId, OAuthSession, UserSession,
-        },
         SessionTokens,
+        authentication::oauth::{
+            ClientId, OAuthSession, UserSession,
+            registration::{ApplicationType, ClientMetadata, Localized, OAuthGrantType},
+        },
     };
 
     /// An OAuth 2.0 `ClientId`, for unit or integration tests.

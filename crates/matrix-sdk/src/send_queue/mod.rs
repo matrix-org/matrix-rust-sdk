@@ -132,8 +132,8 @@ use std::{
     collections::{BTreeMap, HashMap},
     str::FromStr as _,
     sync::{
-        atomic::{AtomicBool, Ordering},
         Arc, RwLock,
+        atomic::{AtomicBool, Ordering},
     },
 };
 
@@ -141,6 +141,7 @@ use as_variant::as_variant;
 #[cfg(feature = "unstable-msc4274")]
 use matrix_sdk_base::store::FinishGalleryItemInfo;
 use matrix_sdk_base::{
+    RoomState, StoreError,
     event_cache::store::EventCacheStoreError,
     media::MediaRequestParameters,
     store::{
@@ -149,34 +150,33 @@ use matrix_sdk_base::{
         SentMediaInfo, SentRequestKey, SerializableEventContent,
     },
     store_locks::LockStoreError,
-    RoomState, StoreError,
 };
-use matrix_sdk_common::executor::{spawn, JoinHandle};
+use matrix_sdk_common::executor::{JoinHandle, spawn};
 use mime::Mime;
 use ruma::{
+    MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedRoomId, OwnedTransactionId, TransactionId,
     events::{
+        AnyMessageLikeEventContent, EventContent as _, Mentions,
         reaction::ReactionEventContent,
         relation::Annotation,
         room::{
-            message::{FormattedBody, RoomMessageEventContent},
             MediaSource,
+            message::{FormattedBody, RoomMessageEventContent},
         },
-        AnyMessageLikeEventContent, EventContent as _, Mentions,
     },
     serde::Raw,
-    MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedRoomId, OwnedTransactionId, TransactionId,
 };
-use tokio::sync::{broadcast, oneshot, Mutex, Notify, OwnedMutexGuard};
+use tokio::sync::{Mutex, Notify, OwnedMutexGuard, broadcast, oneshot};
 use tracing::{debug, error, info, instrument, trace, warn};
 
 #[cfg(feature = "e2e-encryption")]
 use crate::crypto::{OlmError, SessionRecipientCollectionError};
 use crate::{
+    Client, Media, Room,
     client::WeakClient,
     config::RequestConfig,
     error::RetryKind,
-    room::{edit::EditedContent, WeakRoom},
-    Client, Media, Room,
+    room::{WeakRoom, edit::EditedContent},
 };
 
 mod upload;
@@ -2503,10 +2503,11 @@ mod tests {
         ChildTransactionId, DependentQueuedRequest, DependentQueuedRequestKind,
         SerializableEventContent,
     };
-    use matrix_sdk_test::{async_test, JoinedRoomBuilder, SyncResponseBuilder};
+    use matrix_sdk_test::{JoinedRoomBuilder, SyncResponseBuilder, async_test};
     use ruma::{
-        events::{room::message::RoomMessageEventContent, AnyMessageLikeEventContent},
-        room_id, MilliSecondsSinceUnixEpoch, TransactionId,
+        MilliSecondsSinceUnixEpoch, TransactionId,
+        events::{AnyMessageLikeEventContent, room::message::RoomMessageEventContent},
+        room_id,
     };
 
     use super::canonicalize_dependent_requests;
