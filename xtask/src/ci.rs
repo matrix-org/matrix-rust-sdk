@@ -1,6 +1,7 @@
 use std::{
     collections::BTreeMap,
     env::consts::{DLL_PREFIX, DLL_SUFFIX},
+    fmt::Display,
 };
 
 use clap::{Args, Subcommand, ValueEnum};
@@ -65,7 +66,7 @@ enum CiCommand {
     /// running.
     Coverage {
         /// Specify the output format that we're going to use.
-        #[arg(long, short)]
+        #[arg(long, short, default_value_t = CoverageOutputFormat::Text)]
         output_format: CoverageOutputFormat,
     },
 }
@@ -81,6 +82,16 @@ enum CoverageOutputFormat {
     /// Output the coverage report as the custom Codecov coverage format.
     /// folder.
     Codecov,
+}
+
+impl Display for CoverageOutputFormat {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            CoverageOutputFormat::Text => write!(f, "text"),
+            CoverageOutputFormat::Html => write!(f, "html"),
+            CoverageOutputFormat::Codecov => write!(f, "codecov"),
+        }
+    }
 }
 
 #[derive(Subcommand, PartialEq, Eq, PartialOrd, Ord)]
