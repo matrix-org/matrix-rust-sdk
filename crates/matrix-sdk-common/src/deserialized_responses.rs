@@ -405,7 +405,7 @@ pub struct ThreadSummary {
     /// This doesn't include the thread root event itself. It can be zero if no
     /// events in the thread are considered to be meaningful (or they've all
     /// been redacted).
-    pub num_replies: usize,
+    pub num_replies: u32,
 }
 
 /// The status of a thread summary.

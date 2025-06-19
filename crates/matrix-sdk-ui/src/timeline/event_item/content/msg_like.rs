@@ -47,7 +47,7 @@ pub struct ThreadSummary {
     /// Note: this doesn't interact with the timeline filter; so opening a
     /// thread-focused timeline with the same timeline filter may result in
     /// *fewer* events than this number.
-    pub num_replies: usize,
+    pub num_replies: u32,
 }
 
 /// A special kind of [`super::TimelineItemContent`] that groups together
