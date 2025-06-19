@@ -230,6 +230,13 @@ impl RoomEventCache {
     ///
     /// You can filter which types of related events to retrieve using
     /// `filter`. `None` will retrieve related events of any type.
+    ///
+    /// The related events are sorted like this:
+    /// - events saved out-of-band with `super::RoomEventCache::save_events`
+    ///   will be located at the beginning of the array.
+    /// - events present in the linked chunk (be it in memory or in the
+    ///   database) will be sorted according to their ordering in the linked
+    ///   chunk.
     pub async fn event_with_relations(
         &self,
         event_id: &EventId,
@@ -927,7 +934,6 @@ mod private {
             Ok(self.events.updates_as_vector_diffs())
         }
 
-        #[cfg(test)]
         pub(crate) fn room_event_order(&self, event_pos: Position) -> Option<usize> {
             self.events.event_order(event_pos)
         }
@@ -1157,6 +1163,14 @@ mod private {
         /// This goes straight to the database, as a simplification; we don't
         /// expect to need to have to look up in memory events, or that
         /// all the related events are actually loaded.
+        ///
+        /// The related events are sorted like this:
+        /// - events saved out-of-band with
+        ///   [`super::RoomEventCache::save_events`] will be located at the
+        ///   beginning of the array.
+        /// - events present in the linked chunk (be it in memory or in the
+        ///   database) will be sorted according to their ordering in the linked
+        ///   chunk.
         pub async fn find_event_with_relations(
             &self,
             event_id: &EventId,
@@ -1203,6 +1217,32 @@ mod private {
             }
 
             trace!(num_related = %related.len(), num_iters, "computed transitive closure of related events");
+
+            // Sort the results by their positions in the linked chunk, if available.
+            //
+            // If an event doesn't have a known position, it goes to the start of the array.
+            related.sort_by(|(_, lhs), (_, rhs)| {
+                use std::cmp::Ordering;
+                match (lhs, rhs) {
+                    (None, None) => Ordering::Equal,
+                    (None, Some(_)) => Ordering::Less,
+                    (Some(_), None) => Ordering::Greater,
+                    (Some(lhs), Some(rhs)) => {
+                        let lhs = self.room_event_order(*lhs);
+                        let rhs = self.room_event_order(*rhs);
+
+                        // The events should have a definite position, but in the case they don't,
+                        // still consider that not having a position means you'll end at the start
+                        // of the array.
+                        match (lhs, rhs) {
+                            (None, None) => Ordering::Equal,
+                            (None, Some(_)) => Ordering::Less,
+                            (Some(_), None) => Ordering::Greater,
+                            (Some(lhs), Some(rhs)) => lhs.cmp(&rhs),
+                        }
+                    }
+                }
+            });
 
             // Keep only the events, not their positions.
             let related = related.into_iter().map(|(event, _pos)| event).collect();
