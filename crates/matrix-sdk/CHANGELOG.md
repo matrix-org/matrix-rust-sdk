@@ -6,9 +6,19 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased] - ReleaseDate
 
+### Features
+
 - `Client::add_event_handler`: Set `Option<EncryptionInfo>` in `EventHandlerData` for to-device messages.
   If the to-device message was encrypted, the `EncryptionInfo` will be set. If it is `None` the message was sent in clear.
   ([#5099](https://github.com/matrix-org/matrix-rust-sdk/pull/5099))
+- `EventCache::subscribe_to_generic_room_updates` is added to listen to _all_
+  room updates without having to subscribe to all rooms individually
+  ([#5247](https://github.com/matrix-org/matrix-rust-sdk/pull/5247))
+
+### Refactor
+
+- `RoomEventCacheListener` is renamed `RoomEventCacheSubscriber`
+  ([#5247](https://github.com/matrix-org/matrix-rust-sdk/pull/5247))
 
 ## [0.12.0] - 2025-06-10
 
