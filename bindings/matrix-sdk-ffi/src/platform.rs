@@ -402,60 +402,61 @@ impl TracingConfiguration {
         #[cfg(feature = "sentry")]
         {
             // Prepare the Sentry layer, if a DSN is provided.
-            let (sentry_layer, sentry_logging_ctx) = if let Some(sentry_dsn) = self.sentry_dsn.take() {
-                // Initialize the Sentry client with the given options.
-                let sentry_guard = sentry::init((
-                    sentry_dsn,
-                    sentry::ClientOptions {
-                        traces_sample_rate: 0.0,
-                        attach_stacktrace: true,
-                        release: Some(env!("VERGEN_GIT_SHA").into()),
-                        ..sentry::ClientOptions::default()
-                    },
-                ));
+            let (sentry_layer, sentry_logging_ctx) =
+                if let Some(sentry_dsn) = self.sentry_dsn.take() {
+                    // Initialize the Sentry client with the given options.
+                    let sentry_guard = sentry::init((
+                        sentry_dsn,
+                        sentry::ClientOptions {
+                            traces_sample_rate: 0.0,
+                            attach_stacktrace: true,
+                            release: Some(env!("VERGEN_GIT_SHA").into()),
+                            ..sentry::ClientOptions::default()
+                        },
+                    ));
 
-                let sentry_enabled = Arc::new(AtomicBool::new(true));
+                    let sentry_enabled = Arc::new(AtomicBool::new(true));
 
-                // Add a Sentry layer to the tracing subscriber.
-                //
-                // Pass custom event and span filters, which will ignore anything, if the Sentry
-                // support has been globally disabled, or if the statement doesn't include a
-                // `sentry` field set to `true`.
-                let sentry_layer = sentry_tracing::layer()
-                    .event_filter({
-                        let enabled = sentry_enabled.clone();
+                    // Add a Sentry layer to the tracing subscriber.
+                    //
+                    // Pass custom event and span filters, which will ignore anything, if the Sentry
+                    // support has been globally disabled, or if the statement doesn't include a
+                    // `sentry` field set to `true`.
+                    let sentry_layer = sentry_tracing::layer()
+                        .event_filter({
+                            let enabled = sentry_enabled.clone();
 
-                        move |metadata| {
-                            if enabled.load(std::sync::atomic::Ordering::SeqCst)
-                                && metadata.fields().field("sentry").is_some()
-                            {
-                                sentry_tracing::default_event_filter(metadata)
-                            } else {
-                                // Ignore the event.
-                                sentry_tracing::EventFilter::Ignore
+                            move |metadata| {
+                                if enabled.load(std::sync::atomic::Ordering::SeqCst)
+                                    && metadata.fields().field("sentry").is_some()
+                                {
+                                    sentry_tracing::default_event_filter(metadata)
+                                } else {
+                                    // Ignore the event.
+                                    sentry_tracing::EventFilter::Ignore
+                                }
                             }
-                        }
-                    })
-                    .span_filter({
-                        let enabled = sentry_enabled.clone();
+                        })
+                        .span_filter({
+                            let enabled = sentry_enabled.clone();
 
-                        move |metadata| {
-                            if enabled.load(std::sync::atomic::Ordering::SeqCst) {
-                                sentry_tracing::default_span_filter(metadata)
-                            } else {
-                                // Ignore, if sentry is globally disabled.
-                                false
+                            move |metadata| {
+                                if enabled.load(std::sync::atomic::Ordering::SeqCst) {
+                                    sentry_tracing::default_span_filter(metadata)
+                                } else {
+                                    // Ignore, if sentry is globally disabled.
+                                    false
+                                }
                             }
-                        }
-                    });
+                        });
 
-                (
-                    Some(sentry_layer),
-                    Some(SentryLoggingCtx { _guard: sentry_guard, enabled: sentry_enabled }),
-                )
-            } else {
-                (None, None)
-            };
+                    (
+                        Some(sentry_layer),
+                        Some(SentryLoggingCtx { _guard: sentry_guard, enabled: sentry_enabled }),
+                    )
+                } else {
+                    (None, None)
+                };
             tracing_subscriber::registry()
                 .with(tracing_subscriber::EnvFilter::new(&env_filter))
                 .with(crate::platform::text_layers(self))
