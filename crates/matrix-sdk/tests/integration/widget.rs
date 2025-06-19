@@ -1566,6 +1566,51 @@ async fn test_send_encrypted_to_device_event_partial_error() {
     );
 }
 
+#[async_test]
+async fn test_send_encrypted_to_device_event_server_error() {
+    let (_, bob, mock_server, driver_handle) = run_test_driver_e2e(false).await;
+
+    negotiate_capabilities(
+        &driver_handle,
+        json!(["org.matrix.msc3819.send.to_device:my.custom.to_device_type",]),
+    )
+    .await;
+
+    let request_id = "0000000";
+
+    let data = json!({
+        "type": "my.custom.to_device_type",
+        "messages": {
+            bob.user_id().unwrap().to_string(): {
+                bob.device_id().unwrap().to_string(): {
+                    "param1":"test",
+                },
+            },
+        }
+    });
+
+    mock_server.mock_send_to_device().error500().mount().await;
+
+    send_request(&driver_handle, request_id, "send_to_device", data).await;
+
+    // Receive the response
+    let msg = recv_message(&driver_handle).await;
+
+    assert_eq!(msg["api"], "fromWidget");
+    assert_eq!(msg["action"], "send_to_device");
+    let response = msg["response"].clone();
+    assert_eq!(
+        response,
+        json!(
+            {
+                "failures": {
+                    bob.user_id().unwrap().to_string(): [bob.device_id().unwrap().to_string()]
+                }
+            }
+        )
+    );
+}
+
 /// The existing widget-apis allows to encrypt and send different content per
 /// device, ensure this works.
 #[async_test]
