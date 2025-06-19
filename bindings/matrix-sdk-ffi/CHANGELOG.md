@@ -23,6 +23,11 @@ All notable changes to this project will be documented in this file.
   In the future additional choices (such as session storage, `sqlite` and `indexeddb`) 
   will likely be added as well.
 
+Breaking changes:
+
+- `Client::reset_server_capabilities` has been renamed to `Client::reset_server_info`.
+  ([#5167](https://github.com/matrix-org/matrix-rust-sdk/pull/5167))
+
 ## [0.12.0] - 2025-06-10
 
 Breaking changes:
@@ -39,7 +44,6 @@ Breaking changes:
 - `RoomInfo` replaces its field `is_tombstoned: bool` with `tombstone: Option<RoomTombstoneInfo>`,
   containing the data needed to implement the room migration UI, a message and the replacement room id.
   ([#5027](https://github.com/matrix-org/matrix-rust-sdk/pull/5027))
-- `Client::reset_server_capabilities` has been renamed to `Client::reset_server_info`.
 
 Additions:
 
