@@ -21,14 +21,17 @@ use std::{
     sync::{atomic::Ordering, Arc, Mutex},
 };
 
+use assert_matches2::assert_let;
 use matrix_sdk_test::test_json;
 use ruma::{
     api::client::{
         keys::upload_signatures::v3::SignedKeys, to_device::send_event_to_device::v3::Messages,
     },
     encryption::{CrossSigningKey, DeviceKeys, OneTimeKey},
+    events::AnyToDeviceEvent,
     owned_device_id, owned_user_id,
     serde::Raw,
+    to_device::DeviceIdOrAllDevices,
     CrossSigningKeyId, DeviceId, MilliSecondsSinceUnixEpoch, OneTimeKeyAlgorithm, OwnedDeviceId,
     OwnedOneTimeKeyId, OwnedUserId, UserId,
 };
@@ -46,6 +49,11 @@ use crate::{
     },
     Client,
 };
+
+/// Stores pending to-device messages for each user and device.
+/// To be used with [`MatrixMockServer::capture_put_to_device_traffic`].
+pub type PendingToDeviceMessages =
+    BTreeMap<OwnedUserId, BTreeMap<OwnedDeviceId, Vec<Raw<AnyToDeviceEvent>>>>;
 
 /// Extends the `MatrixMockServer` with useful methods to help mocking
 /// matrix crypto API and perform integration test with encryption.
@@ -426,6 +434,89 @@ impl MatrixMockServer {
                 .await;
 
             sent_event
+        }
+    }
+
+    /// Utility to capture all the `/toDevice` upload traffic and store it in
+    /// a queue to be later used with
+    /// [`MatrixMockServer::sync_back_pending_to_device_messages`].
+    pub async fn capture_put_to_device_traffic(
+        &self,
+        sender_user_id: &UserId,
+        to_device_queue: Arc<Mutex<PendingToDeviceMessages>>,
+    ) -> MockGuard {
+        let sender = sender_user_id.to_owned();
+
+        Mock::given(method("PUT"))
+            .and(path_regex(r"^/_matrix/client/.*/sendToDevice/([^/]+)/.*"))
+            .respond_with(move |req: &Request| {
+                #[derive(Debug, serde::Deserialize)]
+                struct Parameters {
+                    messages: Messages,
+                }
+
+                let params: Parameters = req.body_json().unwrap();
+                let messages = params.messages;
+
+                // Access the captured groups from the path
+                let event_type = req
+                    .url
+                    .path_segments()
+                    .and_then(|segments| segments.rev().nth(1))
+                    .expect("Event type should be captured in the path");
+
+                let mut to_device_queue = to_device_queue.lock().unwrap();
+                for (user_id, device_map) in messages.iter() {
+                    for (device_id, content) in device_map.iter() {
+                        assert_let!(DeviceIdOrAllDevices::DeviceId(device_id) = device_id);
+
+                        let event = json!({
+                            "origin_server_ts": MilliSecondsSinceUnixEpoch::now(),
+                            "sender": sender,
+                            "type": event_type.to_owned(),
+                            "content": content,
+                        });
+
+                        to_device_queue
+                            .entry(user_id.to_owned())
+                            .or_default()
+                            .entry(device_id.to_owned())
+                            .or_default()
+                            .push(serde_json::from_value(event).unwrap());
+                    }
+                }
+
+                ResponseTemplate::new(200).set_body_json(&*test_json::EMPTY)
+            })
+            .mount_as_scoped(self.server())
+            .await
+    }
+
+    /// Sync the pending to-device messages for this client.
+    ///
+    /// To be used in connection with
+    /// [`MatrixMockServer::capture_put_to_device_traffic`] that is
+    /// capturing the traffic.
+    pub async fn sync_back_pending_to_device_messages(
+        &self,
+        to_device_queue: Arc<Mutex<PendingToDeviceMessages>>,
+        recipient: &Client,
+    ) {
+        let messages_to_sync = {
+            let to_device_queue = to_device_queue.lock().unwrap();
+            let pending_messages = to_device_queue
+                .get(&recipient.user_id().unwrap().to_owned())
+                .and_then(|treemap| treemap.get(&recipient.device_id().unwrap().to_owned()));
+
+            pending_messages.cloned().unwrap_or_default()
+        };
+
+        for message in messages_to_sync {
+            self.mock_sync()
+                .ok_and_run(recipient, |sync_builder| {
+                    sync_builder.add_to_device_event(message.deserialize_as().unwrap());
+                })
+                .await;
         }
     }
 }

@@ -12,19 +12,24 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{pin::pin, time::Duration};
+use std::{future, pin::pin, sync::Arc, time::Duration};
 
 use assert_matches::assert_matches;
+use assert_matches2::assert_let;
 use async_trait::async_trait;
 use futures_util::FutureExt;
 use matrix_sdk::{
-    test_utils::mocks::{MatrixMockServer, RoomMessagesResponseTemplate},
+    test_utils::mocks::{
+        encryption::PendingToDeviceMessages, MatrixMockServer, RoomMessagesResponseTemplate,
+    },
     widget::{
         Capabilities, CapabilitiesProvider, WidgetDriver, WidgetDriverHandle, WidgetSettings,
     },
     Client,
 };
-use matrix_sdk_common::{executor::spawn, timeout::timeout};
+use matrix_sdk_common::{
+    deserialized_responses::EncryptionInfo, executor::spawn, locks::Mutex, timeout::timeout,
+};
 use matrix_sdk_test::{
     async_test, event_factory::EventFactory, JoinedRoomBuilder, StateTestEvent, ALICE, BOB,
 };
@@ -34,7 +39,7 @@ use ruma::{
     device_id, event_id,
     events::{
         room::{member::MembershipState, message::RoomMessageEventContent},
-        AnySyncStateEvent, MessageLikeEventType, StateEventType,
+        AnySyncStateEvent, AnyToDeviceEvent, MessageLikeEventType, StateEventType,
     },
     owned_room_id, room_id,
     serde::{JsonObject, Raw},
@@ -42,7 +47,7 @@ use ruma::{
     user_id, OwnedRoomId,
 };
 use serde::Serialize;
-use serde_json::{json, Value as JsonValue};
+use serde_json::{json, Value as JsonValue, Value};
 use tracing::error;
 use wiremock::{
     matchers::{method, path_regex},
@@ -54,6 +59,10 @@ use wiremock::{
 macro_rules! json_string {
     ($( $tt:tt )*) => { ::serde_json::json!( $($tt)* ).to_string() };
 }
+
+/// A helper type for test that needs to capture to-device messages via event
+/// handlers.
+type HandledDeviceEventMutex = Arc<Mutex<(Option<Raw<AnyToDeviceEvent>>, Option<EncryptionInfo>)>>;
 
 const WIDGET_ID: &str = "test-widget";
 static ROOM_ID: Lazy<OwnedRoomId> = Lazy::new(|| owned_room_id!("!a98sd12bjh:example.org"));
@@ -1329,14 +1338,34 @@ async fn test_send_encrypted_to_device_event() {
         }
     });
 
-    let (guard, event_as_sent_by_alice) =
-        mock_server.mock_capture_put_to_device(alice.user_id().unwrap()).await;
+    let queue: Arc<std::sync::Mutex<PendingToDeviceMessages>> = Default::default();
+
+    let guard =
+        mock_server.capture_put_to_device_traffic(alice.user_id().unwrap(), queue.clone()).await;
+
+    let bob_received: Arc<Mutex<(Option<AnyToDeviceEvent>, Option<EncryptionInfo>)>> =
+        Default::default();
+
+    bob.add_event_handler({
+        let handled_event_info = bob_received.clone();
+        move |ev: AnyToDeviceEvent, encryption_info: Option<EncryptionInfo>| {
+            *handled_event_info.lock() = (Some(ev), encryption_info);
+            future::ready(())
+        }
+    });
+
+    let carl_received: Arc<Mutex<(Option<AnyToDeviceEvent>, Option<EncryptionInfo>)>> =
+        Default::default();
+
+    carl.add_event_handler({
+        let handled_event_info = carl_received.clone();
+        move |ev: AnyToDeviceEvent, encryption_info: Option<EncryptionInfo>| {
+            *handled_event_info.lock() = (Some(ev), encryption_info);
+            future::ready(())
+        }
+    });
 
     send_request(&driver_handle, request_id, "send_to_device", data).await;
-
-    let event_as_sent_by_alice = event_as_sent_by_alice.await.deserialize().unwrap();
-    drop(guard);
-    assert_eq!(event_as_sent_by_alice.algorithm().as_str(), "m.olm.v1.curve25519-aes-sha2");
 
     // Receive the response
     let msg = recv_message(&driver_handle).await;
@@ -1344,6 +1373,28 @@ async fn test_send_encrypted_to_device_event() {
     assert_eq!(msg["action"], "send_to_device");
     let response = msg["response"].clone();
     assert_eq!(serde_json::to_string(&response).unwrap(), "{}");
+
+    mock_server.sync_back_pending_to_device_messages(queue.clone(), &bob).await;
+
+    mock_server.sync_back_pending_to_device_messages(queue.clone(), &carl).await;
+
+    drop(guard);
+
+    // Ensure bob received correctly
+    {
+        let (event, encryption_info) = bob_received.lock().clone();
+        assert_let!(Some(event) = event);
+        assert_eq!(event.event_type().to_string(), "my.custom.to_device_type");
+        assert!(encryption_info.is_some());
+    }
+
+    // Ensure carl received correctly
+    {
+        let (event, encryption_info) = carl_received.lock().clone();
+        assert_let!(Some(event) = event);
+        assert_eq!(event.event_type().to_string(), "my.custom.to_device_type");
+        assert!(encryption_info.is_some());
+    }
 }
 
 #[async_test]
@@ -1444,7 +1495,6 @@ async fn test_send_encrypted_to_device_event_unknown_device() {
     // Receive the response
     let msg = recv_message(&driver_handle).await;
 
-    println!("{msg:?}");
     assert_eq!(msg["api"], "fromWidget");
     assert_eq!(msg["action"], "send_to_device");
     let response = msg["response"].clone();
@@ -1501,7 +1551,6 @@ async fn test_send_encrypted_to_device_event_partial_error() {
     // Receive the response
     let msg = recv_message(&driver_handle).await;
 
-    println!("{msg:?}");
     assert_eq!(msg["api"], "fromWidget");
     assert_eq!(msg["action"], "send_to_device");
     let response = msg["response"].clone();
@@ -1538,38 +1587,78 @@ async fn test_send_encrypted_to_device_different_content() {
         "messages": {
              carl.user_id().unwrap().to_string(): {
                 carl.device_id().unwrap().to_string(): {
-                    "body":"test but for carl",
+                    "param1":"This for carl",
                     "param2": "val",
                 },
             },
             bob.user_id().unwrap().to_string(): {
                 bob.device_id().unwrap().to_string(): {
-                    "param1":"test",
+                    "param1":"This for bob",
                     "param2":"val",
                 },
             },
         }
     });
 
-    // the current implementation would send 2 different to-device messages, one per
-    // content
-    Mock::given(method("PUT"))
-        .and(path_regex(r"^/_matrix/client/.*/sendToDevice/m.room.encrypted/.*"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({})))
-        .expect(2)
-        .mount(mock_server.server())
-        .await;
+    let queue: Arc<std::sync::Mutex<PendingToDeviceMessages>> = Default::default();
+
+    let guard =
+        mock_server.capture_put_to_device_traffic(alice.user_id().unwrap(), queue.clone()).await;
+
+    let bob_received: HandledDeviceEventMutex = Default::default();
+
+    bob.add_event_handler({
+        let handled_event_info = bob_received.clone();
+        move |ev: Raw<AnyToDeviceEvent>, encryption_info: Option<EncryptionInfo>| {
+            *handled_event_info.lock() = (Some(ev), encryption_info);
+            future::ready(())
+        }
+    });
+
+    let carl_received: HandledDeviceEventMutex = Default::default();
+
+    carl.add_event_handler({
+        let handled_event_info = carl_received.clone();
+        move |ev: Raw<AnyToDeviceEvent>, encryption_info: Option<EncryptionInfo>| {
+            *handled_event_info.lock() = (Some(ev), encryption_info);
+            future::ready(())
+        }
+    });
 
     send_request(&driver_handle, request_id, "send_to_device", data).await;
 
     // Receive the response
     let msg = recv_message(&driver_handle).await;
 
-    println!("{msg:?}");
     assert_eq!(msg["api"], "fromWidget");
     assert_eq!(msg["action"], "send_to_device");
     let response = msg["response"].clone();
     assert_eq!(response, json!({}));
+
+    mock_server.sync_back_pending_to_device_messages(queue.clone(), &bob).await;
+    mock_server.sync_back_pending_to_device_messages(queue.clone(), &carl).await;
+
+    drop(guard);
+
+    // Ensure bob received correctly
+    {
+        let (event, encryption_info) = bob_received.lock().clone();
+        assert_let!(Some(event) = event);
+        assert!(encryption_info.is_some());
+
+        let event = event.deserialize_as::<Value>().unwrap();
+        assert_eq!(event["content"]["param1"], "This for bob");
+    }
+
+    // Ensure carl received correctly
+    {
+        let (event, encryption_info) = carl_received.lock().clone();
+        assert_let!(Some(event) = event);
+        assert!(encryption_info.is_some());
+
+        let event = event.deserialize_as::<Value>().unwrap();
+        assert_eq!(event["content"]["param1"], "This for carl");
+    }
 }
 
 async fn negotiate_capabilities(driver_handle: &WidgetDriverHandle, caps: JsonValue) {
