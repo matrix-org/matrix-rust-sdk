@@ -715,6 +715,8 @@ where
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeMap;
+
     use assert_matches::assert_matches;
     use ruma::room_id;
 
@@ -1389,16 +1391,17 @@ mod tests {
             ],
         );
 
-        let mut events =
-            relational_linked_chunk.unordered_linked_chunk_items(linked_chunk_id.as_ref());
+        let events = BTreeMap::from_iter(
+            relational_linked_chunk.unordered_linked_chunk_items(linked_chunk_id.as_ref()),
+        );
 
-        assert_eq!(events.next().unwrap(), (&'a', Position::new(CId::new(0), 0)));
-        assert_eq!(events.next().unwrap(), (&'b', Position::new(CId::new(0), 1)));
-        assert_eq!(events.next().unwrap(), (&'c', Position::new(CId::new(0), 2)));
-        assert_eq!(events.next().unwrap(), (&'d', Position::new(CId::new(1), 0)));
-        assert_eq!(events.next().unwrap(), (&'e', Position::new(CId::new(1), 1)));
-        assert_eq!(events.next().unwrap(), (&'f', Position::new(CId::new(1), 2)));
-        assert!(events.next().is_none());
+        assert_eq!(events.len(), 6);
+        assert_eq!(*events.get(&'a').unwrap(), Position::new(CId::new(0), 0));
+        assert_eq!(*events.get(&'b').unwrap(), Position::new(CId::new(0), 1));
+        assert_eq!(*events.get(&'c').unwrap(), Position::new(CId::new(0), 2));
+        assert_eq!(*events.get(&'d').unwrap(), Position::new(CId::new(1), 0));
+        assert_eq!(*events.get(&'e').unwrap(), Position::new(CId::new(1), 1));
+        assert_eq!(*events.get(&'f').unwrap(), Position::new(CId::new(1), 2));
     }
 
     #[test]
