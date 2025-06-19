@@ -14,7 +14,7 @@
 
 //! Trait and macro of integration tests for `EventCacheStore` implementations.
 
-use std::sync::Arc;
+use std::{collections::BTreeMap, sync::Arc};
 
 use assert_matches::assert_matches;
 use matrix_sdk_common::{
@@ -891,8 +891,8 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
         .await
         .unwrap();
 
-        let duplicated_events = self
-            .filter_duplicated_events(
+        let duplicated_events = BTreeMap::from_iter(
+            self.filter_duplicated_events(
                 linked_chunk_id,
                 vec![
                     event_comte.event_id().unwrap().to_owned(),
@@ -904,20 +904,22 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
                 ],
             )
             .await
-            .unwrap();
+            .unwrap(),
+        );
 
         assert_eq!(duplicated_events.len(), 3);
+
         assert_eq!(
-            duplicated_events[0],
-            (event_comte.event_id().unwrap(), Position::new(CId::new(0), 0))
+            *duplicated_events.get(&event_comte.event_id().unwrap()).unwrap(),
+            Position::new(CId::new(0), 0)
         );
         assert_eq!(
-            duplicated_events[1],
-            (event_morbier.event_id().unwrap(), Position::new(CId::new(2), 0))
+            *duplicated_events.get(&event_morbier.event_id().unwrap()).unwrap(),
+            Position::new(CId::new(2), 0)
         );
         assert_eq!(
-            duplicated_events[2],
-            (event_mont_dor.event_id().unwrap(), Position::new(CId::new(2), 1))
+            *duplicated_events.get(&event_mont_dor.event_id().unwrap()).unwrap(),
+            Position::new(CId::new(2), 1)
         );
     }
 
