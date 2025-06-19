@@ -129,11 +129,11 @@ where
         for update in updates {
             match update {
                 Update::NewItemsChunk { previous, new, next } => {
-                    insert_chunk(&mut self.chunks, linked_chunk_id, previous, new, next);
+                    Self::insert_chunk(&mut self.chunks, linked_chunk_id, previous, new, next);
                 }
 
                 Update::NewGapChunk { previous, new, next, gap } => {
-                    insert_chunk(&mut self.chunks, linked_chunk_id, previous, new, next);
+                    Self::insert_chunk(&mut self.chunks, linked_chunk_id, previous, new, next);
                     self.items_chunks.push(ItemRow {
                         linked_chunk_id: linked_chunk_id.to_owned(),
                         position: Position::new(new, 0),
@@ -142,7 +142,7 @@ where
                 }
 
                 Update::RemoveChunk(chunk_identifier) => {
-                    remove_chunk(&mut self.chunks, linked_chunk_id, chunk_identifier);
+                    Self::remove_chunk(&mut self.chunks, linked_chunk_id, chunk_identifier);
 
                     let indices_to_remove = self
                         .items_chunks
@@ -271,101 +271,93 @@ where
                 }
             }
         }
+    }
 
-        fn insert_chunk(
-            chunks: &mut Vec<ChunkRow>,
-            linked_chunk_id: LinkedChunkId<'_>,
-            previous: Option<ChunkIdentifier>,
-            new: ChunkIdentifier,
-            next: Option<ChunkIdentifier>,
-        ) {
-            // Find the previous chunk, and update its next chunk.
-            if let Some(previous) = previous {
-                let entry_for_previous_chunk = chunks
-                    .iter_mut()
-                    .find(
-                        |ChunkRow { linked_chunk_id: linked_chunk_id_candidate, chunk, .. }| {
-                            linked_chunk_id == linked_chunk_id_candidate && *chunk == previous
-                        },
-                    )
-                    .expect("Previous chunk should be present");
+    fn insert_chunk(
+        chunks: &mut Vec<ChunkRow>,
+        linked_chunk_id: LinkedChunkId<'_>,
+        previous: Option<ChunkIdentifier>,
+        new: ChunkIdentifier,
+        next: Option<ChunkIdentifier>,
+    ) {
+        // Find the previous chunk, and update its next chunk.
+        if let Some(previous) = previous {
+            let entry_for_previous_chunk = chunks
+                .iter_mut()
+                .find(|ChunkRow { linked_chunk_id: linked_chunk_id_candidate, chunk, .. }| {
+                    linked_chunk_id == linked_chunk_id_candidate && *chunk == previous
+                })
+                .expect("Previous chunk should be present");
 
-                // Link the chunk.
-                entry_for_previous_chunk.next_chunk = Some(new);
-            }
-
-            // Find the next chunk, and update its previous chunk.
-            if let Some(next) = next {
-                let entry_for_next_chunk = chunks
-                    .iter_mut()
-                    .find(
-                        |ChunkRow { linked_chunk_id: linked_chunk_id_candidate, chunk, .. }| {
-                            linked_chunk_id == linked_chunk_id_candidate && *chunk == next
-                        },
-                    )
-                    .expect("Next chunk should be present");
-
-                // Link the chunk.
-                entry_for_next_chunk.previous_chunk = Some(new);
-            }
-
-            // Insert the chunk.
-            chunks.push(ChunkRow {
-                linked_chunk_id: linked_chunk_id.to_owned(),
-                previous_chunk: previous,
-                chunk: new,
-                next_chunk: next,
-            });
+            // Link the chunk.
+            entry_for_previous_chunk.next_chunk = Some(new);
         }
 
-        fn remove_chunk(
-            chunks: &mut Vec<ChunkRow>,
-            linked_chunk_id: LinkedChunkId<'_>,
-            chunk_to_remove: ChunkIdentifier,
-        ) {
-            let entry_nth_to_remove = chunks
-                .iter()
-                .enumerate()
-                .find_map(
-                    |(nth, ChunkRow { linked_chunk_id: linked_chunk_id_candidate, chunk, .. })| {
-                        (linked_chunk_id == linked_chunk_id_candidate && *chunk == chunk_to_remove)
-                            .then_some(nth)
-                    },
-                )
-                .expect("Remove an unknown chunk");
+        // Find the next chunk, and update its previous chunk.
+        if let Some(next) = next {
+            let entry_for_next_chunk = chunks
+                .iter_mut()
+                .find(|ChunkRow { linked_chunk_id: linked_chunk_id_candidate, chunk, .. }| {
+                    linked_chunk_id == linked_chunk_id_candidate && *chunk == next
+                })
+                .expect("Next chunk should be present");
 
-            let ChunkRow { linked_chunk_id, previous_chunk: previous, next_chunk: next, .. } =
-                chunks.remove(entry_nth_to_remove);
+            // Link the chunk.
+            entry_for_next_chunk.previous_chunk = Some(new);
+        }
 
-            // Find the previous chunk, and update its next chunk.
-            if let Some(previous) = previous {
-                let entry_for_previous_chunk = chunks
-                    .iter_mut()
-                    .find(
-                        |ChunkRow { linked_chunk_id: linked_chunk_id_candidate, chunk, .. }| {
-                            &linked_chunk_id == linked_chunk_id_candidate && *chunk == previous
-                        },
-                    )
-                    .expect("Previous chunk should be present");
+        // Insert the chunk.
+        chunks.push(ChunkRow {
+            linked_chunk_id: linked_chunk_id.to_owned(),
+            previous_chunk: previous,
+            chunk: new,
+            next_chunk: next,
+        });
+    }
 
-                // Insert the chunk.
-                entry_for_previous_chunk.next_chunk = next;
-            }
+    fn remove_chunk(
+        chunks: &mut Vec<ChunkRow>,
+        linked_chunk_id: LinkedChunkId<'_>,
+        chunk_to_remove: ChunkIdentifier,
+    ) {
+        let entry_nth_to_remove = chunks
+            .iter()
+            .enumerate()
+            .find_map(
+                |(nth, ChunkRow { linked_chunk_id: linked_chunk_id_candidate, chunk, .. })| {
+                    (linked_chunk_id == linked_chunk_id_candidate && *chunk == chunk_to_remove)
+                        .then_some(nth)
+                },
+            )
+            .expect("Remove an unknown chunk");
 
-            // Find the next chunk, and update its previous chunk.
-            if let Some(next) = next {
-                let entry_for_next_chunk = chunks
-                    .iter_mut()
-                    .find(
-                        |ChunkRow { linked_chunk_id: linked_chunk_id_candidate, chunk, .. }| {
-                            &linked_chunk_id == linked_chunk_id_candidate && *chunk == next
-                        },
-                    )
-                    .expect("Next chunk should be present");
+        let ChunkRow { linked_chunk_id, previous_chunk: previous, next_chunk: next, .. } =
+            chunks.remove(entry_nth_to_remove);
 
-                // Insert the chunk.
-                entry_for_next_chunk.previous_chunk = previous;
-            }
+        // Find the previous chunk, and update its next chunk.
+        if let Some(previous) = previous {
+            let entry_for_previous_chunk = chunks
+                .iter_mut()
+                .find(|ChunkRow { linked_chunk_id: linked_chunk_id_candidate, chunk, .. }| {
+                    &linked_chunk_id == linked_chunk_id_candidate && *chunk == previous
+                })
+                .expect("Previous chunk should be present");
+
+            // Insert the chunk.
+            entry_for_previous_chunk.next_chunk = next;
+        }
+
+        // Find the next chunk, and update its previous chunk.
+        if let Some(next) = next {
+            let entry_for_next_chunk = chunks
+                .iter_mut()
+                .find(|ChunkRow { linked_chunk_id: linked_chunk_id_candidate, chunk, .. }| {
+                    &linked_chunk_id == linked_chunk_id_candidate && *chunk == next
+                })
+                .expect("Next chunk should be present");
+
+            // Insert the chunk.
+            entry_for_next_chunk.previous_chunk = previous;
         }
     }
 
