@@ -1,6 +1,6 @@
 [package]
 name = "matrix-sdk-ffi"
-version = "0.11.0"
+version = "0.12.0"
 edition = "2021"
 homepage = "https://github.com/matrix-org/matrix-rust-sdk"
 keywords = ["matrix", "chat", "messaging", "ffi"]
