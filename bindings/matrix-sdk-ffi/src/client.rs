@@ -1431,8 +1431,16 @@ impl Client {
     ///   will start as if they were empty.
     /// - This will empty the media cache according to the current media
     ///   retention policy.
-    pub async fn clear_caches(&self) -> Result<(), ClientError> {
+    pub async fn clear_caches(
+        &self,
+        sync_service: Option<Arc<SyncService>>,
+    ) -> Result<(), ClientError> {
         let closure = async || -> Result<_, ClientError> {
+            // First, make sure to expire sessions in the sync service.
+            if let Some(sync_service) = sync_service {
+                sync_service.inner.expire_sessions().await;
+            }
+
             // Clean up the media cache according to the current media retention policy.
             self.inner
                 .event_cache_store()
