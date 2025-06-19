@@ -365,24 +365,29 @@ where
     /// particular order.
     pub fn unordered_linked_chunk_items<'a>(
         &'a self,
-        target: LinkedChunkId<'a>,
+        target: &OwnedLinkedChunkId,
     ) -> impl 'a + Iterator<Item = (&'a Item, Position)> {
-        let target = &target.to_owned();
-
         self.items.get(target).into_iter().flat_map(|items| {
             // Only keep items which have a position.
             items.values().filter_map(|(item, pos)| pos.map(|pos| (item, pos)))
         })
     }
 
-    /// Return an iterator over all items of all room linked chunks, without
-    /// their actual positions.
+    /// Return an iterator over all items of a given linked chunk, along with
+    /// their positions, if available.
+    ///
+    /// The only items which will NOT have a position are those saved with
+    /// [`Self::save_item`].
     ///
     /// This will include out-of-band items.
-    pub fn items(&self) -> impl Iterator<Item = (&Item, LinkedChunkId<'_>)> {
-        self.items.iter().flat_map(|(linked_chunk_id, items)| {
-            items.values().map(|(item, _pos)| (item, linked_chunk_id.as_ref()))
-        })
+    pub fn items(
+        &self,
+        target: &OwnedLinkedChunkId,
+    ) -> impl Iterator<Item = (&Item, Option<Position>)> {
+        self.items
+            .get(target)
+            .into_iter()
+            .flat_map(|items| items.values().map(|(item, pos)| (item, *pos)))
     }
 
     /// Save a single item "out-of-band" in the relational linked chunk.
@@ -1392,7 +1397,7 @@ mod tests {
         );
 
         let events = BTreeMap::from_iter(
-            relational_linked_chunk.unordered_linked_chunk_items(linked_chunk_id.as_ref()),
+            relational_linked_chunk.unordered_linked_chunk_items(&linked_chunk_id),
         );
 
         assert_eq!(events.len(), 6);
