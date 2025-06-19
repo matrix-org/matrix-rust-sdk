@@ -192,7 +192,10 @@ impl EventCacheStore for MemoryStore {
         linked_chunk_id: LinkedChunkId<'_>,
         mut events: Vec<OwnedEventId>,
     ) -> Result<Vec<(OwnedEventId, Position)>, Self::Error> {
-        // Collect all duplicated events.
+        if events.is_empty() {
+            return Ok(Vec::new());
+        }
+
         let inner = self.inner.read().unwrap();
 
         let mut duplicated_events = Vec::new();
@@ -200,11 +203,6 @@ impl EventCacheStore for MemoryStore {
         for (event, position) in
             inner.events.unordered_linked_chunk_items(&linked_chunk_id.to_owned())
         {
-            // If `events` is empty, we can short-circuit.
-            if events.is_empty() {
-                break;
-            }
-
             if let Some(known_event_id) = event.event_id() {
                 // This event is a duplicate!
                 if let Some(index) =
