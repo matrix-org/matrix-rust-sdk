@@ -15,7 +15,6 @@
 use std::{pin::pin, time::Duration};
 
 use assert_matches::assert_matches;
-use async_trait::async_trait;
 use futures_util::FutureExt;
 use matrix_sdk::{
     test_utils::mocks::{MatrixMockServer, RoomMessagesResponseTemplate},
@@ -56,20 +55,19 @@ macro_rules! json_string {
 const WIDGET_ID: &str = "test-widget";
 static ROOM_ID: Lazy<OwnedRoomId> = Lazy::new(|| owned_room_id!("!a98sd12bjh:example.org"));
 
+struct DummyCapabilitiesProvider;
+
+impl CapabilitiesProvider for DummyCapabilitiesProvider {
+    async fn acquire_capabilities(&self, capabilities: Capabilities) -> Capabilities {
+        // Grant all capabilities that the widget asks for
+        capabilities
+    }
+}
+
 async fn run_test_driver(
     init_on_content_load: bool,
     is_room_e2ee: bool,
 ) -> (Client, MatrixMockServer, WidgetDriverHandle) {
-    struct DummyCapabilitiesProvider;
-
-    #[cfg_attr(target_family = "wasm", async_trait(?Send))]
-    #[cfg_attr(not(target_family = "wasm"), async_trait)]
-    impl CapabilitiesProvider for DummyCapabilitiesProvider {
-        async fn acquire_capabilities(&self, capabilities: Capabilities) -> Capabilities {
-            // Grant all capabilities that the widget asks for
-            capabilities
-        }
-    }
     let mock_server = MatrixMockServer::new().await;
     let client = mock_server.client_builder().build().await;
 
@@ -98,16 +96,6 @@ async fn run_test_driver(
 async fn run_test_driver_e2e(
     init_on_content_load: bool,
 ) -> (Client, Client, MatrixMockServer, WidgetDriverHandle) {
-    struct DummyCapabilitiesProvider;
-
-    #[cfg_attr(target_family = "wasm", async_trait(?Send))]
-    #[cfg_attr(not(target_family = "wasm"), async_trait)]
-    impl CapabilitiesProvider for DummyCapabilitiesProvider {
-        async fn acquire_capabilities(&self, capabilities: Capabilities) -> Capabilities {
-            // Grant all capabilities that the widget asks for
-            capabilities
-        }
-    }
     let mock_server = MatrixMockServer::new().await;
     mock_server.mock_crypto_endpoints_preset().await;
     let (alice, bob) = mock_server.set_up_alice_and_bob_for_encryption().await;
