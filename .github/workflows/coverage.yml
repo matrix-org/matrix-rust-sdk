@@ -39,6 +39,11 @@ jobs:
             - 8008:8008
 
     steps:
+      # This CI workflow can run into space issue, so we're cleaning up some
+      # space here.
+      - name: Create some more space
+        run: rm -rf /opt/hostedtoolcache
+
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
@@ -67,11 +72,6 @@ jobs:
 
       - name: Install nextest
         uses: taiki-e/install-action@nextest
-
-      # set up backend for integration tests
-      - uses: actions/setup-python@v5
-        with:
-          python-version: 3.8
 
       - name: Get xtask
         uses: actions/cache/restore@v4
