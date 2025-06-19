@@ -1165,8 +1165,11 @@ impl EventCacheStore for SqliteEventCacheStore {
         room_id: &RoomId,
         event_id: &EventId,
         filters: Option<&[RelationType]>,
-    ) -> Result<Vec<Event>, Self::Error> {
+    ) -> Result<Vec<(Event, Option<Position>)>, Self::Error> {
         let hashed_room_id = self.encode_key(keys::LINKED_CHUNKS, room_id);
+
+        let hashed_linked_chunk_id =
+            self.encode_key(keys::LINKED_CHUNKS, LinkedChunkId::Room(room_id).storage_key());
 
         let event_id = event_id.to_owned();
         let filters = filters.map(ToOwned::to_owned);
@@ -1190,19 +1193,34 @@ impl EventCacheStore for SqliteEventCacheStore {
                 };
 
                 let query = format!(
-                    "SELECT content FROM events WHERE relates_to = ? AND room_id = ? {filter_query}"
+                    "SELECT events.content, event_chunks.chunk_id, event_chunks.position
+                    FROM events
+                    LEFT JOIN event_chunks ON events.event_id = event_chunks.event_id AND event_chunks.linked_chunk_id = ?
+                    WHERE relates_to = ? AND room_id = ? {filter_query}"
                 );
 
                 // Collect related events.
                 let mut related = Vec::new();
-                for ev in
-                    txn.prepare(&query)?.query_map((event_id.as_str(), hashed_room_id), |row| {
-                        row.get::<_, Vec<u8>>(0)
+                for result in
+                    txn.prepare(&query)?.query_map((hashed_linked_chunk_id, event_id.as_str(), hashed_room_id), |row| {
+                        Ok((
+                            row.get::<_, Vec<u8>>(0)?,
+                            row.get::<_, Option<u64>>(1)?,
+                            row.get::<_, Option<usize>>(2)?,
+                        ))
                     })?
                 {
-                    let ev = ev?;
-                    let ev = serde_json::from_slice(&this.decode_value(&ev)?)?;
-                    related.push(ev);
+                    let (event_blob, chunk_id, index) = result?;
+
+                    let event: Event = serde_json::from_slice(&this.decode_value(&event_blob)?)?;
+
+                    // Only build the position if both the chunk_id and position were present; in
+                    // theory, they should either be present at the same time, or not at all.
+                    let pos = chunk_id.zip(index).map(|(chunk_id, index)| {
+                        Position::new(ChunkIdentifier::new(chunk_id), index)
+                    });
+
+                    related.push((event, pos));
                 }
 
                 Ok(related)
