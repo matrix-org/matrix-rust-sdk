@@ -1020,7 +1020,7 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
         // Save All The Things!
         self.save_event(room_id, e1).await.unwrap();
         self.save_event(room_id, edit_e1).await.unwrap();
-        self.save_event(room_id, reaction_e1).await.unwrap();
+        self.save_event(room_id, reaction_e1.clone()).await.unwrap();
         self.save_event(room_id, e2).await.unwrap();
         self.save_event(another_room_id, e3).await.unwrap();
         self.save_event(another_room_id, reaction_e3).await.unwrap();
@@ -1028,8 +1028,13 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
         // Finding relations without a filter returns all of them.
         let relations = self.find_event_relations(room_id, eid1, None).await.unwrap();
         assert_eq!(relations.len(), 2);
-        assert!(relations.iter().any(|r| r.event_id().as_deref() == Some(edit_eid1)));
-        assert!(relations.iter().any(|r| r.event_id().as_deref() == Some(reaction_eid1)));
+        // The position is `None` for items outside the linked chunk.
+        assert!(relations
+            .iter()
+            .any(|(ev, pos)| ev.event_id().as_deref() == Some(edit_eid1) && pos.is_none()));
+        assert!(relations
+            .iter()
+            .any(|(ev, pos)| ev.event_id().as_deref() == Some(reaction_eid1) && pos.is_none()));
 
         // Finding relations with a filter only returns a subset.
         let relations = self
@@ -1037,7 +1042,7 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
             .await
             .unwrap();
         assert_eq!(relations.len(), 1);
-        assert_eq!(relations[0].event_id().as_deref(), Some(edit_eid1));
+        assert_eq!(relations[0].0.event_id().as_deref(), Some(edit_eid1));
 
         let relations = self
             .find_event_relations(
@@ -1048,8 +1053,8 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
             .await
             .unwrap();
         assert_eq!(relations.len(), 2);
-        assert!(relations.iter().any(|r| r.event_id().as_deref() == Some(edit_eid1)));
-        assert!(relations.iter().any(|r| r.event_id().as_deref() == Some(reaction_eid1)));
+        assert!(relations.iter().any(|r| r.0.event_id().as_deref() == Some(edit_eid1)));
+        assert!(relations.iter().any(|r| r.0.event_id().as_deref() == Some(reaction_eid1)));
 
         // We can't find relations using the wrong room.
         let relations = self
@@ -1057,6 +1062,35 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
             .await
             .unwrap();
         assert!(relations.is_empty());
+
+        // But if an event exists in the linked chunk, we may have its position when
+        // it's found as a relationship.
+
+        // Add reaction_e1 to the room's linked chunk.
+        self.handle_linked_chunk_updates(
+            LinkedChunkId::Room(room_id),
+            vec![
+                Update::NewItemsChunk { previous: None, new: CId::new(0), next: None },
+                Update::PushItems { at: Position::new(CId::new(0), 0), items: vec![reaction_e1] },
+            ],
+        )
+        .await
+        .unwrap();
+
+        // When looking for aggregations to e1, we should have the position for
+        // reaction_e1.
+        let relations = self.find_event_relations(room_id, eid1, None).await.unwrap();
+
+        // The position is set for `reaction_eid1` now.
+        assert!(relations.iter().any(|(ev, pos)| {
+            ev.event_id().as_deref() == Some(reaction_eid1)
+                && *pos == Some(Position::new(CId::new(0), 0))
+        }));
+
+        // But it's still not set for the other related events.
+        assert!(relations
+            .iter()
+            .any(|(ev, pos)| ev.event_id().as_deref() == Some(edit_eid1) && pos.is_none()));
     }
 
     async fn test_save_event(&self) {

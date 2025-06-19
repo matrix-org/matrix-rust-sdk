@@ -238,7 +238,7 @@ impl EventCacheStore for MemoryStore {
         room_id: &RoomId,
         event_id: &EventId,
         filters: Option<&[RelationType]>,
-    ) -> Result<Vec<Event>, Self::Error> {
+    ) -> Result<Vec<(Event, Option<Position>)>, Self::Error> {
         let inner = self.inner.read().unwrap();
 
         let target_linked_chunk_id = OwnedLinkedChunkId::Room(room_id.to_owned());
@@ -248,7 +248,7 @@ impl EventCacheStore for MemoryStore {
         let related_events = inner
             .events
             .items(&target_linked_chunk_id)
-            .filter_map(|(event, _pos)| {
+            .filter_map(|(event, pos)| {
                 // Must have a relation.
                 let (related_to, rel_type) = extract_event_relation(event.raw())?;
 
@@ -259,9 +259,9 @@ impl EventCacheStore for MemoryStore {
 
                 // Must not be filtered out.
                 if let Some(filters) = &filters {
-                    filters.contains(&rel_type).then_some(event.clone())
+                    filters.contains(&rel_type).then_some((event.clone(), pos))
                 } else {
-                    Some(event.clone())
+                    Some((event.clone(), pos))
                 }
             })
             .collect();

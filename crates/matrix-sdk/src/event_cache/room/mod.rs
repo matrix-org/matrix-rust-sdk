@@ -1176,7 +1176,8 @@ mod private {
             // transitive closure of all the related events.
             let mut related =
                 store.find_event_relations(&self.room, event_id, filters.as_deref()).await?;
-            let mut stack = related.iter().filter_map(|event| event.event_id()).collect::<Vec<_>>();
+            let mut stack =
+                related.iter().filter_map(|(event, _pos)| event.event_id()).collect::<Vec<_>>();
 
             // Also keep track of already seen events, in case there's a loop in the
             // relation graph.
@@ -1195,13 +1196,16 @@ mod private {
                 let other_related =
                     store.find_event_relations(&self.room, &event_id, filters.as_deref()).await?;
 
-                stack.extend(other_related.iter().filter_map(|event| event.event_id()));
+                stack.extend(other_related.iter().filter_map(|(event, _pos)| event.event_id()));
                 related.extend(other_related);
 
                 num_iters += 1;
             }
 
             trace!(num_related = %related.len(), num_iters, "computed transitive closure of related events");
+
+            // Keep only the events, not their positions.
+            let related = related.into_iter().map(|(event, _pos)| event).collect();
 
             Ok(Some((target, related)))
         }

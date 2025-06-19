@@ -134,7 +134,11 @@ pub trait EventCacheStore: AsyncTraitDeps {
         event_id: &EventId,
     ) -> Result<Option<Event>, Self::Error>;
 
-    /// Find all the events that relate to a given event.
+    /// Find all the events (alongside their position in the room's linked
+    /// chunk, if available) that relate to a given event.
+    ///
+    /// The only events which don't have a position are those which have been
+    /// saved out-of-band using [`Self::save_event`].
     ///
     /// Note: it doesn't process relations recursively: for instance, if
     /// requesting only thread events, it will NOT return the aggregated
@@ -148,7 +152,7 @@ pub trait EventCacheStore: AsyncTraitDeps {
         room_id: &RoomId,
         event_id: &EventId,
         filter: Option<&[RelationType]>,
-    ) -> Result<Vec<Event>, Self::Error>;
+    ) -> Result<Vec<(Event, Option<Position>)>, Self::Error>;
 
     /// Save an event, that might or might not be part of an existing linked
     /// chunk.
@@ -373,7 +377,7 @@ impl<T: EventCacheStore> EventCacheStore for EraseEventCacheStoreError<T> {
         room_id: &RoomId,
         event_id: &EventId,
         filter: Option<&[RelationType]>,
-    ) -> Result<Vec<Event>, Self::Error> {
+    ) -> Result<Vec<(Event, Option<Position>)>, Self::Error> {
         self.0.find_event_relations(room_id, event_id, filter).await.map_err(Into::into)
     }
 
