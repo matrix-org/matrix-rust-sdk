@@ -1,20 +1,21 @@
 use std::time::Duration;
 
-use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
+use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
 use matrix_sdk::{store::RoomLoadSettings, test_utils::mocks::MatrixMockServer};
 use matrix_sdk_base::{
-    store::StoreConfig, BaseClient, RoomInfo, RoomState, SessionMeta, StateChanges, StateStore,
+    BaseClient, RoomInfo, RoomState, SessionMeta, StateChanges, StateStore, store::StoreConfig,
 };
 use matrix_sdk_sqlite::SqliteStateStore;
-use matrix_sdk_test::{event_factory::EventFactory, JoinedRoomBuilder, StateTestEvent};
+use matrix_sdk_test::{JoinedRoomBuilder, StateTestEvent, event_factory::EventFactory};
 use matrix_sdk_ui::timeline::{TimelineBuilder, TimelineFocus};
 use ruma::{
+    EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedUserId,
     api::client::membership::get_member_events,
     device_id,
     events::room::member::{MembershipState, RoomMemberEvent},
     mxc_uri, owned_room_id, owned_user_id,
     serde::Raw,
-    user_id, EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedUserId,
+    user_id,
 };
 use serde_json::json;
 use tokio::runtime::Builder;

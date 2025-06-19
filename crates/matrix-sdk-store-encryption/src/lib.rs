@@ -19,19 +19,18 @@
 use std::ops::DerefMut;
 
 use base64::{
-    alphabet,
-    engine::{general_purpose, GeneralPurpose},
-    Engine,
+    Engine, alphabet,
+    engine::{GeneralPurpose, general_purpose},
 };
-use blake3::{derive_key, Hash};
+use blake3::{Hash, derive_key};
 use chacha20poly1305::{
-    aead::{Aead, Error as EncryptionError},
     Key as ChachaKey, KeyInit, XChaCha20Poly1305, XNonce,
+    aead::{Aead, Error as EncryptionError},
 };
 use hmac::Hmac;
 use pbkdf2::pbkdf2;
-use rand::{thread_rng, Error as RandomError, Fill};
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use rand::{Error as RandomError, Fill, thread_rng};
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use sha2::Sha256;
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
@@ -77,7 +76,9 @@ pub enum Error {
 
     /// Failed to import a store cipher, the export used a passphrase while
     /// we are trying to import it using a key or vice-versa.
-    #[error("Failed to import a store cipher, the export used a passphrase while we are trying to import it using a key or vice-versa")]
+    #[error(
+        "Failed to import a store cipher, the export used a passphrase while we are trying to import it using a key or vice-versa"
+    )]
     KdfMismatch,
 }
 
@@ -812,7 +813,7 @@ struct EncryptedStoreCipher {
 
 #[cfg(test)]
 mod tests {
-    use serde_json::{json, Value};
+    use serde_json::{Value, json};
 
     use super::{Error, StoreCipher};
     use crate::{EncryptedValue, EncryptedValueBase64, EncryptedValueBase64DecodeError};

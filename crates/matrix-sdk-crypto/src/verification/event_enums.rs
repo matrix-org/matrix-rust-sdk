@@ -16,8 +16,11 @@ use std::collections::BTreeMap;
 
 use as_variant::as_variant;
 use ruma::{
+    CanonicalJsonValue, DeviceId, MilliSecondsSinceUnixEpoch, OwnedRoomId, UserId,
     events::{
+        AnyMessageLikeEvent, AnyMessageLikeEventContent, AnyToDeviceEventContent, MessageLikeEvent,
         key::verification::{
+            VerificationMethod,
             accept::{
                 AcceptMethod, KeyVerificationAcceptEventContent,
                 ToDeviceKeyVerificationAcceptEventContent,
@@ -35,13 +38,10 @@ use ruma::{
                 KeyVerificationStartEventContent, StartMethod,
                 ToDeviceKeyVerificationStartEventContent,
             },
-            VerificationMethod,
         },
         room::message::{KeyVerificationRequestEventContent, MessageType},
-        AnyMessageLikeEvent, AnyMessageLikeEventContent, AnyToDeviceEventContent, MessageLikeEvent,
     },
     serde::Base64,
-    CanonicalJsonValue, DeviceId, MilliSecondsSinceUnixEpoch, OwnedRoomId, UserId,
 };
 
 use super::FlowId;

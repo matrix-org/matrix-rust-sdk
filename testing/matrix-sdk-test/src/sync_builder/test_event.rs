@@ -1,11 +1,11 @@
 use ruma::{
     events::{
-        presence::PresenceEvent, AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent,
-        AnyStrippedStateEvent, AnySyncStateEvent,
+        AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent, AnyStrippedStateEvent,
+        AnySyncStateEvent, presence::PresenceEvent,
     },
     serde::Raw,
 };
-use serde_json::{from_value as from_json_value, Value as JsonValue};
+use serde_json::{Value as JsonValue, from_value as from_json_value};
 
 use crate::test_json;
 

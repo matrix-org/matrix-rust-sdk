@@ -15,27 +15,27 @@
 use std::collections::BTreeMap;
 
 use ruma::{
+    DeviceKeyAlgorithm, DeviceKeyId, OwnedDeviceKeyId, UserId,
     events::{
+        AnyMessageLikeEventContent, AnyToDeviceEventContent,
         key::verification::{
             cancel::CancelCode,
             mac::{KeyVerificationMacEventContent, ToDeviceKeyVerificationMacEventContent},
         },
         relation::Reference,
-        AnyMessageLikeEventContent, AnyToDeviceEventContent,
     },
     serde::Base64,
-    DeviceKeyAlgorithm, DeviceKeyId, OwnedDeviceKeyId, UserId,
 };
 use sha2::{Digest, Sha256};
 use tracing::{trace, warn};
-use vodozemac::{sas::EstablishedSas, Curve25519PublicKey};
+use vodozemac::{Curve25519PublicKey, sas::EstablishedSas};
 
-use super::{sas_state::SupportedMacMethod, FlowId, OutgoingContent};
+use super::{FlowId, OutgoingContent, sas_state::SupportedMacMethod};
 use crate::{
+    Emoji, OwnUserIdentityData,
     identities::{DeviceData, UserIdentityData},
     olm::StaticAccountData,
     verification::event_enums::{MacContent, StartContent},
-    Emoji, OwnUserIdentityData,
 };
 
 #[derive(Clone, Debug)]

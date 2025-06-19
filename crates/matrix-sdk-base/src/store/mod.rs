@@ -44,24 +44,24 @@ use matrix_sdk_crypto::store::{DynCryptoStore, IntoCryptoStore};
 pub use matrix_sdk_store_encryption::Error as StoreEncryptionError;
 use observable_map::ObservableMap;
 use ruma::{
+    EventId, OwnedEventId, OwnedRoomId, OwnedUserId, RoomId, UserId,
     events::{
+        AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent, AnyStrippedStateEvent,
+        AnySyncStateEvent, GlobalAccountDataEventType, RoomAccountDataEventType, StateEventType,
         presence::PresenceEvent,
         receipt::ReceiptEventContent,
         room::{member::StrippedRoomMemberEvent, redaction::SyncRoomRedactionEvent},
-        AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent, AnyStrippedStateEvent,
-        AnySyncStateEvent, GlobalAccountDataEventType, RoomAccountDataEventType, StateEventType,
     },
     serde::Raw,
-    EventId, OwnedEventId, OwnedRoomId, OwnedUserId, RoomId, UserId,
 };
-use tokio::sync::{broadcast, Mutex, RwLock};
+use tokio::sync::{Mutex, RwLock, broadcast};
 use tracing::warn;
 
 use crate::{
+    MinimalRoomMemberEvent, Room, RoomStateFilter, SendOutsideWasm, SessionMeta, SyncOutsideWasm,
     deserialized_responses::DisplayName,
     event_cache::store as event_cache_store,
     room::{RoomInfo, RoomInfoNotableUpdate, RoomState},
-    MinimalRoomMemberEvent, Room, RoomStateFilter, SendOutsideWasm, SessionMeta, SyncOutsideWasm,
 };
 
 pub(crate) mod ambiguity_map;

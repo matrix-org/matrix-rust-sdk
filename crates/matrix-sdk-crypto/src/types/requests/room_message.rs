@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use ruma::{events::AnyMessageLikeEventContent, OwnedRoomId, OwnedTransactionId};
+use ruma::{OwnedRoomId, OwnedTransactionId, events::AnyMessageLikeEventContent};
 
 /// Customized owned request type for sending out room messages.
 #[derive(Clone, Debug)]

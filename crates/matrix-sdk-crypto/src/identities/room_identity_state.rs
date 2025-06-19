@@ -16,11 +16,11 @@ use std::{collections::HashMap, ops::Deref};
 
 use matrix_sdk_common::BoxFuture;
 use ruma::{
-    events::{
-        room::member::{MembershipState, SyncRoomMemberEvent},
-        SyncStateEvent,
-    },
     OwnedUserId, UserId,
+    events::{
+        SyncStateEvent,
+        room::member::{MembershipState, SyncRoomMemberEvent},
+    },
 };
 
 use super::UserIdentity;
@@ -333,23 +333,22 @@ mod tests {
     use matrix_sdk_common::BoxFuture;
     use matrix_sdk_test::async_test;
     use ruma::{
-        device_id,
+        MilliSecondsSinceUnixEpoch, OwnedUserId, UInt, UserId, device_id,
         events::{
+            OriginalSyncStateEvent,
             room::member::{
                 MembershipState, RoomMemberEventContent, RoomMemberUnsigned, SyncRoomMemberEvent,
             },
-            OriginalSyncStateEvent,
         },
-        owned_event_id, owned_user_id, user_id, MilliSecondsSinceUnixEpoch, OwnedUserId, UInt,
-        UserId,
+        owned_event_id, owned_user_id, user_id,
     };
 
     use super::{IdentityState, RoomIdentityChange, RoomIdentityProvider, RoomIdentityState};
     use crate::{
-        identities::user::testing::own_identity_wrapped,
-        store::{types::IdentityUpdates, Store},
         IdentityStatusChange, OtherUserIdentity, OtherUserIdentityData, OwnUserIdentityData,
         UserIdentity,
+        identities::user::testing::own_identity_wrapped,
+        store::{Store, types::IdentityUpdates},
     };
 
     #[async_test]
@@ -1112,10 +1111,10 @@ mod tests {
         use tokio::sync::Mutex;
 
         use crate::{
+            Account,
             olm::PrivateCrossSigningIdentity,
             store::{CryptoStoreWrapper, MemoryStore},
             verification::VerificationMachine,
-            Account,
         };
 
         let device_id = owned_device_id!("DEV123");
@@ -1152,10 +1151,10 @@ mod tests {
         use tokio::sync::Mutex;
 
         use crate::{
+            Account,
             olm::PrivateCrossSigningIdentity,
             store::{CryptoStoreWrapper, MemoryStore},
             verification::VerificationMachine,
-            Account,
         };
 
         let device_id = owned_device_id!("DEV123");

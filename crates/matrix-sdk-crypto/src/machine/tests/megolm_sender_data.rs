@@ -19,12 +19,13 @@ use futures_core::Stream;
 use futures_util::{FutureExt, StreamExt};
 use matrix_sdk_common::deserialized_responses::ProcessedToDeviceEvent;
 use matrix_sdk_test::async_test;
-use ruma::{room_id, user_id, RoomId, TransactionId, UserId};
+use ruma::{RoomId, TransactionId, UserId, room_id, user_id};
 use serde::Serialize;
 use serde_json::json;
 use tokio_stream::wrappers::errors::BroadcastStreamRecvError;
 
 use crate::{
+    DeviceData, EncryptionSettings, EncryptionSyncChanges, OlmMachine, Session,
     machine::{
         test_helpers::{
             bootstrap_requests_to_keys_query_response,
@@ -34,8 +35,7 @@ use crate::{
     },
     olm::{InboundGroupSession, SenderData},
     store::types::RoomKeyInfo,
-    types::events::{room::encrypted::ToDeviceEncryptedEventContent, EventType, ToDeviceEvent},
-    DeviceData, EncryptionSettings, EncryptionSyncChanges, OlmMachine, Session,
+    types::events::{EventType, ToDeviceEvent, room::encrypted::ToDeviceEncryptedEventContent},
 };
 
 /// Test the behaviour when a megolm session is received from an unknown device,

@@ -1,20 +1,19 @@
-use std::sync::{atomic::AtomicBool, Arc, OnceLock};
+use std::sync::{Arc, OnceLock, atomic::AtomicBool};
 
 use tracing::warn;
 use tracing_appender::rolling::{RollingFileAppender, Rotation};
 use tracing_core::Subscriber;
 use tracing_subscriber::{
+    Layer,
     field::RecordFields,
     fmt::{
-        self,
+        self, FormatEvent, FormatFields, FormattedFields,
         format::{DefaultFields, Writer},
         time::FormatTime,
-        FormatEvent, FormatFields, FormattedFields,
     },
     layer::SubscriberExt as _,
     registry::LookupSpan,
     util::SubscriberInitExt as _,
-    Layer,
 };
 
 use crate::{error::ClientError, tracing::LogLevel};

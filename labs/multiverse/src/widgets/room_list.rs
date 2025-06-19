@@ -1,13 +1,13 @@
 use std::{collections::HashMap, sync::Arc};
 
 use imbl::Vector;
-use matrix_sdk::{locks::Mutex, ruma::OwnedRoomId, Client, Room};
+use matrix_sdk::{Client, Room, locks::Mutex, ruma::OwnedRoomId};
 use matrix_sdk_ui::sync_service::SyncService;
 use ratatui::{prelude::*, widgets::*};
 
 use crate::{
-    widgets::status::StatusHandle, ALT_ROW_COLOR, HEADER_BG, NORMAL_ROW_COLOR, SELECTED_STYLE_FG,
-    TEXT_COLOR,
+    ALT_ROW_COLOR, HEADER_BG, NORMAL_ROW_COLOR, SELECTED_STYLE_FG, TEXT_COLOR,
+    widgets::status::StatusHandle,
 };
 
 /// Extra room information, like its display name, etc.

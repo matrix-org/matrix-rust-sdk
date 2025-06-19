@@ -2,16 +2,15 @@ use std::time::Duration;
 
 use js_int::uint;
 use matrix_sdk::config::SyncSettings;
-use matrix_sdk_test::{async_test, test_json, DEFAULT_TEST_ROOM_ID};
+use matrix_sdk_test::{DEFAULT_TEST_ROOM_ID, async_test, test_json};
 use ruma::{
-    event_id,
-    events::{location::AssetType, AnySyncStateEvent, StateEventType},
-    MilliSecondsSinceUnixEpoch,
+    MilliSecondsSinceUnixEpoch, event_id,
+    events::{AnySyncStateEvent, StateEventType, location::AssetType},
 };
 use serde_json::json;
 use wiremock::{
-    matchers::{body_partial_json, header, method, path_regex},
     Mock, ResponseTemplate,
+    matchers::{body_partial_json, header, method, path_regex},
 };
 
 use crate::{logged_in_client_with_server, mock_sync};

@@ -2,7 +2,7 @@
 
 use std::{
     collections::{HashMap, HashSet},
-    io::{self, stdout, Write},
+    io::{self, Write, stdout},
     path::{Path, PathBuf},
     sync::Arc,
     time::{Duration, Instant},
@@ -16,23 +16,23 @@ use crossterm::{
     },
     execute,
 };
-use futures_util::{pin_mut, StreamExt as _};
+use futures_util::{StreamExt as _, pin_mut};
 use imbl::Vector;
 use layout::Flex;
 use matrix_sdk::{
+    AuthSession, Client, SqliteCryptoStore, SqliteEventCacheStore, SqliteStateStore,
     authentication::matrix::MatrixSession,
     config::StoreConfig,
     encryption::{BackupDownloadStrategy, EncryptionSettings},
     reqwest::Url,
     ruma::OwnedRoomId,
-    AuthSession, Client, SqliteCryptoStore, SqliteEventCacheStore, SqliteStateStore,
 };
 use matrix_sdk_common::locks::Mutex;
 use matrix_sdk_ui::{
+    Timeline as SdkTimeline,
     room_list_service::{self, filters::new_filter_non_left},
     sync_service::SyncService,
     timeline::{RoomExt as _, TimelineFocus, TimelineItem},
-    Timeline as SdkTimeline,
 };
 use ratatui::{prelude::*, style::palette::tailwind, widgets::*};
 use throbber_widgets_tui::{Throbber, ThrobberState};

@@ -19,9 +19,8 @@ use indexed_db_futures::IdbDatabase;
 use web_sys::DomException;
 
 use crate::crypto_store::{
-    keys,
+    Result, keys,
     migrations::{add_nonunique_index, add_unique_index, do_schema_upgrade, old_keys},
-    Result,
 };
 
 /// Perform schema migrations as needed, up to schema version 5.

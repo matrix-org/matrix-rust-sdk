@@ -5,6 +5,7 @@ use assert_matches2::{assert_let, assert_matches};
 #[cfg(feature = "unstable-msc4274")]
 use matrix_sdk::attachment::{GalleryConfig, GalleryItemInfo};
 use matrix_sdk::{
+    Client, MemoryStore,
     attachment::{AttachmentConfig, AttachmentInfo, BaseImageInfo, Thumbnail},
     config::StoreConfig,
     media::{MediaFormat, MediaRequestParameters, MediaThumbnailSettings},
@@ -14,37 +15,36 @@ use matrix_sdk::{
         RoomSendQueueUpdate, SendHandle,
     },
     test_utils::mocks::{MatrixMock, MatrixMockServer},
-    Client, MemoryStore,
 };
 use matrix_sdk_test::{
-    async_test, event_factory::EventFactory, InvitedRoomBuilder, KnockedRoomBuilder,
-    LeftRoomBuilder, ALICE,
+    ALICE, InvitedRoomBuilder, KnockedRoomBuilder, LeftRoomBuilder, async_test,
+    event_factory::EventFactory,
 };
 #[cfg(feature = "unstable-msc4274")]
 use ruma::events::room::message::GalleryItemType;
 use ruma::{
-    event_id,
+    MxcUri, OwnedEventId, OwnedTransactionId, TransactionId, event_id,
     events::{
+        AnyMessageLikeEventContent, EventContent as _, Mentions,
         poll::unstable_start::{
             NewUnstablePollStartEventContent, UnstablePollAnswer, UnstablePollAnswers,
             UnstablePollStartContentBlock, UnstablePollStartEventContent,
         },
         room::{
+            MediaSource,
             message::{
                 ImageMessageEventContent, MessageType, Relation, ReplyWithinThread,
                 RoomMessageEventContent,
             },
-            MediaSource,
         },
-        AnyMessageLikeEventContent, EventContent as _, Mentions,
     },
     mxc_uri, owned_mxc_uri, owned_user_id, room_id,
     serde::Raw,
-    uint, MxcUri, OwnedEventId, OwnedTransactionId, TransactionId,
+    uint,
 };
 use serde_json::json;
 use tokio::{
-    sync::{broadcast::Receiver, Mutex},
+    sync::{Mutex, broadcast::Receiver},
     task::yield_now,
     time::{sleep, timeout},
 };
@@ -930,18 +930,22 @@ async fn test_edit() {
 
     // While the first item is being sent, the system remembers the intent to edit
     // it, and will send it later.
-    assert!(handle1
-        .edit(RoomMessageEventContent::text_plain("it's never too late!").into())
-        .await
-        .unwrap());
+    assert!(
+        handle1
+            .edit(RoomMessageEventContent::text_plain("it's never too late!").into())
+            .await
+            .unwrap()
+    );
     assert_update!(watch => edit { body = "it's never too late!", txn = txn1 });
 
     // The second item is pending, so we can edit it, using the handle returned by
     // `send()`.
-    assert!(handle2
-        .edit(RoomMessageEventContent::text_plain("new content, who diz").into())
-        .await
-        .unwrap());
+    assert!(
+        handle2
+            .edit(RoomMessageEventContent::text_plain("new content, who diz").into())
+            .await
+            .unwrap()
+    );
     assert_update!(watch => edit { body = "new content, who diz", txn = txn2 });
     assert!(watch.is_empty());
 
@@ -1141,10 +1145,12 @@ async fn test_edit_while_being_sent_and_fails() {
 
     // While the first item is being sent, the system remembers the intent to edit
     // it, and will send it later.
-    assert!(handle
-        .edit(RoomMessageEventContent::text_plain("it's never too late!").into())
-        .await
-        .unwrap());
+    assert!(
+        handle
+            .edit(RoomMessageEventContent::text_plain("it's never too late!").into())
+            .await
+            .unwrap()
+    );
     assert_update!(watch => edit { body = "it's never too late!", txn = txn1 });
 
     // Let the server process the responses.
@@ -1313,11 +1319,16 @@ async fn test_abort_or_edit_after_send() {
     assert_update!(watch => sent { txn = txn, });
 
     // Editing shouldn't work anymore.
-    assert!(handle
-        .edit(RoomMessageEventContent::text_plain("i meant something completely different").into())
-        .await
-        .unwrap()
-        .not());
+    assert!(
+        handle
+            .edit(
+                RoomMessageEventContent::text_plain("i meant something completely different")
+                    .into()
+            )
+            .await
+            .unwrap()
+            .not()
+    );
     // Neither will aborting.
     assert!(handle.abort().await.unwrap().not());
     // Or sending a reaction.

@@ -15,7 +15,7 @@
 #[cfg(test)]
 use matrix_sdk_base::crypto::types::qr_login::QrCodeModeData;
 use matrix_sdk_base::crypto::types::qr_login::{QrCodeData, QrCodeMode};
-use serde::{de::DeserializeOwned, Serialize};
+use serde::{Serialize, de::DeserializeOwned};
 use tracing::{instrument, trace};
 #[cfg(test)]
 use url::Url;
@@ -24,8 +24,8 @@ use vodozemac::ecies::{CheckCode, Ecies, EstablishedEcies, Message, OutboundCrea
 use vodozemac::ecies::{InboundCreationResult, InitialMessage};
 
 use super::{
-    rendezvous_channel::{InboundChannelCreationResult, RendezvousChannel},
     SecureChannelError as Error,
+    rendezvous_channel::{InboundChannelCreationResult, RendezvousChannel},
 };
 use crate::{config::RequestConfig, http_client::HttpClient};
 
@@ -229,8 +229,8 @@ impl EstablishedSecureChannel {
 #[cfg(all(test, not(target_family = "wasm")))]
 pub(super) mod test {
     use std::sync::{
-        atomic::{AtomicU8, Ordering},
         Arc, Mutex,
+        atomic::{AtomicU8, Ordering},
     };
 
     use matrix_sdk_base::crypto::types::qr_login::QrCodeMode;
@@ -240,8 +240,8 @@ pub(super) mod test {
     use similar_asserts::assert_eq;
     use url::Url;
     use wiremock::{
-        matchers::{method, path},
         Mock, MockGuard, MockServer, ResponseTemplate,
+        matchers::{method, path},
     };
 
     use super::{EstablishedSecureChannel, SecureChannel};

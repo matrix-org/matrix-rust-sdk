@@ -15,7 +15,7 @@
 use std::io::{Cursor, Read, Seek, SeekFrom};
 
 use byteorder::{BigEndian, ReadBytesExt};
-use rand::{thread_rng, RngCore};
+use rand::{RngCore, thread_rng};
 use serde_json::Error as SerdeError;
 use thiserror::Error;
 use vodozemac::{base64_decode, base64_encode};
@@ -243,8 +243,8 @@ mod tests {
         encrypt_room_key_export,
     };
     use crate::{
-        error::OlmResult, machine::test_helpers::get_prepared_machine_test_helper,
-        RoomKeyImportResult,
+        RoomKeyImportResult, error::OlmResult,
+        machine::test_helpers::get_prepared_machine_test_helper,
     };
 
     const PASSPHRASE: &str = "1234";

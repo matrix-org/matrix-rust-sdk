@@ -1,7 +1,7 @@
 use clap::{Args, Subcommand};
 use xshell::cmd;
 
-use crate::{sh, workspace, Result, NIGHTLY};
+use crate::{NIGHTLY, Result, sh, workspace};
 
 #[derive(Args)]
 pub struct FixupArgs {

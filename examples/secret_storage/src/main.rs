@@ -1,10 +1,10 @@
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 use matrix_sdk::{
+    AuthSession, Client, SessionMeta, SessionTokens,
     authentication::matrix::MatrixSession,
     encryption::secret_storage::SecretStore,
-    ruma::{events::secret::request::SecretName, OwnedDeviceId, OwnedUserId},
-    AuthSession, Client, SessionMeta, SessionTokens,
+    ruma::{OwnedDeviceId, OwnedUserId, events::secret::request::SecretName},
 };
 use url::Url;
 

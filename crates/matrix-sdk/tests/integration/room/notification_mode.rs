@@ -4,14 +4,14 @@ use assert_matches::assert_matches;
 use matrix_sdk::{config::SyncSettings, notification_settings::RoomNotificationMode};
 use matrix_sdk_base::RoomState;
 use matrix_sdk_test::{
-    async_test, GlobalAccountDataTestEvent, InvitedRoomBuilder, JoinedRoomBuilder,
-    SyncResponseBuilder, DEFAULT_TEST_ROOM_ID,
+    DEFAULT_TEST_ROOM_ID, GlobalAccountDataTestEvent, InvitedRoomBuilder, JoinedRoomBuilder,
+    SyncResponseBuilder, async_test,
 };
 use ruma::room_id;
 use serde_json::json;
 use wiremock::{
-    matchers::{header, method, path_regex},
     Mock, ResponseTemplate,
+    matchers::{header, method, path_regex},
 };
 
 use crate::{logged_in_client_with_server, mock_sync};

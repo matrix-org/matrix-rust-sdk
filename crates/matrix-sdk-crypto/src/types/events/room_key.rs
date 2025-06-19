@@ -16,9 +16,9 @@
 
 use std::collections::BTreeMap;
 
-use ruma::{serde::Raw, OwnedRoomId, RoomId};
+use ruma::{OwnedRoomId, RoomId, serde::Raw};
 use serde::{Deserialize, Serialize};
-use serde_json::{value::to_raw_value, Value};
+use serde_json::{Value, value::to_raw_value};
 use vodozemac::megolm::SessionKey;
 
 use super::{EventType, ToDeviceEvent};
@@ -223,7 +223,7 @@ impl Serialize for RoomKeyContent {
 #[cfg(test)]
 pub(super) mod tests {
     use assert_matches::assert_matches;
-    use serde_json::{json, Value};
+    use serde_json::{Value, json};
     use similar_asserts::assert_eq;
 
     use super::RoomKeyEvent;

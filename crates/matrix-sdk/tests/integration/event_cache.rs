@@ -19,17 +19,17 @@ use matrix_sdk::{
     },
 };
 use matrix_sdk_base::event_cache::{
-    store::{EventCacheStore, MemoryStore},
     Gap,
+    store::{EventCacheStore, MemoryStore},
 };
 use matrix_sdk_test::{
-    async_test, event_factory::EventFactory, GlobalAccountDataTestEvent, JoinedRoomBuilder, ALICE,
-    BOB,
+    ALICE, BOB, GlobalAccountDataTestEvent, JoinedRoomBuilder, async_test,
+    event_factory::EventFactory,
 };
 use ruma::{
-    event_id,
+    EventId, RoomVersionId, event_id,
     events::{AnySyncMessageLikeEvent, AnySyncTimelineEvent, TimelineEventType},
-    room_id, user_id, EventId, RoomVersionId,
+    room_id, user_id,
 };
 use serde_json::json;
 use tokio::{spawn, sync::broadcast, time::sleep};
@@ -1333,10 +1333,9 @@ async fn test_dont_delete_gap_that_wasnt_inserted() {
     server
         .sync_room(
             &client,
-            JoinedRoomBuilder::new(room_id).add_timeline_bulk(vec![f
-                .text_msg("sup")
-                .event_id(event_id!("$3"))
-                .into_raw_sync()]),
+            JoinedRoomBuilder::new(room_id).add_timeline_bulk(vec![
+                f.text_msg("sup").event_id(event_id!("$3")).into_raw_sync(),
+            ]),
         )
         .await;
 
@@ -1479,10 +1478,9 @@ async fn test_apply_redaction_on_an_in_store_event() {
                     // … and its item
                     Update::PushItems {
                         at: Position::new(ChunkIdentifier::new(0), 0),
-                        items: vec![event_factory
-                            .text_msg("foo")
-                            .event_id(event_id!("$ev0"))
-                            .into_event()],
+                        items: vec![
+                            event_factory.text_msg("foo").event_id(event_id!("$ev0")).into_event(),
+                        ],
                     },
                     // chunk #2
                     Update::NewItemsChunk {
@@ -1493,10 +1491,9 @@ async fn test_apply_redaction_on_an_in_store_event() {
                     // … and its item
                     Update::PushItems {
                         at: Position::new(ChunkIdentifier::new(1), 0),
-                        items: vec![event_factory
-                            .text_msg("foo")
-                            .event_id(event_id!("$ev1"))
-                            .into_event()],
+                        items: vec![
+                            event_factory.text_msg("foo").event_id(event_id!("$ev1")).into_event(),
+                        ],
                     },
                 ],
             )

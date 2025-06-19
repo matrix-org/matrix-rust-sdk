@@ -15,19 +15,19 @@
 use std::collections::BTreeMap;
 
 use matrix_sdk_base::{
-    crypto::{types::MasterPubkey, CryptoStoreError, UserIdentity as CryptoUserIdentity},
     RoomMemberships,
+    crypto::{CryptoStoreError, UserIdentity as CryptoUserIdentity, types::MasterPubkey},
 };
 use ruma::{
+    OwnedUserId, UserId,
     events::{
         key::verification::VerificationMethod,
         room::message::{MessageType, RoomMessageEventContent},
     },
-    OwnedUserId, UserId,
 };
 
 use super::{ManualVerifyError, RequestVerificationError};
-use crate::{encryption::verification::VerificationRequest, Client};
+use crate::{Client, encryption::verification::VerificationRequest};
 
 /// Updates about [`UserIdentity`]s which got received over the `/keys/query`
 /// endpoint.

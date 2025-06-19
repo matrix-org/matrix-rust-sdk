@@ -3,12 +3,12 @@ use std::{sync::Arc, time::Duration};
 use anyhow::Result;
 use assign::assign;
 use matrix_sdk::{
+    Client, Room, RoomMemberships, RoomState, StateStoreExt,
     event_handler::Ctx,
     ruma::{
         api::client::room::create_room::v3::Request as CreateRoomRequest,
         events::room::member::{MembershipState, StrippedRoomMemberEvent},
     },
-    Client, Room, RoomMemberships, RoomState, StateStoreExt,
 };
 use matrix_sdk_common::executor::spawn;
 use tokio::sync::Notify;

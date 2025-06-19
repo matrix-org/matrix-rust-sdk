@@ -25,13 +25,12 @@ use tracing::{debug, info};
 use web_sys::{DomException, IdbTransactionMode};
 
 use crate::{
+    IndexeddbCryptoStoreError,
     crypto_store::{
-        keys,
-        migrations::{add_nonunique_index, do_schema_upgrade, old_keys, v7, MigrationDb},
-        Result,
+        Result, keys,
+        migrations::{MigrationDb, add_nonunique_index, do_schema_upgrade, old_keys, v7},
     },
     serializer::IndexeddbSerializer,
-    IndexeddbCryptoStoreError,
 };
 
 /// Perform the schema upgrade v5 to v6, creating `inbound_group_sessions2`.

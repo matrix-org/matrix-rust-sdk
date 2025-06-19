@@ -21,12 +21,12 @@ use tracing::{debug, info};
 use web_sys::{DomException, IdbTransactionMode};
 
 use crate::{
+    IndexeddbCryptoStoreError,
     crypto_store::{
-        migrations::{do_schema_upgrade, old_keys, v7, MigrationDb},
         Result,
+        migrations::{MigrationDb, do_schema_upgrade, old_keys, v7},
     },
     serializer::IndexeddbSerializer,
-    IndexeddbCryptoStoreError,
 };
 
 /// In the migration v5 to v7, we incorrectly copied the keys in
@@ -101,7 +101,9 @@ pub(crate) async fn data_migrate(name: &str, serializer: &IndexeddbSerializer) -
             }
 
             if !cursor.continue_cursor()?.await? {
-                debug!("Migrated {row_count} sessions: {updated} keys updated and {deleted} obsolete entries deleted.");
+                debug!(
+                    "Migrated {row_count} sessions: {updated} keys updated and {deleted} obsolete entries deleted."
+                );
                 break;
             }
         }

@@ -2,13 +2,13 @@ use std::sync::{Arc, RwLock};
 
 use futures_util::StreamExt;
 use matrix_sdk::{
+    Account,
     encryption::{
+        Encryption,
         identities::UserIdentity,
         verification::{SasState, SasVerification, VerificationRequest, VerificationRequestState},
-        Encryption,
     },
     ruma::events::key::verification::VerificationMethod,
-    Account,
 };
 use matrix_sdk_common::{SendOutsideWasm, SyncOutsideWasm};
 use ruma::UserId;
@@ -235,7 +235,9 @@ impl SessionVerificationController {
         if sender != self.user_identity.user_id() {
             if let Some(status) = self.encryption.cross_signing_status().await {
                 if !status.is_complete() {
-                    warn!("Cannot verify other users until our own device's cross-signing status is complete: {status:?}");
+                    warn!(
+                        "Cannot verify other users until our own device's cross-signing status is complete: {status:?}"
+                    );
                     return;
                 }
             }

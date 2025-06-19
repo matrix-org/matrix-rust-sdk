@@ -15,7 +15,7 @@
 
 //! High-level pusher API.
 
-use ruma::api::client::push::{set_pusher, PusherIds};
+use ruma::api::client::push::{PusherIds, set_pusher};
 
 use crate::{Client, Result};
 
@@ -57,8 +57,8 @@ mod tests {
         push::HttpPusherData,
     };
     use wiremock::{
-        matchers::{method, path},
         Mock, MockServer, ResponseTemplate,
+        matchers::{method, path},
     };
 
     use crate::test_utils::logged_in_client;

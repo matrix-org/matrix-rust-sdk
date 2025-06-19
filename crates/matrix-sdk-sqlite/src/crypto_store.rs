@@ -23,38 +23,38 @@ use std::{
 use async_trait::async_trait;
 use deadpool_sqlite::{Object as SqliteAsyncConn, Pool as SqlitePool, Runtime};
 use matrix_sdk_crypto::{
+    Account, DeviceData, GossipRequest, GossippedSecret, SecretInfo, TrackedUser, UserIdentityData,
     olm::{
         InboundGroupSession, OutboundGroupSession, PickledInboundGroupSession,
         PrivateCrossSigningIdentity, SenderDataType, Session, StaticAccountData,
     },
     store::{
+        CryptoStore,
         types::{
             BackupKeys, Changes, DehydratedDeviceKey, PendingChanges, RoomKeyCounts, RoomSettings,
             StoredRoomKeyBundleData,
         },
-        CryptoStore,
     },
     types::events::room_key_withheld::RoomKeyWithheldEvent,
-    Account, DeviceData, GossipRequest, GossippedSecret, SecretInfo, TrackedUser, UserIdentityData,
 };
 use matrix_sdk_store_encryption::StoreCipher;
 use ruma::{
-    events::secret::request::SecretName, DeviceId, MilliSecondsSinceUnixEpoch, OwnedDeviceId,
-    RoomId, TransactionId, UserId,
+    DeviceId, MilliSecondsSinceUnixEpoch, OwnedDeviceId, RoomId, TransactionId, UserId,
+    events::secret::request::SecretName,
 };
-use rusqlite::{named_params, params_from_iter, OptionalExtension};
-use serde::{de::DeserializeOwned, Serialize};
+use rusqlite::{OptionalExtension, named_params, params_from_iter};
+use serde::{Serialize, de::DeserializeOwned};
 use tokio::{fs, sync::Mutex};
 use tracing::{debug, instrument, warn};
 use vodozemac::Curve25519PublicKey;
 
 use crate::{
+    OpenStoreError, SqliteStoreConfig,
     error::{Error, Result},
     utils::{
-        repeat_vars, Key, SqliteAsyncConnExt, SqliteKeyValueStoreAsyncConnExt,
-        SqliteKeyValueStoreConnExt,
+        Key, SqliteAsyncConnExt, SqliteKeyValueStoreAsyncConnExt, SqliteKeyValueStoreConnExt,
+        repeat_vars,
     },
-    OpenStoreError, SqliteStoreConfig,
 };
 
 /// The database name.
@@ -1050,11 +1050,7 @@ impl CryptoStore for SqliteCryptoStore {
             })
             .collect::<Result<_>>()?;
 
-        if sessions.is_empty() {
-            Ok(None)
-        } else {
-            Ok(Some(sessions))
-        }
+        if sessions.is_empty() { Ok(None) } else { Ok(Some(sessions)) }
     }
 
     #[instrument(skip(self))]
@@ -1504,7 +1500,7 @@ mod tests {
     use once_cell::sync::Lazy;
     use ruma::{device_id, room_id, user_id};
     use similar_asserts::assert_eq;
-    use tempfile::{tempdir, TempDir};
+    use tempfile::{TempDir, tempdir};
     use tokio::fs;
 
     use super::SqliteCryptoStore;
@@ -1916,7 +1912,7 @@ mod tests {
 mod encrypted_tests {
     use matrix_sdk_crypto::{cryptostore_integration_tests, cryptostore_integration_tests_time};
     use once_cell::sync::Lazy;
-    use tempfile::{tempdir, TempDir};
+    use tempfile::{TempDir, tempdir};
     use tokio::fs;
 
     use super::SqliteCryptoStore;

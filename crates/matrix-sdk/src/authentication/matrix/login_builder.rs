@@ -29,7 +29,7 @@ use tracing::{info, instrument};
 use super::MatrixAuth;
 #[cfg(feature = "sso-login")]
 use crate::utils::local_server::LocalServerBuilder;
-use crate::{config::RequestConfig, Result};
+use crate::{Result, config::RequestConfig};
 
 /// The login method.
 ///

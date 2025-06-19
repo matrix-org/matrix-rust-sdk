@@ -19,9 +19,10 @@ use matrix_sdk_common::deserialized_responses::{
 };
 use matrix_sdk_test::async_test;
 use ruma::{events::AnyToDeviceEvent, serde::Raw, to_device::DeviceIdOrAllDevices};
-use serde_json::{json, value::to_raw_value, Value};
+use serde_json::{Value, json, value::to_raw_value};
 
 use crate::{
+    DeviceData, EncryptionSyncChanges, LocalTrust, OlmError, OlmMachine,
     machine::{
         test_helpers::{
             build_session_for_pair, get_machine_pair, get_machine_pair_with_session,
@@ -36,7 +37,6 @@ use crate::{
     },
     utilities::json_convert,
     verification::tests::bob_id,
-    DeviceData, EncryptionSyncChanges, LocalTrust, OlmError, OlmMachine,
 };
 
 #[async_test]
@@ -71,9 +71,11 @@ async fn test_send_encrypted_to_device() {
     assert!(messages.get(bob.user_id()).is_some());
     let target_devices = messages.get(bob.user_id()).unwrap();
     assert_eq!(1, target_devices.len());
-    assert!(target_devices
-        .get(&DeviceIdOrAllDevices::DeviceId(tests::bob_device_id().to_owned()))
-        .is_some());
+    assert!(
+        target_devices
+            .get(&DeviceIdOrAllDevices::DeviceId(tests::bob_device_id().to_owned()))
+            .is_some()
+    );
 
     let event = ToDeviceEvent::new(
         alice.user_id().to_owned(),

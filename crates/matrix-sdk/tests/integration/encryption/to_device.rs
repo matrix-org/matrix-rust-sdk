@@ -13,8 +13,8 @@ use matrix_sdk_test::{async_test, test_json};
 use ruma::{events::AnyToDeviceEvent, serde::Raw};
 use serde_json::json;
 use wiremock::{
-    matchers::{method, path_regex},
     Mock, ResponseTemplate,
+    matchers::{method, path_regex},
 };
 
 #[async_test]

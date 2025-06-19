@@ -1,5 +1,5 @@
 use proc_macro::TokenStream;
-use quote::{format_ident, quote, ToTokens};
+use quote::{ToTokens, format_ident, quote};
 use syn::parse_macro_input;
 
 /// Attribute to use `wasm_bindgen_test` for wasm32 targets and `tokio::test`

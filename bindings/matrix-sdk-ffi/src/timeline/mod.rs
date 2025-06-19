@@ -17,7 +17,7 @@ use std::{collections::HashMap, fmt::Write as _, fs, panic, sync::Arc};
 use anyhow::{Context, Result};
 use as_variant::as_variant;
 use eyeball_im::VectorDiff;
-use futures_util::{pin_mut, StreamExt as _};
+use futures_util::{StreamExt as _, pin_mut};
 use matrix_sdk::{
     attachment::{
         AttachmentConfig, AttachmentInfo, BaseAudioInfo, BaseFileInfo, BaseImageInfo,
@@ -38,7 +38,9 @@ use matrix_sdk_ui::timeline::{
 use mime::Mime;
 use reply::{EmbeddedEventDetails, InReplyToDetails};
 use ruma::{
+    EventId, UInt,
     events::{
+        AnyMessageLikeEventContent,
         location::{AssetType as RumaAssetType, LocationContent, ZoomLevel},
         poll::{
             unstable_end::UnstablePollEndEventContent,
@@ -53,9 +55,7 @@ use ruma::{
             LocationMessageEventContent, MessageType, ReplyWithinThread,
             RoomMessageEventContentWithoutRelation,
         },
-        AnyMessageLikeEventContent,
     },
-    EventId, UInt,
 };
 use tokio::sync::Mutex;
 use tracing::{error, warn};
@@ -561,7 +561,9 @@ impl Timeline {
                 let event_id = match event_or_transaction_id {
                     EventOrTransactionId::EventId { event_id } => EventId::parse(event_id)?,
                     EventOrTransactionId::TransactionId { .. } => {
-                        warn!("trying to apply an edit to a local echo that doesn't exist in this timeline, aborting");
+                        warn!(
+                            "trying to apply an edit to a local echo that doesn't exist in this timeline, aborting"
+                        );
                         return Ok(());
                     }
                 };
@@ -1396,7 +1398,7 @@ mod galleries {
     use crate::{
         error::RoomError,
         ruma::{AudioInfo, FileInfo, FormattedBody, ImageInfo, Mentions, VideoInfo},
-        timeline::{build_thumbnail_info, ReplyParameters, Timeline},
+        timeline::{ReplyParameters, Timeline, build_thumbnail_info},
     };
 
     #[derive(uniffi::Record)]

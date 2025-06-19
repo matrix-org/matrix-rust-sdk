@@ -2,10 +2,11 @@ use http::Response;
 pub use matrix_sdk_test_macros::async_test;
 use once_cell::sync::Lazy;
 use ruma::{
+    RoomId, UserId,
     api::{
-        client::sync::sync_events::v3::Response as SyncResponse, IncomingResponse, OutgoingResponse,
+        IncomingResponse, OutgoingResponse, client::sync::sync_events::v3::Response as SyncResponse,
     },
-    room_id, user_id, RoomId, UserId,
+    room_id, user_id,
 };
 use serde_json::Value as JsonValue;
 
@@ -120,9 +121,9 @@ mod sync_builder;
 pub mod test_json;
 
 pub use self::sync_builder::{
-    bulk_room_members, GlobalAccountDataTestEvent, InvitedRoomBuilder, JoinedRoomBuilder,
-    KnockedRoomBuilder, LeftRoomBuilder, PresenceTestEvent, RoomAccountDataTestEvent,
-    StateTestEvent, StrippedStateTestEvent, SyncResponseBuilder,
+    GlobalAccountDataTestEvent, InvitedRoomBuilder, JoinedRoomBuilder, KnockedRoomBuilder,
+    LeftRoomBuilder, PresenceTestEvent, RoomAccountDataTestEvent, StateTestEvent,
+    StrippedStateTestEvent, SyncResponseBuilder, bulk_room_members,
 };
 
 pub static ALICE: Lazy<&UserId> = Lazy::new(|| user_id!("@alice:server.name"));

@@ -16,16 +16,16 @@ use std::{fmt, sync::Arc};
 
 use async_trait::async_trait;
 use matrix_sdk_common::{
+    AsyncTraitDeps,
     linked_chunk::{
         ChunkIdentifier, ChunkIdentifierGenerator, LinkedChunkId, Position, RawChunk, Update,
     },
-    AsyncTraitDeps,
 };
-use ruma::{events::relation::RelationType, EventId, MxcUri, OwnedEventId, RoomId};
+use ruma::{EventId, MxcUri, OwnedEventId, RoomId, events::relation::RelationType};
 
 use super::{
-    media::{IgnoreMediaRetentionPolicy, MediaRetentionPolicy},
     EventCacheStoreError,
+    media::{IgnoreMediaRetentionPolicy, MediaRetentionPolicy},
 };
 use crate::{
     event_cache::{Event, Gap},
@@ -224,7 +224,7 @@ pub trait EventCacheStore: AsyncTraitDeps {
     ///
     /// * `uri` - The `MxcUri` of the media file.
     async fn get_media_content_for_uri(&self, uri: &MxcUri)
-        -> Result<Option<Vec<u8>>, Self::Error>;
+    -> Result<Option<Vec<u8>>, Self::Error>;
 
     /// Remove all the media files' content associated to an `MxcUri` from the
     /// media store.

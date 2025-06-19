@@ -19,16 +19,16 @@ use std::collections::BTreeMap;
 use ruma::{OwnedDeviceId, RoomId};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use vodozemac::{megolm::MegolmMessage, olm::OlmMessage, Curve25519PublicKey};
+use vodozemac::{Curve25519PublicKey, megolm::MegolmMessage, olm::OlmMessage};
 
 use super::Event;
 use crate::types::{
-    deserialize_curve_key,
+    EventEncryptionAlgorithm, deserialize_curve_key,
     events::{
-        room_key_request::{self, SupportedKeyInfo},
         EventType, ToDeviceEvent,
+        room_key_request::{self, SupportedKeyInfo},
     },
-    serialize_curve_key, EventEncryptionAlgorithm,
+    serialize_curve_key,
 };
 
 /// An m.room.encrypted room event.
@@ -422,7 +422,7 @@ scheme_serialization!(
 pub(crate) mod tests {
     use assert_matches::assert_matches;
     use assert_matches2::assert_let;
-    use serde_json::{json, Value};
+    use serde_json::{Value, json};
     use vodozemac::Curve25519PublicKey;
 
     use super::{

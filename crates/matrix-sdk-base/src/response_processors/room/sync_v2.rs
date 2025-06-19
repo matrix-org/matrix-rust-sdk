@@ -15,20 +15,20 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use ruma::{
-    api::client::sync::sync_events::v3::{InvitedRoom, JoinedRoom, KnockedRoom, LeftRoom},
     OwnedRoomId, OwnedUserId, RoomId,
+    api::client::sync::sync_events::v3::{InvitedRoom, JoinedRoom, KnockedRoom, LeftRoom},
 };
 use tokio::sync::broadcast::Sender;
 
 #[cfg(feature = "e2e-encryption")]
 use super::super::e2ee;
 use super::{
-    super::{account_data, ephemeral_events, notification, state_events, timeline, Context},
+    super::{Context, account_data, ephemeral_events, notification, state_events, timeline},
     RoomCreationData,
 };
 use crate::{
-    sync::{InvitedRoomUpdate, JoinedRoomUpdate, KnockedRoomUpdate, LeftRoomUpdate},
     Result, RoomInfoNotableUpdate, RoomState,
+    sync::{InvitedRoomUpdate, JoinedRoomUpdate, KnockedRoomUpdate, LeftRoomUpdate},
 };
 
 /// Process updates of a joined room.

@@ -22,7 +22,7 @@ use futures_util::StreamExt;
 use matrix_sdk_common::executor::spawn;
 use ruma::api::client::delayed_events::DelayParameters;
 use serde::de::{self, Deserialize, Deserializer, Visitor};
-use tokio::sync::mpsc::{unbounded_channel, UnboundedSender};
+use tokio::sync::mpsc::{UnboundedSender, unbounded_channel};
 use tokio_stream::wrappers::UnboundedReceiverStream;
 use tokio_util::sync::{CancellationToken, DropGuard};
 
@@ -33,7 +33,7 @@ use self::{
     },
     matrix::MatrixDriver,
 };
-use crate::{room::Room, Result};
+use crate::{Result, room::Room};
 
 mod capabilities;
 mod filter;

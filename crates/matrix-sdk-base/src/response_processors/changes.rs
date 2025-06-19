@@ -14,15 +14,15 @@
 
 use eyeball::SharedObservable;
 use ruma::{
-    events::{ignored_user_list::IgnoredUserListEvent, GlobalAccountDataEventType},
+    events::{GlobalAccountDataEventType, ignored_user_list::IgnoredUserListEvent},
     serde::Raw,
 };
 use tracing::{error, instrument, trace};
 
 use super::Context;
 use crate::{
-    store::{BaseStateStore, StateStoreExt as _},
     Result,
+    store::{BaseStateStore, StateStoreExt as _},
 };
 
 /// Save the [`StateChanges`] from the [`Context`] inside the [`BaseStateStore`]

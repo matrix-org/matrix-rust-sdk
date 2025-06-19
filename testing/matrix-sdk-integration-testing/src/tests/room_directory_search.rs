@@ -21,9 +21,9 @@ use eyeball_im::VectorDiff;
 use futures::StreamExt;
 use matrix_sdk::{
     room_directory_search::RoomDirectorySearch,
-    ruma::api::client::room::{create_room::v3::Request as CreateRoomRequest, Visibility},
+    ruma::api::client::room::{Visibility, create_room::v3::Request as CreateRoomRequest},
 };
-use rand::{thread_rng, Rng};
+use rand::{Rng, thread_rng};
 use stream_assert::assert_pending;
 use tokio::time::sleep;
 use tracing::warn;

@@ -126,11 +126,7 @@ impl NotificationClient {
         let item =
             self.inner.get_notification(&room_id, &event_id).await.map_err(ClientError::from)?;
 
-        if let Some(item) = item {
-            Ok(Some(NotificationItem::from_inner(item)))
-        } else {
-            Ok(None)
-        }
+        if let Some(item) = item { Ok(Some(NotificationItem::from_inner(item))) } else { Ok(None) }
     }
 
     /// Get several notification items in a single batch.

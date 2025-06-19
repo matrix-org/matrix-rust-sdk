@@ -87,7 +87,7 @@ pub fn replace_properties(url: &mut Url, props: QueryProperties) {
 mod tests {
     use url::Url;
 
-    use super::{replace_properties, QueryProperties};
+    use super::{QueryProperties, replace_properties};
 
     const EXAMPLE_URL: &str = "\
         https://my.widget.org/custom/path/using/$matrix_display_name/in/it\

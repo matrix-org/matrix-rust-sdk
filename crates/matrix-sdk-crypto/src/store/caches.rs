@@ -22,8 +22,8 @@ use std::{
     fmt::Display,
     ops::Deref,
     sync::{
-        atomic::{AtomicBool, Ordering},
         Arc, Weak,
+        atomic::{AtomicBool, Ordering},
     },
 };
 
@@ -31,10 +31,10 @@ use matrix_sdk_common::locks::RwLock as StdRwLock;
 use ruma::{DeviceId, OwnedDeviceId, OwnedUserId, UserId};
 use serde::{Deserialize, Serialize};
 use tokio::sync::{Mutex, MutexGuard, OwnedRwLockReadGuard, RwLock};
-use tracing::{field::display, instrument, trace, Span};
+use tracing::{Span, field::display, instrument, trace};
 
 use super::{CryptoStoreError, CryptoStoreWrapper};
-use crate::{identities::DeviceData, olm::Session, Account};
+use crate::{Account, identities::DeviceData, olm::Session};
 
 /// In-memory store for Olm Sessions.
 #[derive(Debug, Default, Clone)]

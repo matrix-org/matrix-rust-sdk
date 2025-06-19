@@ -3,14 +3,14 @@
 use std::collections::HashMap;
 
 use ruma::{
+    OwnedUserId,
     events::{
+        StateEventType,
         room::power_levels::{
             PossiblyRedactedRoomPowerLevelsEventContent, RoomPowerLevels,
             RoomPowerLevelsEventContent,
         },
-        StateEventType,
     },
-    OwnedUserId,
 };
 
 use crate::Result;

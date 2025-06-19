@@ -16,19 +16,19 @@ use std::collections::BTreeMap;
 
 use eyeball::{AsyncLock, ObservableWriteGuard};
 use ruma::{
-    events::{
-        room::member::{MembershipState, RoomMemberEventContent},
-        StateEventType, SyncStateEvent,
-    },
     OwnedEventId, OwnedUserId,
+    events::{
+        StateEventType, SyncStateEvent,
+        room::member::{MembershipState, RoomMemberEventContent},
+    },
 };
 use tracing::warn;
 
 use super::Room;
 use crate::{
+    StateStoreDataKey, StateStoreDataValue, StoreError,
     deserialized_responses::{MemberEvent, RawMemberEvent, SyncOrStrippedState},
     store::{Result as StoreResult, StateStoreExt},
-    StateStoreDataKey, StateStoreDataValue, StoreError,
 };
 
 impl Room {
@@ -51,7 +51,10 @@ impl Room {
                     if event.content.membership == MembershipState::Knock {
                         event_to_user_ids.push((event.event_id, event.state_key))
                     } else {
-                        warn!("Could not mark knock event as seen: event {} for user {} is not in Knock membership state.", event.event_id, event.state_key);
+                        warn!(
+                            "Could not mark knock event as seen: event {} for user {} is not in Knock membership state.",
+                            event.event_id, event.state_key
+                        );
                     }
                 }
                 _ => warn!(

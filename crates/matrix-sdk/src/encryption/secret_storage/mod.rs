@@ -63,15 +63,15 @@
 use std::string::FromUtf8Error;
 
 use matrix_sdk_base::crypto::{
-    secret_storage::{DecodeError, MacError, SecretStorageKey},
     CryptoStoreError, SecretImportError,
+    secret_storage::{DecodeError, MacError, SecretStorageKey},
 };
 use ruma::{
     events::{
+        EventContentFromType, GlobalAccountDataEventType,
         secret_storage::{
             default_key::SecretStorageDefaultKeyEventContent, key::SecretStorageKeyEventContent,
         },
-        EventContentFromType, GlobalAccountDataEventType,
     },
     serde::Raw,
 };

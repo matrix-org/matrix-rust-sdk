@@ -3,8 +3,8 @@ use std::ops::Deref;
 use ruma::events::room::MediaSource;
 
 use crate::{
-    media::{MediaFormat, MediaRequestParameters},
     BaseRoomMember, Client, Result,
+    media::{MediaFormat, MediaRequestParameters},
 };
 
 /// The high-level `RoomMember` representation
@@ -41,8 +41,8 @@ impl RoomMember {
     ///
     /// ```no_run
     /// use matrix_sdk::{
-    ///     media::MediaFormat, room::RoomMember, ruma::room_id, Client,
-    ///     RoomMemberships,
+    ///     Client, RoomMemberships, media::MediaFormat, room::RoomMember,
+    ///     ruma::room_id,
     /// };
     /// # use url::Url;
     /// # let homeserver = Url::parse("http://example.com").unwrap();

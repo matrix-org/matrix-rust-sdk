@@ -25,11 +25,12 @@ use matrix_sdk_base::crypto::{
     CryptoStoreError, DecryptorError, KeyExportError, MegolmError, OlmError,
 };
 use matrix_sdk_base::{
-    event_cache::store::EventCacheStoreError, Error as SdkBaseError, QueueWedgeError, RoomState,
-    StoreError,
+    Error as SdkBaseError, QueueWedgeError, RoomState, StoreError,
+    event_cache::store::EventCacheStoreError,
 };
 use reqwest::Error as ReqwestError;
 use ruma::{
+    IdParseError,
     api::{
         client::{
             error::{ErrorBody, ErrorKind, RetryAfter},
@@ -39,7 +40,6 @@ use ruma::{
     },
     events::tag::InvalidUserTagName,
     push::{InsertPushRuleError, RemovePushRuleError},
-    IdParseError,
 };
 use serde_json::Error as JsonError;
 use thiserror::Error;

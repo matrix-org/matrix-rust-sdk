@@ -1,11 +1,11 @@
 use std::{env, process::exit};
 
 use matrix_sdk::{
+    Client, Room, RoomState,
     config::SyncSettings,
     ruma::events::room::message::{
         MessageType, OriginalSyncRoomMessageEvent, RoomMessageEventContent,
     },
-    Client, Room, RoomState,
 };
 
 async fn on_room_message(event: OriginalSyncRoomMessageEvent, room: Room) {

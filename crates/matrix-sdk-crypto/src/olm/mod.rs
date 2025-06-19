@@ -25,36 +25,36 @@ pub(crate) mod utility;
 
 pub use account::{Account, OlmMessageHash, PickledAccount, StaticAccountData};
 pub(crate) use account::{OlmDecryptionInfo, SessionType};
-pub(crate) use group_sessions::{
-    sender_data_finder::{self, SenderDataFinder},
-    ShareState,
-};
 pub use group_sessions::{
     BackedUpRoomKey, EncryptionSettings, ExportedRoomKey, InboundGroupSession, KnownSenderData,
     OutboundGroupSession, PickledInboundGroupSession, PickledOutboundGroupSession, SenderData,
     SenderDataType, SessionCreationError, SessionExportError, SessionKey, ShareInfo,
 };
+pub(crate) use group_sessions::{
+    ShareState,
+    sender_data_finder::{self, SenderDataFinder},
+};
 pub use session::{PickledSession, Session};
 pub use signing::{CrossSigningStatus, PickledCrossSigningIdentity, PrivateCrossSigningIdentity};
 pub(crate) use utility::{SignedJsonObject, VerifyJson};
-pub use vodozemac::{olm::IdentityKeys, Curve25519PublicKey};
+pub use vodozemac::{Curve25519PublicKey, olm::IdentityKeys};
 
 #[cfg(test)]
 pub(crate) mod tests {
     use assert_matches::assert_matches;
     use matrix_sdk_test::{async_test, message_like_event_content};
     use ruma::{
-        device_id, event_id,
+        DeviceId, UserId, device_id, event_id,
         events::{
+            AnyMessageLikeEvent, AnyTimelineEvent, MessageLikeEvent,
             relation::Replacement,
             room::message::{Relation, RoomMessageEventContent},
-            AnyMessageLikeEvent, AnyTimelineEvent, MessageLikeEvent,
         },
         room_id,
         serde::Raw,
-        user_id, DeviceId, UserId,
+        user_id,
     };
-    use serde_json::{from_value, json, Value};
+    use serde_json::{Value, from_value, json};
     use vodozemac::olm::{OlmMessage, SessionConfig};
 
     use crate::{

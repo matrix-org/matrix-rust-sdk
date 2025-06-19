@@ -22,15 +22,17 @@ use itertools::Itertools;
 #[cfg(feature = "experimental-send-custom-to-device")]
 use matrix_sdk_common::deserialized_responses::WithheldCode;
 use matrix_sdk_common::{
+    BoxFuture,
     deserialized_responses::{
         AlgorithmInfo, DecryptedRoomEvent, DeviceLinkProblem, EncryptionInfo,
         ProcessedToDeviceEvent, UnableToDecryptInfo, UnableToDecryptReason,
         UnsignedDecryptionResult, UnsignedEventLocation, VerificationLevel, VerificationState,
     },
     locks::RwLock as StdRwLock,
-    BoxFuture,
 };
 use ruma::{
+    DeviceId, MilliSecondsSinceUnixEpoch, OneTimeKeyAlgorithm, OwnedDeviceId, OwnedDeviceKeyId,
+    OwnedTransactionId, OwnedUserId, RoomId, TransactionId, UInt, UserId,
     api::client::{
         dehydrated_device::DehydratedDeviceData,
         keys::{
@@ -43,31 +45,31 @@ use ruma::{
     },
     assign,
     events::{
-        secret::request::SecretName, AnyMessageLikeEvent, AnyMessageLikeEventContent,
-        AnyToDeviceEvent, MessageLikeEventContent,
+        AnyMessageLikeEvent, AnyMessageLikeEventContent, AnyToDeviceEvent, MessageLikeEventContent,
+        secret::request::SecretName,
     },
     serde::{JsonObject, Raw},
-    DeviceId, MilliSecondsSinceUnixEpoch, OneTimeKeyAlgorithm, OwnedDeviceId, OwnedDeviceKeyId,
-    OwnedTransactionId, OwnedUserId, RoomId, TransactionId, UInt, UserId,
 };
-use serde_json::{value::to_raw_value, Value};
+use serde_json::{Value, value::to_raw_value};
 use tokio::sync::Mutex;
 use tracing::{
-    debug, error,
+    Span, debug, error,
     field::{debug, display},
-    info, instrument, trace, warn, Span,
+    info, instrument, trace, warn,
 };
 use vodozemac::{
-    megolm::{DecryptionError, SessionOrdering},
     Curve25519PublicKey, Ed25519Signature,
+    megolm::{DecryptionError, SessionOrdering},
 };
 
 use crate::{
+    CollectStrategy, CryptoStoreError, DecryptionSettings, DeviceData, LocalTrust,
+    RoomEventDecryptionResult, SignatureError, TrustRequirement,
     backups::{BackupMachine, MegolmV1BackupKey},
     dehydrated_devices::{DehydratedDevices, DehydrationError},
     error::{EventError, MegolmError, MegolmResult, OlmError, OlmResult, SetRoomSettingsError},
     gossiping::GossipMachine,
-    identities::{user::UserIdentity, Device, IdentityManager, UserDevices},
+    identities::{Device, IdentityManager, UserDevices, user::UserIdentity},
     olm::{
         Account, CrossSigningStatus, EncryptionSettings, IdentityKeys, InboundGroupSession,
         KnownSenderData, OlmDecryptionInfo, PrivateCrossSigningIdentity, SenderData,
@@ -75,16 +77,18 @@ use crate::{
     },
     session_manager::{GroupSessionManager, SessionManager},
     store::{
+        CryptoStoreWrapper, IntoCryptoStore, MemoryStore, Result as StoreResult, SecretImportError,
+        Store, StoreTransaction,
         caches::StoreCache,
         types::{
             Changes, CrossSigningKeyExport, DeviceChanges, IdentityChanges, PendingChanges,
             RoomKeyInfo, RoomSettings, StoredRoomKeyBundleData,
         },
-        CryptoStoreWrapper, IntoCryptoStore, MemoryStore, Result as StoreResult, SecretImportError,
-        Store, StoreTransaction,
     },
     types::{
+        EventEncryptionAlgorithm, Signatures,
         events::{
+            ToDeviceEvent, ToDeviceEvents,
             olm_v1::{AnyDecryptedOlmEvent, DecryptedRoomKeyBundleEvent, DecryptedRoomKeyEvent},
             room::encrypted::{
                 EncryptedEvent, EncryptedToDeviceEvent, RoomEncryptedEventContent,
@@ -96,18 +100,14 @@ use crate::{
             room_key_withheld::{
                 MegolmV1AesSha2WithheldContent, RoomKeyWithheldContent, RoomKeyWithheldEvent,
             },
-            ToDeviceEvent, ToDeviceEvents,
         },
         requests::{
             AnyIncomingResponse, KeysQueryRequest, OutgoingRequest, ToDeviceRequest,
             UploadSigningKeysRequest,
         },
-        EventEncryptionAlgorithm, Signatures,
     },
     utilities::timestamp_to_iso8601,
     verification::{Verification, VerificationMachine, VerificationRequest},
-    CollectStrategy, CryptoStoreError, DecryptionSettings, DeviceData, LocalTrust,
-    RoomEventDecryptionResult, SignatureError, TrustRequirement,
 };
 
 /// State machine implementation of the Olm/Megolm encryption protocol used for

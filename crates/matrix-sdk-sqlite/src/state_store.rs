@@ -9,44 +9,44 @@ use std::{
 use async_trait::async_trait;
 use deadpool_sqlite::{Object as SqliteAsyncConn, Pool as SqlitePool, Runtime};
 use matrix_sdk_base::{
-    deserialized_responses::{DisplayName, RawAnySyncOrStrippedState, SyncOrStrippedState},
-    store::{
-        migration_helpers::RoomInfoV1, ChildTransactionId, DependentQueuedRequest,
-        DependentQueuedRequestKind, QueueWedgeError, QueuedRequest, QueuedRequestKind,
-        RoomLoadSettings, SentRequestKey,
-    },
     MinimalRoomMemberEvent, RoomInfo, RoomMemberships, RoomState, StateChanges, StateStore,
     StateStoreDataKey, StateStoreDataValue,
+    deserialized_responses::{DisplayName, RawAnySyncOrStrippedState, SyncOrStrippedState},
+    store::{
+        ChildTransactionId, DependentQueuedRequest, DependentQueuedRequestKind, QueueWedgeError,
+        QueuedRequest, QueuedRequestKind, RoomLoadSettings, SentRequestKey,
+        migration_helpers::RoomInfoV1,
+    },
 };
 use matrix_sdk_store_encryption::StoreCipher;
 use ruma::{
-    canonical_json::{redact, RedactedBecause},
+    CanonicalJsonObject, EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedRoomId,
+    OwnedTransactionId, OwnedUserId, RoomId, RoomVersionId, TransactionId, UInt, UserId,
+    canonical_json::{RedactedBecause, redact},
     events::{
+        AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent, AnySyncStateEvent,
+        GlobalAccountDataEventType, RoomAccountDataEventType, StateEventType,
         presence::PresenceEvent,
         receipt::{Receipt, ReceiptThread, ReceiptType},
         room::{
             create::RoomCreateEventContent,
             member::{StrippedRoomMemberEvent, SyncRoomMemberEvent},
         },
-        AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent, AnySyncStateEvent,
-        GlobalAccountDataEventType, RoomAccountDataEventType, StateEventType,
     },
     serde::Raw,
-    CanonicalJsonObject, EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedRoomId,
-    OwnedTransactionId, OwnedUserId, RoomId, RoomVersionId, TransactionId, UInt, UserId,
 };
 use rusqlite::{OptionalExtension, Transaction};
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use tokio::fs;
 use tracing::{debug, warn};
 
 use crate::{
+    OpenStoreError, SqliteStoreConfig,
     error::{Error, Result},
     utils::{
-        repeat_vars, Key, SqliteAsyncConnExt, SqliteKeyValueStoreAsyncConnExt,
-        SqliteKeyValueStoreConnExt,
+        Key, SqliteAsyncConnExt, SqliteKeyValueStoreAsyncConnExt, SqliteKeyValueStoreConnExt,
+        repeat_vars,
     },
-    OpenStoreError, SqliteStoreConfig,
 };
 
 mod keys {
@@ -2133,9 +2133,9 @@ struct ReceiptData {
 mod tests {
     use std::sync::atomic::{AtomicU32, Ordering::SeqCst};
 
-    use matrix_sdk_base::{statestore_integration_tests, StateStore, StoreError};
+    use matrix_sdk_base::{StateStore, StoreError, statestore_integration_tests};
     use once_cell::sync::Lazy;
-    use tempfile::{tempdir, TempDir};
+    use tempfile::{TempDir, tempdir};
 
     use super::SqliteStateStore;
 
@@ -2161,13 +2161,13 @@ mod encrypted_tests {
         sync::atomic::{AtomicU32, Ordering::SeqCst},
     };
 
-    use matrix_sdk_base::{statestore_integration_tests, StateStore, StoreError};
+    use matrix_sdk_base::{StateStore, StoreError, statestore_integration_tests};
     use matrix_sdk_test::async_test;
     use once_cell::sync::Lazy;
-    use tempfile::{tempdir, TempDir};
+    use tempfile::{TempDir, tempdir};
 
     use super::SqliteStateStore;
-    use crate::{utils::SqliteAsyncConnExt, SqliteStoreConfig};
+    use crate::{SqliteStoreConfig, utils::SqliteAsyncConnExt};
 
     static TMP_DIR: Lazy<TempDir> = Lazy::new(|| tempdir().unwrap());
     static NUM: AtomicU32 = AtomicU32::new(0);
@@ -2240,43 +2240,43 @@ mod migration_tests {
     use std::{
         path::{Path, PathBuf},
         sync::{
-            atomic::{AtomicU32, Ordering::SeqCst},
             Arc,
+            atomic::{AtomicU32, Ordering::SeqCst},
         },
     };
 
     use as_variant::as_variant;
     use deadpool_sqlite::Runtime;
     use matrix_sdk_base::{
+        RoomState, StateStore,
         media::{MediaFormat, MediaRequestParameters},
         store::{
             ChildTransactionId, DependentQueuedRequestKind, RoomLoadSettings,
             SerializableEventContent,
         },
         sync::UnreadNotificationsCount,
-        RoomState, StateStore,
     };
     use matrix_sdk_test::async_test;
     use once_cell::sync::Lazy;
     use ruma::{
+        EventId, MilliSecondsSinceUnixEpoch, OwnedTransactionId, RoomId, TransactionId, UserId,
         events::{
-            room::{create::RoomCreateEventContent, message::RoomMessageEventContent, MediaSource},
             StateEventType,
+            room::{MediaSource, create::RoomCreateEventContent, message::RoomMessageEventContent},
         },
-        room_id, server_name, user_id, EventId, MilliSecondsSinceUnixEpoch, OwnedTransactionId,
-        RoomId, TransactionId, UserId,
+        room_id, server_name, user_id,
     };
     use rusqlite::Transaction;
     use serde::{Deserialize, Serialize};
     use serde_json::json;
-    use tempfile::{tempdir, TempDir};
+    use tempfile::{TempDir, tempdir};
     use tokio::fs;
 
-    use super::{init, keys, SqliteStateStore, DATABASE_NAME};
+    use super::{DATABASE_NAME, SqliteStateStore, init, keys};
     use crate::{
+        OpenStoreError,
         error::{Error, Result},
         utils::{SqliteAsyncConnExt, SqliteKeyValueStoreAsyncConnExt},
-        OpenStoreError,
     };
 
     static TMP_DIR: Lazy<TempDir> = Lazy::new(|| tempdir().unwrap());

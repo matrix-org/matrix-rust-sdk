@@ -6,16 +6,16 @@ use std::{
 };
 
 use matrix_sdk_common::timer;
-use ruma::{api::client::sync::sync_events::v5 as http, OwnedRoomId};
-use tokio::sync::{broadcast::channel, Mutex as AsyncMutex, RwLock as AsyncRwLock};
+use ruma::{OwnedRoomId, api::client::sync::sync_events::v5 as http};
+use tokio::sync::{Mutex as AsyncMutex, RwLock as AsyncRwLock, broadcast::channel};
 
 use super::{
-    cache::{format_storage_key_prefix, restore_sliding_sync_state},
-    sticky_parameters::SlidingSyncStickyManager,
     Error, SlidingSync, SlidingSyncInner, SlidingSyncListBuilder, SlidingSyncPositionMarkers,
     Version,
+    cache::{format_storage_key_prefix, restore_sliding_sync_state},
+    sticky_parameters::SlidingSyncStickyManager,
 };
-use crate::{sliding_sync::SlidingSyncStickyParameters, Client, Result};
+use crate::{Client, Result, sliding_sync::SlidingSyncStickyParameters};
 
 /// Configuration for a Sliding Sync instance.
 ///

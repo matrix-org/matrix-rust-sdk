@@ -3,21 +3,21 @@
 
 use std::sync::Arc;
 
-use anyhow::{ensure, Result};
+use anyhow::{Result, ensure};
 use assert_matches::assert_matches;
 use assert_matches2::assert_let;
 use matrix_sdk::{
+    RoomState,
     config::SyncSettings,
     ruma::{
+        OwnedEventId,
         api::client::room::create_room::v3::Request as CreateRoomRequest,
         assign,
         events::{
-            room::{member::MembershipState, message::RoomMessageEventContent},
             AnyStrippedStateEvent, SyncMessageLikeEvent, TimelineEventType,
+            room::{member::MembershipState, message::RoomMessageEventContent},
         },
-        OwnedEventId,
     },
-    RoomState,
 };
 use matrix_sdk_ui::{
     notification_client::{

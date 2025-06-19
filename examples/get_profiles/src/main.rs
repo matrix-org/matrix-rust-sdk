@@ -1,8 +1,8 @@
 use std::{env, process::exit};
 
 use matrix_sdk::{
-    ruma::{api::client::profile, OwnedMxcUri, UserId},
     Client, Result as MatrixResult,
+    ruma::{OwnedMxcUri, UserId, api::client::profile},
 };
 use url::Url;
 

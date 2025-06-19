@@ -15,7 +15,7 @@
 use async_rx::StreamExt as _;
 use async_stream::stream;
 use futures_core::Stream;
-use futures_util::{pin_mut, StreamExt as _};
+use futures_util::{StreamExt as _, pin_mut};
 use matrix_sdk::event_cache::{self, EventCacheError, RoomPaginationStatus};
 use tracing::{instrument, warn};
 

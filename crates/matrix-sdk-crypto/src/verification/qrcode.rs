@@ -19,13 +19,15 @@ use eyeball::{ObservableWriteGuard, SharedObservable};
 use futures_core::Stream;
 use futures_util::StreamExt;
 use matrix_sdk_qrcode::{
-    qrcode::QrCode, EncodingError, QrVerificationData, SelfVerificationData,
-    SelfVerificationNoMasterKey, VerificationData,
+    EncodingError, QrVerificationData, SelfVerificationData, SelfVerificationNoMasterKey,
+    VerificationData, qrcode::QrCode,
 };
-use rand::{thread_rng, RngCore};
+use rand::{RngCore, thread_rng};
 use ruma::{
+    DeviceId, OwnedDeviceId, OwnedUserId, RoomId, TransactionId, UserId,
     api::client::keys::upload_signatures::v3::Request as SignatureUploadRequest,
     events::{
+        AnyMessageLikeEventContent, AnyToDeviceEventContent,
         key::verification::{
             cancel::CancelCode,
             done::{KeyVerificationDoneEventContent, ToDeviceKeyVerificationDoneEventContent},
@@ -35,24 +37,22 @@ use ruma::{
             },
         },
         relation::Reference,
-        AnyMessageLikeEventContent, AnyToDeviceEventContent,
     },
     serde::Base64,
-    DeviceId, OwnedDeviceId, OwnedUserId, RoomId, TransactionId, UserId,
 };
 use thiserror::Error;
 use tracing::{debug, trace};
 use vodozemac::Ed25519PublicKey;
 
 use super::{
-    event_enums::{CancelContent, DoneContent, OutgoingContent, OwnedStartContent, StartContent},
-    requests::RequestHandle,
     CancelInfo, Cancelled, Done, FlowId, IdentitiesBeingVerified, VerificationResult,
     VerificationStore,
+    event_enums::{CancelContent, DoneContent, OutgoingContent, OwnedStartContent, StartContent},
+    requests::RequestHandle,
 };
 use crate::{
-    types::requests::{OutgoingVerificationRequest, RoomMessageRequest, ToDeviceRequest},
     CryptoStoreError, DeviceData, UserIdentityData,
+    types::requests::{OutgoingVerificationRequest, RoomMessageRequest, ToDeviceRequest},
 };
 
 const SECRET_SIZE: usize = 16;
@@ -893,17 +893,17 @@ mod tests {
     use assert_matches::assert_matches;
     use matrix_sdk_qrcode::QrVerificationData;
     use matrix_sdk_test::async_test;
-    use ruma::{device_id, event_id, room_id, user_id, DeviceId, UserId};
+    use ruma::{DeviceId, UserId, device_id, event_id, room_id, user_id};
     use tokio::sync::Mutex;
 
     use crate::{
-        olm::{Account, PrivateCrossSigningIdentity},
-        store::{types::Changes, CryptoStoreWrapper, MemoryStore},
-        verification::{
-            event_enums::{DoneContent, OutgoingContent, StartContent},
-            FlowId, VerificationStore,
-        },
         DeviceData, QrVerification, QrVerificationState,
+        olm::{Account, PrivateCrossSigningIdentity},
+        store::{CryptoStoreWrapper, MemoryStore, types::Changes},
+        verification::{
+            FlowId, VerificationStore,
+            event_enums::{DoneContent, OutgoingContent, StartContent},
+        },
     };
 
     fn user_id() -> &'static UserId {

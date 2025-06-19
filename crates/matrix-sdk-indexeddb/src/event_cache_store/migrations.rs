@@ -13,8 +13,8 @@
 // limitations under the License
 
 use indexed_db_futures::{
-    idb_object_store::IdbObjectStoreParameters, request::IdbOpenDbRequestLike, IdbDatabase,
-    IdbVersionChangeEvent,
+    IdbDatabase, IdbVersionChangeEvent, idb_object_store::IdbObjectStoreParameters,
+    request::IdbOpenDbRequestLike,
 };
 use thiserror::Error;
 use wasm_bindgen::JsValue;

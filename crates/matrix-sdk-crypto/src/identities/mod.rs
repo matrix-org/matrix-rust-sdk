@@ -46,8 +46,8 @@ pub(crate) mod room_identity_state;
 pub(crate) mod user;
 
 use std::sync::{
-    atomic::{AtomicBool, Ordering},
     Arc,
+    atomic::{AtomicBool, Ordering},
 };
 
 pub use device::{Device, DeviceData, LocalTrust, UserDevices};

@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use language_tags::LanguageTag;
-use ruma::{api::client::profile::get_profile, DeviceId, RoomId, UserId};
+use ruma::{DeviceId, RoomId, UserId, api::client::profile::get_profile};
 use url::Url;
 
 use crate::Room;

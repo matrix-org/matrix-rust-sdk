@@ -13,18 +13,18 @@
 // limitations under the License.
 
 use ruma::{
-    api::{
-        client::discovery::{discover_homeserver, get_supported_versions},
-        MatrixVersion,
-    },
     OwnedServerName, ServerName,
+    api::{
+        MatrixVersion,
+        client::discovery::{discover_homeserver, get_supported_versions},
+    },
 };
 use tracing::debug;
 use url::Url;
 
 use crate::{
-    config::RequestConfig, http_client::HttpClient, sanitize_server_name, ClientBuildError,
-    HttpError,
+    ClientBuildError, HttpError, config::RequestConfig, http_client::HttpClient,
+    sanitize_server_name,
 };
 
 /// Configuration for the homeserver.
@@ -205,8 +205,8 @@ mod tests {
     use ruma::OwnedServerName;
     use serde_json::json;
     use wiremock::{
-        matchers::{method, path},
         Mock, MockServer, ResponseTemplate,
+        matchers::{method, path},
     };
 
     use super::*;

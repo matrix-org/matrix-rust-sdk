@@ -19,7 +19,7 @@ use ruma::{
     api::client::backup::{EncryptedSessionDataInit, KeyBackupData, KeyBackupDataInit},
     serde::Base64,
 };
-use vodozemac::{pk_encryption::PkEncryption, Curve25519PublicKey};
+use vodozemac::{Curve25519PublicKey, pk_encryption::PkEncryption};
 use zeroize::Zeroizing;
 
 use super::decryption::DecodeError;

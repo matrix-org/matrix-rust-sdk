@@ -124,15 +124,15 @@ use std::{
 
 use matrix_sdk_common::{deserialized_responses::TimelineEvent, ring_buffer::RingBuffer};
 use ruma::{
+    EventId, OwnedEventId, OwnedUserId, RoomId, UserId,
     events::{
+        AnySyncMessageLikeEvent, AnySyncTimelineEvent, OriginalSyncMessageLikeEvent,
+        SyncMessageLikeEvent,
         poll::{start::PollStartEventContent, unstable_start::UnstablePollStartEventContent},
         receipt::{ReceiptEventContent, ReceiptThread, ReceiptType},
         room::message::Relation,
-        AnySyncMessageLikeEvent, AnySyncTimelineEvent, OriginalSyncMessageLikeEvent,
-        SyncMessageLikeEvent,
     },
     serde::Raw,
-    EventId, OwnedEventId, OwnedUserId, RoomId, UserId,
 };
 use serde::{Deserialize, Serialize};
 use tracing::{debug, instrument, trace, warn};
@@ -608,18 +608,18 @@ mod tests {
     use matrix_sdk_common::{deserialized_responses::TimelineEvent, ring_buffer::RingBuffer};
     use matrix_sdk_test::event_factory::EventFactory;
     use ruma::{
-        event_id,
+        EventId, UserId, event_id,
         events::{
             receipt::{ReceiptThread, ReceiptType},
             room::{member::MembershipState, message::MessageType},
         },
         owned_event_id, owned_user_id,
         push::Action,
-        room_id, user_id, EventId, UserId,
+        room_id, user_id,
     };
 
     use super::compute_unread_counts;
-    use crate::read_receipts::{marks_as_unread, ReceiptSelector, RoomReadReceipts};
+    use crate::read_receipts::{ReceiptSelector, RoomReadReceipts, marks_as_unread};
 
     #[test]
     fn test_room_message_marks_as_unread() {
@@ -800,9 +800,9 @@ mod tests {
             num_mentions: 37,
             ..Default::default()
         };
-        assert!(receipts
-            .find_and_process_events(ev0, user_id, &[make_event(event_id!("$1"))],)
-            .not());
+        assert!(
+            receipts.find_and_process_events(ev0, user_id, &[make_event(event_id!("$1"))],).not()
+        );
         assert_eq!(receipts.num_unread, 42);
         assert_eq!(receipts.num_notifications, 13);
         assert_eq!(receipts.num_mentions, 37);
@@ -829,17 +829,19 @@ mod tests {
             num_mentions: 37,
             ..Default::default()
         };
-        assert!(receipts
-            .find_and_process_events(
-                ev0,
-                user_id,
-                &[
-                    make_event(event_id!("$1")),
-                    make_event(event_id!("$2")),
-                    make_event(event_id!("$3"))
-                ],
-            )
-            .not());
+        assert!(
+            receipts
+                .find_and_process_events(
+                    ev0,
+                    user_id,
+                    &[
+                        make_event(event_id!("$1")),
+                        make_event(event_id!("$2")),
+                        make_event(event_id!("$3"))
+                    ],
+                )
+                .not()
+        );
         assert_eq!(receipts.num_unread, 42);
         assert_eq!(receipts.num_notifications, 13);
         assert_eq!(receipts.num_mentions, 37);

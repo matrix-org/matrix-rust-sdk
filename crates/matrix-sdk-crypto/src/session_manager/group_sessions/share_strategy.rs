@@ -24,14 +24,14 @@ use serde::{Deserialize, Serialize};
 use tracing::{debug, instrument, trace};
 
 use super::OutboundGroupSession;
+#[cfg(doc)]
+use crate::{Device, UserIdentity};
 use crate::{
+    DeviceData, EncryptionSettings, LocalTrust, OlmError, OwnUserIdentityData, UserIdentityData,
     error::{OlmResult, SessionRecipientCollectionError},
     olm::ShareInfo,
     store::Store,
-    DeviceData, EncryptionSettings, LocalTrust, OlmError, OwnUserIdentityData, UserIdentityData,
 };
-#[cfg(doc)]
-use crate::{Device, UserIdentity};
 
 /// Strategy to collect the devices that should receive room keys for the
 /// current discussion.
@@ -304,12 +304,12 @@ pub(crate) async fn collect_recipients_for_share_strategy(
                 None => {
                     return Err(OlmError::SessionRecipientCollectionError(
                         SessionRecipientCollectionError::CrossSigningNotSetup,
-                    ))
+                    ));
                 }
                 Some(identity) if !identity.is_verified() => {
                     return Err(OlmError::SessionRecipientCollectionError(
                         SessionRecipientCollectionError::SendingFromUnverifiedDevice,
-                    ))
+                    ));
                 }
                 Some(_) => (),
             }
@@ -724,22 +724,22 @@ mod tests {
         },
     };
     use ruma::{
-        device_id,
+        TransactionId, device_id,
         events::{dummy::ToDeviceDummyEventContent, room::history_visibility::HistoryVisibility},
-        room_id, TransactionId,
+        room_id,
     };
     use serde_json::json;
 
     use crate::{
+        CrossSigningKeyExport, EncryptionSettings, LocalTrust, OlmError, OlmMachine,
         error::SessionRecipientCollectionError,
         olm::{OutboundGroupSession, ShareInfo},
         session_manager::{
-            group_sessions::share_strategy::collect_session_recipients, CollectStrategy,
+            CollectStrategy, group_sessions::share_strategy::collect_session_recipients,
         },
         store::caches::SequenceNumber,
         testing::simulate_key_query_response_for_verification,
         types::requests::ToDeviceRequest,
-        CrossSigningKeyExport, EncryptionSettings, LocalTrust, OlmError, OlmMachine,
     };
 
     /// Returns an `OlmMachine` set up for the test user in
@@ -1192,11 +1192,9 @@ mod tests {
         // and he should have an unsigned device.
         let bob_identity =
             machine.get_identity(DataSet::bob_id(), None).await.unwrap().unwrap().other().unwrap();
-        assert!(bob_identity
-            .own_identity
-            .as_ref()
-            .unwrap()
-            .is_identity_signed(&bob_identity.inner));
+        assert!(
+            bob_identity.own_identity.as_ref().unwrap().is_identity_signed(&bob_identity.inner)
+        );
         assert!(!bob_identity.is_verified());
 
         let bob_unsigned_device = machine
@@ -1333,7 +1331,7 @@ mod tests {
                 KeyQueryResponseTemplateDeviceOptions,
             },
         };
-        use ruma::{device_id, user_id, DeviceId, TransactionId, UserId};
+        use ruma::{DeviceId, TransactionId, UserId, device_id, user_id};
         use vodozemac::{Curve25519PublicKey, Ed25519SecretKey};
 
         use super::{
@@ -1342,10 +1340,10 @@ mod tests {
             test_machine,
         };
         use crate::{
-            session_manager::group_sessions::{
-                share_strategy::collect_session_recipients, CollectRecipientsResult,
-            },
             EncryptionSettings, OlmMachine,
+            session_manager::group_sessions::{
+                CollectRecipientsResult, share_strategy::collect_session_recipients,
+            },
         };
 
         #[async_test]
@@ -1354,8 +1352,8 @@ mod tests {
         }
 
         #[async_test]
-        async fn test_error_on_verification_problem_strategy_should_share_with_verified_dehydrated_device(
-        ) {
+        async fn test_error_on_verification_problem_strategy_should_share_with_verified_dehydrated_device()
+         {
             should_share_with_verified_dehydrated_device(
                 &error_on_verification_problem_encryption_settings(),
             )
@@ -1409,8 +1407,8 @@ mod tests {
         }
 
         #[async_test]
-        async fn test_error_on_verification_problem_strategy_should_not_share_with_unverified_dehydrated_device(
-        ) {
+        async fn test_error_on_verification_problem_strategy_should_not_share_with_unverified_dehydrated_device()
+         {
             should_not_share_with_unverified_dehydrated_device(
                 &error_on_verification_problem_encryption_settings(),
             )
@@ -1469,8 +1467,8 @@ mod tests {
         }
 
         #[async_test]
-        async fn test_error_on_verification_problem_strategy_should_share_with_verified_device_of_pin_violation_user(
-        ) {
+        async fn test_error_on_verification_problem_strategy_should_share_with_verified_device_of_pin_violation_user()
+         {
             should_share_with_verified_device_of_pin_violation_user(
                 &error_on_verification_problem_encryption_settings(),
             )
@@ -1478,8 +1476,8 @@ mod tests {
         }
 
         #[async_test]
-        async fn test_identity_based_strategy_should_share_with_verified_device_of_pin_violation_user(
-        ) {
+        async fn test_identity_based_strategy_should_share_with_verified_device_of_pin_violation_user()
+         {
             should_share_with_verified_device_of_pin_violation_user(
                 &identity_based_strategy_settings(),
             )
@@ -1527,8 +1525,8 @@ mod tests {
         }
 
         #[async_test]
-        async fn test_all_devices_strategy_should_not_share_with_dehydrated_device_of_verification_violation_user(
-        ) {
+        async fn test_all_devices_strategy_should_not_share_with_dehydrated_device_of_verification_violation_user()
+         {
             should_not_share_with_dehydrated_device_of_verification_violation_user(
                 &all_devices_strategy_settings(),
             )
@@ -1562,8 +1560,8 @@ mod tests {
         }
 
         #[async_test]
-        async fn test_error_on_verification_problem_strategy_should_give_error_for_dehydrated_device_of_verification_violation_user(
-        ) {
+        async fn test_error_on_verification_problem_strategy_should_give_error_for_dehydrated_device_of_verification_violation_user()
+         {
             should_give_error_for_dehydrated_device_of_verification_violation_user(
                 &error_on_verification_problem_encryption_settings(),
             )
@@ -1571,8 +1569,8 @@ mod tests {
         }
 
         #[async_test]
-        async fn test_identity_based_strategy_should_give_error_for_dehydrated_device_of_verification_violation_user(
-        ) {
+        async fn test_identity_based_strategy_should_give_error_for_dehydrated_device_of_verification_violation_user()
+         {
             // This hits the same codepath as
             // `test_share_identity_strategy_report_verification_violation`, but
             // we test dehydrated devices here specifically, for completeness.

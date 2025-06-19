@@ -21,12 +21,12 @@ use ruma::{DeviceId, OwnedTransactionId, OwnedUserId, TransactionId, UserId};
 use tracing::debug;
 use tracing::{trace, warn};
 
-use super::{event_enums::OutgoingContent, FlowId, Sas, Verification};
+use super::{FlowId, Sas, Verification, event_enums::OutgoingContent};
+#[cfg(feature = "qrcode")]
+use crate::QrVerification;
 use crate::types::requests::{
     OutgoingRequest, OutgoingVerificationRequest, RoomMessageRequest, ToDeviceRequest,
 };
-#[cfg(feature = "qrcode")]
-use crate::QrVerification;
 
 #[derive(Clone, Debug, Default)]
 pub struct VerificationCache {

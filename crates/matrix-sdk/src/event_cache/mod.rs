@@ -43,19 +43,20 @@ use matrix_sdk_base::{
     store_locks::LockStoreError,
     sync::RoomUpdates,
 };
-use matrix_sdk_common::executor::{spawn, JoinHandle};
+use matrix_sdk_common::executor::{JoinHandle, spawn};
 use room::RoomEventCacheState;
 use ruma::{
-    events::AnySyncEphemeralRoomEvent, serde::Raw, OwnedEventId, OwnedRoomId, RoomId, RoomVersionId,
+    OwnedEventId, OwnedRoomId, RoomId, RoomVersionId, events::AnySyncEphemeralRoomEvent, serde::Raw,
 };
 use tokio::sync::{
-    broadcast::{error::RecvError, Receiver},
-    mpsc, Mutex, RwLock,
+    Mutex, RwLock,
+    broadcast::{Receiver, error::RecvError},
+    mpsc,
 };
-use tracing::{debug, error, info, info_span, instrument, trace, warn, Instrument as _, Span};
+use tracing::{Instrument as _, Span, debug, error, info, info_span, instrument, trace, warn};
 
 use self::paginator::PaginatorError;
-use crate::{client::WeakClient, Client};
+use crate::{Client, client::WeakClient};
 
 mod deduplicator;
 mod pagination;
@@ -240,7 +241,9 @@ impl EventCache {
                         match err {
                             EventCacheError::ClientDropped => {
                                 // The client has dropped, exit the listen task.
-                                info!("Closing the event cache global listen task because client dropped");
+                                info!(
+                                    "Closing the event cache global listen task because client dropped"
+                                );
                                 break;
                             }
                             err => {

@@ -33,14 +33,15 @@ use futures_util::{
     stream::{self, StreamExt},
 };
 use matrix_sdk_base::crypto::{
+    CrossSigningBootstrapRequests, OlmMachine,
     store::types::RoomKeyInfo,
     types::requests::{
         OutgoingRequest, OutgoingVerificationRequest, RoomMessageRequest, ToDeviceRequest,
     },
-    CrossSigningBootstrapRequests, OlmMachine,
 };
 use matrix_sdk_common::{executor::spawn, locks::Mutex as StdMutex};
 use ruma::{
+    DeviceId, MilliSecondsSinceUnixEpoch, OwnedDeviceId, OwnedUserId, TransactionId, UserId,
     api::client::{
         keys::{
             get_keys, upload_keys, upload_signatures::v3::Request as UploadSignaturesRequest,
@@ -57,7 +58,6 @@ use ruma::{
         direct::DirectUserIdentifier,
         room::{MediaSource, ThumbnailInfo},
     },
-    DeviceId, MilliSecondsSinceUnixEpoch, OwnedDeviceId, OwnedUserId, TransactionId, UserId,
 };
 #[cfg(feature = "experimental-send-custom-to-device")]
 use ruma::{events::AnyToDeviceEventContent, serde::Raw, to_device::DeviceIdOrAllDevices};
@@ -69,7 +69,7 @@ use url::Url;
 use vodozemac::Curve25519PublicKey;
 
 use self::{
-    backups::{types::BackupClientState, Backups},
+    backups::{Backups, types::BackupClientState},
     futures::UploadEncryptedFile,
     identities::{Device, DeviceUpdates, IdentityUpdates, UserDevices, UserIdentity},
     recovery::{Recovery, RecoveryState},
@@ -78,11 +78,11 @@ use self::{
     verification::{SasVerification, Verification, VerificationRequest},
 };
 use crate::{
+    Client, Error, HttpError, Result, Room, TransmissionProgress,
     attachment::Thumbnail,
     client::{ClientInner, WeakClient},
     error::HttpResult,
     store_locks::CrossProcessStoreLockGuard,
-    Client, Error, HttpError, Result, Room, TransmissionProgress,
 };
 
 pub mod backups;
@@ -94,13 +94,14 @@ pub(crate) mod tasks;
 pub mod verification;
 
 pub use matrix_sdk_base::crypto::{
+    CrossSigningStatus, CryptoStoreError, DecryptorError, EventError, KeyExportError, LocalTrust,
+    MediaEncryptionInfo, MegolmError, OlmError, RoomKeyImportResult, SecretImportError,
+    SessionCreationError, SignatureError, VERSION,
     olm::{
         SessionCreationError as MegolmSessionCreationError,
         SessionExportError as OlmSessionExportError,
     },
-    vodozemac, CrossSigningStatus, CryptoStoreError, DecryptorError, EventError, KeyExportError,
-    LocalTrust, MediaEncryptionInfo, MegolmError, OlmError, RoomKeyImportResult, SecretImportError,
-    SessionCreationError, SignatureError, VERSION,
+    vodozemac,
 };
 
 #[cfg(feature = "experimental-send-custom-to-device")]
@@ -761,7 +762,7 @@ impl Encryption {
     /// # Examples
     ///
     /// ```no_run
-    /// use matrix_sdk::{encryption, Client};
+    /// use matrix_sdk::{Client, encryption};
     /// use url::Url;
     ///
     /// # async {
@@ -1511,7 +1512,9 @@ impl Encryption {
             if prev_holder == lock_value {
                 return Ok(());
             }
-            warn!("Recreating cross-process store lock with a different holder value: prev was {prev_holder}, new is {lock_value}");
+            warn!(
+                "Recreating cross-process store lock with a different holder value: prev was {prev_holder}, new is {lock_value}"
+            );
         }
 
         let olm_machine = self.client.base_client().olm_machine().await;
@@ -1822,15 +1825,15 @@ mod tests {
     use std::{
         ops::Not,
         sync::{
-            atomic::{AtomicBool, Ordering},
             Arc,
+            atomic::{AtomicBool, Ordering},
         },
         time::Duration,
     };
 
     use matrix_sdk_test::{
-        async_test, test_json, GlobalAccountDataTestEvent, JoinedRoomBuilder, StateTestEvent,
-        SyncResponseBuilder, DEFAULT_TEST_ROOM_ID,
+        DEFAULT_TEST_ROOM_ID, GlobalAccountDataTestEvent, JoinedRoomBuilder, StateTestEvent,
+        SyncResponseBuilder, async_test, test_json,
     };
     use ruma::{
         event_id,
@@ -1839,18 +1842,17 @@ mod tests {
     };
     use serde_json::json;
     use wiremock::{
-        matchers::{header, method, path_regex},
         Mock, MockServer, Request, ResponseTemplate,
+        matchers::{header, method, path_regex},
     };
 
     use crate::{
-        assert_next_matches_with_timeout,
+        Client, assert_next_matches_with_timeout,
         config::RequestConfig,
         encryption::{OAuthCrossSigningResetInfo, VerificationState},
         test_utils::{
             client::mock_matrix_session, logged_in_client, no_retry_test_client, set_client_session,
         },
-        Client,
     };
 
     #[async_test]
@@ -1890,11 +1892,9 @@ mod tests {
         client.base_client().receive_sync_response(response).await.unwrap();
 
         let room = client.get_room(&DEFAULT_TEST_ROOM_ID).expect("Room should exist");
-        assert!(room
-            .latest_encryption_state()
-            .await
-            .expect("Getting encryption state")
-            .is_encrypted());
+        assert!(
+            room.latest_encryption_state().await.expect("Getting encryption state").is_encrypted()
+        );
 
         let event_id = event_id!("$1:example.org");
         let reaction = ReactionEventContent::new(Annotation::new(event_id.into(), "🐈".to_owned()));

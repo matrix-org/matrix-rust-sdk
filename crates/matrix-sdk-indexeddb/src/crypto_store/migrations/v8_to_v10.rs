@@ -21,16 +21,15 @@ use tracing::{debug, info};
 use web_sys::{DomException, IdbTransactionMode};
 
 use crate::{
+    IndexeddbCryptoStoreError,
     crypto_store::{
-        keys,
+        InboundGroupSessionIndexedDbObject, Result, keys,
         migrations::{
-            add_nonunique_index, do_schema_upgrade, old_keys,
-            v7::InboundGroupSessionIndexedDbObject2, MigrationDb,
+            MigrationDb, add_nonunique_index, do_schema_upgrade, old_keys,
+            v7::InboundGroupSessionIndexedDbObject2,
         },
-        InboundGroupSessionIndexedDbObject, Result,
     },
     serializer::IndexeddbSerializer,
-    IndexeddbCryptoStoreError,
 };
 
 /// Perform the schema upgrade v8 to v9, creating `inbound_group_sessions3`.

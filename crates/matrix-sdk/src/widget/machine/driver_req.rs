@@ -17,6 +17,7 @@
 use std::{collections::BTreeMap, marker::PhantomData};
 
 use ruma::{
+    OwnedUserId,
     api::client::{
         account::request_openid_token, delayed_events::update_delayed_event,
         to_device::send_event_to_device,
@@ -24,15 +25,14 @@ use ruma::{
     events::{AnyStateEvent, AnyTimelineEvent, AnyToDeviceEventContent},
     serde::Raw,
     to_device::DeviceIdOrAllDevices,
-    OwnedUserId,
 };
-use serde::{de, Deserialize};
+use serde::{Deserialize, de};
 use serde_json::value::RawValue as RawJsonValue;
 use tracing::error;
 
 use super::{
-    from_widget::SendEventResponse, incoming::MatrixDriverResponse, Action,
-    MatrixDriverRequestMeta, WidgetMachine,
+    Action, MatrixDriverRequestMeta, WidgetMachine, from_widget::SendEventResponse,
+    incoming::MatrixDriverResponse,
 };
 use crate::widget::{Capabilities, StateKeySelector};
 
@@ -83,8 +83,8 @@ where
     pub(crate) fn add_response_handler(
         self,
         response_handler: impl FnOnce(Result<T, crate::Error>, &mut WidgetMachine) -> Vec<Action>
-            + Send
-            + 'static,
+        + Send
+        + 'static,
     ) {
         self.request_meta.response_fn = Some(Box::new(move |response, machine| {
             if let Some(response_data) = response.map(T::from_response).transpose() {
@@ -111,7 +111,7 @@ where
 {
     fn from_response(response: MatrixDriverResponse) -> Option<Self> {
         response.try_into().ok() // Delegates to the existing TryInto
-                                 // implementation
+        // implementation
     }
 }
 

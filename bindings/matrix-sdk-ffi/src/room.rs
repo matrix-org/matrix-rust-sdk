@@ -1,41 +1,41 @@
 use std::{collections::HashMap, pin::pin, sync::Arc};
 
 use anyhow::{Context, Result};
-use futures_util::{pin_mut, StreamExt};
+use futures_util::{StreamExt, pin_mut};
 use matrix_sdk::{
-    crypto::LocalTrust,
-    room::{
-        edit::EditedContent, power_levels::RoomPowerLevelChanges, Room as SdkRoom, RoomMemberRole,
-        TryFromReportedContentScoreError,
-    },
     ComposerDraft as SdkComposerDraft, ComposerDraftType as SdkComposerDraftType, EncryptionState,
     PredecessorRoom as SdkPredecessorRoom, RoomHero as SdkRoomHero, RoomMemberships, RoomState,
     SuccessorRoom as SdkSuccessorRoom,
+    crypto::LocalTrust,
+    room::{
+        Room as SdkRoom, RoomMemberRole, TryFromReportedContentScoreError, edit::EditedContent,
+        power_levels::RoomPowerLevelChanges,
+    },
 };
 use matrix_sdk_common::{SendOutsideWasm, SyncOutsideWasm};
 use matrix_sdk_ui::{
-    timeline::{default_event_filter, RoomExt, TimelineBuilder},
+    timeline::{RoomExt, TimelineBuilder, default_event_filter},
     unable_to_decrypt_hook::UtdHookManager,
 };
 use mime::Mime;
 use ruma::{
-    assign,
+    EventId, Int, OwnedDeviceId, OwnedRoomOrAliasId, OwnedServerName, OwnedUserId, RoomAliasId,
+    ServerName, UserId, assign,
     events::{
+        AnyMessageLikeEventContent, AnySyncTimelineEvent, TimelineEventType,
         call::notify,
         room::{
-            avatar::ImageInfo as RumaAvatarImageInfo,
+            MediaSource, avatar::ImageInfo as RumaAvatarImageInfo,
             history_visibility::HistoryVisibility as RumaHistoryVisibility,
             join_rules::JoinRule as RumaJoinRule, message::RoomMessageEventContentWithoutRelation,
-            power_levels::RoomPowerLevels as RumaPowerLevels, MediaSource,
+            power_levels::RoomPowerLevels as RumaPowerLevels,
         },
-        AnyMessageLikeEventContent, AnySyncTimelineEvent, TimelineEventType,
     },
-    EventId, Int, OwnedDeviceId, OwnedRoomOrAliasId, OwnedServerName, OwnedUserId, RoomAliasId,
-    ServerName, UserId,
 };
 use tracing::{error, warn};
 
 use crate::{
+    TaskHandle,
     chunk_iterator::ChunkIterator,
     client::{JoinRule, RoomVisibility},
     error::{ClientError, MediaInfoError, NotYetImplemented, RoomError},
@@ -48,11 +48,10 @@ use crate::{
     ruma::{ImageInfo, LocationContent, Mentions, NotifyType},
     runtime::get_runtime_handle,
     timeline::{
-        configuration::{TimelineConfiguration, TimelineFilter},
         EventTimelineItem, ReceiptType, SendHandle, Timeline,
+        configuration::{TimelineConfiguration, TimelineFilter},
     },
-    utils::{u64_to_uint, AsyncRuntimeDropped},
-    TaskHandle,
+    utils::{AsyncRuntimeDropped, u64_to_uint},
 };
 
 #[derive(Debug, Clone, uniffi::Enum)]

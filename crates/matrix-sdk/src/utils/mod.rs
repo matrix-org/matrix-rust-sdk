@@ -24,15 +24,15 @@ use futures_util::StreamExt;
 #[cfg(feature = "markdown")]
 use ruma::events::room::message::FormattedBody;
 use ruma::{
+    RoomAliasId,
     events::{AnyMessageLikeEventContent, AnyStateEventContent},
     serde::Raw,
-    RoomAliasId,
 };
 use serde_json::value::{RawValue as RawJsonValue, Value as JsonValue};
 #[cfg(feature = "e2e-encryption")]
 use tokio::sync::broadcast;
 #[cfg(feature = "e2e-encryption")]
-use tokio_stream::wrappers::{errors::BroadcastStreamRecvError, BroadcastStream};
+use tokio_stream::wrappers::{BroadcastStream, errors::BroadcastStreamRecvError};
 
 #[cfg(feature = "local-server")]
 pub mod local_server;
@@ -233,11 +233,7 @@ pub fn formatted_body_from(
     body: Option<&str>,
     formatted_body: Option<FormattedBody>,
 ) -> Option<FormattedBody> {
-    if formatted_body.is_some() {
-        formatted_body
-    } else {
-        body.and_then(FormattedBody::markdown)
-    }
+    if formatted_body.is_some() { formatted_body } else { body.and_then(FormattedBody::markdown) }
 }
 
 #[cfg(test)]

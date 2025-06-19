@@ -14,7 +14,7 @@
 
 use matrix_sdk_ui::timeline::{EmbeddedEvent, TimelineDetails};
 
-use super::{content::TimelineItemContent, ProfileDetails};
+use super::{ProfileDetails, content::TimelineItemContent};
 
 #[derive(Clone, uniffi::Object)]
 pub struct InReplyToDetails {

@@ -4,15 +4,15 @@ use std::{
 };
 
 use matrix_sdk::{
+    Client, Error, LoopCtrl, Room, RoomState,
     authentication::matrix::MatrixSession,
     config::SyncSettings,
     ruma::{
         api::client::filter::FilterDefinition,
         events::room::message::{MessageType, OriginalSyncRoomMessageEvent},
     },
-    Client, Error, LoopCtrl, Room, RoomState,
 };
-use rand::{distributions::Alphanumeric, thread_rng, Rng};
+use rand::{Rng, distributions::Alphanumeric, thread_rng};
 use serde::{Deserialize, Serialize};
 use tokio::fs;
 

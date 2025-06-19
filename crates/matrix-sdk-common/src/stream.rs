@@ -22,7 +22,7 @@
 #[cfg(not(target_family = "wasm"))]
 mod sys {
     // On native platforms, just re-export everything from futures_util
-    pub use futures_util::{stream::BoxStream, StreamExt};
+    pub use futures_util::{StreamExt, stream::BoxStream};
 }
 
 #[cfg(target_family = "wasm")]

@@ -2,34 +2,35 @@ use std::{collections::BTreeMap, sync::Mutex};
 
 use assert_matches::assert_matches;
 use matrix_sdk::{
+    AuthApi, AuthSession, Client, RumaApiError, SessionTokens,
     authentication::matrix::MatrixSession,
     config::RequestConfig,
     test_utils::{logged_in_client_with_server, no_retry_test_client_with_server},
-    AuthApi, AuthSession, Client, RumaApiError, SessionTokens,
 };
 use matrix_sdk_base::SessionMeta;
 use matrix_sdk_test::{async_test, test_json};
 use ruma::{
+    OwnedUserId,
     api::{
+        MatrixVersion,
         client::{
             self as client_api,
-            account::register::{v3::Request as RegistrationRequest, RegistrationKind},
+            account::register::{RegistrationKind, v3::Request as RegistrationRequest},
             keys::upload_signatures::v3::SignedKeys,
             session::get_login_types::v3::LoginType,
             uiaa::{self, AuthData, UserIdentifier},
         },
-        MatrixVersion,
     },
     assign, device_id,
     encryption::CrossSigningKey,
     serde::Raw,
-    user_id, OwnedUserId,
+    user_id,
 };
 use serde_json::{from_value as from_json_value, json, to_value as to_json_value};
 use url::Url;
 use wiremock::{
-    matchers::{method, path},
     Mock, MockServer, Request, ResponseTemplate,
+    matchers::{method, path},
 };
 
 #[async_test]

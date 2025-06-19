@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use ruma::{encryption::KeyUsage, DeviceKeyAlgorithm, DeviceKeyId, OwnedUserId};
+use ruma::{DeviceKeyAlgorithm, DeviceKeyId, OwnedUserId, encryption::KeyUsage};
 use serde::{Deserialize, Serialize};
 use serde_json::{Error as JsonError, Value};
 use thiserror::Error;
@@ -20,13 +20,13 @@ use vodozemac::{DecodeError, Ed25519PublicKey, Ed25519SecretKey, Ed25519Signatur
 use zeroize::Zeroize;
 
 use crate::{
+    OtherUserIdentityData,
     error::SignatureError,
     olm::utility::SignJson,
     types::{
         CrossSigningKey, DeviceKeys, MasterPubkey, SelfSigningPubkey, Signatures, SigningKeys,
         UserSigningPubkey,
     },
-    OtherUserIdentityData,
 };
 
 /// Error type reporting failures in the signing operations.

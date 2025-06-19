@@ -1,9 +1,9 @@
 use std::{env, process::exit};
 
 use matrix_sdk::{
-    config::SyncSettings, ruma::events::room::member::StrippedRoomMemberEvent, Client, Room,
+    Client, Room, config::SyncSettings, ruma::events::room::member::StrippedRoomMemberEvent,
 };
-use tokio::time::{sleep, Duration};
+use tokio::time::{Duration, sleep};
 
 async fn on_stripped_state_member(
     room_member: StrippedRoomMemberEvent,

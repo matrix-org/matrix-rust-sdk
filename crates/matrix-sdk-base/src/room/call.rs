@@ -43,18 +43,18 @@ mod tests {
     use assign::assign;
     use matrix_sdk_test::{ALICE, BOB, CAROL};
     use ruma::{
-        device_id, event_id,
+        DeviceId, EventId, MilliSecondsSinceUnixEpoch, OwnedUserId, UserId, device_id, event_id,
         events::{
+            AnySyncStateEvent, StateUnsigned, SyncStateEvent,
             call::member::{
                 ActiveFocus, ActiveLivekitFocus, Application, CallApplicationContent,
                 CallMemberEventContent, CallMemberStateKey, Focus, LegacyMembershipData,
                 LegacyMembershipDataInit, LivekitFocus, OriginalSyncCallMemberEvent,
             },
-            AnySyncStateEvent, StateUnsigned, SyncStateEvent,
         },
         room_id,
         time::SystemTime,
-        user_id, DeviceId, EventId, MilliSecondsSinceUnixEpoch, OwnedUserId, UserId,
+        user_id,
     };
     use similar_asserts::assert_eq;
 

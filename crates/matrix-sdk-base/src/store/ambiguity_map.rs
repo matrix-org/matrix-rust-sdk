@@ -18,11 +18,11 @@ use std::{
 };
 
 use ruma::{
-    events::{
-        room::member::{MembershipState, SyncRoomMemberEvent},
-        StateEventType,
-    },
     OwnedEventId, OwnedRoomId, OwnedUserId, RoomId, UserId,
+    events::{
+        StateEventType,
+        room::member::{MembershipState, SyncRoomMemberEvent},
+    },
 };
 use tracing::{instrument, trace};
 
@@ -45,11 +45,7 @@ impl DisplayNameUsers {
     fn remove(&mut self, user_id: &UserId) -> Option<OwnedUserId> {
         self.users.remove(user_id);
 
-        if self.user_count() == 1 {
-            self.users.iter().next().cloned()
-        } else {
-            None
-        }
+        if self.user_count() == 1 { self.users.iter().next().cloned() } else { None }
     }
 
     /// Add the given [`UserId`] from the map, marking that the [`UserId`]
@@ -313,7 +309,7 @@ impl AmbiguityCache {
 #[cfg(test)]
 mod test {
     use matrix_sdk_test::async_test;
-    use ruma::{room_id, server_name, user_id, EventId};
+    use ruma::{EventId, room_id, server_name, user_id};
     use serde_json::json;
 
     use super::*;

@@ -28,16 +28,16 @@
 use std::{
     borrow::Borrow,
     collections::{
-        btree_map::{IntoIter, Iter},
         BTreeMap,
+        btree_map::{IntoIter, Iter},
     },
 };
 
 use as_variant::as_variant;
 use matrix_sdk_common::deserialized_responses::PrivOwnedStr;
 use ruma::{
-    serde::StringEnum, DeviceKeyAlgorithm, DeviceKeyId, OwnedDeviceKeyId, OwnedUserId, RoomId,
-    UserId,
+    DeviceKeyAlgorithm, DeviceKeyId, OwnedDeviceKeyId, OwnedUserId, RoomId, UserId,
+    serde::StringEnum,
 };
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use vodozemac::{Curve25519PublicKey, Ed25519PublicKey, Ed25519Signature, KeyError};

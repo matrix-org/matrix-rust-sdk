@@ -11,12 +11,14 @@ use anyhow::Result;
 use assert_matches::assert_matches;
 use assert_matches2::assert_let;
 use eyeball_im::VectorDiff;
-use futures_util::{pin_mut, StreamExt as _};
+use futures_util::{StreamExt as _, pin_mut};
 use matrix_sdk::{
+    Client, Room, RoomInfo, RoomMemberships, RoomState, SlidingSyncList, SlidingSyncMode,
     bytes::Bytes,
     config::SyncSettings,
     room_preview::RoomPreview,
     ruma::{
+        RoomId,
         api::client::{
             receipt::create_receipt::v3::ReceiptType,
             room::create_room::v3::{Request as CreateRoomRequest, RoomPreset},
@@ -24,29 +26,28 @@ use matrix_sdk::{
         assign,
         directory::PublicRoomsChunkInit,
         events::{
+            AnySyncMessageLikeEvent, InitialStateEvent, Mentions, StateEventType,
             receipt::ReceiptThread,
             room::{
                 history_visibility::{HistoryVisibility, RoomHistoryVisibilityEventContent},
                 join_rules::{JoinRule, RoomJoinRulesEventContent},
                 message::RoomMessageEventContent,
             },
-            AnySyncMessageLikeEvent, InitialStateEvent, Mentions, StateEventType,
         },
         mxc_uri, owned_server_name, room_id,
         space::SpaceRoomJoinRule,
-        uint, RoomId,
+        uint,
     },
     sliding_sync::VersionBuilder,
     test_utils::{logged_in_client_with_server, mocks::MatrixMockServer},
-    Client, Room, RoomInfo, RoomMemberships, RoomState, SlidingSyncList, SlidingSyncMode,
 };
 use matrix_sdk_base::ruma::{
     api::client::sync::sync_events::v5 as http, owned_room_id, room_alias_id,
 };
 use matrix_sdk_test::async_test;
 use matrix_sdk_ui::{
-    room_list_service::filters::new_filter_all, sync_service::SyncService, timeline::RoomExt,
-    RoomListService,
+    RoomListService, room_list_service::filters::new_filter_all, sync_service::SyncService,
+    timeline::RoomExt,
 };
 use once_cell::sync::Lazy;
 use rand::Rng as _;
@@ -58,9 +59,9 @@ use tokio::{
     time::{sleep, timeout},
 };
 use tracing::{debug, error, info, trace, warn};
-use wiremock::{matchers::AnyMatcher, Mock, MockServer};
+use wiremock::{Mock, MockServer, matchers::AnyMatcher};
 
-use crate::helpers::{wait_for_room, TestClientBuilder};
+use crate::helpers::{TestClientBuilder, wait_for_room};
 
 #[tokio::test]
 async fn test_left_room() -> Result<()> {
@@ -1142,13 +1143,15 @@ async fn test_room_preview_with_room_directory_search_and_room_alias_only() {
         .await;
 
     // Given a successful public room search
-    let chunks = vec![PublicRoomsChunkInit {
-        num_joined_members: uint!(0),
-        room_id: expected_room_id.to_owned(),
-        world_readable: true,
-        guest_can_join: true,
-    }
-    .into()];
+    let chunks = vec![
+        PublicRoomsChunkInit {
+            num_joined_members: uint!(0),
+            room_id: expected_room_id.to_owned(),
+            world_readable: true,
+            guest_can_join: true,
+        }
+        .into(),
+    ];
     server.mock_public_rooms().ok(chunks, None, None, Some(1)).mock_once().mount().await;
 
     // The room preview is found
@@ -1184,24 +1187,28 @@ async fn test_room_preview_with_room_directory_search_and_room_alias_only_in_sev
         (
             via_1.to_owned(),
             // The actual room we want
-            vec![PublicRoomsChunkInit {
-                num_joined_members: uint!(0),
-                room_id: expected_room_id.to_owned(),
-                world_readable: true,
-                guest_can_join: true,
-            }
-            .into()],
+            vec![
+                PublicRoomsChunkInit {
+                    num_joined_members: uint!(0),
+                    room_id: expected_room_id.to_owned(),
+                    world_readable: true,
+                    guest_can_join: true,
+                }
+                .into(),
+            ],
         ),
         (
             via_2.to_owned(),
             // Some other room
-            vec![PublicRoomsChunkInit {
-                num_joined_members: uint!(1),
-                room_id: owned_room_id!("!some-other-room:matrix.org"),
-                world_readable: true,
-                guest_can_join: true,
-            }
-            .into()],
+            vec![
+                PublicRoomsChunkInit {
+                    num_joined_members: uint!(1),
+                    room_id: owned_room_id!("!some-other-room:matrix.org"),
+                    world_readable: true,
+                    guest_can_join: true,
+                }
+                .into(),
+            ],
         ),
     ]);
     server

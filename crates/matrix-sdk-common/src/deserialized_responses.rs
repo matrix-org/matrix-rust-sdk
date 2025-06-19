@@ -17,13 +17,13 @@ use std::{collections::BTreeMap, fmt, sync::Arc};
 #[cfg(doc)]
 use ruma::events::AnyTimelineEvent;
 use ruma::{
+    DeviceKeyAlgorithm, OwnedDeviceId, OwnedEventId, OwnedUserId,
     events::{AnyMessageLikeEvent, AnySyncTimelineEvent, AnyToDeviceEvent},
     push::Action,
     serde::{
         AsRefStr, AsStrAsRefStr, DebugAsRefStr, DeserializeFromCowStr, FromString, JsonObject, Raw,
         SerializeAsRefStr,
     },
-    DeviceKeyAlgorithm, OwnedDeviceId, OwnedEventId, OwnedUserId,
 };
 use serde::{Deserialize, Serialize};
 use tracing::warn;
@@ -42,8 +42,7 @@ const VERIFICATION_VIOLATION: &str =
     "Encrypted by a previously-verified user who is no longer verified.";
 const UNSIGNED_DEVICE: &str = "Encrypted by a device not verified by its owner.";
 const UNKNOWN_DEVICE: &str = "Encrypted by an unknown or deleted device.";
-const MISMATCHED_SENDER: &str =
-    "The sender of the event does not match the owner of the device that created the Megolm session.";
+const MISMATCHED_SENDER: &str = "The sender of the event does not match the owner of the device that created the Megolm session.";
 pub const SENT_IN_CLEAR: &str = "Not encrypted.";
 
 /// Represents the state of verification for a decrypted message sent by a
@@ -1220,8 +1219,8 @@ mod tests {
     use assert_matches2::assert_let;
     use insta::{assert_json_snapshot, with_settings};
     use ruma::{
-        device_id, event_id, events::room::message::RoomMessageEventContent, serde::Raw, user_id,
-        DeviceKeyAlgorithm,
+        DeviceKeyAlgorithm, device_id, event_id, events::room::message::RoomMessageEventContent,
+        serde::Raw, user_id,
     };
     use serde::Deserialize;
     use serde_json::json;

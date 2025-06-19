@@ -32,7 +32,7 @@
 //! doesn't exist, as well:
 //!
 //! ```no_run
-//! use matrix_sdk::{encryption::EncryptionSettings, Client};
+//! use matrix_sdk::{Client, encryption::EncryptionSettings};
 //!
 //! # async {
 //! # let homeserver = "http://example.org";
@@ -95,9 +95,9 @@ use futures_util::StreamExt as _;
 use ruma::{
     api::client::keys::get_keys,
     events::{
+        GlobalAccountDataEventType,
         secret::{request::SecretName, send::ToDeviceSecretSendEvent},
         secret_storage::{default_key::SecretStorageDefaultKeyEvent, secret::SecretEventContent},
-        GlobalAccountDataEventType,
     },
     serde::Raw,
 };
@@ -109,7 +109,7 @@ use crate::encryption::{
     backups::Backups,
     secret_storage::{SecretStorage, SecretStore},
 };
-use crate::{client::WeakClient, encryption::backups::BackupState, Client};
+use crate::{Client, client::WeakClient, encryption::backups::BackupState};
 
 pub mod futures;
 mod types;

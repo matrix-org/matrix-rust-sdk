@@ -15,8 +15,8 @@
 //! Mocks useful to reuse across different testing contexts.
 
 use wiremock::{
-    matchers::{header, method, path_regex},
     Mock, MockServer, ResponseTemplate,
+    matchers::{header, method, path_regex},
 };
 
 use crate::test_json;

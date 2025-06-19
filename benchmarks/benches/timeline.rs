@@ -1,10 +1,10 @@
-use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
+use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
 use matrix_sdk::test_utils::mocks::MatrixMockServer;
-use matrix_sdk_test::{event_factory::EventFactory, JoinedRoomBuilder, StateTestEvent};
+use matrix_sdk_test::{JoinedRoomBuilder, StateTestEvent, event_factory::EventFactory};
 use matrix_sdk_ui::timeline::TimelineBuilder;
 use ruma::{
-    events::room::message::RoomMessageEventContentWithoutRelation, owned_room_id, owned_user_id,
-    EventId,
+    EventId, events::room::message::RoomMessageEventContentWithoutRelation, owned_room_id,
+    owned_user_id,
 };
 use tokio::runtime::Builder;
 

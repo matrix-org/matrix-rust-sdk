@@ -25,16 +25,17 @@ use std::collections::{BTreeMap, BTreeSet};
 use futures_core::Stream;
 use futures_util::StreamExt;
 use matrix_sdk_base::crypto::{
+    OlmMachine, RoomKeyImportResult,
     backups::MegolmV1BackupKey,
     store::types::BackupDecryptionKey,
-    types::{requests::KeysBackupRequest, RoomKeyBackupInfo},
-    OlmMachine, RoomKeyImportResult,
+    types::{RoomKeyBackupInfo, requests::KeysBackupRequest},
 };
 use ruma::{
+    OwnedRoomId, RoomId, TransactionId,
     api::client::{
         backup::{
-            add_backup_keys, create_backup_version, get_backup_keys, get_backup_keys_for_room,
-            get_backup_keys_for_session, get_latest_backup_info, RoomKeyBackup,
+            RoomKeyBackup, add_backup_keys, create_backup_version, get_backup_keys,
+            get_backup_keys_for_room, get_backup_keys_for_session, get_latest_backup_info,
         },
         error::ErrorKind,
     },
@@ -43,10 +44,9 @@ use ruma::{
         secret::{request::SecretName, send::ToDeviceSecretSendEvent},
     },
     serde::Raw,
-    OwnedRoomId, RoomId, TransactionId,
 };
-use tokio_stream::wrappers::{errors::BroadcastStreamRecvError, BroadcastStream};
-use tracing::{error, info, instrument, trace, warn, Span};
+use tokio_stream::wrappers::{BroadcastStream, errors::BroadcastStreamRecvError};
+use tracing::{Span, error, info, instrument, trace, warn};
 
 pub mod futures;
 pub(crate) mod types;
@@ -55,7 +55,7 @@ pub use types::{BackupState, UploadState};
 
 use self::futures::WaitForSteadyState;
 use crate::{
-    crypto::olm::ExportedRoomKey, encryption::BackupDownloadStrategy, Client, Error, Room,
+    Client, Error, Room, crypto::olm::ExportedRoomKey, encryption::BackupDownloadStrategy,
 };
 
 /// The backups manager for the [`Client`].
@@ -630,11 +630,7 @@ impl Backups {
             Ok(r) => Ok(Some(r)),
             Err(e) => {
                 if let Some(kind) = e.client_api_error_kind() {
-                    if kind == &ErrorKind::NotFound {
-                        Ok(None)
-                    } else {
-                        Err(e.into())
-                    }
+                    if kind == &ErrorKind::NotFound { Ok(None) } else { Err(e.into()) }
                 } else {
                     Err(e.into())
                 }
@@ -649,11 +645,7 @@ impl Backups {
             Ok(_) => Ok(()),
             Err(e) => {
                 if let Some(kind) = e.client_api_error_kind() {
-                    if kind == &ErrorKind::NotFound {
-                        Ok(())
-                    } else {
-                        Err(e.into())
-                    }
+                    if kind == &ErrorKind::NotFound { Ok(()) } else { Err(e.into()) }
                 } else {
                     Err(e.into())
                 }
@@ -702,7 +694,9 @@ impl Backups {
                 if let Some(kind) = error.client_api_error_kind() {
                     match kind {
                         ErrorKind::NotFound => {
-                            warn!("No backup found on the server, the backup likely got deleted, disabling backups.");
+                            warn!(
+                                "No backup found on the server, the backup likely got deleted, disabling backups."
+                            );
 
                             self.handle_deleted_backup_version(olm_machine).await?;
                         }
@@ -1037,8 +1031,8 @@ mod test {
     use matrix_sdk_test::async_test;
     use serde_json::json;
     use wiremock::{
-        matchers::{header, method, path},
         Mock, MockServer, ResponseTemplate,
+        matchers::{header, method, path},
     };
 
     use super::*;

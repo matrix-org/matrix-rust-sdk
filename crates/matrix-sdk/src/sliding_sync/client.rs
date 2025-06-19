@@ -1,6 +1,6 @@
 use std::collections::BTreeSet;
 
-use matrix_sdk_base::{sync::SyncResponse, RequestedRequiredStates};
+use matrix_sdk_base::{RequestedRequiredStates, sync::SyncResponse};
 use matrix_sdk_common::deserialized_responses::ProcessedToDeviceEvent;
 use ruma::api::client::{discovery::get_supported_versions, sync::sync_events::v5 as http};
 use tracing::error;
@@ -40,7 +40,9 @@ pub enum VersionBuilderError {
 
     /// `/versions` does not contain `org.matrix.simplified_msc3575` in its
     /// `unstable_features`, or it's not set to true.
-    #[error("`/versions` does not contain `org.matrix.simplified_msc3575` in its `unstable_features`, or it's not set to true.")]
+    #[error(
+        "`/versions` does not contain `org.matrix.simplified_msc3575` in its `unstable_features`, or it's not set to true."
+    )]
     NativeVersionIsUnset,
 }
 
@@ -288,23 +290,23 @@ mod tests {
 
     use assert_matches::assert_matches;
     use matrix_sdk_base::{
-        notification_settings::RoomNotificationMode, RequestedRequiredStates,
-        RoomInfoNotableUpdate, RoomInfoNotableUpdateReasons,
+        RequestedRequiredStates, RoomInfoNotableUpdate, RoomInfoNotableUpdateReasons,
+        notification_settings::RoomNotificationMode,
     };
     use matrix_sdk_test::async_test;
     use ruma::{assign, events::AnySyncTimelineEvent, room_id, serde::Raw};
     use serde_json::json;
     use wiremock::{
-        matchers::{method, path},
         Mock, ResponseTemplate,
+        matchers::{method, path},
     };
 
-    use super::{get_supported_versions, Version, VersionBuilder};
+    use super::{Version, VersionBuilder, get_supported_versions};
     use crate::{
-        error::Result,
-        sliding_sync::{client::SlidingSyncResponseProcessor, http, VersionBuilderError},
-        test_utils::{logged_in_client, logged_in_client_with_server},
         SlidingSyncList, SlidingSyncMode,
+        error::Result,
+        sliding_sync::{VersionBuilderError, client::SlidingSyncResponseProcessor, http},
+        test_utils::{logged_in_client, logged_in_client_with_server},
     };
 
     #[test]

@@ -20,13 +20,13 @@
 use std::{future::Future, sync::Mutex};
 
 use eyeball::{SharedObservable, Subscriber};
-use matrix_sdk_base::{deserialized_responses::TimelineEvent, SendOutsideWasm, SyncOutsideWasm};
-use ruma::{api::Direction, EventId, OwnedEventId, UInt};
+use matrix_sdk_base::{SendOutsideWasm, SyncOutsideWasm, deserialized_responses::TimelineEvent};
+use ruma::{EventId, OwnedEventId, UInt, api::Direction};
 
 use super::pagination::PaginationToken;
 use crate::{
-    room::{EventWithContextResponse, Messages, MessagesOptions, WeakRoom},
     Room,
+    room::{EventWithContextResponse, Messages, MessagesOptions, WeakRoom},
 };
 
 /// Current state of a [`Paginator`].
@@ -488,7 +488,7 @@ mod tests {
     use matrix_sdk_base::deserialized_responses::TimelineEvent;
     use matrix_sdk_test::{async_test, event_factory::EventFactory};
     use once_cell::sync::Lazy;
-    use ruma::{api::Direction, event_id, room_id, uint, user_id, EventId, RoomId, UInt, UserId};
+    use ruma::{EventId, RoomId, UInt, UserId, api::Direction, event_id, room_id, uint, user_id};
     use tokio::{
         spawn,
         sync::{Mutex, Notify},
@@ -999,7 +999,7 @@ mod tests {
 
     mod aborts {
         use super::*;
-        use crate::event_cache::{paginator::PaginationTokens, PaginationToken};
+        use crate::event_cache::{PaginationToken, paginator::PaginationTokens};
 
         #[derive(Clone, Default)]
         struct AbortingRoom {

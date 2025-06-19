@@ -15,17 +15,17 @@
 use std::borrow::Cow;
 
 use oauth2::{
-    basic::BasicClient as OAuthClient, AuthUrl, CsrfToken, PkceCodeChallenge, RedirectUrl, Scope,
+    AuthUrl, CsrfToken, PkceCodeChallenge, RedirectUrl, Scope, basic::BasicClient as OAuthClient,
 };
 use ruma::{
-    api::client::discovery::get_authorization_server_metadata::msc2965::Prompt, OwnedDeviceId,
-    UserId,
+    OwnedDeviceId, UserId,
+    api::client::discovery::get_authorization_server_metadata::msc2965::Prompt,
 };
 use tracing::{info, instrument};
 use url::Url;
 
 use super::{ClientRegistrationData, OAuth, OAuthError};
-use crate::{authentication::oauth::AuthorizationValidationData, Result};
+use crate::{Result, authentication::oauth::AuthorizationValidationData};
 
 /// Builder type used to configure optional settings for authorization with an
 /// OAuth 2.0 authorization server via the Authorization Code flow.

@@ -6,20 +6,20 @@ use imbl::Vector;
 use input::MessageOrCommand;
 use invited_room::InvitedRoomView;
 use matrix_sdk::{
+    Client, Room, RoomState,
     locks::Mutex,
     room::reply::{EnforceThread::Threaded, Reply},
     ruma::{
+        OwnedEventId, OwnedRoomId, RoomId, UserId,
         api::client::receipt::create_receipt::v3::ReceiptType,
         events::room::message::{
             ReplyWithinThread, RoomMessageEventContent, RoomMessageEventContentWithoutRelation,
         },
-        OwnedEventId, OwnedRoomId, RoomId, UserId,
     },
-    Client, Room, RoomState,
 };
 use matrix_sdk_ui::{
-    timeline::{TimelineBuilder, TimelineFocus, TimelineItem},
     Timeline,
+    timeline::{TimelineBuilder, TimelineFocus, TimelineItem},
 };
 use ratatui::{prelude::*, widgets::*};
 use tokio::{spawn, sync::OnceCell, task::JoinHandle};
@@ -28,8 +28,8 @@ use tracing::info;
 use self::{details::RoomDetails, input::Input, timeline::TimelineView};
 use super::status::StatusHandle;
 use crate::{
+    HEADER_BG, NORMAL_ROW_COLOR, TEXT_COLOR, Timelines,
     widgets::{recovery::ShouldExit, room_view::timeline::TimelineListState},
-    Timelines, HEADER_BG, NORMAL_ROW_COLOR, TEXT_COLOR,
 };
 
 mod details;

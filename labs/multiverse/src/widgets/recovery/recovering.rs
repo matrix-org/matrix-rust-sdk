@@ -1,10 +1,10 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use futures_util::FutureExt as _;
 use matrix_sdk::{
-    encryption::{recovery::RecoveryError, CrossSigningResetAuthType},
+    Client,
+    encryption::{CrossSigningResetAuthType, recovery::RecoveryError},
     reqwest::Url,
     ruma::api::client::uiaa::{AuthData, Password},
-    Client,
 };
 use matrix_sdk_common::executor::spawn;
 use ratatui::{
@@ -14,7 +14,7 @@ use ratatui::{
 use throbber_widgets_tui::{Throbber, ThrobberState};
 use tokio::{
     sync::{
-        mpsc::{unbounded_channel, UnboundedSender},
+        mpsc::{UnboundedSender, unbounded_channel},
         oneshot,
     },
     task::JoinHandle,
@@ -22,7 +22,7 @@ use tokio::{
 use tui_textarea::TextArea;
 
 use super::ShouldExit;
-use crate::widgets::{recovery::create_centered_throbber_area, Hyperlink};
+use crate::widgets::{Hyperlink, recovery::create_centered_throbber_area};
 
 #[derive(Debug)]
 enum ResetState {

@@ -1,13 +1,13 @@
 use std::sync::Arc;
 
-use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
+use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
 use matrix_sdk::{
-    authentication::matrix::MatrixSession, config::StoreConfig, Client, RoomInfo, RoomState,
-    SessionTokens, StateChanges,
+    Client, RoomInfo, RoomState, SessionTokens, StateChanges,
+    authentication::matrix::MatrixSession, config::StoreConfig,
 };
-use matrix_sdk_base::{store::MemoryStore, SessionMeta, StateStore as _};
+use matrix_sdk_base::{SessionMeta, StateStore as _, store::MemoryStore};
 use matrix_sdk_sqlite::SqliteStateStore;
-use ruma::{device_id, user_id, RoomId};
+use ruma::{RoomId, device_id, user_id};
 use tokio::runtime::Builder;
 
 fn criterion() -> Criterion {

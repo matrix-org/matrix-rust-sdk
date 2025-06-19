@@ -1,7 +1,7 @@
 //! Discrete events found in a sync response.
 
 use once_cell::sync::Lazy;
-use serde_json::{json, Value as JsonValue};
+use serde_json::{Value as JsonValue, json};
 
 use crate::DEFAULT_TEST_ROOM_ID;
 

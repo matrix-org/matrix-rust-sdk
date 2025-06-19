@@ -6,12 +6,12 @@ use matrix_sdk::{
     room::reply::{EnforceThread, Reply},
     test_utils::mocks::MatrixMockServer,
 };
-use matrix_sdk_test::{async_test, event_factory::EventFactory, ALICE, DEFAULT_TEST_ROOM_ID};
+use matrix_sdk_test::{ALICE, DEFAULT_TEST_ROOM_ID, async_test, event_factory::EventFactory};
 use ruma::{
     event_id,
     events::{
-        room::{message::ReplyWithinThread, MediaSource},
         Mentions,
+        room::{MediaSource, message::ReplyWithinThread},
     },
     mxc_uri, owned_mxc_uri, owned_user_id, uint,
 };

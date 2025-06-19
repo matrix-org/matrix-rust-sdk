@@ -16,12 +16,12 @@ use std::time::Duration;
 
 use assert_matches2::assert_let;
 use ruma::{
-    api::client::account::request_openid_token, authentication::TokenType, owned_room_id,
-    ServerName,
+    ServerName, api::client::account::request_openid_token, authentication::TokenType,
+    owned_room_id,
 };
 use serde_json::json;
 
-use super::{parse_msg, WIDGET_ID};
+use super::{WIDGET_ID, parse_msg};
 use crate::widget::machine::{
     Action, IncomingMessage, MatrixDriverRequestData, MatrixDriverResponse, WidgetMachine,
 };

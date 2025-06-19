@@ -1,5 +1,5 @@
 use once_cell::sync::Lazy;
-use serde_json::{json, Value as JsonValue};
+use serde_json::{Value as JsonValue, json};
 
 pub static SEARCH_USERS_REQUEST: Lazy<JsonValue> = Lazy::new(|| {
     json!({

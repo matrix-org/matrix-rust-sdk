@@ -1,15 +1,16 @@
 use std::{ops::Deref, sync::Arc};
 
-use criterion::{criterion_group, criterion_main, BatchSize, BenchmarkId, Criterion, Throughput};
+use criterion::{BatchSize, BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
 use matrix_sdk_crypto::{EncryptionSettings, OlmMachine};
 use matrix_sdk_sqlite::SqliteCryptoStore;
 use matrix_sdk_test::ruma_response_from_json;
 use ruma::{
+    DeviceId, OwnedUserId, TransactionId, UserId,
     api::client::{
         keys::{claim_keys, get_keys},
         to_device::send_event_to_device::v3::Response as ToDeviceResponse,
     },
-    device_id, room_id, user_id, DeviceId, OwnedUserId, TransactionId, UserId,
+    device_id, room_id, user_id,
 };
 use serde_json::Value;
 use tokio::runtime::Builder;

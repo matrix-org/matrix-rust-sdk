@@ -42,17 +42,17 @@ use std::{borrow::Cow, collections::HashMap, sync::Arc};
 use as_variant::as_variant;
 use matrix_sdk::deserialized_responses::EncryptionInfo;
 use ruma::{
+    MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, OwnedUserId, RoomVersionId,
     events::{
+        AnySyncTimelineEvent,
         poll::unstable_start::NewUnstablePollStartEventContentWithoutRelation,
         relation::Replacement, room::message::RoomMessageEventContentWithoutRelation,
-        AnySyncTimelineEvent,
     },
     serde::Raw,
-    MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, OwnedUserId, RoomVersionId,
 };
 use tracing::{info, trace, warn};
 
-use super::{rfind_event_by_item_id, ObservableItemsTransaction};
+use super::{ObservableItemsTransaction, rfind_event_by_item_id};
 use crate::timeline::{
     EventTimelineItem, MsgLikeContent, MsgLikeKind, PollState, ReactionInfo, ReactionStatus,
     TimelineEventItemId, TimelineItem, TimelineItemContent,
@@ -427,7 +427,9 @@ impl Aggregations {
         };
 
         let Some(aggregation) = aggregation else {
-            warn!("incorrect internal state: {aggregation_id:?} was present in the inverted map, not in related-to map.");
+            warn!(
+                "incorrect internal state: {aggregation_id:?} was present in the inverted map, not in related-to map."
+            );
             return Ok(false);
         };
 
@@ -639,11 +641,7 @@ fn resolve_edits(
         }
     }
 
-    if let Some(edit) = best_edit {
-        edit_item(event, edit)
-    } else {
-        false
-    }
+    if let Some(edit) = best_edit { edit_item(event, edit) } else { false }
 }
 
 /// Apply the selected edit to the given EventTimelineItem.
@@ -807,6 +805,8 @@ pub(crate) enum AggregationError {
     #[error("a redaction can't be unapplied")]
     CantUndoRedaction,
 
-    #[error("trying to apply an aggregation of one type to an invalid target: expected {expected}, actual {actual}")]
+    #[error(
+        "trying to apply an aggregation of one type to an invalid target: expected {expected}, actual {actual}"
+    )]
     InvalidType { expected: String, actual: String },
 }

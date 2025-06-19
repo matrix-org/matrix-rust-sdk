@@ -17,12 +17,12 @@
 use matrix_sdk_base::deserialized_responses::PrivOwnedStr;
 use oauth2::ErrorResponseType;
 pub use oauth2::{
+    ConfigurationError, HttpClientError, RequestTokenError, RevocationErrorResponseType,
+    StandardErrorResponse,
     basic::{
         BasicErrorResponse, BasicErrorResponseType, BasicRequestTokenError,
         BasicRevocationErrorResponse,
     },
-    ConfigurationError, HttpClientError, RequestTokenError, RevocationErrorResponseType,
-    StandardErrorResponse,
 };
 use ruma::{
     api::client::discovery::get_authorization_server_metadata::msc2965::AuthorizationServerMetadataUrlError,

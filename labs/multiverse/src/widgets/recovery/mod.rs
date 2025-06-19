@@ -1,5 +1,5 @@
 use crossterm::event::{KeyCode, KeyEvent};
-use matrix_sdk::{encryption::recovery::RecoveryState, Client};
+use matrix_sdk::{Client, encryption::recovery::RecoveryState};
 use ratatui::prelude::*;
 use recovering::RecoveringView;
 use throbber_widgets_tui::{Throbber, ThrobberState};

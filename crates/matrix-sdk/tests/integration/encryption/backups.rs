@@ -16,8 +16,9 @@ use std::{fs::File, io::Write, sync::Arc, time::Duration};
 
 use anyhow::Result;
 use assert_matches::assert_matches;
-use futures_util::{pin_mut, FutureExt, StreamExt};
+use futures_util::{FutureExt, StreamExt, pin_mut};
 use matrix_sdk::{
+    Client, SessionMeta,
     authentication::matrix::MatrixSession,
     config::RequestConfig,
     crypto::{
@@ -26,38 +27,38 @@ use matrix_sdk::{
         types::EventEncryptionAlgorithm,
     },
     encryption::{
-        backups::{futures::SteadyStateError, BackupState, UploadState},
-        secret_storage::SecretStore,
         BackupDownloadStrategy, EncryptionSettings,
+        backups::{BackupState, UploadState, futures::SteadyStateError},
+        secret_storage::SecretStore,
     },
     test_utils::{
         client::mock_session_tokens, no_retry_test_client_with_server,
         test_client_builder_with_server,
     },
-    Client, SessionMeta,
 };
 use matrix_sdk_base::crypto::olm::OutboundGroupSession;
 use matrix_sdk_common::timeout::timeout;
-use matrix_sdk_test::{async_test, JoinedRoomBuilder, SyncResponseBuilder};
+use matrix_sdk_test::{JoinedRoomBuilder, SyncResponseBuilder, async_test};
 use ruma::{
+    EventId, RoomId, TransactionId,
     api::client::room::create_room::v3::Request as CreateRoomRequest,
     assign, device_id, event_id,
     events::room::message::{RoomMessageEvent, RoomMessageEventContent},
-    owned_device_id, owned_user_id, room_id, user_id, EventId, RoomId, TransactionId,
+    owned_device_id, owned_user_id, room_id, user_id,
 };
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use tempfile::tempdir;
 use tokio::spawn;
 use vodozemac::{
-    olm::IdentityKeys, Curve25519PublicKey, Curve25519SecretKey, Ed25519PublicKey, Ed25519SecretKey,
+    Curve25519PublicKey, Curve25519SecretKey, Ed25519PublicKey, Ed25519SecretKey, olm::IdentityKeys,
 };
 use wiremock::{
-    matchers::{header, method, path, path_regex},
     Mock, ResponseTemplate,
+    matchers::{header, method, path, path_regex},
 };
 
 use crate::{
-    encryption::{mock_secret_store_with_backup_key, BACKUP_DECRYPTION_KEY_BASE64},
+    encryption::{BACKUP_DECRYPTION_KEY_BASE64, mock_secret_store_with_backup_key},
     mock_sync,
 };
 

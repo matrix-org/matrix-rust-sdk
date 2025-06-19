@@ -18,7 +18,7 @@
 use indexed_db_futures::IdbKeyPath;
 use web_sys::DomException;
 
-use crate::crypto_store::{keys, migrations::do_schema_upgrade, Result};
+use crate::crypto_store::{Result, keys, migrations::do_schema_upgrade};
 
 /// Perform the schema upgrade v11 to v12, adding an index on
 /// `(curve_key, sender_data_type, session_id)` to `inbound_group_sessions3`.

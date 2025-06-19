@@ -17,15 +17,14 @@
 use std::time::Duration;
 
 use ruma::{
-    assign,
+    OwnedTransactionId, UInt, assign,
     events::{
-        room::{
-            message::{AudioInfo, FileInfo, FormattedBody, VideoInfo},
-            ImageInfo, ThumbnailInfo,
-        },
         Mentions,
+        room::{
+            ImageInfo, ThumbnailInfo,
+            message::{AudioInfo, FileInfo, FormattedBody, VideoInfo},
+        },
     },
-    OwnedTransactionId, UInt,
 };
 
 use crate::room::reply::Reply;

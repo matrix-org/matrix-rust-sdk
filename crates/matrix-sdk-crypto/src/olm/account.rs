@@ -28,6 +28,9 @@ use matrix_sdk_common::deserialized_responses::{
 #[cfg(test)]
 use ruma::api::client::dehydrated_device::DehydratedDeviceV1;
 use ruma::{
+    DeviceId, DeviceKeyAlgorithm, DeviceKeyId, MilliSecondsSinceUnixEpoch, OneTimeKeyAlgorithm,
+    OneTimeKeyId, OwnedDeviceId, OwnedDeviceKeyId, OwnedOneTimeKeyId, OwnedUserId, RoomId,
+    SecondsSinceUnixEpoch, UInt, UserId,
     api::client::{
         dehydrated_device::{DehydratedDeviceData, DehydratedDeviceV2},
         keys::{
@@ -35,45 +38,43 @@ use ruma::{
             upload_signatures::v3::{Request as SignatureUploadRequest, SignedKeys},
         },
     },
-    events::{room::history_visibility::HistoryVisibility, AnyToDeviceEvent},
+    events::{AnyToDeviceEvent, room::history_visibility::HistoryVisibility},
     serde::Raw,
-    DeviceId, DeviceKeyAlgorithm, DeviceKeyId, MilliSecondsSinceUnixEpoch, OneTimeKeyAlgorithm,
-    OneTimeKeyId, OwnedDeviceId, OwnedDeviceKeyId, OwnedOneTimeKeyId, OwnedUserId, RoomId,
-    SecondsSinceUnixEpoch, UInt, UserId,
 };
-use serde::{de::Error, Deserialize, Serialize};
+use serde::{Deserialize, Serialize, de::Error};
 use serde_json::{
-    value::{to_raw_value, RawValue as RawJsonValue},
     Value,
+    value::{RawValue as RawJsonValue, to_raw_value},
 };
 use sha2::{Digest, Sha256};
 use tokio::sync::Mutex;
-use tracing::{debug, field::debug, info, instrument, trace, warn, Span};
+use tracing::{Span, debug, field::debug, info, instrument, trace, warn};
 use vodozemac::{
-    base64_encode,
+    Curve25519PublicKey, Ed25519Signature, KeyId, PickleError, base64_encode,
     olm::{
         Account as InnerAccount, AccountPickle, IdentityKeys, OlmMessage,
         OneTimeKeyGenerationResult, PreKeyMessage, SessionConfig,
     },
-    Curve25519PublicKey, Ed25519Signature, KeyId, PickleError,
 };
 
 use super::{
-    utility::SignJson, EncryptionSettings, InboundGroupSession, OutboundGroupSession,
-    PrivateCrossSigningIdentity, Session, SessionCreationError as MegolmSessionCreationError,
+    EncryptionSettings, InboundGroupSession, OutboundGroupSession, PrivateCrossSigningIdentity,
+    Session, SessionCreationError as MegolmSessionCreationError, utility::SignJson,
 };
 #[cfg(feature = "experimental-algorithms")]
 use crate::types::events::room::encrypted::OlmV2Curve25519AesSha2Content;
 use crate::{
+    Device, OlmError, SignatureError,
     dehydrated_devices::DehydrationError,
     error::{EventError, OlmResult, SessionCreationError},
     identities::DeviceData,
     olm::SenderData,
     store::{
-        types::{Changes, DeviceChanges},
         Store,
+        types::{Changes, DeviceChanges},
     },
     types::{
+        CrossSigningKey, DeviceKeys, EventEncryptionAlgorithm, MasterPubkey, OneTimeKey, SignedKey,
         events::{
             olm_v1::AnyDecryptedOlmEvent,
             room::encrypted::{
@@ -82,9 +83,7 @@ use crate::{
             },
         },
         requests::UploadSigningKeysRequest,
-        CrossSigningKey, DeviceKeys, EventEncryptionAlgorithm, MasterPubkey, OneTimeKey, SignedKey,
     },
-    Device, OlmError, SignatureError,
 };
 
 #[derive(Debug)]
@@ -880,11 +879,7 @@ impl Account {
     pub fn signed_fallback_keys(&self) -> FallbackKeys {
         let fallback_key = self.fallback_key();
 
-        if fallback_key.is_empty() {
-            BTreeMap::new()
-        } else {
-            self.signed_keys(fallback_key, true)
-        }
+        if fallback_key.is_empty() { BTreeMap::new() } else { self.signed_keys(fallback_key, true) }
     }
 
     fn signed_keys(
@@ -1713,16 +1708,16 @@ mod tests {
     use anyhow::Result;
     use matrix_sdk_test::async_test;
     use ruma::{
-        device_id, events::room::history_visibility::HistoryVisibility, room_id, user_id, DeviceId,
-        MilliSecondsSinceUnixEpoch, OneTimeKeyAlgorithm, OneTimeKeyId, UserId,
+        DeviceId, MilliSecondsSinceUnixEpoch, OneTimeKeyAlgorithm, OneTimeKeyId, UserId, device_id,
+        events::room::history_visibility::HistoryVisibility, room_id, user_id,
     };
     use serde_json::json;
 
     use super::Account;
     use crate::{
-        olm::{account::shared_history_from_history_visibility, SignedJsonObject},
-        types::{DeviceKeys, SignedKey},
         DeviceData, EncryptionSettings,
+        olm::{SignedJsonObject, account::shared_history_from_history_visibility},
+        types::{DeviceKeys, SignedKey},
     };
 
     fn user_id() -> &'static UserId {

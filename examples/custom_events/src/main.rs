@@ -13,15 +13,17 @@ use std::{
     env,
     process::exit,
     sync::{
-        atomic::{AtomicU64, Ordering},
         Arc,
+        atomic::{AtomicU64, Ordering},
     },
 };
 
 use matrix_sdk::{
+    Client, Room, RoomState,
     config::SyncSettings,
     event_handler::Ctx,
     ruma::{
+        OwnedEventId,
         events::{
             macros::EventContent,
             room::{
@@ -29,12 +31,10 @@ use matrix_sdk::{
                 message::{MessageType, OriginalSyncRoomMessageEvent},
             },
         },
-        OwnedEventId,
     },
-    Client, Room, RoomState,
 };
 use serde::{Deserialize, Serialize};
-use tokio::time::{sleep, Duration};
+use tokio::time::{Duration, sleep};
 
 // We use ruma to define our custom events. Just declare the events content
 // by deriving from `EventContent` and define `ruma_events` for the metadata

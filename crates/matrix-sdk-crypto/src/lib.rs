@@ -82,8 +82,8 @@ pub use error::{
     SetRoomSettingsError, SignatureError,
 };
 pub use file_encryption::{
-    decrypt_room_key_export, encrypt_room_key_export, AttachmentDecryptor, AttachmentEncryptor,
-    DecryptorError, KeyExportError, MediaEncryptionInfo,
+    AttachmentDecryptor, AttachmentEncryptor, DecryptorError, KeyExportError, MediaEncryptionInfo,
+    decrypt_room_key_export, encrypt_room_key_export,
 };
 pub use gossiping::{GossipRequest, GossippedSecret};
 pub use identities::{
@@ -98,12 +98,12 @@ pub use olm::{Account, CrossSigningStatus, EncryptionSettings, Session};
 use serde::{Deserialize, Serialize};
 pub use session_manager::CollectStrategy;
 pub use store::{
-    types::{CrossSigningKeyExport, TrackedUser},
     CryptoStoreError, SecretImportError, SecretInfo,
+    types::{CrossSigningKeyExport, TrackedUser},
 };
 pub use verification::{
-    format_emojis, AcceptSettings, AcceptedProtocols, CancelInfo, Emoji, EmojiShortAuthString, Sas,
-    SasState, Verification, VerificationRequest, VerificationRequestState,
+    AcceptSettings, AcceptedProtocols, CancelInfo, Emoji, EmojiShortAuthString, Sas, SasState,
+    Verification, VerificationRequest, VerificationRequestState, format_emojis,
 };
 #[cfg(feature = "qrcode")]
 pub use verification::{QrVerification, QrVerificationState, ScanError};

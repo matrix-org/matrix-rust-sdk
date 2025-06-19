@@ -16,25 +16,25 @@ use matrix_sdk_common::deserialized_responses::TimelineEvent;
 #[cfg(feature = "e2e-encryption")]
 use ruma::events::SyncMessageLikeEvent;
 use ruma::{
+    RoomVersionId, UInt, UserId,
     events::{
+        AnyStrippedStateEvent, AnySyncMessageLikeEvent, AnySyncStateEvent, AnySyncTimelineEvent,
+        StateEventType,
         room::power_levels::{
             RoomPowerLevelsEvent, RoomPowerLevelsEventContent, StrippedRoomPowerLevelsEvent,
         },
-        AnyStrippedStateEvent, AnySyncMessageLikeEvent, AnySyncStateEvent, AnySyncTimelineEvent,
-        StateEventType,
     },
     push::{Action, PushConditionRoomCtx},
-    RoomVersionId, UInt, UserId,
 };
 use tracing::{instrument, trace, warn};
 
+use super::{Context, notification};
 #[cfg(feature = "e2e-encryption")]
 use super::{e2ee, verification};
-use super::{notification, Context};
 use crate::{
+    Result, Room, RoomInfo,
     store::{BaseStateStore, StateStoreExt as _},
     sync::Timeline,
-    Result, Room, RoomInfo,
 };
 
 /// Process a set of sync timeline event, and create a [`Timeline`].

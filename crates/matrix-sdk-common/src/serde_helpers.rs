@@ -16,9 +16,9 @@
 //! to access some fields.
 
 use ruma::{
-    events::{relation::BundledThread, AnyMessageLikeEvent, AnySyncTimelineEvent},
-    serde::Raw,
     OwnedEventId, UInt,
+    events::{AnyMessageLikeEvent, AnySyncTimelineEvent, relation::BundledThread},
+    serde::Raw,
 };
 use serde::Deserialize;
 

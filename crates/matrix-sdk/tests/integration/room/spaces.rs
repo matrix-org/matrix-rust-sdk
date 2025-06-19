@@ -2,17 +2,17 @@ use std::time::Duration;
 
 use assert_matches2::assert_let;
 use futures_util::StreamExt;
-use matrix_sdk::{config::SyncSettings, room::ParentSpace, Client};
-use matrix_sdk_test::{async_test, test_json, DEFAULT_TEST_ROOM_ID};
+use matrix_sdk::{Client, config::SyncSettings, room::ParentSpace};
+use matrix_sdk_test::{DEFAULT_TEST_ROOM_ID, async_test, test_json};
 use once_cell::sync::Lazy;
-use ruma::{room_id, RoomId};
-use serde_json::{json, Value as JsonValue};
+use ruma::{RoomId, room_id};
+use serde_json::{Value as JsonValue, json};
 use wiremock::{
-    matchers::{header, method, path_regex},
     Mock, ResponseTemplate,
+    matchers::{header, method, path_regex},
 };
 
-use crate::{logged_in_client_with_server, mock_sync, MockServer};
+use crate::{MockServer, logged_in_client_with_server, mock_sync};
 
 pub static DEFAULT_TEST_SPACE_ID: Lazy<&RoomId> =
     Lazy::new(|| room_id!("!hIMjEx205EXNyjVPCV:localhost"));
@@ -173,8 +173,8 @@ async fn test_parent_space_undeserializable() {
     let (client, server) = logged_in_client_with_server().await;
 
     let mut sync = PARENT_SPACE_SYNC.clone();
-    sync["rooms"]["join"][DEFAULT_TEST_ROOM_ID.as_str()]["timeline"]["events"][0]["content"]
-        ["canonical"] = JsonValue::from("true"); // invalid, must be a boolean
+    sync["rooms"]["join"][DEFAULT_TEST_ROOM_ID.as_str()]["timeline"]["events"][0]["content"]["canonical"] =
+        JsonValue::from("true"); // invalid, must be a boolean
     initial_sync_with_m_space_parent(&client, &server, &sync).await;
 
     let room = client.get_room(&DEFAULT_TEST_ROOM_ID).unwrap();

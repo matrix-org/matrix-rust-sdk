@@ -12,7 +12,7 @@ use matrix_sdk::{
 use matrix_sdk_common::deserialized_responses::ProcessedToDeviceEvent;
 use matrix_sdk_ui::sync_service::SyncService;
 use similar_asserts::assert_eq;
-use tracing::{info, Instrument};
+use tracing::{Instrument, info};
 
 use crate::helpers::{SyncTokenAwareClient, TestClientBuilder};
 

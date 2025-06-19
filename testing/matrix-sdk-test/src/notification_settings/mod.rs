@@ -1,9 +1,9 @@
 use ruma::{
+    RoomId, UserId,
     push::{
         Action, NewConditionalPushRule, NewPushRule, NewSimplePushRule, PushCondition, RuleKind,
         Ruleset, Tweak,
     },
-    RoomId, UserId,
 };
 
 pub fn get_server_default_ruleset() -> Ruleset {

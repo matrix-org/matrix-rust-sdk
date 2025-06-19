@@ -22,21 +22,22 @@ use std::{
 pub(crate) use machine::GossipMachine;
 use matrix_sdk_common::locks::RwLock as StdRwLock;
 use ruma::{
+    DeviceId, OwnedDeviceId, OwnedTransactionId, OwnedUserId, TransactionId, UserId,
     events::{
+        AnyToDeviceEventContent, ToDeviceEventType,
         room_key_request::{Action, ToDeviceRoomKeyRequestEventContent},
         secret::request::{
             RequestAction, SecretName, ToDeviceSecretRequestEvent as SecretRequestEvent,
             ToDeviceSecretRequestEventContent as SecretRequestEventContent,
         },
-        AnyToDeviceEventContent, ToDeviceEventType,
     },
     serde::Raw,
     to_device::DeviceIdOrAllDevices,
-    DeviceId, OwnedDeviceId, OwnedTransactionId, OwnedUserId, TransactionId, UserId,
 };
 use serde::{Deserialize, Serialize};
 
 use crate::{
+    Device,
     types::{
         events::{
             olm_v1::DecryptedSecretSendEvent,
@@ -44,7 +45,6 @@ use crate::{
         },
         requests::{OutgoingRequest, ToDeviceRequest},
     },
-    Device,
 };
 
 /// Struct containing a `m.secret.send` event and its acompanying info.

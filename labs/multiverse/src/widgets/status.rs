@@ -1,7 +1,7 @@
 use std::{
     sync::{
-        mpsc::{self, Receiver},
         Arc,
+        mpsc::{self, Receiver},
     },
     time::Duration,
 };
@@ -13,7 +13,7 @@ use ratatui::{
 };
 use tokio::{
     spawn,
-    task::{spawn_blocking, JoinHandle},
+    task::{JoinHandle, spawn_blocking},
     time::sleep,
 };
 

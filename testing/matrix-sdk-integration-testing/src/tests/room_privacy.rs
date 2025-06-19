@@ -19,9 +19,10 @@ use assign::assign;
 use matrix_sdk::{
     config::SyncSettings,
     ruma::{
+        RoomAliasId,
         api::client::{
             directory::get_public_rooms_filtered,
-            room::{create_room::v3::Request as CreateRoomRequest, Visibility},
+            room::{Visibility, create_room::v3::Request as CreateRoomRequest},
         },
         directory::Filter,
         events::room::{
@@ -32,7 +33,6 @@ use matrix_sdk::{
             },
         },
         serde::Raw,
-        RoomAliasId,
     },
 };
 use matrix_sdk_base::ruma::events::room::canonical_alias::SyncRoomCanonicalAliasEvent;

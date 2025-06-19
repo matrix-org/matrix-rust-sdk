@@ -371,9 +371,9 @@ mod tests {
     use assert_matches::assert_matches;
 
     use super::{
-        super::Position, from_all_chunks, from_last_chunk, insert_new_first_chunk, replace_with,
-        ChunkContent, ChunkIdentifier, ChunkIdentifierGenerator, LazyLoaderError, LinkedChunk,
-        RawChunk, Update,
+        super::Position, ChunkContent, ChunkIdentifier, ChunkIdentifierGenerator, LazyLoaderError,
+        LinkedChunk, RawChunk, Update, from_all_chunks, from_last_chunk, insert_new_first_chunk,
+        replace_with,
     };
 
     #[test]

@@ -18,10 +18,10 @@ use std::{
 };
 
 use aes::{
-    cipher::{generic_array::GenericArray, KeyIvInit, StreamCipher},
     Aes256,
+    cipher::{KeyIvInit, StreamCipher, generic_array::GenericArray},
 };
-use rand::{thread_rng, RngCore};
+use rand::{RngCore, thread_rng};
 use ruma::{
     events::room::{EncryptedFile, JsonWebKey, JsonWebKeyInit},
     serde::Base64,

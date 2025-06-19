@@ -21,8 +21,8 @@ use ruma::{
 use serde_json::json;
 use url::Url;
 use wiremock::{
-    matchers::{method, path_regex},
     Mock, MockBuilder, ResponseTemplate,
+    matchers::{method, path_regex},
 };
 
 use super::{MatrixMock, MatrixMockServer, MockEndpoint};

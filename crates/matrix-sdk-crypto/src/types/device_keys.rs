@@ -22,10 +22,10 @@ use std::collections::BTreeMap;
 
 use js_option::JsOption;
 use ruma::{
-    serde::Raw, DeviceKeyAlgorithm, DeviceKeyId, OwnedDeviceId, OwnedDeviceKeyId, OwnedUserId,
+    DeviceKeyAlgorithm, DeviceKeyId, OwnedDeviceId, OwnedDeviceKeyId, OwnedUserId, serde::Raw,
 };
 use serde::{Deserialize, Serialize};
-use serde_json::{value::to_raw_value, Value};
+use serde_json::{Value, value::to_raw_value};
 use vodozemac::{Curve25519PublicKey, Ed25519PublicKey};
 
 use super::{EventEncryptionAlgorithm, Signatures};
@@ -114,24 +114,14 @@ impl DeviceKeys {
 
     /// Get the Curve25519 key of the given device.
     pub fn curve25519_key(&self) -> Option<Curve25519PublicKey> {
-        self.get_key(DeviceKeyAlgorithm::Curve25519).and_then(|k| {
-            if let DeviceKey::Curve25519(k) = k {
-                Some(*k)
-            } else {
-                None
-            }
-        })
+        self.get_key(DeviceKeyAlgorithm::Curve25519)
+            .and_then(|k| if let DeviceKey::Curve25519(k) = k { Some(*k) } else { None })
     }
 
     /// Get the Ed25519 key of the given device.
     pub fn ed25519_key(&self) -> Option<Ed25519PublicKey> {
-        self.get_key(DeviceKeyAlgorithm::Ed25519).and_then(|k| {
-            if let DeviceKey::Ed25519(k) = k {
-                Some(*k)
-            } else {
-                None
-            }
-        })
+        self.get_key(DeviceKeyAlgorithm::Ed25519)
+            .and_then(|k| if let DeviceKey::Ed25519(k) = k { Some(*k) } else { None })
     }
 }
 

@@ -22,7 +22,7 @@
 use serde::Serialize;
 use url::Url;
 
-use super::{url_params, WidgetSettings};
+use super::{WidgetSettings, url_params};
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]

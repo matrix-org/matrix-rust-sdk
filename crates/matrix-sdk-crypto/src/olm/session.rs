@@ -14,29 +14,29 @@
 
 use std::{fmt, sync::Arc};
 
-use ruma::{serde::Raw, SecondsSinceUnixEpoch};
+use ruma::{SecondsSinceUnixEpoch, serde::Raw};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tokio::sync::Mutex;
-use tracing::{debug, Span};
+use tracing::{Span, debug};
 use vodozemac::{
-    olm::{DecryptionError, OlmMessage, Session as InnerSession, SessionConfig, SessionPickle},
     Curve25519PublicKey,
+    olm::{DecryptionError, OlmMessage, Session as InnerSession, SessionConfig, SessionPickle},
 };
 
 #[cfg(feature = "experimental-algorithms")]
 use crate::types::events::room::encrypted::OlmV2Curve25519AesSha2Content;
 use crate::{
+    DeviceData,
     error::{EventError, OlmResult, SessionUnpickleError},
     types::{
+        DeviceKeys, EventEncryptionAlgorithm,
         events::{
+            EventType,
             olm_v1::{DecryptedOlmV1Event, OlmV1Keys},
             room::encrypted::{OlmV1Curve25519AesSha2Content, ToDeviceEncryptedEventContent},
-            EventType,
         },
-        DeviceKeys, EventEncryptionAlgorithm,
     },
-    DeviceData,
 };
 
 /// Cryptographic session that enables secure communication between two

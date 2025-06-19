@@ -4,31 +4,31 @@ use assert_matches2::{assert_let, assert_matches};
 use eyeball_im::VectorDiff;
 use futures_util::FutureExt;
 use matrix_sdk::{
-    authentication::oauth::{error::OAuthTokenRevocationError, OAuthError},
+    Client, Error, MemoryStore, StateChanges, StateStore,
+    authentication::oauth::{OAuthError, error::OAuthTokenRevocationError},
     config::{RequestConfig, StoreConfig, SyncSettings},
     store::RoomLoadSettings,
     sync::RoomUpdate,
     test_utils::{
         client::mock_matrix_session, mocks::MatrixMockServer, no_retry_test_client_with_server,
     },
-    Client, Error, MemoryStore, StateChanges, StateStore,
 };
-use matrix_sdk_base::{sync::RoomUpdates, RoomState};
+use matrix_sdk_base::{RoomState, sync::RoomUpdates};
 use matrix_sdk_common::executor::spawn;
 use matrix_sdk_test::{
+    DEFAULT_TEST_ROOM_ID, GlobalAccountDataTestEvent, JoinedRoomBuilder, SyncResponseBuilder,
     async_test, sync_state_event,
     test_json::{
-        self,
+        self, TAG,
         sync::{
             MIXED_INVITED_ROOM_ID, MIXED_JOINED_ROOM_ID, MIXED_KNOCKED_ROOM_ID, MIXED_LEFT_ROOM_ID,
             MIXED_SYNC,
         },
         sync_events::PINNED_EVENTS,
-        TAG,
     },
-    GlobalAccountDataTestEvent, JoinedRoomBuilder, SyncResponseBuilder, DEFAULT_TEST_ROOM_ID,
 };
 use ruma::{
+    OwnedUserId,
     api::client::{
         directory::{
             get_public_rooms,
@@ -40,19 +40,19 @@ use ruma::{
     directory::Filter,
     event_id,
     events::{
-        direct::{DirectEventContent, OwnedDirectUserIdentifier},
         AnyInitialStateEvent,
+        direct::{DirectEventContent, OwnedDirectUserIdentifier},
     },
     room_id,
     serde::Raw,
-    user_id, OwnedUserId,
+    user_id,
 };
-use serde_json::{json, Value as JsonValue};
+use serde_json::{Value as JsonValue, json};
 use stream_assert::{assert_next_matches, assert_pending};
 use tokio_stream::wrappers::BroadcastStream;
 use wiremock::{
-    matchers::{header, method, path, path_regex},
     Mock, Request, ResponseTemplate,
+    matchers::{header, method, path, path_regex},
 };
 
 use crate::{logged_in_client_with_server, mock_sync};

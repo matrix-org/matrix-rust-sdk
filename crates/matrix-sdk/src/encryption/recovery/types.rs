@@ -24,7 +24,7 @@ use zeroize::{Zeroize, ZeroizeOnDrop};
 #[cfg(doc)]
 use crate::encryption::{
     backups::Backups,
-    recovery::{futures::Enable, Recovery},
+    recovery::{Recovery, futures::Enable},
 };
 
 /// Result type alias for the [`Recovery`] subsystem.

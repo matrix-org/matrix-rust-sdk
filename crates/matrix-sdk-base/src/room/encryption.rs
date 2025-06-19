@@ -68,17 +68,18 @@ mod tests {
     use assert_matches::assert_matches;
     use matrix_sdk_test::ALICE;
     use ruma::{
+        EventEncryptionAlgorithm, MilliSecondsSinceUnixEpoch, OwnedEventId,
         events::{
-            room::encryption::{OriginalSyncRoomEncryptionEvent, RoomEncryptionEventContent},
             AnySyncStateEvent, EmptyStateKey, StateUnsigned, SyncStateEvent,
+            room::encryption::{OriginalSyncRoomEncryptionEvent, RoomEncryptionEventContent},
         },
         room_id,
         time::SystemTime,
-        user_id, EventEncryptionAlgorithm, MilliSecondsSinceUnixEpoch, OwnedEventId,
+        user_id,
     };
 
     use super::{EncryptionState, Room};
-    use crate::{store::MemoryStore, RoomState};
+    use crate::{RoomState, store::MemoryStore};
 
     fn make_room_test_helper(room_type: RoomState) -> (Arc<MemoryStore>, Room) {
         let store = Arc::new(MemoryStore::new());

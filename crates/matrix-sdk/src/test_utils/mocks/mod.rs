@@ -19,35 +19,35 @@
 
 use std::{
     collections::BTreeMap,
-    sync::{atomic::AtomicU32, Arc, Mutex},
+    sync::{Arc, Mutex, atomic::AtomicU32},
 };
 
 use js_int::UInt;
 use matrix_sdk_base::deserialized_responses::TimelineEvent;
 use matrix_sdk_test::{
-    test_json, InvitedRoomBuilder, JoinedRoomBuilder, KnockedRoomBuilder, LeftRoomBuilder,
-    SyncResponseBuilder,
+    InvitedRoomBuilder, JoinedRoomBuilder, KnockedRoomBuilder, LeftRoomBuilder,
+    SyncResponseBuilder, test_json,
 };
 use percent_encoding::{AsciiSet, CONTROLS};
 use ruma::{
+    DeviceId, MxcUri, OwnedDeviceId, OwnedEventId, OwnedOneTimeKeyId, OwnedRoomId, OwnedUserId,
+    RoomId, ServerName, UserId,
     api::client::{receipt::create_receipt::v3::ReceiptType, room::Visibility},
     device_id,
     directory::PublicRoomsChunk,
     encryption::{CrossSigningKey, DeviceKeys, OneTimeKey},
     events::{
-        room::member::RoomMemberEvent, AnyStateEvent, AnyTimelineEvent, GlobalAccountDataEventType,
-        MessageLikeEventType, RoomAccountDataEventType, StateEventType,
+        AnyStateEvent, AnyTimelineEvent, GlobalAccountDataEventType, MessageLikeEventType,
+        RoomAccountDataEventType, StateEventType, room::member::RoomMemberEvent,
     },
     serde::Raw,
     time::Duration,
-    DeviceId, MxcUri, OwnedDeviceId, OwnedEventId, OwnedOneTimeKeyId, OwnedRoomId, OwnedUserId,
-    RoomId, ServerName, UserId,
 };
 use serde::Deserialize;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use wiremock::{
-    matchers::{body_partial_json, header, method, path, path_regex, query_param},
     Mock, MockBuilder, MockGuard, MockServer, Request, Respond, ResponseTemplate, Times,
+    matchers::{body_partial_json, header, method, path, path_regex, query_param},
 };
 
 #[cfg(feature = "e2e-encryption")]
@@ -55,7 +55,7 @@ pub mod encryption;
 pub mod oauth;
 
 use super::client::MockClientBuilder;
-use crate::{room::IncludeRelations, Client, OwnedServerName, Room};
+use crate::{Client, OwnedServerName, Room, room::IncludeRelations};
 
 /// Structure used to store the crypto keys uploaded to the server.
 /// They will be served back to clients when requested.

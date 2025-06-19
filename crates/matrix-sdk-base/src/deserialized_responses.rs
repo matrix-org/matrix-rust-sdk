@@ -20,17 +20,17 @@ pub use matrix_sdk_common::deserialized_responses::*;
 use once_cell::sync::Lazy;
 use regex::Regex;
 use ruma::{
+    EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedRoomId, OwnedUserId, UInt, UserId,
     events::{
+        AnyStrippedStateEvent, AnySyncStateEvent, AnySyncTimelineEvent, EventContentFromType,
+        PossiblyRedactedStateEventContent, RedactContent, RedactedStateEventContent,
+        StateEventContent, StaticStateEventContent, StrippedStateEvent, SyncStateEvent,
         room::{
             member::{MembershipState, RoomMemberEvent, RoomMemberEventContent},
             power_levels::{RoomPowerLevels, RoomPowerLevelsEventContent},
         },
-        AnyStrippedStateEvent, AnySyncStateEvent, AnySyncTimelineEvent, EventContentFromType,
-        PossiblyRedactedStateEventContent, RedactContent, RedactedStateEventContent,
-        StateEventContent, StaticStateEventContent, StrippedStateEvent, SyncStateEvent,
     },
     serde::Raw,
-    EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedRoomId, OwnedUserId, UInt, UserId,
 };
 use serde::Serialize;
 use unicode_normalization::UnicodeNormalization;

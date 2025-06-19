@@ -20,9 +20,9 @@ use driver_req::{ReadStateRequest, UpdateDelayedEventRequest};
 use from_widget::{SendToDeviceEventResponse, UpdateDelayedEventResponse};
 use indexmap::IndexMap;
 use ruma::{
+    OwnedRoomId,
     events::{AnyStateEvent, AnyTimelineEvent},
     serde::{JsonObject, Raw},
-    OwnedRoomId,
 };
 use serde::Serialize;
 use serde_json::value::RawValue as RawJsonValue;
@@ -49,11 +49,11 @@ use self::{
 #[cfg(doc)]
 use super::WidgetDriver;
 use super::{
+    Capabilities, StateEventFilter, StateKeySelector,
     capabilities::{SEND_DELAYED_EVENT, UPDATE_DELAYED_EVENT},
     filter::FilterInput,
-    Capabilities, StateEventFilter, StateKeySelector,
 };
-use crate::{widget::Filter, Error, Result};
+use crate::{Error, Result, widget::Filter};
 
 mod driver_req;
 mod from_widget;
@@ -280,7 +280,7 @@ impl WidgetMachine {
                 return vec![Self::send_from_widget_err_response(
                     raw_request,
                     FromWidgetErrorResponse::from_error(Error::SerdeJson(e)),
-                )]
+                )];
             }
         };
 
@@ -348,7 +348,7 @@ impl WidgetMachine {
                 let CapabilitiesState::Negotiated(capabilities) = &self.capabilities else {
                     return vec![Self::send_from_widget_error_string_response(
                         raw_request,
-                        "Received send update delayed event request before capabilities were negotiated"
+                        "Received send update delayed event request before capabilities were negotiated",
                     )];
                 };
 

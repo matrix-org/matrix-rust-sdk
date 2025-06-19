@@ -1,6 +1,6 @@
 use ruma::{
-    api::client::sync::sync_events::v3::KnockedRoom, events::AnyStrippedStateEvent, serde::Raw,
-    OwnedRoomId, RoomId,
+    OwnedRoomId, RoomId, api::client::sync::sync_events::v3::KnockedRoom,
+    events::AnyStrippedStateEvent, serde::Raw,
 };
 
 use super::StrippedStateTestEvent;

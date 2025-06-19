@@ -24,32 +24,32 @@ use async_trait::async_trait;
 use growable_bloom_filter::GrowableBloom;
 use matrix_sdk_common::AsyncTraitDeps;
 use ruma::{
+    EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedMxcUri, OwnedRoomId,
+    OwnedTransactionId, OwnedUserId, RoomId, TransactionId, UserId,
     api::MatrixVersion,
     events::{
-        presence::PresenceEvent,
-        receipt::{Receipt, ReceiptThread, ReceiptType},
         AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent, EmptyStateKey, GlobalAccountDataEvent,
         GlobalAccountDataEventContent, GlobalAccountDataEventType, RedactContent,
         RedactedStateEventContent, RoomAccountDataEvent, RoomAccountDataEventContent,
         RoomAccountDataEventType, StateEventType, StaticEventContent, StaticStateEventContent,
+        presence::PresenceEvent,
+        receipt::{Receipt, ReceiptThread, ReceiptType},
     },
     serde::Raw,
     time::SystemTime,
-    EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedMxcUri, OwnedRoomId,
-    OwnedTransactionId, OwnedUserId, RoomId, TransactionId, UserId,
 };
 use serde::{Deserialize, Serialize};
 
 use super::{
-    send_queue::SentRequestKey, ChildTransactionId, DependentQueuedRequest,
-    DependentQueuedRequestKind, QueueWedgeError, QueuedRequest, QueuedRequestKind,
-    RoomLoadSettings, StateChanges, StoreError,
+    ChildTransactionId, DependentQueuedRequest, DependentQueuedRequestKind, QueueWedgeError,
+    QueuedRequest, QueuedRequestKind, RoomLoadSettings, StateChanges, StoreError,
+    send_queue::SentRequestKey,
 };
 use crate::{
+    MinimalRoomMemberEvent, RoomInfo, RoomMemberships,
     deserialized_responses::{
         DisplayName, RawAnySyncOrStrippedState, RawMemberEvent, RawSyncOrStrippedState,
     },
-    MinimalRoomMemberEvent, RoomInfo, RoomMemberships,
 };
 
 /// An abstract state store trait that can be used to implement different stores
@@ -1171,7 +1171,7 @@ impl StateStoreDataKey<'_> {
 
 #[cfg(test)]
 mod tests {
-    use super::{now_timestamp_ms, ServerCapabilities};
+    use super::{ServerCapabilities, now_timestamp_ms};
 
     #[test]
     fn test_stale_server_capabilities() {

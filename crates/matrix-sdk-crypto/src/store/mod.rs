@@ -43,7 +43,7 @@ use std::{
     fmt::Debug,
     ops::Deref,
     pin::pin,
-    sync::{atomic::Ordering, Arc},
+    sync::{Arc, atomic::Ordering},
     time::Duration,
 };
 
@@ -52,25 +52,24 @@ use futures_core::Stream;
 use futures_util::StreamExt;
 use itertools::{Either, Itertools};
 use ruma::{
-    encryption::KeyUsage, events::secret::request::SecretName, DeviceId, OwnedDeviceId,
-    OwnedUserId, RoomId, UserId,
+    DeviceId, OwnedDeviceId, OwnedUserId, RoomId, UserId, encryption::KeyUsage,
+    events::secret::request::SecretName,
 };
-use serde::{de::DeserializeOwned, Serialize};
+use serde::{Serialize, de::DeserializeOwned};
 use thiserror::Error;
 use tokio::sync::{Mutex, Notify, OwnedRwLockWriteGuard, RwLock};
 use tokio_stream::wrappers::errors::BroadcastStreamRecvError;
 use tracing::{error, info, instrument, trace, warn};
-use vodozemac::{megolm::SessionOrdering, Curve25519PublicKey};
+use vodozemac::{Curve25519PublicKey, megolm::SessionOrdering};
 
 use self::types::{
     Changes, CrossSigningKeyExport, DeviceChanges, DeviceUpdates, IdentityChanges, IdentityUpdates,
     PendingChanges, RoomKeyInfo, RoomKeyWithheldInfo, UserKeyQueryResult,
 };
-#[cfg(doc)]
-use crate::{backups::BackupMachine, identities::OwnUserIdentity};
 use crate::{
+    CrossSigningStatus, OwnUserIdentityData, RoomKeyImportResult,
     gossiping::GossippedSecret,
-    identities::{user::UserIdentity, Device, DeviceData, UserDevices, UserIdentityData},
+    identities::{Device, DeviceData, UserDevices, UserIdentityData, user::UserIdentity},
     olm::{
         Account, ExportedRoomKey, InboundGroupSession, PrivateCrossSigningIdentity, SenderData,
         Session, StaticAccountData,
@@ -80,8 +79,9 @@ use crate::{
         SecretsBundle,
     },
     verification::VerificationMachine,
-    CrossSigningStatus, OwnUserIdentityData, RoomKeyImportResult,
 };
+#[cfg(doc)]
+use crate::{backups::BackupMachine, identities::OwnUserIdentity};
 
 pub mod caches;
 mod crypto_store_wrapper;
@@ -1501,18 +1501,20 @@ impl Store {
     /// ```no_run
     /// use std::pin::pin;
     ///
-    /// use matrix_sdk_crypto::{olm::ExportedRoomKey, OlmMachine};
+    /// use matrix_sdk_crypto::{OlmMachine, olm::ExportedRoomKey};
     /// use ruma::{device_id, room_id, user_id};
     /// use tokio_stream::StreamExt;
     /// # async {
     /// let alice = user_id!("@alice:example.org");
     /// let machine = OlmMachine::new(&alice, device_id!("DEVICEID")).await;
     /// let room_id = room_id!("!test:localhost");
-    /// let mut keys = pin!(machine
-    ///     .store()
-    ///     .export_room_keys_stream(|s| s.room_id() == room_id)
-    ///     .await
-    ///     .unwrap());
+    /// let mut keys = pin!(
+    ///     machine
+    ///         .store()
+    ///         .export_room_keys_stream(|s| s.room_id() == room_id)
+    ///         .await
+    ///         .unwrap()
+    /// );
     /// while let Some(key) = keys.next().await {
     ///     println!("{}", key.room_id);
     /// }
@@ -1659,15 +1661,15 @@ mod tests {
     use futures_util::StreamExt;
     use insta::{_macro_support::Content, assert_json_snapshot, internals::ContentPath};
     use matrix_sdk_test::async_test;
-    use ruma::{device_id, room_id, user_id, RoomId};
+    use ruma::{RoomId, device_id, room_id, user_id};
     use vodozemac::megolm::SessionKey;
 
     use crate::{
+        OlmMachine,
         machine::test_helpers::get_machine_pair,
         olm::{InboundGroupSession, SenderData},
         store::types::DehydratedDeviceKey,
         types::EventEncryptionAlgorithm,
-        OlmMachine,
     };
 
     #[async_test]

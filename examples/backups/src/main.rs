@@ -1,10 +1,10 @@
 use anyhow::Result;
 use clap::Parser;
-use futures_util::{pin_mut, StreamExt};
+use futures_util::{StreamExt, pin_mut};
 use matrix_sdk::{
+    Client,
     config::SyncSettings,
     encryption::{backups::BackupState, secret_storage::SecretStore},
-    Client,
 };
 use url::Url;
 

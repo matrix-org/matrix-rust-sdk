@@ -15,14 +15,15 @@
 // limitations under the License.
 
 use futures_core::Stream;
-use futures_util::{stream, StreamExt};
+use futures_util::{StreamExt, stream};
 use matrix_sdk_base::{
+    StateStoreDataKey, StateStoreDataValue,
     media::{MediaFormat, MediaRequestParameters},
     store::StateStoreExt,
-    StateStoreDataKey, StateStoreDataValue,
 };
 use mime::Mime;
 use ruma::{
+    ClientSecret, MxcUri, OwnedMxcUri, OwnedRoomId, OwnedUserId, RoomId, SessionId, UInt, UserId,
     api::client::{
         account::{
             add_3pid, change_password, deactivate, delete_3pid, get_3pids,
@@ -37,6 +38,8 @@ use ruma::{
     },
     assign,
     events::{
+        AnyGlobalAccountDataEventContent, GlobalAccountDataEvent, GlobalAccountDataEventContent,
+        GlobalAccountDataEventType, StaticEventContent,
         ignored_user_list::{IgnoredUser, IgnoredUserListEventContent},
         media_preview_config::{
             InviteAvatars, MediaPreviewConfigEventContent, MediaPreviews,
@@ -44,18 +47,15 @@ use ruma::{
         },
         push_rules::PushRulesEventContent,
         room::MediaSource,
-        AnyGlobalAccountDataEventContent, GlobalAccountDataEvent, GlobalAccountDataEventContent,
-        GlobalAccountDataEventType, StaticEventContent,
     },
     push::Ruleset,
     serde::Raw,
     thirdparty::Medium,
-    ClientSecret, MxcUri, OwnedMxcUri, OwnedRoomId, OwnedUserId, RoomId, SessionId, UInt, UserId,
 };
 use serde::Deserialize;
 use tracing::error;
 
-use crate::{config::RequestConfig, Client, Error, Result};
+use crate::{Client, Error, Result, config::RequestConfig};
 
 /// A high-level API to manage the client owner's account.
 ///
@@ -769,11 +769,7 @@ impl Account {
             Ok(r) => Ok(Some(r.account_data)),
             Err(e) => {
                 if let Some(kind) = e.client_api_error_kind() {
-                    if kind == &ErrorKind::NotFound {
-                        Ok(None)
-                    } else {
-                        Err(e.into())
-                    }
+                    if kind == &ErrorKind::NotFound { Ok(None) } else { Err(e.into()) }
                 } else {
                     Err(e.into())
                 }
@@ -1173,7 +1169,7 @@ mod tests {
     use assert_matches::assert_matches;
     use matrix_sdk_test::async_test;
 
-    use crate::{test_utils::client::MockClientBuilder, Error};
+    use crate::{Error, test_utils::client::MockClientBuilder};
 
     #[async_test]
     async fn test_dont_ignore_oneself() {

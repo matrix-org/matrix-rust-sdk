@@ -10,23 +10,24 @@ use futures_util::{future::join_all, pin_mut};
 use matrix_sdk::{
     assert_next_with_timeout, assert_recv_with_timeout,
     config::SyncSettings,
-    room::{edit::EditedContent, Receipts, ReportedContentScore, RoomMemberRole},
+    room::{Receipts, ReportedContentScore, RoomMemberRole, edit::EditedContent},
     test_utils::mocks::MatrixMockServer,
 };
 use matrix_sdk_base::{EncryptionState, RoomMembersUpdate, RoomState};
 use matrix_sdk_common::executor::spawn;
 use matrix_sdk_test::{
-    async_test,
+    DEFAULT_TEST_ROOM_ID, GlobalAccountDataTestEvent, InvitedRoomBuilder, JoinedRoomBuilder,
+    RoomAccountDataTestEvent, StateTestEvent, SyncResponseBuilder, async_test,
     event_factory::EventFactory,
     mocks::mock_encryption_state,
     test_json::{self, sync::CUSTOM_ROOM_POWER_LEVELS},
-    GlobalAccountDataTestEvent, InvitedRoomBuilder, JoinedRoomBuilder, RoomAccountDataTestEvent,
-    StateTestEvent, SyncResponseBuilder, DEFAULT_TEST_ROOM_ID,
 };
 use ruma::{
+    OwnedUserId, TransactionId,
     api::client::{membership::Invite3pidInit, receipt::create_receipt::v3::ReceiptType},
     assign, event_id,
     events::{
+        Mentions, RoomAccountDataEventType, TimelineEventType,
         call::{
             member::{
                 ActiveFocus, ActiveLivekitFocus, Application, CallApplicationContent,
@@ -40,17 +41,15 @@ use ruma::{
             member::MembershipState,
             message::{RoomMessageEventContent, RoomMessageEventContentWithoutRelation},
         },
-        Mentions, RoomAccountDataEventType, TimelineEventType,
     },
-    int, mxc_uri, owned_device_id, owned_event_id, room_id, thirdparty, user_id, OwnedUserId,
-    TransactionId,
+    int, mxc_uri, owned_device_id, owned_event_id, room_id, thirdparty, user_id,
 };
-use serde_json::{from_value, json, Value};
+use serde_json::{Value, from_value, json};
 use stream_assert::assert_pending;
 use tokio::time::sleep;
 use wiremock::{
-    matchers::{body_json, body_partial_json, header, method, path_regex},
     Mock, ResponseTemplate,
+    matchers::{body_json, body_partial_json, header, method, path_regex},
 };
 
 use crate::{logged_in_client_with_server, mock_sync};
@@ -1075,11 +1074,9 @@ async fn test_subscribe_to_knock_requests() {
     assert!(seen_knock.is_seen);
 
     // If we then receive a new member event for Alice that's not 'knock'
-    let joined_room_builder = JoinedRoomBuilder::new(room_id).add_state_bulk(vec![f
-        .member(user_id)
-        .membership(MembershipState::Invite)
-        .into_raw_timeline()
-        .cast()]);
+    let joined_room_builder = JoinedRoomBuilder::new(room_id).add_state_bulk(vec![
+        f.member(user_id).membership(MembershipState::Invite).into_raw_timeline().cast(),
+    ]);
     server.sync_room(&client, joined_room_builder).await;
 
     // The knock requests are now empty because we have new member events

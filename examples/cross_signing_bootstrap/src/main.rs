@@ -6,10 +6,10 @@ use std::{
 
 use anyhow::Result;
 use matrix_sdk::{
+    Client, LoopCtrl,
     config::SyncSettings,
     encryption::CrossSigningResetAuthType,
-    ruma::{api::client::uiaa, OwnedUserId},
-    Client, LoopCtrl,
+    ruma::{OwnedUserId, api::client::uiaa},
 };
 use url::Url;
 

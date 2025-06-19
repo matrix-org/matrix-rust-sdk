@@ -19,14 +19,14 @@ use std::collections::BTreeMap;
 use ruma::{DeviceKeyAlgorithm, OwnedRoomId};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use vodozemac::{megolm::ExportedSessionKey, Curve25519PublicKey, Ed25519PublicKey};
+use vodozemac::{Curve25519PublicKey, Ed25519PublicKey, megolm::ExportedSessionKey};
 
 use super::{EventType, ToDeviceEvent};
 #[cfg(doc)]
 use crate::olm::InboundGroupSession;
 use crate::types::{
-    deserialize_curve_key, deserialize_curve_key_vec, deserialize_ed25519_key, serialize_curve_key,
-    serialize_curve_key_vec, serialize_ed25519_key, EventEncryptionAlgorithm, SigningKeys,
+    EventEncryptionAlgorithm, SigningKeys, deserialize_curve_key, deserialize_curve_key_vec,
+    deserialize_ed25519_key, serialize_curve_key, serialize_curve_key_vec, serialize_ed25519_key,
 };
 
 /// The `m.forwarded_room_key` to-device event.

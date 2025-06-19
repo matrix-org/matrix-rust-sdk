@@ -13,14 +13,13 @@
 // limitations under the License.
 
 use ruma::{
-    assign,
+    OwnedUserId, RoomVersionId, assign,
     events::{
+        EmptyStateKey, RedactContent, RedactedStateEventContent,
         macros::EventContent,
         room::create::{PreviousRoom, RoomCreateEventContent},
-        EmptyStateKey, RedactContent, RedactedStateEventContent,
     },
     room::RoomType,
-    OwnedUserId, RoomVersionId,
 };
 use serde::{Deserialize, Serialize};
 

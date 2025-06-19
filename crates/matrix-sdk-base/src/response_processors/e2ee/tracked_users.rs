@@ -17,7 +17,7 @@ use std::collections::BTreeSet;
 use matrix_sdk_crypto::OlmMachine;
 use ruma::{OwnedUserId, RoomId};
 
-use crate::{store::BaseStateStore, EncryptionState, Result, RoomMemberships};
+use crate::{EncryptionState, Result, RoomMemberships, store::BaseStateStore};
 
 /// Update tracked users, if the room is encrypted.
 pub async fn update(

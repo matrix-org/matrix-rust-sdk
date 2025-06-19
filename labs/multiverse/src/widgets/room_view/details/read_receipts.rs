@@ -6,7 +6,7 @@ use ratatui::{
     widgets::{Block, Borders, Paragraph, Wrap},
 };
 
-use crate::{widgets::room_view::DetailsState, TEXT_COLOR};
+use crate::{TEXT_COLOR, widgets::room_view::DetailsState};
 
 pub struct ReadReceipts<'a> {
     state: &'a DetailsState<'a>,

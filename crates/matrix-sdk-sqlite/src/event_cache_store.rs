@@ -21,15 +21,14 @@ use deadpool_sqlite::{Object as SqliteAsyncConn, Pool as SqlitePool, Runtime};
 use matrix_sdk_base::{
     deserialized_responses::TimelineEvent,
     event_cache::{
+        Event, Gap,
         store::{
-            compute_filters_string, extract_event_relation,
+            EventCacheStore, compute_filters_string, extract_event_relation,
             media::{
                 EventCacheStoreMedia, IgnoreMediaRetentionPolicy, MediaRetentionPolicy,
                 MediaService,
             },
-            EventCacheStore,
         },
-        Event, Gap,
     },
     linked_chunk::{
         ChunkContent, ChunkIdentifier, ChunkIdentifierGenerator, LinkedChunkId, Position, RawChunk,
@@ -39,20 +38,20 @@ use matrix_sdk_base::{
 };
 use matrix_sdk_store_encryption::StoreCipher;
 use ruma::{
-    events::relation::RelationType, time::SystemTime, EventId, MilliSecondsSinceUnixEpoch, MxcUri,
-    OwnedEventId, RoomId,
+    EventId, MilliSecondsSinceUnixEpoch, MxcUri, OwnedEventId, RoomId,
+    events::relation::RelationType, time::SystemTime,
 };
-use rusqlite::{params_from_iter, OptionalExtension, ToSql, Transaction, TransactionBehavior};
+use rusqlite::{OptionalExtension, ToSql, Transaction, TransactionBehavior, params_from_iter};
 use tokio::fs;
 use tracing::{debug, error, trace};
 
 use crate::{
+    OpenStoreError, SqliteStoreConfig,
     error::{Error, Result},
     utils::{
-        repeat_vars, time_to_timestamp, Key, SqliteAsyncConnExt, SqliteKeyValueStoreAsyncConnExt,
-        SqliteKeyValueStoreConnExt, SqliteTransactionExt,
+        Key, SqliteAsyncConnExt, SqliteKeyValueStoreAsyncConnExt, SqliteKeyValueStoreConnExt,
+        SqliteTransactionExt, repeat_vars, time_to_timestamp,
     },
-    OpenStoreError, SqliteStoreConfig,
 };
 
 mod keys {
@@ -1611,27 +1610,27 @@ mod tests {
     use assert_matches::assert_matches;
     use matrix_sdk_base::{
         event_cache::{
+            Gap,
             store::{
+                EventCacheStore, EventCacheStoreError,
                 integration_tests::{
                     check_test_event, make_test_event, make_test_event_with_event_id,
                 },
                 media::IgnoreMediaRetentionPolicy,
-                EventCacheStore, EventCacheStoreError,
             },
-            Gap,
         },
         event_cache_store_integration_tests, event_cache_store_integration_tests_time,
         event_cache_store_media_integration_tests,
         linked_chunk::{ChunkContent, ChunkIdentifier, LinkedChunkId, Position, Update},
         media::{MediaFormat, MediaRequestParameters, MediaThumbnailSettings},
     };
-    use matrix_sdk_test::{async_test, DEFAULT_TEST_ROOM_ID};
+    use matrix_sdk_test::{DEFAULT_TEST_ROOM_ID, async_test};
     use once_cell::sync::Lazy;
     use ruma::{event_id, events::room::MediaSource, media::Method, mxc_uri, room_id, uint};
-    use tempfile::{tempdir, TempDir};
+    use tempfile::{TempDir, tempdir};
 
     use super::SqliteEventCacheStore;
-    use crate::{event_cache_store::keys, utils::SqliteAsyncConnExt, SqliteStoreConfig};
+    use crate::{SqliteStoreConfig, event_cache_store::keys, utils::SqliteAsyncConnExt};
 
     static TMP_DIR: Lazy<TempDir> = Lazy::new(|| tempdir().unwrap());
     static NUM: AtomicU32 = AtomicU32::new(0);
@@ -2590,7 +2589,7 @@ mod encrypted_tests {
         event_cache_store_integration_tests_time, event_cache_store_media_integration_tests,
     };
     use once_cell::sync::Lazy;
-    use tempfile::{tempdir, TempDir};
+    use tempfile::{TempDir, tempdir};
 
     use super::SqliteEventCacheStore;
 

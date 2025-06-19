@@ -20,36 +20,36 @@ use eyeball_im::VectorDiff;
 use eyeball_im_util::vector::VectorObserverExt;
 use futures_core::Stream;
 use imbl::Vector;
-#[cfg(test)]
-use matrix_sdk::{crypto::OlmMachine, SendOutsideWasm};
 use matrix_sdk::{
+    Result, Room,
     deserialized_responses::TimelineEvent,
     event_cache::{
-        paginator::{PaginationResult, Paginator},
         RoomEventCache, RoomPaginationStatus,
+        paginator::{PaginationResult, Paginator},
     },
     send_queue::{
         LocalEcho, LocalEchoContent, RoomSendQueueUpdate, SendHandle, SendReactionHandle,
     },
-    Result, Room,
 };
+#[cfg(test)]
+use matrix_sdk::{SendOutsideWasm, crypto::OlmMachine};
 use ruma::{
+    EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, RoomVersionId,
+    TransactionId, UserId,
     api::client::receipt::create_receipt::v3::ReceiptType as SendReceiptType,
     events::{
+        AnyMessageLikeEventContent, AnySyncEphemeralRoomEvent, AnySyncMessageLikeEvent,
+        AnySyncTimelineEvent, MessageLikeEventType,
         poll::unstable_start::UnstablePollStartEventContent,
         reaction::ReactionEventContent,
         receipt::{Receipt, ReceiptThread, ReceiptType},
         relation::Annotation,
         room::message::{MessageType, Relation},
-        AnyMessageLikeEventContent, AnySyncEphemeralRoomEvent, AnySyncMessageLikeEvent,
-        AnySyncTimelineEvent, MessageLikeEventType,
     },
     serde::Raw,
-    EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, RoomVersionId,
-    TransactionId, UserId,
 };
 #[cfg(test)]
-use ruma::{events::receipt::ReceiptEventContent, OwnedRoomId, RoomId};
+use ruma::{OwnedRoomId, RoomId, events::receipt::ReceiptEventContent};
 use tokio::sync::{RwLock, RwLockWriteGuard};
 use tracing::{debug, error, field::debug, info, instrument, trace, warn};
 
@@ -63,23 +63,23 @@ pub(super) use self::{
     state_transaction::TimelineStateTransaction,
 };
 use super::{
+    DateDividerMode, EmbeddedEvent, Error, EventSendState, EventTimelineItem, InReplyToDetails,
+    PaginationError, Profile, TimelineDetails, TimelineEventItemId, TimelineFocus, TimelineItem,
+    TimelineItemContent, TimelineItemKind, VirtualTimelineItem,
     algorithms::{rfind_event_by_id, rfind_event_item},
     event_item::{ReactionStatus, RemoteEventOrigin},
     item::TimelineUniqueId,
     subscriber::TimelineSubscriber,
     threaded_events_loader::ThreadedEventsLoader,
     traits::{Decryptor, RoomDataProvider},
-    DateDividerMode, EmbeddedEvent, Error, EventSendState, EventTimelineItem, InReplyToDetails,
-    PaginationError, Profile, TimelineDetails, TimelineEventItemId, TimelineFocus, TimelineItem,
-    TimelineItemContent, TimelineItemKind, VirtualTimelineItem,
 };
 use crate::{
     timeline::{
+        MsgLikeContent, MsgLikeKind, TimelineEventFilterFn,
         algorithms::rfind_event_by_item_id,
         date_dividers::DateDividerAdjuster,
         event_item::EventTimelineItemKind,
         pinned_events_loader::{PinnedEventsLoader, PinnedEventsLoaderError},
-        MsgLikeContent, MsgLikeKind, TimelineEventFilterFn,
     },
     unable_to_decrypt_hook::UtdHookManager,
 };
@@ -511,7 +511,7 @@ impl<P: RoomDataProvider, D: Decryptor> TimelineController<P, D> {
     ) -> Result<bool, PaginationError> {
         let PaginationResult { events, hit_end_of_timeline } = match &*self.focus.read().await {
             TimelineFocusData::Live | TimelineFocusData::PinnedEvents { .. } => {
-                return Err(PaginationError::NotSupported)
+                return Err(PaginationError::NotSupported);
             }
             TimelineFocusData::Event { paginator, .. } => paginator
                 .paginate_backward(num_events.into())
@@ -713,7 +713,9 @@ impl<P: RoomDataProvider, D: Decryptor> TimelineController<P, D> {
                     let new_item = item.with_reactions(reactions);
                     state.items.replace(item_pos, new_item);
                 } else {
-                    warn!("reaction is missing on the item, not removing it locally, but sending redaction.");
+                    warn!(
+                        "reaction is missing on the item, not removing it locally, but sending redaction."
+                    );
                 }
 
                 // Release the lock before running the request.
@@ -738,7 +740,9 @@ impl<P: RoomDataProvider, D: Decryptor> TimelineController<P, D> {
                             let new_item = item.with_reactions(reactions);
                             state.items.replace(item_pos, new_item);
                         } else {
-                            warn!("couldn't find item to re-add reaction anymore; maybe it's been redacted?");
+                            warn!(
+                                "couldn't find item to re-add reaction anymore; maybe it's been redacted?"
+                            );
                         }
                     }
 
@@ -1493,7 +1497,9 @@ impl TimelineController {
                         event_id,
                         state.items.all_remote_events(),
                     ) {
-                        trace!("event referred to new receipt is {relative_pos:?} the previous receipt");
+                        trace!(
+                            "event referred to new receipt is {relative_pos:?} the previous receipt"
+                        );
                         return relative_pos == RelativePosition::After;
                     }
                 }
@@ -1510,7 +1516,9 @@ impl TimelineController {
                         event_id,
                         state.items.all_remote_events(),
                     ) {
-                        trace!("event referred to new receipt is {relative_pos:?} the previous receipt");
+                        trace!(
+                            "event referred to new receipt is {relative_pos:?} the previous receipt"
+                        );
                         return relative_pos == RelativePosition::After;
                     }
                 }

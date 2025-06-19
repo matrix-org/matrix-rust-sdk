@@ -20,16 +20,16 @@ use std::path::Path;
 use std::{fmt, sync::Arc};
 
 use homeserver_config::*;
-use matrix_sdk_base::{store::StoreConfig, BaseClient};
+use matrix_sdk_base::{BaseClient, store::StoreConfig};
 #[cfg(feature = "sqlite")]
 use matrix_sdk_sqlite::SqliteStoreConfig;
 use ruma::{
-    api::{error::FromHttpResponseError, MatrixVersion},
     OwnedServerName, ServerName,
+    api::{MatrixVersion, error::FromHttpResponseError},
 };
 use thiserror::Error;
-use tokio::sync::{broadcast, Mutex, OnceCell};
-use tracing::{debug, field::debug, instrument, Span};
+use tokio::sync::{Mutex, OnceCell, broadcast};
+use tracing::{Span, debug, field::debug, instrument};
 
 use super::{Client, ClientInner};
 #[cfg(feature = "e2e-encryption")]
@@ -39,14 +39,14 @@ use crate::encryption::EncryptionSettings;
 #[cfg(not(target_family = "wasm"))]
 use crate::http_client::HttpSettings;
 use crate::{
-    authentication::{oauth::OAuthCtx, AuthCtx},
+    HttpError, IdParseError,
+    authentication::{AuthCtx, oauth::OAuthCtx},
     client::ClientServerCapabilities,
     config::RequestConfig,
     error::RumaApiError,
     http_client::HttpClient,
     send_queue::SendQueueData,
     sliding_sync::VersionBuilder as SlidingSyncVersionBuilder,
-    HttpError, IdParseError,
 };
 
 /// Builder that allows creating and configuring various parts of a [`Client`].
@@ -278,7 +278,7 @@ impl ClientBuilder {
     /// ```
     /// # use matrix_sdk_base::store::MemoryStore;
     /// # let custom_state_store = MemoryStore::new();
-    /// use matrix_sdk::{config::StoreConfig, Client};
+    /// use matrix_sdk::{Client, config::StoreConfig};
     ///
     /// let store_config =
     ///     StoreConfig::new("cross-process-store-locks-holder-name".to_owned())
@@ -672,7 +672,9 @@ async fn build_indexeddb_store_config(
     };
 
     let store_config = {
-        tracing::warn!("The IndexedDB backend does not implement an event cache store, falling back to the in-memory event cache store…");
+        tracing::warn!(
+            "The IndexedDB backend does not implement an event cache store, falling back to the in-memory event cache store…"
+        );
         store_config.event_cache_store(matrix_sdk_base::event_cache::store::MemoryStore::new())
     };
 
@@ -802,10 +804,10 @@ pub enum ClientBuildError {
 pub(crate) mod tests {
     use assert_matches::assert_matches;
     use matrix_sdk_test::{async_test, test_json};
-    use serde_json::{json_internal, Value as JsonValue};
+    use serde_json::{Value as JsonValue, json_internal};
     use wiremock::{
-        matchers::{method, path},
         Mock, MockServer, ResponseTemplate,
+        matchers::{method, path},
     };
 
     use super::*;

@@ -15,7 +15,7 @@
 use std::{collections::BTreeMap, iter, ops::Not, sync::Arc, time::Duration};
 
 use assert_matches2::{assert_let, assert_matches};
-use futures_util::{pin_mut, FutureExt, StreamExt};
+use futures_util::{FutureExt, StreamExt, pin_mut};
 use itertools::Itertools;
 use matrix_sdk_common::{
     deserialized_responses::{
@@ -27,59 +27,60 @@ use matrix_sdk_common::{
 };
 use matrix_sdk_test::{async_test, message_like_event_content, ruma_response_from_json, test_json};
 use ruma::{
+    DeviceId, DeviceKeyAlgorithm, DeviceKeyId, MilliSecondsSinceUnixEpoch, OneTimeKeyAlgorithm,
+    RoomId, TransactionId, UserId,
     api::client::{
         keys::{get_keys, upload_keys},
         sync::sync_events::DeviceLists,
     },
     device_id,
     events::{
+        AnyMessageLikeEvent, AnyMessageLikeEventContent, AnyToDeviceEvent, MessageLikeEvent,
+        OriginalMessageLikeEvent, ToDeviceEventType,
         room::message::{
             AddMentions, MessageType, Relation, ReplyWithinThread, RoomMessageEventContent,
         },
-        AnyMessageLikeEvent, AnyMessageLikeEventContent, AnyToDeviceEvent, MessageLikeEvent,
-        OriginalMessageLikeEvent, ToDeviceEventType,
     },
     room_id,
     serde::Raw,
-    uint, user_id, DeviceId, DeviceKeyAlgorithm, DeviceKeyId, MilliSecondsSinceUnixEpoch,
-    OneTimeKeyAlgorithm, RoomId, TransactionId, UserId,
+    uint, user_id,
 };
 use serde_json::json;
 use vodozemac::{
-    megolm::{GroupSession, SessionConfig},
     Ed25519PublicKey,
+    megolm::{GroupSession, SessionConfig},
 };
 
 use super::CrossSigningBootstrapRequests;
 use crate::{
+    Account, DecryptionSettings, DeviceData, EncryptionSettings, LocalTrust, MegolmError, OlmError,
+    RoomEventDecryptionResult, TrustRequirement,
     error::{EventError, OlmResult},
     machine::{
+        EncryptionSyncChanges, OlmMachine,
         test_helpers::{
             get_machine_after_query_test_helper, get_machine_pair_with_session,
             get_machine_pair_with_session_using_store,
             get_machine_pair_with_setup_sessions_test_helper, get_prepared_machine_test_helper,
         },
-        EncryptionSyncChanges, OlmMachine,
     },
     olm::{BackedUpRoomKey, ExportedRoomKey, SenderData, VerifyJson},
     session_manager::CollectStrategy,
     store::{
-        types::{BackupDecryptionKey, Changes, DeviceChanges, PendingChanges, RoomKeyInfo},
         CryptoStore, MemoryStore,
+        types::{BackupDecryptionKey, Changes, DeviceChanges, PendingChanges, RoomKeyInfo},
     },
     types::{
+        DeviceKeys, SignedKey, SigningKeys,
         events::{
+            ToDeviceEvent,
             room::encrypted::{EncryptedToDeviceEvent, ToDeviceEncryptedEventContent},
             room_key_withheld::{MegolmV1AesSha2WithheldContent, RoomKeyWithheldContent},
-            ToDeviceEvent,
         },
         requests::{AnyOutgoingRequest, ToDeviceRequest},
-        DeviceKeys, SignedKey, SigningKeys,
     },
     utilities::json_convert,
     verification::tests::bob_id,
-    Account, DecryptionSettings, DeviceData, EncryptionSettings, LocalTrust, MegolmError, OlmError,
-    RoomEventDecryptionResult, TrustRequirement,
 };
 
 mod decryption_verification_state;
@@ -231,12 +232,14 @@ async fn test_session_invalidation() {
 
     machine.discard_room_key(room_id).await.unwrap();
 
-    assert!(machine
-        .inner
-        .group_session_manager
-        .get_outbound_group_session(room_id)
-        .unwrap()
-        .invalidated());
+    assert!(
+        machine
+            .inner
+            .group_session_manager
+            .get_outbound_group_session(room_id)
+            .unwrap()
+            .invalidated()
+    );
 }
 
 #[test]

@@ -24,7 +24,13 @@ use matrix_sdk_common::deserialized_responses::{
     TimelineEvent, UnableToDecryptInfo, UnableToDecryptReason,
 };
 use ruma::{
+    EventId, Int, MilliSecondsSinceUnixEpoch, MxcUri, OwnedEventId, OwnedMxcUri, OwnedRoomAliasId,
+    OwnedRoomId, OwnedTransactionId, OwnedUserId, RoomId, RoomVersionId, TransactionId, UInt,
+    UserId,
     events::{
+        AnyMessageLikeEvent, AnyStateEvent, AnySyncStateEvent, AnySyncTimelineEvent,
+        AnyTimelineEvent, BundledMessageLikeRelations, EventContent,
+        RedactedMessageLikeEventContent, RedactedStateEventContent, StateEventContent,
         beacon::BeaconEventContent,
         member_hints::MemberHintsEventContent,
         poll::{
@@ -39,6 +45,7 @@ use ruma::{
         receipt::{Receipt, ReceiptEventContent, ReceiptThread, ReceiptType},
         relation::{Annotation, BundledThread, InReplyTo, Replacement, Thread},
         room::{
+            ImageInfo,
             avatar::{self, RoomAvatarEventContent},
             canonical_alias::RoomCanonicalAliasEventContent,
             create::{PreviousRoom, RoomCreateEventContent},
@@ -55,18 +62,12 @@ use ruma::{
             server_acl::RoomServerAclEventContent,
             tombstone::RoomTombstoneEventContent,
             topic::RoomTopicEventContent,
-            ImageInfo,
         },
         sticker::StickerEventContent,
         typing::TypingEventContent,
-        AnyMessageLikeEvent, AnyStateEvent, AnySyncStateEvent, AnySyncTimelineEvent,
-        AnyTimelineEvent, BundledMessageLikeRelations, EventContent,
-        RedactedMessageLikeEventContent, RedactedStateEventContent, StateEventContent,
     },
     serde::Raw,
-    server_name, EventId, Int, MilliSecondsSinceUnixEpoch, MxcUri, OwnedEventId, OwnedMxcUri,
-    OwnedRoomAliasId, OwnedRoomId, OwnedTransactionId, OwnedUserId, RoomId, RoomVersionId,
-    TransactionId, UInt, UserId,
+    server_name,
 };
 use serde::Serialize;
 use serde_json::json;
@@ -567,8 +568,8 @@ impl EventFactory {
     /// use matrix_sdk_test::event_factory::EventFactory;
     /// use ruma::{
     ///     events::{
-    ///         room::member::{MembershipState, RoomMemberEventContent},
     ///         SyncStateEvent,
+    ///         room::member::{MembershipState, RoomMemberEventContent},
     ///     },
     ///     room_id,
     ///     serde::Raw,
@@ -639,7 +640,7 @@ impl EventFactory {
     ///
     /// use matrix_sdk_test::event_factory::EventFactory;
     /// use ruma::{
-    ///     events::{member_hints::MemberHintsEventContent, SyncStateEvent},
+    ///     events::{SyncStateEvent, member_hints::MemberHintsEventContent},
     ///     owned_user_id, room_id,
     ///     serde::Raw,
     ///     user_id,
@@ -905,10 +906,11 @@ impl EventFactory {
     /// ```
     /// use matrix_sdk_test::event_factory::EventFactory;
     /// use ruma::{
-    ///     events::{beacon::BeaconEventContent, MessageLikeEvent},
+    ///     MilliSecondsSinceUnixEpoch,
+    ///     events::{MessageLikeEvent, beacon::BeaconEventContent},
     ///     owned_event_id, room_id,
     ///     serde::Raw,
-    ///     user_id, MilliSecondsSinceUnixEpoch,
+    ///     user_id,
     /// };
     ///
     /// let factory = EventFactory::new().room(room_id!("!test:localhost"));

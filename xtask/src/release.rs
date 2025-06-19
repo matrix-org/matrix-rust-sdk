@@ -1,7 +1,7 @@
 use clap::{Args, Subcommand, ValueEnum};
-use xshell::{cmd, Cmd};
+use xshell::{Cmd, cmd};
 
-use crate::{sh, Result};
+use crate::{Result, sh};
 
 #[derive(Args)]
 pub struct ReleaseArgs {
@@ -86,7 +86,9 @@ fn check_prerequisites() {
 
     if cmd!(sh, "cargo release --version").quiet().ignore_stdout().run().is_err() {
         eprintln!("This command requires cargo-release, please install it.");
-        eprintln!("More info can be found at: https://github.com/crate-ci/cargo-release?tab=readme-ov-file#install");
+        eprintln!(
+            "More info can be found at: https://github.com/crate-ci/cargo-release?tab=readme-ov-file#install"
+        );
 
         std::process::exit(1);
     }

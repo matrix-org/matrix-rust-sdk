@@ -16,7 +16,7 @@ use std::{error::Error, fmt, time::Duration};
 
 use futures_core::Future;
 #[cfg(target_family = "wasm")]
-use futures_util::future::{select, Either};
+use futures_util::future::{Either, select};
 #[cfg(target_family = "wasm")]
 use gloo_timers::future::TimeoutFuture;
 #[cfg(not(target_family = "wasm"))]

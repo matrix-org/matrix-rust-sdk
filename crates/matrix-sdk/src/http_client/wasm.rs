@@ -17,9 +17,9 @@ use std::fmt::Debug;
 use bytes::Bytes;
 use bytesize::ByteSize;
 use eyeball::SharedObservable;
-use ruma::api::{error::FromHttpResponseError, IncomingResponse, OutgoingRequest};
+use ruma::api::{IncomingResponse, OutgoingRequest, error::FromHttpResponseError};
 
-use super::{response_to_http_response, HttpClient, TransmissionProgress};
+use super::{HttpClient, TransmissionProgress, response_to_http_response};
 use crate::{config::RequestConfig, error::HttpError};
 
 impl HttpClient {

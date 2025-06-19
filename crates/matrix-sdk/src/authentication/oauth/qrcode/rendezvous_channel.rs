@@ -15,17 +15,17 @@
 use std::time::Duration;
 
 use http::{
-    header::{CONTENT_TYPE, ETAG, EXPIRES, IF_MATCH, IF_NONE_MATCH, LAST_MODIFIED},
     HeaderMap, HeaderName, Method, StatusCode,
+    header::{CONTENT_TYPE, ETAG, EXPIRES, IF_MATCH, IF_NONE_MATCH, LAST_MODIFIED},
 };
 use ruma::api::{
-    error::{FromHttpResponseError, HeaderDeserializationError, IntoHttpError, MatrixError},
     EndpointError,
+    error::{FromHttpResponseError, HeaderDeserializationError, IntoHttpError, MatrixError},
 };
 use tracing::{debug, instrument, trace};
 use url::Url;
 
-use crate::{http_client::HttpClient, HttpError, RumaApiError};
+use crate::{HttpError, RumaApiError, http_client::HttpClient};
 
 const TEXT_PLAIN_CONTENT_TYPE: &str = "text/plain";
 #[cfg(test)]
@@ -290,8 +290,8 @@ mod test {
     use serde_json::json;
     use similar_asserts::assert_eq;
     use wiremock::{
-        matchers::{header, method, path},
         Mock, MockServer, ResponseTemplate,
+        matchers::{header, method, path},
     };
 
     use super::*;

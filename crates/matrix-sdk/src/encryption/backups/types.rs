@@ -17,14 +17,14 @@ use std::{
     time::Duration,
 };
 
-use matrix_sdk_base::crypto::{store::types::RoomKeyCounts, RoomKeyImportResult};
+use matrix_sdk_base::crypto::{RoomKeyImportResult, store::types::RoomKeyCounts};
 use tokio::sync::broadcast;
 
 use crate::utils::ChannelObservable;
 #[cfg(doc)]
 use crate::{
-    encryption::{backups::Backups, secret_storage::SecretStore},
     Client,
+    encryption::{backups::Backups, secret_storage::SecretStore},
 };
 
 /// The states the upload task can be in.

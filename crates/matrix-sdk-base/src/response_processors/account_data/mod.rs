@@ -15,5 +15,5 @@
 mod global;
 mod room;
 
-pub use global::{global, Global};
+pub use global::{Global, global};
 pub use room::for_room;

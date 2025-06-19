@@ -23,7 +23,7 @@
 mod sys {
     pub use tokio::{
         runtime::{Handle, Runtime},
-        task::{spawn, AbortHandle, JoinError, JoinHandle},
+        task::{AbortHandle, JoinError, JoinHandle, spawn},
     };
 }
 
@@ -37,8 +37,8 @@ mod sys {
 
     pub use futures_util::future::AbortHandle;
     use futures_util::{
-        future::{Abortable, RemoteHandle},
         FutureExt,
+        future::{Abortable, RemoteHandle},
     };
 
     /// A Wasm specific version of `tokio::task::JoinError` designed to work

@@ -23,7 +23,7 @@ use serde_json::Value;
 use vodozemac::Curve25519PublicKey;
 
 use super::{EventType, ToDeviceEvent};
-use crate::types::{deserialize_curve_key, serialize_curve_key, EventEncryptionAlgorithm};
+use crate::types::{EventEncryptionAlgorithm, deserialize_curve_key, serialize_curve_key};
 
 /// The `m.room_key_request` to-device event.
 pub type RoomKeyWithheldEvent = ToDeviceEvent<RoomKeyWithheldContent>;
@@ -428,13 +428,13 @@ pub(super) mod tests {
     use assert_matches2::assert_let;
     use matrix_sdk_common::deserialized_responses::WithheldCode;
     use ruma::{device_id, room_id, serde::Raw, to_device::DeviceIdOrAllDevices, user_id};
-    use serde_json::{json, Value};
+    use serde_json::{Value, json};
     use vodozemac::Curve25519PublicKey;
 
     use super::RoomKeyWithheldEvent;
     use crate::types::{
-        events::room_key_withheld::{MegolmV1AesSha2WithheldContent, RoomKeyWithheldContent},
         EventEncryptionAlgorithm,
+        events::room_key_withheld::{MegolmV1AesSha2WithheldContent, RoomKeyWithheldContent},
     };
 
     pub fn json(code: &WithheldCode) -> Value {

@@ -5,8 +5,8 @@ use matrix_sdk_test::async_test;
 use ruma::room_id;
 
 use crate::{
-    machine::tests, store::types::RoomSettings, types::EventEncryptionAlgorithm, OlmMachine,
-    SetRoomSettingsError,
+    OlmMachine, SetRoomSettingsError, machine::tests, store::types::RoomSettings,
+    types::EventEncryptionAlgorithm,
 };
 
 #[async_test]
