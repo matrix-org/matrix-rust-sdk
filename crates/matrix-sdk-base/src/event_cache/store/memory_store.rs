@@ -22,7 +22,7 @@ use async_trait::async_trait;
 use matrix_sdk_common::{
     linked_chunk::{
         relational::RelationalLinkedChunk, ChunkIdentifier, ChunkIdentifierGenerator,
-        ChunkMetadata, LinkedChunkId, Position, RawChunk, Update,
+        ChunkMetadata, LinkedChunkId, OwnedLinkedChunkId, Position, RawChunk, Update,
     },
     ring_buffer::RingBuffer,
     store_locks::memory_store_helper::try_take_leased_lock,
@@ -197,7 +197,9 @@ impl EventCacheStore for MemoryStore {
 
         let mut duplicated_events = Vec::new();
 
-        for (event, position) in inner.events.unordered_linked_chunk_items(linked_chunk_id) {
+        for (event, position) in
+            inner.events.unordered_linked_chunk_items(&linked_chunk_id.to_owned())
+        {
             // If `events` is empty, we can short-circuit.
             if events.is_empty() {
                 break;
@@ -223,12 +225,12 @@ impl EventCacheStore for MemoryStore {
     ) -> Result<Option<Event>, Self::Error> {
         let inner = self.inner.read().unwrap();
 
-        let target_linked_chunk_id = LinkedChunkId::Room(room_id);
+        let target_linked_chunk_id = OwnedLinkedChunkId::Room(room_id.to_owned());
 
-        let event = inner.events.items().find_map(|(event, this_linked_chunk_id)| {
-            (target_linked_chunk_id == this_linked_chunk_id && event.event_id()? == event_id)
-                .then_some(event.clone())
-        });
+        let event = inner
+            .events
+            .items(&target_linked_chunk_id)
+            .find_map(|(event, _pos)| (event.event_id()? == event_id).then_some(event.clone()));
 
         Ok(event)
     }
@@ -241,19 +243,14 @@ impl EventCacheStore for MemoryStore {
     ) -> Result<Vec<Event>, Self::Error> {
         let inner = self.inner.read().unwrap();
 
-        let target_linked_chunk_id = LinkedChunkId::Room(room_id);
+        let target_linked_chunk_id = OwnedLinkedChunkId::Room(room_id.to_owned());
 
         let filters = compute_filters_string(filters);
 
         let related_events = inner
             .events
-            .items()
-            .filter_map(|(event, this_linked_chunk_id)| {
-                // Must be in the same linked chunk.
-                if target_linked_chunk_id != this_linked_chunk_id {
-                    return None;
-                }
-
+            .items(&target_linked_chunk_id)
+            .filter_map(|(event, _pos)| {
                 // Must have a relation.
                 let (related_to, rel_type) = extract_event_relation(event.raw())?;
 
