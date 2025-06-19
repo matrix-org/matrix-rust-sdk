@@ -570,21 +570,6 @@ impl Room {
         Ok(())
     }
 
-    pub async fn can_user_redact_own(&self, user_id: String) -> Result<bool, ClientError> {
-        let user_id = UserId::parse(&user_id)?;
-        Ok(self.inner.can_user_redact_own(&user_id).await?)
-    }
-
-    pub async fn can_user_redact_other(&self, user_id: String) -> Result<bool, ClientError> {
-        let user_id = UserId::parse(&user_id)?;
-        Ok(self.inner.can_user_redact_other(&user_id).await?)
-    }
-
-    pub async fn can_user_ban(&self, user_id: String) -> Result<bool, ClientError> {
-        let user_id = UserId::parse(&user_id)?;
-        Ok(self.inner.can_user_ban(&user_id).await?)
-    }
-
     pub async fn ban_user(
         &self,
         user_id: String,
@@ -603,16 +588,6 @@ impl Room {
         Ok(self.inner.unban_user(&user_id, reason.as_deref()).await?)
     }
 
-    pub async fn can_user_invite(&self, user_id: String) -> Result<bool, ClientError> {
-        let user_id = UserId::parse(&user_id)?;
-        Ok(self.inner.can_user_invite(&user_id).await?)
-    }
-
-    pub async fn can_user_kick(&self, user_id: String) -> Result<bool, ClientError> {
-        let user_id = UserId::parse(&user_id)?;
-        Ok(self.inner.can_user_kick(&user_id).await?)
-    }
-
     pub async fn kick_user(
         &self,
         user_id: String,
@@ -620,37 +595,6 @@ impl Room {
     ) -> Result<(), ClientError> {
         let user_id = UserId::parse(&user_id)?;
         Ok(self.inner.kick_user(&user_id, reason.as_deref()).await?)
-    }
-
-    pub async fn can_user_send_state(
-        &self,
-        user_id: String,
-        state_event: StateEventType,
-    ) -> Result<bool, ClientError> {
-        let user_id = UserId::parse(&user_id)?;
-        Ok(self.inner.can_user_send_state(&user_id, state_event.into()).await?)
-    }
-
-    pub async fn can_user_send_message(
-        &self,
-        user_id: String,
-        message: MessageLikeEventType,
-    ) -> Result<bool, ClientError> {
-        let user_id = UserId::parse(&user_id)?;
-        Ok(self.inner.can_user_send_message(&user_id, message.into()).await?)
-    }
-
-    pub async fn can_user_pin_unpin(&self, user_id: String) -> Result<bool, ClientError> {
-        let user_id = UserId::parse(&user_id)?;
-        Ok(self.inner.can_user_pin_unpin(&user_id).await?)
-    }
-
-    pub async fn can_user_trigger_room_notification(
-        &self,
-        user_id: String,
-    ) -> Result<bool, ClientError> {
-        let user_id = UserId::parse(&user_id)?;
-        Ok(self.inner.can_user_trigger_room_notification(&user_id).await?)
     }
 
     pub fn own_user_id(&self) -> String {
@@ -717,9 +661,9 @@ impl Room {
         Ok(())
     }
 
-    pub async fn get_power_levels(&self) -> Result<RoomPowerLevels, ClientError> {
+    pub async fn get_power_levels(&self) -> Result<Arc<RoomPowerLevels>, ClientError> {
         let power_levels = self.inner.power_levels().await.map_err(matrix_sdk::Error::from)?;
-        Ok(RoomPowerLevels::from(power_levels))
+        Ok(Arc::new(RoomPowerLevels::from(power_levels)))
     }
 
     pub async fn apply_power_level_changes(
@@ -755,8 +699,8 @@ impl Room {
         Ok(self.inner.get_suggested_user_role(&user_id).await?)
     }
 
-    pub async fn reset_power_levels(&self) -> Result<RoomPowerLevels, ClientError> {
-        Ok(RoomPowerLevels::from(self.inner.reset_power_levels().await?))
+    pub async fn reset_power_levels(&self) -> Result<Arc<RoomPowerLevels>, ClientError> {
+        Ok(Arc::new(RoomPowerLevels::from(self.inner.reset_power_levels().await?)))
     }
 
     pub async fn matrix_to_permalink(&self) -> Result<String, ClientError> {
@@ -1284,8 +1228,115 @@ pub fn matrix_to_room_alias_permalink(
     Ok(room_alias.matrix_to_uri().to_string())
 }
 
-#[derive(uniffi::Record)]
+#[derive(uniffi::Object)]
 pub struct RoomPowerLevels {
+    inner: RumaPowerLevels,
+}
+
+#[matrix_sdk_ffi_macros::export]
+impl RoomPowerLevels {
+    fn values(&self) -> RoomPowerLevelsValues {
+        self.inner.clone().into()
+    }
+
+    /// Returns true if the user with the given user_id is able to ban in the
+    /// room.
+    ///
+    /// The call may fail if there is an error in getting the power levels.
+    pub fn can_user_ban(&self, user_id: String) -> Result<bool, ClientError> {
+        let user_id = UserId::parse(&user_id)?;
+        Ok(self.inner.user_can_ban(&user_id))
+    }
+
+    /// Returns true if the user with the given user_id is able to redact
+    /// their own messages in the room.
+    ///
+    /// The call may fail if there is an error in getting the power levels.
+    pub fn can_user_redact_own(&self, user_id: String) -> Result<bool, ClientError> {
+        let user_id = UserId::parse(&user_id)?;
+        Ok(self.inner.user_can_redact_own_event(&user_id))
+    }
+
+    /// Returns true if the user with the given user_id is able to redact
+    /// messages of other users in the room.
+    ///
+    /// The call may fail if there is an error in getting the power levels.
+    pub fn can_user_redact_other(&self, user_id: String) -> Result<bool, ClientError> {
+        let user_id = UserId::parse(&user_id)?;
+        Ok(self.inner.user_can_redact_event_of_other(&user_id))
+    }
+
+    /// Returns true if the user with the given user_id is able to kick in the
+    /// room.
+    ///
+    /// The call may fail if there is an error in getting the power levels.
+    pub fn can_user_invite(&self, user_id: String) -> Result<bool, ClientError> {
+        let user_id = UserId::parse(&user_id)?;
+        Ok(self.inner.user_can_invite(&user_id))
+    }
+
+    /// Returns true if the user with the given user_id is able to kick in the
+    /// room.
+    ///
+    /// The call may fail if there is an error in getting the power levels.
+    pub fn can_user_kick(&self, user_id: String) -> Result<bool, ClientError> {
+        let user_id = UserId::parse(&user_id)?;
+        Ok(self.inner.user_can_kick(&user_id))
+    }
+
+    /// Returns true if the user with the given user_id is able to send a
+    /// specific state event type in the room.
+    ///
+    /// The call may fail if there is an error in getting the power levels.
+    pub fn can_user_send_state(
+        &self,
+        user_id: String,
+        state_event: StateEventType,
+    ) -> Result<bool, ClientError> {
+        let user_id = UserId::parse(&user_id)?;
+        Ok(self.inner.user_can_send_state(&user_id, state_event.into()))
+    }
+
+    /// Returns true if the user with the given user_id is able to send a
+    /// specific message type in the room.
+    ///
+    /// The call may fail if there is an error in getting the power levels.
+    pub fn can_user_send_message(
+        &self,
+        user_id: String,
+        message: MessageLikeEventType,
+    ) -> Result<bool, ClientError> {
+        let user_id = UserId::parse(&user_id)?;
+        Ok(self.inner.user_can_send_message(&user_id, message.into()))
+    }
+
+    /// Returns true if the user with the given user_id is able to pin or unpin
+    /// events in the room.
+    ///
+    /// The call may fail if there is an error in getting the power levels.
+    pub fn can_user_pin_unpin(&self, user_id: String) -> Result<bool, ClientError> {
+        let user_id = UserId::parse(&user_id)?;
+        Ok(self.inner.user_can_send_state(&user_id, StateEventType::RoomPinnedEvents.into()))
+    }
+
+    /// Returns true if the user with the given user_id is able to trigger a
+    /// notification in the room.
+    ///
+    /// The call may fail if there is an error in getting the power levels.
+    pub fn can_user_trigger_room_notification(&self, user_id: String) -> Result<bool, ClientError> {
+        let user_id = UserId::parse(&user_id)?;
+        Ok(self.inner.user_can_trigger_room_notification(&user_id))
+    }
+}
+
+impl From<RumaPowerLevels> for RoomPowerLevels {
+    fn from(value: RumaPowerLevels) -> Self {
+        Self { inner: value }
+    }
+}
+
+#[derive(uniffi::Record)]
+pub struct RoomPowerLevelsValues {
     /// The level required to ban a user.
     pub ban: i64,
     /// The level required to invite a user.
@@ -1308,7 +1359,7 @@ pub struct RoomPowerLevels {
     pub room_topic: i64,
 }
 
-impl From<RumaPowerLevels> for RoomPowerLevels {
+impl From<RumaPowerLevels> for RoomPowerLevelsValues {
     fn from(value: RumaPowerLevels) -> Self {
         fn state_event_level_for(
             power_levels: &RumaPowerLevels,
