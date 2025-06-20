@@ -2,7 +2,9 @@ use std::{fs, num::NonZeroUsize, path::Path, sync::Arc, time::Duration};
 
 use futures_util::StreamExt;
 use matrix_sdk::{
-    crypto::{types::qr_login::QrCodeModeData, CollectStrategy, TrustRequirement},
+    crypto::{
+        types::qr_login::QrCodeModeData, CollectStrategy, DecryptionSettings, TrustRequirement,
+    },
     encryption::{BackupDownloadStrategy, EncryptionSettings},
     event_cache::EventCacheError,
     reqwest::Certificate,
@@ -128,7 +130,7 @@ pub struct ClientBuilder {
     disable_built_in_root_certificates: bool,
     encryption_settings: EncryptionSettings,
     room_key_recipient_strategy: CollectStrategy,
-    decryption_trust_requirement: TrustRequirement,
+    decryption_settings: DecryptionSettings,
     enable_share_history_on_invite: bool,
     request_config: Option<RequestConfig>,
 }
@@ -163,7 +165,9 @@ impl ClientBuilder {
                 auto_enable_backups: false,
             },
             room_key_recipient_strategy: Default::default(),
-            decryption_trust_requirement: TrustRequirement::Untrusted,
+            decryption_settings: DecryptionSettings {
+                sender_device_trust_requirement: TrustRequirement::Untrusted,
+            },
             enable_share_history_on_invite: false,
             request_config: Default::default(),
         })
@@ -387,12 +391,12 @@ impl ClientBuilder {
     }
 
     /// Set the trust requirement to be used when decrypting events.
-    pub fn room_decryption_trust_requirement(
+    pub fn decryption_settings(
         self: Arc<Self>,
-        trust_requirement: TrustRequirement,
+        decryption_settings: DecryptionSettings,
     ) -> Arc<Self> {
         let mut builder = unwrap_or_clone_arc(self);
-        builder.decryption_trust_requirement = trust_requirement;
+        builder.decryption_settings = decryption_settings;
         Arc::new(builder)
     }
 
@@ -537,7 +541,7 @@ impl ClientBuilder {
         inner_builder = inner_builder
             .with_encryption_settings(builder.encryption_settings)
             .with_room_key_recipient_strategy(builder.room_key_recipient_strategy)
-            .with_decryption_trust_requirement(builder.decryption_trust_requirement)
+            .with_decryption_settings(builder.decryption_settings)
             .with_enable_share_history_on_invite(builder.enable_share_history_on_invite);
 
         match builder.sliding_sync_version_builder {
