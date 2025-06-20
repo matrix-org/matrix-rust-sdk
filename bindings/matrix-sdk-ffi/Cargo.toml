@@ -80,6 +80,7 @@ uuid = { version = "1.4.1", features = ["v4"] }
 zeroize.workspace = true
 
 [target.'cfg(target_family = "wasm")'.dependencies]
+console_error_panic_hook = "0.1.7"
 tokio = { workspace = true, features = ["sync", "macros"] }
 uniffi.workspace = true
 
