@@ -12,6 +12,8 @@ use tracing::{trace, warn};
 use super::{FrozenSlidingSyncList, SlidingSync, SlidingSyncPositionMarkers};
 #[cfg(feature = "e2e-encryption")]
 use crate::sliding_sync::FrozenSlidingSyncPos;
+#[cfg(doc)]
+use crate::sliding_sync::SlidingSyncList;
 use crate::{sliding_sync::SlidingSyncListCachePolicy, Client, Result};
 
 /// Be careful: as this is used as a storage key; changing it requires migrating
@@ -33,9 +35,8 @@ fn format_storage_key_for_sliding_sync_list(storage_key: &str, list_name: &str) 
     format!("{storage_key}::list::{list_name}")
 }
 
-/// Invalidate a single [`SlidingSyncList`] cache entry by removing it from the
-/// state store cache.
-async fn invalidate_cached_list(
+/// Remove a previous [`SlidingSyncList`] cache entry from the state store.
+async fn remove_cached_list(
     storage: &dyn StateStore<Error = StoreError>,
     storage_key: &str,
     list_name: &str,
@@ -130,7 +131,7 @@ pub(super) async fn restore_sliding_sync_list(
                 "failed to deserialize the list from the cache, it is obsolete; removing the cache entry!"
             );
             // Let's clear the list and stop here.
-            invalidate_cached_list(storage, storage_key, list_name).await;
+            remove_cached_list(storage, storage_key, list_name).await;
         }
 
         None => {
@@ -143,7 +144,7 @@ pub(super) async fn restore_sliding_sync_list(
     Ok(None)
 }
 
-/// Fields restored during `restore_sliding_sync_state`.
+/// Fields restored during [`restore_sliding_sync_state`].
 #[derive(Default)]
 pub(super) struct RestoredFields {
     pub to_device_token: Option<String>,

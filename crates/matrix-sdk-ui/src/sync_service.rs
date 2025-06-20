@@ -491,10 +491,12 @@ impl SyncTaskSupervisor {
 
 struct SyncServiceInner {
     encryption_sync_service: Arc<EncryptionSyncService>,
+
     /// Is the offline mode for the [`SyncService`] enabled?
     ///
     /// The offline mode is described in the [`State::Offline`] enum variant.
     with_offline_mode: bool,
+
     state: SharedObservable<State>,
 
     /// The parent tracing span to use for the tasks within this service.
@@ -684,7 +686,25 @@ impl SyncService {
             State::Running | State::Offline => {}
         }
 
-        inner.stop().await
+        inner.stop().await;
+    }
+
+    /// Force expiring both sessions.
+    ///
+    /// This ensures that the sync service is stopped before expiring both
+    /// sessions. It should be used sparingly, as it will cause a restart of
+    /// the sessions on the server as well.
+    #[instrument(skip_all)]
+    pub async fn expire_sessions(&self) {
+        // First, stop the sync service if it was running; it's a no-op if it was
+        // already stopped.
+        self.stop().await;
+
+        // Expire the room list sync session.
+        self.room_list_service.expire_sync_session().await;
+
+        // Expire the encryption sync session.
+        self.inner.lock().await.encryption_sync_service.expire_sync_session().await;
     }
 
     /// Attempt to get a permit to use an `EncryptionSyncService` at a given

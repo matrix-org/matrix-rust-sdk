@@ -124,6 +124,12 @@ impl SlidingSync {
         Self { inner: Arc::new(inner) }
     }
 
+    /// Whether the current sliding sync instance has set a sync position
+    /// marker.
+    pub async fn has_pos(&self) -> bool {
+        self.inner.position.lock().await.pos.is_some()
+    }
+
     async fn cache_to_storage(&self, position: &SlidingSyncPositionMarkers) -> Result<()> {
         cache::store_sliding_sync_state(self, position).await
     }
@@ -720,13 +726,28 @@ impl SlidingSync {
         info!("Session expired; resetting `pos` and sticky parameters");
 
         {
+            let lists = self.inner.lists.read().await;
+            for list in lists.values() {
+                // Invalidate in-memory data that would be persisted on disk.
+                list.set_maximum_number_of_rooms(None);
+
+                // Invalidate the sticky data for this list.
+                list.invalidate_sticky_data();
+            }
+        }
+
+        // Remove the cached sliding sync state as well.
+        {
             let mut position = self.inner.position.lock().await;
+
+            // Invalidate in memory.
             position.pos = None;
 
+            // Propagate to disk.
+            // Note: this propagates both the sliding sync state and the cached lists'
+            // state to disk.
             if let Err(err) = self.cache_to_storage(&position).await {
-                error!(
-                    "couldn't invalidate sliding sync frozen state when expiring session: {err}"
-                );
+                warn!("Failed to invalidate cached sliding sync state: {err}");
             }
         }
 
@@ -737,8 +758,6 @@ impl SlidingSync {
             // when the session will restart.
             sticky.data_mut().room_subscriptions.clear();
         }
-
-        self.inner.lists.read().await.values().for_each(|list| list.invalidate_sticky_data());
     }
 }
 

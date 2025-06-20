@@ -141,10 +141,9 @@ impl RoomListService {
             }))
             .with_typing_extension(assign!(http::request::Typing::default(), {
                 enabled: Some(true),
-            }));
-        // TODO: Re-enable once we know it creates slowness.
-        // // We don't deal with encryption device messages here so this is safe
-        // .share_pos();
+            }))
+            // We don't deal with encryption device messages here so this is safe
+            .share_pos();
 
         let sliding_sync = builder
             .add_cached_list(
@@ -178,7 +177,17 @@ impl RoomListService {
         // Eagerly subscribe the event cache to sync responses.
         client.event_cache().subscribe()?;
 
-        Ok(Self { client, sliding_sync, state_machine: StateMachine::new() })
+        let state_machine = StateMachine::new();
+
+        // If the sliding sync has successfully restored a sync position, skip the
+        // waiting for the initial sync, and set the state to `SettingUp`; this
+        // way, the first sync will move us to the steady state, and update the
+        // sliding sync list to use the growing sync mode.
+        if sliding_sync.has_pos().await {
+            state_machine.set(State::SettingUp);
+        }
+
+        Ok(Self { client, sliding_sync, state_machine })
     }
 
     /// Start to sync the room list.
