@@ -69,7 +69,7 @@ fn fix_clippy() -> Result<()> {
         "rustup run {NIGHTLY} cargo clippy --workspace --all-targets
             --fix --allow-dirty --allow-staged
             --exclude matrix-sdk-crypto --exclude xtask
-            --no-default-features --features native-tls,sso-login
+            --no-default-features --features native-tls,sqlite,sso-login
             -- -D warnings"
     )
     .run()?;
