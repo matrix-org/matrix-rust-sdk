@@ -75,7 +75,7 @@ impl BaseClient {
                 .collect(),
             processors::e2ee::E2EE::new(
                 olm_machine.as_ref(),
-                self.decryption_trust_requirement,
+                &self.decryption_settings,
                 self.handle_verification_events,
             ),
         )
@@ -152,7 +152,7 @@ impl BaseClient {
                 #[cfg(feature = "e2e-encryption")]
                 processors::e2ee::E2EE::new(
                     self.olm_machine().await.as_ref(),
-                    self.decryption_trust_requirement,
+                    &self.decryption_settings,
                     self.handle_verification_events,
                 ),
                 processors::notification::Notification::new(

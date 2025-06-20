@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use matrix_sdk_common::deserialized_responses::TimelineEvent;
-use matrix_sdk_crypto::{DecryptionSettings, RoomEventDecryptionResult};
+use matrix_sdk_crypto::RoomEventDecryptionResult;
 use ruma::{events::AnySyncTimelineEvent, serde::Raw, RoomId};
 
 use super::{super::verification, E2EE};
@@ -33,11 +33,11 @@ pub async fn sync_timeline_event(
 ) -> Result<Option<TimelineEvent>> {
     let Some(olm) = e2ee.olm_machine else { return Ok(None) };
 
-    let decryption_settings =
-        DecryptionSettings { sender_device_trust_requirement: e2ee.decryption_trust_requirement };
-
     Ok(Some(
-        match olm.try_decrypt_room_event(event.cast_ref(), room_id, &decryption_settings).await? {
+        match olm
+            .try_decrypt_room_event(event.cast_ref(), room_id, e2ee.decryption_settings)
+            .await?
+        {
             RoomEventDecryptionResult::Decrypted(decrypted) => {
                 // Note: the push actions are set by the caller.
                 let timeline_event = TimelineEvent::from_decrypted(decrypted, None);
