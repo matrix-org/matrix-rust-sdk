@@ -30,6 +30,7 @@ use futures_util::StreamExt;
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk_base::crypto::store::LockableCryptoStore;
 use matrix_sdk_base::{
+    crypto::DecryptionSettings,
     event_cache::store::EventCacheStoreLock,
     store::{DynStateStore, RoomLoadSettings, ServerInfo, WellKnownResponse},
     sync::{Notification, RoomUpdates},
@@ -2659,6 +2660,12 @@ impl Client {
                 Err(Error::Media(MediaError::FetchMaxUploadSizeFailed(error.to_string())))
             }
         }
+    }
+
+    /// The settings to use for decrypting events.
+    #[cfg(feature = "e2e-encryption")]
+    pub fn decryption_settings(&self) -> &DecryptionSettings {
+        &self.base_client().decryption_settings
     }
 }
 

@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use matrix_sdk_common::deserialized_responses::TimelineEvent;
-use matrix_sdk_crypto::{DecryptionSettings, RoomEventDecryptionResult};
+use matrix_sdk_crypto::RoomEventDecryptionResult;
 use ruma::{events::AnySyncTimelineEvent, serde::Raw, RoomId};
 
 use super::{e2ee::E2EE, verification, Context};
@@ -108,13 +108,10 @@ async fn decrypt_sync_room_event(
     e2ee: &E2EE<'_>,
     room_id: &RoomId,
 ) -> Result<TimelineEvent> {
-    let decryption_settings =
-        DecryptionSettings { sender_device_trust_requirement: e2ee.decryption_trust_requirement };
-
     let event = match e2ee
         .olm_machine
         .expect("An `OlmMachine` is expected")
-        .try_decrypt_room_event(event.cast_ref(), room_id, &decryption_settings)
+        .try_decrypt_room_event(event.cast_ref(), room_id, e2ee.decryption_settings)
         .await?
     {
         RoomEventDecryptionResult::Decrypted(decrypted) => {
@@ -184,7 +181,7 @@ mod tests {
             vec![room.clone()],
             E2EE::new(
                 client.olm_machine().await.as_ref(),
-                client.decryption_trust_requirement,
+                &client.decryption_settings,
                 client.handle_verification_events,
             ),
         )
