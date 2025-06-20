@@ -32,7 +32,7 @@ use matrix_sdk::{
 };
 use matrix_sdk_common::{
     executor::{AbortHandle, JoinHandle},
-    stream::{BoxStream, StreamExt},
+    stream::StreamExt,
 };
 use matrix_sdk_ui::timeline::{
     self, AttachmentSource, EventItemOrigin, Profile, TimelineDetails,
