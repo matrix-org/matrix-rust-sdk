@@ -526,15 +526,22 @@ pub fn init_platform(
     config: TracingConfiguration,
     use_lightweight_tokio_runtime: bool,
 ) -> Result<(), ClientError> {
-    LOGGING.set(config.build()).map_err(|_| ClientError::Generic {
-        msg: "logger already initialized".to_owned(),
-        details: None,
-    })?;
+    #[cfg(all(feature = "js", target_family = "wasm"))]
+    {
+        console_error_panic_hook::set_once();
+    }
+    #[cfg(not(target_family = "wasm"))]
+    {
+        LOGGING.set(config.build()).map_err(|_| ClientError::Generic {
+            msg: "logger already initialized".to_owned(),
+            details: None,
+        })?;
 
-    if use_lightweight_tokio_runtime {
-        setup_lightweight_tokio_runtime();
-    } else {
-        setup_multithreaded_tokio_runtime();
+        if use_lightweight_tokio_runtime {
+            setup_lightweight_tokio_runtime();
+        } else {
+            setup_multithreaded_tokio_runtime();
+        }
     }
 
     Ok(())
@@ -557,6 +564,7 @@ pub fn enable_sentry_logging(enabled: bool) {
     };
 }
 
+#[cfg(not(target_family = "wasm"))]
 fn setup_multithreaded_tokio_runtime() {
     async_compat::set_runtime_builder(Box::new(|| {
         eprintln!("spawning a multithreaded tokio runtime");
@@ -567,6 +575,7 @@ fn setup_multithreaded_tokio_runtime() {
     }));
 }
 
+#[cfg(not(target_family = "wasm"))]
 fn setup_lightweight_tokio_runtime() {
     async_compat::set_runtime_builder(Box::new(|| {
         eprintln!("spawning a lightweight tokio runtime");
