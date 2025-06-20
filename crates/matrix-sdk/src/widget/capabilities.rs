@@ -36,7 +36,7 @@ pub trait CapabilitiesProvider: SendOutsideWasm + SyncOutsideWasm + 'static {
     fn acquire_capabilities(
         &self,
         capabilities: Capabilities,
-    ) -> impl Future<Output = Capabilities> + Send;
+    ) -> impl Future<Output = Capabilities> + SendOutsideWasm;
 }
 
 /// Capabilities that a widget can request from a client.
