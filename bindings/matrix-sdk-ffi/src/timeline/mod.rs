@@ -1568,7 +1568,10 @@ mod galleries {
                         return Ok(());
                     }
                     error!("task panicked! resuming panic from here.");
+                    #[cfg(not(target_family = "wasm"))]
                     panic::resume_unwind(err.into_panic());
+                    #[cfg(target_family = "wasm")]
+                    panic!("task panicked! {err}");
                 }
             }
         }
