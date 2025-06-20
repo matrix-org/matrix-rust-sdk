@@ -17,7 +17,7 @@ use std::{collections::HashMap, fmt::Write as _, fs, panic, sync::Arc};
 use anyhow::{Context, Result};
 use as_variant::as_variant;
 use eyeball_im::VectorDiff;
-use futures_util::{pin_mut, StreamExt as _};
+use futures_util::pin_mut;
 use matrix_sdk::{
     attachment::{
         AttachmentConfig, AttachmentInfo, BaseAudioInfo, BaseFileInfo, BaseImageInfo,
@@ -30,7 +30,10 @@ use matrix_sdk::{
         reply::{EnforceThread, Reply},
     },
 };
-use matrix_sdk_common::executor::{AbortHandle, JoinHandle};
+use matrix_sdk_common::{
+    executor::{AbortHandle, JoinHandle},
+    stream::{BoxStream, StreamExt},
+};
 use matrix_sdk_ui::timeline::{
     self, AttachmentSource, EventItemOrigin, Profile, TimelineDetails,
     TimelineUniqueId as SdkTimelineUniqueId,
@@ -1380,7 +1383,6 @@ impl LazyTimelineItemProvider {
 mod galleries {
     use std::{panic, sync::Arc};
 
-    use async_compat::get_runtime_handle;
     use matrix_sdk::{
         attachment::{
             AttachmentInfo, BaseAudioInfo, BaseFileInfo, BaseImageInfo, BaseVideoInfo, Thumbnail,
@@ -1396,6 +1398,7 @@ mod galleries {
     use crate::{
         error::RoomError,
         ruma::{AudioInfo, FileInfo, FormattedBody, ImageInfo, Mentions, VideoInfo},
+        runtime::get_runtime_handle,
         timeline::{build_thumbnail_info, ReplyParameters, Timeline},
     };
 
