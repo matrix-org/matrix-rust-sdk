@@ -55,15 +55,15 @@ mod sqlite_session_store {
         /// capable of handling multiple users, however it is valid to use the
         /// same path for both stores on a single session.
         #[uniffi::constructor]
-        pub fn new(data_path: String, cache_path: String) -> Self {
-            Self {
+        pub fn new(data_path: String, cache_path: String) -> Arc<Self> {
+            Arc::new(Self {
                 paths: SessionPaths { data_path, cache_path },
                 passphrase: Zeroizing::new(None),
                 pool_max_size: None,
                 cache_size: None,
                 journal_size_limit: None,
                 system_is_memory_constrained: false,
-            }
+            })
         }
 
         /// Set the passphrase for the stores given to
