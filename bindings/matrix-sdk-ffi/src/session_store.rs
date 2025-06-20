@@ -4,7 +4,6 @@ use std::path::PathBuf;
 #[cfg(feature = "sqlite")]
 use matrix_sdk::SqliteStoreConfig;
 
-
 /// The result of building a [`SessionStoreConfig`], with data that
 /// can be passed directly to a ClientBuilder.
 pub enum SessionStoreResult {
@@ -22,9 +21,8 @@ mod sqlite_session_store {
     use tracing::debug;
     use zeroize::Zeroizing;
 
-    use crate::helpers::unwrap_or_clone_arc;
     use super::SessionStoreResult;
-    use crate::client_builder::ClientBuildError;
+    use crate::{client_builder::ClientBuildError, helpers::unwrap_or_clone_arc};
 
     /// The store paths the client will use when built.
     #[derive(Clone)]
@@ -233,7 +231,6 @@ pub enum SessionStoreConfig {
     /// Setup the client to use the IndexedDB store.
     IndexedDb(IndexedDbSessionStoreBuilder),
 }
-
 
 impl SessionStoreConfig {
     pub(crate) fn build(&self) -> Result<SessionStoreResult, ClientBuildError> {
