@@ -28,7 +28,7 @@ use eyeball_im::{Vector, VectorDiff};
 use futures_core::Stream;
 use futures_util::StreamExt;
 #[cfg(feature = "e2e-encryption")]
-use matrix_sdk_base::crypto::store::LockableCryptoStore;
+use matrix_sdk_base::crypto::{store::LockableCryptoStore, DecryptionSettings};
 use matrix_sdk_base::{
     event_cache::store::EventCacheStoreLock,
     store::{DynStateStore, RoomLoadSettings, ServerInfo, WellKnownResponse},
@@ -2659,6 +2659,12 @@ impl Client {
                 Err(Error::Media(MediaError::FetchMaxUploadSizeFailed(error.to_string())))
             }
         }
+    }
+
+    /// The settings to use for decrypting events.
+    #[cfg(feature = "e2e-encryption")]
+    pub fn decryption_settings(&self) -> &DecryptionSettings {
+        &self.base_client().decryption_settings
     }
 }
 
