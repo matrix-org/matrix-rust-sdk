@@ -375,6 +375,7 @@ impl Room {
     ///
     /// Only invited and left rooms can be joined via this method.
     #[doc(alias = "accept_invitation")]
+    #[instrument(skip_all, fields(room_id = ?self.inner.room_id()))]
     pub async fn join(&self) -> Result<()> {
         let prev_room_state = self.inner.state();
 
@@ -397,18 +398,27 @@ impl Room {
             None
         };
 
+        #[cfg(feature = "e2e-encryption")]
+        let enable_share_history_on_invite = self.client.inner.enable_share_history_on_invite;
+
+        #[cfg(not(feature = "e2e-encryption"))]
+        let enable_share_history_on_invite = false;
+
+        debug!(
+            ?prev_room_state,
+            inviter=?inviter.as_ref().map(|room_member| room_member.user_id()),
+            enable_share_history_on_invite,
+            "Joining room",
+        );
+
         self.client.join_room_by_id(self.room_id()).await?;
 
         #[cfg(feature = "e2e-encryption")]
-        if self.client.inner.enable_share_history_on_invite {
+        if enable_share_history_on_invite {
             if let Some(inviter) = inviter {
                 shared_room_history::maybe_accept_key_bundle(self, inviter.user_id()).await?;
             }
         }
-
-        #[cfg(not(feature = "e2e-encryption"))]
-        // Suppress "unused variable" lint
-        let _inviter = inviter;
 
         Ok(())
     }

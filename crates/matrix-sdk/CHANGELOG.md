@@ -6,6 +6,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased] - ReleaseDate
 
+- Add logging to `Room::join`.
+  ([#5260](https://github.com/matrix-org/matrix-rust-sdk/pull/5260))
 - `ClientServerCapabilities` has been renamed to `ClientServerInfo`. Alongside this,
   `Client::reset_server_info` is now `Client::reset_server_info` and `Client::fetch_server_capabilities`
   is now `Client::fetch_server_versions`, returning the server versions response directly.
