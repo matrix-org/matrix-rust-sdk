@@ -182,6 +182,11 @@ mod sqlite_session_store {
 
 #[cfg(feature = "indexeddb")]
 mod indexeddb_session_store {
+    use std::sync::Arc;
+
+    use super::SessionStoreResult;
+    use crate::{client_builder::ClientBuildError, helpers::unwrap_or_clone_arc};
+
     #[derive(Clone, uniffi::Object)]
     pub struct IndexedDbSessionStoreBuilder {
         name: String,
