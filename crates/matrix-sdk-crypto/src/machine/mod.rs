@@ -1602,11 +1602,11 @@ impl OlmMachine {
         }
 
         for raw_event in sync_changes.to_device_events {
-            let raw_event =
+            let processed_event =
                 Box::pin(self.receive_to_device_event(transaction, &mut changes, raw_event)).await;
 
-            if let Some(raw_event) = raw_event {
-                events.push(raw_event);
+            if let Some(processed_event) = processed_event {
+                events.push(processed_event);
             }
         }
 
