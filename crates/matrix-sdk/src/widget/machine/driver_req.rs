@@ -110,8 +110,8 @@ where
     MatrixDriverResponse: TryInto<T>,
 {
     fn from_response(response: MatrixDriverResponse) -> Option<Self> {
-        response.try_into().ok() // Delegates to the existing TryInto
-                                 // implementation
+        // Delegates to the existing TryInto implementation
+        response.try_into().ok()
     }
 }
 

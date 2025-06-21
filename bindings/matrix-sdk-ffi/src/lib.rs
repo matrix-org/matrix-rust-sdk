@@ -1,6 +1,6 @@
 #![allow(unused_qualifications, clippy::new_without_default)]
-#![allow(clippy::empty_line_after_doc_comments)] // Needed because uniffi macros contain empty
-                                                 // lines after docs.
+// Needed because uniffi macros contain empty lines after docs.
+#![allow(clippy::empty_line_after_doc_comments)]
 
 mod authentication;
 mod chunk_iterator;
