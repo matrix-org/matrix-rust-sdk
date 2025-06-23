@@ -26,7 +26,8 @@ use ruma::{
     push::{Action, PushConditionRoomCtx},
     RoomVersionId, UInt, UserId,
 };
-use tracing::{instrument, trace, warn};
+use ruma::events::room::member::MembershipState;
+use tracing::{event, instrument, trace, warn};
 
 #[cfg(feature = "e2e-encryption")]
 use super::{e2ee, verification};
@@ -67,6 +68,40 @@ pub async fn build<'notification, 'e2ee>(
         match timeline_event.raw().deserialize() {
             Ok(sync_timeline_event) => {
                 match &sync_timeline_event {
+                    // Check for MSC4293 redact-on-ban/kick membership events. Normally state
+                    // events are processed separately, but we're just applying side effects
+                    // here, so should (hopefully) be fine.
+                    // See https://github.com/matrix-org/matrix-spec-proposals/pull/4293
+                    AnySyncTimelineEvent::State(AnySyncStateEvent::RoomMember(member_event)) => {
+                        if !match member_event.membership() {
+                            MembershipState::Ban => true,
+                            MembershipState::Leave if member_event.sender() != member_event.state_key() => true,
+                            _ => false,
+                        } {
+                            break; // incompatible (is a join, self-leave, etc), nothing to do
+                        }
+
+                        // Now check to see if the event has the MSC4293 flag set
+                        if !member_event
+                            .as_original()
+                            .and_then(|ev| ev.content["org.matrix.msc4293.redact_events"])
+                            .and_then(|v| v.get_bool().ok())
+                            .unwrap_or(false) {
+                            break; // Flag not set (or isn't true), nothing to do
+                        }
+                        
+                        // Finally, check that the user is actually allowed to redact events
+                        if !room.power_levels().await.and_then(|pl| Ok(pl.user_can_redact_event_of_other(member_event.sender()))).unwrap_or(false) {
+                            break; // User can't redact events, nothing to do
+                        }
+
+                        // *now* we can redact all of the target user's events
+                        timeline.events.iter().filter(|e2| e2.raw().get_field("sender").unwrap().eq(&Some(member_event.sender().to_string()))).for_each(|e2| {
+                            // room_info.handle_redaction(timeline_event, timeline_event.raw().cast_ref()); // TODO: Make this set `redacts: e2` otherwise it'll do nothing/fail
+                            context.state_changes.add_redaction(room_id, &e2.event_id().unwrap(), timeline_event.raw().clone().cast());
+                        });
+                    }
+
                     // State events are ignored. They must be processed separately.
                     AnySyncTimelineEvent::State(_) => {
                         // do nothing
