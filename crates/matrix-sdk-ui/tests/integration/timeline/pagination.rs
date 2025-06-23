@@ -22,6 +22,7 @@ use futures_util::{
     FutureExt, StreamExt as _,
 };
 use matrix_sdk::{
+    assert_let_timeout,
     config::SyncSettings,
     event_cache::RoomPaginationStatus,
     test_utils::{
@@ -167,6 +168,149 @@ async fn test_back_pagination() {
     }
 
     assert_pending!(timeline_stream);
+}
+
+#[async_test]
+async fn test_skip_count_is_taken_into_account_in_pagination_status() {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+
+    let room_id = room_id!("!a98sd12bjh:example.org");
+    let room = server.sync_joined_room(&client, room_id).await;
+
+    server.mock_room_state_encryption().plain().mount().await;
+
+    let timeline = room.timeline().await.unwrap();
+    let (initial_items, mut timeline_stream) = timeline.subscribe().await;
+
+    // No items at first.
+    assert!(initial_items.is_empty());
+
+    let (initial_pagination_status, mut back_pagination_status) =
+        timeline.live_back_pagination_status().await.unwrap();
+
+    assert_eq!(initial_pagination_status, RoomPaginationStatus::Idle { hit_timeline_start: false });
+
+    let f = EventFactory::new().room(room_id).sender(*ALICE);
+    server
+        .mock_room_messages()
+        .ok(RoomMessagesResponseTemplate::default().events({
+            // Return 30 events in this pagination.
+            let mut events = Vec::new();
+            for i in 0..30 {
+                events.push(
+                    f.text_msg(format!("hello world {}", i))
+                        .event_id(&EventId::parse(format!("$ev{}", i)).unwrap()),
+                );
+            }
+            events
+        }))
+        .mock_once()
+        .mount()
+        .await;
+
+    let hit_start = timeline.paginate_backwards(30).await.unwrap();
+    assert!(hit_start);
+
+    {
+        // Before the event cache returns the items, it will report that we've hit the
+        // timeline start.
+        assert_let!(Some(timeline_updates) = timeline_stream.next().await);
+        assert_eq!(timeline_updates.len(), 1);
+        assert_let!(VectorDiff::PushFront { value: start } = &timeline_updates[0]);
+        assert!(start.is_timeline_start());
+    }
+
+    // Then we get the events from the event cache.
+    assert_let!(Some(timeline_updates) = timeline_stream.next().await);
+    assert_eq!(timeline_updates.len(), 60);
+
+    for i in 0..30 {
+        // the item itself
+        assert_let!(VectorDiff::PushBack { value: message } = &timeline_updates[2 * i]);
+        assert_let!(Some(msg) = message.as_event().unwrap().content().as_message());
+        assert_let!(MessageType::Text(text) = msg.msgtype());
+        assert!(text.body.starts_with("hello world"));
+
+        if i != 29 {
+            // update for the read receipt.
+            assert_let!(
+                VectorDiff::Set { index: updated_index, value: _ } = &timeline_updates[2 * i + 1]
+            );
+            // off by one, because of the timeline start.
+            assert_eq!(*updated_index, i + 1);
+        } else {
+            // The date divider is finally inserted after the timeline start.
+            assert_let!(
+                VectorDiff::Insert { index: 1, value: date_divider } = &timeline_updates[2 * i + 1]
+            );
+            assert!(date_divider.is_date_divider());
+        }
+    }
+
+    assert_pending!(timeline_stream);
+
+    assert_next_eq!(
+        back_pagination_status,
+        RoomPaginationStatus::Idle { hit_timeline_start: true }
+    );
+
+    // Another timeline is opened, with the first one still open.
+    let timeline2 = room.timeline().await.unwrap();
+    let (initial_items2, mut timeline_stream2) = timeline2.subscribe().await;
+
+    // The initial skip count will limit the number of timeline items to 20.
+    assert_eq!(initial_items2.len(), 21);
+    for i in 0..21 {
+        initial_items2[i].as_event().unwrap();
+    }
+
+    let (initial_pagination_status2, mut back_pagination_status2) =
+        timeline2.live_back_pagination_status().await.unwrap();
+
+    // …so a caller must have the information that we haven't hit the timeline start
+    // yet.
+    assert_eq!(
+        initial_pagination_status2,
+        RoomPaginationStatus::Idle { hit_timeline_start: false }
+    );
+
+    // A small pagination should only update the skip count.
+    let hit_start = timeline2.paginate_backwards(5).await.unwrap();
+    assert!(hit_start.not());
+
+    // Some event timeline items will be inserted then.
+    assert_let_timeout!(Some(timeline_updates) = timeline_stream2.next());
+    assert_eq!(timeline_updates.len(), 5);
+    for up in timeline_updates {
+        assert_let!(VectorDiff::PushFront { value } = up);
+        value.as_event().unwrap();
+    }
+
+    // A final pagination will get all the timeline items, as well as the timeline
+    // start.
+    let hit_start = timeline2.paginate_backwards(20).await.unwrap();
+    assert!(hit_start);
+
+    assert_let_timeout!(Some(timeline_updates) = timeline_stream2.next());
+    assert_eq!(timeline_updates.len(), 6);
+    for i in 0..4 {
+        assert_let!(VectorDiff::PushFront { value } = &timeline_updates[i]);
+        value.as_event().unwrap();
+    }
+
+    // Then a day divider.
+    assert_let!(VectorDiff::PushFront { value } = &timeline_updates[4]);
+    assert!(value.is_date_divider());
+
+    // Then it inserts the timeline start back at its right position.
+    assert_let!(VectorDiff::PushFront { value } = &timeline_updates[5]);
+    assert!(value.is_timeline_start());
+
+    assert_next_eq!(
+        back_pagination_status2,
+        RoomPaginationStatus::Idle { hit_timeline_start: true }
+    );
 }
 
 #[async_test]
