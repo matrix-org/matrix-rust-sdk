@@ -225,7 +225,7 @@ pub use sqlite_session_store::*;
 
 use crate::client_builder::ClientBuildError;
 
-/// Internal struct for tracking the choice of session store config.
+/// Represent the kind of store the client will configure.
 #[derive(Clone)]
 pub enum SessionStoreConfig {
     #[cfg(feature = "sqlite")]
