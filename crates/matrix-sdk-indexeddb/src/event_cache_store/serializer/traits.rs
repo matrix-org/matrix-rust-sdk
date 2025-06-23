@@ -24,6 +24,9 @@ use crate::serializer::IndexeddbSerializer;
 /// decryption, in the case the high-level type must be encrypted before
 /// storage.
 pub trait Indexed: Sized {
+    /// The name of the object store in IndexedDB.
+    const OBJECT_STORE: &'static str;
+
     /// The indexed type that is used for storage in IndexedDB.
     type IndexedType;
     /// The error type that is returned when conversion fails.
