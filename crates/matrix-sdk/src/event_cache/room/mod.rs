@@ -73,6 +73,8 @@ impl fmt::Debug for RoomEventCache {
 /// more subscribers are active. This is an optimisation to reduce the number of
 /// data held in memory by a [`RoomEventCache`]: when no more subscribers are
 /// active, all data are reduced to the minimum.
+///
+/// The side-effect takes effect on `Drop`.
 #[allow(missing_debug_implementations)]
 pub struct RoomEventCacheSubscriber {
     /// Underlying receiver of the room event cache's updates.
