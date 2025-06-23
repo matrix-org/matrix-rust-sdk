@@ -665,7 +665,7 @@ impl Room {
 
     pub async fn get_power_levels(&self) -> Result<Arc<RoomPowerLevels>, ClientError> {
         let power_levels = self.inner.power_levels().await.map_err(matrix_sdk::Error::from)?;
-        Ok(Arc::new(RoomPowerLevels::from(power_levels)))
+        Ok(Arc::new(RoomPowerLevels::new(power_levels, self.inner.own_user_id().to_owned())))
     }
 
     pub async fn apply_power_level_changes(
@@ -702,7 +702,10 @@ impl Room {
     }
 
     pub async fn reset_power_levels(&self) -> Result<Arc<RoomPowerLevels>, ClientError> {
-        Ok(Arc::new(RoomPowerLevels::from(self.inner.reset_power_levels().await?)))
+        Ok(Arc::new(RoomPowerLevels::new(
+            self.inner.reset_power_levels().await?,
+            self.inner.own_user_id().to_owned(),
+        )))
     }
 
     pub async fn matrix_to_permalink(&self) -> Result<String, ClientError> {
