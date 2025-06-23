@@ -59,6 +59,9 @@ impl From<serde_wasm_bindgen::Error> for IndexeddbEventCacheStoreTransactionErro
     }
 }
 
+/// Represents an IndexedDB transaction, but provides a convenient interface for
+/// performing operations relevant to the IndexedDB implementation of
+/// [`EventCacheStore`](matrix_sdk_base::event_cache::store::EventCacheStore).
 pub struct IndexeddbEventCacheStoreTransaction<'a> {
     transaction: IdbTransaction<'a>,
     serializer: &'a IndexeddbEventCacheStoreSerializer,
@@ -72,10 +75,12 @@ impl<'a> IndexeddbEventCacheStoreTransaction<'a> {
         Self { transaction, serializer }
     }
 
+    /// Returns the underlying IndexedDB transaction.
     pub fn into_inner(self) -> IdbTransaction<'a> {
         self.transaction
     }
 
+    /// Commit all operations tracked in this transaction to IndexedDB.
     pub async fn commit(self) -> Result<(), IndexeddbEventCacheStoreTransactionError> {
         self.transaction.await.into_result().map_err(Into::into)
     }
@@ -128,6 +133,7 @@ impl<'a> IndexeddbEventCacheStoreTransaction<'a> {
         self.get_items_by_key::<T, K>(room_id, range).await
     }
 
+    /// Query IndexedDB for all items in the given room by key `K`
     pub async fn get_items_in_room<T, K>(
         &self,
         room_id: &RoomId,
