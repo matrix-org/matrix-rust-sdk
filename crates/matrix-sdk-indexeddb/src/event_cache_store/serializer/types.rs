@@ -144,6 +144,8 @@ pub struct IndexedChunk {
 }
 
 impl Indexed for Chunk {
+    const OBJECT_STORE: &'static str = keys::LINKED_CHUNKS;
+
     type IndexedType = IndexedChunk;
     type Error = CryptoStoreError;
 
@@ -300,6 +302,8 @@ pub enum IndexedEventError {
 }
 
 impl Indexed for Event {
+    const OBJECT_STORE: &'static str = keys::EVENTS;
+
     type IndexedType = IndexedEvent;
     type Error = IndexedEventError;
 
@@ -460,6 +464,8 @@ pub struct IndexedGap {
 }
 
 impl Indexed for Gap {
+    const OBJECT_STORE: &'static str = keys::GAPS;
+
     type IndexedType = IndexedGap;
     type Error = CryptoStoreError;
 
