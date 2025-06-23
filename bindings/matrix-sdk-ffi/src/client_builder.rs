@@ -286,12 +286,15 @@ pub struct ClientBuilder {
     enable_share_history_on_invite: bool,
     request_config: Option<RequestConfig>,
 
-    // The options below here will be ignored on Wasm platforms,
-    // because the network stack does not support them.
+    #[cfg(not(target_family = "wasm"))]
     user_agent: Option<String>,
+    #[cfg(not(target_family = "wasm"))]
     proxy: Option<String>,
+    #[cfg(not(target_family = "wasm"))]
     disable_ssl_verification: bool,
+    #[cfg(not(target_family = "wasm"))]
     disable_built_in_root_certificates: bool,
+    #[cfg(not(target_family = "wasm"))]
     additional_root_certificates: Vec<Vec<u8>>,
 }
 
