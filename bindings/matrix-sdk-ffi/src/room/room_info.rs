@@ -1,4 +1,4 @@
-use std::{collections::HashMap, sync::Arc};
+use std::sync::Arc;
 
 use matrix_sdk::{EncryptionState, RoomState};
 use tracing::warn;
@@ -44,7 +44,6 @@ pub struct RoomInfo {
     active_members_count: u64,
     invited_members_count: u64,
     joined_members_count: u64,
-    user_power_levels: HashMap<String, i64>,
     highlight_count: u64,
     notification_count: u64,
     cached_user_defined_notification_mode: Option<RoomNotificationMode>,
@@ -75,11 +74,6 @@ impl RoomInfo {
     pub(crate) async fn new(room: &matrix_sdk::Room) -> Result<Self, ClientError> {
         let unread_notification_counts = room.unread_notification_counts();
 
-        let power_levels_map = room.users_with_power_levels().await;
-        let mut user_power_levels = HashMap::<String, i64>::new();
-        for (id, level) in power_levels_map.iter() {
-            user_power_levels.insert(id.to_string(), *level);
-        }
         let pinned_event_ids =
             room.pinned_event_ids().unwrap_or_default().iter().map(|id| id.to_string()).collect();
 
@@ -123,7 +117,6 @@ impl RoomInfo {
             active_members_count: room.active_members_count(),
             invited_members_count: room.invited_members_count(),
             joined_members_count: room.joined_members_count(),
-            user_power_levels,
             highlight_count: unread_notification_counts.highlight_count,
             notification_count: unread_notification_counts.notification_count,
             cached_user_defined_notification_mode: room

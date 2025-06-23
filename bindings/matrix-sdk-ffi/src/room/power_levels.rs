@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use anyhow::Result;
 use ruma::{
     events::{room::power_levels::RoomPowerLevels as RumaPowerLevels, TimelineEventType},
@@ -18,6 +20,18 @@ pub struct RoomPowerLevels {
 impl RoomPowerLevels {
     fn values(&self) -> RoomPowerLevelsValues {
         self.inner.clone().into()
+    }
+
+    /// Gets a map with the `UserId` of users with power levels other than `0`
+    /// and their power level.
+    pub fn user_power_levels(&self) -> HashMap<String, i64> {
+        let mut user_power_levels = HashMap::<String, i64>::new();
+
+        for (id, level) in self.inner.users.iter() {
+            user_power_levels.insert(id.to_string(), (*level).into());
+        }
+
+        user_power_levels
     }
 
     /// Returns true if the user with the given user_id is able to ban in the
