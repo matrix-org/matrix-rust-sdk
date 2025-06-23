@@ -1419,9 +1419,16 @@ impl Client {
     /// Clear all the non-critical caches for this Client instance.
     ///
     /// WARNING: This will clear all the caches, including the base store (state
-    /// store), so callers must make sure that any sync is inactive before
-    /// calling this method. In particular, the `SyncService` must not be
-    /// running. After the method returns, the Client will be in an unstable
+    /// store), so callers must make sure that the Client is at rest before
+    /// calling it.
+    ///
+    /// In particular, if a [`SyncService`] is running, it must be passed here
+    /// as a parameter, or stopped before calling this method. Ideally, the
+    /// send queues should have been disabled and must all be inactive (i.e.
+    /// not sending events); this method will disable them, but it might not
+    /// be enough if the queues are still processing events.
+    ///
+    /// After the method returns, the Client will be in an unstable
     /// state, and it is required that the caller reinstantiates a new
     /// Client instance, be it via dropping the previous and re-creating it,
     /// restarting their application, or any other similar means.
@@ -1440,6 +1447,13 @@ impl Client {
             if let Some(sync_service) = sync_service {
                 sync_service.inner.expire_sessions().await;
             }
+
+            // Disable the send queues, as they might read and write to the state store.
+            // Events being send might still be active, and cause errors if
+            // processing finishes, so this will only minimize damage. Since
+            // this method should only be called in exceptional cases, this has
+            // been deemed acceptable.
+            self.inner.send_queue().set_enabled(false).await;
 
             // Clean up the media cache according to the current media retention policy.
             self.inner
