@@ -68,8 +68,14 @@ pub trait IndexedKey<T: Indexed> {
 ///
 /// This is useful when constructing range queries in IndexedDB.
 pub trait IndexedKeyBounds<T: Indexed>: IndexedKey<T> {
+    /// Constructs the lower bound of the key components.
+    fn lower_key_components() -> Self::KeyComponents;
+
     /// Encodes the lower bound of the key.
     fn encode_lower(room_id: &RoomId, serializer: &IndexeddbSerializer) -> Self;
+
+    /// Constructs the upper bound of the key components.
+    fn upper_key_components() -> Self::KeyComponents;
 
     /// Encodes the upper bound of the key.
     fn encode_upper(room_id: &RoomId, serializer: &IndexeddbSerializer) -> Self;
