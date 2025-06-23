@@ -246,6 +246,8 @@ impl IndexedNextChunkIdKey {
 }
 
 impl IndexedKey<Chunk> for IndexedNextChunkIdKey {
+    const INDEX: Option<&'static str> = Some(keys::LINKED_CHUNKS_NEXT);
+
     type KeyComponents = Option<ChunkIdentifier>;
 
     fn encode(
@@ -379,6 +381,8 @@ pub type IndexedEventId = String;
 pub struct IndexedEventPositionKey(IndexedRoomId, IndexedChunkId, IndexedEventPositionIndex);
 
 impl IndexedKey<Event> for IndexedEventPositionKey {
+    const INDEX: Option<&'static str> = Some(keys::EVENTS_POSITION);
+
     type KeyComponents = Position;
 
     fn encode(room_id: &RoomId, position: &Position, serializer: &IndexeddbSerializer) -> Self {
@@ -414,6 +418,8 @@ pub type IndexedEventPositionIndex = usize;
 pub struct IndexedEventRelationKey(IndexedRoomId, IndexedEventId, IndexedRelationType);
 
 impl IndexedKey<Event> for IndexedEventRelationKey {
+    const INDEX: Option<&'static str> = Some(keys::EVENTS_RELATION);
+
     type KeyComponents = (OwnedEventId, RelationType);
 
     fn encode(
