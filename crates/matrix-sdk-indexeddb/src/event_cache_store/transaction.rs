@@ -23,6 +23,7 @@ use thiserror::Error;
 use web_sys::IdbCursorDirection;
 
 use crate::event_cache_store::{
+    error::AsyncErrorDeps,
     serializer::{
         traits::{Indexed, IndexedKey, IndexedKeyBounds, IndexedKeyComponentBounds},
         types::{
@@ -38,11 +39,23 @@ use crate::event_cache_store::{
 pub enum IndexeddbEventCacheStoreTransactionError {
     #[error("DomException {name} ({code}): {message}")]
     DomException { name: String, message: String, code: u16 },
+    #[error("serialization: {0}")]
+    Serialization(Box<dyn AsyncErrorDeps>),
+    #[error("item is not unique")]
+    ItemIsNotUnique,
 }
 
 impl From<web_sys::DomException> for IndexeddbEventCacheStoreTransactionError {
     fn from(value: web_sys::DomException) -> Self {
         Self::DomException { name: value.name(), message: value.message(), code: value.code() }
+    }
+}
+
+impl From<serde_wasm_bindgen::Error> for IndexeddbEventCacheStoreTransactionError {
+    fn from(e: serde_wasm_bindgen::Error) -> Self {
+        Self::Serialization(Box::new(<serde_json::Error as serde::de::Error>::custom(
+            e.to_string(),
+        )))
     }
 }
 
@@ -65,5 +78,193 @@ impl<'a> IndexeddbEventCacheStoreTransaction<'a> {
 
     pub async fn commit(self) -> Result<(), IndexeddbEventCacheStoreTransactionError> {
         self.transaction.await.into_result().map_err(Into::into)
+    }
+
+    /// Query IndexedDB for items that match the given key range in the given
+    /// room.
+    pub async fn get_items_by_key<T, K>(
+        &self,
+        room_id: &RoomId,
+        range: impl Into<IndexedKeyRange<K>>,
+    ) -> Result<Vec<T>, IndexeddbEventCacheStoreTransactionError>
+    where
+        T: Indexed,
+        T::IndexedType: DeserializeOwned,
+        T::Error: AsyncErrorDeps,
+        K: IndexedKeyBounds<T> + Serialize,
+    {
+        let range = self.serializer.encode_key_range::<T, K>(room_id, range)?;
+        let object_store = self.transaction.object_store(T::OBJECT_STORE)?;
+        let array = if let Some(index) = K::INDEX {
+            object_store.index(index)?.get_all_with_key(&range)?.await?
+        } else {
+            object_store.get_all_with_key(&range)?.await?
+        };
+        let mut items = Vec::with_capacity(array.length() as usize);
+        for value in array {
+            let item = self.serializer.deserialize(value).map_err(|e| {
+                IndexeddbEventCacheStoreTransactionError::Serialization(Box::new(e))
+            })?;
+            items.push(item);
+        }
+        Ok(items)
+    }
+
+    /// Query IndexedDB for items that match the given key component range in
+    /// the given room.
+    pub async fn get_items_by_key_components<'b, T, K>(
+        &self,
+        room_id: &RoomId,
+        range: impl Into<IndexedKeyRange<&'b K::KeyComponents>>,
+    ) -> Result<Vec<T>, IndexeddbEventCacheStoreTransactionError>
+    where
+        T: Indexed,
+        T::IndexedType: DeserializeOwned,
+        T::Error: AsyncErrorDeps,
+        K: IndexedKeyComponentBounds<T> + Serialize,
+        K::KeyComponents: 'b,
+    {
+        let range: IndexedKeyRange<K> = range.into().encoded(room_id, self.serializer.inner());
+        self.get_items_by_key::<T, K>(room_id, range).await
+    }
+
+    pub async fn get_items_in_room<T, K>(
+        &self,
+        room_id: &RoomId,
+    ) -> Result<Vec<T>, IndexeddbEventCacheStoreTransactionError>
+    where
+        T: Indexed,
+        T::IndexedType: DeserializeOwned,
+        T::Error: AsyncErrorDeps,
+        K: IndexedKeyBounds<T> + Serialize,
+    {
+        self.get_items_by_key::<T, K>(room_id, IndexedKeyRange::All).await
+    }
+
+    /// Query IndexedDB for items that match the given key in the given room. If
+    /// more than one item is found, an error is returned.
+    pub async fn get_item_by_key<T, K>(
+        &self,
+        room_id: &RoomId,
+        key: K,
+    ) -> Result<Option<T>, IndexeddbEventCacheStoreTransactionError>
+    where
+        T: Indexed,
+        T::IndexedType: DeserializeOwned,
+        T::Error: AsyncErrorDeps,
+        K: IndexedKeyBounds<T> + Serialize,
+    {
+        let mut items = self.get_items_by_key::<T, K>(room_id, key).await?;
+        if items.len() > 1 {
+            return Err(IndexeddbEventCacheStoreTransactionError::ItemIsNotUnique);
+        }
+        Ok(items.pop())
+    }
+
+    /// Query IndexedDB for items that match the given key components in the
+    /// given room. If more than one item is found, an error is returned.
+    pub async fn get_item_by_key_components<T, K>(
+        &self,
+        room_id: &RoomId,
+        components: &K::KeyComponents,
+    ) -> Result<Option<T>, IndexeddbEventCacheStoreTransactionError>
+    where
+        T: Indexed,
+        T::IndexedType: DeserializeOwned,
+        T::Error: AsyncErrorDeps,
+        K: IndexedKeyComponentBounds<T> + Serialize,
+    {
+        let mut items = self.get_items_by_key_components::<T, K>(room_id, components).await?;
+        if items.len() > 1 {
+            return Err(IndexeddbEventCacheStoreTransactionError::ItemIsNotUnique);
+        }
+        Ok(items.pop())
+    }
+
+    /// Query IndexedDB for the number of items that match the given key range
+    /// in the given room.
+    pub async fn get_items_count_by_key<T, K>(
+        &self,
+        room_id: &RoomId,
+        range: impl Into<IndexedKeyRange<K>>,
+    ) -> Result<usize, IndexeddbEventCacheStoreTransactionError>
+    where
+        T: Indexed,
+        T::IndexedType: DeserializeOwned,
+        T::Error: AsyncErrorDeps,
+        K: IndexedKeyBounds<T> + Serialize,
+    {
+        let range = self.serializer.encode_key_range::<T, K>(room_id, range)?;
+        let object_store = self.transaction.object_store(T::OBJECT_STORE)?;
+        let count = if let Some(index) = K::INDEX {
+            object_store.index(index)?.count_with_key(&range)?.await?
+        } else {
+            object_store.count_with_key(&range)?.await?
+        };
+        Ok(count as usize)
+    }
+
+    /// Query IndexedDB for the number of items that match the given key
+    /// components range in the given room.
+    pub async fn get_items_count_by_key_components<'b, T, K>(
+        &self,
+        room_id: &RoomId,
+        range: impl Into<IndexedKeyRange<&'b K::KeyComponents>>,
+    ) -> Result<usize, IndexeddbEventCacheStoreTransactionError>
+    where
+        T: Indexed,
+        T::IndexedType: DeserializeOwned,
+        T::Error: AsyncErrorDeps,
+        K: IndexedKeyBounds<T> + Serialize,
+        K::KeyComponents: 'b,
+    {
+        let range: IndexedKeyRange<K> = range.into().encoded(room_id, self.serializer.inner());
+        self.get_items_count_by_key::<T, K>(room_id, range).await
+    }
+
+    /// Query IndexedDB for the number of items in the given room.
+    pub async fn get_items_count_in_room<T, K>(
+        &self,
+        room_id: &RoomId,
+    ) -> Result<usize, IndexeddbEventCacheStoreTransactionError>
+    where
+        T: Indexed,
+        T::IndexedType: DeserializeOwned,
+        T::Error: AsyncErrorDeps,
+        K: IndexedKeyBounds<T> + Serialize,
+    {
+        self.get_items_count_by_key::<T, K>(room_id, IndexedKeyRange::All).await
+    }
+
+    /// Query IndexedDB for the item with the maximum key in the given room.
+    pub async fn get_max_item_by_key<T, K>(
+        &self,
+        room_id: &RoomId,
+    ) -> Result<Option<T>, IndexeddbEventCacheStoreTransactionError>
+    where
+        T: Indexed,
+        T::IndexedType: DeserializeOwned,
+        T::Error: AsyncErrorDeps,
+        K: IndexedKey<T> + IndexedKeyBounds<T> + Serialize,
+    {
+        let range = self.serializer.encode_key_range::<T, K>(room_id, IndexedKeyRange::All)?;
+        let direction = IdbCursorDirection::Prev;
+        let object_store = self.transaction.object_store(T::OBJECT_STORE)?;
+        if let Some(index) = K::INDEX {
+            object_store
+                .index(index)?
+                .open_cursor_with_range_and_direction(&range, direction)?
+                .await?
+                .map(|cursor| self.serializer.deserialize(cursor.value()))
+                .transpose()
+                .map_err(|e| IndexeddbEventCacheStoreTransactionError::Serialization(Box::new(e)))
+        } else {
+            object_store
+                .open_cursor_with_range_and_direction(&range, direction)?
+                .await?
+                .map(|cursor| self.serializer.deserialize(cursor.value()))
+                .transpose()
+                .map_err(|e| IndexeddbEventCacheStoreTransactionError::Serialization(Box::new(e)))
+        }
     }
 }

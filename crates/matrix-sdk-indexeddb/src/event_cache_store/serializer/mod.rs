@@ -61,6 +61,11 @@ impl IndexeddbEventCacheStoreSerializer {
         Self { inner }
     }
 
+    /// Returns a reference to the inner [`IndexeddbSerializer`].
+    pub fn inner(&self) -> &IndexeddbSerializer {
+        &self.inner
+    }
+
     /// Encodes an key for a [`Indexed`] type.
     ///
     /// Note that the particular key which is encoded is defined by the type

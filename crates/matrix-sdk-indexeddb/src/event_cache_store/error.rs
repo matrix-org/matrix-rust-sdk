@@ -12,10 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License
 
-#![allow(unused)]
+use matrix_sdk_base::{SendOutsideWasm, SyncOutsideWasm};
 
-mod error;
-mod migrations;
-mod serializer;
-mod transaction;
-mod types;
+/// A trait that combines the necessary traits needed for asynchronous runtimes,
+/// but excludes them when running in a web environment - i.e., when
+/// `#[cfg(target_family = "wasm")]`.
+pub trait AsyncErrorDeps: std::error::Error + SendOutsideWasm + SyncOutsideWasm + 'static {}
+
+impl<T> AsyncErrorDeps for T where T: std::error::Error + SendOutsideWasm + SyncOutsideWasm + 'static
+{}
