@@ -385,4 +385,12 @@ impl<'a> IndexeddbEventCacheStoreTransaction<'a> {
     {
         self.delete_items_by_key_components::<T, K>(room_id, key).await
     }
+
+    /// Clear all items of type `T` in all rooms from IndexedDB
+    pub async fn clear<T>(&self) -> Result<(), IndexeddbEventCacheStoreTransactionError>
+    where
+        T: Indexed,
+    {
+        self.transaction.object_store(T::OBJECT_STORE)?.clear()?.await.map_err(Into::into)
+    }
 }
