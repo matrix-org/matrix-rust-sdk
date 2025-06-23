@@ -68,25 +68,38 @@ pub trait IndexedKey<T: Indexed> {
 ///
 /// This is useful when constructing range queries in IndexedDB.
 pub trait IndexedKeyBounds<T: Indexed>: IndexedKey<T> {
-    /// Constructs the lower bound of the key components.
-    fn lower_key_components() -> Self::KeyComponents;
-
     /// Constructs the lower bound of the key.
-    fn lower_key(room_id: &RoomId, serializer: &IndexeddbSerializer) -> Self
-    where
-        Self: Sized,
-    {
+    fn lower_key(room_id: &RoomId, serializer: &IndexeddbSerializer) -> Self;
+
+    /// Constructs the upper bound of the key.
+    fn upper_key(room_id: &RoomId, serializer: &IndexeddbSerializer) -> Self;
+}
+
+impl<T, K> IndexedKeyBounds<T> for K
+where
+    T: Indexed,
+    K: IndexedKeyComponentBounds<T> + Sized,
+{
+    /// Constructs the lower bound of the key.
+    fn lower_key(room_id: &RoomId, serializer: &IndexeddbSerializer) -> Self {
         <Self as IndexedKey<T>>::encode(room_id, &Self::lower_key_components(), serializer)
     }
 
-    /// Constructs the upper bound of the key components.
-    fn upper_key_components() -> Self::KeyComponents;
-
     /// Constructs the upper bound of the key.
-    fn upper_key(room_id: &RoomId, serializer: &IndexeddbSerializer) -> Self
-    where
-        Self: Sized,
-    {
+    fn upper_key(room_id: &RoomId, serializer: &IndexeddbSerializer) -> Self {
         <Self as IndexedKey<T>>::encode(room_id, &Self::upper_key_components(), serializer)
     }
+}
+
+/// A trait for constructing the bounds of the components of an [`IndexedKey`].
+///
+/// This is useful when constructing range queries in IndexedDB. Note that this
+/// trait should not be implemented for key components that are going to be
+/// encrypted as ordering properties will not be preserved.
+pub trait IndexedKeyComponentBounds<T: Indexed>: IndexedKeyBounds<T> {
+    /// Constructs the lower bound of the key components.
+    fn lower_key_components() -> Self::KeyComponents;
+
+    /// Constructs the upper bound of the key components.
+    fn upper_key_components() -> Self::KeyComponents;
 }
