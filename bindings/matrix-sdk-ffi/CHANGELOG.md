@@ -7,26 +7,21 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased] - ReleaseDate
 
 ### Features
+
 - Configuration of the session store has been changed to allow for use of either IndexedDb
 or SQLite on relevant platforms.  These can be enabled via features, `indexeddb` or `sqlite`.
 
-Previously the code to configure a sqlite session would look something like this in a host language:
-```
-builder
-  .sessionPaths("data_path", "cache_path")
-  .passphrase("foobar")
-```
-With the new system, a helper object is exposed for either SQLite or IndexedDB to group those settings.
-```
-builder
-   .session_store_sqlite(
-     SqliteSessionStoreBuilder.new({ dataPath: "data_path", cachePath: "cache_path" })
-       .passphrase("foobar")
-   )
-```
+  Previously the code to configure a sqlite session would look something like this in a host language:
 
-The following methods from `ClientBuilder` have been moved onto `SqliteSessionStoreBuilder`:
-`session_paths`, `session_passphrase`, `session_pool_max_size`, `session_cache_size`, and  `session_journal_size_limit`. 
+  \```rust
+  builder
+    .sessionPaths("data_path", "cache_path")
+    .passphrase("foobar")
+  \```
+
+  With the new system, a helper object is exposed for either SQLite or IndexedDB to group those settings.
+
+// etc
 
 
 ### Refactor
