@@ -139,18 +139,6 @@ impl IndexedKeyBounds<Chunk> for IndexedChunkIdKey {
     fn upper_key_components() -> Self::KeyComponents {
         ChunkIdentifier::new(js_sys::Number::MAX_SAFE_INTEGER as u64)
     }
-
-    fn encode_lower(room_id: &RoomId, serializer: &IndexeddbSerializer) -> Self {
-        <Self as IndexedKey<Chunk>>::encode(room_id, &ChunkIdentifier::new(0), serializer)
-    }
-
-    fn encode_upper(room_id: &RoomId, serializer: &IndexeddbSerializer) -> Self {
-        <Self as IndexedKey<Chunk>>::encode(
-            room_id,
-            &ChunkIdentifier::new(js_sys::Number::MAX_SAFE_INTEGER as u64),
-            serializer,
-        )
-    }
 }
 
 pub type IndexedRoomId = String;
@@ -215,18 +203,6 @@ impl IndexedKeyBounds<Chunk> for IndexedNextChunkIdKey {
 
     fn upper_key_components() -> Self::KeyComponents {
         Some(ChunkIdentifier::new(js_sys::Number::MAX_SAFE_INTEGER as u64))
-    }
-
-    fn encode_lower(room_id: &RoomId, serializer: &IndexeddbSerializer) -> Self {
-        <Self as IndexedKey<Chunk>>::encode(room_id, &None, serializer)
-    }
-
-    fn encode_upper(room_id: &RoomId, serializer: &IndexeddbSerializer) -> Self {
-        <Self as IndexedKey<Chunk>>::encode(
-            room_id,
-            &Some(ChunkIdentifier::new(js_sys::Number::MAX_SAFE_INTEGER as u64)),
-            serializer,
-        )
     }
 }
 
@@ -315,18 +291,6 @@ impl IndexedKeyBounds<Event> for IndexedEventIdKey {
     fn upper_key_components() -> Self::KeyComponents {
         OwnedEventId::try_from(format!("${INDEXED_KEY_UPPER_CHARACTER}")).expect("valid event id")
     }
-
-    fn encode_lower(room_id: &RoomId, serializer: &IndexeddbSerializer) -> Self {
-        let room_id = serializer.encode_key_as_string(keys::ROOMS, room_id);
-        let event_id = String::from(INDEXED_KEY_LOWER_CHARACTER);
-        Self(room_id, event_id)
-    }
-
-    fn encode_upper(room_id: &RoomId, serializer: &IndexeddbSerializer) -> Self {
-        let room_id = serializer.encode_key_as_string(keys::ROOMS, room_id);
-        let event_id = String::from(INDEXED_KEY_UPPER_CHARACTER);
-        Self(room_id, event_id)
-    }
 }
 
 pub type IndexedEventId = String;
@@ -361,25 +325,6 @@ impl IndexedKeyBounds<Event> for IndexedEventPositionKey {
             chunk_identifier: js_sys::Number::MAX_SAFE_INTEGER as u64,
             index: js_sys::Number::MAX_SAFE_INTEGER as usize,
         }
-    }
-
-    fn encode_lower(room_id: &RoomId, serializer: &IndexeddbSerializer) -> Self {
-        <Self as IndexedKey<Event>>::encode(
-            room_id,
-            &Position { chunk_identifier: 0, index: 0 },
-            serializer,
-        )
-    }
-
-    fn encode_upper(room_id: &RoomId, serializer: &IndexeddbSerializer) -> Self {
-        <Self as IndexedKey<Event>>::encode(
-            room_id,
-            &Position {
-                chunk_identifier: js_sys::Number::MAX_SAFE_INTEGER as u64,
-                index: js_sys::Number::MAX_SAFE_INTEGER as usize,
-            },
-            serializer,
-        )
     }
 }
 
@@ -428,20 +373,6 @@ impl IndexedKeyBounds<Event> for IndexedEventRelationKey {
                 .expect("valid event id"),
             RelationType::from(INDEXED_KEY_UPPER_CHARACTER.to_string()),
         )
-    }
-
-    fn encode_lower(room_id: &RoomId, serializer: &IndexeddbSerializer) -> Self {
-        let room_id = serializer.encode_key_as_string(keys::ROOMS, room_id);
-        let related_event_id = String::from(INDEXED_KEY_LOWER_CHARACTER);
-        let relation_type = String::from(INDEXED_KEY_LOWER_CHARACTER);
-        Self(room_id, related_event_id, relation_type)
-    }
-
-    fn encode_upper(room_id: &RoomId, serializer: &IndexeddbSerializer) -> Self {
-        let room_id = serializer.encode_key_as_string(keys::ROOMS, room_id);
-        let related_event_id = String::from(INDEXED_KEY_UPPER_CHARACTER);
-        let relation_type = String::from(INDEXED_KEY_UPPER_CHARACTER);
-        Self(room_id, related_event_id, relation_type)
     }
 }
 
@@ -516,14 +447,6 @@ impl IndexedKeyBounds<Gap> for IndexedGapIdKey {
 
     fn upper_key_components() -> Self::KeyComponents {
         <Self as IndexedKeyBounds<Chunk>>::upper_key_components()
-    }
-
-    fn encode_lower(room_id: &RoomId, serializer: &IndexeddbSerializer) -> Self {
-        <IndexedChunkIdKey as IndexedKeyBounds<Chunk>>::encode_lower(room_id, serializer)
-    }
-
-    fn encode_upper(room_id: &RoomId, serializer: &IndexeddbSerializer) -> Self {
-        <IndexedChunkIdKey as IndexedKeyBounds<Chunk>>::encode_upper(room_id, serializer)
     }
 }
 
