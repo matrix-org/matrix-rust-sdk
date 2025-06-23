@@ -311,4 +311,72 @@ impl<'a> IndexeddbEventCacheStoreTransaction<'a> {
             .await
             .map_err(Into::into)
     }
+
+    /// Delete items in given key range in the given room from IndexedDB
+    pub async fn delete_items_by_key<T, K>(
+        &self,
+        room_id: &RoomId,
+        range: impl Into<IndexedKeyRange<K>>,
+    ) -> Result<(), IndexeddbEventCacheStoreTransactionError>
+    where
+        T: Indexed,
+        K: IndexedKeyBounds<T> + Serialize,
+    {
+        let range = self.serializer.encode_key_range::<T, K>(room_id, range)?;
+        let object_store = self.transaction.object_store(T::OBJECT_STORE)?;
+        if let Some(index) = K::INDEX {
+            let index = object_store.index(index)?;
+            if let Some(cursor) = index.open_cursor_with_range(&range)?.await? {
+                while cursor.key().is_some() {
+                    cursor.delete()?.await?;
+                    cursor.continue_cursor()?.await?;
+                }
+            }
+        } else {
+            object_store.delete_owned(&range)?.await?;
+        }
+        Ok(())
+    }
+
+    /// Delete items in the given key component range in the given room from
+    /// IndexedDB
+    pub async fn delete_items_by_key_components<'b, T, K>(
+        &self,
+        room_id: &RoomId,
+        range: impl Into<IndexedKeyRange<&'b K::KeyComponents>>,
+    ) -> Result<(), IndexeddbEventCacheStoreTransactionError>
+    where
+        T: Indexed,
+        K: IndexedKeyBounds<T> + Serialize,
+        K::KeyComponents: 'b,
+    {
+        let range: IndexedKeyRange<K> = range.into().encoded(room_id, self.serializer.inner());
+        self.delete_items_by_key::<T, K>(room_id, range).await
+    }
+
+    /// Delete all items of type `T` by key `K` in the given room from IndexedDB
+    pub async fn delete_items_in_room<T, K>(
+        &self,
+        room_id: &RoomId,
+    ) -> Result<(), IndexeddbEventCacheStoreTransactionError>
+    where
+        T: Indexed,
+        K: IndexedKeyBounds<T> + Serialize,
+    {
+        self.delete_items_by_key::<T, K>(room_id, IndexedKeyRange::All).await
+    }
+
+    /// Delete item that matches the given key components in the given room from
+    /// IndexedDB
+    pub async fn delete_item_by_key<T, K>(
+        &self,
+        room_id: &RoomId,
+        key: &K::KeyComponents,
+    ) -> Result<(), IndexeddbEventCacheStoreTransactionError>
+    where
+        T: Indexed,
+        K: IndexedKeyBounds<T> + Serialize,
+    {
+        self.delete_items_by_key_components::<T, K>(room_id, key).await
+    }
 }
