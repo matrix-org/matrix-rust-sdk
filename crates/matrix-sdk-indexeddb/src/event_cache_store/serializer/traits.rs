@@ -72,11 +72,21 @@ pub trait IndexedKeyBounds<T: Indexed>: IndexedKey<T> {
     fn lower_key_components() -> Self::KeyComponents;
 
     /// Encodes the lower bound of the key.
-    fn encode_lower(room_id: &RoomId, serializer: &IndexeddbSerializer) -> Self;
+    fn encode_lower(room_id: &RoomId, serializer: &IndexeddbSerializer) -> Self
+    where
+        Self: Sized,
+    {
+        <Self as IndexedKey<T>>::encode(room_id, &Self::lower_key_components(), serializer)
+    }
 
     /// Constructs the upper bound of the key components.
     fn upper_key_components() -> Self::KeyComponents;
 
     /// Encodes the upper bound of the key.
-    fn encode_upper(room_id: &RoomId, serializer: &IndexeddbSerializer) -> Self;
+    fn encode_upper(room_id: &RoomId, serializer: &IndexeddbSerializer) -> Self
+    where
+        Self: Sized,
+    {
+        <Self as IndexedKey<T>>::encode(room_id, &Self::upper_key_components(), serializer)
+    }
 }
