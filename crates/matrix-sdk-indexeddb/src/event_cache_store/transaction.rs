@@ -267,4 +267,48 @@ impl<'a> IndexeddbEventCacheStoreTransaction<'a> {
                 .map_err(|e| IndexeddbEventCacheStoreTransactionError::Serialization(Box::new(e)))
         }
     }
+
+    /// Adds an item to the given room in the corresponding IndexedDB object
+    /// store, i.e., `T::OBJECT_STORE`. If an item with the same key already
+    /// exists, it will be rejected.
+    pub async fn add_item<T>(
+        &self,
+        room_id: &RoomId,
+        item: &T,
+    ) -> Result<(), IndexeddbEventCacheStoreTransactionError>
+    where
+        T: Indexed + Serialize,
+        T::IndexedType: Serialize,
+        T::Error: AsyncErrorDeps,
+    {
+        self.transaction
+            .object_store(T::OBJECT_STORE)?
+            .add_val_owned(self.serializer.serialize(room_id, item).map_err(|e| {
+                IndexeddbEventCacheStoreTransactionError::Serialization(Box::new(e))
+            })?)?
+            .await
+            .map_err(Into::into)
+    }
+
+    /// Puts an item in the given room in the corresponding IndexedDB object
+    /// store, i.e., `T::OBJECT_STORE`. If an item with the same key already
+    /// exists, it will be overwritten.
+    pub async fn put_item<T>(
+        &self,
+        room_id: &RoomId,
+        item: &T,
+    ) -> Result<(), IndexeddbEventCacheStoreTransactionError>
+    where
+        T: Indexed + Serialize,
+        T::IndexedType: Serialize,
+        T::Error: AsyncErrorDeps,
+    {
+        self.transaction
+            .object_store(T::OBJECT_STORE)?
+            .put_val_owned(self.serializer.serialize(room_id, item).map_err(|e| {
+                IndexeddbEventCacheStoreTransactionError::Serialization(Box::new(e))
+            })?)?
+            .await
+            .map_err(Into::into)
+    }
 }
