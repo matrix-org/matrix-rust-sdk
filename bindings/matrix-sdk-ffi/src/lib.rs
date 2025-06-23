@@ -20,7 +20,6 @@ mod qr_code;
 mod room;
 mod room_alias;
 mod room_directory_search;
-mod room_info;
 mod room_list;
 mod room_member;
 mod room_preview;

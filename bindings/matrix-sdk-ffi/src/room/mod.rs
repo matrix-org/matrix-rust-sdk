@@ -35,14 +35,13 @@ use ruma::{
 };
 use tracing::{error, warn};
 
-use self::power_levels::RoomPowerLevels;
+use self::{power_levels::RoomPowerLevels, room_info::RoomInfo};
 use crate::{
     chunk_iterator::ChunkIterator,
     client::{JoinRule, RoomVisibility},
     error::{ClientError, MediaInfoError, NotYetImplemented, RoomError},
     identity_status_change::IdentityStatusChange,
     live_location_share::{LastLocation, LiveLocationShare},
-    room_info::RoomInfo,
     room_member::{RoomMember, RoomMemberWithSenderInfo},
     room_preview::RoomPreview,
     ruma::{ImageInfo, LocationContent, Mentions, NotifyType},
@@ -56,6 +55,7 @@ use crate::{
 };
 
 mod power_levels;
+pub mod room_info;
 
 #[derive(Debug, Clone, uniffi::Enum)]
 pub enum Membership {
