@@ -98,8 +98,8 @@ impl IndexeddbEventCacheStoreSerializer {
         T: Indexed,
         K: IndexedKeyBounds<T> + Serialize,
     {
-        let lower = serde_wasm_bindgen::to_value(&K::encode_lower(room_id, &self.inner))?;
-        let upper = serde_wasm_bindgen::to_value(&K::encode_upper(room_id, &self.inner))?;
+        let lower = serde_wasm_bindgen::to_value(&K::lower_key(room_id, &self.inner))?;
+        let upper = serde_wasm_bindgen::to_value(&K::upper_key(room_id, &self.inner))?;
         IdbKeyRange::bound(&lower, &upper).map_err(Into::into)
     }
 
