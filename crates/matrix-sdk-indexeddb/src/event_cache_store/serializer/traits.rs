@@ -50,6 +50,9 @@ pub trait Indexed: Sized {
 ///
 /// Each implementation represents a key on an [`Indexed`] type.
 pub trait IndexedKey<T: Indexed> {
+    /// The index name for the key, if it represents an index.
+    const INDEX: Option<&'static str> = None;
+
     /// Any extra data used to construct the key.
     type KeyComponents;
 
