@@ -16,4 +16,5 @@
 
 mod migrations;
 mod serializer;
+mod transaction;
 mod types;

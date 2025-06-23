@@ -28,8 +28,8 @@ use crate::{
     serializer::IndexeddbSerializer,
 };
 
-mod traits;
-mod types;
+pub mod traits;
+pub mod types;
 
 #[derive(Debug, Error)]
 pub enum IndexeddbEventCacheStoreSerializerError<IndexingError> {
