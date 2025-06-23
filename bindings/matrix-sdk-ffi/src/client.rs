@@ -87,7 +87,8 @@ use tracing::{debug, error};
 use url::Url;
 
 use super::{
-    room::room_info::RoomInfo, room::Room, session_verification::SessionVerificationController,
+    room::{room_info::RoomInfo, Room},
+    session_verification::SessionVerificationController,
 };
 use crate::{
     authentication::{HomeserverLoginDetails, OidcConfiguration, OidcError, SsoError, SsoHandler},

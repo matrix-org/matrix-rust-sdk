@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, sync::Arc};
 
 use matrix_sdk::{EncryptionState, RoomState};
 use tracing::warn;
@@ -7,7 +7,9 @@ use crate::{
     client::JoinRule,
     error::ClientError,
     notification_settings::RoomNotificationMode,
-    room::{Membership, RoomHero, RoomHistoryVisibility, SuccessorRoom},
+    room::{
+        power_levels::RoomPowerLevels, Membership, RoomHero, RoomHistoryVisibility, SuccessorRoom,
+    },
     room_member::RoomMember,
 };
 
@@ -65,6 +67,8 @@ pub struct RoomInfo {
     join_rule: Option<JoinRule>,
     /// The history visibility for this room, if known.
     history_visibility: RoomHistoryVisibility,
+    /// This room's current power levels.
+    power_levels: Arc<RoomPowerLevels>,
 }
 
 impl RoomInfo {
@@ -83,6 +87,9 @@ impl RoomInfo {
         if let Err(e) = &join_rule {
             warn!("Failed to parse join rule: {e:?}");
         }
+
+        let power_levels =
+            RoomPowerLevels::from(room.power_levels().await.map_err(matrix_sdk::Error::from)?);
 
         Ok(Self {
             id: room.room_id().to_string(),
@@ -135,6 +142,7 @@ impl RoomInfo {
             pinned_event_ids,
             join_rule: join_rule.ok(),
             history_visibility: room.history_visibility_or_default().try_into()?,
+            power_levels: Arc::new(power_levels),
         })
     }
 }
