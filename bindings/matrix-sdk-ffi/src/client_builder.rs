@@ -25,7 +25,7 @@ use crate::{
     helpers::unwrap_or_clone_arc,
     qr_code::{HumanQrLoginError, QrCodeData, QrLoginProgressListener},
     runtime::get_runtime_handle,
-    session_store::{SessionStoreConfig, SessionStoreResult},
+    session_store::{SessionStoreBuilder, SessionStoreResult},
     task_handle::TaskHandle,
 };
 
@@ -108,7 +108,7 @@ impl From<ClientError> for ClientBuildError {
 
 #[derive(Clone, uniffi::Object)]
 pub struct ClientBuilder {
-    session_store: Option<SessionStoreConfig>,
+    session_store: Option<SessionStoreBuilder>,
     system_is_memory_constrained: bool,
     username: Option<String>,
     homeserver_cfg: Option<HomeserverConfig>,
@@ -554,7 +554,7 @@ impl ClientBuilder {
         config: Arc<crate::session_store::SqliteSessionStoreBuilder>,
     ) -> Arc<Self> {
         let mut builder = unwrap_or_clone_arc(self);
-        builder.session_store = Some(SessionStoreConfig::Sqlite(config.as_ref().clone()));
+        builder.session_store = Some(SessionStoreBuilder::Sqlite(config.as_ref().clone()));
         Arc::new(builder)
     }
 }
@@ -568,7 +568,7 @@ impl ClientBuilder {
         config: Arc<crate::session_store::IndexedDbSessionStoreBuilder>,
     ) -> Arc<Self> {
         let mut builder = unwrap_or_clone_arc(self);
-        builder.session_store = Some(SessionStoreConfig::IndexedDb(config.as_ref().clone()));
+        builder.session_store = Some(SessionStoreBuilder::IndexedDb(config.as_ref().clone()));
         Arc::new(builder)
     }
 }

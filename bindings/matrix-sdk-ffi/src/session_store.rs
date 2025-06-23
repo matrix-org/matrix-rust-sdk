@@ -4,7 +4,7 @@ use std::path::PathBuf;
 #[cfg(feature = "sqlite")]
 use matrix_sdk::SqliteStoreConfig;
 
-/// The result of building a [`SessionStoreConfig`], with data that
+/// The result of building a [`SessionStoreBuilder`], with data that
 /// can be passed directly to a ClientBuilder.
 pub enum SessionStoreResult {
     #[cfg(feature = "sqlite")]
@@ -227,24 +227,24 @@ use crate::client_builder::ClientBuildError;
 
 /// Represent the kind of store the client will configure.
 #[derive(Clone)]
-pub enum SessionStoreConfig {
+pub enum SessionStoreBuilder {
+    /// Represents the builder for the SQLite store.
     #[cfg(feature = "sqlite")]
-    /// Setup the client to use the SQLite store.
     Sqlite(SqliteSessionStoreBuilder),
 
+    /// Represents the client for the IndexedDB store.
     #[cfg(feature = "indexeddb")]
-    /// Setup the client to use the IndexedDB store.
     IndexedDb(IndexedDbSessionStoreBuilder),
 }
 
-impl SessionStoreConfig {
+impl SessionStoreBuilder {
     pub(crate) fn build(&self) -> Result<SessionStoreResult, ClientBuildError> {
         match self {
             #[cfg(feature = "sqlite")]
-            SessionStoreConfig::Sqlite(config) => config.build(),
+            SessionStoreBuilder::Sqlite(config) => config.build(),
 
             #[cfg(feature = "indexeddb")]
-            SessionStoreConfig::IndexedDb(config) => config.build(),
+            SessionStoreBuilder::IndexedDb(config) => config.build(),
         }
     }
 }
