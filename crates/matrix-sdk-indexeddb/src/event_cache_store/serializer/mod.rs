@@ -29,14 +29,14 @@ mod traits;
 mod types;
 
 #[derive(Debug, Error)]
-pub enum IndexeddbEventCacheStoreSerializerError {
+pub enum IndexeddbEventCacheStoreSerializerError<IndexingError> {
     #[error("indexing: {0}")]
-    Indexing(Box<dyn std::error::Error>),
+    Indexing(IndexingError),
     #[error("serialization: {0}")]
     Serialization(#[from] serde_json::Error),
 }
 
-impl From<serde_wasm_bindgen::Error> for IndexeddbEventCacheStoreSerializerError {
+impl<T> From<serde_wasm_bindgen::Error> for IndexeddbEventCacheStoreSerializerError<T> {
     fn from(e: serde_wasm_bindgen::Error) -> Self {
         Self::Serialization(serde::de::Error::custom(e.to_string()))
     }
@@ -128,15 +128,14 @@ impl IndexeddbEventCacheStoreSerializer {
         &self,
         room_id: &RoomId,
         t: &T,
-    ) -> Result<JsValue, IndexeddbEventCacheStoreSerializerError>
+    ) -> Result<JsValue, IndexeddbEventCacheStoreSerializerError<T::Error>>
     where
         T: Indexed,
         T::IndexedType: Serialize,
-        T::Error: std::error::Error + 'static,
     {
         let indexed = t
             .to_indexed(room_id, &self.inner)
-            .map_err(|e| IndexeddbEventCacheStoreSerializerError::Indexing(Box::new(e)))?;
+            .map_err(IndexeddbEventCacheStoreSerializerError::Indexing)?;
         serde_wasm_bindgen::to_value(&indexed).map_err(Into::into)
     }
 
@@ -144,14 +143,13 @@ impl IndexeddbEventCacheStoreSerializer {
     pub fn deserialize<T>(
         &self,
         value: JsValue,
-    ) -> Result<T, IndexeddbEventCacheStoreSerializerError>
+    ) -> Result<T, IndexeddbEventCacheStoreSerializerError<T::Error>>
     where
         T: Indexed,
         T::IndexedType: DeserializeOwned,
-        T::Error: std::error::Error + 'static,
     {
         let indexed: T::IndexedType = value.into_serde()?;
         T::from_indexed(indexed, &self.inner)
-            .map_err(|e| IndexeddbEventCacheStoreSerializerError::Indexing(Box::new(e)))
+            .map_err(IndexeddbEventCacheStoreSerializerError::Indexing)
     }
 }
