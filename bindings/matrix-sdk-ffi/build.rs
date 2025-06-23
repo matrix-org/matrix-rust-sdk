@@ -78,8 +78,8 @@ fn main() -> Result<(), Box<dyn Error>> {
     let sqlite_set = env_is_set("CARGO_FEATURE_SQLITE");
     let indexeddb_set = env_is_set("CARGO_FEATURE_INDEXEDDB");
     ensure(
-        sqlite_set || indexeddb_set,
-        "one of the features 'sqlite' or 'indexeddb' must be enabled",
+        sqlite_set ^ indexeddb_set,
+        "one of the features 'sqlite' or (exclusive) 'indexeddb' must be enabled",
     );
     setup_x86_64_android_workaround();
     uniffi::generate_scaffolding("./src/api.udl").expect("Building the UDL file failed");
