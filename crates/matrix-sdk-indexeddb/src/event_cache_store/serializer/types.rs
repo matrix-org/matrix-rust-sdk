@@ -60,6 +60,74 @@ const INDEXED_KEY_LOWER_CHARACTER: char = '\u{0000}';
 /// [1]: https://en.wikipedia.org/wiki/Plane_(Unicode)#Basic_Multilingual_Plane
 const INDEXED_KEY_UPPER_CHARACTER: char = '\u{FFFF}';
 
+/// Representation of a range of keys of type `K`. This is loosely
+/// correlated with [IDBKeyRange][1], with a few differences.
+///
+/// Firstly, this enum only provides a single way to express a bounded range
+/// which is always inclusive on both bounds. While all ranges can still be
+/// represented, [`IDBKeyRange`][1] provides more flexibility in this regard.
+///
+/// Secondly, this enum provides a way to express the range of all keys
+/// of type `K`.
+///
+/// [1]: https://developer.mozilla.org/en-US/docs/Web/API/IDBKeyRange
+#[derive(Debug, Copy, Clone)]
+pub enum IndexedKeyRange<K> {
+    /// Represents a single key of type `K`.
+    ///
+    /// Identical to [`IDBKeyRange.only`][1].
+    ///
+    /// [1]: https://developer.mozilla.org/en-US/docs/Web/API/IDBKeyRange/only
+    Only(K),
+    /// Represents an inclusive range of keys of type `K`
+    /// where the first item is the lower bound and the
+    /// second item is the upper bound.
+    ///
+    /// Similar to [`IDBKeyRange.bound`][1].
+    ///
+    /// [1]: https://developer.mozilla.org/en-US/docs/Web/API/IDBKeyRange/bound
+    Bound(K, K),
+    /// Represents an inclusive range of all keys of type `K`.
+    All,
+}
+
+impl<C> IndexedKeyRange<&C> {
+    /// Encodes a range of key components of type `K::KeyComponents`
+    /// into a range of keys of type `K`.
+    pub fn encoded<T, K>(
+        &self,
+        room_id: &RoomId,
+        serializer: &IndexeddbSerializer,
+    ) -> IndexedKeyRange<K>
+    where
+        T: Indexed,
+        K: IndexedKey<T, KeyComponents = C>,
+    {
+        match self {
+            Self::Only(components) => {
+                IndexedKeyRange::Only(K::encode(room_id, components, serializer))
+            }
+            Self::Bound(lower, upper) => IndexedKeyRange::Bound(
+                K::encode(room_id, lower, serializer),
+                K::encode(room_id, upper, serializer),
+            ),
+            Self::All => IndexedKeyRange::All,
+        }
+    }
+}
+
+impl<K> From<(K, K)> for IndexedKeyRange<K> {
+    fn from(value: (K, K)) -> Self {
+        Self::Bound(value.0, value.1)
+    }
+}
+
+impl<K> From<K> for IndexedKeyRange<K> {
+    fn from(value: K) -> Self {
+        Self::Only(value)
+    }
+}
+
 /// Represents the [`LINKED_CHUNKS`][1] object store.
 ///
 /// [1]: crate::event_cache_store::migrations::v1::create_linked_chunks_object_store
