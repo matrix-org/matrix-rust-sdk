@@ -350,23 +350,24 @@ impl ClientBuilder {
                 inner_builder.cross_process_store_locks_holder_name(holder_name.clone());
         }
 
-        let mut store_path = None;
-        if let Some(session_store) = builder.session_store {
+        let store_path = if let Some(session_store) = builder.session_store {
             match session_store.build()? {
                 #[cfg(feature = "indexeddb")]
                 SessionStoreResult::IndexedDb { name, passphrase } => {
                     inner_builder = inner_builder.indexeddb_store(&name, passphrase.as_deref());
+                    None
                 }
                 #[cfg(feature = "sqlite")]
                 SessionStoreResult::Sqlite { config, cache_path, store_path: data_path } => {
                     inner_builder = inner_builder
                         .sqlite_store_with_config_and_cache_path(config, Some(cache_path));
-                    store_path = Some(data_path);
+                    Some(data_path)
                 }
             }
         } else {
-            debug!("Not using a session store.")
-        }
+            debug!("Not using a session store.");
+            None
+        };
 
         // Determine server either from URL, server name or user ID.
         inner_builder = match builder.homeserver_cfg {

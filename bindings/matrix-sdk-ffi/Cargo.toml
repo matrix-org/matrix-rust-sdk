@@ -32,7 +32,7 @@ indexeddb = ["matrix-sdk/indexeddb"]
 # Use SQLite for session storage, not supported on Wasm targets.
 sqlite = ["matrix-sdk/sqlite"]
 # Required when targeting a Javascript environment, like Wasm in a browser.
-js = ["matrix-sdk-ui/js", "uuid/js"]
+js = ["matrix-sdk-ui/js"]
 # Use the TLS implementation provided by the host system, necessary on iOS and Wasm platforms.
 native-tls = ["matrix-sdk/native-tls", "sentry?/native-tls"]
 # Use Rustls as the TLS implementation, necessary on Android platforms.

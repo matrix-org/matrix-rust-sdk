@@ -9,19 +9,22 @@ All notable changes to this project will be documented in this file.
 ### Features
 
 - Configuration of the session store has been changed to allow for use of either IndexedDb
-or SQLite on relevant platforms.  These can be enabled via features, `indexeddb` or `sqlite`.
+  or SQLite on relevant platforms.  These can be enabled via features, `indexeddb` or `sqlite`.
 
   Previously the code to configure a sqlite session would look something like this in a host language:
 
-  \```rust
+  ```rust
   builder
-    .sessionPaths("data_path", "cache_path")
+    .session_paths("data_path", "cache_path")
     .passphrase("foobar")
-  \```
+  ```
 
   With the new system, a helper object is exposed for either SQLite or IndexedDB to group those settings.
 
-// etc
+  ```rust
+  builder
+    .session_store_sqlite(SqliteSessionStoreBuilder::new("data_path", "cache_path").passphrase("foobar"))
+  ```
 
 
 ### Refactor
