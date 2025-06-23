@@ -27,7 +27,7 @@ crate-type = [
 default = ["bundled-sqlite", "unstable-msc4274"]
 bundled-sqlite = ["sqlite", "matrix-sdk/bundled-sqlite"]
 unstable-msc4274 = ["matrix-sdk-ui/unstable-msc4274"]
-# Use indexeddb for session storage, supported only on Wasm platforms.
+# Use IndexedDB for session storage, only supported on Wasm targets.
 indexeddb = ["matrix-sdk/indexeddb"]
 # Use sqlite for session storage, not supported on Wasm platforms.
 sqlite = ["matrix-sdk/sqlite"]
