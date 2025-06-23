@@ -29,7 +29,7 @@ bundled-sqlite = ["sqlite", "matrix-sdk/bundled-sqlite"]
 unstable-msc4274 = ["matrix-sdk-ui/unstable-msc4274"]
 # Use IndexedDB for session storage, only supported on Wasm targets.
 indexeddb = ["matrix-sdk/indexeddb"]
-# Use sqlite for session storage, not supported on Wasm platforms.
+# Use SQLite for session storage, not supported on Wasm targets.
 sqlite = ["matrix-sdk/sqlite"]
 # Required when targeting a Javascript environment, like Wasm in a browser.
 js = ["matrix-sdk-ui/js", "uuid/js"]
