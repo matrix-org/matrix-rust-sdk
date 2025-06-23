@@ -82,8 +82,10 @@ impl RoomInfo {
             warn!("Failed to parse join rule: {e:?}");
         }
 
-        let power_levels =
-            RoomPowerLevels::from(room.power_levels().await.map_err(matrix_sdk::Error::from)?);
+        let power_levels = RoomPowerLevels::new(
+            room.power_levels().await.map_err(matrix_sdk::Error::from)?,
+            room.own_user_id().to_owned(),
+        );
 
         Ok(Self {
             id: room.room_id().to_string(),

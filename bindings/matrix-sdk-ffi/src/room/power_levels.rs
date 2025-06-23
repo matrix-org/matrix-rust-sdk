@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use anyhow::Result;
 use ruma::{
     events::{room::power_levels::RoomPowerLevels as RumaPowerLevels, TimelineEventType},
-    UserId,
+    OwnedUserId, UserId,
 };
 
 use crate::{
@@ -14,6 +14,13 @@ use crate::{
 #[derive(uniffi::Object)]
 pub struct RoomPowerLevels {
     inner: RumaPowerLevels,
+    own_user_id: OwnedUserId,
+}
+
+impl RoomPowerLevels {
+    pub fn new(value: RumaPowerLevels, own_user_id: OwnedUserId) -> Self {
+        Self { inner: value, own_user_id }
+    }
 }
 
 #[matrix_sdk_ffi_macros::export]
@@ -34,6 +41,11 @@ impl RoomPowerLevels {
         user_power_levels
     }
 
+    /// Returns true if the current user is able to ban in the room.
+    pub fn can_own_user_ban(&self) -> bool {
+        self.inner.user_can_ban(&self.own_user_id)
+    }
+
     /// Returns true if the user with the given user_id is able to ban in the
     /// room.
     ///
@@ -41,6 +53,12 @@ impl RoomPowerLevels {
     pub fn can_user_ban(&self, user_id: String) -> Result<bool, ClientError> {
         let user_id = UserId::parse(&user_id)?;
         Ok(self.inner.user_can_ban(&user_id))
+    }
+
+    /// Returns true if the current user is able to redact their own messages in
+    /// the room.
+    pub fn can_own_user_redact_own(&self) -> bool {
+        self.inner.user_can_redact_own_event(&self.own_user_id)
     }
 
     /// Returns true if the user with the given user_id is able to redact
@@ -52,6 +70,12 @@ impl RoomPowerLevels {
         Ok(self.inner.user_can_redact_own_event(&user_id))
     }
 
+    /// Returns true if the current user user is able to redact messages of
+    /// other users in the room.
+    pub fn can_own_user_redact_other(&self) -> bool {
+        self.inner.user_can_redact_event_of_other(&self.own_user_id)
+    }
+
     /// Returns true if the user with the given user_id is able to redact
     /// messages of other users in the room.
     ///
@@ -61,13 +85,23 @@ impl RoomPowerLevels {
         Ok(self.inner.user_can_redact_event_of_other(&user_id))
     }
 
-    /// Returns true if the user with the given user_id is able to kick in the
+    /// Returns true if the current user is able to invite in the room.
+    pub fn can_own_user_invite(&self) -> bool {
+        self.inner.user_can_invite(&self.own_user_id)
+    }
+
+    /// Returns true if the user with the given user_id is able to invite in the
     /// room.
     ///
     /// The call may fail if there is an error in getting the power levels.
     pub fn can_user_invite(&self, user_id: String) -> Result<bool, ClientError> {
         let user_id = UserId::parse(&user_id)?;
         Ok(self.inner.user_can_invite(&user_id))
+    }
+
+    /// Returns true if the current user is able to kick in the room.
+    pub fn can_own_user_kick(&self) -> bool {
+        self.inner.user_can_kick(&self.own_user_id)
     }
 
     /// Returns true if the user with the given user_id is able to kick in the
@@ -77,6 +111,12 @@ impl RoomPowerLevels {
     pub fn can_user_kick(&self, user_id: String) -> Result<bool, ClientError> {
         let user_id = UserId::parse(&user_id)?;
         Ok(self.inner.user_can_kick(&user_id))
+    }
+
+    /// Returns true if the current user is able to send a specific state event
+    /// type in the room.
+    pub fn can_own_user_send_state(&self, state_event: StateEventType) -> bool {
+        self.inner.user_can_send_state(&self.own_user_id, state_event.into())
     }
 
     /// Returns true if the user with the given user_id is able to send a
@@ -92,6 +132,12 @@ impl RoomPowerLevels {
         Ok(self.inner.user_can_send_state(&user_id, state_event.into()))
     }
 
+    /// Returns true if the current user is able to send a specific message type
+    /// in the room.
+    pub fn can_own_user_send_message(&self, message: MessageLikeEventType) -> bool {
+        self.inner.user_can_send_message(&self.own_user_id, message.into())
+    }
+
     /// Returns true if the user with the given user_id is able to send a
     /// specific message type in the room.
     ///
@@ -105,6 +151,12 @@ impl RoomPowerLevels {
         Ok(self.inner.user_can_send_message(&user_id, message.into()))
     }
 
+    /// Returns true if the current user is able to pin or unpin events in the
+    /// room.
+    pub fn can_own_user_pin_unpin(&self) -> bool {
+        self.inner.user_can_send_state(&self.own_user_id, StateEventType::RoomPinnedEvents.into())
+    }
+
     /// Returns true if the user with the given user_id is able to pin or unpin
     /// events in the room.
     ///
@@ -114,6 +166,12 @@ impl RoomPowerLevels {
         Ok(self.inner.user_can_send_state(&user_id, StateEventType::RoomPinnedEvents.into()))
     }
 
+    /// Returns true if the current user is able to trigger a notification in
+    /// the room.
+    pub fn can_own_user_trigger_room_notification(&self) -> bool {
+        self.inner.user_can_trigger_room_notification(&self.own_user_id)
+    }
+
     /// Returns true if the user with the given user_id is able to trigger a
     /// notification in the room.
     ///
@@ -121,12 +179,6 @@ impl RoomPowerLevels {
     pub fn can_user_trigger_room_notification(&self, user_id: String) -> Result<bool, ClientError> {
         let user_id = UserId::parse(&user_id)?;
         Ok(self.inner.user_can_trigger_room_notification(&user_id))
-    }
-}
-
-impl From<RumaPowerLevels> for RoomPowerLevels {
-    fn from(value: RumaPowerLevels) -> Self {
-        Self { inner: value }
     }
 }
 
