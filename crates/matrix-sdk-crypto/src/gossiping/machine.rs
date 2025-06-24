@@ -1142,6 +1142,7 @@ mod tests {
             EncryptedEvent, EncryptedToDeviceEvent, RoomEncryptedEventContent,
         },
         verification::VerificationMachine,
+        DecryptionSettings, TrustRequirement,
     };
 
     fn alice_id() -> &'static UserId {
@@ -2051,14 +2052,20 @@ mod tests {
         let stream = bob_machine.store().secrets_stream();
         pin_mut!(stream);
 
+        let decryption_settings =
+            DecryptionSettings { sender_device_trust_requirement: TrustRequirement::Untrusted };
+
         bob_machine
-            .receive_sync_changes(EncryptionSyncChanges {
-                to_device_events: vec![event],
-                changed_devices: &Default::default(),
-                one_time_keys_counts: &Default::default(),
-                unused_fallback_keys: None,
-                next_batch_token: None,
-            })
+            .receive_sync_changes(
+                EncryptionSyncChanges {
+                    to_device_events: vec![event],
+                    changed_devices: &Default::default(),
+                    one_time_keys_counts: &Default::default(),
+                    unused_fallback_keys: None,
+                    next_batch_token: None,
+                },
+                &decryption_settings,
+            )
             .await
             .unwrap();
 
