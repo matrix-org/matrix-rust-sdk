@@ -32,7 +32,7 @@ Breaking changes:
   state event is missing for a given room. `NotificationRoomInfo::is_public` has been removed;
   callers can inspect the value of `NotificationItem::join_rule` to determine if the room is public
   (i.e. if the join rule is `Public`).
-  ([#XXXX](https://github.com/matrix-org/matrix-rust-sdk/pull/XXXX))
+  ([#5278](https://github.com/matrix-org/matrix-rust-sdk/pull/5278))
 
 ## [0.12.0] - 2025-06-10
 
