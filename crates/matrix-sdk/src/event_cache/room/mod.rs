@@ -204,6 +204,33 @@ impl RoomEventCache {
         (events, subscriber)
     }
 
+    /// Subscribe to a thread, and get the initial list of events in that
+    /// thread.
+    pub async fn subscribe_to_thread(
+        &self,
+        thread_root: OwnedEventId,
+    ) -> (Vec<Event>, Receiver<Vec<VectorDiff<Event>>>) {
+        let mut state = self.inner.state.write().await;
+        state.subscribe_to_thread(thread_root)
+    }
+
+    /// Return all the events in a thread, given its root event ID.
+    pub async fn thread_events(&self, thread_root: OwnedEventId) -> Vec<Event> {
+        let mut state = self.inner.state.write().await;
+        state.thread_events(thread_root)
+    }
+
+    /// Paginate backwards in a thread, given its root event ID.
+    pub async fn paginate_thread(
+        &self,
+        thread_root: OwnedEventId,
+        num_events: u16,
+    ) -> Result<bool> {
+        let mut state = self.inner.state.write().await;
+        let outcome = state.paginate_thread(thread_root, num_events).await?;
+        Ok(outcome.reached_start)
+    }
+
     /// Return a [`RoomPagination`] API object useful for running
     /// back-pagination queries in the current room.
     pub fn pagination(&self) -> RoomPagination {
@@ -507,6 +534,7 @@ mod private {
     };
     use matrix_sdk_common::executor::spawn;
     use ruma::{
+        api::Direction,
         events::{
             relation::RelationType, room::redaction::SyncRoomRedactionEvent, AnySyncTimelineEvent,
             MessageLikeEventType,
@@ -514,6 +542,7 @@ mod private {
         serde::Raw,
         EventId, OwnedEventId, OwnedRoomId, RoomVersionId,
     };
+    use tokio::sync::broadcast::{Receiver, Sender};
     use tracing::{debug, error, instrument, trace, warn};
 
     use super::{
@@ -521,9 +550,230 @@ mod private {
         events::RoomEvents,
         sort_positions_descending, EventLocation, LoadMoreEventsBackwardsOutcome,
     };
-    use crate::event_cache::{
-        deduplicator::filter_duplicate_events, BackPaginationOutcome, RoomPaginationStatus,
+    use crate::{
+        event_cache::{
+            deduplicator::filter_duplicate_events, paginator::PaginatorError,
+            BackPaginationOutcome, RoomPaginationStatus,
+        },
+        room::{IncludeRelations, RelationsOptions, WeakRoom},
     };
+
+    /// All the information related to a single thread.
+    pub struct ThreadEventCache {
+        /// The root event ID of this thread.
+        root_event_id: OwnedEventId,
+
+        /// A weak link to the room owning this thread.
+        room: WeakRoom,
+
+        /// The linked chunk for this thread.
+        /// TODO(bnjbvr): rename `RoomEvents` into something more sensible.
+        chunk: RoomEvents,
+
+        /// A sender for live events updates in this thread.
+        sender: Sender<Vec<VectorDiff<Event>>>,
+    }
+
+    impl ThreadEventCache {
+        fn new(root_event_id: OwnedEventId, room: WeakRoom) -> Self {
+            Self { root_event_id, room, chunk: RoomEvents::new(), sender: Sender::new(32) }
+        }
+
+        /// Subscribe to live events from this thread.
+        pub fn subscribe(&self) -> (Vec<Event>, Receiver<Vec<VectorDiff<Event>>>) {
+            let events = self.chunk.events().map(|(_position, item)| item.clone()).collect();
+
+            let recv = self.sender.subscribe();
+
+            (events, recv)
+        }
+
+        /// Return all the known and loaded events in this thread.
+        pub fn events(&self) -> Vec<Event> {
+            self.chunk.events().map(|(_position, item)| item.clone()).collect()
+        }
+
+        /// Clear a thread, after a gappy sync for instance.
+        fn clear(&mut self) {
+            self.chunk.reset();
+        }
+
+        /// Push some live events to this thread, and propagate the updates to
+        /// the listeners.
+        fn add_live_events(&mut self, events: Vec<Event>) {
+            if events.is_empty() {
+                return;
+            }
+            // TODO(bnjbvr): deduplicate.
+            self.chunk.push_events(events);
+            let diffs = self.chunk.updates_as_vector_diffs();
+            if !diffs.is_empty() {
+                let _ = self.sender.send(diffs);
+            }
+        }
+
+        /// Simplified version of
+        /// [`RoomEventCacheState::load_more_events_backwards`], which
+        /// returns the outcome of the pagination without actually loading from
+        /// disk.
+        fn load_more_events_backwards(
+            &self,
+        ) -> Result<LoadMoreEventsBackwardsOutcome, EventCacheError> {
+            // If any in-memory chunk is a gap, don't load more events, and let the caller
+            // resolve the gap.
+            if let Some(prev_token) = self.chunk.rgap().map(|gap| gap.prev_token) {
+                trace!(%prev_token, "thread chunk has at least a gap");
+                return Ok(LoadMoreEventsBackwardsOutcome::Gap { prev_token: Some(prev_token) });
+            }
+
+            // If we don't have any gap anymore, but we do have events, then we're done.
+            if self.chunk.events().next().is_some() {
+                trace!("thread chunk is fully loaded and non-empty: reached_start=true");
+                return Ok(LoadMoreEventsBackwardsOutcome::StartOfTimeline);
+            }
+
+            // Otherwise, we don't have a gap nor events. We don't have anything. Poor us.
+            // Well, is ok: start a pagination from the end.
+            Ok(LoadMoreEventsBackwardsOutcome::Gap { prev_token: None })
+        }
+
+        /// Paginate backwards in this thread, and return the outcome of the
+        /// pagination.
+        pub async fn paginate_backwards(
+            &mut self,
+            num_events: u16,
+        ) -> Result<BackPaginationOutcome, EventCacheError> {
+            let room = self.room.get().ok_or(EventCacheError::ClientDropped)?;
+
+            loop {
+                match self.load_more_events_backwards()? {
+                    LoadMoreEventsBackwardsOutcome::Gap { prev_token } => {
+                        // Start a threaded pagination from this gap.
+                        let options = RelationsOptions {
+                            from: prev_token.clone(),
+                            dir: Direction::Backward,
+                            limit: Some(num_events.into()),
+                            include_relations: IncludeRelations::AllRelations,
+                            recurse: true,
+                        };
+
+                        // TODO: here, we'd release some lock, to not block everything while the
+                        // request is making progress.
+                        let result = room
+                            .relations(self.root_event_id.clone(), options)
+                            .await
+                            .map_err(|err| {
+                                EventCacheError::BackpaginationError(PaginatorError::SdkError(
+                                    Box::new(err),
+                                ))
+                            })?;
+
+                        let reached_start = result.next_batch_token.is_none();
+                        let new_gap =
+                            result.next_batch_token.map(|token| Gap { prev_token: token });
+
+                        // Because the state lock is taken again in `load_or_fetch_event`, we need
+                        // to do this *before* we take the state lock again.
+                        if reached_start {
+                            // Prepend the thread root event to the results.
+                            // XXX(bnjbvr): uhuh recursive lock taking, if the root is already
+                            // known?
+                            //let root_event = room
+                                //.load_or_fetch_event(&self.root_event_id, None)
+                                //.await
+                                //.map_err(|err| {
+                                    //EventCacheError::BackpaginationError(PaginatorError::SdkError(
+                                        //Box::new(err),
+                                    //))
+                                //})?;
+
+                            //// Note: the events are still in the reversed order at this point, so
+                            //// pushing will eventually make it so that the root event is the first.
+                            //result.chunk.push(root_event);
+                        }
+
+                        let prev_gap_chunk_id = if let Some(token) = prev_token {
+                            let gap_chunk_id = self.chunk.chunk_identifier(|chunk| {
+                                matches!(chunk.content(), ChunkContent::Gap(Gap { ref prev_token }) if *prev_token == token)
+                            });
+
+                            if gap_chunk_id.is_none() {
+                                // We got a previous-batch token from the linked chunk *before*
+                                // running the request, but it is
+                                // missing *after* completing the
+                                // request.
+                                //
+                                // Restart the pagination process, in this case.
+                                continue;
+                            };
+
+                            gap_chunk_id
+                        } else {
+                            None
+                        };
+
+                        // TODO(bnjbvr): deduplicate.
+                        let events = result.chunk.iter().cloned().rev().collect::<Vec<_>>();
+
+                        let insert_new_gap_pos = if let Some(gap_chunk_id) = prev_gap_chunk_id {
+                            // Replace the previous gap with the events, then insert the new gap at
+                            // the same position.
+                            self.chunk
+                                .replace_gap_at(events.clone(), gap_chunk_id)
+                                .expect("gap_chunk_id is not valid")
+                        } else {
+                            // There wasn't any previous gap; assume an empty chunk.
+                            self.chunk.push_events(events.clone());
+
+                            // A new gap may be inserted before the new events, if there are any.
+                            self.chunk.events().next().map(|(item_pos, _)| item_pos)
+                        };
+
+                        // And insert the new gap if needs be.
+                        if let Some(new_gap) = new_gap {
+                            if let Some(new_pos) = insert_new_gap_pos {
+                                self.chunk
+                                    .insert_gap_at(new_gap, new_pos)
+                                    .expect("events_chunk_pos represents a valid chunk position");
+                            } else {
+                                // No events have been inserted, so we may push the gap.
+                                self.chunk.push_gap(new_gap);
+                            }
+                        }
+
+                        // Notify observers about the updates.
+                        let updates = self.chunk.updates_as_vector_diffs();
+                        if !updates.is_empty() {
+                            // Send the updates to the listeners.
+                            let _ = self.sender.send(updates);
+                        }
+
+                        return Ok(BackPaginationOutcome { reached_start, events });
+                    }
+
+                    LoadMoreEventsBackwardsOutcome::StartOfTimeline => {
+                        // We're done!
+                        return Ok(BackPaginationOutcome {
+                            reached_start: true,
+                            events: Vec::new(),
+                        });
+                    }
+
+                    LoadMoreEventsBackwardsOutcome::Events { .. } => {
+                        // TODO(bnjbvr): We'll implement loading from disk later.
+                        todo!()
+                    }
+
+                    LoadMoreEventsBackwardsOutcome::WaitForInitialPrevToken => {
+                        unreachable!("unused for threads")
+                    }
+                }
+
+                // We'll restart the loop if the pagination token has been
+                // invalidated.
+            }
+        }
+    }
 
     /// State for a single room's event cache.
     ///
@@ -533,6 +783,8 @@ mod private {
         /// The room this state relates to.
         room: OwnedRoomId,
 
+        weak_room: WeakRoom,
+
         /// The room version for this room.
         room_version: RoomVersionId,
 
@@ -541,6 +793,11 @@ mod private {
 
         /// The events of the room.
         events: RoomEvents,
+
+        /// Threads present in this room.
+        ///
+        /// Keyed by the thread root event ID.
+        threads: HashMap<OwnedEventId, ThreadEventCache>,
 
         /// Have we ever waited for a previous-batch-token to come from sync, in
         /// the context of pagination? We do this at most once per room,
@@ -567,6 +824,7 @@ mod private {
         /// [`LinkedChunk`]: matrix_sdk_common::linked_chunk::LinkedChunk
         pub async fn new(
             room_id: OwnedRoomId,
+            weak_room: WeakRoom,
             room_version: RoomVersionId,
             store: EventCacheStoreLock,
             pagination_status: SharedObservable<RoomPaginationStatus>,
@@ -610,11 +868,19 @@ mod private {
             let events =
                 RoomEvents::with_initial_linked_chunk(linked_chunk, full_linked_chunk_metadata);
 
+            // The threads mapping is intentionally empty at start, since we're going to
+            // reload threads lazily, as soon as we need to (based on external
+            // subscribers) or when we get new information about those (from
+            // sync).
+            let threads = HashMap::new();
+
             Ok(Self {
                 room: room_id,
+                weak_room,
                 room_version,
                 store,
                 events,
+                threads,
                 waited_for_initial_prev_token: false,
                 subscriber_count: Default::default(),
                 pagination_status,
@@ -1301,10 +1567,14 @@ mod private {
             // Update the store before doing the post-processing.
             self.propagate_changes().await?;
 
+            let mut new_events_by_thread: HashMap<_, Vec<_>> = HashMap::new();
+
             for event in events {
                 self.maybe_apply_new_redaction(&event).await?;
 
-                self.analyze_thread_root(&event, is_live_sync).await?;
+                if let Some(thread_root) = extract_thread_root(event.raw()) {
+                    new_events_by_thread.entry(thread_root).or_default().push(event.clone());
+                };
 
                 // Save a bundled thread event, if there was one.
                 if let Some(bundled_thread) = event.bundled_latest_thread_event {
@@ -1312,76 +1582,90 @@ mod private {
                 }
             }
 
+            self.update_threads(is_live_sync, new_events_by_thread).await?;
+
             Ok(())
         }
 
-        /// If the event is a threaded reply, ensure the related thread's root
-        /// event (i.e. first thread event) has a thread summary.
+        fn get_or_reload_thread(&mut self, root_event_id: OwnedEventId) -> &mut ThreadEventCache {
+            // TODO(bnjbvr): try to lazily reload from disk, if missing from memory.
+            self.threads
+                .entry(root_event_id.clone())
+                .or_insert_with(|| ThreadEventCache::new(root_event_id, self.weak_room.clone()))
+        }
+
         #[instrument(skip_all)]
-        async fn analyze_thread_root(
+        async fn update_threads(
             &mut self,
-            event: &Event,
             is_live_sync: bool,
+            new_events_by_thread: HashMap<OwnedEventId, Vec<Event>>,
         ) -> Result<(), EventCacheError> {
-            let Some(thread_root) = extract_thread_root(event.raw()) else {
-                // No thread root, carry on.
-                return Ok(());
-            };
+            for (thread_root, new_events) in new_events_by_thread {
+                // Add a thread summary to the event which has the thread root, if we knew about
+                // it.
+                let Some((location, mut target_event)) = self.find_event(&thread_root).await?
+                else {
+                    trace!("thread root event is missing from the linked chunk");
+                    return Ok(());
+                };
 
-            // Add a thread summary to the event which has the thread root, if we knew about
-            // it.
-            let Some((location, mut target_event)) = self.find_event(&thread_root).await? else {
-                trace!("thread root event is missing from the linked chunk");
-                return Ok(());
-            };
+                // Read the latest number of thread replies from the store.
+                //
+                // Implementation note: since this is based on the `m.relates_to` field, and
+                // that field can only be present on room messages, we don't have to
+                // worry about filtering out aggregation events (like
+                // reactions/edits/etc.). Pretty neat, huh?
+                let num_replies = {
+                    let store_guard = &*self.store.lock().await?;
+                    let related_thread_events = store_guard
+                        .find_event_relations(
+                            &self.room,
+                            &thread_root,
+                            Some(&[RelationType::Thread]),
+                        )
+                        .await?;
+                    related_thread_events.len().try_into().unwrap_or(u32::MAX)
+                };
 
-            // Read the latest number of thread replies from the store.
-            //
-            // Implementation note: since this is based on the `m.relates_to` field, and
-            // that field can only be present on room messages, we don't have to
-            // worry about filtering out aggregation events (like
-            // reactions/edits/etc.). Pretty neat, huh?
-            let num_replies = {
-                let store_guard = &*self.store.lock().await?;
-                let related_thread_events = store_guard
-                    .find_event_relations(&self.room, &thread_root, Some(&[RelationType::Thread]))
-                    .await?;
-                related_thread_events.len().try_into().unwrap_or(u32::MAX)
-            };
+                let prev_summary = target_event.thread_summary.summary();
+                let mut latest_reply =
+                    prev_summary.as_ref().and_then(|summary| summary.latest_reply.clone());
 
-            let prev_summary = target_event.thread_summary.summary();
-            let mut latest_reply =
-                prev_summary.as_ref().and_then(|summary| summary.latest_reply.clone());
+                // If we're live-syncing, then the latest event is always the event we're
+                // currently processing. We're processing the sync events from oldest to newest,
+                // so a a single sync response containing multiple thread events
+                // will correctly override the latest event to the most recent one.
+                //
+                // If we're back-paginating, then we shouldn't update the latest event
+                // information if it's set. If it's not set, then we should update
+                // it to the last event in the batch. TODO(bnjbvr): the code is
+                // wrong here in this particular case, because a single pagination
+                // batch may include multiple events in the same thread, and they're
+                // processed from oldest to newest; so the first in-thread event seen in that
+                // batch will be marked as the latest reply, which is incorrect.
+                // This will be fixed Later™ by using a proper linked chunk per
+                // thread.
 
-            // If we're live-syncing, then the latest event is always the event we're
-            // currently processing. We're processing the sync events from oldest to newest,
-            // so a a single sync response containing multiple thread events
-            // will correctly override the latest event to the most recent one.
-            //
-            // If we're back-paginating, then we shouldn't update the latest event
-            // information if it's set. If it's not set, then we should update
-            // it to the last event in the batch. TODO(bnjbvr): the code is
-            // wrong here in this particular case, because a single pagination
-            // batch may include multiple events in the same thread, and they're
-            // processed from oldest to newest; so the first in-thread event seen in that
-            // batch will be marked as the latest reply, which is incorrect.
-            // This will be fixed Later™ by using a proper linked chunk per
-            // thread.
+                if let Some(last_event) = new_events.last() {
+                    // TODO(bnjbvr): use the chunk's latest event!
+                    if is_live_sync || latest_reply.is_none() {
+                        latest_reply = last_event.event_id();
+                    }
+                }
 
-            if is_live_sync || latest_reply.is_none() {
-                latest_reply = event.event_id();
+                let new_summary = ThreadSummary { num_replies, latest_reply };
+
+                if prev_summary == Some(&new_summary) {
+                    trace!("thread summary is already up-to-date");
+                    return Ok(());
+                }
+
+                self.get_or_reload_thread(thread_root).add_live_events(new_events);
+
+                // Cause an update to observers.
+                target_event.thread_summary = ThreadSummaryStatus::Some(new_summary);
+                self.replace_event_at(location, target_event).await?;
             }
-
-            let new_summary = ThreadSummary { num_replies, latest_reply };
-
-            if prev_summary == Some(&new_summary) {
-                trace!("thread summary is already up-to-date");
-                return Ok(());
-            }
-
-            // Cause an update to observers.
-            target_event.thread_summary = ThreadSummaryStatus::Some(new_summary);
-            self.replace_event_at(location, target_event).await?;
 
             Ok(())
         }
@@ -1550,6 +1834,17 @@ mod private {
             // network splits, but this has shown to be Good Enough™.
             if !timeline.limited && self.events.events().next().is_some() || all_duplicates {
                 prev_batch = None;
+            }
+
+            if prev_batch.is_some() {
+                // Sad time: there's a gap, somewhere, in the timeline, and there's at least one
+                // non-duplicated event. We don't know which threads might have gappy, so we
+                // must invalidate them all :(
+                // TODO(bnjbvr): absorb moar caffeine and create a good solution to this
+                // problem.
+                for (_, thread) in self.threads.iter_mut() {
+                    thread.clear();
+                }
             }
 
             if all_duplicates {
@@ -1742,6 +2037,25 @@ mod private {
             let backpagination_outcome = BackPaginationOutcome { events, reached_start };
 
             Ok((backpagination_outcome, event_diffs))
+        }
+
+        pub fn subscribe_to_thread(
+            &mut self,
+            root: OwnedEventId,
+        ) -> (Vec<Event>, Receiver<Vec<VectorDiff<Event>>>) {
+            self.get_or_reload_thread(root).subscribe()
+        }
+
+        pub fn thread_events(&mut self, root: OwnedEventId) -> Vec<Event> {
+            self.get_or_reload_thread(root).events()
+        }
+
+        pub async fn paginate_thread(
+            &mut self,
+            root: OwnedEventId,
+            num_events: u16,
+        ) -> Result<BackPaginationOutcome, EventCacheError> {
+            self.get_or_reload_thread(root).paginate_backwards(num_events).await
         }
     }
 }
