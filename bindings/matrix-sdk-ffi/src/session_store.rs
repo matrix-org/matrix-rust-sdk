@@ -241,10 +241,10 @@ impl SessionStoreBuilder {
     pub(crate) fn build(&self) -> Result<SessionStoreResult, ClientBuildError> {
         match self {
             #[cfg(feature = "sqlite")]
-            SessionStoreBuilder::Sqlite(config) => config.build(),
+            Self::Sqlite(config) => config.build(),
 
             #[cfg(feature = "indexeddb")]
-            SessionStoreBuilder::IndexedDb(config) => config.build(),
+            Self::IndexedDb(config) => config.build(),
         }
     }
 }
