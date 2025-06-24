@@ -37,8 +37,9 @@ impl RoomPreview {
             membership: info.state.map(|state| state.into()),
             join_rule: info
                 .join_rule
-                .clone()
-                .try_into()
+                .as_ref()
+                .map(TryInto::try_into)
+                .transpose()
                 .map_err(|_| anyhow::anyhow!("unhandled SpaceRoomJoinRule kind"))?,
             is_direct: info.is_direct,
             heroes: info
@@ -114,17 +115,17 @@ pub struct RoomPreviewInfo {
     /// The membership state for the current user, if known.
     pub membership: Option<Membership>,
     /// The join rule for this room (private, public, knock, etc.).
-    pub join_rule: JoinRule,
+    pub join_rule: Option<JoinRule>,
     /// Whether the room is direct or not, if known.
     pub is_direct: Option<bool>,
     /// Room heroes.
     pub heroes: Option<Vec<RoomHero>>,
 }
 
-impl TryFrom<SpaceRoomJoinRule> for JoinRule {
+impl TryFrom<&SpaceRoomJoinRule> for JoinRule {
     type Error = ();
 
-    fn try_from(join_rule: SpaceRoomJoinRule) -> Result<Self, ()> {
+    fn try_from(join_rule: &SpaceRoomJoinRule) -> Result<Self, ()> {
         Ok(match join_rule {
             SpaceRoomJoinRule::Invite => JoinRule::Invite,
             SpaceRoomJoinRule::Knock => JoinRule::Knock,

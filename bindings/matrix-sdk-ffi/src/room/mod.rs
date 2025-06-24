@@ -116,7 +116,10 @@ impl Room {
         self.inner.is_direct().await.unwrap_or(false)
     }
 
-    pub fn is_public(&self) -> bool {
+    /// Whether the room can be publicly joined or not, based on its join rule.
+    ///
+    /// Can return `None` if the join rule state event is missing.
+    pub fn is_public(&self) -> Option<bool> {
         self.inner.is_public()
     }
 

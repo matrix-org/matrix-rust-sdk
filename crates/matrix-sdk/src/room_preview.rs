@@ -64,7 +64,7 @@ pub struct RoomPreview {
     pub room_type: Option<RoomType>,
 
     /// What's the join rule for this room?
-    pub join_rule: SpaceRoomJoinRule,
+    pub join_rule: Option<SpaceRoomJoinRule>,
 
     /// Is the room world-readable (i.e. is its history_visibility set to
     /// world_readable)?
@@ -102,7 +102,7 @@ impl RoomPreview {
             topic: room_info.topic().map(ToOwned::to_owned),
             avatar_url: room_info.avatar_url().map(ToOwned::to_owned),
             room_type: room_info.room_type().cloned(),
-            join_rule: match room_info.join_rule() {
+            join_rule: room_info.join_rule().map(|rule| match rule {
                 JoinRule::Invite => SpaceRoomJoinRule::Invite,
                 JoinRule::Knock => SpaceRoomJoinRule::Knock,
                 JoinRule::Private => SpaceRoomJoinRule::Private,
@@ -114,7 +114,7 @@ impl RoomPreview {
                     // private (a cautious choice).
                     SpaceRoomJoinRule::Private
                 }
-            },
+            }),
             is_world_readable: room_info
                 .history_visibility()
                 .map(|vis| *vis == HistoryVisibility::WorldReadable),
@@ -287,7 +287,7 @@ impl RoomPreview {
             num_joined_members: response.num_joined_members.into(),
             num_active_members,
             room_type: response.room_type,
-            join_rule: response.join_rule,
+            join_rule: Some(response.join_rule),
             is_world_readable: Some(response.world_readable),
             state,
             is_direct,
@@ -375,14 +375,14 @@ async fn search_for_room_preview_in_room_directory(
             num_active_members: None,
             // Assume it's a room
             room_type: None,
-            join_rule: match room_description.join_rule {
+            join_rule: Some(match room_description.join_rule {
                 PublicRoomJoinRule::Public => SpaceRoomJoinRule::Public,
                 PublicRoomJoinRule::Knock => SpaceRoomJoinRule::Knock,
                 PublicRoomJoinRule::_Custom(rule) => SpaceRoomJoinRule::_Custom(rule),
                 _ => {
                     panic!("Unexpected PublicRoomJoinRule {:?}", room_description.join_rule)
                 }
-            },
+            }),
             is_world_readable: Some(room_description.is_world_readable),
             state: None,
             is_direct: None,

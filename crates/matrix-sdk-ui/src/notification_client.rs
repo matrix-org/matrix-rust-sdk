@@ -910,11 +910,11 @@ pub struct NotificationItem {
     /// Room canonical alias.
     pub room_canonical_alias: Option<String>,
     /// Room join rule.
-    pub room_join_rule: JoinRule,
+    ///
+    /// Set to `None` if the join rule for this room is not available.
+    pub room_join_rule: Option<JoinRule>,
     /// Is this room encrypted?
     pub is_room_encrypted: Option<bool>,
-    /// Is this a public room?
-    pub is_room_public: bool,
     /// Is this room considered a direct message?
     pub is_direct_message_room: bool,
     /// Numbers of members who joined the room.
@@ -1010,7 +1010,6 @@ impl NotificationItem {
             room_canonical_alias: room.canonical_alias().map(|c| c.to_string()),
             room_join_rule: room.join_rule(),
             is_direct_message_room: room.is_direct().await?,
-            is_room_public: room.is_public(),
             is_room_encrypted: room
                 .latest_encryption_state()
                 .await
@@ -1023,6 +1022,13 @@ impl NotificationItem {
         };
 
         Ok(item)
+    }
+
+    /// Returns whether this room is public or not, based on the join rule.
+    ///
+    /// Maybe return `None` if the join rule is not available.
+    pub fn is_public(&self) -> Option<bool> {
+        self.room_join_rule.as_ref().map(|rule| matches!(rule, JoinRule::Public))
     }
 }
 
