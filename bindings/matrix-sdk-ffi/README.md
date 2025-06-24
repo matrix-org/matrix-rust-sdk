@@ -12,6 +12,8 @@ Given the number of platforms targeted, we have broken out a number of features
 ### Functionality
 - `sentry`: Enable error monitoring using Sentry, not supports on Wasm platforms.
 - `bundled-sqlite`: Use an embedded version of sqlite instead of the system provided one.
+- `sqlite`: Use SQLite for session storage, not supported on Wasm targets.
+- `indexeddb`: Use IndexedDB for session storage, only supported on Wasm targets.
 
 ### Unstable specs
 - `unstable-msc4274`: Adds support for gallery message types, which contain multiple media elements.
@@ -22,7 +24,7 @@ Each supported target should use features to select the relevant TLS system.  He
 
 - Android: `"bundled-sqlite,unstable-msc4274,rustls-tls,sentry"`
 - iOS: `"bundled-sqlite,unstable-msc4274,native-tls,sentry"`
-- Javascript/Wasm: `"unstable-msc4274,native-tls"` 
+- Javascript/Wasm: `"indexeddb,unstable-msc4274,native-tls"` 
 
 ### Swift/iOS sync
 

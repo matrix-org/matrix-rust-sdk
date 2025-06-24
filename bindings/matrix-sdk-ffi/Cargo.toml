@@ -25,16 +25,21 @@ crate-type = [
 
 [features]
 default = ["bundled-sqlite", "unstable-msc4274"]
-bundled-sqlite = ["matrix-sdk/bundled-sqlite"]
+bundled-sqlite = ["sqlite", "matrix-sdk/bundled-sqlite"]
 unstable-msc4274 = ["matrix-sdk-ui/unstable-msc4274"]
+# Use IndexedDB for session storage, only supported on Wasm targets.
+indexeddb = ["matrix-sdk/indexeddb"]
+# Use SQLite for session storage, not supported on Wasm targets.
+sqlite = ["matrix-sdk/sqlite"]
 # Required when targeting a Javascript environment, like Wasm in a browser.
 js = ["matrix-sdk-ui/js"]
 # Use the TLS implementation provided by the host system, necessary on iOS and Wasm platforms.
 native-tls = ["matrix-sdk/native-tls", "sentry?/native-tls"]
 # Use Rustls as the TLS implementation, necessary on Android platforms.
 rustls-tls = ["matrix-sdk/rustls-tls", "sentry?/rustls"]
-# Enable sentry error monitoring, not compatible with Wasm platforms.
+# Enable sentry error monitoring, not compatible on Wasm platforms.
 sentry = ["dep:sentry", "dep:sentry-tracing"]
+
 
 [dependencies]
 anyhow.workspace = true
@@ -50,7 +55,6 @@ matrix-sdk = { workspace = true, features = [
     "experimental-widgets",
     "markdown",
     "socks",
-    "sqlite",
     "uniffi",
 ] }
 matrix-sdk-common.workspace = true
