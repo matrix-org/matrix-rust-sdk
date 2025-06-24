@@ -22,6 +22,9 @@ All notable changes to this project will be documented in this file.
 
 - `RoomEventCacheListener` is renamed `RoomEventCacheSubscriber`
   ([#5269](https://github.com/matrix-org/matrix-rust-sdk/pull/5269))
+- `RoomPreview::join_rule` is now optional, and will be set to `None` if the join rule state event
+  is missing for a given room.
+  ([#XXXX](https://github.com/matrix-org/matrix-rust-sdk/pull/XXXX))
 
 ## [0.12.0] - 2025-06-10
 

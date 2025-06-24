@@ -27,6 +27,12 @@ Breaking changes:
 
 - `Client::reset_server_capabilities` has been renamed to `Client::reset_server_info`.
   ([#5167](https://github.com/matrix-org/matrix-rust-sdk/pull/5167))
+- `RoomPreview::join_rule`, `NotificationItem::join_rule`, `RoomInfo::is_public`, and
+  `Room::is_public()` return values are now optional. They will be set to `None` if the join rule
+  state event is missing for a given room. `NotificationRoomInfo::is_public` has been removed;
+  callers can inspect the value of `NotificationItem::join_rule` to determine if the room is public
+  (i.e. if the join rule is `Public`).
+  ([#XXXX](https://github.com/matrix-org/matrix-rust-sdk/pull/XXXX))
 
 ## [0.12.0] - 2025-06-10
 
