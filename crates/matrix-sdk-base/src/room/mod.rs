@@ -340,13 +340,15 @@ impl Room {
     }
 
     /// Is the room considered to be public.
-    pub fn is_public(&self) -> bool {
-        matches!(self.join_rule(), JoinRule::Public)
+    ///
+    /// May return `None` if the join rule event is not available.
+    pub fn is_public(&self) -> Option<bool> {
+        self.inner.read().join_rule().map(|join_rule| matches!(join_rule, JoinRule::Public))
     }
 
-    /// Get the join rule policy of this room.
-    pub fn join_rule(&self) -> JoinRule {
-        self.inner.read().join_rule().clone()
+    /// Get the join rule policy of this room, if available.
+    pub fn join_rule(&self) -> Option<JoinRule> {
+        self.inner.read().join_rule().cloned()
     }
 
     /// Get the maximum power level that this room contains.

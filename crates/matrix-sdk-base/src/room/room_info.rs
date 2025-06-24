@@ -867,13 +867,12 @@ impl RoomInfo {
         }
     }
 
-    /// Returns the join rule for this room.
-    ///
-    /// Defaults to `Public`, if missing.
-    pub fn join_rule(&self) -> &JoinRule {
+    /// Return the join rule for this room, if the `m.room.join_rules` event is
+    /// available.
+    pub fn join_rule(&self) -> Option<&JoinRule> {
         match &self.base_info.join_rules {
-            Some(MinimalStateEvent::Original(ev)) => &ev.content.join_rule,
-            _ => &JoinRule::Public,
+            Some(MinimalStateEvent::Original(ev)) => Some(&ev.content.join_rule),
+            _ => None,
         }
     }
 
