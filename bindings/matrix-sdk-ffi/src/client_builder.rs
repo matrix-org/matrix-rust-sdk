@@ -1,13 +1,14 @@
 use std::{fs, num::NonZeroUsize, path::Path, sync::Arc, time::Duration};
 
 use futures_util::StreamExt;
+#[cfg(not(target_family = "wasm"))]
+use matrix_sdk::reqwest::Certificate;
 use matrix_sdk::{
     crypto::{
         types::qr_login::QrCodeModeData, CollectStrategy, DecryptionSettings, TrustRequirement,
     },
     encryption::{BackupDownloadStrategy, EncryptionSettings},
     event_cache::EventCacheError,
-    reqwest::Certificate,
     ruma::{ServerName, UserId},
     sliding_sync::{
         Error as MatrixSlidingSyncError, VersionBuilder as MatrixSlidingSyncVersionBuilder,
@@ -118,21 +119,27 @@ pub struct ClientBuilder {
     system_is_memory_constrained: bool,
     username: Option<String>,
     homeserver_cfg: Option<HomeserverConfig>,
-    user_agent: Option<String>,
     sliding_sync_version_builder: SlidingSyncVersionBuilder,
-    proxy: Option<String>,
-    disable_ssl_verification: bool,
     disable_automatic_token_refresh: bool,
     cross_process_store_locks_holder_name: Option<String>,
     enable_oidc_refresh_lock: bool,
     session_delegate: Option<Arc<dyn ClientSessionDelegate>>,
-    additional_root_certificates: Vec<Vec<u8>>,
-    disable_built_in_root_certificates: bool,
     encryption_settings: EncryptionSettings,
     room_key_recipient_strategy: CollectStrategy,
     decryption_settings: DecryptionSettings,
     enable_share_history_on_invite: bool,
     request_config: Option<RequestConfig>,
+
+    #[cfg(not(target_family = "wasm"))]
+    user_agent: Option<String>,
+    #[cfg(not(target_family = "wasm"))]
+    proxy: Option<String>,
+    #[cfg(not(target_family = "wasm"))]
+    disable_ssl_verification: bool,
+    #[cfg(not(target_family = "wasm"))]
+    disable_built_in_root_certificates: bool,
+    #[cfg(not(target_family = "wasm"))]
+    additional_root_certificates: Vec<Vec<u8>>,
 }
 
 #[matrix_sdk_ffi_macros::export]
@@ -301,12 +308,6 @@ impl ClientBuilder {
         Arc::new(builder)
     }
 
-    pub fn user_agent(self: Arc<Self>, user_agent: String) -> Arc<Self> {
-        let mut builder = unwrap_or_clone_arc(self);
-        builder.user_agent = Some(user_agent);
-        Arc::new(builder)
-    }
-
     pub fn sliding_sync_version_builder(
         self: Arc<Self>,
         version_builder: SlidingSyncVersionBuilder,
@@ -316,40 +317,9 @@ impl ClientBuilder {
         Arc::new(builder)
     }
 
-    pub fn proxy(self: Arc<Self>, url: String) -> Arc<Self> {
-        let mut builder = unwrap_or_clone_arc(self);
-        builder.proxy = Some(url);
-        Arc::new(builder)
-    }
-
-    pub fn disable_ssl_verification(self: Arc<Self>) -> Arc<Self> {
-        let mut builder = unwrap_or_clone_arc(self);
-        builder.disable_ssl_verification = true;
-        Arc::new(builder)
-    }
-
     pub fn disable_automatic_token_refresh(self: Arc<Self>) -> Arc<Self> {
         let mut builder = unwrap_or_clone_arc(self);
         builder.disable_automatic_token_refresh = true;
-        Arc::new(builder)
-    }
-
-    pub fn add_root_certificates(
-        self: Arc<Self>,
-        certificates: Vec<CertificateBytes>,
-    ) -> Arc<Self> {
-        let mut builder = unwrap_or_clone_arc(self);
-        builder.additional_root_certificates = certificates;
-
-        Arc::new(builder)
-    }
-
-    /// Don't trust any system root certificates, only trust the certificates
-    /// provided through
-    /// [`add_root_certificates`][ClientBuilder::add_root_certificates].
-    pub fn disable_built_in_root_certificates(self: Arc<Self>) -> Arc<Self> {
-        let mut builder = unwrap_or_clone_arc(self);
-        builder.disable_built_in_root_certificates = true;
         Arc::new(builder)
     }
 
@@ -496,46 +466,49 @@ impl ClientBuilder {
             }
         };
 
-        let mut certificates = Vec::new();
+        #[cfg(not(target_family = "wasm"))]
+        {
+            let mut certificates = Vec::new();
 
-        for certificate in builder.additional_root_certificates {
-            // We don't really know what type of certificate we may get here, so let's try
-            // first one type, then the other.
-            match Certificate::from_der(&certificate) {
-                Ok(cert) => {
-                    certificates.push(cert);
-                }
-                Err(der_error) => {
-                    let cert = Certificate::from_pem(&certificate).map_err(|pem_error| {
-                        ClientBuildError::Generic {
-                            message: format!("Failed to add a root certificate as DER ({der_error:?}) or PEM ({pem_error:?})"),
-                        }
-                    })?;
-                    certificates.push(cert);
+            for certificate in builder.additional_root_certificates {
+                // We don't really know what type of certificate we may get here, so let's try
+                // first one type, then the other.
+                match Certificate::from_der(&certificate) {
+                    Ok(cert) => {
+                        certificates.push(cert);
+                    }
+                    Err(der_error) => {
+                        let cert = Certificate::from_pem(&certificate).map_err(|pem_error| {
+                            ClientBuildError::Generic {
+                                message: format!("Failed to add a root certificate as DER ({der_error:?}) or PEM ({pem_error:?})"),
+                            }
+                        })?;
+                        certificates.push(cert);
+                    }
                 }
             }
-        }
 
-        inner_builder = inner_builder.add_root_certificates(certificates);
+            inner_builder = inner_builder.add_root_certificates(certificates);
 
-        if builder.disable_built_in_root_certificates {
-            inner_builder = inner_builder.disable_built_in_root_certificates();
-        }
+            if builder.disable_built_in_root_certificates {
+                inner_builder = inner_builder.disable_built_in_root_certificates();
+            }
 
-        if let Some(proxy) = builder.proxy {
-            inner_builder = inner_builder.proxy(proxy);
-        }
+            if let Some(proxy) = builder.proxy {
+                inner_builder = inner_builder.proxy(proxy);
+            }
 
-        if builder.disable_ssl_verification {
-            inner_builder = inner_builder.disable_ssl_verification();
+            if builder.disable_ssl_verification {
+                inner_builder = inner_builder.disable_ssl_verification();
+            }
+
+            if let Some(user_agent) = builder.user_agent {
+                inner_builder = inner_builder.user_agent(user_agent);
+            }
         }
 
         if !builder.disable_automatic_token_refresh {
             inner_builder = inner_builder.handle_refresh_tokens();
-        }
-
-        if let Some(user_agent) = builder.user_agent {
-            inner_builder = inner_builder.user_agent(user_agent);
         }
 
         inner_builder = inner_builder
@@ -647,6 +620,47 @@ impl ClientBuilder {
         login.await?;
 
         Ok(client)
+    }
+}
+
+#[cfg(not(target_family = "wasm"))]
+#[matrix_sdk_ffi_macros::export]
+impl ClientBuilder {
+    pub fn proxy(self: Arc<Self>, url: String) -> Arc<Self> {
+        let mut builder = unwrap_or_clone_arc(self);
+        builder.proxy = Some(url);
+        Arc::new(builder)
+    }
+
+    pub fn disable_ssl_verification(self: Arc<Self>) -> Arc<Self> {
+        let mut builder = unwrap_or_clone_arc(self);
+        builder.disable_ssl_verification = true;
+        Arc::new(builder)
+    }
+
+    pub fn add_root_certificates(
+        self: Arc<Self>,
+        certificates: Vec<CertificateBytes>,
+    ) -> Arc<Self> {
+        let mut builder = unwrap_or_clone_arc(self);
+        builder.additional_root_certificates = certificates;
+
+        Arc::new(builder)
+    }
+
+    /// Don't trust any system root certificates, only trust the certificates
+    /// provided through
+    /// [`add_root_certificates`][ClientBuilder::add_root_certificates].
+    pub fn disable_built_in_root_certificates(self: Arc<Self>) -> Arc<Self> {
+        let mut builder = unwrap_or_clone_arc(self);
+        builder.disable_built_in_root_certificates = true;
+        Arc::new(builder)
+    }
+
+    pub fn user_agent(self: Arc<Self>, user_agent: String) -> Arc<Self> {
+        let mut builder = unwrap_or_clone_arc(self);
+        builder.user_agent = Some(user_agent);
+        Arc::new(builder)
     }
 }
 
