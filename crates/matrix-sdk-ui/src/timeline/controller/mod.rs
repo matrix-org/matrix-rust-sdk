@@ -1553,7 +1553,7 @@ impl TimelineController {
     /// case: if the timeline has a skip count greater than 0, it will
     /// ensure that the pagination status says that we haven't reached the
     /// timeline start yet.
-    pub(super) async fn combine_pagination_status(
+    pub(super) async fn map_pagination_status(
         &self,
         status: RoomPaginationStatus,
     ) -> RoomPaginationStatus {

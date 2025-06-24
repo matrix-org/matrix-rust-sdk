@@ -112,7 +112,7 @@ impl super::Timeline {
 
         let mut status = pagination.status();
 
-        let current_value = self.controller.combine_pagination_status(status.next_now()).await;
+        let current_value = self.controller.map_pagination_status(status.next_now()).await;
 
         let controller = self.controller.clone();
         let stream = Box::pin(stream! {
@@ -121,7 +121,7 @@ impl super::Timeline {
             pin_mut!(status_stream);
 
             while let Some(state) = status_stream.next().await {
-                let state = controller.combine_pagination_status(state).await;
+                let state = controller.map_pagination_status(state).await;
 
                 match state {
                     RoomPaginationStatus::Idle { hit_timeline_start } => {
