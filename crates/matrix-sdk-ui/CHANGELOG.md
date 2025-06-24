@@ -13,6 +13,10 @@ All notable changes to this project will be documented in this file.
 - [**breaking**] [`TimelineItemContent::reactions()`] returns an `Option<&ReactionsByKeyBySender>`
   instead of `ReactionsByKeyBySender`. This reflects the fact that some timeline items cannot hold
   reactions at all.
+- `NotificationItem::room_join_rule` is now optional to reflect that the join rule
+  state event might be missing, in which case it will be set to `None`. The
+  `NotificationItem::is_public` field has been replaced with a method that returns an `Option<bool>`, based on the same logic.
+  ([#XXXX](https://github.com/matrix-org/matrix-rust-sdk/pull/XXXX))
 
 ### Bug Fixes
 
