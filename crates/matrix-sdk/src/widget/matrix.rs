@@ -286,6 +286,7 @@ impl MatrixDriver {
                         .and_then(|clean_event_helper| {
                             serde_json::value::to_raw_value(&clean_event_helper)
                         })
+                        .map_err(|err| warn!(?room_id, "Unable to process to-device message for widget: {err}"))
                         .map(|box_value | {
                             tx.send(Raw::from_json(box_value))
                         });
