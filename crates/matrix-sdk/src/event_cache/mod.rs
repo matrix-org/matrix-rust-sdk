@@ -59,7 +59,7 @@ mod pagination;
 mod room;
 
 pub use pagination::{RoomPagination, RoomPaginationStatus};
-pub use room::{RoomEventCache, RoomEventCacheSubscriber};
+pub use room::{RoomEventCache, RoomEventCacheSubscriber, ThreadEventCacheUpdate};
 
 /// An error observed in the [`EventCache`].
 #[derive(thiserror::Error, Debug)]
