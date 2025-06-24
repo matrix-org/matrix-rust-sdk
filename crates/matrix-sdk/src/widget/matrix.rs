@@ -35,6 +35,7 @@ use ruma::{
     to_device::DeviceIdOrAllDevices,
     EventId, OwnedUserId, RoomId, TransactionId,
 };
+use serde::{Deserialize, Serialize};
 use serde_json::{value::RawValue as RawJsonValue, Value};
 use tokio::sync::{
     broadcast::{error::RecvError, Receiver},
@@ -267,9 +268,29 @@ impl MatrixDriver {
                         return;
                     };
 
-                    // There are no per-room specific decryption settings, so we can just send to the
-                    // widget
-                    let _ = tx.send(raw);
+                    // There are no per-room specific decryption settings (trust requirements), so we can just send it to the
+                    // widget.
+
+                    // The raw to-device event contains more fields than the widget needs, so we need to clean it up
+                    // to only type/content/sender.
+                    #[derive(Deserialize, Serialize)]
+                    struct CleanEventHelper<'a> {
+                        #[serde(rename = "type")]
+                        event_type: String,
+                        #[serde(borrow)]
+                        content: &'a RawJsonValue,
+                        sender: String,
+                    }
+
+                    let _ = serde_json::from_str::<CleanEventHelper<'_>>(raw.json().get())
+                        .and_then(|clean_event_helper| {
+                            serde_json::value::to_raw_value(&clean_event_helper)
+                        })
+                        .map_err(|err| warn!(?room_id, "Unable to process to-device message for widget: {err}"))
+                        .map(|box_value | {
+                            tx.send(Raw::from_json(box_value))
+                        });
+
                 } else {
                     // forward to the widget
                     // It is ok to send an encrypted to-device message even if the room is clear.
