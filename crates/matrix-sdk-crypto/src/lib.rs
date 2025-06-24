@@ -590,7 +590,9 @@ pub enum RoomEventDecryptionResult {
 ///
 /// ```no_run
 /// # use anyhow::Result;
-/// # use matrix_sdk_crypto::{EncryptionSyncChanges, OlmMachine};
+/// # use matrix_sdk_crypto::{
+///     DecryptionSettings, EncryptionSyncChanges, OlmMachine, TrustRequirement
+/// };
 /// # use ruma::api::client::sync::sync_events::v3::Response;
 /// # #[tokio::main]
 /// # async fn main() -> Result<()> {
@@ -617,11 +619,15 @@ pub enum RoomEventDecryptionResult {
 ///         next_batch_token: Some(response.next_batch),
 ///     };
 ///
+///     let decryption_settings = DecryptionSettings {
+///         sender_device_trust_requirement: TrustRequirement::Untrusted
+///     };
+///
 ///     // Push the sync changes into the OlmMachine, make sure that this is
 ///     // happening before the `next_batch` token of the sync is persisted.
 ///     let to_device_events = client
 ///         .olm_machine
-///         .receive_sync_changes(sync_changes)
+///         .receive_sync_changes(sync_changes, &decryption_settings)
 ///         .await?;
 ///
 ///     // Send the outgoing requests out that the sync changes produced.
@@ -768,7 +774,9 @@ pub enum RoomEventDecryptionResult {
 /// ```no_run
 /// # use anyhow::Result;
 /// # use std::ops::Deref;
-/// # use matrix_sdk_crypto::{EncryptionSyncChanges, OlmMachine};
+/// # use matrix_sdk_crypto::{
+/// #     DecryptionSettings, EncryptionSyncChanges, OlmMachine, TrustRequirement
+/// # };
 /// # use ruma::api::client::sync::sync_events::v3::{Response, JoinedRoom};
 /// # use ruma::{OwnedUserId, serde::Raw, events::AnySyncStateEvent};
 /// # #[tokio::main]
@@ -805,11 +813,15 @@ pub enum RoomEventDecryptionResult {
 ///         next_batch_token: Some(response.next_batch),
 ///     };
 ///
+///     let decryption_settings = DecryptionSettings {
+///         sender_device_trust_requirement: TrustRequirement::Untrusted
+///     };
+///
 ///     // Push the sync changes into the OlmMachine, make sure that this is
 ///     // happening before the `next_batch` token of the sync is persisted.
 ///     let to_device_events = client
 ///         .olm_machine
-///         .receive_sync_changes(sync_changes)
+///         .receive_sync_changes(sync_changes, &decryption_settings)
 ///         .await?;
 ///
 ///     // Send the outgoing requests out that the sync changes produced.

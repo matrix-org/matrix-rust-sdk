@@ -47,8 +47,8 @@ use crate::{
     },
     utilities::json_convert,
     verification::VerificationMachine,
-    Account, CrossSigningBootstrapRequests, Device, DeviceData, EncryptionSyncChanges, OlmMachine,
-    OtherUserIdentityData,
+    Account, CrossSigningBootstrapRequests, DecryptionSettings, Device, DeviceData,
+    EncryptionSyncChanges, OlmMachine, OtherUserIdentityData, TrustRequirement,
 };
 
 /// These keys need to be periodically uploaded to the server.
@@ -218,7 +218,11 @@ pub async fn send_and_receive_encrypted_to_device_test_helper(
         next_batch_token: None,
     };
 
-    let (decrypted, _) = recipient.receive_sync_changes(sync_changes).await.unwrap();
+    let decryption_settings =
+        DecryptionSettings { sender_device_trust_requirement: TrustRequirement::Untrusted };
+
+    let (decrypted, _) =
+        recipient.receive_sync_changes(sync_changes, &decryption_settings).await.unwrap();
     assert_eq!(1, decrypted.len());
     decrypted[0].clone()
 }
@@ -266,10 +270,20 @@ pub async fn get_machine_pair_with_setup_sessions_test_helper(
     let event =
         ToDeviceEvent::new(alice.user_id().to_owned(), content.deserialize_as_unchecked().unwrap());
 
+    let decryption_settings =
+        DecryptionSettings { sender_device_trust_requirement: TrustRequirement::Untrusted };
+
     let decrypted = bob
         .store()
         .with_transaction(|mut tr| async {
-            let res = bob.decrypt_to_device_event(&mut tr, &event, &mut Changes::default()).await?;
+            let res = bob
+                .decrypt_to_device_event(
+                    &mut tr,
+                    &event,
+                    &mut Changes::default(),
+                    &decryption_settings,
+                )
+                .await?;
             Ok((tr, res))
         })
         .await

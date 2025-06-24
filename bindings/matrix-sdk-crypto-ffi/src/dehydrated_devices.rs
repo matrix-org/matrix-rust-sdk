@@ -7,6 +7,7 @@ use matrix_sdk_crypto::{
         RehydratedDevice as InnerRehydratedDevice,
     },
     store::types::DehydratedDeviceKey as InnerDehydratedDeviceKey,
+    DecryptionSettings,
 };
 use ruma::{api::client::dehydrated_device, events::AnyToDeviceEvent, serde::Raw, OwnedDeviceId};
 use serde_json::json;
@@ -154,9 +155,13 @@ impl Drop for RehydratedDevice {
 
 #[matrix_sdk_ffi_macros::export]
 impl RehydratedDevice {
-    pub fn receive_events(&self, events: String) -> Result<(), crate::CryptoStoreError> {
+    pub fn receive_events(
+        &self,
+        events: String,
+        decryption_settings: &DecryptionSettings,
+    ) -> Result<(), crate::CryptoStoreError> {
         let events: Vec<Raw<AnyToDeviceEvent>> = serde_json::from_str(&events)?;
-        self.runtime.block_on(self.inner.receive_events(events))?;
+        self.runtime.block_on(self.inner.receive_events(events, decryption_settings))?;
 
         Ok(())
     }
