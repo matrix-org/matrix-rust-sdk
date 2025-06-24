@@ -294,8 +294,8 @@ async fn test_skip_count_is_taken_into_account_in_pagination_status() {
 
     assert_let_timeout!(Some(timeline_updates) = timeline_stream2.next());
     assert_eq!(timeline_updates.len(), 6);
-    for i in 0..4 {
-        assert_let!(VectorDiff::PushFront { value } = &timeline_updates[i]);
+    for item in timeline_updates.iter().take(4) {
+        assert_let!(VectorDiff::PushFront { value } = item);
         value.as_event().unwrap();
     }
 
