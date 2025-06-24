@@ -419,7 +419,7 @@ impl RoomEventCacheInner {
             self.pagination_batch_token_notifier.notify_one();
         }
 
-        let mut events_update_the_timeline = false;
+        let mut update_has_been_sent = false;
 
         // The order matters here: first send the timeline event diffs, then only the
         // related events (read receipts, etc.).
@@ -428,22 +428,22 @@ impl RoomEventCacheInner {
                 diffs: timeline_event_diffs,
                 origin: EventsOrigin::Sync,
             });
-            events_update_the_timeline = true;
+            update_has_been_sent = true;
         }
 
         if !ephemeral_events.is_empty() {
             let _ = self
                 .sender
                 .send(RoomEventCacheUpdate::AddEphemeralEvents { events: ephemeral_events });
-            events_update_the_timeline = true;
+            update_has_been_sent = true;
         }
 
         if !ambiguity_changes.is_empty() {
             let _ = self.sender.send(RoomEventCacheUpdate::UpdateMembers { ambiguity_changes });
-            events_update_the_timeline = true;
+            update_has_been_sent = true;
         }
 
-        if events_update_the_timeline {
+        if update_has_been_sent {
             let _ = self.generic_update_sender.send(RoomEventCacheGenericUpdate::TimelineUpdated {
                 room_id: self.room_id.clone(),
             });

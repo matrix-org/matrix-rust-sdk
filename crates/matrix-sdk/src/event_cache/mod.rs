@@ -366,7 +366,7 @@ impl EventCache {
     /// If one wants to get a high-overview, generic, updates for rooms, and
     /// without side-effects, this method is recommended. For example, it
     /// doesn't provide a list of new events, but rather a
-    /// [`RoomEventCacheGenericUpdate::TimelineUpdated`] message. Also, dropping
+    /// [`RoomEventCacheGenericUpdate::TimelineUpdated`] update. Also, dropping
     /// the receiver of this channel will not trigger any side-effect.
     pub fn subscribe_to_room_generic_updates(&self) -> Receiver<RoomEventCacheGenericUpdate> {
         self.inner.room_event_cache_generic_update_sender.subscribe()
@@ -564,9 +564,9 @@ impl EventCacheInner {
                 )
                 .await?;
 
-                let has_at_least_one_event = room_state.events().revents().next().is_some();
+                let timeline_is_not_empty = room_state.events().revents().next().is_some();
 
-                // SAFETY: we must have subscribed before reaching this coed, otherwise
+                // SAFETY: we must have subscribed before reaching this code, otherwise
                 // something is very wrong.
                 let auto_shrink_sender =
                     self.auto_shrink_sender.get().cloned().expect(
@@ -586,7 +586,7 @@ impl EventCacheInner {
 
                 // If at least one event has been loaded, it means there is a timeline. Let's
                 // emit a generic update.
-                if has_at_least_one_event {
+                if timeline_is_not_empty {
                     let _ = self.room_event_cache_generic_update_sender.send(
                         RoomEventCacheGenericUpdate::TimelineUpdated {
                             room_id: room_id.to_owned(),
@@ -622,8 +622,8 @@ pub struct BackPaginationOutcome {
 /// read it to learn more about the motivation behind this type.
 #[derive(Clone, Debug)]
 pub enum RoomEventCacheGenericUpdate {
-    /// The timeline has been updated, i.e. an event has been added, redacted or
-    /// removed.
+    /// The timeline has been updated, i.e. an event has been added, redacted,
+    /// removed, or reloaded.
     TimelineUpdated {
         /// The room ID owning the timeline.
         room_id: OwnedRoomId,
