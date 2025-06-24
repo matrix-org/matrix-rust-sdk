@@ -862,6 +862,7 @@ impl OlmMachine {
         transaction: &mut StoreTransaction,
         event: &EncryptedToDeviceEvent,
         changes: &mut Changes,
+        _decryption_settings: &DecryptionSettings,
     ) -> Result<OlmDecryptionInfo, DecryptToDeviceError> {
         // Decrypt the event
         let mut decrypted =
@@ -1401,6 +1402,7 @@ impl OlmMachine {
         transaction: &mut StoreTransaction,
         changes: &mut Changes,
         raw_event: Raw<AnyToDeviceEvent>,
+        decryption_settings: &DecryptionSettings,
     ) -> Option<ProcessedToDeviceEvent> {
         Self::record_message_id(&raw_event);
 
@@ -1417,7 +1419,14 @@ impl OlmMachine {
 
         match event {
             ToDeviceEvents::RoomEncrypted(e) => {
-                self.receive_encrypted_to_device_event(transaction, changes, raw_event, e).await
+                self.receive_encrypted_to_device_event(
+                    transaction,
+                    changes,
+                    raw_event,
+                    e,
+                    decryption_settings,
+                )
+                .await
             }
             e => {
                 self.handle_to_device_event(changes, &e).await;
@@ -1439,8 +1448,12 @@ impl OlmMachine {
         changes: &mut Changes,
         mut raw_event: Raw<AnyToDeviceEvent>,
         e: ToDeviceEvent<ToDeviceEncryptedEventContent>,
+        decryption_settings: &DecryptionSettings,
     ) -> Option<ProcessedToDeviceEvent> {
-        let decrypted = match self.decrypt_to_device_event(transaction, &e, changes).await {
+        let decrypted = match self
+            .decrypt_to_device_event(transaction, &e, changes, decryption_settings)
+            .await
+        {
             Ok(decrypted) => decrypted,
             Err(DecryptToDeviceError::OlmError(err)) => {
                 if let OlmError::SessionWedged(sender, curve_key) = err {
@@ -1549,11 +1562,13 @@ impl OlmMachine {
     pub async fn receive_sync_changes(
         &self,
         sync_changes: EncryptionSyncChanges<'_>,
+        decryption_settings: &DecryptionSettings,
     ) -> OlmResult<(Vec<ProcessedToDeviceEvent>, Vec<RoomKeyInfo>)> {
         let mut store_transaction = self.inner.store.transaction().await;
 
-        let (events, changes) =
-            self.preprocess_sync_changes(&mut store_transaction, sync_changes).await?;
+        let (events, changes) = self
+            .preprocess_sync_changes(&mut store_transaction, sync_changes, decryption_settings)
+            .await?;
 
         // Technically save_changes also does the same work, so if it's slow we could
         // refactor this to do it only once.
@@ -1578,6 +1593,7 @@ impl OlmMachine {
         &self,
         transaction: &mut StoreTransaction,
         sync_changes: EncryptionSyncChanges<'_>,
+        decryption_settings: &DecryptionSettings,
     ) -> OlmResult<(Vec<ProcessedToDeviceEvent>, Changes)> {
         // Remove verification objects that have expired or are done.
         let mut events: Vec<ProcessedToDeviceEvent> = self
@@ -1615,8 +1631,13 @@ impl OlmMachine {
         }
 
         for raw_event in sync_changes.to_device_events {
-            let processed_event =
-                Box::pin(self.receive_to_device_event(transaction, &mut changes, raw_event)).await;
+            let processed_event = Box::pin(self.receive_to_device_event(
+                transaction,
+                &mut changes,
+                raw_event,
+                decryption_settings,
+            ))
+            .await;
 
             if let Some(processed_event) = processed_event {
                 events.push(processed_event);

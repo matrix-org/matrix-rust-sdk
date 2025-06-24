@@ -27,8 +27,7 @@ use crate::{
             build_session_for_pair, get_machine_pair, get_machine_pair_with_session,
             get_prepared_machine_test_helper, send_and_receive_encrypted_to_device_test_helper,
         },
-        tests,
-        tests::decryption_verification_state::mark_alice_identity_as_verified_test_helper,
+        tests::{self, decryption_verification_state::mark_alice_identity_as_verified_test_helper},
     },
     types::{
         events::{ToDeviceCustomEvent, ToDeviceEvent},
@@ -36,7 +35,8 @@ use crate::{
     },
     utilities::json_convert,
     verification::tests::bob_id,
-    DeviceData, EncryptionSyncChanges, LocalTrust, OlmError, OlmMachine,
+    DecryptionSettings, DeviceData, EncryptionSyncChanges, LocalTrust, OlmError, OlmMachine,
+    TrustRequirement,
 };
 
 #[async_test]
@@ -90,7 +90,11 @@ async fn test_send_encrypted_to_device() {
         next_batch_token: None,
     };
 
-    let (decrypted, _) = bob.receive_sync_changes(sync_changes).await.unwrap();
+    let decryption_settings =
+        DecryptionSettings { sender_device_trust_requirement: TrustRequirement::Untrusted };
+
+    let (decrypted, _) =
+        bob.receive_sync_changes(sync_changes, &decryption_settings).await.unwrap();
 
     assert_eq!(1, decrypted.len());
     let processed_event = &decrypted[0];
@@ -188,7 +192,11 @@ async fn test_receive_custom_encrypted_to_device_fails_if_device_unknown() {
         next_batch_token: None,
     };
 
-    let (decrypted, _) = bob.receive_sync_changes(sync_changes).await.unwrap();
+    let decryption_settings =
+        DecryptionSettings { sender_device_trust_requirement: TrustRequirement::Untrusted };
+
+    let (decrypted, _) =
+        bob.receive_sync_changes(sync_changes, &decryption_settings).await.unwrap();
 
     assert_eq!(1, decrypted.len());
     let processed_event = &decrypted[0];
@@ -453,7 +461,11 @@ async fn test_processed_to_device_variants() {
         next_batch_token: None,
     };
 
-    let (processed, _) = bob.receive_sync_changes(sync_changes).await.unwrap();
+    let decryption_settings =
+        DecryptionSettings { sender_device_trust_requirement: TrustRequirement::Untrusted };
+
+    let (processed, _) =
+        bob.receive_sync_changes(sync_changes, &decryption_settings).await.unwrap();
 
     assert_eq!(4, processed.len());
 
