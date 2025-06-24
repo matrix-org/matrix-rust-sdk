@@ -55,7 +55,7 @@ use tokio::sync::{
 use tracing::{debug, error, info, info_span, instrument, trace, warn, Instrument as _, Span};
 
 use self::paginator::PaginatorError;
-use crate::{client::WeakClient, Client};
+use crate::{client::WeakClient, room::WeakRoom, Client};
 
 mod deduplicator;
 mod pagination;
@@ -566,6 +566,7 @@ impl EventCacheInner {
 
                 let room_state = RoomEventCacheState::new(
                     room_id.to_owned(),
+                    WeakRoom::new(self.client.clone(), room_id.to_owned()),
                     room_version,
                     self.store.clone(),
                     pagination_status.clone(),
