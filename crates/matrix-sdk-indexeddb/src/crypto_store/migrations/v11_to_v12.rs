@@ -12,9 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Migration code that moves from inbound_group_sessions2 to
-//! inbound_group_sessions3, shrinking the values stored in each record.
-
 use indexed_db_futures::IdbKeyPath;
 use web_sys::DomException;
 
