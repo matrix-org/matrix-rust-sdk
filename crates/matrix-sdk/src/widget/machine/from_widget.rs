@@ -254,11 +254,13 @@ impl From<update_delayed_event::unstable::Response> for UpdateDelayedEventRespon
     }
 }
 
-/// Send to device request response.
+/// Response for a send-to-device request.
+/// The failure map contains recipients that didn't receive the content due to:
+/// - Recipient devices not being found
+/// - Encryption failures (e.g., missing one-time keys)
+/// - Network/Server errors during sending
 #[derive(Serialize, Debug, Default)]
 pub(crate) struct SendToDeviceEventResponse {
-    /// It is possible that sending to some device failed (failed to encrypt or
-    /// failed to send)
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
     pub failures: BTreeMap<String, Vec<String>>,
 }
