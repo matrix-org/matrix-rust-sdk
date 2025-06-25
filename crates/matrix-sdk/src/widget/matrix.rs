@@ -15,8 +15,9 @@
 //! Matrix driver implementation that exposes Matrix functionality
 //! that is relevant for the widget API.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 
+use as_variant::as_variant;
 use matrix_sdk_base::deserialized_responses::{EncryptionInfo, RawAnySyncOrStrippedState};
 use ruma::{
     api::client::{
@@ -396,54 +397,52 @@ impl MatrixDriver {
 
             // Encrypt and send
             for (content, user_map) in content_grouped {
-                // let's get all the devices for this content
-                let mut device_set: BTreeSet<(OwnedUserId, OwnedDeviceId)> = BTreeSet::new();
+                let mut recipient_devices = Vec::<Device>::new();
+
                 for (user_id, device_id_or_alias) in user_map {
-                    for id_or_alias in device_id_or_alias {
-                        match id_or_alias {
-                            DeviceIdOrAllDevices::DeviceId(device_id) => {
-                                device_set.insert((user_id.clone(), device_id.clone()));
-                            }
-                            DeviceIdOrAllDevices::AllDevices => {
-                                // get all the devices and add them
-                                let user_devices =
-                                    client.encryption().get_user_devices(&user_id).await?;
-                                let devices = user_devices.devices();
-                                devices.for_each(|device| {
-                                    device_set.insert((
-                                        device.user_id().to_owned(),
-                                        device.device_id().to_owned(),
-                                    ));
-                                })
-                            }
+                    let user_devices = client.encryption().get_user_devices(&user_id).await?;
+
+                    if device_id_or_alias.contains(&DeviceIdOrAllDevices::AllDevices) {
+                        recipient_devices.extend(user_devices.devices());
+                    } else {
+                        recipient_devices.extend(user_devices.devices().filter(|d| {
+                            device_id_or_alias
+                                .contains(&DeviceIdOrAllDevices::DeviceId(d.device_id().to_owned()))
+                        }));
+
+                        let missing_devices = device_id_or_alias
+                            .iter()
+                            .filter_map(|d| {
+                                as_variant!(d, DeviceIdOrAllDevices::DeviceId)
+                                    .map(|device_id| device_id.to_owned())
+                            })
+                            .filter(|device_id| user_devices.get(device_id).is_none())
+                            .collect::<Vec<_>>();
+
+                        if !missing_devices.is_empty() {
+                            failures.entry(user_id).or_default().extend(missing_devices);
                         }
                     }
                 }
 
-                let mut recipients = Vec::<Device>::new();
-                for (u, d) in device_set {
-                    let found_device = client.encryption().get_device(&u, &d).await?;
-                    let Some(device) = found_device else {
-                        warn!("Device {} not found for user {}", d, u);
-                        // device not found, skip it and log
-                        failures.entry(u).or_default().push(d);
-                        continue;
-                    };
-                    recipients.push(device);
-                }
+                // The user-provided list of devices may contain duplicates, ensure no
+                // duplicates are sent.
+                recipient_devices.dedup_by(|da, db| {
+                    da.user_id().eq(db.user_id()) && da.device_id().eq(db.device_id())
+                });
 
-                if !recipients.is_empty() {
+                if !recipient_devices.is_empty() {
                     // need to group by content
-                    let send_response = client
+                    let encrypt_and_send_failures = client
                         .encryption()
                         .encrypt_and_send_raw_to_device(
-                            recipients.iter().collect(),
+                            recipient_devices.iter().collect(),
                             &event_type.to_string(),
                             Raw::from_json_string(content.to_owned())?,
                         )
                         .await?;
 
-                    for (user_id, device_id) in send_response {
+                    for (user_id, device_id) in encrypt_and_send_failures {
                         failures.entry(user_id).or_default().push(device_id)
                     }
                 }
