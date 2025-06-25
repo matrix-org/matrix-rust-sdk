@@ -82,10 +82,7 @@ async fn test_decryption_verification_state() {
     let group_session = bob
         .store()
         .with_transaction(|mut tr| async {
-            let res = bob
-                .decrypt_to_device_event(&mut tr, &event, &mut Changes::default())
-                .await?
-                .expect("event unexpectedly from dehydrated device");
+            let res = bob.decrypt_to_device_event(&mut tr, &event, &mut Changes::default()).await?;
             Ok((tr, res))
         })
         .await
@@ -639,10 +636,8 @@ async fn encrypt_message(
     let group_session = recipient
         .store()
         .with_transaction(|mut tr| async {
-            let res = recipient
-                .decrypt_to_device_event(&mut tr, &event, &mut Changes::default())
-                .await?
-                .expect("event unexpectedly from dehydrated device");
+            let res =
+                recipient.decrypt_to_device_event(&mut tr, &event, &mut Changes::default()).await?;
             Ok((tr, res))
         })
         .await
