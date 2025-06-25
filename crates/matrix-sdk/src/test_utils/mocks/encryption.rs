@@ -127,12 +127,12 @@ impl MatrixMockServer {
             self.client_builder_for_crypto_end_to_end(&bob_user_id, &bob_device_id).build().await;
 
         // Have Alice track Bob, so she queries his keys later.
-        MatrixMockServer::update_tracked_users(&alice, [bob_user_id.as_ref()]).await;
+        alice.update_tracked_users_for_testing([bob_user_id.as_ref()]).await;
 
         // let bob be aware of Alice keys in order to be able to decrypt custom
         // to-device (the device keys check are deferred for `m.room.key` so this is not
         // needed for sending room messages for example).
-        MatrixMockServer::update_tracked_users(&bob, [alice_user_id.as_ref()]).await;
+        bob.update_tracked_users_for_testing([alice_user_id.as_ref()]).await;
 
         // Have Alice and Bob upload their signed device keys.
         self.mock_sync().ok_and_run(&alice, |_x| {}).await;
@@ -157,10 +157,10 @@ impl MatrixMockServer {
         self.mock_sync().ok_and_run(&carl, |_| {}).await;
 
         // Have Alice track Carl, so she queries his keys later.
-        MatrixMockServer::update_tracked_users(alice, [carl.user_id().unwrap()]).await;
+        alice.update_tracked_users_for_testing([carl.user_id().unwrap()]).await;
 
         // Have Bob track Carl, so she queries his keys later.
-        MatrixMockServer::update_tracked_users(bob, [carl.user_id().unwrap()]).await;
+        bob.update_tracked_users_for_testing([carl.user_id().unwrap()]).await;
 
         // Have Alice and Bob upload their signed device keys, and download Carl's keys.
         {
@@ -169,11 +169,8 @@ impl MatrixMockServer {
         }
 
         // Let carl be aware of Alice and Bob keys.
-        MatrixMockServer::update_tracked_users(
-            &carl,
-            [alice.user_id().unwrap(), bob.user_id().unwrap()],
-        )
-        .await;
+        carl.update_tracked_users_for_testing([alice.user_id().unwrap(), bob.user_id().unwrap()])
+            .await;
 
         // A last sync for carl to get the keys.
         self.mock_sync().ok_and_run(alice, |_| {}).await;
@@ -242,12 +239,6 @@ impl MatrixMockServer {
         }
 
         new_client
-    }
-
-    async fn update_tracked_users(client: &Client, user_ids: impl IntoIterator<Item = &UserId>) {
-        let olm = client.olm_machine_for_testing().await;
-        let olm = olm.as_ref().unwrap();
-        olm.update_tracked_users(user_ids).await.unwrap();
     }
 
     /// Mock up the various crypto API so that it can serve back keys when
