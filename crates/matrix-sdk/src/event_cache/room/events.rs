@@ -19,7 +19,7 @@ use matrix_sdk_base::{
     event_cache::store::DEFAULT_CHUNK_CAPACITY,
     linked_chunk::{
         lazy_loader::{self, LazyLoaderError},
-        ChunkContent, ChunkIdentifierGenerator, OrderTracker, RawChunk,
+        ChunkContent, ChunkIdentifierGenerator, ChunkMetadata, OrderTracker, RawChunk,
     },
 };
 use matrix_sdk_common::linked_chunk::{
@@ -59,7 +59,7 @@ impl RoomEvents {
     /// The provided [`LinkedChunk`] must have been built with update history.
     pub fn with_initial_linked_chunk(
         linked_chunk: Option<LinkedChunk<DEFAULT_CHUNK_CAPACITY, Event, Gap>>,
-        fully_loaded_linked_chunk: Option<LinkedChunk<DEFAULT_CHUNK_CAPACITY, Event, Gap>>,
+        full_linked_chunk_metadata: Option<Vec<ChunkMetadata>>,
     ) -> Self {
         let mut linked_chunk = linked_chunk.unwrap_or_else(LinkedChunk::new_with_update_history);
 
@@ -68,7 +68,7 @@ impl RoomEvents {
             .expect("`LinkedChunk` must have been built with `new_with_update_history`");
 
         let order_tracker = linked_chunk
-            .order_tracker(fully_loaded_linked_chunk.as_ref().map(|lc| lc.chunks()))
+            .order_tracker(full_linked_chunk_metadata)
             .expect("`LinkedChunk` must have been built with `new_with_update_history`");
 
         Self { chunks: linked_chunk, chunks_updates_as_vectordiffs, order_tracker }

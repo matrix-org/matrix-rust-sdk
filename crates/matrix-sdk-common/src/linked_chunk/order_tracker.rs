@@ -16,9 +16,9 @@ use std::sync::{Arc, RwLock};
 
 use super::{
     updates::{ReaderToken, Update, UpdatesInner},
-    Iter, Position,
+    Position,
 };
-use crate::linked_chunk::UpdateToVectorDiff;
+use crate::linked_chunk::{ChunkMetadata, UpdateToVectorDiff};
 
 #[derive(Debug)]
 pub struct OrderTracker<Item, Gap> {
@@ -63,10 +63,10 @@ where
     /// used to set up its internal state. Note this must include *all* the
     /// chunks that have ever been known, even in the presence of
     /// lazy-loading.
-    pub(super) fn new<const CAP: usize>(
+    pub(super) fn new(
         updates: Arc<RwLock<UpdatesInner<Item, Gap>>>,
         token: ReaderToken,
-        all_chunks_iterator: Iter<'_, CAP, Item, Gap>,
+        all_chunks_metadata: Vec<ChunkMetadata>,
     ) -> Self {
         // Drain previous updates so that this type is synced with `Updates`.
         {
@@ -74,7 +74,7 @@ where
             let _ = updates.take_with_token(token);
         }
 
-        Self { updates, token, mapper: UpdateToVectorDiff::new(all_chunks_iterator) }
+        Self { updates, token, mapper: UpdateToVectorDiff::from_metadata(all_chunks_metadata) }
     }
 
     /// Force flushing of the updates manually.
@@ -145,7 +145,7 @@ mod tests {
 
     use crate::linked_chunk::{
         lazy_loader::from_last_chunk, ChunkContent, ChunkIdentifier, ChunkIdentifierGenerator,
-        LinkedChunk, OrderTracker, Position, RawChunk, Update,
+        ChunkMetadata, LinkedChunk, OrderTracker, Position, RawChunk, Update,
     };
 
     #[async_test]
@@ -255,16 +255,39 @@ mod tests {
         // Assume that all the chunks haven't been loaded yet, so we have a few of them
         // in some memory, and some of them are still in an hypothetical
         // database.
-        let db_chunks = {
-            let mut lc = LinkedChunk::<3, _, _>::new();
-            lc.push_items_back(['a', 'b', 'c']);
-            lc.push_gap_back(());
-            lc.push_items_back(['d', 'e', 'f', 'g']);
-            lc
-        };
+        let db_metadata = vec![
+            // Hypothetical non-empty items chunk with items 'a', 'b', 'c'.
+            ChunkMetadata {
+                previous: None,
+                identifier: ChunkIdentifier(0),
+                next: Some(ChunkIdentifier(1)),
+                num_items: 3,
+            },
+            // Hypothetical gap chunk.
+            ChunkMetadata {
+                previous: Some(ChunkIdentifier(0)),
+                identifier: ChunkIdentifier(1),
+                next: Some(ChunkIdentifier(2)),
+                num_items: 0,
+            },
+            // Hypothetical non-empty items chunk with items 'd', 'e', 'f'.
+            ChunkMetadata {
+                previous: Some(ChunkIdentifier(1)),
+                identifier: ChunkIdentifier(2),
+                next: Some(ChunkIdentifier(3)),
+                num_items: 3,
+            },
+            // Hypothetical non-empty items chunk with items 'g'.
+            ChunkMetadata {
+                previous: Some(ChunkIdentifier(2)),
+                identifier: ChunkIdentifier(3),
+                next: None,
+                num_items: 1,
+            },
+        ];
 
         // The in-memory linked chunk contains the latest chunk only.
-        let mut linked_chunk = from_last_chunk(
+        let mut linked_chunk = from_last_chunk::<3, _, ()>(
             Some(RawChunk {
                 content: ChunkContent::Items(vec!['g']),
                 previous: Some(ChunkIdentifier(2)),
@@ -276,7 +299,7 @@ mod tests {
         .expect("could recreate the linked chunk")
         .expect("the linked chunk isn't empty");
 
-        let tracker = linked_chunk.order_tracker(Some(db_chunks.chunks())).unwrap();
+        let tracker = linked_chunk.order_tracker(Some(db_metadata)).unwrap();
 
         // At first, even if the main linked chunk is empty, the order tracker can
         // compute the position for unloaded items.
@@ -314,13 +337,36 @@ mod tests {
         // Assume that all the chunks haven't been loaded yet, so we have a few of them
         // in some memory, and some of them are still in an hypothetical
         // database.
-        let db_chunks = {
-            let mut lc = LinkedChunk::<3, _, _>::new();
-            lc.push_items_back(['a', 'b']);
-            lc.push_gap_back(());
-            lc.push_items_back(['d', 'e', 'f', 'g']);
-            lc
-        };
+        let db_metadata = vec![
+            // Hypothetical non-empty items chunk with items 'a', 'b'.
+            ChunkMetadata {
+                previous: None,
+                identifier: ChunkIdentifier(0),
+                next: Some(ChunkIdentifier(1)),
+                num_items: 2,
+            },
+            // Hypothetical gap chunk.
+            ChunkMetadata {
+                previous: Some(ChunkIdentifier(0)),
+                identifier: ChunkIdentifier(1),
+                next: Some(ChunkIdentifier(2)),
+                num_items: 0,
+            },
+            // Hypothetical non-empty items chunk with items 'd', 'e', 'f'.
+            ChunkMetadata {
+                previous: Some(ChunkIdentifier(1)),
+                identifier: ChunkIdentifier(2),
+                next: Some(ChunkIdentifier(3)),
+                num_items: 3,
+            },
+            // Hypothetical non-empty items chunk with items 'g'.
+            ChunkMetadata {
+                previous: Some(ChunkIdentifier(2)),
+                identifier: ChunkIdentifier(3),
+                next: None,
+                num_items: 1,
+            },
+        ];
 
         // The in-memory linked chunk contains the latest chunk only.
         let mut linked_chunk = from_last_chunk(
@@ -335,7 +381,7 @@ mod tests {
         .expect("could recreate the linked chunk")
         .expect("the linked chunk isn't empty");
 
-        let mut tracker = linked_chunk.order_tracker(Some(db_chunks.chunks())).unwrap();
+        let mut tracker = linked_chunk.order_tracker(Some(db_metadata)).unwrap();
 
         // Sanity checks on the initial state.
         {
@@ -444,17 +490,40 @@ mod tests {
         // Assume that all the chunks haven't been loaded yet, so we have a few of them
         // in some memory, and some of them are still in an hypothetical
         // database.
-        let db_chunks = {
-            let mut lc = LinkedChunk::new();
-            lc.push_items_back(['a', 'b']);
-            lc.push_gap_back(());
-            lc.push_items_back(['d', 'e', 'f', 'g']);
-            lc
-        };
+        let db_metadata = vec![
+            // Hypothetical non-empty items chunk with items 'a', 'b'.
+            ChunkMetadata {
+                previous: None,
+                identifier: ChunkIdentifier(0),
+                next: Some(ChunkIdentifier(1)),
+                num_items: 2,
+            },
+            // Hypothetical gap chunk.
+            ChunkMetadata {
+                previous: Some(ChunkIdentifier(0)),
+                identifier: ChunkIdentifier(1),
+                next: Some(ChunkIdentifier(2)),
+                num_items: 0,
+            },
+            // Hypothetical non-empty items chunk with items 'd', 'e', 'f'.
+            ChunkMetadata {
+                previous: Some(ChunkIdentifier(1)),
+                identifier: ChunkIdentifier(2),
+                next: Some(ChunkIdentifier(3)),
+                num_items: 3,
+            },
+            // Hypothetical non-empty items chunk with items 'g'.
+            ChunkMetadata {
+                previous: Some(ChunkIdentifier(2)),
+                identifier: ChunkIdentifier(3),
+                next: None,
+                num_items: 1,
+            },
+        ];
 
         let mut linked_chunk = LinkedChunk::<3, char, ()>::new_with_update_history();
 
-        let mut tracker = linked_chunk.order_tracker(Some(db_chunks.chunks())).unwrap();
+        let mut tracker = linked_chunk.order_tracker(Some(db_metadata)).unwrap();
 
         // Sanity checks.
         // Order of 'b':

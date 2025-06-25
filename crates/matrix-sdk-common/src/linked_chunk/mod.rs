@@ -1096,7 +1096,7 @@ impl<const CAP: usize, Item, Gap> LinkedChunk<CAP, Item, Gap> {
     /// passed at construction time here.
     pub fn order_tracker(
         &mut self,
-        all_chunks_iterator: Option<Iter<'_, CAP, Item, Gap>>,
+        all_chunks: Option<Vec<ChunkMetadata>>,
     ) -> Option<OrderTracker<Item, Gap>>
     where
         Item: Clone,
@@ -1109,9 +1109,16 @@ impl<const CAP: usize, Item, Gap> LinkedChunk<CAP, Item, Gap> {
         Some(OrderTracker::new(
             updates,
             token,
-            all_chunks_iterator.unwrap_or_else(|| {
+            all_chunks.unwrap_or_else(|| {
                 // Consider the linked chunk as fully loaded.
                 self.chunks()
+                    .map(|chunk| ChunkMetadata {
+                        identifier: chunk.identifier(),
+                        num_items: chunk.num_items(),
+                        previous: chunk.previous().map(|prev| prev.identifier()),
+                        next: chunk.next().map(|next| next.identifier()),
+                    })
+                    .collect()
             }),
         ))
     }

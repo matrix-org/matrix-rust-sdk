@@ -25,6 +25,7 @@ use super::{
     updates::{ReaderToken, Update, UpdatesInner},
     ChunkContent, ChunkIdentifier, Iter, Position,
 };
+use crate::linked_chunk::ChunkMetadata;
 
 /// A type alias to represent a chunk's length. This is purely for commodity.
 type ChunkLength = usize;
@@ -133,6 +134,21 @@ impl<Item, Acc: UpdatesAccumulator<Item>> UpdateToVectorDiff<Item, Acc> {
                 },
             ))
         }
+
+        Self { chunks: initial_chunk_lengths, _phantom: std::marker::PhantomData }
+    }
+
+    /// Construct [`UpdateToVectorDiff`], based on a linked chunk's full
+    /// metadata, used to set up its own internal state.
+    ///
+    /// The vector of [`ChunkMetadata`] must be ordered by their links in the
+    /// linked chunk. If that precondition doesn't hold, then the mapping will
+    /// be incorrect over time, and may cause assertions/panics.
+    ///
+    /// See [`Self::map`] to learn more about the algorithm.
+    pub fn from_metadata(metas: Vec<ChunkMetadata>) -> Self {
+        let initial_chunk_lengths =
+            metas.into_iter().map(|meta| (meta.identifier, meta.num_items)).collect();
 
         Self { chunks: initial_chunk_lengths, _phantom: std::marker::PhantomData }
     }
