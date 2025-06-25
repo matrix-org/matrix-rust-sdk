@@ -71,7 +71,9 @@ pub struct RoomInfo {
     /// The history visibility for this room, if known.
     history_visibility: RoomHistoryVisibility,
     /// This room's current power levels.
-    power_levels: Arc<RoomPowerLevels>,
+    ///
+    /// Can be missing if the room power levels event is missing from the store.
+    power_levels: Option<Arc<RoomPowerLevels>>,
 }
 
 impl RoomInfo {
@@ -91,10 +93,11 @@ impl RoomInfo {
             .ok()
             .flatten();
 
-        let power_levels = RoomPowerLevels::new(
-            room.power_levels().await.map_err(matrix_sdk::Error::from)?,
-            room.own_user_id().to_owned(),
-        );
+        let power_levels = room
+            .power_levels()
+            .await
+            .ok()
+            .map(|p| RoomPowerLevels::new(p, room.own_user_id().to_owned()));
 
         Ok(Self {
             id: room.room_id().to_string(),
@@ -146,7 +149,7 @@ impl RoomInfo {
             pinned_event_ids,
             join_rule,
             history_visibility: room.history_visibility_or_default().try_into()?,
-            power_levels: Arc::new(power_levels),
+            power_levels: power_levels.map(Arc::new),
         })
     }
 }
