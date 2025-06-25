@@ -1755,6 +1755,25 @@ pub struct RawChunk<Item, Gap> {
     pub next: Option<ChunkIdentifier>,
 }
 
+/// A simplified [`RawChunk`] that only contains the number of items in a chunk,
+/// instead of its type.
+#[derive(Clone, Debug)]
+pub struct ChunkMetadata {
+    /// The number of items in this chunk.
+    ///
+    /// By convention, a gap chunk contains 0 items.
+    pub num_items: usize,
+
+    /// Link to the previous chunk, via its identifier.
+    pub previous: Option<ChunkIdentifier>,
+
+    /// Current chunk's identifier.
+    pub identifier: ChunkIdentifier,
+
+    /// Link to the next chunk, via its identifier.
+    pub next: Option<ChunkIdentifier>,
+}
+
 #[cfg(test)]
 mod tests {
     use std::{

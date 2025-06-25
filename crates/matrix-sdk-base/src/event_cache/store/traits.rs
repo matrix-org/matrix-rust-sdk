@@ -17,7 +17,8 @@ use std::{fmt, sync::Arc};
 use async_trait::async_trait;
 use matrix_sdk_common::{
     linked_chunk::{
-        ChunkIdentifier, ChunkIdentifierGenerator, LinkedChunkId, Position, RawChunk, Update,
+        ChunkIdentifier, ChunkIdentifierGenerator, ChunkMetadata, LinkedChunkId, Position,
+        RawChunk, Update,
     },
     AsyncTraitDeps,
 };
@@ -76,6 +77,15 @@ pub trait EventCacheStore: AsyncTraitDeps {
         &self,
         linked_chunk_id: LinkedChunkId<'_>,
     ) -> Result<Vec<RawChunk<Event, Gap>>, Self::Error>;
+
+    /// Load all of the chunks' metadata for the given [`LinkedChunkId`].
+    ///
+    /// Chunks are unordered, and there's no guarantee that the chunks would
+    /// form a valid linked chunk after reconstruction.
+    async fn load_all_chunks_metadata(
+        &self,
+        linked_chunk_id: LinkedChunkId<'_>,
+    ) -> Result<Vec<ChunkMetadata>, Self::Error>;
 
     /// Load the last chunk of the `LinkedChunk` holding all events of the room
     /// identified by `room_id`.
@@ -311,6 +321,13 @@ impl<T: EventCacheStore> EventCacheStore for EraseEventCacheStoreError<T> {
         linked_chunk_id: LinkedChunkId<'_>,
     ) -> Result<Vec<RawChunk<Event, Gap>>, Self::Error> {
         self.0.load_all_chunks(linked_chunk_id).await.map_err(Into::into)
+    }
+
+    async fn load_all_chunks_metadata(
+        &self,
+        linked_chunk_id: LinkedChunkId<'_>,
+    ) -> Result<Vec<ChunkMetadata>, Self::Error> {
+        self.0.load_all_chunks_metadata(linked_chunk_id).await.map_err(Into::into)
     }
 
     async fn load_last_chunk(

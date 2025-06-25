@@ -22,7 +22,7 @@ use async_trait::async_trait;
 use matrix_sdk_common::{
     linked_chunk::{
         relational::RelationalLinkedChunk, ChunkIdentifier, ChunkIdentifierGenerator,
-        LinkedChunkId, Position, RawChunk, Update,
+        ChunkMetadata, LinkedChunkId, Position, RawChunk, Update,
     },
     ring_buffer::RingBuffer,
     store_locks::memory_store_helper::try_take_leased_lock,
@@ -145,6 +145,17 @@ impl EventCacheStore for MemoryStore {
         inner
             .events
             .load_all_chunks(linked_chunk_id)
+            .map_err(|err| EventCacheStoreError::InvalidData { details: err })
+    }
+
+    async fn load_all_chunks_metadata(
+        &self,
+        linked_chunk_id: LinkedChunkId<'_>,
+    ) -> Result<Vec<ChunkMetadata>, Self::Error> {
+        let inner = self.inner.read().unwrap();
+        inner
+            .events
+            .load_all_chunks_metadata(linked_chunk_id)
             .map_err(|err| EventCacheStoreError::InvalidData { details: err })
     }
 
