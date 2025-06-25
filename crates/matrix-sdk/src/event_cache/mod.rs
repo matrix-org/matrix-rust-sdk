@@ -103,6 +103,14 @@ pub enum EventCacheError {
     /// [`LinkedChunk`]: matrix_sdk_common::linked_chunk::LinkedChunk
     #[error(transparent)]
     LinkedChunkLoader(#[from] LazyLoaderError),
+
+    /// An error happened when reading the metadata of a linked chunk, upon
+    /// reload.
+    #[error("the linked chunk metadata is invalid: {details}")]
+    InvalidLinkedChunkMetadata {
+        /// A string containing details about the error.
+        details: String,
+    },
 }
 
 /// A result using the [`EventCacheError`].

@@ -480,7 +480,7 @@ pub(super) enum LoadMoreEventsBackwardsOutcome {
 // Use a private module to hide `events` to this parent module.
 mod private {
     use std::{
-        collections::HashSet,
+        collections::{HashMap, HashSet},
         sync::{atomic::AtomicUsize, Arc},
     };
 
@@ -490,12 +490,13 @@ mod private {
         apply_redaction,
         deserialized_responses::{ThreadSummary, ThreadSummaryStatus, TimelineEventKind},
         event_cache::{
-            store::{DynEventCacheStore, EventCacheStoreLock, DEFAULT_CHUNK_CAPACITY},
+            store::{DynEventCacheStore, EventCacheStoreLock},
             Event, Gap,
         },
         linked_chunk::{
-            lazy_loader, ChunkContent, ChunkIdentifier, ChunkIdentifierGenerator, LinkedChunk,
-            LinkedChunkId, Position, Update,
+            lazy_loader::{self},
+            ChunkContent, ChunkIdentifier, ChunkIdentifierGenerator, ChunkMetadata, LinkedChunkId,
+            Position, Update,
         },
         serde_helpers::extract_thread_root,
         sync::Timeline,
@@ -570,15 +571,17 @@ mod private {
 
             let linked_chunk_id = LinkedChunkId::Room(&room_id);
 
-            // Load the full linked chunk, so as to feed the order tracker.
+            // Load the full linked chunk's metadata, so as to feed the order tracker.
             //
             // If loading the full linked chunk failed, we'll clear the event cache, as it
             // indicates that at some point, there's some malformed data.
-            let fully_loaded_linked_chunk =
-                match Self::load_full_linked_chunk(&*store_lock, linked_chunk_id).await {
-                    Ok(linked_chunk) => linked_chunk,
+            let full_linked_chunk_metadata =
+                match Self::load_linked_chunk_metadata(&*store_lock, linked_chunk_id).await {
+                    Ok(metas) => Some(metas),
                     Err(err) => {
-                        error!("error when fully reloading a linked chunk from memory: {err}");
+                        error!(
+                            "error when loading a linked chunk's metadata from the store: {err}"
+                        );
 
                         // Clear storage for this room.
                         store_lock
@@ -601,7 +604,7 @@ mod private {
                 .expect("fully loading the linked chunk just worked, so loading it partially should also work");
 
             let events =
-                RoomEvents::with_initial_linked_chunk(linked_chunk, fully_loaded_linked_chunk);
+                RoomEvents::with_initial_linked_chunk(linked_chunk, full_linked_chunk_metadata);
 
             Ok(Self {
                 room: room_id,
@@ -614,42 +617,124 @@ mod private {
             })
         }
 
-        /// Loads a full linked chunk from the store, from the last chunk to the
-        /// first chunk.
+        /// Load a linked chunk's full metadata, making sure the chunks are
+        /// according to their their links.
         ///
         /// Returns `None` if there's no such linked chunk in the store, or an
         /// error if the linked chunk is malformed.
-        async fn load_full_linked_chunk(
+        async fn load_linked_chunk_metadata(
             store: &DynEventCacheStore,
             linked_chunk_id: LinkedChunkId<'_>,
-        ) -> Result<Option<LinkedChunk<DEFAULT_CHUNK_CAPACITY, Event, Gap>>, EventCacheError>
-        {
-            let (last_chunk, chunk_identifier_generator) =
-                store.load_last_chunk(linked_chunk_id).await.map_err(EventCacheError::from)?;
+        ) -> Result<Vec<ChunkMetadata>, EventCacheError> {
+            let mut all_chunks = store
+                .load_all_chunks_metadata(linked_chunk_id)
+                .await
+                .map_err(EventCacheError::from)?;
 
-            if last_chunk.is_none() {
-                return Ok(None);
+            // Transform the vector into a hashmap, for quick lookup of the predecessors.
+            let chunk_map: HashMap<_, _> =
+                all_chunks.iter().map(|meta| (meta.identifier, meta)).collect();
+
+            // Find a last chunk.
+            let mut iter = all_chunks.iter().filter(|meta| meta.next.is_none());
+            let Some(last) = iter.next() else {
+                return Err(EventCacheError::InvalidLinkedChunkMetadata {
+                    details: "no last chunk found".to_owned(),
+                });
+            };
+
+            // There must at most one last chunk.
+            if let Some(other_last) = iter.next() {
+                return Err(EventCacheError::InvalidLinkedChunkMetadata {
+                    details: format!(
+                        "chunks {} and {} both claim to be last chunks",
+                        last.identifier.index(),
+                        other_last.identifier.index()
+                    ),
+                });
             }
 
-            let lc = lazy_loader::from_last_chunk::<DEFAULT_CHUNK_CAPACITY, _, _>(
-                last_chunk,
-                chunk_identifier_generator,
-            )
-            .map_err(EventCacheError::from)?;
-
-            let Some(mut lc) = lc else { return Ok(None) };
-
+            // Rewind the chain back to the first chunk, and do some checks at the same
+            // time.
+            let mut seen = HashSet::new();
+            let mut current = last;
             loop {
-                // SAFETY: a linked chunk always has at least one chunk.
-                let first_chunk_id = lc.chunks().next().unwrap().identifier();
-                if let Some(prev) =
-                    store.load_previous_chunk(linked_chunk_id, first_chunk_id).await?
-                {
-                    lazy_loader::insert_new_first_chunk(&mut lc, prev)?;
-                } else {
-                    return Ok(Some(lc));
+                // If we've already seen this chunk, there's a cycle somewhere.
+                if !seen.insert(current.identifier) {
+                    return Err(EventCacheError::InvalidLinkedChunkMetadata {
+                        details: format!(
+                            "cycle detected in linked chunk at {}",
+                            current.identifier.index()
+                        ),
+                    });
+                }
+
+                let Some(prev_id) = current.previous else {
+                    // If there's no previous chunk, we're done.
+                    if seen.len() != all_chunks.len() {
+                        return Err(EventCacheError::InvalidLinkedChunkMetadata {
+                            details: format!(
+                                "linked chunk likely has multiple components: {} chunks seen through the chain of predecessors, but {} expected",
+                                seen.len(),
+                                all_chunks.len()
+                            ),
+                        });
+                    }
+                    break;
+                };
+
+                // If the previous chunk is not in the map, then it's unknown
+                // and missing.
+                let Some(pred_meta) = chunk_map.get(&prev_id) else {
+                    return Err(EventCacheError::InvalidLinkedChunkMetadata {
+                        details: format!(
+                            "missing predecessor {} chunk for {}",
+                            prev_id.index(),
+                            current.identifier.index()
+                        ),
+                    });
+                };
+
+                // If the previous chunk isn't connected to the next, then the link is invalid.
+                if pred_meta.next != Some(current.identifier) {
+                    return Err(EventCacheError::InvalidLinkedChunkMetadata {
+                        details: format!(
+                            "chunk {}'s next ({:?}) doesn't match the current chunk ({})",
+                            pred_meta.identifier.index(),
+                            pred_meta.next.map(|chunk_id| chunk_id.index()),
+                            current.identifier.index()
+                        ),
+                    });
+                }
+
+                current = *pred_meta;
+            }
+
+            // At this point, `current` is the identifier of the first chunk.
+            //
+            // Reorder the resulting vector, by going through the chain of `next` links, and
+            // swapping items into their final position.
+            //
+            // Invariant in this loop: all items in [0..i[ are in their final, correct
+            // position.
+            let mut current = current.identifier;
+            for i in 0..all_chunks.len() {
+                // Find the target metadata.
+                let j = all_chunks
+                    .iter()
+                    .rev()
+                    .position(|meta| meta.identifier == current)
+                    .map(|j| all_chunks.len() - 1 - j)
+                    .expect("the target chunk must be present in the metadata");
+                if i != j {
+                    all_chunks.swap(i, j);
+                }
+                if let Some(next) = all_chunks[i].next {
+                    current = next;
                 }
             }
+
+            Ok(all_chunks)
         }
 
         /// Given a fully-loaded linked chunk with no gaps, return the
