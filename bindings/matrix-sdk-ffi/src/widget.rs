@@ -181,6 +181,8 @@ pub fn get_element_call_required_permissions(
         read: vec![
             // To compute the current state of the matrixRTC session.
             WidgetEventFilter::StateWithType { event_type: StateEventType::CallMember.to_string() },
+            // To display the name of the room.
+            WidgetEventFilter::StateWithType { event_type: StateEventType::RoomName.to_string() },
             // To detect leaving/kicked room members during a call.
             WidgetEventFilter::StateWithType { event_type: StateEventType::RoomMember.to_string() },
             // To decide whether to encrypt the call streams based on the room encryption setting.
@@ -483,6 +485,7 @@ mod tests {
         cap_assert("org.matrix.msc4157.update_delayed_event");
         cap_assert("org.matrix.msc4157.send.delayed_event");
         cap_assert("org.matrix.msc2762.receive.state_event:org.matrix.msc3401.call.member");
+        cap_assert("org.matrix.msc2762.receive.state_event:m.room.name");
         cap_assert("org.matrix.msc2762.receive.state_event:m.room.member");
         cap_assert("org.matrix.msc2762.receive.state_event:m.room.encryption");
         cap_assert("org.matrix.msc2762.receive.event:org.matrix.rageshake_request");
