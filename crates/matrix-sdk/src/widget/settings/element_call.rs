@@ -106,6 +106,19 @@ pub enum Intent {
     JoinExisting,
 }
 
+/// Defines how (if) element-call renders a header.
+#[derive(Debug, PartialEq, Serialize, Default, uniffi::Enum, Clone)]
+#[serde(rename_all = "snake_case")]
+pub enum HeaderStyle {
+    /// The normal header with branding.
+    #[default]
+    Standard,
+    /// Render a header with a back button (useful on mobile platforms).
+    AppBar,
+    /// No Header (useful for webapps).
+    None,
+}
+
 /// Properties to create a new virtual Element Call widget.
 #[derive(Debug, Default, uniffi::Record, Clone)]
 pub struct VirtualElementCallWidgetOptions {
@@ -132,10 +145,11 @@ pub struct VirtualElementCallWidgetOptions {
     /// usecase.
     pub parent_url: Option<String>,
 
-    /// Whether the branding header of Element call should be hidden.
+    /// Whether the branding header of Element call should be shown or if a
+    /// mobile header navbar should be render.
     ///
-    /// Default: `true`
-    pub hide_header: Option<bool>,
+    /// Default: [`HeaderStyle::Standard`]
+    pub header: Option<HeaderStyle>,
 
     /// If set, the lobby will be skipped and the widget will join the
     /// call on the `io.element.join` action.
@@ -239,9 +253,9 @@ impl WidgetSettings {
 
             parent_url: props.parent_url.unwrap_or(props.element_call_url.clone()),
             confine_to_room: props.confine_to_room.unwrap_or(true),
-            app_prompt: props.app_prompt.unwrap_or(false),
-            hide_header: props.hide_header.unwrap_or(true),
-            preload: props.preload.unwrap_or(false),
+            app_prompt: props.app_prompt.unwrap_or_default(),
+            header: props.header.unwrap_or_default(),
+            preload: props.preload.unwrap_or_default(),
             font_scale: props.font_scale,
             font: props.font,
             per_participant_e2ee: props.encryption == EncryptionSystem::PerParticipantKeys,
@@ -300,7 +314,6 @@ mod tests {
         let mut props = VirtualElementCallWidgetOptions {
             element_call_url: "https://call.element.io".to_owned(),
             widget_id: WIDGET_ID.to_owned(),
-            hide_header: Some(true),
             preload: Some(true),
             app_prompt: Some(true),
             confine_to_room: Some(true),
@@ -375,7 +388,7 @@ mod tests {
                 &parentUrl=https%3A%2F%2Fcall.element.io\
                 &confineToRoom=true\
                 &appPrompt=true\
-                &hideHeader=true\
+                &header=standard\
                 &preload=true\
                 &perParticipantE2EE=true\
                 &hideScreensharing=false\
@@ -428,7 +441,7 @@ mod tests {
                 &roomId=%21room_id%3Aroom.org\
                 &lang=en-US&theme=light\
                 &baseUrl=https%3A%2F%2Fclient-matrix.server.org%2F\
-                &hideHeader=true\
+                &header=standard\
                 &preload=true\
                 &confineToRoom=true\
                 &displayName=hello\
@@ -462,7 +475,7 @@ mod tests {
                 &roomId=%21room_id%3Aroom.org\
                 &lang=en-US&theme=light\
                 &baseUrl=https%3A%2F%2Fclient-matrix.server.org%2F\
-                &hideHeader=true\
+                &header=standard\
                 &preload=true\
                 &confineToRoom=true\
                 &displayName=hello\
