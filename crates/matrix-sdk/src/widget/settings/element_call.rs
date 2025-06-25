@@ -45,7 +45,7 @@ struct ElementCallParams {
     skip_lobby: Option<bool>,
     confine_to_room: bool,
     app_prompt: bool,
-    hide_header: bool,
+    header: HeaderStyle,
     preload: bool,
     /// Deprecated since Element Call v0.9.0. Included for backwards
     /// compatibility. Set to the same as `posthog_user_id`.
@@ -76,7 +76,7 @@ struct ElementCallParams {
 /// Defines if a call is encrypted and which encryption system should be used.
 ///
 /// This controls the url parameters: `perParticipantE2EE`, `password`.
-#[derive(Debug, PartialEq, Default)]
+#[derive(Debug, PartialEq, Default, uniffi::Enum, Clone)]
 pub enum EncryptionSystem {
     /// Equivalent to the element call url parameter: `perParticipantE2EE=false`
     /// and no password.
@@ -96,7 +96,7 @@ pub enum EncryptionSystem {
 /// Defines the intent of showing the call.
 ///
 /// This controls whether to show or skip the lobby.
-#[derive(Debug, PartialEq, Serialize, Default)]
+#[derive(Debug, PartialEq, Serialize, Default, uniffi::Enum, Clone)]
 #[serde(rename_all = "snake_case")]
 pub enum Intent {
     #[default]
@@ -107,7 +107,7 @@ pub enum Intent {
 }
 
 /// Properties to create a new virtual Element Call widget.
-#[derive(Debug, Default)]
+#[derive(Debug, Default, uniffi::Record, Clone)]
 pub struct VirtualElementCallWidgetOptions {
     /// The url to the app.
     ///
