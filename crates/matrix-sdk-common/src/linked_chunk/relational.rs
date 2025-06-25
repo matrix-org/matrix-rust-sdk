@@ -22,7 +22,9 @@ use ruma::{OwnedEventId, OwnedRoomId};
 use super::{ChunkContent, ChunkIdentifierGenerator, RawChunk};
 use crate::{
     deserialized_responses::TimelineEvent,
-    linked_chunk::{ChunkIdentifier, LinkedChunkId, OwnedLinkedChunkId, Position, Update},
+    linked_chunk::{
+        ChunkIdentifier, ChunkMetadata, LinkedChunkId, OwnedLinkedChunkId, Position, Update,
+    },
 };
 
 /// A row of the [`RelationalLinkedChunk::chunks`].
@@ -427,6 +429,22 @@ where
             .collect::<Result<Vec<_>, String>>()
     }
 
+    /// Loads all the chunks' metadata.
+    ///
+    /// Return an error result if the data was malformed in the struct, with a
+    /// string message explaining details about the error.
+    #[doc(hidden)]
+    pub fn load_all_chunks_metadata(
+        &self,
+        linked_chunk_id: LinkedChunkId<'_>,
+    ) -> Result<Vec<ChunkMetadata>, String> {
+        self.chunks
+            .iter()
+            .filter(|chunk| chunk.linked_chunk_id == linked_chunk_id)
+            .map(|chunk_row| load_raw_chunk_metadata(self, chunk_row, linked_chunk_id))
+            .collect::<Result<Vec<_>, String>>()
+    }
+
     pub fn load_last_chunk(
         &self,
         linked_chunk_id: LinkedChunkId<'_>,
@@ -518,6 +536,10 @@ where
     }
 }
 
+/// Loads a single chunk along all its items.
+///
+/// The code of this method must be kept in sync with that of
+/// [`load_raw_chunk_metadata`] below.
 fn load_raw_chunk<ItemId, Item, Gap>(
     relational_linked_chunk: &RelationalLinkedChunk<ItemId, Item, Gap>,
     chunk_row: &ChunkRow,
@@ -604,6 +626,89 @@ where
 
             RawChunk {
                 content: ChunkContent::Gap(gap.clone()),
+                previous: chunk_row.previous_chunk,
+                identifier: chunk_row.chunk,
+                next: chunk_row.next_chunk,
+            }
+        }
+    })
+}
+
+/// Loads the metadata for a single chunk.
+///
+/// The code of this method must be kept in sync with that of [`load_raw_chunk`]
+/// above.
+fn load_raw_chunk_metadata<ItemId, Item, Gap>(
+    relational_linked_chunk: &RelationalLinkedChunk<ItemId, Item, Gap>,
+    chunk_row: &ChunkRow,
+    linked_chunk_id: LinkedChunkId<'_>,
+) -> Result<ChunkMetadata, String>
+where
+    Item: Clone,
+    Gap: Clone,
+    ItemId: Hash + PartialEq + Eq,
+{
+    // Find all items that correspond to the chunk.
+    let mut items = relational_linked_chunk
+        .items_chunks
+        .iter()
+        .filter(|item_row| {
+            item_row.linked_chunk_id == linked_chunk_id
+                && item_row.position.chunk_identifier() == chunk_row.chunk
+        })
+        .peekable();
+
+    let Some(first_item) = items.peek() else {
+        // No item. It means it is a chunk of kind `Items` and that it is empty!
+        return Ok(ChunkMetadata {
+            num_items: 0,
+            previous: chunk_row.previous_chunk,
+            identifier: chunk_row.chunk,
+            next: chunk_row.next_chunk,
+        });
+    };
+
+    Ok(match first_item.item {
+        // This is a chunk of kind `Items`.
+        Either::Item(_) => {
+            // Count all the items. We add an additional filter that will exclude gaps, in
+            // case the chunk is malformed, but we should not have to, in theory.
+
+            let mut num_items = 0;
+            for item in items {
+                match &item.item {
+                    Either::Item(_) => num_items += 1,
+                    Either::Gap(_) => {
+                        return Err(format!(
+                            "unexpected gap in items chunk {}",
+                            chunk_row.chunk.index()
+                        ));
+                    }
+                }
+            }
+
+            ChunkMetadata {
+                num_items,
+                previous: chunk_row.previous_chunk,
+                identifier: chunk_row.chunk,
+                next: chunk_row.next_chunk,
+            }
+        }
+
+        Either::Gap(..) => {
+            assert!(items.next().is_some(), "we just peeked the gap");
+
+            // We shouldn't have more than one item row for this chunk.
+            if items.next().is_some() {
+                return Err(format!(
+                    "there shouldn't be more than one item row attached in gap chunk {}",
+                    chunk_row.chunk.index()
+                ));
+            }
+
+            ChunkMetadata {
+                // By convention, a gap has 0 items.
+                num_items: 0,
                 previous: chunk_row.previous_chunk,
                 identifier: chunk_row.chunk,
                 next: chunk_row.next_chunk,

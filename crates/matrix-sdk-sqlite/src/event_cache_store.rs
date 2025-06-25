@@ -32,8 +32,8 @@ use matrix_sdk_base::{
         Event, Gap,
     },
     linked_chunk::{
-        ChunkContent, ChunkIdentifier, ChunkIdentifierGenerator, LinkedChunkId, Position, RawChunk,
-        Update,
+        ChunkContent, ChunkIdentifier, ChunkIdentifierGenerator, ChunkMetadata, LinkedChunkId,
+        Position, RawChunk, Update,
     },
     media::{MediaRequestParameters, UniqueKey},
 };
@@ -834,6 +834,66 @@ impl EventCacheStore for SqliteEventCacheStore {
             .await?;
 
         Ok(result)
+    }
+
+    async fn load_all_chunks_metadata(
+        &self,
+        linked_chunk_id: LinkedChunkId<'_>,
+    ) -> Result<Vec<ChunkMetadata>, Self::Error> {
+        let hashed_linked_chunk_id =
+            self.encode_key(keys::LINKED_CHUNKS, linked_chunk_id.storage_key());
+
+        self.acquire()
+            .await?
+            .with_transaction(move |txn| -> Result<_> {
+                // I'm not a DB analyst, so for my own future sanity: this query joins the
+                // linked_chunks and events_chunks tables together, with a few specificities:
+                //
+                // - the `GROUP BY` clause will regroup the joined item lines by chunk.
+                // - the `COUNT(ec.event_id)` counts the number of unique non-NULL lines from
+                //   the events_chunks table, aka the number of events in the chunk.
+                // - using a `LEFT JOIN` makes it so that if there's a chunk that has no events
+                //   (because it's a gap, or an empty events chunk), there will still be a
+                //   result for that chunk, and the count will be `0` (because the joined lines
+                //   would be `NULL`).
+                //
+                // Overall, this query will return what we want:
+                // - for a gap or an empty item chunk: a count of 0,
+                // - otherwise, the number of related lines in `event_chunks` for that chunk,
+                //   i.e. the number of events in that chunk.
+                //
+                // Also, use `ORDER BY id` to get a deterministic ordering for testing purposes.
+
+                txn.prepare(
+                    r#"
+                        SELECT lc.id, lc.previous, lc.next, COUNT(ec.event_id)
+                        FROM linked_chunks as lc
+                        LEFT JOIN event_chunks as ec ON ec.chunk_id = lc.id
+                        WHERE lc.linked_chunk_id = ?
+                        GROUP BY lc.id
+                        ORDER BY lc.id"#,
+                )?
+                .query_map((&hashed_linked_chunk_id,), |row| {
+                    Ok((
+                        row.get::<_, u64>(0)?,
+                        row.get::<_, Option<u64>>(1)?,
+                        row.get::<_, Option<u64>>(2)?,
+                        row.get::<_, usize>(3)?,
+                    ))
+                })?
+                .map(|data| -> Result<_> {
+                    let (id, previous, next, num_items) = data?;
+
+                    Ok(ChunkMetadata {
+                        identifier: ChunkIdentifier::new(id),
+                        previous: previous.map(ChunkIdentifier::new),
+                        next: next.map(ChunkIdentifier::new),
+                        num_items,
+                    })
+                })
+                .collect::<Result<Vec<_>, _>>()
+            })
+            .await
     }
 
     async fn load_last_chunk(
