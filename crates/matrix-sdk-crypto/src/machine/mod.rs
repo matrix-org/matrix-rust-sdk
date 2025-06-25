@@ -865,27 +865,13 @@ impl OlmMachine {
         let mut decrypted =
             transaction.account().await?.decrypt_to_device_event(&self.inner.store, event).await?;
 
-        let from_dehydrated_device =
-            self.to_device_event_is_from_dehydrated_device(&decrypted, &event.sender).await?;
+        // Return early if the sending device is decrypted
+        self.check_to_device_event_is_not_from_dehydrated_device(&decrypted, &event.sender).await?;
 
-        // Check whether this event is from a dehydrated device - if so, return Ok(None)
-        // to skip it because we don't expect ever to receive an event from a
-        // dehydrated device.
-        if from_dehydrated_device {
-            // Device is dehydrated: ignore this event
-            warn!(
-                sender = ?event.sender,
-                session = ?decrypted.session,
-                "Received a to-device event from a dehydrated device. This is unexpected: ignoring event"
-            );
-            Err(DecryptToDeviceError::FromDehydratedDevice)
-        } else {
-            // Device is not dehydrated: handle it as normal e.g. create a Megolm session
-            self.handle_decrypted_to_device_event(transaction.cache(), &mut decrypted, changes)
-                .await?;
+        // Device is not dehydrated: handle it as normal e.g. create a Megolm session
+        self.handle_decrypted_to_device_event(transaction.cache(), &mut decrypted, changes).await?;
 
-            Ok(decrypted)
-        }
+        Ok(decrypted)
     }
 
     #[instrument(
@@ -1502,6 +1488,25 @@ impl OlmMachine {
             raw: raw_event,
             encryption_info: decrypted.result.encryption_info,
         })
+    }
+
+    /// Return an error if the supplied to-device event was sent from a
+    /// dehydrated device.
+    async fn check_to_device_event_is_not_from_dehydrated_device(
+        &self,
+        decrypted: &OlmDecryptionInfo,
+        sender_user_id: &UserId,
+    ) -> Result<(), DecryptToDeviceError> {
+        if self.to_device_event_is_from_dehydrated_device(decrypted, sender_user_id).await? {
+            warn!(
+                sender = ?sender_user_id,
+                session = ?decrypted.session,
+                "Received a to-device event from a dehydrated device. This is unexpected: ignoring event"
+            );
+            Err(DecryptToDeviceError::FromDehydratedDevice)
+        } else {
+            Ok(())
+        }
     }
 
     /// Decide whether a decrypted to-device event was sent from a dehydrated
