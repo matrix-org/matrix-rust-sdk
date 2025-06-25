@@ -634,10 +634,7 @@ async fn test_megolm_encryption() {
     let group_session = bob
         .store()
         .with_transaction(|mut tr| async {
-            let res = bob
-                .decrypt_to_device_event(&mut tr, &event, &mut Changes::default())
-                .await?
-                .expect("event unexpectedly from dehydrated device");
+            let res = bob.decrypt_to_device_event(&mut tr, &event, &mut Changes::default()).await?;
             Ok((tr, res))
         })
         .await
@@ -1008,10 +1005,7 @@ async fn test_query_ratcheted_key() {
     let group_session = bob
         .store()
         .with_transaction(|mut tr| async {
-            let res = bob
-                .decrypt_to_device_event(&mut tr, &event, &mut Changes::default())
-                .await?
-                .expect("event unexpectedly from dehydrated device");
+            let res = bob.decrypt_to_device_event(&mut tr, &event, &mut Changes::default()).await?;
             Ok((tr, res))
         })
         .await
@@ -1397,8 +1391,7 @@ async fn test_unsigned_decryption() {
         .with_transaction(|mut tr| async {
             let res = bob
                 .decrypt_to_device_event(&mut tr, &first_room_key_event, &mut Changes::default())
-                .await?
-                .expect("event unexpectedly from dehydrated device");
+                .await?;
             Ok((tr, res))
         })
         .await
@@ -1503,8 +1496,7 @@ async fn test_unsigned_decryption() {
         .with_transaction(|mut tr| async {
             let res = bob
                 .decrypt_to_device_event(&mut tr, &second_room_key_event, &mut Changes::default())
-                .await?
-                .expect("event unexpectedly from dehydrated device");
+                .await?;
             Ok((tr, res))
         })
         .await
@@ -1610,8 +1602,7 @@ async fn test_unsigned_decryption() {
         .with_transaction(|mut tr| async {
             let res = bob
                 .decrypt_to_device_event(&mut tr, &third_room_key_event, &mut Changes::default())
-                .await?
-                .expect("event unexpectedly from dehydrated device");
+                .await?;
             Ok((tr, res))
         })
         .await

@@ -845,13 +845,14 @@ impl OlmMachine {
 
     /// Decrypt and handle a to-device event.
     ///
-    /// If decryption (or checking the sender device) fails, returns an error.
+    /// If decryption (or checking the sender device) fails, returns
+    /// `Err(DecryptToDeviceError::OlmError)`.
     ///
     /// If the sender device is dehydrated, does no handling and immediately
-    /// returns `Ok(None)`.
+    /// returns `Err(DecryptToDeviceError::FromDehydratedDevice)`.
     ///
     /// Otherwise, handles the decrypted event and returns it (decrypted) as
-    /// `Ok(ToDeviceEvent)`.
+    /// `Ok(OlmDecryptionInfo)`.
     ///
     /// # Arguments
     ///
@@ -861,7 +862,7 @@ impl OlmMachine {
         transaction: &mut StoreTransaction,
         event: &EncryptedToDeviceEvent,
         changes: &mut Changes,
-    ) -> OlmResult<Option<OlmDecryptionInfo>> {
+    ) -> Result<OlmDecryptionInfo, DecryptToDeviceError> {
         // Decrypt the event
         let mut decrypted =
             transaction.account().await?.decrypt_to_device_event(&self.inner.store, event).await?;
@@ -879,13 +880,13 @@ impl OlmMachine {
                 session = ?decrypted.session,
                 "Received a to-device event from a dehydrated device. This is unexpected: ignoring event"
             );
-            Ok(None)
+            Err(DecryptToDeviceError::FromDehydratedDevice)
         } else {
             // Device is not dehydrated: handle it as normal e.g. create a Megolm session
             self.handle_decrypted_to_device_event(transaction.cache(), &mut decrypted, changes)
                 .await?;
 
-            Ok(Some(decrypted))
+            Ok(decrypted)
         }
     }
 
@@ -1426,8 +1427,8 @@ impl OlmMachine {
         e: ToDeviceEvent<ToDeviceEncryptedEventContent>,
     ) -> Option<ProcessedToDeviceEvent> {
         let decrypted = match self.decrypt_to_device_event(transaction, &e, changes).await {
-            Ok(decrypted) => decrypted?,
-            Err(err) => {
+            Ok(decrypted) => decrypted,
+            Err(DecryptToDeviceError::OlmError(err)) => {
                 if let OlmError::SessionWedged(sender, curve_key) = err {
                     if let Err(e) =
                         self.inner.session_manager.mark_device_as_wedged(&sender, curve_key).await
@@ -1441,6 +1442,7 @@ impl OlmMachine {
 
                 return Some(ProcessedToDeviceEvent::UnableToDecrypt(raw_event));
             }
+            Err(DecryptToDeviceError::FromDehydratedDevice) => return None,
         };
 
         // New sessions modify the account so we need to save that
@@ -2916,6 +2918,38 @@ fn megolm_error_to_utd_info(
     });
 
     Ok(UnableToDecryptInfo { session_id, reason })
+}
+
+/// An error that can occur during [`OlmMachine::decrypt_to_device_event`] -
+/// either because decryption failed, or because the sender device was a
+/// dehydrated device, which should never send any to-device messages.
+#[derive(Debug, thiserror::Error)]
+pub(crate) enum DecryptToDeviceError {
+    #[error("An Olm error occurred meaning we failed to decrypt the event")]
+    OlmError(#[from] OlmError),
+
+    #[error("The event was sent from a dehydrated device")]
+    FromDehydratedDevice,
+}
+
+impl From<CryptoStoreError> for DecryptToDeviceError {
+    fn from(value: CryptoStoreError) -> Self {
+        Self::OlmError(value.into())
+    }
+}
+
+#[cfg(test)]
+impl From<DecryptToDeviceError> for OlmError {
+    /// Unwrap the `OlmError` inside this error, or panic if this does not
+    /// contain an `OlmError`.
+    fn from(value: DecryptToDeviceError) -> Self {
+        match value {
+            DecryptToDeviceError::OlmError(olm_error) => olm_error,
+            DecryptToDeviceError::FromDehydratedDevice => {
+                panic!("Expected an OlmError but found FromDehydratedDevice")
+            }
+        }
+    }
 }
 
 #[cfg(test)]
