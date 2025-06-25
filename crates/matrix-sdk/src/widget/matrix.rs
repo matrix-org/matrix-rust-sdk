@@ -359,7 +359,6 @@ impl MatrixDriver {
         if Self::is_internal_type(&event_type.to_string()) {
             warn!("Widget tried to send internal to-device message <{}>, ignoring", event_type);
             // Silently return a success response, the widget will not receive the message
-            // TODO! this will later be blocked at negotiation level
             return Ok(Default::default());
         }
 
@@ -409,18 +408,12 @@ impl MatrixDriver {
                 .await?
             }
 
-            let failures = if failures.is_empty() {
-                None
-            } else {
-                Some(
-                    failures
-                        .into_iter()
-                        .map(|(u, list_of_devices)| {
-                            (u.into(), list_of_devices.into_iter().map(|d| d.into()).collect())
-                        })
-                        .collect(),
-                )
-            };
+            let failures = failures
+                .into_iter()
+                .map(|(u, list_of_devices)| {
+                    (u.into(), list_of_devices.into_iter().map(|d| d.into()).collect())
+                })
+                .collect();
 
             let response = SendToDeviceEventResponse { failures };
             Ok(response)

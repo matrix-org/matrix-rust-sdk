@@ -259,8 +259,8 @@ impl From<update_delayed_event::unstable::Response> for UpdateDelayedEventRespon
 pub(crate) struct SendToDeviceEventResponse {
     /// It is possible that sending to some device failed (failed to encrypt or
     /// failed to send)
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub failures: Option<BTreeMap<String, Vec<String>>>,
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub failures: BTreeMap<String, Vec<String>>,
 }
 
 impl FromMatrixDriverResponse for SendToDeviceEventResponse {
