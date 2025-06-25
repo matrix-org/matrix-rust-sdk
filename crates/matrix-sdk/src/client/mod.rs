@@ -2671,6 +2671,7 @@ impl Client {
 #[cfg(any(feature = "testing", test))]
 impl Client {
     /// Test helper to mark users as tracked by the crypto layer.
+    #[cfg(feature = "e2e-encryption")]
     pub async fn update_tracked_users_for_testing(
         &self,
         user_ids: impl IntoIterator<Item = &UserId>,
