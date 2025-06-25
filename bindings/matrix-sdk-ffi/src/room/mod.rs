@@ -35,14 +35,13 @@ use ruma::{
 };
 use tracing::{error, warn};
 
-use self::power_levels::RoomPowerLevels;
+use self::{power_levels::RoomPowerLevels, room_info::RoomInfo};
 use crate::{
     chunk_iterator::ChunkIterator,
     client::{JoinRule, RoomVisibility},
     error::{ClientError, MediaInfoError, NotYetImplemented, RoomError},
     identity_status_change::IdentityStatusChange,
     live_location_share::{LastLocation, LiveLocationShare},
-    room_info::RoomInfo,
     room_member::{RoomMember, RoomMemberWithSenderInfo},
     room_preview::RoomPreview,
     ruma::{ImageInfo, LocationContent, Mentions, NotifyType},
@@ -56,6 +55,7 @@ use crate::{
 };
 
 mod power_levels;
+pub mod room_info;
 
 #[derive(Debug, Clone, uniffi::Enum)]
 pub enum Membership {
@@ -665,7 +665,7 @@ impl Room {
 
     pub async fn get_power_levels(&self) -> Result<Arc<RoomPowerLevels>, ClientError> {
         let power_levels = self.inner.power_levels().await.map_err(matrix_sdk::Error::from)?;
-        Ok(Arc::new(RoomPowerLevels::from(power_levels)))
+        Ok(Arc::new(RoomPowerLevels::new(power_levels, self.inner.own_user_id().to_owned())))
     }
 
     pub async fn apply_power_level_changes(
@@ -702,7 +702,10 @@ impl Room {
     }
 
     pub async fn reset_power_levels(&self) -> Result<Arc<RoomPowerLevels>, ClientError> {
-        Ok(Arc::new(RoomPowerLevels::from(self.inner.reset_power_levels().await?)))
+        Ok(Arc::new(RoomPowerLevels::new(
+            self.inner.reset_power_levels().await?,
+            self.inner.own_user_id().to_owned(),
+        )))
     }
 
     pub async fn matrix_to_permalink(&self) -> Result<String, ClientError> {

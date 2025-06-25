@@ -1545,6 +1545,36 @@ impl TimelineController {
     pub(super) async fn retry_event_decryption(&self, session_ids: Option<BTreeSet<String>>) {
         self.retry_event_decryption_inner(self.room().clone(), session_ids).await
     }
+
+    /// Combine the global (event cache) pagination status with the local state
+    /// of the timeline.
+    ///
+    /// This only changes the global pagination status of this room, in one
+    /// case: if the timeline has a skip count greater than 0, it will
+    /// ensure that the pagination status says that we haven't reached the
+    /// timeline start yet.
+    pub(super) async fn map_pagination_status(
+        &self,
+        status: RoomPaginationStatus,
+    ) -> RoomPaginationStatus {
+        match status {
+            RoomPaginationStatus::Idle { hit_timeline_start } => {
+                if hit_timeline_start {
+                    let state = self.state.read().await;
+                    // If the skip count is greater than 0, it means that a subsequent pagination
+                    // could return more items, so pretend we didn't get the information that the
+                    // timeline start was hit.
+                    if state.meta.subscriber_skip_count.get() > 0 {
+                        return RoomPaginationStatus::Idle { hit_timeline_start: false };
+                    }
+                }
+            }
+            RoomPaginationStatus::Paginating => {}
+        }
+
+        // You're perfect, just the way you are.
+        status
+    }
 }
 
 #[cfg(test)]
