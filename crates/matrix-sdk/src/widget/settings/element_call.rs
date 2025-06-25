@@ -45,7 +45,11 @@ struct ElementCallParams {
     skip_lobby: Option<bool>,
     confine_to_room: bool,
     app_prompt: bool,
+    /// Supported since Element Call v0.13.0.
     header: HeaderStyle,
+    /// Deprecated since Element Call v0.13.0. Included for backwards
+    /// compatibility. Use header: "standard"|"none" instead.
+    hide_header: Option<bool>,
     preload: bool,
     /// Deprecated since Element Call v0.9.0. Included for backwards
     /// compatibility. Set to the same as `posthog_user_id`.
@@ -151,6 +155,12 @@ pub struct VirtualElementCallWidgetOptions {
     /// Default: [`HeaderStyle::Standard`]
     pub header: Option<HeaderStyle>,
 
+    /// Whether the branding header of Element call should be hidden.
+    ///
+    /// Default: `true`
+    #[deprecated(note = "Use `header` instead", since = "0.12.1")]
+    pub hide_header: Option<bool>,
+
     /// If set, the lobby will be skipped and the widget will join the
     /// call on the `io.element.join` action.
     ///
@@ -239,7 +249,7 @@ impl WidgetSettings {
         } else {
             None
         };
-
+        #[allow(deprecated)]
         let query_params = ElementCallParams {
             user_id: url_params::USER_ID.to_owned(),
             room_id: url_params::ROOM_ID.to_owned(),
@@ -255,6 +265,7 @@ impl WidgetSettings {
             confine_to_room: props.confine_to_room.unwrap_or(true),
             app_prompt: props.app_prompt.unwrap_or_default(),
             header: props.header.unwrap_or_default(),
+            hide_header: props.hide_header,
             preload: props.preload.unwrap_or_default(),
             font_scale: props.font_scale,
             font: props.font,
