@@ -6,8 +6,14 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased] - ReleaseDate
 
-- Add logging to `Room::join`.
-  ([#5260](https://github.com/matrix-org/matrix-rust-sdk/pull/5260))
+### Bug fixes
+
+- When joining a room via `Client::join_room_by_id()`, if the client has `enable_share_history_on_invite` enabled,
+  we will correctly check for received room key bundles. Previously this was only done when calling `Room::join`.
+  ([#5043](https://github.com/matrix-org/matrix-rust-sdk/pull/5043))
+
+### Refactor
+
 - `ClientServerCapabilities` has been renamed to `ClientServerInfo`. Alongside this,
   `Client::reset_server_info` is now `Client::reset_server_info` and `Client::fetch_server_capabilities`
   is now `Client::fetch_server_versions`, returning the server versions response directly.
