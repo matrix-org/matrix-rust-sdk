@@ -38,23 +38,18 @@ type DownloadCache = FailuresCache<RoomKeyInfo>;
 
 #[derive(Default)]
 pub(crate) struct ClientTasks {
-    #[cfg(feature = "e2e-encryption")]
     pub(crate) upload_room_keys: Option<BackupUploadingTask>,
-    #[cfg(feature = "e2e-encryption")]
     pub(crate) download_room_keys: Option<BackupDownloadTask>,
-    #[cfg(feature = "e2e-encryption")]
     pub(crate) update_recovery_state_after_backup: Option<JoinHandle<()>>,
     pub(crate) setup_e2ee: Option<JoinHandle<()>>,
 }
 
-#[cfg(feature = "e2e-encryption")]
 pub(crate) struct BackupUploadingTask {
     sender: mpsc::UnboundedSender<()>,
     #[allow(dead_code)]
     join_handle: JoinHandle<()>,
 }
 
-#[cfg(feature = "e2e-encryption")]
 impl Drop for BackupUploadingTask {
     fn drop(&mut self) {
         #[cfg(not(target_family = "wasm"))]
@@ -62,7 +57,6 @@ impl Drop for BackupUploadingTask {
     }
 }
 
-#[cfg(feature = "e2e-encryption")]
 impl BackupUploadingTask {
     pub(crate) fn new(client: WeakClient) -> Self {
         let (sender, receiver) = mpsc::unbounded_channel();
@@ -131,7 +125,6 @@ pub(crate) struct BackupDownloadTask {
     join_handle: JoinHandle<()>,
 }
 
-#[cfg(feature = "e2e-encryption")]
 impl Drop for BackupDownloadTask {
     fn drop(&mut self) {
         #[cfg(not(target_family = "wasm"))]
