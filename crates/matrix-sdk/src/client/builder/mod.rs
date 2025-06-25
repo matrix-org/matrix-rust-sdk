@@ -20,6 +20,8 @@ use std::path::Path;
 use std::{fmt, sync::Arc};
 
 use homeserver_config::*;
+#[cfg(feature = "e2e-encryption")]
+use matrix_sdk_base::crypto::DecryptionSettings;
 use matrix_sdk_base::{store::StoreConfig, BaseClient};
 #[cfg(feature = "sqlite")]
 use matrix_sdk_sqlite::SqliteStoreConfig;
@@ -40,7 +42,10 @@ use crate::encryption::EncryptionSettings;
 use crate::http_client::HttpSettings;
 use crate::{
     authentication::{oauth::OAuthCtx, AuthCtx},
-    client::ClientServerCapabilities,
+    client::{
+        CachedValue::{Cached, NotSet},
+        ClientServerInfo,
+    },
     config::RequestConfig,
     error::RumaApiError,
     http_client::HttpClient,
@@ -104,7 +109,7 @@ pub struct ClientBuilder {
     #[cfg(feature = "e2e-encryption")]
     room_key_recipient_strategy: CollectStrategy,
     #[cfg(feature = "e2e-encryption")]
-    decryption_trust_requirement: TrustRequirement,
+    decryption_settings: DecryptionSettings,
     #[cfg(feature = "e2e-encryption")]
     enable_share_history_on_invite: bool,
     cross_process_store_locks_holder_name: String,
@@ -131,7 +136,9 @@ impl ClientBuilder {
             #[cfg(feature = "e2e-encryption")]
             room_key_recipient_strategy: Default::default(),
             #[cfg(feature = "e2e-encryption")]
-            decryption_trust_requirement: TrustRequirement::Untrusted,
+            decryption_settings: DecryptionSettings {
+                sender_device_trust_requirement: TrustRequirement::Untrusted,
+            },
             #[cfg(feature = "e2e-encryption")]
             enable_share_history_on_invite: false,
             cross_process_store_locks_holder_name:
@@ -440,11 +447,8 @@ impl ClientBuilder {
 
     /// Set the trust requirement to be used when decrypting events.
     #[cfg(feature = "e2e-encryption")]
-    pub fn with_decryption_trust_requirement(
-        mut self,
-        trust_requirement: TrustRequirement,
-    ) -> Self {
-        self.decryption_trust_requirement = trust_requirement;
+    pub fn with_decryption_settings(mut self, decryption_settings: DecryptionSettings) -> Self {
+        self.decryption_settings = decryption_settings;
         self
     }
 
@@ -516,7 +520,7 @@ impl ClientBuilder {
             #[cfg(feature = "e2e-encryption")]
             {
                 client.room_key_recipient_strategy = self.room_key_recipient_strategy;
-                client.decryption_trust_requirement = self.decryption_trust_requirement;
+                client.decryption_settings = self.decryption_settings;
             }
 
             client
@@ -525,7 +529,7 @@ impl ClientBuilder {
         let http_client = HttpClient::new(inner_http_client.clone(), self.request_config);
 
         #[allow(unused_variables)]
-        let HomeserverDiscoveryResult { server, homeserver, supported_versions } =
+        let HomeserverDiscoveryResult { server, homeserver, supported_versions, well_known } =
             homeserver_cfg.discover(&http_client).await?;
 
         let sliding_sync_version = {
@@ -560,9 +564,13 @@ impl ClientBuilder {
         // Enable the send queue by default.
         let send_queue = Arc::new(SendQueueData::new(true));
 
-        let server_capabilities = ClientServerCapabilities {
-            server_versions: self.server_versions,
-            unstable_features: None,
+        let server_info = ClientServerInfo {
+            server_versions: match self.server_versions {
+                Some(versions) => Cached(versions),
+                None => NotSet,
+            },
+            unstable_features: NotSet,
+            well_known: Cached(well_known.map(Into::into)),
         };
 
         let event_cache = OnceCell::new();
@@ -573,7 +581,7 @@ impl ClientBuilder {
             sliding_sync_version,
             http_client,
             base_client,
-            server_capabilities,
+            server_info,
             self.respect_login_well_known,
             event_cache,
             send_queue,
@@ -968,11 +976,13 @@ pub(crate) mod tests {
         let homeserver = make_mock_homeserver().await;
         let builder = ClientBuilder::new()
             .server_name_or_homeserver_url(homeserver.uri())
-            .with_decryption_trust_requirement(TrustRequirement::CrossSigned);
+            .with_decryption_settings(DecryptionSettings {
+                sender_device_trust_requirement: TrustRequirement::CrossSigned,
+            });
 
         let client = builder.build().await.unwrap();
         assert_matches!(
-            client.base_client().decryption_trust_requirement,
+            client.base_client().decryption_settings.sender_device_trust_requirement,
             TrustRequirement::CrossSigned
         );
     }
@@ -984,11 +994,13 @@ pub(crate) mod tests {
 
         let builder = ClientBuilder::new()
             .server_name_or_homeserver_url(homeserver.uri())
-            .with_decryption_trust_requirement(TrustRequirement::Untrusted);
+            .with_decryption_settings(DecryptionSettings {
+                sender_device_trust_requirement: TrustRequirement::Untrusted,
+            });
 
         let client = builder.build().await.unwrap();
         assert_matches!(
-            client.base_client().decryption_trust_requirement,
+            client.base_client().decryption_settings.sender_device_trust_requirement,
             TrustRequirement::Untrusted
         );
     }

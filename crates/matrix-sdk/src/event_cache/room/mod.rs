@@ -45,8 +45,8 @@ use tokio::sync::{
 use tracing::{instrument, trace, warn};
 
 use super::{
-    AutoShrinkChannelPayload, EventsOrigin, Result, RoomEventCacheUpdate, RoomPagination,
-    RoomPaginationStatus,
+    AutoShrinkChannelPayload, EventsOrigin, Result, RoomEventCacheGenericUpdate,
+    RoomEventCacheUpdate, RoomPagination, RoomPaginationStatus,
 };
 use crate::{client::WeakClient, room::WeakRoom};
 
@@ -66,10 +66,17 @@ impl fmt::Debug for RoomEventCache {
     }
 }
 
-/// Thin wrapper for a room event cache listener, so as to trigger side-effects
-/// when all listeners are gone.
+/// Thin wrapper for a room event cache subscriber, so as to trigger
+/// side-effects when all subscribers are gone.
+///
+/// The current side-effect is: auto-shrinking the [`RoomEventCache`] when no
+/// more subscribers are active. This is an optimisation to reduce the number of
+/// data held in memory by a [`RoomEventCache`]: when no more subscribers are
+/// active, all data are reduced to the minimum.
+///
+/// The side-effect takes effect on `Drop`.
 #[allow(missing_debug_implementations)]
-pub struct RoomEventCacheListener {
+pub struct RoomEventCacheSubscriber {
     /// Underlying receiver of the room event cache's updates.
     recv: Receiver<RoomEventCacheUpdate>,
 
@@ -80,17 +87,19 @@ pub struct RoomEventCacheListener {
     auto_shrink_sender: mpsc::Sender<AutoShrinkChannelPayload>,
 
     /// Shared instance of the auto-shrinker.
-    listener_count: Arc<AtomicUsize>,
+    subscriber_count: Arc<AtomicUsize>,
 }
 
-impl Drop for RoomEventCacheListener {
+impl Drop for RoomEventCacheSubscriber {
     fn drop(&mut self) {
-        let previous_listener_count = self.listener_count.fetch_sub(1, Ordering::SeqCst);
+        let previous_subscriber_count = self.subscriber_count.fetch_sub(1, Ordering::SeqCst);
 
-        trace!("dropping a room event cache listener; previous count: {previous_listener_count}");
+        trace!(
+            "dropping a room event cache subscriber; previous count: {previous_subscriber_count}"
+        );
 
-        if previous_listener_count == 1 {
-            // We were the last instance of the listener; let the auto-shrinker know by
+        if previous_subscriber_count == 1 {
+            // We were the last instance of the subscriber; let the auto-shrinker know by
             // notifying it of our room id.
 
             let mut room_id = self.room_id.clone();
@@ -120,12 +129,12 @@ impl Drop for RoomEventCacheListener {
                 }
             }
 
-            trace!("sent notification to the parent channel that we were the last listener");
+            trace!("sent notification to the parent channel that we were the last subscriber");
         }
     }
 }
 
-impl Deref for RoomEventCacheListener {
+impl Deref for RoomEventCacheSubscriber {
     type Target = Receiver<RoomEventCacheUpdate>;
 
     fn deref(&self) -> &Self::Target {
@@ -133,7 +142,7 @@ impl Deref for RoomEventCacheListener {
     }
 }
 
-impl DerefMut for RoomEventCacheListener {
+impl DerefMut for RoomEventCacheSubscriber {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.recv
     }
@@ -147,6 +156,7 @@ impl RoomEventCache {
         pagination_status: SharedObservable<RoomPaginationStatus>,
         room_id: OwnedRoomId,
         auto_shrink_sender: mpsc::Sender<AutoShrinkChannelPayload>,
+        generic_update_sender: Sender<RoomEventCacheGenericUpdate>,
     ) -> Self {
         Self {
             inner: Arc::new(RoomEventCacheInner::new(
@@ -155,6 +165,7 @@ impl RoomEventCache {
                 pagination_status,
                 room_id,
                 auto_shrink_sender,
+                generic_update_sender,
             )),
         }
     }
@@ -162,7 +173,7 @@ impl RoomEventCache {
     /// Read all current events.
     ///
     /// Use [`RoomEventCache::subscribe`] to get all current events, plus a
-    /// listener/subscriber.
+    /// subscriber.
     pub async fn events(&self) -> Vec<Event> {
         let state = self.inner.state.read().await;
 
@@ -173,24 +184,24 @@ impl RoomEventCache {
     /// events.
     ///
     /// Use [`RoomEventCache::events`] to get all current events without the
-    /// listener/subscriber. Creating, and especially dropping, a
-    /// [`RoomEventCacheListener`] isn't free.
-    pub async fn subscribe(&self) -> (Vec<Event>, RoomEventCacheListener) {
+    /// subscriber. Creating, and especially dropping, a
+    /// [`RoomEventCacheSubscriber`] isn't free, as it triggers side-effects.
+    pub async fn subscribe(&self) -> (Vec<Event>, RoomEventCacheSubscriber) {
         let state = self.inner.state.read().await;
         let events = state.events().events().map(|(_position, item)| item.clone()).collect();
 
-        let previous_listener_count = state.listener_count.fetch_add(1, Ordering::SeqCst);
-        trace!("added a room event cache listener; new count: {}", previous_listener_count + 1);
+        let previous_subscriber_count = state.subscriber_count.fetch_add(1, Ordering::SeqCst);
+        trace!("added a room event cache subscriber; new count: {}", previous_subscriber_count + 1);
 
         let recv = self.inner.sender.subscribe();
-        let listener = RoomEventCacheListener {
+        let subscriber = RoomEventCacheSubscriber {
             recv,
             room_id: self.inner.room_id.clone(),
             auto_shrink_sender: self.inner.auto_shrink_sender.clone(),
-            listener_count: state.listener_count.clone(),
+            subscriber_count: state.subscriber_count.clone(),
         };
 
-        (events, listener)
+        (events, subscriber)
     }
 
     /// Return a [`RoomPagination`] API object useful for running
@@ -267,7 +278,7 @@ impl RoomEventCache {
 /// The (non-cloneable) details of the `RoomEventCache`.
 pub(super) struct RoomEventCacheInner {
     /// The room id for this room.
-    room_id: OwnedRoomId,
+    pub(super) room_id: OwnedRoomId,
 
     pub weak_room: WeakRoom,
 
@@ -287,6 +298,13 @@ pub(super) struct RoomEventCacheInner {
     /// See doc comment around [`EventCache::auto_shrink_linked_chunk_task`] for
     /// more details.
     auto_shrink_sender: mpsc::Sender<AutoShrinkChannelPayload>,
+
+    /// A clone of [`EventCacheInner::room_event_cache_generic_update_sender`].
+    ///
+    /// Whilst `EventCacheInner` handles the generic updates from the sync, or
+    /// the storage, it doesn't handle the update from pagination. Having a
+    /// clone here allows to access it from [`RoomPagination`].
+    pub(super) generic_update_sender: Sender<RoomEventCacheGenericUpdate>,
 }
 
 impl RoomEventCacheInner {
@@ -298,6 +316,7 @@ impl RoomEventCacheInner {
         pagination_status: SharedObservable<RoomPaginationStatus>,
         room_id: OwnedRoomId,
         auto_shrink_sender: mpsc::Sender<AutoShrinkChannelPayload>,
+        generic_update_sender: Sender<RoomEventCacheGenericUpdate>,
     ) -> Self {
         let sender = Sender::new(32);
         let weak_room = WeakRoom::new(client, room_id);
@@ -309,6 +328,7 @@ impl RoomEventCacheInner {
             pagination_batch_token_notifier: Default::default(),
             auto_shrink_sender,
             pagination_status,
+            generic_update_sender,
         }
     }
 
@@ -359,7 +379,6 @@ impl RoomEventCacheInner {
             updates.ambiguity_changes,
         )
         .await?;
-
         self.handle_account_data(updates.account_data);
 
         Ok(())
@@ -368,9 +387,12 @@ impl RoomEventCacheInner {
     #[instrument(skip_all, fields(room_id = %self.room_id))]
     pub(super) async fn handle_left_room_update(&self, updates: LeftRoomUpdate) -> Result<()> {
         self.handle_timeline(updates.timeline, Vec::new(), updates.ambiguity_changes).await?;
+
         Ok(())
     }
 
+    /// Handle a [`Timeline`], i.e. new events received by a sync for this
+    /// room.
     async fn handle_timeline(
         &self,
         timeline: Timeline,
@@ -397,6 +419,8 @@ impl RoomEventCacheInner {
             self.pagination_batch_token_notifier.notify_one();
         }
 
+        let mut update_has_been_sent = false;
+
         // The order matters here: first send the timeline event diffs, then only the
         // related events (read receipts, etc.).
         if !timeline_event_diffs.is_empty() {
@@ -404,16 +428,25 @@ impl RoomEventCacheInner {
                 diffs: timeline_event_diffs,
                 origin: EventsOrigin::Sync,
             });
+            update_has_been_sent = true;
         }
 
         if !ephemeral_events.is_empty() {
             let _ = self
                 .sender
                 .send(RoomEventCacheUpdate::AddEphemeralEvents { events: ephemeral_events });
+            update_has_been_sent = true;
         }
 
         if !ambiguity_changes.is_empty() {
             let _ = self.sender.send(RoomEventCacheUpdate::UpdateMembers { ambiguity_changes });
+            update_has_been_sent = true;
+        }
+
+        if update_has_been_sent {
+            let _ = self.generic_update_sender.send(RoomEventCacheGenericUpdate::TimelineUpdated {
+                room_id: self.room_id.clone(),
+            });
         }
 
         Ok(())
@@ -506,9 +539,9 @@ mod private {
 
         pagination_status: SharedObservable<RoomPaginationStatus>,
 
-        /// An atomic count of the current number of listeners of the
+        /// An atomic count of the current number of subscriber of the
         /// [`super::RoomEventCache`].
-        pub(super) listener_count: Arc<AtomicUsize>,
+        pub(super) subscriber_count: Arc<AtomicUsize>,
     }
 
     impl RoomEventCacheState {
@@ -561,7 +594,7 @@ mod private {
                 store,
                 events,
                 waited_for_initial_prev_token: false,
-                listener_count: Default::default(),
+                subscriber_count: Default::default(),
                 pagination_status,
             })
         }
@@ -772,17 +805,17 @@ mod private {
             Ok(())
         }
 
-        /// Automatically shrink the room if there are no listeners, as
-        /// indicated by the atomic number of active listeners.
+        /// Automatically shrink the room if there are no more subscribers, as
+        /// indicated by the atomic number of active subscribers.
         #[must_use = "Propagate `VectorDiff` updates via `RoomEventCacheUpdate`"]
-        pub(crate) async fn auto_shrink_if_no_listeners(
+        pub(crate) async fn auto_shrink_if_no_subscribers(
             &mut self,
         ) -> Result<Option<Vec<VectorDiff<Event>>>, EventCacheError> {
-            let listener_count = self.listener_count.load(std::sync::atomic::Ordering::SeqCst);
+            let subscriber_count = self.subscriber_count.load(std::sync::atomic::Ordering::SeqCst);
 
-            trace!(listener_count, "received request to auto-shrink");
+            trace!(subscriber_count, "received request to auto-shrink");
 
-            if listener_count == 0 {
+            if subscriber_count == 0 {
                 // If we are the last strong reference to the auto-shrinker, we can shrink the
                 // events data structure to its last chunk.
                 self.shrink_to_last_chunk().await?;
@@ -1116,7 +1149,7 @@ mod private {
                 let related_thread_events = store_guard
                     .find_event_relations(&self.room, &thread_root, Some(&[RelationType::Thread]))
                     .await?;
-                related_thread_events.len()
+                related_thread_events.len().try_into().unwrap_or(u32::MAX)
             };
 
             let prev_summary = target_event.thread_summary.summary();
@@ -1288,8 +1321,8 @@ mod private {
         /// It may send room event cache updates to the given sender, if it
         /// generated any of those.
         ///
-        /// Returns true if a new gap (previous-batch token) has been inserted,
-        /// false otherwise.
+        /// Returns `true` for the first part of the tuple if a new gap
+        /// (previous-batch token) has been inserted, `false` otherwise.
         #[must_use = "Propagate `VectorDiff` updates via `RoomEventCacheUpdate`"]
         pub async fn handle_sync(
             &mut self,
@@ -1792,6 +1825,7 @@ mod timed_tests {
     use assert_matches::assert_matches;
     use assert_matches2::assert_let;
     use eyeball_im::VectorDiff;
+    use futures_util::FutureExt;
     use matrix_sdk_base::{
         event_cache::{
             store::{EventCacheStore as _, MemoryStore},
@@ -1812,6 +1846,7 @@ mod timed_tests {
     };
     use tokio::task::yield_now;
 
+    use super::RoomEventCacheGenericUpdate;
     use crate::{
         assert_let_timeout,
         event_cache::{room::LoadMoreEventsBackwardsOutcome, RoomEventCacheUpdate},
@@ -1840,6 +1875,7 @@ mod timed_tests {
         client.base_client().get_or_create_room(room_id, matrix_sdk_base::RoomState::Joined);
         let room = client.get_room(room_id).unwrap();
 
+        let mut generic_stream = event_cache.subscribe_to_room_generic_updates();
         let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
 
         // Propagate an update for a message and a prev-batch token.
@@ -1855,6 +1891,15 @@ mod timed_tests {
             .await
             .unwrap();
 
+        // Just checking the generic update is correct.
+        assert_matches!(
+            generic_stream.recv().await,
+            Ok(RoomEventCacheGenericUpdate::TimelineUpdated { room_id: expected_room_id }) => {
+                assert_eq!(expected_room_id, room_id);
+            }
+        );
+
+        // Check the storage.
         let linked_chunk = from_all_chunks::<3, _, _>(
             event_cache_store.load_all_chunks(LinkedChunkId::Room(room_id)).await.unwrap(),
         )
@@ -1904,6 +1949,7 @@ mod timed_tests {
         client.base_client().get_or_create_room(room_id, matrix_sdk_base::RoomState::Joined);
         let room = client.get_room(room_id).unwrap();
 
+        let mut generic_stream = event_cache.subscribe_to_room_generic_updates();
         let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
 
         // Propagate an update for a message with bundled relations.
@@ -1920,6 +1966,14 @@ mod timed_tests {
             .handle_joined_room_update(JoinedRoomUpdate { timeline, ..Default::default() })
             .await
             .unwrap();
+
+        // Just checking the generic update is correct.
+        assert_matches!(
+            generic_stream.recv().await,
+            Ok(RoomEventCacheGenericUpdate::TimelineUpdated { room_id: expected_room_id }) => {
+                assert_eq!(expected_room_id, room_id);
+            }
+        );
 
         // The in-memory linked chunk keeps the bundled relation.
         {
@@ -2169,10 +2223,22 @@ mod timed_tests {
         // Don't forget to subscribe and like^W enable storage!
         event_cache.subscribe().unwrap();
 
+        // Let's check whether the generic updates are received for the initialisation.
+        let mut generic_stream = event_cache.subscribe_to_room_generic_updates();
+
         client.base_client().get_or_create_room(room_id, matrix_sdk_base::RoomState::Joined);
         let room = client.get_room(room_id).unwrap();
 
         let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+
+        // The room event cache has been loaded. A generic update must have been
+        // triggered.
+        assert_matches!(
+            generic_stream.recv().await,
+            Ok(RoomEventCacheGenericUpdate::TimelineUpdated { room_id: expected_room_id }) => {
+                assert_eq!(room_id, expected_room_id);
+            }
+        );
 
         let (items, mut stream) = room_event_cache.subscribe().await;
 
@@ -2199,13 +2265,26 @@ mod timed_tests {
 
         assert!(stream.is_empty());
 
+        // A generic update is triggered too.
+        assert_matches!(
+            generic_stream.recv().await,
+            Ok(RoomEventCacheGenericUpdate::TimelineUpdated { room_id: expected_room_id }) => {
+                assert_eq!(expected_room_id, room_id);
+            }
+        );
+
         // A new update with one of these events leads to deduplication.
         let timeline = Timeline { limited: false, prev_batch: None, events: vec![ev2] };
+
         room_event_cache
             .inner
             .handle_joined_room_update(JoinedRoomUpdate { timeline, ..Default::default() })
             .await
             .unwrap();
+
+        // Just checking the generic update is correct. There is a duplicate event, so
+        // no generic changes whatsoever!
+        assert!(generic_stream.recv().now_or_never().is_none());
 
         // The stream doesn't report these changes *yet*. Use the items vector given
         // when subscribing, to check that the items correspond to their new
@@ -2295,6 +2374,7 @@ mod timed_tests {
         client.base_client().get_or_create_room(room_id, matrix_sdk_base::RoomState::Joined);
         let room = client.get_room(room_id).unwrap();
         let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+        let mut generic_stream = event_cache.subscribe_to_room_generic_updates();
 
         let f = EventFactory::new().room(room_id).sender(*ALICE);
 
@@ -2312,6 +2392,14 @@ mod timed_tests {
             })
             .await
             .unwrap();
+
+        // Just checking the generic update is correct.
+        assert_matches!(
+            generic_stream.recv().await,
+            Ok(RoomEventCacheGenericUpdate::TimelineUpdated { room_id: expected_room_id }) => {
+                assert_eq!(expected_room_id, room_id);
+            }
+        );
 
         {
             let mut state = room_event_cache.inner.state.write().await;
@@ -2365,6 +2453,14 @@ mod timed_tests {
             })
             .await
             .unwrap();
+
+        // Just checking the generic update is correct.
+        assert_matches!(
+            generic_stream.recv().await,
+            Ok(RoomEventCacheGenericUpdate::TimelineUpdated { room_id: expected_room_id }) => {
+                assert_eq!(expected_room_id, room_id);
+            }
+        );
 
         {
             let state = room_event_cache.inner.state.read().await;
@@ -2574,9 +2670,9 @@ mod timed_tests {
 
         assert!(stream1.is_empty());
 
-        // Have another listener subscribe to the event cache.
+        // Have another subscriber.
         // Since it's not the first one, and the previous one loaded some more events,
-        // the second listener seems them all.
+        // the second subscribers sees them all.
         let (events2, stream2) = room_event_cache.subscribe().await;
         assert_eq!(events2.len(), 2);
         assert_eq!(events2[0].event_id().as_deref(), Some(evid1));
@@ -2599,7 +2695,7 @@ mod timed_tests {
         {
             // Check the inner state: there's no more shared auto-shrinker.
             let state = room_event_cache.inner.state.read().await;
-            assert_eq!(state.listener_count.load(std::sync::atomic::Ordering::SeqCst), 0);
+            assert_eq!(state.subscriber_count.load(std::sync::atomic::Ordering::SeqCst), 0);
         }
 
         // Getting the events will only give us the latest chunk.

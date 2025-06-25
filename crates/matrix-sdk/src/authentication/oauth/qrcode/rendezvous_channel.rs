@@ -18,6 +18,7 @@ use http::{
     header::{CONTENT_TYPE, ETAG, EXPIRES, IF_MATCH, IF_NONE_MATCH, LAST_MODIFIED},
     HeaderMap, HeaderName, Method, StatusCode,
 };
+use matrix_sdk_base::sleep;
 use ruma::api::{
     error::{FromHttpResponseError, HeaderDeserializationError, IntoHttpError, MatrixError},
     EndpointError,
@@ -218,7 +219,7 @@ impl RendezvousChannel {
             {
                 return Ok(message.body);
             } else if message.status_code == StatusCode::NOT_MODIFIED {
-                tokio::time::sleep(POLL_TIMEOUT).await;
+                sleep::sleep(POLL_TIMEOUT).await;
                 continue;
             } else {
                 let error = response_to_error(message.status_code, message.body);

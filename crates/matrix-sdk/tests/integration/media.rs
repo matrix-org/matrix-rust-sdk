@@ -410,7 +410,7 @@ async fn test_get_media_file_with_auth_matrix_stable_feature() {
 async fn test_async_media_upload() {
     let (client, server) = logged_in_client_with_server().await;
 
-    client.reset_server_capabilities().await.unwrap();
+    client.reset_server_info().await.unwrap();
 
     // Declare Matrix version v1.7.
     Mock::given(method("GET"))

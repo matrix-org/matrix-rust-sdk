@@ -6,6 +6,28 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased] - ReleaseDate
 
+### Refactor
+
+- Adjust features in the `matrix-sdk-ffi` crate to expose more platform-specific knobs.
+  Previously the `matrix-sdk-ffi` was configured primarily by target configs, choosing
+  between the tls flavor (`rustls-tls` or `native-tls`) and features like `sentry` based 
+  purely on the target. As we work to add an additional Wasm target to this crate,
+  the cross product of target specific features has become somewhat chaotic, and we
+  have shifted to externalize these choices as feature flags.
+
+  To maintain existing compatibility on the major platforms, these features should be used:
+  Android: `"bundled-sqlite,unstable-msc4274,rustls-tls,sentry"`
+  iOS: `"bundled-sqlite,unstable-msc4274,native-tls,sentry"`
+  Javascript/Wasm: `"unstable-msc4274,native-tls"`
+
+  In the future additional choices (such as session storage, `sqlite` and `indexeddb`) 
+  will likely be added as well.
+
+Breaking changes:
+
+- `Client::reset_server_capabilities` has been renamed to `Client::reset_server_info`.
+  ([#5167](https://github.com/matrix-org/matrix-rust-sdk/pull/5167))
+
 ## [0.12.0] - 2025-06-10
 
 Breaking changes:

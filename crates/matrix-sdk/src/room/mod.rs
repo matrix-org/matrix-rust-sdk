@@ -33,10 +33,7 @@ pub use identity_status_changes::IdentityStatusChanges;
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk_base::crypto::{IdentityStatusChange, RoomIdentityProvider, UserIdentity};
 #[cfg(feature = "e2e-encryption")]
-use matrix_sdk_base::{
-    crypto::{DecryptionSettings, RoomEventDecryptionResult},
-    deserialized_responses::EncryptionInfo,
-};
+use matrix_sdk_base::{crypto::RoomEventDecryptionResult, deserialized_responses::EncryptionInfo};
 use matrix_sdk_base::{
     deserialized_responses::{
         RawAnySyncOrStrippedState, RawSyncOrStrippedState, SyncOrStrippedState,
@@ -113,10 +110,10 @@ use ruma::{
         tag::{TagInfo, TagName},
         typing::SyncTypingEvent,
         AnyRoomAccountDataEvent, AnyRoomAccountDataEventContent, AnyTimelineEvent, EmptyStateKey,
-        Mentions, MessageLikeEventContent, MessageLikeEventType, OriginalSyncStateEvent,
-        RedactContent, RedactedStateEventContent, RoomAccountDataEvent,
-        RoomAccountDataEventContent, RoomAccountDataEventType, StateEventContent, StateEventType,
-        StaticEventContent, StaticStateEventContent, SyncStateEvent,
+        Mentions, MessageLikeEventContent, OriginalSyncStateEvent, RedactContent,
+        RedactedStateEventContent, RoomAccountDataEvent, RoomAccountDataEventContent,
+        RoomAccountDataEventType, StateEventContent, StateEventType, StaticEventContent,
+        StaticStateEventContent, SyncStateEvent,
     },
     push::{Action, PushConditionRoomCtx, Ruleset},
     serde::Raw,
@@ -375,6 +372,7 @@ impl Room {
     ///
     /// Only invited and left rooms can be joined via this method.
     #[doc(alias = "accept_invitation")]
+    #[instrument(skip_all, fields(room_id = ?self.inner.room_id()))]
     pub async fn join(&self) -> Result<()> {
         let prev_room_state = self.inner.state();
 
@@ -397,18 +395,27 @@ impl Room {
             None
         };
 
+        #[cfg(feature = "e2e-encryption")]
+        let enable_share_history_on_invite = self.client.inner.enable_share_history_on_invite;
+
+        #[cfg(not(feature = "e2e-encryption"))]
+        let enable_share_history_on_invite = false;
+
+        debug!(
+            ?prev_room_state,
+            inviter=?inviter.as_ref().map(|room_member| room_member.user_id()),
+            enable_share_history_on_invite,
+            "Joining room",
+        );
+
         self.client.join_room_by_id(self.room_id()).await?;
 
         #[cfg(feature = "e2e-encryption")]
-        if self.client.inner.enable_share_history_on_invite {
+        if enable_share_history_on_invite {
             if let Some(inviter) = inviter {
                 shared_room_history::maybe_accept_key_bundle(self, inviter.user_id()).await?;
             }
         }
-
-        #[cfg(not(feature = "e2e-encryption"))]
-        // Suppress "unused variable" lint
-        let _inviter = inviter;
 
         Ok(())
     }
@@ -1498,12 +1505,12 @@ impl Room {
         let machine = self.client.olm_machine().await;
         let machine = machine.as_ref().ok_or(Error::NoOlmMachine)?;
 
-        let decryption_settings = DecryptionSettings {
-            sender_device_trust_requirement: self.client.base_client().decryption_trust_requirement,
-        };
-
         match machine
-            .try_decrypt_room_event(event.cast_ref(), self.inner.room_id(), &decryption_settings)
+            .try_decrypt_room_event(
+                event.cast_ref(),
+                self.inner.room_id(),
+                self.client.decryption_settings(),
+            )
             .await?
         {
             RoomEventDecryptionResult::Decrypted(decrypted) => {
@@ -2759,89 +2766,6 @@ impl Room {
         self.client.send(request).await
     }
 
-    /// Returns true if the user with the given user_id is able to redact
-    /// their own messages in the room.
-    ///
-    /// The call may fail if there is an error in getting the power levels.
-    pub async fn can_user_redact_own(&self, user_id: &UserId) -> Result<bool> {
-        Ok(self.power_levels().await?.user_can_redact_own_event(user_id))
-    }
-
-    /// Returns true if the user with the given user_id is able to redact
-    /// messages of other users in the room.
-    ///
-    /// The call may fail if there is an error in getting the power levels.
-    pub async fn can_user_redact_other(&self, user_id: &UserId) -> Result<bool> {
-        Ok(self.power_levels().await?.user_can_redact_event_of_other(user_id))
-    }
-
-    /// Returns true if the user with the given user_id is able to ban in the
-    /// room.
-    ///
-    /// The call may fail if there is an error in getting the power levels.
-    pub async fn can_user_ban(&self, user_id: &UserId) -> Result<bool> {
-        Ok(self.power_levels().await?.user_can_ban(user_id))
-    }
-
-    /// Returns true if the user with the given user_id is able to kick in the
-    /// room.
-    ///
-    /// The call may fail if there is an error in getting the power levels.
-    pub async fn can_user_invite(&self, user_id: &UserId) -> Result<bool> {
-        Ok(self.power_levels().await?.user_can_invite(user_id))
-    }
-
-    /// Returns true if the user with the given user_id is able to kick in the
-    /// room.
-    ///
-    /// The call may fail if there is an error in getting the power levels.
-    pub async fn can_user_kick(&self, user_id: &UserId) -> Result<bool> {
-        Ok(self.power_levels().await?.user_can_kick(user_id))
-    }
-
-    /// Returns true if the user with the given user_id is able to send a
-    /// specific state event type in the room.
-    ///
-    /// The call may fail if there is an error in getting the power levels.
-    pub async fn can_user_send_state(
-        &self,
-        user_id: &UserId,
-        state_event: StateEventType,
-    ) -> Result<bool> {
-        Ok(self.power_levels().await?.user_can_send_state(user_id, state_event))
-    }
-
-    /// Returns true if the user with the given user_id is able to send a
-    /// specific message type in the room.
-    ///
-    /// The call may fail if there is an error in getting the power levels.
-    pub async fn can_user_send_message(
-        &self,
-        user_id: &UserId,
-        message: MessageLikeEventType,
-    ) -> Result<bool> {
-        Ok(self.power_levels().await?.user_can_send_message(user_id, message))
-    }
-
-    /// Returns true if the user with the given user_id is able to pin or unpin
-    /// events in the room.
-    ///
-    /// The call may fail if there is an error in getting the power levels.
-    pub async fn can_user_pin_unpin(&self, user_id: &UserId) -> Result<bool> {
-        Ok(self
-            .power_levels()
-            .await?
-            .user_can_send_state(user_id, StateEventType::RoomPinnedEvents))
-    }
-
-    /// Returns true if the user with the given user_id is able to trigger a
-    /// notification in the room.
-    ///
-    /// The call may fail if there is an error in getting the power levels.
-    pub async fn can_user_trigger_room_notification(&self, user_id: &UserId) -> Result<bool> {
-        Ok(self.power_levels().await?.user_can_trigger_room_notification(user_id))
-    }
-
     /// Get a list of servers that should know this room.
     ///
     /// Uses the synced members of the room and the suggested [routing
@@ -3330,7 +3254,10 @@ impl Room {
             return Ok(false);
         }
 
-        if !self.can_user_trigger_room_notification(self.own_user_id()).await? {
+        let can_user_trigger_room_notification =
+            self.power_levels().await?.user_can_trigger_room_notification(self.own_user_id());
+
+        if !can_user_trigger_room_notification {
             warn!(
                 "User can't send notifications to everyone in the room {}. \
                 Not sending a new notify event.",

@@ -22,7 +22,7 @@ use futures_util::{pin_mut, StreamExt};
 use matrix_sdk::{
     crypto::store::types::RoomKeyInfo,
     encryption::backups::BackupState,
-    event_cache::{EventsOrigin, RoomEventCache, RoomEventCacheListener, RoomEventCacheUpdate},
+    event_cache::{EventsOrigin, RoomEventCache, RoomEventCacheSubscriber, RoomEventCacheUpdate},
     executor::spawn,
     send_queue::RoomSendQueueUpdate,
     Room,
@@ -356,7 +356,7 @@ where
 async fn room_event_cache_updates_task(
     room_event_cache: RoomEventCache,
     timeline_controller: TimelineController,
-    mut event_subscriber: RoomEventCacheListener,
+    mut room_event_cache_subscriber: RoomEventCacheSubscriber,
     timeline_focus: TimelineFocus,
 ) {
     trace!("Spawned the event subscriber task.");
@@ -364,7 +364,7 @@ async fn room_event_cache_updates_task(
     loop {
         trace!("Waiting for an event.");
 
-        let update = match event_subscriber.recv().await {
+        let update = match room_event_cache_subscriber.recv().await {
             Ok(up) => up,
             Err(RecvError::Closed) => break,
             Err(RecvError::Lagged(num_skipped)) => {

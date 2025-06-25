@@ -26,23 +26,22 @@ use ruma::{
             avatar::ImageInfo as RumaAvatarImageInfo,
             history_visibility::HistoryVisibility as RumaHistoryVisibility,
             join_rules::JoinRule as RumaJoinRule, message::RoomMessageEventContentWithoutRelation,
-            power_levels::RoomPowerLevels as RumaPowerLevels, MediaSource,
+            MediaSource,
         },
-        AnyMessageLikeEventContent, AnySyncTimelineEvent, TimelineEventType,
+        AnyMessageLikeEventContent, AnySyncTimelineEvent,
     },
     EventId, Int, OwnedDeviceId, OwnedRoomOrAliasId, OwnedServerName, OwnedUserId, RoomAliasId,
     ServerName, UserId,
 };
 use tracing::{error, warn};
 
+use self::{power_levels::RoomPowerLevels, room_info::RoomInfo};
 use crate::{
     chunk_iterator::ChunkIterator,
     client::{JoinRule, RoomVisibility},
     error::{ClientError, MediaInfoError, NotYetImplemented, RoomError},
-    event::{MessageLikeEventType, StateEventType},
     identity_status_change::IdentityStatusChange,
     live_location_share::{LastLocation, LiveLocationShare},
-    room_info::RoomInfo,
     room_member::{RoomMember, RoomMemberWithSenderInfo},
     room_preview::RoomPreview,
     ruma::{ImageInfo, LocationContent, Mentions, NotifyType},
@@ -54,6 +53,9 @@ use crate::{
     utils::{u64_to_uint, AsyncRuntimeDropped},
     TaskHandle,
 };
+
+mod power_levels;
+pub mod room_info;
 
 #[derive(Debug, Clone, uniffi::Enum)]
 pub enum Membership {
@@ -570,21 +572,6 @@ impl Room {
         Ok(())
     }
 
-    pub async fn can_user_redact_own(&self, user_id: String) -> Result<bool, ClientError> {
-        let user_id = UserId::parse(&user_id)?;
-        Ok(self.inner.can_user_redact_own(&user_id).await?)
-    }
-
-    pub async fn can_user_redact_other(&self, user_id: String) -> Result<bool, ClientError> {
-        let user_id = UserId::parse(&user_id)?;
-        Ok(self.inner.can_user_redact_other(&user_id).await?)
-    }
-
-    pub async fn can_user_ban(&self, user_id: String) -> Result<bool, ClientError> {
-        let user_id = UserId::parse(&user_id)?;
-        Ok(self.inner.can_user_ban(&user_id).await?)
-    }
-
     pub async fn ban_user(
         &self,
         user_id: String,
@@ -603,16 +590,6 @@ impl Room {
         Ok(self.inner.unban_user(&user_id, reason.as_deref()).await?)
     }
 
-    pub async fn can_user_invite(&self, user_id: String) -> Result<bool, ClientError> {
-        let user_id = UserId::parse(&user_id)?;
-        Ok(self.inner.can_user_invite(&user_id).await?)
-    }
-
-    pub async fn can_user_kick(&self, user_id: String) -> Result<bool, ClientError> {
-        let user_id = UserId::parse(&user_id)?;
-        Ok(self.inner.can_user_kick(&user_id).await?)
-    }
-
     pub async fn kick_user(
         &self,
         user_id: String,
@@ -620,37 +597,6 @@ impl Room {
     ) -> Result<(), ClientError> {
         let user_id = UserId::parse(&user_id)?;
         Ok(self.inner.kick_user(&user_id, reason.as_deref()).await?)
-    }
-
-    pub async fn can_user_send_state(
-        &self,
-        user_id: String,
-        state_event: StateEventType,
-    ) -> Result<bool, ClientError> {
-        let user_id = UserId::parse(&user_id)?;
-        Ok(self.inner.can_user_send_state(&user_id, state_event.into()).await?)
-    }
-
-    pub async fn can_user_send_message(
-        &self,
-        user_id: String,
-        message: MessageLikeEventType,
-    ) -> Result<bool, ClientError> {
-        let user_id = UserId::parse(&user_id)?;
-        Ok(self.inner.can_user_send_message(&user_id, message.into()).await?)
-    }
-
-    pub async fn can_user_pin_unpin(&self, user_id: String) -> Result<bool, ClientError> {
-        let user_id = UserId::parse(&user_id)?;
-        Ok(self.inner.can_user_pin_unpin(&user_id).await?)
-    }
-
-    pub async fn can_user_trigger_room_notification(
-        &self,
-        user_id: String,
-    ) -> Result<bool, ClientError> {
-        let user_id = UserId::parse(&user_id)?;
-        Ok(self.inner.can_user_trigger_room_notification(&user_id).await?)
     }
 
     pub fn own_user_id(&self) -> String {
@@ -717,9 +663,9 @@ impl Room {
         Ok(())
     }
 
-    pub async fn get_power_levels(&self) -> Result<RoomPowerLevels, ClientError> {
+    pub async fn get_power_levels(&self) -> Result<Arc<RoomPowerLevels>, ClientError> {
         let power_levels = self.inner.power_levels().await.map_err(matrix_sdk::Error::from)?;
-        Ok(RoomPowerLevels::from(power_levels))
+        Ok(Arc::new(RoomPowerLevels::new(power_levels, self.inner.own_user_id().to_owned())))
     }
 
     pub async fn apply_power_level_changes(
@@ -755,8 +701,11 @@ impl Room {
         Ok(self.inner.get_suggested_user_role(&user_id).await?)
     }
 
-    pub async fn reset_power_levels(&self) -> Result<RoomPowerLevels, ClientError> {
-        Ok(RoomPowerLevels::from(self.inner.reset_power_levels().await?))
+    pub async fn reset_power_levels(&self) -> Result<Arc<RoomPowerLevels>, ClientError> {
+        Ok(Arc::new(RoomPowerLevels::new(
+            self.inner.reset_power_levels().await?,
+            self.inner.own_user_id().to_owned(),
+        )))
     }
 
     pub async fn matrix_to_permalink(&self) -> Result<String, ClientError> {
@@ -1282,54 +1231,6 @@ pub fn matrix_to_room_alias_permalink(
 ) -> std::result::Result<String, ClientError> {
     let room_alias = RoomAliasId::parse(room_alias)?;
     Ok(room_alias.matrix_to_uri().to_string())
-}
-
-#[derive(uniffi::Record)]
-pub struct RoomPowerLevels {
-    /// The level required to ban a user.
-    pub ban: i64,
-    /// The level required to invite a user.
-    pub invite: i64,
-    /// The level required to kick a user.
-    pub kick: i64,
-    /// The level required to redact an event.
-    pub redact: i64,
-    /// The default level required to send message events.
-    pub events_default: i64,
-    /// The default level required to send state events.
-    pub state_default: i64,
-    /// The default power level for every user in the room.
-    pub users_default: i64,
-    /// The level required to change the room's name.
-    pub room_name: i64,
-    /// The level required to change the room's avatar.
-    pub room_avatar: i64,
-    /// The level required to change the room's topic.
-    pub room_topic: i64,
-}
-
-impl From<RumaPowerLevels> for RoomPowerLevels {
-    fn from(value: RumaPowerLevels) -> Self {
-        fn state_event_level_for(
-            power_levels: &RumaPowerLevels,
-            event_type: &TimelineEventType,
-        ) -> i64 {
-            let default_state: i64 = power_levels.state_default.into();
-            power_levels.events.get(event_type).map_or(default_state, |&level| level.into())
-        }
-        Self {
-            ban: value.ban.into(),
-            invite: value.invite.into(),
-            kick: value.kick.into(),
-            redact: value.redact.into(),
-            events_default: value.events_default.into(),
-            state_default: value.state_default.into(),
-            users_default: value.users_default.into(),
-            room_name: state_event_level_for(&value, &TimelineEventType::RoomName),
-            room_avatar: state_event_level_for(&value, &TimelineEventType::RoomAvatar),
-            room_topic: state_event_level_for(&value, &TimelineEventType::RoomTopic),
-        }
-    }
 }
 
 #[matrix_sdk_ffi_macros::export(callback_interface)]

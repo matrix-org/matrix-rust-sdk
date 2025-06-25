@@ -227,6 +227,7 @@ async fn test_notification_client_sliding_sync() {
                         ["m.room.canonical_alias", ""],
                         ["m.room.name", ""],
                         ["m.room.power_levels", ""],
+                        ["m.room.join_rules", ""],
                         ["org.matrix.msc3401.call.member", "*"],
                     ],
                     "filters": {
@@ -245,6 +246,7 @@ async fn test_notification_client_sliding_sync() {
                         ["m.room.canonical_alias", ""],
                         ["m.room.name", ""],
                         ["m.room.power_levels", ""],
+                        ["m.room.join_rules", ""],
                         ["org.matrix.msc3401.call.member", "*"],
                     ],
                     "timeline_limit": 16,

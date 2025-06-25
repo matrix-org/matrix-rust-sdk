@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::sync::Arc;
 
 use matrix_sdk::{EncryptionState, RoomState};
 use tracing::warn;
@@ -7,7 +7,9 @@ use crate::{
     client::JoinRule,
     error::ClientError,
     notification_settings::RoomNotificationMode,
-    room::{Membership, RoomHero, RoomHistoryVisibility, SuccessorRoom},
+    room::{
+        power_levels::RoomPowerLevels, Membership, RoomHero, RoomHistoryVisibility, SuccessorRoom,
+    },
     room_member::RoomMember,
 };
 
@@ -42,7 +44,6 @@ pub struct RoomInfo {
     active_members_count: u64,
     invited_members_count: u64,
     joined_members_count: u64,
-    user_power_levels: HashMap<String, i64>,
     highlight_count: u64,
     notification_count: u64,
     cached_user_defined_notification_mode: Option<RoomNotificationMode>,
@@ -65,17 +66,14 @@ pub struct RoomInfo {
     join_rule: Option<JoinRule>,
     /// The history visibility for this room, if known.
     history_visibility: RoomHistoryVisibility,
+    /// This room's current power levels.
+    power_levels: Arc<RoomPowerLevels>,
 }
 
 impl RoomInfo {
     pub(crate) async fn new(room: &matrix_sdk::Room) -> Result<Self, ClientError> {
         let unread_notification_counts = room.unread_notification_counts();
 
-        let power_levels_map = room.users_with_power_levels().await;
-        let mut user_power_levels = HashMap::<String, i64>::new();
-        for (id, level) in power_levels_map.iter() {
-            user_power_levels.insert(id.to_string(), *level);
-        }
         let pinned_event_ids =
             room.pinned_event_ids().unwrap_or_default().iter().map(|id| id.to_string()).collect();
 
@@ -83,6 +81,11 @@ impl RoomInfo {
         if let Err(e) = &join_rule {
             warn!("Failed to parse join rule: {e:?}");
         }
+
+        let power_levels = RoomPowerLevels::new(
+            room.power_levels().await.map_err(matrix_sdk::Error::from)?,
+            room.own_user_id().to_owned(),
+        );
 
         Ok(Self {
             id: room.room_id().to_string(),
@@ -116,7 +119,6 @@ impl RoomInfo {
             active_members_count: room.active_members_count(),
             invited_members_count: room.invited_members_count(),
             joined_members_count: room.joined_members_count(),
-            user_power_levels,
             highlight_count: unread_notification_counts.highlight_count,
             notification_count: unread_notification_counts.notification_count,
             cached_user_defined_notification_mode: room
@@ -135,6 +137,7 @@ impl RoomInfo {
             pinned_event_ids,
             join_rule: join_rule.ok(),
             history_visibility: room.history_visibility_or_default().try_into()?,
+            power_levels: Arc::new(power_levels),
         })
     }
 }

@@ -16,7 +16,6 @@ use std::{future, pin::pin, sync::Arc, time::Duration};
 
 use assert_matches::assert_matches;
 use assert_matches2::assert_let;
-use async_trait::async_trait;
 use futures_util::FutureExt;
 use matrix_sdk::{
     test_utils::mocks::{
@@ -67,20 +66,19 @@ type HandledDeviceEventMutex = Arc<Mutex<(Option<Raw<AnyToDeviceEvent>>, Option<
 const WIDGET_ID: &str = "test-widget";
 static ROOM_ID: Lazy<OwnedRoomId> = Lazy::new(|| owned_room_id!("!a98sd12bjh:example.org"));
 
+struct DummyCapabilitiesProvider;
+
+impl CapabilitiesProvider for DummyCapabilitiesProvider {
+    async fn acquire_capabilities(&self, capabilities: Capabilities) -> Capabilities {
+        // Grant all capabilities that the widget asks for
+        capabilities
+    }
+}
+
 async fn run_test_driver(
     init_on_content_load: bool,
     is_room_e2ee: bool,
 ) -> (Client, MatrixMockServer, WidgetDriverHandle) {
-    struct DummyCapabilitiesProvider;
-
-    #[cfg_attr(target_family = "wasm", async_trait(?Send))]
-    #[cfg_attr(not(target_family = "wasm"), async_trait)]
-    impl CapabilitiesProvider for DummyCapabilitiesProvider {
-        async fn acquire_capabilities(&self, capabilities: Capabilities) -> Capabilities {
-            // Grant all capabilities that the widget asks for
-            capabilities
-        }
-    }
     let mock_server = MatrixMockServer::new().await;
     let client = mock_server.client_builder().build().await;
 
@@ -109,16 +107,6 @@ async fn run_test_driver(
 async fn run_test_driver_e2e(
     init_on_content_load: bool,
 ) -> (Client, Client, MatrixMockServer, WidgetDriverHandle) {
-    struct DummyCapabilitiesProvider;
-
-    #[cfg_attr(target_family = "wasm", async_trait(?Send))]
-    #[cfg_attr(not(target_family = "wasm"), async_trait)]
-    impl CapabilitiesProvider for DummyCapabilitiesProvider {
-        async fn acquire_capabilities(&self, capabilities: Capabilities) -> Capabilities {
-            // Grant all capabilities that the widget asks for
-            capabilities
-        }
-    }
     let mock_server = MatrixMockServer::new().await;
     mock_server.mock_crypto_endpoints_preset().await;
     let (alice, bob) = mock_server.set_up_alice_and_bob_for_encryption().await;
@@ -654,10 +642,9 @@ async fn test_accept_encrypted_to_device_in_e2ee_room() {
     assert_eq!(data["type"], "my.custom.to.device");
     assert_eq!(data["content"]["call_id"], "");
     assert_eq!(data["sender"], "@bob:example.org");
-    // TODO: Currently the rust-sdk is exposing more than type/content/sender in
-    // the event this should be exposed to the widget but it should be fixed
-    // at the crypto crate level see https://github.com/matrix-org/matrix-rust-sdk/pull/5201
-    // assert_eq!(data.len(), 3);
+    // Only these 3 fields should be exposed to the widget (no
+    // `sender_device_keys`/`keys`/..)
+    assert_eq!(data.len(), 3);
 }
 
 /// Test that "internal" to-device messages are never forwarded to the widgets.

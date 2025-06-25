@@ -6,6 +6,13 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased] - ReleaseDate
 
+### Refactor
+
+- The cached `ServerCapabilities` has been renamed to `ServerInfo` and
+  additionally contains the well-known response alongside the existing server versions.
+  Despite the old name, it does not contain the server capabilities.
+  ([#5167](https://github.com/matrix-org/matrix-rust-sdk/pull/5167))
+
 ## [0.12.0] - 2025-06-10
 
 No notable changes in this release.

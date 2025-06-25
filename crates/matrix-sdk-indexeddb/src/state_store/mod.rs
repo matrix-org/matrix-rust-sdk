@@ -27,7 +27,7 @@ use matrix_sdk_base::{
     store::{
         ChildTransactionId, ComposerDraft, DependentQueuedRequest, DependentQueuedRequestKind,
         QueuedRequest, QueuedRequestKind, RoomLoadSettings, SentRequestKey,
-        SerializableEventContent, ServerCapabilities, StateChanges, StateStore, StoreError,
+        SerializableEventContent, ServerInfo, StateChanges, StateStore, StoreError,
     },
     MinimalRoomMemberEvent, RoomInfo, RoomMemberships, StateStoreDataKey, StateStoreDataValue,
 };
@@ -400,10 +400,9 @@ impl IndexeddbStateStore {
             StateStoreDataKey::SyncToken => {
                 self.encode_key(StateStoreDataKey::SYNC_TOKEN, StateStoreDataKey::SYNC_TOKEN)
             }
-            StateStoreDataKey::ServerCapabilities => self.encode_key(
-                StateStoreDataKey::SERVER_CAPABILITIES,
-                StateStoreDataKey::SERVER_CAPABILITIES,
-            ),
+            StateStoreDataKey::ServerInfo => {
+                self.encode_key(StateStoreDataKey::SERVER_INFO, StateStoreDataKey::SERVER_INFO)
+            }
             StateStoreDataKey::Filter(filter_name) => {
                 self.encode_key(StateStoreDataKey::FILTER, (StateStoreDataKey::FILTER, filter_name))
             }
@@ -537,10 +536,10 @@ impl_state_store!({
                 .map(|f| self.deserialize_value::<String>(&f))
                 .transpose()?
                 .map(StateStoreDataValue::SyncToken),
-            StateStoreDataKey::ServerCapabilities => value
-                .map(|f| self.deserialize_value::<ServerCapabilities>(&f))
+            StateStoreDataKey::ServerInfo => value
+                .map(|f| self.deserialize_value::<ServerInfo>(&f))
                 .transpose()?
-                .map(StateStoreDataValue::ServerCapabilities),
+                .map(StateStoreDataValue::ServerInfo),
             StateStoreDataKey::Filter(_) => value
                 .map(|f| self.deserialize_value::<String>(&f))
                 .transpose()?
@@ -580,10 +579,8 @@ impl_state_store!({
         let serialized_value = match key {
             StateStoreDataKey::SyncToken => self
                 .serialize_value(&value.into_sync_token().expect("Session data not a sync token")),
-            StateStoreDataKey::ServerCapabilities => self.serialize_value(
-                &value
-                    .into_server_capabilities()
-                    .expect("Session data not containing server capabilities"),
+            StateStoreDataKey::ServerInfo => self.serialize_value(
+                &value.into_server_info().expect("Session data not containing server info"),
             ),
             StateStoreDataKey::Filter(_) => {
                 self.serialize_value(&value.into_filter().expect("Session data not a filter"))

@@ -2,24 +2,26 @@ use std::{
     collections::HashMap,
     fmt::Debug,
     path::PathBuf,
-    sync::{Arc, OnceLock, RwLock},
+    sync::{Arc, OnceLock},
     time::Duration,
 };
 
 use anyhow::{anyhow, Context as _};
 use futures_util::pin_mut;
+#[cfg(not(target_family = "wasm"))]
+use matrix_sdk::media::MediaFileHandle as SdkMediaFileHandle;
 use matrix_sdk::{
     authentication::oauth::{
         AccountManagementActionFull, ClientId, OAuthAuthorizationData, OAuthSession,
     },
     event_cache::EventCacheError,
-    media::{
-        MediaFileHandle as SdkMediaFileHandle, MediaFormat, MediaRequestParameters,
-        MediaRetentionPolicy, MediaThumbnailSettings,
-    },
+    media::{MediaFormat, MediaRequestParameters, MediaRetentionPolicy, MediaThumbnailSettings},
     ruma::{
         api::client::{
-            discovery::get_authorization_server_metadata::msc2965::Prompt as RumaOidcPrompt,
+            discovery::{
+                discover_homeserver::RtcFocusInfo,
+                get_authorization_server_metadata::msc2965::Prompt as RumaOidcPrompt,
+            },
             push::{EmailPusherData, PusherIds, PusherInit, PusherKind as RumaPusherKind},
             room::{create_room, Visibility},
             session::get_login_types,
@@ -84,7 +86,10 @@ use tokio::sync::broadcast::error::RecvError;
 use tracing::{debug, error};
 use url::Url;
 
-use super::{room::Room, session_verification::SessionVerificationController};
+use super::{
+    room::{room_info::RoomInfo, Room},
+    session_verification::SessionVerificationController,
+};
 use crate::{
     authentication::{HomeserverLoginDetails, OidcConfiguration, OidcError, SsoError, SsoHandler},
     client,
@@ -93,7 +98,6 @@ use crate::{
     notification_settings::NotificationSettings,
     room::{RoomHistoryVisibility, RoomInfoListener},
     room_directory_search::RoomDirectorySearch,
-    room_info::RoomInfo,
     room_preview::RoomPreview,
     ruma::{
         AccountDataEvent, AccountDataEventType, AuthData, InviteAvatars, MediaPreviewConfig,
@@ -490,32 +494,6 @@ impl Client {
         Ok(())
     }
 
-    pub async fn get_media_file(
-        &self,
-        media_source: Arc<MediaSource>,
-        filename: Option<String>,
-        mime_type: String,
-        use_cache: bool,
-        temp_dir: Option<String>,
-    ) -> Result<Arc<MediaFileHandle>, ClientError> {
-        let source = (*media_source).clone();
-        let mime_type: mime::Mime = mime_type.parse()?;
-
-        let handle = self
-            .inner
-            .media()
-            .get_media_file(
-                &MediaRequestParameters { source: source.media_source, format: MediaFormat::File },
-                filename,
-                &mime_type,
-                use_cache,
-                temp_dir,
-            )
-            .await?;
-
-        Ok(Arc::new(MediaFileHandle::new(handle)))
-    }
-
     /// Restores the client from a `Session`.
     ///
     /// It reloads the entire set of rooms from the previous session.
@@ -725,11 +703,44 @@ impl Client {
 
     /// Empty the server version and unstable features cache.
     ///
-    /// Since the SDK caches server capabilities (versions and unstable
-    /// features), it's possible to have a stale entry in the cache. This
-    /// functions makes it possible to force reset it.
-    pub async fn reset_server_capabilities(&self) -> Result<(), ClientError> {
-        Ok(self.inner.reset_server_capabilities().await?)
+    /// Since the SDK caches server info (versions, unstable features,
+    /// well-known etc), it's possible to have a stale entry in the cache.
+    /// This functions makes it possible to force reset it.
+    pub async fn reset_server_info(&self) -> Result<(), ClientError> {
+        Ok(self.inner.reset_server_info().await?)
+    }
+}
+
+#[cfg(not(target_family = "wasm"))]
+#[matrix_sdk_ffi_macros::export]
+impl Client {
+    /// Retrieves a media file from the media source
+    ///
+    /// Not available on Wasm platforms, due to lack of accessible file system.
+    pub async fn get_media_file(
+        &self,
+        media_source: Arc<MediaSource>,
+        filename: Option<String>,
+        mime_type: String,
+        use_cache: bool,
+        temp_dir: Option<String>,
+    ) -> Result<Arc<MediaFileHandle>, ClientError> {
+        let source = (*media_source).clone();
+        let mime_type: mime::Mime = mime_type.parse()?;
+
+        let handle = self
+            .inner
+            .media()
+            .get_media_file(
+                &MediaRequestParameters { source: source.media_source, format: MediaFormat::File },
+                filename,
+                &mime_type,
+                use_cache,
+                temp_dir,
+            )
+            .await?;
+
+        Ok(Arc::new(MediaFileHandle::new(handle)))
     }
 }
 
@@ -1489,6 +1500,16 @@ impl Client {
         Ok(self.inner.server_versions().await?.contains(&ruma::api::MatrixVersion::V1_13))
     }
 
+    /// Checks if the server supports the LiveKit RTC focus for placing calls.
+    pub async fn is_livekit_rtc_supported(&self) -> Result<bool, ClientError> {
+        Ok(self
+            .inner
+            .rtc_foci()
+            .await?
+            .iter()
+            .any(|focus| matches!(focus, RtcFocusInfo::LiveKit(_))))
+    }
+
     /// Subscribe to changes in the media preview configuration.
     pub async fn subscribe_to_media_preview_config(
         &self,
@@ -2153,17 +2174,20 @@ fn gen_transaction_id() -> String {
 
 /// A file handle that takes ownership of a media file on disk. When the handle
 /// is dropped, the file will be removed from the disk.
+#[cfg(not(target_family = "wasm"))]
 #[derive(uniffi::Object)]
 pub struct MediaFileHandle {
-    inner: RwLock<Option<SdkMediaFileHandle>>,
+    inner: std::sync::RwLock<Option<SdkMediaFileHandle>>,
 }
 
+#[cfg(not(target_family = "wasm"))]
 impl MediaFileHandle {
     fn new(handle: SdkMediaFileHandle) -> Self {
-        Self { inner: RwLock::new(Some(handle)) }
+        Self { inner: std::sync::RwLock::new(Some(handle)) }
     }
 }
 
+#[cfg(not(target_family = "wasm"))]
 #[matrix_sdk_ffi_macros::export]
 impl MediaFileHandle {
     /// Get the media file's path.
