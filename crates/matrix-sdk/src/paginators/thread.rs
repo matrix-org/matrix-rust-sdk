@@ -12,28 +12,75 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{fmt::Formatter, sync::Mutex};
+//! Paginator facilities for a thread.
+//!
+//! See also the documentation for the [`ThreadedEventsLoader`] struct.
 
-use matrix_sdk::{
-    paginators::{PaginationResult, PaginationToken, PaginatorError},
-    room::{IncludeRelations, RelationsOptions},
-};
+use std::{fmt::Formatter, future::Future, sync::Mutex};
+
+use matrix_sdk_base::{deserialized_responses::TimelineEvent, SendOutsideWasm, SyncOutsideWasm};
 use ruma::{api::Direction, OwnedEventId, UInt};
 
-use super::traits::RoomDataProvider;
+use crate::{
+    paginators::{PaginationResult, PaginationToken, PaginatorError},
+    room::{IncludeRelations, Relations, RelationsOptions},
+    Error, Room,
+};
 
-pub struct ThreadedEventsLoader<P: RoomDataProvider> {
+/// A paginable thread interface, useful for testing purposes.
+pub trait PaginableThread: SendOutsideWasm + SyncOutsideWasm {
+    /// Runs a /relations query for the given thread, with the given options.
+    fn relations(
+        &self,
+        thread_root: OwnedEventId,
+        opts: RelationsOptions,
+    ) -> impl Future<Output = Result<Relations, Error>> + SendOutsideWasm;
+
+    /// Load an event, given its event ID.
+    fn load_event(
+        &self,
+        event_id: &OwnedEventId,
+    ) -> impl Future<Output = Result<TimelineEvent, Error>> + SendOutsideWasm;
+}
+
+impl PaginableThread for Room {
+    async fn relations(
+        &self,
+        thread_root: OwnedEventId,
+        opts: RelationsOptions,
+    ) -> Result<Relations, Error> {
+        self.relations(thread_root, opts).await
+    }
+
+    async fn load_event(&self, event_id: &OwnedEventId) -> Result<TimelineEvent, Error> {
+        self.event(event_id, None).await
+    }
+}
+
+/// A paginator for a thread of events.
+pub struct ThreadedEventsLoader<P: PaginableThread> {
+    /// Room provider for the paginated thread.
     room: P,
+
+    /// The thread root event ID (the event that started the thread).
     root_event_id: OwnedEventId,
+
+    /// The current pagination token, which is used to keep track of the
+    /// pagination state.
     token: Mutex<PaginationToken>,
 }
 
-impl<P: RoomDataProvider> ThreadedEventsLoader<P> {
-    /// Create a new [`Paginator`], given a room implementation.
+impl<P: PaginableThread> ThreadedEventsLoader<P> {
+    /// Create a new [`ThreadedEventsLoader`], given a room implementation.
     pub fn new(room: P, root_event_id: OwnedEventId) -> Self {
         Self { room, root_event_id, token: Mutex::new(None.into()) }
     }
 
+    /// Run a single pagination backwards, returning the next set of events and
+    /// information whether we've reached the start of the thread.
+    ///
+    /// Note: when the thread start is reached, the root event *will* be
+    /// included in the result.
     pub async fn paginate_backwards(
         &self,
         num_events: UInt,
@@ -80,10 +127,9 @@ impl<P: RoomDataProvider> ThreadedEventsLoader<P> {
         if hit_end_of_timeline {
             let root_event = self
                 .room
-                .load_event_with_relations(&self.root_event_id, None, None)
+                .load_event(&self.root_event_id)
                 .await
-                .map_err(|err| PaginatorError::SdkError(Box::new(err)))?
-                .0;
+                .map_err(|err| PaginatorError::SdkError(Box::new(err)))?;
 
             result.chunk.push(root_event);
         }
@@ -93,7 +139,7 @@ impl<P: RoomDataProvider> ThreadedEventsLoader<P> {
 }
 
 #[cfg(not(tarpaulin_include))]
-impl<P: RoomDataProvider> std::fmt::Debug for ThreadedEventsLoader<P> {
+impl<P: PaginableThread> std::fmt::Debug for ThreadedEventsLoader<P> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ThreadedEventsLoader").finish()
     }
