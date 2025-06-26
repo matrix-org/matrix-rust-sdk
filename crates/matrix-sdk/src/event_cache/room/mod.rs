@@ -1562,7 +1562,6 @@ mod private {
         async fn post_process_new_events(
             &mut self,
             events: Vec<Event>,
-            is_live_sync: bool,
         ) -> Result<(), EventCacheError> {
             // Update the store before doing the post-processing.
             self.propagate_changes().await?;
@@ -1582,7 +1581,7 @@ mod private {
                 }
             }
 
-            self.update_threads(is_live_sync, new_events_by_thread).await?;
+            self.update_threads(new_events_by_thread).await?;
 
             Ok(())
         }
@@ -1597,7 +1596,6 @@ mod private {
         #[instrument(skip_all)]
         async fn update_threads(
             &mut self,
-            is_live_sync: bool,
             new_events_by_thread: HashMap<OwnedEventId, Vec<Event>>,
         ) -> Result<(), EventCacheError> {
             for (thread_root, new_events) in new_events_by_thread {
@@ -1608,6 +1606,22 @@ mod private {
                     trace!("thread root event is missing from the linked chunk");
                     return Ok(());
                 };
+
+                let prev_summary = target_event.thread_summary.summary();
+                let mut latest_reply =
+                    prev_summary.as_ref().and_then(|summary| summary.latest_reply.clone());
+
+                let thread_cache = self.get_or_reload_thread(thread_root.clone());
+
+                thread_cache.add_live_events(new_events);
+
+                let last_event_id = thread_cache
+                    .chunk
+                    .revents()
+                    .next()
+                    .and_then(|(_pos, ev)| ev.event_id().to_owned());
+
+                // Recompute the thread summary, if needs be.
 
                 // Read the latest number of thread replies from the store.
                 //
@@ -1627,30 +1641,8 @@ mod private {
                     related_thread_events.len().try_into().unwrap_or(u32::MAX)
                 };
 
-                let prev_summary = target_event.thread_summary.summary();
-                let mut latest_reply =
-                    prev_summary.as_ref().and_then(|summary| summary.latest_reply.clone());
-
-                // If we're live-syncing, then the latest event is always the event we're
-                // currently processing. We're processing the sync events from oldest to newest,
-                // so a a single sync response containing multiple thread events
-                // will correctly override the latest event to the most recent one.
-                //
-                // If we're back-paginating, then we shouldn't update the latest event
-                // information if it's set. If it's not set, then we should update
-                // it to the last event in the batch. TODO(bnjbvr): the code is
-                // wrong here in this particular case, because a single pagination
-                // batch may include multiple events in the same thread, and they're
-                // processed from oldest to newest; so the first in-thread event seen in that
-                // batch will be marked as the latest reply, which is incorrect.
-                // This will be fixed Later™ by using a proper linked chunk per
-                // thread.
-
-                if let Some(last_event) = new_events.last() {
-                    // TODO(bnjbvr): use the chunk's latest event!
-                    if is_live_sync || latest_reply.is_none() {
-                        latest_reply = last_event.event_id();
-                    }
+                if let Some(last_event_id) = last_event_id {
+                    latest_reply = Some(last_event_id);
                 }
 
                 let new_summary = ThreadSummary { num_replies, latest_reply };
@@ -1659,8 +1651,6 @@ mod private {
                     trace!("thread summary is already up-to-date");
                     return Ok(());
                 }
-
-                self.get_or_reload_thread(thread_root).add_live_events(new_events);
 
                 // Cause an update to observers.
                 target_event.thread_summary = ThreadSummaryStatus::Some(new_summary);
@@ -1886,7 +1876,7 @@ mod private {
 
             self.events.push_events(events.clone());
 
-            self.post_process_new_events(events, true).await?;
+            self.post_process_new_events(events).await?;
 
             if timeline.limited && prev_batch.is_some() {
                 // If there was a previous batch token for a limited timeline, unload the chunks
@@ -2005,7 +1995,7 @@ mod private {
                 }
             }
 
-            self.post_process_new_events(reversed_events, false).await?;
+            self.post_process_new_events(reversed_events).await?;
 
             // There could be an inconsistency between the network (which thinks we hit the
             // start of the timeline) and the disk (which has the initial empty
