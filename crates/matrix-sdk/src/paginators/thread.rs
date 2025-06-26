@@ -71,7 +71,7 @@ pub struct ThreadedEventsLoader<P: PaginableThread> {
 }
 
 impl<P: PaginableThread> ThreadedEventsLoader<P> {
-    /// Create a new [`Paginator`], given a room implementation.
+    /// Create a new [`ThreadedEventsLoader`], given a room implementation.
     pub fn new(room: P, root_event_id: OwnedEventId) -> Self {
         Self { room, root_event_id, token: Mutex::new(None.into()) }
     }
