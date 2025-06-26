@@ -21,7 +21,7 @@ use matrix_sdk_base::{
     event_cache::store::EventCacheStoreLock,
     linked_chunk::{LinkedChunkId, Position},
 };
-use ruma::{OwnedEventId, RoomId};
+use ruma::OwnedEventId;
 
 use super::{
     room::events::{Event, RoomEvents},
@@ -32,7 +32,7 @@ use super::{
 /// valid events (those with an event id) as well as the event ids of
 /// duplicate events along with their position.
 pub async fn filter_duplicate_events(
-    room_id: &RoomId,
+    linked_chunk_id: LinkedChunkId<'_>,
     store: &EventCacheStoreLock,
     mut events: Vec<Event>,
     room_events: &RoomEvents,
@@ -66,7 +66,7 @@ pub async fn filter_duplicate_events(
     // Let the store do its magic ✨
     let duplicated_event_ids = store
         .filter_duplicated_events(
-            LinkedChunkId::Room(room_id),
+            linked_chunk_id,
             events.iter().filter_map(|event| event.event_id()).collect(),
         )
         .await?;
@@ -241,7 +241,7 @@ mod tests {
             room_events.push_events([event_1.clone(), event_2.clone(), event_3.clone()]);
 
             let outcome = filter_duplicate_events(
-                room_id,
+                LinkedChunkId::Room(room_id),
                 &event_cache_store,
                 vec![event_0.clone(), event_1.clone(), event_2.clone(), event_3.clone()],
                 &room_events,
@@ -256,7 +256,7 @@ mod tests {
         room_events.push_events([event_2.clone(), event_3.clone()]);
 
         let outcome = filter_duplicate_events(
-            room_id,
+            LinkedChunkId::Room(room_id),
             &event_cache_store,
             vec![event_0, event_1, event_2, event_3, event_4],
             &room_events,
@@ -369,7 +369,7 @@ mod tests {
             in_store_duplicated_event_ids,
             non_empty_all_duplicates,
         } = filter_duplicate_events(
-            room_id,
+            LinkedChunkId::Room(room_id),
             &event_cache_store,
             vec![ev1, ev2, ev3, ev4],
             &room_events,
