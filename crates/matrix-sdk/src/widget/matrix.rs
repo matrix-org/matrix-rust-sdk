@@ -445,11 +445,20 @@ impl MatrixDriver {
                 // If the user wants to send to all devices, there's nothing to filter and no
                 // need to inspect other entries in the user's device list.nd in the
                 // store?
-                user_devices.devices().collect()
+                let devices: Vec<_> = user_devices.devices().collect();
                 // TODO: What to do if the user has no devices?
+                if devices.is_empty() {
+                    warn!("Recipient list contains `AllDevices` but no devices found for user {user_id}.")
+                }
                 // TODO: What if the `recipient_device_ids` has both
                 // `AllDevices` and other devices but one of the
-                // other devices is not fou
+                // other devices is not found
+                if recipient_device_ids.len() > 1 {
+                    warn!(
+                        "The recipient_device_ids list for {user_id} contains both `AllDevices` and explicit `DeviceId` entries. Only consider `AllDevices`",
+                    );
+                }
+                devices
             } else {
                 // If the user wants to send to only some devices, filter out any devices that
                 // aren't part of the recipient_device_ids list.
