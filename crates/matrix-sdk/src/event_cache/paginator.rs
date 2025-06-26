@@ -25,7 +25,7 @@ use ruma::{api::Direction, EventId, OwnedEventId, UInt};
 
 use super::pagination::PaginationToken;
 use crate::{
-    room::{EventWithContextResponse, Messages, MessagesOptions, WeakRoom},
+    room::{EventWithContextResponse, Messages, MessagesOptions},
     Room,
 };
 
@@ -450,31 +450,6 @@ impl PaginableRoom for Room {
 
     async fn messages(&self, opts: MessagesOptions) -> Result<Messages, PaginatorError> {
         self.messages(opts).await.map_err(|err| PaginatorError::SdkError(Box::new(err)))
-    }
-}
-
-impl PaginableRoom for WeakRoom {
-    async fn event_with_context(
-        &self,
-        event_id: &EventId,
-        lazy_load_members: bool,
-        num_events: UInt,
-    ) -> Result<EventWithContextResponse, PaginatorError> {
-        let Some(room) = self.get() else {
-            // Client is shutting down, return a default response.
-            return Ok(EventWithContextResponse::default());
-        };
-
-        PaginableRoom::event_with_context(&room, event_id, lazy_load_members, num_events).await
-    }
-
-    async fn messages(&self, opts: MessagesOptions) -> Result<Messages, PaginatorError> {
-        let Some(room) = self.get() else {
-            // Client is shutting down, return a default response.
-            return Ok(Messages::default());
-        };
-
-        PaginableRoom::messages(&room, opts).await
     }
 }
 
