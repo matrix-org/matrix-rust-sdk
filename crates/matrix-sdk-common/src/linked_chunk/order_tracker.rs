@@ -14,12 +14,28 @@
 
 use std::sync::{Arc, RwLock};
 
+use eyeball_im::VectorDiff;
+
 use super::{
     updates::{ReaderToken, Update, UpdatesInner},
     Position,
 };
 use crate::linked_chunk::{ChunkMetadata, UpdateToVectorDiff};
 
+/// A tracker for the order of items in a linked chunk.
+///
+/// This can be used to determine the absolute ordering of an item, and thus the
+/// relative ordering of two items in a linked chunk, in an
+/// efficient manner, thanks to [`OrderTracker::ordering`]. Internally, it
+/// keeps track of the relative ordering of the chunks themselves; given a
+/// [`Position`] in a linked chunk, the item ordering is the lexicographic
+/// ordering of the chunk in the linked chunk, and the internal position within
+/// the chunk. For the sake of ease, we return the absolute vector index of the
+/// item in the linked chunk.
+///
+/// It requires the full links' metadata to be provided at creation time, so
+/// that it can also give an order for an item that's not loaded yet, in the
+/// context of lazy-loading.
 #[derive(Debug)]
 pub struct OrderTracker<Item, Gap> {
     /// Strong reference to [`UpdatesInner`].
@@ -47,9 +63,11 @@ impl<Item> super::UpdatesAccumulator<Item> for NullAccumulator<Item> {
     fn new(_num_updates_hint: usize) -> Self {
         Self { _phantom: std::marker::PhantomData }
     }
+}
 
-    fn fold(&mut self, _updates: impl IntoIterator<Item = eyeball_im::VectorDiff<Item>>) {
-        // Nothing to do, this is a no-op accumulator.
+impl<Item> Extend<VectorDiff<Item>> for NullAccumulator<Item> {
+    fn extend<T: IntoIterator<Item = VectorDiff<Item>>>(&mut self, _iter: T) {
+        // This is a no-op, as we don't want to accumulate anything.
     }
 }
 
@@ -57,12 +75,16 @@ impl<Item, Gap> OrderTracker<Item, Gap>
 where
     Item: Clone,
 {
-    /// Create a new [`AsOrdering`].
+    /// Create a new [`OrderTracker`].
     ///
-    /// `all_chunks_iterator` is the iterator of all [`Chunk`](super::Chunk)s,
-    /// used to set up its internal state. Note this must include *all* the
-    /// chunks that have ever been known, even in the presence of
-    /// lazy-loading.
+    /// The `all_chunks_metadata` parameter must include the metadata for *all*
+    /// chunks (the full collection, even if the linked chunk is
+    /// lazy-loaded).
+    ///
+    /// They must be ordered by their links in the linked chunk, i.e. the first
+    /// chunk in the vector is the first chunk in the linked chunk, the
+    /// second in the vector is the first's next chunk, and so on. If that
+    /// precondition doesn't hold, then the ordering of items will be undefined.
     pub(super) fn new(
         updates: Arc<RwLock<UpdatesInner<Item, Gap>>>,
         token: ReaderToken,
@@ -79,8 +101,10 @@ where
 
     /// Force flushing of the updates manually.
     ///
-    /// If `inhibit` is `true`, the updates are ignored; otherwise, they are
-    /// consumed normally.
+    /// If `inhibit` is `true` (which is useful in the case of lazy-loading
+    /// related updates, which shouldn't affect the canonical, persisted
+    /// linked chunk), the updates are ignored; otherwise, they are consumed
+    /// normally.
     pub fn flush_updates(&mut self, inhibit: bool) {
         if inhibit {
             // Ignore the updates.

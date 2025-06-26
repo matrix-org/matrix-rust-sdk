@@ -296,6 +296,7 @@ impl<Item, Gap> UpdatesInner<Item, Gap> {
 
     /// Has the given reader, identified by its [`ReaderToken`], some pending
     /// updates, or has it consumed all the pending updates?
+    #[cfg(debug_assertions)]
     pub(super) fn is_reader_up_to_date(&self, token: ReaderToken) -> bool {
         *self.last_index_per_reader.get(&token).expect("unknown reader token") == self.updates.len()
     }
