@@ -1526,11 +1526,22 @@ impl Client {
         alias: &RoomOrAliasId,
         server_names: &[OwnedServerName],
     ) -> Result<Room> {
+        let pre_join_info = {
+            match alias.try_into() {
+                Ok(room_id) => self.prepare_join_room_by_id(room_id).await,
+                Err(_) => {
+                    // The id is a room alias. We assume (possibly incorrectly?) that we are not
+                    // responding to an invitation to the room, and therefore don't need to handle
+                    // things that happen as a result of invites.
+                    None
+                }
+            }
+        };
         let request = assign!(join_room_by_id_or_alias::v3::Request::new(alias.to_owned()), {
             via: server_names.to_owned(),
         });
         let response = self.send(request).await?;
-        self.finish_join_room(&response.room_id, None).await
+        self.finish_join_room(&response.room_id, pre_join_info).await
     }
 
     /// Search the homeserver's directory of public rooms.
