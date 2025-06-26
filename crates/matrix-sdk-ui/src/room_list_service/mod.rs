@@ -82,6 +82,8 @@ const DEFAULT_REQUIRED_STATE: &[(StateEventType, &str)] = &[
     (StateEventType::RoomMember, "$LAZY"),
     (StateEventType::RoomMember, "$ME"),
     (StateEventType::RoomTopic, ""),
+    // Temporary workaround for https://github.com/matrix-org/matrix-rust-sdk/issues/5285
+    (StateEventType::RoomAvatar, ""),
     (StateEventType::RoomCanonicalAlias, ""),
     (StateEventType::RoomPowerLevels, ""),
     (StateEventType::CallMember, "*"),

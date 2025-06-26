@@ -31,6 +31,11 @@ All notable changes to this project will be documented in this file.
   is missing for a given room.
   ([#5278](https://github.com/matrix-org/matrix-rust-sdk/pull/5278))
 
+### Bug fixes
+
+- `m.room.avatar` has been added as required state for sliding sync until [the existing backend issue](https://github.com/element-hq/synapse/issues/18598) 
+causing deleted room avatars to not be flagged is fixed. ([#5293](https://github.com/matrix-org/matrix-rust-sdk/pull/5293))
+
 ## [0.12.0] - 2025-06-10
 
 ### Features
