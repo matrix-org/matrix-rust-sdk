@@ -708,14 +708,20 @@ mod private {
             }
 
             // At this point, `current` is the identifier of the first chunk.
+            //
             // Reorder the resulting vector, by going through the chain of `next` links, and
             // swapping items into their final position.
+            //
+            // Invariant in this loop: all items in [0..i[ are in their final, correct
+            // position.
             let mut current = current.identifier;
             for i in 0..all_chunks.len() {
                 // Find the target metadata.
                 let j = all_chunks
                     .iter()
+                    .rev()
                     .position(|meta| meta.identifier == current)
+                    .map(|j| all_chunks.len() - 1 - j)
                     .expect("the target chunk must be present in the metadata");
                 if i != j {
                     all_chunks.swap(i, j);
