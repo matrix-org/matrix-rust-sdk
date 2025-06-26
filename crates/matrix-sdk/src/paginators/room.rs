@@ -21,35 +21,13 @@ use std::{future::Future, sync::Mutex};
 
 use eyeball::{SharedObservable, Subscriber};
 use matrix_sdk_base::{deserialized_responses::TimelineEvent, SendOutsideWasm, SyncOutsideWasm};
-use ruma::{api::Direction, EventId, OwnedEventId, UInt};
+use ruma::{api::Direction, EventId, UInt};
 
 use crate::{
+    paginators::{PaginationResult, PaginationToken, PaginatorError},
     room::{EventWithContextResponse, Messages, MessagesOptions},
     Room,
 };
-
-/// Pagination token data, indicating in which state is the current pagination.
-#[derive(Clone, Debug, PartialEq)]
-pub enum PaginationToken {
-    /// We never had a pagination token, so we'll start back-paginating from the
-    /// end, or forward-paginating from the start.
-    None,
-    /// We paginated once before, and we received a prev/next batch token that
-    /// we may reuse for the next query.
-    HasMore(String),
-    /// We've hit one end of the timeline (either the start or the actual end),
-    /// so there's no need to continue paginating.
-    HitEnd,
-}
-
-impl From<Option<String>> for PaginationToken {
-    fn from(token: Option<String>) -> Self {
-        match token {
-            Some(val) => Self::HasMore(val),
-            None => Self::None,
-        }
-    }
-}
 
 /// Current state of a [`Paginator`].
 #[derive(Debug, PartialEq, Copy, Clone)]
@@ -67,27 +45,6 @@ pub enum PaginatorState {
 
     /// The paginator is… paginating one direction or another.
     Paginating,
-}
-
-/// An error that happened when using a [`Paginator`].
-#[derive(Debug, thiserror::Error)]
-pub enum PaginatorError {
-    /// The target event could not be found.
-    #[error("target event with id {0} could not be found")]
-    EventNotFound(OwnedEventId),
-
-    /// We're trying to manipulate the paginator in the wrong state.
-    #[error("expected paginator state {expected:?}, observed {actual:?}")]
-    InvalidPreviousState {
-        /// The state we were expecting to see.
-        expected: PaginatorState,
-        /// The actual state when doing the check.
-        actual: PaginatorState,
-    },
-
-    /// There was another SDK error while paginating.
-    #[error("an error happened while paginating: {0}")]
-    SdkError(#[from] Box<crate::Error>),
 }
 
 /// Paginations tokens used for backward and forward pagination.
@@ -125,29 +82,6 @@ impl<PR: PaginableRoom> std::fmt::Debug for Paginator<PR> {
             .field("tokens", &self.tokens)
             .finish_non_exhaustive()
     }
-}
-
-/// The result of a single pagination, be it from
-/// [`Paginator::paginate_backward`] or [`Paginator::paginate_forward`].
-#[derive(Debug)]
-pub struct PaginationResult {
-    /// Events returned during this pagination.
-    ///
-    /// If this is the result of a backward pagination, then the events are in
-    /// reverse topological order.
-    ///
-    /// If this is the result of a forward pagination, then the events are in
-    /// topological order.
-    pub events: Vec<TimelineEvent>,
-
-    /// Did we hit *an* end of the timeline?
-    ///
-    /// If this is the result of a backward pagination, this means we hit the
-    /// *start* of the timeline.
-    ///
-    /// If this is the result of a forward pagination, this means we hit the
-    /// *end* of the timeline.
-    pub hit_end_of_timeline: bool,
 }
 
 /// The result of an initial [`Paginator::start_from`] query.
