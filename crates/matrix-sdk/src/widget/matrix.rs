@@ -15,7 +15,7 @@
 //! Matrix driver implementation that exposes Matrix functionality
 //! that is relevant for the widget API.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use as_variant::as_variant;
 use matrix_sdk_base::deserialized_responses::{EncryptionInfo, RawAnySyncOrStrippedState};
@@ -436,36 +436,50 @@ impl MatrixDriver {
         let client = self.room.client();
         let mut recipient_devices = Vec::<Device>::new();
 
-        for (user_id, device_id_or_alias) in user_to_list_of_device_id_or_all {
+        for (user_id, recipient_device_ids) in user_to_list_of_device_id_or_all {
             let user_devices = client.encryption().get_user_devices(&user_id).await?;
 
-            if device_id_or_alias.contains(&DeviceIdOrAllDevices::AllDevices) {
-                recipient_devices.extend(user_devices.devices());
+            let user_devices: Vec<Device> = if recipient_device_ids
+                .contains(&DeviceIdOrAllDevices::AllDevices)
+            {
+                // If the user wants to send to all devices, there's nothing to filter and no
+                // need to inspect other entries in the user's device list.nd in the
+                // store?
+                user_devices.devices().collect()
+                // TODO: What to do if the user has no devices?
+                // TODO: What if the `recipient_device_ids` has both
+                // `AllDevices` and other devices but one of the
+                // other devices is not fou
             } else {
-                recipient_devices.extend(user_devices.devices().filter(|d| {
-                    device_id_or_alias
-                        .contains(&DeviceIdOrAllDevices::DeviceId(d.device_id().to_owned()))
-                }));
+                // If the user wants to send to only some devices, filter out any devices that
+                // aren't part of the recipient_device_ids list.
+                let filtered_devices = user_devices
+                    .devices()
+                    .map(|device| (device.device_id().to_owned(), device))
+                    .filter(|(device_id, _)| {
+                        recipient_device_ids
+                            .contains(&DeviceIdOrAllDevices::DeviceId(device_id.clone()))
+                    });
 
-                let missing_devices = device_id_or_alias
-                    .iter()
-                    .filter_map(|d| {
-                        as_variant!(d, DeviceIdOrAllDevices::DeviceId)
-                            .map(|device_id| device_id.to_owned())
-                    })
-                    .filter(|device_id| user_devices.get(device_id).is_none())
-                    .collect::<Vec<_>>();
+                let (found_device_ids, devices): (BTreeSet<_>, Vec<_>) = filtered_devices.unzip();
 
+                let list_of_devices: BTreeSet<_> = recipient_device_ids
+                    .into_iter()
+                    .filter_map(|d| as_variant!(d, DeviceIdOrAllDevices::DeviceId))
+                    .collect();
+
+                // Let's now find any devices that are part of the recipient_device_ids list but
+                // were not found in our store.
+                let missing_devices: Vec<_> =
+                    list_of_devices.difference(&found_device_ids).map(|d| d.to_owned()).collect();
                 if !missing_devices.is_empty() {
-                    failures.entry(user_id).or_default().extend(missing_devices);
+                    failures.insert(user_id, missing_devices);
                 }
-            }
-        }
+                devices
+            };
 
-        // The user-provided list of devices may contain duplicates, ensure no
-        // duplicates are sent.
-        recipient_devices
-            .dedup_by(|da, db| da.user_id().eq(db.user_id()) && da.device_id().eq(db.device_id()));
+            recipient_devices.extend(user_devices);
+        }
 
         if !recipient_devices.is_empty() {
             // need to group by content
