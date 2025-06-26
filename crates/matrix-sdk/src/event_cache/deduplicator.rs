@@ -92,10 +92,17 @@ pub async fn filter_duplicate_events(
         (in_memory, in_store)
     };
 
+    let at_least_one_event = !events.is_empty();
+    let all_duplicates = (in_memory_duplicated_event_ids.len()
+        + in_store_duplicated_event_ids.len())
+        == events.len();
+    let non_empty_all_duplicates = at_least_one_event && all_duplicates;
+
     Ok(DeduplicationOutcome {
         all_events: events,
         in_memory_duplicated_event_ids,
         in_store_duplicated_event_ids,
+        non_empty_all_duplicates,
     })
 }
 
@@ -121,11 +128,37 @@ pub(super) struct DeduplicationOutcome {
     /// Events are sorted by their position, from the newest to the oldest
     /// (position is descending).
     pub in_store_duplicated_event_ids: Vec<(OwnedEventId, Position)>,
+
+    /// Whether there's at least one new event, and all new events are
+    /// duplicate.
+    ///
+    /// This boolean is useful to know whether we need to store a
+    /// previous-batch token (gap) we received from a server-side
+    /// request (sync or back-pagination), or if we should
+    /// *not* store it.
+    ///
+    /// Since there can be empty back-paginations with a previous-batch
+    /// token (that is, they don't contain any events), we need to
+    /// make sure that there is *at least* one new event that has
+    /// been added. Otherwise, we might conclude something wrong
+    /// because a subsequent back-pagination might
+    /// return non-duplicated events.
+    ///
+    /// If we had already seen all the duplicated events that we're trying
+    /// to add, then it would be wasteful to store a previous-batch
+    /// token, or even touch the linked chunk: we would repeat
+    /// back-paginations for events that we have already seen, and
+    /// possibly misplace them. And we should not be missing
+    /// events either: the already-known events would have their own
+    /// previous-batch token (it might already be consumed).
+    pub non_empty_all_duplicates: bool,
 }
 
 #[cfg(test)]
 #[cfg(not(target_family = "wasm"))] // These tests uses the cross-process lock, so need time support.
 mod tests {
+    use std::ops::Not as _;
+
     use matrix_sdk_base::{deserialized_responses::TimelineEvent, linked_chunk::ChunkIdentifier};
     use matrix_sdk_test::{async_test, event_factory::EventFactory};
     use ruma::{owned_event_id, serde::Raw, user_id, EventId};
@@ -199,6 +232,26 @@ mod tests {
 
         let event_cache_store = EventCacheStoreLock::new(event_cache_store, "hodor".to_owned());
 
+        {
+            // When presenting with only duplicate events, some of them in the in-memory
+            // chunk, all of them in the store, we should return all of them as
+            // duplicates.
+
+            let mut room_events = RoomEvents::new();
+            room_events.push_events([event_1.clone(), event_2.clone(), event_3.clone()]);
+
+            let outcome = filter_duplicate_events(
+                room_id,
+                &event_cache_store,
+                vec![event_0.clone(), event_1.clone(), event_2.clone(), event_3.clone()],
+                &room_events,
+            )
+            .await
+            .unwrap();
+
+            assert!(outcome.non_empty_all_duplicates);
+        }
+
         let mut room_events = RoomEvents::new();
         room_events.push_events([event_2.clone(), event_3.clone()]);
 
@@ -210,6 +263,8 @@ mod tests {
         )
         .await
         .unwrap();
+
+        assert!(outcome.non_empty_all_duplicates.not());
 
         // The deduplication says 5 events are valid.
         assert_eq!(outcome.all_events.len(), 5);
@@ -307,10 +362,12 @@ mod tests {
         let event_cache_store = EventCacheStoreLock::new(event_cache_store, "hodor".to_owned());
 
         let room_events = RoomEvents::new();
+
         let DeduplicationOutcome {
             all_events: events,
             in_memory_duplicated_event_ids,
             in_store_duplicated_event_ids,
+            non_empty_all_duplicates,
         } = filter_duplicate_events(
             room_id,
             &event_cache_store,
@@ -319,6 +376,8 @@ mod tests {
         )
         .await
         .unwrap();
+
+        assert!(non_empty_all_duplicates.not());
 
         assert_eq!(events.len(), 3);
         assert_eq!(events[0].event_id().as_deref(), Some(eid1));
