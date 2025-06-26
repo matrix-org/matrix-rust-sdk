@@ -146,11 +146,7 @@ pub enum TimelineFocus {
     },
 
     /// Focus on a specific thread
-    Thread {
-        root_event_id: OwnedEventId,
-        /// Number of initial events to load on the first /relations request.
-        num_events: u16,
-    },
+    Thread { root_event_id: OwnedEventId },
 
     /// Only show pinned events.
     PinnedEvents { max_events_to_load: u16, max_concurrent_requests: u16 },
@@ -777,6 +773,7 @@ impl Timeline {
 struct TimelineDropHandle {
     room_update_join_handle: JoinHandle<()>,
     pinned_events_join_handle: Option<JoinHandle<()>>,
+    thread_update_join_handle: Option<JoinHandle<()>>,
     local_echo_listener_handle: JoinHandle<()>,
     _event_cache_drop_handle: Arc<EventCacheDropHandles>,
     _crypto_drop_handles: CryptoDropHandles,
@@ -785,7 +782,11 @@ struct TimelineDropHandle {
 impl Drop for TimelineDropHandle {
     fn drop(&mut self) {
         if let Some(handle) = self.pinned_events_join_handle.take() {
-            handle.abort()
+            handle.abort();
+        }
+
+        if let Some(handle) = self.thread_update_join_handle.take() {
+            handle.abort();
         }
 
         self.local_echo_listener_handle.abort();

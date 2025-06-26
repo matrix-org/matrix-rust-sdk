@@ -3174,6 +3174,12 @@ impl<'a> MockEndpoint<'a, ReceiptEndpoint> {
     pub fn body_matches_partial_json(self, body: Value) -> Self {
         Self { mock: self.mock.and(body_partial_json(body)), ..self }
     }
+
+    /// Ensures that the body of the request is the exact provided `body`
+    /// parameter.
+    pub fn body_json(self, body: Value) -> Self {
+        Self { mock: self.mock.and(body_json(body)), ..self }
+    }
 }
 
 /// A prebuilt mock for `POST /rooms/{roomId}/read_markers` request.
