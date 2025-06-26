@@ -1432,10 +1432,7 @@ impl Client {
 
     /// Prepare to join a room by ID, by getting the current details about it
     async fn prepare_join_room_by_id(&self, room_id: &RoomId) -> Option<PreJoinRoomInfo> {
-        let Some(room) = self.get_room(room_id) else {
-            // We know nothing about this room.
-            return None;
-        };
+        let room = self.get_room(room_id)?;
 
         let inviter = match room.invite_details().await {
             Ok(details) => details.inviter,
@@ -2786,7 +2783,7 @@ impl<Value> CachedValue<Value> {
 /// Information about the state of a room before we joined it.
 #[derive(Debug, Clone, Default)]
 struct PreJoinRoomInfo {
-    /// The user that invited us to the room, if any
+    /// The user who invited us to the room, if any.
     pub inviter: Option<RoomMember>,
 }
 
