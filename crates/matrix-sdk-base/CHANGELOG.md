@@ -12,6 +12,9 @@ All notable changes to this project will be documented in this file.
   additionally contains the well-known response alongside the existing server versions.
   Despite the old name, it does not contain the server capabilities.
   ([#5167](https://github.com/matrix-org/matrix-rust-sdk/pull/5167))
+- `Room::join_rule` and `Room::is_public` now return an `Option` to reflect that the join rule
+  state event might be missing, in which case they will return `None`.
+  ([#5278](https://github.com/matrix-org/matrix-rust-sdk/pull/5278))
 
 ## [0.12.0] - 2025-06-10
 

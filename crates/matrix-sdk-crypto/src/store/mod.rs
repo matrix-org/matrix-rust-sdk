@@ -60,6 +60,7 @@ use thiserror::Error;
 use tokio::sync::{Mutex, Notify, OwnedRwLockWriteGuard, RwLock};
 use tokio_stream::wrappers::errors::BroadcastStreamRecvError;
 use tracing::{error, info, instrument, trace, warn};
+use types::RoomKeyBundleInfo;
 use vodozemac::{megolm::SessionOrdering, Curve25519PublicKey};
 
 use self::types::{
@@ -1311,6 +1312,52 @@ impl Store {
     /// ```
     pub fn secrets_stream(&self) -> impl Stream<Item = GossippedSecret> {
         self.inner.store.secrets_stream()
+    }
+
+    /// Receive notifications of historic room key bundles as a [`Stream`].
+    ///
+    /// Historic room key bundles are defined in [MSC4268](https://github.com/matrix-org/matrix-spec-proposals/pull/4268).
+    ///
+    /// Each time a historic room key bundle was received, an update will be
+    /// sent to the stream. This stream can be used to accept historic room key
+    /// bundles that arrive out of order, i.e. the bundle arrives after the
+    /// user has already accepted a room invitation.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # use matrix_sdk_crypto::{
+    /// #    OlmMachine,
+    /// #    store::types::StoredRoomKeyBundleData,
+    /// #    types::room_history::RoomKeyBundle
+    /// # };
+    /// # use ruma::{device_id, user_id};
+    /// # use futures_util::{pin_mut, StreamExt};
+    /// # let alice = user_id!("@alice:example.org").to_owned();
+    /// # async {
+    /// # let machine = OlmMachine::new(&alice, device_id!("DEVICEID")).await;
+    /// let bundle_stream = machine.store().historic_room_key_stream();
+    /// pin_mut!(bundle_stream);
+    ///
+    /// while let Some(bundle_info) = bundle_stream.next().await {
+    ///     // Try to find the bundle content in the store and if it's valid accept it.
+    ///     if let Some(bundle_content) = machine.store().get_received_room_key_bundle_data(&bundle_info.room_id, &bundle_info.sender).await? {
+    ///         let StoredRoomKeyBundleData { sender_user, sender_data, bundle_data } = bundle_content;
+    ///         // Download the bundle now and import it.
+    ///         let bundle: RoomKeyBundle = todo!("Download the bundle");
+    ///         machine.store().receive_room_key_bundle(
+    ///             &bundle_info.room_id,
+    ///             &sender_user,
+    ///             &sender_data,
+    ///             bundle,
+    ///             |_, _| {},
+    ///         ).await?;
+    ///     }
+    /// }
+    /// # anyhow::Ok(()) };
+    /// ```
+    pub fn historic_room_key_stream(&self) -> impl Stream<Item = RoomKeyBundleInfo> {
+        self.inner.store.historic_room_key_stream()
     }
 
     /// Import the given room keys into the store.

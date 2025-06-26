@@ -26,7 +26,11 @@ pub struct RoomInfo {
     topic: Option<String>,
     avatar_url: Option<String>,
     is_direct: bool,
-    is_public: bool,
+    /// Whether the room is public or not, based on the join rules.
+    ///
+    /// Can be `None` if the join rules state event is not available for this
+    /// room.
+    is_public: Option<bool>,
     is_space: bool,
     /// If present, it means the room has been archived/upgraded.
     successor_room: Option<SuccessorRoom>,
@@ -67,7 +71,9 @@ pub struct RoomInfo {
     /// The history visibility for this room, if known.
     history_visibility: RoomHistoryVisibility,
     /// This room's current power levels.
-    power_levels: Arc<RoomPowerLevels>,
+    ///
+    /// Can be missing if the room power levels event is missing from the store.
+    power_levels: Option<Arc<RoomPowerLevels>>,
 }
 
 impl RoomInfo {
@@ -77,15 +83,21 @@ impl RoomInfo {
         let pinned_event_ids =
             room.pinned_event_ids().unwrap_or_default().iter().map(|id| id.to_string()).collect();
 
-        let join_rule = room.join_rule().try_into();
-        if let Err(e) = &join_rule {
-            warn!("Failed to parse join rule: {e:?}");
-        }
+        let join_rule = room
+            .join_rule()
+            .map(TryInto::try_into)
+            .transpose()
+            .inspect_err(|err| {
+                warn!("Failed to parse join rule: {err}");
+            })
+            .ok()
+            .flatten();
 
-        let power_levels = RoomPowerLevels::new(
-            room.power_levels().await.map_err(matrix_sdk::Error::from)?,
-            room.own_user_id().to_owned(),
-        );
+        let power_levels = room
+            .power_levels()
+            .await
+            .ok()
+            .map(|p| RoomPowerLevels::new(p, room.own_user_id().to_owned()));
 
         Ok(Self {
             id: room.room_id().to_string(),
@@ -135,9 +147,9 @@ impl RoomInfo {
             num_unread_notifications: room.num_unread_notifications(),
             num_unread_mentions: room.num_unread_mentions(),
             pinned_event_ids,
-            join_rule: join_rule.ok(),
+            join_rule,
             history_visibility: room.history_visibility_or_default().try_into()?,
-            power_levels: Arc::new(power_levels),
+            power_levels: power_levels.map(Arc::new),
         })
     }
 }

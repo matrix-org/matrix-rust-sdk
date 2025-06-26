@@ -599,50 +599,6 @@ mod private {
             })
         }
 
-        /// Deduplicate `events` considering all events in `Self::events`.
-        ///
-        /// The returned tuple contains:
-        /// - all events (duplicated or not) with an ID
-        /// - all the duplicated event IDs with their position,
-        /// - a boolean indicating all events (at least one) are duplicates.
-        ///
-        /// This last boolean is useful to know whether we need to store a
-        /// previous-batch token (gap) we received from a server-side
-        /// request (sync or back-pagination), or if we should
-        /// *not* store it.
-        ///
-        /// Since there can be empty back-paginations with a previous-batch
-        /// token (that is, they don't contain any events), we need to
-        /// make sure that there is *at least* one new event that has
-        /// been added. Otherwise, we might conclude something wrong
-        /// because a subsequent back-pagination might
-        /// return non-duplicated events.
-        ///
-        /// If we had already seen all the duplicated events that we're trying
-        /// to add, then it would be wasteful to store a previous-batch
-        /// token, or even touch the linked chunk: we would repeat
-        /// back-paginations for events that we have already seen, and
-        /// possibly misplace them. And we should not be missing
-        /// events either: the already-known events would have their own
-        /// previous-batch token (it might already be consumed).
-        async fn collect_valid_and_duplicated_events(
-            &mut self,
-            events: Vec<Event>,
-        ) -> Result<(DeduplicationOutcome, bool), EventCacheError> {
-            let deduplication_outcome =
-                filter_duplicate_events(&self.room, &self.store, events, &self.events).await?;
-
-            let number_of_events = deduplication_outcome.all_events.len();
-            let number_of_deduplicated_events =
-                deduplication_outcome.in_memory_duplicated_event_ids.len()
-                    + deduplication_outcome.in_store_duplicated_event_ids.len();
-
-            let all_duplicates =
-                number_of_events > 0 && number_of_events == number_of_deduplicated_events;
-
-            Ok((deduplication_outcome, all_duplicates))
-        }
-
         /// Given a fully-loaded linked chunk with no gaps, return the
         /// [`LoadMoreEventsBackwardsOutcome`] expected for this room's cache.
         fn conclude_load_more_for_fully_loaded_chunk(&mut self) -> LoadMoreEventsBackwardsOutcome {
@@ -1330,14 +1286,18 @@ mod private {
         ) -> Result<(bool, Vec<VectorDiff<Event>>), EventCacheError> {
             let mut prev_batch = timeline.prev_batch.take();
 
-            let (
-                DeduplicationOutcome {
-                    all_events: events,
-                    in_memory_duplicated_event_ids,
-                    in_store_duplicated_event_ids,
-                },
-                all_duplicates,
-            ) = self.collect_valid_and_duplicated_events(timeline.events).await?;
+            let DeduplicationOutcome {
+                all_events: events,
+                in_memory_duplicated_event_ids,
+                in_store_duplicated_event_ids,
+                non_empty_all_duplicates: all_duplicates,
+            } = filter_duplicate_events(
+                LinkedChunkId::Room(self.room.as_ref()),
+                &self.store,
+                timeline.events,
+                &self.events,
+            )
+            .await?;
 
             // If the timeline isn't limited, and we already knew about some past events,
             // then this definitely knows what the timeline head is (either we know
@@ -1422,14 +1382,18 @@ mod private {
             // the timeline.
             let network_reached_start = new_gap.is_none();
 
-            let (
-                DeduplicationOutcome {
-                    all_events: mut events,
-                    in_memory_duplicated_event_ids,
-                    in_store_duplicated_event_ids,
-                },
-                all_duplicates,
-            ) = self.collect_valid_and_duplicated_events(events).await?;
+            let DeduplicationOutcome {
+                all_events: mut events,
+                in_memory_duplicated_event_ids,
+                in_store_duplicated_event_ids,
+                non_empty_all_duplicates: all_duplicates,
+            } = filter_duplicate_events(
+                LinkedChunkId::Room(self.room.as_ref()),
+                &self.store,
+                events,
+                &self.events,
+            )
+            .await?;
 
             // If not all the events have been back-paginated, we need to remove the
             // previous ones, otherwise we can end up with misordered events.

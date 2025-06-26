@@ -12,7 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Types foo TODO: Add some docs
+//! Data types for persistent storage.
+//!
+//! This module defines the data structures used by the crypto store to
+//! represent objects that are persisted in the database.
 
 use std::{
     collections::{BTreeMap, HashMap},
@@ -474,4 +477,27 @@ pub struct RoomKeyWithheldInfo {
     /// The `m.room_key.withheld` event that notified us that the key is being
     /// withheld.
     pub withheld_event: RoomKeyWithheldEvent,
+}
+
+/// Information about a received historic room key bundle.
+///
+/// This struct contains information needed to uniquely identify a room key
+/// bundle. Only a single bundle per sender for a given room is persisted at a
+/// time.
+///
+/// It is used to notify listeners about received room key bundles.
+#[derive(Debug, Clone)]
+pub struct RoomKeyBundleInfo {
+    /// The user ID of the person that sent us the historic room key bundle.
+    pub sender: OwnedUserId,
+
+    /// The ID of the room the bundle should be used in.
+    pub room_id: OwnedRoomId,
+}
+
+impl From<&StoredRoomKeyBundleData> for RoomKeyBundleInfo {
+    fn from(value: &StoredRoomKeyBundleData) -> Self {
+        let StoredRoomKeyBundleData { sender_user, sender_data: _, bundle_data } = value;
+        Self { sender: sender_user.clone(), room_id: bundle_data.room_id.clone() }
+    }
 }

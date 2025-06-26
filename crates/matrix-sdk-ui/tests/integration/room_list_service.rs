@@ -360,6 +360,7 @@ async fn test_sync_all_states() -> Result<(), Error> {
                         ["m.room.member", "$LAZY"],
                         ["m.room.member", "$ME"],
                         ["m.room.topic", ""],
+                        ["m.room.avatar", ""],
                         ["m.room.canonical_alias", ""],
                         ["m.room.power_levels", ""],
                         ["org.matrix.msc3401.call.member", "*"],
@@ -1292,19 +1293,21 @@ async fn test_loading_states() -> Result<(), Error> {
             RoomListLoadingState::Loaded { maximum_number_of_rooms: Some(12) }
         );
 
+        // The sync skips the `Init` state, and immediately starts in the `SettingUp`
+        // state, as the sync `pos`ition marker was set.
         sync_then_assert_request_and_fake_response! {
             [server, room_list, sync]
-            states = Init => SettingUp,
+            states = SettingUp => Running,
             assert request >= {
                 "lists": {
                     ALL_ROOMS: {
-                        "ranges": [[0, 19]],
+                        "ranges": [[0, 11]],
                         "timeline_limit": 1,
                     },
                 },
             },
             respond with = {
-                "pos": "0",
+                "pos": "3",
                 "lists": {
                     ALL_ROOMS: {
                         "count": 13, // 1 more room
@@ -2263,6 +2266,7 @@ async fn test_room_subscription() -> Result<(), Error> {
                         ["m.room.member", "$LAZY"],
                         ["m.room.member", "$ME"],
                         ["m.room.topic", ""],
+                        ["m.room.avatar", ""],
                         ["m.room.canonical_alias", ""],
                         ["m.room.power_levels", ""],
                         ["org.matrix.msc3401.call.member", "*"],
@@ -2305,6 +2309,7 @@ async fn test_room_subscription() -> Result<(), Error> {
                         ["m.room.member", "$LAZY"],
                         ["m.room.member", "$ME"],
                         ["m.room.topic", ""],
+                        ["m.room.avatar", ""],
                         ["m.room.canonical_alias", ""],
                         ["m.room.power_levels", ""],
                         ["org.matrix.msc3401.call.member", "*"],

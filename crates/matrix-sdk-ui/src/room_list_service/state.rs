@@ -107,8 +107,8 @@ impl StateMachine {
         self.state.subscribe()
     }
 
-    /// Transition to the next state, and execute the associated transition's
-    /// [`Actions`].
+    /// Transition to the next state, and execute the necessary transition on
+    /// the sliding sync list.
     pub(super) async fn next(&self, sliding_sync: &SlidingSync) -> Result<State, Error> {
         use State::*;
 
