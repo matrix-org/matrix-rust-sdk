@@ -154,7 +154,7 @@ impl RoomView {
         let r = room.clone();
         let task = spawn(async move {
             let timeline = TimelineBuilder::new(&r)
-                .with_focus(TimelineFocus::Thread { root_event_id: root.clone(), num_events: 2 })
+                .with_focus(TimelineFocus::Thread { root_event_id: root.clone() })
                 .build()
                 .await
                 .unwrap();

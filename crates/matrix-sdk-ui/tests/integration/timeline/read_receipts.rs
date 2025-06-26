@@ -20,9 +20,7 @@ use eyeball_im::VectorDiff;
 use futures_util::StreamExt;
 use matrix_sdk::{
     room::Receipts,
-    test_utils::mocks::{
-        MatrixMockServer, RoomMessagesResponseTemplate, RoomRelationsResponseTemplate,
-    },
+    test_utils::mocks::{MatrixMockServer, RoomMessagesResponseTemplate},
 };
 use matrix_sdk_test::{
     async_test, event_factory::EventFactory, JoinedRoomBuilder, RoomAccountDataTestEvent, ALICE,
@@ -744,32 +742,9 @@ async fn test_send_single_receipt_threaded() {
     // body `thread_id` parameter value or no value at all for fully read
     // markers.
 
-    server
-        .mock_room_event()
-        .match_event_id()
-        .ok(EventFactory::new()
-            .text_msg("Thread root")
-            .sender(user_id!("@alice:b.c"))
-            .event_id(thread_root_event_id)
-            .into())
-        .mock_once()
-        .mount()
-        .await;
-
-    server
-        .mock_room_relations()
-        .match_target_event(thread_root_event_id.to_owned())
-        .ok(RoomRelationsResponseTemplate::default())
-        .mock_once()
-        .mount()
-        .await;
-
     let timeline = room
         .timeline_builder()
-        .with_focus(TimelineFocus::Thread {
-            root_event_id: thread_root_event_id.to_owned(),
-            num_events: 1,
-        })
+        .with_focus(TimelineFocus::Thread { root_event_id: thread_root_event_id.to_owned() })
         .build()
         .await
         .unwrap();
@@ -799,7 +774,7 @@ async fn test_send_single_receipt_threaded() {
             .await,
         server
             .mock_send_receipt(CreateReceiptType::FullyRead)
-            .body_matches_partial_json(json!({}))
+            .body_json(json!({}))
             .ok()
             .expect(1)
             .named("Fully-read marker")
