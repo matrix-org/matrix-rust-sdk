@@ -21,8 +21,8 @@ use matrix_sdk::crypto::{DecryptionSettings, RoomEventDecryptionResult, TrustReq
 use matrix_sdk::{
     crypto::types::events::CryptoContextInfo,
     deserialized_responses::{EncryptionInfo, TimelineEvent},
-    paginators::PaginableRoom,
-    room::{PushContext, Relations, RelationsOptions},
+    paginators::{thread::PaginableThread, PaginableRoom},
+    room::PushContext,
     AsyncTraitDeps, Result, Room, SendOutsideWasm,
 };
 use matrix_sdk_base::{latest_event::LatestEvent, RoomInfo};
@@ -87,7 +87,7 @@ impl RoomExt for Room {
 }
 
 pub(super) trait RoomDataProvider:
-    Clone + PaginableRoom + PinnedEventsRoom + 'static
+    Clone + PaginableRoom + PaginableThread + PinnedEventsRoom + 'static
 {
     fn own_user_id(&self) -> &UserId;
     fn room_version(&self) -> RoomVersionId;
@@ -143,8 +143,6 @@ pub(super) trait RoomDataProvider:
         session_id: &str,
         sender: &UserId,
     ) -> impl Future<Output = Option<Arc<EncryptionInfo>>> + SendOutsideWasm;
-
-    async fn relations(&self, event_id: OwnedEventId, opts: RelationsOptions) -> Result<Relations>;
 
     /// Loads an event from the cache or network.
     fn load_event<'a>(
@@ -295,10 +293,6 @@ impl RoomDataProvider for Room {
     ) -> Option<Arc<EncryptionInfo>> {
         // Pass directly on to `Room::get_encryption_info`
         self.get_encryption_info(session_id, sender).await
-    }
-
-    async fn relations(&self, event_id: OwnedEventId, opts: RelationsOptions) -> Result<Relations> {
-        self.relations(event_id, opts).await
     }
 
     async fn load_event<'a>(&'a self, event_id: &'a EventId) -> Result<TimelineEvent> {

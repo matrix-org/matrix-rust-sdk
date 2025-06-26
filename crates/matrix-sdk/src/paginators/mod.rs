@@ -15,5 +15,6 @@
 //! Stateful paginators to help with paginated APIs.
 
 mod room;
+pub mod thread;
 
 pub use room::*;
