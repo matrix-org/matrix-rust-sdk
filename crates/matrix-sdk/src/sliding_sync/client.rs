@@ -198,16 +198,9 @@ impl SlidingSyncResponseProcessor {
             .await?;
         handle_receipts_extension(&self.client, response, &mut sync_response).await?;
 
+        update_in_memory_caches(&self.client, &sync_response).await?;
+
         self.response = Some(sync_response);
-        self.post_process().await
-    }
-
-    async fn post_process(&mut self) -> Result<()> {
-        // This is an internal API misuse if this is triggered (calling
-        // `handle_room_response` after this function), so panic is fine.
-        let response = self.response.as_ref().unwrap();
-
-        update_in_memory_caches(&self.client, response).await?;
 
         Ok(())
     }
