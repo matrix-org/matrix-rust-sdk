@@ -30,7 +30,7 @@ use matrix_sdk::{
     config::RequestConfig,
     crypto::OlmMachine,
     deserialized_responses::{EncryptionInfo, TimelineEvent},
-    event_cache::paginator::{PaginableRoom, PaginatorError},
+    paginators::{PaginableRoom, PaginatorError},
     room::{EventWithContextResponse, Messages, MessagesOptions, PushContext, Relations},
     send_queue::RoomSendQueueUpdate,
     BoxFuture,
@@ -309,7 +309,7 @@ impl PinnedEventsRoom for TestRoomDataProvider {
         _event_id: &'a EventId,
         _request_config: Option<RequestConfig>,
         _related_event_filters: Option<Vec<RelationType>>,
-    ) -> BoxFuture<'a, Result<(TimelineEvent, Vec<TimelineEvent>), PaginatorError>> {
+    ) -> BoxFuture<'a, Result<(TimelineEvent, Vec<TimelineEvent>), matrix_sdk::Error>> {
         unimplemented!();
     }
 

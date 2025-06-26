@@ -276,11 +276,10 @@ impl RoomPagination {
             let mut options = MessagesOptions::new(Direction::Backward).from(prev_token.as_deref());
             options.limit = batch_size.into();
 
-            let response = room.messages(options).await.map_err(|err| {
-                EventCacheError::BackpaginationError(
-                    crate::event_cache::paginator::PaginatorError::SdkError(Box::new(err)),
-                )
-            })?;
+            let response = room
+                .messages(options)
+                .await
+                .map_err(|err| EventCacheError::BackpaginationError(Box::new(err)))?;
 
             let new_gap = response.end.map(|prev_token| Gap { prev_token });
 
@@ -330,28 +329,5 @@ impl RoomPagination {
     /// back-pagination integrated to the event cache.
     pub fn status(&self) -> Subscriber<RoomPaginationStatus> {
         self.inner.pagination_status.subscribe()
-    }
-}
-
-/// Pagination token data, indicating in which state is the current pagination.
-#[derive(Clone, Debug, PartialEq)]
-pub enum PaginationToken {
-    /// We never had a pagination token, so we'll start back-paginating from the
-    /// end, or forward-paginating from the start.
-    None,
-    /// We paginated once before, and we received a prev/next batch token that
-    /// we may reuse for the next query.
-    HasMore(String),
-    /// We've hit one end of the timeline (either the start or the actual end),
-    /// so there's no need to continue paginating.
-    HitEnd,
-}
-
-impl From<Option<String>> for PaginationToken {
-    fn from(token: Option<String>) -> Self {
-        match token {
-            Some(val) => Self::HasMore(val),
-            None => Self::None,
-        }
     }
 }

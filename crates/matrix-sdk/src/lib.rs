@@ -47,6 +47,7 @@ pub mod event_handler;
 mod http_client;
 pub mod media;
 pub mod notification_settings;
+pub mod paginators;
 pub mod pusher;
 pub mod room;
 pub mod room_directory_search;

@@ -23,11 +23,33 @@ use eyeball::{SharedObservable, Subscriber};
 use matrix_sdk_base::{deserialized_responses::TimelineEvent, SendOutsideWasm, SyncOutsideWasm};
 use ruma::{api::Direction, EventId, OwnedEventId, UInt};
 
-use super::pagination::PaginationToken;
 use crate::{
     room::{EventWithContextResponse, Messages, MessagesOptions},
     Room,
 };
+
+/// Pagination token data, indicating in which state is the current pagination.
+#[derive(Clone, Debug, PartialEq)]
+pub enum PaginationToken {
+    /// We never had a pagination token, so we'll start back-paginating from the
+    /// end, or forward-paginating from the start.
+    None,
+    /// We paginated once before, and we received a prev/next batch token that
+    /// we may reuse for the next query.
+    HasMore(String),
+    /// We've hit one end of the timeline (either the start or the actual end),
+    /// so there's no need to continue paginating.
+    HitEnd,
+}
+
+impl From<Option<String>> for PaginationToken {
+    fn from(token: Option<String>) -> Self {
+        match token {
+            Some(val) => Self::HasMore(val),
+            None => Self::None,
+        }
+    }
+}
 
 /// Current state of a [`Paginator`].
 #[derive(Debug, PartialEq, Copy, Clone)]
@@ -472,7 +494,7 @@ mod tests {
 
     use super::{PaginableRoom, PaginatorError, PaginatorState};
     use crate::{
-        event_cache::paginator::Paginator,
+        paginators::Paginator,
         room::{EventWithContextResponse, Messages, MessagesOptions},
         test_utils::assert_event_matches_msg,
     };
@@ -974,7 +996,7 @@ mod tests {
 
     mod aborts {
         use super::*;
-        use crate::event_cache::{paginator::PaginationTokens, PaginationToken};
+        use crate::paginators::room::{PaginationToken, PaginationTokens};
 
         #[derive(Clone, Default)]
         struct AbortingRoom {
