@@ -225,7 +225,7 @@ impl RoomEvents {
         self.chunks.items()
     }
 
-    /// Return the order of an event in the room (main) linked chunk.
+    /// Return the order of an event in the room linked chunk.
     ///
     /// Can return `None` if the event can't be found in the linked chunk.
     pub fn event_order(&self, event_pos: Position) -> Option<usize> {

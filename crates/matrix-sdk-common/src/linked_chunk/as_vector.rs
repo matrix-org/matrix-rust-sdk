@@ -86,13 +86,10 @@ impl<Item, Gap> AsVector<Item, Gap> {
 
 /// Interface for a type accumulating updates from [`UpdateToVectorDiff::map`],
 /// and being returned as a result of this.
-pub(super) trait UpdatesAccumulator<Item> {
+pub(super) trait UpdatesAccumulator<Item>: Extend<VectorDiff<Item>> {
     /// Create a new accumulator with a rough estimation of the number of
     /// updates this accumulator is going to receive.
     fn new(num_updates_hint: usize) -> Self;
-
-    /// Fold the accumulator with the given new updates.
-    fn fold(&mut self, updates: impl IntoIterator<Item = VectorDiff<Item>>);
 }
 
 // Simple implementation for a `Vec<VectorDiff<Item>>` collection for
@@ -100,10 +97,6 @@ pub(super) trait UpdatesAccumulator<Item> {
 impl<Item> UpdatesAccumulator<Item> for Vec<VectorDiff<Item>> {
     fn new(num_updates_hint: usize) -> Vec<VectorDiff<Item>> {
         Vec::with_capacity(num_updates_hint)
-    }
-
-    fn fold(&mut self, updates: impl IntoIterator<Item = VectorDiff<Item>>) {
-        self.extend(updates)
     }
 }
 
@@ -375,7 +368,7 @@ impl<Item, Acc: UpdatesAccumulator<Item>> UpdateToVectorDiff<Item, Acc> {
                         .expect("Removing an index out of the bounds");
 
                     // Removing at the same index because each `Remove` shifts items to the left.
-                    acc.fold(repeat_n(VectorDiff::Remove { index: offset }, number_of_items));
+                    acc.extend(repeat_n(VectorDiff::Remove { index: offset }, number_of_items));
                 }
 
                 Update::PushItems { at: position, items } => {
@@ -395,13 +388,12 @@ impl<Item, Acc: UpdatesAccumulator<Item>> UpdateToVectorDiff<Item, Acc> {
 
                     // Optimisation: we can emit a `VectorDiff::Append` in this particular case.
                     if is_pushing_back && !detaching {
-                        acc.fold([VectorDiff::Append { values: items.into() }]);
+                        acc.extend([VectorDiff::Append { values: items.into() }]);
                     }
                     // No optimisation: let's emit `VectorDiff::Insert`.
                     else {
-                        acc.fold(items.iter().enumerate().map(|(nth, item)| VectorDiff::Insert {
-                            index: offset + nth,
-                            value: item.clone(),
+                        acc.extend(items.iter().enumerate().map(|(nth, item)| {
+                            VectorDiff::Insert { index: offset + nth, value: item.clone() }
                         }));
                     }
                 }
@@ -411,7 +403,7 @@ impl<Item, Acc: UpdatesAccumulator<Item>> UpdateToVectorDiff<Item, Acc> {
 
                     // The chunk length doesn't change.
 
-                    acc.fold([VectorDiff::Set { index: offset, value: item.clone() }]);
+                    acc.extend([VectorDiff::Set { index: offset, value: item.clone() }]);
                 }
 
                 Update::RemoveItem { at: position } => {
@@ -426,7 +418,7 @@ impl<Item, Acc: UpdatesAccumulator<Item>> UpdateToVectorDiff<Item, Acc> {
                     }
 
                     // Let's emit a `VectorDiff::Remove`.
-                    acc.fold([VectorDiff::Remove { index: offset }]);
+                    acc.extend([VectorDiff::Remove { index: offset }]);
                 }
 
                 Update::DetachLastItems { at: position } => {
@@ -469,7 +461,7 @@ impl<Item, Acc: UpdatesAccumulator<Item>> UpdateToVectorDiff<Item, Acc> {
                     self.chunks.clear();
 
                     // Let's straightforwardly emit a `VectorDiff::Clear`.
-                    acc.fold([VectorDiff::Clear]);
+                    acc.extend([VectorDiff::Clear]);
                 }
             }
         }
