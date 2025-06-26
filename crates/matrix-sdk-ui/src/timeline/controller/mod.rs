@@ -24,10 +24,8 @@ use imbl::Vector;
 use matrix_sdk::{crypto::OlmMachine, SendOutsideWasm};
 use matrix_sdk::{
     deserialized_responses::TimelineEvent,
-    event_cache::{
-        paginator::{PaginationResult, Paginator},
-        RoomEventCache, RoomPaginationStatus,
-    },
+    event_cache::{RoomEventCache, RoomPaginationStatus},
+    paginators::{PaginationResult, Paginator},
     send_queue::{
         LocalEcho, LocalEchoContent, RoomSendQueueUpdate, SendHandle, SendReactionHandle,
     },
