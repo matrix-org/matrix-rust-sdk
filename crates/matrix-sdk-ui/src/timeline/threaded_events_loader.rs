@@ -15,10 +15,7 @@
 use std::{fmt::Formatter, sync::Mutex};
 
 use matrix_sdk::{
-    event_cache::{
-        paginator::{PaginationResult, PaginatorError},
-        PaginationToken,
-    },
+    paginators::{PaginationResult, PaginationToken, PaginatorError},
     room::{IncludeRelations, RelationsOptions},
 };
 use ruma::{api::Direction, OwnedEventId, UInt};
@@ -81,8 +78,12 @@ impl<P: RoomDataProvider> ThreadedEventsLoader<P> {
 
         // Finally insert the thread root if at the end of the timeline going backwards
         if hit_end_of_timeline {
-            let root_event =
-                self.room.load_event_with_relations(&self.root_event_id, None, None).await?.0;
+            let root_event = self
+                .room
+                .load_event_with_relations(&self.root_event_id, None, None)
+                .await
+                .map_err(|err| PaginatorError::SdkError(Box::new(err)))?
+                .0;
 
             result.chunk.push(root_event);
         }

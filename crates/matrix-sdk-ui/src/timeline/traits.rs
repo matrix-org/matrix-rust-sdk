@@ -21,7 +21,7 @@ use matrix_sdk::crypto::{DecryptionSettings, RoomEventDecryptionResult, TrustReq
 use matrix_sdk::{
     crypto::types::events::CryptoContextInfo,
     deserialized_responses::{EncryptionInfo, TimelineEvent},
-    event_cache::paginator::PaginableRoom,
+    paginators::PaginableRoom,
     room::{PushContext, Relations, RelationsOptions},
     AsyncTraitDeps, Result, Room, SendOutsideWasm,
 };
