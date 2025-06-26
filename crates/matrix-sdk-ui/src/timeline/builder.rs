@@ -17,6 +17,7 @@ use std::{
     sync::Arc,
 };
 
+use as_variant::as_variant;
 use futures_core::Stream;
 use futures_util::{pin_mut, StreamExt};
 use matrix_sdk::{
@@ -222,6 +223,81 @@ impl TimelineBuilder {
             .instrument(span)
         });
 
+        let thread_update_join_handle = if let Some(root) =
+            as_variant!(&focus, TimelineFocus::Thread { root_event_id } => root_event_id.clone() )
+        {
+            Some(spawn({
+                let span = info_span!(
+                    parent: Span::none(),
+                    "thread_live_update_handler",
+                    room_id = ?room.room_id(),
+                    focus = focus.debug_string(),
+                    prefix = internal_id_prefix
+                );
+                span.follows_from(Span::current());
+
+                let (_events, mut receiver) =
+                    room_event_cache.subscribe_to_thread(root.clone()).await;
+
+                let room_event_cache = room_event_cache.clone();
+                let timeline_controller = controller.clone();
+
+                async move {
+                    trace!("Spawned the thread event subscriber task.");
+
+                    loop {
+                        trace!("Waiting for an event.");
+
+                        let diffs = match receiver.recv().await {
+                            Ok(up) => up,
+                            Err(RecvError::Closed) => break,
+                            Err(RecvError::Lagged(num_skipped)) => {
+                                warn!(
+                                    num_skipped,
+                                    "Lagged behind event cache updates, resetting timeline"
+                                );
+
+                                // The updates might have lagged, but the room event cache might
+                                // have events, so retrieve them and add them back again to the
+                                // timeline, after clearing it.
+                                let initial_events =
+                                    room_event_cache.thread_events(root.clone()).await;
+
+                                timeline_controller
+                                    .replace_with_initial_remote_events(
+                                        initial_events.into_iter(),
+                                        RemoteEventOrigin::Cache,
+                                    )
+                                    .await;
+
+                                continue;
+                            }
+                        };
+
+                        trace!("Received new timeline events diffs");
+                        //let origin = match origin {
+                        //EventsOrigin::Sync => RemoteEventOrigin::Sync,
+                        //EventsOrigin::Pagination => RemoteEventOrigin::Pagination,
+                        //EventsOrigin::Cache => RemoteEventOrigin::Cache,
+                        //};
+                        // TODO(bnjbvr): temporary
+                        let origin = RemoteEventOrigin::Sync;
+
+                        let has_diffs = !diffs.is_empty();
+
+                        timeline_controller.handle_remote_events_with_diffs(diffs, origin).await;
+
+                        if has_diffs && matches!(origin, RemoteEventOrigin::Cache) {
+                            timeline_controller.retry_event_decryption(None).await;
+                        }
+                    }
+                }
+                .instrument(span)
+            }))
+        } else {
+            None
+        };
+
         let local_echo_listener_handle = {
             let timeline_controller = controller.clone();
             let (local_echoes, send_queue_stream) = room.send_queue().subscribe().await?;
@@ -292,6 +368,7 @@ impl TimelineBuilder {
                 client,
                 event_handler_handles: event_handlers,
                 room_update_join_handle,
+                thread_update_join_handle,
                 pinned_events_join_handle,
                 room_key_from_backups_join_handle,
                 room_key_backup_enabled_join_handle,
@@ -402,10 +479,7 @@ async fn room_event_cache_updates_task(
 
                 let has_diffs = !diffs.is_empty();
 
-                if matches!(
-                    timeline_focus,
-                    TimelineFocus::Live { .. } | TimelineFocus::Thread { .. }
-                ) {
+                if matches!(timeline_focus, TimelineFocus::Live { .. }) {
                     timeline_controller.handle_remote_events_with_diffs(diffs, origin).await;
                 } else {
                     // Only handle the remote aggregation for a non-live timeline.

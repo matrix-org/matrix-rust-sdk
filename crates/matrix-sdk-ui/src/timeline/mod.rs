@@ -146,11 +146,7 @@ pub enum TimelineFocus {
     },
 
     /// Focus on a specific thread
-    Thread {
-        root_event_id: OwnedEventId,
-        /// Number of initial events to load on the first /relations request.
-        num_events: u16,
-    },
+    Thread { root_event_id: OwnedEventId },
 
     /// Only show pinned events.
     PinnedEvents { max_events_to_load: u16, max_concurrent_requests: u16 },
@@ -775,6 +771,7 @@ struct TimelineDropHandle {
     event_handler_handles: Vec<EventHandlerHandle>,
     room_update_join_handle: JoinHandle<()>,
     pinned_events_join_handle: Option<JoinHandle<()>>,
+    thread_update_join_handle: Option<JoinHandle<()>>,
     room_key_from_backups_join_handle: JoinHandle<()>,
     room_keys_received_join_handle: JoinHandle<()>,
     room_key_backup_enabled_join_handle: JoinHandle<()>,

@@ -67,7 +67,6 @@ use super::{
     event_item::{ReactionStatus, RemoteEventOrigin},
     item::TimelineUniqueId,
     subscriber::TimelineSubscriber,
-    threaded_events_loader::ThreadedEventsLoader,
     traits::{Decryptor, RoomDataProvider},
     DateDividerMode, EmbeddedEvent, Error, EventSendState, EventTimelineItem, InReplyToDetails,
     PaginationError, Profile, TimelineDetails, TimelineEventItemId, TimelineFocus, TimelineItem,
@@ -111,11 +110,9 @@ enum TimelineFocusData<P: RoomDataProvider> {
         num_context_events: u16,
     },
 
+    /// A live timeline for a thread.
     Thread {
-        loader: ThreadedEventsLoader<P>,
-
-        /// Number of relations events to requests for the first request
-        num_events: u16,
+        root_event_id: OwnedEventId,
     },
 
     PinnedEvents {
@@ -291,14 +288,8 @@ impl<P: RoomDataProvider, D: Decryptor> TimelineController<P, D> {
                 )
             }
 
-            TimelineFocus::Thread { root_event_id, num_events } => (
-                TimelineFocusData::Thread {
-                    loader: ThreadedEventsLoader::new(
-                        room_data_provider.clone(),
-                        root_event_id.clone(),
-                    ),
-                    num_events,
-                },
+            TimelineFocus::Thread { root_event_id } => (
+                TimelineFocusData::Thread { root_event_id: root_event_id.clone() },
                 TimelineFocusKind::Thread { root_event_id },
             ),
 
@@ -396,22 +387,17 @@ impl<P: RoomDataProvider, D: Decryptor> TimelineController<P, D> {
                 Ok(has_events)
             }
 
-            TimelineFocusData::Thread { loader, num_events } => {
-                let result = loader
-                    .paginate_backwards((*num_events).into())
-                    .await
-                    .map_err(PaginationError::Paginator)?;
+            TimelineFocusData::Thread { root_event_id } => {
+                let events = room_event_cache.thread_events(root_event_id.clone()).await;
+                let has_events = !events.is_empty();
 
-                drop(focus_guard);
-
-                // Events are in reverse topological order.
                 self.replace_with_initial_remote_events(
-                    result.events.into_iter().rev(),
-                    RemoteEventOrigin::Pagination,
+                    events.into_iter(),
+                    RemoteEventOrigin::Cache,
                 )
                 .await;
 
-                Ok(true)
+                Ok(has_events)
             }
 
             TimelineFocusData::PinnedEvents { loader } => {
@@ -510,15 +496,11 @@ impl<P: RoomDataProvider, D: Decryptor> TimelineController<P, D> {
         num_events: u16,
     ) -> Result<bool, PaginationError> {
         let PaginationResult { events, hit_end_of_timeline } = match &*self.focus.read().await {
-            TimelineFocusData::Live | TimelineFocusData::PinnedEvents { .. } => {
-                return Err(PaginationError::NotSupported)
-            }
+            TimelineFocusData::Live
+            | TimelineFocusData::PinnedEvents { .. }
+            | TimelineFocusData::Thread { .. } => return Err(PaginationError::NotSupported),
             TimelineFocusData::Event { paginator, .. } => paginator
                 .paginate_backward(num_events.into())
-                .await
-                .map_err(PaginationError::Paginator)?,
-            TimelineFocusData::Thread { loader, num_events } => loader
-                .paginate_backwards((*num_events).into())
                 .await
                 .map_err(PaginationError::Paginator)?,
         };
@@ -567,6 +549,10 @@ impl<P: RoomDataProvider, D: Decryptor> TimelineController<P, D> {
     /// Is this timeline receiving events from sync (aka has a live focus)?
     pub(super) async fn is_live(&self) -> bool {
         matches!(&*self.focus.read().await, TimelineFocusData::Live)
+    }
+
+    pub(super) async fn thread_root(&self) -> Option<OwnedEventId> {
+        as_variant!(&*self.focus.read().await, TimelineFocusData::Thread { root_event_id } => root_event_id.clone())
     }
 
     pub(super) fn with_settings(mut self, settings: TimelineSettings) -> Self {
