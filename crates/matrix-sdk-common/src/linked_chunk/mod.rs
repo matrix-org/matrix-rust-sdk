@@ -93,6 +93,7 @@ macro_rules! assert_items_eq {
 
 mod as_vector;
 pub mod lazy_loader;
+mod order_tracker;
 pub mod relational;
 mod updates;
 
@@ -104,6 +105,7 @@ use std::{
 };
 
 pub use as_vector::*;
+pub use order_tracker::OrderTracker;
 use ruma::{OwnedRoomId, RoomId};
 pub use updates::*;
 
@@ -1085,6 +1087,42 @@ impl<const CAP: usize, Item, Gap> LinkedChunk<CAP, Item, Gap> {
         Some(AsVector::new(updates, token, chunk_iterator))
     }
 
+    /// Get an [`OrderTracker`] for the linked chunk, which can be used to
+    /// compare the relative position of two events in this linked chunk.
+    ///
+    /// A pre-requisite is that the linked chunk has been constructed with
+    /// [`Self::new_with_update_history`], and that if the linked chunk is
+    /// lazily-loaded, an iterator over the fully-loaded linked chunk is
+    /// passed at construction time here.
+    pub fn order_tracker(
+        &mut self,
+        all_chunks: Option<Vec<ChunkMetadata>>,
+    ) -> Option<OrderTracker<Item, Gap>>
+    where
+        Item: Clone,
+    {
+        let (updates, token) = self
+            .updates
+            .as_mut()
+            .map(|updates| (updates.inner.clone(), updates.new_reader_token()))?;
+
+        Some(OrderTracker::new(
+            updates,
+            token,
+            all_chunks.unwrap_or_else(|| {
+                // Consider the linked chunk as fully loaded.
+                self.chunks()
+                    .map(|chunk| ChunkMetadata {
+                        identifier: chunk.identifier(),
+                        num_items: chunk.num_items(),
+                        previous: chunk.previous().map(|prev| prev.identifier()),
+                        next: chunk.next().map(|next| next.identifier()),
+                    })
+                    .collect()
+            }),
+        ))
+    }
+
     /// Returns the number of items of the linked chunk.
     pub fn num_items(&self) -> usize {
         self.items().count()
@@ -1710,6 +1748,25 @@ where
 pub struct RawChunk<Item, Gap> {
     /// Content section of the linked chunk.
     pub content: ChunkContent<Item, Gap>,
+
+    /// Link to the previous chunk, via its identifier.
+    pub previous: Option<ChunkIdentifier>,
+
+    /// Current chunk's identifier.
+    pub identifier: ChunkIdentifier,
+
+    /// Link to the next chunk, via its identifier.
+    pub next: Option<ChunkIdentifier>,
+}
+
+/// A simplified [`RawChunk`] that only contains the number of items in a chunk,
+/// instead of its type.
+#[derive(Clone, Debug)]
+pub struct ChunkMetadata {
+    /// The number of items in this chunk.
+    ///
+    /// By convention, a gap chunk contains 0 items.
+    pub num_items: usize,
 
     /// Link to the previous chunk, via its identifier.
     pub previous: Option<ChunkIdentifier>,

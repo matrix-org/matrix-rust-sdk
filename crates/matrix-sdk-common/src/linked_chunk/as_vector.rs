@@ -15,7 +15,7 @@
 use std::{
     collections::VecDeque,
     iter::repeat_n,
-    ops::{ControlFlow, Not},
+    ops::ControlFlow,
     sync::{Arc, RwLock},
 };
 
@@ -25,6 +25,7 @@ use super::{
     updates::{ReaderToken, Update, UpdatesInner},
     ChunkContent, ChunkIdentifier, Iter, Position,
 };
+use crate::linked_chunk::ChunkMetadata;
 
 /// A type alias to represent a chunk's length. This is purely for commodity.
 type ChunkLength = usize;
@@ -43,7 +44,7 @@ pub struct AsVector<Item, Gap> {
     token: ReaderToken,
 
     /// Mapper from `Update` to `VectorDiff`.
-    mapper: UpdateToVectorDiff,
+    mapper: UpdateToVectorDiff<Item, Vec<VectorDiff<Item>>>,
 }
 
 impl<Item, Gap> AsVector<Item, Gap> {
@@ -83,20 +84,38 @@ impl<Item, Gap> AsVector<Item, Gap> {
     }
 }
 
-/// Internal type that converts [`Update`] into [`VectorDiff`].
-#[derive(Debug)]
-struct UpdateToVectorDiff {
-    /// Pairs of all known chunks and their respective length. This is the only
-    /// required data for this algorithm.
-    chunks: VecDeque<(ChunkIdentifier, ChunkLength)>,
+/// Interface for a type accumulating updates from [`UpdateToVectorDiff::map`],
+/// and being returned as a result of this.
+pub(super) trait UpdatesAccumulator<Item>: Extend<VectorDiff<Item>> {
+    /// Create a new accumulator with a rough estimation of the number of
+    /// updates this accumulator is going to receive.
+    fn new(num_updates_hint: usize) -> Self;
 }
 
-impl UpdateToVectorDiff {
+// Simple implementation for a `Vec<VectorDiff<Item>>` collection for
+// `AsVector<Item, Gap>`.
+impl<Item> UpdatesAccumulator<Item> for Vec<VectorDiff<Item>> {
+    fn new(num_updates_hint: usize) -> Vec<VectorDiff<Item>> {
+        Vec::with_capacity(num_updates_hint)
+    }
+}
+
+/// Internal type that converts [`Update`] into [`VectorDiff`].
+#[derive(Debug)]
+pub(super) struct UpdateToVectorDiff<Item, Acc: UpdatesAccumulator<Item>> {
+    /// Pairs of all known chunks and their respective length. This is the only
+    /// required data for this algorithm.
+    pub chunks: VecDeque<(ChunkIdentifier, ChunkLength)>,
+
+    _phantom: std::marker::PhantomData<(Item, Acc)>,
+}
+
+impl<Item, Acc: UpdatesAccumulator<Item>> UpdateToVectorDiff<Item, Acc> {
     /// Construct [`UpdateToVectorDiff`], based on an iterator of
     /// [`Chunk`](super::Chunk)s, used to set up its own internal state.
     ///
     /// See [`Self::map`] to learn more about the algorithm.
-    fn new<const CAP: usize, Item, Gap>(chunk_iterator: Iter<'_, CAP, Item, Gap>) -> Self {
+    pub fn new<const CAP: usize, Gap>(chunk_iterator: Iter<'_, CAP, Item, Gap>) -> Self {
         let mut initial_chunk_lengths = VecDeque::new();
 
         for chunk in chunk_iterator {
@@ -109,7 +128,18 @@ impl UpdateToVectorDiff {
             ))
         }
 
-        Self { chunks: initial_chunk_lengths }
+        Self { chunks: initial_chunk_lengths, _phantom: std::marker::PhantomData }
+    }
+
+    /// Construct [`UpdateToVectorDiff`], based on a linked chunk's full
+    /// metadata, used to set up its own internal state.
+    ///
+    /// See [`Self::map`] to learn more about the algorithm.
+    pub fn from_metadata(metas: Vec<ChunkMetadata>) -> Self {
+        let initial_chunk_lengths =
+            metas.into_iter().map(|meta| (meta.identifier, meta.num_items)).collect();
+
+        Self { chunks: initial_chunk_lengths, _phantom: std::marker::PhantomData }
     }
 
     /// Map several [`Update`] into [`VectorDiff`].
@@ -172,13 +202,18 @@ impl UpdateToVectorDiff {
     /// [`LinkedChunk`]: super::LinkedChunk
     /// [`ChunkContent::Gap`]: super::ChunkContent::Gap
     /// [`ChunkContent::Content`]: super::ChunkContent::Content
-    fn map<Item, Gap>(&mut self, updates: &[Update<Item, Gap>]) -> Vec<VectorDiff<Item>>
+    pub fn map<Gap>(&mut self, updates: &[Update<Item, Gap>]) -> Acc
     where
         Item: Clone,
     {
-        let mut diffs = Vec::with_capacity(updates.len());
+        let mut acc = Acc::new(updates.len());
 
-        // A flag specifying when updates are reattaching detached items.
+        // Flags specifying when updates are reattaching detached items.
+        //
+        // TL;DR: This is an optimization to avoid that insertions in the middle of a
+        // chunk cause a large series of `VectorDiff::Remove` and
+        // `VectorDiff::Insert` updates for the elements placed after the
+        // inserted item.
         //
         // Why is it useful?
         //
@@ -329,7 +364,7 @@ impl UpdateToVectorDiff {
                         .expect("Removing an index out of the bounds");
 
                     // Removing at the same index because each `Remove` shifts items to the left.
-                    diffs.extend(repeat_n(VectorDiff::Remove { index: offset }, number_of_items));
+                    acc.extend(repeat_n(VectorDiff::Remove { index: offset }, number_of_items));
                 }
 
                 Update::PushItems { at: position, items } => {
@@ -348,12 +383,12 @@ impl UpdateToVectorDiff {
                     }
 
                     // Optimisation: we can emit a `VectorDiff::Append` in this particular case.
-                    if is_pushing_back && detaching.not() {
-                        diffs.push(VectorDiff::Append { values: items.into() });
+                    if is_pushing_back && !detaching {
+                        acc.extend([VectorDiff::Append { values: items.into() }]);
                     }
                     // No optimisation: let's emit `VectorDiff::Insert`.
                     else {
-                        diffs.extend(items.iter().enumerate().map(|(nth, item)| {
+                        acc.extend(items.iter().enumerate().map(|(nth, item)| {
                             VectorDiff::Insert { index: offset + nth, value: item.clone() }
                         }));
                     }
@@ -364,7 +399,7 @@ impl UpdateToVectorDiff {
 
                     // The chunk length doesn't change.
 
-                    diffs.push(VectorDiff::Set { index: offset, value: item.clone() });
+                    acc.extend([VectorDiff::Set { index: offset, value: item.clone() }]);
                 }
 
                 Update::RemoveItem { at: position } => {
@@ -379,7 +414,7 @@ impl UpdateToVectorDiff {
                     }
 
                     // Let's emit a `VectorDiff::Remove`.
-                    diffs.push(VectorDiff::Remove { index: offset });
+                    acc.extend([VectorDiff::Remove { index: offset }]);
                 }
 
                 Update::DetachLastItems { at: position } => {
@@ -422,12 +457,12 @@ impl UpdateToVectorDiff {
                     self.chunks.clear();
 
                     // Let's straightforwardly emit a `VectorDiff::Clear`.
-                    diffs.push(VectorDiff::Clear);
+                    acc.extend([VectorDiff::Clear]);
                 }
             }
         }
 
-        diffs
+        acc
     }
 
     fn map_to_offset(&mut self, position: &Position) -> (usize, (usize, &mut usize)) {
