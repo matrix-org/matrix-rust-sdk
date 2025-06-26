@@ -55,7 +55,7 @@ use tokio::sync::{
 use tracing::{debug, error, info, info_span, instrument, trace, warn, Instrument as _, Span};
 
 use self::paginator::PaginatorError;
-use crate::{client::WeakClient, Client};
+use crate::{client::WeakClient, room::WeakRoom, Client};
 
 mod deduplicator;
 mod pagination;
@@ -104,6 +104,14 @@ pub enum EventCacheError {
     /// [`LinkedChunk`]: matrix_sdk_common::linked_chunk::LinkedChunk
     #[error(transparent)]
     LinkedChunkLoader(#[from] LazyLoaderError),
+
+    /// An error happened when reading the metadata of a linked chunk, upon
+    /// reload.
+    #[error("the linked chunk metadata is invalid: {details}")]
+    InvalidLinkedChunkMetadata {
+        /// A string containing details about the error.
+        details: String,
+    },
 }
 
 /// A result using the [`EventCacheError`].
@@ -558,6 +566,7 @@ impl EventCacheInner {
 
                 let room_state = RoomEventCacheState::new(
                     room_id.to_owned(),
+                    WeakRoom::new(self.client.clone(), room_id.to_owned()),
                     room_version,
                     self.store.clone(),
                     pagination_status.clone(),

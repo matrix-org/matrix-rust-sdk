@@ -227,6 +227,13 @@ impl RoomEventCache {
     ///
     /// You can filter which types of related events to retrieve using
     /// `filter`. `None` will retrieve related events of any type.
+    ///
+    /// The related events are sorted like this:
+    /// - events saved out-of-band with `super::RoomEventCache::save_events`
+    ///   will be located at the beginning of the array.
+    /// - events present in the linked chunk (be it in memory or in the
+    ///   database) will be sorted according to their ordering in the linked
+    ///   chunk.
     pub async fn event_with_relations(
         &self,
         event_id: &EventId,
@@ -477,7 +484,7 @@ pub(super) enum LoadMoreEventsBackwardsOutcome {
 // Use a private module to hide `events` to this parent module.
 mod private {
     use std::{
-        collections::HashSet,
+        collections::{HashMap, HashSet},
         sync::{atomic::AtomicUsize, Arc},
     };
 
@@ -486,9 +493,13 @@ mod private {
     use matrix_sdk_base::{
         apply_redaction,
         deserialized_responses::{ThreadSummary, ThreadSummaryStatus, TimelineEventKind},
-        event_cache::{store::EventCacheStoreLock, Event, Gap},
+        event_cache::{
+            store::{DynEventCacheStore, EventCacheStoreLock},
+            Event, Gap,
+        },
         linked_chunk::{
-            lazy_loader, ChunkContent, ChunkIdentifier, ChunkIdentifierGenerator, LinkedChunkId,
+            lazy_loader::{self},
+            ChunkContent, ChunkIdentifier, ChunkIdentifierGenerator, ChunkMetadata, LinkedChunkId,
             Position, Update,
         },
         serde_helpers::extract_thread_root,
@@ -496,13 +507,15 @@ mod private {
     };
     use matrix_sdk_common::executor::spawn;
     use ruma::{
+        api::Direction,
         events::{
             relation::RelationType, room::redaction::SyncRoomRedactionEvent, AnySyncTimelineEvent,
             MessageLikeEventType,
         },
         serde::Raw,
-        EventId, OwnedEventId, OwnedRoomId, RoomVersionId,
+        EventId, OwnedEventId, OwnedRoomId, RoomVersionId, UInt,
     };
+    use tokio::sync::broadcast::{Receiver, Sender};
     use tracing::{debug, error, instrument, trace, warn};
 
     use super::{
@@ -510,9 +523,211 @@ mod private {
         events::RoomEvents,
         sort_positions_descending, EventLocation, LoadMoreEventsBackwardsOutcome,
     };
-    use crate::event_cache::{
-        deduplicator::filter_duplicate_events, BackPaginationOutcome, RoomPaginationStatus,
+    use crate::{
+        event_cache::{
+            deduplicator::filter_duplicate_events, paginator::PaginatorError,
+            BackPaginationOutcome, RoomPaginationStatus,
+        },
+        room::{IncludeRelations, RelationsOptions, WeakRoom},
     };
+
+    /// All the information related to a single thread.
+    pub struct ThreadEventCache {
+        /// The root event ID of this thread.
+        root_event_id: OwnedEventId,
+
+        /// A weak link to the room owning this thread.
+        room: WeakRoom,
+
+        /// The linked chunk for this thread.
+        /// TODO(bnjbvr): rename `RoomEvents` into something more sensible.
+        chunk: RoomEvents,
+
+        /// A sender for live events updates in this thread.
+        sender: Sender<Vec<VectorDiff<Event>>>,
+    }
+
+    impl ThreadEventCache {
+        fn new(root_event_id: OwnedEventId, room: WeakRoom) -> Self {
+            Self { root_event_id, room, chunk: RoomEvents::new(), sender: Sender::new(32) }
+        }
+
+        /// Subscribe to live events from this thread.
+        pub fn subscribe(&self) -> (Vec<Event>, Receiver<Vec<VectorDiff<Event>>>) {
+            let events = self.chunk.events().map(|(_position, item)| item.clone()).collect();
+
+            let recv = self.sender.subscribe();
+
+            (events, recv)
+        }
+
+        /// Clear a thread, after a gappy sync for instance.
+        fn clear(&mut self) {
+            self.chunk.reset();
+        }
+
+        /// Push some live events to this thread, and propagate the updates to
+        /// the listeners.
+        fn add_live_events(&mut self, events: Vec<Event>) {
+            self.chunk.push_events(events);
+            let diffs = self.chunk.updates_as_vector_diffs();
+            if !diffs.is_empty() {
+                let _ = self.sender.send(diffs);
+            }
+        }
+
+        /// Simplified version of
+        /// [`RoomEventCacheState::load_more_events_backwards`], which
+        /// returns the outcome of the pagination without actually loading from
+        /// disk.
+        fn load_more_events_backwards(
+            &self,
+        ) -> Result<LoadMoreEventsBackwardsOutcome, EventCacheError> {
+            // If any in-memory chunk is a gap, don't load more events, and let the caller
+            // resolve the gap.
+            if let Some(prev_token) = self.chunk.rgap().map(|gap| gap.prev_token) {
+                trace!(%prev_token, "thread chunk has at least a gap");
+                return Ok(LoadMoreEventsBackwardsOutcome::Gap { prev_token: Some(prev_token) });
+            }
+
+            // If we don't have any gap anymore, but we do have events, then we're done.
+            if self.chunk.events().next().is_some() {
+                trace!("thread chunk is fully loaded and non-empty: reached_start=true");
+                return Ok(LoadMoreEventsBackwardsOutcome::StartOfTimeline);
+            }
+
+            // Otherwise, we don't have a gap nor events. We don't have anything. Poor us.
+            // Well, is ok: start a pagination from the end.
+            Ok(LoadMoreEventsBackwardsOutcome::Gap { prev_token: None })
+        }
+
+        /// Paginate backwards in this thread, and return the outcome of the
+        /// pagination.
+        pub async fn paginate_backwards(
+            &mut self,
+            limit: Option<UInt>,
+        ) -> Result<BackPaginationOutcome, EventCacheError> {
+            let room = self.room.get().ok_or(EventCacheError::ClientDropped)?;
+
+            loop {
+                match self.load_more_events_backwards()? {
+                    LoadMoreEventsBackwardsOutcome::Gap { prev_token } => {
+                        // Start a threaded pagination from this gap.
+                        let options = RelationsOptions {
+                            from: prev_token.clone(),
+                            dir: Direction::Backward,
+                            limit,
+                            include_relations: IncludeRelations::AllRelations,
+                            recurse: true,
+                        };
+
+                        // TODO: here, we'd release some lock, to not block everything while the
+                        // request is making progress.
+                        let mut result = room
+                            .relations(self.root_event_id.clone(), options)
+                            .await
+                            .map_err(|err| {
+                                EventCacheError::BackpaginationError(PaginatorError::SdkError(
+                                    Box::new(err),
+                                ))
+                            })?;
+
+                        let reached_start = result.next_batch_token.is_none();
+                        let new_gap =
+                            result.next_batch_token.map(|token| Gap { prev_token: token });
+
+                        if reached_start {
+                            // Prepend the thread root event to the results.
+                            let root_event = room
+                                .load_or_fetch_event(&self.root_event_id, None)
+                                .await
+                                .map_err(|err| {
+                                    EventCacheError::BackpaginationError(PaginatorError::SdkError(
+                                        Box::new(err),
+                                    ))
+                                })?;
+
+                            result.chunk.insert(0, root_event);
+                        }
+
+                        let events = result.chunk;
+
+                        let prev_gap_chunk_id = if let Some(token) = prev_token {
+                            let gap_chunk_id = self.chunk.chunk_identifier(|chunk| {
+                                matches!(chunk.content(), ChunkContent::Gap(Gap { ref prev_token }) if *prev_token == token)
+                            });
+
+                            if gap_chunk_id.is_none() {
+                                // We got a previous-batch token from the linked chunk *before*
+                                // running the request, but it is
+                                // missing *after* completing the
+                                // request.
+                                //
+                                // Restart the pagination process, in this case.
+                                continue;
+                            };
+
+                            gap_chunk_id
+                        } else {
+                            None
+                        };
+
+                        let insert_new_gap_pos = if let Some(gap_chunk_id) = prev_gap_chunk_id {
+                            // Replace the previous gap with the events, then insert the new gap at
+                            // the same position.
+                            self.chunk
+                                .replace_gap_at(events.clone(), gap_chunk_id)
+                                .expect("gap_chunk_id is not valid")
+                        } else {
+                            // There wasn't any previous gap; assume an empty chunk.
+                            self.chunk.push_events(events.clone());
+
+                            // A new gap may be inserted before the new events, if there are any.
+                            self.chunk.events().next().map(|(item_pos, _)| item_pos)
+                        };
+
+                        // And insert the new gap if needs be.
+                        if let Some(new_gap) = new_gap {
+                            if let Some(new_pos) = insert_new_gap_pos {
+                                self.chunk
+                                    .insert_gap_at(new_gap, new_pos)
+                                    .expect("events_chunk_pos represents a valid chunk position");
+                            } else {
+                                // No events have been inserted, so we may push the gap.
+                                self.chunk.push_gap(new_gap);
+                            }
+                        }
+
+                        // Notify observers about the updates.
+                        let updates = self.chunk.updates_as_vector_diffs();
+                        if !updates.is_empty() {
+                            // Send the updates to the listeners.
+                            let _ = self.sender.send(updates);
+                        }
+
+                        return Ok(BackPaginationOutcome { reached_start, events });
+                    }
+                    LoadMoreEventsBackwardsOutcome::StartOfTimeline => {
+                        // We're done!
+                        return Ok(BackPaginationOutcome {
+                            reached_start: true,
+                            events: Vec::new(),
+                        });
+                    }
+                    LoadMoreEventsBackwardsOutcome::Events { .. } => {
+                        // TODO(bnjbvr): We'll implement loading from disk later.
+                        todo!()
+                    }
+                    LoadMoreEventsBackwardsOutcome::WaitForInitialPrevToken => {
+                        unreachable!("unused for threads")
+                    }
+                }
+
+                // We'll restart the loop if the pagination token has been
+                // invalidated.
+            }
+        }
+    }
 
     /// State for a single room's event cache.
     ///
@@ -522,6 +737,8 @@ mod private {
         /// The room this state relates to.
         room: OwnedRoomId,
 
+        weak_room: WeakRoom,
+
         /// The room version for this room.
         room_version: RoomVersionId,
 
@@ -530,6 +747,11 @@ mod private {
 
         /// The events of the room.
         events: RoomEvents,
+
+        /// Threads present in this room.
+        ///
+        /// Keyed by the thread root event ID.
+        threads: HashMap<OwnedEventId, ThreadEventCache>,
 
         /// Have we ever waited for a previous-batch-token to come from sync, in
         /// the context of pagination? We do this at most once per room,
@@ -556,6 +778,7 @@ mod private {
         /// [`LinkedChunk`]: matrix_sdk_common::linked_chunk::LinkedChunk
         pub async fn new(
             room_id: OwnedRoomId,
+            weak_room: WeakRoom,
             room_version: RoomVersionId,
             store: EventCacheStoreLock,
             pagination_status: SharedObservable<RoomPaginationStatus>,
@@ -563,40 +786,179 @@ mod private {
             let store_lock = store.lock().await?;
 
             let linked_chunk_id = LinkedChunkId::Room(&room_id);
-            let linked_chunk = match store_lock
+
+            // Load the full linked chunk's metadata, so as to feed the order tracker.
+            //
+            // If loading the full linked chunk failed, we'll clear the event cache, as it
+            // indicates that at some point, there's some malformed data.
+            let full_linked_chunk_metadata =
+                match Self::load_linked_chunk_metadata(&*store_lock, linked_chunk_id).await {
+                    Ok(metas) => Some(metas),
+                    Err(err) => {
+                        error!(
+                            "error when loading a linked chunk's metadata from the store: {err}"
+                        );
+
+                        // Clear storage for this room.
+                        store_lock
+                            .handle_linked_chunk_updates(linked_chunk_id, vec![Update::Clear])
+                            .await?;
+
+                        // Restart with an empty linked chunk.
+                        None
+                    }
+                };
+
+            let linked_chunk = store_lock
                 .load_last_chunk(linked_chunk_id)
                 .await
                 .map_err(EventCacheError::from)
                 .and_then(|(last_chunk, chunk_identifier_generator)| {
                     lazy_loader::from_last_chunk(last_chunk, chunk_identifier_generator)
                         .map_err(EventCacheError::from)
-                }) {
-                Ok(linked_chunk) => linked_chunk,
+                })
+                .expect("fully loading the linked chunk just worked, so loading it partially should also work");
 
-                Err(err) => {
-                    error!("error when reloading a linked chunk from memory: {err}");
+            let events =
+                RoomEvents::with_initial_linked_chunk(linked_chunk, full_linked_chunk_metadata);
 
-                    // Clear storage for this room.
-                    store_lock
-                        .handle_linked_chunk_updates(linked_chunk_id, vec![Update::Clear])
-                        .await?;
-
-                    // Restart with an empty linked chunk.
-                    None
-                }
-            };
-
-            let events = RoomEvents::with_initial_linked_chunk(linked_chunk);
+            // The threads mapping is intentionally empty at start, since we're going to
+            // reload threads lazily, as soon as we need to (based on external
+            // subscribers) or when we get new information about those (from
+            // sync).
+            let threads = HashMap::new();
 
             Ok(Self {
                 room: room_id,
+                weak_room,
                 room_version,
                 store,
                 events,
+                threads,
                 waited_for_initial_prev_token: false,
                 subscriber_count: Default::default(),
                 pagination_status,
             })
+        }
+
+        /// Load a linked chunk's full metadata, making sure the chunks are
+        /// according to their their links.
+        ///
+        /// Returns `None` if there's no such linked chunk in the store, or an
+        /// error if the linked chunk is malformed.
+        async fn load_linked_chunk_metadata(
+            store: &DynEventCacheStore,
+            linked_chunk_id: LinkedChunkId<'_>,
+        ) -> Result<Vec<ChunkMetadata>, EventCacheError> {
+            let mut all_chunks = store
+                .load_all_chunks_metadata(linked_chunk_id)
+                .await
+                .map_err(EventCacheError::from)?;
+
+            // Transform the vector into a hashmap, for quick lookup of the predecessors.
+            let chunk_map: HashMap<_, _> =
+                all_chunks.iter().map(|meta| (meta.identifier, meta)).collect();
+
+            // Find a last chunk.
+            let mut iter = all_chunks.iter().filter(|meta| meta.next.is_none());
+            let Some(last) = iter.next() else {
+                return Err(EventCacheError::InvalidLinkedChunkMetadata {
+                    details: "no last chunk found".to_owned(),
+                });
+            };
+
+            // There must at most one last chunk.
+            if let Some(other_last) = iter.next() {
+                return Err(EventCacheError::InvalidLinkedChunkMetadata {
+                    details: format!(
+                        "chunks {} and {} both claim to be last chunks",
+                        last.identifier.index(),
+                        other_last.identifier.index()
+                    ),
+                });
+            }
+
+            // Rewind the chain back to the first chunk, and do some checks at the same
+            // time.
+            let mut seen = HashSet::new();
+            let mut current = last;
+            loop {
+                // If we've already seen this chunk, there's a cycle somewhere.
+                if !seen.insert(current.identifier) {
+                    return Err(EventCacheError::InvalidLinkedChunkMetadata {
+                        details: format!(
+                            "cycle detected in linked chunk at {}",
+                            current.identifier.index()
+                        ),
+                    });
+                }
+
+                let Some(prev_id) = current.previous else {
+                    // If there's no previous chunk, we're done.
+                    if seen.len() != all_chunks.len() {
+                        return Err(EventCacheError::InvalidLinkedChunkMetadata {
+                            details: format!(
+                                "linked chunk likely has multiple components: {} chunks seen through the chain of predecessors, but {} expected",
+                                seen.len(),
+                                all_chunks.len()
+                            ),
+                        });
+                    }
+                    break;
+                };
+
+                // If the previous chunk is not in the map, then it's unknown
+                // and missing.
+                let Some(pred_meta) = chunk_map.get(&prev_id) else {
+                    return Err(EventCacheError::InvalidLinkedChunkMetadata {
+                        details: format!(
+                            "missing predecessor {} chunk for {}",
+                            prev_id.index(),
+                            current.identifier.index()
+                        ),
+                    });
+                };
+
+                // If the previous chunk isn't connected to the next, then the link is invalid.
+                if pred_meta.next != Some(current.identifier) {
+                    return Err(EventCacheError::InvalidLinkedChunkMetadata {
+                        details: format!(
+                            "chunk {}'s next ({:?}) doesn't match the current chunk ({})",
+                            pred_meta.identifier.index(),
+                            pred_meta.next.map(|chunk_id| chunk_id.index()),
+                            current.identifier.index()
+                        ),
+                    });
+                }
+
+                current = *pred_meta;
+            }
+
+            // At this point, `current` is the identifier of the first chunk.
+            //
+            // Reorder the resulting vector, by going through the chain of `next` links, and
+            // swapping items into their final position.
+            //
+            // Invariant in this loop: all items in [0..i[ are in their final, correct
+            // position.
+            let mut current = current.identifier;
+            for i in 0..all_chunks.len() {
+                // Find the target metadata.
+                let j = all_chunks
+                    .iter()
+                    .rev()
+                    .position(|meta| meta.identifier == current)
+                    .map(|j| all_chunks.len() - 1 - j)
+                    .expect("the target chunk must be present in the metadata");
+                if i != j {
+                    all_chunks.swap(i, j);
+                }
+                if let Some(next) = all_chunks[i].next {
+                    current = next;
+                }
+            }
+
+            Ok(all_chunks)
         }
 
         /// Deduplicate `events` considering all events in `Self::events`.
@@ -833,6 +1195,10 @@ mod private {
             Ok(self.events.updates_as_vector_diffs())
         }
 
+        pub(crate) fn room_event_order(&self, event_pos: Position) -> Option<usize> {
+            self.events.event_order(event_pos)
+        }
+
         /// Removes the bundled relations from an event, if they were present.
         ///
         /// Only replaces the present if it contained bundled relations.
@@ -897,13 +1263,12 @@ mod private {
 
                 sort_positions_descending(&mut positions);
 
-                self.send_updates_to_store(
-                    positions
-                        .into_iter()
-                        .map(|position| Update::RemoveItem { at: position })
-                        .collect(),
-                )
-                .await?;
+                let updates = positions
+                    .into_iter()
+                    .map(|pos| Update::RemoveItem { at: pos })
+                    .collect::<Vec<_>>();
+
+                self.apply_store_only_updates(updates).await?;
             }
 
             // In-memory events.
@@ -925,6 +1290,20 @@ mod private {
         /// Propagate changes to the underlying storage.
         async fn propagate_changes(&mut self) -> Result<(), EventCacheError> {
             let updates = self.events.store_updates().take();
+            self.send_updates_to_store(updates).await
+        }
+
+        /// Apply some updates that are effective only on the store itself.
+        ///
+        /// This method should be used only for updates that happen *outside*
+        /// the in-memory linked chunk. Such updates must be applied
+        /// onto the ordering tracker as well as to the persistent
+        /// storage.
+        async fn apply_store_only_updates(
+            &mut self,
+            updates: Vec<Update<Event, Gap>>,
+        ) -> Result<(), EventCacheError> {
+            self.events.order_tracker.map_updates(&updates);
             self.send_updates_to_store(updates).await
         }
 
@@ -1045,6 +1424,14 @@ mod private {
         /// This goes straight to the database, as a simplification; we don't
         /// expect to need to have to look up in memory events, or that
         /// all the related events are actually loaded.
+        ///
+        /// The related events are sorted like this:
+        /// - events saved out-of-band with
+        ///   [`super::RoomEventCache::save_events`] will be located at the
+        ///   beginning of the array.
+        /// - events present in the linked chunk (be it in memory or in the
+        ///   database) will be sorted according to their ordering in the linked
+        ///   chunk.
         pub async fn find_event_with_relations(
             &self,
             event_id: &EventId,
@@ -1064,7 +1451,8 @@ mod private {
             // transitive closure of all the related events.
             let mut related =
                 store.find_event_relations(&self.room, event_id, filters.as_deref()).await?;
-            let mut stack = related.iter().filter_map(|event| event.event_id()).collect::<Vec<_>>();
+            let mut stack =
+                related.iter().filter_map(|(event, _pos)| event.event_id()).collect::<Vec<_>>();
 
             // Also keep track of already seen events, in case there's a loop in the
             // relation graph.
@@ -1083,13 +1471,42 @@ mod private {
                 let other_related =
                     store.find_event_relations(&self.room, &event_id, filters.as_deref()).await?;
 
-                stack.extend(other_related.iter().filter_map(|event| event.event_id()));
+                stack.extend(other_related.iter().filter_map(|(event, _pos)| event.event_id()));
                 related.extend(other_related);
 
                 num_iters += 1;
             }
 
             trace!(num_related = %related.len(), num_iters, "computed transitive closure of related events");
+
+            // Sort the results by their positions in the linked chunk, if available.
+            //
+            // If an event doesn't have a known position, it goes to the start of the array.
+            related.sort_by(|(_, lhs), (_, rhs)| {
+                use std::cmp::Ordering;
+                match (lhs, rhs) {
+                    (None, None) => Ordering::Equal,
+                    (None, Some(_)) => Ordering::Less,
+                    (Some(_), None) => Ordering::Greater,
+                    (Some(lhs), Some(rhs)) => {
+                        let lhs = self.room_event_order(*lhs);
+                        let rhs = self.room_event_order(*rhs);
+
+                        // The events should have a definite position, but in the case they don't,
+                        // still consider that not having a position means you'll end at the start
+                        // of the array.
+                        match (lhs, rhs) {
+                            (None, None) => Ordering::Equal,
+                            (None, Some(_)) => Ordering::Less,
+                            (Some(_), None) => Ordering::Greater,
+                            (Some(lhs), Some(rhs)) => lhs.cmp(&rhs),
+                        }
+                    }
+                }
+            });
+
+            // Keep only the events, not their positions.
+            let related = related.into_iter().map(|(event, _pos)| event).collect();
 
             Ok(Some((target, related)))
         }
@@ -1116,6 +1533,13 @@ mod private {
             }
 
             Ok(())
+        }
+
+        fn get_or_reload_thread(&mut self, root_event_id: OwnedEventId) -> &mut ThreadEventCache {
+            // TODO(bnjbvr): try to lazily reload from disk, if missing from memory.
+            self.threads
+                .entry(root_event_id.clone())
+                .or_insert_with(|| ThreadEventCache::new(root_event_id, self.weak_room.clone()))
         }
 
         /// If the event is a threaded reply, ensure the related thread's root
@@ -1181,6 +1605,9 @@ mod private {
                 trace!("thread summary is already up-to-date");
                 return Ok(());
             }
+
+            // TODO(bnjbvr): group thread updates together, don't send one per event.
+            self.get_or_reload_thread(thread_root).add_live_events(vec![event.clone()]);
 
             // Cause an update to observers.
             target_event.thread_summary = ThreadSummaryStatus::Some(new_summary);
@@ -1353,6 +1780,17 @@ mod private {
             // network splits, but this has shown to be Good Enough™.
             if !timeline.limited && self.events.events().next().is_some() || all_duplicates {
                 prev_batch = None;
+            }
+
+            if prev_batch.is_some() {
+                // Sad time: there's a gap, somewhere, in the timeline, and there's at least one
+                // non-duplicated event. We don't know which threads might have gappy, so we
+                // must invalidate them all :(
+                // TODO(bnjbvr): absorb moar caffeine and create a good solution to this
+                // problem.
+                for (_, thread) in self.threads.iter_mut() {
+                    thread.clear();
+                }
             }
 
             if all_duplicates {
@@ -2591,6 +3029,141 @@ mod timed_tests {
         assert_eq!(outcome.events.len(), 1);
         assert_eq!(outcome.events[0].event_id().as_deref(), Some(evid1));
         assert!(outcome.reached_start);
+    }
+
+    #[async_test]
+    async fn test_room_ordering() {
+        let room_id = room_id!("!galette:saucisse.bzh");
+
+        let client = MockClientBuilder::new("http://localhost".to_owned()).build().await;
+
+        let f = EventFactory::new().room(room_id).sender(*ALICE);
+
+        let evid1 = event_id!("$1");
+        let evid2 = event_id!("$2");
+        let evid3 = event_id!("$3");
+
+        let ev1 = f.text_msg("hello world").event_id(evid1).into_event();
+        let ev2 = f.text_msg("howdy").sender(*BOB).event_id(evid2).into_event();
+        let ev3 = f.text_msg("yo").event_id(evid3).into_event();
+
+        // Fill the event cache store with an initial linked chunk with 2 events chunks.
+        {
+            let store = client.event_cache_store();
+            let store = store.lock().await.unwrap();
+            store
+                .handle_linked_chunk_updates(
+                    LinkedChunkId::Room(room_id),
+                    vec![
+                        Update::NewItemsChunk {
+                            previous: None,
+                            new: ChunkIdentifier::new(0),
+                            next: None,
+                        },
+                        Update::PushItems {
+                            at: Position::new(ChunkIdentifier::new(0), 0),
+                            items: vec![ev1, ev2],
+                        },
+                        Update::NewItemsChunk {
+                            previous: Some(ChunkIdentifier::new(0)),
+                            new: ChunkIdentifier::new(1),
+                            next: None,
+                        },
+                        Update::PushItems {
+                            at: Position::new(ChunkIdentifier::new(1), 0),
+                            items: vec![ev3.clone()],
+                        },
+                    ],
+                )
+                .await
+                .unwrap();
+        }
+
+        let event_cache = client.event_cache();
+        event_cache.subscribe().unwrap();
+
+        client.base_client().get_or_create_room(room_id, matrix_sdk_base::RoomState::Joined);
+        let room = client.get_room(room_id).unwrap();
+        let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+
+        // Initially, the linked chunk only contains the last chunk, so only ev3 is
+        // loaded.
+        {
+            let state = room_event_cache.inner.state.read().await;
+
+            // But we can get the order of ev1.
+            assert_eq!(state.room_event_order(Position::new(ChunkIdentifier::new(0), 0)), Some(0));
+
+            // And that of ev2 as well.
+            assert_eq!(state.room_event_order(Position::new(ChunkIdentifier::new(0), 1)), Some(1));
+
+            // ev3, which is loaded, also has a known ordering.
+            let mut events = state.events().events();
+            let (pos, ev) = events.next().unwrap();
+            assert_eq!(pos, Position::new(ChunkIdentifier::new(1), 0));
+            assert_eq!(ev.event_id().as_deref(), Some(evid3));
+            assert_eq!(state.room_event_order(pos), Some(2));
+
+            // No other loaded events.
+            assert!(events.next().is_none());
+        }
+
+        // Force loading the full linked chunk by back-paginating.
+        let outcome = room_event_cache.pagination().run_backwards_once(20).await.unwrap();
+        assert!(outcome.reached_start);
+
+        // All events are now loaded, so their order is precisely their enumerated index
+        // in a linear iteration.
+        {
+            let state = room_event_cache.inner.state.read().await;
+            for (i, (pos, _)) in state.events().events().enumerate() {
+                assert_eq!(state.room_event_order(pos), Some(i));
+            }
+        }
+
+        // Handle a gappy sync with two events (including one duplicate, so
+        // deduplication kicks in), so that the linked chunk is shrunk to the
+        // last chunk, and that the linked chunk only contains the last two
+        // events.
+        let evid4 = event_id!("$4");
+        room_event_cache
+            .inner
+            .handle_joined_room_update(JoinedRoomUpdate {
+                timeline: Timeline {
+                    limited: true,
+                    prev_batch: Some("fondue".to_owned()),
+                    events: vec![ev3, f.text_msg("sup").event_id(evid4).into_event()],
+                },
+                ..Default::default()
+            })
+            .await
+            .unwrap();
+
+        {
+            let state = room_event_cache.inner.state.read().await;
+
+            // After the shrink, only evid3 and evid4 are loaded.
+            let mut events = state.events().events();
+
+            let (pos, ev) = events.next().unwrap();
+            assert_eq!(ev.event_id().as_deref(), Some(evid3));
+            assert_eq!(state.room_event_order(pos), Some(2));
+
+            let (pos, ev) = events.next().unwrap();
+            assert_eq!(ev.event_id().as_deref(), Some(evid4));
+            assert_eq!(state.room_event_order(pos), Some(3));
+
+            // No other loaded events.
+            assert!(events.next().is_none());
+
+            // But we can still get the order of previous events.
+            assert_eq!(state.room_event_order(Position::new(ChunkIdentifier::new(0), 0)), Some(0));
+            assert_eq!(state.room_event_order(Position::new(ChunkIdentifier::new(0), 1)), Some(1));
+
+            // ev3 doesn't have an order with its previous position, since it's been
+            // deduplicated.
+            assert_eq!(state.room_event_order(Position::new(ChunkIdentifier::new(1), 0)), None);
+        }
     }
 
     #[async_test]

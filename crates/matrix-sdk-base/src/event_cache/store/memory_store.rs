@@ -22,7 +22,7 @@ use async_trait::async_trait;
 use matrix_sdk_common::{
     linked_chunk::{
         relational::RelationalLinkedChunk, ChunkIdentifier, ChunkIdentifierGenerator,
-        LinkedChunkId, Position, RawChunk, Update,
+        ChunkMetadata, LinkedChunkId, OwnedLinkedChunkId, Position, RawChunk, Update,
     },
     ring_buffer::RingBuffer,
     store_locks::memory_store_helper::try_take_leased_lock,
@@ -148,6 +148,17 @@ impl EventCacheStore for MemoryStore {
             .map_err(|err| EventCacheStoreError::InvalidData { details: err })
     }
 
+    async fn load_all_chunks_metadata(
+        &self,
+        linked_chunk_id: LinkedChunkId<'_>,
+    ) -> Result<Vec<ChunkMetadata>, Self::Error> {
+        let inner = self.inner.read().unwrap();
+        inner
+            .events
+            .load_all_chunks_metadata(linked_chunk_id)
+            .map_err(|err| EventCacheStoreError::InvalidData { details: err })
+    }
+
     async fn load_last_chunk(
         &self,
         linked_chunk_id: LinkedChunkId<'_>,
@@ -181,17 +192,17 @@ impl EventCacheStore for MemoryStore {
         linked_chunk_id: LinkedChunkId<'_>,
         mut events: Vec<OwnedEventId>,
     ) -> Result<Vec<(OwnedEventId, Position)>, Self::Error> {
-        // Collect all duplicated events.
+        if events.is_empty() {
+            return Ok(Vec::new());
+        }
+
         let inner = self.inner.read().unwrap();
 
         let mut duplicated_events = Vec::new();
 
-        for (event, position) in inner.events.unordered_linked_chunk_items(linked_chunk_id) {
-            // If `events` is empty, we can short-circuit.
-            if events.is_empty() {
-                break;
-            }
-
+        for (event, position) in
+            inner.events.unordered_linked_chunk_items(&linked_chunk_id.to_owned())
+        {
             if let Some(known_event_id) = event.event_id() {
                 // This event is a duplicate!
                 if let Some(index) =
@@ -212,10 +223,12 @@ impl EventCacheStore for MemoryStore {
     ) -> Result<Option<Event>, Self::Error> {
         let inner = self.inner.read().unwrap();
 
-        let event = inner.events.items().find_map(|(event, this_linked_chunk_id)| {
-            (room_id == this_linked_chunk_id.room_id() && event.event_id()? == event_id)
-                .then_some(event.clone())
-        });
+        let target_linked_chunk_id = OwnedLinkedChunkId::Room(room_id.to_owned());
+
+        let event = inner
+            .events
+            .items(&target_linked_chunk_id)
+            .find_map(|(event, _pos)| (event.event_id()? == event_id).then_some(event.clone()));
 
         Ok(event)
     }
@@ -225,20 +238,17 @@ impl EventCacheStore for MemoryStore {
         room_id: &RoomId,
         event_id: &EventId,
         filters: Option<&[RelationType]>,
-    ) -> Result<Vec<Event>, Self::Error> {
+    ) -> Result<Vec<(Event, Option<Position>)>, Self::Error> {
         let inner = self.inner.read().unwrap();
+
+        let target_linked_chunk_id = OwnedLinkedChunkId::Room(room_id.to_owned());
 
         let filters = compute_filters_string(filters);
 
         let related_events = inner
             .events
-            .items()
-            .filter_map(|(event, this_linked_chunk_id)| {
-                // Must be in the same room.
-                if room_id != this_linked_chunk_id.room_id() {
-                    return None;
-                }
-
+            .items(&target_linked_chunk_id)
+            .filter_map(|(event, pos)| {
                 // Must have a relation.
                 let (related_to, rel_type) = extract_event_relation(event.raw())?;
 
@@ -249,9 +259,9 @@ impl EventCacheStore for MemoryStore {
 
                 // Must not be filtered out.
                 if let Some(filters) = &filters {
-                    filters.contains(&rel_type).then_some(event.clone())
+                    filters.contains(&rel_type).then_some((event.clone(), pos))
                 } else {
-                    Some(event.clone())
+                    Some((event.clone(), pos))
                 }
             })
             .collect();

@@ -15,14 +15,19 @@
 //! Implementation for a _relational linked chunk_, see
 //! [`RelationalLinkedChunk`].
 
-use std::{collections::HashMap, hash::Hash};
+use std::{
+    collections::{BTreeMap, HashMap},
+    hash::Hash,
+};
 
 use ruma::{OwnedEventId, OwnedRoomId};
 
 use super::{ChunkContent, ChunkIdentifierGenerator, RawChunk};
 use crate::{
     deserialized_responses::TimelineEvent,
-    linked_chunk::{ChunkIdentifier, LinkedChunkId, OwnedLinkedChunkId, Position, Update},
+    linked_chunk::{
+        ChunkIdentifier, ChunkMetadata, LinkedChunkId, OwnedLinkedChunkId, Position, Update,
+    },
 };
 
 /// A row of the [`RelationalLinkedChunk::chunks`].
@@ -79,7 +84,7 @@ pub struct RelationalLinkedChunk<ItemId, Item, Gap> {
     items_chunks: Vec<ItemRow<ItemId, Gap>>,
 
     /// The items' content themselves.
-    items: HashMap<OwnedLinkedChunkId, HashMap<ItemId, Item>>,
+    items: HashMap<OwnedLinkedChunkId, BTreeMap<ItemId, (Item, Option<Position>)>>,
 }
 
 /// The [`IndexableItem`] trait is used to mark items that can be indexed into a
@@ -103,7 +108,7 @@ impl IndexableItem for TimelineEvent {
 impl<ItemId, Item, Gap> RelationalLinkedChunk<ItemId, Item, Gap>
 where
     Item: IndexableItem<ItemId = ItemId>,
-    ItemId: Hash + PartialEq + Eq + Clone,
+    ItemId: Hash + PartialEq + Eq + Clone + Ord,
 {
     /// Create a new relational linked chunk.
     pub fn new() -> Self {
@@ -127,11 +132,11 @@ where
         for update in updates {
             match update {
                 Update::NewItemsChunk { previous, new, next } => {
-                    insert_chunk(&mut self.chunks, linked_chunk_id, previous, new, next);
+                    Self::insert_chunk(&mut self.chunks, linked_chunk_id, previous, new, next);
                 }
 
                 Update::NewGapChunk { previous, new, next, gap } => {
-                    insert_chunk(&mut self.chunks, linked_chunk_id, previous, new, next);
+                    Self::insert_chunk(&mut self.chunks, linked_chunk_id, previous, new, next);
                     self.items_chunks.push(ItemRow {
                         linked_chunk_id: linked_chunk_id.to_owned(),
                         position: Position::new(new, 0),
@@ -140,7 +145,7 @@ where
                 }
 
                 Update::RemoveChunk(chunk_identifier) => {
-                    remove_chunk(&mut self.chunks, linked_chunk_id, chunk_identifier);
+                    Self::remove_chunk(&mut self.chunks, linked_chunk_id, chunk_identifier);
 
                     let indices_to_remove = self
                         .items_chunks
@@ -173,7 +178,7 @@ where
                         self.items
                             .entry(linked_chunk_id.to_owned())
                             .or_default()
-                            .insert(item_id.clone(), item);
+                            .insert(item_id.clone(), (item, Some(at)));
                         self.items_chunks.push(ItemRow {
                             linked_chunk_id: linked_chunk_id.to_owned(),
                             position: at,
@@ -197,7 +202,7 @@ where
                     self.items
                         .entry(linked_chunk_id.to_owned())
                         .or_default()
-                        .insert(item_id.clone(), item);
+                        .insert(item_id.clone(), (item, Some(at)));
                     existing.item = Either::Item(item_id);
                 }
 
@@ -269,101 +274,93 @@ where
                 }
             }
         }
+    }
 
-        fn insert_chunk(
-            chunks: &mut Vec<ChunkRow>,
-            linked_chunk_id: LinkedChunkId<'_>,
-            previous: Option<ChunkIdentifier>,
-            new: ChunkIdentifier,
-            next: Option<ChunkIdentifier>,
-        ) {
-            // Find the previous chunk, and update its next chunk.
-            if let Some(previous) = previous {
-                let entry_for_previous_chunk = chunks
-                    .iter_mut()
-                    .find(
-                        |ChunkRow { linked_chunk_id: linked_chunk_id_candidate, chunk, .. }| {
-                            linked_chunk_id == linked_chunk_id_candidate && *chunk == previous
-                        },
-                    )
-                    .expect("Previous chunk should be present");
+    fn insert_chunk(
+        chunks: &mut Vec<ChunkRow>,
+        linked_chunk_id: LinkedChunkId<'_>,
+        previous: Option<ChunkIdentifier>,
+        new: ChunkIdentifier,
+        next: Option<ChunkIdentifier>,
+    ) {
+        // Find the previous chunk, and update its next chunk.
+        if let Some(previous) = previous {
+            let entry_for_previous_chunk = chunks
+                .iter_mut()
+                .find(|ChunkRow { linked_chunk_id: linked_chunk_id_candidate, chunk, .. }| {
+                    linked_chunk_id == linked_chunk_id_candidate && *chunk == previous
+                })
+                .expect("Previous chunk should be present");
 
-                // Link the chunk.
-                entry_for_previous_chunk.next_chunk = Some(new);
-            }
-
-            // Find the next chunk, and update its previous chunk.
-            if let Some(next) = next {
-                let entry_for_next_chunk = chunks
-                    .iter_mut()
-                    .find(
-                        |ChunkRow { linked_chunk_id: linked_chunk_id_candidate, chunk, .. }| {
-                            linked_chunk_id == linked_chunk_id_candidate && *chunk == next
-                        },
-                    )
-                    .expect("Next chunk should be present");
-
-                // Link the chunk.
-                entry_for_next_chunk.previous_chunk = Some(new);
-            }
-
-            // Insert the chunk.
-            chunks.push(ChunkRow {
-                linked_chunk_id: linked_chunk_id.to_owned(),
-                previous_chunk: previous,
-                chunk: new,
-                next_chunk: next,
-            });
+            // Link the chunk.
+            entry_for_previous_chunk.next_chunk = Some(new);
         }
 
-        fn remove_chunk(
-            chunks: &mut Vec<ChunkRow>,
-            linked_chunk_id: LinkedChunkId<'_>,
-            chunk_to_remove: ChunkIdentifier,
-        ) {
-            let entry_nth_to_remove = chunks
-                .iter()
-                .enumerate()
-                .find_map(
-                    |(nth, ChunkRow { linked_chunk_id: linked_chunk_id_candidate, chunk, .. })| {
-                        (linked_chunk_id == linked_chunk_id_candidate && *chunk == chunk_to_remove)
-                            .then_some(nth)
-                    },
-                )
-                .expect("Remove an unknown chunk");
+        // Find the next chunk, and update its previous chunk.
+        if let Some(next) = next {
+            let entry_for_next_chunk = chunks
+                .iter_mut()
+                .find(|ChunkRow { linked_chunk_id: linked_chunk_id_candidate, chunk, .. }| {
+                    linked_chunk_id == linked_chunk_id_candidate && *chunk == next
+                })
+                .expect("Next chunk should be present");
 
-            let ChunkRow { linked_chunk_id, previous_chunk: previous, next_chunk: next, .. } =
-                chunks.remove(entry_nth_to_remove);
+            // Link the chunk.
+            entry_for_next_chunk.previous_chunk = Some(new);
+        }
 
-            // Find the previous chunk, and update its next chunk.
-            if let Some(previous) = previous {
-                let entry_for_previous_chunk = chunks
-                    .iter_mut()
-                    .find(
-                        |ChunkRow { linked_chunk_id: linked_chunk_id_candidate, chunk, .. }| {
-                            &linked_chunk_id == linked_chunk_id_candidate && *chunk == previous
-                        },
-                    )
-                    .expect("Previous chunk should be present");
+        // Insert the chunk.
+        chunks.push(ChunkRow {
+            linked_chunk_id: linked_chunk_id.to_owned(),
+            previous_chunk: previous,
+            chunk: new,
+            next_chunk: next,
+        });
+    }
 
-                // Insert the chunk.
-                entry_for_previous_chunk.next_chunk = next;
-            }
+    fn remove_chunk(
+        chunks: &mut Vec<ChunkRow>,
+        linked_chunk_id: LinkedChunkId<'_>,
+        chunk_to_remove: ChunkIdentifier,
+    ) {
+        let entry_nth_to_remove = chunks
+            .iter()
+            .enumerate()
+            .find_map(
+                |(nth, ChunkRow { linked_chunk_id: linked_chunk_id_candidate, chunk, .. })| {
+                    (linked_chunk_id == linked_chunk_id_candidate && *chunk == chunk_to_remove)
+                        .then_some(nth)
+                },
+            )
+            .expect("Remove an unknown chunk");
 
-            // Find the next chunk, and update its previous chunk.
-            if let Some(next) = next {
-                let entry_for_next_chunk = chunks
-                    .iter_mut()
-                    .find(
-                        |ChunkRow { linked_chunk_id: linked_chunk_id_candidate, chunk, .. }| {
-                            &linked_chunk_id == linked_chunk_id_candidate && *chunk == next
-                        },
-                    )
-                    .expect("Next chunk should be present");
+        let ChunkRow { linked_chunk_id, previous_chunk: previous, next_chunk: next, .. } =
+            chunks.remove(entry_nth_to_remove);
 
-                // Insert the chunk.
-                entry_for_next_chunk.previous_chunk = previous;
-            }
+        // Find the previous chunk, and update its next chunk.
+        if let Some(previous) = previous {
+            let entry_for_previous_chunk = chunks
+                .iter_mut()
+                .find(|ChunkRow { linked_chunk_id: linked_chunk_id_candidate, chunk, .. }| {
+                    &linked_chunk_id == linked_chunk_id_candidate && *chunk == previous
+                })
+                .expect("Previous chunk should be present");
+
+            // Insert the chunk.
+            entry_for_previous_chunk.next_chunk = next;
+        }
+
+        // Find the next chunk, and update its previous chunk.
+        if let Some(next) = next {
+            let entry_for_next_chunk = chunks
+                .iter_mut()
+                .find(|ChunkRow { linked_chunk_id: linked_chunk_id_candidate, chunk, .. }| {
+                    &linked_chunk_id == linked_chunk_id_candidate && *chunk == next
+                })
+                .expect("Next chunk should be present");
+
+            // Insert the chunk.
+            entry_for_next_chunk.previous_chunk = previous;
         }
     }
 
@@ -371,37 +368,43 @@ where
     /// particular order.
     pub fn unordered_linked_chunk_items<'a>(
         &'a self,
-        target: LinkedChunkId<'a>,
-    ) -> impl Iterator<Item = (&'a Item, Position)> {
-        self.items_chunks.iter().filter_map(move |item_row| {
-            if item_row.linked_chunk_id == target {
-                match &item_row.item {
-                    Either::Item(item_id) => {
-                        Some((self.items.get(&target.to_owned())?.get(item_id)?, item_row.position))
-                    }
-                    Either::Gap(..) => None,
-                }
-            } else {
-                None
-            }
+        target: &OwnedLinkedChunkId,
+    ) -> impl 'a + Iterator<Item = (&'a Item, Position)> {
+        self.items.get(target).into_iter().flat_map(|items| {
+            // Only keep items which have a position.
+            items.values().filter_map(|(item, pos)| pos.map(|pos| (item, pos)))
         })
     }
 
-    /// Return an iterator over all items of all room linked chunks, without
-    /// their actual positions.
+    /// Return an iterator over all items of a given linked chunk, along with
+    /// their positions, if available.
+    ///
+    /// The only items which will NOT have a position are those saved with
+    /// [`Self::save_item`].
     ///
     /// This will include out-of-band items.
-    pub fn items(&self) -> impl Iterator<Item = (&Item, LinkedChunkId<'_>)> {
-        self.items.iter().flat_map(|(linked_chunk_id, items)| {
-            items.values().map(|item| (item, linked_chunk_id.as_ref()))
-        })
+    pub fn items(
+        &self,
+        target: &OwnedLinkedChunkId,
+    ) -> impl Iterator<Item = (&Item, Option<Position>)> {
+        self.items
+            .get(target)
+            .into_iter()
+            .flat_map(|items| items.values().map(|(item, pos)| (item, *pos)))
     }
 
     /// Save a single item "out-of-band" in the relational linked chunk.
     pub fn save_item(&mut self, room_id: OwnedRoomId, item: Item) {
         let id = item.id();
         let linked_chunk_id = OwnedLinkedChunkId::Room(room_id);
-        self.items.entry(linked_chunk_id).or_default().insert(id, item);
+
+        let map = self.items.entry(linked_chunk_id).or_default();
+        if let Some(prev_value) = map.get_mut(&id) {
+            // If the item already exists, we keep the position.
+            prev_value.0 = item;
+        } else {
+            map.insert(id, (item, None));
+        }
     }
 }
 
@@ -409,7 +412,7 @@ impl<ItemId, Item, Gap> RelationalLinkedChunk<ItemId, Item, Gap>
 where
     Gap: Clone,
     Item: Clone,
-    ItemId: Hash + PartialEq + Eq,
+    ItemId: Hash + PartialEq + Eq + Ord,
 {
     /// Loads all the chunks.
     ///
@@ -424,6 +427,22 @@ where
             .iter()
             .filter(|chunk| chunk.linked_chunk_id == linked_chunk_id)
             .map(|chunk_row| load_raw_chunk(self, chunk_row, linked_chunk_id))
+            .collect::<Result<Vec<_>, String>>()
+    }
+
+    /// Loads all the chunks' metadata.
+    ///
+    /// Return an error result if the data was malformed in the struct, with a
+    /// string message explaining details about the error.
+    #[doc(hidden)]
+    pub fn load_all_chunks_metadata(
+        &self,
+        linked_chunk_id: LinkedChunkId<'_>,
+    ) -> Result<Vec<ChunkMetadata>, String> {
+        self.chunks
+            .iter()
+            .filter(|chunk| chunk.linked_chunk_id == linked_chunk_id)
+            .map(|chunk_row| load_raw_chunk_metadata(self, chunk_row, linked_chunk_id))
             .collect::<Result<Vec<_>, String>>()
     }
 
@@ -511,13 +530,17 @@ where
 impl<ItemId, Item, Gap> Default for RelationalLinkedChunk<ItemId, Item, Gap>
 where
     Item: IndexableItem<ItemId = ItemId>,
-    ItemId: Hash + PartialEq + Eq + Clone,
+    ItemId: Hash + PartialEq + Eq + Clone + Ord,
 {
     fn default() -> Self {
         Self::new()
     }
 }
 
+/// Loads a single chunk along all its items.
+///
+/// The code of this method must be kept in sync with that of
+/// [`load_raw_chunk_metadata`] below.
 fn load_raw_chunk<ItemId, Item, Gap>(
     relational_linked_chunk: &RelationalLinkedChunk<ItemId, Item, Gap>,
     chunk_row: &ChunkRow,
@@ -526,7 +549,7 @@ fn load_raw_chunk<ItemId, Item, Gap>(
 where
     Item: Clone,
     Gap: Clone,
-    ItemId: Hash + PartialEq + Eq,
+    ItemId: Hash + PartialEq + Eq + Ord,
 {
     // Find all items that correspond to the chunk.
     let mut items = relational_linked_chunk
@@ -577,11 +600,14 @@ where
                     collected_items
                         .into_iter()
                         .filter_map(|(item_id, _index)| {
-                            relational_linked_chunk
-                                .items
-                                .get(&linked_chunk_id.to_owned())?
-                                .get(item_id)
-                                .cloned()
+                            Some(
+                                relational_linked_chunk
+                                    .items
+                                    .get(&linked_chunk_id.to_owned())?
+                                    .get(item_id)?
+                                    .0
+                                    .clone(),
+                            )
                         })
                         .collect(),
                 ),
@@ -612,8 +638,93 @@ where
     })
 }
 
+/// Loads the metadata for a single chunk.
+///
+/// The code of this method must be kept in sync with that of [`load_raw_chunk`]
+/// above.
+fn load_raw_chunk_metadata<ItemId, Item, Gap>(
+    relational_linked_chunk: &RelationalLinkedChunk<ItemId, Item, Gap>,
+    chunk_row: &ChunkRow,
+    linked_chunk_id: LinkedChunkId<'_>,
+) -> Result<ChunkMetadata, String>
+where
+    Item: Clone,
+    Gap: Clone,
+    ItemId: Hash + PartialEq + Eq,
+{
+    // Find all items that correspond to the chunk.
+    let mut items = relational_linked_chunk
+        .items_chunks
+        .iter()
+        .filter(|item_row| {
+            item_row.linked_chunk_id == linked_chunk_id
+                && item_row.position.chunk_identifier() == chunk_row.chunk
+        })
+        .peekable();
+
+    let Some(first_item) = items.peek() else {
+        // No item. It means it is a chunk of kind `Items` and that it is empty!
+        return Ok(ChunkMetadata {
+            num_items: 0,
+            previous: chunk_row.previous_chunk,
+            identifier: chunk_row.chunk,
+            next: chunk_row.next_chunk,
+        });
+    };
+
+    Ok(match first_item.item {
+        // This is a chunk of kind `Items`.
+        Either::Item(_) => {
+            // Count all the items. We add an additional filter that will exclude gaps, in
+            // case the chunk is malformed, but we should not have to, in theory.
+
+            let mut num_items = 0;
+            for item in items {
+                match &item.item {
+                    Either::Item(_) => num_items += 1,
+                    Either::Gap(_) => {
+                        return Err(format!(
+                            "unexpected gap in items chunk {}",
+                            chunk_row.chunk.index()
+                        ));
+                    }
+                }
+            }
+
+            ChunkMetadata {
+                num_items,
+                previous: chunk_row.previous_chunk,
+                identifier: chunk_row.chunk,
+                next: chunk_row.next_chunk,
+            }
+        }
+
+        Either::Gap(..) => {
+            assert!(items.next().is_some(), "we just peeked the gap");
+
+            // We shouldn't have more than one item row for this chunk.
+            if items.next().is_some() {
+                return Err(format!(
+                    "there shouldn't be more than one item row attached in gap chunk {}",
+                    chunk_row.chunk.index()
+                ));
+            }
+
+            ChunkMetadata {
+                // By convention, a gap has 0 items.
+                num_items: 0,
+                previous: chunk_row.previous_chunk,
+                identifier: chunk_row.chunk,
+                next: chunk_row.next_chunk,
+            }
+        }
+    })
+}
+
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeMap;
+
     use assert_matches::assert_matches;
     use ruma::room_id;
 
@@ -1288,16 +1399,17 @@ mod tests {
             ],
         );
 
-        let mut events =
-            relational_linked_chunk.unordered_linked_chunk_items(linked_chunk_id.as_ref());
+        let events = BTreeMap::from_iter(
+            relational_linked_chunk.unordered_linked_chunk_items(&linked_chunk_id),
+        );
 
-        assert_eq!(events.next().unwrap(), (&'a', Position::new(CId::new(0), 0)));
-        assert_eq!(events.next().unwrap(), (&'b', Position::new(CId::new(0), 1)));
-        assert_eq!(events.next().unwrap(), (&'c', Position::new(CId::new(0), 2)));
-        assert_eq!(events.next().unwrap(), (&'d', Position::new(CId::new(1), 0)));
-        assert_eq!(events.next().unwrap(), (&'e', Position::new(CId::new(1), 1)));
-        assert_eq!(events.next().unwrap(), (&'f', Position::new(CId::new(1), 2)));
-        assert!(events.next().is_none());
+        assert_eq!(events.len(), 6);
+        assert_eq!(*events.get(&'a').unwrap(), Position::new(CId::new(0), 0));
+        assert_eq!(*events.get(&'b').unwrap(), Position::new(CId::new(0), 1));
+        assert_eq!(*events.get(&'c').unwrap(), Position::new(CId::new(0), 2));
+        assert_eq!(*events.get(&'d').unwrap(), Position::new(CId::new(1), 0));
+        assert_eq!(*events.get(&'e').unwrap(), Position::new(CId::new(1), 1));
+        assert_eq!(*events.get(&'f').unwrap(), Position::new(CId::new(1), 2));
     }
 
     #[test]

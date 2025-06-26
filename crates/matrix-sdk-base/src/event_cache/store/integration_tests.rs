@@ -14,7 +14,7 @@
 
 //! Trait and macro of integration tests for `EventCacheStore` implementations.
 
-use std::sync::Arc;
+use std::{collections::BTreeMap, sync::Arc};
 
 use assert_matches::assert_matches;
 use matrix_sdk_common::{
@@ -132,6 +132,9 @@ pub trait EventCacheStoreIntegrationTests {
     /// Test that rebuilding a linked chunk from an empty store doesn't return
     /// anything.
     async fn test_rebuild_empty_linked_chunk(&self);
+
+    /// Test that loading a linked chunk's metadata works as intended.
+    async fn test_load_all_chunks_metadata(&self);
 
     /// Test that clear all the rooms' linked chunks works.
     async fn test_clear_all_linked_chunks(&self);
@@ -415,6 +418,72 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
         }
 
         assert!(chunks.next().is_none());
+    }
+
+    async fn test_load_all_chunks_metadata(&self) {
+        let room_id = room_id!("!r0:matrix.org");
+        let linked_chunk_id = LinkedChunkId::Room(room_id);
+
+        self.handle_linked_chunk_updates(
+            linked_chunk_id,
+            vec![
+                // new chunk
+                Update::NewItemsChunk { previous: None, new: CId::new(0), next: None },
+                // new items on 0
+                Update::PushItems {
+                    at: Position::new(CId::new(0), 0),
+                    items: vec![
+                        make_test_event(room_id, "hello"),
+                        make_test_event(room_id, "world"),
+                    ],
+                },
+                // a gap chunk
+                Update::NewGapChunk {
+                    previous: Some(CId::new(0)),
+                    new: CId::new(1),
+                    next: None,
+                    gap: Gap { prev_token: "parmesan".to_owned() },
+                },
+                // another items chunk
+                Update::NewItemsChunk { previous: Some(CId::new(1)), new: CId::new(2), next: None },
+                // new items on 2
+                Update::PushItems {
+                    at: Position::new(CId::new(2), 0),
+                    items: vec![make_test_event(room_id, "sup")],
+                },
+                // and an empty items chunk to finish
+                Update::NewItemsChunk { previous: Some(CId::new(2)), new: CId::new(3), next: None },
+            ],
+        )
+        .await
+        .unwrap();
+
+        let metas = self.load_all_chunks_metadata(linked_chunk_id).await.unwrap();
+        assert_eq!(metas.len(), 4);
+
+        // The first chunk has two items.
+        assert_eq!(metas[0].identifier, CId::new(0));
+        assert_eq!(metas[0].previous, None);
+        assert_eq!(metas[0].next, Some(CId::new(1)));
+        assert_eq!(metas[0].num_items, 2);
+
+        // The second chunk is a gap, so it has 0 items.
+        assert_eq!(metas[1].identifier, CId::new(1));
+        assert_eq!(metas[1].previous, Some(CId::new(0)));
+        assert_eq!(metas[1].next, Some(CId::new(2)));
+        assert_eq!(metas[1].num_items, 0);
+
+        // The third event chunk has one item.
+        assert_eq!(metas[2].identifier, CId::new(2));
+        assert_eq!(metas[2].previous, Some(CId::new(1)));
+        assert_eq!(metas[2].next, Some(CId::new(3)));
+        assert_eq!(metas[2].num_items, 1);
+
+        // The final event chunk is empty.
+        assert_eq!(metas[3].identifier, CId::new(3));
+        assert_eq!(metas[3].previous, Some(CId::new(2)));
+        assert_eq!(metas[3].next, None);
+        assert_eq!(metas[3].num_items, 0);
     }
 
     async fn test_linked_chunk_incremental_loading(&self) {
@@ -822,8 +891,8 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
         .await
         .unwrap();
 
-        let duplicated_events = self
-            .filter_duplicated_events(
+        let duplicated_events = BTreeMap::from_iter(
+            self.filter_duplicated_events(
                 linked_chunk_id,
                 vec![
                     event_comte.event_id().unwrap().to_owned(),
@@ -835,20 +904,22 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
                 ],
             )
             .await
-            .unwrap();
+            .unwrap(),
+        );
 
         assert_eq!(duplicated_events.len(), 3);
+
         assert_eq!(
-            duplicated_events[0],
-            (event_comte.event_id().unwrap(), Position::new(CId::new(0), 0))
+            *duplicated_events.get(&event_comte.event_id().unwrap()).unwrap(),
+            Position::new(CId::new(0), 0)
         );
         assert_eq!(
-            duplicated_events[1],
-            (event_morbier.event_id().unwrap(), Position::new(CId::new(2), 0))
+            *duplicated_events.get(&event_morbier.event_id().unwrap()).unwrap(),
+            Position::new(CId::new(2), 0)
         );
         assert_eq!(
-            duplicated_events[2],
-            (event_mont_dor.event_id().unwrap(), Position::new(CId::new(2), 1))
+            *duplicated_events.get(&event_mont_dor.event_id().unwrap()).unwrap(),
+            Position::new(CId::new(2), 1)
         );
     }
 
@@ -949,7 +1020,7 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
         // Save All The Things!
         self.save_event(room_id, e1).await.unwrap();
         self.save_event(room_id, edit_e1).await.unwrap();
-        self.save_event(room_id, reaction_e1).await.unwrap();
+        self.save_event(room_id, reaction_e1.clone()).await.unwrap();
         self.save_event(room_id, e2).await.unwrap();
         self.save_event(another_room_id, e3).await.unwrap();
         self.save_event(another_room_id, reaction_e3).await.unwrap();
@@ -957,8 +1028,13 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
         // Finding relations without a filter returns all of them.
         let relations = self.find_event_relations(room_id, eid1, None).await.unwrap();
         assert_eq!(relations.len(), 2);
-        assert!(relations.iter().any(|r| r.event_id().as_deref() == Some(edit_eid1)));
-        assert!(relations.iter().any(|r| r.event_id().as_deref() == Some(reaction_eid1)));
+        // The position is `None` for items outside the linked chunk.
+        assert!(relations
+            .iter()
+            .any(|(ev, pos)| ev.event_id().as_deref() == Some(edit_eid1) && pos.is_none()));
+        assert!(relations
+            .iter()
+            .any(|(ev, pos)| ev.event_id().as_deref() == Some(reaction_eid1) && pos.is_none()));
 
         // Finding relations with a filter only returns a subset.
         let relations = self
@@ -966,7 +1042,7 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
             .await
             .unwrap();
         assert_eq!(relations.len(), 1);
-        assert_eq!(relations[0].event_id().as_deref(), Some(edit_eid1));
+        assert_eq!(relations[0].0.event_id().as_deref(), Some(edit_eid1));
 
         let relations = self
             .find_event_relations(
@@ -977,8 +1053,8 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
             .await
             .unwrap();
         assert_eq!(relations.len(), 2);
-        assert!(relations.iter().any(|r| r.event_id().as_deref() == Some(edit_eid1)));
-        assert!(relations.iter().any(|r| r.event_id().as_deref() == Some(reaction_eid1)));
+        assert!(relations.iter().any(|r| r.0.event_id().as_deref() == Some(edit_eid1)));
+        assert!(relations.iter().any(|r| r.0.event_id().as_deref() == Some(reaction_eid1)));
 
         // We can't find relations using the wrong room.
         let relations = self
@@ -986,6 +1062,35 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
             .await
             .unwrap();
         assert!(relations.is_empty());
+
+        // But if an event exists in the linked chunk, we may have its position when
+        // it's found as a relationship.
+
+        // Add reaction_e1 to the room's linked chunk.
+        self.handle_linked_chunk_updates(
+            LinkedChunkId::Room(room_id),
+            vec![
+                Update::NewItemsChunk { previous: None, new: CId::new(0), next: None },
+                Update::PushItems { at: Position::new(CId::new(0), 0), items: vec![reaction_e1] },
+            ],
+        )
+        .await
+        .unwrap();
+
+        // When looking for aggregations to e1, we should have the position for
+        // reaction_e1.
+        let relations = self.find_event_relations(room_id, eid1, None).await.unwrap();
+
+        // The position is set for `reaction_eid1` now.
+        assert!(relations.iter().any(|(ev, pos)| {
+            ev.event_id().as_deref() == Some(reaction_eid1)
+                && *pos == Some(Position::new(CId::new(0), 0))
+        }));
+
+        // But it's still not set for the other related events.
+        assert!(relations
+            .iter()
+            .any(|(ev, pos)| ev.event_id().as_deref() == Some(edit_eid1) && pos.is_none()));
     }
 
     async fn test_save_event(&self) {
@@ -1103,6 +1208,13 @@ macro_rules! event_cache_store_integration_tests {
                 let event_cache_store =
                     get_event_cache_store().await.unwrap().into_event_cache_store();
                 event_cache_store.test_rebuild_empty_linked_chunk().await;
+            }
+
+            #[async_test]
+            async fn test_load_all_chunks_metadata() {
+                let event_cache_store =
+                    get_event_cache_store().await.unwrap().into_event_cache_store();
+                event_cache_store.test_load_all_chunks_metadata().await;
             }
 
             #[async_test]

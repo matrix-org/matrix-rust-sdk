@@ -17,7 +17,8 @@ use std::{fmt, sync::Arc};
 use async_trait::async_trait;
 use matrix_sdk_common::{
     linked_chunk::{
-        ChunkIdentifier, ChunkIdentifierGenerator, LinkedChunkId, Position, RawChunk, Update,
+        ChunkIdentifier, ChunkIdentifierGenerator, ChunkMetadata, LinkedChunkId, Position,
+        RawChunk, Update,
     },
     AsyncTraitDeps,
 };
@@ -77,6 +78,15 @@ pub trait EventCacheStore: AsyncTraitDeps {
         linked_chunk_id: LinkedChunkId<'_>,
     ) -> Result<Vec<RawChunk<Event, Gap>>, Self::Error>;
 
+    /// Load all of the chunks' metadata for the given [`LinkedChunkId`].
+    ///
+    /// Chunks are unordered, and there's no guarantee that the chunks would
+    /// form a valid linked chunk after reconstruction.
+    async fn load_all_chunks_metadata(
+        &self,
+        linked_chunk_id: LinkedChunkId<'_>,
+    ) -> Result<Vec<ChunkMetadata>, Self::Error>;
+
     /// Load the last chunk of the `LinkedChunk` holding all events of the room
     /// identified by `room_id`.
     ///
@@ -124,7 +134,11 @@ pub trait EventCacheStore: AsyncTraitDeps {
         event_id: &EventId,
     ) -> Result<Option<Event>, Self::Error>;
 
-    /// Find all the events that relate to a given event.
+    /// Find all the events (alongside their position in the room's linked
+    /// chunk, if available) that relate to a given event.
+    ///
+    /// The only events which don't have a position are those which have been
+    /// saved out-of-band using [`Self::save_event`].
     ///
     /// Note: it doesn't process relations recursively: for instance, if
     /// requesting only thread events, it will NOT return the aggregated
@@ -138,7 +152,7 @@ pub trait EventCacheStore: AsyncTraitDeps {
         room_id: &RoomId,
         event_id: &EventId,
         filter: Option<&[RelationType]>,
-    ) -> Result<Vec<Event>, Self::Error>;
+    ) -> Result<Vec<(Event, Option<Position>)>, Self::Error>;
 
     /// Save an event, that might or might not be part of an existing linked
     /// chunk.
@@ -313,6 +327,13 @@ impl<T: EventCacheStore> EventCacheStore for EraseEventCacheStoreError<T> {
         self.0.load_all_chunks(linked_chunk_id).await.map_err(Into::into)
     }
 
+    async fn load_all_chunks_metadata(
+        &self,
+        linked_chunk_id: LinkedChunkId<'_>,
+    ) -> Result<Vec<ChunkMetadata>, Self::Error> {
+        self.0.load_all_chunks_metadata(linked_chunk_id).await.map_err(Into::into)
+    }
+
     async fn load_last_chunk(
         &self,
         linked_chunk_id: LinkedChunkId<'_>,
@@ -356,7 +377,7 @@ impl<T: EventCacheStore> EventCacheStore for EraseEventCacheStoreError<T> {
         room_id: &RoomId,
         event_id: &EventId,
         filter: Option<&[RelationType]>,
-    ) -> Result<Vec<Event>, Self::Error> {
+    ) -> Result<Vec<(Event, Option<Position>)>, Self::Error> {
         self.0.find_event_relations(room_id, event_id, filter).await.map_err(Into::into)
     }
 
