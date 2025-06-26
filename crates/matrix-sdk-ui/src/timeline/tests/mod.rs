@@ -30,7 +30,7 @@ use matrix_sdk::{
     config::RequestConfig,
     crypto::OlmMachine,
     deserialized_responses::{EncryptionInfo, TimelineEvent},
-    paginators::{PaginableRoom, PaginatorError},
+    paginators::{thread::PaginableThread, PaginableRoom, PaginatorError},
     room::{EventWithContextResponse, Messages, MessagesOptions, PushContext, Relations},
     send_queue::RoomSendQueueUpdate,
     BoxFuture,
@@ -303,6 +303,23 @@ impl PaginableRoom for TestRoomDataProvider {
     }
 }
 
+impl PaginableThread for TestRoomDataProvider {
+    async fn relations(
+        &self,
+        _thread_root: OwnedEventId,
+        _opts: matrix_sdk::room::RelationsOptions,
+    ) -> Result<Relations, matrix_sdk::Error> {
+        unimplemented!();
+    }
+
+    async fn load_event(
+        &self,
+        _event_id: &OwnedEventId,
+    ) -> Result<TimelineEvent, matrix_sdk::Error> {
+        unimplemented!();
+    }
+}
+
 impl PinnedEventsRoom for TestRoomDataProvider {
     fn load_event_with_relations<'a>(
         &'a self,
@@ -428,14 +445,6 @@ impl RoomDataProvider for TestRoomDataProvider {
         _sender: &UserId,
     ) -> Option<Arc<EncryptionInfo>> {
         self.encryption_info.get(session_id).cloned()
-    }
-
-    async fn relations(
-        &self,
-        _event_id: OwnedEventId,
-        _opts: matrix_sdk::room::RelationsOptions,
-    ) -> Result<Relations, matrix_sdk::Error> {
-        unimplemented!();
     }
 
     async fn load_event<'a>(&'a self, _event_id: &'a EventId) -> matrix_sdk::Result<TimelineEvent> {

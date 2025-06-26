@@ -80,7 +80,6 @@ mod pinned_events_loader;
 mod subscriber;
 #[cfg(test)]
 mod tests;
-mod threaded_events_loader;
 mod to_device;
 mod traits;
 mod virtual_item;
