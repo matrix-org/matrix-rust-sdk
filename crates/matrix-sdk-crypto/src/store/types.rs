@@ -12,7 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Types foo TODO: Add some docs
+//! Data types for persistent storage.
+//!
+//! This module defines the data structures used by the crypto store to
+//! represent objects that are persisted in the database.
 
 use std::{
     collections::{BTreeMap, HashMap},
