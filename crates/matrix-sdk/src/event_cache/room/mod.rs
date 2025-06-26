@@ -1291,8 +1291,13 @@ mod private {
                 in_memory_duplicated_event_ids,
                 in_store_duplicated_event_ids,
                 non_empty_all_duplicates: all_duplicates,
-            } = filter_duplicate_events(&self.room, &self.store, timeline.events, &self.events)
-                .await?;
+            } = filter_duplicate_events(
+                LinkedChunkId::Room(self.room.as_ref()),
+                &self.store,
+                timeline.events,
+                &self.events,
+            )
+            .await?;
 
             // If the timeline isn't limited, and we already knew about some past events,
             // then this definitely knows what the timeline head is (either we know
@@ -1382,7 +1387,13 @@ mod private {
                 in_memory_duplicated_event_ids,
                 in_store_duplicated_event_ids,
                 non_empty_all_duplicates: all_duplicates,
-            } = filter_duplicate_events(&self.room, &self.store, events, &self.events).await?;
+            } = filter_duplicate_events(
+                LinkedChunkId::Room(self.room.as_ref()),
+                &self.store,
+                events,
+                &self.events,
+            )
+            .await?;
 
             // If not all the events have been back-paginated, we need to remove the
             // previous ones, otherwise we can end up with misordered events.
