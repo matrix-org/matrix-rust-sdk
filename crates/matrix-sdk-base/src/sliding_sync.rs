@@ -1486,7 +1486,7 @@ mod tests {
     #[async_test]
     async fn test_when_only_one_event_we_cache_it() {
         let event1 = make_event("m.room.message", "$1");
-        let events = &[event1.clone()];
+        let events = std::slice::from_ref(&event1);
         let chosen = choose_event_to_cache(events).await;
         assert_eq!(ev_id(chosen), rawev_id(event1));
     }
