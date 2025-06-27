@@ -93,6 +93,7 @@ use crate::{
     http_client::HttpClient,
     media::MediaError,
     notification_settings::NotificationSettings,
+    room::RoomMember,
     room_preview::RoomPreview,
     send_queue::SendQueueData,
     sliding_sync::Version as SlidingSyncVersion,
@@ -1429,11 +1430,39 @@ impl Client {
         }
     }
 
+    /// Prepare to join a room by ID, by getting the current details about it
+    async fn prepare_join_room_by_id(&self, room_id: &RoomId) -> Option<PreJoinRoomInfo> {
+        let room = self.get_room(room_id)?;
+
+        let inviter = match room.invite_details().await {
+            Ok(details) => details.inviter,
+            Err(Error::WrongRoomState(_)) => None,
+            Err(e) => {
+                warn!("Error fetching invite details for room: {e:?}");
+                None
+            }
+        };
+
+        Some(PreJoinRoomInfo { inviter })
+    }
+
     /// Finish joining a room.
     ///
     /// If the room was an invite that should be marked as a DM, will include it
     /// in the DM event after creating the joined room.
-    async fn finish_join_room(&self, room_id: &RoomId) -> Result<Room> {
+    ///
+    /// If encrypted history sharing is enabled, will check to see if we have a
+    /// key bundle, and import it if so.
+    ///
+    /// # Arguments
+    ///
+    /// * `room_id` - The `RoomId` of the room that was joined.
+    /// * `pre_join_room_info` - Information about the room before we joined.
+    async fn finish_join_room(
+        &self,
+        room_id: &RoomId,
+        pre_join_room_info: Option<PreJoinRoomInfo>,
+    ) -> Result<Room> {
         let mark_as_dm = if let Some(room) = self.get_room(room_id) {
             room.state() == RoomState::Invited
                 && room.is_direct().await.unwrap_or_else(|e| {
@@ -1451,6 +1480,20 @@ impl Client {
             room.set_is_direct(true).await?;
         }
 
+        #[cfg(feature = "e2e-encryption")]
+        if self.inner.enable_share_history_on_invite {
+            if let Some(inviter) =
+                pre_join_room_info.as_ref().and_then(|info| info.inviter.as_ref())
+            {
+                crate::room::shared_room_history::maybe_accept_key_bundle(&room, inviter.user_id())
+                    .await?;
+            }
+        }
+
+        // Suppress "unused variable" and "unused field" lints
+        #[cfg(not(feature = "e2e-encryption"))]
+        let _ = pre_join_room_info.map(|i| i.inviter);
+
         Ok(room)
     }
 
@@ -1461,10 +1504,15 @@ impl Client {
     /// # Arguments
     ///
     /// * `room_id` - The `RoomId` of the room to be joined.
+    #[instrument(skip(self))]
     pub async fn join_room_by_id(&self, room_id: &RoomId) -> Result<Room> {
+        // See who invited us to this room, if anyone. Note we have to do this before
+        // making the `/join` request, otherwise we could race against the sync.
+        let pre_join_info = self.prepare_join_room_by_id(room_id).await;
+
         let request = join_room_by_id::v3::Request::new(room_id.to_owned());
         let response = self.send(request).await?;
-        self.finish_join_room(&response.room_id).await
+        self.finish_join_room(&response.room_id, pre_join_info).await
     }
 
     /// Join a room by `RoomOrAliasId`.
@@ -1482,11 +1530,22 @@ impl Client {
         alias: &RoomOrAliasId,
         server_names: &[OwnedServerName],
     ) -> Result<Room> {
+        let pre_join_info = {
+            match alias.try_into() {
+                Ok(room_id) => self.prepare_join_room_by_id(room_id).await,
+                Err(_) => {
+                    // The id is a room alias. We assume (possibly incorrectly?) that we are not
+                    // responding to an invitation to the room, and therefore don't need to handle
+                    // things that happen as a result of invites.
+                    None
+                }
+            }
+        };
         let request = assign!(join_room_by_id_or_alias::v3::Request::new(alias.to_owned()), {
             via: server_names.to_owned(),
         });
         let response = self.send(request).await?;
-        self.finish_join_room(&response.room_id).await
+        self.finish_join_room(&response.room_id, pre_join_info).await
     }
 
     /// Search the homeserver's directory of public rooms.
@@ -2734,6 +2793,13 @@ impl<Value> CachedValue<Value> {
             CachedValue::NotSet => panic!("Tried to unwrap a cached value that wasn't set"),
         }
     }
+}
+
+/// Information about the state of a room before we joined it.
+#[derive(Debug, Clone, Default)]
+struct PreJoinRoomInfo {
+    /// The user who invited us to the room, if any.
+    pub inviter: Option<RoomMember>,
 }
 
 // The http mocking library is not supported for wasm32

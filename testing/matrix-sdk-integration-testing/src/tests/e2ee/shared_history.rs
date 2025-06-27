@@ -95,7 +95,7 @@ async fn test_history_share_on_invite() -> Result<()> {
         "io.element.msc4268.room_key_bundle"
     );
 
-    let bob_room = bob.get_room(alice_room.room_id()).expect("Bob should have received the invite");
+    bob.get_room(alice_room.room_id()).expect("Bob should have received the invite");
 
     pin_mut!(bundle_stream);
 
@@ -108,8 +108,8 @@ async fn test_history_share_on_invite() -> Result<()> {
     assert_eq!(Some(info.sender.deref()), alice.user_id());
     assert_eq!(info.room_id, alice_room.room_id());
 
-    bob_room
-        .join()
+    let bob_room = bob
+        .join_room_by_id(alice_room.room_id())
         .instrument(bob_span.clone())
         .await
         .expect("Bob should be able to accept the invitation from Alice");

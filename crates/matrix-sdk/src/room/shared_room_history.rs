@@ -112,7 +112,7 @@ pub(super) async fn share_room_history(room: &Room, user_id: OwnedUserId) -> Res
 ///
 /// [MSC4268]: https://github.com/matrix-org/matrix-spec-proposals/pull/4268
 #[instrument(skip(room), fields(room_id = ?room.room_id(), bundle_sender))]
-pub(super) async fn maybe_accept_key_bundle(room: &Room, inviter: &UserId) -> Result<()> {
+pub(crate) async fn maybe_accept_key_bundle(room: &Room, inviter: &UserId) -> Result<()> {
     // TODO: retry this if it gets interrupted or it fails.
     // TODO: do this in the background.
 
