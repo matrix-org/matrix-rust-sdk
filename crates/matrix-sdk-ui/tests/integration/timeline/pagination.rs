@@ -199,8 +199,8 @@ async fn test_skip_count_is_taken_into_account_in_pagination_status() {
             let mut events = Vec::new();
             for i in 0..30 {
                 events.push(
-                    f.text_msg(format!("hello world {}", i))
-                        .event_id(&EventId::parse(format!("$ev{}", i)).unwrap()),
+                    f.text_msg(format!("hello world {i}"))
+                        .event_id(&EventId::parse(format!("$ev{i}")).unwrap()),
                 );
             }
             events
