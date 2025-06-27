@@ -1454,6 +1454,88 @@ async fn test_send_encrypted_to_device_event_wildcard() {
     assert_eq!(serde_json::to_string(&response).unwrap(), "{}");
 }
 
+/// Test the wildcard edge cases, like using mixed wildcard and explicit device
+/// or when there are no devices at all. For now, we just log it and not report
+/// errors.
+#[async_test]
+async fn test_send_encrypted_to_device_event_wildcard_edge_cases() {
+    let (alice, bob, mock_server, driver_handle) = run_test_driver_e2e(false).await;
+
+    let bob_2 = mock_server
+        .set_up_new_device_for_encryption(&bob, device_id!("BOB2BOB2"), vec![&alice])
+        .await;
+
+    mock_server
+        .mock_sync()
+        .ok_and_run(&alice, |builder| {
+            builder.add_change_device(bob.user_id().unwrap());
+        })
+        .await;
+
+    negotiate_capabilities(
+        &driver_handle,
+        json!(["org.matrix.msc3819.send.to_device:my.custom.to_device_type",]),
+    )
+    .await;
+
+    let request_id = "0000000";
+
+    let data = json!({
+        "type": "my.custom.to_device_type",
+        "messages": {
+            bob.user_id().unwrap().to_string(): {
+                "*": {
+                    "param1":"test",
+                },
+                "OTHER_UNKNOWN": {
+                    "param1":"test",
+                },
+            },
+            "@carl:example.org": {
+                "*": {
+                    "param1":"test",
+                },
+            }
+        }
+    });
+
+    Mock::given(method("PUT"))
+        .and(path_regex(r"^/_matrix/client/.*/sendToDevice/m.room.encrypted/.*"))
+        .respond_with(move |req: &Request| {
+            // there should be two messages, one for bob and one for bob_2
+            #[derive(Debug, serde::Deserialize)]
+            struct Parameters {
+                messages: Messages,
+            }
+
+            let params: Parameters = req.body_json().unwrap();
+            assert_eq!(params.messages.len(), 1);
+            let for_bob = params.messages.get(bob.user_id().unwrap()).unwrap();
+            assert_eq!(for_bob.len(), 2);
+            assert!(for_bob
+                .get(&DeviceIdOrAllDevices::DeviceId(bob.device_id().unwrap().to_owned()))
+                .is_some());
+            assert!(for_bob
+                .get(&DeviceIdOrAllDevices::DeviceId(bob_2.device_id().unwrap().to_owned()))
+                .is_some());
+
+            ResponseTemplate::new(200)
+        })
+        .expect(1)
+        .mount(mock_server.server())
+        .await;
+
+    send_request(&driver_handle, request_id, "send_to_device", data).await;
+
+    // Receive the response
+    let msg = recv_message(&driver_handle).await;
+    assert_eq!(msg["api"], "fromWidget");
+    assert_eq!(msg["action"], "send_to_device");
+    let response = msg["response"].clone();
+    // For now we don't report unknown device when there is the wildcard
+    assert_eq!(serde_json::to_string(&response).unwrap(), "{}");
+}
+
 #[async_test]
 async fn test_send_encrypted_to_device_event_unknown_device() {
     let (_, _, driver_handle) = run_test_driver(false, true).await;
