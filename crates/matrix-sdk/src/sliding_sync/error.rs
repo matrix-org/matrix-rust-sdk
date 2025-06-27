@@ -21,7 +21,10 @@ pub enum Error {
     /// A `SlidingSyncListRequestGenerator` has been used without having been
     /// initialized. It happens when a response is handled before a request has
     /// been sent. It usually happens when testing.
-    #[error("The sliding sync list `{0}` is handling a response, but its request generator has not been initialized")]
+    #[error(
+        "The sliding sync list `{0}` is handling a response, \
+         but its request generator has not been initialized"
+    )]
     RequestGeneratorHasNotBeenInitialized(String),
 
     /// Ranges have a `start` bound greater than `end`.
@@ -46,7 +49,10 @@ pub enum Error {
     InvalidSlidingSyncIdentifier,
 
     /// A task failed to execute to completion.
-    #[error("A task failed to execute to completion; task description: {task_description}, error: {error}")]
+    #[error(
+        "A task failed to execute to completion; \
+         task description: {task_description}, error: {error}"
+    )]
     JoinError {
         /// Task description.
         task_description: String,

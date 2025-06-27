@@ -680,7 +680,10 @@ async fn build_indexeddb_store_config(
     };
 
     let store_config = {
-        tracing::warn!("The IndexedDB backend does not implement an event cache store, falling back to the in-memory event cache store…");
+        tracing::warn!(
+            "The IndexedDB backend does not implement an event cache store, \
+             falling back to the in-memory event cache store…"
+        );
         store_config.event_cache_store(matrix_sdk_base::event_cache::store::MemoryStore::new())
     };
 

@@ -144,7 +144,10 @@ pub enum MediaError {
     LocalMediaNotFound,
 
     /// The provided media is too large to upload.
-    #[error("The provided media is too large to upload. Maximum upload length is {max} bytes, tried to upload {current} bytes")]
+    #[error(
+        "The provided media is too large to upload. \
+         Maximum upload length is {max} bytes, tried to upload {current} bytes"
+    )]
     MediaTooLargeToUpload {
         /// The `max_upload_size` value for this homeserver.
         max: UInt,

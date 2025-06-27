@@ -42,7 +42,10 @@ pub enum RoomListError {
     InvalidRoomId { error: String },
     #[error("Event cache ran into an error: {error}")]
     EventCache { error: String },
-    #[error("The requested room doesn't match the membership requirements {expected:?}, observed {actual:?}")]
+    #[error(
+        "The requested room doesn't match the membership requirements {expected:?}, \
+         observed {actual:?}"
+    )]
     IncorrectRoomMembership { expected: Vec<Membership>, actual: Membership },
 }
 

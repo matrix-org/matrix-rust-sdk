@@ -486,7 +486,7 @@ impl<const CAP: usize, Item, Gap> LinkedChunk<CAP, Item, Gap> {
 
         let chunk = match &mut chunk.content {
             ChunkContent::Gap(..) => {
-                return Err(Error::ChunkIsAGap { identifier: chunk_identifier })
+                return Err(Error::ChunkIsAGap { identifier: chunk_identifier });
             }
 
             ChunkContent::Items(current_items) => {
@@ -574,7 +574,7 @@ impl<const CAP: usize, Item, Gap> LinkedChunk<CAP, Item, Gap> {
 
             let can_unlink_chunk = match &mut chunk.content {
                 ChunkContent::Gap(..) => {
-                    return Err(Error::ChunkIsAGap { identifier: chunk_identifier })
+                    return Err(Error::ChunkIsAGap { identifier: chunk_identifier });
                 }
 
                 ChunkContent::Items(current_items) => {
@@ -644,7 +644,7 @@ impl<const CAP: usize, Item, Gap> LinkedChunk<CAP, Item, Gap> {
 
         match &mut chunk.content {
             ChunkContent::Gap(..) => {
-                return Err(Error::ChunkIsAGap { identifier: chunk_identifier })
+                return Err(Error::ChunkIsAGap { identifier: chunk_identifier });
             }
 
             ChunkContent::Items(current_items) => {
@@ -1158,7 +1158,10 @@ impl ChunkIdentifierGenerator {
         // Check for overflows.
         // unlikely — TODO: call `std::intrinsics::unlikely` once it's stable.
         if previous == u64::MAX {
-            panic!("No more chunk identifiers available. Congrats, you did it. 2^64 identifiers have been consumed.")
+            panic!(
+                "No more chunk identifiers available. Congrats, you did it. \
+                 2^64 identifiers have been consumed."
+            )
         }
 
         ChunkIdentifier(previous + 1)

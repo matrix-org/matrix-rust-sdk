@@ -157,7 +157,10 @@ impl ReadReceipts {
                 // The old receipt is more recent since we can't find the new receipt in the
                 // timeline and we supposedly have all events since the end of the timeline.
                 if !is_own_user_id {
-                    trace!("we had a previous read receipt, but couldn't find the event targeted by the new read receipt in the timeline, exiting");
+                    trace!(
+                        "we had a previous read receipt, but couldn't find the event \
+                         targeted by the new read receipt in the timeline, exiting"
+                    );
                 }
                 return;
             };

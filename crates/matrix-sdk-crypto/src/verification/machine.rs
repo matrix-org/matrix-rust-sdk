@@ -367,7 +367,10 @@ impl VerificationMachine {
                 let Some(device_data) =
                     self.store.get_device(event.sender(), r.from_device()).await?
                 else {
-                    warn!("Could not retrieve the device data for the incoming verification request, ignoring it");
+                    warn!(
+                        "Could not retrieve the device data for the incoming verification request, \
+                         ignoring it"
+                    );
                     return Ok(());
                 };
 

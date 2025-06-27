@@ -410,10 +410,7 @@ fn run_wasm_pack_tests(cmd: Option<WasmFeatureSet>) -> Result<()> {
                 "--no-default-features --features js,indexeddb,e2e-encryption,rustls-tls,testing --lib",
             ),
         ),
-        (
-            WasmFeatureSet::IndexeddbAllFeatures,
-            ("crates/matrix-sdk-indexeddb", ""),
-        ),
+        (WasmFeatureSet::IndexeddbAllFeatures, ("crates/matrix-sdk-indexeddb", "")),
         (
             WasmFeatureSet::IndexeddbCrypto,
             ("crates/matrix-sdk-indexeddb", "--no-default-features --features e2e-encryption"),

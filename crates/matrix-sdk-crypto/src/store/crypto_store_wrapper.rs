@@ -190,7 +190,9 @@ impl CryptoStoreWrapper {
                 let own_identity_is_verified = own_identity_after.is_verified();
 
                 if !own_identity_was_verified_before_change && own_identity_is_verified {
-                    debug!("Own identity is now verified, check all known identities for verification status changes");
+                    debug!(
+                        "Own identity is now verified, check all known identities for verification status changes"
+                    );
                     // We need to review all the other identities to see if they are verified now
                     // and mark them as such
                     self.check_all_identities_and_update_was_previously_verified_flag_if_needed(

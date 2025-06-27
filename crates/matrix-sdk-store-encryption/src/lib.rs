@@ -77,7 +77,10 @@ pub enum Error {
 
     /// Failed to import a store cipher, the export used a passphrase while
     /// we are trying to import it using a key or vice-versa.
-    #[error("Failed to import a store cipher, the export used a passphrase while we are trying to import it using a key or vice-versa")]
+    #[error(
+        "Failed to import a store cipher, the export used a passphrase while we are trying to \
+         import it using a key or vice-versa"
+    )]
     KdfMismatch,
 }
 

@@ -427,7 +427,10 @@ impl Aggregations {
         };
 
         let Some(aggregation) = aggregation else {
-            warn!("incorrect internal state: {aggregation_id:?} was present in the inverted map, not in related-to map.");
+            warn!(
+                "incorrect internal state: {aggregation_id:?} was present in the inverted map, \
+                 not in related-to map."
+            );
             return Ok(false);
         };
 
@@ -807,6 +810,9 @@ pub(crate) enum AggregationError {
     #[error("a redaction can't be unapplied")]
     CantUndoRedaction,
 
-    #[error("trying to apply an aggregation of one type to an invalid target: expected {expected}, actual {actual}")]
+    #[error(
+        "trying to apply an aggregation of one type to an invalid target: \
+         expected {expected}, actual {actual}"
+    )]
     InvalidType { expected: String, actual: String },
 }

@@ -596,7 +596,9 @@ impl IdentityManager {
                 {
                     Some((master_key, self_signing))
                 } else {
-                    warn!("A user identity didn't contain a self signing pubkey or the key was invalid");
+                    warn!(
+                        "A user identity didn't contain a self signing pubkey or the key was invalid"
+                    );
                     None
                 }
             }

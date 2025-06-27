@@ -1548,7 +1548,10 @@ impl Encryption {
             if prev_holder == lock_value {
                 return Ok(());
             }
-            warn!("Recreating cross-process store lock with a different holder value: prev was {prev_holder}, new is {lock_value}");
+            warn!(
+                "Recreating cross-process store lock with a different holder value: \
+                 prev was {prev_holder}, new is {lock_value}"
+            );
         }
 
         let olm_machine = self.client.base_client().olm_machine().await;

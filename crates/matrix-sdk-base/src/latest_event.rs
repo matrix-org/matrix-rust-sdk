@@ -227,9 +227,10 @@ impl<'de> Deserialize<'de> for LatestEvent {
             Err(err) => variant_errors.push(err),
         }
 
-        Err(serde::de::Error::custom(
-            format!("data did not match any variant of serialized LatestEvent (using serde_json). Observed errors: {variant_errors:?}")
-        ))
+        Err(serde::de::Error::custom(format!(
+            "data did not match any variant of serialized LatestEvent (using serde_json). \
+             Observed errors: {variant_errors:?}"
+        )))
     }
 }
 

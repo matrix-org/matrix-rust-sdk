@@ -148,7 +148,10 @@ pub enum IndexeddbCryptoStoreError {
     },
     #[error(transparent)]
     CryptoStoreError(#[from] CryptoStoreError),
-    #[error("The schema version of the crypto store is too new. Existing version: {current_version}; max supported version: {max_supported_version}")]
+    #[error(
+        "The schema version of the crypto store is too new. \
+         Existing version: {current_version}; max supported version: {max_supported_version}"
+    )]
     SchemaTooNewError { max_supported_version: u32, current_version: u32 },
 }
 
@@ -1581,7 +1584,9 @@ async fn import_store_cipher_with_key(
             // Loading the cipher with the passphrase was successful. Let's update the
             // stored version of the cipher so that it is encrypted with a key,
             // to save doing this again.
-            debug!("IndexedDbCryptoStore: Migrating passphrase-encrypted store cipher to key-encryption");
+            debug!(
+                "IndexedDbCryptoStore: Migrating passphrase-encrypted store cipher to key-encryption"
+            );
 
             let export = cipher.export_with_key(chacha_key).map_err(CryptoStoreError::backend)?;
             save_store_cipher(db, &export).await?;

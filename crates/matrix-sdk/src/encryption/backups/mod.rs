@@ -702,7 +702,10 @@ impl Backups {
                 if let Some(kind) = error.client_api_error_kind() {
                     match kind {
                         ErrorKind::NotFound => {
-                            warn!("No backup found on the server, the backup likely got deleted, disabling backups.");
+                            warn!(
+                                "No backup found on the server, the backup likely got deleted, \
+                                 disabling backups."
+                            );
 
                             self.handle_deleted_backup_version(olm_machine).await?;
                         }

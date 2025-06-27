@@ -304,12 +304,12 @@ pub(crate) async fn collect_recipients_for_share_strategy(
                 None => {
                     return Err(OlmError::SessionRecipientCollectionError(
                         SessionRecipientCollectionError::CrossSigningNotSetup,
-                    ))
+                    ));
                 }
                 Some(identity) if !identity.is_verified() => {
                     return Err(OlmError::SessionRecipientCollectionError(
                         SessionRecipientCollectionError::SendingFromUnverifiedDevice,
-                    ))
+                    ));
                 }
                 Some(_) => (),
             }

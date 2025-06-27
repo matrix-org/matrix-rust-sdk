@@ -300,7 +300,10 @@ impl DateDividerAdjuster {
                     if let Some(last_event_ts) = latest_event_ts {
                         if timestamp_to_date(last_event_ts) == event_date {
                             // There's a previous event with the same date: remove the divider.
-                            trace!("removed date divider @ {item_index} between two events that have the same date");
+                            trace!(
+                                "removed date divider @ {item_index} between two events \
+                                 that have the same date"
+                            );
                             self.ops.insert(insert_op_at, DateDividerOperation::Remove(item_index));
                             return;
                         }

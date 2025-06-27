@@ -51,7 +51,11 @@ impl Room {
                     if event.content.membership == MembershipState::Knock {
                         event_to_user_ids.push((event.event_id, event.state_key))
                     } else {
-                        warn!("Could not mark knock event as seen: event {} for user {} is not in Knock membership state.", event.event_id, event.state_key);
+                        warn!(
+                            "Could not mark knock event as seen: event {} for user {} \
+                             is not in Knock membership state.",
+                            event.event_id, event.state_key
+                        );
                     }
                 }
                 _ => warn!(

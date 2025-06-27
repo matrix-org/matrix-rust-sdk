@@ -78,11 +78,17 @@ pub enum DecodeError {
     Mac(#[from] MacError),
     /// The MAC of the secret storage key for the MAC check has an incorrect
     /// length.
-    #[error("The MAC of for the secret storage MAC check has an incorrect length, expected: {0}, got: {1}")]
+    #[error(
+        "The MAC of for the secret storage MAC check has an incorrect length, \
+         expected: {0}, got: {1}"
+    )]
     MacLength(usize, usize),
     /// The IV of the secret storage key for the MAC check has an incorrect
     /// length.
-    #[error("The IV of for the secret storage key MAC check has an incorrect length, expected: {0}, got: {1}")]
+    #[error(
+        "The IV of for the secret storage key MAC check has an incorrect length, \
+         expected: {0}, got: {1}"
+    )]
     IvLength(usize, usize),
     /// The secret storage key is using an unsupported secret encryption
     /// algorithm. Currently only the [`m.secret_storage.v1.aes-hmac-sha2`]

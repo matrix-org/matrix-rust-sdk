@@ -39,7 +39,7 @@ impl RuleCommands {
             _ => {
                 return Err(NotificationSettingsError::InvalidParameter(
                     "cannot insert a rule for this kind.".to_owned(),
-                ))
+                ));
             }
         };
 

@@ -511,7 +511,7 @@ impl<P: RoomDataProvider, D: Decryptor> TimelineController<P, D> {
     ) -> Result<bool, PaginationError> {
         let PaginationResult { events, hit_end_of_timeline } = match &*self.focus.read().await {
             TimelineFocusData::Live | TimelineFocusData::PinnedEvents { .. } => {
-                return Err(PaginationError::NotSupported)
+                return Err(PaginationError::NotSupported);
             }
             TimelineFocusData::Event { paginator, .. } => paginator
                 .paginate_backward(num_events.into())
@@ -713,7 +713,10 @@ impl<P: RoomDataProvider, D: Decryptor> TimelineController<P, D> {
                     let new_item = item.with_reactions(reactions);
                     state.items.replace(item_pos, new_item);
                 } else {
-                    warn!("reaction is missing on the item, not removing it locally, but sending redaction.");
+                    warn!(
+                        "reaction is missing on the item, not removing it locally, \
+                         but sending redaction."
+                    );
                 }
 
                 // Release the lock before running the request.
@@ -738,7 +741,10 @@ impl<P: RoomDataProvider, D: Decryptor> TimelineController<P, D> {
                             let new_item = item.with_reactions(reactions);
                             state.items.replace(item_pos, new_item);
                         } else {
-                            warn!("couldn't find item to re-add reaction anymore; maybe it's been redacted?");
+                            warn!(
+                                "couldn't find item to re-add reaction anymore; \
+                                 maybe it's been redacted?"
+                            );
                         }
                     }
 
@@ -1493,7 +1499,9 @@ impl TimelineController {
                         event_id,
                         state.items.all_remote_events(),
                     ) {
-                        trace!("event referred to new receipt is {relative_pos:?} the previous receipt");
+                        trace!(
+                            "event referred to new receipt is {relative_pos:?} the previous receipt"
+                        );
                         return relative_pos == RelativePosition::After;
                     }
                 }
@@ -1510,7 +1518,9 @@ impl TimelineController {
                         event_id,
                         state.items.all_remote_events(),
                     ) {
-                        trace!("event referred to new receipt is {relative_pos:?} the previous receipt");
+                        trace!(
+                            "event referred to new receipt is {relative_pos:?} the previous receipt"
+                        );
                         return relative_pos == RelativePosition::After;
                     }
                 }
