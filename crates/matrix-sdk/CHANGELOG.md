@@ -95,6 +95,9 @@ causing deleted room avatars to not be flagged is fixed. ([#5293](https://github
 
 ### Refactor
 
+- Support for the deprecated `GET /auth_issuer` endpoint was removed in the `OAuth` API. Only the
+  `GET /auth_metadata` endpoint is used now.
+  ([#5302](https://github.com/matrix-org/matrix-rust-sdk/pull/5302))
 - `Room::push_context()` has been renamed into `Room::push_condition_room_ctx()`. The newer
   `Room::push_context` now returns a `matrix_sdk::Room::PushContext`, which can be used to compute
   the push actions for any event.
@@ -108,9 +111,6 @@ causing deleted room avatars to not be flagged is fixed. ([#5293](https://github
   ([#5047](https://github.com/matrix-org/matrix-rust-sdk/pull/5047))
 - `Room::set_unread_flag()` is now a no-op if the unread flag already has the wanted value.
   ([#5055](https://github.com/matrix-org/matrix-rust-sdk/pull/5055))
-- Support for the deprecated `GET /auth_issuer` endpoint was removed in the `OAuth` API. Only the
-  `GET /auth_metadata` endpoint is used now.
-  ([#5302](https://github.com/matrix-org/matrix-rust-sdk/pull/5302))
 
 ## [0.11.0] - 2025-04-11
 
