@@ -6,8 +6,20 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased] - ReleaseDate
 
+### Features
+
 - [**breaking**] Add a new `VerificationLevel::MismatchedSender` to indicate that the sender of an event appears to have been tampered with.
   ([#5219](https://github.com/matrix-org/matrix-rust-sdk/pull/5219))
+
+### Refactor
+
+- [**breaking**] The `PendingChanges`, `Changes`, `StoredRoomKeyBundleData`,
+  `TrackedUser`, `IdentityChanges`, `DeviceChanges`, `DeviceUpdates`,
+  `IdentityUpdates`, `BackupDecryptionKey`, `DehydratedDeviceKey`,
+  `RoomKeyCounts`, `BackupKeys`, `CrossSigningKeyExport`, `UserKeyQueryResult`,
+  `RoomSettings`, `RoomKeyInfo`, and `RoomKeyWithheldInfo` types have been moved
+  from the `store` module into a new `store/types` module.
+  ([#5177](https://github.com/matrix-org/matrix-rust-sdk/pull/5177))
 
 ## [0.12.0] - 2025-06-10
 
