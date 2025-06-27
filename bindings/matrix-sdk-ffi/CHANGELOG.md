@@ -23,6 +23,14 @@ All notable changes to this project will be documented in this file.
   In the future additional choices (such as session storage, `sqlite` and `indexeddb`) 
   will likely be added as well.
 
+### Maintenance
+
+- Update xtask build system dependencies and fix compatibility with uniffi_bindgen 0.28.3.
+  The xtask build system now properly handles the updated uniffi_bindgen API for
+  generating Kotlin and Swift bindings by including the required EmptyCrateConfigSupplier
+  parameter in generate_bindings() calls.
+  ([#XXXX](https://github.com/matrix-org/matrix-rust-sdk/pull/XXXX))
+
 Breaking changes:
 
 - `Client::reset_server_capabilities` has been renamed to `Client::reset_server_info`.
