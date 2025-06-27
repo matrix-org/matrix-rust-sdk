@@ -185,12 +185,9 @@ use oauth2::{
 };
 pub use oauth2::{ClientId, CsrfToken};
 use ruma::{
-    api::client::discovery::{
-        get_authentication_issuer,
-        get_authorization_server_metadata::{
-            self,
-            msc2965::{AccountManagementAction, AuthorizationServerMetadata},
-        },
+    api::client::discovery::get_authorization_server_metadata::{
+        self,
+        msc2965::{AccountManagementAction, AuthorizationServerMetadata},
     },
     serde::Raw,
     DeviceId, OwnedDeviceId,
@@ -207,7 +204,6 @@ mod auth_code_builder;
 mod cross_process;
 pub mod error;
 mod http_client;
-mod oidc_discovery;
 #[cfg(feature = "e2e-encryption")]
 pub mod qrcode;
 pub mod registration;
@@ -225,7 +221,6 @@ pub use self::{
 };
 use self::{
     http_client::OAuthHttpClient,
-    oidc_discovery::discover,
     registration::{register_client, ClientMetadata, ClientRegistrationResponse},
 };
 use super::{AuthData, SessionTokens};
@@ -569,33 +564,6 @@ impl OAuth {
         Ok(metadata.account_management_uri.map(AccountManagementUrlBuilder::new))
     }
 
-    /// Discover the authentication issuer and retrieve the
-    /// [`AuthorizationServerMetadata`] using the GET `/auth_issuer` endpoint
-    /// previously defined in [MSC2965].
-    ///
-    /// **Note**: This endpoint is deprecated.
-    ///
-    /// MSC2956: https://github.com/matrix-org/matrix-spec-proposals/pull/2965
-    async fn fallback_discover(
-        &self,
-    ) -> Result<Raw<AuthorizationServerMetadata>, OAuthDiscoveryError> {
-        #[allow(deprecated)]
-        let issuer =
-            match self.client.send(get_authentication_issuer::msc2965::Request::new()).await {
-                Ok(response) => response.issuer,
-                Err(error)
-                    if error
-                        .as_client_api_error()
-                        .is_some_and(|err| err.status_code == http::StatusCode::NOT_FOUND) =>
-                {
-                    return Err(OAuthDiscoveryError::NotSupported);
-                }
-                Err(error) => return Err(error.into()),
-            };
-
-        discover(self.http_client(), &issuer).await
-    }
-
     /// Fetch the OAuth 2.0 authorization server metadata of the homeserver.
     ///
     /// Returns an error if a problem occurred when fetching or validating the
@@ -609,23 +577,20 @@ impl OAuth {
                 .is_some_and(|err| err.status_code == http::StatusCode::NOT_FOUND)
         };
 
-        let raw_metadata = match self
+        let response = self
             .client
             .send(get_authorization_server_metadata::msc2965::Request::new())
             .await
-        {
-            Ok(response) => response.metadata,
-            // If the endpoint returns a 404, i.e. the server doesn't support the endpoint, attempt
-            // to use the equivalent, but deprecated, endpoint.
-            Err(error) if is_endpoint_unsupported(&error) => {
-                // TODO: remove this fallback behavior when the metadata endpoint has wider
-                // support.
-                self.fallback_discover().await?
-            }
-            Err(error) => return Err(error.into()),
-        };
+            .map_err(|error| {
+                // If the endpoint returns a 404, i.e. the server doesn't support the endpoint.
+                if is_endpoint_unsupported(&error) {
+                    OAuthDiscoveryError::NotSupported
+                } else {
+                    error.into()
+                }
+            })?;
 
-        let metadata = raw_metadata.deserialize()?;
+        let metadata = response.metadata.deserialize()?;
 
         if self.ctx().insecure_discover {
             metadata.insecure_validate_urls()?;
