@@ -19,7 +19,7 @@ resolver = "2"
 rust-version = "1.85"
 
 [workspace.dependencies]
-anyhow = "1.0.95"
+anyhow = "1.0.98"
 aquamarine = "0.6.0"
 as_variant = "1.3.0"
 assert-json-diff = "2.0.2"
@@ -28,7 +28,7 @@ assert_matches2 = "0.1.2"
 async-compat = "0.2.4"
 async-rx = "0.1.3"
 async-stream = "0.3.5"
-async-trait = "0.1.85"
+async-trait = "0.1.88"
 base64 = "0.22.1"
 bitflags = "2.8.0"
 byteorder = "1.5.0"
@@ -39,24 +39,24 @@ eyeball-im-util = "0.9.0"
 futures-core = "0.3.31"
 futures-executor = "0.3.31"
 futures-util = "0.3.31"
-getrandom = { version = "0.2.15", default-features = false }
+getrandom = { version = "0.3.3", default-features = false }
 gloo-timers = "0.3.0"
 growable-bloom-filter = "2.1.1"
 hkdf = "0.12.4"
 hmac = "0.12.1"
 http = "1.2.0"
 imbl = "5.0.0"
-indexmap = "2.7.1"
-insta = { version = "1.42.1", features = ["json", "redactions"] }
+indexmap = "2.10.0"
+insta = { version = "1.43.1", features = ["json", "redactions"] }
 itertools = "0.14.0"
-js-sys = "0.3.69"
+js-sys = "0.3.77"
 mime = "0.3.17"
 once_cell = "1.20.2"
 pbkdf2 = { version = "0.12.2" }
 pin-project-lite = "0.2.16"
-proptest = { version = "1.6.0", default-features = false, features = ["std"] }
+proptest = { version = "1.7.0", default-features = false, features = ["std"] }
 rand = "0.8.5"
-reqwest = { version = "0.12.12", default-features = false }
+reqwest = { version = "0.12.20", default-features = false }
 rmp-serde = "1.3.0"
 # Be careful to use commits from the https://github.com/ruma/ruma/tree/ruma-0.12
 # branch until a proper release with breaking changes happens.
@@ -79,31 +79,31 @@ ruma = { git = "https://github.com/ruma/ruma", rev = "d1d53e2b7aaf9190f11a5465b9
     "unstable-msc4286",
 ] }
 ruma-common = { git = "https://github.com/ruma/ruma", rev = "d1d53e2b7aaf9190f11a5465b9edf6a19fc5b59a" }
-sentry = "0.36.0"
-sentry-tracing = "0.36.0"
-serde = { version = "1.0.217", features = ["rc"] }
+sentry = "0.41.0"
+sentry-tracing = "0.41.0"
+serde = { version = "1.0.219", features = ["rc"] }
 serde_html_form = "0.2.7"
-serde_json = "1.0.138"
+serde_json = "1.0.140"
 sha2 = "0.10.8"
 similar-asserts = "1.6.1"
 stream_assert = "0.1.1"
-tempfile = "3.16.0"
-thiserror = "2.0.11"
-tokio = { version = "1.43.1", default-features = false, features = ["sync"] }
+tempfile = "3.20.0"
+thiserror = "2.0.12"
+tokio = { version = "1.45.1", default-features = false, features = ["sync"] }
 tokio-stream = "0.1.17"
 tracing = { version = "0.1.40", default-features = false, features = ["std"] }
 tracing-core = "0.1.32"
 tracing-subscriber = "0.3.18"
 unicode-normalization = "0.1.24"
-uniffi = { version = "0.28.0" }
-uniffi_bindgen = { version = "0.28.0" }
+uniffi = { version = "0.28.3" }
+uniffi_bindgen = { version = "0.28.3" }
 url = "2.5.4"
-uuid = "1.12.1"
+uuid = "1.17.0"
 vodozemac = { version = "0.9.0", features = ["insecure-pk-encryption"] }
-wasm-bindgen = "0.2.84"
+wasm-bindgen = "0.2.100"
 wasm-bindgen-test = "0.3.50"
-web-sys = "0.3.69"
-wiremock = "0.6.2"
+web-sys = "0.3.77"
+wiremock = "0.6.4"
 zeroize = "1.8.1"
 
 matrix-sdk = { path = "crates/matrix-sdk", version = "0.12.0", default-features = false }
