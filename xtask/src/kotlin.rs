@@ -2,7 +2,7 @@ use std::fs::create_dir_all;
 
 use camino::{Utf8Path, Utf8PathBuf};
 use clap::{Args, Subcommand, ValueEnum};
-use uniffi_bindgen::{bindings::KotlinBindingGenerator, library_mode::generate_bindings};
+use uniffi_bindgen::{bindings::KotlinBindingGenerator, library_mode::generate_bindings, EmptyCrateConfigSupplier};
 use xshell::cmd;
 
 use crate::{sh, workspace, Result};
@@ -150,7 +150,7 @@ fn build_android_library(
 fn generate_uniffi_bindings(library_path: &Utf8Path, ffi_generated_dir: &Utf8Path) -> Result<()> {
     println!("-- library_path = {library_path}");
 
-    generate_bindings(library_path, None, &KotlinBindingGenerator, None, ffi_generated_dir, false)?;
+    generate_bindings(library_path, None, &KotlinBindingGenerator, &EmptyCrateConfigSupplier {}, None, ffi_generated_dir, false)?;
     Ok(())
 }
 
