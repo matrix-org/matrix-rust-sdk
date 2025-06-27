@@ -6,11 +6,17 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased] - ReleaseDate
 
+### Features
+
+- Add `NotificationRoomInfo::topic` to the `NotificationRoomInfo` struct, which
+  contains the topic of the room. This is useful for displaying the room topic
+  in notifications.
+
 ### Refactor
 
 - Adjust features in the `matrix-sdk-ffi` crate to expose more platform-specific knobs.
   Previously the `matrix-sdk-ffi` was configured primarily by target configs, choosing
-  between the tls flavor (`rustls-tls` or `native-tls`) and features like `sentry` based 
+  between the tls flavor (`rustls-tls` or `native-tls`) and features like `sentry` based
   purely on the target. As we work to add an additional Wasm target to this crate,
   the cross product of target specific features has become somewhat chaotic, and we
   have shifted to externalize these choices as feature flags.
@@ -20,7 +26,7 @@ All notable changes to this project will be documented in this file.
   iOS: `"bundled-sqlite,unstable-msc4274,native-tls,sentry"`
   Javascript/Wasm: `"unstable-msc4274,native-tls"`
 
-  In the future additional choices (such as session storage, `sqlite` and `indexeddb`) 
+  In the future additional choices (such as session storage, `sqlite` and `indexeddb`)
   will likely be added as well.
 
 Breaking changes:
@@ -38,7 +44,7 @@ Breaking changes:
 
 Breaking changes:
 
-- `Client::send_call_notification_if_needed` now returns `Result<bool>` instead of `Result<()>` so we can check if 
+- `Client::send_call_notification_if_needed` now returns `Result<bool>` instead of `Result<()>` so we can check if
   the event was sent.
 - `Client::upload_avatar` and `Timeline::send_attachment` now may fail if a file too large for the homeserver media
   config is uploaded.
@@ -53,8 +59,8 @@ Breaking changes:
 
 Additions:
 
-- `Client::subscribe_to_room_info` allows clients to subscribe to room info updates in rooms which may not be known yet. 
-  This is useful when displaying a room preview for an unknown room, so when we receive any membership change for it, 
+- `Client::subscribe_to_room_info` allows clients to subscribe to room info updates in rooms which may not be known yet.
+  This is useful when displaying a room preview for an unknown room, so when we receive any membership change for it,
   we can automatically update the UI.
 - `Client::get_max_media_upload_size` to get the max size of a request sent to the homeserver so we can tweak our media
   uploads by compressing/transcoding the media.
@@ -74,7 +80,7 @@ Additions:
 
 Breaking changes:
 
-- `contacts` has been removed from `OidcConfiguration` (it was unused since the switch to OAuth). 
+- `contacts` has been removed from `OidcConfiguration` (it was unused since the switch to OAuth).
 
 ## [0.11.0] - 2025-04-11
 
