@@ -1,7 +1,7 @@
 use std::{
     sync::{
-        atomic::{AtomicBool, Ordering},
         Arc,
+        atomic::{AtomicBool, Ordering},
     },
     time::Duration,
 };
@@ -10,11 +10,11 @@ use crossterm::event::{KeyCode, KeyEvent, KeyEventKind};
 use futures_util::FutureExt as _;
 use layout::Flex;
 use matrix_sdk::{
+    Client,
     encryption::{
         backups::BackupState,
         recovery::{RecoveryError, RecoveryState},
     },
-    Client,
 };
 use matrix_sdk_common::executor::spawn;
 use ratatui::{
@@ -24,7 +24,7 @@ use ratatui::{
 use throbber_widgets_tui::{Throbber, ThrobberState};
 use tokio::task::JoinHandle;
 
-use super::{create_centered_throbber_area, ShouldExit};
+use super::{ShouldExit, create_centered_throbber_area};
 
 #[derive(Debug)]
 pub struct DefaultRecoveryView {

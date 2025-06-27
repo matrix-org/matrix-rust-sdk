@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use imbl::Vector;
-use matrix_sdk::ruma::{events::room::message::MessageType, UserId};
+use matrix_sdk::ruma::{UserId, events::room::message::MessageType};
 use matrix_sdk_ui::timeline::{
     MembershipChange, Message, MsgLikeContent, MsgLikeKind, RoomMembershipChange, ThreadSummary,
     TimelineDetails, TimelineItem, TimelineItemContent, TimelineItemKind, VirtualTimelineItem,
