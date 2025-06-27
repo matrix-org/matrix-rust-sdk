@@ -68,7 +68,10 @@ pub enum IndexeddbStateStoreError {
     DomException { name: String, message: String, code: u16 },
     #[error(transparent)]
     StoreError(#[from] StoreError),
-    #[error("Can't migrate {name} from {old_version} to {new_version} without deleting data. See MigrationConflictStrategy for ways to configure.")]
+    #[error(
+        "Can't migrate {name} from {old_version} to {new_version} without deleting data. \
+         See MigrationConflictStrategy for ways to configure."
+    )]
     MigrationConflict { name: String, old_version: u32, new_version: u32 },
 }
 

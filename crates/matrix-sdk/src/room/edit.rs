@@ -99,7 +99,10 @@ pub enum EditError {
     Deserialize(#[from] serde_json::Error),
 
     /// We tried to edit an event of type A with content of type B.
-    #[error("The original event type ({target}) isn't the same as the parameter's new content type ({new_content})")]
+    #[error(
+        "The original event type ({target}) isn't the same as \
+         the parameter's new content type ({new_content})"
+    )]
     IncompatibleEditType {
         /// The type of the target event.
         target: String,

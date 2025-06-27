@@ -235,7 +235,10 @@ impl SessionVerificationController {
         if sender != self.user_identity.user_id() {
             if let Some(status) = self.encryption.cross_signing_status().await {
                 if !status.is_complete() {
-                    warn!("Cannot verify other users until our own device's cross-signing status is complete: {status:?}");
+                    warn!(
+                        "Cannot verify other users until our own device's cross-signing status \
+                         is complete: {status:?}"
+                    );
                     return;
                 }
             }

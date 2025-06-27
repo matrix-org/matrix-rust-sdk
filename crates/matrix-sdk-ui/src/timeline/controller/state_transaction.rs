@@ -159,7 +159,10 @@ impl<'a> TimelineStateTransaction<'a> {
                         )
                         .await;
                     } else {
-                        warn!(event_index, "Set update dropped because there wasn't any attached timeline item index.");
+                        warn!(
+                            event_index,
+                            "Set update dropped because there wasn't any attached timeline item index."
+                        );
                     }
                 }
 
@@ -316,7 +319,10 @@ impl<'a> TimelineStateTransaction<'a> {
                         )
                         .await;
                     } else {
-                        warn!(event_index, "Set update dropped because there wasn't any attached timeline item index.");
+                        warn!(
+                            event_index,
+                            "Set update dropped because there wasn't any attached timeline item index."
+                        );
                     }
                 }
 

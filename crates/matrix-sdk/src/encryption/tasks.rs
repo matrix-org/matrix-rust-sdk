@@ -360,7 +360,10 @@ impl BackupDownloadTaskListenerState {
             .await
             .unwrap_or(false)
         {
-            debug!(?download_request, "Not performing backup download because key became available while we were sleeping");
+            debug!(
+                ?download_request,
+                "Not performing backup download because key became available while we were sleeping"
+            );
             return false;
         }
 

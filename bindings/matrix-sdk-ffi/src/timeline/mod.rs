@@ -564,7 +564,10 @@ impl Timeline {
                 let event_id = match event_or_transaction_id {
                     EventOrTransactionId::EventId { event_id } => EventId::parse(event_id)?,
                     EventOrTransactionId::TransactionId { .. } => {
-                        warn!("trying to apply an edit to a local echo that doesn't exist in this timeline, aborting");
+                        warn!(
+                            "trying to apply an edit to a local echo that doesn't exist \
+                             in this timeline, aborting"
+                        );
                         return Ok(());
                     }
                 };

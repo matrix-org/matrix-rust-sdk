@@ -40,7 +40,10 @@ pub enum VersionBuilderError {
 
     /// `/versions` does not contain `org.matrix.simplified_msc3575` in its
     /// `unstable_features`, or it's not set to true.
-    #[error("`/versions` does not contain `org.matrix.simplified_msc3575` in its `unstable_features`, or it's not set to true.")]
+    #[error(
+        "`/versions` does not contain `org.matrix.simplified_msc3575` in its `unstable_features`, \
+         or it's not set to true."
+    )]
     NativeVersionIsUnset,
 }
 

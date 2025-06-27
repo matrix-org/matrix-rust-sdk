@@ -42,8 +42,9 @@ const VERIFICATION_VIOLATION: &str =
     "Encrypted by a previously-verified user who is no longer verified.";
 const UNSIGNED_DEVICE: &str = "Encrypted by a device not verified by its owner.";
 const UNKNOWN_DEVICE: &str = "Encrypted by an unknown or deleted device.";
-const MISMATCHED_SENDER: &str =
-    "The sender of the event does not match the owner of the device that created the Megolm session.";
+const MISMATCHED_SENDER: &str = "\
+    The sender of the event does not match the owner of the device \
+    that created the Megolm session.";
 pub const SENT_IN_CLEAR: &str = "Not encrypted.";
 
 /// Represents the state of verification for a decrypted message sent by a
@@ -588,7 +589,11 @@ impl TimelineEvent {
         match latest_event.get_field::<MessageLikeEventType>("type") {
             Ok(None) => {
                 let event_id = latest_event.get_field::<OwnedEventId>("event_id").ok().flatten();
-                warn!(?event_id, "couldn't deserialize bundled latest thread event: missing `type` field in bundled latest thread event");
+                warn!(
+                    ?event_id,
+                    "couldn't deserialize bundled latest thread event: missing `type` field \
+                     in bundled latest thread event"
+                );
                 None
             }
 

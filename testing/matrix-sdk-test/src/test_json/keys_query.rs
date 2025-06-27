@@ -50,29 +50,45 @@ impl KeysQueryUser {
             device_key_ed22519: "6melQNnhoI9sT2b4VzNPAwa8aB179ym45fON8Yo7kVk",
             device_signature: "Fk45zHAbrd+1j9wZXLjL2Y/+DU/Mnz9yuvlfYBOOT7qExN2Jdud+5BAuNs8nZ/caS4wTF39Kg3zQpzaGERoCBg",
             device_signature_2_name: Some("dO4gmBNW7WC0bXBK81j8uh4me6085fP+keoOm0pH3gw"),
-            device_signature_2_signature: Some("md0Pa1MYlneFb1fp6KCsvZpi2ySb6/G+ULoCbQDWBeDxNEcoNMzf7PEKY04UToCZKUU4LifvRWmiWFDanOlkCQ"),
+            device_signature_2_signature: Some(
+                "md0Pa1MYlneFb1fp6KCsvZpi2ySb6/G+ULoCbQDWBeDxNEcoNMzf7PEKY04UToCZKUU4LifvRWmiWFDanOlkCQ",
+            ),
             master_key_name: Some("/mULSzYNTdHJOBWnBmsvDHhqdHQcWnXRHHmqwzwC7DY"),
-            master_key_signature: Some("6vGDbPO5XzlcwbU3aV+kcck+iHHEBtX85ow2gW5U05/DZdtda/JNVa5Nn7B9lQHNnnrMqt1sX00y/JrIkSS1Aw"),
-            master_key_device_signature: Some("jLxmUPr0Ny2Ai9+NGKGhed9BAuKikOc7r6gr7MQVawePYS95w8NJ8Tzaq9zFFOmIiojACNdQ/ksy3QAdwD6vBQ"),
+            master_key_signature: Some(
+                "6vGDbPO5XzlcwbU3aV+kcck+iHHEBtX85ow2gW5U05/DZdtda/JNVa5Nn7B9lQHNnnrMqt1sX00y/JrIkSS1Aw",
+            ),
+            master_key_device_signature: Some(
+                "jLxmUPr0Ny2Ai9+NGKGhed9BAuKikOc7r6gr7MQVawePYS95w8NJ8Tzaq9zFFOmIiojACNdQ/ksy3QAdwD6vBQ",
+            ),
             self_signing_key_name: Some("dO4gmBNW7WC0bXBK81j8uh4me6085fP+keoOm0pH3gw"),
-            self_signing_key_signature: Some("7md6mwjUK8zjintmffJ0+kImC59/Y8PdySy99EZz5Neu+VMX3LT7txhKO2gC/hmDduRw+JGfGXIiDxR7GmQqDw"),
+            self_signing_key_signature: Some(
+                "7md6mwjUK8zjintmffJ0+kImC59/Y8PdySy99EZz5Neu+VMX3LT7txhKO2gC/hmDduRw+JGfGXIiDxR7GmQqDw",
+            ),
         }
     }
 
     pub(crate) fn bob_b() -> Self {
         Self {
             user_id: user_id!("@bob:localhost"),
-            device_id:  device_id!("ATWKQFSFRN"),
-            device_key_curve25519:  "CY0TWVK1/Kj3ZADuBcGe3UKvpT+IKAPMUsMeJhSDqno",
-            device_key_ed22519:  "TyTQqd6j2JlWZh97r+kTYuCbvqnPoNwO6EGovYsjY00",
-            device_signature:  "BQ9Gp0p+6srF+c8OyruqKKd9R4yaub3THYAyyBB/7X/rG8BwcAqFynzl1aGyFYun4Q+087a5OSiglCXI+/kQAA",
+            device_id: device_id!("ATWKQFSFRN"),
+            device_key_curve25519: "CY0TWVK1/Kj3ZADuBcGe3UKvpT+IKAPMUsMeJhSDqno",
+            device_key_ed22519: "TyTQqd6j2JlWZh97r+kTYuCbvqnPoNwO6EGovYsjY00",
+            device_signature: "BQ9Gp0p+6srF+c8OyruqKKd9R4yaub3THYAyyBB/7X/rG8BwcAqFynzl1aGyFYun4Q+087a5OSiglCXI+/kQAA",
             device_signature_2_name: Some("At1ai1VUZrCncCI7V7fEAJmBShfpqZ30xRzqcEjTjdc"),
-            device_signature_2_signature:  Some("TWmDPaG7t0rZ6luauonELD3dmBDTIRryqXhgsIQRiGint2rJdic8RVyZ6a61bgu6mtBjfvU3prqMNp6sVi16Cg"),
-            master_key_name:  Some("NmI78hY54kE7OZsIjbRE/iCox59t4nzScCNEO6fvtY4"),
-            master_key_signature:  Some("xqLhC3sIUci1W2CNVW7HZWXreQApgjv2RDwB0WPiMd1P4vbZ/qJM0KWqK2piGPWliPi8YVREMrg216KXM3IhCA"),
-            master_key_device_signature:  Some("MBOzCKYPQLQMpBY2lFZJ4c8451xJfQCdhPBb1AHlTUSxKFiWi6V+k1oRRnhQein/PjkIY7ZO+HoOrIeOtbRMAw"),
+            device_signature_2_signature: Some(
+                "TWmDPaG7t0rZ6luauonELD3dmBDTIRryqXhgsIQRiGint2rJdic8RVyZ6a61bgu6mtBjfvU3prqMNp6sVi16Cg",
+            ),
+            master_key_name: Some("NmI78hY54kE7OZsIjbRE/iCox59t4nzScCNEO6fvtY4"),
+            master_key_signature: Some(
+                "xqLhC3sIUci1W2CNVW7HZWXreQApgjv2RDwB0WPiMd1P4vbZ/qJM0KWqK2piGPWliPi8YVREMrg216KXM3IhCA",
+            ),
+            master_key_device_signature: Some(
+                "MBOzCKYPQLQMpBY2lFZJ4c8451xJfQCdhPBb1AHlTUSxKFiWi6V+k1oRRnhQein/PjkIY7ZO+HoOrIeOtbRMAw",
+            ),
             self_signing_key_name: Some("At1ai1VUZrCncCI7V7fEAJmBShfpqZ30xRzqcEjTjdc"),
-            self_signing_key_signature:  Some("Ls6CeoA4LoPCHuSwG96kbhd1dEV09TgdMROIZi6vFz/MT9Wtik6joQi/tQ3zCwIZCSR53ksLO4jG1DD31AiBAA"),
+            self_signing_key_signature: Some(
+                "Ls6CeoA4LoPCHuSwG96kbhd1dEV09TgdMROIZi6vFz/MT9Wtik6joQi/tQ3zCwIZCSR53ksLO4jG1DD31AiBAA",
+            ),
         }
     }
 

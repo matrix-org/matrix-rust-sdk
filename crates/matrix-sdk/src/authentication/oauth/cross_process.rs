@@ -229,7 +229,10 @@ pub enum CrossProcessRefreshLockError {
     MissingLock,
 
     /// Cross-process lock was set, but without session callbacks.
-    #[error("reload session callback must be set with Client::set_session_callbacks() for the cross-process lock to work")]
+    #[error(
+        "reload session callback must be set with Client::set_session_callbacks() \
+         for the cross-process lock to work"
+    )]
     MissingReloadSession,
 
     /// The store has been created twice.

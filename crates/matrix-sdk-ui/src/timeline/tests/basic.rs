@@ -381,17 +381,19 @@ async fn test_reply() {
     let date_divider = assert_next_matches!(stream, VectorDiff::PushFront { value } => value);
     assert!(date_divider.is_date_divider());
 
-    let reply_formatted_body = format!("\
-        <mx-reply>\
-            <blockquote>\
-                <a href=\"https://matrix.to/#/!my_room:server.name/{first_event_id}\">In reply to</a> \
-                <a href=\"https://matrix.to/#/{first_event_sender}\">{first_event_sender}</a>\
-                <br>\
-                I want you to reply\
-            </blockquote>\
-        </mx-reply>\
-        <p>I'm replying!</p>\
-    ");
+    let reply_formatted_body = format!(
+        "\
+            <mx-reply>\
+                <blockquote>\
+                    <a href=\"https://matrix.to/#/!my_room:server.name/{first_event_id}\">In reply to</a> \
+                    <a href=\"https://matrix.to/#/{first_event_sender}\">{first_event_sender}</a>\
+                    <br>\
+                    I want you to reply\
+                </blockquote>\
+            </mx-reply>\
+            <p>I'm replying!</p>\
+        "
+    );
     let reply_plain = format!(
         "> <{first_event_sender}> I want you to reply\n\
          I'm replying!"

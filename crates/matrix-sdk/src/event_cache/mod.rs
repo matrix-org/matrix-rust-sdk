@@ -245,7 +245,9 @@ impl EventCache {
                         match err {
                             EventCacheError::ClientDropped => {
                                 // The client has dropped, exit the listen task.
-                                info!("Closing the event cache global listen task because client dropped");
+                                info!(
+                                    "Closing the event cache global listen task because client dropped"
+                                );
                                 break;
                             }
                             err => {

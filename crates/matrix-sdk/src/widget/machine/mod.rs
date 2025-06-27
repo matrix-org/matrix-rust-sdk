@@ -280,7 +280,7 @@ impl WidgetMachine {
                 return vec![Self::send_from_widget_err_response(
                     raw_request,
                     FromWidgetErrorResponse::from_error(Error::SerdeJson(e)),
-                )]
+                )];
             }
         };
 
@@ -348,7 +348,8 @@ impl WidgetMachine {
                 let CapabilitiesState::Negotiated(capabilities) = &self.capabilities else {
                     return vec![Self::send_from_widget_error_string_response(
                         raw_request,
-                        "Received send update delayed event request before capabilities were negotiated"
+                        "Received send update delayed event request \
+                         before capabilities were negotiated",
                     )];
                 };
 

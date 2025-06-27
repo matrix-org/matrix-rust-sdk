@@ -187,6 +187,9 @@ pub enum SecureChannelError {
 
     /// Both devices have advertised the same intent in the login attempt, i.e.
     /// both sides claim to be a new device.
-    #[error("The secure channel could not have been established, the two devices have the same login intent")]
+    #[error(
+        "The secure channel could not have been established, \
+         the two devices have the same login intent"
+    )]
     InvalidIntent,
 }

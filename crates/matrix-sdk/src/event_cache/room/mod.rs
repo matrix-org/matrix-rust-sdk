@@ -117,7 +117,10 @@ impl Drop for RoomEventCacheSubscriber {
                 if num_attempts > 1024 {
                     // If we've tried too many times, just give up with a warning; after all, this
                     // is only an optimization.
-                    warn!("couldn't send notification to the auto-shrink channel after 1024 attempts; giving up");
+                    warn!(
+                        "couldn't send notification to the auto-shrink channel \
+                         after 1024 attempts; giving up"
+                    );
                     return;
                 }
 
