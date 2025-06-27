@@ -398,7 +398,8 @@ impl App {
                     }
                     GlobalMode::Help => {
                         if let Event::Key(key) = event
-                            && let (KeyModifiers::NONE, Char('q') | Esc) = (key.modifiers, key.code)
+                            && let KeyModifiers::NONE = key.modifiers
+                            && let Char('q') | Esc = key.code
                         {
                             self.set_global_mode(GlobalMode::Default)
                         }
