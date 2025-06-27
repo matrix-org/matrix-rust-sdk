@@ -1580,6 +1580,56 @@ async fn test_send_encrypted_to_device_event_unknown_device() {
 }
 
 #[async_test]
+async fn test_send_internal_to_device_event() {
+    let (alice, bob, mock_server, driver_handle) = run_test_driver_e2e(false).await;
+
+    negotiate_capabilities(
+        &driver_handle,
+        json!(["org.matrix.msc3819.send.to_device:m.room_key_request",]),
+    )
+    .await;
+
+    let request_id = "0000000";
+
+    let data = json!({
+        "type": "my.room_key_request",
+        "messages": {
+            bob.user_id().unwrap().to_string(): {
+                bob.device_id().unwrap().to_string(): {
+                    "action":"request",
+                    "requesting_device_id": bob.device_id().unwrap().to_string(),
+                    "request_id": "1234",
+                },
+            },
+        }
+    });
+
+    let queue: Arc<std::sync::Mutex<PendingToDeviceMessages>> = Default::default();
+    let guard =
+        mock_server.capture_put_to_device_traffic(alice.user_id().unwrap(), queue.clone()).await;
+
+    send_request(&driver_handle, request_id, "send_to_device", data).await;
+
+    // Receive the response
+    let msg = recv_message(&driver_handle).await;
+
+    assert_eq!(msg["api"], "fromWidget");
+    assert_eq!(msg["action"], "send_to_device");
+    let response = msg["response"].clone();
+    assert_eq!(
+        response,
+        json!({
+            "error": {
+                "message": "Not allowed to send to-device message of type: my.room_key_request"
+            }
+        })
+    );
+
+    assert!(queue.lock().unwrap().is_empty());
+    drop(guard);
+}
+
+#[async_test]
 async fn test_send_encrypted_to_device_event_partial_error() {
     let (alice, bob, mock_server, driver_handle) = run_test_driver_e2e(false).await;
 
