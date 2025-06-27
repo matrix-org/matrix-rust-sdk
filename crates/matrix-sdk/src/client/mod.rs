@@ -1490,6 +1490,10 @@ impl Client {
             }
         }
 
+        // Suppress "unused variable" and "unused field" lints
+        #[cfg(not(feature = "e2e-encryption"))]
+        let _ = pre_join_room_info.map(|i| i.inviter);
+
         Ok(room)
     }
 
