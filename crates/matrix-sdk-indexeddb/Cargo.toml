@@ -46,7 +46,7 @@ zeroize.workspace = true
 
 [target.'cfg(target_family = "wasm")'.dependencies]
 # for wasm32 we need to activate this
-getrandom = { workspace = true, features = ["js"] }
+getrandom = { workspace = true, features = ["wasm_js"] }
 
 [dev-dependencies]
 assert_matches.workspace = true
