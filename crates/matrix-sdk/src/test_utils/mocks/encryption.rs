@@ -180,8 +180,6 @@ impl MatrixMockServer {
 
     /// Creates a new device and returns a new client for it.
     /// The new and old clients will be aware of each other.
-    /// If possible, the new client will import the secret bundle from the
-    /// initial client
     ///
     /// # Arguments
     ///
@@ -206,19 +204,6 @@ impl MatrixMockServer {
 
         let new_client =
             self.client_builder_for_crypto_end_to_end(&user_id, &new_device_id).build().await;
-
-        // sync the keys
-        self.mock_sync().ok_and_run(&new_client, |_| {}).await;
-
-        {
-            // If cross-signing is enabled, import the secret bundle from the old device.
-            let olm = existing_client.olm_machine_for_testing().await;
-            let olm = olm.as_ref().unwrap();
-            let bundle = olm.store().export_secrets_bundle().await;
-            if let Ok(bundle) = bundle {
-                new_client.encryption().import_secrets_bundle(&bundle).await.unwrap();
-            }
-        }
 
         // sync the keys
         self.mock_sync().ok_and_run(&new_client, |_| {}).await;
