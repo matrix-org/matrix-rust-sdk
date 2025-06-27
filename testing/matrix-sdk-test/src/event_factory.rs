@@ -28,7 +28,7 @@ use ruma::{
     OwnedRoomId, OwnedTransactionId, OwnedUserId, OwnedVoipId, RoomId, RoomVersionId,
     TransactionId, UInt, UserId, VoipVersionId,
     events::{
-        AnyMessageLikeEvent, AnyStateEvent, AnySyncStateEvent, AnySyncTimelineEvent,
+        AnyStateEvent, AnySyncMessageLikeEvent, AnySyncStateEvent, AnySyncTimelineEvent,
         AnyTimelineEvent, BundledMessageLikeRelations, Mentions, RedactedMessageLikeEventContent,
         RedactedStateEventContent, StateEventContent, StaticEventContent,
         beacon::BeaconEventContent,
@@ -202,7 +202,7 @@ impl<E: StaticEventContent> EventBuilder<E> {
     /// this event.
     pub fn with_bundled_thread_summary(
         mut self,
-        latest_event: Raw<AnyMessageLikeEvent>,
+        latest_event: Raw<AnySyncMessageLikeEvent>,
         count: usize,
         current_user_participated: bool,
     ) -> Self {

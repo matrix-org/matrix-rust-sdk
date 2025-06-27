@@ -17,7 +17,10 @@ use std::{collections::BTreeMap, fmt, sync::Arc};
 #[cfg(doc)]
 use ruma::events::AnyTimelineEvent;
 use ruma::{
-    events::{AnyMessageLikeEvent, AnySyncTimelineEvent, AnyToDeviceEvent, MessageLikeEventType},
+    events::{
+        AnyMessageLikeEvent, AnySyncMessageLikeEvent, AnySyncTimelineEvent, AnyToDeviceEvent,
+        MessageLikeEventType,
+    },
     push::Action,
     serde::{
         AsRefStr, AsStrAsRefStr, DebugAsRefStr, DeserializeFromCowStr, FromString, JsonObject, Raw,
@@ -542,7 +545,7 @@ impl TimelineEvent {
     /// encryption status for it.
     fn from_bundled_latest_event(
         this: &TimelineEventKind,
-        latest_event: Option<Raw<AnyMessageLikeEvent>>,
+        latest_event: Option<Raw<AnySyncMessageLikeEvent>>,
     ) -> Option<Box<Self>> {
         let latest_event = latest_event?;
 
@@ -559,7 +562,9 @@ impl TimelineEvent {
                             // information around.
                             return Some(Box::new(TimelineEvent::from_decrypted(
                                 DecryptedRoomEvent {
-                                    event: latest_event,
+                                    // Safety: A decrypted event always includes a room_id in its
+                                    // payload.
+                                    event: latest_event.cast(),
                                     encryption_info: encryption_info.clone(),
                                     // A bundled latest event is never a thread root. It could have
                                     // a replacement event, but we don't carry this information
