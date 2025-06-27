@@ -6,6 +6,12 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased] - ReleaseDate
 
+### Features
+
+- Add `NotificationItem::room_topic` to the `NotificationItem` struct, which
+  contains the topic of the room. This is useful for displaying the room topic
+  in notifications.
+
 ## [0.12.0] - 2025-06-10
 
 ### Refactor
