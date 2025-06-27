@@ -587,7 +587,9 @@ impl RoomView {
     fn update(&mut self) {
         match &mut self.mode {
             Mode::Normal { invited_room_view } => {
-                if invited_room_view.as_ref().is_some_and(|view| view.should_switch()) {
+                if let Some(view) = invited_room_view
+                    && view.should_switch()
+                {
                     self.mode = Mode::Normal { invited_room_view: None };
                 }
             }
@@ -670,12 +672,12 @@ impl Widget for &mut RoomView {
                 }
             };
 
-            if let Some(timeline_area) = timeline_area {
-                if let Some(items) = self.get_selected_timeline_items() {
-                    let is_thread = matches!(self.kind, TimelineKind::Thread { .. });
-                    let mut timeline = TimelineView::new(&items, is_thread);
-                    timeline.render(timeline_area, buf, &mut self.timeline_list);
-                }
+            if let Some(timeline_area) = timeline_area
+                && let Some(items) = self.get_selected_timeline_items()
+            {
+                let is_thread = matches!(self.kind, TimelineKind::Thread { .. });
+                let mut timeline = TimelineView::new(&items, is_thread);
+                timeline.render(timeline_area, buf, &mut self.timeline_list);
             }
         } else {
             render_paragraph(buf, "Nothing to see here...".to_owned())
