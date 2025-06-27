@@ -37,7 +37,7 @@ All notable changes to this project will be documented in this file.
 
 ### Bug fixes
 
-- `m.room.avatar` has been added as required state for sliding sync until [the existing backend issue](https://github.com/element-hq/synapse/issues/18598) 
+- `m.room.avatar` has been added as required state for sliding sync until [the existing backend issue](https://github.com/element-hq/synapse/issues/18598)
 causing deleted room avatars to not be flagged is fixed. ([#5293](https://github.com/matrix-org/matrix-rust-sdk/pull/5293))
 
 ## [0.12.0] - 2025-06-10
@@ -78,7 +78,7 @@ causing deleted room avatars to not be flagged is fixed. ([#5293](https://github
 - `Room::send_single_receipt()` and `Room::send_multiple_receipts()` now also unset the unread
   flag of the room if an unthreaded read receipt is sent.
   ([#5055](https://github.com/matrix-org/matrix-rust-sdk/pull/5055))
-- `Client::is_user_ignored(&UserId)` can be used to check if a user is currently ignored. 
+- `Client::is_user_ignored(&UserId)` can be used to check if a user is currently ignored.
   ([#5081](https://github.com/matrix-org/matrix-rust-sdk/pull/5081))
 - `RoomSendQueue::send_gallery` has been added to allow sending MSC4274-style media galleries
   via the send queue under the `unstable-msc4274` feature.
@@ -89,12 +89,15 @@ causing deleted room avatars to not be flagged is fixed. ([#5293](https://github
 - A invited DM room joined with `Client::join_room_by_id()` or `Client::join_room_by_id_or_alias()`
   will now be correctly marked as a DM.
   ([#5043](https://github.com/matrix-org/matrix-rust-sdk/pull/5043))
-- API responses with an HTTP status code `520` won't be retried anymore, as this is used by some proxies 
+- API responses with an HTTP status code `520` won't be retried anymore, as this is used by some proxies
   (including Cloudflare) to warn that an unknown error has happened in the actual server.
   ([#5105](https://github.com/matrix-org/matrix-rust-sdk/pull/5105))
 
 ### Refactor
 
+- Support for the deprecated `GET /auth_issuer` endpoint was removed in the `OAuth` API. Only the
+  `GET /auth_metadata` endpoint is used now.
+  ([#5302](https://github.com/matrix-org/matrix-rust-sdk/pull/5302))
 - `Room::push_context()` has been renamed into `Room::push_condition_room_ctx()`. The newer
   `Room::push_context` now returns a `matrix_sdk::Room::PushContext`, which can be used to compute
   the push actions for any event.
