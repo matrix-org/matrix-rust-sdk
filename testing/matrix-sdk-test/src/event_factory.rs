@@ -59,7 +59,7 @@ use ruma::{
         },
         sticker::StickerEventContent,
         typing::TypingEventContent,
-        AnyMessageLikeEvent, AnyStateEvent, AnySyncStateEvent, AnySyncTimelineEvent,
+        AnyStateEvent, AnySyncMessageLikeEvent, AnySyncStateEvent, AnySyncTimelineEvent,
         AnyTimelineEvent, BundledMessageLikeRelations, RedactedMessageLikeEventContent,
         RedactedStateEventContent, StateEventContent, StaticEventContent,
     },
@@ -196,7 +196,7 @@ impl<E: StaticEventContent> EventBuilder<E> {
     /// this event.
     pub fn with_bundled_thread_summary(
         mut self,
-        latest_event: Raw<AnyMessageLikeEvent>,
+        latest_event: Raw<AnySyncMessageLikeEvent>,
         count: usize,
         current_user_participated: bool,
     ) -> Self {
