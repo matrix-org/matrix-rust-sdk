@@ -397,18 +397,17 @@ impl App {
                         }
                     }
                     GlobalMode::Help => {
-                        if let Event::Key(key) = event {
-                            if let (KeyModifiers::NONE, Char('q') | Esc) = (key.modifiers, key.code)
-                            {
-                                self.set_global_mode(GlobalMode::Default)
-                            }
+                        if let Event::Key(key) = event
+                            && let (KeyModifiers::NONE, Char('q') | Esc) = (key.modifiers, key.code)
+                        {
+                            self.set_global_mode(GlobalMode::Default)
                         }
                     }
                     GlobalMode::Settings { view } => {
-                        if let Event::Key(key) = event {
-                            if view.handle_key_press(key).await {
-                                self.set_global_mode(GlobalMode::Default);
-                            }
+                        if let Event::Key(key) = event
+                            && view.handle_key_press(key).await
+                        {
+                            self.set_global_mode(GlobalMode::Default);
                         }
                     }
                     GlobalMode::Exiting { .. } => {}
