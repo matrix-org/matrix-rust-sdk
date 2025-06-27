@@ -156,7 +156,7 @@ impl Display for SequenceNumber {
 
 impl PartialOrd for SequenceNumber {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        Some(self.0.wrapping_sub(other.0).cmp(&0))
+        Some(self.cmp(other))
     }
 }
 
