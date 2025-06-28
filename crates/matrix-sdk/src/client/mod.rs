@@ -3661,8 +3661,8 @@ pub(crate) mod tests {
             client.account().observe_media_preview_config().await.unwrap();
 
         let initial_value: MediaPreviewConfigEventContent = initial_value.unwrap();
-        assert_eq!(initial_value.invite_avatars, InviteAvatars::Off);
-        assert_eq!(initial_value.media_previews, MediaPreviews::Private);
+        assert_eq!(initial_value.invite_avatars, Some(InviteAvatars::Off));
+        assert_eq!(initial_value.media_previews, Some(MediaPreviews::Private));
         pin_mut!(stream);
         assert_pending!(stream);
 
@@ -3682,8 +3682,8 @@ pub(crate) mod tests {
         assert_next_matches!(
             stream,
             MediaPreviewConfigEventContent {
-                media_previews: MediaPreviews::Off,
-                invite_avatars: InviteAvatars::On,
+                media_previews: Some(MediaPreviews::Off),
+                invite_avatars: Some(InviteAvatars::On),
                 ..
             }
         );
@@ -3712,8 +3712,8 @@ pub(crate) mod tests {
             client.account().observe_media_preview_config().await.unwrap();
 
         let initial_value: MediaPreviewConfigEventContent = initial_value.unwrap();
-        assert_eq!(initial_value.invite_avatars, InviteAvatars::Off);
-        assert_eq!(initial_value.media_previews, MediaPreviews::Private);
+        assert_eq!(initial_value.invite_avatars, Some(InviteAvatars::Off));
+        assert_eq!(initial_value.media_previews, Some(MediaPreviews::Private));
         pin_mut!(stream);
         assert_pending!(stream);
 
@@ -3733,8 +3733,8 @@ pub(crate) mod tests {
         assert_next_matches!(
             stream,
             MediaPreviewConfigEventContent {
-                media_previews: MediaPreviews::Off,
-                invite_avatars: InviteAvatars::On,
+                media_previews: Some(MediaPreviews::Off),
+                invite_avatars: Some(InviteAvatars::On),
                 ..
             }
         );
