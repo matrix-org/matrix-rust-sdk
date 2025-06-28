@@ -1442,8 +1442,8 @@ async fn test_unsigned_decryption() {
 
     // Encrypt a second message, an edit.
     let second_message_text = "This is the ~~original~~ edited message";
-    let second_message_content = RoomMessageEventContent::text_plain(second_message_text)
-        .make_replacement(first_message, None);
+    let second_message_content =
+        RoomMessageEventContent::text_plain(second_message_text).make_replacement(first_message);
     let second_message_encrypted_content =
         alice.encrypt_room_event(room_id, second_message_content).await.unwrap();
 

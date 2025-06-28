@@ -21,17 +21,16 @@ use ruma::{
             UnstablePollStartEventContent,
         },
         room::message::{
-            FormattedBody, MessageType, Relation, ReplacementMetadata, RoomMessageEventContent,
+            FormattedBody, MessageType, ReplacementMetadata, RoomMessageEventContent,
             RoomMessageEventContentWithoutRelation,
         },
-        AnyMessageLikeEvent, AnyMessageLikeEventContent, AnySyncMessageLikeEvent,
-        AnySyncTimelineEvent, AnyTimelineEvent, Mentions, MessageLikeEvent,
-        OriginalMessageLikeEvent, SyncMessageLikeEvent,
+        AnyMessageLikeEventContent, AnySyncMessageLikeEvent, AnySyncTimelineEvent, Mentions,
+        SyncMessageLikeEvent,
     },
-    EventId, RoomId, UserId,
+    EventId, UserId,
 };
 use thiserror::Error;
-use tracing::{instrument, warn};
+use tracing::instrument;
 
 use super::EventSource;
 use crate::Room;
@@ -122,13 +121,12 @@ impl Room {
         event_id: &EventId,
         new_content: EditedContent,
     ) -> Result<AnyMessageLikeEventContent, EditError> {
-        make_edit_event(self, self.room_id(), self.own_user_id(), event_id, new_content).await
+        make_edit_event(self, self.own_user_id(), event_id, new_content).await
     }
 }
 
 async fn make_edit_event<S: EventSource>(
     source: S,
-    room_id: &RoomId,
     own_user_id: &UserId,
     event_id: &EventId,
     new_content: EditedContent,
@@ -159,14 +157,10 @@ async fn make_edit_event<S: EventSource>(
                 });
             };
 
-            let mentions = original.content.mentions.clone();
-            let replied_to_original_room_msg =
-                extract_replied_to(source, room_id, original.content.relates_to).await;
+            let mentions = original.content.mentions;
 
-            let replacement = new_content.make_replacement(
-                ReplacementMetadata::new(event_id.to_owned(), mentions),
-                replied_to_original_room_msg.as_ref(),
-            );
+            let replacement = new_content
+                .make_replacement(ReplacementMetadata::new(event_id.to_owned(), mentions));
 
             Ok(replacement.into())
         }
@@ -183,8 +177,6 @@ async fn make_edit_event<S: EventSource>(
             };
 
             let original_mentions = original.content.mentions.clone();
-            let replied_to_original_room_msg =
-                extract_replied_to(source, room_id, original.content.relates_to.clone()).await;
 
             let mut prev_content = original.content;
 
@@ -195,10 +187,8 @@ async fn make_edit_event<S: EventSource>(
                 });
             }
 
-            let replacement = prev_content.make_replacement(
-                ReplacementMetadata::new(event_id.to_owned(), original_mentions),
-                replied_to_original_room_msg.as_ref(),
-            );
+            let replacement = prev_content
+                .make_replacement(ReplacementMetadata::new(event_id.to_owned(), original_mentions));
 
             Ok(replacement.into())
         }
@@ -292,45 +282,6 @@ pub(crate) fn update_media_caption(
     }
 }
 
-/// Try to find the original replied-to event content, in a best-effort manner.
-async fn extract_replied_to<S: EventSource>(
-    source: S,
-    room_id: &RoomId,
-    relates_to: Option<Relation<RoomMessageEventContentWithoutRelation>>,
-) -> Option<OriginalMessageLikeEvent<RoomMessageEventContent>> {
-    let replied_to_sync_timeline_event = if let Some(Relation::Reply { in_reply_to }) = relates_to {
-        source
-            .get_event(&in_reply_to.event_id)
-            .await
-            .map_err(|err| {
-                warn!("couldn't fetch the replied-to event, when editing: {err}");
-                err
-            })
-            .ok()
-    } else {
-        None
-    };
-
-    replied_to_sync_timeline_event
-        .and_then(|sync_timeline_event| {
-            sync_timeline_event
-                .raw()
-                .deserialize()
-                .map_err(|err| warn!("unable to deserialize replied-to event: {err}"))
-                .ok()
-        })
-        .and_then(|event| {
-            if let AnyTimelineEvent::MessageLike(AnyMessageLikeEvent::RoomMessage(
-                MessageLikeEvent::Original(original),
-            )) = event.into_full_event(room_id.to_owned())
-            {
-                Some(original)
-            } else {
-                None
-            }
-        })
-}
-
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeMap;
@@ -344,7 +295,7 @@ mod tests {
             room::message::{MessageType, Relation, RoomMessageEventContentWithoutRelation},
             AnyMessageLikeEventContent, AnySyncTimelineEvent, Mentions,
         },
-        owned_mxc_uri, owned_user_id, room_id, user_id, EventId, OwnedEventId,
+        owned_mxc_uri, owned_user_id, user_id, EventId, OwnedEventId,
     };
 
     use super::{make_edit_event, EditError, EventSource};
@@ -373,18 +324,11 @@ mod tests {
             f.room_name("The room name").event_id(event_id).sender(own_user_id).into(),
         );
 
-        let room_id = room_id!("!galette:saucisse.bzh");
         let new_content = RoomMessageEventContentWithoutRelation::text_plain("the edit");
 
         assert_matches!(
-            make_edit_event(
-                cache,
-                room_id,
-                own_user_id,
-                event_id,
-                EditedContent::RoomMessage(new_content),
-            )
-            .await,
+            make_edit_event(cache, own_user_id, event_id, EditedContent::RoomMessage(new_content),)
+                .await,
             Err(EditError::StateEvent)
         );
     }
@@ -401,19 +345,12 @@ mod tests {
             f.text_msg("hi").event_id(event_id).sender(user_id!("@other:saucisse.bzh")).into(),
         );
 
-        let room_id = room_id!("!galette:saucisse.bzh");
         let own_user_id = user_id!("@me:saucisse.bzh");
         let new_content = RoomMessageEventContentWithoutRelation::text_plain("the edit");
 
         assert_matches!(
-            make_edit_event(
-                cache,
-                room_id,
-                own_user_id,
-                event_id,
-                EditedContent::RoomMessage(new_content),
-            )
-            .await,
+            make_edit_event(cache, own_user_id, event_id, EditedContent::RoomMessage(new_content),)
+                .await,
             Err(EditError::NotAuthor)
         );
     }
@@ -430,18 +367,12 @@ mod tests {
             f.text_msg("hi").event_id(event_id).sender(own_user_id).into(),
         );
 
-        let room_id = room_id!("!galette:saucisse.bzh");
         let new_content = RoomMessageEventContentWithoutRelation::text_plain("the edit");
 
-        let edit_event = make_edit_event(
-            cache,
-            room_id,
-            own_user_id,
-            event_id,
-            EditedContent::RoomMessage(new_content),
-        )
-        .await
-        .unwrap();
+        let edit_event =
+            make_edit_event(cache, own_user_id, event_id, EditedContent::RoomMessage(new_content))
+                .await
+                .unwrap();
 
         assert_let!(AnyMessageLikeEventContent::RoomMessage(msg) = &edit_event);
         // This is the fallback text, for clients not supporting edits.
@@ -464,11 +395,8 @@ mod tests {
             f.text_msg("hello world").event_id(event_id).sender(own_user_id).into(),
         );
 
-        let room_id = room_id!("!galette:saucisse.bzh");
-
         let err = make_edit_event(
             cache,
-            room_id,
             own_user_id,
             event_id,
             EditedContent::MediaCaption {
@@ -502,11 +430,8 @@ mod tests {
                 .into(),
         );
 
-        let room_id = room_id!("!galette:saucisse.bzh");
-
         let edit_event = make_edit_event(
             cache,
-            room_id,
             own_user_id,
             event_id,
             EditedContent::MediaCaption {
@@ -564,11 +489,8 @@ mod tests {
 
         cache.events.insert(event_id.to_owned(), event);
 
-        let room_id = room_id!("!galette:saucisse.bzh");
-
         let edit_event = make_edit_event(
             cache,
-            room_id,
             own_user_id,
             event_id,
             // Remove the caption by setting it to None.
@@ -620,15 +542,12 @@ mod tests {
 
         cache.events.insert(event_id.to_owned(), event);
 
-        let room_id = room_id!("!galette:saucisse.bzh");
-
         // Add an intentional mention in the caption.
         let mentioned_user_id = owned_user_id!("@crepe:saucisse.bzh");
         let edit_event = {
             let mentions = Mentions::with_user_ids([mentioned_user_id.clone()]);
             make_edit_event(
                 cache,
-                room_id,
                 own_user_id,
                 event_id,
                 EditedContent::MediaCaption {
@@ -689,12 +608,10 @@ mod tests {
                 .into(),
         );
 
-        let room_id = room_id!("!galette:saucisse.bzh");
         let new_content = RoomMessageEventContentWithoutRelation::text_plain("uh i mean hi too");
 
         let edit_event = make_edit_event(
             cache,
-            room_id,
             own_user_id,
             resp_event_id,
             EditedContent::RoomMessage(new_content),
@@ -704,12 +621,7 @@ mod tests {
 
         assert_let!(AnyMessageLikeEventContent::RoomMessage(msg) = &edit_event);
         // This is the fallback text, for clients not supporting edits.
-        assert_eq!(
-            msg.body(),
-            r#"> <@steb:saucisse.bzh> hi
-
-* uh i mean hi too"#
-        );
+        assert_eq!(msg.body(), "* uh i mean hi too");
         assert_let!(Some(Relation::Replacement(repl)) = &msg.relates_to);
 
         assert_eq!(repl.event_id, resp_event_id);
