@@ -49,7 +49,8 @@ use ruma::{
         },
         AnyMessageLikeEventContent, AnySyncTimelineEvent,
     },
-    EventId, OwnedEventId, RoomVersionId, UserId,
+    room_version_rules::RoomVersionRules,
+    EventId, OwnedEventId, UserId,
 };
 #[cfg(feature = "unstable-msc4274")]
 use ruma::{
@@ -796,9 +797,9 @@ impl Drop for TimelineDropHandle {
 
 #[cfg(not(target_family = "wasm"))]
 pub type TimelineEventFilterFn =
-    dyn Fn(&AnySyncTimelineEvent, &RoomVersionId) -> bool + Send + Sync;
+    dyn Fn(&AnySyncTimelineEvent, &RoomVersionRules) -> bool + Send + Sync;
 #[cfg(target_family = "wasm")]
-pub type TimelineEventFilterFn = dyn Fn(&AnySyncTimelineEvent, &RoomVersionId) -> bool;
+pub type TimelineEventFilterFn = dyn Fn(&AnySyncTimelineEvent, &RoomVersionRules) -> bool;
 
 /// A source for sending an attachment.
 ///

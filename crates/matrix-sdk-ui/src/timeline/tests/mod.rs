@@ -50,9 +50,10 @@ use ruma::{
     power_levels::NotificationPowerLevels,
     push::{PushConditionPowerLevelsCtx, PushConditionRoomCtx, Ruleset},
     room_id,
+    room_version_rules::RoomVersionRules,
     serde::Raw,
     uint, EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedRoomId, OwnedTransactionId,
-    OwnedUserId, RoomVersionId, TransactionId, UInt, UserId,
+    OwnedUserId, TransactionId, UInt, UserId,
 };
 use tokio::sync::RwLock;
 
@@ -342,8 +343,8 @@ impl RoomDataProvider for TestRoomDataProvider {
         &ALICE
     }
 
-    fn room_version(&self) -> RoomVersionId {
-        RoomVersionId::V10
+    fn room_version_rules(&self) -> RoomVersionRules {
+        RoomVersionRules::V10
     }
 
     async fn crypto_context_info(&self) -> CryptoContextInfo {
