@@ -114,11 +114,18 @@ impl RendezvousChannel {
         client: HttpClient,
         rendezvous_server: &Url,
     ) -> Result<Self, HttpError> {
-        use ruma::api::client::rendezvous::create_rendezvous_session;
+        use ruma::api::{client::rendezvous::create_rendezvous_session, SupportedVersions};
 
         let request = create_rendezvous_session::unstable::Request::default();
         let response = client
-            .send(request, None, rendezvous_server.to_string(), None, &[], Default::default())
+            .send(
+                request,
+                None,
+                rendezvous_server.to_string(),
+                None,
+                &SupportedVersions { versions: Default::default(), features: Default::default() },
+                Default::default(),
+            )
             .await?;
 
         let rendezvous_url = response.url;

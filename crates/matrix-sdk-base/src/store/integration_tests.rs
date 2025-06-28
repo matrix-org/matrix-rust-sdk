@@ -476,9 +476,10 @@ impl StateStoreIntegrationTests for DynStateStore {
     }
 
     async fn test_server_info_saving(&self) {
-        let versions = &[MatrixVersion::V1_1, MatrixVersion::V1_2, MatrixVersion::V1_11];
+        let versions =
+            BTreeSet::from([MatrixVersion::V1_1, MatrixVersion::V1_2, MatrixVersion::V1_11]);
         let server_info = ServerInfo::new(
-            versions.iter().map(|version| version.to_string()).collect(),
+            versions.iter().map(|version| version.as_str().unwrap().to_owned()).collect(),
             [("org.matrix.experimental".to_owned(), true)].into(),
             Some(WellKnownResponse {
                 homeserver: HomeserverInfo::new("matrix.example.com".to_owned()),
@@ -504,7 +505,7 @@ impl StateStoreIntegrationTests for DynStateStore {
         let decoded_server_info = stored_info.maybe_decode().unwrap();
         let stored_supported = decoded_server_info.supported_versions();
 
-        assert_eq!(stored_supported.versions.as_ref(), versions);
+        assert_eq!(stored_supported.versions, versions);
         assert_eq!(stored_supported.features.len(), 1);
         assert!(stored_supported.features.contains(&FeatureFlag::from("org.matrix.experimental")));
 

@@ -1790,7 +1790,7 @@ impl Client {
                 config,
                 homeserver,
                 access_token.as_deref(),
-                &self.server_versions().await?,
+                &self.supported_versions().await?,
                 send_progress,
             )
             .await
@@ -1817,7 +1817,10 @@ impl Client {
                 request_config,
                 self.homeserver().to_string(),
                 None,
-                &[MatrixVersion::V1_0],
+                &SupportedVersions {
+                    versions: [MatrixVersion::V1_0].into(),
+                    features: Default::default(),
+                },
                 Default::default(),
             )
             .await?;
@@ -1844,7 +1847,10 @@ impl Client {
                 Some(RequestConfig::short_retry()),
                 server_url_string,
                 None,
-                &[MatrixVersion::V1_0],
+                &SupportedVersions {
+                    versions: [MatrixVersion::V1_0].into(),
+                    features: Default::default(),
+                },
                 Default::default(),
             )
             .await;
@@ -1988,7 +1994,7 @@ impl Client {
     /// println!("The homeserver supports Matrix 1.1: {supports_1_1:?}");
     /// # anyhow::Ok(()) };
     /// ```
-    pub async fn server_versions(&self) -> HttpResult<Box<[MatrixVersion]>> {
+    pub async fn server_versions(&self) -> HttpResult<BTreeSet<MatrixVersion>> {
         self.get_or_load_and_cache_server_info(|server_info| {
             server_info.supported_versions.as_ref().map(|supported| supported.versions.clone())
         })

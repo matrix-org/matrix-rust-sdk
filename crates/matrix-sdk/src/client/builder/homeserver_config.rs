@@ -15,7 +15,7 @@
 use ruma::{
     api::{
         client::discovery::{discover_homeserver, get_supported_versions},
-        MatrixVersion,
+        MatrixVersion, SupportedVersions,
     },
     OwnedServerName, ServerName,
 };
@@ -185,7 +185,10 @@ async fn discover_homeserver(
             Some(RequestConfig::short_retry()),
             server.to_string(),
             None,
-            &[MatrixVersion::V1_0],
+            &SupportedVersions {
+                versions: [MatrixVersion::V1_0].into(),
+                features: Default::default(),
+            },
             Default::default(),
         )
         .await
@@ -209,7 +212,10 @@ pub(super) async fn get_supported_versions(
             Some(RequestConfig::short_retry()),
             homeserver_url.to_string(),
             None,
-            &[MatrixVersion::V1_0],
+            &SupportedVersions {
+                versions: [MatrixVersion::V1_0].into(),
+                features: Default::default(),
+            },
             Default::default(),
         )
         .await
