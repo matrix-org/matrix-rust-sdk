@@ -18,8 +18,7 @@ use oauth2::{
     basic::BasicClient as OAuthClient, AuthUrl, CsrfToken, PkceCodeChallenge, RedirectUrl, Scope,
 };
 use ruma::{
-    api::client::discovery::get_authorization_server_metadata::msc2965::Prompt, OwnedDeviceId,
-    UserId,
+    api::client::discovery::get_authorization_server_metadata::v1::Prompt, OwnedDeviceId, UserId,
 };
 use tracing::{info, instrument};
 use url::Url;

@@ -25,7 +25,7 @@ pub use oauth2::{
     StandardErrorResponse,
 };
 use ruma::{
-    api::client::discovery::get_authorization_server_metadata::msc2965::AuthorizationServerMetadataUrlError,
+    api::client::discovery::get_authorization_server_metadata::v1::AuthorizationServerMetadataUrlError,
     serde::{PartialEqAsRefStr, StringEnum},
 };
 
