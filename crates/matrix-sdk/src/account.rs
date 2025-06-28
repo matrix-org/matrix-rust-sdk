@@ -1139,7 +1139,7 @@ impl Account {
     pub async fn set_media_previews_display_policy(&self, policy: MediaPreviews) -> Result<()> {
         let mut media_preview_config =
             self.fetch_media_preview_config_event_content().await?.unwrap_or_default();
-        media_preview_config.media_previews = policy;
+        media_preview_config.media_previews = Some(policy);
 
         // Updating the unstable account data
         let unstable_media_preview_config =
@@ -1155,7 +1155,7 @@ impl Account {
     pub async fn set_invite_avatars_display_policy(&self, policy: InviteAvatars) -> Result<()> {
         let mut media_preview_config =
             self.fetch_media_preview_config_event_content().await?.unwrap_or_default();
-        media_preview_config.invite_avatars = policy;
+        media_preview_config.invite_avatars = Some(policy);
 
         // Updating the unstable account data
         let unstable_media_preview_config =
