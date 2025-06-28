@@ -1008,10 +1008,10 @@ impl ServerInfo {
     ///
     /// Note: Matrix versions that Ruma cannot parse, or does not know about,
     /// are discarded.
-    pub fn known_versions(&self) -> Vec<MatrixVersion> {
+    pub fn known_versions(&self) -> BTreeSet<MatrixVersion> {
         get_supported_versions::Response::new(self.versions.clone())
-            .known_versions()
-            .collect::<Vec<_>>()
+            .as_supported_versions()
+            .versions
     }
 }
 

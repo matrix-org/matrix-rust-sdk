@@ -114,11 +114,20 @@ impl RendezvousChannel {
         client: HttpClient,
         rendezvous_server: &Url,
     ) -> Result<Self, HttpError> {
-        use ruma::api::client::rendezvous::create_rendezvous_session;
+        use std::collections::BTreeSet;
+
+        use ruma::api::{client::rendezvous::create_rendezvous_session, SupportedVersions};
 
         let request = create_rendezvous_session::unstable::Request::default();
         let response = client
-            .send(request, None, rendezvous_server.to_string(), None, &[], Default::default())
+            .send(
+                request,
+                None,
+                rendezvous_server.to_string(),
+                None,
+                &SupportedVersions { versions: BTreeSet::new(), features: vec![] },
+                Default::default(),
+            )
             .await?;
 
         let rendezvous_url = response.url;
