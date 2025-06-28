@@ -48,9 +48,8 @@ use ruma::{
             device::{delete_devices, get_devices, update_device},
             directory::{get_public_rooms, get_public_rooms_filtered},
             discovery::{
-                discover_homeserver,
-                discover_homeserver::RtcFocusInfo,
-                get_capabilities::{self, Capabilities},
+                discover_homeserver::{self, RtcFocusInfo},
+                get_capabilities::{self, v3::Capabilities},
                 get_supported_versions,
             },
             error::ErrorKind,
