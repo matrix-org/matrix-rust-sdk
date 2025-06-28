@@ -65,9 +65,9 @@ pub async fn build<'notification, 'e2ee>(
                     AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::RoomRedaction(
                         redaction_event,
                     )) => {
-                        let room_version = room_info.room_version_or_default();
+                        let redaction_rules = room_info.room_version_rules_or_default().redaction;
 
-                        if let Some(redacts) = redaction_event.redacts(&room_version) {
+                        if let Some(redacts) = redaction_event.redacts(&redaction_rules) {
                             room_info
                                 .handle_redaction(redaction_event, timeline_event.raw().cast_ref());
 

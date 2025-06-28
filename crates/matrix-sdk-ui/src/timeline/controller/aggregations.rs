@@ -42,12 +42,13 @@ use std::{borrow::Cow, collections::HashMap, sync::Arc};
 use as_variant::as_variant;
 use matrix_sdk::deserialized_responses::EncryptionInfo;
 use ruma::{
-    MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, OwnedUserId, RoomVersionId,
+    MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, OwnedUserId,
     events::{
         AnySyncTimelineEvent,
         poll::unstable_start::NewUnstablePollStartEventContentWithoutRelation,
         relation::Replacement, room::message::RoomMessageEventContentWithoutRelation,
     },
+    room_version_rules::RoomVersionRules,
     serde::Raw,
 };
 use tracing::{info, trace, warn};
@@ -191,7 +192,7 @@ impl Aggregation {
     fn apply(
         &self,
         event: &mut Cow<'_, EventTimelineItem>,
-        room_version: &RoomVersionId,
+        rules: &RoomVersionRules,
     ) -> ApplyAggregationResult {
         match &self.kind {
             AggregationKind::PollResponse { sender, timestamp, answers } => {
@@ -208,7 +209,7 @@ impl Aggregation {
                 if event.content().is_redacted() {
                     ApplyAggregationResult::LeftItemIntact
                 } else {
-                    let new_item = event.redact(room_version);
+                    let new_item = event.redact(&rules.redaction);
                     *event = Cow::Owned(new_item);
                     ApplyAggregationResult::UpdatedItem
                 }
@@ -485,7 +486,7 @@ impl Aggregations {
         item_id: &TimelineEventItemId,
         event: &mut Cow<'_, EventTimelineItem>,
         items: &mut ObservableItemsTransaction<'_>,
-        room_version: &RoomVersionId,
+        rules: &RoomVersionRules,
     ) -> Result<(), AggregationError> {
         let Some(aggregations) = self.related_events.get(item_id) else {
             return Ok(());
@@ -494,7 +495,7 @@ impl Aggregations {
         let mut has_edits = false;
 
         for a in aggregations {
-            match a.apply(event, room_version) {
+            match a.apply(event, rules) {
                 ApplyAggregationResult::Edit => {
                     has_edits = true;
                 }
@@ -543,7 +544,7 @@ impl Aggregations {
         txn_id: OwnedTransactionId,
         event_id: OwnedEventId,
         items: &mut ObservableItemsTransaction<'_>,
-        room_version: &RoomVersionId,
+        rules: &RoomVersionRules,
     ) -> bool {
         let from = TimelineEventItemId::TransactionId(txn_id);
         let to = TimelineEventItemId::EventId(event_id.clone());
@@ -571,7 +572,7 @@ impl Aggregations {
                     *reaction_status = ReactionStatus::RemoteToRemote(event_id);
 
                     let found = found.clone();
-                    find_item_and_apply_aggregation(self, items, &target, found, room_version);
+                    find_item_and_apply_aggregation(self, items, &target, found, rules);
                 }
             }
         }
@@ -735,7 +736,7 @@ pub(crate) fn find_item_and_apply_aggregation(
     items: &mut ObservableItemsTransaction<'_>,
     target: &TimelineEventItemId,
     aggregation: Aggregation,
-    room_version: &RoomVersionId,
+    rules: &RoomVersionRules,
 ) -> Option<EventTimelineItem> {
     let Some((idx, event_item)) = rfind_event_by_item_id(items, target) else {
         trace!("couldn't find aggregation's target {target:?}");
@@ -743,7 +744,7 @@ pub(crate) fn find_item_and_apply_aggregation(
     };
 
     let mut cowed = Cow::Borrowed(&*event_item);
-    match aggregation.apply(&mut cowed, room_version) {
+    match aggregation.apply(&mut cowed, rules) {
         ApplyAggregationResult::UpdatedItem => {
             trace!("applied aggregation");
             let new_event_item = cowed.into_owned();

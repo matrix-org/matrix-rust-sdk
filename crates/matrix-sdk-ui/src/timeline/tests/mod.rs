@@ -41,7 +41,7 @@ use matrix_sdk_base::{
 use matrix_sdk_test::{ALICE, DEFAULT_TEST_ROOM_ID, event_factory::EventFactory};
 use ruma::{
     EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedRoomId, OwnedTransactionId,
-    OwnedUserId, RoomVersionId, TransactionId, UInt, UserId,
+    OwnedUserId, TransactionId, UInt, UserId,
     events::{
         AnyMessageLikeEventContent, AnyTimelineEvent,
         reaction::ReactionEventContent,
@@ -52,6 +52,7 @@ use ruma::{
     power_levels::NotificationPowerLevels,
     push::{PushConditionPowerLevelsCtx, PushConditionRoomCtx, Ruleset},
     room_id,
+    room_version_rules::RoomVersionRules,
     serde::Raw,
     uint,
 };
@@ -349,8 +350,8 @@ impl RoomDataProvider for TestRoomDataProvider {
         &ALICE
     }
 
-    fn room_version(&self) -> RoomVersionId {
-        RoomVersionId::V10
+    fn room_version_rules(&self) -> RoomVersionRules {
+        RoomVersionRules::V10
     }
 
     async fn crypto_context_info(&self) -> CryptoContextInfo {
