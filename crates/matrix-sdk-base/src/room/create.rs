@@ -20,6 +20,7 @@ use ruma::{
         EmptyStateKey, RedactContent, RedactedStateEventContent, StateEventType,
     },
     room::RoomType,
+    room_version_rules::RedactionRules,
     OwnedUserId, RoomVersionId,
 };
 use serde::{Deserialize, Serialize};
@@ -109,10 +110,10 @@ impl RedactedStateEventContent for RedactedRoomCreateWithCreatorEventContent {
 impl RedactContent for RoomCreateWithCreatorEventContent {
     type Redacted = RedactedRoomCreateWithCreatorEventContent;
 
-    fn redact(self, version: &RoomVersionId) -> Self::Redacted {
+    fn redact(self, rules: &RedactionRules) -> Self::Redacted {
         let (content, sender) = self.into_event_content();
         // Use Ruma's redaction algorithm.
-        let content = content.redact(version);
+        let content = content.redact(rules);
         Self::from_event_content(content, sender)
     }
 }
