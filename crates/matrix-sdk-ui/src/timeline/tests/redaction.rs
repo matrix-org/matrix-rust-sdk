@@ -16,20 +16,20 @@ use assert_matches::assert_matches;
 use assert_matches2::assert_let;
 use eyeball_im::VectorDiff;
 use imbl::vector;
-use matrix_sdk_test::{async_test, ALICE, BOB};
+use matrix_sdk_test::{ALICE, BOB, async_test};
 use ruma::{
     event_id,
     events::{
-        reaction::RedactedReactionEventContent, room::message::OriginalSyncRoomMessageEvent,
-        FullStateEventContent,
+        FullStateEventContent, reaction::RedactedReactionEventContent,
+        room::message::OriginalSyncRoomMessageEvent,
     },
 };
 use stream_assert::{assert_next_matches, assert_pending};
 
 use super::TestTimeline;
 use crate::timeline::{
-    event_item::RemoteEventOrigin, AnyOtherFullStateEventContent, TimelineDetails,
-    TimelineItemContent,
+    AnyOtherFullStateEventContent, TimelineDetails, TimelineItemContent,
+    event_item::RemoteEventOrigin,
 };
 
 #[async_test]
@@ -171,9 +171,9 @@ async fn test_reaction_redaction_timeline_filter() {
         .controller
         .handle_remote_events_with_diffs(
             vec![VectorDiff::Append {
-                values: vector![f
-                    .redacted(*ALICE, RedactedReactionEventContent::new())
-                    .into_event()],
+                values: vector![
+                    f.redacted(*ALICE, RedactedReactionEventContent::new()).into_event()
+                ],
             }],
             RemoteEventOrigin::Sync,
         )

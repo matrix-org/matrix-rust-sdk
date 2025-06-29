@@ -17,16 +17,15 @@
 use std::collections::HashMap;
 
 use ruma::{
+    MilliSecondsSinceUnixEpoch, OwnedUserId, UserId,
     events::poll::{
-        compile_unstable_poll_results,
+        PollResponseData, compile_unstable_poll_results,
         start::PollKind,
         unstable_start::{
             NewUnstablePollStartEventContent, NewUnstablePollStartEventContentWithoutRelation,
             UnstablePollStartContentBlock,
         },
-        PollResponseData,
     },
-    MilliSecondsSinceUnixEpoch, OwnedUserId, UserId,
 };
 
 /// Holds the state of a poll.
