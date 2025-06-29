@@ -19,7 +19,7 @@ use std::{
 
 use bitflags::bitflags;
 use eyeball::Subscriber;
-use matrix_sdk_common::deserialized_responses::TimelineEventKind;
+use matrix_sdk_common::{deserialized_responses::TimelineEventKind, ROOM_VERSION_FALLBACK};
 use ruma::{
     api::client::sync::sync_events::v3::RoomSummary as RumaSummary,
     assign,
@@ -310,7 +310,7 @@ impl BaseRoomInfo {
     }
 
     pub(super) fn handle_redaction(&mut self, redacts: &EventId) {
-        let room_version = self.room_version().unwrap_or(&RoomVersionId::V1).to_owned();
+        let room_version = self.room_version().unwrap_or(&ROOM_VERSION_FALLBACK).to_owned();
 
         // FIXME: Use let chains once available to get rid of unwrap()s
         if self.avatar.has_event_id(redacts) {
@@ -643,9 +643,9 @@ impl RoomInfo {
         event: &SyncRoomRedactionEvent,
         _raw: &Raw<SyncRoomRedactionEvent>,
     ) {
-        let room_version = self.base_info.room_version().unwrap_or(&RoomVersionId::V1);
+        let room_version = self.room_version_or_default();
 
-        let Some(redacts) = event.redacts(room_version) else {
+        let Some(redacts) = event.redacts(&room_version) else {
             info!("Can't apply redaction, redacts field is missing");
             return;
         };
@@ -654,7 +654,7 @@ impl RoomInfo {
         if let Some(latest_event) = &mut self.latest_event {
             tracing::trace!("Checking if redaction applies to latest event");
             if latest_event.event_id().as_deref() == Some(redacts) {
-                match apply_redaction(latest_event.event().raw(), _raw, room_version) {
+                match apply_redaction(latest_event.event().raw(), _raw, &room_version) {
                     Some(redacted) => {
                         // Even if the original event was encrypted, redaction removes all its
                         // fields so it cannot possibly be successfully decrypted after redaction.
@@ -814,10 +814,10 @@ impl RoomInfo {
                 .compare_exchange(false, true, Ordering::Relaxed, Ordering::Relaxed)
                 .is_ok()
             {
-                warn!("Unknown room version, falling back to v10");
+                warn!("Unknown room version, falling back to {ROOM_VERSION_FALLBACK}");
             }
 
-            RoomVersionId::V10
+            ROOM_VERSION_FALLBACK
         })
     }
 

@@ -30,6 +30,7 @@ use matrix_sdk_base::{
         SerializableEventContent, ServerInfo, StateChanges, StateStore, StoreError,
     },
     MinimalRoomMemberEvent, RoomInfo, RoomMemberships, StateStoreDataKey, StateStoreDataValue,
+    ROOM_VERSION_FALLBACK,
 };
 use matrix_sdk_store_encryption::{Error as EncryptionError, StoreCipher};
 use ruma::{
@@ -929,10 +930,10 @@ impl_state_store!({
                                         .get(&self.encode_key(keys::ROOM_INFOS, room_id))?
                                         .await?
                                         .and_then(|f| self.deserialize_value::<RoomInfo>(&f).ok())
-                                        .and_then(|info| info.room_version().cloned())
+                                        .map(|info| info.room_version_or_default())
                                         .unwrap_or_else(|| {
-                                            warn!(?room_id, "Unable to find the room version, assume version 9");
-                                            RoomVersionId::V9
+                                            warn!(?room_id, "Unable to find the room version, assuming {ROOM_VERSION_FALLBACK}");
+                                            ROOM_VERSION_FALLBACK
                                         })
                                     );
                                 }

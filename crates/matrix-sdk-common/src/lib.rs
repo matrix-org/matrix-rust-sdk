@@ -42,6 +42,7 @@ pub mod ttl_cache;
 #[cfg(all(target_family = "wasm", not(tarpaulin_include)))]
 pub mod js_tracing;
 
+use ruma::RoomVersionId;
 pub use store_locks::LEASE_DURATION_MS;
 
 /// Alias for `Send` on non-wasm, empty trait (implemented by everything) on
@@ -104,3 +105,6 @@ pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 
 #[cfg(feature = "uniffi")]
 uniffi::setup_scaffolding!();
+
+/// The room version to use as a fallback when the version of a room is unknown.
+pub const ROOM_VERSION_FALLBACK: RoomVersionId = RoomVersionId::V11;

@@ -42,12 +42,11 @@ use matrix_sdk_base::{
     linked_chunk::lazy_loader::LazyLoaderError,
     store_locks::LockStoreError,
     sync::RoomUpdates,
+    ROOM_VERSION_FALLBACK,
 };
 use matrix_sdk_common::executor::{spawn, JoinHandle};
 use room::RoomEventCacheState;
-use ruma::{
-    events::AnySyncEphemeralRoomEvent, serde::Raw, OwnedEventId, OwnedRoomId, RoomId, RoomVersionId,
-};
+use ruma::{events::AnySyncEphemeralRoomEvent, serde::Raw, OwnedEventId, OwnedRoomId, RoomId};
 use tokio::sync::{
     broadcast::{channel, error::RecvError, Receiver, Sender},
     mpsc, Mutex, RwLock,
@@ -554,8 +553,8 @@ impl EventCacheInner {
                     .as_ref()
                     .map(|room| room.clone_info().room_version_or_default())
                     .unwrap_or_else(|| {
-                        warn!("unknown room version for {room_id}, using default V1");
-                        RoomVersionId::V1
+                        warn!("unknown room version for {room_id}, using default {ROOM_VERSION_FALLBACK}");
+                        ROOM_VERSION_FALLBACK
                     });
 
                 let room_state = RoomEventCacheState::new(
