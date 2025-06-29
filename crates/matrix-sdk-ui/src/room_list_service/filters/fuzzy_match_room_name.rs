@@ -44,7 +44,7 @@ impl FuzzyMatcher {
 ///
 /// Rooms are fetched from the `Client`. The pattern and the room names are
 /// normalized with `normalize_string`.
-pub fn new_filter(pattern: &str) -> impl Filter {
+pub fn new_filter(pattern: &str) -> impl Filter + use<> {
     let searcher = FuzzyMatcher::new().with_pattern(pattern);
 
     move |room| -> bool {

@@ -586,7 +586,7 @@ impl<P: RoomDataProvider, D: Decryptor> TimelineController<P, D> {
         &self,
     ) -> (
         Vector<Arc<TimelineItem>>,
-        impl Stream<Item = VectorDiff<Arc<TimelineItem>>> + SendOutsideWasm,
+        impl Stream<Item = VectorDiff<Arc<TimelineItem>>> + SendOutsideWasm + use<P, D>,
     ) {
         let state = self.state.read().await;
 
@@ -602,7 +602,7 @@ impl<P: RoomDataProvider, D: Decryptor> TimelineController<P, D> {
     pub(super) async fn subscribe_filter_map<U, F>(
         &self,
         f: F,
-    ) -> (Vector<U>, impl Stream<Item = VectorDiff<U>>)
+    ) -> (Vector<U>, impl Stream<Item = VectorDiff<U>> + use<U, F, P, D>)
     where
         U: Clone,
         F: Fn(Arc<TimelineItem>) -> Option<U>,
@@ -1222,7 +1222,9 @@ impl<P: RoomDataProvider, D: Decryptor> TimelineController<P, D> {
     }
 
     /// Subscribe to changes in the read receipts of our own user.
-    pub async fn subscribe_own_user_read_receipts_changed(&self) -> impl Stream<Item = ()> {
+    pub async fn subscribe_own_user_read_receipts_changed(
+        &self,
+    ) -> impl Stream<Item = ()> + use<P, D> {
         self.state.read().await.meta.read_receipts.subscribe_own_user_read_receipts_changed()
     }
 
