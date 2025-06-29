@@ -24,7 +24,7 @@ use ruma::{
         StateEventType,
     },
     push::{Action, PushConditionRoomCtx},
-    RoomVersionId, UInt, UserId,
+    UInt, UserId,
 };
 use tracing::{instrument, trace, warn};
 
@@ -76,9 +76,9 @@ pub async fn build<'notification, 'e2ee>(
                     AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::RoomRedaction(
                         redaction_event,
                     )) => {
-                        let room_version = room_info.room_version().unwrap_or(&RoomVersionId::V1);
+                        let room_version = room_info.room_version_or_default();
 
-                        if let Some(redacts) = redaction_event.redacts(room_version) {
+                        if let Some(redacts) = redaction_event.redacts(&room_version) {
                             room_info
                                 .handle_redaction(redaction_event, timeline_event.raw().cast_ref());
 

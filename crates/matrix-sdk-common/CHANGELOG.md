@@ -6,6 +6,12 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased] - ReleaseDate
 
+### Features
+
+- Expose the `ROOM_VERSION_FALLBACK` that should be used when the version of a
+  room is unknown.
+  ([#5306](https://github.com/matrix-org/matrix-rust-sdk/pull/5306))
+
 ## [0.12.0] - 2025-06-10
 
 No notable changes in this release.
@@ -53,5 +59,3 @@ No notable changes in this release.
 ### Refactor
 
 - Move `linked_chunk` from `matrix-sdk` to `matrix-sdk-common`.
-
-

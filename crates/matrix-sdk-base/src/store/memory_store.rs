@@ -19,6 +19,7 @@ use std::{
 
 use async_trait::async_trait;
 use growable_bloom_filter::GrowableBloom;
+use matrix_sdk_common::ROOM_VERSION_FALLBACK;
 use ruma::{
     canonical_json::{redact, RedactedBecause},
     events::{
@@ -31,7 +32,7 @@ use ruma::{
     serde::Raw,
     time::Instant,
     CanonicalJsonObject, EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedMxcUri,
-    OwnedRoomId, OwnedTransactionId, OwnedUserId, RoomId, RoomVersionId, TransactionId, UserId,
+    OwnedRoomId, OwnedTransactionId, OwnedUserId, RoomId, TransactionId, UserId,
 };
 use tracing::{debug, instrument, warn};
 
@@ -439,12 +440,13 @@ impl StateStore for MemoryStore {
         }
 
         let make_room_version = |room_info: &HashMap<OwnedRoomId, RoomInfo>, room_id| {
-            room_info.get(room_id).and_then(|info| info.room_version().cloned()).unwrap_or_else(
-                || {
-                    warn!(?room_id, "Unable to find the room version, assuming version 9");
-                    RoomVersionId::V9
-                },
-            )
+            room_info.get(room_id).map(|info| info.room_version_or_default()).unwrap_or_else(|| {
+                warn!(
+                    ?room_id,
+                    "Unable to find the room version, assuming {ROOM_VERSION_FALLBACK}"
+                );
+                ROOM_VERSION_FALLBACK
+            })
         };
 
         let inner = &mut *inner;
