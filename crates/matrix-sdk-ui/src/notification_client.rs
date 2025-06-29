@@ -909,6 +909,8 @@ pub struct NotificationItem {
     pub room_avatar_url: Option<String>,
     /// Room canonical alias.
     pub room_canonical_alias: Option<String>,
+    /// Room topic.
+    pub room_topic: Option<String>,
     /// Room join rule.
     ///
     /// Set to `None` if the join rule for this room is not available.
@@ -1008,6 +1010,7 @@ impl NotificationItem {
             room_computed_display_name: room.display_name().await?.to_string(),
             room_avatar_url: room.avatar_url().map(|s| s.to_string()),
             room_canonical_alias: room.canonical_alias().map(|c| c.to_string()),
+            room_topic: room.topic(),
             room_join_rule: room.join_rule(),
             is_direct_message_room: room.is_direct().await?,
             is_room_encrypted: room
