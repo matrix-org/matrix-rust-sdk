@@ -13,10 +13,8 @@
 // limitations under the License.
 
 use matrix_sdk::{
-    event_cache::{paginator::PaginatorError, EventCacheError},
-    room::reply::ReplyError,
-    send_queue::RoomSendQueueError,
-    HttpError,
+    event_cache::EventCacheError, paginators::PaginatorError, room::reply::ReplyError,
+    send_queue::RoomSendQueueError, HttpError,
 };
 use thiserror::Error;
 

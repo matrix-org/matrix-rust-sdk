@@ -21,11 +21,11 @@ use std::{future::Future, sync::Mutex};
 
 use eyeball::{SharedObservable, Subscriber};
 use matrix_sdk_base::{deserialized_responses::TimelineEvent, SendOutsideWasm, SyncOutsideWasm};
-use ruma::{api::Direction, EventId, OwnedEventId, UInt};
+use ruma::{api::Direction, EventId, UInt};
 
-use super::pagination::PaginationToken;
 use crate::{
-    room::{EventWithContextResponse, Messages, MessagesOptions, WeakRoom},
+    paginators::{PaginationResult, PaginationToken, PaginatorError},
+    room::{EventWithContextResponse, Messages, MessagesOptions},
     Room,
 };
 
@@ -45,27 +45,6 @@ pub enum PaginatorState {
 
     /// The paginator is… paginating one direction or another.
     Paginating,
-}
-
-/// An error that happened when using a [`Paginator`].
-#[derive(Debug, thiserror::Error)]
-pub enum PaginatorError {
-    /// The target event could not be found.
-    #[error("target event with id {0} could not be found")]
-    EventNotFound(OwnedEventId),
-
-    /// We're trying to manipulate the paginator in the wrong state.
-    #[error("expected paginator state {expected:?}, observed {actual:?}")]
-    InvalidPreviousState {
-        /// The state we were expecting to see.
-        expected: PaginatorState,
-        /// The actual state when doing the check.
-        actual: PaginatorState,
-    },
-
-    /// There was another SDK error while paginating.
-    #[error("an error happened while paginating: {0}")]
-    SdkError(#[from] Box<crate::Error>),
 }
 
 /// Paginations tokens used for backward and forward pagination.
@@ -103,29 +82,6 @@ impl<PR: PaginableRoom> std::fmt::Debug for Paginator<PR> {
             .field("tokens", &self.tokens)
             .finish_non_exhaustive()
     }
-}
-
-/// The result of a single pagination, be it from
-/// [`Paginator::paginate_backward`] or [`Paginator::paginate_forward`].
-#[derive(Debug)]
-pub struct PaginationResult {
-    /// Events returned during this pagination.
-    ///
-    /// If this is the result of a backward pagination, then the events are in
-    /// reverse topological order.
-    ///
-    /// If this is the result of a forward pagination, then the events are in
-    /// topological order.
-    pub events: Vec<TimelineEvent>,
-
-    /// Did we hit *an* end of the timeline?
-    ///
-    /// If this is the result of a backward pagination, this means we hit the
-    /// *start* of the timeline.
-    ///
-    /// If this is the result of a forward pagination, this means we hit the
-    /// *end* of the timeline.
-    pub hit_end_of_timeline: bool,
 }
 
 /// The result of an initial [`Paginator::start_from`] query.
@@ -453,31 +409,6 @@ impl PaginableRoom for Room {
     }
 }
 
-impl PaginableRoom for WeakRoom {
-    async fn event_with_context(
-        &self,
-        event_id: &EventId,
-        lazy_load_members: bool,
-        num_events: UInt,
-    ) -> Result<EventWithContextResponse, PaginatorError> {
-        let Some(room) = self.get() else {
-            // Client is shutting down, return a default response.
-            return Ok(EventWithContextResponse::default());
-        };
-
-        PaginableRoom::event_with_context(&room, event_id, lazy_load_members, num_events).await
-    }
-
-    async fn messages(&self, opts: MessagesOptions) -> Result<Messages, PaginatorError> {
-        let Some(room) = self.get() else {
-            // Client is shutting down, return a default response.
-            return Ok(Messages::default());
-        };
-
-        PaginableRoom::messages(&room, opts).await
-    }
-}
-
 #[cfg(all(not(target_family = "wasm"), test))]
 mod tests {
     use std::sync::Arc;
@@ -497,7 +428,7 @@ mod tests {
 
     use super::{PaginableRoom, PaginatorError, PaginatorState};
     use crate::{
-        event_cache::paginator::Paginator,
+        paginators::Paginator,
         room::{EventWithContextResponse, Messages, MessagesOptions},
         test_utils::assert_event_matches_msg,
     };
@@ -999,7 +930,7 @@ mod tests {
 
     mod aborts {
         use super::*;
-        use crate::event_cache::{paginator::PaginationTokens, PaginationToken};
+        use crate::paginators::room::{PaginationToken, PaginationTokens};
 
         #[derive(Clone, Default)]
         struct AbortingRoom {

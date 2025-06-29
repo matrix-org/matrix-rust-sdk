@@ -53,15 +53,13 @@ use tokio::sync::{
 };
 use tracing::{debug, error, info, info_span, instrument, trace, warn, Instrument as _, Span};
 
-use self::paginator::PaginatorError;
 use crate::{client::WeakClient, Client};
 
 mod deduplicator;
 mod pagination;
 mod room;
 
-pub mod paginator;
-pub use pagination::{PaginationToken, RoomPagination, RoomPaginationStatus};
+pub use pagination::{RoomPagination, RoomPaginationStatus};
 pub use room::{RoomEventCache, RoomEventCacheSubscriber};
 
 /// An error observed in the [`EventCache`].
@@ -76,7 +74,7 @@ pub enum EventCacheError {
 
     /// An error has been observed while back-paginating.
     #[error(transparent)]
-    BackpaginationError(#[from] PaginatorError),
+    BackpaginationError(Box<crate::Error>),
 
     /// Back-pagination was already happening in a given room, where we tried to
     /// back-paginate again.

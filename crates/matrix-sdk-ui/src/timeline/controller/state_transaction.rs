@@ -565,8 +565,7 @@ impl<'a> TimelineStateTransaction<'a> {
         event_id: &EventId,
         room_data_provider: &impl RoomDataProvider,
     ) -> Option<Box<EmbeddedEvent>> {
-        let event = room_data_provider
-            .load_event(event_id)
+        let event = RoomDataProvider::load_event(room_data_provider, event_id)
             .await
             .inspect_err(|err| {
                 warn!("Failed to load thread latest event: {err}");

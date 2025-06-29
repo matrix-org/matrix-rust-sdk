@@ -10,7 +10,7 @@ use tracing_core::{identify_callsite, metadata::Kind as MetadataKind};
 /// Log an event.
 ///
 /// The target should be something like a module path, and can be referenced in
-/// the filter string given to `setup_tracing`. `level` and `target` for a
+/// the filter string given to `init_platform`. `level` and `target` for a
 /// callsite are fixed at the first `log_event` call for that callsite and can
 /// not be changed afterwards, i.e. the level and target passed for second and
 /// following `log_event`s with the same callsite will be ignored.

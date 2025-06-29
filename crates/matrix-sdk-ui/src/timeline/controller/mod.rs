@@ -24,10 +24,8 @@ use imbl::Vector;
 use matrix_sdk::{crypto::OlmMachine, SendOutsideWasm};
 use matrix_sdk::{
     deserialized_responses::TimelineEvent,
-    event_cache::{
-        paginator::{PaginationResult, Paginator},
-        RoomEventCache, RoomPaginationStatus,
-    },
+    event_cache::{RoomEventCache, RoomPaginationStatus},
+    paginators::{thread::ThreadedEventsLoader, PaginationResult, Paginator},
     send_queue::{
         LocalEcho, LocalEchoContent, RoomSendQueueUpdate, SendHandle, SendReactionHandle,
     },
@@ -67,7 +65,6 @@ use super::{
     event_item::{ReactionStatus, RemoteEventOrigin},
     item::TimelineUniqueId,
     subscriber::TimelineSubscriber,
-    threaded_events_loader::ThreadedEventsLoader,
     traits::{Decryptor, RoomDataProvider},
     DateDividerMode, EmbeddedEvent, Error, EventSendState, EventTimelineItem, InReplyToDetails,
     PaginationError, Profile, TimelineDetails, TimelineEventItemId, TimelineFocus, TimelineItem,
