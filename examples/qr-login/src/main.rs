@@ -1,15 +1,15 @@
 use std::io::Write;
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use clap::Parser;
 use futures_util::StreamExt;
 use matrix_sdk::{
+    Client,
     authentication::oauth::{
         qrcode::{LoginProgress, QrCodeData, QrCodeModeData},
         registration::{ApplicationType, ClientMetadata, Localized, OAuthGrantType},
     },
     ruma::serde::Raw,
-    Client,
 };
 use url::Url;
 
