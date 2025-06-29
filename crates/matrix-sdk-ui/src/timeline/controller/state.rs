@@ -19,25 +19,25 @@ use matrix_sdk::{deserialized_responses::TimelineEvent, send_queue::SendHandle};
 #[cfg(test)]
 use ruma::events::receipt::ReceiptEventContent;
 use ruma::{
+    MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, OwnedUserId, RoomVersionId,
     events::{AnyMessageLikeEventContent, AnySyncEphemeralRoomEvent},
     serde::Raw,
-    MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, OwnedUserId, RoomVersionId,
 };
 use tracing::{instrument, trace, warn};
 
 use super::{
     super::{
+        Profile, TimelineItem,
         date_dividers::DateDividerAdjuster,
         event_handler::{
             Flow, TimelineAction, TimelineEventContext, TimelineEventHandler, TimelineItemPosition,
         },
         event_item::RemoteEventOrigin,
         traits::RoomDataProvider,
-        Profile, TimelineItem,
     },
-    observable_items::ObservableItems,
     DateDividerMode, TimelineFocusKind, TimelineMetadata, TimelineSettings,
     TimelineStateTransaction,
+    observable_items::ObservableItems,
 };
 use crate::unable_to_decrypt_hook::UtdHookManager;
 

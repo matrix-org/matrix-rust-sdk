@@ -28,34 +28,34 @@ use imbl::Vector;
 #[cfg(feature = "unstable-msc4274")]
 use matrix_sdk::attachment::{AttachmentInfo, Thumbnail};
 use matrix_sdk::{
+    Client, Result,
     attachment::AttachmentConfig,
     deserialized_responses::TimelineEvent,
     event_cache::{EventCacheDropHandles, RoomEventCache},
     event_handler::EventHandlerHandle,
     executor::JoinHandle,
-    room::{edit::EditedContent, reply::Reply, Receipts, Room},
+    room::{Receipts, Room, edit::EditedContent, reply::Reply},
     send_queue::{RoomSendQueueError, SendHandle},
-    Client, Result,
 };
 use mime::Mime;
 use pinned_events_loader::PinnedEventsRoom;
 use ruma::{
+    EventId, OwnedEventId, RoomVersionId, UserId,
     api::client::receipt::create_receipt::v3::ReceiptType,
     events::{
+        AnyMessageLikeEventContent, AnySyncTimelineEvent,
         poll::unstable_start::{NewUnstablePollStartEventContent, UnstablePollStartEventContent},
         receipt::{Receipt, ReceiptThread},
         room::{
             message::RoomMessageEventContentWithoutRelation,
             pinned_events::RoomPinnedEventsEventContent,
         },
-        AnyMessageLikeEventContent, AnySyncTimelineEvent,
     },
-    EventId, OwnedEventId, RoomVersionId, UserId,
 };
 #[cfg(feature = "unstable-msc4274")]
 use ruma::{
-    events::{room::message::FormattedBody, Mentions},
     OwnedTransactionId,
+    events::{Mentions, room::message::FormattedBody},
 };
 use subscriber::TimelineWithDropHandle;
 use thiserror::Error;
@@ -255,7 +255,8 @@ impl Timeline {
     /// and batches them.
     pub async fn subscribe(
         &self,
-    ) -> (Vector<Arc<TimelineItem>>, impl Stream<Item = Vec<VectorDiff<Arc<TimelineItem>>>>) {
+    ) -> (Vector<Arc<TimelineItem>>, impl Stream<Item = Vec<VectorDiff<Arc<TimelineItem>>>> + use<>)
+    {
         let (items, stream) = self.controller.subscribe().await;
         let stream = TimelineWithDropHandle::new(stream, self.drop_handle.clone());
         (items, stream)
@@ -564,7 +565,7 @@ impl Timeline {
     }
 
     /// Subscribe to changes in the read receipts of our own user.
-    pub async fn subscribe_own_user_read_receipts_changed(&self) -> impl Stream<Item = ()> {
+    pub async fn subscribe_own_user_read_receipts_changed(&self) -> impl Stream<Item = ()> + use<> {
         self.controller.subscribe_own_user_read_receipts_changed().await
     }
 

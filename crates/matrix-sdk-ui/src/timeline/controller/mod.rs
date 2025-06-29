@@ -20,36 +20,36 @@ use eyeball_im::VectorDiff;
 use eyeball_im_util::vector::VectorObserverExt;
 use futures_core::Stream;
 use imbl::Vector;
-#[cfg(test)]
-use matrix_sdk::{crypto::OlmMachine, SendOutsideWasm};
 use matrix_sdk::{
+    Result, Room,
     deserialized_responses::TimelineEvent,
     event_cache::{
-        paginator::{PaginationResult, Paginator},
         RoomEventCache, RoomPaginationStatus,
+        paginator::{PaginationResult, Paginator},
     },
     send_queue::{
         LocalEcho, LocalEchoContent, RoomSendQueueUpdate, SendHandle, SendReactionHandle,
     },
-    Result, Room,
 };
+#[cfg(test)]
+use matrix_sdk::{SendOutsideWasm, crypto::OlmMachine};
 use ruma::{
+    EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, RoomVersionId,
+    TransactionId, UserId,
     api::client::receipt::create_receipt::v3::ReceiptType as SendReceiptType,
     events::{
+        AnyMessageLikeEventContent, AnySyncEphemeralRoomEvent, AnySyncMessageLikeEvent,
+        AnySyncTimelineEvent, MessageLikeEventType,
         poll::unstable_start::UnstablePollStartEventContent,
         reaction::ReactionEventContent,
         receipt::{Receipt, ReceiptThread, ReceiptType},
         relation::Annotation,
         room::message::{MessageType, Relation},
-        AnyMessageLikeEventContent, AnySyncEphemeralRoomEvent, AnySyncMessageLikeEvent,
-        AnySyncTimelineEvent, MessageLikeEventType,
     },
     serde::Raw,
-    EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, RoomVersionId,
-    TransactionId, UserId,
 };
 #[cfg(test)]
-use ruma::{events::receipt::ReceiptEventContent, OwnedRoomId, RoomId};
+use ruma::{OwnedRoomId, RoomId, events::receipt::ReceiptEventContent};
 use tokio::sync::{RwLock, RwLockWriteGuard};
 use tracing::{debug, error, field::debug, info, instrument, trace, warn};
 
@@ -63,23 +63,23 @@ pub(super) use self::{
     state_transaction::TimelineStateTransaction,
 };
 use super::{
+    DateDividerMode, EmbeddedEvent, Error, EventSendState, EventTimelineItem, InReplyToDetails,
+    PaginationError, Profile, TimelineDetails, TimelineEventItemId, TimelineFocus, TimelineItem,
+    TimelineItemContent, TimelineItemKind, VirtualTimelineItem,
     algorithms::{rfind_event_by_id, rfind_event_item},
     event_item::{ReactionStatus, RemoteEventOrigin},
     item::TimelineUniqueId,
     subscriber::TimelineSubscriber,
     threaded_events_loader::ThreadedEventsLoader,
     traits::{Decryptor, RoomDataProvider},
-    DateDividerMode, EmbeddedEvent, Error, EventSendState, EventTimelineItem, InReplyToDetails,
-    PaginationError, Profile, TimelineDetails, TimelineEventItemId, TimelineFocus, TimelineItem,
-    TimelineItemContent, TimelineItemKind, VirtualTimelineItem,
 };
 use crate::{
     timeline::{
+        MsgLikeContent, MsgLikeKind, TimelineEventFilterFn,
         algorithms::rfind_event_by_item_id,
         date_dividers::DateDividerAdjuster,
         event_item::EventTimelineItemKind,
         pinned_events_loader::{PinnedEventsLoader, PinnedEventsLoaderError},
-        MsgLikeContent, MsgLikeKind, TimelineEventFilterFn,
     },
     unable_to_decrypt_hook::UtdHookManager,
 };
@@ -586,7 +586,7 @@ impl<P: RoomDataProvider, D: Decryptor> TimelineController<P, D> {
         &self,
     ) -> (
         Vector<Arc<TimelineItem>>,
-        impl Stream<Item = VectorDiff<Arc<TimelineItem>>> + SendOutsideWasm,
+        impl Stream<Item = VectorDiff<Arc<TimelineItem>>> + SendOutsideWasm + use<P, D>,
     ) {
         let state = self.state.read().await;
 
@@ -602,7 +602,7 @@ impl<P: RoomDataProvider, D: Decryptor> TimelineController<P, D> {
     pub(super) async fn subscribe_filter_map<U, F>(
         &self,
         f: F,
-    ) -> (Vector<U>, impl Stream<Item = VectorDiff<U>>)
+    ) -> (Vector<U>, impl Stream<Item = VectorDiff<U>> + use<U, F, P, D>)
     where
         U: Clone,
         F: Fn(Arc<TimelineItem>) -> Option<U>,
@@ -1222,7 +1222,9 @@ impl<P: RoomDataProvider, D: Decryptor> TimelineController<P, D> {
     }
 
     /// Subscribe to changes in the read receipts of our own user.
-    pub async fn subscribe_own_user_read_receipts_changed(&self) -> impl Stream<Item = ()> {
+    pub async fn subscribe_own_user_read_receipts_changed(
+        &self,
+    ) -> impl Stream<Item = ()> + use<P, D> {
         self.state.read().await.meta.read_receipts.subscribe_own_user_read_receipts_changed()
     }
 

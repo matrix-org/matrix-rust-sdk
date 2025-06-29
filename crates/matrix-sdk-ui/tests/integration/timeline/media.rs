@@ -26,7 +26,7 @@ use matrix_sdk::{
     room::reply::{EnforceThread, Reply},
     test_utils::mocks::MatrixMockServer,
 };
-use matrix_sdk_test::{async_test, event_factory::EventFactory, JoinedRoomBuilder, ALICE};
+use matrix_sdk_test::{ALICE, JoinedRoomBuilder, async_test, event_factory::EventFactory};
 use matrix_sdk_ui::timeline::{AttachmentSource, EventSendState, RoomExt};
 #[cfg(feature = "unstable-msc4274")]
 use matrix_sdk_ui::timeline::{GalleryConfig, GalleryItemInfo};
@@ -37,8 +37,8 @@ use ruma::owned_mxc_uri;
 use ruma::{
     event_id,
     events::room::{
-        message::{MessageType, ReplyWithinThread},
         MediaSource,
+        message::{MessageType, ReplyWithinThread},
     },
     room_id,
 };

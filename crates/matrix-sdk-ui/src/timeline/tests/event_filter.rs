@@ -17,21 +17,21 @@ use std::sync::Arc;
 use assert_matches2::assert_let;
 use eyeball_im::VectorDiff;
 use matrix_sdk::deserialized_responses::TimelineEvent;
-use matrix_sdk_test::{async_test, sync_timeline_event, ALICE, BOB};
+use matrix_sdk_test::{ALICE, BOB, async_test, sync_timeline_event};
 use ruma::events::{
+    AnySyncTimelineEvent, TimelineEventType,
     room::{
         member::MembershipState,
         message::{MessageType, RedactedRoomMessageEventContent},
     },
-    AnySyncTimelineEvent, TimelineEventType,
 };
 use stream_assert::assert_next_matches;
 
 use super::TestTimeline;
 use crate::timeline::{
-    controller::TimelineSettings, tests::TestTimelineBuilder, AnyOtherFullStateEventContent,
-    MsgLikeContent, MsgLikeKind, TimelineEventTypeFilter, TimelineItem, TimelineItemContent,
-    TimelineItemKind,
+    AnyOtherFullStateEventContent, MsgLikeContent, MsgLikeKind, TimelineEventTypeFilter,
+    TimelineItem, TimelineItemContent, TimelineItemKind, controller::TimelineSettings,
+    tests::TestTimelineBuilder,
 };
 
 #[async_test]

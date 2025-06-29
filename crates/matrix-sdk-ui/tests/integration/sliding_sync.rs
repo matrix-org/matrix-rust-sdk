@@ -1,6 +1,6 @@
 //! Helpers for integration tests involving sliding sync.
 
-use wiremock::{http::Method, Match, MockServer, Request};
+use wiremock::{Match, MockServer, Request, http::Method};
 
 pub(crate) async fn check_requests(server: MockServer, expected_requests: &[serde_json::Value]) {
     let mut num_requests = 0;
