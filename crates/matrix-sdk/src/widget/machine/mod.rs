@@ -17,7 +17,7 @@
 use std::time::Duration;
 
 use driver_req::{ReadStateRequest, UpdateDelayedEventRequest};
-use from_widget::{SendToDeviceEventResponse, UpdateDelayedEventResponse};
+use from_widget::UpdateDelayedEventResponse;
 use indexmap::IndexMap;
 use ruma::{
     events::{AnyStateEvent, AnyTimelineEvent},
@@ -66,7 +66,7 @@ mod to_widget;
 
 pub(crate) use self::{
     driver_req::{MatrixDriverRequestData, SendEventRequest, SendToDeviceRequest},
-    from_widget::SendEventResponse,
+    from_widget::{SendEventResponse, SendToDeviceEventResponse},
     incoming::{IncomingMessage, MatrixDriverResponse},
 };
 
@@ -532,9 +532,7 @@ impl WidgetMachine {
         request.add_response_handler(|result, _| {
             vec![Self::send_from_widget_response(
                 raw_request,
-                result
-                    .map(|_| SendToDeviceEventResponse {})
-                    .map_err(FromWidgetErrorResponse::from_error),
+                result.map_err(FromWidgetErrorResponse::from_error),
             )]
         });
         Some(action)
