@@ -6,12 +6,12 @@ use std::{
 
 use anyhow::anyhow;
 use matrix_sdk::{
+    Client, Room, RoomState,
     config::SyncSettings,
     ruma::{
         api::client::session::get_login_types::v3::{IdentityProvider, LoginType},
         events::room::message::{MessageType, OriginalSyncRoomMessageEvent},
     },
-    Client, Room, RoomState,
 };
 use url::Url;
 

@@ -4,19 +4,19 @@ use anyhow::Result;
 use clap::Parser;
 use futures_util::stream::StreamExt;
 use matrix_sdk::{
+    Client,
     config::SyncSettings,
     encryption::verification::{
-        format_emojis, Emoji, SasState, SasVerification, Verification, VerificationRequest,
-        VerificationRequestState,
+        Emoji, SasState, SasVerification, Verification, VerificationRequest,
+        VerificationRequestState, format_emojis,
     },
     ruma::{
+        UserId,
         events::{
             key::verification::request::ToDeviceKeyVerificationRequestEvent,
             room::message::{MessageType, OriginalSyncRoomMessageEvent},
         },
-        UserId,
     },
-    Client,
 };
 use url::Url;
 
