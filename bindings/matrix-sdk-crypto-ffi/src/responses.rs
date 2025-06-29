@@ -4,14 +4,15 @@ use std::collections::HashMap;
 
 use http::Response;
 use matrix_sdk_crypto::{
+    CrossSigningBootstrapRequests,
     types::requests::{
         AnyIncomingResponse, KeysBackupRequest, OutgoingRequest,
         OutgoingVerificationRequest as SdkVerificationRequest, RoomMessageRequest, ToDeviceRequest,
         UploadSigningKeysRequest as RustUploadSigningKeysRequest,
     },
-    CrossSigningBootstrapRequests,
 };
 use ruma::{
+    OwnedTransactionId, UserId,
     api::client::{
         backup::add_backup_keys::v3::Response as KeysBackupResponse,
         keys::{
@@ -28,7 +29,6 @@ use ruma::{
     },
     assign,
     events::EventContent,
-    OwnedTransactionId, UserId,
 };
 use serde_json::json;
 

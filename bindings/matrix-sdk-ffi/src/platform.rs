@@ -1,23 +1,22 @@
 use std::sync::OnceLock;
 #[cfg(feature = "sentry")]
-use std::sync::{atomic::AtomicBool, Arc};
+use std::sync::{Arc, atomic::AtomicBool};
 
 #[cfg(feature = "sentry")]
 use tracing::warn;
 use tracing_appender::rolling::{RollingFileAppender, Rotation};
 use tracing_core::Subscriber;
 use tracing_subscriber::{
+    Layer,
     field::RecordFields,
     fmt::{
-        self,
+        self, FormatEvent, FormatFields, FormattedFields,
         format::{DefaultFields, Writer},
         time::FormatTime,
-        FormatEvent, FormatFields, FormattedFields,
     },
     layer::SubscriberExt as _,
     registry::LookupSpan,
     util::SubscriberInitExt as _,
-    Layer,
 };
 
 use crate::{error::ClientError, tracing::LogLevel};
@@ -391,7 +390,10 @@ impl TracingConfiguration {
     #[cfg_attr(not(feature = "sentry"), allow(unused_mut))]
     fn build(mut self) -> LoggingCtx {
         // Show full backtraces, if we run into panics.
-        std::env::set_var("RUST_BACKTRACE", "1");
+        // TODO: Audit that the environment access only happens in single-threaded code.
+        unsafe {
+            std::env::set_var("RUST_BACKTRACE", "1");
+        }
 
         // Log panics.
         log_panics::init();

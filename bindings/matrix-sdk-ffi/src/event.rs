@@ -1,26 +1,26 @@
 use std::ops::Deref;
 
-use anyhow::{bail, Context};
+use anyhow::{Context, bail};
 use matrix_sdk::IdParseError;
 use matrix_sdk_ui::timeline::TimelineEventItemId;
 use ruma::{
+    EventId,
     events::{
+        AnySyncMessageLikeEvent, AnySyncStateEvent, AnySyncTimelineEvent, AnyTimelineEvent,
+        MessageLikeEventContent as RumaMessageLikeEventContent, RedactContent,
+        RedactedStateEventContent, StaticStateEventContent, SyncMessageLikeEvent, SyncStateEvent,
         room::{
             message::{MessageType as RumaMessageType, Relation},
             redaction::SyncRoomRedactionEvent,
         },
-        AnySyncMessageLikeEvent, AnySyncStateEvent, AnySyncTimelineEvent, AnyTimelineEvent,
-        MessageLikeEventContent as RumaMessageLikeEventContent, RedactContent,
-        RedactedStateEventContent, StaticStateEventContent, SyncMessageLikeEvent, SyncStateEvent,
     },
-    EventId,
 };
 
 use crate::{
+    ClientError,
     room_member::MembershipState,
     ruma::{MessageType, NotifyType},
     utils::Timestamp,
-    ClientError,
 };
 
 #[derive(uniffi::Object)]
