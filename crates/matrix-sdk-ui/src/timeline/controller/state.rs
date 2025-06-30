@@ -36,8 +36,7 @@ use super::{
         Profile, TimelineItem,
     },
     observable_items::ObservableItems,
-    DateDividerMode, TimelineFocusKind, TimelineMetadata, TimelineSettings,
-    TimelineStateTransaction,
+    DateDividerMode, TimelineMetadata, TimelineSettings, TimelineStateTransaction,
 };
 use crate::{timeline::controller::TimelineFocusData, unable_to_decrypt_hook::UtdHookManager};
 
@@ -47,14 +46,11 @@ pub(in crate::timeline) struct TimelineState<P: RoomDataProvider> {
     pub meta: TimelineMetadata,
 
     /// The kind of focus of this timeline.
-    pub timeline_focus: TimelineFocusKind,
-
     focus_data: Arc<TimelineFocusData<P>>,
 }
 
 impl<P: RoomDataProvider> TimelineState<P> {
     pub(super) fn new(
-        timeline_focus: TimelineFocusKind,
         focus_data: Arc<TimelineFocusData<P>>,
         own_user_id: OwnedUserId,
         room_version: RoomVersionId,
@@ -71,7 +67,6 @@ impl<P: RoomDataProvider> TimelineState<P> {
                 unable_to_decrypt_hook,
                 is_room_encrypted,
             ),
-            timeline_focus,
             focus_data,
         }
     }
@@ -304,11 +299,6 @@ impl<P: RoomDataProvider> TimelineState<P> {
     }
 
     pub(super) fn transaction(&mut self) -> TimelineStateTransaction<'_, P> {
-        TimelineStateTransaction::new(
-            &mut self.items,
-            &mut self.meta,
-            self.timeline_focus.clone(),
-            &*self.focus_data,
-        )
+        TimelineStateTransaction::new(&mut self.items, &mut self.meta, &*self.focus_data)
     }
 }
