@@ -28,15 +28,21 @@ use crate::{error::ClientError, runtime::get_runtime_handle, task_handle::TaskHa
 pub enum PublicRoomJoinRule {
     Public,
     Knock,
+    Restricted,
+    KnockRestricted,
+    Invite,
 }
 
-impl TryFrom<ruma::directory::PublicRoomJoinRule> for PublicRoomJoinRule {
+impl TryFrom<ruma::room::JoinRuleKind> for PublicRoomJoinRule {
     type Error = String;
 
-    fn try_from(value: ruma::directory::PublicRoomJoinRule) -> Result<Self, Self::Error> {
+    fn try_from(value: ruma::room::JoinRuleKind) -> Result<Self, Self::Error> {
         match value {
-            ruma::directory::PublicRoomJoinRule::Public => Ok(Self::Public),
-            ruma::directory::PublicRoomJoinRule::Knock => Ok(Self::Knock),
+            ruma::room::JoinRuleKind::Public => Ok(Self::Public),
+            ruma::room::JoinRuleKind::Knock => Ok(Self::Knock),
+            ruma::room::JoinRuleKind::Restricted => Ok(Self::Restricted),
+            ruma::room::JoinRuleKind::KnockRestricted => Ok(Self::KnockRestricted),
+            ruma::room::JoinRuleKind::Invite => Ok(Self::Invite),
             rule => Err(format!("unsupported join rule: {rule:?}")),
         }
     }
