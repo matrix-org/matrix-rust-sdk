@@ -186,14 +186,6 @@ impl Default for TimelineSettings {
     }
 }
 
-#[derive(Debug, Clone)]
-pub(super) enum TimelineFocusKind {
-    Live { hide_threaded_events: bool },
-    Event { hide_threaded_events: bool },
-    Thread { root_event_id: OwnedEventId },
-    PinnedEvents,
-}
-
 /// The default event filter for
 /// [`crate::timeline::TimelineBuilder::event_filter`].
 ///
@@ -283,53 +275,42 @@ impl<P: RoomDataProvider, D: Decryptor> TimelineController<P, D> {
         unable_to_decrypt_hook: Option<Arc<UtdHookManager>>,
         is_room_encrypted: bool,
     ) -> Self {
-        let (focus_data, focus_kind) = match focus {
-            TimelineFocus::Live { hide_threaded_events } => (
-                TimelineFocusData::Live { hide_threaded_events },
-                TimelineFocusKind::Live { hide_threaded_events },
-            ),
-
+        let focus_data = match focus {
+            TimelineFocus::Live { hide_threaded_events } => {
+                TimelineFocusData::Live { hide_threaded_events }
+            }
             TimelineFocus::Event { target, num_context_events, hide_threaded_events } => {
                 let paginator = Paginator::new(room_data_provider.clone());
-                (
-                    TimelineFocusData::Event {
-                        paginator,
-                        event_id: target,
-                        num_context_events,
-                        hide_threaded_events,
-                    },
-                    TimelineFocusKind::Event { hide_threaded_events },
-                )
+                TimelineFocusData::Event {
+                    paginator,
+                    event_id: target,
+                    num_context_events,
+                    hide_threaded_events,
+                }
             }
 
-            TimelineFocus::Thread { root_event_id, num_events } => (
-                TimelineFocusData::Thread {
-                    loader: ThreadedEventsLoader::new(
-                        room_data_provider.clone(),
-                        root_event_id.clone(),
-                    ),
-                    num_events,
-                    // TODO: don't clone!
-                    root_event_id: root_event_id.clone(),
-                },
-                TimelineFocusKind::Thread { root_event_id },
-            ),
+            TimelineFocus::Thread { root_event_id, num_events } => TimelineFocusData::Thread {
+                loader: ThreadedEventsLoader::new(
+                    room_data_provider.clone(),
+                    root_event_id.clone(),
+                ),
+                num_events,
+                root_event_id,
+            },
 
-            TimelineFocus::PinnedEvents { max_events_to_load, max_concurrent_requests } => (
+            TimelineFocus::PinnedEvents { max_events_to_load, max_concurrent_requests } => {
                 TimelineFocusData::PinnedEvents {
                     loader: PinnedEventsLoader::new(
                         Arc::new(room_data_provider.clone()),
                         max_events_to_load as usize,
                         max_concurrent_requests as usize,
                     ),
-                },
-                TimelineFocusKind::PinnedEvents,
-            ),
+                }
+            }
         };
 
         let focus_data = Arc::new(focus_data);
         let state = Arc::new(RwLock::new(TimelineState::new(
-            focus_kind,
             focus_data.clone(),
             room_data_provider.own_user_id().to_owned(),
             room_data_provider.room_version(),

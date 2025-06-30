@@ -34,8 +34,7 @@ use super::{
         traits::RoomDataProvider,
     },
     metadata::EventMeta,
-    ObservableItems, ObservableItemsTransaction, TimelineFocusKind, TimelineMetadata,
-    TimelineSettings,
+    ObservableItems, ObservableItemsTransaction, TimelineMetadata, TimelineSettings,
 };
 use crate::timeline::{
     controller::TimelineFocusData,
@@ -60,8 +59,6 @@ pub(in crate::timeline) struct TimelineStateTransaction<'a, P: RoomDataProvider>
     previous_meta: &'a mut TimelineMetadata,
 
     /// The kind of focus of this timeline.
-    pub timeline_focus: TimelineFocusKind,
-
     pub focus: &'a TimelineFocusData<P>,
 }
 
@@ -70,7 +67,6 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
     pub(super) fn new(
         items: &'a mut ObservableItems,
         meta: &'a mut TimelineMetadata,
-        timeline_focus: TimelineFocusKind,
         focus: &'a TimelineFocusData<P>,
     ) -> Self {
         let previous_meta = meta;
@@ -82,7 +78,6 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
             items,
             previous_meta,
             meta,
-            timeline_focus,
             focus,
         }
     }
