@@ -20,8 +20,8 @@ use ruma::EventId;
 #[cfg(doc)]
 use super::controller::TimelineMetadata;
 use super::{
-    event_item::EventTimelineItemKind, item::TimelineUniqueId, EventTimelineItem,
-    ReactionsByKeyBySender, TimelineEventItemId, TimelineItem,
+    EventTimelineItem, ReactionsByKeyBySender, TimelineEventItemId, TimelineItem,
+    event_item::EventTimelineItemKind, item::TimelineUniqueId,
 };
 
 pub(super) struct EventTimelineItemWithId<'a> {

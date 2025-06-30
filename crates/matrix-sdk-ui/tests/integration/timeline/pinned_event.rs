@@ -4,23 +4,25 @@ use assert_matches2::assert_let;
 use eyeball_im::VectorDiff;
 use futures_util::StreamExt as _;
 use matrix_sdk::{
+    Client, Room,
     config::SyncSettings,
     test_utils::{
         logged_in_client_with_server,
         mocks::{MatrixMockServer, RoomMessagesResponseTemplate},
     },
-    Client, Room,
 };
 use matrix_sdk_base::deserialized_responses::TimelineEvent;
 use matrix_sdk_common::executor::spawn;
 use matrix_sdk_test::{
-    async_test, event_factory::EventFactory, JoinedRoomBuilder, StateTestEvent,
-    SyncResponseBuilder, BOB,
+    BOB, JoinedRoomBuilder, StateTestEvent, SyncResponseBuilder, async_test,
+    event_factory::EventFactory,
 };
 use matrix_sdk_ui::timeline::{RoomExt, TimelineBuilder, TimelineFocus};
 use ruma::{
-    assign, event_id,
+    EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedRoomId, RoomId, UserId, assign,
+    event_id,
     events::{
+        AnySyncTimelineEvent,
         room::{
             encrypted::{
                 EncryptedEventScheme, MegolmV1AesSha2ContentInit, RoomEncryptedEventContent,
@@ -28,18 +30,17 @@ use ruma::{
             message::RoomMessageEventContentWithoutRelation,
             pinned_events::RoomPinnedEventsEventContent,
         },
-        AnySyncTimelineEvent,
     },
     owned_device_id, owned_room_id, owned_user_id, room_id,
     serde::Raw,
-    user_id, EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedRoomId, RoomId, UserId,
+    user_id,
 };
 use serde_json::json;
 use stream_assert::assert_pending;
 use tokio::time::sleep;
 use wiremock::{
-    matchers::{header, method, path_regex},
     Mock, ResponseTemplate,
+    matchers::{header, method, path_regex},
 };
 
 use crate::mock_sync;

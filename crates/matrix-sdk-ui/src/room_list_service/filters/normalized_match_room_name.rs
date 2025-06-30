@@ -14,7 +14,7 @@
 
 use tracing::error;
 
-use super::{normalize_string, Filter};
+use super::{Filter, normalize_string};
 
 struct NormalizedMatcher {
     pattern: Option<String>,
@@ -45,7 +45,7 @@ impl NormalizedMatcher {
 ///
 /// Rooms are fetched from the `Client`. The pattern and the room names are
 /// normalized with `normalize_string`.
-pub fn new_filter(pattern: &str) -> impl Filter {
+pub fn new_filter(pattern: &str) -> impl Filter + use<> {
     let searcher = NormalizedMatcher::new().with_pattern(pattern);
 
     move |room| -> bool {

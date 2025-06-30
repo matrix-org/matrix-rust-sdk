@@ -16,9 +16,12 @@ use std::sync::Arc;
 
 use as_variant::as_variant;
 use matrix_sdk::crypto::types::events::UtdCause;
-use matrix_sdk_base::latest_event::{is_suitable_for_latest_event, PossibleLatestEvent};
+use matrix_sdk_base::latest_event::{PossibleLatestEvent, is_suitable_for_latest_event};
 use ruma::{
+    OwnedDeviceId, OwnedEventId, OwnedMxcUri, OwnedUserId, RoomVersionId, UserId,
     events::{
+        AnyFullStateEventContent, AnySyncTimelineEvent, FullStateEventContent, Mentions,
+        MessageLikeEventType, StateEventType,
         call::{invite::SyncCallInviteEvent, notify::SyncCallNotifyEvent},
         policy::rule::{
             room::PolicyRuleRoomEventContent, server::PolicyRuleServerEventContent,
@@ -50,11 +53,8 @@ use ruma::{
         },
         space::{child::SpaceChildEventContent, parent::SpaceParentEventContent},
         sticker::{StickerEventContent, SyncStickerEvent},
-        AnyFullStateEventContent, AnySyncTimelineEvent, FullStateEventContent, Mentions,
-        MessageLikeEventType, StateEventType,
     },
     html::RemoveReplyFallback,
-    OwnedDeviceId, OwnedEventId, OwnedMxcUri, OwnedUserId, RoomVersionId, UserId,
 };
 use tracing::warn;
 
@@ -1052,12 +1052,11 @@ mod tests {
     use assert_matches2::assert_let;
     use matrix_sdk_test::ALICE;
     use ruma::{
-        assign,
+        RoomVersionId, assign,
         events::{
-            room::member::{MembershipState, RoomMemberEventContent},
             FullStateEventContent,
+            room::member::{MembershipState, RoomMemberEventContent},
         },
-        RoomVersionId,
     };
 
     use super::{MembershipChange, RoomMembershipChange, TimelineItemContent};

@@ -27,39 +27,40 @@ use futures_core::Stream;
 use imbl::vector;
 use indexmap::IndexMap;
 use matrix_sdk::{
+    BoxFuture,
     config::RequestConfig,
     crypto::OlmMachine,
     deserialized_responses::{EncryptionInfo, TimelineEvent},
     event_cache::paginator::{PaginableRoom, PaginatorError},
     room::{EventWithContextResponse, Messages, MessagesOptions, PushContext, Relations},
     send_queue::RoomSendQueueUpdate,
-    BoxFuture,
 };
 use matrix_sdk_base::{
-    crypto::types::events::CryptoContextInfo, latest_event::LatestEvent, RoomInfo, RoomState,
+    RoomInfo, RoomState, crypto::types::events::CryptoContextInfo, latest_event::LatestEvent,
 };
-use matrix_sdk_test::{event_factory::EventFactory, ALICE, DEFAULT_TEST_ROOM_ID};
+use matrix_sdk_test::{ALICE, DEFAULT_TEST_ROOM_ID, event_factory::EventFactory};
 use ruma::{
+    EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedRoomId, OwnedTransactionId,
+    OwnedUserId, RoomVersionId, TransactionId, UInt, UserId,
     events::{
+        AnyMessageLikeEventContent, AnyTimelineEvent,
         reaction::ReactionEventContent,
         receipt::{Receipt, ReceiptThread, ReceiptType},
         relation::{Annotation, RelationType},
-        AnyMessageLikeEventContent, AnyTimelineEvent,
     },
     int,
     power_levels::NotificationPowerLevels,
     push::{PushConditionPowerLevelsCtx, PushConditionRoomCtx, Ruleset},
     room_id,
     serde::Raw,
-    uint, EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedRoomId, OwnedTransactionId,
-    OwnedUserId, RoomVersionId, TransactionId, UInt, UserId,
+    uint,
 };
 use tokio::sync::RwLock;
 
 use super::{
-    algorithms::rfind_event_by_item_id, controller::TimelineSettings,
-    event_item::RemoteEventOrigin, traits::RoomDataProvider, EventTimelineItem, Profile,
-    TimelineController, TimelineEventItemId, TimelineFocus, TimelineItem,
+    EventTimelineItem, Profile, TimelineController, TimelineEventItemId, TimelineFocus,
+    TimelineItem, algorithms::rfind_event_by_item_id, controller::TimelineSettings,
+    event_item::RemoteEventOrigin, traits::RoomDataProvider,
 };
 use crate::{
     timeline::pinned_events_loader::PinnedEventsRoom, unable_to_decrypt_hook::UtdHookManager,

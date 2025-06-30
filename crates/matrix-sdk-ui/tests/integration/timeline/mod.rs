@@ -23,30 +23,30 @@ use matrix_sdk::{
     test_utils::mocks::MatrixMockServer,
 };
 use matrix_sdk_test::{
-    async_test, event_factory::EventFactory, JoinedRoomBuilder, RoomAccountDataTestEvent,
-    StateTestEvent, ALICE, BOB,
+    ALICE, BOB, JoinedRoomBuilder, RoomAccountDataTestEvent, StateTestEvent, async_test,
+    event_factory::EventFactory,
 };
 use matrix_sdk_ui::{
+    Timeline,
     timeline::{
         AnyOtherFullStateEventContent, Error, EventSendState, RedactError, RoomExt,
         TimelineBuilder, TimelineEventItemId, TimelineItemContent, VirtualTimelineItem,
     },
-    Timeline,
 };
 use ruma::{
-    event_id,
+    EventId, MilliSecondsSinceUnixEpoch, event_id,
     events::room::{
         encryption::RoomEncryptionEventContent,
         message::{RedactedRoomMessageEventContent, RoomMessageEventContent},
     },
-    owned_event_id, room_id, user_id, EventId, MilliSecondsSinceUnixEpoch,
+    owned_event_id, room_id, user_id,
 };
 use serde_json::json;
 use sliding_sync::assert_timeline_stream;
 use stream_assert::assert_pending;
 use wiremock::{
-    matchers::{header, method, path_regex},
     Mock, ResponseTemplate,
+    matchers::{header, method, path_regex},
 };
 
 mod decryption;

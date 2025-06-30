@@ -21,7 +21,7 @@ use futures_util::StreamExt;
 use matrix_sdk::{
     executor::spawn, ruma::MilliSecondsSinceUnixEpoch, test_utils::mocks::MatrixMockServer,
 };
-use matrix_sdk_test::{async_test, event_factory::EventFactory, JoinedRoomBuilder};
+use matrix_sdk_test::{JoinedRoomBuilder, async_test, event_factory::EventFactory};
 use matrix_sdk_ui::timeline::{EventSendState, RoomExt};
 use ruma::{
     event_id,

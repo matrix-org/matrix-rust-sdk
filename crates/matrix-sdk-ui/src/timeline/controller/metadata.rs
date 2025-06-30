@@ -20,30 +20,30 @@ use std::{
 use imbl::Vector;
 use matrix_sdk::deserialized_responses::EncryptionInfo;
 use ruma::{
+    EventId, OwnedEventId, OwnedUserId, RoomVersionId,
     events::{
-        poll::unstable_start::UnstablePollStartEventContent, relation::Replacement,
-        room::message::RelationWithoutReplacement, AnyMessageLikeEventContent,
-        AnySyncMessageLikeEvent, AnySyncTimelineEvent, BundledMessageLikeRelations,
+        AnyMessageLikeEventContent, AnySyncMessageLikeEvent, AnySyncTimelineEvent,
+        BundledMessageLikeRelations, poll::unstable_start::UnstablePollStartEventContent,
+        relation::Replacement, room::message::RelationWithoutReplacement,
     },
     serde::Raw,
-    EventId, OwnedEventId, OwnedUserId, RoomVersionId,
 };
 use tracing::trace;
 
 use super::{
-    super::{subscriber::skip::SkipCount, TimelineItem, TimelineItemKind, TimelineUniqueId},
-    read_receipts::ReadReceipts,
+    super::{TimelineItem, TimelineItemKind, TimelineUniqueId, subscriber::skip::SkipCount},
     Aggregation, AggregationKind, Aggregations, AllRemoteEvents, ObservableItemsTransaction,
     PendingEdit, PendingEditKind,
+    read_receipts::ReadReceipts,
 };
 use crate::{
     timeline::{
+        InReplyToDetails, TimelineEventItemId,
         controller::TimelineFocusKind,
         event_item::{
             extract_bundled_edit_event_json, extract_poll_edit_content,
             extract_room_msg_edit_content,
         },
-        InReplyToDetails, TimelineEventItemId,
     },
     unable_to_decrypt_hook::UtdHookManager,
 };

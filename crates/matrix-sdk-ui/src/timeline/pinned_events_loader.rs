@@ -14,13 +14,13 @@
 
 use std::{fmt::Formatter, sync::Arc};
 
-use futures_util::{stream, StreamExt};
+use futures_util::{StreamExt, stream};
 use matrix_sdk::{
-    config::RequestConfig, event_cache::paginator::PaginatorError, BoxFuture, Room,
-    SendOutsideWasm, SyncOutsideWasm,
+    BoxFuture, Room, SendOutsideWasm, SyncOutsideWasm, config::RequestConfig,
+    event_cache::paginator::PaginatorError,
 };
 use matrix_sdk_base::deserialized_responses::TimelineEvent;
-use ruma::{events::relation::RelationType, EventId, MilliSecondsSinceUnixEpoch, OwnedEventId};
+use ruma::{EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, events::relation::RelationType};
 use thiserror::Error;
 use tokio::sync::Mutex;
 use tracing::{debug, warn};

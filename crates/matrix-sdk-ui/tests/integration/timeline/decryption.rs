@@ -21,7 +21,7 @@ use matrix_sdk::{
     linked_chunk::{ChunkIdentifier, LinkedChunkId, Position, Update},
     test_utils::mocks::MatrixMockServer,
 };
-use matrix_sdk_test::{async_test, event_factory::EventFactory, BOB};
+use matrix_sdk_test::{BOB, async_test, event_factory::EventFactory};
 use matrix_sdk_ui::timeline::RoomExt;
 use ruma::{
     event_id,

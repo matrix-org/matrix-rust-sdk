@@ -15,8 +15,8 @@
 use std::collections::HashSet;
 
 use ruma::{
-    events::{room::pinned_events::RoomPinnedEventsEventContent, FullStateEventContent},
     OwnedEventId,
+    events::{FullStateEventContent, room::pinned_events::RoomPinnedEventsEventContent},
 };
 
 #[derive(Clone, Debug)]
@@ -78,11 +78,11 @@ mod tests {
     use assert_matches::assert_matches;
     use ruma::{
         events::{
+            FullStateEventContent,
             room::pinned_events::{
                 PossiblyRedactedRoomPinnedEventsEventContent, RedactedRoomPinnedEventsEventContent,
                 RoomPinnedEventsEventContent,
             },
-            FullStateEventContent,
         },
         owned_event_id,
         serde::Raw,
