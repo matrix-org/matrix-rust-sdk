@@ -39,20 +39,23 @@ use super::{
     DateDividerMode, TimelineFocusKind, TimelineMetadata, TimelineSettings,
     TimelineStateTransaction,
 };
-use crate::unable_to_decrypt_hook::UtdHookManager;
+use crate::{timeline::controller::TimelineFocusData, unable_to_decrypt_hook::UtdHookManager};
 
 #[derive(Debug)]
-pub(in crate::timeline) struct TimelineState {
+pub(in crate::timeline) struct TimelineState<P: RoomDataProvider> {
     pub items: ObservableItems,
     pub meta: TimelineMetadata,
 
     /// The kind of focus of this timeline.
     pub timeline_focus: TimelineFocusKind,
+
+    focus_data: Arc<TimelineFocusData<P>>,
 }
 
-impl TimelineState {
+impl<P: RoomDataProvider> TimelineState<P> {
     pub(super) fn new(
         timeline_focus: TimelineFocusKind,
+        focus_data: Arc<TimelineFocusData<P>>,
         own_user_id: OwnedUserId,
         room_version: RoomVersionId,
         internal_id_prefix: Option<String>,
@@ -69,19 +72,18 @@ impl TimelineState {
                 is_room_encrypted,
             ),
             timeline_focus,
+            focus_data,
         }
     }
 
     /// Handle updates on events as [`VectorDiff`]s.
-    pub(super) async fn handle_remote_events_with_diffs<RoomData>(
+    pub(super) async fn handle_remote_events_with_diffs(
         &mut self,
         diffs: Vec<VectorDiff<TimelineEvent>>,
         origin: RemoteEventOrigin,
-        room_data: &RoomData,
+        room_data: &P,
         settings: &TimelineSettings,
-    ) where
-        RoomData: RoomDataProvider,
-    {
+    ) {
         if diffs.is_empty() {
             return;
         }
@@ -92,15 +94,13 @@ impl TimelineState {
     }
 
     /// Handle remote aggregations on events as [`VectorDiff`]s.
-    pub(super) async fn handle_remote_aggregations<RoomData>(
+    pub(super) async fn handle_remote_aggregations(
         &mut self,
         diffs: Vec<VectorDiff<TimelineEvent>>,
         origin: RemoteEventOrigin,
-        room_data: &RoomData,
+        room_data: &P,
         settings: &TimelineSettings,
-    ) where
-        RoomData: RoomDataProvider,
-    {
+    ) {
         if diffs.is_empty() {
             return;
         }
@@ -119,7 +119,7 @@ impl TimelineState {
     }
 
     #[instrument(skip_all)]
-    pub(super) async fn handle_ephemeral_events<P: RoomDataProvider>(
+    pub(super) async fn handle_ephemeral_events(
         &mut self,
         events: Vec<Raw<AnySyncEphemeralRoomEvent>>,
         room_data_provider: &P,
@@ -205,7 +205,7 @@ impl TimelineState {
         txn.commit();
     }
 
-    pub(super) async fn retry_event_decryption<P: RoomDataProvider, Fut>(
+    pub(super) async fn retry_event_decryption<Fut>(
         &mut self,
         retry_one: impl Fn(Arc<TimelineItem>) -> Fut,
         retry_indices: Vec<usize>,
@@ -273,16 +273,15 @@ impl TimelineState {
     /// Note: when the `position` is [`TimelineEnd::Front`], prepended events
     /// should be ordered in *reverse* topological order, that is, `events[0]`
     /// is the most recent.
-    pub(super) async fn replace_with_remote_events<Events, RoomData>(
+    pub(super) async fn replace_with_remote_events<Events>(
         &mut self,
         events: Events,
         origin: RemoteEventOrigin,
-        room_data_provider: &RoomData,
+        room_data_provider: &P,
         settings: &TimelineSettings,
     ) where
         Events: IntoIterator,
         Events::Item: Into<TimelineEvent>,
-        RoomData: RoomDataProvider,
     {
         let mut txn = self.transaction();
         txn.clear();
@@ -304,7 +303,12 @@ impl TimelineState {
         txn.commit();
     }
 
-    pub(super) fn transaction(&mut self) -> TimelineStateTransaction<'_> {
-        TimelineStateTransaction::new(&mut self.items, &mut self.meta, self.timeline_focus.clone())
+    pub(super) fn transaction(&mut self) -> TimelineStateTransaction<'_, P> {
+        TimelineStateTransaction::new(
+            &mut self.items,
+            &mut self.meta,
+            self.timeline_focus.clone(),
+            &*self.focus_data,
+        )
     }
 }

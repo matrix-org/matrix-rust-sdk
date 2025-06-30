@@ -42,7 +42,7 @@ use crate::timeline::{
 /// is dropped, because it waits for the channel to close, which happens when we
 /// drop the sending side.
 #[derive(Clone, Debug)]
-pub struct DecryptionRetryTask<D: Decryptor> {
+pub struct DecryptionRetryTask<P: RoomDataProvider, D: Decryptor> {
     /// The sending side of the channel that we have open to the long-running
     /// async task. Every time we want to retry decrypting some events, we
     /// send a [`DecryptionRetryRequest`] along this channel. Users of this
@@ -54,6 +54,8 @@ pub struct DecryptionRetryTask<D: Decryptor> {
     /// task will see that the channel closed, but we hold on to the handle to
     /// indicate that we own the task.
     _task_handle: Arc<JoinHandle<()>>,
+
+    _phantom: std::marker::PhantomData<P>,
 }
 
 /// How many concurrent retry requests we will queue before blocking when
@@ -61,11 +63,8 @@ pub struct DecryptionRetryTask<D: Decryptor> {
 /// will be queued at a time, so blocking should be a rare occurrence.
 const CHANNEL_BUFFER_SIZE: usize = 100;
 
-impl<D: Decryptor> DecryptionRetryTask<D> {
-    pub(crate) fn new<P: RoomDataProvider>(
-        state: Arc<RwLock<TimelineState>>,
-        room_data_provider: P,
-    ) -> Self {
+impl<P: RoomDataProvider, D: Decryptor> DecryptionRetryTask<P, D> {
+    pub(crate) fn new(state: Arc<RwLock<TimelineState<P>>>, room_data_provider: P) -> Self {
         // We will send decryption requests down this channel to the long-running task
         let (sender, receiver) = mpsc::channel(CHANNEL_BUFFER_SIZE);
 
@@ -75,7 +74,7 @@ impl<D: Decryptor> DecryptionRetryTask<D> {
             matrix_sdk::executor::spawn(decryption_task(state, room_data_provider, receiver));
 
         // Keep hold of the sender so we can send off decryption requests to the task.
-        Self { sender, _task_handle: Arc::new(handle) }
+        Self { sender, _task_handle: Arc::new(handle), _phantom: Default::default() }
     }
 
     /// Use the supplied decryptor to attempt redecryption of the events
@@ -106,9 +105,9 @@ struct DecryptionRetryRequest<D: Decryptor> {
 /// Long-running task that waits for decryption requests to come through the
 /// supplied channel `receiver` and act on them. Stops when the channel is
 /// closed, i.e. when the sender side is dropped.
-async fn decryption_task<D: Decryptor>(
-    state: Arc<RwLock<TimelineState>>,
-    room_data_provider: impl RoomDataProvider,
+async fn decryption_task<P: RoomDataProvider, D: Decryptor>(
+    state: Arc<RwLock<TimelineState<P>>>,
+    room_data_provider: P,
     mut receiver: Receiver<DecryptionRetryRequest<D>>,
 ) {
     debug!("Decryption task starting.");
@@ -207,7 +206,7 @@ fn compute_event_indices_to_retry_decryption(
 /// Try to fetch [`EncryptionInfo`] for the events with the supplied
 /// indices, and update them where we succeed.
 pub(super) async fn retry_fetch_encryption_info<P: RoomDataProvider>(
-    state: &mut TimelineState,
+    state: &mut TimelineState<P>,
     retry_indices: Vec<usize>,
     room_data_provider: &P,
 ) {
@@ -244,10 +243,10 @@ async fn make_replacement_for<P: RoomDataProvider>(
 
 /// Attempt decryption of the events encrypted with the session IDs in the
 /// supplied decryption `request`.
-async fn decrypt_by_index<D: Decryptor>(
-    state: &mut TimelineState,
+async fn decrypt_by_index<P: RoomDataProvider, D: Decryptor>(
+    state: &mut TimelineState<P>,
     settings: &TimelineSettings,
-    room_data_provider: &impl RoomDataProvider,
+    room_data_provider: &P,
     decryptor: D,
     should_retry: impl Fn(&str) -> bool,
     retry_indices: Vec<usize>,

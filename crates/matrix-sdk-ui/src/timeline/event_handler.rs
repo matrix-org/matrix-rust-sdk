@@ -463,8 +463,8 @@ pub(super) struct TimelineEventHandler<'a, 'o> {
 }
 
 impl<'a, 'o> TimelineEventHandler<'a, 'o> {
-    pub(super) fn new(
-        state: &'a mut TimelineStateTransaction<'o>,
+    pub(super) fn new<P: RoomDataProvider>(
+        state: &'a mut TimelineStateTransaction<'o, P>,
         ctx: TimelineEventContext,
     ) -> Self {
         let TimelineStateTransaction { items, meta, .. } = state;
