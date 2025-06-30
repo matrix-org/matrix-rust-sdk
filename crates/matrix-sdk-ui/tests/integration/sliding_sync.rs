@@ -102,9 +102,9 @@ macro_rules! sliding_sync_then_assert_request_and_fake_response {
                             $( $response_json )*
                         })
                     )
-                    $( .set_delay($response_delay) )?
+                    $( .set_delay( $response_delay ) )?
                 })
-                .mount_as_scoped(&$server)
+                .mount_as_scoped(& $server )
                 .await;
 
             let next = $stream.next().await;
