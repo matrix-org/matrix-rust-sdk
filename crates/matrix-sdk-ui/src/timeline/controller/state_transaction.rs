@@ -407,13 +407,13 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
             return false;
         }
 
-        match &self.timeline_focus {
-            TimelineFocusKind::PinnedEvents => {
+        match &self.focus {
+            TimelineFocusData::PinnedEvents { .. } => {
                 // Only add pinned events for the pinned events timeline.
                 room_data_provider.is_pinned_event(event.event_id())
             }
 
-            TimelineFocusKind::Event { hide_threaded_events } => {
+            TimelineFocusData::Event { hide_threaded_events, .. } => {
                 // If the timeline's filtering out in-thread events, don't add items for
                 // threaded events.
                 if thread_root.is_some() && *hide_threaded_events {
@@ -440,13 +440,13 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
                 }
             }
 
-            TimelineFocusKind::Live { hide_threaded_events } => {
+            TimelineFocusData::Live { hide_threaded_events } => {
                 // If the timeline's filtering out in-thread events, don't add items for
                 // threaded events.
                 thread_root.is_none() || !hide_threaded_events
             }
 
-            TimelineFocusKind::Thread { root_event_id } => {
+            TimelineFocusData::Thread { root_event_id, .. } => {
                 // Add new items only for the thread root and the thread replies.
                 event.event_id() == root_event_id
                     || thread_root.as_ref().is_some_and(|r| r == root_event_id)
