@@ -1328,10 +1328,16 @@ impl OlmMachine {
         self.inner.verification_machine.get_requests(user_id)
     }
 
+    /// Given a to-device event that has either been decrypted or arrived in
+    /// plaintext, handle it.
+    ///
+    /// Here, we only process events that are allowed to arrive in plaintext.
     async fn handle_to_device_event(&self, changes: &mut Changes, event: &ToDeviceEvents) {
         use crate::types::events::ToDeviceEvents::*;
 
         match event {
+            // These are handled here because we accept them either plaintext or
+            // encrypted
             RoomKeyRequest(e) => self.inner.key_request_machine.receive_incoming_key_request(e),
             SecretRequest(e) => self.inner.key_request_machine.receive_incoming_secret_request(e),
             RoomKeyWithheld(e) => self.add_withheld_info(changes, e),
@@ -1345,8 +1351,16 @@ impl OlmMachine {
             | KeyVerificationStart(..) => {
                 self.handle_verification_event(event).await;
             }
-            Dummy(_) | RoomKey(_) | ForwardedRoomKey(_) | RoomEncrypted(_) => {}
-            _ => {}
+
+            // We don't process custom or dummy events at all
+            Custom(_) | Dummy(_) => {}
+
+            // Encrypted events are handled elsewhere
+            RoomEncrypted(_) => {}
+
+            // These are handled in `handle_decrypted_to_device_event` because we
+            // only accept them if they arrive encrypted.
+            SecretSend(_) | RoomKey(_) | ForwardedRoomKey(_) => {}
         }
     }
 
