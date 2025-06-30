@@ -33,8 +33,10 @@ pub enum State {
     /// At this state, the first rooms have been synced.
     SettingUp,
 
-    /// At this state, the system is recovering from `Error` or `Terminated`.
-    /// It's similar to `SettingUp` but some lists may already exist, actions
+    /// At this state, the system is recovering from `Error` or `Terminated`, or
+    /// the time between the last sync was too long (see
+    /// `StateMachine::state_lifespan` to learn more). It's similar to
+    /// `SettingUp` but some lists may already exist, actions
     /// are then slightly different.
     Recovering,
 
