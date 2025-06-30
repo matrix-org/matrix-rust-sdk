@@ -95,7 +95,10 @@ pub(super) use aggregations::*;
 #[derive(Debug)]
 pub(in crate::timeline) enum TimelineFocusData<P: RoomDataProvider> {
     /// The timeline receives live events from the sync.
-    Live,
+    Live {
+        /// Whether to hide in-thread events from the timeline.
+        hide_threaded_events: bool,
+    },
 
     /// The timeline is focused on a single event, and it can expand in one
     /// direction or another.
@@ -106,6 +109,8 @@ pub(in crate::timeline) enum TimelineFocusData<P: RoomDataProvider> {
         paginator: Paginator<P>,
         /// Number of context events to request for the first request.
         num_context_events: u16,
+        /// Whether to hide in-thread events from the timeline.
+        hide_threaded_events: bool,
     },
 
     Thread {
@@ -113,6 +118,9 @@ pub(in crate::timeline) enum TimelineFocusData<P: RoomDataProvider> {
 
         /// Number of relations events to requests for the first request
         num_events: u16,
+
+        /// The root event for the current thread.
+        root_event_id: OwnedEventId,
     },
 
     PinnedEvents {
@@ -276,14 +284,20 @@ impl<P: RoomDataProvider, D: Decryptor> TimelineController<P, D> {
         is_room_encrypted: bool,
     ) -> Self {
         let (focus_data, focus_kind) = match focus {
-            TimelineFocus::Live { hide_threaded_events } => {
-                (TimelineFocusData::Live, TimelineFocusKind::Live { hide_threaded_events })
-            }
+            TimelineFocus::Live { hide_threaded_events } => (
+                TimelineFocusData::Live { hide_threaded_events },
+                TimelineFocusKind::Live { hide_threaded_events },
+            ),
 
             TimelineFocus::Event { target, num_context_events, hide_threaded_events } => {
                 let paginator = Paginator::new(room_data_provider.clone());
                 (
-                    TimelineFocusData::Event { paginator, event_id: target, num_context_events },
+                    TimelineFocusData::Event {
+                        paginator,
+                        event_id: target,
+                        num_context_events,
+                        hide_threaded_events,
+                    },
                     TimelineFocusKind::Event { hide_threaded_events },
                 )
             }
@@ -295,6 +309,8 @@ impl<P: RoomDataProvider, D: Decryptor> TimelineController<P, D> {
                         root_event_id.clone(),
                     ),
                     num_events,
+                    // TODO: don't clone!
+                    root_event_id: root_event_id.clone(),
                 },
                 TimelineFocusKind::Thread { root_event_id },
             ),
@@ -341,7 +357,7 @@ impl<P: RoomDataProvider, D: Decryptor> TimelineController<P, D> {
         room_event_cache: &RoomEventCache,
     ) -> Result<bool, Error> {
         match &*self.focus {
-            TimelineFocusData::Live => {
+            TimelineFocusData::Live { .. } => {
                 // Retrieve the cached events, and add them to the timeline.
                 let events = room_event_cache.events().await;
 
@@ -367,7 +383,7 @@ impl<P: RoomDataProvider, D: Decryptor> TimelineController<P, D> {
                 Ok(has_events)
             }
 
-            TimelineFocusData::Event { event_id, paginator, num_context_events } => {
+            TimelineFocusData::Event { event_id, paginator, num_context_events, .. } => {
                 // Start a /context request, and append the results (in order) to the timeline.
                 let start_from_result = paginator
                     .start_from(event_id, (*num_context_events).into())
@@ -385,7 +401,7 @@ impl<P: RoomDataProvider, D: Decryptor> TimelineController<P, D> {
                 Ok(has_events)
             }
 
-            TimelineFocusData::Thread { loader, num_events } => {
+            TimelineFocusData::Thread { loader, num_events, .. } => {
                 let result = loader
                     .paginate_backwards((*num_events).into())
                     .await
@@ -493,14 +509,14 @@ impl<P: RoomDataProvider, D: Decryptor> TimelineController<P, D> {
         num_events: u16,
     ) -> Result<bool, PaginationError> {
         let PaginationResult { events, hit_end_of_timeline } = match &*self.focus {
-            TimelineFocusData::Live | TimelineFocusData::PinnedEvents { .. } => {
+            TimelineFocusData::Live { .. } | TimelineFocusData::PinnedEvents { .. } => {
                 return Err(PaginationError::NotSupported);
             }
             TimelineFocusData::Event { paginator, .. } => paginator
                 .paginate_backward(num_events.into())
                 .await
                 .map_err(PaginationError::Paginator)?,
-            TimelineFocusData::Thread { loader, num_events } => loader
+            TimelineFocusData::Thread { loader, num_events, .. } => loader
                 .paginate_backwards((*num_events).into())
                 .await
                 .map_err(PaginationError::Paginator)?,
@@ -526,7 +542,7 @@ impl<P: RoomDataProvider, D: Decryptor> TimelineController<P, D> {
         num_events: u16,
     ) -> Result<bool, PaginationError> {
         let PaginationResult { events, hit_end_of_timeline } = match &*self.focus {
-            TimelineFocusData::Live
+            TimelineFocusData::Live { .. }
             | TimelineFocusData::PinnedEvents { .. }
             | TimelineFocusData::Thread { .. } => return Err(PaginationError::NotSupported),
 
@@ -549,7 +565,7 @@ impl<P: RoomDataProvider, D: Decryptor> TimelineController<P, D> {
 
     /// Is this timeline receiving events from sync (aka has a live focus)?
     pub(super) fn is_live(&self) -> bool {
-        matches!(&*self.focus, TimelineFocusData::Live)
+        matches!(&*self.focus, TimelineFocusData::Live { .. })
     }
 
     pub(super) fn with_settings(mut self, settings: TimelineSettings) -> Self {
