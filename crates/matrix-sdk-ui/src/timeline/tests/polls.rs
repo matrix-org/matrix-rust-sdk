@@ -3,16 +3,9 @@ use fakes::poll_a2;
 use matrix_sdk_test::{async_test, ALICE, BOB};
 use ruma::{
     event_id,
-    events::{
-        poll::{
-            unstable_end::UnstablePollEndEventContent,
-            unstable_response::UnstablePollResponseEventContent,
-            unstable_start::{
-                NewUnstablePollStartEventContent, ReplacementUnstablePollStartEventContent,
-                UnstablePollStartContentBlock,
-            },
-        },
-        AnyMessageLikeEventContent,
+    events::poll::unstable_start::{
+        NewUnstablePollStartEventContent, ReplacementUnstablePollStartEventContent,
+        UnstablePollStartContentBlock, UnstablePollStartEventContent,
     },
     server_name, EventId, OwnedEventId, UserId,
 };
@@ -268,27 +261,17 @@ impl TestTimeline {
     }
 
     async fn send_poll_start(&self, sender: &UserId, content: UnstablePollStartContentBlock) {
-        let event_content = AnyMessageLikeEventContent::UnstablePollStart(
-            NewUnstablePollStartEventContent::new(content).into(),
-        );
+        let event_content =
+            UnstablePollStartEventContent::from(NewUnstablePollStartEventContent::new(content));
         self.handle_live_event(self.factory.event(event_content).sender(sender)).await;
     }
 
     async fn send_poll_response(&self, sender: &UserId, answers: Vec<&str>, poll_id: &EventId) {
-        let event_content = AnyMessageLikeEventContent::UnstablePollResponse(
-            UnstablePollResponseEventContent::new(
-                answers.into_iter().map(|i| i.to_owned()).collect(),
-                poll_id.to_owned(),
-            ),
-        );
-        self.handle_live_event(self.factory.event(event_content).sender(sender)).await
+        self.handle_live_event(self.factory.poll_response(answers, poll_id).sender(sender)).await
     }
 
     async fn send_poll_end(&self, sender: &UserId, text: &str, poll_id: &EventId) {
-        let event_content = AnyMessageLikeEventContent::UnstablePollEnd(
-            UnstablePollEndEventContent::new(text, poll_id.to_owned()),
-        );
-        self.handle_live_event(self.factory.event(event_content).sender(sender)).await
+        self.handle_live_event(self.factory.poll_end(text, poll_id).sender(sender)).await
     }
 
     async fn send_poll_edit(
@@ -297,9 +280,9 @@ impl TestTimeline {
         original_id: &EventId,
         content: UnstablePollStartContentBlock,
     ) {
-        let content =
-            ReplacementUnstablePollStartEventContent::new(content, original_id.to_owned());
-        let event_content = AnyMessageLikeEventContent::UnstablePollStart(content.into());
+        let event_content = UnstablePollStartEventContent::from(
+            ReplacementUnstablePollStartEventContent::new(content, original_id.to_owned()),
+        );
         self.handle_live_event(self.factory.event(event_content).sender(sender)).await
     }
 }
