@@ -29,7 +29,7 @@ use super::EventType;
 /// [MSC4268]: https://github.com/matrix-org/matrix-spec-proposals/pull/4268
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct RoomKeyBundleContent {
-    /// The room that these keys are for
+    /// The room that these keys are for.
     pub room_id: OwnedRoomId,
 
     /// The location and encryption info of the key bundle.
