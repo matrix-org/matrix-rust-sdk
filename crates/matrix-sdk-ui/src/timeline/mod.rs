@@ -577,14 +577,18 @@ impl Timeline {
     /// If an unthreaded receipt is sent, this will also unset the unread flag
     /// of the room if necessary.
     ///
+    /// The thread of the receipt is determined by the timeline instance's
+    /// focus mode and `hide_threaded_events` flag.
+    ///
     /// Returns a boolean indicating if it sent the receipt or not.
     #[instrument(skip(self), fields(room_id = ?self.room().room_id()))]
     pub async fn send_single_receipt(
         &self,
         receipt_type: ReceiptType,
-        thread: ReceiptThread,
         event_id: OwnedEventId,
     ) -> Result<bool> {
+        let thread = self.controller.infer_thread_for_read_receipt(&receipt_type);
+
         if !self.controller.should_send_receipt(&receipt_type, &thread, &event_id).await {
             trace!(
                 "not sending receipt, because we already cover the event with a previous receipt"
@@ -675,7 +679,7 @@ impl Timeline {
     #[instrument(skip(self), fields(room_id = ?self.room().room_id()))]
     pub async fn mark_as_read(&self, receipt_type: ReceiptType) -> Result<bool> {
         if let Some(event_id) = self.controller.latest_event_id().await {
-            self.send_single_receipt(receipt_type, ReceiptThread::Unthreaded, event_id).await
+            self.send_single_receipt(receipt_type, event_id).await
         } else {
             trace!("can't mark room as read because there's no latest event id");
 

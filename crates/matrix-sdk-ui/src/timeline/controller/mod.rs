@@ -1449,6 +1449,35 @@ impl TimelineController {
         Ok(())
     }
 
+    /// Returns the thread that should be used for a read receipt based on the
+    /// current focus of the timeline and the receipt type.
+    ///
+    /// A `SendReceiptType::FullyRead` will always use
+    /// `ReceiptThread::Unthreaded`
+    pub(super) fn infer_thread_for_read_receipt(
+        &self,
+        receipt_type: &SendReceiptType,
+    ) -> ReceiptThread {
+        if matches!(receipt_type, SendReceiptType::FullyRead) {
+            return ReceiptThread::Unthreaded;
+        }
+
+        match &*self.focus {
+            TimelineFocusKind::Live { hide_threaded_events }
+            | TimelineFocusKind::Event { hide_threaded_events, .. } => {
+                if *hide_threaded_events {
+                    ReceiptThread::Main
+                } else {
+                    ReceiptThread::Unthreaded
+                }
+            }
+            TimelineFocusKind::Thread { root_event_id, .. } => {
+                ReceiptThread::Thread(root_event_id.to_owned())
+            }
+            TimelineFocusKind::PinnedEvents { .. } => ReceiptThread::Unthreaded,
+        }
+    }
+
     /// Check whether the given receipt should be sent.
     ///
     /// Returns `false` if the given receipt is older than the current one.

@@ -3031,6 +3031,12 @@ impl<'a> MockEndpoint<'a, ReceiptEndpoint> {
     pub fn ok(self) -> MatrixMock<'a> {
         self.respond_with(ResponseTemplate::new(200).set_body_json(json!({})))
     }
+
+    /// Ensures that the body of the request is a superset of the provided
+    /// `body` parameter.
+    pub fn body_matches_partial_json(self, body: Value) -> Self {
+        Self { mock: self.mock.and(body_partial_json(body)), ..self }
+    }
 }
 
 /// A prebuilt mock for `POST /rooms/{roomId}/read_markers` request.

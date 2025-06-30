@@ -51,7 +51,6 @@ use ruma::{
                 UnstablePollStartContentBlock,
             },
         },
-        receipt::ReceiptThread,
         room::message::{
             LocationMessageEventContent, MessageType, ReplyWithinThread,
             RoomMessageEventContentWithoutRelation,
@@ -351,9 +350,7 @@ impl Timeline {
         event_id: String,
     ) -> Result<(), ClientError> {
         let event_id = EventId::parse(event_id)?;
-        self.inner
-            .send_single_receipt(receipt_type.into(), ReceiptThread::Unthreaded, event_id)
-            .await?;
+        self.inner.send_single_receipt(receipt_type.into(), event_id).await?;
         Ok(())
     }
 
