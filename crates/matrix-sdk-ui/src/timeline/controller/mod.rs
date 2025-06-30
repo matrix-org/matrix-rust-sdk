@@ -93,7 +93,7 @@ pub(super) use aggregations::*;
 
 /// Data associated to the current timeline focus.
 #[derive(Debug)]
-enum TimelineFocusData<P: RoomDataProvider> {
+pub(in crate::timeline) enum TimelineFocusData<P: RoomDataProvider> {
     /// The timeline receives live events from the sync.
     Live,
 
@@ -123,7 +123,7 @@ enum TimelineFocusData<P: RoomDataProvider> {
 #[derive(Clone, Debug)]
 pub(super) struct TimelineController<P: RoomDataProvider = Room, D: Decryptor = Room> {
     /// Inner mutable state.
-    state: Arc<RwLock<TimelineState>>,
+    state: Arc<RwLock<TimelineState<P>>>,
 
     /// Focus data.
     focus: Arc<TimelineFocusData<P>>,
@@ -138,7 +138,7 @@ pub(super) struct TimelineController<P: RoomDataProvider = Room, D: Decryptor = 
 
     /// Long-running task used to retry decryption of timeline items without
     /// blocking main processing.
-    decryption_retry_task: DecryptionRetryTask<D>,
+    decryption_retry_task: DecryptionRetryTask<P, D>,
 }
 
 #[derive(Clone)]
@@ -311,8 +311,10 @@ impl<P: RoomDataProvider, D: Decryptor> TimelineController<P, D> {
             ),
         };
 
+        let focus_data = Arc::new(focus_data);
         let state = Arc::new(RwLock::new(TimelineState::new(
             focus_kind,
+            focus_data.clone(),
             room_data_provider.own_user_id().to_owned(),
             room_data_provider.room_version(),
             internal_id_prefix,
@@ -325,13 +327,7 @@ impl<P: RoomDataProvider, D: Decryptor> TimelineController<P, D> {
         let decryption_retry_task =
             DecryptionRetryTask::new(state.clone(), room_data_provider.clone());
 
-        Self {
-            state,
-            focus: Arc::new(focus_data),
-            room_data_provider,
-            settings,
-            decryption_retry_task,
-        }
+        Self { state, focus: focus_data, room_data_provider, settings, decryption_retry_task }
     }
 
     /// Initializes the configured focus with appropriate data.
@@ -1587,9 +1583,9 @@ impl<P: RoomDataProvider> TimelineController<P, (OlmMachine, OwnedRoomId)> {
 }
 
 #[allow(clippy::too_many_arguments)]
-async fn fetch_replied_to_event(
-    mut state_guard: RwLockWriteGuard<'_, TimelineState>,
-    state_lock: &RwLock<TimelineState>,
+async fn fetch_replied_to_event<P: RoomDataProvider>(
+    mut state_guard: RwLockWriteGuard<'_, TimelineState<P>>,
+    state_lock: &RwLock<TimelineState<P>>,
     index: usize,
     item: &EventTimelineItem,
     internal_id: TimelineUniqueId,

@@ -38,11 +38,12 @@ use super::{
     TimelineSettings,
 };
 use crate::timeline::{
+    controller::TimelineFocusData,
     event_handler::{FailedToParseEvent, RemovedItem, TimelineAction},
     EmbeddedEvent, ThreadSummary, TimelineDetails, VirtualTimelineItem,
 };
 
-pub(in crate::timeline) struct TimelineStateTransaction<'a> {
+pub(in crate::timeline) struct TimelineStateTransaction<'a, P: RoomDataProvider> {
     /// A vector transaction over the items themselves. Holds temporary state
     /// until committed.
     pub items: ObservableItemsTransaction<'a>,
@@ -60,14 +61,17 @@ pub(in crate::timeline) struct TimelineStateTransaction<'a> {
 
     /// The kind of focus of this timeline.
     pub(super) timeline_focus: TimelineFocusKind,
+
+    focus: &'a TimelineFocusData<P>,
 }
 
-impl<'a> TimelineStateTransaction<'a> {
+impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
     /// Create a new [`TimelineStateTransaction`].
     pub(super) fn new(
         items: &'a mut ObservableItems,
         meta: &'a mut TimelineMetadata,
         timeline_focus: TimelineFocusKind,
+        focus: &'a TimelineFocusData<P>,
     ) -> Self {
         let previous_meta = meta;
         let meta = previous_meta.clone();
@@ -79,19 +83,18 @@ impl<'a> TimelineStateTransaction<'a> {
             previous_meta,
             meta,
             timeline_focus,
+            focus,
         }
     }
 
     /// Handle updates on events as [`VectorDiff`]s.
-    pub(super) async fn handle_remote_events_with_diffs<RoomData>(
+    pub(super) async fn handle_remote_events_with_diffs(
         &mut self,
         diffs: Vec<VectorDiff<TimelineEvent>>,
         origin: RemoteEventOrigin,
-        room_data_provider: &RoomData,
+        room_data_provider: &P,
         settings: &TimelineSettings,
-    ) where
-        RoomData: RoomDataProvider,
-    {
+    ) {
         let mut date_divider_adjuster =
             DateDividerAdjuster::new(settings.date_divider_mode.clone());
 
@@ -182,15 +185,13 @@ impl<'a> TimelineStateTransaction<'a> {
         self.check_invariants();
     }
 
-    async fn handle_remote_aggregation<RoomData>(
+    async fn handle_remote_aggregation(
         &mut self,
         event: TimelineEvent,
         position: TimelineItemPosition,
-        room_data_provider: &RoomData,
+        room_data_provider: &P,
         date_divider_adjuster: &mut DateDividerAdjuster,
-    ) where
-        RoomData: RoomDataProvider,
-    {
+    ) {
         let deserialized = match event.raw().deserialize() {
             Ok(deserialized) => deserialized,
             Err(err) => {
@@ -248,15 +249,13 @@ impl<'a> TimelineStateTransaction<'a> {
     /// - it only applies to aggregated events, not all the sync events.
     /// - it will also not add the events to the `all_remote_events` array
     ///   itself.
-    pub(super) async fn handle_remote_aggregations<RoomData>(
+    pub(super) async fn handle_remote_aggregations(
         &mut self,
         diffs: Vec<VectorDiff<TimelineEvent>>,
         origin: RemoteEventOrigin,
-        room_data_provider: &RoomData,
+        room_data_provider: &P,
         settings: &TimelineSettings,
-    ) where
-        RoomData: RoomDataProvider,
-    {
+    ) {
         let mut date_divider_adjuster =
             DateDividerAdjuster::new(settings.date_divider_mode.clone());
 
@@ -394,7 +393,7 @@ impl<'a> TimelineStateTransaction<'a> {
     }
 
     /// Whether the event should be added to the timeline as a new item.
-    fn should_add_event_item<P: RoomDataProvider>(
+    fn should_add_event_item(
         &self,
         room_data_provider: &P,
         settings: &TimelineSettings,
@@ -461,7 +460,7 @@ impl<'a> TimelineStateTransaction<'a> {
     async fn maybe_add_error_item(
         &mut self,
         position: TimelineItemPosition,
-        room_data_provider: &impl RoomDataProvider,
+        room_data_provider: &P,
         raw: &Raw<AnySyncTimelineEvent>,
         deserialization_error: serde_json::Error,
         settings: &TimelineSettings,
@@ -563,7 +562,7 @@ impl<'a> TimelineStateTransaction<'a> {
     async fn fetch_latest_thread_reply(
         &mut self,
         event_id: &EventId,
-        room_data_provider: &impl RoomDataProvider,
+        room_data_provider: &P,
     ) -> Option<Box<EmbeddedEvent>> {
         let event = RoomDataProvider::load_event(room_data_provider, event_id)
             .await
@@ -585,7 +584,7 @@ impl<'a> TimelineStateTransaction<'a> {
     /// Handle a remote event.
     ///
     /// Returns whether an item has been removed from the timeline.
-    pub(super) async fn handle_remote_event<P: RoomDataProvider>(
+    pub(super) async fn handle_remote_event(
         &mut self,
         event: TimelineEvent,
         position: TimelineItemPosition,
@@ -827,7 +826,7 @@ impl<'a> TimelineStateTransaction<'a> {
     /// [`ObservableItems::all_remote_events`] collection.
     ///
     /// This method also adjusts read receipt if needed.
-    async fn add_or_update_remote_event<P: RoomDataProvider>(
+    async fn add_or_update_remote_event(
         &mut self,
         event_meta: EventMeta,
         sender: Option<&UserId>,
