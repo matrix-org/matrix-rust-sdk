@@ -60,9 +60,9 @@ pub(in crate::timeline) struct TimelineStateTransaction<'a, P: RoomDataProvider>
     previous_meta: &'a mut TimelineMetadata,
 
     /// The kind of focus of this timeline.
-    pub(super) timeline_focus: TimelineFocusKind,
+    pub timeline_focus: TimelineFocusKind,
 
-    focus: &'a TimelineFocusData<P>,
+    pub focus: &'a TimelineFocusData<P>,
 }
 
 impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
@@ -630,7 +630,7 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
                     &raw,
                     bundled_edit_encryption_info,
                     &self.items,
-                    &self.timeline_focus,
+                    self.focus,
                 );
 
                 let should_add = self.should_add_event_item(

@@ -38,11 +38,12 @@ use super::{
 };
 use crate::{
     timeline::{
-        controller::TimelineFocusKind,
+        controller::TimelineFocusData,
         event_item::{
             extract_bundled_edit_event_json, extract_poll_edit_content,
             extract_room_msg_edit_content,
         },
+        traits::RoomDataProvider,
         InReplyToDetails, TimelineEventItemId,
     },
     unable_to_decrypt_hook::UtdHookManager,
@@ -311,13 +312,13 @@ impl TimelineMetadata {
 
     /// Extract the content from a remote message-like event and process its
     /// relations.
-    pub(crate) fn process_event_relations(
+    pub(crate) fn process_event_relations<P: RoomDataProvider>(
         &mut self,
         event: &AnySyncTimelineEvent,
         raw_event: &Raw<AnySyncTimelineEvent>,
         bundled_edit_encryption_info: Option<Arc<EncryptionInfo>>,
         timeline_items: &Vector<Arc<TimelineItem>>,
-        timeline_focus: &TimelineFocusKind,
+        timeline_focus: &TimelineFocusData<P>,
     ) -> (Option<InReplyToDetails>, Option<OwnedEventId>) {
         if let AnySyncTimelineEvent::MessageLike(ev) = event {
             if let Some(content) = ev.original_content() {
@@ -343,12 +344,12 @@ impl TimelineMetadata {
     /// (like marking responses).
     ///
     /// Returns the in-reply-to details and the thread root event ID, if any.
-    pub(crate) fn process_content_relations(
+    pub(crate) fn process_content_relations<P: RoomDataProvider>(
         &mut self,
         content: &AnyMessageLikeEventContent,
         remote_ctx: Option<RemoteEventContext<'_>>,
         timeline_items: &Vector<Arc<TimelineItem>>,
-        timeline_focus: &TimelineFocusKind,
+        timeline_focus: &TimelineFocusData<P>,
     ) -> (Option<InReplyToDetails>, Option<OwnedEventId>) {
         match content {
             AnyMessageLikeEventContent::Sticker(content) => {
@@ -449,10 +450,10 @@ impl TimelineMetadata {
 
     /// Extracts the in-reply-to details and thread root from a relation, if
     /// available.
-    fn extract_reply_and_thread_root(
+    fn extract_reply_and_thread_root<P: RoomDataProvider>(
         relates_to: Option<RelationWithoutReplacement>,
         timeline_items: &Vector<Arc<TimelineItem>>,
-        timeline_focus: &TimelineFocusKind,
+        timeline_focus: &TimelineFocusData<P>,
     ) -> (Option<InReplyToDetails>, Option<OwnedEventId>) {
         let mut thread_root = None;
 
@@ -463,7 +464,7 @@ impl TimelineMetadata {
             RelationWithoutReplacement::Thread(thread) => {
                 thread_root = Some(thread.event_id);
 
-                if matches!(timeline_focus, TimelineFocusKind::Thread { .. })
+                if matches!(timeline_focus, TimelineFocusData::Thread { .. })
                     && thread.is_falling_back
                 {
                     // In general, a threaded event is marked as a response to the previous message
