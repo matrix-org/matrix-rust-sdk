@@ -22,7 +22,7 @@ use std::{fmt, sync::Arc};
 use homeserver_config::*;
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk_base::crypto::DecryptionSettings;
-use matrix_sdk_base::{store::StoreConfig, BaseClient};
+use matrix_sdk_base::{store::StoreConfig, BaseClient, ThreadingSupport};
 #[cfg(feature = "sqlite")]
 use matrix_sdk_sqlite::SqliteStoreConfig;
 use ruma::{
@@ -113,6 +113,7 @@ pub struct ClientBuilder {
     #[cfg(feature = "e2e-encryption")]
     enable_share_history_on_invite: bool,
     cross_process_store_locks_holder_name: String,
+    threading_support: ThreadingSupport,
 }
 
 impl ClientBuilder {
@@ -143,6 +144,7 @@ impl ClientBuilder {
             enable_share_history_on_invite: false,
             cross_process_store_locks_holder_name:
                 Self::DEFAULT_CROSS_PROCESS_STORE_LOCKS_HOLDER_NAME.to_owned(),
+            threading_support: ThreadingSupport::Disabled,
         }
     }
 
@@ -479,6 +481,14 @@ impl ClientBuilder {
         self
     }
 
+    /// Whether the threads feature is enabled throuoghout the SDK.
+    /// This will affect how timelines are setup, how read receipts are sent
+    /// and how room unreads are computed.
+    pub fn with_threading_support(mut self, threading_support: ThreadingSupport) -> Self {
+        self.threading_support = threading_support;
+        self
+    }
+
     /// Create a [`Client`] with the options set on this builder.
     ///
     /// # Errors
@@ -515,6 +525,7 @@ impl ClientBuilder {
             let mut client = BaseClient::new(
                 build_store_config(self.store_config, &self.cross_process_store_locks_holder_name)
                     .await?,
+                self.threading_support,
             );
 
             #[cfg(feature = "e2e-encryption")]

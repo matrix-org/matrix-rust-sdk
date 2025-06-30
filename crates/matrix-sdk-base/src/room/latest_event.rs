@@ -88,6 +88,7 @@ mod tests_with_e2e_encryption {
     use serde_json::json;
 
     use crate::{
+        client::ThreadingSupport,
         latest_event::LatestEvent,
         response_processors as processors,
         store::{MemoryStore, RoomLoadSettings, StoreConfig},
@@ -107,8 +108,10 @@ mod tests_with_e2e_encryption {
     #[async_test]
     async fn test_setting_the_latest_event_doesnt_cause_a_room_info_notable_update() {
         // Given a room,
-        let client =
-            BaseClient::new(StoreConfig::new("cross-process-store-locks-holder-name".to_owned()));
+        let client = BaseClient::new(
+            StoreConfig::new("cross-process-store-locks-holder-name".to_owned()),
+            ThreadingSupport::Disabled,
+        );
 
         client
             .activate(

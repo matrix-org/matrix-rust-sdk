@@ -15,7 +15,7 @@ use matrix_sdk::{
         VersionBuilderError,
     },
     Client as MatrixClient, ClientBuildError as MatrixClientBuildError, HttpError, IdParseError,
-    RumaApiError, SqliteStoreConfig,
+    RumaApiError, SqliteStoreConfig, ThreadingSupport,
 };
 use ruma::api::error::{DeserializationError, FromHttpResponseError};
 use tracing::{debug, error};
@@ -140,6 +140,8 @@ pub struct ClientBuilder {
     disable_built_in_root_certificates: bool,
     #[cfg(not(target_family = "wasm"))]
     additional_root_certificates: Vec<Vec<u8>>,
+
+    threads_enabled: bool,
 }
 
 #[matrix_sdk_ffi_macros::export]
@@ -177,6 +179,7 @@ impl ClientBuilder {
             },
             enable_share_history_on_invite: false,
             request_config: Default::default(),
+            threads_enabled: false,
         })
     }
 
@@ -390,6 +393,12 @@ impl ClientBuilder {
         Arc::new(builder)
     }
 
+    pub fn threads_enabled(self: Arc<Self>, enabled: bool) -> Arc<Self> {
+        let mut builder = unwrap_or_clone_arc(self);
+        builder.threads_enabled = enabled;
+        Arc::new(builder)
+    }
+
     pub async fn build(self: Arc<Self>) -> Result<Arc<Client>, ClientBuildError> {
         let builder = unwrap_or_clone_arc(self);
         let mut inner_builder = MatrixClient::builder();
@@ -554,6 +563,12 @@ impl ClientBuilder {
             }
             inner_builder = inner_builder.request_config(updated_config);
         }
+
+        inner_builder = inner_builder.with_threading_support(if builder.threads_enabled {
+            ThreadingSupport::Enabled
+        } else {
+            ThreadingSupport::Disabled
+        });
 
         let sdk_client = inner_builder.build().await?;
 

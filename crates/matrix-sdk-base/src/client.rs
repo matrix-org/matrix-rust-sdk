@@ -76,11 +76,12 @@ use crate::{
 /// rather through `matrix_sdk::Client`.
 ///
 /// ```rust
-/// use matrix_sdk_base::{store::StoreConfig, BaseClient};
+/// use matrix_sdk_base::{store::StoreConfig, BaseClient, ThreadingSupport};
 ///
-/// let client = BaseClient::new(StoreConfig::new(
-///     "cross-process-holder-name".to_owned(),
-/// ));
+/// let client = BaseClient::new(
+///     StoreConfig::new("cross-process-holder-name".to_owned()),
+///     ThreadingSupport::Disabled,
+/// );
 /// ```
 #[derive(Clone)]
 pub struct BaseClient {
@@ -122,6 +123,9 @@ pub struct BaseClient {
     /// If the client should handle verification events received when syncing.
     #[cfg(feature = "e2e-encryption")]
     pub handle_verification_events: bool,
+
+    /// Whether the client supports threads or not.
+    pub threading_support: ThreadingSupport,
 }
 
 #[cfg(not(tarpaulin_include))]
@@ -134,6 +138,25 @@ impl fmt::Debug for BaseClient {
     }
 }
 
+/// Whether this client instance supports threading or not. Currently used to
+/// determine how the client handles read receipts and unread count computations
+/// on the base SDK level.
+///
+/// Timelines on the other hand have a separate `TimelineFocus`
+/// `hide_threaded_events` associated value that can be used to hide threaded
+/// events but also to enable threaded read receipt sending. This is because
+/// certain timeline instances should ignore threading no matter what's defined
+/// at the client level. One such example are media filtered timelines which
+/// should contain all the room's media no matter what thread its in (unless
+/// explicitly opted into).
+#[derive(Clone, Copy, Debug)]
+pub enum ThreadingSupport {
+    /// Threading enabled
+    Enabled,
+    /// Threading disabled
+    Disabled,
+}
+
 impl BaseClient {
     /// Create a new client.
     ///
@@ -141,7 +164,7 @@ impl BaseClient {
     ///
     /// * `config` - the configuration for the stores (state store, event cache
     ///   store and crypto store).
-    pub fn new(config: StoreConfig) -> Self {
+    pub fn new(config: StoreConfig, threading_support: ThreadingSupport) -> Self {
         let store = BaseStateStore::new(config.state_store);
 
         // Create the channel to receive `RoomInfoNotableUpdate`.
@@ -173,6 +196,7 @@ impl BaseClient {
             },
             #[cfg(feature = "e2e-encryption")]
             handle_verification_events: true,
+            threading_support,
         }
     }
 
@@ -204,6 +228,7 @@ impl BaseClient {
             room_key_recipient_strategy: self.room_key_recipient_strategy.clone(),
             decryption_settings: self.decryption_settings.clone(),
             handle_verification_events,
+            threading_support: self.threading_support,
         };
 
         copy.state_store
@@ -224,7 +249,7 @@ impl BaseClient {
     ) -> Result<Self> {
         let config = StoreConfig::new(cross_process_store_locks_holder.to_owned())
             .state_store(MemoryStore::new());
-        Ok(Self::new(config))
+        Ok(Self::new(config, ThreadingSupport::Disabled))
     }
 
     /// Get the session meta information.
@@ -1080,6 +1105,7 @@ mod tests {
 
     use super::{BaseClient, RequestedRequiredStates};
     use crate::{
+        client::ThreadingSupport,
         store::{RoomLoadSettings, StateStoreExt, StoreConfig},
         test_utils::logged_in_base_client,
         RoomDisplayName, RoomState, SessionMeta,
@@ -1374,8 +1400,10 @@ mod tests {
         let user_id = user_id!("@alice:example.org");
         let room_id = room_id!("!ithpyNKDtmhneaTQja:example.org");
 
-        let client =
-            BaseClient::new(StoreConfig::new("cross-process-store-locks-holder-name".to_owned()));
+        let client = BaseClient::new(
+            StoreConfig::new("cross-process-store-locks-holder-name".to_owned()),
+            ThreadingSupport::Disabled,
+        );
         client
             .activate(
                 SessionMeta { user_id: user_id.to_owned(), device_id: "FOOBAR".into() },
@@ -1434,8 +1462,10 @@ mod tests {
         let inviter_user_id = user_id!("@bob:example.org");
         let room_id = room_id!("!ithpyNKDtmhneaTQja:example.org");
 
-        let client =
-            BaseClient::new(StoreConfig::new("cross-process-store-locks-holder-name".to_owned()));
+        let client = BaseClient::new(
+            StoreConfig::new("cross-process-store-locks-holder-name".to_owned()),
+            ThreadingSupport::Disabled,
+        );
         client
             .activate(
                 SessionMeta { user_id: user_id.to_owned(), device_id: "FOOBAR".into() },
@@ -1496,8 +1526,10 @@ mod tests {
         let inviter_user_id = user_id!("@bob:example.org");
         let room_id = room_id!("!ithpyNKDtmhneaTQja:example.org");
 
-        let client =
-            BaseClient::new(StoreConfig::new("cross-process-store-locks-holder-name".to_owned()));
+        let client = BaseClient::new(
+            StoreConfig::new("cross-process-store-locks-holder-name".to_owned()),
+            ThreadingSupport::Disabled,
+        );
         client
             .activate(
                 SessionMeta { user_id: user_id.to_owned(), device_id: "FOOBAR".into() },
@@ -1568,8 +1600,10 @@ mod tests {
     #[async_test]
     async fn test_ignored_user_list_changes() {
         let user_id = user_id!("@alice:example.org");
-        let client =
-            BaseClient::new(StoreConfig::new("cross-process-store-locks-holder-name".to_owned()));
+        let client = BaseClient::new(
+            StoreConfig::new("cross-process-store-locks-holder-name".to_owned()),
+            ThreadingSupport::Disabled,
+        );
 
         client
             .activate(

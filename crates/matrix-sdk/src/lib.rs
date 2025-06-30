@@ -28,7 +28,7 @@ pub use matrix_sdk_base::{
     ComposerDraft, ComposerDraftType, EncryptionState, PredecessorRoom, QueueWedgeError,
     Room as BaseRoom, RoomCreateWithCreatorEventContent, RoomDisplayName, RoomHero, RoomInfo,
     RoomMember as BaseRoomMember, RoomMemberships, RoomState, SessionMeta, StateChanges,
-    StateStore, StoreError, SuccessorRoom,
+    StateStore, StoreError, SuccessorRoom, ThreadingSupport,
 };
 pub use matrix_sdk_common::*;
 pub use reqwest;
