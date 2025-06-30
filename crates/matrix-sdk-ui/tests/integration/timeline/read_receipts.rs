@@ -20,13 +20,15 @@ use eyeball_im::VectorDiff;
 use futures_util::StreamExt;
 use matrix_sdk::{
     room::Receipts,
-    test_utils::mocks::{MatrixMockServer, RoomMessagesResponseTemplate},
+    test_utils::mocks::{
+        MatrixMockServer, RoomMessagesResponseTemplate, RoomRelationsResponseTemplate,
+    },
 };
 use matrix_sdk_test::{
     async_test, event_factory::EventFactory, JoinedRoomBuilder, RoomAccountDataTestEvent, ALICE,
     BOB, CAROL,
 };
-use matrix_sdk_ui::timeline::RoomExt;
+use matrix_sdk_ui::timeline::{RoomExt, TimelineFocus};
 use ruma::{
     api::client::receipt::create_receipt::v3::ReceiptType as CreateReceiptType,
     event_id,
@@ -414,7 +416,12 @@ async fn test_send_single_receipt() {
 
     server.mock_room_state_encryption().plain().mount().await;
 
-    let timeline = room.timeline().await.unwrap();
+    let timeline = room
+        .timeline_builder()
+        .with_focus(TimelineFocus::Live { hide_threaded_events: false })
+        .build()
+        .await
+        .unwrap();
 
     // Unknown receipts are sent.
     let first_receipts_event_id = event_id!("$first_receipts_event_id");
@@ -444,27 +451,15 @@ async fn test_send_single_receipt() {
     );
 
     timeline
-        .send_single_receipt(
-            CreateReceiptType::Read,
-            ReceiptThread::Unthreaded,
-            first_receipts_event_id.to_owned(),
-        )
+        .send_single_receipt(CreateReceiptType::Read, first_receipts_event_id.to_owned())
         .await
         .unwrap();
     timeline
-        .send_single_receipt(
-            CreateReceiptType::ReadPrivate,
-            ReceiptThread::Unthreaded,
-            first_receipts_event_id.to_owned(),
-        )
+        .send_single_receipt(CreateReceiptType::ReadPrivate, first_receipts_event_id.to_owned())
         .await
         .unwrap();
     timeline
-        .send_single_receipt(
-            CreateReceiptType::FullyRead,
-            ReceiptThread::Unthreaded,
-            first_receipts_event_id.to_owned(),
-        )
+        .send_single_receipt(CreateReceiptType::FullyRead, first_receipts_event_id.to_owned())
         .await
         .unwrap();
 
@@ -503,27 +498,15 @@ async fn test_send_single_receipt() {
         .await;
 
     timeline
-        .send_single_receipt(
-            CreateReceiptType::Read,
-            ReceiptThread::Unthreaded,
-            first_receipts_event_id.to_owned(),
-        )
+        .send_single_receipt(CreateReceiptType::Read, first_receipts_event_id.to_owned())
         .await
         .unwrap();
     timeline
-        .send_single_receipt(
-            CreateReceiptType::ReadPrivate,
-            ReceiptThread::Unthreaded,
-            first_receipts_event_id.to_owned(),
-        )
+        .send_single_receipt(CreateReceiptType::ReadPrivate, first_receipts_event_id.to_owned())
         .await
         .unwrap();
     timeline
-        .send_single_receipt(
-            CreateReceiptType::FullyRead,
-            ReceiptThread::Unthreaded,
-            first_receipts_event_id.to_owned(),
-        )
+        .send_single_receipt(CreateReceiptType::FullyRead, first_receipts_event_id.to_owned())
         .await
         .unwrap();
 
@@ -555,27 +538,15 @@ async fn test_send_single_receipt() {
     );
 
     timeline
-        .send_single_receipt(
-            CreateReceiptType::Read,
-            ReceiptThread::Unthreaded,
-            second_receipts_event_id.to_owned(),
-        )
+        .send_single_receipt(CreateReceiptType::Read, second_receipts_event_id.to_owned())
         .await
         .unwrap();
     timeline
-        .send_single_receipt(
-            CreateReceiptType::ReadPrivate,
-            ReceiptThread::Unthreaded,
-            second_receipts_event_id.to_owned(),
-        )
+        .send_single_receipt(CreateReceiptType::ReadPrivate, second_receipts_event_id.to_owned())
         .await
         .unwrap();
     timeline
-        .send_single_receipt(
-            CreateReceiptType::FullyRead,
-            ReceiptThread::Unthreaded,
-            second_receipts_event_id.to_owned(),
-        )
+        .send_single_receipt(CreateReceiptType::FullyRead, second_receipts_event_id.to_owned())
         .await
         .unwrap();
 
@@ -648,27 +619,15 @@ async fn test_send_single_receipt() {
     );
 
     timeline
-        .send_single_receipt(
-            CreateReceiptType::Read,
-            ReceiptThread::Unthreaded,
-            third_receipts_event_id.to_owned(),
-        )
+        .send_single_receipt(CreateReceiptType::Read, third_receipts_event_id.to_owned())
         .await
         .unwrap();
     timeline
-        .send_single_receipt(
-            CreateReceiptType::ReadPrivate,
-            ReceiptThread::Unthreaded,
-            third_receipts_event_id.to_owned(),
-        )
+        .send_single_receipt(CreateReceiptType::ReadPrivate, third_receipts_event_id.to_owned())
         .await
         .unwrap();
     timeline
-        .send_single_receipt(
-            CreateReceiptType::FullyRead,
-            ReceiptThread::Unthreaded,
-            third_receipts_event_id.to_owned(),
-        )
+        .send_single_receipt(CreateReceiptType::FullyRead, third_receipts_event_id.to_owned())
         .await
         .unwrap();
 
@@ -705,29 +664,157 @@ async fn test_send_single_receipt() {
         .await;
 
     timeline
-        .send_single_receipt(
-            CreateReceiptType::Read,
-            ReceiptThread::Unthreaded,
-            second_receipts_event_id.to_owned(),
-        )
+        .send_single_receipt(CreateReceiptType::Read, second_receipts_event_id.to_owned())
         .await
         .unwrap();
     timeline
-        .send_single_receipt(
-            CreateReceiptType::ReadPrivate,
-            ReceiptThread::Unthreaded,
-            second_receipts_event_id.to_owned(),
-        )
+        .send_single_receipt(CreateReceiptType::ReadPrivate, second_receipts_event_id.to_owned())
         .await
         .unwrap();
     timeline
-        .send_single_receipt(
-            CreateReceiptType::FullyRead,
-            ReceiptThread::Unthreaded,
-            second_receipts_event_id.to_owned(),
-        )
+        .send_single_receipt(CreateReceiptType::FullyRead, second_receipts_event_id.to_owned())
         .await
         .unwrap();
+}
+
+#[async_test]
+async fn test_send_single_receipt_threaded() {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+
+    let room_id = room_id!("!a98sd12bjh:example.org");
+    let room = server.sync_joined_room(&client, room_id).await;
+
+    server.mock_room_state_encryption().plain().mount().await;
+
+    // A live timeline will use `main` as the post body `thread_id` parameter
+    // value or no value at all for fully read markers.
+    let timeline = room
+        .timeline_builder()
+        .with_focus(TimelineFocus::Live { hide_threaded_events: true })
+        .build()
+        .await
+        .unwrap();
+
+    let event_id = event_id!("$event_id");
+
+    let mock_post_receipt_guards = (
+        server
+            .mock_send_receipt(CreateReceiptType::Read)
+            .body_matches_partial_json(json!({
+                "thread_id": "main",
+            }))
+            .ok()
+            .expect(1)
+            .named("Public read receipt")
+            .mount_as_scoped()
+            .await,
+        server
+            .mock_send_receipt(CreateReceiptType::ReadPrivate)
+            .body_matches_partial_json(json!({
+                "thread_id": "main",
+            }))
+            .ok()
+            .expect(1)
+            .named("Private read receipt")
+            .mount_as_scoped()
+            .await,
+        server
+            .mock_send_receipt(CreateReceiptType::FullyRead)
+            .body_matches_partial_json(json!({}))
+            .ok()
+            .expect(1)
+            .named("Fully-read marker")
+            .mount_as_scoped()
+            .await,
+    );
+
+    timeline.send_single_receipt(CreateReceiptType::Read, event_id.to_owned()).await.unwrap();
+    timeline
+        .send_single_receipt(CreateReceiptType::ReadPrivate, event_id.to_owned())
+        .await
+        .unwrap();
+    timeline.send_single_receipt(CreateReceiptType::FullyRead, event_id.to_owned()).await.unwrap();
+
+    drop(mock_post_receipt_guards);
+
+    let thread_root_event_id = event_id!("$thread_root");
+
+    // A thread focused timeline will use the thread root event id as the post
+    // body `thread_id` parameter value or no value at all for fully read
+    // markers.
+
+    server
+        .mock_room_event()
+        .match_event_id()
+        .ok(EventFactory::new()
+            .text_msg("Thread root")
+            .sender(user_id!("@alice:b.c"))
+            .event_id(thread_root_event_id)
+            .into())
+        .mock_once()
+        .mount()
+        .await;
+
+    server
+        .mock_room_relations()
+        .match_target_event(thread_root_event_id.to_owned())
+        .ok(RoomRelationsResponseTemplate::default())
+        .mock_once()
+        .mount()
+        .await;
+
+    let timeline = room
+        .timeline_builder()
+        .with_focus(TimelineFocus::Thread {
+            root_event_id: thread_root_event_id.to_owned(),
+            num_events: 1,
+        })
+        .build()
+        .await
+        .unwrap();
+
+    let event_id = event_id!("$event_id");
+
+    let mock_post_receipt_guards = (
+        server
+            .mock_send_receipt(CreateReceiptType::Read)
+            .body_matches_partial_json(json!({
+                "thread_id": thread_root_event_id.to_string(),
+            }))
+            .ok()
+            .expect(1)
+            .named("Public read receipt")
+            .mount_as_scoped()
+            .await,
+        server
+            .mock_send_receipt(CreateReceiptType::ReadPrivate)
+            .body_matches_partial_json(json!({
+                "thread_id": thread_root_event_id.to_string(),
+            }))
+            .ok()
+            .expect(1)
+            .named("Private read receipt")
+            .mount_as_scoped()
+            .await,
+        server
+            .mock_send_receipt(CreateReceiptType::FullyRead)
+            .body_matches_partial_json(json!({}))
+            .ok()
+            .expect(1)
+            .named("Fully-read marker")
+            .mount_as_scoped()
+            .await,
+    );
+
+    timeline.send_single_receipt(CreateReceiptType::Read, event_id.to_owned()).await.unwrap();
+    timeline
+        .send_single_receipt(CreateReceiptType::ReadPrivate, event_id.to_owned())
+        .await
+        .unwrap();
+    timeline.send_single_receipt(CreateReceiptType::FullyRead, event_id.to_owned()).await.unwrap();
+
+    drop(mock_post_receipt_guards);
 }
 
 #[async_test]
@@ -780,7 +867,12 @@ async fn test_send_single_receipt_with_unread_flag() {
 
     server.mock_room_state_encryption().plain().mount().await;
 
-    let timeline = room.timeline().await.unwrap();
+    let timeline = room
+        .timeline_builder()
+        .with_focus(TimelineFocus::Live { hide_threaded_events: false })
+        .build()
+        .await
+        .unwrap();
 
     // Unchanged unthreaded receipts are not sent, but the unread flag is unset.
     {
@@ -792,27 +884,15 @@ async fn test_send_single_receipt_with_unread_flag() {
             .await;
 
         timeline
-            .send_single_receipt(
-                CreateReceiptType::Read,
-                ReceiptThread::Unthreaded,
-                first_receipts_event_id.clone(),
-            )
+            .send_single_receipt(CreateReceiptType::Read, first_receipts_event_id.clone())
             .await
             .unwrap();
         timeline
-            .send_single_receipt(
-                CreateReceiptType::ReadPrivate,
-                ReceiptThread::Unthreaded,
-                first_receipts_event_id.clone(),
-            )
+            .send_single_receipt(CreateReceiptType::ReadPrivate, first_receipts_event_id.clone())
             .await
             .unwrap();
         timeline
-            .send_single_receipt(
-                CreateReceiptType::FullyRead,
-                ReceiptThread::Unthreaded,
-                first_receipts_event_id,
-            )
+            .send_single_receipt(CreateReceiptType::FullyRead, first_receipts_event_id)
             .await
             .unwrap();
     }
@@ -850,27 +930,15 @@ async fn test_send_single_receipt_with_unread_flag() {
         );
 
         timeline
-            .send_single_receipt(
-                CreateReceiptType::Read,
-                ReceiptThread::Unthreaded,
-                second_receipts_event_id.clone(),
-            )
+            .send_single_receipt(CreateReceiptType::Read, second_receipts_event_id.clone())
             .await
             .unwrap();
         timeline
-            .send_single_receipt(
-                CreateReceiptType::ReadPrivate,
-                ReceiptThread::Unthreaded,
-                second_receipts_event_id.clone(),
-            )
+            .send_single_receipt(CreateReceiptType::ReadPrivate, second_receipts_event_id.clone())
             .await
             .unwrap();
         timeline
-            .send_single_receipt(
-                CreateReceiptType::FullyRead,
-                ReceiptThread::Unthreaded,
-                second_receipts_event_id.clone(),
-            )
+            .send_single_receipt(CreateReceiptType::FullyRead, second_receipts_event_id.clone())
             .await
             .unwrap();
     }
@@ -885,14 +953,13 @@ async fn test_send_single_receipt_with_unread_flag() {
             .mount_as_scoped()
             .await;
 
-        timeline
-            .send_single_receipt(
-                CreateReceiptType::Read,
-                ReceiptThread::Main,
-                second_receipts_event_id,
-            )
-            .await
-            .unwrap();
+        room.send_single_receipt(
+            CreateReceiptType::Read,
+            ReceiptThread::Main,
+            second_receipts_event_id,
+        )
+        .await
+        .unwrap();
     }
 }
 
@@ -906,7 +973,12 @@ async fn test_mark_as_read() {
 
     server.mock_room_state_encryption().plain().mount().await;
 
-    let timeline = room.timeline().await.unwrap();
+    let timeline = room
+        .timeline_builder()
+        .with_focus(TimelineFocus::Live { hide_threaded_events: false })
+        .build()
+        .await
+        .unwrap();
 
     let original_event_id = event_id!("$original_event_id");
     let reaction_event_id = event_id!("$reaction_event_id");
@@ -947,11 +1019,7 @@ async fn test_mark_as_read() {
         latest_event.event_id().expect("missing event id for latest timeline event item");
 
     let has_sent = timeline
-        .send_single_receipt(
-            CreateReceiptType::Read,
-            ReceiptThread::Unthreaded,
-            latest_event_id.to_owned(),
-        )
+        .send_single_receipt(CreateReceiptType::Read, latest_event_id.to_owned())
         .await
         .unwrap();
 
