@@ -168,14 +168,14 @@ impl<P: RoomDataProvider> TimelineState<P> {
             txn.meta.process_content_relations(&content, None, &txn.items, txn.focus);
 
         // TODO merge with other should_add, one way or another?
-        let should_add_new_items = match &txn.timeline_focus {
-            TimelineFocusKind::Live { hide_threaded_events } => {
+        let should_add_new_items = match &txn.focus {
+            TimelineFocusData::Live { hide_threaded_events } => {
                 thread_root.is_none() || !hide_threaded_events
             }
-            TimelineFocusKind::Thread { root_event_id } => {
+            TimelineFocusData::Thread { root_event_id, .. } => {
                 thread_root.as_ref().is_some_and(|r| r == root_event_id)
             }
-            TimelineFocusKind::Event { .. } | TimelineFocusKind::PinnedEvents => {
+            TimelineFocusData::Event { .. } | TimelineFocusData::PinnedEvents { .. } => {
                 // Don't add new items to these timelines; aggregations are added independently
                 // of the `should_add_new_items` value.
                 false
