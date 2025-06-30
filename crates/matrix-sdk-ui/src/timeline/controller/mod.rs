@@ -501,8 +501,8 @@ impl<P: RoomDataProvider, D: Decryptor> TimelineController<P, D> {
                 .paginate_backward(num_events.into())
                 .await
                 .map_err(PaginationError::Paginator)?,
-            TimelineFocusKind::Thread { loader, num_events, .. } => loader
-                .paginate_backwards((*num_events).into())
+            TimelineFocusKind::Thread { loader, .. } => loader
+                .paginate_backwards(num_events.into())
                 .await
                 .map_err(PaginationError::Paginator)?,
         };
