@@ -37,7 +37,7 @@ use super::{
     ObservableItems, ObservableItemsTransaction, TimelineMetadata, TimelineSettings,
 };
 use crate::timeline::{
-    controller::TimelineFocusData,
+    controller::TimelineFocusKind,
     event_handler::{FailedToParseEvent, RemovedItem, TimelineAction},
     EmbeddedEvent, ThreadSummary, TimelineDetails, VirtualTimelineItem,
 };
@@ -59,7 +59,7 @@ pub(in crate::timeline) struct TimelineStateTransaction<'a, P: RoomDataProvider>
     previous_meta: &'a mut TimelineMetadata,
 
     /// The kind of focus of this timeline.
-    pub focus: &'a TimelineFocusData<P>,
+    pub focus: &'a TimelineFocusKind<P>,
 }
 
 impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
@@ -67,7 +67,7 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
     pub(super) fn new(
         items: &'a mut ObservableItems,
         meta: &'a mut TimelineMetadata,
-        focus: &'a TimelineFocusData<P>,
+        focus: &'a TimelineFocusKind<P>,
     ) -> Self {
         let previous_meta = meta;
         let meta = previous_meta.clone();
@@ -403,12 +403,12 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
         }
 
         match &self.focus {
-            TimelineFocusData::PinnedEvents { .. } => {
+            TimelineFocusKind::PinnedEvents { .. } => {
                 // Only add pinned events for the pinned events timeline.
                 room_data_provider.is_pinned_event(event.event_id())
             }
 
-            TimelineFocusData::Event { hide_threaded_events, .. } => {
+            TimelineFocusKind::Event { hide_threaded_events, .. } => {
                 // If the timeline's filtering out in-thread events, don't add items for
                 // threaded events.
                 if thread_root.is_some() && *hide_threaded_events {
@@ -435,13 +435,13 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
                 }
             }
 
-            TimelineFocusData::Live { hide_threaded_events } => {
+            TimelineFocusKind::Live { hide_threaded_events } => {
                 // If the timeline's filtering out in-thread events, don't add items for
                 // threaded events.
                 thread_root.is_none() || !hide_threaded_events
             }
 
-            TimelineFocusData::Thread { root_event_id, .. } => {
+            TimelineFocusKind::Thread { root_event_id, .. } => {
                 // Add new items only for the thread root and the thread replies.
                 event.event_id() == root_event_id
                     || thread_root.as_ref().is_some_and(|r| r == root_event_id)

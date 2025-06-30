@@ -109,7 +109,7 @@ impl Stream for TimelineSubscriber {
 pub mod skip {
     use eyeball::{SharedObservable, Subscriber};
 
-    use crate::timeline::{controller::TimelineFocusData, traits::RoomDataProvider};
+    use crate::timeline::{controller::TimelineFocusKind, traits::RoomDataProvider};
 
     const MAXIMUM_NUMBER_OF_INITIAL_ITEMS: usize = 20;
 
@@ -248,8 +248,8 @@ pub mod skip {
 
         /// Update the skip count if and only if the timeline has a live focus
         /// ([`TimelineFocusKind::Live`]).
-        pub fn update<P: RoomDataProvider>(&self, count: usize, focus: &TimelineFocusData<P>) {
-            if matches!(focus, TimelineFocusData::Live { .. }) {
+        pub fn update<P: RoomDataProvider>(&self, count: usize, focus: &TimelineFocusKind<P>) {
+            if matches!(focus, TimelineFocusKind::Live { .. }) {
                 self.count.set_if_not_eq(count);
             }
         }
