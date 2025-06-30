@@ -1,4 +1,4 @@
-use std::ops::Not;
+use std::{ops::Not, sync::Arc};
 
 use assert_matches::assert_matches;
 use eyeball_im::VectorDiff;
@@ -34,7 +34,7 @@ use ruma::{
 use serde_json::json;
 use stream_assert::{assert_next_matches, assert_pending};
 use tempfile::TempDir;
-use tokio::{spawn, sync::mpsc::channel, task::yield_now, time::sleep};
+use tokio::{spawn, sync::Barrier, task::yield_now, time::sleep};
 use wiremock::{
     matchers::{header, method, path},
     Mock, MockServer, ResponseTemplate,
@@ -2647,12 +2647,11 @@ async fn test_room_latest_event() -> Result<(), Error> {
     Ok(())
 }
 
-// #[ignore = "Flaky"]
 #[async_test]
 async fn test_sync_indicator() -> Result<(), Error> {
     let (_, server, room_list) = new_room_list_service().await?;
 
-    const DELAY_BEFORE_SHOWING: Duration = Duration::from_millis(20);
+    const DELAY_BEFORE_SHOWING: Duration = Duration::from_millis(100);
     const DELAY_BEFORE_HIDING: Duration = Duration::from_millis(0);
 
     let sync = room_list.sync();
@@ -2661,13 +2660,10 @@ async fn test_sync_indicator() -> Result<(), Error> {
     let sync_indicator = room_list.sync_indicator(DELAY_BEFORE_SHOWING, DELAY_BEFORE_HIDING);
 
     let request_margin = Duration::from_millis(100);
-    let request_1_delay = DELAY_BEFORE_SHOWING * 2;
-    let request_2_delay = DELAY_BEFORE_SHOWING * 3;
-    let request_4_delay = DELAY_BEFORE_SHOWING * 2;
-    let request_5_delay = DELAY_BEFORE_SHOWING * 2;
+    let request_delay = DELAY_BEFORE_SHOWING * 2;
 
-    let (in_between_requests_synchronizer_sender, mut in_between_requests_synchronizer) =
-        channel(1);
+    let barrier = Arc::new(Barrier::new(2));
+    let barrier_sync_indicator = barrier.clone();
 
     macro_rules! assert_next_sync_indicator {
         ($sync_indicator:ident, $pattern:pat, now $(,)?) => {
@@ -2684,81 +2680,75 @@ async fn test_sync_indicator() -> Result<(), Error> {
     let sync_indicator_task = spawn(async move {
         pin_mut!(sync_indicator);
 
+        let barrier = barrier_sync_indicator;
+
         // `SyncIndicator` is forced to be hidden to begin with.
         assert_next_sync_indicator!(sync_indicator, SyncIndicator::Hide, now);
 
+        barrier.wait().await;
+
         // Request 1.
         {
-            // Sync has started, the `SyncIndicator` must be shown… but not immediately!
+            // The state transitions into `Init`. The `SyncIndicator` must be `Show`.
             assert_next_sync_indicator!(
                 sync_indicator,
                 SyncIndicator::Show,
                 under DELAY_BEFORE_SHOWING + request_margin,
             );
-
-            // Then, once the sync is done, the `SyncIndicator` must be hidden.
-            assert_next_sync_indicator!(
-                sync_indicator,
-                SyncIndicator::Hide,
-                under request_1_delay - DELAY_BEFORE_SHOWING
-                    + DELAY_BEFORE_HIDING
-                    + request_margin,
-            );
         }
 
-        in_between_requests_synchronizer.recv().await.unwrap();
-        assert_pending!(sync_indicator);
+        barrier.wait().await;
 
         // Request 2.
         {
-            // Nothing happens, as the state transitions from `SettingUp` to
-            // `Running`, no `SyncIndicator` must be shown.
-        }
-
-        in_between_requests_synchronizer.recv().await.unwrap();
-        assert_pending!(sync_indicator);
-
-        // Request 3.
-        {
-            // Sync has errored, the `SyncIndicator` should be show. Fortunately
-            // for us (fictional situation), the sync is restarted
-            // immediately, and `SyncIndicator` doesn't have time to
-            // be shown for this particular state update.
-        }
-
-        in_between_requests_synchronizer.recv().await.unwrap();
-        assert_pending!(sync_indicator);
-
-        // Request 4.
-        {
-            // The system is recovering, It takes times (fictional situation)!
-            // `SyncIndicator` has time to show (off).
+            // The state transitions into `SettingUp`. The `SyncIndicator` stays in `Show`.
             assert_next_sync_indicator!(
                 sync_indicator,
                 SyncIndicator::Show,
                 under DELAY_BEFORE_SHOWING + request_margin,
             );
+        }
 
-            // Then, once the sync is done, the `SyncIndicator` must be hidden.
+        barrier.wait().await;
+
+        // Request 3.
+        {
+            // The state transitions into `Running`. The `SyncIndicator` must be `Hide`.
             assert_next_sync_indicator!(
                 sync_indicator,
                 SyncIndicator::Hide,
-                under request_4_delay - DELAY_BEFORE_SHOWING
-                    + DELAY_BEFORE_HIDING
-                    + request_margin,
+                under DELAY_BEFORE_HIDING + request_margin,
             );
         }
 
-        in_between_requests_synchronizer.recv().await.unwrap();
-        assert_pending!(sync_indicator);
+        barrier.wait().await;
+
+        // Request 4.
+        {
+            // The state transitions into `Error`. The `SyncIndicator` must be `Show`.
+            assert_next_sync_indicator!(
+                sync_indicator,
+                SyncIndicator::Show,
+                under DELAY_BEFORE_SHOWING + request_margin,
+            );
+        }
+
+        barrier.wait().await;
 
         // Request 5.
+        {
+            // The state transitions into `Recovering`. The `SyncIndicator` must be `Hide`.
+            assert_next_sync_indicator!(
+                sync_indicator,
+                SyncIndicator::Hide,
+                under DELAY_BEFORE_HIDING + request_margin,
+            );
+        }
 
-        in_between_requests_synchronizer.recv().await.unwrap();
-
-        // Even though request 5 took a while, the `SyncIndicator` shouldn't show.
         assert_pending!(sync_indicator);
     });
+
+    barrier.wait().await;
 
     // Request 1.
     sync_then_assert_request_and_fake_response! {
@@ -2768,10 +2758,10 @@ async fn test_sync_indicator() -> Result<(), Error> {
         respond with = {
             "pos": "0",
         },
-        after delay = request_1_delay, // Slow request!
+        after delay = request_delay,
     };
 
-    in_between_requests_synchronizer_sender.send(()).await.unwrap();
+    barrier.wait().await;
 
     // Request 2.
     sync_then_assert_request_and_fake_response! {
@@ -2781,10 +2771,10 @@ async fn test_sync_indicator() -> Result<(), Error> {
         respond with = {
             "pos": "1",
         },
-        after delay = request_2_delay, // Slow request!
+        after delay = request_delay,
     };
 
-    in_between_requests_synchronizer_sender.send(()).await.unwrap();
+    barrier.wait().await;
 
     // Request 3.
     sync_then_assert_request_and_fake_response! {
@@ -2796,12 +2786,13 @@ async fn test_sync_indicator() -> Result<(), Error> {
             "error": "foo",
             "errcode": "M_UNKNOWN",
         },
+        after delay = request_delay,
     };
 
     let sync = room_list.sync();
     pin_mut!(sync);
 
-    in_between_requests_synchronizer_sender.send(()).await.unwrap();
+    barrier.wait().await;
 
     // Request 4.
     sync_then_assert_request_and_fake_response! {
@@ -2811,10 +2802,10 @@ async fn test_sync_indicator() -> Result<(), Error> {
         respond with = {
             "pos": "2",
         },
-        after delay = request_4_delay, // Slow request!
+        after delay = request_delay,
     };
 
-    in_between_requests_synchronizer_sender.send(()).await.unwrap();
+    barrier.wait().await;
 
     // Request 5.
     sync_then_assert_request_and_fake_response! {
@@ -2824,10 +2815,8 @@ async fn test_sync_indicator() -> Result<(), Error> {
         respond with = {
             "pos": "3",
         },
-        after delay = request_5_delay, // Slow request!
+        after delay = request_delay,
     };
-
-    in_between_requests_synchronizer_sender.send(()).await.unwrap();
 
     sync_indicator_task.await.unwrap();
 
