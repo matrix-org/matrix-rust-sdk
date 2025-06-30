@@ -114,7 +114,7 @@ pub enum EventCacheError {
 /// A result using the [`EventCacheError`].
 pub type Result<T> = std::result::Result<T, EventCacheError>;
 
-/// Hold handles to the tasks spawn by a [`RoomEventCache`].
+/// Hold handles to the tasks spawn by a [`EventCache`].
 pub struct EventCacheDropHandles {
     /// Task that listens to room updates.
     listen_updates_task: JoinHandle<()>,
