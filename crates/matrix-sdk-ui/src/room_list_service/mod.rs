@@ -328,11 +328,11 @@ impl RoomListService {
 
             loop {
                 let (sync_indicator, yield_delay) = match current_state {
-                    State::Init | State::Error { .. } => {
+                    State::Init | State::SettingUp | State::Error { .. } => {
                         (SyncIndicator::Show, delay_before_showing)
                     }
 
-                    State::SettingUp | State::Recovering | State::Running | State::Terminated { .. } => {
+                    State::Recovering | State::Running | State::Terminated { .. } => {
                         (SyncIndicator::Hide, delay_before_hiding)
                     }
                 };
