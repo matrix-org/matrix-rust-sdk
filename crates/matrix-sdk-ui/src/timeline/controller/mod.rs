@@ -125,8 +125,8 @@ pub(super) struct TimelineController<P: RoomDataProvider = Room, D: Decryptor = 
     /// Inner mutable state.
     state: Arc<RwLock<TimelineState>>,
 
-    /// Inner mutable focus state.
-    focus: Arc<RwLock<TimelineFocusData<P>>>,
+    /// Focus data.
+    focus: Arc<TimelineFocusData<P>>,
 
     /// A [`RoomDataProvider`] implementation, providing data.
     ///
@@ -327,7 +327,7 @@ impl<P: RoomDataProvider, D: Decryptor> TimelineController<P, D> {
 
         Self {
             state,
-            focus: Arc::new(RwLock::new(focus_data)),
+            focus: Arc::new(focus_data),
             room_data_provider,
             settings,
             decryption_retry_task,
@@ -344,9 +344,7 @@ impl<P: RoomDataProvider, D: Decryptor> TimelineController<P, D> {
         &self,
         room_event_cache: &RoomEventCache,
     ) -> Result<bool, Error> {
-        let focus_guard = self.focus.read().await;
-
-        match &*focus_guard {
+        match &*self.focus {
             TimelineFocusData::Live => {
                 // Retrieve the cached events, and add them to the timeline.
                 let events = room_event_cache.events().await;
@@ -380,8 +378,6 @@ impl<P: RoomDataProvider, D: Decryptor> TimelineController<P, D> {
                     .await
                     .map_err(PaginationError::Paginator)?;
 
-                drop(focus_guard);
-
                 let has_events = !start_from_result.events.is_empty();
 
                 self.replace_with_initial_remote_events(
@@ -398,8 +394,6 @@ impl<P: RoomDataProvider, D: Decryptor> TimelineController<P, D> {
                     .paginate_backwards((*num_events).into())
                     .await
                     .map_err(PaginationError::Paginator)?;
-
-                drop(focus_guard);
 
                 // Events are in reverse topological order.
                 self.replace_with_initial_remote_events(
@@ -418,8 +412,6 @@ impl<P: RoomDataProvider, D: Decryptor> TimelineController<P, D> {
                     // There wasn't any events.
                     return Ok(false);
                 };
-
-                drop(focus_guard);
 
                 let has_events = !loaded_events.is_empty();
 
@@ -468,9 +460,7 @@ impl<P: RoomDataProvider, D: Decryptor> TimelineController<P, D> {
     pub(crate) async fn reload_pinned_events(
         &self,
     ) -> Result<Option<Vec<TimelineEvent>>, PinnedEventsLoaderError> {
-        let focus_guard = self.focus.read().await;
-
-        if let TimelineFocusData::PinnedEvents { loader } = &*focus_guard {
+        if let TimelineFocusData::PinnedEvents { loader } = &*self.focus {
             loader.load_events().await
         } else {
             Err(PinnedEventsLoaderError::TimelineFocusNotPinnedEvents)
@@ -506,7 +496,7 @@ impl<P: RoomDataProvider, D: Decryptor> TimelineController<P, D> {
         &self,
         num_events: u16,
     ) -> Result<bool, PaginationError> {
-        let PaginationResult { events, hit_end_of_timeline } = match &*self.focus.read().await {
+        let PaginationResult { events, hit_end_of_timeline } = match &*self.focus {
             TimelineFocusData::Live | TimelineFocusData::PinnedEvents { .. } => {
                 return Err(PaginationError::NotSupported);
             }
@@ -539,7 +529,7 @@ impl<P: RoomDataProvider, D: Decryptor> TimelineController<P, D> {
         &self,
         num_events: u16,
     ) -> Result<bool, PaginationError> {
-        let PaginationResult { events, hit_end_of_timeline } = match &*self.focus.read().await {
+        let PaginationResult { events, hit_end_of_timeline } = match &*self.focus {
             TimelineFocusData::Live
             | TimelineFocusData::PinnedEvents { .. }
             | TimelineFocusData::Thread { .. } => return Err(PaginationError::NotSupported),
@@ -562,8 +552,8 @@ impl<P: RoomDataProvider, D: Decryptor> TimelineController<P, D> {
     }
 
     /// Is this timeline receiving events from sync (aka has a live focus)?
-    pub(super) async fn is_live(&self) -> bool {
-        matches!(&*self.focus.read().await, TimelineFocusData::Live)
+    pub(super) fn is_live(&self) -> bool {
+        matches!(&*self.focus, TimelineFocusData::Live)
     }
 
     pub(super) fn with_settings(mut self, settings: TimelineSettings) -> Self {

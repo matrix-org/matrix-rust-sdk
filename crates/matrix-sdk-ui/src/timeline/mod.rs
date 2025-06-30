@@ -239,7 +239,7 @@ impl Timeline {
 
     /// Get the latest of the timeline's event items.
     pub async fn latest_event(&self) -> Option<EventTimelineItem> {
-        if self.controller.is_live().await {
+        if self.controller.is_live() {
             self.controller.items().await.last()?.as_event().cloned()
         } else {
             None
