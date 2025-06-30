@@ -284,6 +284,7 @@ impl BaseClient {
                 room_previous_events,
                 &joined_room_update.timeline.events,
                 &mut room_info.read_receipts,
+                self.threading_support,
             );
 
             if prev_read_receipts != room_info.read_receipts {
@@ -348,6 +349,7 @@ mod tests {
     #[cfg(feature = "e2e-encryption")]
     use super::processors::room::msc4186::cache_latest_events;
     use crate::{
+        client::ThreadingSupport,
         room::{RoomHero, RoomInfoNotableUpdateReasons},
         store::{RoomLoadSettings, StoreConfig},
         test_utils::logged_in_base_client,
@@ -1157,7 +1159,7 @@ mod tests {
                 let store = StoreConfig::new("cross-process-foo".to_owned());
                 state_store = store.state_store.clone();
 
-                let client = BaseClient::new(store);
+                let client = BaseClient::new(store, ThreadingSupport::Disabled);
                 client
                     .activate(
                         session_meta.clone(),
@@ -1188,7 +1190,7 @@ mod tests {
             let client = {
                 let mut store = StoreConfig::new("cross-process-foo".to_owned());
                 store.state_store = state_store;
-                let client = BaseClient::new(store);
+                let client = BaseClient::new(store, ThreadingSupport::Disabled);
                 client
                     .activate(
                         session_meta,

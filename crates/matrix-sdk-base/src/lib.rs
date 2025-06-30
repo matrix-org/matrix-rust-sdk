@@ -48,7 +48,7 @@ mod utils;
 #[cfg(feature = "uniffi")]
 uniffi::setup_scaffolding!();
 
-pub use client::BaseClient;
+pub use client::{BaseClient, ThreadingSupport};
 #[cfg(any(test, feature = "testing"))]
 pub use http;
 #[cfg(feature = "e2e-encryption")]

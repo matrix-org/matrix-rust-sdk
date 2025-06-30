@@ -4,6 +4,7 @@ use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Through
 use matrix_sdk::{store::RoomLoadSettings, test_utils::mocks::MatrixMockServer};
 use matrix_sdk_base::{
     store::StoreConfig, BaseClient, RoomInfo, RoomState, SessionMeta, StateChanges, StateStore,
+    ThreadingSupport,
 };
 use matrix_sdk_sqlite::SqliteStateStore;
 use matrix_sdk_test::{event_factory::EventFactory, JoinedRoomBuilder, StateTestEvent};
@@ -58,6 +59,7 @@ pub fn receive_all_members_benchmark(c: &mut Criterion) {
     let base_client = BaseClient::new(
         StoreConfig::new("cross-process-store-locks-holder-name".to_owned())
             .state_store(sqlite_store),
+        ThreadingSupport::Disabled,
     );
 
     runtime

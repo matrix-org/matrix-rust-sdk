@@ -1274,7 +1274,7 @@ mod tests {
                 "num_mentions": 0,
                 "num_notifications": 0,
                 "latest_active": null,
-                "pending": []
+                "pending": [],
             },
             "recency_stamp": 42,
         });
