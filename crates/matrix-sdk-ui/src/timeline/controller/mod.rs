@@ -479,7 +479,7 @@ impl<P: RoomDataProvider, D: Decryptor> TimelineController<P, D> {
             .subscriber_skip_count
             .compute_next_when_paginating_backwards(num_events.into());
 
-        state.meta.subscriber_skip_count.update(count, &state.timeline_focus);
+        state.meta.subscriber_skip_count.update(count, &self.focus);
 
         needs
     }
