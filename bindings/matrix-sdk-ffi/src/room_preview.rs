@@ -1,10 +1,10 @@
 use anyhow::Context as _;
 use matrix_sdk::{room_preview::RoomPreview as SdkRoomPreview, Client};
-use ruma::{room::RoomType as RumaRoomType, space::SpaceRoomJoinRule};
+use ruma::room::{JoinRuleSummary, RoomType as RumaRoomType};
 use tracing::warn;
 
 use crate::{
-    client::JoinRule,
+    client::{AllowRule, JoinRule},
     error::ClientError,
     room::{Membership, RoomHero},
     room_member::{RoomMember, RoomMemberWithSenderInfo},
@@ -40,7 +40,7 @@ impl RoomPreview {
                 .as_ref()
                 .map(TryInto::try_into)
                 .transpose()
-                .map_err(|_| anyhow::anyhow!("unhandled SpaceRoomJoinRule kind"))?,
+                .map_err(|_| anyhow::anyhow!("unhandled JoinRuleSummary kind"))?,
             is_direct: info.is_direct,
             heroes: info
                 .heroes
@@ -122,20 +122,32 @@ pub struct RoomPreviewInfo {
     pub heroes: Option<Vec<RoomHero>>,
 }
 
-impl TryFrom<&SpaceRoomJoinRule> for JoinRule {
+impl TryFrom<&JoinRuleSummary> for JoinRule {
     type Error = ();
 
-    fn try_from(join_rule: &SpaceRoomJoinRule) -> Result<Self, ()> {
+    fn try_from(join_rule: &JoinRuleSummary) -> Result<Self, ()> {
         Ok(match join_rule {
-            SpaceRoomJoinRule::Invite => JoinRule::Invite,
-            SpaceRoomJoinRule::Knock => JoinRule::Knock,
-            SpaceRoomJoinRule::Private => JoinRule::Private,
-            SpaceRoomJoinRule::Restricted => JoinRule::Restricted { rules: Vec::new() },
-            SpaceRoomJoinRule::KnockRestricted => JoinRule::KnockRestricted { rules: Vec::new() },
-            SpaceRoomJoinRule::Public => JoinRule::Public,
-            SpaceRoomJoinRule::_Custom(_) => JoinRule::Custom { repr: join_rule.to_string() },
+            JoinRuleSummary::Invite => JoinRule::Invite,
+            JoinRuleSummary::Knock => JoinRule::Knock,
+            JoinRuleSummary::Private => JoinRule::Private,
+            JoinRuleSummary::Restricted(summary) => JoinRule::Restricted {
+                rules: summary
+                    .allowed_room_ids
+                    .iter()
+                    .map(|room_id| AllowRule::RoomMembership { room_id: room_id.to_string() })
+                    .collect(),
+            },
+            JoinRuleSummary::KnockRestricted(summary) => JoinRule::KnockRestricted {
+                rules: summary
+                    .allowed_room_ids
+                    .iter()
+                    .map(|room_id| AllowRule::RoomMembership { room_id: room_id.to_string() })
+                    .collect(),
+            },
+            JoinRuleSummary::Public => JoinRule::Public,
+            JoinRuleSummary::_Custom(_) => JoinRule::Custom { repr: join_rule.as_str().to_owned() },
             _ => {
-                warn!("unhandled SpaceRoomJoinRule: {join_rule}");
+                warn!("unhandled JoinRuleSummary: {}", join_rule.as_str());
                 return Err(());
             }
         })
