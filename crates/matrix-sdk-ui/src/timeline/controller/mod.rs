@@ -92,8 +92,12 @@ mod state_transaction;
 pub(super) use aggregations::*;
 
 /// Data associated to the current timeline focus.
+///
+/// This is the private counterpart of [`TimelineFocus`], and it is an augmented
+/// version of it, including extra state that makes it useful over the lifetime
+/// of a timeline.
 #[derive(Debug)]
-pub(in crate::timeline) enum TimelineFocusData<P: RoomDataProvider> {
+pub(in crate::timeline) enum TimelineFocusKind<P: RoomDataProvider> {
     /// The timeline receives live events from the sync.
     Live {
         /// Whether to hide in-thread events from the timeline.
@@ -134,7 +138,7 @@ pub(super) struct TimelineController<P: RoomDataProvider = Room, D: Decryptor = 
     state: Arc<RwLock<TimelineState<P>>>,
 
     /// Focus data.
-    focus: Arc<TimelineFocusData<P>>,
+    focus: Arc<TimelineFocusKind<P>>,
 
     /// A [`RoomDataProvider`] implementation, providing data.
     ///
@@ -275,13 +279,13 @@ impl<P: RoomDataProvider, D: Decryptor> TimelineController<P, D> {
         unable_to_decrypt_hook: Option<Arc<UtdHookManager>>,
         is_room_encrypted: bool,
     ) -> Self {
-        let focus_data = match focus {
+        let focus = match focus {
             TimelineFocus::Live { hide_threaded_events } => {
-                TimelineFocusData::Live { hide_threaded_events }
+                TimelineFocusKind::Live { hide_threaded_events }
             }
             TimelineFocus::Event { target, num_context_events, hide_threaded_events } => {
                 let paginator = Paginator::new(room_data_provider.clone());
-                TimelineFocusData::Event {
+                TimelineFocusKind::Event {
                     paginator,
                     event_id: target,
                     num_context_events,
@@ -289,7 +293,7 @@ impl<P: RoomDataProvider, D: Decryptor> TimelineController<P, D> {
                 }
             }
 
-            TimelineFocus::Thread { root_event_id, num_events } => TimelineFocusData::Thread {
+            TimelineFocus::Thread { root_event_id, num_events } => TimelineFocusKind::Thread {
                 loader: ThreadedEventsLoader::new(
                     room_data_provider.clone(),
                     root_event_id.clone(),
@@ -299,7 +303,7 @@ impl<P: RoomDataProvider, D: Decryptor> TimelineController<P, D> {
             },
 
             TimelineFocus::PinnedEvents { max_events_to_load, max_concurrent_requests } => {
-                TimelineFocusData::PinnedEvents {
+                TimelineFocusKind::PinnedEvents {
                     loader: PinnedEventsLoader::new(
                         Arc::new(room_data_provider.clone()),
                         max_events_to_load as usize,
@@ -309,9 +313,9 @@ impl<P: RoomDataProvider, D: Decryptor> TimelineController<P, D> {
             }
         };
 
-        let focus_data = Arc::new(focus_data);
+        let focus = Arc::new(focus);
         let state = Arc::new(RwLock::new(TimelineState::new(
-            focus_data.clone(),
+            focus.clone(),
             room_data_provider.own_user_id().to_owned(),
             room_data_provider.room_version(),
             internal_id_prefix,
@@ -324,7 +328,7 @@ impl<P: RoomDataProvider, D: Decryptor> TimelineController<P, D> {
         let decryption_retry_task =
             DecryptionRetryTask::new(state.clone(), room_data_provider.clone());
 
-        Self { state, focus: focus_data, room_data_provider, settings, decryption_retry_task }
+        Self { state, focus, room_data_provider, settings, decryption_retry_task }
     }
 
     /// Initializes the configured focus with appropriate data.
@@ -338,7 +342,7 @@ impl<P: RoomDataProvider, D: Decryptor> TimelineController<P, D> {
         room_event_cache: &RoomEventCache,
     ) -> Result<bool, Error> {
         match &*self.focus {
-            TimelineFocusData::Live { .. } => {
+            TimelineFocusKind::Live { .. } => {
                 // Retrieve the cached events, and add them to the timeline.
                 let events = room_event_cache.events().await;
 
@@ -364,7 +368,7 @@ impl<P: RoomDataProvider, D: Decryptor> TimelineController<P, D> {
                 Ok(has_events)
             }
 
-            TimelineFocusData::Event { event_id, paginator, num_context_events, .. } => {
+            TimelineFocusKind::Event { event_id, paginator, num_context_events, .. } => {
                 // Start a /context request, and append the results (in order) to the timeline.
                 let start_from_result = paginator
                     .start_from(event_id, (*num_context_events).into())
@@ -382,7 +386,7 @@ impl<P: RoomDataProvider, D: Decryptor> TimelineController<P, D> {
                 Ok(has_events)
             }
 
-            TimelineFocusData::Thread { loader, num_events, .. } => {
+            TimelineFocusKind::Thread { loader, num_events, .. } => {
                 let result = loader
                     .paginate_backwards((*num_events).into())
                     .await
@@ -398,7 +402,7 @@ impl<P: RoomDataProvider, D: Decryptor> TimelineController<P, D> {
                 Ok(true)
             }
 
-            TimelineFocusData::PinnedEvents { loader } => {
+            TimelineFocusKind::PinnedEvents { loader } => {
                 let Some(loaded_events) =
                     loader.load_events().await.map_err(Error::PinnedEventsError)?
                 else {
@@ -453,7 +457,7 @@ impl<P: RoomDataProvider, D: Decryptor> TimelineController<P, D> {
     pub(crate) async fn reload_pinned_events(
         &self,
     ) -> Result<Option<Vec<TimelineEvent>>, PinnedEventsLoaderError> {
-        if let TimelineFocusData::PinnedEvents { loader } = &*self.focus {
+        if let TimelineFocusKind::PinnedEvents { loader } = &*self.focus {
             loader.load_events().await
         } else {
             Err(PinnedEventsLoaderError::TimelineFocusNotPinnedEvents)
@@ -490,14 +494,14 @@ impl<P: RoomDataProvider, D: Decryptor> TimelineController<P, D> {
         num_events: u16,
     ) -> Result<bool, PaginationError> {
         let PaginationResult { events, hit_end_of_timeline } = match &*self.focus {
-            TimelineFocusData::Live { .. } | TimelineFocusData::PinnedEvents { .. } => {
+            TimelineFocusKind::Live { .. } | TimelineFocusKind::PinnedEvents { .. } => {
                 return Err(PaginationError::NotSupported);
             }
-            TimelineFocusData::Event { paginator, .. } => paginator
+            TimelineFocusKind::Event { paginator, .. } => paginator
                 .paginate_backward(num_events.into())
                 .await
                 .map_err(PaginationError::Paginator)?,
-            TimelineFocusData::Thread { loader, num_events, .. } => loader
+            TimelineFocusKind::Thread { loader, num_events, .. } => loader
                 .paginate_backwards((*num_events).into())
                 .await
                 .map_err(PaginationError::Paginator)?,
@@ -523,11 +527,11 @@ impl<P: RoomDataProvider, D: Decryptor> TimelineController<P, D> {
         num_events: u16,
     ) -> Result<bool, PaginationError> {
         let PaginationResult { events, hit_end_of_timeline } = match &*self.focus {
-            TimelineFocusData::Live { .. }
-            | TimelineFocusData::PinnedEvents { .. }
-            | TimelineFocusData::Thread { .. } => return Err(PaginationError::NotSupported),
+            TimelineFocusKind::Live { .. }
+            | TimelineFocusKind::PinnedEvents { .. }
+            | TimelineFocusKind::Thread { .. } => return Err(PaginationError::NotSupported),
 
-            TimelineFocusData::Event { paginator, .. } => paginator
+            TimelineFocusKind::Event { paginator, .. } => paginator
                 .paginate_forward(num_events.into())
                 .await
                 .map_err(PaginationError::Paginator)?,
@@ -546,7 +550,7 @@ impl<P: RoomDataProvider, D: Decryptor> TimelineController<P, D> {
 
     /// Is this timeline receiving events from sync (aka has a live focus)?
     pub(super) fn is_live(&self) -> bool {
-        matches!(&*self.focus, TimelineFocusData::Live { .. })
+        matches!(&*self.focus, TimelineFocusKind::Live { .. })
     }
 
     pub(super) fn with_settings(mut self, settings: TimelineSettings) -> Self {

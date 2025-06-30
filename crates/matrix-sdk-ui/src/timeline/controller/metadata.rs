@@ -38,7 +38,7 @@ use super::{
 };
 use crate::{
     timeline::{
-        controller::TimelineFocusData,
+        controller::TimelineFocusKind,
         event_item::{
             extract_bundled_edit_event_json, extract_poll_edit_content,
             extract_room_msg_edit_content,
@@ -318,7 +318,7 @@ impl TimelineMetadata {
         raw_event: &Raw<AnySyncTimelineEvent>,
         bundled_edit_encryption_info: Option<Arc<EncryptionInfo>>,
         timeline_items: &Vector<Arc<TimelineItem>>,
-        timeline_focus: &TimelineFocusData<P>,
+        timeline_focus: &TimelineFocusKind<P>,
     ) -> (Option<InReplyToDetails>, Option<OwnedEventId>) {
         if let AnySyncTimelineEvent::MessageLike(ev) = event {
             if let Some(content) = ev.original_content() {
@@ -349,7 +349,7 @@ impl TimelineMetadata {
         content: &AnyMessageLikeEventContent,
         remote_ctx: Option<RemoteEventContext<'_>>,
         timeline_items: &Vector<Arc<TimelineItem>>,
-        timeline_focus: &TimelineFocusData<P>,
+        timeline_focus: &TimelineFocusKind<P>,
     ) -> (Option<InReplyToDetails>, Option<OwnedEventId>) {
         match content {
             AnyMessageLikeEventContent::Sticker(content) => {
@@ -453,7 +453,7 @@ impl TimelineMetadata {
     fn extract_reply_and_thread_root<P: RoomDataProvider>(
         relates_to: Option<RelationWithoutReplacement>,
         timeline_items: &Vector<Arc<TimelineItem>>,
-        timeline_focus: &TimelineFocusData<P>,
+        timeline_focus: &TimelineFocusKind<P>,
     ) -> (Option<InReplyToDetails>, Option<OwnedEventId>) {
         let mut thread_root = None;
 
@@ -464,7 +464,7 @@ impl TimelineMetadata {
             RelationWithoutReplacement::Thread(thread) => {
                 thread_root = Some(thread.event_id);
 
-                if matches!(timeline_focus, TimelineFocusData::Thread { .. })
+                if matches!(timeline_focus, TimelineFocusKind::Thread { .. })
                     && thread.is_falling_back
                 {
                     // In general, a threaded event is marked as a response to the previous message

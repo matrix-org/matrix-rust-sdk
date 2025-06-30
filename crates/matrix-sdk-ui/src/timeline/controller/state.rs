@@ -38,7 +38,7 @@ use super::{
     observable_items::ObservableItems,
     DateDividerMode, TimelineMetadata, TimelineSettings, TimelineStateTransaction,
 };
-use crate::{timeline::controller::TimelineFocusData, unable_to_decrypt_hook::UtdHookManager};
+use crate::{timeline::controller::TimelineFocusKind, unable_to_decrypt_hook::UtdHookManager};
 
 #[derive(Debug)]
 pub(in crate::timeline) struct TimelineState<P: RoomDataProvider> {
@@ -46,12 +46,12 @@ pub(in crate::timeline) struct TimelineState<P: RoomDataProvider> {
     pub meta: TimelineMetadata,
 
     /// The kind of focus of this timeline.
-    focus_data: Arc<TimelineFocusData<P>>,
+    focus: Arc<TimelineFocusKind<P>>,
 }
 
 impl<P: RoomDataProvider> TimelineState<P> {
     pub(super) fn new(
-        focus_data: Arc<TimelineFocusData<P>>,
+        focus: Arc<TimelineFocusKind<P>>,
         own_user_id: OwnedUserId,
         room_version: RoomVersionId,
         internal_id_prefix: Option<String>,
@@ -67,7 +67,7 @@ impl<P: RoomDataProvider> TimelineState<P> {
                 unable_to_decrypt_hook,
                 is_room_encrypted,
             ),
-            focus_data,
+            focus,
         }
     }
 
@@ -164,13 +164,13 @@ impl<P: RoomDataProvider> TimelineState<P> {
 
         // TODO merge with other should_add, one way or another?
         let should_add_new_items = match &txn.focus {
-            TimelineFocusData::Live { hide_threaded_events } => {
+            TimelineFocusKind::Live { hide_threaded_events } => {
                 thread_root.is_none() || !hide_threaded_events
             }
-            TimelineFocusData::Thread { root_event_id, .. } => {
+            TimelineFocusKind::Thread { root_event_id, .. } => {
                 thread_root.as_ref().is_some_and(|r| r == root_event_id)
             }
-            TimelineFocusData::Event { .. } | TimelineFocusData::PinnedEvents { .. } => {
+            TimelineFocusKind::Event { .. } | TimelineFocusKind::PinnedEvents { .. } => {
                 // Don't add new items to these timelines; aggregations are added independently
                 // of the `should_add_new_items` value.
                 false
@@ -299,6 +299,6 @@ impl<P: RoomDataProvider> TimelineState<P> {
     }
 
     pub(super) fn transaction(&mut self) -> TimelineStateTransaction<'_, P> {
-        TimelineStateTransaction::new(&mut self.items, &mut self.meta, &*self.focus_data)
+        TimelineStateTransaction::new(&mut self.items, &mut self.meta, &*self.focus)
     }
 }
