@@ -813,7 +813,7 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
                 .meta
                 .subscriber_skip_count
                 .compute_next(previous_number_of_items, next_number_of_items);
-            self.meta.subscriber_skip_count.update(count, &self.timeline_focus);
+            self.meta.subscriber_skip_count.update(count, self.focus);
         }
 
         // Replace the pointer to the previous meta with the new one.
