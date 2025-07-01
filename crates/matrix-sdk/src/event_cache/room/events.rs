@@ -99,21 +99,6 @@ impl EventLinkedChunk {
         self.chunks.push_gap_back(gap);
     }
 
-    /// Insert events at a specified position.
-    pub fn insert_events_at(
-        &mut self,
-        position: Position,
-        events: Vec<Event>,
-    ) -> Result<(), Error> {
-        self.chunks.insert_items_at(position, events)?;
-        Ok(())
-    }
-
-    /// Insert a gap at a specified position.
-    pub fn insert_gap_at(&mut self, gap: Gap, position: Position) -> Result<(), Error> {
-        self.chunks.insert_gap_at(gap, position)
-    }
-
     /// Remove an empty chunk at the given position.
     ///
     /// Note: the chunk must either be a gap, or an empty items chunk, and it
@@ -135,7 +120,7 @@ impl EventLinkedChunk {
     ///
     /// This method returns the position of the (first if many) newly created
     /// `Chunk` that contains the `items`.
-    pub fn replace_gap_at(
+    fn replace_gap_at(
         &mut self,
         gap_identifier: ChunkIdentifier,
         events: Vec<Event>,
@@ -351,7 +336,8 @@ impl EventLinkedChunk {
             // before those.
             trace!("inserted events before the first known event");
 
-            self.insert_events_at(pos, events.to_vec())
+            self.chunks
+                .insert_items_at(pos, events.to_vec())
                 .expect("pos is a valid position we just read above");
 
             Some(pos)
@@ -373,7 +359,8 @@ impl EventLinkedChunk {
         let has_new_gap = new_gap.is_some();
         if let Some(new_gap) = new_gap {
             if let Some(new_pos) = insert_new_gap_pos {
-                self.insert_gap_at(new_gap, new_pos)
+                self.chunks
+                    .insert_gap_at(new_gap, new_pos)
                     .expect("events_chunk_pos represents a valid chunk position");
             } else {
                 self.push_gap(new_gap);
@@ -588,79 +575,6 @@ mod tests {
         linked_chunk.push_events([event_0]);
         linked_chunk.push_gap(Gap { prev_token: "hello".to_owned() });
         linked_chunk.push_events([event_1]);
-
-        assert_events_eq!(
-            linked_chunk.events(),
-            [
-                (event_id_0 at (0, 0)),
-                (event_id_1 at (2, 0)),
-            ]
-        );
-
-        {
-            let mut chunks = linked_chunk.chunks();
-
-            assert_let!(Some(chunk) = chunks.next());
-            assert!(chunk.is_items());
-
-            assert_let!(Some(chunk) = chunks.next());
-            assert!(chunk.is_gap());
-
-            assert_let!(Some(chunk) = chunks.next());
-            assert!(chunk.is_items());
-
-            assert!(chunks.next().is_none());
-        }
-    }
-
-    #[test]
-    fn test_insert_events_at() {
-        let (event_id_0, event_0) = new_event("$ev0");
-        let (event_id_1, event_1) = new_event("$ev1");
-        let (event_id_2, event_2) = new_event("$ev2");
-
-        let mut linked_chunk = EventLinkedChunk::new();
-
-        linked_chunk.push_events([event_0, event_1]);
-
-        let pos_ev1 = linked_chunk
-            .events()
-            .find_map(|(position, event)| {
-                (event.event_id().unwrap() == event_id_1).then_some(position)
-            })
-            .unwrap();
-
-        linked_chunk.insert_events_at(pos_ev1, vec![event_2]).unwrap();
-
-        assert_events_eq!(
-            linked_chunk.events(),
-            [
-                (event_id_0 at (0, 0)),
-                (event_id_2 at (0, 1)),
-                (event_id_1 at (0, 2)),
-            ]
-        );
-    }
-
-    #[test]
-    fn test_insert_gap_at() {
-        let (event_id_0, event_0) = new_event("$ev0");
-        let (event_id_1, event_1) = new_event("$ev1");
-
-        let mut linked_chunk = EventLinkedChunk::new();
-
-        linked_chunk.push_events([event_0, event_1]);
-
-        let position_of_event_1 = linked_chunk
-            .events()
-            .find_map(|(position, event)| {
-                (event.event_id().unwrap() == event_id_1).then_some(position)
-            })
-            .unwrap();
-
-        linked_chunk
-            .insert_gap_at(Gap { prev_token: "hello".to_owned() }, position_of_event_1)
-            .unwrap();
 
         assert_events_eq!(
             linked_chunk.events(),
