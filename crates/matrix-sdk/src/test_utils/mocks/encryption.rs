@@ -21,14 +21,17 @@ use std::{
     sync::{atomic::Ordering, Arc, Mutex},
 };
 
+use assert_matches2::assert_let;
 use matrix_sdk_test::test_json;
 use ruma::{
     api::client::{
         keys::upload_signatures::v3::SignedKeys, to_device::send_event_to_device::v3::Messages,
     },
     encryption::{CrossSigningKey, DeviceKeys, OneTimeKey},
+    events::AnyToDeviceEvent,
     owned_device_id, owned_user_id,
     serde::Raw,
+    to_device::DeviceIdOrAllDevices,
     CrossSigningKeyId, DeviceId, MilliSecondsSinceUnixEpoch, OneTimeKeyAlgorithm, OwnedDeviceId,
     OwnedOneTimeKeyId, OwnedUserId, UserId,
 };
@@ -46,6 +49,11 @@ use crate::{
     },
     Client,
 };
+
+/// Stores pending to-device messages for each user and device.
+/// To be used with [`MatrixMockServer::capture_put_to_device_traffic`].
+pub type PendingToDeviceMessages =
+    BTreeMap<OwnedUserId, BTreeMap<OwnedDeviceId, Vec<Raw<AnyToDeviceEvent>>>>;
 
 /// Extends the `MatrixMockServer` with useful methods to help mocking
 /// matrix crypto API and perform integration test with encryption.
@@ -119,32 +127,103 @@ impl MatrixMockServer {
             self.client_builder_for_crypto_end_to_end(&bob_user_id, &bob_device_id).build().await;
 
         // Have Alice track Bob, so she queries his keys later.
-        {
-            let alice_olm = alice.olm_machine_for_testing().await;
-            let alice_olm = alice_olm.as_ref().unwrap();
-            alice_olm.update_tracked_users([bob_user_id.as_ref()]).await.unwrap();
-        }
+        alice.update_tracked_users_for_testing([bob_user_id.as_ref()]).await;
 
         // let bob be aware of Alice keys in order to be able to decrypt custom
         // to-device (the device keys check are deferred for `m.room.key` so this is not
         // needed for sending room messages for example).
-        {
-            let bob_olm = bob.olm_machine_for_testing().await;
-            let bob_olm = bob_olm.as_ref().unwrap();
-            bob_olm.update_tracked_users([alice_user_id.as_ref()]).await.unwrap();
-        }
+        bob.update_tracked_users_for_testing([alice_user_id.as_ref()]).await;
 
         // Have Alice and Bob upload their signed device keys.
-        {
-            self.mock_sync().ok_and_run(&alice, |_x| {}).await;
-            self.mock_sync().ok_and_run(&bob, |_x| {}).await;
-        }
+        self.mock_sync().ok_and_run(&alice, |_x| {}).await;
+        self.mock_sync().ok_and_run(&bob, |_x| {}).await;
 
         // Run a sync so we do send outgoing requests, including the /keys/query for
         // getting bob's identity.
         self.mock_sync().ok_and_run(&alice, |_x| {}).await;
 
         (alice, bob)
+    }
+
+    /// Creates a third client for e2e tests.
+    pub async fn set_up_carl_for_encryption(&self, alice: &Client, bob: &Client) -> Client {
+        let carl_user_id = owned_user_id!("@carlg:example.org");
+        let carl_device_id = owned_device_id!("CARL_DEVICE");
+
+        let carl =
+            self.client_builder_for_crypto_end_to_end(&carl_user_id, &carl_device_id).build().await;
+
+        // Let carl upload it's device keys.
+        self.mock_sync().ok_and_run(&carl, |_| {}).await;
+
+        // Have Alice track Carl, so she queries his keys later.
+        alice.update_tracked_users_for_testing([carl.user_id().unwrap()]).await;
+
+        // Have Bob track Carl, so she queries his keys later.
+        bob.update_tracked_users_for_testing([carl.user_id().unwrap()]).await;
+
+        // Have Alice and Bob upload their signed device keys, and download Carl's keys.
+        {
+            self.mock_sync().ok_and_run(alice, |_| {}).await;
+            self.mock_sync().ok_and_run(bob, |_| {}).await;
+        }
+
+        // Let carl be aware of Alice and Bob keys.
+        carl.update_tracked_users_for_testing([alice.user_id().unwrap(), bob.user_id().unwrap()])
+            .await;
+
+        // A last sync for carl to get the keys.
+        self.mock_sync().ok_and_run(alice, |_| {}).await;
+
+        carl
+    }
+
+    /// Creates a new device and returns a new client for it.
+    /// The new and old clients will be aware of each other.
+    ///
+    /// # Arguments
+    ///
+    /// * `existing_client` - The original client for which a new device will be
+    ///   created
+    /// * `device_id` - The device ID to use for the new client
+    /// * `clients_to_update` - A vector of client references that should be
+    ///   notified about the new device. These clients will receive a device
+    ///   list change notification during their next sync.
+    ///
+    /// # Returns
+    ///
+    /// Returns the newly created client instance configured for the new device.
+    pub async fn set_up_new_device_for_encryption(
+        &self,
+        existing_client: &Client,
+        device_id: &DeviceId,
+        clients_to_update: Vec<&Client>,
+    ) -> Client {
+        let user_id = existing_client.user_id().unwrap().to_owned();
+        let new_device_id = device_id.to_owned();
+
+        let new_client =
+            self.client_builder_for_crypto_end_to_end(&user_id, &new_device_id).build().await;
+
+        // sync the keys
+        self.mock_sync().ok_and_run(&new_client, |_| {}).await;
+
+        // Notify existing device of a change
+        self.mock_sync()
+            .ok_and_run(existing_client, |builder| {
+                builder.add_change_device(&user_id);
+            })
+            .await;
+
+        for client_to_update in clients_to_update {
+            self.mock_sync()
+                .ok_and_run(client_to_update, |builder| {
+                    builder.add_change_device(&user_id);
+                })
+                .await;
+        }
+
+        new_client
     }
 
     /// Mock up the various crypto API so that it can serve back keys when
@@ -331,6 +410,89 @@ impl MatrixMockServer {
                 .await;
 
             sent_event
+        }
+    }
+
+    /// Utility to capture all the `/toDevice` upload traffic and store it in
+    /// a queue to be later used with
+    /// [`MatrixMockServer::sync_back_pending_to_device_messages`].
+    pub async fn capture_put_to_device_traffic(
+        &self,
+        sender_user_id: &UserId,
+        to_device_queue: Arc<Mutex<PendingToDeviceMessages>>,
+    ) -> MockGuard {
+        let sender = sender_user_id.to_owned();
+
+        Mock::given(method("PUT"))
+            .and(path_regex(r"^/_matrix/client/.*/sendToDevice/([^/]+)/.*"))
+            .respond_with(move |req: &Request| {
+                #[derive(Debug, serde::Deserialize)]
+                struct Parameters {
+                    messages: Messages,
+                }
+
+                let params: Parameters = req.body_json().unwrap();
+                let messages = params.messages;
+
+                // Access the captured groups from the path
+                let event_type = req
+                    .url
+                    .path_segments()
+                    .and_then(|segments| segments.rev().nth(1))
+                    .expect("Event type should be captured in the path");
+
+                let mut to_device_queue = to_device_queue.lock().unwrap();
+                for (user_id, device_map) in messages.iter() {
+                    for (device_id, content) in device_map.iter() {
+                        assert_let!(DeviceIdOrAllDevices::DeviceId(device_id) = device_id);
+
+                        let event = json!({
+                            "origin_server_ts": MilliSecondsSinceUnixEpoch::now(),
+                            "sender": sender,
+                            "type": event_type.to_owned(),
+                            "content": content,
+                        });
+
+                        to_device_queue
+                            .entry(user_id.to_owned())
+                            .or_default()
+                            .entry(device_id.to_owned())
+                            .or_default()
+                            .push(serde_json::from_value(event).unwrap());
+                    }
+                }
+
+                ResponseTemplate::new(200).set_body_json(&*test_json::EMPTY)
+            })
+            .mount_as_scoped(self.server())
+            .await
+    }
+
+    /// Sync the pending to-device messages for this client.
+    ///
+    /// To be used in connection with
+    /// [`MatrixMockServer::capture_put_to_device_traffic`] that is
+    /// capturing the traffic.
+    pub async fn sync_back_pending_to_device_messages(
+        &self,
+        to_device_queue: Arc<Mutex<PendingToDeviceMessages>>,
+        recipient: &Client,
+    ) {
+        let messages_to_sync = {
+            let to_device_queue = to_device_queue.lock().unwrap();
+            let pending_messages = to_device_queue
+                .get(&recipient.user_id().unwrap().to_owned())
+                .and_then(|treemap| treemap.get(&recipient.device_id().unwrap().to_owned()));
+
+            pending_messages.cloned().unwrap_or_default()
+        };
+
+        for message in messages_to_sync {
+            self.mock_sync()
+                .ok_and_run(recipient, |sync_builder| {
+                    sync_builder.add_to_device_event(message.deserialize_as().unwrap());
+                })
+                .await;
         }
     }
 }

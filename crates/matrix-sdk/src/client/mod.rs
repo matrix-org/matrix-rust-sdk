@@ -2746,6 +2746,20 @@ impl Client {
     }
 }
 
+#[cfg(any(feature = "testing", test))]
+impl Client {
+    /// Test helper to mark users as tracked by the crypto layer.
+    #[cfg(feature = "e2e-encryption")]
+    pub async fn update_tracked_users_for_testing(
+        &self,
+        user_ids: impl IntoIterator<Item = &UserId>,
+    ) {
+        let olm = self.olm_machine().await;
+        let olm = olm.as_ref().unwrap();
+        olm.update_tracked_users(user_ids).await.unwrap();
+    }
+}
+
 /// A weak reference to the inner client, useful when trying to get a handle
 /// on the owning client.
 #[derive(Clone)]
