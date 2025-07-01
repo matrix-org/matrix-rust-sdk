@@ -194,7 +194,7 @@ pub async fn send_and_receive_encrypted_to_device_test_helper(
         sender.get_device(recipient.user_id(), recipient.device_id(), None).await.unwrap().unwrap();
 
     let raw_encrypted = device
-        .encrypt_event_raw(event_type, &content)
+        .encrypt_event_raw(event_type, content)
         .await
         .expect("Should have encrypted the content");
 
@@ -220,7 +220,7 @@ pub async fn send_and_receive_encrypted_to_device_test_helper(
     };
 
     let (decrypted, _) =
-        recipient.receive_sync_changes(sync_changes, &decryption_settings).await.unwrap();
+        recipient.receive_sync_changes(sync_changes, decryption_settings).await.unwrap();
 
     assert_eq!(1, decrypted.len());
     decrypted[0].clone()

@@ -845,8 +845,16 @@ impl OlmMachine {
 
     /// Decrypt and handle a to-device event.
     ///
-    /// If decryption (or checking the sender device) fails, returns
+    /// If decryption (or checking the sender device) fails, returns an
     /// `Err(DecryptToDeviceError::OlmError)`.
+    ///
+    /// If we are in strict "exclude insecure devices" mode and the sender
+    /// device is not verified, and the decrypted event type is not on the
+    /// allow list, returns `Err(DecryptToDeviceError::UnverifiedSender)`
+    ///
+    /// (The allow list of types that are processed even if the sender is
+    /// unverified is: `m.room_key`, `m.room_key.withheld`,
+    /// `m.room_key_request`, `m.secret.request` and `m.key.verification.*`.)
     ///
     /// If the sender device is dehydrated, does no handling and immediately
     /// returns `Err(DecryptToDeviceError::FromDehydratedDevice)`.
@@ -862,11 +870,16 @@ impl OlmMachine {
         transaction: &mut StoreTransaction,
         event: &EncryptedToDeviceEvent,
         changes: &mut Changes,
-        _decryption_settings: &DecryptionSettings,
+        decryption_settings: &DecryptionSettings,
     ) -> Result<OlmDecryptionInfo, DecryptToDeviceError> {
         // Decrypt the event
-        let mut decrypted =
+        let decrypted =
             transaction.account().await?.decrypt_to_device_event(&self.inner.store, event).await?;
+
+        let mut decrypted = self.check_to_device_is_from_verified_device_or_allowed_type(
+            decryption_settings,
+            decrypted,
+        )?;
 
         // Return early if the sending device is decrypted
         self.check_to_device_event_is_not_from_dehydrated_device(&decrypted, &event.sender).await?;
@@ -1324,7 +1337,10 @@ impl OlmMachine {
 
         match event {
             // These are handled here because we accept them either plaintext or
-            // encrypted
+            // encrypted.
+            //
+            // Note: this list should match the allowed types in
+            // check_to_device_is_from_verified_device_or_allowed_type
             RoomKeyRequest(e) => self.inner.key_request_machine.receive_incoming_key_request(e),
             SecretRequest(e) => self.inner.key_request_machine.receive_incoming_secret_request(e),
             RoomKeyWithheld(e) => self.add_withheld_info(changes, e),
@@ -1426,8 +1442,14 @@ impl OlmMachine {
     ///
     /// Return the same event, decrypted if possible.
     ///
-    /// If we can identify that this to-device event came from a dehydrated
-    /// device, this method does not process it, and returns `None`.
+    /// If we are in strict "exclude insecure devices" mode and the sender
+    /// device is not verified, and the decrypted event type is not on the
+    /// allow list, or if this event comes from a dehydrated device, this method
+    /// does not process it, and returns `None`.
+    ///
+    /// (The allow list of types that are processed even if the sender is
+    /// unverified is: `m.room_key`, `m.room_key.withheld`,
+    /// `m.room_key_request`, `m.secret.request` and `m.key.verification.*`.)
     async fn receive_encrypted_to_device_event(
         &self,
         transaction: &mut StoreTransaction,
@@ -1456,6 +1478,12 @@ impl OlmMachine {
                 return Some(ProcessedToDeviceEvent::UnableToDecrypt(raw_event));
             }
             Err(DecryptToDeviceError::FromDehydratedDevice) => return None,
+            Err(DecryptToDeviceError::UnverifiedSender(olm_decryption_info)) => {
+                return Some(ProcessedToDeviceEvent::UnverifiedSender {
+                    raw: olm_decryption_info.result.raw_event,
+                    encryption_info: olm_decryption_info.result.encryption_info,
+                })
+            }
         };
 
         // New sessions modify the account so we need to save that
@@ -1491,6 +1519,66 @@ impl OlmMachine {
             raw: raw_event,
             encryption_info: decrypted.result.encryption_info,
         })
+    }
+
+    fn check_to_device_is_from_verified_device_or_allowed_type(
+        &self,
+        decryption_settings: &DecryptionSettings,
+        decrypted: OlmDecryptionInfo,
+    ) -> Result<OlmDecryptionInfo, DecryptToDeviceError> {
+        let event_type = decrypted.result.event.event_type();
+
+        // If we're in "exclude insecure devices" mode, we prevent most
+        // to-device events with unverified senders from being allowed
+        // through here, but there are some exceptions:
+        //
+        // * m.room_key - we hold on to these until later, so if the sender becomes
+        //   verified later we can still use the key.
+        //
+        // * m.room_key_request, m.room_key.withheld, m.key.verification.*,
+        //   m.secret.request - these are allowed as plaintext events, so we also allow
+        //   them encrypted from insecure devices. Note: the list of allowed types here
+        //   should match with what is allowed in handle_to_device_event.
+        match event_type {
+            "m.room_key"
+            | "m.room_key.withheld"
+            | "m.room_key_request"
+            | "m.secret.request"
+            | "m.key.verification.key"
+            | "m.key.verification.mac"
+            | "m.key.verification.done"
+            | "m.key.verification.ready"
+            | "m.key.verification.start"
+            | "m.key.verification.accept"
+            | "m.key.verification.cancel"
+            | "m.key.verification.request" => {
+                // This is one of the exception types - we allow it even if the sender device is
+                // not verified.
+                Ok(decrypted)
+            }
+            _ => {
+                // This is not an exception type - check for "exclude insecure devices" mode,
+                // and whether the sender is verified.
+
+                let exclude_unverified_devices = match decryption_settings
+                    .sender_device_trust_requirement
+                {
+                    TrustRequirement::Untrusted => false,
+                    TrustRequirement::CrossSignedOrLegacy | TrustRequirement::CrossSigned => true,
+                };
+
+                if exclude_unverified_devices
+                    && sending_device_is_unverified(&decrypted.result.encryption_info)
+                {
+                    // Refuse to decrypt - the sender is unverified
+                    Err(DecryptToDeviceError::UnverifiedSender(Box::new(decrypted)))
+                } else {
+                    // Either we're not excluding insecure devices, or the sender is verified, so
+                    // allow decryption to continue.
+                    Ok(decrypted)
+                }
+            }
+        }
     }
 
     /// Return an error if the supplied to-device event was sent from a
@@ -1594,6 +1682,15 @@ impl OlmMachine {
     /// If any of the to-device events in the supplied changes were sent from
     /// dehydrated devices, these are not processed, and are omitted from
     /// the returned list, as per MSC3814.
+    ///
+    /// If we are in strict "exclude insecure devices" mode and the sender
+    /// device of any event is not verified, and the decrypted event type is not
+    /// on the allow list, these events are not processed and are omitted from
+    /// the returned list.
+    ///
+    /// (The allow list of types that are processed even if the sender is
+    /// unverified is: `m.room_key`, `m.room_key.withheld`,
+    /// `m.room_key_request`, `m.secret.request` and `m.key.verification.*`.)
     pub(crate) async fn preprocess_sync_changes(
         &self,
         transaction: &mut StoreTransaction,
@@ -2842,6 +2939,28 @@ impl OlmMachine {
     }
 }
 
+fn sending_device_is_unverified(encryption_info: &EncryptionInfo) -> bool {
+    if let VerificationState::Unverified(level) = &encryption_info.verification_state {
+        // Sender is not fully verified
+        match level {
+            VerificationLevel::UnverifiedIdentity => {
+                // The user's identity is only pinned: fine
+                false
+            }
+            VerificationLevel::VerificationViolation
+            | VerificationLevel::UnsignedDevice
+            | VerificationLevel::None(_)
+            | VerificationLevel::MismatchedSender => {
+                // The device is not verified or the user is in verification violation: not fine
+                true
+            }
+        }
+    } else {
+        // Verified sender: fine
+        false
+    }
+}
+
 fn sender_data_to_verification_state(
     sender_data: SenderData,
     session_has_been_imported: bool,
@@ -2960,13 +3079,26 @@ fn megolm_error_to_utd_info(
     Ok(UnableToDecryptInfo { session_id, reason })
 }
 
-/// An error that can occur during [`OlmMachine::decrypt_to_device_event`] -
-/// either because decryption failed, or because the sender device was a
-/// dehydrated device, which should never send any to-device messages.
+/// An error that can occur during [`OlmMachine::decrypt_to_device_event`]:
+///
+/// * because decryption failed, or
+///
+/// * because the sender device was not verified when we are in strict "exclude
+///   insecure devices" mode, or
+///
+/// * because the sender device was a dehydrated device, which should never send
+///   any to-device messages.
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum DecryptToDeviceError {
     #[error("An Olm error occurred meaning we failed to decrypt the event")]
     OlmError(#[from] OlmError),
+
+    #[error(
+        "We were able to decrypt the event, but the sender device was not \
+        verified, and we have 'exclude insecure devices' enabled, so we \
+        choose not to use this event."
+    )]
+    UnverifiedSender(Box<OlmDecryptionInfo>),
 
     #[error("The event was sent from a dehydrated device")]
     FromDehydratedDevice,
@@ -2987,6 +3119,9 @@ impl From<DecryptToDeviceError> for OlmError {
             DecryptToDeviceError::OlmError(olm_error) => olm_error,
             DecryptToDeviceError::FromDehydratedDevice => {
                 panic!("Expected an OlmError but found FromDehydratedDevice")
+            }
+            DecryptToDeviceError::UnverifiedSender(_) => {
+                panic!("Expected and OlmError but found UnverifiedSender")
             }
         }
     }

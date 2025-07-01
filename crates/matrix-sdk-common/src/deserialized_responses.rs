@@ -1196,6 +1196,15 @@ pub enum ProcessedToDeviceEvent {
     /// required information to be processed (like no event `type` for
     /// example)
     Invalid(Raw<AnyToDeviceEvent>),
+
+    /// A to device event that was ignored because the sender device was not
+    /// verified.
+    UnverifiedSender {
+        /// The raw decrypted event
+        raw: Raw<AnyToDeviceEvent>,
+        /// The Olm encryption info
+        encryption_info: EncryptionInfo,
+    },
 }
 
 impl ProcessedToDeviceEvent {
@@ -1207,6 +1216,7 @@ impl ProcessedToDeviceEvent {
             ProcessedToDeviceEvent::UnableToDecrypt(event) => event.clone(),
             ProcessedToDeviceEvent::PlainText(event) => event.clone(),
             ProcessedToDeviceEvent::Invalid(event) => event.clone(),
+            ProcessedToDeviceEvent::UnverifiedSender { raw, .. } => raw.clone(),
         }
     }
 
@@ -1217,6 +1227,7 @@ impl ProcessedToDeviceEvent {
             ProcessedToDeviceEvent::UnableToDecrypt(event) => event,
             ProcessedToDeviceEvent::PlainText(event) => event,
             ProcessedToDeviceEvent::Invalid(event) => event,
+            ProcessedToDeviceEvent::UnverifiedSender { raw, .. } => raw,
         }
     }
 }
