@@ -108,21 +108,15 @@ pub(in crate::timeline) enum TimelineFocusKind<P: RoomDataProvider> {
     /// The timeline is focused on a single event, and it can expand in one
     /// direction or another.
     Event {
-        /// The event id we've started to focus on.
-        event_id: OwnedEventId,
         /// The paginator instance.
         paginator: Paginator<P>,
-        /// Number of context events to request for the first request.
-        num_context_events: u16,
+
         /// Whether to hide in-thread events from the timeline.
         hide_threaded_events: bool,
     },
 
     Thread {
         loader: ThreadedEventsLoader<P>,
-
-        /// Number of relations events to requests for the first request
-        num_events: u16,
 
         /// The root event for the current thread.
         root_event_id: OwnedEventId,
@@ -286,22 +280,16 @@ impl<P: RoomDataProvider, D: Decryptor> TimelineController<P, D> {
                 TimelineFocusKind::Live { hide_threaded_events }
             }
 
-            TimelineFocus::Event { target, num_context_events, hide_threaded_events } => {
+            TimelineFocus::Event { hide_threaded_events, .. } => {
                 let paginator = Paginator::new(room_data_provider.clone());
-                TimelineFocusKind::Event {
-                    paginator,
-                    event_id: target,
-                    num_context_events,
-                    hide_threaded_events,
-                }
+                TimelineFocusKind::Event { paginator, hide_threaded_events }
             }
 
-            TimelineFocus::Thread { root_event_id, num_events } => TimelineFocusKind::Thread {
+            TimelineFocus::Thread { root_event_id, .. } => TimelineFocusKind::Thread {
                 loader: ThreadedEventsLoader::new(
                     room_data_provider.clone(),
                     root_event_id.clone(),
                 ),
-                num_events,
                 root_event_id,
             },
 
@@ -340,10 +328,11 @@ impl<P: RoomDataProvider, D: Decryptor> TimelineController<P, D> {
     /// Returns whether there were any events added to the timeline.
     pub(super) async fn init_focus(
         &self,
+        focus: &TimelineFocus,
         room_event_cache: &RoomEventCache,
     ) -> Result<bool, Error> {
-        match &*self.focus {
-            TimelineFocusKind::Live { .. } => {
+        match focus {
+            TimelineFocus::Live { .. } => {
                 // Retrieve the cached events, and add them to the timeline.
                 let events = room_event_cache.events().await;
 
@@ -369,7 +358,12 @@ impl<P: RoomDataProvider, D: Decryptor> TimelineController<P, D> {
                 Ok(has_events)
             }
 
-            TimelineFocusKind::Event { event_id, paginator, num_context_events, .. } => {
+            TimelineFocus::Event { target: event_id, num_context_events, .. } => {
+                let TimelineFocusKind::Event { paginator, .. } = &*self.focus else {
+                    // Note: this is sync'd with code in the ctor.
+                    unreachable!();
+                };
+
                 // Start a /context request, and append the results (in order) to the timeline.
                 let start_from_result = paginator
                     .start_from(event_id, (*num_context_events).into())
@@ -387,7 +381,12 @@ impl<P: RoomDataProvider, D: Decryptor> TimelineController<P, D> {
                 Ok(has_events)
             }
 
-            TimelineFocusKind::Thread { loader, num_events, .. } => {
+            TimelineFocus::Thread { num_events, .. } => {
+                let TimelineFocusKind::Thread { loader, .. } = &*self.focus else {
+                    // Note: this is sync'd with code in the ctor.
+                    unreachable!();
+                };
+
                 let result = loader
                     .paginate_backwards((*num_events).into())
                     .await
@@ -403,7 +402,12 @@ impl<P: RoomDataProvider, D: Decryptor> TimelineController<P, D> {
                 Ok(true)
             }
 
-            TimelineFocusKind::PinnedEvents { loader } => {
+            TimelineFocus::PinnedEvents { .. } => {
+                let TimelineFocusKind::PinnedEvents { loader } = &*self.focus else {
+                    // Note: this is sync'd with code in the ctor.
+                    unreachable!();
+                };
+
                 let Some(loaded_events) =
                     loader.load_events().await.map_err(Error::PinnedEventsError)?
                 else {
