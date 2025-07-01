@@ -94,11 +94,6 @@ impl EventLinkedChunk {
         self.chunks.push_items_back(events);
     }
 
-    /// Push a gap after all events or gaps.
-    pub fn push_gap(&mut self, gap: Gap) {
-        self.chunks.push_gap_back(gap);
-    }
-
     /// Remove an empty chunk at the given position.
     ///
     /// Note: the chunk must either be a gap, or an empty items chunk, and it
@@ -314,7 +309,7 @@ impl EventLinkedChunk {
                 (chunk.is_items() && chunk.num_items() == 0).then_some(chunk.identifier())
             });
 
-            self.push_gap(new_gap);
+            self.chunks.push_gap_back(new_gap);
 
             if let Some(prev_chunk_to_remove) = prev_chunk_to_remove {
                 self.remove_empty_chunk_at(prev_chunk_to_remove)
@@ -390,7 +385,7 @@ impl EventLinkedChunk {
                     .insert_gap_at(new_gap, new_pos)
                     .expect("events_chunk_pos represents a valid chunk position");
             } else {
-                self.push_gap(new_gap);
+                self.chunks.push_gap_back(new_gap);
             }
         }
 
@@ -593,41 +588,6 @@ mod tests {
     }
 
     #[test]
-    fn test_push_gap() {
-        let (event_id_0, event_0) = new_event("$ev0");
-        let (event_id_1, event_1) = new_event("$ev1");
-
-        let mut linked_chunk = EventLinkedChunk::new();
-
-        linked_chunk.push_events([event_0]);
-        linked_chunk.push_gap(Gap { prev_token: "hello".to_owned() });
-        linked_chunk.push_events([event_1]);
-
-        assert_events_eq!(
-            linked_chunk.events(),
-            [
-                (event_id_0 at (0, 0)),
-                (event_id_1 at (2, 0)),
-            ]
-        );
-
-        {
-            let mut chunks = linked_chunk.chunks();
-
-            assert_let!(Some(chunk) = chunks.next());
-            assert!(chunk.is_items());
-
-            assert_let!(Some(chunk) = chunks.next());
-            assert!(chunk.is_gap());
-
-            assert_let!(Some(chunk) = chunks.next());
-            assert!(chunk.is_items());
-
-            assert!(chunks.next().is_none());
-        }
-    }
-
-    #[test]
     fn test_replace_gap_at() {
         let (event_id_0, event_0) = new_event("$ev0");
         let (event_id_1, event_1) = new_event("$ev1");
@@ -636,7 +596,7 @@ mod tests {
         let mut linked_chunk = EventLinkedChunk::new();
 
         linked_chunk.push_events([event_0]);
-        linked_chunk.push_gap(Gap { prev_token: "hello".to_owned() });
+        linked_chunk.chunks.push_gap_back(Gap { prev_token: "hello".to_owned() });
 
         let gap_chunk_id = linked_chunk
             .chunks()
@@ -676,9 +636,9 @@ mod tests {
         let mut linked_chunk = EventLinkedChunk::new();
 
         linked_chunk.push_events([event_0, event_1]);
-        linked_chunk.push_gap(Gap { prev_token: "middle".to_owned() });
+        linked_chunk.chunks.push_gap_back(Gap { prev_token: "middle".to_owned() });
         linked_chunk.push_events([event_2]);
-        linked_chunk.push_gap(Gap { prev_token: "end".to_owned() });
+        linked_chunk.chunks.push_gap_back(Gap { prev_token: "end".to_owned() });
 
         // Remove the first gap.
         let first_gap_id = linked_chunk
@@ -711,7 +671,7 @@ mod tests {
         // Push some events.
         let mut linked_chunk = EventLinkedChunk::new();
         linked_chunk.push_events([event_0, event_1]);
-        linked_chunk.push_gap(Gap { prev_token: "hello".to_owned() });
+        linked_chunk.chunks.push_gap_back(Gap { prev_token: "hello".to_owned() });
         linked_chunk.push_events([event_2, event_3]);
 
         assert_events_eq!(
@@ -784,7 +744,7 @@ mod tests {
         // Push some events.
         let mut linked_chunk = EventLinkedChunk::new();
         linked_chunk.push_events([event_0, event_1]);
-        linked_chunk.push_gap(Gap { prev_token: "raclette".to_owned() });
+        linked_chunk.chunks.push_gap_back(Gap { prev_token: "raclette".to_owned() });
         linked_chunk.push_events([event_2]);
 
         // Read the updates as `VectorDiff`.
@@ -839,7 +799,7 @@ mod tests {
                 .into_event(),
             event_factory.text_msg("you").event_id(event_id!("$2")).into_event(),
         ]);
-        linked_chunk.push_gap(Gap { prev_token: "raclette".to_owned() });
+        linked_chunk.chunks.push_gap_back(Gap { prev_token: "raclette".to_owned() });
 
         // Flush updates to the order tracker.
         let _ = linked_chunk.updates_as_vector_diffs();
