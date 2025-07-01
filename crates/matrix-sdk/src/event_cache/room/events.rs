@@ -27,9 +27,9 @@ use matrix_sdk_common::linked_chunk::{
     Position,
 };
 
-/// This type represents all events of a single room.
+/// This type represents a linked chunk of events for a single room or thread.
 #[derive(Debug)]
-pub struct RoomEvents {
+pub(in crate::event_cache) struct EventLinkedChunk {
     /// The real in-memory storage for all the events.
     chunks: LinkedChunk<DEFAULT_CHUNK_CAPACITY, Event, Gap>,
 
@@ -42,19 +42,19 @@ pub struct RoomEvents {
     pub order_tracker: OrderTracker<Event, Gap>,
 }
 
-impl Default for RoomEvents {
+impl Default for EventLinkedChunk {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl RoomEvents {
-    /// Build a new [`RoomEvents`] struct with zero events.
+impl EventLinkedChunk {
+    /// Build a new [`EventLinkedChunk`] struct with zero events.
     pub fn new() -> Self {
         Self::with_initial_linked_chunk(None, None)
     }
 
-    /// Build a new [`RoomEvents`] struct with prior chunks knowledge.
+    /// Build a new [`EventLinkedChunk`] struct with prior chunks knowledge.
     ///
     /// The provided [`LinkedChunk`] must have been built with update history.
     pub fn with_initial_linked_chunk(
@@ -313,7 +313,7 @@ impl RoomEvents {
 }
 
 // Methods related to lazy-loading.
-impl RoomEvents {
+impl EventLinkedChunk {
     /// Inhibits all the linked chunk updates caused by the function `f` on the
     /// ordering tracker.
     ///
@@ -457,7 +457,7 @@ mod tests {
 
     #[test]
     fn test_new_room_events_has_zero_events() {
-        let room_events = RoomEvents::new();
+        let room_events = EventLinkedChunk::new();
 
         assert_eq!(room_events.events().count(), 0);
     }
@@ -468,7 +468,7 @@ mod tests {
         let (event_id_1, event_1) = new_event("$ev1");
         let (event_id_2, event_2) = new_event("$ev2");
 
-        let mut room_events = RoomEvents::new();
+        let mut room_events = EventLinkedChunk::new();
 
         room_events.push_events([event_0, event_1]);
         room_events.push_events([event_2]);
@@ -488,7 +488,7 @@ mod tests {
         let (event_id_0, event_0) = new_event("$ev0");
         let (event_id_1, event_1) = new_event("$ev1");
 
-        let mut room_events = RoomEvents::new();
+        let mut room_events = EventLinkedChunk::new();
 
         room_events.push_events([event_0]);
         room_events.push_gap(Gap { prev_token: "hello".to_owned() });
@@ -524,7 +524,7 @@ mod tests {
         let (event_id_1, event_1) = new_event("$ev1");
         let (event_id_2, event_2) = new_event("$ev2");
 
-        let mut room_events = RoomEvents::new();
+        let mut room_events = EventLinkedChunk::new();
 
         room_events.push_events([event_0, event_1]);
 
@@ -552,7 +552,7 @@ mod tests {
         let (event_id_0, event_0) = new_event("$ev0");
         let (event_id_1, event_1) = new_event("$ev1");
 
-        let mut room_events = RoomEvents::new();
+        let mut room_events = EventLinkedChunk::new();
 
         room_events.push_events([event_0, event_1]);
 
@@ -597,7 +597,7 @@ mod tests {
         let (event_id_1, event_1) = new_event("$ev1");
         let (event_id_2, event_2) = new_event("$ev2");
 
-        let mut room_events = RoomEvents::new();
+        let mut room_events = EventLinkedChunk::new();
 
         room_events.push_events([event_0]);
         room_events.push_gap(Gap { prev_token: "hello".to_owned() });
@@ -637,7 +637,7 @@ mod tests {
         let (_, event_1) = new_event("$ev1");
         let (_, event_2) = new_event("$ev2");
 
-        let mut room_events = RoomEvents::new();
+        let mut room_events = EventLinkedChunk::new();
 
         room_events.push_events([event_0, event_1]);
         room_events.push_gap(Gap { prev_token: "middle".to_owned() });
@@ -673,7 +673,7 @@ mod tests {
         let (event_id_3, event_3) = new_event("$ev3");
 
         // Push some events.
-        let mut room_events = RoomEvents::new();
+        let mut room_events = EventLinkedChunk::new();
         room_events.push_events([event_0, event_1]);
         room_events.push_gap(Gap { prev_token: "hello".to_owned() });
         room_events.push_events([event_2, event_3]);
@@ -722,7 +722,7 @@ mod tests {
     #[test]
     fn test_remove_events_unknown_event() {
         // Push ZERO event.
-        let mut room_events = RoomEvents::new();
+        let mut room_events = EventLinkedChunk::new();
 
         assert_events_eq!(room_events.events(), []);
 
@@ -746,7 +746,7 @@ mod tests {
         let (event_id_3, event_3) = new_event("$ev3");
 
         // Push some events.
-        let mut room_events = RoomEvents::new();
+        let mut room_events = EventLinkedChunk::new();
         room_events.push_events([event_0, event_1]);
         room_events.push_gap(Gap { prev_token: "raclette".to_owned() });
         room_events.push_events([event_2]);
@@ -795,7 +795,7 @@ mod tests {
     fn test_debug_string() {
         let event_factory = EventFactory::new().room(&DEFAULT_TEST_ROOM_ID).sender(*ALICE);
 
-        let mut room_events = RoomEvents::new();
+        let mut room_events = EventLinkedChunk::new();
         room_events.push_events(vec![
             event_factory
                 .text_msg("hey")

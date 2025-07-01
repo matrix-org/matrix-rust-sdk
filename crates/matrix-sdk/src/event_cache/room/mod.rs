@@ -521,7 +521,7 @@ mod private {
 
     use super::{
         super::{deduplicator::DeduplicationOutcome, EventCacheError},
-        events::RoomEvents,
+        events::EventLinkedChunk,
         sort_positions_descending, EventLocation, LoadMoreEventsBackwardsOutcome,
     };
     use crate::event_cache::{
@@ -543,7 +543,7 @@ mod private {
         store: EventCacheStoreLock,
 
         /// The events of the room.
-        events: RoomEvents,
+        events: EventLinkedChunk,
 
         /// Have we ever waited for a previous-batch-token to come from sync, in
         /// the context of pagination? We do this at most once per room,
@@ -562,10 +562,10 @@ mod private {
         /// Create a new state, or reload it from storage if it's been enabled.
         ///
         /// Not all events are going to be loaded. Only a portion of them. The
-        /// [`RoomEvents`] relies on a [`LinkedChunk`] to store all events. Only
-        /// the last chunk will be loaded. It means the events are loaded from
-        /// the most recent to the oldest. To load more events, see
-        /// [`Self::load_more_events_backwards`].
+        /// [`EventLinkedChunk`] relies on a [`LinkedChunk`] to store all
+        /// events. Only the last chunk will be loaded. It means the
+        /// events are loaded from the most recent to the oldest. To
+        /// load more events, see [`Self::load_more_events_backwards`].
         ///
         /// [`LinkedChunk`]: matrix_sdk_common::linked_chunk::LinkedChunk
         pub async fn new(
@@ -610,8 +610,10 @@ mod private {
                 })
                 .expect("fully loading the linked chunk just worked, so loading it partially should also work");
 
-            let events =
-                RoomEvents::with_initial_linked_chunk(linked_chunk, full_linked_chunk_metadata);
+            let events = EventLinkedChunk::with_initial_linked_chunk(
+                linked_chunk,
+                full_linked_chunk_metadata,
+            );
 
             Ok(Self {
                 room: room_id,
@@ -982,7 +984,7 @@ mod private {
             }
         }
 
-        /// Remove events by their position, in `RoomEvents` and in
+        /// Remove events by their position, in `EventLinkedChunk` and in
         /// `EventCacheStore`.
         ///
         /// This method is purposely isolated because it must ensure that
@@ -1130,20 +1132,20 @@ mod private {
         }
 
         /// Returns a read-only reference to the underlying events.
-        pub fn events(&self) -> &RoomEvents {
+        pub fn events(&self) -> &EventLinkedChunk {
             &self.events
         }
 
         /// Find a single event in this room.
         ///
-        /// It starts by looking into loaded events in `RoomEvents` before
+        /// It starts by looking into loaded events in `EventLinkedChunk` before
         /// looking inside the storage if it is enabled.
         pub async fn find_event(
             &self,
             event_id: &EventId,
         ) -> Result<Option<(EventLocation, Event)>, EventCacheError> {
             // There are supposedly fewer events loaded in memory than in the store. Let's
-            // start by looking up in the `RoomEvents`.
+            // start by looking up in the `EventLinkedChunk`.
             for (position, event) in self.events.revents() {
                 if event.event_id().as_deref() == Some(event_id) {
                     return Ok(Some((EventLocation::Memory(position), event.clone())));
@@ -1621,8 +1623,8 @@ mod private {
             };
 
             // Reverse the order of the events as `/messages` has been called with `dir=b`
-            // (backwards). The `RoomEvents` API expects the first event to be the oldest.
-            // Let's re-order them for this block.
+            // (backwards). The `EventLinkedChunk` API expects the first event to be the
+            // oldest. Let's re-order them for this block.
             let reversed_events = events.iter().rev().cloned().collect::<Vec<_>>();
 
             let first_event_pos = self.events.events().next().map(|(item_pos, _)| item_pos);
