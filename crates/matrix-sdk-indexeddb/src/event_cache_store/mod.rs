@@ -30,11 +30,14 @@ use matrix_sdk_base::{
     media::MediaRequestParameters,
 };
 use ruma::{events::relation::RelationType, EventId, MxcUri, OwnedEventId, RoomId};
+use tracing::trace;
 use web_sys::IdbTransactionMode;
 
 use crate::event_cache_store::{
+    migrations::current::keys,
     serializer::IndexeddbEventCacheStoreSerializer,
     transaction::IndexeddbEventCacheStoreTransaction,
+    types::{ChunkType, InBandEvent},
 };
 
 mod builder;
@@ -71,6 +74,20 @@ impl IndexeddbEventCacheStore {
     /// [`IndexeddbEventCacheStore`]
     pub fn builder() -> IndexeddbEventCacheStoreBuilder {
         IndexeddbEventCacheStoreBuilder::default()
+    }
+
+    /// Initializes a new transaction on the underlying IndexedDB database and
+    /// returns a handle which can be used to combine database operations
+    /// into an atomic unit.
+    pub fn transaction<'a>(
+        &'a self,
+        stores: &[&str],
+        mode: IdbTransactionMode,
+    ) -> Result<IndexeddbEventCacheStoreTransaction<'a>, IndexeddbEventCacheStoreError> {
+        Ok(IndexeddbEventCacheStoreTransaction::new(
+            self.inner.transaction_on_multi_with_mode(stores, mode)?,
+            &self.serializer,
+        ))
     }
 }
 
@@ -121,10 +138,122 @@ impl_event_cache_store! {
         linked_chunk_id: LinkedChunkId<'_>,
         updates: Vec<Update<Event, Gap>>,
     ) -> Result<(), IndexeddbEventCacheStoreError> {
-        self.memory_store
-            .handle_linked_chunk_updates(linked_chunk_id, updates)
-            .await
-            .map_err(IndexeddbEventCacheStoreError::MemoryStore)
+        let linked_chunk_id = linked_chunk_id.to_owned();
+        let room_id = linked_chunk_id.room_id();
+
+        let transaction = self.transaction(
+            &[keys::LINKED_CHUNKS, keys::GAPS, keys::EVENTS],
+            IdbTransactionMode::Readwrite,
+        )?;
+
+        for update in updates {
+            match update {
+                Update::NewItemsChunk { previous, new, next } => {
+                    trace!(%room_id, "Inserting new chunk (prev={previous:?}, new={new:?}, next={next:?})");
+                    transaction
+                        .add_chunk(
+                            room_id,
+                            &types::Chunk {
+                                identifier: new.index(),
+                                previous: previous.map(|i| i.index()),
+                                next: next.map(|i| i.index()),
+                                chunk_type: ChunkType::Event,
+                            },
+                        )
+                        .await?;
+                }
+                Update::NewGapChunk { previous, new, next, gap } => {
+                    trace!(%room_id, "Inserting new gap (prev={previous:?}, new={new:?}, next={next:?})");
+                    transaction
+                        .add_item(
+                            room_id,
+                            &types::Gap {
+                                chunk_identifier: new.index(),
+                                prev_token: gap.prev_token,
+                            },
+                        )
+                        .await?;
+                    transaction
+                        .add_chunk(
+                            room_id,
+                            &types::Chunk {
+                                identifier: new.index(),
+                                previous: previous.map(|i| i.index()),
+                                next: next.map(|i| i.index()),
+                                chunk_type: ChunkType::Gap,
+                            },
+                        )
+                        .await?;
+                }
+                Update::RemoveChunk(chunk_id) => {
+                    trace!("Removing chunk {chunk_id:?}");
+                    transaction.delete_chunk_by_id(room_id, &chunk_id).await?;
+                }
+                Update::PushItems { at, items } => {
+                    let chunk_identifier = at.chunk_identifier().index();
+
+                    trace!(%room_id, "pushing {} items @ {chunk_identifier}", items.len());
+
+                    for (i, item) in items.into_iter().enumerate() {
+                        transaction
+                            .add_item(
+                                room_id,
+                                &types::Event::InBand(InBandEvent {
+                                    content: item,
+                                    position: types::Position {
+                                        chunk_identifier,
+                                        index: at.index() + i,
+                                    },
+                                }),
+                            )
+                            .await?;
+                    }
+                }
+                Update::ReplaceItem { at, item } => {
+                    let chunk_id = at.chunk_identifier().index();
+                    let index = at.index();
+
+                    trace!(%room_id, "replacing item @ {chunk_id}:{index}");
+
+                    transaction
+                        .put_event(
+                            room_id,
+                            &types::Event::InBand(InBandEvent {
+                                content: item,
+                                position: at.into(),
+                            }),
+                        )
+                        .await?;
+                }
+                Update::RemoveItem { at } => {
+                    let chunk_id = at.chunk_identifier().index();
+                    let index = at.index();
+
+                    trace!(%room_id, "removing item @ {chunk_id}:{index}");
+
+                    transaction.delete_event_by_position(room_id, &at.into()).await?;
+                }
+                Update::DetachLastItems { at } => {
+                    let chunk_id = at.chunk_identifier().index();
+                    let index = at.index();
+
+                    trace!(%room_id, "detaching last items @ {chunk_id}:{index}");
+
+                    transaction.delete_events_by_chunk_from_index(room_id, &at.into()).await?;
+                }
+                Update::StartReattachItems | Update::EndReattachItems => {
+                    // Nothing? See sqlite implementation
+                }
+                Update::Clear => {
+                    trace!(%room_id, "clearing room");
+                    transaction.delete_chunks_in_room(room_id).await?;
+                    transaction.delete_events_in_room(room_id).await?;
+                    transaction.delete_gaps_in_room(room_id).await?;
+                }
+            }
+        }
+        transaction.commit().await?;
+        Ok(())
     }
 
     async fn load_all_chunks(
