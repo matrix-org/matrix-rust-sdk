@@ -1558,8 +1558,8 @@ mod private {
                 // so it only contains the last one; otherwise, there might be a
                 // valid gap in between, and observers may not render it (yet).
                 //
-                // We must do this *after* the above call to `.with_events_mut`, so the new
-                // events and gaps are properly persisted to storage.
+                // We must do this *after* persisting these events to storage (in
+                // `post_process_new_events`).
                 self.shrink_to_last_chunk().await?;
             }
 
