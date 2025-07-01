@@ -188,6 +188,7 @@ pub async fn send_and_receive_encrypted_to_device_test_helper(
     recipient: &OlmMachine,
     event_type: &str,
     content: &Value,
+    decryption_settings: &DecryptionSettings,
 ) -> ProcessedToDeviceEvent {
     let device =
         sender.get_device(recipient.user_id(), recipient.device_id(), None).await.unwrap().unwrap();
@@ -218,11 +219,9 @@ pub async fn send_and_receive_encrypted_to_device_test_helper(
         next_batch_token: None,
     };
 
-    let decryption_settings =
-        DecryptionSettings { sender_device_trust_requirement: TrustRequirement::Untrusted };
-
     let (decrypted, _) =
         recipient.receive_sync_changes(sync_changes, &decryption_settings).await.unwrap();
+
     assert_eq!(1, decrypted.len());
     decrypted[0].clone()
 }

@@ -51,11 +51,15 @@ async fn test_send_encrypted_to_device() {
             "rooms": ["!726s6s6q:example.com"]
     });
 
+    let decryption_settings =
+        DecryptionSettings { sender_device_trust_requirement: TrustRequirement::Untrusted };
+
     let processed_event = send_and_receive_encrypted_to_device_test_helper(
         &alice,
         &bob,
         custom_event_type,
         &custom_content,
+        &decryption_settings,
     )
     .await;
 
@@ -124,11 +128,15 @@ async fn test_receive_custom_encrypted_to_device_fails_if_device_unknown() {
             "rooms": ["!726s6s6q:example.com"]
     });
 
+    let decryption_settings =
+        DecryptionSettings { sender_device_trust_requirement: TrustRequirement::Untrusted };
+
     let processed_event = send_and_receive_encrypted_to_device_test_helper(
         &alice,
         &bob,
         custom_event_type,
         &custom_content,
+        &decryption_settings,
     )
     .await;
 
@@ -153,11 +161,15 @@ async fn test_send_olm_encryption_info_unverified_identity() {
             "rooms": ["!726s6s6q:example.com"]
     });
 
+    let decryption_settings =
+        DecryptionSettings { sender_device_trust_requirement: TrustRequirement::Untrusted };
+
     let processed_event = send_and_receive_encrypted_to_device_test_helper(
         &alice,
         &bob,
         custom_event_type,
         &custom_content,
+        &decryption_settings,
     )
     .await;
 
@@ -193,11 +205,15 @@ async fn test_send_olm_encryption_info_verified_identity() {
             "rooms": ["!726s6s6q:example.com"]
     });
 
+    let decryption_settings =
+        DecryptionSettings { sender_device_trust_requirement: TrustRequirement::Untrusted };
+
     let processed_event = send_and_receive_encrypted_to_device_test_helper(
         &alice,
         &bob,
         custom_event_type,
         &custom_content,
+        &decryption_settings,
     )
     .await;
 
@@ -229,11 +245,15 @@ async fn test_send_olm_encryption_info_verified_locally() {
         .await
         .unwrap();
 
+    let decryption_settings =
+        DecryptionSettings { sender_device_trust_requirement: TrustRequirement::Untrusted };
+
     let processed_event = send_and_receive_encrypted_to_device_test_helper(
         &alice,
         &bob,
         custom_event_type,
         &custom_content,
+        &decryption_settings,
     )
     .await;
 
@@ -271,11 +291,15 @@ async fn test_send_olm_encryption_info_verification_violation() {
             "rooms": ["!726s6s6q:example.com"]
     });
 
+    let decryption_settings =
+        DecryptionSettings { sender_device_trust_requirement: TrustRequirement::Untrusted };
+
     let processed_event = send_and_receive_encrypted_to_device_test_helper(
         &alice,
         &bob,
         custom_event_type,
         &custom_content,
+        &decryption_settings,
     )
     .await;
 
