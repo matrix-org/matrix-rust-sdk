@@ -46,6 +46,7 @@
 //! [`Subscriber`], which brings all the tooling to get the current value or the
 //! future values with a stream.
 
+mod error;
 mod latest_event;
 
 use std::{
@@ -54,6 +55,7 @@ use std::{
     sync::Arc,
 };
 
+pub use error::LatestEventsError;
 use eyeball::{AsyncLock, Subscriber};
 use futures_util::{select, FutureExt};
 use latest_event::LatestEvent;
@@ -64,7 +66,7 @@ use tokio::sync::{broadcast, mpsc, RwLock, RwLockReadGuard, RwLockWriteGuard};
 use tracing::error;
 
 use crate::{
-    event_cache::{EventCache, RoomEventCacheGenericUpdate},
+    event_cache::{EventCache, EventCacheError, RoomEventCacheGenericUpdate},
     send_queue::SendQueue,
 };
 
@@ -126,8 +128,8 @@ impl LatestEvents {
     /// Start listening to updates (if not already) for a particular room.
     ///
     /// It returns `true` if the room exists, `false` otherwise.
-    pub async fn listen_to_room(&self, room_id: &RoomId) -> bool {
-        self.state.registered_rooms.for_room(room_id).await.is_some()
+    pub async fn listen_to_room(&self, room_id: &RoomId) -> Result<bool, LatestEventsError> {
+        Ok(self.state.registered_rooms.for_room(room_id).await?.is_some())
     }
 
     /// Start listening to updates (if not already) for a particular room, and
@@ -138,18 +140,24 @@ impl LatestEvents {
     pub async fn listen_and_subscribe_to_room(
         &self,
         room_id: &RoomId,
-    ) -> Option<Subscriber<LatestEventValue, AsyncLock>> {
-        let latest_event = self.state.registered_rooms.for_room(room_id).await?;
+    ) -> Result<Option<Subscriber<LatestEventValue, AsyncLock>>, LatestEventsError> {
+        let Some(latest_event) = self.state.registered_rooms.for_room(room_id).await? else {
+            return Ok(None);
+        };
 
-        Some(latest_event.subscribe().await)
+        Ok(Some(latest_event.subscribe().await))
     }
 
     /// Start listening to updates (if not already) for a particular room and a
     /// particular thread in this room.
     ///
     /// It returns `true` if the room and the thread exists, `false` otherwise.
-    pub async fn listen_to_thread(&self, room_id: &RoomId, thread_id: &EventId) -> bool {
-        self.state.registered_rooms.for_thread(room_id, thread_id).await.is_some()
+    pub async fn listen_to_thread(
+        &self,
+        room_id: &RoomId,
+        thread_id: &EventId,
+    ) -> Result<bool, LatestEventsError> {
+        Ok(self.state.registered_rooms.for_thread(room_id, thread_id).await?.is_some())
     }
 
     /// Start listening to updates (if not already) for a particular room and a
@@ -161,10 +169,13 @@ impl LatestEvents {
         &self,
         room_id: &RoomId,
         thread_id: &EventId,
-    ) -> Option<Subscriber<LatestEventValue, AsyncLock>> {
-        let latest_event = self.state.registered_rooms.for_thread(room_id, thread_id).await?;
+    ) -> Result<Option<Subscriber<LatestEventValue, AsyncLock>>, LatestEventsError> {
+        let Some(latest_event) = self.state.registered_rooms.for_thread(room_id, thread_id).await?
+        else {
+            return Ok(None);
+        };
 
-        Some(latest_event.subscribe().await)
+        Ok(Some(latest_event.subscribe().await))
     }
 
     /// Forget a room.
@@ -230,8 +241,8 @@ impl RegisteredRooms {
         &self,
         room_id: &RoomId,
         thread_id: Option<&EventId>,
-    ) -> Option<RwLockReadGuard<'_, RoomLatestEvents>> {
-        match thread_id {
+    ) -> Result<Option<RwLockReadGuard<'_, RoomLatestEvents>>, LatestEventsError> {
+        Ok(match thread_id {
             // Get the room latest event with the aim of fetching the latest event for a particular
             // thread.
             //
@@ -243,7 +254,9 @@ impl RegisteredRooms {
                 // The `RoomLatestEvents` doesn't exist. Let's create and insert it.
                 if rooms.contains_key(room_id).not() {
                     // Insert the room if it's been successfully created.
-                    if let Some(room_latest_event) = RoomLatestEvents::new(room_id).await {
+                    if let Some(room_latest_event) =
+                        RoomLatestEvents::new(room_id, &self.event_cache).await?
+                    {
                         rooms.insert(room_id.to_owned(), room_latest_event);
 
                         let _ = self
@@ -281,7 +294,9 @@ impl RegisteredRooms {
 
                         if rooms.contains_key(room_id).not() {
                             // Insert the room if it's been successfully created.
-                            if let Some(room_latest_event) = RoomLatestEvents::new(room_id).await {
+                            if let Some(room_latest_event) =
+                                RoomLatestEvents::new(room_id, &self.event_cache).await?
+                            {
                                 rooms.insert(room_id.to_owned(), room_latest_event);
 
                                 let _ = self
@@ -295,17 +310,20 @@ impl RegisteredRooms {
                     }
                 }
             }
-        }
+        })
     }
 
     /// Start listening to updates (if not already) for a particular room, and
     /// fetch the [`LatestEvent`] for this room.
     ///
     /// It returns `None` if the room doesn't exist.
-    pub async fn for_room(&self, room_id: &RoomId) -> Option<RwLockReadGuard<'_, LatestEvent>> {
-        self.room_latest_event(room_id, None).await.map(|lock_guard| {
+    pub async fn for_room(
+        &self,
+        room_id: &RoomId,
+    ) -> Result<Option<RwLockReadGuard<'_, LatestEvent>>, LatestEventsError> {
+        Ok(self.room_latest_event(room_id, None).await?.map(|lock_guard| {
             RwLockReadGuard::map(lock_guard, |room_latest_event| room_latest_event.for_room())
-        })
+        }))
     }
 
     /// Start listening to updates (if not already) for a particular room, and
@@ -316,13 +334,13 @@ impl RegisteredRooms {
         &self,
         room_id: &RoomId,
         thread_id: &EventId,
-    ) -> Option<RwLockReadGuard<'_, LatestEvent>> {
-        self.room_latest_event(room_id, Some(thread_id)).await.and_then(|lock_guard| {
+    ) -> Result<Option<RwLockReadGuard<'_, LatestEvent>>, LatestEventsError> {
+        Ok(self.room_latest_event(room_id, Some(thread_id)).await?.and_then(|lock_guard| {
             RwLockReadGuard::try_map(lock_guard, |room_latest_event| {
                 room_latest_event.for_thread(thread_id)
             })
             .ok()
-        })
+        }))
     }
 
     /// Forget a room.
@@ -383,11 +401,24 @@ struct RoomLatestEvents {
 }
 
 impl RoomLatestEvents {
-    async fn new(room_id: &RoomId) -> Option<Self> {
-        Some(Self {
-            for_the_room: Self::create_latest_event_for(room_id, None).await?,
-            per_thread: HashMap::new(),
-        })
+    async fn new(
+        room_id: &RoomId,
+        event_cache: &EventCache,
+    ) -> Result<Option<Self>, LatestEventsError> {
+        let _room_event_cache = match event_cache.for_room(room_id).await {
+            // It's fine to drop the `EventCacheDropHandles` here as the caller
+            // (`LatestEventState`) owns a clone of the `EventCache`.
+            Ok((room_event_cache, _drop_handles)) => room_event_cache,
+            Err(EventCacheError::RoomNotFound { .. }) => return Ok(None),
+            Err(err) => return Err(LatestEventsError::EventCache(err)),
+        };
+
+        let latest_event = match Self::create_latest_event_for(room_id, None).await {
+            Some(latest_event) => latest_event,
+            None => return Ok(None),
+        };
+
+        Ok(Some(Self { for_the_room: latest_event, per_thread: HashMap::new() }))
     }
 
     #[allow(clippy::unused_async)]
@@ -565,8 +596,8 @@ mod tests {
         assert!(latest_events.state.registered_rooms.rooms.read().await.is_empty());
 
         // Now let's listen to two rooms.
-        assert!(latest_events.listen_to_room(room_id_0).await);
-        assert!(latest_events.listen_to_room(room_id_1).await);
+        assert!(latest_events.listen_to_room(room_id_0).await.unwrap());
+        assert!(latest_events.listen_to_room(room_id_1).await.unwrap());
 
         {
             let rooms = latest_events.state.registered_rooms.rooms.read().await;
@@ -583,8 +614,8 @@ mod tests {
         }
 
         // Now let's listen to one thread respectively for two rooms.
-        assert!(latest_events.listen_to_thread(room_id_1, thread_id_1_0).await);
-        assert!(latest_events.listen_to_thread(room_id_2, thread_id_2_0).await);
+        assert!(latest_events.listen_to_thread(room_id_1, thread_id_1_0).await.unwrap());
+        assert!(latest_events.listen_to_thread(room_id_2, thread_id_2_0).await.unwrap());
 
         {
             let rooms = latest_events.state.registered_rooms.rooms.read().await;
@@ -623,7 +654,7 @@ mod tests {
         let latest_events = client.latest_events().await;
 
         // Now let's fetch one room.
-        assert!(latest_events.listen_to_room(room_id_0).await);
+        assert!(latest_events.listen_to_room(room_id_0).await.unwrap());
 
         {
             let rooms = latest_events.state.registered_rooms.rooms.read().await;
@@ -662,7 +693,7 @@ mod tests {
         let latest_events = client.latest_events().await;
 
         // Now let's fetch one thread .
-        assert!(latest_events.listen_to_thread(room_id_0, thread_id_0_0).await);
+        assert!(latest_events.listen_to_thread(room_id_0, thread_id_0_0).await.unwrap());
 
         {
             let rooms = latest_events.state.registered_rooms.rooms.read().await;
