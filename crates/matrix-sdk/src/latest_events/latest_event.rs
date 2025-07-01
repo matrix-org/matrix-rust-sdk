@@ -15,31 +15,52 @@
 use eyeball::{AsyncLock, SharedObservable, Subscriber};
 use ruma::{EventId, OwnedEventId, OwnedRoomId, RoomId};
 
+use crate::event_cache::RoomEventCache;
+
 /// The latest event of a room or a thread.
 ///
 /// Use [`LatestEvent::subscribe`] to get a stream of updates.
 #[derive(Debug)]
 pub(super) struct LatestEvent {
     /// The room owning this latest event.
-    _room_id: OwnedRoomId,
+    room_id: OwnedRoomId,
     /// The thread (if any) owning this latest event.
-    _thread_id: Option<OwnedEventId>,
+    thread_id: Option<OwnedEventId>,
     /// The latest event value.
     value: SharedObservable<LatestEventValue, AsyncLock>,
 }
 
 impl LatestEvent {
-    pub(super) fn new(room_id: &RoomId, thread_id: Option<&EventId>) -> Option<Self> {
-        Some(Self {
-            _room_id: room_id.to_owned(),
-            _thread_id: thread_id.map(ToOwned::to_owned),
-            value: SharedObservable::new_async(LatestEventValue::None),
-        })
+    pub(super) async fn new(
+        room_id: &RoomId,
+        thread_id: Option<&EventId>,
+        room_event_cache: &RoomEventCache,
+    ) -> Self {
+        Self {
+            room_id: room_id.to_owned(),
+            thread_id: thread_id.map(ToOwned::to_owned),
+            value: SharedObservable::new_async(
+                LatestEventValue::new(room_id, thread_id, room_event_cache).await,
+            ),
+        }
     }
 
     /// Return a [`Subscriber`] to new values.
     pub async fn subscribe(&self) -> Subscriber<LatestEventValue, AsyncLock> {
         self.value.subscribe().await
+    }
+
+    /// Update the inner latest event value.
+    pub async fn update(&mut self, room_event_cache: &RoomEventCache) {
+        let new_value =
+            LatestEventValue::new(&self.room_id, self.thread_id.as_deref(), room_event_cache).await;
+
+        match new_value {
+            LatestEventValue::None => {
+                // The new value is `None`. It means no new value has been
+                // computed. Let's keep the old value.
+            }
+        }
     }
 }
 
@@ -48,4 +69,14 @@ impl LatestEvent {
 pub enum LatestEventValue {
     /// No value has been computed yet, or no candidate value was found.
     None,
+}
+
+impl LatestEventValue {
+    async fn new(
+        _room_id: &RoomId,
+        _thread_id: Option<&EventId>,
+        _room_event_cache: &RoomEventCache,
+    ) -> Self {
+        LatestEventValue::None
+    }
 }
