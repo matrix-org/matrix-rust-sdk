@@ -286,8 +286,8 @@ impl RoomPagination {
             (response.chunk, new_gap)
         };
 
-        // Make sure the `RoomEvents` isn't updated while we are saving events from
-        // backpagination.
+        // Make sure the `EventLinkedChunk` isn't updated while we are saving events
+        // from backpagination.
         let mut state = self.inner.state.write().await;
 
         // Check that the previous token still exists; otherwise it's a sign that the
