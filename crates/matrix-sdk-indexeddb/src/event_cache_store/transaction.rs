@@ -393,4 +393,184 @@ impl<'a> IndexeddbEventCacheStoreTransaction<'a> {
     {
         self.transaction.object_store(T::OBJECT_STORE)?.clear()?.await.map_err(Into::into)
     }
+
+    /// Query IndexedDB for chunks that match the given chunk identifier in the
+    /// given room. If more than one item is found, an error is returned.
+    pub async fn get_chunk_by_id(
+        &self,
+        room_id: &RoomId,
+        chunk_id: &ChunkIdentifier,
+    ) -> Result<Option<Chunk>, IndexeddbEventCacheStoreTransactionError> {
+        self.get_item_by_key_components::<Chunk, IndexedChunkIdKey>(room_id, chunk_id).await
+    }
+
+    /// Add a chunk to the given room and ensure that the next and previous
+    /// chunks are properly linked to the chunk being added. If a chunk with
+    /// the same identifier already exists, the given chunk will be
+    /// rejected.
+    pub async fn add_chunk(
+        &self,
+        room_id: &RoomId,
+        chunk: &Chunk,
+    ) -> Result<(), IndexeddbEventCacheStoreTransactionError> {
+        self.add_item(room_id, chunk).await?;
+        if let Some(previous) = chunk.previous {
+            let previous_identifier = ChunkIdentifier::new(previous);
+            if let Some(mut previous_chunk) =
+                self.get_chunk_by_id(room_id, &previous_identifier).await?
+            {
+                previous_chunk.next = Some(chunk.identifier);
+                self.put_item(room_id, &previous_chunk).await?;
+            }
+        }
+        if let Some(next) = chunk.next {
+            let next_identifier = ChunkIdentifier::new(next);
+            if let Some(mut next_chunk) = self.get_chunk_by_id(room_id, &next_identifier).await? {
+                next_chunk.previous = Some(chunk.identifier);
+                self.put_item(room_id, &next_chunk).await?;
+            }
+        }
+        Ok(())
+    }
+
+    /// Delete chunk that matches the given id in the given room and ensure that
+    /// the next and previous chunk are updated to link to one another.
+    /// Additionally, ensure that events and gaps in the given chunk are
+    /// also deleted.
+    pub async fn delete_chunk_by_id(
+        &self,
+        room_id: &RoomId,
+        chunk_id: &ChunkIdentifier,
+    ) -> Result<(), IndexeddbEventCacheStoreTransactionError> {
+        if let Some(chunk) = self.get_chunk_by_id(room_id, chunk_id).await? {
+            if let Some(previous) = chunk.previous {
+                let previous_identifier = ChunkIdentifier::new(previous);
+                if let Some(mut previous_chunk) =
+                    self.get_chunk_by_id(room_id, &previous_identifier).await?
+                {
+                    previous_chunk.next = chunk.next;
+                    self.put_item(room_id, &previous_chunk).await?;
+                }
+            }
+            if let Some(next) = chunk.next {
+                let next_identifier = ChunkIdentifier::new(next);
+                if let Some(mut next_chunk) =
+                    self.get_chunk_by_id(room_id, &next_identifier).await?
+                {
+                    next_chunk.previous = chunk.previous;
+                    self.put_item(room_id, &next_chunk).await?;
+                }
+            }
+            self.delete_item_by_key::<Chunk, IndexedChunkIdKey>(room_id, chunk_id).await?;
+            match chunk.chunk_type {
+                ChunkType::Event => {
+                    self.delete_events_by_chunk(room_id, chunk_id).await?;
+                }
+                ChunkType::Gap => {
+                    self.delete_gap_by_id(room_id, chunk_id).await?;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Delete all chunks in the given room
+    pub async fn delete_chunks_in_room(
+        &self,
+        room_id: &RoomId,
+    ) -> Result<(), IndexeddbEventCacheStoreTransactionError> {
+        self.delete_items_in_room::<Chunk, IndexedChunkIdKey>(room_id).await
+    }
+
+    /// Puts an event in the given room. If an event with the same key already
+    /// exists, it will be overwritten.
+    pub async fn put_event(
+        &self,
+        room_id: &RoomId,
+        event: &Event,
+    ) -> Result<(), IndexeddbEventCacheStoreTransactionError> {
+        if let Some(position) = event.position() {
+            // For some reason, we can't simply replace an event with `put_item`
+            // because we can get an error stating that the data violates a uniqueness
+            // constraint on the `events_position` index. This is NOT expected, but
+            // it is not clear if this improperly implemented in the browser or the
+            // library we are using.
+            //
+            // As a workaround, if the event has a position, we delete it first and
+            // then call `put_item`. This should be fine as it all happens within the
+            // context of a single transaction.
+            self.delete_event_by_position(room_id, &position).await?;
+        }
+        self.put_item(room_id, event).await
+    }
+
+    /// Delete events in the given position range in the given room
+    pub async fn delete_events_by_position(
+        &self,
+        room_id: &RoomId,
+        range: impl Into<IndexedKeyRange<&Position>>,
+    ) -> Result<(), IndexeddbEventCacheStoreTransactionError> {
+        self.delete_items_by_key_components::<Event, IndexedEventPositionKey>(room_id, range).await
+    }
+
+    /// Delete event in the given position in the given room
+    pub async fn delete_event_by_position(
+        &self,
+        room_id: &RoomId,
+        position: &Position,
+    ) -> Result<(), IndexeddbEventCacheStoreTransactionError> {
+        self.delete_item_by_key::<Event, IndexedEventPositionKey>(room_id, position).await
+    }
+
+    /// Delete events in the given chunk in the given room
+    pub async fn delete_events_by_chunk(
+        &self,
+        room_id: &RoomId,
+        chunk_id: &ChunkIdentifier,
+    ) -> Result<(), IndexeddbEventCacheStoreTransactionError> {
+        let mut lower = IndexedEventPositionKey::lower_key_components();
+        lower.chunk_identifier = chunk_id.index();
+        let mut upper = IndexedEventPositionKey::upper_key_components();
+        upper.chunk_identifier = chunk_id.index();
+        let range = IndexedKeyRange::Bound(&lower, &upper);
+        self.delete_events_by_position(room_id, range).await
+    }
+
+    /// Delete events starting from the given position in the given room
+    /// until the end of the chunk
+    pub async fn delete_events_by_chunk_from_index(
+        &self,
+        room_id: &RoomId,
+        position: &Position,
+    ) -> Result<(), IndexeddbEventCacheStoreTransactionError> {
+        let mut upper = IndexedEventPositionKey::upper_key_components();
+        upper.chunk_identifier = position.chunk_identifier;
+        let range = IndexedKeyRange::Bound(position, &upper);
+        self.delete_events_by_position(room_id, range).await
+    }
+
+    /// Delete all events in the given room
+    pub async fn delete_events_in_room(
+        &self,
+        room_id: &RoomId,
+    ) -> Result<(), IndexeddbEventCacheStoreTransactionError> {
+        self.delete_items_in_room::<Event, IndexedEventIdKey>(room_id).await
+    }
+
+    /// Delete gap that matches the given chunk identifier in the given room
+    pub async fn delete_gap_by_id(
+        &self,
+        room_id: &RoomId,
+        chunk_id: &ChunkIdentifier,
+    ) -> Result<(), IndexeddbEventCacheStoreTransactionError> {
+        self.delete_item_by_key::<Gap, IndexedGapIdKey>(room_id, chunk_id).await
+    }
+
+    /// Delete all gaps in the given room
+    pub async fn delete_gaps_in_room(
+        &self,
+        room_id: &RoomId,
+    ) -> Result<(), IndexeddbEventCacheStoreTransactionError> {
+        self.delete_items_in_room::<Gap, IndexedGapIdKey>(room_id).await
+    }
 }
