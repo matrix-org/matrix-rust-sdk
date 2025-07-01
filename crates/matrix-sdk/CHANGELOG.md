@@ -22,6 +22,8 @@ All notable changes to this project will be documented in this file.
   ([#5247](https://github.com/matrix-org/matrix-rust-sdk/pull/5247))
 - [**breaking**]: The element call widget URL configuration struct uses the new `header` url parameter
   instead of the now deprecated `hideHeader` parameter. This is only compatible with EC v0.13.0 or newer.
+- `WidgetDriver::send_to_device` Now supports sending encrypted to-device messages.
+  ([#5252](https://github.com/matrix-org/matrix-rust-sdk/pull/5252))
 
 ### Refactor
 
