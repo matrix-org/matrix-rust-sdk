@@ -29,7 +29,8 @@ use tracing::{instrument, trace, warn};
 
 use crate::timeline::{event_item::RemoteEventOrigin, TimelineController, TimelineFocus};
 
-/// The task that handles the pinned event IDs updates.
+/// Long-lived task, in the pinned events focus mode, that updates the timeline
+/// after any changes in the pinned events.
 #[instrument(
     skip_all,
     fields(
@@ -70,7 +71,8 @@ pub(in crate::timeline) async fn pinned_events_task<S>(
     }
 }
 
-/// The task that handles the [`RoomEventCacheUpdate`]s.
+/// Long-lived task that forwards the [`RoomEventCacheUpdate`]s (remote echoes)
+/// to the timeline.
 pub(in crate::timeline) async fn room_event_cache_updates_task(
     room_event_cache: RoomEventCache,
     timeline_controller: TimelineController,
@@ -157,7 +159,8 @@ pub(in crate::timeline) async fn room_event_cache_updates_task(
     }
 }
 
-/// The task that handles the [`RoomSendQueueUpdate`]s.
+/// Long-lived task that forwards [`RoomSendQueueUpdate`]s (local echoes) to the
+/// timeline.
 pub(in crate::timeline) async fn room_send_queue_update_task(
     mut send_queue_stream: Receiver<RoomSendQueueUpdate>,
     timeline_controller: TimelineController,
