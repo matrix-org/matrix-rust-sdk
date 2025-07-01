@@ -214,6 +214,18 @@ impl RoomEventCache {
         RoomPagination { inner: self.inner.clone() }
     }
 
+    /// Try to find a single event in this room, starting from the most recent
+    /// event.
+    ///
+    /// **Warning**! It looks into the loaded events from the in-memory linked
+    /// chunk **only**. It doesn't look inside the storage.
+    pub async fn rfind_event_in_memory_by<P>(&self, predicate: P) -> Option<Event>
+    where
+        P: FnMut(&Event) -> bool,
+    {
+        self.inner.state.read().await.rfind_event_in_memory_by(predicate)
+    }
+
     /// Try to find an event by ID in this room.
     ///
     /// It starts by looking into loaded events before looking inside the
@@ -1144,6 +1156,20 @@ mod private {
         /// Returns a read-only reference to the underlying room linked chunk.
         pub fn room_linked_chunk(&self) -> &EventLinkedChunk {
             &self.room_linked_chunk
+        }
+
+        //// Find a single event in this room, starting from the most recent event.
+        ///
+        /// **Warning**! It looks into the loaded events from the in-memory
+        /// linked chunk **only**. It doesn't look inside the storage,
+        /// contrary to [`Self::find_event`].
+        pub fn rfind_event_in_memory_by<P>(&self, mut predicate: P) -> Option<Event>
+        where
+            P: FnMut(&Event) -> bool,
+        {
+            self.room_linked_chunk
+                .revents()
+                .find_map(|(_position, event)| predicate(event).then(|| event.clone()))
         }
 
         /// Find a single event in this room.
