@@ -42,7 +42,6 @@ use matrix_sdk_base::{
     linked_chunk::lazy_loader::LazyLoaderError,
     store_locks::LockStoreError,
     sync::RoomUpdates,
-    ROOM_VERSION_FALLBACK,
 };
 use matrix_sdk_common::executor::{spawn, JoinHandle};
 use room::RoomEventCacheState;
@@ -71,6 +70,13 @@ pub enum EventCacheError {
         "The EventCache hasn't subscribed to sync responses yet, call `EventCache::subscribe()`"
     )]
     NotSubscribedYet,
+
+    /// Room is not found.
+    #[error("Room `{room_id}` is not found.")]
+    RoomNotFound {
+        /// The ID of the room not being found.
+        room_id: OwnedRoomId,
+    },
 
     /// An error has been observed while back-paginating.
     #[error(transparent)]
@@ -305,7 +311,7 @@ impl EventCache {
             let room = match inner.for_room(&room_id).await {
                 Ok(room) => room,
                 Err(err) => {
-                    warn!(for_room = %room_id, "error when getting a RoomEventCache: {err}");
+                    warn!(for_room = %room_id, "Failed to get the `RoomEventCache`: {err}");
                     continue;
                 }
             };
@@ -527,9 +533,6 @@ impl EventCacheInner {
     }
 
     /// Return a room-specific view over the [`EventCache`].
-    ///
-    /// It may not be found, if the room isn't known to the client, in which
-    /// case it'll return None.
     async fn for_room(&self, room_id: &RoomId) -> Result<RoomEventCache> {
         // Fast path: the entry exists; let's acquire a read lock, it's cheaper than a
         // write lock.
@@ -552,16 +555,14 @@ impl EventCacheInner {
                 let pagination_status =
                     SharedObservable::new(RoomPaginationStatus::Idle { hit_timeline_start: false });
 
-                let room_version = self
-                    .client
-                    .get()
-                    .and_then(|client| client.get_room(room_id))
-                    .as_ref()
-                    .map(|room| room.clone_info().room_version_or_default())
-                    .unwrap_or_else(|| {
-                        warn!("unknown room version for {room_id}, using default {ROOM_VERSION_FALLBACK}");
-                        ROOM_VERSION_FALLBACK
-                    });
+                let Some(client) = self.client.get() else {
+                    return Err(EventCacheError::ClientDropped);
+                };
+
+                let room = client
+                    .get_room(room_id)
+                    .ok_or_else(|| EventCacheError::RoomNotFound { room_id: room_id.to_owned() })?;
+                let room_version = room.clone_info().room_version_or_default();
 
                 let room_state = RoomEventCacheState::new(
                     room_id.to_owned(),
@@ -782,6 +783,9 @@ mod tests {
         let room_id1 = room_id!("!galette:saucisse.bzh");
         let room_id2 = room_id!("!crepe:saucisse.bzh");
 
+        client.base_client().get_or_create_room(room_id1, RoomState::Joined);
+        client.base_client().get_or_create_room(room_id2, RoomState::Joined);
+
         let event_cache = client.event_cache();
         event_cache.subscribe().unwrap();
 
@@ -819,7 +823,6 @@ mod tests {
         event_cache.inner.handle_room_updates(updates).await.unwrap();
 
         // We can find the events in a single room.
-        client.base_client().get_or_create_room(room_id1, RoomState::Joined);
         let room1 = client.get_room(room_id1).unwrap();
 
         let (room_event_cache, _drop_handles) = room1.event_cache().await.unwrap();
@@ -1026,5 +1029,28 @@ mod tests {
 
         assert!(pagination_outcome.reached_start);
         assert!(generic_stream.recv().now_or_never().is_none());
+    }
+
+    #[async_test]
+    async fn test_for_room_when_room_is_not_found() {
+        let client = logged_in_client(None).await;
+        let room_id = room_id!("!raclette:patate.ch");
+
+        let event_cache = client.event_cache();
+        event_cache.subscribe().unwrap();
+
+        // Room doesn't exist. It returns an error.
+        assert_matches!(
+            event_cache.for_room(room_id).await,
+            Err(EventCacheError::RoomNotFound { room_id: not_found_room_id }) => {
+                assert_eq!(room_id, not_found_room_id);
+            }
+        );
+
+        // Now create the room.
+        client.base_client().get_or_create_room(room_id, RoomState::Joined);
+
+        // Room exists. Everything fine.
+        assert!(event_cache.for_room(room_id).await.is_ok());
     }
 }
