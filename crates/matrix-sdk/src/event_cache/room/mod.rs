@@ -1591,10 +1591,6 @@ mod private {
             mut new_gap: Option<Gap>,
             prev_gap_id: Option<ChunkIdentifier>,
         ) -> Result<(BackPaginationOutcome, Vec<VectorDiff<Event>>), EventCacheError> {
-            // If there's no new gap (previous batch token), then we've reached the start of
-            // the timeline.
-            let network_reached_start = new_gap.is_none();
-
             let DeduplicationOutcome {
                 all_events: mut events,
                 in_memory_duplicated_event_ids,
@@ -1633,91 +1629,17 @@ mod private {
                 new_gap = None;
             };
 
-            // Reverse the order of the events as `/messages` has been called with `dir=b`
-            // (backwards). The `EventLinkedChunk` API expects the first event to be the
-            // oldest. Let's re-order them for this block.
-            let reversed_events = events.iter().rev().cloned().collect::<Vec<_>>();
+            // `/messages` has been called with `dir=b` (backwards), so the events are in
+            // the inverted order; reorder them.
+            let topo_ordered_events = events.iter().rev().cloned().collect::<Vec<_>>();
 
-            let first_event_pos =
-                self.room_linked_chunk.events().next().map(|(item_pos, _)| item_pos);
+            let reached_start = self.room_linked_chunk.finish_back_pagination(
+                prev_gap_id,
+                new_gap,
+                &topo_ordered_events,
+            );
 
-            // First, insert events.
-            let insert_new_gap_pos = if let Some(gap_id) = prev_gap_id {
-                // There is a prior gap, let's replace it by new events!
-                if all_duplicates {
-                    assert!(reversed_events.is_empty());
-                }
-
-                trace!("replacing previous gap with the back-paginated events");
-
-                // Replace the gap with the events we just deduplicated. This might get rid of
-                // the underlying gap, if the conditions are favorable to
-                // us.
-                self.room_linked_chunk
-                    .replace_gap_at(gap_id, reversed_events.clone())
-                    .expect("gap_identifier is a valid chunk id we read previously")
-            } else if let Some(pos) = first_event_pos {
-                // No prior gap, but we had some events: assume we need to prepend events
-                // before those.
-                trace!("inserted events before the first known event");
-
-                self.room_linked_chunk
-                    .insert_events_at(reversed_events.clone(), pos)
-                    .expect("pos is a valid position we just read above");
-
-                Some(pos)
-            } else {
-                // No prior gap, and no prior events: push the events.
-                trace!("pushing events received from back-pagination");
-
-                self.room_linked_chunk.push_events(reversed_events.clone());
-
-                // A new gap may be inserted before the new events, if there are any.
-                self.room_linked_chunk.events().next().map(|(item_pos, _)| item_pos)
-            };
-
-            // And insert the new gap if needs be.
-            //
-            // We only do this when at least one new, non-duplicated event, has been added
-            // to the chunk. Otherwise it means we've back-paginated all the
-            // known events.
-            if let Some(new_gap) = new_gap {
-                if let Some(new_pos) = insert_new_gap_pos {
-                    self.room_linked_chunk
-                        .insert_gap_at(new_gap, new_pos)
-                        .expect("events_chunk_pos represents a valid chunk position");
-                } else {
-                    self.room_linked_chunk.push_gap(new_gap);
-                }
-            }
-
-            self.post_process_new_events(reversed_events, false).await?;
-
-            // There could be an inconsistency between the network (which thinks we hit the
-            // start of the timeline) and the disk (which has the initial empty
-            // chunks), so tweak the `reached_start` value so that it reflects the disk
-            // state in priority instead.
-            let reached_start = {
-                // There are no gaps.
-                let has_gaps = self.room_linked_chunk.chunks().any(|chunk| chunk.is_gap());
-
-                // The first chunk has no predecessors.
-                let first_chunk_is_definitive_head =
-                    self.room_linked_chunk.chunks().next().map(|chunk| chunk.is_definitive_head());
-
-                let reached_start =
-                    !has_gaps && first_chunk_is_definitive_head.unwrap_or(network_reached_start);
-
-                trace!(
-                    ?network_reached_start,
-                    ?has_gaps,
-                    ?first_chunk_is_definitive_head,
-                    ?reached_start,
-                    "finished handling network back-pagination"
-                );
-
-                reached_start
-            };
+            self.post_process_new_events(topo_ordered_events, false).await?;
 
             let event_diffs = self.room_linked_chunk.updates_as_vector_diffs();
             let backpagination_outcome = BackPaginationOutcome { events, reached_start };

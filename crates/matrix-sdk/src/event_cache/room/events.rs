@@ -26,6 +26,7 @@ use matrix_sdk_common::linked_chunk::{
     AsVector, Chunk, ChunkIdentifier, Error, Iter, IterBackward, LinkedChunk, ObservableUpdates,
     Position,
 };
+use tracing::trace;
 
 /// This type represents a linked chunk of events for a single room or thread.
 #[derive(Debug)]
@@ -310,6 +311,99 @@ impl EventLinkedChunk {
     pub fn rgap(&self) -> Option<Gap> {
         self.rchunks()
             .find_map(|chunk| as_variant!(chunk.content(), ChunkContent::Gap(gap) => gap.clone()))
+    }
+
+    /// Finish a network back-pagination for this linked chunk by updating the
+    /// in-memory linked chunk with the results.
+    ///
+    /// ## Arguments
+    ///
+    /// - `prev_gap_id`: the identifier of the previous gap, if any.
+    /// - `new_gap`: the new gap to insert, if any. If missing, we've likely
+    ///   reached the start of the timeline.
+    /// - `events`: new events to insert, in the topological ordering (i.e. from
+    ///   oldest to most recent).
+    ///
+    /// ## Returns
+    ///
+    /// Returns a boolean indicating whether we've hit the start of the
+    /// timeline/linked chunk.
+    pub fn finish_back_pagination(
+        &mut self,
+        prev_gap_id: Option<ChunkIdentifier>,
+        new_gap: Option<Gap>,
+        events: &[Event],
+    ) -> bool {
+        let first_event_pos = self.events().next().map(|(item_pos, _)| item_pos);
+
+        // First, insert events.
+        let insert_new_gap_pos = if let Some(gap_id) = prev_gap_id {
+            // There is a prior gap, let's replace it with the new events!
+            trace!("replacing previous gap with the back-paginated events");
+
+            // Replace the gap with the events we just deduplicated. This might get rid of
+            // the underlying gap, if the conditions are favorable to
+            // us.
+            self.replace_gap_at(gap_id, events.to_vec())
+                .expect("gap_identifier is a valid chunk id we read previously")
+        } else if let Some(pos) = first_event_pos {
+            // No prior gap, but we had some events: assume we need to prepend events
+            // before those.
+            trace!("inserted events before the first known event");
+
+            self.insert_events_at(events.to_vec(), pos)
+                .expect("pos is a valid position we just read above");
+
+            Some(pos)
+        } else {
+            // No prior gap, and no prior events: push the events.
+            trace!("pushing events received from back-pagination");
+
+            self.push_events(events.to_vec());
+
+            // A new gap may be inserted before the new events, if there are any.
+            self.events().next().map(|(item_pos, _)| item_pos)
+        };
+
+        // And insert the new gap if needs be.
+        //
+        // We only do this when at least one new, non-duplicated event, has been added
+        // to the chunk. Otherwise it means we've back-paginated all the
+        // known events.
+        let has_new_gap = new_gap.is_some();
+        if let Some(new_gap) = new_gap {
+            if let Some(new_pos) = insert_new_gap_pos {
+                self.insert_gap_at(new_gap, new_pos)
+                    .expect("events_chunk_pos represents a valid chunk position");
+            } else {
+                self.push_gap(new_gap);
+            }
+        }
+
+        // There could be an inconsistency between the network (which thinks we hit the
+        // start of the timeline) and the disk (which has the initial empty
+        // chunks), so tweak the `reached_start` value so that it reflects the
+        // disk state in priority instead.
+
+        let has_gaps = self.chunks().any(|chunk| chunk.is_gap());
+
+        // Whether the first chunk has no predecessors or not.
+        let first_chunk_is_definitive_head =
+            self.chunks().next().map(|chunk| chunk.is_definitive_head());
+
+        let network_reached_start = !has_new_gap;
+        let reached_start =
+            !has_gaps && first_chunk_is_definitive_head.unwrap_or(network_reached_start);
+
+        trace!(
+            ?network_reached_start,
+            ?has_gaps,
+            ?first_chunk_is_definitive_head,
+            ?reached_start,
+            "finished handling network back-pagination"
+        );
+
+        reached_start
     }
 }
 
