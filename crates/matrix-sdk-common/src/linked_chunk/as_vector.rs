@@ -563,8 +563,8 @@ mod tests {
 
         linked_chunk
             .insert_items_at(
-                ['w', 'x', 'y', 'z'],
                 linked_chunk.item_position(|item| *item == 'b').unwrap(),
+                ['w', 'x', 'y', 'z'],
             )
             .unwrap();
         assert_items_eq!(linked_chunk, ['a', 'w', 'x'] ['y', 'z', 'b'] ['c'] ['d']);
@@ -646,7 +646,7 @@ mod tests {
         );
 
         linked_chunk
-            .insert_items_at(['m'], linked_chunk.item_position(|item| *item == 'a').unwrap())
+            .insert_items_at(linked_chunk.item_position(|item| *item == 'a').unwrap(), ['m'])
             .unwrap();
         assert_items_eq!(
             linked_chunk,
@@ -709,7 +709,7 @@ mod tests {
         apply_and_assert_eq(&mut accumulator, as_vector.take(), &[VectorDiff::Remove { index: 5 }]);
 
         linked_chunk
-            .insert_items_at(['z'], linked_chunk.item_position(|item| *item == 'h').unwrap())
+            .insert_items_at(linked_chunk.item_position(|item| *item == 'h').unwrap(), ['z'])
             .unwrap();
 
         assert_items_eq!(
