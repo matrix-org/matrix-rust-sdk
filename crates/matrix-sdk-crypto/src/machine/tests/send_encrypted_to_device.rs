@@ -226,7 +226,7 @@ async fn test_send_olm_encryption_info_unverified_identity() {
         &alice,
         &bob,
         custom_event_type,
-        custom_content,
+        &custom_content,
     )
     .await;
 
@@ -266,7 +266,7 @@ async fn test_send_olm_encryption_info_verified_identity() {
         &alice,
         &bob,
         custom_event_type,
-        custom_content,
+        &custom_content,
     )
     .await;
 
@@ -302,7 +302,7 @@ async fn test_send_olm_encryption_info_verified_locally() {
         &alice,
         &bob,
         custom_event_type,
-        custom_content,
+        &custom_content,
     )
     .await;
 
@@ -344,7 +344,7 @@ async fn test_send_olm_encryption_info_verification_violation() {
         &alice,
         &bob,
         custom_event_type,
-        custom_content,
+        &custom_content,
     )
     .await;
 
