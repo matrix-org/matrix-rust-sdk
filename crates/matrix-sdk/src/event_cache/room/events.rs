@@ -462,10 +462,10 @@ mod tests {
     }
 
     #[test]
-    fn test_new_room_events_has_zero_events() {
-        let room_events = EventLinkedChunk::new();
+    fn test_new_event_linked_chunk_has_zero_events() {
+        let linked_chunk = EventLinkedChunk::new();
 
-        assert_eq!(room_events.events().count(), 0);
+        assert_eq!(linked_chunk.events().count(), 0);
     }
 
     #[test]
@@ -474,13 +474,13 @@ mod tests {
         let (event_id_1, event_1) = new_event("$ev1");
         let (event_id_2, event_2) = new_event("$ev2");
 
-        let mut room_events = EventLinkedChunk::new();
+        let mut linked_chunk = EventLinkedChunk::new();
 
-        room_events.push_events([event_0, event_1]);
-        room_events.push_events([event_2]);
+        linked_chunk.push_events([event_0, event_1]);
+        linked_chunk.push_events([event_2]);
 
         assert_events_eq!(
-            room_events.events(),
+            linked_chunk.events(),
             [
                 (event_id_0 at (0, 0)),
                 (event_id_1 at (0, 1)),
@@ -494,14 +494,14 @@ mod tests {
         let (event_id_0, event_0) = new_event("$ev0");
         let (event_id_1, event_1) = new_event("$ev1");
 
-        let mut room_events = EventLinkedChunk::new();
+        let mut linked_chunk = EventLinkedChunk::new();
 
-        room_events.push_events([event_0]);
-        room_events.push_gap(Gap { prev_token: "hello".to_owned() });
-        room_events.push_events([event_1]);
+        linked_chunk.push_events([event_0]);
+        linked_chunk.push_gap(Gap { prev_token: "hello".to_owned() });
+        linked_chunk.push_events([event_1]);
 
         assert_events_eq!(
-            room_events.events(),
+            linked_chunk.events(),
             [
                 (event_id_0 at (0, 0)),
                 (event_id_1 at (2, 0)),
@@ -509,7 +509,7 @@ mod tests {
         );
 
         {
-            let mut chunks = room_events.chunks();
+            let mut chunks = linked_chunk.chunks();
 
             assert_let!(Some(chunk) = chunks.next());
             assert!(chunk.is_items());
@@ -530,21 +530,21 @@ mod tests {
         let (event_id_1, event_1) = new_event("$ev1");
         let (event_id_2, event_2) = new_event("$ev2");
 
-        let mut room_events = EventLinkedChunk::new();
+        let mut linked_chunk = EventLinkedChunk::new();
 
-        room_events.push_events([event_0, event_1]);
+        linked_chunk.push_events([event_0, event_1]);
 
-        let position_of_event_1 = room_events
+        let position_of_event_1 = linked_chunk
             .events()
             .find_map(|(position, event)| {
                 (event.event_id().unwrap() == event_id_1).then_some(position)
             })
             .unwrap();
 
-        room_events.insert_events_at(vec![event_2], position_of_event_1).unwrap();
+        linked_chunk.insert_events_at(vec![event_2], position_of_event_1).unwrap();
 
         assert_events_eq!(
-            room_events.events(),
+            linked_chunk.events(),
             [
                 (event_id_0 at (0, 0)),
                 (event_id_2 at (0, 1)),
@@ -558,23 +558,23 @@ mod tests {
         let (event_id_0, event_0) = new_event("$ev0");
         let (event_id_1, event_1) = new_event("$ev1");
 
-        let mut room_events = EventLinkedChunk::new();
+        let mut linked_chunk = EventLinkedChunk::new();
 
-        room_events.push_events([event_0, event_1]);
+        linked_chunk.push_events([event_0, event_1]);
 
-        let position_of_event_1 = room_events
+        let position_of_event_1 = linked_chunk
             .events()
             .find_map(|(position, event)| {
                 (event.event_id().unwrap() == event_id_1).then_some(position)
             })
             .unwrap();
 
-        room_events
+        linked_chunk
             .insert_gap_at(Gap { prev_token: "hello".to_owned() }, position_of_event_1)
             .unwrap();
 
         assert_events_eq!(
-            room_events.events(),
+            linked_chunk.events(),
             [
                 (event_id_0 at (0, 0)),
                 (event_id_1 at (2, 0)),
@@ -582,7 +582,7 @@ mod tests {
         );
 
         {
-            let mut chunks = room_events.chunks();
+            let mut chunks = linked_chunk.chunks();
 
             assert_let!(Some(chunk) = chunks.next());
             assert!(chunk.is_items());
@@ -603,20 +603,20 @@ mod tests {
         let (event_id_1, event_1) = new_event("$ev1");
         let (event_id_2, event_2) = new_event("$ev2");
 
-        let mut room_events = EventLinkedChunk::new();
+        let mut linked_chunk = EventLinkedChunk::new();
 
-        room_events.push_events([event_0]);
-        room_events.push_gap(Gap { prev_token: "hello".to_owned() });
+        linked_chunk.push_events([event_0]);
+        linked_chunk.push_gap(Gap { prev_token: "hello".to_owned() });
 
-        let chunk_identifier_of_gap = room_events
+        let chunk_identifier_of_gap = linked_chunk
             .chunks()
             .find_map(|chunk| chunk.is_gap().then_some(chunk.identifier()))
             .unwrap();
 
-        room_events.replace_gap_at(vec![event_1, event_2], chunk_identifier_of_gap).unwrap();
+        linked_chunk.replace_gap_at(vec![event_1, event_2], chunk_identifier_of_gap).unwrap();
 
         assert_events_eq!(
-            room_events.events(),
+            linked_chunk.events(),
             [
                 (event_id_0 at (0, 0)),
                 (event_id_1 at (2, 0)),
@@ -625,7 +625,7 @@ mod tests {
         );
 
         {
-            let mut chunks = room_events.chunks();
+            let mut chunks = linked_chunk.chunks();
 
             assert_let!(Some(chunk) = chunks.next());
             assert!(chunk.is_items());
@@ -643,31 +643,31 @@ mod tests {
         let (_, event_1) = new_event("$ev1");
         let (_, event_2) = new_event("$ev2");
 
-        let mut room_events = EventLinkedChunk::new();
+        let mut linked_chunk = EventLinkedChunk::new();
 
-        room_events.push_events([event_0, event_1]);
-        room_events.push_gap(Gap { prev_token: "middle".to_owned() });
-        room_events.push_events([event_2]);
-        room_events.push_gap(Gap { prev_token: "end".to_owned() });
+        linked_chunk.push_events([event_0, event_1]);
+        linked_chunk.push_gap(Gap { prev_token: "middle".to_owned() });
+        linked_chunk.push_events([event_2]);
+        linked_chunk.push_gap(Gap { prev_token: "end".to_owned() });
 
         // Remove the first gap.
-        let first_gap_id = room_events
+        let first_gap_id = linked_chunk
             .chunks()
             .find_map(|chunk| chunk.is_gap().then_some(chunk.identifier()))
             .unwrap();
 
         // The next insert position is the next chunk's start.
-        let pos = room_events.replace_gap_at(vec![], first_gap_id).unwrap();
+        let pos = linked_chunk.replace_gap_at(vec![], first_gap_id).unwrap();
         assert_eq!(pos, Some(Position::new(ChunkIdentifier::new(2), 0)));
 
         // Remove the second gap.
-        let second_gap_id = room_events
+        let second_gap_id = linked_chunk
             .chunks()
             .find_map(|chunk| chunk.is_gap().then_some(chunk.identifier()))
             .unwrap();
 
         // No next insert position.
-        let pos = room_events.replace_gap_at(vec![], second_gap_id).unwrap();
+        let pos = linked_chunk.replace_gap_at(vec![], second_gap_id).unwrap();
         assert!(pos.is_none());
     }
 
@@ -679,13 +679,13 @@ mod tests {
         let (event_id_3, event_3) = new_event("$ev3");
 
         // Push some events.
-        let mut room_events = EventLinkedChunk::new();
-        room_events.push_events([event_0, event_1]);
-        room_events.push_gap(Gap { prev_token: "hello".to_owned() });
-        room_events.push_events([event_2, event_3]);
+        let mut linked_chunk = EventLinkedChunk::new();
+        linked_chunk.push_events([event_0, event_1]);
+        linked_chunk.push_gap(Gap { prev_token: "hello".to_owned() });
+        linked_chunk.push_events([event_2, event_3]);
 
         assert_events_eq!(
-            room_events.events(),
+            linked_chunk.events(),
             [
                 (event_id_0 at (0, 0)),
                 (event_id_1 at (0, 1)),
@@ -693,10 +693,10 @@ mod tests {
                 (event_id_3 at (2, 1)),
             ]
         );
-        assert_eq!(room_events.chunks().count(), 3);
+        assert_eq!(linked_chunk.chunks().count(), 3);
 
         // Remove some events.
-        room_events
+        linked_chunk
             .remove_events_by_position(vec![
                 Position::new(ChunkIdentifier::new(2), 1),
                 Position::new(ChunkIdentifier::new(0), 1),
@@ -704,7 +704,7 @@ mod tests {
             .unwrap();
 
         assert_events_eq!(
-            room_events.events(),
+            linked_chunk.events(),
             [
                 (event_id_0 at (0, 0)),
                 (event_id_2 at (2, 0)),
@@ -712,35 +712,35 @@ mod tests {
         );
 
         // Ensure chunks are removed once empty.
-        room_events
+        linked_chunk
             .remove_events_by_position(vec![Position::new(ChunkIdentifier::new(2), 0)])
             .unwrap();
 
         assert_events_eq!(
-            room_events.events(),
+            linked_chunk.events(),
             [
                 (event_id_0 at (0, 0)),
             ]
         );
-        assert_eq!(room_events.chunks().count(), 2);
+        assert_eq!(linked_chunk.chunks().count(), 2);
     }
 
     #[test]
     fn test_remove_events_unknown_event() {
         // Push ZERO event.
-        let mut room_events = EventLinkedChunk::new();
+        let mut linked_chunk = EventLinkedChunk::new();
 
-        assert_events_eq!(room_events.events(), []);
+        assert_events_eq!(linked_chunk.events(), []);
 
         // Remove one undefined event.
         // An error is expected.
-        room_events
+        linked_chunk
             .remove_events_by_position(vec![Position::new(ChunkIdentifier::new(42), 153)])
             .unwrap_err();
 
-        assert_events_eq!(room_events.events(), []);
+        assert_events_eq!(linked_chunk.events(), []);
 
-        let mut events = room_events.events();
+        let mut events = linked_chunk.events();
         assert!(events.next().is_none());
     }
 
@@ -752,13 +752,13 @@ mod tests {
         let (event_id_3, event_3) = new_event("$ev3");
 
         // Push some events.
-        let mut room_events = EventLinkedChunk::new();
-        room_events.push_events([event_0, event_1]);
-        room_events.push_gap(Gap { prev_token: "raclette".to_owned() });
-        room_events.push_events([event_2]);
+        let mut linked_chunk = EventLinkedChunk::new();
+        linked_chunk.push_events([event_0, event_1]);
+        linked_chunk.push_gap(Gap { prev_token: "raclette".to_owned() });
+        linked_chunk.push_events([event_2]);
 
         // Read the updates as `VectorDiff`.
-        let diffs = room_events.updates_as_vector_diffs();
+        let diffs = linked_chunk.updates_as_vector_diffs();
 
         assert_eq!(diffs.len(), 2);
 
@@ -779,11 +779,11 @@ mod tests {
         );
 
         // Now we can reset and see what happens.
-        room_events.reset();
-        room_events.push_events([event_3]);
+        linked_chunk.reset();
+        linked_chunk.push_events([event_3]);
 
         // Read the updates as `VectorDiff`.
-        let diffs = room_events.updates_as_vector_diffs();
+        let diffs = linked_chunk.updates_as_vector_diffs();
 
         assert_eq!(diffs.len(), 2);
 
@@ -801,20 +801,20 @@ mod tests {
     fn test_debug_string() {
         let event_factory = EventFactory::new().room(&DEFAULT_TEST_ROOM_ID).sender(*ALICE);
 
-        let mut room_events = EventLinkedChunk::new();
-        room_events.push_events(vec![
+        let mut linked_chunk = EventLinkedChunk::new();
+        linked_chunk.push_events(vec![
             event_factory
                 .text_msg("hey")
                 .event_id(event_id!("$123456789101112131415617181920"))
                 .into_event(),
             event_factory.text_msg("you").event_id(event_id!("$2")).into_event(),
         ]);
-        room_events.push_gap(Gap { prev_token: "raclette".to_owned() });
+        linked_chunk.push_gap(Gap { prev_token: "raclette".to_owned() });
 
         // Flush updates to the order tracker.
-        let _ = room_events.updates_as_vector_diffs();
+        let _ = linked_chunk.updates_as_vector_diffs();
 
-        let output = room_events.debug_string();
+        let output = linked_chunk.debug_string();
 
         assert_eq!(output.len(), 2);
         assert_eq!(&output[0], "chunk #0: events[#0: $12345678, #1: $2]");

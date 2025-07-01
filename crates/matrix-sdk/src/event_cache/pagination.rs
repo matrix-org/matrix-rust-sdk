@@ -293,7 +293,7 @@ impl RoomPagination {
         // Check that the previous token still exists; otherwise it's a sign that the
         // room's timeline has been cleared.
         let prev_gap_chunk_id = if let Some(token) = prev_token {
-            let gap_chunk_id = state.events().chunk_identifier(|chunk| {
+            let gap_chunk_id = state.room_linked_chunk().chunk_identifier(|chunk| {
                 matches!(chunk.content(), ChunkContent::Gap(Gap { ref prev_token }) if *prev_token == token)
             });
 

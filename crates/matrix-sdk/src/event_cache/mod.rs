@@ -572,7 +572,8 @@ impl EventCacheInner {
                 )
                 .await?;
 
-                let timeline_is_not_empty = room_state.events().revents().next().is_some();
+                let timeline_is_not_empty =
+                    room_state.room_linked_chunk().revents().next().is_some();
 
                 // SAFETY: we must have subscribed before reaching this code, otherwise
                 // something is very wrong.
