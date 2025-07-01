@@ -31,11 +31,10 @@ use matrix_sdk::{
     attachment::AttachmentConfig,
     deserialized_responses::TimelineEvent,
     event_cache::{EventCacheDropHandles, RoomEventCache},
-    event_handler::EventHandlerHandle,
     executor::JoinHandle,
     room::{edit::EditedContent, reply::Reply, Receipts, Room},
     send_queue::{RoomSendQueueError, SendHandle},
-    Client, Result,
+    Result,
 };
 use mime::Mime;
 use pinned_events_loader::PinnedEventsRoom;
