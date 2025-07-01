@@ -20,11 +20,14 @@ use web_sys::IdbTransactionMode;
 
 use crate::event_cache_store::serializer::IndexeddbEventCacheStoreSerializer;
 
+mod builder;
 mod error;
 mod migrations;
 mod serializer;
 mod transaction;
 mod types;
+
+pub use builder::IndexeddbEventCacheStoreBuilder;
 
 /// A type for providing an IndexedDB implementation of [`EventCacheStore`][1].
 /// This is meant to be used as a backend to [`EventCacheStore`][1] in browser
@@ -42,4 +45,12 @@ pub struct IndexeddbEventCacheStore {
     // NOTE: This will be removed once we have IndexedDB-backed implementations for all
     // functions in `EventCacheStore`.
     memory_store: MemoryStore,
+}
+
+impl IndexeddbEventCacheStore {
+    /// Provides a type with which to conveniently build an
+    /// [`IndexeddbEventCacheStore`]
+    pub fn builder() -> IndexeddbEventCacheStoreBuilder {
+        IndexeddbEventCacheStoreBuilder::default()
+    }
 }
