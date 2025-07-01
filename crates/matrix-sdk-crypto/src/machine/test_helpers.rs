@@ -187,7 +187,7 @@ pub async fn send_and_receive_encrypted_to_device_test_helper(
     sender: &OlmMachine,
     recipient: &OlmMachine,
     event_type: &str,
-    content: Value,
+    content: &Value,
 ) -> ProcessedToDeviceEvent {
     let device =
         sender.get_device(recipient.user_id(), recipient.device_id(), None).await.unwrap().unwrap();
