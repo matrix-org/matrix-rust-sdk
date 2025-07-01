@@ -33,8 +33,9 @@ use super::{
     DateDividerMode, Error, Timeline, TimelineDropHandle, TimelineFocus,
 };
 use crate::{
-    timeline::tasks::{
-        pinned_events_task, room_event_cache_updates_task, room_send_queue_update_task,
+    timeline::{
+        controller::CryptoDropHandles,
+        tasks::{pinned_events_task, room_event_cache_updates_task, room_send_queue_update_task},
     },
     unable_to_decrypt_hook::UtdHookManager,
 };
@@ -284,20 +285,24 @@ impl TimelineBuilder {
             ))
         };
 
+        let crypto_drop_handles = CryptoDropHandles {
+            client,
+            event_handler_handles: event_handlers,
+            room_key_from_backups_join_handle,
+            room_keys_received_join_handle,
+            room_key_backup_enabled_join_handle,
+            encryption_changes_handle,
+        };
+
         let timeline = Timeline {
             controller,
             event_cache: room_event_cache,
             drop_handle: Arc::new(TimelineDropHandle {
-                client,
-                event_handler_handles: event_handlers,
+                _crypto_drop_handles: crypto_drop_handles,
                 room_update_join_handle,
                 pinned_events_join_handle,
-                room_key_from_backups_join_handle,
-                room_key_backup_enabled_join_handle,
-                room_keys_received_join_handle,
                 local_echo_listener_handle,
                 _event_cache_drop_handle: event_cache_drop,
-                encryption_changes_handle,
             }),
         };
 
