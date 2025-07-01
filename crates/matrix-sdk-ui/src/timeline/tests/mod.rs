@@ -121,16 +121,14 @@ impl TestTimelineBuilder {
     }
 
     fn build(self) -> TestTimeline {
-        let mut controller = TimelineController::new(
+        let controller = TimelineController::new(
             self.provider.unwrap_or_default(),
             TimelineFocus::Live { hide_threaded_events: false },
             self.internal_id_prefix,
             self.utd_hook,
             self.is_room_encrypted,
+            self.settings.unwrap_or_default(),
         );
-        if let Some(settings) = self.settings {
-            controller = controller.with_settings(settings);
-        }
         TestTimeline { controller, factory: EventFactory::new() }
     }
 }
