@@ -14,8 +14,32 @@
 
 #![allow(unused)]
 
+use indexed_db_futures::IdbDatabase;
+use matrix_sdk_base::event_cache::store::MemoryStore;
+use web_sys::IdbTransactionMode;
+
+use crate::event_cache_store::serializer::IndexeddbEventCacheStoreSerializer;
+
 mod error;
 mod migrations;
 mod serializer;
 mod transaction;
 mod types;
+
+/// A type for providing an IndexedDB implementation of [`EventCacheStore`][1].
+/// This is meant to be used as a backend to [`EventCacheStore`][1] in browser
+/// contexts.
+///
+/// [1]: matrix_sdk_base::event_cache::store::EventCacheStore
+pub struct IndexeddbEventCacheStore {
+    // A handle to the IndexedDB database
+    inner: IdbDatabase,
+    // A serializer with functionality tailored to `IndexeddbEventCacheStore`
+    serializer: IndexeddbEventCacheStoreSerializer,
+    // An in-memory store for providing temporary implementations for
+    // functions of `EventCacheStore`.
+    //
+    // NOTE: This will be removed once we have IndexedDB-backed implementations for all
+    // functions in `EventCacheStore`.
+    memory_store: MemoryStore,
+}
