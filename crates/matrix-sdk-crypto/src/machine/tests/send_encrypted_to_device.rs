@@ -51,53 +51,13 @@ async fn test_send_encrypted_to_device() {
             "rooms": ["!726s6s6q:example.com"]
     });
 
-    let device = alice.get_device(bob.user_id(), bob.device_id(), None).await.unwrap().unwrap();
-    let raw_encrypted = device
-        .encrypt_event_raw(custom_event_type, &custom_content)
-        .await
-        .expect("Should have encrypted the content");
-
-    let request = ToDeviceRequest::new(
-        bob.user_id(),
-        DeviceIdOrAllDevices::DeviceId(tests::bob_device_id().to_owned()),
-        "m.room.encrypted",
-        raw_encrypted.cast(),
-    );
-
-    assert_eq!("m.room.encrypted", request.event_type.to_string());
-
-    let messages = &request.messages;
-    assert_eq!(1, messages.len());
-    assert!(messages.get(bob.user_id()).is_some());
-    let target_devices = messages.get(bob.user_id()).unwrap();
-    assert_eq!(1, target_devices.len());
-    assert!(target_devices
-        .get(&DeviceIdOrAllDevices::DeviceId(tests::bob_device_id().to_owned()))
-        .is_some());
-
-    let event = ToDeviceEvent::new(
-        alice.user_id().to_owned(),
-        tests::to_device_requests_to_content(vec![request.clone().into()]),
-    );
-
-    let event = json_convert(&event).unwrap();
-
-    let sync_changes = EncryptionSyncChanges {
-        to_device_events: vec![event],
-        changed_devices: &Default::default(),
-        one_time_keys_counts: &Default::default(),
-        unused_fallback_keys: None,
-        next_batch_token: None,
-    };
-
-    let decryption_settings =
-        DecryptionSettings { sender_device_trust_requirement: TrustRequirement::Untrusted };
-
-    let (decrypted, _) =
-        bob.receive_sync_changes(sync_changes, &decryption_settings).await.unwrap();
-
-    assert_eq!(1, decrypted.len());
-    let processed_event = &decrypted[0];
+    let processed_event = send_and_receive_encrypted_to_device_test_helper(
+        &alice,
+        &bob,
+        custom_event_type,
+        &custom_content,
+    )
+    .await;
 
     assert_let!(ProcessedToDeviceEvent::Decrypted { raw, encryption_info } = processed_event);
 
@@ -105,7 +65,7 @@ async fn test_send_encrypted_to_device() {
 
     assert_eq!(decrypted_event.event_type().to_string(), custom_event_type.to_owned());
 
-    let decrypted_value = to_raw_value(&decrypted[0].to_raw()).unwrap();
+    let decrypted_value = to_raw_value(&raw).unwrap();
     let decrypted_value = serde_json::to_value(decrypted_value).unwrap();
 
     assert_eq!(
@@ -164,42 +124,13 @@ async fn test_receive_custom_encrypted_to_device_fails_if_device_unknown() {
             "rooms": ["!726s6s6q:example.com"]
     });
 
-    let device = alice.get_device(bob.user_id(), bob.device_id(), None).await.unwrap().unwrap();
-    let raw_encrypted = device
-        .encrypt_event_raw(custom_event_type, &custom_content)
-        .await
-        .expect("Should have encrypted the content");
-
-    let request = ToDeviceRequest::new(
-        bob.user_id(),
-        DeviceIdOrAllDevices::DeviceId(tests::bob_device_id().to_owned()),
-        "m.room.encrypted",
-        raw_encrypted.cast(),
-    );
-
-    let event = ToDeviceEvent::new(
-        alice.user_id().to_owned(),
-        tests::to_device_requests_to_content(vec![request.clone().into()]),
-    );
-
-    let event = json_convert(&event).unwrap();
-
-    let sync_changes = EncryptionSyncChanges {
-        to_device_events: vec![event],
-        changed_devices: &Default::default(),
-        one_time_keys_counts: &Default::default(),
-        unused_fallback_keys: None,
-        next_batch_token: None,
-    };
-
-    let decryption_settings =
-        DecryptionSettings { sender_device_trust_requirement: TrustRequirement::Untrusted };
-
-    let (decrypted, _) =
-        bob.receive_sync_changes(sync_changes, &decryption_settings).await.unwrap();
-
-    assert_eq!(1, decrypted.len());
-    let processed_event = &decrypted[0];
+    let processed_event = send_and_receive_encrypted_to_device_test_helper(
+        &alice,
+        &bob,
+        custom_event_type,
+        &custom_content,
+    )
+    .await;
 
     assert_let!(ProcessedToDeviceEvent::UnableToDecrypt(_) = processed_event);
 }
