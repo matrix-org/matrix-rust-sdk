@@ -434,12 +434,30 @@ impl BaseClient {
             let _sync_lock = self.sync_lock().lock().await;
 
             let mut room_info = room.clone_info();
+
+            // If our previous state was an invite and we're now in the joined state, this
+            // means that the user has explicitly accepted the invite. Let's
+            // remember when this has happened.
+            //
+            // This is somewhat of a workaround for our lack of cryptographic membership.
+            // Later on we will decide if historic room keys should be accepted
+            // based on this info. If a user has accepted an invite and we receive a room
+            // key bundle shortly after, we might accept it. If we don't do
+            // this, the homeserver could trick us into accepting any historic room key
+            // bundle.
+            if room.state() == RoomState::Invited {
+                room_info.set_invite_accepted_now();
+            }
+
             room_info.mark_as_joined();
             room_info.mark_state_partially_synced();
             room_info.mark_members_missing(); // the own member event changed
+
             let mut changes = StateChanges::default();
             changes.add_room(room_info.clone());
+
             self.state_store.save_changes(&changes).await?; // Update the store
+
             room.set_room_info(room_info, RoomInfoNotableUpdateReasons::MEMBERSHIP);
         }
 
