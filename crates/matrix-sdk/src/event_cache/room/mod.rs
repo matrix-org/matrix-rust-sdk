@@ -1533,6 +1533,14 @@ mod private {
                 return Ok((false, Vec::new()));
             }
 
+            let has_new_gap = prev_batch.is_some();
+
+            // If we've never waited for an initial previous-batch token, and we've now
+            // inserted a gap, no need to wait for a previous-batch token later.
+            if !self.waited_for_initial_prev_token && has_new_gap {
+                self.waited_for_initial_prev_token = true;
+            }
+
             // Remove the old duplicated events.
             //
             // We don't have to worry the removals can change the position of the existing
@@ -1540,36 +1548,12 @@ mod private {
             self.remove_events(in_memory_duplicated_event_ids, in_store_duplicated_event_ids)
                 .await?;
 
-            // Add the previous back-pagination token (if present), followed by the timeline
-            // events themselves.
-            if let Some(prev_token) = &prev_batch {
-                // As a tiny optimization: remove the last chunk if it's an empty event
-                // one, as it's not useful to keep it before a gap.
-                let prev_chunk_to_remove =
-                    self.room_linked_chunk.rchunks().next().and_then(|chunk| {
-                        (chunk.is_items() && chunk.num_items() == 0).then_some(chunk.identifier())
-                    });
-
-                self.room_linked_chunk.push_gap(Gap { prev_token: prev_token.clone() });
-
-                // If we've never waited for an initial previous-batch token, and we've now
-                // inserted a gap, no need to wait for a previous-batch token later.
-                if !self.waited_for_initial_prev_token && prev_batch.is_some() {
-                    self.waited_for_initial_prev_token = true;
-                }
-
-                if let Some(prev_chunk_to_remove) = prev_chunk_to_remove {
-                    self.room_linked_chunk
-                        .remove_empty_chunk_at(prev_chunk_to_remove)
-                        .expect("we just checked the chunk is there, and it's an empty item chunk");
-                }
-            }
-
-            self.room_linked_chunk.push_events(events.clone());
+            self.room_linked_chunk
+                .push_live_events(prev_batch.map(|prev_token| Gap { prev_token }), &events);
 
             self.post_process_new_events(events, true).await?;
 
-            if timeline.limited && prev_batch.is_some() {
+            if timeline.limited && has_new_gap {
                 // If there was a previous batch token for a limited timeline, unload the chunks
                 // so it only contains the last one; otherwise, there might be a
                 // valid gap in between, and observers may not render it (yet).
@@ -1581,7 +1565,7 @@ mod private {
 
             let timeline_event_diffs = self.room_linked_chunk.updates_as_vector_diffs();
 
-            Ok((prev_batch.is_some(), timeline_event_diffs))
+            Ok((has_new_gap, timeline_event_diffs))
         }
 
         #[must_use = "Propagate `VectorDiff` updates via `RoomEventCacheUpdate`"]
