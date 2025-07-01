@@ -285,6 +285,7 @@ impl<P: RoomDataProvider, D: Decryptor> TimelineController<P, D> {
             TimelineFocus::Live { hide_threaded_events } => {
                 TimelineFocusKind::Live { hide_threaded_events }
             }
+
             TimelineFocus::Event { target, num_context_events, hide_threaded_events } => {
                 let paginator = Paginator::new(room_data_provider.clone());
                 TimelineFocusKind::Event {
@@ -480,7 +481,9 @@ impl<P: RoomDataProvider, D: Decryptor> TimelineController<P, D> {
             .subscriber_skip_count
             .compute_next_when_paginating_backwards(num_events.into());
 
-        state.meta.subscriber_skip_count.update(count, &self.focus);
+        // This always happens on a live timeline.
+        let is_live_timeline = true;
+        state.meta.subscriber_skip_count.update(count, is_live_timeline);
 
         needs
     }
