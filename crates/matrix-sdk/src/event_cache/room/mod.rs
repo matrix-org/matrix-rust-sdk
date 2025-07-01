@@ -1146,7 +1146,7 @@ mod private {
         /// Find a single event in this room.
         ///
         /// It starts by looking into loaded events in `EventLinkedChunk` before
-        /// looking inside the storage if it is enabled.
+        /// looking inside the storage.
         pub async fn find_event(
             &self,
             event_id: &EventId,
