@@ -1757,7 +1757,13 @@ mod tests {
                 let res = tr
                     .account()
                     .await?
-                    .decrypt_to_device_event(&alice_machine.inner.store, &event)
+                    .decrypt_to_device_event(
+                        &alice_machine.inner.store,
+                        &event,
+                        &DecryptionSettings {
+                            sender_device_trust_requirement: TrustRequirement::Untrusted,
+                        },
+                    )
                     .await?;
                 Ok((tr, res))
             })
@@ -1838,7 +1844,13 @@ mod tests {
                 let res = tr
                     .account()
                     .await?
-                    .decrypt_to_device_event(&alice_machine.inner.store, &event)
+                    .decrypt_to_device_event(
+                        &alice_machine.inner.store,
+                        &event,
+                        &DecryptionSettings {
+                            sender_device_trust_requirement: TrustRequirement::Untrusted,
+                        },
+                    )
                     .await?;
                 Ok((tr, res))
             })
@@ -2166,7 +2178,13 @@ mod tests {
                 let res = tr
                     .account()
                     .await?
-                    .decrypt_to_device_event(&alice_machine.inner.store, &event)
+                    .decrypt_to_device_event(
+                        &alice_machine.inner.store,
+                        &event,
+                        &DecryptionSettings {
+                            sender_device_trust_requirement: TrustRequirement::Untrusted,
+                        },
+                    )
                     .await?;
                 Ok((tr, res))
             })

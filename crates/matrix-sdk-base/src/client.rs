@@ -624,14 +624,25 @@ impl BaseClient {
             .events
             .into_iter()
             .map(|raw| {
+                use matrix_sdk_common::deserialized_responses::{
+                    ProcessedToDeviceEvent, ToDeviceUnableToDecryptInfo,
+                    ToDeviceUnableToDecryptReason,
+                };
+
                 if let Ok(Some(event_type)) = raw.get_field::<String>("type") {
                     if event_type == "m.room.encrypted" {
-                        matrix_sdk_common::deserialized_responses::ProcessedToDeviceEvent::UnableToDecrypt(raw)
+                        ProcessedToDeviceEvent::UnableToDecrypt {
+                            encrypted_event: raw,
+                            utd_info: ToDeviceUnableToDecryptInfo {
+                                reason: ToDeviceUnableToDecryptReason::EncryptionIsDisabled,
+                            },
+                        }
                     } else {
-                        matrix_sdk_common::deserialized_responses::ProcessedToDeviceEvent::PlainText(raw)
+                        ProcessedToDeviceEvent::PlainText(raw)
                     }
                 } else {
-                    matrix_sdk_common::deserialized_responses::ProcessedToDeviceEvent::Invalid(raw) // Exclude events with no type
+                    // Exclude events with no type
+                    ProcessedToDeviceEvent::Invalid(raw)
                 }
             })
             .collect();

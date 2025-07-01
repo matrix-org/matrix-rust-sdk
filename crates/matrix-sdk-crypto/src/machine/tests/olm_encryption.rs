@@ -18,7 +18,9 @@ use std::{
 };
 
 use assert_matches2::assert_let;
-use matrix_sdk_common::deserialized_responses::ProcessedToDeviceEvent;
+use matrix_sdk_common::deserialized_responses::{
+    ProcessedToDeviceEvent, ToDeviceUnableToDecryptReason,
+};
 use matrix_sdk_test::async_test;
 use ruma::{
     device_id,
@@ -317,6 +319,8 @@ async fn test_decrypt_to_device_message_with_unsigned_sender_keys() {
     let event = to_device_events.first().expect("Bob did not get a to-device event").clone();
 
     // The to-device event should remain encrypted.
-    assert_let!(ProcessedToDeviceEvent::UnableToDecrypt(event) = event);
-    assert_eq!(event.get_field("type").unwrap(), Some("m.room.encrypted"));
+    assert_let!(ProcessedToDeviceEvent::UnableToDecrypt { encrypted_event, utd_info } = event);
+    assert_eq!(encrypted_event.get_field("type").unwrap(), Some("m.room.encrypted"));
+
+    assert_eq!(utd_info.reason, ToDeviceUnableToDecryptReason::DecryptionFailure);
 }

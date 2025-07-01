@@ -13,6 +13,19 @@ All notable changes to this project will be documented in this file.
 - [**breaking**] Add a new `VerificationLevel::MismatchedSender` to indicate that the sender of an event appears to have been tampered with.
   ([#5219](https://github.com/matrix-org/matrix-rust-sdk/pull/5219))
 
+- [**breaking**]: When in "exclude insecure devices" mode, refuse to decrypt
+  incoming to-device messages from unverified devices, except for some
+  exceptions for certain event types. To support this, a new variant has been
+  added to `ProcessedToDeviceEvent`: `UnverifiedSender`, which is returned from
+  `OlmMachine::receive_sync_changes` when we are excluding insecure devices and
+  the sender's device is not verified. Also, several methods now take a
+  `DecryptionSettings` argument to allow controlling the processing of to-device
+  events based on those settings. To recreate the previous behaviour pass in:
+  `DecryptionSettings { sender_device_trust_requirement: TrustRequirement::Untrusted }`.
+  Affected methods are `OlmMachine::receive_sync_changes`,
+  `RehydratedDevice::receive_events`, and several internal methods.
+  ([#5319](https://github.com/matrix-org/matrix-rust-sdk/pull/5319)
+
 ### Refactor
 
 - [**breaking**] The `PendingChanges`, `Changes`, `StoredRoomKeyBundleData`,
