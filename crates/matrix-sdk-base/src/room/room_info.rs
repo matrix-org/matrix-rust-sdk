@@ -46,8 +46,8 @@ use ruma::{
     },
     room::RoomType,
     serde::Raw,
-    EventId, MxcUri, OwnedEventId, OwnedMxcUri, OwnedRoomAliasId, OwnedRoomId, OwnedUserId,
-    RoomAliasId, RoomId, RoomVersionId, UserId,
+    EventId, MilliSecondsSinceUnixEpoch, MxcUri, OwnedEventId, OwnedMxcUri, OwnedRoomAliasId,
+    OwnedRoomId, OwnedUserId, RoomAliasId, RoomId, RoomVersionId, UserId,
 };
 use serde::{Deserialize, Serialize};
 use tracing::{debug, field::debug, info, instrument, warn};
@@ -464,6 +464,14 @@ pub struct RoomInfo {
     /// more accurate than relying on the latest event.
     #[serde(default)]
     pub(crate) recency_stamp: Option<u64>,
+
+    /// A timestamp remembering when we observed the user accepting an invite on
+    /// this current device.
+    ///
+    /// This is useful to remember if the user accepted this a join on this
+    /// specific client.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) invite_accepted_at: Option<MilliSecondsSinceUnixEpoch>,
 }
 
 impl RoomInfo {
@@ -486,6 +494,7 @@ impl RoomInfo {
             cached_display_name: None,
             cached_user_defined_notification_mode: None,
             recency_stamp: None,
+            invite_accepted_at: None,
         }
     }
 
@@ -747,6 +756,22 @@ impl RoomInfo {
     /// Updates the invited member count.
     pub(crate) fn update_invited_member_count(&mut self, count: u64) {
         self.summary.invited_member_count = count;
+    }
+
+    /// Mark that the user has accepted an invite and remember when this has
+    /// happened using a timestamp set to [`MilliSecondsSinceUnixEpoch::now()`].
+    pub(crate) fn set_invite_accepted_now(&mut self) {
+        self.invite_accepted_at = Some(MilliSecondsSinceUnixEpoch::now());
+    }
+
+    /// Returns the timestamp when an invite to this room has been accepted by
+    /// this specific client.
+    ///
+    /// # Returns
+    /// - `Some` if the invite has been accepted by this specific client.
+    /// - `None` if the invite has not been accepted
+    pub fn invite_accepted_at(&self) -> Option<MilliSecondsSinceUnixEpoch> {
+        self.invite_accepted_at
     }
 
     /// Updates the room heroes.
@@ -1173,6 +1198,7 @@ mod tests {
         owned_mxc_uri, owned_user_id, room_id, serde::Raw,
     };
     use serde_json::json;
+    use similar_asserts::assert_eq;
 
     use super::{BaseRoomInfo, RoomInfo, SyncInfo};
     use crate::{
@@ -1221,6 +1247,7 @@ mod tests {
             cached_display_name: None,
             cached_user_defined_notification_mode: None,
             recency_stamp: Some(42),
+            invite_accepted_at: None,
         };
 
         let info_json = json!({
