@@ -394,9 +394,33 @@ impl BaseClient {
         Ok(room)
     }
 
-    /// User has joined a room.
+    /// The user has joined a room using this specific client.
+    ///
+    /// This method should be called if the user accepts an invite or if they
+    /// join a public room.
+    ///
+    /// The method will create a [`Room`] object if one does not exist yet and
+    /// set the state of the [`Room`] to [`RoomState::Joined`]. The [`Room`]
+    /// object will be persisted in the cache. Please note that the [`Room`]
+    /// will be a stub until a sync has been received with the full room
+    /// state using [`BaseClient::receive_sync_response`].
     ///
     /// Update the internal and cached state accordingly. Return the final Room.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// # use matrix_sdk_base::{BaseClient, store::StoreConfig, RoomState};
+    /// # use ruma::OwnedRoomId;
+    /// # async {
+    /// # let client = BaseClient::new(StoreConfig::new("example".to_owned()));
+    /// # async fn send_join_request() -> anyhow::Result<OwnedRoomId> { todo!() }
+    /// let room_id = send_join_request().await?;
+    /// let room = client.room_joined(&room_id).await?;
+    ///
+    /// assert_eq!(room.state(), RoomState::Joined);
+    /// # anyhow::Ok(()) };
+    /// ```
     pub async fn room_joined(&self, room_id: &RoomId) -> Result<Room> {
         let room = self.state_store.get_or_create_room(
             room_id,
@@ -404,6 +428,8 @@ impl BaseClient {
             self.room_info_notable_update_sender.clone(),
         );
 
+        // If the state isn't `RoomState::Joined` then this means that we knew about
+        // this room before. Let's modify the existing state now.
         if room.state() != RoomState::Joined {
             let _sync_lock = self.sync_lock().lock().await;
 
