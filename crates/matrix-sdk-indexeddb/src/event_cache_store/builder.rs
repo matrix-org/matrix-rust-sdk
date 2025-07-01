@@ -20,8 +20,8 @@ use web_sys::DomException;
 
 use crate::{
     event_cache_store::{
-        migrations::open_and_upgrade_db, serializer::IndexeddbEventCacheStoreSerializer,
-        IndexeddbEventCacheStore,
+        error::IndexeddbEventCacheStoreError, migrations::open_and_upgrade_db,
+        serializer::IndexeddbEventCacheStoreSerializer, IndexeddbEventCacheStore,
     },
     serializer::IndexeddbSerializer,
 };
@@ -64,7 +64,7 @@ impl IndexeddbEventCacheStoreBuilder {
     /// Opens the IndexedDB database with the provided name. If successfully
     /// opened, builds the [`IndexeddbEventCacheStore`] with that database
     /// and the provided store cipher.
-    pub async fn build(self) -> Result<IndexeddbEventCacheStore, DomException> {
+    pub async fn build(self) -> Result<IndexeddbEventCacheStore, IndexeddbEventCacheStoreError> {
         Ok(IndexeddbEventCacheStore {
             inner: open_and_upgrade_db(&self.database_name).await?,
             serializer: IndexeddbEventCacheStoreSerializer::new(IndexeddbSerializer::new(
