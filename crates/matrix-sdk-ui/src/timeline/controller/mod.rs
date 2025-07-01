@@ -90,6 +90,7 @@ mod state;
 mod state_transaction;
 
 pub(super) use aggregations::*;
+pub(super) use decryption_retry_task::CryptoDropHandles;
 
 /// Data associated to the current timeline focus.
 ///

@@ -17,7 +17,8 @@ use std::{collections::BTreeSet, sync::Arc};
 use imbl::Vector;
 use itertools::{Either, Itertools as _};
 use matrix_sdk::{
-    deserialized_responses::TimelineEventKind as SdkTimelineEventKind, executor::JoinHandle,
+    deserialized_responses::TimelineEventKind as SdkTimelineEventKind,
+    event_handler::EventHandlerHandle, executor::JoinHandle, Client,
 };
 use tokio::sync::{
     mpsc::{self, Receiver, Sender},
@@ -31,6 +32,31 @@ use crate::timeline::{
     traits::{Decryptor, RoomDataProvider},
     EncryptedMessage, EventTimelineItem, TimelineItem, TimelineItemKind,
 };
+
+/// All the drop handles for the tasks used for crypto, namely message
+/// re-decryption, in the timeline.
+#[derive(Debug)]
+pub(in crate::timeline) struct CryptoDropHandles {
+    pub client: Client,
+    pub event_handler_handles: Vec<EventHandlerHandle>,
+    pub room_key_from_backups_join_handle: JoinHandle<()>,
+    pub room_keys_received_join_handle: JoinHandle<()>,
+    pub room_key_backup_enabled_join_handle: JoinHandle<()>,
+    pub encryption_changes_handle: JoinHandle<()>,
+}
+
+impl Drop for CryptoDropHandles {
+    fn drop(&mut self) {
+        for handle in self.event_handler_handles.drain(..) {
+            self.client.remove_event_handler(handle);
+        }
+
+        self.room_key_from_backups_join_handle.abort();
+        self.room_keys_received_join_handle.abort();
+        self.room_key_backup_enabled_join_handle.abort();
+        self.encryption_changes_handle.abort();
+    }
+}
 
 /// Holds a long-running task that is used to retry decryption of items in the
 /// timeline when new information about a session is received.
