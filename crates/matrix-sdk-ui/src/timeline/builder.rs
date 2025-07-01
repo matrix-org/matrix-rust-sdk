@@ -173,8 +173,8 @@ impl TimelineBuilder {
             internal_id_prefix.clone(),
             unable_to_decrypt_hook,
             is_room_encrypted,
-        )
-        .with_settings(settings);
+            settings,
+        );
 
         let has_events = controller.init_focus(&room_event_cache).await?;
 

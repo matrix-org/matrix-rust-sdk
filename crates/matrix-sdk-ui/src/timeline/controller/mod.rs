@@ -279,6 +279,7 @@ impl<P: RoomDataProvider, D: Decryptor> TimelineController<P, D> {
         internal_id_prefix: Option<String>,
         unable_to_decrypt_hook: Option<Arc<UtdHookManager>>,
         is_room_encrypted: bool,
+        settings: TimelineSettings,
     ) -> Self {
         let focus = match focus {
             TimelineFocus::Live { hide_threaded_events } => {
@@ -323,8 +324,6 @@ impl<P: RoomDataProvider, D: Decryptor> TimelineController<P, D> {
             unable_to_decrypt_hook,
             is_room_encrypted,
         )));
-
-        let settings = TimelineSettings::default();
 
         let decryption_retry_task =
             DecryptionRetryTask::new(state.clone(), room_data_provider.clone());
@@ -552,11 +551,6 @@ impl<P: RoomDataProvider, D: Decryptor> TimelineController<P, D> {
     /// Is this timeline receiving events from sync (aka has a live focus)?
     pub(super) fn is_live(&self) -> bool {
         matches!(&*self.focus, TimelineFocusKind::Live { .. })
-    }
-
-    pub(super) fn with_settings(mut self, settings: TimelineSettings) -> Self {
-        self.settings = settings;
-        self
     }
 
     /// Get a copy of the current items in the list.
