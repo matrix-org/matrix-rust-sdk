@@ -226,8 +226,8 @@ mod tests {
 
         // Inserting items in the middle.
         {
-            let b_pos = linked_chunk.item_position(|c| *c == 'b').unwrap();
-            linked_chunk.insert_items_at(['d', 'e'], b_pos).unwrap();
+            let pos_b = linked_chunk.item_position(|c| *c == 'b').unwrap();
+            linked_chunk.insert_items_at(pos_b, ['d', 'e']).unwrap();
             tracker.flush_updates(false);
             assert_order_fully_loaded(&linked_chunk, &tracker);
         }
@@ -451,8 +451,8 @@ mod tests {
 
         // Inserting items in the middle.
         {
-            let h_pos = linked_chunk.item_position(|c| *c == 'h').unwrap();
-            linked_chunk.insert_items_at(['j', 'k'], h_pos).unwrap();
+            let pos_h = linked_chunk.item_position(|c| *c == 'h').unwrap();
+            linked_chunk.insert_items_at(pos_h, ['j', 'k']).unwrap();
             tracker.flush_updates(false);
 
             // The previous items are still ordered.

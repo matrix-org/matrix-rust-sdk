@@ -102,10 +102,10 @@ impl EventLinkedChunk {
     /// Insert events at a specified position.
     pub fn insert_events_at(
         &mut self,
-        events: Vec<Event>,
         position: Position,
+        events: Vec<Event>,
     ) -> Result<(), Error> {
-        self.chunks.insert_items_at(events, position)?;
+        self.chunks.insert_items_at(position, events)?;
         Ok(())
     }
 
@@ -351,7 +351,7 @@ impl EventLinkedChunk {
             // before those.
             trace!("inserted events before the first known event");
 
-            self.insert_events_at(events.to_vec(), pos)
+            self.insert_events_at(pos, events.to_vec())
                 .expect("pos is a valid position we just read above");
 
             Some(pos)
@@ -623,14 +623,14 @@ mod tests {
 
         linked_chunk.push_events([event_0, event_1]);
 
-        let position_of_event_1 = linked_chunk
+        let pos_ev1 = linked_chunk
             .events()
             .find_map(|(position, event)| {
                 (event.event_id().unwrap() == event_id_1).then_some(position)
             })
             .unwrap();
 
-        linked_chunk.insert_events_at(vec![event_2], position_of_event_1).unwrap();
+        linked_chunk.insert_events_at(pos_ev1, vec![event_2]).unwrap();
 
         assert_events_eq!(
             linked_chunk.events(),
