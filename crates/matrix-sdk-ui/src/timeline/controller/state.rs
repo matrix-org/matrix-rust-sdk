@@ -159,8 +159,9 @@ impl<P: RoomDataProvider> TimelineState<P> {
 
         let mut date_divider_adjuster = DateDividerAdjuster::new(date_divider_mode);
 
+        let is_thread_focus = matches!(txn.focus, TimelineFocusKind::Thread { .. });
         let (in_reply_to, thread_root) =
-            txn.meta.process_content_relations(&content, None, &txn.items, txn.focus);
+            txn.meta.process_content_relations(&content, None, &txn.items, is_thread_focus);
 
         // TODO merge with other should_add, one way or another?
         let should_add_new_items = match &txn.focus {

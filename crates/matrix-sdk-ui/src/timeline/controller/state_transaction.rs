@@ -625,7 +625,7 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
                     &raw,
                     bundled_edit_encryption_info,
                     &self.items,
-                    self.focus,
+                    matches!(self.focus, TimelineFocusKind::Thread { .. }),
                 );
 
                 let should_add = self.should_add_event_item(
@@ -808,7 +808,9 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
                 .meta
                 .subscriber_skip_count
                 .compute_next(previous_number_of_items, next_number_of_items);
-            self.meta.subscriber_skip_count.update(count, self.focus);
+            self.meta
+                .subscriber_skip_count
+                .update(count, matches!(self.focus, TimelineFocusKind::Live { .. }));
         }
 
         // Replace the pointer to the previous meta with the new one.
