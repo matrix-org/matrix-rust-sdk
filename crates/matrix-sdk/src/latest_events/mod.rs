@@ -94,7 +94,8 @@ impl LatestEvents {
         let (room_registration_sender, room_registration_receiver) = mpsc::channel(32);
         let (latest_event_queue_sender, latest_event_queue_receiver) = mpsc::unbounded_channel();
 
-        let registered_rooms = Arc::new(RegisteredRooms::new(room_registration_sender));
+        let registered_rooms =
+            Arc::new(RegisteredRooms::new(room_registration_sender, &event_cache));
 
         // The task listening to the event cache and the send queue updates.
         let listen_task_handle = spawn(listen_to_event_cache_and_send_queue_updates_task(
@@ -203,11 +204,20 @@ struct RegisteredRooms {
     /// The receiver part of the channel is in the
     /// [`listen_to_event_cache_and_send_queue_updates_task`].
     room_registration_sender: mpsc::Sender<RoomRegistration>,
+
+    event_cache: EventCache,
 }
 
 impl RegisteredRooms {
-    fn new(room_registration_sender: mpsc::Sender<RoomRegistration>) -> Self {
-        Self { rooms: RwLock::new(HashMap::default()), room_registration_sender }
+    fn new(
+        room_registration_sender: mpsc::Sender<RoomRegistration>,
+        event_cache: &EventCache,
+    ) -> Self {
+        Self {
+            rooms: RwLock::new(HashMap::default()),
+            room_registration_sender,
+            event_cache: event_cache.clone(),
+        }
     }
 
     /// Get a read lock guard to a [`RoomLatestEvents`] given a room ID and an
@@ -547,6 +557,8 @@ mod tests {
         client.base_client().get_or_create_room(room_id_1, RoomState::Joined);
         client.base_client().get_or_create_room(room_id_2, RoomState::Joined);
 
+        client.event_cache().subscribe().unwrap();
+
         let latest_events = client.latest_events().await;
 
         // Despites there are many rooms, zero `RoomLatestEvents` are created.
@@ -606,6 +618,8 @@ mod tests {
         client.base_client().get_or_create_room(room_id_0, RoomState::Joined);
         client.base_client().get_or_create_room(room_id_1, RoomState::Joined);
 
+        client.event_cache().subscribe().unwrap();
+
         let latest_events = client.latest_events().await;
 
         // Now let's fetch one room.
@@ -642,6 +656,8 @@ mod tests {
 
         client.base_client().get_or_create_room(room_id_0, RoomState::Joined);
         client.base_client().get_or_create_room(room_id_1, RoomState::Joined);
+
+        client.event_cache().subscribe().unwrap();
 
         let latest_events = client.latest_events().await;
 
@@ -868,8 +884,12 @@ mod tests {
     async fn test_compute_latest_events() {
         let room_id = owned_room_id!("!r0");
 
+        let (client, _server) = logged_in_client_with_server().await;
+        let event_cache = client.event_cache();
+        event_cache.subscribe().unwrap();
+
         let (room_registration_sender, _room_registration_receiver) = mpsc::channel(1);
-        let registered_rooms = RegisteredRooms::new(room_registration_sender);
+        let registered_rooms = RegisteredRooms::new(room_registration_sender, event_cache);
 
         compute_latest_events(&registered_rooms, &[room_id]).await;
     }
