@@ -12,7 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License
 
-use matrix_sdk_base::{SendOutsideWasm, SyncOutsideWasm};
+use matrix_sdk_base::{
+    event_cache::store::{EventCacheStore, EventCacheStoreError, MemoryStore},
+    SendOutsideWasm, SyncOutsideWasm,
+};
 use thiserror::Error;
 
 /// A trait that combines the necessary traits needed for asynchronous runtimes,
@@ -27,6 +30,8 @@ impl<T> AsyncErrorDeps for T where T: std::error::Error + SendOutsideWasm + Sync
 pub enum IndexeddbEventCacheStoreError {
     #[error("DomException {name} ({code}): {message}")]
     DomException { name: String, message: String, code: u16 },
+    #[error("media store: {0}")]
+    MemoryStore(<MemoryStore as EventCacheStore>::Error),
 }
 
 impl From<web_sys::DomException> for IndexeddbEventCacheStoreError {
@@ -35,6 +40,15 @@ impl From<web_sys::DomException> for IndexeddbEventCacheStoreError {
             name: value.name(),
             message: value.message(),
             code: value.code(),
+        }
+    }
+}
+
+impl From<IndexeddbEventCacheStoreError> for EventCacheStoreError {
+    fn from(value: IndexeddbEventCacheStoreError) -> Self {
+        match value {
+            IndexeddbEventCacheStoreError::DomException { .. } => Self::Backend(Box::new(value)),
+            IndexeddbEventCacheStoreError::MemoryStore(inner) => inner,
         }
     }
 }
