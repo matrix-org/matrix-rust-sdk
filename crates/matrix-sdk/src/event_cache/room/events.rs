@@ -86,7 +86,8 @@ impl EventLinkedChunk {
     /// Push events after all events or gaps.
     ///
     /// The last event in `events` is the most recent one.
-    pub fn push_events<I>(&mut self, events: I)
+    #[cfg(test)]
+    pub(in crate::event_cache) fn push_events<I>(&mut self, events: I)
     where
         I: IntoIterator<Item = Event>,
         I::IntoIter: ExactSizeIterator,
@@ -304,7 +305,7 @@ impl EventLinkedChunk {
             }
         }
 
-        self.push_events(events.to_vec());
+        self.chunks.push_items_back(events.to_vec());
     }
 
     /// Finish a network back-pagination for this linked chunk by updating the
@@ -354,7 +355,7 @@ impl EventLinkedChunk {
             // No prior gap, and no prior events: push the events.
             trace!("pushing events received from back-pagination");
 
-            self.push_events(events.to_vec());
+            self.chunks.push_items_back(events.to_vec());
 
             // A new gap may be inserted before the new events, if there are any.
             self.events().next().map(|(item_pos, _)| item_pos)
@@ -554,27 +555,6 @@ mod tests {
     }
 
     #[test]
-    fn test_push_events() {
-        let (event_id_0, event_0) = new_event("$ev0");
-        let (event_id_1, event_1) = new_event("$ev1");
-        let (event_id_2, event_2) = new_event("$ev2");
-
-        let mut linked_chunk = EventLinkedChunk::new();
-
-        linked_chunk.push_events([event_0, event_1]);
-        linked_chunk.push_events([event_2]);
-
-        assert_events_eq!(
-            linked_chunk.events(),
-            [
-                (event_id_0 at (0, 0)),
-                (event_id_1 at (0, 1)),
-                (event_id_2 at (0, 2)),
-            ]
-        );
-    }
-
-    #[test]
     fn test_replace_gap_at() {
         let (event_id_0, event_0) = new_event("$ev0");
         let (event_id_1, event_1) = new_event("$ev1");
@@ -582,7 +562,7 @@ mod tests {
 
         let mut linked_chunk = EventLinkedChunk::new();
 
-        linked_chunk.push_events([event_0]);
+        linked_chunk.chunks.push_items_back([event_0]);
         linked_chunk.chunks.push_gap_back(Gap { prev_token: "hello".to_owned() });
 
         let gap_chunk_id = linked_chunk
@@ -622,9 +602,9 @@ mod tests {
 
         let mut linked_chunk = EventLinkedChunk::new();
 
-        linked_chunk.push_events([event_0, event_1]);
+        linked_chunk.chunks.push_items_back([event_0, event_1]);
         linked_chunk.chunks.push_gap_back(Gap { prev_token: "middle".to_owned() });
-        linked_chunk.push_events([event_2]);
+        linked_chunk.chunks.push_items_back([event_2]);
         linked_chunk.chunks.push_gap_back(Gap { prev_token: "end".to_owned() });
 
         // Remove the first gap.
@@ -657,9 +637,9 @@ mod tests {
 
         // Push some events.
         let mut linked_chunk = EventLinkedChunk::new();
-        linked_chunk.push_events([event_0, event_1]);
+        linked_chunk.chunks.push_items_back([event_0, event_1]);
         linked_chunk.chunks.push_gap_back(Gap { prev_token: "hello".to_owned() });
-        linked_chunk.push_events([event_2, event_3]);
+        linked_chunk.chunks.push_items_back([event_2, event_3]);
 
         assert_events_eq!(
             linked_chunk.events(),
@@ -730,9 +710,9 @@ mod tests {
 
         // Push some events.
         let mut linked_chunk = EventLinkedChunk::new();
-        linked_chunk.push_events([event_0, event_1]);
+        linked_chunk.chunks.push_items_back([event_0, event_1]);
         linked_chunk.chunks.push_gap_back(Gap { prev_token: "raclette".to_owned() });
-        linked_chunk.push_events([event_2]);
+        linked_chunk.chunks.push_items_back([event_2]);
 
         // Read the updates as `VectorDiff`.
         let diffs = linked_chunk.updates_as_vector_diffs();
@@ -757,7 +737,7 @@ mod tests {
 
         // Now we can reset and see what happens.
         linked_chunk.reset();
-        linked_chunk.push_events([event_3]);
+        linked_chunk.chunks.push_items_back([event_3]);
 
         // Read the updates as `VectorDiff`.
         let diffs = linked_chunk.updates_as_vector_diffs();
@@ -779,7 +759,7 @@ mod tests {
         let event_factory = EventFactory::new().room(&DEFAULT_TEST_ROOM_ID).sender(*ALICE);
 
         let mut linked_chunk = EventLinkedChunk::new();
-        linked_chunk.push_events(vec![
+        linked_chunk.chunks.push_items_back(vec![
             event_factory
                 .text_msg("hey")
                 .event_id(event_id!("$123456789101112131415617181920"))
