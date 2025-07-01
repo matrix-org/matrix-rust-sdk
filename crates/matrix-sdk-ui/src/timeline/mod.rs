@@ -78,6 +78,7 @@ mod item;
 mod pagination;
 mod pinned_events_loader;
 mod subscriber;
+mod tasks;
 #[cfg(test)]
 mod tests;
 mod to_device;
