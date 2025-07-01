@@ -180,7 +180,7 @@ impl RoomEventCache {
     pub async fn events(&self) -> Vec<Event> {
         let state = self.inner.state.read().await;
 
-        state.events().events().map(|(_position, item)| item.clone()).collect()
+        state.room_linked_chunk().events().map(|(_position, item)| item.clone()).collect()
     }
 
     /// Subscribe to this room updates, after getting the initial list of
@@ -191,7 +191,8 @@ impl RoomEventCache {
     /// [`RoomEventCacheSubscriber`] isn't free, as it triggers side-effects.
     pub async fn subscribe(&self) -> (Vec<Event>, RoomEventCacheSubscriber) {
         let state = self.inner.state.read().await;
-        let events = state.events().events().map(|(_position, item)| item.clone()).collect();
+        let events =
+            state.room_linked_chunk().events().map(|(_position, item)| item.clone()).collect();
 
         let previous_subscriber_count = state.subscriber_count.fetch_add(1, Ordering::SeqCst);
         trace!("added a room event cache subscriber; new count: {}", previous_subscriber_count + 1);
@@ -281,7 +282,7 @@ impl RoomEventCache {
     /// Return a nice debug string (a vector of lines) for the linked chunk of
     /// events for this room.
     pub async fn debug_string(&self) -> Vec<String> {
-        self.inner.state.read().await.events().debug_string()
+        self.inner.state.read().await.room_linked_chunk().debug_string()
     }
 }
 
@@ -542,8 +543,9 @@ mod private {
         /// Reference to the underlying backing store.
         store: EventCacheStoreLock,
 
-        /// The events of the room.
-        events: EventLinkedChunk,
+        /// The loaded events for the current room, that is, the in-memory
+        /// linked chunk for this room.
+        room_linked_chunk: EventLinkedChunk,
 
         /// Have we ever waited for a previous-batch-token to come from sync, in
         /// the context of pagination? We do this at most once per room,
@@ -610,7 +612,7 @@ mod private {
                 })
                 .expect("fully loading the linked chunk just worked, so loading it partially should also work");
 
-            let events = EventLinkedChunk::with_initial_linked_chunk(
+            let room_linked_chunk = EventLinkedChunk::with_initial_linked_chunk(
                 linked_chunk,
                 full_linked_chunk_metadata,
             );
@@ -619,7 +621,7 @@ mod private {
                 room: room_id,
                 room_version,
                 store,
-                events,
+                room_linked_chunk,
                 waited_for_initial_prev_token: false,
                 subscriber_count: Default::default(),
                 pagination_status,
@@ -753,7 +755,7 @@ mod private {
             // received a sync for that room, because every room must have at least a
             // room creation event. Otherwise, we have reached the start of the
             // timeline.
-            if self.events.events().next().is_some() {
+            if self.room_linked_chunk.events().next().is_some() {
                 // If there's at least one event, this means we've reached the start of the
                 // timeline, since the chunk is fully loaded.
                 trace!("chunk is fully loaded and non-empty: reached_start=true");
@@ -775,14 +777,18 @@ mod private {
         ) -> Result<LoadMoreEventsBackwardsOutcome, EventCacheError> {
             // If any in-memory chunk is a gap, don't load more events, and let the caller
             // resolve the gap.
-            if let Some(prev_token) = self.events.rgap().map(|gap| gap.prev_token) {
+            if let Some(prev_token) = self.room_linked_chunk.rgap().map(|gap| gap.prev_token) {
                 return Ok(LoadMoreEventsBackwardsOutcome::Gap { prev_token: Some(prev_token) });
             }
 
             // Because `first_chunk` is `not `Send`, get this information before the
             // `.await` point, so that this `Future` can implement `Send`.
-            let first_chunk_identifier =
-                self.events.chunks().next().expect("a linked chunk is never empty").identifier();
+            let first_chunk_identifier = self
+                .room_linked_chunk
+                .chunks()
+                .next()
+                .expect("a linked chunk is never empty")
+                .identifier();
 
             let store = self.store.lock().await?;
 
@@ -822,7 +828,7 @@ mod private {
             // `Items`.
             let reached_start = new_first_chunk.previous.is_none();
 
-            if let Err(err) = self.events.insert_new_chunk_as_first(new_first_chunk) {
+            if let Err(err) = self.room_linked_chunk.insert_new_chunk_as_first(new_first_chunk) {
                 error!("error when inserting the previous chunk into its linked chunk: {err}");
 
                 // Clear storage for this room.
@@ -834,10 +840,10 @@ mod private {
 
             // ⚠️ Let's not propagate the updates to the store! We already have these data
             // in the store! Let's drain them.
-            let _ = self.events.store_updates().take();
+            let _ = self.room_linked_chunk.store_updates().take();
 
             // However, we want to get updates as `VectorDiff`s.
-            let timeline_event_diffs = self.events.updates_as_vector_diffs();
+            let timeline_event_diffs = self.room_linked_chunk.updates_as_vector_diffs();
 
             Ok(match chunk_content {
                 ChunkContent::Gap(gap) => {
@@ -891,7 +897,9 @@ mod private {
 
             // Remove all the chunks from the linked chunks, except for the last one, and
             // updates the chunk identifier generator.
-            if let Err(err) = self.events.replace_with(last_chunk, chunk_identifier_generator) {
+            if let Err(err) =
+                self.room_linked_chunk.replace_with(last_chunk, chunk_identifier_generator)
+            {
                 error!("error when replacing the linked chunk: {err}");
                 return self.reset_internal().await;
             }
@@ -903,7 +911,7 @@ mod private {
 
             // Don't propagate those updates to the store; this is only for the in-memory
             // representation that we're doing this. Let's drain those store updates.
-            let _ = self.events.store_updates().take();
+            let _ = self.room_linked_chunk.store_updates().take();
 
             Ok(())
         }
@@ -922,7 +930,7 @@ mod private {
                 // If we are the last strong reference to the auto-shrinker, we can shrink the
                 // events data structure to its last chunk.
                 self.shrink_to_last_chunk().await?;
-                Ok(Some(self.events.updates_as_vector_diffs()))
+                Ok(Some(self.room_linked_chunk.updates_as_vector_diffs()))
             } else {
                 Ok(None)
             }
@@ -933,11 +941,11 @@ mod private {
             &mut self,
         ) -> Result<Vec<VectorDiff<Event>>, EventCacheError> {
             self.shrink_to_last_chunk().await?;
-            Ok(self.events.updates_as_vector_diffs())
+            Ok(self.room_linked_chunk.updates_as_vector_diffs())
         }
 
         pub(crate) fn room_event_order(&self, event_pos: Position) -> Option<usize> {
-            self.events.event_order(event_pos)
+            self.room_linked_chunk.event_order(event_pos)
         }
 
         /// Removes the bundled relations from an event, if they were present.
@@ -1019,7 +1027,7 @@ mod private {
             }
 
             // `remove_events_by_position` is responsible of sorting positions.
-            self.events
+            self.room_linked_chunk
                 .remove_events_by_position(
                     in_memory_events.into_iter().map(|(_event_id, position)| position).collect(),
                 )
@@ -1030,7 +1038,7 @@ mod private {
 
         /// Propagate changes to the underlying storage.
         async fn propagate_changes(&mut self) -> Result<(), EventCacheError> {
-            let updates = self.events.store_updates().take();
+            let updates = self.room_linked_chunk.store_updates().take();
             self.send_updates_to_store(updates).await
         }
 
@@ -1044,7 +1052,7 @@ mod private {
             &mut self,
             updates: Vec<Update<Event, Gap>>,
         ) -> Result<(), EventCacheError> {
-            self.events.order_tracker.map_updates(&updates);
+            self.room_linked_chunk.order_tracker.map_updates(&updates);
             self.send_updates_to_store(updates).await
         }
 
@@ -1107,7 +1115,7 @@ mod private {
         pub async fn reset(&mut self) -> Result<Vec<VectorDiff<Event>>, EventCacheError> {
             self.reset_internal().await?;
 
-            let diff_updates = self.events.updates_as_vector_diffs();
+            let diff_updates = self.room_linked_chunk.updates_as_vector_diffs();
 
             // Ensure the contract defined in the doc comment is true:
             debug_assert_eq!(diff_updates.len(), 1);
@@ -1117,7 +1125,7 @@ mod private {
         }
 
         async fn reset_internal(&mut self) -> Result<(), EventCacheError> {
-            self.events.reset();
+            self.room_linked_chunk.reset();
 
             self.propagate_changes().await?;
 
@@ -1131,9 +1139,9 @@ mod private {
             Ok(())
         }
 
-        /// Returns a read-only reference to the underlying events.
-        pub fn events(&self) -> &EventLinkedChunk {
-            &self.events
+        /// Returns a read-only reference to the underlying room linked chunk.
+        pub fn room_linked_chunk(&self) -> &EventLinkedChunk {
+            &self.room_linked_chunk
         }
 
         /// Find a single event in this room.
@@ -1146,7 +1154,7 @@ mod private {
         ) -> Result<Option<(EventLocation, Event)>, EventCacheError> {
             // There are supposedly fewer events loaded in memory than in the store. Let's
             // start by looking up in the `EventLinkedChunk`.
-            for (position, event) in self.events.revents() {
+            for (position, event) in self.room_linked_chunk.revents() {
                 if event.event_id().as_deref() == Some(event_id) {
                     return Ok(Some((EventLocation::Memory(position), event.clone())));
                 }
@@ -1360,7 +1368,7 @@ mod private {
         ) -> Result<(), EventCacheError> {
             match location {
                 EventLocation::Memory(position) => {
-                    self.events
+                    self.room_linked_chunk
                         .replace_event_at(position, event)
                         .expect("should have been a valid position of an item");
                     // We just changed the in-memory representation; synchronize this with
@@ -1497,7 +1505,7 @@ mod private {
                 LinkedChunkId::Room(self.room.as_ref()),
                 &self.store,
                 timeline.events,
-                &self.events,
+                &self.room_linked_chunk,
             )
             .await?;
 
@@ -1513,7 +1521,9 @@ mod private {
             // previous-batch token would only result in fetching other events we
             // knew about. This is slightly incorrect in the presence of
             // network splits, but this has shown to be Good Enough™.
-            if !timeline.limited && self.events.events().next().is_some() || all_duplicates {
+            if !timeline.limited && self.room_linked_chunk.events().next().is_some()
+                || all_duplicates
+            {
                 prev_batch = None;
             }
 
@@ -1535,11 +1545,12 @@ mod private {
             if let Some(prev_token) = &prev_batch {
                 // As a tiny optimization: remove the last chunk if it's an empty event
                 // one, as it's not useful to keep it before a gap.
-                let prev_chunk_to_remove = self.events.rchunks().next().and_then(|chunk| {
-                    (chunk.is_items() && chunk.num_items() == 0).then_some(chunk.identifier())
-                });
+                let prev_chunk_to_remove =
+                    self.room_linked_chunk.rchunks().next().and_then(|chunk| {
+                        (chunk.is_items() && chunk.num_items() == 0).then_some(chunk.identifier())
+                    });
 
-                self.events.push_gap(Gap { prev_token: prev_token.clone() });
+                self.room_linked_chunk.push_gap(Gap { prev_token: prev_token.clone() });
 
                 // If we've never waited for an initial previous-batch token, and we've now
                 // inserted a gap, no need to wait for a previous-batch token later.
@@ -1548,13 +1559,13 @@ mod private {
                 }
 
                 if let Some(prev_chunk_to_remove) = prev_chunk_to_remove {
-                    self.events
+                    self.room_linked_chunk
                         .remove_empty_chunk_at(prev_chunk_to_remove)
                         .expect("we just checked the chunk is there, and it's an empty item chunk");
                 }
             }
 
-            self.events.push_events(events.clone());
+            self.room_linked_chunk.push_events(events.clone());
 
             self.post_process_new_events(events, true).await?;
 
@@ -1568,7 +1579,7 @@ mod private {
                 self.shrink_to_last_chunk().await?;
             }
 
-            let timeline_event_diffs = self.events.updates_as_vector_diffs();
+            let timeline_event_diffs = self.room_linked_chunk.updates_as_vector_diffs();
 
             Ok((prev_batch.is_some(), timeline_event_diffs))
         }
@@ -1593,7 +1604,7 @@ mod private {
                 LinkedChunkId::Room(self.room.as_ref()),
                 &self.store,
                 events,
-                &self.events,
+                &self.room_linked_chunk,
             )
             .await?;
 
@@ -1627,7 +1638,8 @@ mod private {
             // oldest. Let's re-order them for this block.
             let reversed_events = events.iter().rev().cloned().collect::<Vec<_>>();
 
-            let first_event_pos = self.events.events().next().map(|(item_pos, _)| item_pos);
+            let first_event_pos =
+                self.room_linked_chunk.events().next().map(|(item_pos, _)| item_pos);
 
             // First, insert events.
             let insert_new_gap_pos = if let Some(gap_id) = prev_gap_id {
@@ -1641,7 +1653,7 @@ mod private {
                 // Replace the gap with the events we just deduplicated. This might get rid of
                 // the underlying gap, if the conditions are favorable to
                 // us.
-                self.events
+                self.room_linked_chunk
                     .replace_gap_at(reversed_events.clone(), gap_id)
                     .expect("gap_identifier is a valid chunk id we read previously")
             } else if let Some(pos) = first_event_pos {
@@ -1649,7 +1661,7 @@ mod private {
                 // before those.
                 trace!("inserted events before the first known event");
 
-                self.events
+                self.room_linked_chunk
                     .insert_events_at(reversed_events.clone(), pos)
                     .expect("pos is a valid position we just read above");
 
@@ -1658,10 +1670,10 @@ mod private {
                 // No prior gap, and no prior events: push the events.
                 trace!("pushing events received from back-pagination");
 
-                self.events.push_events(reversed_events.clone());
+                self.room_linked_chunk.push_events(reversed_events.clone());
 
                 // A new gap may be inserted before the new events, if there are any.
-                self.events.events().next().map(|(item_pos, _)| item_pos)
+                self.room_linked_chunk.events().next().map(|(item_pos, _)| item_pos)
             };
 
             // And insert the new gap if needs be.
@@ -1671,11 +1683,11 @@ mod private {
             // known events.
             if let Some(new_gap) = new_gap {
                 if let Some(new_pos) = insert_new_gap_pos {
-                    self.events
+                    self.room_linked_chunk
                         .insert_gap_at(new_gap, new_pos)
                         .expect("events_chunk_pos represents a valid chunk position");
                 } else {
-                    self.events.push_gap(new_gap);
+                    self.room_linked_chunk.push_gap(new_gap);
                 }
             }
 
@@ -1687,11 +1699,11 @@ mod private {
             // state in priority instead.
             let reached_start = {
                 // There are no gaps.
-                let has_gaps = self.events.chunks().any(|chunk| chunk.is_gap());
+                let has_gaps = self.room_linked_chunk.chunks().any(|chunk| chunk.is_gap());
 
                 // The first chunk has no predecessors.
                 let first_chunk_is_definitive_head =
-                    self.events.chunks().next().map(|chunk| chunk.is_definitive_head());
+                    self.room_linked_chunk.chunks().next().map(|chunk| chunk.is_definitive_head());
 
                 let reached_start =
                     !has_gaps && first_chunk_is_definitive_head.unwrap_or(network_reached_start);
@@ -1707,7 +1719,7 @@ mod private {
                 reached_start
             };
 
-            let event_diffs = self.events.updates_as_vector_diffs();
+            let event_diffs = self.room_linked_chunk.updates_as_vector_diffs();
             let backpagination_outcome = BackPaginationOutcome { events, reached_start };
 
             Ok((backpagination_outcome, event_diffs))
@@ -2573,7 +2585,7 @@ mod timed_tests {
             let mut num_gaps = 0;
             let mut num_events = 0;
 
-            for c in state.events().chunks() {
+            for c in state.room_linked_chunk().chunks() {
                 match c.content() {
                     ChunkContent::Items(items) => num_events += items.len(),
                     ChunkContent::Gap(_) => num_gaps += 1,
@@ -2593,7 +2605,7 @@ mod timed_tests {
 
             num_gaps = 0;
             num_events = 0;
-            for c in state.events().chunks() {
+            for c in state.room_linked_chunk().chunks() {
                 match c.content() {
                     ChunkContent::Items(items) => num_events += items.len(),
                     ChunkContent::Gap(_) => num_gaps += 1,
@@ -2634,7 +2646,7 @@ mod timed_tests {
             let mut num_gaps = 0;
             let mut num_events = 0;
 
-            for c in state.events().chunks() {
+            for c in state.room_linked_chunk().chunks() {
                 match c.content() {
                     ChunkContent::Items(items) => num_events += items.len(),
                     ChunkContent::Gap(gap) => {
@@ -2826,7 +2838,7 @@ mod timed_tests {
             assert_eq!(state.room_event_order(Position::new(ChunkIdentifier::new(0), 1)), Some(1));
 
             // ev3, which is loaded, also has a known ordering.
-            let mut events = state.events().events();
+            let mut events = state.room_linked_chunk().events();
             let (pos, ev) = events.next().unwrap();
             assert_eq!(pos, Position::new(ChunkIdentifier::new(1), 0));
             assert_eq!(ev.event_id().as_deref(), Some(evid3));
@@ -2844,7 +2856,7 @@ mod timed_tests {
         // in a linear iteration.
         {
             let state = room_event_cache.inner.state.read().await;
-            for (i, (pos, _)) in state.events().events().enumerate() {
+            for (i, (pos, _)) in state.room_linked_chunk().events().enumerate() {
                 assert_eq!(state.room_event_order(pos), Some(i));
             }
         }
@@ -2871,7 +2883,7 @@ mod timed_tests {
             let state = room_event_cache.inner.state.read().await;
 
             // After the shrink, only evid3 and evid4 are loaded.
-            let mut events = state.events().events();
+            let mut events = state.room_linked_chunk().events();
 
             let (pos, ev) = events.next().unwrap();
             assert_eq!(ev.event_id().as_deref(), Some(evid3));

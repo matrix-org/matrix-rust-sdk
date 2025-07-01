@@ -35,7 +35,7 @@ pub async fn filter_duplicate_events(
     linked_chunk_id: LinkedChunkId<'_>,
     store: &EventCacheStoreLock,
     mut events: Vec<Event>,
-    room_events: &EventLinkedChunk,
+    linked_chunk: &EventLinkedChunk,
 ) -> Result<DeduplicationOutcome, EventCacheError> {
     // Remove all events with no ID, or that is duplicated inside `events`, i.e.
     // `events` contains duplicated events in itself, e.g. `[$e0, $e1, $e0]`, here
@@ -76,7 +76,7 @@ pub async fn filter_duplicate_events(
     let (in_memory_duplicated_event_ids, in_store_duplicated_event_ids) = {
         // Collect all in-memory chunk identifiers.
         let in_memory_chunk_identifiers =
-            room_events.chunks().map(|chunk| chunk.identifier()).collect::<Vec<_>>();
+            linked_chunk.chunks().map(|chunk| chunk.identifier()).collect::<Vec<_>>();
 
         let mut in_memory = vec![];
         let mut in_store = vec![];
@@ -239,14 +239,14 @@ mod tests {
             // chunk, all of them in the store, we should return all of them as
             // duplicates.
 
-            let mut room_events = EventLinkedChunk::new();
-            room_events.push_events([event_1.clone(), event_2.clone(), event_3.clone()]);
+            let mut linked_chunk = EventLinkedChunk::new();
+            linked_chunk.push_events([event_1.clone(), event_2.clone(), event_3.clone()]);
 
             let outcome = filter_duplicate_events(
                 LinkedChunkId::Room(room_id),
                 &event_cache_store,
                 vec![event_0.clone(), event_1.clone(), event_2.clone(), event_3.clone()],
-                &room_events,
+                &linked_chunk,
             )
             .await
             .unwrap();
@@ -254,14 +254,14 @@ mod tests {
             assert!(outcome.non_empty_all_duplicates);
         }
 
-        let mut room_events = EventLinkedChunk::new();
-        room_events.push_events([event_2.clone(), event_3.clone()]);
+        let mut linked_chunk = EventLinkedChunk::new();
+        linked_chunk.push_events([event_2.clone(), event_3.clone()]);
 
         let outcome = filter_duplicate_events(
             LinkedChunkId::Room(room_id),
             &event_cache_store,
             vec![event_0, event_1, event_2, event_3, event_4],
-            &room_events,
+            &linked_chunk,
         )
         .await
         .unwrap();
@@ -363,7 +363,7 @@ mod tests {
         // Wrap the store into its lock.
         let event_cache_store = EventCacheStoreLock::new(event_cache_store, "hodor".to_owned());
 
-        let room_events = EventLinkedChunk::new();
+        let linked_chunk = EventLinkedChunk::new();
 
         let DeduplicationOutcome {
             all_events: events,
@@ -374,7 +374,7 @@ mod tests {
             LinkedChunkId::Room(room_id),
             &event_cache_store,
             vec![ev1, ev2, ev3, ev4],
-            &room_events,
+            &linked_chunk,
         )
         .await
         .unwrap();
