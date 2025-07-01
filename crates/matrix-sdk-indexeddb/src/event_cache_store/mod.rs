@@ -35,6 +35,7 @@ pub use error::IndexeddbEventCacheStoreError;
 /// contexts.
 ///
 /// [1]: matrix_sdk_base::event_cache::store::EventCacheStore
+#[derive(Debug)]
 pub struct IndexeddbEventCacheStore {
     // A handle to the IndexedDB database
     inner: IdbDatabase,
