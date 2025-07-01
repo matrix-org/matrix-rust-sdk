@@ -294,7 +294,7 @@ impl<const CAP: usize, Item, Gap> Ends<CAP, Item, Gap> {
             // Fetch the previous chunk pointer.
             let previous_ptr = unsafe { chunk_ptr.as_ref() }.previous;
 
-            // Re-box the chunk, and let Rust does its job.
+            // Re-box the chunk, and let Rust do its job.
             let _chunk_boxed = unsafe { Box::from_raw(chunk_ptr.as_ptr()) };
 
             // Update the `current_chunk_ptr`.
@@ -569,32 +569,24 @@ impl<const CAP: usize, Item, Gap> LinkedChunk<CAP, Item, Gap> {
                 .chunk_mut(chunk_identifier)
                 .ok_or(Error::InvalidChunkIdentifier { identifier: chunk_identifier })?;
 
-            let can_unlink_chunk = match &mut chunk.content {
+            let current_items = match &mut chunk.content {
                 ChunkContent::Gap(..) => {
                     return Err(Error::ChunkIsAGap { identifier: chunk_identifier });
                 }
-
-                ChunkContent::Items(current_items) => {
-                    let current_items_length = current_items.len();
-
-                    if item_index > current_items_length {
-                        return Err(Error::InvalidItemIndex { index: item_index });
-                    }
-
-                    removed_item = current_items.remove(item_index);
-
-                    if let Some(updates) = self.updates.as_mut() {
-                        updates
-                            .push(Update::RemoveItem { at: Position(chunk_identifier, item_index) })
-                    }
-
-                    current_items.is_empty()
-                }
+                ChunkContent::Items(current_items) => current_items,
             };
 
-            // If removing empty chunk is desired, and if the `chunk` can be unlinked, and
-            // if the `chunk` is not the first one, we can remove it.
-            if can_unlink_chunk && !chunk.is_first_chunk() {
+            if item_index > current_items.len() {
+                return Err(Error::InvalidItemIndex { index: item_index });
+            }
+
+            removed_item = current_items.remove(item_index);
+            if let Some(updates) = self.updates.as_mut() {
+                updates.push(Update::RemoveItem { at: Position(chunk_identifier, item_index) })
+            }
+
+            // If the chunk is empty and not the first one, we can remove it.
+            if current_items.is_empty() && !chunk.is_first_chunk() {
                 // Unlink `chunk`.
                 chunk.unlink(self.updates.as_mut());
 
@@ -613,7 +605,7 @@ impl<const CAP: usize, Item, Gap> LinkedChunk<CAP, Item, Gap> {
         if let Some(chunk_ptr) = chunk_ptr {
             // `chunk` has been unlinked.
 
-            // Re-box the chunk, and let Rust does its job.
+            // Re-box the chunk, and let Rust do its job.
             //
             // SAFETY: `chunk` is unlinked and not borrowed anymore. `LinkedChunk` doesn't
             // use it anymore, it's a leak. It is time to re-`Box` it and drop it.
@@ -905,7 +897,7 @@ impl<const CAP: usize, Item, Gap> LinkedChunk<CAP, Item, Gap> {
             // Stop borrowing `chunk`.
         }
 
-        // Re-box the chunk, and let Rust does its job.
+        // Re-box the chunk, and let Rust do its job.
         //
         // SAFETY: `chunk` is unlinked and not borrowed anymore. `LinkedChunk` doesn't
         // use it anymore, it's a leak. It is time to re-`Box` it and drop it.
