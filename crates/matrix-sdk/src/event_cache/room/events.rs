@@ -266,7 +266,8 @@ impl RoomEvents {
 
         self.order_tracker.flush_updates(false);
 
-        if cfg!(any(test, debug_assertions)) {
+        #[cfg(any(test, debug_assertions))]
+        {
             // Assert that the orderings are fully correct for all the events present in the
             // in-memory linked chunk.
             self.assert_event_ordering();
