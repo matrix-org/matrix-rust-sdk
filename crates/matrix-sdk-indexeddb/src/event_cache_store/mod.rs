@@ -28,6 +28,7 @@ mod transaction;
 mod types;
 
 pub use builder::IndexeddbEventCacheStoreBuilder;
+pub use error::IndexeddbEventCacheStoreError;
 
 /// A type for providing an IndexedDB implementation of [`EventCacheStore`][1].
 /// This is meant to be used as a backend to [`EventCacheStore`][1] in browser

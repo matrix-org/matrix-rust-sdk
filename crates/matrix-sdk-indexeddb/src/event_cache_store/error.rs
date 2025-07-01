@@ -13,6 +13,7 @@
 // limitations under the License
 
 use matrix_sdk_base::{SendOutsideWasm, SyncOutsideWasm};
+use thiserror::Error;
 
 /// A trait that combines the necessary traits needed for asynchronous runtimes,
 /// but excludes them when running in a web environment - i.e., when
@@ -21,3 +22,19 @@ pub trait AsyncErrorDeps: std::error::Error + SendOutsideWasm + SyncOutsideWasm 
 
 impl<T> AsyncErrorDeps for T where T: std::error::Error + SendOutsideWasm + SyncOutsideWasm + 'static
 {}
+
+#[derive(Debug, Error)]
+pub enum IndexeddbEventCacheStoreError {
+    #[error("DomException {name} ({code}): {message}")]
+    DomException { name: String, message: String, code: u16 },
+}
+
+impl From<web_sys::DomException> for IndexeddbEventCacheStoreError {
+    fn from(value: web_sys::DomException) -> IndexeddbEventCacheStoreError {
+        IndexeddbEventCacheStoreError::DomException {
+            name: value.name(),
+            message: value.message(),
+            code: value.code(),
+        }
+    }
+}
