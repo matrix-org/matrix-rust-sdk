@@ -1654,7 +1654,7 @@ mod private {
                 // the underlying gap, if the conditions are favorable to
                 // us.
                 self.room_linked_chunk
-                    .replace_gap_at(reversed_events.clone(), gap_id)
+                    .replace_gap_at(gap_id, reversed_events.clone())
                     .expect("gap_identifier is a valid chunk id we read previously")
             } else if let Some(pos) = first_event_pos {
                 // No prior gap, but we had some events: assume we need to prepend events

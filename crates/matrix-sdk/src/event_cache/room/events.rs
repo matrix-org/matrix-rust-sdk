@@ -136,10 +136,11 @@ impl EventLinkedChunk {
     /// `Chunk` that contains the `items`.
     pub fn replace_gap_at(
         &mut self,
-        events: Vec<Event>,
         gap_identifier: ChunkIdentifier,
+        events: Vec<Event>,
     ) -> Result<Option<Position>, Error> {
-        // As an optimization, we'll remove the empty chunk if it's a gap.
+        // As an optimization, we'll remove the chunk if it's a gap that would be
+        // replaced with no events.
         //
         // However, our linked chunk requires that it includes at least one chunk in the
         // in-memory representation. We could tweak this invariant, but in the
@@ -608,12 +609,12 @@ mod tests {
         linked_chunk.push_events([event_0]);
         linked_chunk.push_gap(Gap { prev_token: "hello".to_owned() });
 
-        let chunk_identifier_of_gap = linked_chunk
+        let gap_chunk_id = linked_chunk
             .chunks()
             .find_map(|chunk| chunk.is_gap().then_some(chunk.identifier()))
             .unwrap();
 
-        linked_chunk.replace_gap_at(vec![event_1, event_2], chunk_identifier_of_gap).unwrap();
+        linked_chunk.replace_gap_at(gap_chunk_id, vec![event_1, event_2]).unwrap();
 
         assert_events_eq!(
             linked_chunk.events(),
@@ -657,7 +658,7 @@ mod tests {
             .unwrap();
 
         // The next insert position is the next chunk's start.
-        let pos = linked_chunk.replace_gap_at(vec![], first_gap_id).unwrap();
+        let pos = linked_chunk.replace_gap_at(first_gap_id, vec![]).unwrap();
         assert_eq!(pos, Some(Position::new(ChunkIdentifier::new(2), 0)));
 
         // Remove the second gap.
@@ -667,7 +668,7 @@ mod tests {
             .unwrap();
 
         // No next insert position.
-        let pos = linked_chunk.replace_gap_at(vec![], second_gap_id).unwrap();
+        let pos = linked_chunk.replace_gap_at(second_gap_id, vec![]).unwrap();
         assert!(pos.is_none());
     }
 
