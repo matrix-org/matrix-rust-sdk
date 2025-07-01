@@ -84,7 +84,7 @@ use crate::{
         requests::UploadSigningKeysRequest,
         CrossSigningKey, DeviceKeys, EventEncryptionAlgorithm, MasterPubkey, OneTimeKey, SignedKey,
     },
-    Device, OlmError, SignatureError,
+    DecryptionSettings, Device, OlmError, SignatureError, TrustRequirement,
 };
 
 #[derive(Debug)]
@@ -1164,10 +1164,20 @@ impl Account {
         sender: &UserId,
         sender_key: Curve25519PublicKey,
         ciphertext: &OlmMessage,
+        decryption_settings: &DecryptionSettings,
     ) -> OlmResult<OlmDecryptionInfo> {
         let message_hash = OlmMessageHash::new(sender_key, ciphertext);
 
-        match self.decrypt_and_parse_olm_message(store, sender, sender_key, ciphertext).await {
+        match self
+            .decrypt_and_parse_olm_message(
+                store,
+                sender,
+                sender_key,
+                ciphertext,
+                decryption_settings,
+            )
+            .await
+        {
             Ok((session, result)) => {
                 Ok(OlmDecryptionInfo { session, message_hash, result, inbound_group_session: None })
             }
@@ -1189,8 +1199,16 @@ impl Account {
         store: &Store,
         sender: &UserId,
         content: &OlmV2Curve25519AesSha2Content,
+        decryption_settings: &DecryptionSettings,
     ) -> OlmResult<OlmDecryptionInfo> {
-        self.decrypt_olm_helper(store, sender, content.sender_key, &content.ciphertext).await
+        self.decrypt_olm_helper(
+            store,
+            sender,
+            content.sender_key,
+            &content.ciphertext,
+            decryption_settings,
+        )
+        .await
     }
 
     #[instrument(skip_all, fields(sender, sender_key = ?content.sender_key))]
@@ -1199,6 +1217,7 @@ impl Account {
         store: &Store,
         sender: &UserId,
         content: &OlmV1Curve25519AesSha2Content,
+        decryption_settings: &DecryptionSettings,
     ) -> OlmResult<OlmDecryptionInfo> {
         if content.recipient_key != self.static_data.identity_keys.curve25519 {
             warn!("Olm event doesn't contain a ciphertext for our key");
@@ -1210,6 +1229,7 @@ impl Account {
                 sender,
                 content.sender_key,
                 &content.ciphertext,
+                decryption_settings,
             ))
             .await
         }
@@ -1220,16 +1240,17 @@ impl Account {
         &mut self,
         store: &Store,
         event: &EncryptedToDeviceEvent,
+        decryption_settings: &DecryptionSettings,
     ) -> OlmResult<OlmDecryptionInfo> {
         trace!("Decrypting a to-device event");
 
         match &event.content {
             ToDeviceEncryptedEventContent::OlmV1Curve25519AesSha2(c) => {
-                self.decrypt_olm_v1(store, &event.sender, c).await
+                self.decrypt_olm_v1(store, &event.sender, c, decryption_settings).await
             }
             #[cfg(feature = "experimental-algorithms")]
             ToDeviceEncryptedEventContent::OlmV2Curve25519AesSha2(c) => {
-                self.decrypt_olm_v2(store, &event.sender, c).await
+                self.decrypt_olm_v2(store, &event.sender, c, decryption_settings).await
             }
             ToDeviceEncryptedEventContent::Unknown(_) => {
                 warn!(
@@ -1391,13 +1412,23 @@ impl Account {
         sender: &UserId,
         sender_key: Curve25519PublicKey,
         message: &OlmMessage,
+        decryption_settings: &DecryptionSettings,
     ) -> OlmResult<(SessionType, DecryptionResult)> {
         let (session, plaintext) =
             self.decrypt_olm_message(store, sender, sender_key, message).await?;
 
         trace!("Successfully decrypted an Olm message");
 
-        match self.parse_decrypted_to_device_event(store, sender, sender_key, plaintext).await {
+        match self
+            .parse_decrypted_to_device_event(
+                store,
+                sender,
+                sender_key,
+                plaintext,
+                decryption_settings,
+            )
+            .await
+        {
             Ok(result) => Ok((session, result)),
             Err(e) => {
                 // We might have created a new session but decryption might still
@@ -1446,6 +1477,7 @@ impl Account {
         sender: &UserId,
         sender_key: Curve25519PublicKey,
         plaintext: String,
+        decryption_settings: &DecryptionSettings,
     ) -> OlmResult<DecryptionResult> {
         let event: Box<AnyDecryptedOlmEvent> = serde_json::from_str(&plaintext)?;
         let identity_keys = &self.static_data.identity_keys;
@@ -1516,12 +1548,78 @@ impl Account {
 
             let encryption_info = Self::get_olm_encryption_info(sender_key, sender, &sender_device);
 
-            Ok(DecryptionResult {
+            let result = DecryptionResult {
                 event,
                 raw_event: Raw::from_json(RawJsonValue::from_string(plaintext)?),
                 sender_key,
                 encryption_info,
-            })
+            };
+
+            // Return an error if the sender is unverified (and we care)
+            if !self.is_from_verified_device_or_allowed_type(decryption_settings, &result) {
+                Err(OlmError::UnverifiedSenderDevice)
+            } else {
+                // Sender is ok - return the decrypted event
+                Ok(result)
+            }
+        }
+    }
+
+    /// Return true if:
+    ///
+    /// * the sending device is verified, or
+    /// * the event type is one of those we allow to be sent from unverified
+    ///   devices, or
+    /// * we are not in "exclude_insecure_devices" mode, so everything is
+    ///   allowed.
+    ///
+    /// Return false if:
+    ///
+    /// * we are in "exclude_insecure_devices" mode AND the sending device is
+    ///   unverified.
+    fn is_from_verified_device_or_allowed_type(
+        &self,
+        decryption_settings: &DecryptionSettings,
+        result: &DecryptionResult,
+    ) -> bool {
+        let event_type = result.event.event_type();
+
+        // If we're in "exclude insecure devices" mode, we prevent most
+        // to-device events with unverified senders from being allowed
+        // through here, but there are some exceptions:
+        //
+        // * m.room_key - we hold on to these until later, so if the sender becomes
+        //   verified later we can still use the key.
+        //
+        // * m.room_key_request, m.room_key.withheld, m.key.verification.*,
+        //   m.secret.request - these are allowed as plaintext events, so we also allow
+        //   them encrypted from insecure devices. Note: the list of allowed types here
+        //   should match with what is allowed in handle_to_device_event.
+        match event_type {
+            "m.room_key"
+            | "m.room_key.withheld"
+            | "m.room_key_request"
+            | "m.secret.request"
+            | "m.key.verification.key"
+            | "m.key.verification.mac"
+            | "m.key.verification.done"
+            | "m.key.verification.ready"
+            | "m.key.verification.start"
+            | "m.key.verification.accept"
+            | "m.key.verification.cancel"
+            | "m.key.verification.request" => {
+                // This is one of the exception types - we allow it even if the sender device is
+                // not verified.
+                true
+            }
+            _ => {
+                // This is not an exception type - check for "exclude insecure devices" mode,
+                // and whether the sender is verified.
+                satisfies_sender_trust_requirement(
+                    &result.encryption_info,
+                    &decryption_settings.sender_device_trust_requirement,
+                )
+            }
         }
     }
 
@@ -1697,6 +1795,43 @@ fn expand_legacy_pickle_key(key: &[u8; 32], device_id: &DeviceId) -> Box<[u8; 32
         .expect("We should be able to expand the 32 byte pickle key");
 
     key
+}
+
+/// Does the to-device event satisfy the sender trust requirement from the
+/// decryption settings?
+fn satisfies_sender_trust_requirement(
+    encryption_info: &EncryptionInfo,
+    trust_requirement: &TrustRequirement,
+) -> bool {
+    trace!(
+        verification_state = ?encryption_info.verification_state,
+        ?trust_requirement, "check_to_device_sender_trust_requirement",
+    );
+
+    match (&encryption_info.verification_state, trust_requirement) {
+        // If we don't care, everything is OK.
+        (_, TrustRequirement::Untrusted) => true,
+
+        // Verified is OK whatever our requirements are.
+        (VerificationState::Verified, _) => true,
+
+        // We do care, and we are not fully verified: check more deeply.
+        // (Note that for to-device messages the legacy trust requirement is not relevant.)
+        (
+            VerificationState::Unverified(verification_level),
+            TrustRequirement::CrossSignedOrLegacy | TrustRequirement::CrossSigned,
+        ) => match verification_level {
+            // The device is signed but the identity is only pinned - this is fine.
+            VerificationLevel::UnverifiedIdentity => true,
+
+            // The device is unsigned or missing, or the user is in verification violation,
+            // or the sender is mismatched: this is not fine.
+            VerificationLevel::UnsignedDevice
+            | VerificationLevel::None(_)
+            | VerificationLevel::VerificationViolation
+            | VerificationLevel::MismatchedSender => false,
+        },
+    }
 }
 
 #[cfg(test)]

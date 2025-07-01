@@ -14,7 +14,9 @@
 
 use std::collections::BTreeMap;
 
-use matrix_sdk_common::deserialized_responses::ProcessedToDeviceEvent;
+use matrix_sdk_common::deserialized_responses::{
+    ProcessedToDeviceEvent, ToDeviceUnableToDecryptInfo, ToDeviceUnableToDecryptReason,
+};
 use matrix_sdk_crypto::{
     DecryptionSettings, EncryptionSyncChanges, OlmMachine, store::types::RoomKeyInfo,
 };
@@ -114,7 +116,12 @@ async fn process(
                 .map(|raw| {
                     if let Ok(Some(event_type)) = raw.get_field::<String>("type") {
                         if event_type == "m.room.encrypted" {
-                            ProcessedToDeviceEvent::UnableToDecrypt(raw)
+                            ProcessedToDeviceEvent::UnableToDecrypt {
+                                encrypted_event: raw,
+                                utd_info: ToDeviceUnableToDecryptInfo {
+                                    reason: ToDeviceUnableToDecryptReason::NoOlmMachine,
+                                },
+                            }
                         } else {
                             ProcessedToDeviceEvent::PlainText(raw)
                         }

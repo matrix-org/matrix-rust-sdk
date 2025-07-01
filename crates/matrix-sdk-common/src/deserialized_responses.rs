@@ -1179,6 +1179,33 @@ impl From<SyncTimelineEventDeserializationHelperV0> for TimelineEvent {
     }
 }
 
+/// Reason code for a to-device decryption failure
+#[derive(Debug, Clone, PartialEq)]
+pub enum ToDeviceUnableToDecryptReason {
+    /// An error occurred while encrypting the event. This covers all
+    /// `OlmError` types.
+    DecryptionFailure,
+
+    /// We refused to decrypt the message because the sender's device is not
+    /// verified, or more generally, the sender's identity did not match the
+    /// trust requirement we were asked to provide.
+    UnverifiedSenderDevice,
+
+    /// We have no `OlmMachine`. This should not happen unless we forget to set
+    /// things up by calling `OlmMachine::activate()`.
+    NoOlmMachine,
+
+    /// The Matrix SDK was compiled without encryption support.
+    EncryptionIsDisabled,
+}
+
+/// Metadata about a to-device event that could not be decrypted.
+#[derive(Clone, Debug)]
+pub struct ToDeviceUnableToDecryptInfo {
+    /// Reason code for the decryption failure
+    pub reason: ToDeviceUnableToDecryptReason,
+}
+
 /// Represents a to-device event after it has been processed by the Olm machine.
 #[derive(Clone, Debug)]
 pub enum ProcessedToDeviceEvent {
@@ -1192,7 +1219,10 @@ pub enum ProcessedToDeviceEvent {
     },
 
     /// An encrypted event which could not be decrypted.
-    UnableToDecrypt(Raw<AnyToDeviceEvent>),
+    UnableToDecrypt {
+        encrypted_event: Raw<AnyToDeviceEvent>,
+        utd_info: ToDeviceUnableToDecryptInfo,
+    },
 
     /// An unencrypted event.
     PlainText(Raw<AnyToDeviceEvent>),
@@ -1209,7 +1239,9 @@ impl ProcessedToDeviceEvent {
     pub fn to_raw(&self) -> Raw<AnyToDeviceEvent> {
         match self {
             ProcessedToDeviceEvent::Decrypted { raw, .. } => raw.clone(),
-            ProcessedToDeviceEvent::UnableToDecrypt(event) => event.clone(),
+            ProcessedToDeviceEvent::UnableToDecrypt { encrypted_event, .. } => {
+                encrypted_event.clone()
+            }
             ProcessedToDeviceEvent::PlainText(event) => event.clone(),
             ProcessedToDeviceEvent::Invalid(event) => event.clone(),
         }
@@ -1219,7 +1251,7 @@ impl ProcessedToDeviceEvent {
     pub fn as_raw(&self) -> &Raw<AnyToDeviceEvent> {
         match self {
             ProcessedToDeviceEvent::Decrypted { raw, .. } => raw,
-            ProcessedToDeviceEvent::UnableToDecrypt(event) => event,
+            ProcessedToDeviceEvent::UnableToDecrypt { encrypted_event, .. } => encrypted_event,
             ProcessedToDeviceEvent::PlainText(event) => event,
             ProcessedToDeviceEvent::Invalid(event) => event,
         }
