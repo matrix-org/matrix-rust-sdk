@@ -86,6 +86,7 @@ unicode-normalization.workspace = true
 uniffi = { workspace = true, optional = true }
 
 [dev-dependencies]
+anyhow.workspace = true
 assert_matches.workspace = true
 assert_matches2.workspace = true
 assign = "1.1.1"

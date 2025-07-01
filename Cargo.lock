@@ -2952,6 +2952,7 @@ dependencies = [
 name = "matrix-sdk-base"
 version = "0.12.0"
 dependencies = [
+ "anyhow",
  "as_variant",
  "assert_matches",
  "assert_matches2",
