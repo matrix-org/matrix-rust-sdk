@@ -22,7 +22,7 @@ state-store = ["dep:matrix-sdk-base"]
 [dependencies]
 as_variant.workspace = true
 async-trait.workspace = true
-deadpool-sqlite = "0.10.0"
+deadpool-sqlite = "0.11.0"
 itertools.workspace = true
 matrix-sdk-base = { workspace = true, optional = true }
 matrix-sdk-crypto = { workspace = true, optional = true }
@@ -30,7 +30,7 @@ matrix-sdk-store-encryption.workspace = true
 num_cpus = "1.16.0"
 rmp-serde.workspace = true
 ruma.workspace = true
-rusqlite = { version = "0.33.0", features = ["limits"] }
+rusqlite = { version = "0.35.0", features = ["limits"] }
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
