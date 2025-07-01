@@ -1502,10 +1502,10 @@ mod private {
                 in_store_duplicated_event_ids,
                 non_empty_all_duplicates: all_duplicates,
             } = filter_duplicate_events(
-                LinkedChunkId::Room(self.room.as_ref()),
                 &self.store,
-                timeline.events,
+                LinkedChunkId::Room(self.room.as_ref()),
                 &self.room_linked_chunk,
+                timeline.events,
             )
             .await?;
 
@@ -1601,10 +1601,10 @@ mod private {
                 in_store_duplicated_event_ids,
                 non_empty_all_duplicates: all_duplicates,
             } = filter_duplicate_events(
-                LinkedChunkId::Room(self.room.as_ref()),
                 &self.store,
-                events,
+                LinkedChunkId::Room(self.room.as_ref()),
                 &self.room_linked_chunk,
+                events,
             )
             .await?;
 

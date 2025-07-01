@@ -28,36 +28,25 @@ use super::{
     EventCacheError,
 };
 
-/// Find duplicates in the given collection of events, and return both
-/// valid events (those with an event id) as well as the event ids of
-/// duplicate events along with their position.
+/// Find duplicates in the given collection of new events, and return relevant
+/// information about the duplicates found in the new events, including the
+/// events that are not loaded in memory.
 pub async fn filter_duplicate_events(
-    linked_chunk_id: LinkedChunkId<'_>,
     store: &EventCacheStoreLock,
-    mut events: Vec<Event>,
+    linked_chunk_id: LinkedChunkId<'_>,
     linked_chunk: &EventLinkedChunk,
+    mut new_events: Vec<Event>,
 ) -> Result<DeduplicationOutcome, EventCacheError> {
-    // Remove all events with no ID, or that is duplicated inside `events`, i.e.
-    // `events` contains duplicated events in itself, e.g. `[$e0, $e1, $e0]`, here
-    // `$e0` is duplicated in within `events`.
+    // Remove all events with no ID, or that are duplicated among the new events,
+    // i.e. `new_events` contains duplicated events in itself (e.g. `[$e0, $e1,
+    // $e0]`, here `$e0` is duplicated).
     {
         let mut event_ids = BTreeSet::new();
 
-        events.retain(|event| {
-            let Some(event_id) = event.event_id() else {
-                // No event ID? Bye bye.
-                return false;
-            };
-
-            // Already seen this event in `events`? Bye bye.
-            if event_ids.contains(&event_id) {
-                return false;
-            }
-
-            event_ids.insert(event_id);
-
-            // Let's keep this event!
-            true
+        new_events.retain(|event| {
+            // Only keep events with IDs, and those for which `insert` returns `true`
+            // (meaning they were not in the set).
+            event.event_id().is_some_and(|event_id| event_ids.insert(event_id))
         });
     }
 
@@ -67,7 +56,7 @@ pub async fn filter_duplicate_events(
     let duplicated_event_ids = store
         .filter_duplicated_events(
             linked_chunk_id,
-            events.iter().filter_map(|event| event.event_id()).collect(),
+            new_events.iter().filter_map(|event| event.event_id()).collect(),
         )
         .await?;
 
@@ -92,14 +81,14 @@ pub async fn filter_duplicate_events(
         (in_memory, in_store)
     };
 
-    let at_least_one_event = !events.is_empty();
+    let at_least_one_event = !new_events.is_empty();
     let all_duplicates = (in_memory_duplicated_event_ids.len()
         + in_store_duplicated_event_ids.len())
-        == events.len();
+        == new_events.len();
     let non_empty_all_duplicates = at_least_one_event && all_duplicates;
 
     Ok(DeduplicationOutcome {
-        all_events: events,
+        all_events: new_events,
         in_memory_duplicated_event_ids,
         in_store_duplicated_event_ids,
         non_empty_all_duplicates,
@@ -243,10 +232,10 @@ mod tests {
             linked_chunk.push_events([event_1.clone(), event_2.clone(), event_3.clone()]);
 
             let outcome = filter_duplicate_events(
-                LinkedChunkId::Room(room_id),
                 &event_cache_store,
-                vec![event_0.clone(), event_1.clone(), event_2.clone(), event_3.clone()],
+                LinkedChunkId::Room(room_id),
                 &linked_chunk,
+                vec![event_0.clone(), event_1.clone(), event_2.clone(), event_3.clone()],
             )
             .await
             .unwrap();
@@ -258,10 +247,10 @@ mod tests {
         linked_chunk.push_events([event_2.clone(), event_3.clone()]);
 
         let outcome = filter_duplicate_events(
-            LinkedChunkId::Room(room_id),
             &event_cache_store,
-            vec![event_0, event_1, event_2, event_3, event_4],
+            LinkedChunkId::Room(room_id),
             &linked_chunk,
+            vec![event_0, event_1, event_2, event_3, event_4],
         )
         .await
         .unwrap();
@@ -371,10 +360,10 @@ mod tests {
             in_store_duplicated_event_ids,
             non_empty_all_duplicates,
         } = filter_duplicate_events(
-            LinkedChunkId::Room(room_id),
             &event_cache_store,
-            vec![ev1, ev2, ev3, ev4],
+            LinkedChunkId::Room(room_id),
             &linked_chunk,
+            vec![ev1, ev2, ev3, ev4],
         )
         .await
         .unwrap();
