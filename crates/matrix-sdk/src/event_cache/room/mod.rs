@@ -503,8 +503,7 @@ mod private {
         },
         linked_chunk::{
             lazy_loader::{self},
-            ChunkContent, ChunkIdentifier, ChunkIdentifierGenerator, ChunkMetadata, LinkedChunkId,
-            Position, Update,
+            ChunkContent, ChunkIdentifierGenerator, ChunkMetadata, LinkedChunkId, Position, Update,
         },
         serde_helpers::extract_thread_root,
         sync::Timeline,
@@ -1262,6 +1261,8 @@ mod private {
 
         /// Post-process new events, after they have been added to the in-memory
         /// linked chunk.
+        ///
+        /// Flushes updates to disk first.
         async fn post_process_new_events(
             &mut self,
             events: Vec<Event>,
@@ -1568,13 +1569,43 @@ mod private {
             Ok((has_new_gap, timeline_event_diffs))
         }
 
+        /// Handle the result of a single back-pagination request.
+        ///
+        /// If the `prev_token` is set, then this function will check that the
+        /// corresponding gap is present in the in-memory linked chunk.
+        /// If it's not the case, `Ok(None)` will be returned, and the
+        /// caller may decide to do something based on that (e.g. restart a
+        /// pagination).
         #[must_use = "Propagate `VectorDiff` updates via `RoomEventCacheUpdate`"]
         pub async fn handle_backpagination(
             &mut self,
             events: Vec<Event>,
-            mut new_gap: Option<Gap>,
-            prev_gap_id: Option<ChunkIdentifier>,
-        ) -> Result<(BackPaginationOutcome, Vec<VectorDiff<Event>>), EventCacheError> {
+            mut new_token: Option<String>,
+            prev_token: Option<String>,
+        ) -> Result<Option<(BackPaginationOutcome, Vec<VectorDiff<Event>>)>, EventCacheError>
+        {
+            // Check that the previous token still exists; otherwise it's a sign that the
+            // room's timeline has been cleared.
+            let prev_gap_id = if let Some(token) = prev_token {
+                // Find the corresponding gap in the in-memory linked chunk.
+                let gap_chunk_id = self.room_linked_chunk.chunk_identifier(|chunk| {
+                    matches!(chunk.content(), ChunkContent::Gap(Gap { ref prev_token }) if *prev_token == token)
+                });
+
+                if gap_chunk_id.is_none() {
+                    // We got a previous-batch token from the linked chunk *before* running the
+                    // request, but it is missing *after* completing the request.
+                    //
+                    // It may be a sign the linked chunk has been reset, but it's fine, per this
+                    // function's contract.
+                    return Ok(None);
+                }
+
+                gap_chunk_id
+            } else {
+                None
+            };
+
             let DeduplicationOutcome {
                 all_events: mut events,
                 in_memory_duplicated_event_ids,
@@ -1610,25 +1641,26 @@ mod private {
                 events.clear();
                 // The gap can be ditched too, as it won't be useful to backpaginate any
                 // further.
-                new_gap = None;
+                new_token = None;
             };
 
             // `/messages` has been called with `dir=b` (backwards), so the events are in
             // the inverted order; reorder them.
             let topo_ordered_events = events.iter().rev().cloned().collect::<Vec<_>>();
 
+            let new_gap = new_token.map(|prev_token| Gap { prev_token });
             let reached_start = self.room_linked_chunk.finish_back_pagination(
                 prev_gap_id,
                 new_gap,
                 &topo_ordered_events,
             );
 
+            // Note: this flushes updates to the store.
             self.post_process_new_events(topo_ordered_events, false).await?;
 
             let event_diffs = self.room_linked_chunk.updates_as_vector_diffs();
-            let backpagination_outcome = BackPaginationOutcome { events, reached_start };
 
-            Ok((backpagination_outcome, event_diffs))
+            Ok(Some((BackPaginationOutcome { events, reached_start }, event_diffs)))
         }
     }
 }
