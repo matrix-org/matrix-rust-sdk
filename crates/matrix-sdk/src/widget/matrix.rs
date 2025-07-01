@@ -439,9 +439,7 @@ impl MatrixDriver {
         for (user_id, recipient_device_ids) in user_to_list_of_device_id_or_all {
             let user_devices = client.encryption().get_user_devices(&user_id).await?;
 
-            let user_devices = if recipient_device_ids
-                .contains(&DeviceIdOrAllDevices::AllDevices)
-            {
+            let user_devices = if recipient_device_ids.contains(&DeviceIdOrAllDevices::AllDevices) {
                 // If the user wants to send to all devices, there's nothing to filter and no
                 // need to inspect other entries in the user's device list.
                 let devices: Vec<_> = user_devices.devices().collect();
