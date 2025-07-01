@@ -17,6 +17,8 @@ All notable changes to this project will be documented in this file.
 - Add `Client::supported_versions()`, which returns the results of both `Client::server_versions()` and
   `Client::unstable_features()` with a single call.
   ([#5357](https://github.com/matrix-org/matrix-rust-sdk/pull/5357))
+- `WidgetDriver::send_to_device` Now supports sending encrypted to-device messages.
+  ([#5252](https://github.com/matrix-org/matrix-rust-sdk/pull/5252))
 - `Client::add_event_handler`: Set `Option<EncryptionInfo>` in `EventHandlerData` for to-device messages.
   If the to-device message was encrypted, the `EncryptionInfo` will be set. If it is `None` the message was sent in clear.
   ([#5099](https://github.com/matrix-org/matrix-rust-sdk/pull/5099))
