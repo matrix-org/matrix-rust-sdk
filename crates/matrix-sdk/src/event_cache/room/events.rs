@@ -94,20 +94,6 @@ impl EventLinkedChunk {
         self.chunks.push_items_back(events);
     }
 
-    /// Remove an empty chunk at the given position.
-    ///
-    /// Note: the chunk must either be a gap, or an empty items chunk, and it
-    /// must NOT be the last one.
-    ///
-    /// Returns the next insert position, if any, left after the chunk that has
-    /// just been removed.
-    pub fn remove_empty_chunk_at(
-        &mut self,
-        gap: ChunkIdentifier,
-    ) -> Result<Option<Position>, Error> {
-        self.chunks.remove_empty_chunk_at(gap)
-    }
-
     /// Replace the gap identified by `gap_identifier`, by events.
     ///
     /// Because the `gap_identifier` can represent non-gap chunk, this method
@@ -312,7 +298,8 @@ impl EventLinkedChunk {
             self.chunks.push_gap_back(new_gap);
 
             if let Some(prev_chunk_to_remove) = prev_chunk_to_remove {
-                self.remove_empty_chunk_at(prev_chunk_to_remove)
+                self.chunks
+                    .remove_empty_chunk_at(prev_chunk_to_remove)
                     .expect("we just checked the chunk is there, and it's an empty item chunk");
             }
         }
