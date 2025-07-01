@@ -46,8 +46,8 @@ use tracing::{error, trace, warn};
 
 use super::{machine::SendEventResponse, StateKeySelector};
 use crate::{
-    encryption::identities::Device, event_handler::EventHandlerDropGuard, room::MessagesOptions,
-    sync::RoomUpdate, widget::machine::SendToDeviceEventResponse, Client, Error, Result, Room,
+    event_handler::EventHandlerDropGuard, room::MessagesOptions, sync::RoomUpdate,
+    widget::machine::SendToDeviceEventResponse, Client, Error, Result, Room,
 };
 
 /// Thin wrapper around a [`Room`] that provides functionality relevant for
@@ -434,12 +434,12 @@ impl MatrixDriver {
         failures: &mut BTreeMap<OwnedUserId, Vec<OwnedDeviceId>>,
     ) -> Result<()> {
         let client = self.room.client();
-        let mut recipient_devices = Vec::<Device>::new();
+        let mut recipient_devices = Vec::<_>::new();
 
         for (user_id, recipient_device_ids) in user_to_list_of_device_id_or_all {
             let user_devices = client.encryption().get_user_devices(&user_id).await?;
 
-            let user_devices: Vec<Device> = if recipient_device_ids
+            let user_devices = if recipient_device_ids
                 .contains(&DeviceIdOrAllDevices::AllDevices)
             {
                 // If the user wants to send to all devices, there's nothing to filter and no
