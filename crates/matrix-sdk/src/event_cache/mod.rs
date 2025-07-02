@@ -828,15 +828,15 @@ mod tests {
 
         let (room_event_cache, _drop_handles) = room1.event_cache().await.unwrap();
 
-        let found1 = room_event_cache.event(eid1).await.unwrap();
+        let found1 = room_event_cache.find_event(eid1).await.unwrap();
         assert_event_matches_msg(&found1, "hey");
 
-        let found2 = room_event_cache.event(eid2).await.unwrap();
+        let found2 = room_event_cache.find_event(eid2).await.unwrap();
         assert_event_matches_msg(&found2, "you");
 
         // Retrieving the event with id3 from the room which doesn't contain it will
         // fail…
-        assert!(room_event_cache.event(eid3).await.is_none());
+        assert!(room_event_cache.find_event(eid3).await.is_none());
     }
 
     #[async_test]
@@ -857,7 +857,7 @@ mod tests {
         room_event_cache.save_events([f.text_msg("hey there").event_id(event_id).into()]).await;
 
         // Retrieving the event at the room-wide cache works.
-        assert!(room_event_cache.event(event_id).await.is_some());
+        assert!(room_event_cache.find_event(event_id).await.is_some());
     }
 
     #[async_test]
