@@ -39,6 +39,9 @@ Breaking changes:
   callers can inspect the value of `NotificationItem::join_rule` to determine if the room is public
   (i.e. if the join rule is `Public`).
   ([#5278](https://github.com/matrix-org/matrix-rust-sdk/pull/5278))
+- `Client::observe_account_data_event()` returns an `Option` that returns `None` only for
+  `AccountDataEventType::SecretStorageKey`. This event type is dynamic so it cannot be observed.
+  ([#5326](https://github.com/matrix-org/matrix-rust-sdk/pull/5326))
 
 ## [0.12.0] - 2025-06-10
 
