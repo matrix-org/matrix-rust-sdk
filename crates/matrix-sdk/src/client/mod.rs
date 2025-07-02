@@ -2705,7 +2705,11 @@ impl Client {
         self.inner
             .latest_events
             .get_or_init(|| async {
-                LatestEvents::new(self.event_cache().clone(), SendQueue::new(self.clone()))
+                LatestEvents::new(
+                    WeakClient::from_client(self),
+                    self.event_cache().clone(),
+                    SendQueue::new(self.clone()),
+                )
             })
             .await
     }
@@ -2797,7 +2801,7 @@ impl Client {
 
 /// A weak reference to the inner client, useful when trying to get a handle
 /// on the owning client.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub(crate) struct WeakClient {
     client: Weak<ClientInner>,
 }
