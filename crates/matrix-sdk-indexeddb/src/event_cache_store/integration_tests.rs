@@ -550,3 +550,49 @@ macro_rules! indexeddb_event_cache_store_integration_tests {
         }
     };
 }
+
+// This is copied from `matrix_sdk_base::event_cache::store::integration_tests`
+// for the time being, because the IndexedDB implementation of `EventCacheStore`
+// is being completed iteratively. So, we are only bringing over the tests
+// relevant to the implemented functions. At the moment, this includes the
+// following.
+//
+// - EventCacheStore::handle_linked_chunk_updates
+// - EventCacheStore::load_all_chunks
+//
+// When all functions are implemented, we can get rid of this macro and use the
+// one from `matrix_sdk_base`.
+#[macro_export]
+macro_rules! event_cache_store_integration_tests {
+    () => {
+        mod event_cache_store_integration_tests {
+            use matrix_sdk_base::event_cache::store::{
+                EventCacheStoreIntegrationTests, IntoEventCacheStore,
+            };
+            use matrix_sdk_test::async_test;
+
+            use super::get_event_cache_store;
+
+            #[async_test]
+            async fn test_handle_updates_and_rebuild_linked_chunk() {
+                let event_cache_store =
+                    get_event_cache_store().await.unwrap().into_event_cache_store();
+                event_cache_store.test_handle_updates_and_rebuild_linked_chunk().await;
+            }
+
+            #[async_test]
+            async fn test_rebuild_empty_linked_chunk() {
+                let event_cache_store =
+                    get_event_cache_store().await.unwrap().into_event_cache_store();
+                event_cache_store.test_rebuild_empty_linked_chunk().await;
+            }
+
+            #[async_test]
+            async fn test_remove_room() {
+                let event_cache_store =
+                    get_event_cache_store().await.unwrap().into_event_cache_store();
+                event_cache_store.test_remove_room().await;
+            }
+        }
+    };
+}
