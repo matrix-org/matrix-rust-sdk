@@ -69,9 +69,7 @@ use ruma::{
             message::OriginalSyncRoomMessageEvent,
             power_levels::RoomPowerLevelsEventContent,
         },
-        secret_storage::{
-            default_key::SecretStorageDefaultKeyEventContent, key::SecretStorageKeyEventContent,
-        },
+        secret_storage::default_key::SecretStorageDefaultKeyEventContent,
         tag::TagEventContent,
         GlobalAccountDataEvent as RumaGlobalAccountDataEvent,
         GlobalAccountDataEventType as RumaGlobalAccountDataEventType,
@@ -573,11 +571,14 @@ impl Client {
     /// Be careful that only the most recent value can be observed. Subscribers
     /// are notified when a new value is sent, but there is no guarantee that
     /// they will see all values.
+    ///
+    /// Doesn't work for `m.secret_storage.key.<key_id>`, because it is
+    /// currently not observable.
     pub fn observe_account_data_event(
         &self,
         event_type: AccountDataEventType,
         listener: Box<dyn AccountDataListener>,
-    ) -> Arc<TaskHandle> {
+    ) -> Option<Arc<TaskHandle>> {
         macro_rules! observe {
             ($t:ty, $cb: expr) => {{
                 // Using an Arc here is mandatory or else the subscriber will never trigger
@@ -601,7 +602,7 @@ impl Client {
             }};
         }
 
-        match event_type {
+        let handle = match event_type {
             AccountDataEventType::Direct => {
                 observe!(DirectEventContent)
             }
@@ -623,19 +624,12 @@ impl Client {
             AccountDataEventType::SecretStorageDefaultKey => {
                 observe!(SecretStorageDefaultKeyEventContent)
             }
-            AccountDataEventType::SecretStorageKey { key_id } => {
-                observe!(SecretStorageKeyEventContent, |event: RumaGlobalAccountDataEvent<
-                    SecretStorageKeyEventContent,
-                >| {
-                    if event.content.key_id != key_id {
-                        return;
-                    }
-                    if let Ok(event) = event.try_into() {
-                        listener.on_change(event);
-                    }
-                })
+            AccountDataEventType::SecretStorageKey { .. } => {
+                return None;
             }
-        }
+        };
+
+        Some(handle)
     }
 
     /// Subscribe to updates of room account data events.
