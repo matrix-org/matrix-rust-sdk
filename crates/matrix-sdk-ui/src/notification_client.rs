@@ -684,34 +684,32 @@ impl NotificationClient {
 
             let should_notify = push_actions
                 .as_ref()
-                .map(|actions| actions.iter().any(|a| a.should_notify()))
-                .unwrap_or(false);
+                .is_some_and(|actions| actions.iter().any(|a| a.should_notify()));
 
             if !should_notify {
+                // The event has been filtered out by the user's push rules.
                 result.add_notification(event_id, NotificationStatus::EventFilteredOut);
-            } else {
-                let notification_result =
-                    NotificationItem::new(&room, raw_event, push_actions.as_deref(), Vec::new())
-                        .await
-                        .map(|event| NotificationStatus::Event(Box::new(event)));
+                continue;
+            }
 
-                match notification_result {
-                    Ok(notification_status) => match notification_status {
-                        NotificationStatus::Event(event) => {
-                            if self.client.is_user_ignored(event.event.sender()).await {
-                                result.add_notification(
-                                    event_id,
-                                    NotificationStatus::EventFilteredOut,
-                                );
-                            } else {
-                                result.add_notification(event_id, NotificationStatus::Event(event));
-                            }
+            let notification_result =
+                NotificationItem::new(&room, raw_event, push_actions.as_deref(), Vec::new())
+                    .await
+                    .map(|event| NotificationStatus::Event(Box::new(event)));
+
+            match notification_result {
+                Ok(notification_status) => match notification_status {
+                    NotificationStatus::Event(event) => {
+                        if self.client.is_user_ignored(event.event.sender()).await {
+                            result.add_notification(event_id, NotificationStatus::EventFilteredOut);
+                        } else {
+                            result.add_notification(event_id, NotificationStatus::Event(event));
                         }
-                        _ => result.add_notification(event_id, notification_status),
-                    },
-                    Err(err) => {
-                        result.mark_fetching_notification_failed(event_id, err);
                     }
+                    _ => result.add_notification(event_id, notification_status),
+                },
+                Err(err) => {
+                    result.mark_fetching_notification_failed(event_id, err);
                 }
             }
         }
