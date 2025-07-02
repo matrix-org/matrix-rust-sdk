@@ -319,11 +319,11 @@ impl RoomEventCache {
     ///
     /// **Warning**! It looks into the loaded events from the in-memory linked
     /// chunk **only**. It doesn't look inside the storage.
-    pub async fn rfind_event_in_memory_by<P>(&self, predicate: P) -> Option<Event>
+    pub async fn rfind_map_event_in_memory_by<O, P>(&self, predicate: P) -> Option<O>
     where
-        P: FnMut(&Event) -> bool,
+        P: FnMut(&Event) -> Option<O>,
     {
-        self.inner.state.read().await.rfind_event_in_memory_by(predicate)
+        self.inner.state.read().await.rfind_map_event_in_memory_by(predicate)
     }
 
     /// Try to find an event by ID in this room.
@@ -1282,13 +1282,11 @@ mod private {
         /// **Warning**! It looks into the loaded events from the in-memory
         /// linked chunk **only**. It doesn't look inside the storage,
         /// contrary to [`Self::find_event`].
-        pub fn rfind_event_in_memory_by<P>(&self, mut predicate: P) -> Option<Event>
+        pub fn rfind_map_event_in_memory_by<O, P>(&self, mut predicate: P) -> Option<O>
         where
-            P: FnMut(&Event) -> bool,
+            P: FnMut(&Event) -> Option<O>,
         {
-            self.room_linked_chunk
-                .revents()
-                .find_map(|(_position, event)| predicate(event).then(|| event.clone()))
+            self.room_linked_chunk.revents().find_map(|(_position, event)| predicate(event))
         }
 
         /// Find a single event in this room.
@@ -3163,7 +3161,7 @@ mod timed_tests {
     }
 
     #[async_test]
-    async fn test_rfind_event_in_memory_by() {
+    async fn test_rfind_map_event_in_memory_by() {
         let user_id = user_id!("@mnt_io:matrix.org");
         let room_id = room_id!("!raclette:patate.ch");
         let client = MockClientBuilder::new(None).build().await;
@@ -3226,12 +3224,12 @@ mod timed_tests {
         // Look for an event from `BOB`: it must be `event_0`.
         assert_matches!(
             room_event_cache
-                .rfind_event_in_memory_by(|event| {
-                    event.raw().get_field::<OwnedUserId>("sender").unwrap().as_deref() == Some(*BOB)
+                .rfind_map_event_in_memory_by(|event| {
+                    (event.raw().get_field::<OwnedUserId>("sender").unwrap().as_deref() == Some(*BOB)).then(|| event.event_id())
                 })
                 .await,
-            Some(event) => {
-                assert_eq!(event.event_id().as_deref(), Some(event_id_0));
+            Some(event_id) => {
+                assert_eq!(event_id.as_deref(), Some(event_id_0));
             }
         );
 
@@ -3239,24 +3237,26 @@ mod timed_tests {
         // because events are looked for in reverse order.
         assert_matches!(
             room_event_cache
-                .rfind_event_in_memory_by(|event| {
-                    event.raw().get_field::<OwnedUserId>("sender").unwrap().as_deref() == Some(*ALICE)
+                .rfind_map_event_in_memory_by(|event| {
+                    (event.raw().get_field::<OwnedUserId>("sender").unwrap().as_deref() == Some(*ALICE)).then(|| event.event_id())
                 })
                 .await,
-            Some(event) => {
-                assert_eq!(event.event_id().as_deref(), Some(event_id_2));
+            Some(event_id) => {
+                assert_eq!(event_id.as_deref(), Some(event_id_2));
             }
         );
 
         // Look for an event that is inside the storage, but not loaded.
         assert!(room_event_cache
-            .rfind_event_in_memory_by(|event| {
-                event.raw().get_field::<OwnedUserId>("sender").unwrap().as_deref() == Some(user_id)
+            .rfind_map_event_in_memory_by(|event| {
+                (event.raw().get_field::<OwnedUserId>("sender").unwrap().as_deref()
+                    == Some(user_id))
+                .then(|| event.event_id())
             })
             .await
             .is_none());
 
         // Look for an event that doesn't exist.
-        assert!(room_event_cache.rfind_event_in_memory_by(|_| false).await.is_none());
+        assert!(room_event_cache.rfind_map_event_in_memory_by(|_| None::<()>).await.is_none());
     }
 }
