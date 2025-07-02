@@ -42,6 +42,8 @@ use crate::event_cache_store::{
 
 mod builder;
 mod error;
+#[cfg(test)]
+mod integration_tests;
 mod migrations;
 mod serializer;
 mod transaction;
@@ -460,5 +462,41 @@ impl_event_cache_store! {
             .clean_up_media_cache()
             .await
             .map_err(IndexeddbEventCacheStoreError::MemoryStore)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use matrix_sdk_base::event_cache::store::{EventCacheStore, EventCacheStoreError};
+    use uuid::Uuid;
+
+    use crate::{
+        event_cache_store::IndexeddbEventCacheStore, indexeddb_event_cache_store_integration_tests,
+    };
+
+    mod unencrypted {
+        use super::*;
+
+        wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
+
+        async fn get_event_cache_store() -> Result<IndexeddbEventCacheStore, EventCacheStoreError> {
+            let name = format!("test-event-cache-store-{}", Uuid::new_v4().as_hyphenated());
+            Ok(IndexeddbEventCacheStore::builder().database_name(name).build().await?)
+        }
+
+        indexeddb_event_cache_store_integration_tests!();
+    }
+
+    mod encrypted {
+        use super::*;
+
+        wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
+
+        async fn get_event_cache_store() -> Result<IndexeddbEventCacheStore, EventCacheStoreError> {
+            let name = format!("test-event-cache-store-{}", Uuid::new_v4().as_hyphenated());
+            Ok(IndexeddbEventCacheStore::builder().database_name(name).build().await?)
+        }
+
+        indexeddb_event_cache_store_integration_tests!();
     }
 }
