@@ -419,7 +419,7 @@ impl NotificationClient {
                         warn!("a sync event had no event id");
                     }
                     Err(err) => {
-                        warn!("a sync event id couldn't be decoded: {err}");
+                        warn!("failed to deserialize sync event id: {err}");
                     }
                 }
             }
@@ -465,10 +465,10 @@ impl NotificationClient {
                         return;
                     }
                     Ok(None) => {
-                        debug!("a room member event had no id");
+                        warn!("a room member event had no id");
                     }
                     Err(err) => {
-                        debug!("a room member event id couldn't be decoded: {err}");
+                        warn!("failed to deserialize room member event id: {err}");
                     }
                 }
 
@@ -476,7 +476,7 @@ impl NotificationClient {
                 if deserialized.content.membership == MembershipState::Invite
                     && deserialized.state_key == user_id
                 {
-                    debug!("found an invite event for the current user");
+                    trace!("found an invite event for the current user");
                     // This could be it! There might be several of these following each other, so
                     // assume it's the latest one (in sync ordering), and override a previous one if
                     // present.
@@ -485,7 +485,7 @@ impl NotificationClient {
                         .unwrap()
                         .insert(deserialized.state_key, Some(RawNotificationEvent::Invite(raw)));
                 } else {
-                    debug!("not an invite event, or not for the current user");
+                    trace!("not an invite event, or not for the current user");
                 }
             }
         });
@@ -567,7 +567,7 @@ impl NotificationClient {
         let mut notifications = raw_notifications.clone().lock().unwrap().clone();
         let mut missing_event_ids = Vec::new();
 
-        // Create the list of missing event ids after the syncs
+        // Create the list of missing event ids after the syncs.
         for request in requests.iter() {
             for event_id in &request.event_ids {
                 if !notifications.contains_key(event_id) {
@@ -576,7 +576,7 @@ impl NotificationClient {
             }
         }
 
-        // Try checking if the missing notifications could be invites
+        // Try checking if the missing notifications could be invites.
         for (room_id, missing_event_id) in missing_event_ids {
             trace!("we didn't have a non-invite event, looking for invited room now");
             if let Some(room) = self.client.get_room(&room_id) {
@@ -591,7 +591,7 @@ impl NotificationClient {
                     debug!("the room isn't in the invited state");
                 }
             } else {
-                debug!("the room isn't an invite");
+                warn!(%room_id, "unknown room, can't check for invite events");
             }
         }
 
@@ -606,10 +606,16 @@ impl NotificationClient {
         room_id: &RoomId,
         event_id: &EventId,
     ) -> Result<NotificationStatus, Error> {
-        let event_ids = vec![event_id.to_owned()];
-        let request = NotificationItemsRequest { room_id: room_id.to_owned(), event_ids };
+        info!("fetching notification event with a sliding sync");
+
+        let request = NotificationItemsRequest {
+            room_id: room_id.to_owned(),
+            event_ids: vec![event_id.to_owned()],
+        };
+
         let mut get_notifications_result =
             self.get_notifications_with_sliding_sync(&[request]).await?;
+
         get_notifications_result.remove(event_id).unwrap_or(Ok(NotificationStatus::EventNotFound))
     }
 
@@ -645,18 +651,18 @@ impl NotificationClient {
                             Ok(None) => {
                                 match room.event_push_actions(timeline_event).await {
                                     Ok(push_actions) => (raw_event.clone(), push_actions),
-                                    Err(error) => {
-                                        // Could not get push actions,
+                                    Err(err) => {
+                                        // Could not get push actions.
                                         result.mark_fetching_notification_failed(
                                             event_id,
-                                            error.into(),
+                                            err.into(),
                                         );
                                         continue;
                                     }
                                 }
                             }
-                            Err(error) => {
-                                result.mark_fetching_notification_failed(event_id, error);
+                            Err(err) => {
+                                result.mark_fetching_notification_failed(event_id, err);
                                 continue;
                             }
                         }
@@ -667,8 +673,8 @@ impl NotificationClient {
                             Ok(push_actions) => {
                                 (RawNotificationEvent::Invite(invite_event.clone()), push_actions)
                             }
-                            Err(error) => {
-                                result.mark_fetching_notification_failed(event_id, error.into());
+                            Err(err) => {
+                                result.mark_fetching_notification_failed(event_id, err.into());
                                 continue;
                             }
                         }
@@ -709,8 +715,8 @@ impl NotificationClient {
                             }
                             _ => result.add_notification(event_id, notification_status),
                         },
-                        Err(error) => {
-                            result.mark_fetching_notification_failed(event_id, error);
+                        Err(err) => {
+                            result.mark_fetching_notification_failed(event_id, err);
                         }
                     }
                 }
@@ -974,8 +980,8 @@ impl NotificationItem {
             for ev in state_events {
                 let ev = match ev.deserialize() {
                     Ok(ev) => ev,
-                    Err(error) => {
-                        warn!(?error, "Failed to deserialize a state event");
+                    Err(err) => {
+                        warn!("Failed to deserialize a state event: {err}");
                         continue;
                     }
                 };
