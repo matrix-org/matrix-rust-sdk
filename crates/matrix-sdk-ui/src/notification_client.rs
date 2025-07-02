@@ -143,9 +143,7 @@ impl NotificationClient {
     /// `/context` query to find the event with associated member information.
     ///
     /// An error result means that we couldn't resolve the notification; in that
-    /// case, a dummy notification may be displayed instead. A `None` result
-    /// means the notification has been filtered out by the user's push
-    /// rules.
+    /// case, a dummy notification may be displayed instead.
     #[instrument(skip(self))]
     pub async fn get_notification(
         &self,

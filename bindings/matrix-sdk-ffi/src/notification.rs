@@ -1,7 +1,7 @@
 use std::{collections::HashMap, sync::Arc};
 
 use matrix_sdk_ui::notification_client::{
-    NotificationClient as MatrixNotificationClient, NotificationItem as MatrixNotificationItem,
+    NotificationClient as SdkNotificationClient, NotificationItem as SdkNotificationItem,
     NotificationStatus as SdkNotificationStatus,
 };
 use ruma::{EventId, OwnedEventId, OwnedRoomId, RoomId};
@@ -55,7 +55,7 @@ pub struct NotificationItem {
 }
 
 impl NotificationItem {
-    fn from_inner(item: MatrixNotificationItem) -> Self {
+    fn from_inner(item: SdkNotificationItem) -> Self {
         let event = match item.event {
             matrix_sdk_ui::notification_client::NotificationEvent::Timeline(event) => {
                 NotificationEvent::Timeline { event: Arc::new(TimelineEvent(event)) }
@@ -103,7 +103,7 @@ pub enum NotificationStatus {
 
 #[derive(uniffi::Object)]
 pub struct NotificationClient {
-    pub(crate) inner: MatrixNotificationClient,
+    pub(crate) inner: SdkNotificationClient,
 
     /// A reference to the FFI client.
     ///
@@ -127,8 +127,14 @@ impl NotificationClient {
         Ok(room)
     }
 
-    /// See also documentation of
-    /// `MatrixNotificationClient::get_notification`.
+    /// Fetches the content of a notification.
+    ///
+    /// This will first try to get the notification using a short-lived sliding
+    /// sync, and if the sliding-sync can't find the event, then it'll use a
+    /// `/context` query to find the event with associated member information.
+    ///
+    /// An error result means that we couldn't resolve the notification; in that
+    /// case, a dummy notification may be displayed instead.
     pub async fn get_notification(
         &self,
         room_id: String,
