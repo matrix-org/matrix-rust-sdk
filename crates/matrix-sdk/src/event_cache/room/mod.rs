@@ -1718,7 +1718,7 @@ mod tests {
     use crate::test_utils::logged_in_client;
 
     #[async_test]
-    async fn test_event_with_edit_relation() {
+    async fn test_find_event_by_id_with_edit_relation() {
         let original_id = event_id!("$original");
         let related_id = event_id!("$related");
         let room_id = room_id!("!galette:saucisse.bzh");
@@ -1740,7 +1740,7 @@ mod tests {
     }
 
     #[async_test]
-    async fn test_event_with_thread_reply_relation() {
+    async fn test_find_event_by_id_with_thread_reply_relation() {
         let original_id = event_id!("$original");
         let related_id = event_id!("$related");
         let room_id = room_id!("!galette:saucisse.bzh");
@@ -1756,7 +1756,7 @@ mod tests {
     }
 
     #[async_test]
-    async fn test_event_with_reaction_relation() {
+    async fn test_find_event_by_id_with_reaction_relation() {
         let original_id = event_id!("$original");
         let related_id = event_id!("$related");
         let room_id = room_id!("!galette:saucisse.bzh");
@@ -1772,7 +1772,7 @@ mod tests {
     }
 
     #[async_test]
-    async fn test_event_with_poll_response_relation() {
+    async fn test_find_event_by_id_with_poll_response_relation() {
         let original_id = event_id!("$original");
         let related_id = event_id!("$related");
         let room_id = room_id!("!galette:saucisse.bzh");
@@ -1790,7 +1790,7 @@ mod tests {
     }
 
     #[async_test]
-    async fn test_event_with_poll_end_relation() {
+    async fn test_find_event_by_id_with_poll_end_relation() {
         let original_id = event_id!("$original");
         let related_id = event_id!("$related");
         let room_id = room_id!("!galette:saucisse.bzh");
@@ -1808,7 +1808,7 @@ mod tests {
     }
 
     #[async_test]
-    async fn test_event_with_filtered_relationships() {
+    async fn test_find_event_by_id_with_filtered_relationships() {
         let original_id = event_id!("$original");
         let related_id = event_id!("$related");
         let associated_related_id = event_id!("$recursive_related");
@@ -1868,7 +1868,7 @@ mod tests {
     }
 
     #[async_test]
-    async fn test_event_with_recursive_relation() {
+    async fn test_find_event_by_id_with_recursive_relation() {
         let original_id = event_id!("$original");
         let related_id = event_id!("$related");
         let associated_related_id = event_id!("$recursive_related");
@@ -1987,7 +1987,7 @@ mod timed_tests {
     use ruma::{
         event_id,
         events::{AnySyncMessageLikeEvent, AnySyncTimelineEvent},
-        room_id, user_id,
+        room_id, user_id, OwnedUserId,
     };
     use tokio::task::yield_now;
 
@@ -2982,5 +2982,103 @@ mod timed_tests {
         let events3 = room_event_cache.events().await;
         assert_eq!(events3.len(), 1);
         assert_eq!(events3[0].event_id().as_deref(), Some(evid2));
+    }
+
+    #[async_test]
+    async fn test_rfind_event_in_memory_by() {
+        let user_id = user_id!("@mnt_io:matrix.org");
+        let room_id = room_id!("!raclette:patate.ch");
+        let client = MockClientBuilder::new("http://localhost".to_owned()).build().await;
+
+        let event_factory = EventFactory::new().room(room_id);
+
+        let event_id_0 = event_id!("$ev0");
+        let event_id_1 = event_id!("$ev1");
+        let event_id_2 = event_id!("$ev2");
+        let event_id_3 = event_id!("$ev3");
+
+        let event_0 =
+            event_factory.text_msg("hello").sender(*BOB).event_id(event_id_0).into_event();
+        let event_1 =
+            event_factory.text_msg("world").sender(*ALICE).event_id(event_id_1).into_event();
+        let event_2 = event_factory.text_msg("!").sender(*ALICE).event_id(event_id_2).into_event();
+        let event_3 =
+            event_factory.text_msg("eh!").sender(user_id).event_id(event_id_3).into_event();
+
+        // Fill the event cache store with an initial linked chunk of 2 chunks, and 4
+        // events.
+        {
+            let store = client.event_cache_store();
+            let store = store.lock().await.unwrap();
+            store
+                .handle_linked_chunk_updates(
+                    LinkedChunkId::Room(room_id),
+                    vec![
+                        Update::NewItemsChunk {
+                            previous: None,
+                            new: ChunkIdentifier::new(0),
+                            next: None,
+                        },
+                        Update::PushItems {
+                            at: Position::new(ChunkIdentifier::new(0), 0),
+                            items: vec![event_3],
+                        },
+                        Update::NewItemsChunk {
+                            previous: Some(ChunkIdentifier::new(0)),
+                            new: ChunkIdentifier::new(1),
+                            next: None,
+                        },
+                        Update::PushItems {
+                            at: Position::new(ChunkIdentifier::new(1), 0),
+                            items: vec![event_0, event_1, event_2],
+                        },
+                    ],
+                )
+                .await
+                .unwrap();
+        }
+
+        let event_cache = client.event_cache();
+        event_cache.subscribe().unwrap();
+
+        client.base_client().get_or_create_room(room_id, matrix_sdk_base::RoomState::Joined);
+        let room = client.get_room(room_id).unwrap();
+        let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+
+        // Look for an event from `BOB`: it must be `event_0`.
+        assert_matches!(
+            room_event_cache
+                .rfind_event_in_memory_by(|event| {
+                    event.raw().get_field::<OwnedUserId>("sender").unwrap().as_deref() == Some(*BOB)
+                })
+                .await,
+            Some(event) => {
+                assert_eq!(event.event_id().as_deref(), Some(event_id_0));
+            }
+        );
+
+        // Look for an event from `ALICE`: it must be `event_2`, right before `event_1`
+        // because events are looked for in reverse order.
+        assert_matches!(
+            room_event_cache
+                .rfind_event_in_memory_by(|event| {
+                    event.raw().get_field::<OwnedUserId>("sender").unwrap().as_deref() == Some(*ALICE)
+                })
+                .await,
+            Some(event) => {
+                assert_eq!(event.event_id().as_deref(), Some(event_id_2));
+            }
+        );
+
+        // Look for an event that is inside the storage, but not loaded.
+        assert!(room_event_cache
+            .rfind_event_in_memory_by(|event| {
+                event.raw().get_field::<OwnedUserId>("sender").unwrap().as_deref() == Some(user_id)
+            })
+            .await
+            .is_none());
+
+        // Look for an event that doesn't exist.
+        assert!(room_event_cache.rfind_event_in_memory_by(|_| false).await.is_none());
     }
 }
