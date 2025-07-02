@@ -1435,7 +1435,7 @@ mod private {
 
             let Ok(AnySyncTimelineEvent::MessageLike(
                 ruma::events::AnySyncMessageLikeEvent::RoomRedaction(redaction),
-            )) = event.raw().deserialize()
+            )) = raw_event.deserialize()
             else {
                 return Ok(());
             };
