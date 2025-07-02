@@ -760,6 +760,7 @@ async fn test_notification_client_mixed() {
 
     let _ = result.remove(event_id2).expect("fetching notification from /context failed");
 
+    assert_let!(NotificationStatus::Event(item) = item);
     assert_matches!(item.event, NotificationEvent::Timeline(event) => {
         assert_eq!(event.event_type(), TimelineEventType::RoomMessage);
     });

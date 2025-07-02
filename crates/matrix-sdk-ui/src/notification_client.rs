@@ -166,51 +166,41 @@ impl NotificationClient {
     /// `/context` query to find the events with associated member information.
     ///
     /// An error result at the top level means that something failed when trying
-    /// to set up the notification fetching. For each notification item you can
-    /// also receive an error, which means something failed when trying to fetch
-    /// that particular notification (decryption, fetching push actions, etc.);
-    /// in that case, a dummy notification may be displayed instead. A
-    /// `None` result means the notification has been filtered out by the
-    /// user's push rules.
+    /// to set up the notification fetching.
+    ///
+    /// For each notification item you can also receive an error, which means
+    /// something failed when trying to fetch that particular notification
+    /// (decryption, fetching push actions, etc.); in that case, a dummy
+    /// notification may be displayed instead.
     pub async fn get_notifications(
         &self,
         requests: &[NotificationItemsRequest],
-    ) -> Result<BatchNotificationFetchingResult<NotificationItem>, Error> {
+    ) -> Result<BatchNotificationFetchingResult<NotificationStatus>, Error> {
         let mut notifications = self.get_notifications_with_sliding_sync(requests).await?;
-
-        let mut notification_items = BatchNotificationFetchingResult::new();
 
         for request in requests {
             for event_id in &request.event_ids {
-                match notifications.remove(event_id) {
-                    Some(Ok(NotificationStatus::Event(item))) => {
-                        notification_items.add_notification(event_id.to_owned(), *item);
-                    }
+                match notifications.notifications.get_mut(event_id) {
+                    // If the notification for a given event wasn't found with sliding sync, try
+                    // with a /context for each event.
                     Some(Ok(NotificationStatus::EventNotFound)) | None => {
-                        // Retry with a single /context query for this particular event.
                         match self.get_notification_with_context(&request.room_id, event_id).await {
-                            Ok(NotificationStatus::Event(item)) => {
-                                notification_items.add_notification(event_id.to_owned(), *item)
+                            Ok(status) => {
+                                notifications.add_notification(event_id.to_owned(), status);
                             }
-                            Ok(NotificationStatus::EventFilteredOut)
-                            | Ok(NotificationStatus::EventNotFound) => {
-                                // Event filtered out or not found, do nothing.
+                            Err(error) => {
+                                notifications
+                                    .mark_fetching_notification_failed(event_id.to_owned(), error);
                             }
-                            Err(error) => notification_items
-                                .mark_fetching_notification_failed(event_id.to_owned(), error),
                         }
                     }
-                    // Event filtered out, do nothing
-                    Some(Ok(NotificationStatus::EventFilteredOut)) => (),
-                    Some(Err(e)) => {
-                        notification_items
-                            .mark_fetching_notification_failed(event_id.to_owned(), e);
-                    }
+
+                    _ => {}
                 }
             }
         }
 
-        Ok(notification_items)
+        Ok(notifications)
     }
 
     /// Run an encryption sync loop, in case an event is still encrypted.
