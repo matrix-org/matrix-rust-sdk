@@ -616,8 +616,8 @@ impl Room {
         Ok(event)
     }
 
-    /// Try to load the event from the event cache, if it's enabled, or fetch it
-    /// from the homeserver.
+    /// Try to load the event from the [`EventCache`][crate::event_cache], if
+    /// it's enabled, or fetch it from the homeserver.
     ///
     /// When running the request against the homeserver, it uses the given
     /// [`RequestConfig`] if provided, or the client's default one
@@ -629,7 +629,7 @@ impl Room {
     ) -> Result<TimelineEvent> {
         match self.event_cache().await {
             Ok((event_cache, _drop_handles)) => {
-                if let Some(event) = event_cache.event(event_id).await {
+                if let Some(event) = event_cache.find_event(event_id).await {
                     return Ok(event);
                 }
                 // Fallthrough: try with a request.

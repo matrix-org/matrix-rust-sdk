@@ -214,8 +214,11 @@ impl RoomEventCache {
         RoomPagination { inner: self.inner.clone() }
     }
 
-    /// Try to find an event by id in this room.
-    pub async fn event(&self, event_id: &EventId) -> Option<Event> {
+    /// Try to find an event by ID in this room.
+    ///
+    /// It starts by looking into loaded events before looking inside the
+    /// storage.
+    pub async fn find_event(&self, event_id: &EventId) -> Option<Event> {
         self.inner
             .state
             .read()
@@ -2210,8 +2213,8 @@ mod timed_tests {
 
         // The rooms knows about all cached events.
         {
-            assert!(room_event_cache.event(event_id1).await.is_some());
-            assert!(room_event_cache.event(event_id2).await.is_some());
+            assert!(room_event_cache.find_event(event_id1).await.is_some());
+            assert!(room_event_cache.find_event(event_id2).await.is_some());
         }
 
         // But only part of events are loaded from the store
@@ -2251,7 +2254,7 @@ mod timed_tests {
 
         // Events individually are not forgotten by the event cache, after clearing a
         // room.
-        assert!(room_event_cache.event(event_id1).await.is_some());
+        assert!(room_event_cache.find_event(event_id1).await.is_some());
 
         // But their presence in a linked chunk is forgotten.
         let items = room_event_cache.events().await;
@@ -2365,8 +2368,8 @@ mod timed_tests {
         assert!(stream.is_empty());
 
         // The event cache knows only all events though, even if they aren't loaded.
-        assert!(room_event_cache.event(event_id1).await.is_some());
-        assert!(room_event_cache.event(event_id2).await.is_some());
+        assert!(room_event_cache.find_event(event_id1).await.is_some());
+        assert!(room_event_cache.find_event(event_id2).await.is_some());
 
         // Let's paginate to load more events.
         room_event_cache.pagination().run_backwards_once(20).await.unwrap();

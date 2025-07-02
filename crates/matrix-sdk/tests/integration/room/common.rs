@@ -655,7 +655,7 @@ async fn test_event() {
 
     // Requested event was saved to the cache
     let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
-    assert!(room_event_cache.event(event_id).await.is_some());
+    assert!(room_event_cache.find_event(event_id).await.is_some());
 
     // So we can reload it without hitting the network.
     let timeline_event = room.load_or_fetch_event(event_id, None).await.unwrap();
@@ -728,9 +728,9 @@ async fn test_event_with_context() {
 
     // Requested event and their context ones were saved to the cache
     let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
-    assert!(room_event_cache.event(event_id).await.is_some());
-    assert!(room_event_cache.event(prev_event_id).await.is_some());
-    assert!(room_event_cache.event(next_event_id).await.is_some());
+    assert!(room_event_cache.find_event(event_id).await.is_some());
+    assert!(room_event_cache.find_event(prev_event_id).await.is_some());
+    assert!(room_event_cache.find_event(next_event_id).await.is_some());
 }
 
 #[async_test]
