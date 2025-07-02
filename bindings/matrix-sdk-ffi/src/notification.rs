@@ -2,6 +2,7 @@ use std::{collections::HashMap, sync::Arc};
 
 use matrix_sdk_ui::notification_client::{
     NotificationClient as MatrixNotificationClient, NotificationItem as MatrixNotificationItem,
+    NotificationStatus as SdkNotificationStatus,
 };
 use ruma::{EventId, OwnedEventId, OwnedRoomId, RoomId};
 use tracing::error;
@@ -87,6 +88,19 @@ impl NotificationItem {
     }
 }
 
+#[allow(clippy::large_enum_variant)]
+#[derive(uniffi::Enum)]
+pub enum NotificationStatus {
+    /// The event has been found and was not filtered out.
+    Event(NotificationItem),
+    /// The event couldn't be found in the network queries used to find it.
+    EventNotFound,
+    /// The event has been filtered out, either because of the user's push
+    /// rules, or because the user which triggered it is ignored by the
+    /// current user.
+    EventFilteredOut,
+}
+
 #[derive(uniffi::Object)]
 pub struct NotificationClient {
     pub(crate) inner: MatrixNotificationClient,
@@ -119,17 +133,19 @@ impl NotificationClient {
         &self,
         room_id: String,
         event_id: String,
-    ) -> Result<Option<NotificationItem>, ClientError> {
+    ) -> Result<NotificationStatus, ClientError> {
         let room_id = RoomId::parse(room_id)?;
         let event_id = EventId::parse(event_id)?;
 
         let item =
             self.inner.get_notification(&room_id, &event_id).await.map_err(ClientError::from)?;
 
-        if let Some(item) = item {
-            Ok(Some(NotificationItem::from_inner(item)))
-        } else {
-            Ok(None)
+        match item {
+            SdkNotificationStatus::Event(item) => {
+                Ok(NotificationStatus::Event(NotificationItem::from_inner(*item)))
+            }
+            SdkNotificationStatus::EventFilteredOut => Ok(NotificationStatus::EventFilteredOut),
+            SdkNotificationStatus::EventNotFound => Ok(NotificationStatus::EventNotFound),
         }
     }
 
