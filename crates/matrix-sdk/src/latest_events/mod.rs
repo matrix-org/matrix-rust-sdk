@@ -66,7 +66,9 @@ use tokio::sync::{broadcast, mpsc, RwLock, RwLockReadGuard, RwLockWriteGuard};
 use tracing::error;
 
 use crate::{
+    client::WeakClient,
     event_cache::{EventCache, EventCacheError, RoomEventCache, RoomEventCacheGenericUpdate},
+    room::WeakRoom,
     send_queue::SendQueue,
 };
 
@@ -92,12 +94,16 @@ struct LatestEventsState {
 
 impl LatestEvents {
     /// Create a new [`LatestEvents`].
-    pub(crate) fn new(event_cache: EventCache, send_queue: SendQueue) -> Self {
+    pub(crate) fn new(
+        weak_client: WeakClient,
+        event_cache: EventCache,
+        send_queue: SendQueue,
+    ) -> Self {
         let (room_registration_sender, room_registration_receiver) = mpsc::channel(32);
         let (latest_event_queue_sender, latest_event_queue_receiver) = mpsc::unbounded_channel();
 
         let registered_rooms =
-            Arc::new(RegisteredRooms::new(room_registration_sender, &event_cache));
+            Arc::new(RegisteredRooms::new(room_registration_sender, weak_client, &event_cache));
 
         // The task listening to the event cache and the send queue updates.
         let listen_task_handle = spawn(listen_to_event_cache_and_send_queue_updates_task(
@@ -216,17 +222,23 @@ struct RegisteredRooms {
     /// [`listen_to_event_cache_and_send_queue_updates_task`].
     room_registration_sender: mpsc::Sender<RoomRegistration>,
 
+    /// The (weak) client.
+    weak_client: WeakClient,
+
+    /// The event cache.
     event_cache: EventCache,
 }
 
 impl RegisteredRooms {
     fn new(
         room_registration_sender: mpsc::Sender<RoomRegistration>,
+        weak_client: WeakClient,
         event_cache: &EventCache,
     ) -> Self {
         Self {
             rooms: RwLock::new(HashMap::default()),
             room_registration_sender,
+            weak_client,
             event_cache: event_cache.clone(),
         }
     }
@@ -254,8 +266,11 @@ impl RegisteredRooms {
                 // The `RoomLatestEvents` doesn't exist. Let's create and insert it.
                 if rooms.contains_key(room_id).not() {
                     // Insert the room if it's been successfully created.
-                    if let Some(room_latest_event) =
-                        RoomLatestEvents::new(room_id, &self.event_cache).await?
+                    if let Some(room_latest_event) = RoomLatestEvents::new(
+                        WeakRoom::new(self.weak_client.clone(), room_id.to_owned()),
+                        &self.event_cache,
+                    )
+                    .await?
                     {
                         rooms.insert(room_id.to_owned(), room_latest_event);
 
@@ -294,8 +309,11 @@ impl RegisteredRooms {
 
                         if rooms.contains_key(room_id).not() {
                             // Insert the room if it's been successfully created.
-                            if let Some(room_latest_event) =
-                                RoomLatestEvents::new(room_id, &self.event_cache).await?
+                            if let Some(room_latest_event) = RoomLatestEvents::new(
+                                WeakRoom::new(self.weak_client.clone(), room_id.to_owned()),
+                                &self.event_cache,
+                            )
+                            .await?
                             {
                                 rooms.insert(room_id.to_owned(), room_latest_event);
 
@@ -399,14 +417,22 @@ struct RoomLatestEvents {
     /// The latest events for each thread.
     per_thread: HashMap<OwnedEventId, LatestEvent>,
 
+    /// The room event cache associated to this room.
     room_event_cache: RoomEventCache,
+
+    /// The (weak) room.
+    ///
+    /// It used to to get the power-levels of the user for this room when
+    /// computing the latest events.
+    weak_room: WeakRoom,
 }
 
 impl RoomLatestEvents {
     async fn new(
-        room_id: &RoomId,
+        weak_room: WeakRoom,
         event_cache: &EventCache,
     ) -> Result<Option<Self>, LatestEventsError> {
+        let room_id = weak_room.room_id();
         let room_event_cache = match event_cache.for_room(room_id).await {
             // It's fine to drop the `EventCacheDropHandles` here as the caller
             // (`LatestEventState`) owns a clone of the `EventCache`.
@@ -416,9 +442,15 @@ impl RoomLatestEvents {
         };
 
         Ok(Some(Self {
-            for_the_room: Self::create_latest_event_for_inner(room_id, None, &room_event_cache)
-                .await,
+            for_the_room: Self::create_latest_event_for_inner(
+                room_id,
+                None,
+                &room_event_cache,
+                &weak_room,
+            )
+            .await,
             per_thread: HashMap::new(),
+            weak_room,
             room_event_cache,
         }))
     }
@@ -428,15 +460,22 @@ impl RoomLatestEvents {
         room_id: &RoomId,
         thread_id: Option<&EventId>,
     ) -> LatestEvent {
-        Self::create_latest_event_for_inner(room_id, thread_id, &self.room_event_cache).await
+        Self::create_latest_event_for_inner(
+            room_id,
+            thread_id,
+            &self.room_event_cache,
+            &self.weak_room,
+        )
+        .await
     }
 
     async fn create_latest_event_for_inner(
         room_id: &RoomId,
         thread_id: Option<&EventId>,
         room_event_cache: &RoomEventCache,
+        weak_room: &WeakRoom,
     ) -> LatestEvent {
-        LatestEvent::new(room_id, thread_id, room_event_cache).await
+        LatestEvent::new(room_id, thread_id, room_event_cache, weak_room).await
     }
 
     /// Get the [`LatestEvent`] for the room.
@@ -451,10 +490,26 @@ impl RoomLatestEvents {
 
     /// Update the latest events for the room and its threads.
     async fn update(&mut self) {
-        self.for_the_room.update(&self.room_event_cache).await;
+        // Get the power levels of the user for the current room if the `WeakRoom` is
+        // still valid.
+        //
+        // Get it once for all the updates of all the latest events for this room (be
+        // the room and its threads).
+        let room = self.weak_room.get();
+        let power_levels = match &room {
+            Some(room) => {
+                let power_levels = room.power_levels().await.ok();
+
+                Some(room.own_user_id()).zip(power_levels)
+            }
+
+            None => None,
+        };
+
+        self.for_the_room.update(&self.room_event_cache, &power_levels).await;
 
         for latest_event in self.per_thread.values_mut() {
-            latest_event.update(&self.room_event_cache).await;
+            latest_event.update(&self.room_event_cache, &power_levels).await;
         }
     }
 }
@@ -598,11 +653,9 @@ mod tests {
 
     use super::{
         broadcast, compute_latest_events, listen_to_event_cache_and_send_queue_updates, mpsc,
-        HashSet, RegisteredRooms, RoomRegistration,
+        HashSet, RegisteredRooms, RoomEventCacheGenericUpdate, RoomRegistration, WeakClient,
     };
-    use crate::{
-        event_cache::RoomEventCacheGenericUpdate, test_utils::logged_in_client_with_server,
-    };
+    use crate::test_utils::logged_in_client_with_server;
 
     #[async_test]
     async fn test_latest_events_are_lazy() {
@@ -946,11 +999,14 @@ mod tests {
         let room_id = owned_room_id!("!r0");
 
         let (client, _server) = logged_in_client_with_server().await;
+        let weak_client = WeakClient::from_client(&client);
+
         let event_cache = client.event_cache();
         event_cache.subscribe().unwrap();
 
         let (room_registration_sender, _room_registration_receiver) = mpsc::channel(1);
-        let registered_rooms = RegisteredRooms::new(room_registration_sender, event_cache);
+        let registered_rooms =
+            RegisteredRooms::new(room_registration_sender, weak_client, event_cache);
 
         compute_latest_events(&registered_rooms, &[room_id]).await;
     }
