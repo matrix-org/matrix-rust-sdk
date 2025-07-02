@@ -14,7 +14,7 @@ use matrix_sdk_test::{
 };
 use matrix_sdk_ui::timeline::{
     Error as TimelineError, EventSendState, MsgLikeContent, MsgLikeKind, RoomExt, TimelineDetails,
-    TimelineItemContent,
+    TimelineEventItemId, TimelineItemContent,
 };
 use ruma::{
     event_id,
@@ -31,7 +31,7 @@ use ruma::{
         sticker::{StickerEventContent, StickerMediaSource},
         Mentions,
     },
-    owned_event_id, owned_mxc_uri, room_id,
+    owned_event_id, owned_mxc_uri, room_id, MilliSecondsSinceUnixEpoch, UInt,
 };
 use serde_json::json;
 use stream_assert::{assert_next_matches, assert_pending};
@@ -72,12 +72,15 @@ async fn test_in_reply_to_details() {
 
     // Add an event and a reply to that event to the timeline
     let eid1 = event_id!("$event1");
+    let timestamp = MilliSecondsSinceUnixEpoch(UInt::new(1984).unwrap());
     let f = EventFactory::new();
     server
         .sync_room(
             &client,
             JoinedRoomBuilder::new(room_id)
-                .add_timeline_event(f.text_msg("hello").sender(*ALICE).event_id(eid1))
+                .add_timeline_event(
+                    f.text_msg("hello").sender(*ALICE).event_id(eid1).server_ts(timestamp),
+                )
                 .add_timeline_event(f.text_msg("hello to you too").reply_to(eid1).sender(*BOB)),
         )
         .await;
@@ -102,7 +105,9 @@ async fn test_in_reply_to_details() {
         );
         let in_reply_to = in_reply_to.clone().unwrap();
         assert_eq!(in_reply_to.event_id, eid1);
-        assert_matches!(in_reply_to.event, TimelineDetails::Ready(_));
+        assert_let!(TimelineDetails::Ready(embedded) = in_reply_to.event);
+        assert_eq!(embedded.timestamp, timestamp);
+        assert_eq!(embedded.identifier, TimelineEventItemId::EventId(eid1.to_owned()));
 
         // Good old date divider.
         assert_let!(VectorDiff::PushFront { value: date_divider } = &timeline_updates[2]);
