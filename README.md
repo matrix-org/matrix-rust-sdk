@@ -18,11 +18,19 @@
         <img src="https://img.shields.io/github/actions/workflow/status/matrix-org/matrix-rust-sdk/ci.yml?style=flat&labelColor=1C2E27&color=66845F&logo=GitHub%20Actions&logoColor=white"></a>
     <br>
     <br>
+    <br>
 </div>
 
 
-The Matrix Rust SDK is a collection of libraries that make it easier to build
-[Matrix] clients in [Rust]. It takes care of the low-level details like encryption,
+The Matrix Rust SDK is a collection of libraries that make it easier to build [Matrix] clients in [Rust].
+<br><br>
+<img src="contrib/element-logo3.png">
+<br><br>
+Development of the SDK is proudly sponsored and maintained by [Element](https://element.io). Element uses the SDK in their next-generation mobile apps Element X on [iOS](https://github.com/element-hq/element-x-ios) and [Android](https://github.com/element-hq/element-x-android) and has plans to introduce it to the web and desktop clients as well.
+
+## Purpose
+
+The SDK takes care of the low-level details like encryption,
 syncing, and room state, so you can focus on your app's logic and UI. Whether
 you're writing a small bot, a desktop client, or something in between, the SDK
 is designed to be flexible, async-friendly, and ready to use out of the box.
@@ -53,9 +61,6 @@ implementations such as Element X
 [[2]](https://github.com/element-hq/element-x-android),
 [Fractal](https://gitlab.gnome.org/World/fractal) and [iamb](https://github.com/ulyssa/iamb). Client developers should feel
 confident to build upon it.
-
-Development of the SDK has been primarily sponsored by Element though accepts
-contributions from all.
 
 ## Bindings
 
