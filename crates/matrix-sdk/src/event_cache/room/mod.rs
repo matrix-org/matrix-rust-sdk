@@ -289,7 +289,7 @@ impl RoomEventCache {
     /// Save some events in the event cache, for further retrieval with
     /// [`Self::event`].
     pub(crate) async fn save_events(&self, events: impl IntoIterator<Item = Event>) {
-        if let Err(err) = self.inner.state.write().await.save_event(events).await {
+        if let Err(err) = self.inner.state.write().await.save_events(events).await {
             warn!("couldn't save event in the event cache: {err}");
         }
     }
@@ -1522,7 +1522,7 @@ mod private {
         /// its event id may have changed, it's not safe to use this
         /// method because it may break the link between the chunk and
         /// the event. Instead, an update to the linked chunk must be used.
-        pub async fn save_event(
+        pub async fn save_events(
             &mut self,
             events: impl IntoIterator<Item = Event>,
         ) -> Result<(), EventCacheError> {
