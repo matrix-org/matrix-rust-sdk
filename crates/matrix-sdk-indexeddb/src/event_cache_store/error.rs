@@ -62,7 +62,8 @@ impl From<IndexeddbEventCacheStoreError> for EventCacheStoreError {
                 IndexeddbEventCacheStoreTransactionError::Serialization(e) => {
                     Self::Serialization(serde_json::Error::custom(e.to_string()))
                 }
-                IndexeddbEventCacheStoreTransactionError::ItemIsNotUnique => {
+                IndexeddbEventCacheStoreTransactionError::ItemIsNotUnique
+                | IndexeddbEventCacheStoreTransactionError::ItemNotFound => {
                     Self::InvalidData { details: value.to_string() }
                 }
             },
