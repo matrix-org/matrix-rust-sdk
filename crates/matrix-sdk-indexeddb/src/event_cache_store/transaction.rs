@@ -43,6 +43,8 @@ pub enum IndexeddbEventCacheStoreTransactionError {
     Serialization(Box<dyn AsyncErrorDeps>),
     #[error("item is not unique")]
     ItemIsNotUnique,
+    #[error("item not found")]
+    ItemNotFound,
 }
 
 impl From<web_sys::DomException> for IndexeddbEventCacheStoreTransactionError {
@@ -404,6 +406,51 @@ impl<'a> IndexeddbEventCacheStoreTransaction<'a> {
         self.get_item_by_key_components::<Chunk, IndexedChunkIdKey>(room_id, chunk_id).await
     }
 
+    /// Query IndexedDB for all chunks in the given room
+    pub async fn get_chunks_in_room(
+        &self,
+        room_id: &RoomId,
+    ) -> Result<Vec<Chunk>, IndexeddbEventCacheStoreTransactionError> {
+        self.get_items_in_room::<Chunk, IndexedChunkIdKey>(room_id).await
+    }
+
+    /// Query IndexedDB for given chunk in given room and additionally query
+    /// for events or gap, depending on chunk type, in order to construct the
+    /// full chunk.
+    pub async fn load_chunk_by_id(
+        &self,
+        room_id: &RoomId,
+        chunk_id: &ChunkIdentifier,
+    ) -> Result<Option<RawChunk<RawEvent, RawGap>>, IndexeddbEventCacheStoreTransactionError> {
+        if let Some(chunk) = self.get_chunk_by_id(room_id, chunk_id).await? {
+            let content = match chunk.chunk_type {
+                ChunkType::Event => {
+                    let events = self
+                        .get_events_by_chunk(room_id, &ChunkIdentifier::new(chunk.identifier))
+                        .await?
+                        .into_iter()
+                        .map(RawEvent::from)
+                        .collect();
+                    ChunkContent::Items(events)
+                }
+                ChunkType::Gap => {
+                    let gap = self
+                        .get_gap_by_id(room_id, &ChunkIdentifier::new(chunk.identifier))
+                        .await?
+                        .ok_or(IndexeddbEventCacheStoreTransactionError::ItemNotFound)?;
+                    ChunkContent::Gap(RawGap { prev_token: gap.prev_token })
+                }
+            };
+            return Ok(Some(RawChunk {
+                identifier: ChunkIdentifier::new(chunk.identifier),
+                content,
+                previous: chunk.previous.map(ChunkIdentifier::new),
+                next: chunk.next.map(ChunkIdentifier::new),
+            }));
+        }
+        Ok(None)
+    }
+
     /// Add a chunk to the given room and ensure that the next and previous
     /// chunks are properly linked to the chunk being added. If a chunk with
     /// the same identifier already exists, the given chunk will be
@@ -482,6 +529,30 @@ impl<'a> IndexeddbEventCacheStoreTransaction<'a> {
         self.delete_items_in_room::<Chunk, IndexedChunkIdKey>(room_id).await
     }
 
+    /// Query IndexedDB for events in the given position range in the given
+    /// room.
+    pub async fn get_events_by_position(
+        &self,
+        room_id: &RoomId,
+        range: impl Into<IndexedKeyRange<&Position>>,
+    ) -> Result<Vec<Event>, IndexeddbEventCacheStoreTransactionError> {
+        self.get_items_by_key_components::<Event, IndexedEventPositionKey>(room_id, range).await
+    }
+
+    /// Query IndexedDB for events in the given chunk in the given room.
+    pub async fn get_events_by_chunk(
+        &self,
+        room_id: &RoomId,
+        chunk_id: &ChunkIdentifier,
+    ) -> Result<Vec<Event>, IndexeddbEventCacheStoreTransactionError> {
+        let mut lower = IndexedEventPositionKey::lower_key_components();
+        lower.chunk_identifier = chunk_id.index();
+        let mut upper = IndexedEventPositionKey::upper_key_components();
+        upper.chunk_identifier = chunk_id.index();
+        let range = IndexedKeyRange::Bound(&lower, &upper);
+        self.get_events_by_position(room_id, range).await
+    }
+
     /// Puts an event in the given room. If an event with the same key already
     /// exists, it will be overwritten.
     pub async fn put_event(
@@ -555,6 +626,15 @@ impl<'a> IndexeddbEventCacheStoreTransaction<'a> {
         room_id: &RoomId,
     ) -> Result<(), IndexeddbEventCacheStoreTransactionError> {
         self.delete_items_in_room::<Event, IndexedEventIdKey>(room_id).await
+    }
+
+    /// Query IndexedDB for the gap in the given chunk in the given room.
+    pub async fn get_gap_by_id(
+        &self,
+        room_id: &RoomId,
+        chunk_id: &ChunkIdentifier,
+    ) -> Result<Option<Gap>, IndexeddbEventCacheStoreTransactionError> {
+        self.get_item_by_key_components::<Gap, IndexedGapIdKey>(room_id, chunk_id).await
     }
 
     /// Delete gap that matches the given chunk identifier in the given room
