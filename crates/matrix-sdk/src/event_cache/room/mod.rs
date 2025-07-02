@@ -518,7 +518,8 @@ mod private {
         },
         linked_chunk::{
             lazy_loader::{self},
-            ChunkContent, ChunkIdentifierGenerator, ChunkMetadata, LinkedChunkId, Position, Update,
+            ChunkContent, ChunkIdentifierGenerator, ChunkMetadata, LinkedChunkId,
+            OwnedLinkedChunkId, Position, Update,
         },
         serde_helpers::extract_thread_root,
         sync::Timeline,
@@ -572,6 +573,103 @@ mod private {
         /// An atomic count of the current number of subscriber of the
         /// [`super::RoomEventCache`].
         pub(super) subscriber_count: Arc<AtomicUsize>,
+    }
+
+    struct StoreUpdates {
+        updates: Vec<StoreUpdate>,
+    }
+
+    impl StoreUpdates {
+        fn new() -> Self {
+            Self { updates: Default::default() }
+        }
+
+        fn extend(&mut self, iter: impl Iterator<Item = Update<Event, Gap>>) {
+            self.updates.extend(iter.map(StoreUpdate::LinkedChunkUpdate));
+        }
+
+        fn save_event(&mut self, event: Event) {
+            self.updates.push(StoreUpdate::SaveEvent(event));
+        }
+
+        async fn apply(
+            mut self,
+            linked_chunk_id: OwnedLinkedChunkId,
+            store: EventCacheStoreLock,
+        ) -> Result<(), EventCacheError> {
+            if self.updates.is_empty() {
+                // Nothing to do.
+                return Ok(());
+            }
+
+            // Strip relations from updates which insert or replace items.
+            for update in &mut self.updates {
+                match update {
+                    StoreUpdate::SaveEvent(event) => {
+                        RoomEventCacheState::strip_relations_from_event(event)
+                    }
+                    StoreUpdate::LinkedChunkUpdate(update) => {
+                        match update {
+                            Update::PushItems { items, .. } => {
+                                RoomEventCacheState::strip_relations_from_events(items)
+                            }
+                            Update::ReplaceItem { item, .. } => {
+                                RoomEventCacheState::strip_relations_from_event(item)
+                            }
+                            // Other update kinds don't involve adding new events.
+                            Update::NewItemsChunk { .. }
+                            | Update::NewGapChunk { .. }
+                            | Update::RemoveChunk(_)
+                            | Update::RemoveItem { .. }
+                            | Update::DetachLastItems { .. }
+                            | Update::StartReattachItems
+                            | Update::EndReattachItems
+                            | Update::Clear => {}
+                        }
+                    }
+                }
+            }
+
+            // Spawn a task to make sure that all the changes are effectively forwarded to
+            // the store, even if the call to this method gets aborted.
+            //
+            // The store cross-process locking involves an actual mutex, which ensures that
+            // storing updates happens in the expected order.
+
+            let updates = std::mem::take(&mut self.updates);
+            spawn(async move {
+                let store = store.lock().await?;
+
+                let mut linked_chunk_updates = Vec::new();
+                for up in updates {
+                    match up {
+                        StoreUpdate::SaveEvent(event) => {
+                            // Save the event in the store immediately.
+                            store.save_event(linked_chunk_id.room_id(), event).await?;
+                        }
+                        StoreUpdate::LinkedChunkUpdate(update) => {
+                            // Prepare for a bigger linked chunk update.
+                            linked_chunk_updates.push(update);
+                        }
+                    }
+                }
+
+                trace!(updates = ?linked_chunk_updates, "sending linked chunk updates to the store");
+                store.handle_linked_chunk_updates(linked_chunk_id.as_ref(), linked_chunk_updates).await?;
+                trace!("linked chunk updates applied");
+
+                super::Result::Ok(())
+            })
+            .await
+            .expect("joining failed")?;
+
+            Ok(())
+        }
+    }
+
+    enum StoreUpdate {
+        SaveEvent(Event),
+        LinkedChunkUpdate(Update<Event, Gap>),
     }
 
     impl RoomEventCacheState {
@@ -1012,11 +1110,12 @@ mod private {
         /// This method is purposely isolated because it must ensure that
         /// positions are sorted appropriately or it can be disastrous.
         #[instrument(skip_all)]
-        async fn remove_events(
+        fn remove_events(
             &mut self,
             in_memory_events: Vec<(OwnedEventId, Position)>,
             in_store_events: Vec<(OwnedEventId, Position)>,
-        ) -> Result<(), EventCacheError> {
+            store_updates: &mut StoreUpdates,
+        ) {
             // In-store events.
             if !in_store_events.is_empty() {
                 let mut positions = in_store_events
@@ -1031,13 +1130,14 @@ mod private {
                     .map(|pos| Update::RemoveItem { at: pos })
                     .collect::<Vec<_>>();
 
-                self.apply_store_only_updates(updates).await?;
+                self.apply_store_only_updates(&updates);
+                store_updates.extend(updates.into_iter());
             }
 
             // In-memory events.
             if in_memory_events.is_empty() {
                 // Nothing else to do, return early.
-                return Ok(());
+                return;
             }
 
             // `remove_events_by_position` is responsible of sorting positions.
@@ -1046,14 +1146,6 @@ mod private {
                     in_memory_events.into_iter().map(|(_event_id, position)| position).collect(),
                 )
                 .expect("failed to remove an event");
-
-            self.propagate_changes().await
-        }
-
-        /// Propagate changes to the underlying storage.
-        async fn propagate_changes(&mut self) -> Result<(), EventCacheError> {
-            let updates = self.room_linked_chunk.store_updates().take();
-            self.send_updates_to_store(updates).await
         }
 
         /// Apply some updates that are effective only on the store itself.
@@ -1062,62 +1154,8 @@ mod private {
         /// the in-memory linked chunk. Such updates must be applied
         /// onto the ordering tracker as well as to the persistent
         /// storage.
-        async fn apply_store_only_updates(
-            &mut self,
-            updates: Vec<Update<Event, Gap>>,
-        ) -> Result<(), EventCacheError> {
-            self.room_linked_chunk.order_tracker.map_updates(&updates);
-            self.send_updates_to_store(updates).await
-        }
-
-        async fn send_updates_to_store(
-            &mut self,
-            mut updates: Vec<Update<Event, Gap>>,
-        ) -> Result<(), EventCacheError> {
-            if updates.is_empty() {
-                return Ok(());
-            }
-
-            // Strip relations from updates which insert or replace items.
-            for update in updates.iter_mut() {
-                match update {
-                    Update::PushItems { items, .. } => Self::strip_relations_from_events(items),
-                    Update::ReplaceItem { item, .. } => Self::strip_relations_from_event(item),
-                    // Other update kinds don't involve adding new events.
-                    Update::NewItemsChunk { .. }
-                    | Update::NewGapChunk { .. }
-                    | Update::RemoveChunk(_)
-                    | Update::RemoveItem { .. }
-                    | Update::DetachLastItems { .. }
-                    | Update::StartReattachItems
-                    | Update::EndReattachItems
-                    | Update::Clear => {}
-                }
-            }
-
-            // Spawn a task to make sure that all the changes are effectively forwarded to
-            // the store, even if the call to this method gets aborted.
-            //
-            // The store cross-process locking involves an actual mutex, which ensures that
-            // storing updates happens in the expected order.
-
-            let store = self.store.clone();
-            let room_id = self.room.clone();
-
-            spawn(async move {
-                let store = store.lock().await?;
-
-                trace!(?updates, "sending linked chunk updates to the store");
-                let linked_chunk_id = LinkedChunkId::Room(&room_id);
-                store.handle_linked_chunk_updates(linked_chunk_id, updates).await?;
-                trace!("linked chunk updates applied");
-
-                super::Result::Ok(())
-            })
-            .await
-            .expect("joining failed")?;
-
-            Ok(())
+        fn apply_store_only_updates(&mut self, updates: &[Update<Event, Gap>]) {
+            self.room_linked_chunk.order_tracker.map_updates(updates);
         }
 
         /// Reset this data structure as if it were brand new.
@@ -1141,7 +1179,9 @@ mod private {
         async fn reset_internal(&mut self) -> Result<(), EventCacheError> {
             self.room_linked_chunk.reset();
 
-            self.propagate_changes().await?;
+            let mut store_updates = StoreUpdates::new();
+            store_updates.extend(self.room_linked_chunk.store_updates().take().into_iter());
+            self.apply_store_updates(store_updates).await?;
 
             // Reset the pagination state too: pretend we never waited for the initial
             // prev-batch token, and indicate that we're not at the start of the
@@ -1290,28 +1330,25 @@ mod private {
 
         /// Post-process new events, after they have been added to the in-memory
         /// linked chunk.
-        ///
-        /// Flushes updates to disk first.
         async fn post_process_new_events(
             &mut self,
             events: Vec<Event>,
             is_live_sync: bool,
         ) -> Result<(), EventCacheError> {
-            // Update the store before doing the post-processing.
-            self.propagate_changes().await?;
+            let mut store_updates = StoreUpdates::new();
 
             for event in events {
-                self.maybe_apply_new_redaction(&event).await?;
+                self.maybe_apply_new_redaction(&event, &mut store_updates).await?;
 
-                self.analyze_thread_root(&event, is_live_sync).await?;
+                self.analyze_thread_root(&event, is_live_sync, &mut store_updates).await?;
 
                 // Save a bundled thread event, if there was one.
                 if let Some(bundled_thread) = event.bundled_latest_thread_event {
-                    self.save_event([*bundled_thread]).await?;
+                    store_updates.save_event(*bundled_thread);
                 }
             }
 
-            Ok(())
+            self.apply_store_updates(store_updates).await
         }
 
         /// If the event is a threaded reply, ensure the related thread's root
@@ -1321,6 +1358,7 @@ mod private {
             &mut self,
             event: &Event,
             is_live_sync: bool,
+            store_updates: &mut StoreUpdates,
         ) -> Result<(), EventCacheError> {
             let Some(thread_root) = extract_thread_root(event.raw()) else {
                 // No thread root, carry on.
@@ -1380,7 +1418,8 @@ mod private {
 
             // Cause an update to observers.
             target_event.thread_summary = ThreadSummaryStatus::Some(new_summary);
-            self.replace_event_at(location, target_event).await?;
+
+            self.replace_event_at(location, target_event, store_updates);
 
             Ok(())
         }
@@ -1391,11 +1430,12 @@ mod private {
         /// observers that a single item has been replaced. Otherwise,
         /// such a notification is not emitted, because observers are
         /// unlikely to observe the store updates directly.
-        async fn replace_event_at(
+        fn replace_event_at(
             &mut self,
             location: EventLocation,
             event: Event,
-        ) -> Result<(), EventCacheError> {
+            store_updates: &mut StoreUpdates,
+        ) {
             match location {
                 EventLocation::Memory(position) => {
                     self.room_linked_chunk
@@ -1403,14 +1443,12 @@ mod private {
                         .expect("should have been a valid position of an item");
                     // We just changed the in-memory representation; synchronize this with
                     // the store.
-                    self.propagate_changes().await?;
+                    store_updates.extend(self.room_linked_chunk.store_updates().take().into_iter());
                 }
                 EventLocation::Store => {
-                    self.save_event([event]).await?;
+                    store_updates.save_event(event);
                 }
             }
-
-            Ok(())
         }
 
         /// If the given event is a redaction, try to retrieve the
@@ -1420,6 +1458,7 @@ mod private {
         async fn maybe_apply_new_redaction(
             &mut self,
             event: &Event,
+            store_updates: &mut StoreUpdates,
         ) -> Result<(), EventCacheError> {
             let raw_event = event.raw();
 
@@ -1478,7 +1517,7 @@ mod private {
                 // - or it wasn't, and it's a plain `AnySyncTimelineEvent` in this case.
                 target_event.replace_raw(redacted_event.cast());
 
-                self.replace_event_at(location, target_event).await?;
+                self.replace_event_at(location, target_event, store_updates);
             }
 
             Ok(())
@@ -1494,22 +1533,11 @@ mod private {
             &self,
             events: impl IntoIterator<Item = Event>,
         ) -> Result<(), EventCacheError> {
-            let store = self.store.clone();
-            let room_id = self.room.clone();
-            let events = events.into_iter().collect::<Vec<_>>();
-
-            // Spawn a task so the save is uninterrupted by task cancellation.
-            spawn(async move {
-                let store = store.lock().await?;
-                for event in events {
-                    store.save_event(&room_id, event).await?;
-                }
-                super::Result::Ok(())
-            })
-            .await
-            .expect("joining failed")?;
-
-            Ok(())
+            let mut store_updates = StoreUpdates::new();
+            for ev in events {
+                store_updates.save_event(ev);
+            }
+            self.apply_store_updates(store_updates).await
         }
 
         /// Handle the result of a sync.
@@ -1575,11 +1603,18 @@ mod private {
             //
             // We don't have to worry the removals can change the position of the existing
             // events, because we are pushing all _new_ `events` at the back.
-            self.remove_events(in_memory_duplicated_event_ids, in_store_duplicated_event_ids)
-                .await?;
+            let mut store_updates = StoreUpdates::new();
+            self.remove_events(
+                in_memory_duplicated_event_ids,
+                in_store_duplicated_event_ids,
+                &mut store_updates,
+            );
 
             self.room_linked_chunk
                 .push_live_events(prev_batch.map(|prev_token| Gap { prev_token }), &events);
+
+            store_updates.extend(self.room_linked_chunk.store_updates().take().into_iter());
+            self.apply_store_updates(store_updates).await?;
 
             self.post_process_new_events(events, true).await?;
 
@@ -1661,10 +1696,14 @@ mod private {
             // ordering of [D, E, F, A, B, C], which is incorrect. So we do have to remove
             // all the events, in case this happens (see also #4746).
 
+            let mut store_updates = StoreUpdates::new();
             if !all_duplicates {
                 // Let's forget all the previous events.
-                self.remove_events(in_memory_duplicated_event_ids, in_store_duplicated_event_ids)
-                    .await?;
+                self.remove_events(
+                    in_memory_duplicated_event_ids,
+                    in_store_duplicated_event_ids,
+                    &mut store_updates,
+                );
             } else {
                 // All new events are duplicated, they can all be ignored.
                 events.clear();
@@ -1684,12 +1723,23 @@ mod private {
                 &topo_ordered_events,
             );
 
-            // Note: this flushes updates to the store.
+            store_updates.extend(self.room_linked_chunk.store_updates().take().into_iter());
+            self.apply_store_updates(store_updates).await?;
+
             self.post_process_new_events(topo_ordered_events, false).await?;
 
             let event_diffs = self.room_linked_chunk.updates_as_vector_diffs();
 
             Ok(Some((BackPaginationOutcome { events, reached_start }, event_diffs)))
+        }
+
+        async fn apply_store_updates(
+            &self,
+            store_updates: StoreUpdates,
+        ) -> Result<(), EventCacheError> {
+            store_updates
+                .apply(OwnedLinkedChunkId::Room(self.room.clone()), self.store.clone())
+                .await
         }
     }
 }
