@@ -43,6 +43,13 @@ enum SwiftCommand {
         #[clap(long)]
         components_path: Option<Utf8PathBuf>,
 
+        /// The iOS deployment target to use when building the framework.
+        ///
+        /// Defaults to not being set, which implies that the build will use the
+        /// default values provided by the Rust and Xcode toolchains.
+        #[clap(long)]
+        ios_deployment_target: Option<String>,
+
         /// Build the targets one by one instead of passing all of them
         /// to cargo in one go, which makes it hang on lesser devices like plain
         /// Apple Silicon M1s
@@ -64,12 +71,19 @@ impl SwiftArgs {
                 components_path,
                 target: targets,
                 sequentially,
+                ios_deployment_target,
             } => {
                 // The dev profile seems to cause crashes on some platforms so we default to
                 // reldbg (https://github.com/matrix-org/matrix-rust-sdk/issues/4009)
                 let profile =
                     profile.as_deref().unwrap_or(if release { "release" } else { "reldbg" });
-                build_xcframework(profile, targets, components_path, sequentially)
+                build_xcframework(
+                    profile,
+                    targets,
+                    components_path,
+                    sequentially,
+                    ios_deployment_target.as_deref(),
+                )
             }
         }
     }
@@ -180,6 +194,7 @@ fn build_xcframework(
     targets: Option<Vec<String>>,
     components_path: Option<Utf8PathBuf>,
     sequentially: bool,
+    ios_deployment_target: Option<&str>,
 ) -> Result<()> {
     let root_dir = workspace::root_path()?;
     let apple_dir = root_dir.join("bindings/apple");
@@ -207,7 +222,8 @@ fn build_xcframework(
         TARGETS.iter().collect()
     };
 
-    let platform_build_paths = build_targets(targets, profile, sequentially)?;
+    let platform_build_paths =
+        build_targets(targets, profile, sequentially, ios_deployment_target)?;
     let libs = lipo_platform_libraries(&platform_build_paths, &generated_dir)?;
 
     println!("-- Generating uniffi files");
@@ -275,8 +291,18 @@ fn build_targets(
     targets: Vec<&Target>,
     profile: &str,
     sequentially: bool,
+    ios_deployment_target: Option<&str>,
 ) -> Result<HashMap<Platform, Vec<Utf8PathBuf>>> {
     let sh = sh();
+
+    // Note: `push_env` stores environment variables and returns a RAII guard that
+    // will restore the environment variable to its previous value when dropped.
+    let _env_guard1 =
+        sh.push_env("CARGO_TARGET_AARCH64_APPLE_IOS_RUSTFLAGS", "-Clinker=/usr/bin/clang");
+    let _env_guard2 = sh.push_env("AARCH64_APPLE_IOS_CC", "/usr/bin/clang");
+    let _env_guard3 =
+        ios_deployment_target.map(|target| sh.push_env("IPHONEOS_DEPLOYMENT_TARGET", target));
+
     if sequentially {
         for target in &targets {
             let triple = target.triple;
