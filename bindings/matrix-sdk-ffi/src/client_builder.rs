@@ -4,8 +4,10 @@ use futures_util::StreamExt;
 #[cfg(not(target_family = "wasm"))]
 use matrix_sdk::reqwest::Certificate;
 use matrix_sdk::{
+    Client as MatrixClient, ClientBuildError as MatrixClientBuildError, HttpError, IdParseError,
+    RumaApiError, SqliteStoreConfig,
     crypto::{
-        types::qr_login::QrCodeModeData, CollectStrategy, DecryptionSettings, TrustRequirement,
+        CollectStrategy, DecryptionSettings, TrustRequirement, types::qr_login::QrCodeModeData,
     },
     encryption::{BackupDownloadStrategy, EncryptionSettings},
     event_cache::EventCacheError,
@@ -14,8 +16,6 @@ use matrix_sdk::{
         Error as MatrixSlidingSyncError, VersionBuilder as MatrixSlidingSyncVersionBuilder,
         VersionBuilderError,
     },
-    Client as MatrixClient, ClientBuildError as MatrixClientBuildError, HttpError, IdParseError,
-    RumaApiError, SqliteStoreConfig,
 };
 use ruma::api::error::{DeserializationError, FromHttpResponseError};
 use tracing::{debug, error};

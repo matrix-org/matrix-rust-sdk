@@ -8,7 +8,7 @@ use matrix_sdk_crypto::{
     },
     store::types::DehydratedDeviceKey as InnerDehydratedDeviceKey,
 };
-use ruma::{api::client::dehydrated_device, events::AnyToDeviceEvent, serde::Raw, OwnedDeviceId};
+use ruma::{OwnedDeviceId, api::client::dehydrated_device, events::AnyToDeviceEvent, serde::Raw};
 use serde_json::json;
 
 use crate::{CryptoStoreError, DehydratedDeviceKey};
@@ -222,7 +222,7 @@ impl From<dehydrated_device::put_dehydrated_device::unstable::Request>
 
 #[cfg(test)]
 mod tests {
-    use crate::{dehydrated_devices::DehydrationError, DehydratedDeviceKey};
+    use crate::{DehydratedDeviceKey, dehydrated_devices::DehydrationError};
 
     #[test]
     fn test_creating_dehydrated_key() {
