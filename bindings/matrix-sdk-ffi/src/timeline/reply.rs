@@ -15,6 +15,7 @@
 use matrix_sdk_ui::timeline::{EmbeddedEvent, TimelineDetails};
 
 use super::{content::TimelineItemContent, ProfileDetails};
+use crate::{event::EventOrTransactionId, utils::Timestamp};
 
 #[derive(Clone, uniffi::Object)]
 pub struct InReplyToDetails {
@@ -50,8 +51,16 @@ impl From<matrix_sdk_ui::timeline::InReplyToDetails> for InReplyToDetails {
 pub enum EmbeddedEventDetails {
     Unavailable,
     Pending,
-    Ready { content: TimelineItemContent, sender: String, sender_profile: ProfileDetails },
-    Error { message: String },
+    Ready {
+        content: TimelineItemContent,
+        sender: String,
+        sender_profile: ProfileDetails,
+        timestamp: Timestamp,
+        event_or_transaction_id: EventOrTransactionId,
+    },
+    Error {
+        message: String,
+    },
 }
 
 impl From<TimelineDetails<Box<EmbeddedEvent>>> for EmbeddedEventDetails {
@@ -63,6 +72,8 @@ impl From<TimelineDetails<Box<EmbeddedEvent>>> for EmbeddedEventDetails {
                 content: event.content.into(),
                 sender: event.sender.to_string(),
                 sender_profile: event.sender_profile.into(),
+                timestamp: event.timestamp.into(),
+                event_or_transaction_id: event.identifier.into(),
             },
             TimelineDetails::Error(err) => EmbeddedEventDetails::Error { message: err.to_string() },
         }
