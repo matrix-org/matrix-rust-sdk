@@ -881,7 +881,7 @@ impl OlmMachine {
             decrypted,
         )?;
 
-        // Return early if the sending device is decrypted
+        // Return early if the sending device is a dehydrated device
         self.check_to_device_event_is_not_from_dehydrated_device(&decrypted, &event.sender).await?;
 
         // Device is not dehydrated: handle it as normal e.g. create a Megolm session

@@ -1197,7 +1197,7 @@ pub enum ProcessedToDeviceEvent {
     /// example)
     Invalid(Raw<AnyToDeviceEvent>),
 
-    /// A to device event that was ignored because the sender device was not
+    /// A to-device event that was ignored because the sender device was not
     /// verified.
     UnverifiedSender {
         /// The raw decrypted event
