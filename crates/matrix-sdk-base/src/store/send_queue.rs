@@ -206,8 +206,7 @@ pub enum QueueWedgeError {
     },
 }
 
-/// The specific user intent that characterizes a
-/// [`DependentQueuedRequestKind`].
+/// The specific user intent that characterizes a [`DependentQueuedRequest`].
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum DependentQueuedRequestKind {
     /// The event should be edited.
