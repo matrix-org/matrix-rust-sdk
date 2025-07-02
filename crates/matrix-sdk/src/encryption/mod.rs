@@ -1687,7 +1687,14 @@ impl Encryption {
     ///   allow for the initial upload of cross-signing keys without
     ///   authentication, rendering this parameter obsolete.
     pub(crate) async fn spawn_initialization_task(&self, auth_data: Option<AuthData>) {
-        let bundle_receiver_task = BundleReceiverTask::new(&self.client).await;
+        // It's fine to be async here as we're only getting the lock protecting the
+        // `OlmMachine`. Since the lock shouldn't be that contested right after logging
+        // in we won't delay the login or restoration of the Client.
+        let bundle_receiver_task = if self.client.inner.enable_share_history_on_invite {
+            Some(BundleReceiverTask::new(&self.client).await)
+        } else {
+            None
+        };
 
         let mut tasks = self.client.inner.e2ee.tasks.lock();
 
@@ -1712,10 +1719,7 @@ impl Encryption {
             }
         }));
 
-        // It's fine to be async here as we're only getting the lock protecting the
-        // `OlmMachine`. Since the lock shouldn't be that contested right after logging
-        // in we won't delay the login or restoration of the Client.
-        tasks.receive_historic_room_key_bundles = Some(bundle_receiver_task);
+        tasks.receive_historic_room_key_bundles = bundle_receiver_task;
     }
 
     /// Waits for end-to-end encryption initialization tasks to finish, if any
