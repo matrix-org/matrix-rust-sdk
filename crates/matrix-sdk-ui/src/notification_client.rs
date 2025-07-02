@@ -635,93 +635,84 @@ impl NotificationClient {
             // At this point it should have been added by the sync, if it's not, give up.
             let Some(room) = self.client.get_room(&room_id) else { return Err(Error::UnknownRoom) };
 
-            if let Some(raw_event) = raw_event {
-                let (raw_event, push_actions) = match &raw_event {
-                    RawNotificationEvent::Timeline(timeline_event) => {
-                        // Timeline events may be encrypted, so make sure they get decrypted first.
-                        match self.retry_decryption(&room, timeline_event).await {
-                            Ok(Some(timeline_event)) => {
-                                let push_actions =
-                                    timeline_event.push_actions().map(ToOwned::to_owned);
-                                (
-                                    RawNotificationEvent::Timeline(timeline_event.into_raw()),
-                                    push_actions,
-                                )
-                            }
-                            Ok(None) => {
-                                match room.event_push_actions(timeline_event).await {
-                                    Ok(push_actions) => (raw_event.clone(), push_actions),
-                                    Err(err) => {
-                                        // Could not get push actions.
-                                        result.mark_fetching_notification_failed(
-                                            event_id,
-                                            err.into(),
-                                        );
-                                        continue;
-                                    }
+            let Some(raw_event) = raw_event else {
+                // The event was not found, so we can't build a notification.
+                result.add_notification(event_id, NotificationStatus::EventNotFound);
+                continue;
+            };
+
+            let (raw_event, push_actions) = match &raw_event {
+                RawNotificationEvent::Timeline(timeline_event) => {
+                    // Timeline events may be encrypted, so make sure they get decrypted first.
+                    match self.retry_decryption(&room, timeline_event).await {
+                        Ok(Some(timeline_event)) => {
+                            let push_actions = timeline_event.push_actions().map(ToOwned::to_owned);
+                            (
+                                RawNotificationEvent::Timeline(timeline_event.into_raw()),
+                                push_actions,
+                            )
+                        }
+                        Ok(None) => {
+                            match room.event_push_actions(timeline_event).await {
+                                Ok(push_actions) => (raw_event.clone(), push_actions),
+                                Err(err) => {
+                                    // Could not get push actions.
+                                    result.mark_fetching_notification_failed(event_id, err.into());
+                                    continue;
                                 }
                             }
-                            Err(err) => {
-                                result.mark_fetching_notification_failed(event_id, err);
-                                continue;
-                            }
                         }
-                    }
-                    RawNotificationEvent::Invite(invite_event) => {
-                        // Invite events can't be encrypted, so they should be in clear text.
-                        match room.event_push_actions(invite_event).await {
-                            Ok(push_actions) => {
-                                (RawNotificationEvent::Invite(invite_event.clone()), push_actions)
-                            }
-                            Err(err) => {
-                                result.mark_fetching_notification_failed(event_id, err.into());
-                                continue;
-                            }
-                        }
-                    }
-                };
-
-                let should_notify = push_actions
-                    .as_ref()
-                    .map(|actions| actions.iter().any(|a| a.should_notify()))
-                    .unwrap_or(false);
-
-                if !should_notify {
-                    result.add_notification(event_id, NotificationStatus::EventFilteredOut);
-                } else {
-                    let notification_result = NotificationItem::new(
-                        &room,
-                        raw_event,
-                        push_actions.as_deref(),
-                        Vec::new(),
-                    )
-                    .await
-                    .map(|event| NotificationStatus::Event(Box::new(event)));
-
-                    match notification_result {
-                        Ok(notification_status) => match notification_status {
-                            NotificationStatus::Event(event) => {
-                                if self.client.is_user_ignored(event.event.sender()).await {
-                                    result.add_notification(
-                                        event_id,
-                                        NotificationStatus::EventFilteredOut,
-                                    );
-                                } else {
-                                    result.add_notification(
-                                        event_id,
-                                        NotificationStatus::Event(event),
-                                    );
-                                }
-                            }
-                            _ => result.add_notification(event_id, notification_status),
-                        },
                         Err(err) => {
                             result.mark_fetching_notification_failed(event_id, err);
+                            continue;
                         }
                     }
                 }
+                RawNotificationEvent::Invite(invite_event) => {
+                    // Invite events can't be encrypted, so they should be in clear text.
+                    match room.event_push_actions(invite_event).await {
+                        Ok(push_actions) => {
+                            (RawNotificationEvent::Invite(invite_event.clone()), push_actions)
+                        }
+                        Err(err) => {
+                            result.mark_fetching_notification_failed(event_id, err.into());
+                            continue;
+                        }
+                    }
+                }
+            };
+
+            let should_notify = push_actions
+                .as_ref()
+                .map(|actions| actions.iter().any(|a| a.should_notify()))
+                .unwrap_or(false);
+
+            if !should_notify {
+                result.add_notification(event_id, NotificationStatus::EventFilteredOut);
             } else {
-                result.add_notification(event_id, NotificationStatus::EventNotFound);
+                let notification_result =
+                    NotificationItem::new(&room, raw_event, push_actions.as_deref(), Vec::new())
+                        .await
+                        .map(|event| NotificationStatus::Event(Box::new(event)));
+
+                match notification_result {
+                    Ok(notification_status) => match notification_status {
+                        NotificationStatus::Event(event) => {
+                            if self.client.is_user_ignored(event.event.sender()).await {
+                                result.add_notification(
+                                    event_id,
+                                    NotificationStatus::EventFilteredOut,
+                                );
+                            } else {
+                                result.add_notification(event_id, NotificationStatus::Event(event));
+                            }
+                        }
+                        _ => result.add_notification(event_id, notification_status),
+                    },
+                    Err(err) => {
+                        result.mark_fetching_notification_failed(event_id, err);
+                    }
+                }
             }
         }
 
