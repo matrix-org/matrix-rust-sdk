@@ -13,10 +13,7 @@
 // limitations under the License.
 
 use std::{
-    collections::{
-        btree_map::{IntoIter, Iter},
-        BTreeMap,
-    },
+    collections::BTreeMap,
     sync::{Arc, Mutex},
     time::Duration,
 };
@@ -180,19 +177,14 @@ impl NotificationClient {
 
         for request in requests {
             for event_id in &request.event_ids {
-                match notifications.notifications.get_mut(event_id) {
+                match notifications.get_mut(event_id) {
                     // If the notification for a given event wasn't found with sliding sync, try
                     // with a /context for each event.
                     Some(Ok(NotificationStatus::EventNotFound)) | None => {
-                        match self.get_notification_with_context(&request.room_id, event_id).await {
-                            Ok(status) => {
-                                notifications.add_notification(event_id.to_owned(), status);
-                            }
-                            Err(error) => {
-                                notifications
-                                    .mark_fetching_notification_failed(event_id.to_owned(), error);
-                            }
-                        }
+                        notifications.insert(
+                            event_id.to_owned(),
+                            self.get_notification_with_context(&request.room_id, event_id).await,
+                        );
                     }
 
                     _ => {}
@@ -623,7 +615,7 @@ impl NotificationClient {
     ) -> Result<BatchNotificationFetchingResult, Error> {
         let raw_events = self.try_sliding_sync(requests).await?;
 
-        let mut result = BatchNotificationFetchingResult::new();
+        let mut batch_result = BatchNotificationFetchingResult::new();
 
         for (event_id, (room_id, raw_event)) in raw_events.into_iter() {
             // At this point it should have been added by the sync, if it's not, give up.
@@ -631,7 +623,7 @@ impl NotificationClient {
 
             let Some(raw_event) = raw_event else {
                 // The event was not found, so we can't build a notification.
-                result.add_notification(event_id, NotificationStatus::EventNotFound);
+                batch_result.insert(event_id, Ok(NotificationStatus::EventNotFound));
                 continue;
             };
 
@@ -654,14 +646,14 @@ impl NotificationClient {
                                 Ok(push_actions) => (raw_event.clone(), push_actions),
                                 Err(err) => {
                                     // Could not get push actions.
-                                    result.mark_fetching_notification_failed(event_id, err.into());
+                                    batch_result.insert(event_id, Err(err.into()));
                                     continue;
                                 }
                             }
                         }
 
                         Err(err) => {
-                            result.mark_fetching_notification_failed(event_id, err);
+                            batch_result.insert(event_id, Err(err));
                             continue;
                         }
                     }
@@ -674,7 +666,7 @@ impl NotificationClient {
                             (RawNotificationEvent::Invite(invite_event.clone()), push_actions)
                         }
                         Err(err) => {
-                            result.mark_fetching_notification_failed(event_id, err.into());
+                            batch_result.insert(event_id, Err(err.into()));
                             continue;
                         }
                     }
@@ -687,7 +679,7 @@ impl NotificationClient {
 
             if !should_notify {
                 // The event has been filtered out by the user's push rules.
-                result.add_notification(event_id, NotificationStatus::EventFilteredOut);
+                batch_result.insert(event_id, Ok(NotificationStatus::EventFilteredOut));
                 continue;
             }
 
@@ -699,7 +691,7 @@ impl NotificationClient {
                     Ok(status) => status,
                     Err(err) => {
                         // Could not build the notification item, return an error.
-                        result.mark_fetching_notification_failed(event_id, err);
+                        batch_result.insert(event_id, Err(err));
                         continue;
                     }
                 };
@@ -707,16 +699,18 @@ impl NotificationClient {
             match status {
                 NotificationStatus::Event(event) => {
                     if self.client.is_user_ignored(event.event.sender()).await {
-                        result.add_notification(event_id, NotificationStatus::EventFilteredOut);
+                        batch_result.insert(event_id, Ok(NotificationStatus::EventFilteredOut));
                     } else {
-                        result.add_notification(event_id, NotificationStatus::Event(event));
+                        batch_result.insert(event_id, Ok(NotificationStatus::Event(event)));
                     }
                 }
-                _ => result.add_notification(event_id, status),
+                _ => {
+                    batch_result.insert(event_id, Ok(status));
+                }
             }
         }
 
-        Ok(result)
+        Ok(batch_result)
     }
 
     /// Retrieve a notification using a `/context` query.
@@ -803,40 +797,7 @@ pub struct NotificationItemsRequest {
     pub event_ids: Vec<OwnedEventId>,
 }
 
-#[derive(Default)]
-pub struct BatchNotificationFetchingResult {
-    notifications: BTreeMap<OwnedEventId, Result<NotificationStatus, Error>>,
-}
-
-impl BatchNotificationFetchingResult {
-    pub fn new() -> Self {
-        Self { notifications: BTreeMap::new() }
-    }
-
-    fn add_notification(&mut self, event_id: OwnedEventId, notification: NotificationStatus) {
-        self.notifications.insert(event_id, Ok(notification));
-    }
-
-    fn mark_fetching_notification_failed(&mut self, event_id: OwnedEventId, error: Error) {
-        self.notifications.insert(event_id, Err(error));
-    }
-
-    pub fn remove(&mut self, id: &EventId) -> Option<Result<NotificationStatus, Error>> {
-        self.notifications.remove(id)
-    }
-
-    pub fn iter(&self) -> Iter<'_, OwnedEventId, Result<NotificationStatus, Error>> {
-        self.notifications.iter()
-    }
-}
-
-impl IntoIterator for BatchNotificationFetchingResult {
-    type Item = (OwnedEventId, Result<NotificationStatus, Error>);
-    type IntoIter = IntoIter<OwnedEventId, Result<NotificationStatus, Error>>;
-    fn into_iter(self) -> Self::IntoIter {
-        self.notifications.into_iter()
-    }
-}
+type BatchNotificationFetchingResult = BTreeMap<OwnedEventId, Result<NotificationStatus, Error>>;
 
 /// The Notification event as it was fetched from remote for the
 /// given `event_id`, represented as Raw but decrypted, thus only
