@@ -175,7 +175,7 @@ impl NotificationClient {
     pub async fn get_notifications(
         &self,
         requests: &[NotificationItemsRequest],
-    ) -> Result<BatchNotificationFetchingResult<NotificationStatus>, Error> {
+    ) -> Result<BatchNotificationFetchingResult, Error> {
         let mut notifications = self.get_notifications_with_sliding_sync(requests).await?;
 
         for request in requests {
@@ -620,7 +620,7 @@ impl NotificationClient {
     pub async fn get_notifications_with_sliding_sync(
         &self,
         requests: &[NotificationItemsRequest],
-    ) -> Result<BatchNotificationFetchingResult<NotificationStatus>, Error> {
+    ) -> Result<BatchNotificationFetchingResult, Error> {
         let raw_events = self.try_sliding_sync(requests).await?;
 
         let mut result = BatchNotificationFetchingResult::new();
@@ -804,16 +804,16 @@ pub struct NotificationItemsRequest {
 }
 
 #[derive(Default)]
-pub struct BatchNotificationFetchingResult<T> {
-    notifications: BTreeMap<OwnedEventId, Result<T, Error>>,
+pub struct BatchNotificationFetchingResult {
+    notifications: BTreeMap<OwnedEventId, Result<NotificationStatus, Error>>,
 }
 
-impl<T> BatchNotificationFetchingResult<T> {
+impl BatchNotificationFetchingResult {
     pub fn new() -> Self {
         Self { notifications: BTreeMap::new() }
     }
 
-    fn add_notification(&mut self, event_id: OwnedEventId, notification: T) {
+    fn add_notification(&mut self, event_id: OwnedEventId, notification: NotificationStatus) {
         self.notifications.insert(event_id, Ok(notification));
     }
 
@@ -821,18 +821,18 @@ impl<T> BatchNotificationFetchingResult<T> {
         self.notifications.insert(event_id, Err(error));
     }
 
-    pub fn remove(&mut self, id: &EventId) -> Option<Result<T, Error>> {
+    pub fn remove(&mut self, id: &EventId) -> Option<Result<NotificationStatus, Error>> {
         self.notifications.remove(id)
     }
 
-    pub fn iter(&self) -> Iter<'_, OwnedEventId, Result<T, Error>> {
+    pub fn iter(&self) -> Iter<'_, OwnedEventId, Result<NotificationStatus, Error>> {
         self.notifications.iter()
     }
 }
 
-impl<T> IntoIterator for BatchNotificationFetchingResult<T> {
-    type Item = (OwnedEventId, Result<T, Error>);
-    type IntoIter = IntoIter<OwnedEventId, Result<T, Error>>;
+impl IntoIterator for BatchNotificationFetchingResult {
+    type Item = (OwnedEventId, Result<NotificationStatus, Error>);
+    type IntoIter = IntoIter<OwnedEventId, Result<NotificationStatus, Error>>;
     fn into_iter(self) -> Self::IntoIter {
         self.notifications.into_iter()
     }
