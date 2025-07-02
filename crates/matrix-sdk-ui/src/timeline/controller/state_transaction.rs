@@ -187,7 +187,9 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
         room_data_provider: &P,
         date_divider_adjuster: &mut DateDividerAdjuster,
     ) {
-        let deserialized = match event.raw().deserialize() {
+        let raw_event = event.raw();
+
+        let deserialized = match raw_event.deserialize() {
             Ok(deserialized) => deserialized,
             Err(err) => {
                 warn!("Failed to deserialize timeline event: {err}");
@@ -202,7 +204,7 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
 
         if let Some(action @ TimelineAction::HandleAggregation { .. }) = TimelineAction::from_event(
             deserialized,
-            event.raw(),
+            raw_event,
             room_data_provider,
             None,
             &self.meta,
