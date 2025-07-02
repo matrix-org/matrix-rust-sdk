@@ -5,7 +5,6 @@ use matrix_sdk_ui::notification_client::{
     NotificationStatus as SdkNotificationStatus,
 };
 use ruma::{EventId, OwnedEventId, OwnedRoomId, RoomId};
-use tracing::error;
 
 use crate::{
     client::{Client, JoinRule},
@@ -101,6 +100,17 @@ pub enum NotificationStatus {
     EventFilteredOut,
 }
 
+#[derive(uniffi::Enum)]
+pub enum BatchNotificationStatus {
+    /// The event has been found and was not filtered out.
+    Event(NotificationItem),
+    /// An error occurred while trying to fetch the notification.
+    Error {
+        /// The error message observed while handling a specific notification.
+        message: String,
+    },
+}
+
 #[derive(uniffi::Object)]
 pub struct NotificationClient {
     pub(crate) inner: SdkNotificationClient,
@@ -164,25 +174,21 @@ impl NotificationClient {
     pub async fn get_notifications(
         &self,
         requests: Vec<NotificationItemsRequest>,
-    ) -> Result<HashMap<String, NotificationItem>, ClientError> {
+    ) -> Result<HashMap<String, BatchNotificationStatus>, ClientError> {
         let requests =
             requests.into_iter().map(TryInto::try_into).collect::<Result<Vec<_>, _>>()?;
+
         let items = self.inner.get_notifications(&requests).await?;
+
         let mut result = HashMap::new();
         for (key, value) in items.into_iter() {
-            match value {
-                Ok(item) => {
-                    result.insert(key.to_string(), NotificationItem::from_inner(item));
-                }
-                Err(error) => {
-                    // TODO This error should actually be returned so the clients can handle the
-                    // error as they see fit, but it's failing when creating
-                    // bindings for Go, i.e.
-                    // (https://github.com/NordSecurity/uniffi-bindgen-go/issues/62)
-                    error!("Could not fetch notification {key}, an error happened: {error}");
-                }
-            }
+            let status = match value {
+                Ok(item) => BatchNotificationStatus::Event(NotificationItem::from_inner(item)),
+                Err(error) => BatchNotificationStatus::Error { message: error.to_string() },
+            };
+            result.insert(key.to_string(), status);
         }
+
         Ok(result)
     }
 }
