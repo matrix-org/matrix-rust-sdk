@@ -230,18 +230,18 @@ impl RoomEventCache {
             .map(|(_loc, event)| event)
     }
 
-    /// Try to find an event by id in this room, along with its related events.
+    /// Try to find an event by ID in this room, along with its related events.
     ///
     /// You can filter which types of related events to retrieve using
     /// `filter`. `None` will retrieve related events of any type.
     ///
     /// The related events are sorted like this:
-    /// - events saved out-of-band with `super::RoomEventCache::save_events`
-    ///   will be located at the beginning of the array.
-    /// - events present in the linked chunk (be it in memory or in the
-    ///   database) will be sorted according to their ordering in the linked
-    ///   chunk.
-    pub async fn event_with_relations(
+    ///
+    /// - events saved out-of-band (with `RoomEventCache::save_events`) will be
+    ///   located at the beginning of the array.
+    /// - events present in the linked chunk (be it in memory or in the storage)
+    ///   will be sorted according to their ordering in the linked chunk.
+    pub async fn find_event_with_relations(
         &self,
         event_id: &EventId,
         filter: Option<Vec<RelationType>>,
@@ -1819,7 +1819,7 @@ mod tests {
 
         let filter = Some(vec![RelationType::Replacement]);
         let (event, related_events) =
-            room_event_cache.event_with_relations(original_id, filter).await.unwrap();
+            room_event_cache.find_event_with_relations(original_id, filter).await.unwrap();
         // Fetched event is the right one.
         let cached_event_id = event.event_id().unwrap();
         assert_eq!(cached_event_id, original_id);
@@ -1833,7 +1833,7 @@ mod tests {
         // Now we'll filter threads instead, there should be no related events
         let filter = Some(vec![RelationType::Thread]);
         let (event, related_events) =
-            room_event_cache.event_with_relations(original_id, filter).await.unwrap();
+            room_event_cache.find_event_with_relations(original_id, filter).await.unwrap();
         // Fetched event is the right one.
         let cached_event_id = event.event_id().unwrap();
         assert_eq!(cached_event_id, original_id);
@@ -1878,7 +1878,7 @@ mod tests {
         room_event_cache.save_events([associated_related_event]).await;
 
         let (event, related_events) =
-            room_event_cache.event_with_relations(original_id, None).await.unwrap();
+            room_event_cache.find_event_with_relations(original_id, None).await.unwrap();
         // Fetched event is the right one.
         let cached_event_id = event.event_id().unwrap();
         assert_eq!(cached_event_id, original_id);
@@ -1926,7 +1926,7 @@ mod tests {
         room_event_cache.save_events([related_event]).await;
 
         let (event, related_events) =
-            room_event_cache.event_with_relations(&original_event_id, None).await.unwrap();
+            room_event_cache.find_event_with_relations(&original_event_id, None).await.unwrap();
         // Fetched event is the right one.
         let cached_event_id = event.event_id().unwrap();
         assert_eq!(cached_event_id, original_event_id);

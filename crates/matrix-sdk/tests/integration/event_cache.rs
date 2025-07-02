@@ -2573,7 +2573,7 @@ async fn test_relations_ordering() {
 
     // Sanity check: there are no relations for the target event yet.
     let (_, relations) =
-        room_event_cache.event_with_relations(target_event_id, None).await.unwrap();
+        room_event_cache.find_event_with_relations(target_event_id, None).await.unwrap();
     assert!(relations.is_empty());
 
     let edit2 = event_id!("$edit2");
@@ -2623,7 +2623,7 @@ async fn test_relations_ordering() {
 
     // At this point, relations are known for the target event.
     let (_, relations) =
-        room_event_cache.event_with_relations(target_event_id, None).await.unwrap();
+        room_event_cache.find_event_with_relations(target_event_id, None).await.unwrap();
     assert_eq!(relations.len(), 2);
     // And the edit events are correctly ordered according to their position in the
     // linked chunk.
@@ -2654,7 +2654,7 @@ async fn test_relations_ordering() {
 
     // Relations are returned accordingly.
     let (_, relations) =
-        room_event_cache.event_with_relations(target_event_id, None).await.unwrap();
+        room_event_cache.find_event_with_relations(target_event_id, None).await.unwrap();
     assert_eq!(relations.len(), 3);
     assert_eq!(relations[0].event_id().unwrap(), edit2);
     assert_eq!(relations[1].event_id().unwrap(), edit3);
@@ -2675,7 +2675,7 @@ async fn test_relations_ordering() {
     room.event(edit5, None).await.unwrap();
 
     let (_, relations) =
-        room_event_cache.event_with_relations(target_event_id, None).await.unwrap();
+        room_event_cache.find_event_with_relations(target_event_id, None).await.unwrap();
     assert_eq!(relations.len(), 4);
     assert_eq!(relations[0].event_id().unwrap(), edit5);
     assert_eq!(relations[1].event_id().unwrap(), edit2);
