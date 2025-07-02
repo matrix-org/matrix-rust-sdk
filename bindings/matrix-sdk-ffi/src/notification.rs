@@ -100,10 +100,23 @@ pub enum NotificationStatus {
     EventFilteredOut,
 }
 
+impl From<SdkNotificationStatus> for NotificationStatus {
+    fn from(item: SdkNotificationStatus) -> Self {
+        match item {
+            SdkNotificationStatus::Event(item) => {
+                NotificationStatus::Event(NotificationItem::from_inner(*item))
+            }
+            SdkNotificationStatus::EventNotFound => NotificationStatus::EventNotFound,
+            SdkNotificationStatus::EventFilteredOut => NotificationStatus::EventFilteredOut,
+        }
+    }
+}
+
+#[allow(clippy::large_enum_variant)]
 #[derive(uniffi::Enum)]
-pub enum BatchNotificationStatus {
-    /// The event has been found and was not filtered out.
-    Event(NotificationItem),
+pub enum BatchNotificationResult {
+    /// We have more detailed information about the notification.
+    Ok(NotificationStatus),
     /// An error occurred while trying to fetch the notification.
     Error {
         /// The error message observed while handling a specific notification.
@@ -156,13 +169,7 @@ impl NotificationClient {
         let item =
             self.inner.get_notification(&room_id, &event_id).await.map_err(ClientError::from)?;
 
-        match item {
-            SdkNotificationStatus::Event(item) => {
-                Ok(NotificationStatus::Event(NotificationItem::from_inner(*item)))
-            }
-            SdkNotificationStatus::EventFilteredOut => Ok(NotificationStatus::EventFilteredOut),
-            SdkNotificationStatus::EventNotFound => Ok(NotificationStatus::EventNotFound),
-        }
+        Ok(item.into())
     }
 
     /// Get several notification items in a single batch.
@@ -174,22 +181,22 @@ impl NotificationClient {
     pub async fn get_notifications(
         &self,
         requests: Vec<NotificationItemsRequest>,
-    ) -> Result<HashMap<String, BatchNotificationStatus>, ClientError> {
+    ) -> Result<HashMap<String, BatchNotificationResult>, ClientError> {
         let requests =
             requests.into_iter().map(TryInto::try_into).collect::<Result<Vec<_>, _>>()?;
 
         let items = self.inner.get_notifications(&requests).await?;
 
-        let mut result = HashMap::new();
+        let mut batch_result = HashMap::new();
         for (key, value) in items.into_iter() {
-            let status = match value {
-                Ok(item) => BatchNotificationStatus::Event(NotificationItem::from_inner(item)),
-                Err(error) => BatchNotificationStatus::Error { message: error.to_string() },
+            let result = match value {
+                Ok(status) => BatchNotificationResult::Ok(status.into()),
+                Err(error) => BatchNotificationResult::Error { message: error.to_string() },
             };
-            result.insert(key.to_string(), status);
+            batch_result.insert(key.to_string(), result);
         }
 
-        Ok(result)
+        Ok(batch_result)
     }
 }
 
