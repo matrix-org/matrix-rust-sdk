@@ -177,6 +177,7 @@ impl NotificationClient {
         requests: &[NotificationItemsRequest],
     ) -> Result<BatchNotificationFetchingResult<NotificationItem>, Error> {
         let mut notifications = self.get_notifications_with_sliding_sync(requests).await?;
+
         let mut notification_items = BatchNotificationFetchingResult::new();
 
         for request in requests {
@@ -186,6 +187,7 @@ impl NotificationClient {
                         notification_items.add_notification(event_id.to_owned(), *item);
                     }
                     Some(Ok(NotificationStatus::EventNotFound)) | None => {
+                        // Retry with a single /context query for this particular event.
                         match self.get_notification_with_context(&request.room_id, event_id).await {
                             Ok(NotificationStatus::Event(item)) => {
                                 notification_items.add_notification(event_id.to_owned(), *item)
@@ -213,11 +215,13 @@ impl NotificationClient {
 
     /// Run an encryption sync loop, in case an event is still encrypted.
     ///
-    /// Will return true if and only:
+    /// Will return `Ok(Some)` if and only if:
     /// - the event was encrypted,
     /// - we successfully ran an encryption sync or waited long enough for an
-    ///   existing encryption sync to
-    /// decrypt the event.
+    ///   existing encryption sync to decrypt the event.
+    ///
+    /// Otherwise, if the event was not encrypted, or couldn't be decrypted
+    /// (without causing a fatal error), will return `Ok(None)`.
     #[instrument(skip_all)]
     async fn retry_decryption(
         &self,
@@ -652,7 +656,10 @@ impl NotificationClient {
                                 push_actions,
                             )
                         }
+
                         Ok(None) => {
+                            // The event was either not encrypted in the first place, or we
+                            // couldn't decrypt it after retrying. Use the raw event as is.
                             match room.event_push_actions(timeline_event).await {
                                 Ok(push_actions) => (raw_event.clone(), push_actions),
                                 Err(err) => {
@@ -662,12 +669,14 @@ impl NotificationClient {
                                 }
                             }
                         }
+
                         Err(err) => {
                             result.mark_fetching_notification_failed(event_id, err);
                             continue;
                         }
                     }
                 }
+
                 RawNotificationEvent::Invite(invite_event) => {
                     // Invite events can't be encrypted, so they should be in clear text.
                     match room.event_push_actions(invite_event).await {
@@ -692,25 +701,28 @@ impl NotificationClient {
                 continue;
             }
 
-            let notification_result =
-                NotificationItem::new(&room, raw_event, push_actions.as_deref(), Vec::new())
+            let status =
+                match NotificationItem::new(&room, raw_event, push_actions.as_deref(), Vec::new())
                     .await
-                    .map(|event| NotificationStatus::Event(Box::new(event)));
-
-            match notification_result {
-                Ok(notification_status) => match notification_status {
-                    NotificationStatus::Event(event) => {
-                        if self.client.is_user_ignored(event.event.sender()).await {
-                            result.add_notification(event_id, NotificationStatus::EventFilteredOut);
-                        } else {
-                            result.add_notification(event_id, NotificationStatus::Event(event));
-                        }
+                    .map(|event| NotificationStatus::Event(Box::new(event)))
+                {
+                    Ok(status) => status,
+                    Err(err) => {
+                        // Could not build the notification item, return an error.
+                        result.mark_fetching_notification_failed(event_id, err);
+                        continue;
                     }
-                    _ => result.add_notification(event_id, notification_status),
-                },
-                Err(err) => {
-                    result.mark_fetching_notification_failed(event_id, err);
+                };
+
+            match status {
+                NotificationStatus::Event(event) => {
+                    if self.client.is_user_ignored(event.event.sender()).await {
+                        result.add_notification(event_id, NotificationStatus::EventFilteredOut);
+                    } else {
+                        result.add_notification(event_id, NotificationStatus::Event(event));
+                    }
                 }
+                _ => result.add_notification(event_id, status),
             }
         }
 
