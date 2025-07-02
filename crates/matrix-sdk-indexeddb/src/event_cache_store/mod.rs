@@ -468,10 +468,12 @@ impl_event_cache_store! {
 #[cfg(test)]
 mod tests {
     use matrix_sdk_base::event_cache::store::{EventCacheStore, EventCacheStoreError};
+    use matrix_sdk_test::async_test;
     use uuid::Uuid;
 
     use crate::{
-        event_cache_store::IndexeddbEventCacheStore, indexeddb_event_cache_store_integration_tests,
+        event_cache_store::IndexeddbEventCacheStore, event_cache_store_integration_tests,
+        indexeddb_event_cache_store_integration_tests,
     };
 
     mod unencrypted {
@@ -484,6 +486,10 @@ mod tests {
             Ok(IndexeddbEventCacheStore::builder().database_name(name).build().await?)
         }
 
+        #[cfg(target_family = "wasm")]
+        event_cache_store_integration_tests!();
+
+        #[cfg(target_family = "wasm")]
         indexeddb_event_cache_store_integration_tests!();
     }
 
@@ -497,6 +503,10 @@ mod tests {
             Ok(IndexeddbEventCacheStore::builder().database_name(name).build().await?)
         }
 
+        #[cfg(target_family = "wasm")]
+        event_cache_store_integration_tests!();
+
+        #[cfg(target_family = "wasm")]
         indexeddb_event_cache_store_integration_tests!();
     }
 }
