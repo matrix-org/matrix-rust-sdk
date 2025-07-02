@@ -16,7 +16,7 @@ use std::sync::Arc;
 
 use imbl::Vector;
 use matrix_sdk::deserialized_responses::TimelineEvent;
-use ruma::{OwnedEventId, OwnedUserId};
+use ruma::{MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedUserId};
 use tracing::{debug, instrument, warn};
 
 use super::TimelineItemContent;
@@ -25,7 +25,7 @@ use crate::timeline::{
     event_handler::TimelineAction,
     event_item::{EventTimelineItem, Profile, TimelineDetails},
     traits::RoomDataProvider,
-    Error as TimelineError, TimelineItem,
+    Error as TimelineError, TimelineEventItemId, TimelineItem,
 };
 
 /// Details about an event being replied to.
@@ -68,6 +68,13 @@ pub struct EmbeddedEvent {
     pub sender: OwnedUserId,
     /// The profile of the sender of the related embedded event.
     pub sender_profile: TimelineDetails<Profile>,
+    /// The timestamp of the event.
+    pub timestamp: MilliSecondsSinceUnixEpoch,
+    /// The unique identifier of this event.
+    ///
+    /// This is the transaction ID for a local echo that has not been sent and
+    /// the event ID for a local echo that has been sent or a remote event.
+    pub identifier: TimelineEventItemId,
 }
 
 impl EmbeddedEvent {
@@ -77,6 +84,8 @@ impl EmbeddedEvent {
             content: timeline_item.content.clone(),
             sender: timeline_item.sender.clone(),
             sender_profile: timeline_item.sender_profile.clone(),
+            timestamp: timeline_item.timestamp,
+            identifier: timeline_item.identifier(),
         }
     }
 
@@ -111,6 +120,8 @@ impl EmbeddedEvent {
         let thread_summary = None;
 
         let sender = event.sender().to_owned();
+        let timestamp = event.origin_server_ts();
+        let identifier = TimelineEventItemId::EventId(event.event_id().to_owned());
         let action = TimelineAction::from_event(
             event,
             &raw_event,
@@ -132,6 +143,6 @@ impl EmbeddedEvent {
             room_data_provider.profile_from_user_id(&sender).await,
         );
 
-        Ok(Some(Self { content, sender, sender_profile }))
+        Ok(Some(Self { content, sender, sender_profile, timestamp, identifier }))
     }
 }
