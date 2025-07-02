@@ -151,10 +151,10 @@ impl NotificationClient {
         &self,
         room_id: &RoomId,
         event_id: &EventId,
-    ) -> Result<Option<NotificationItem>, Error> {
-        match self.get_notification_with_sliding_sync(room_id, event_id).await? {
-            NotificationStatus::Event(event) => Ok(Some(*event)),
-            NotificationStatus::EventFilteredOut => Ok(None),
+    ) -> Result<NotificationStatus, Error> {
+        let status = self.get_notification_with_sliding_sync(room_id, event_id).await?;
+        match status {
+            NotificationStatus::Event(..) | NotificationStatus::EventFilteredOut => Ok(status),
             NotificationStatus::EventNotFound => {
                 self.get_notification_with_context(room_id, event_id).await
             }
@@ -189,11 +189,13 @@ impl NotificationClient {
                     }
                     Some(Ok(NotificationStatus::EventNotFound)) | None => {
                         match self.get_notification_with_context(&request.room_id, event_id).await {
-                            Ok(Some(item)) => {
-                                notification_items.add_notification(event_id.to_owned(), item)
+                            Ok(NotificationStatus::Event(item)) => {
+                                notification_items.add_notification(event_id.to_owned(), *item)
                             }
-                            // Event filtered out, do nothing
-                            Ok(None) => (),
+                            Ok(NotificationStatus::EventFilteredOut)
+                            | Ok(NotificationStatus::EventNotFound) => {
+                                // Event filtered out or not found, do nothing.
+                            }
                             Err(error) => notification_items
                                 .mark_fetching_notification_failed(event_id.to_owned(), error),
                         }
@@ -733,7 +735,7 @@ impl NotificationClient {
         &self,
         room_id: &RoomId,
         event_id: &EventId,
-    ) -> Result<Option<NotificationItem>, Error> {
+    ) -> Result<NotificationStatus, Error> {
         info!("fetching notification event with a /context query");
 
         // See above comment.
@@ -752,7 +754,7 @@ impl NotificationClient {
 
         if let Some(actions) = timeline_event.push_actions() {
             if !actions.iter().any(|a| a.should_notify()) {
-                return Ok(None);
+                return Ok(NotificationStatus::EventFilteredOut);
             }
         }
 
@@ -766,9 +768,9 @@ impl NotificationClient {
         .await?;
 
         if self.client.is_user_ignored(notification_item.event.sender()).await {
-            Ok(None)
+            Ok(NotificationStatus::EventFilteredOut)
         } else {
-            Ok(Some(notification_item))
+            Ok(NotificationStatus::Event(Box::new(notification_item)))
         }
     }
 }
@@ -785,8 +787,13 @@ fn is_event_encrypted(event_type: TimelineEventType) -> bool {
 
 #[derive(Debug)]
 pub enum NotificationStatus {
+    /// The event has been found and was not filtered out.
     Event(Box<NotificationItem>),
+    /// The event couldn't be found in the network queries used to find it.
     EventNotFound,
+    /// The event has been filtered out, either because of the user's push
+    /// rules, or because the user which triggered it is ignored by the
+    /// current user.
     EventFilteredOut,
 }
 

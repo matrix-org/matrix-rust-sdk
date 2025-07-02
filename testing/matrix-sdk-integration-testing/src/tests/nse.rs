@@ -26,7 +26,9 @@ use matrix_sdk::{
     Client, Room,
 };
 use matrix_sdk_ui::{
-    notification_client::{NotificationClient, NotificationEvent, NotificationProcessSetup},
+    notification_client::{
+        NotificationClient, NotificationEvent, NotificationProcessSetup, NotificationStatus,
+    },
     sync_service::SyncService,
 };
 use serde_json::json;
@@ -388,7 +390,7 @@ impl NotificationClientWrapper {
                 .await
                 .expect("Failed to get_notification");
 
-            if let Some(item) = item {
+            if let NotificationStatus::Event(item) = item {
                 if let NotificationEvent::Timeline(sync_timeline_event) = item.event {
                     if let AnySyncTimelineEvent::MessageLike(event) = sync_timeline_event.as_ref() {
                         if let AnyMessageLikeEventContent::RoomMessage(event_content) =

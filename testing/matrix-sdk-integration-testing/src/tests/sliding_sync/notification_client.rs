@@ -217,11 +217,11 @@ async fn test_notification() -> Result<()> {
 
     // Check with `/context`.
     let notification_client = NotificationClient::new(bob.clone(), process_setup).await.unwrap();
-    let notification = notification_client
-        .get_notification_with_context(&room_id, &event_id)
-        .await?
-        .expect("missing notification for the message");
-    check_notification(false, notification);
+    assert_let!(
+        NotificationStatus::Event(notification) =
+            notification_client.get_notification_with_context(&room_id, &event_id).await?
+    );
+    check_notification(false, *notification);
 
     Ok(())
 }
