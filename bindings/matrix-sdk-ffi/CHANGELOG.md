@@ -11,6 +11,9 @@ All notable changes to this project will be documented in this file.
 - Add `NotificationRoomInfo::topic` to the `NotificationRoomInfo` struct, which
   contains the topic of the room. This is useful for displaying the room topic
   in notifications. ([#5300](https://github.com/matrix-org/matrix-rust-sdk/pull/5300))
+- Add `EmbeddedEventDetails::timestamp` and `EmbeddedEventDetails::event_or_transaction_id`
+  which are already available in regular timeline items.
+  ([#5331](https://github.com/matrix-org/matrix-rust-sdk/pull/5331))
 
 ### Refactor
 

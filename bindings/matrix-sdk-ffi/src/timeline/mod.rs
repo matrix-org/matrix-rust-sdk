@@ -704,6 +704,8 @@ impl Timeline {
                     content: replied_to.content.clone().into(),
                     sender: replied_to.sender.to_string(),
                     sender_profile: replied_to.sender_profile.into(),
+                    timestamp: replied_to.timestamp.into(),
+                    event_or_transaction_id: replied_to.identifier.into(),
                 },
             ))),
 
