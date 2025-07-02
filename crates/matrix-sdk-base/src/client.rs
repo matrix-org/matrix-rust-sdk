@@ -1737,4 +1737,47 @@ mod tests {
 
         assert!(client.is_user_ignored(ignored_user_id).await);
     }
+
+    #[async_test]
+    async fn test_joined_at_timestamp_is_set() {
+        let client = logged_in_base_client(None).await;
+        let invited_room_id = room_id!("!invited:localhost");
+        let unknown_room_id = room_id!("!unknown:localhost");
+
+        let mut sync_builder = SyncResponseBuilder::new();
+        let response = sync_builder
+            .add_invited_room(InvitedRoomBuilder::new(invited_room_id))
+            .build_sync_response();
+        client.receive_sync_response(response).await.unwrap();
+
+        // Let us first check the initial state, we should have a room in the invite
+        // state.
+        let invited_room = client
+            .get_room(invited_room_id)
+            .expect("The sync should have created a room in the invited state");
+
+        assert_eq!(invited_room.state(), RoomState::Invited);
+        assert!(invited_room.inner.get().invite_accepted_at().is_none());
+
+        // Now we join the room.
+        let joined_room = client
+            .room_joined(invited_room_id)
+            .await
+            .expect("We should be able to mark a room as joined");
+
+        // Yup, there's a timestamp now.
+        assert_eq!(joined_room.state(), RoomState::Joined);
+        assert!(joined_room.inner.get().invite_accepted_at().is_some());
+
+        // If we didn't know about the room before the join, we assume that there wasn't
+        // an invite and we don't record the timestamp.
+        assert!(client.get_room(unknown_room_id).is_none());
+        let unknown_room = client
+            .room_joined(unknown_room_id)
+            .await
+            .expect("We should be able to mark a room as joined");
+
+        assert_eq!(unknown_room.state(), RoomState::Joined);
+        assert!(unknown_room.inner.get().invite_accepted_at().is_none());
+    }
 }
