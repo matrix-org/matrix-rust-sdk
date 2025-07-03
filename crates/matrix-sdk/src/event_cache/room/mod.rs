@@ -600,7 +600,7 @@ mod private {
             // indicates that at some point, there's some malformed data.
             let full_linked_chunk_metadata =
                 match Self::load_linked_chunk_metadata(&*store_lock, linked_chunk_id).await {
-                    Ok(metas) => Some(metas),
+                    Ok(metas) => metas,
                     Err(err) => {
                         error!(
                             "error when loading a linked chunk's metadata from the store: {err}"
@@ -650,11 +650,16 @@ mod private {
         async fn load_linked_chunk_metadata(
             store: &DynEventCacheStore,
             linked_chunk_id: LinkedChunkId<'_>,
-        ) -> Result<Vec<ChunkMetadata>, EventCacheError> {
+        ) -> Result<Option<Vec<ChunkMetadata>>, EventCacheError> {
             let mut all_chunks = store
                 .load_all_chunks_metadata(linked_chunk_id)
                 .await
                 .map_err(EventCacheError::from)?;
+
+            if all_chunks.is_empty() {
+                // There are no chunks, so there's nothing to do.
+                return Ok(None);
+            }
 
             // Transform the vector into a hashmap, for quick lookup of the predecessors.
             let chunk_map: HashMap<_, _> =
@@ -759,7 +764,7 @@ mod private {
                 }
             }
 
-            Ok(all_chunks)
+            Ok(Some(all_chunks))
         }
 
         /// Given a fully-loaded linked chunk with no gaps, return the
