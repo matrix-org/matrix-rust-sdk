@@ -23,7 +23,7 @@ use language_tags::LanguageTag;
 use matrix_sdk_base::deserialized_responses::PrivOwnedStr;
 use oauth2::{AsyncHttpClient, ClientId, HttpClientError, RequestTokenError};
 use ruma::{
-    api::client::discovery::get_authorization_server_metadata::msc2965::{GrantType, ResponseType},
+    api::client::discovery::get_authorization_server_metadata::v1::{GrantType, ResponseType},
     serde::{PartialEqAsRefStr, Raw, StringEnum},
     SecondsSinceUnixEpoch,
 };

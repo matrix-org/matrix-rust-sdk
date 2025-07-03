@@ -22,7 +22,6 @@ use futures_util::future::join_all;
 use matrix_sdk_base::{RoomHero, RoomInfo, RoomState};
 use ruma::{
     api::client::{membership::joined_members, state::get_state_events},
-    directory::PublicRoomJoinRule,
     events::room::{history_visibility::HistoryVisibility, join_rules::JoinRule},
     room::RoomType,
     space::SpaceRoomJoinRule,
@@ -253,7 +252,7 @@ impl RoomPreview {
         let own_server_name = client.session_meta().map(|s| s.user_id.server_name());
         let via = ensure_server_names_is_not_empty(own_server_name, via, room_or_alias_id);
 
-        let request = ruma::api::client::room::get_summary::msc3266::Request::new(
+        let request = ruma::api::client::room::get_summary::v1::Request::new(
             room_or_alias_id.to_owned(),
             via,
         );
@@ -278,17 +277,19 @@ impl RoomPreview {
             None
         };
 
+        let summary = response.summary;
+
         Ok(RoomPreview {
             room_id,
-            canonical_alias: response.canonical_alias,
-            name: response.name,
-            topic: response.topic,
-            avatar_url: response.avatar_url,
-            num_joined_members: response.num_joined_members.into(),
+            canonical_alias: summary.canonical_alias,
+            name: summary.name,
+            topic: summary.topic,
+            avatar_url: summary.avatar_url,
+            num_joined_members: summary.num_joined_members.into(),
             num_active_members,
-            room_type: response.room_type,
-            join_rule: Some(response.join_rule),
-            is_world_readable: Some(response.world_readable),
+            room_type: summary.room_type,
+            join_rule: Some(summary.join_rule.into()),
+            is_world_readable: Some(summary.world_readable),
             state,
             is_direct,
             heroes: cached_room.map(|r| r.heroes()),
@@ -375,14 +376,7 @@ async fn search_for_room_preview_in_room_directory(
             num_active_members: None,
             // Assume it's a room
             room_type: None,
-            join_rule: Some(match room_description.join_rule {
-                PublicRoomJoinRule::Public => SpaceRoomJoinRule::Public,
-                PublicRoomJoinRule::Knock => SpaceRoomJoinRule::Knock,
-                PublicRoomJoinRule::_Custom(rule) => SpaceRoomJoinRule::_Custom(rule),
-                _ => {
-                    panic!("Unexpected PublicRoomJoinRule {:?}", room_description.join_rule)
-                }
-            }),
+            join_rule: Some(room_description.join_rule.into()),
             is_world_readable: Some(room_description.is_world_readable),
             state: None,
             is_direct: None,

@@ -24,7 +24,7 @@ use matrix_sdk_base::{
 };
 use oauth2::{DeviceCodeErrorResponseType, StandardDeviceAuthorizationResponse};
 use ruma::{
-    api::client::discovery::get_authorization_server_metadata::msc2965::AuthorizationServerMetadata,
+    api::client::discovery::get_authorization_server_metadata::v1::AuthorizationServerMetadata,
     OwnedDeviceId,
 };
 use tracing::trace;

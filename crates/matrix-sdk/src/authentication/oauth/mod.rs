@@ -187,7 +187,7 @@ pub use oauth2::{ClientId, CsrfToken};
 use ruma::{
     api::client::discovery::get_authorization_server_metadata::{
         self,
-        msc2965::{AccountManagementAction, AuthorizationServerMetadata},
+        v1::{AccountManagementAction, AuthorizationServerMetadata},
     },
     serde::Raw,
     DeviceId, OwnedDeviceId,
@@ -577,18 +577,17 @@ impl OAuth {
                 .is_some_and(|err| err.status_code == http::StatusCode::NOT_FOUND)
         };
 
-        let response = self
-            .client
-            .send(get_authorization_server_metadata::msc2965::Request::new())
-            .await
-            .map_err(|error| {
-                // If the endpoint returns a 404, i.e. the server doesn't support the endpoint.
-                if is_endpoint_unsupported(&error) {
-                    OAuthDiscoveryError::NotSupported
-                } else {
-                    error.into()
-                }
-            })?;
+        let response =
+            self.client.send(get_authorization_server_metadata::v1::Request::new()).await.map_err(
+                |error| {
+                    // If the endpoint returns a 404, i.e. the server doesn't support the endpoint.
+                    if is_endpoint_unsupported(&error) {
+                        OAuthDiscoveryError::NotSupported
+                    } else {
+                        error.into()
+                    }
+                },
+            )?;
 
         let metadata = response.metadata.deserialize()?;
 

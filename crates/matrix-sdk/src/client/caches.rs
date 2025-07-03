@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use matrix_sdk_base::ttl_cache::TtlCache;
-use ruma::api::client::discovery::get_authorization_server_metadata::msc2965::AuthorizationServerMetadata;
+use ruma::api::client::discovery::get_authorization_server_metadata::v1::AuthorizationServerMetadata;
 use tokio::sync::RwLock;
 
 use super::ClientServerInfo;
