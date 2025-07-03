@@ -395,13 +395,6 @@ impl SqliteStateStore {
 
         serde_path_to_error::deserialize(json_deserializer).map_err(|err| {
             let raw_json: Option<Raw<serde_json::Value>> = serde_json::from_slice(&decoded).ok();
-            let (room_id, event_id) = if let Some(raw) = raw_json {
-                let room_id = raw.get_field::<OwnedRoomId>("room_id").ok().flatten();
-                let event_id = raw.get_field::<OwnedEventId>("event_id").ok().flatten();
-                (room_id, event_id)
-            } else {
-                (None, None)
-            };
 
             let target_type = std::any::type_name::<T>();
             let serde_path = err.path().to_string();
@@ -409,10 +402,17 @@ impl SqliteStateStore {
             error!(
                 sentry = true,
                 %err,
-                maybe_room_id = ?room_id,
-                maybe_event_id = ?event_id,
                 "Failed to deserialize {target_type} in the state state: {serde_path}",
             );
+
+            if let Some(raw) = raw_json {
+                if let Some(room_id) = raw.get_field::<OwnedRoomId>("room_id").ok().flatten() {
+                    warn!("Found a room id in the source data to deserialize: {room_id}");
+                }
+                if let Some(event_id) = raw.get_field::<OwnedEventId>("event_id").ok().flatten() {
+                    warn!("Found an event id in the source data to deserialize: {event_id}");
+                }
+            }
 
             err.into_inner().into()
         })
