@@ -38,7 +38,7 @@ use ruma::{
 use rusqlite::{OptionalExtension, Transaction};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use tokio::fs;
-use tracing::{debug, warn};
+use tracing::{debug, error, warn};
 
 use crate::{
     error::{Error, Result},
@@ -394,19 +394,25 @@ impl SqliteStateStore {
         let json_deserializer = &mut serde_json::Deserializer::from_slice(&decoded);
 
         serde_path_to_error::deserialize(json_deserializer).map_err(|err| {
-            warn!("Failed to deserialize JSON data: {}", err);
-            warn!("Target type: {}", std::any::type_name::<T>());
-            warn!("Full serde error path: {}", err.path());
-
             let raw_json: Option<Raw<serde_json::Value>> = serde_json::from_slice(&decoded).ok();
-            if let Some(raw) = raw_json {
-                if let Some(room_id) = raw.get_field::<OwnedRoomId>("room_id").ok().flatten() {
-                    warn!("Found a room id in the target type: {}", room_id);
-                }
-                if let Some(event_id) = raw.get_field::<OwnedEventId>("event_id").ok().flatten() {
-                    warn!("Found an event id in the target type: {}", event_id);
-                }
-            }
+            let (room_id, event_id) = if let Some(raw) = raw_json {
+                let room_id = raw.get_field::<OwnedRoomId>("room_id").ok().flatten();
+                let event_id = raw.get_field::<OwnedEventId>("event_id").ok().flatten();
+                (room_id, event_id)
+            } else {
+                (None, None)
+            };
+
+            let target_type = std::any::type_name::<T>();
+            let serde_path = err.path().to_string();
+
+            error!(
+                sentry = true,
+                %err,
+                maybe_room_id = ?room_id,
+                maybe_event_id = ?event_id,
+                "Failed to deserialize {target_type} in the state state: {serde_path}",
+            );
 
             err.into_inner().into()
         })
