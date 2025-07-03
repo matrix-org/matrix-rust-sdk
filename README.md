@@ -24,7 +24,13 @@
 
 The Matrix Rust SDK is a collection of libraries that make it easier to build [Matrix] clients in [Rust].
 <br><br>
-<img src="contrib/element-logo.png">
+<div align="center">
+<picture>
+  <source srcset="contrib/element-logo-dark.png" media="(prefers-color-scheme: dark)">
+  <source srcset="contrib/element-logo-light.png" media="(prefers-color-scheme: light)">
+  <img src="contrib/element-logo-fallback.png" alt="Element logo">
+</picture>
+</div>
 <br><br>
 Development of the SDK is proudly sponsored and maintained by [Element](https://element.io). Element uses the SDK in their next-generation mobile apps Element X on [iOS](https://github.com/element-hq/element-x-ios) and [Android](https://github.com/element-hq/element-x-android) and has plans to introduce it to the web and desktop clients as well.
 
