@@ -26,8 +26,8 @@ The Matrix Rust SDK is a collection of libraries that make it easier to build [M
 <br><br>
 <div align="center">
 <picture>
-  <source srcset="contrib/element-logo-light.png" media="(prefers-color-scheme: dark)">
-  <source srcset="contrib/element-logo-dark.png" media="(prefers-color-scheme: light)">
+  <source srcset="contrib/element-logo-dark.png" media="(prefers-color-scheme: dark)">
+  <source srcset="contrib/element-logo-light.png" media="(prefers-color-scheme: light)">
   <img src="contrib/element-logo-fallback.png" alt="Element logo">
 </picture>
 </div>
