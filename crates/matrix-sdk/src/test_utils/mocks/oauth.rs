@@ -15,7 +15,7 @@
 //! Helpers to mock an OAuth 2.0 server for the purpose of integration tests.
 
 use ruma::{
-    api::client::discovery::get_authorization_server_metadata::msc2965::AuthorizationServerMetadata,
+    api::client::discovery::get_authorization_server_metadata::v1::AuthorizationServerMetadata,
     serde::Raw,
 };
 use serde_json::json;

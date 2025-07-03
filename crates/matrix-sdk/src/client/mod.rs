@@ -15,13 +15,14 @@
 // limitations under the License.
 
 use std::{
-    collections::{btree_map, BTreeMap},
+    collections::{btree_map, BTreeMap, BTreeSet},
     fmt::{self, Debug},
     future::{ready, Future},
     pin::Pin,
     sync::{Arc, Mutex as StdMutex, RwLock as StdRwLock, Weak},
 };
 
+use as_variant::as_variant;
 use caches::ClientCaches;
 use eyeball::{SharedObservable, Subscriber};
 use eyeball_im::{Vector, VectorDiff};
@@ -47,9 +48,8 @@ use ruma::{
             device::{delete_devices, get_devices, update_device},
             directory::{get_public_rooms, get_public_rooms_filtered},
             discovery::{
-                discover_homeserver,
-                discover_homeserver::RtcFocusInfo,
-                get_capabilities::{self, Capabilities},
+                discover_homeserver::{self, RtcFocusInfo},
+                get_capabilities::{self, v3::Capabilities},
                 get_supported_versions,
             },
             error::ErrorKind,
@@ -63,7 +63,7 @@ use ruma::{
             user_directory::search_users,
         },
         error::FromHttpResponseError,
-        MatrixVersion, OutgoingRequest,
+        MatrixVersion, OutgoingRequest, SupportedVersions,
     },
     assign,
     push::Ruleset,
@@ -1791,7 +1791,7 @@ impl Client {
                 config,
                 homeserver,
                 access_token.as_deref(),
-                &self.server_versions().await?,
+                &self.supported_versions().await?,
                 send_progress,
             )
             .await
@@ -1818,7 +1818,7 @@ impl Client {
                 request_config,
                 self.homeserver().to_string(),
                 None,
-                &[MatrixVersion::V1_0],
+                &SupportedVersions { versions: [MatrixVersion::V1_0].into(), features: vec![] },
                 Default::default(),
             )
             .await?;
@@ -1845,7 +1845,7 @@ impl Client {
                 Some(RequestConfig::short_retry()),
                 server_url_string,
                 None,
-                &[MatrixVersion::V1_0],
+                &SupportedVersions { versions: [MatrixVersion::V1_0].into(), features: vec![] },
                 Default::default(),
             )
             .await;
@@ -1928,10 +1928,10 @@ impl Client {
         // Fill both unstable features and server versions at once.
         let mut versions = server_info.known_versions();
         if versions.is_empty() {
-            versions.push(MatrixVersion::V1_0);
+            versions.insert(MatrixVersion::V1_0);
         }
 
-        guarded_server_info.server_versions = CachedValue::Cached(versions.into());
+        guarded_server_info.server_versions = CachedValue::Cached(versions);
         guarded_server_info.unstable_features = CachedValue::Cached(server_info.unstable_features);
         guarded_server_info.well_known = CachedValue::Cached(server_info.well_known);
 
@@ -1958,9 +1958,30 @@ impl Client {
     /// println!("The homeserver supports Matrix 1.1: {supports_1_1:?}");
     /// # anyhow::Ok(()) };
     /// ```
-    pub async fn server_versions(&self) -> HttpResult<Box<[MatrixVersion]>> {
+    pub async fn server_versions(&self) -> HttpResult<BTreeSet<MatrixVersion>> {
         self.get_or_load_and_cache_server_info(|server_info| server_info.server_versions.clone())
             .await
+    }
+
+    pub(crate) async fn supported_versions(&self) -> HttpResult<SupportedVersions> {
+        self.get_or_load_and_cache_server_info(|server_info| {
+            match server_info
+                .server_versions
+                .as_cached_value()
+                .zip(server_info.unstable_features.as_cached_value())
+            {
+                Some((versions, features)) => CachedValue::Cached(SupportedVersions {
+                    versions: versions.iter().copied().collect(),
+                    features: features
+                        .iter()
+                        .filter(|(_, enabled)| **enabled)
+                        .map(|(feature, _)| feature.clone())
+                        .collect(),
+                }),
+                None => CachedValue::NotSet,
+            }
+        })
+        .await
     }
 
     /// Get the unstable features supported by the homeserver by fetching them
@@ -2794,7 +2815,7 @@ impl WeakClient {
 #[derive(Clone)]
 struct ClientServerInfo {
     /// The Matrix versions the server supports (known ones only).
-    server_versions: CachedValue<Box<[MatrixVersion]>>,
+    server_versions: CachedValue<BTreeSet<MatrixVersion>>,
 
     /// The unstable features and their on/off state on the server.
     unstable_features: CachedValue<BTreeMap<String, bool>>,
@@ -2815,6 +2836,11 @@ enum CachedValue<Value> {
 }
 
 impl<Value> CachedValue<Value> {
+    /// Return the cached value, it if it exists.
+    fn as_cached_value(&self) -> Option<&Value> {
+        as_variant!(self, CachedValue::Cached)
+    }
+
     /// Unwraps the cached value, returning it if it exists.
     ///
     /// # Panics
@@ -3710,8 +3736,8 @@ pub(crate) mod tests {
             client.account().observe_media_preview_config().await.unwrap();
 
         let initial_value: MediaPreviewConfigEventContent = initial_value.unwrap();
-        assert_eq!(initial_value.invite_avatars, InviteAvatars::Off);
-        assert_eq!(initial_value.media_previews, MediaPreviews::Private);
+        assert_eq!(initial_value.invite_avatars, Some(InviteAvatars::Off));
+        assert_eq!(initial_value.media_previews, Some(MediaPreviews::Private));
         pin_mut!(stream);
         assert_pending!(stream);
 
@@ -3731,8 +3757,8 @@ pub(crate) mod tests {
         assert_next_matches!(
             stream,
             MediaPreviewConfigEventContent {
-                media_previews: MediaPreviews::Off,
-                invite_avatars: InviteAvatars::On,
+                media_previews: Some(MediaPreviews::Off),
+                invite_avatars: Some(InviteAvatars::On),
                 ..
             }
         );
@@ -3761,8 +3787,8 @@ pub(crate) mod tests {
             client.account().observe_media_preview_config().await.unwrap();
 
         let initial_value: MediaPreviewConfigEventContent = initial_value.unwrap();
-        assert_eq!(initial_value.invite_avatars, InviteAvatars::Off);
-        assert_eq!(initial_value.media_previews, MediaPreviews::Private);
+        assert_eq!(initial_value.invite_avatars, Some(InviteAvatars::Off));
+        assert_eq!(initial_value.media_previews, Some(MediaPreviews::Private));
         pin_mut!(stream);
         assert_pending!(stream);
 
@@ -3782,8 +3808,8 @@ pub(crate) mod tests {
         assert_next_matches!(
             stream,
             MediaPreviewConfigEventContent {
-                media_previews: MediaPreviews::Off,
-                invite_avatars: InviteAvatars::On,
+                media_previews: Some(MediaPreviews::Off),
+                invite_avatars: Some(InviteAvatars::On),
                 ..
             }
         );

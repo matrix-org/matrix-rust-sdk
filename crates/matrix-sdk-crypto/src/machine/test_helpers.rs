@@ -334,7 +334,7 @@ pub fn bootstrap_requests_to_keys_query_response(
 /// Helper for [`create_signed_device_of_unverified_user`] and
 /// [`create_unsigned_device`].
 fn dummy_verification_machine() -> VerificationMachine {
-    let account = Account::new(user_id!("@TEST_USER:example.com"));
+    let account = Account::new(user_id!("@test_user:example.com"));
     VerificationMachine::new(
         account.deref().clone(),
         Arc::new(Mutex::new(PrivateCrossSigningIdentity::new(account.user_id().to_owned()))),

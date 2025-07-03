@@ -15,7 +15,7 @@
 use std::{collections::BTreeMap, iter};
 
 use ruma::{
-    events::{AnyToDeviceEventContent, EventContent, ToDeviceEventType},
+    events::{AnyToDeviceEventContent, ToDeviceEventContent, ToDeviceEventType},
     serde::Raw,
     to_device::DeviceIdOrAllDevices,
     OwnedDeviceId, OwnedTransactionId, OwnedUserId, TransactionId, UserId,

@@ -36,7 +36,7 @@ use ruma::{
             },
             MediaSource,
         },
-        AnyMessageLikeEventContent, EventContent as _, Mentions,
+        AnyMessageLikeEventContent, Mentions, MessageLikeEventContent as _,
     },
     mxc_uri, owned_mxc_uri, owned_user_id, room_id,
     serde::Raw,

@@ -32,8 +32,9 @@ use ruma::{
         receipt::{Receipt, ReceiptThread, ReceiptType},
         AnyMessageLikeEventContent, AnySyncTimelineEvent,
     },
+    room_version_rules::RoomVersionRules,
     serde::Raw,
-    EventId, OwnedEventId, OwnedTransactionId, OwnedUserId, RoomVersionId, UserId,
+    EventId, OwnedEventId, OwnedTransactionId, OwnedUserId, UserId,
 };
 use tracing::error;
 
@@ -90,7 +91,7 @@ pub(super) trait RoomDataProvider:
     Clone + PaginableRoom + PaginableThread + PinnedEventsRoom + 'static
 {
     fn own_user_id(&self) -> &UserId;
-    fn room_version(&self) -> RoomVersionId;
+    fn room_version_rules(&self) -> RoomVersionRules;
 
     fn crypto_context_info(&self)
         -> impl Future<Output = CryptoContextInfo> + SendOutsideWasm + '_;
@@ -156,8 +157,8 @@ impl RoomDataProvider for Room {
         (**self).own_user_id()
     }
 
-    fn room_version(&self) -> RoomVersionId {
-        (**self).clone_info().room_version_or_default()
+    fn room_version_rules(&self) -> RoomVersionRules {
+        (**self).clone_info().room_version_rules_or_default()
     }
 
     async fn crypto_context_info(&self) -> CryptoContextInfo {

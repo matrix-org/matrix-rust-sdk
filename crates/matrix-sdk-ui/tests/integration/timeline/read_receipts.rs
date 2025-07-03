@@ -35,13 +35,15 @@ use ruma::{
         room::message::{MessageType, RoomMessageEventContent, SyncRoomMessageEvent},
         AnySyncMessageLikeEvent, AnySyncTimelineEvent, RoomAccountDataEventType,
     },
-    owned_event_id, room_id, uint, user_id, MilliSecondsSinceUnixEpoch, RoomVersionId,
+    owned_event_id, room_id,
+    room_version_rules::RoomVersionRules,
+    uint, user_id, MilliSecondsSinceUnixEpoch,
 };
 use serde_json::json;
 use stream_assert::{assert_pending, assert_ready};
 use tokio::task::yield_now;
 
-fn filter_notice(ev: &AnySyncTimelineEvent, _room_version: &RoomVersionId) -> bool {
+fn filter_notice(ev: &AnySyncTimelineEvent, _rules: &RoomVersionRules) -> bool {
     match ev {
         AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::RoomMessage(
             SyncRoomMessageEvent::Original(msg),

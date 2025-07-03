@@ -58,7 +58,12 @@ use matrix_sdk_base::{
 };
 use matrix_sdk_common::deserialized_responses::ProcessedToDeviceEvent;
 use pin_project_lite::pin_project;
-use ruma::{events::AnySyncStateEvent, push::Action, serde::Raw, OwnedRoomId};
+use ruma::{
+    events::{AnySyncStateEvent, StaticEventTypePart},
+    push::Action,
+    serde::Raw,
+    OwnedRoomId,
+};
 use serde::{de::DeserializeOwned, Deserialize};
 use serde_json::value::RawValue as RawJsonValue;
 use tracing::{debug, error, field::debug, instrument, warn};
@@ -157,7 +162,7 @@ pub trait SyncEvent {
     #[doc(hidden)]
     const KIND: HandlerKind;
     #[doc(hidden)]
-    const TYPE: Option<&'static str>;
+    const TYPE: Option<StaticEventTypePart>;
 }
 
 pub(crate) struct EventHandlerWrapper {
@@ -170,7 +175,7 @@ pub(crate) struct EventHandlerWrapper {
 #[derive(Clone, Debug)]
 pub struct EventHandlerHandle {
     pub(crate) ev_kind: HandlerKind,
-    pub(crate) ev_type: Option<&'static str>,
+    pub(crate) ev_type: Option<StaticEventTypePart>,
     pub(crate) room_id: Option<OwnedRoomId>,
     pub(crate) handler_id: u64,
 }
@@ -254,17 +259,17 @@ pub struct EventHandlerData<'a> {
 /// It is not meant to be implemented outside of matrix-sdk.
 pub trait EventHandlerResult: Sized {
     #[doc(hidden)]
-    fn print_error(&self, event_type: Option<&str>);
+    fn print_error(&self, event_type: Option<StaticEventTypePart>);
 }
 
 impl EventHandlerResult for () {
-    fn print_error(&self, _event_type: Option<&str>) {}
+    fn print_error(&self, _event_type: Option<StaticEventTypePart>) {}
 }
 
 impl<E: fmt::Debug + fmt::Display + 'static> EventHandlerResult for Result<(), E> {
-    fn print_error(&self, event_type: Option<&str>) {
+    fn print_error(&self, event_type: Option<StaticEventTypePart>) {
         let msg_fragment = match event_type {
-            Some(event_type) => format!(" for `{event_type}`"),
+            Some(event_type) => format!(" for `{event_type:?}`"),
             None => "".to_owned(),
         };
 
@@ -312,13 +317,13 @@ impl Client {
                     }
                     Ok(None) => {
                         error!(
-                            event_type = Ev::TYPE, event_kind = ?Ev::KIND,
+                            event_type = ?Ev::TYPE, event_kind = ?Ev::KIND,
                             "Event handler has an invalid context argument",
                         );
                     }
                     Err(e) => {
                         warn!(
-                            event_type = Ev::TYPE, event_kind = ?Ev::KIND,
+                            event_type = ?Ev::TYPE, event_kind = ?Ev::KIND,
                             "Failed to deserialize event, skipping event handler.\n
                              Deserialization error: {e}",
                         );
@@ -715,6 +720,7 @@ mod tests {
         event_factory::{EventFactory, PreviousMembership},
         InvitedRoomBuilder, JoinedRoomBuilder, DEFAULT_TEST_ROOM_ID,
     };
+    use serde::{Deserialize, Serialize};
     use stream_assert::{assert_closed, assert_pending, assert_ready};
     #[cfg(target_family = "wasm")]
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
@@ -733,11 +739,13 @@ mod tests {
     use ruma::{
         event_id,
         events::{
+            macros::EventContent,
             room::{
                 member::{MembershipState, OriginalSyncRoomMemberEvent, StrippedRoomMemberEvent},
                 name::OriginalSyncRoomNameEvent,
                 power_levels::OriginalSyncRoomPowerLevelsEvent,
             },
+            secret_storage::key::SecretStorageKeyEvent,
             typing::SyncTypingEvent,
             AnySyncStateEvent, AnySyncTimelineEvent, AnyToDeviceEvent,
         },
@@ -1307,6 +1315,97 @@ mod tests {
 
         drop(observable_for_room);
         assert_closed!(subscriber_for_room);
+
+        Ok(())
+    }
+
+    #[async_test]
+    #[allow(dependency_on_unit_never_type_fallback)]
+    async fn test_observe_events_with_type_prefix() -> crate::Result<()> {
+        let client = logged_in_client(None).await;
+
+        let observable = client.observe_events::<SecretStorageKeyEvent, ()>();
+
+        let mut subscriber = observable.subscribe();
+
+        assert_pending!(subscriber);
+
+        let mut response_builder = SyncResponseBuilder::new();
+        let response = response_builder
+            .add_global_account_data_bulk([Raw::new(&json!({
+                "content": {
+                    "algorithm": "m.secret_storage.v1.aes-hmac-sha2",
+                    "iv": "gH2iNpiETFhApvW6/FFEJQ",
+                    "mac": "9Lw12m5SKDipNghdQXKjgpfdj1/K7HFI2brO+UWAGoM",
+                    "passphrase": {
+                        "algorithm": "m.pbkdf2",
+                        "salt": "IuLnH7S85YtZmkkBJKwNUKxWF42g9O1H",
+                        "iterations": 10,
+                    },
+                },
+                "type": "m.secret_storage.key.foobar",
+            }))
+            .unwrap()
+            .cast()])
+            .build_sync_response();
+        client.process_sync(response).await?;
+
+        let (secret_storage_key, ()) = assert_ready!(subscriber);
+
+        assert_eq!(secret_storage_key.content.key_id, "foobar");
+
+        assert_pending!(subscriber);
+
+        drop(observable);
+        assert_closed!(subscriber);
+
+        Ok(())
+    }
+
+    #[async_test]
+    #[allow(dependency_on_unit_never_type_fallback)]
+    async fn test_observe_room_events_with_type_prefix() -> crate::Result<()> {
+        // To create an event handler for a room account data event type with prefix, we
+        // need to create a custom event type, none exist in the Matrix specification
+        // yet.
+        #[derive(Debug, Clone, EventContent, Deserialize, Serialize)]
+        #[ruma_event(type = "fake.event.*", kind = RoomAccountData)]
+        struct AccountDataWithPrefixEventContent {
+            #[ruma_event(type_fragment)]
+            #[serde(skip)]
+            key_id: String,
+        }
+
+        let room_id = room_id!("!r0.matrix.org");
+        let client = logged_in_client(None).await;
+
+        let observable = client.observe_room_events::<AccountDataWithPrefixEvent, Room>(room_id);
+
+        let mut subscriber = observable.subscribe();
+
+        assert_pending!(subscriber);
+
+        let mut response_builder = SyncResponseBuilder::new();
+        let response = response_builder
+            .add_joined_room(
+                JoinedRoomBuilder::new(room_id).add_account_data_bulk([Raw::new(&json!({
+                    "content": {},
+                    "type": "fake.event.foobar",
+                }))
+                .unwrap()
+                .cast()]),
+            )
+            .build_sync_response();
+        client.process_sync(response).await?;
+
+        let (secret_storage_key, _room) = assert_ready!(subscriber);
+
+        assert_eq!(secret_storage_key.content.key_id, "foobar");
+
+        assert_pending!(subscriber);
+
+        drop(observable);
+        assert_closed!(subscriber);
 
         Ok(())
     }

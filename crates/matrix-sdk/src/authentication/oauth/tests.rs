@@ -4,7 +4,7 @@ use matrix_sdk_base::store::RoomLoadSettings;
 use matrix_sdk_test::async_test;
 use oauth2::{ClientId, CsrfToken, PkceCodeChallenge, RedirectUrl};
 use ruma::{
-    api::client::discovery::get_authorization_server_metadata::msc2965::Prompt, device_id,
+    api::client::discovery::get_authorization_server_metadata::v1::Prompt, device_id,
     owned_device_id, user_id, DeviceId, ServerName,
 };
 use tokio::sync::broadcast::error::TryRecvError;
