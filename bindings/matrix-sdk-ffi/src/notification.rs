@@ -1,8 +1,8 @@
 use std::{collections::HashMap, sync::Arc};
 
 use matrix_sdk_ui::notification_client::{
-    NotificationClient as SdkNotificationClient, NotificationItem as SdkNotificationItem,
-    NotificationStatus as SdkNotificationStatus,
+    NotificationClient as SdkNotificationClient, NotificationEvent as SdkNotificationEvent,
+    NotificationItem as SdkNotificationItem, NotificationStatus as SdkNotificationStatus,
 };
 use ruma::{EventId, OwnedEventId, OwnedRoomId, RoomId};
 
@@ -56,10 +56,10 @@ pub struct NotificationItem {
 impl NotificationItem {
     fn from_inner(item: SdkNotificationItem) -> Self {
         let event = match item.event {
-            matrix_sdk_ui::notification_client::NotificationEvent::Timeline(event) => {
+            SdkNotificationEvent::Timeline(event) => {
                 NotificationEvent::Timeline { event: Arc::new(TimelineEvent(event)) }
             }
-            matrix_sdk_ui::notification_client::NotificationEvent::Invite(event) => {
+            SdkNotificationEvent::Invite(event) => {
                 NotificationEvent::Invite { sender: event.sender.to_string() }
             }
         };
@@ -91,7 +91,7 @@ impl NotificationItem {
 #[derive(uniffi::Enum)]
 pub enum NotificationStatus {
     /// The event has been found and was not filtered out.
-    Event(NotificationItem),
+    Event { item: NotificationItem },
     /// The event couldn't be found in the network queries used to find it.
     EventNotFound,
     /// The event has been filtered out, either because of the user's push
@@ -104,7 +104,7 @@ impl From<SdkNotificationStatus> for NotificationStatus {
     fn from(item: SdkNotificationStatus) -> Self {
         match item {
             SdkNotificationStatus::Event(item) => {
-                NotificationStatus::Event(NotificationItem::from_inner(*item))
+                NotificationStatus::Event { item: NotificationItem::from_inner(*item) }
             }
             SdkNotificationStatus::EventNotFound => NotificationStatus::EventNotFound,
             SdkNotificationStatus::EventFilteredOut => NotificationStatus::EventFilteredOut,
@@ -116,7 +116,7 @@ impl From<SdkNotificationStatus> for NotificationStatus {
 #[derive(uniffi::Enum)]
 pub enum BatchNotificationResult {
     /// We have more detailed information about the notification.
-    Ok(NotificationStatus),
+    Ok { status: NotificationStatus },
     /// An error occurred while trying to fetch the notification.
     Error {
         /// The error message observed while handling a specific notification.
@@ -190,7 +190,7 @@ impl NotificationClient {
         let mut batch_result = HashMap::new();
         for (key, value) in items.into_iter() {
             let result = match value {
-                Ok(status) => BatchNotificationResult::Ok(status.into()),
+                Ok(status) => BatchNotificationResult::Ok { status: status.into() },
                 Err(error) => BatchNotificationResult::Error { message: error.to_string() },
             };
             batch_result.insert(key.to_string(), result);
