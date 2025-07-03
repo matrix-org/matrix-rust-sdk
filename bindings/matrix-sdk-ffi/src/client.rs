@@ -20,7 +20,7 @@ use matrix_sdk::{
         api::client::{
             discovery::{
                 discover_homeserver::RtcFocusInfo,
-                get_authorization_server_metadata::msc2965::Prompt as RumaOidcPrompt,
+                get_authorization_server_metadata::v1::Prompt as RumaOidcPrompt,
             },
             push::{EmailPusherData, PusherIds, PusherInit, PusherKind as RumaPusherKind},
             room::{create_room, Visibility},
