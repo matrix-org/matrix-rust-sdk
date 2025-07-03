@@ -1447,7 +1447,9 @@ mod private {
         fn get_or_reload_thread(&mut self, root_event_id: OwnedEventId) -> &mut ThreadEventCache {
             // TODO: when there's persistent storage, try to lazily reload from disk, if
             // missing from memory.
-            self.threads.entry(root_event_id).or_insert_with(ThreadEventCache::new)
+            self.threads
+                .entry(root_event_id.clone())
+                .or_insert_with(|| ThreadEventCache::new(root_event_id))
         }
 
         #[instrument(skip_all)]

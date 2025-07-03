@@ -42,6 +42,10 @@ pub struct ThreadEventCacheUpdate {
 
 /// All the information related to a single thread.
 pub(crate) struct ThreadEventCache {
+    /// The ID of the thread root event, which is the first event in the thread
+    /// (and eventually the first in the linked chunk).
+    thread_root: OwnedEventId,
+
     /// The linked chunk for this thread.
     chunk: EventLinkedChunk,
 
@@ -51,8 +55,8 @@ pub(crate) struct ThreadEventCache {
 
 impl ThreadEventCache {
     /// Create a new empty thread event cache.
-    pub fn new() -> Self {
-        Self { chunk: EventLinkedChunk::new(), sender: Sender::new(32) }
+    pub fn new(thread_root: OwnedEventId) -> Self {
+        Self { chunk: EventLinkedChunk::new(), sender: Sender::new(32), thread_root }
     }
 
     /// Subscribe to live events from this thread.
@@ -113,10 +117,16 @@ impl ThreadEventCache {
             return LoadMoreEventsBackwardsOutcome::Gap { prev_token: Some(prev_token) };
         }
 
-        // If we don't have any gap anymore, but we do have events, then we're done.
-        if self.chunk.events().next().is_some() {
-            trace!("thread chunk is fully loaded and non-empty: reached_start=true");
-            return LoadMoreEventsBackwardsOutcome::StartOfTimeline;
+        // If we don't have a gap, then the first event should be the the thread's root;
+        // otherwise, we'll restart a pagination from the end.
+        if let Some((_pos, event)) = self.chunk.events().next() {
+            let first_event_id =
+                event.event_id().expect("a linked chunk only stores events with IDs");
+
+            if first_event_id == self.thread_root {
+                trace!("thread chunk is fully loaded and non-empty: reached_start=true");
+                return LoadMoreEventsBackwardsOutcome::StartOfTimeline;
+            }
         }
 
         // Otherwise, we don't have a gap nor events. We don't have anything. Poor us.
