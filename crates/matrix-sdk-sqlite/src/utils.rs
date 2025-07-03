@@ -13,15 +13,21 @@
 // limitations under the License.
 
 use core::fmt;
-use std::{borrow::Borrow, cmp::min, iter, ops::Deref};
+use std::{
+    borrow::{Borrow, Cow},
+    cmp::min,
+    iter,
+    ops::Deref,
+};
 
 use async_trait::async_trait;
 use deadpool_sqlite::Object as SqliteAsyncConn;
 use itertools::Itertools;
 use matrix_sdk_store_encryption::StoreCipher;
-use ruma::time::SystemTime;
+use ruma::{serde::Raw, time::SystemTime, OwnedEventId, OwnedRoomId};
 use rusqlite::{limits::Limit, OptionalExtension, Params, Row, Statement, Transaction};
 use serde::{de::DeserializeOwned, Serialize};
+use tracing::{error, warn};
 
 use crate::{
     error::{Error, Result},
@@ -517,6 +523,91 @@ pub(crate) fn time_to_timestamp(time: SystemTime) -> i64 {
         // It is unlikely to happen unless the time on the system is seriously wrong, but we always
         // need a value.
         .unwrap_or(0)
+}
+
+/// Trait for a store that can encrypt its values, based on the presence of a
+/// cipher or not.
+///
+/// A single method must be implemented: `get_cypher`, which returns an optional
+/// cipher.
+///
+/// All the other methods come for free, based on the implementation of
+/// `get_cypher`.
+pub(crate) trait EncryptableStore {
+    fn get_cypher(&self) -> Option<&StoreCipher>;
+
+    fn encode_value(&self, value: Vec<u8>) -> Result<Vec<u8>> {
+        if let Some(key) = self.get_cypher() {
+            let encrypted = key.encrypt_value_data(value)?;
+            Ok(rmp_serde::to_vec_named(&encrypted)?)
+        } else {
+            Ok(value)
+        }
+    }
+
+    fn serialize_value(&self, value: &impl Serialize) -> Result<Vec<u8>> {
+        let serialized = rmp_serde::to_vec_named(value)?;
+        self.encode_value(serialized)
+    }
+
+    fn serialize_json(&self, value: &impl Serialize) -> Result<Vec<u8>> {
+        let serialized = serde_json::to_vec(value)?;
+        self.encode_value(serialized)
+    }
+
+    fn decode_value<'a>(&self, value: &'a [u8]) -> Result<Cow<'a, [u8]>> {
+        if let Some(key) = self.get_cypher() {
+            let encrypted = rmp_serde::from_slice(value)?;
+            let decrypted = key.decrypt_value_data(encrypted)?;
+            Ok(Cow::Owned(decrypted))
+        } else {
+            Ok(Cow::Borrowed(value))
+        }
+    }
+
+    fn deserialize_json<T: DeserializeOwned>(&self, data: &[u8]) -> Result<T> {
+        let decoded = self.decode_value(data)?;
+
+        let json_deserializer = &mut serde_json::Deserializer::from_slice(&decoded);
+
+        serde_path_to_error::deserialize(json_deserializer).map_err(|err| {
+            let raw_json: Option<Raw<serde_json::Value>> = serde_json::from_slice(&decoded).ok();
+
+            let target_type = std::any::type_name::<T>();
+            let serde_path = err.path().to_string();
+
+            error!(
+                sentry = true,
+                %err,
+                "Failed to deserialize {target_type} in a store: {serde_path}",
+            );
+
+            if let Some(raw) = raw_json {
+                if let Some(room_id) = raw.get_field::<OwnedRoomId>("room_id").ok().flatten() {
+                    warn!("Found a room id in the source data to deserialize: {room_id}");
+                }
+                if let Some(event_id) = raw.get_field::<OwnedEventId>("event_id").ok().flatten() {
+                    warn!("Found an event id in the source data to deserialize: {event_id}");
+                }
+            }
+
+            err.into_inner().into()
+        })
+    }
+
+    fn deserialize_value<T: DeserializeOwned>(&self, value: &[u8]) -> Result<T> {
+        let decoded = self.decode_value(value)?;
+        Ok(rmp_serde::from_slice(&decoded)?)
+    }
+
+    fn encode_key(&self, table_name: &str, key: impl AsRef<[u8]>) -> Key {
+        let bytes = key.as_ref();
+        if let Some(store_cipher) = self.get_cypher() {
+            Key::Hashed(store_cipher.hash_key(table_name, bytes))
+        } else {
+            Key::Plain(bytes.to_owned())
+        }
+    }
 }
 
 #[cfg(test)]

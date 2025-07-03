@@ -13,7 +13,6 @@
 // limitations under the License.
 
 use std::{
-    borrow::Cow,
     collections::HashMap,
     fmt,
     path::Path,
@@ -43,7 +42,6 @@ use ruma::{
     RoomId, TransactionId, UserId,
 };
 use rusqlite::{named_params, params_from_iter, OptionalExtension};
-use serde::{de::DeserializeOwned, Serialize};
 use tokio::{fs, sync::Mutex};
 use tracing::{debug, instrument, warn};
 use vodozemac::Curve25519PublicKey;
@@ -51,7 +49,7 @@ use vodozemac::Curve25519PublicKey;
 use crate::{
     error::{Error, Result},
     utils::{
-        repeat_vars, Key, SqliteAsyncConnExt, SqliteKeyValueStoreAsyncConnExt,
+        repeat_vars, EncryptableStore, Key, SqliteAsyncConnExt, SqliteKeyValueStoreAsyncConnExt,
         SqliteKeyValueStoreConnExt,
     },
     OpenStoreError, SqliteStoreConfig,
@@ -75,6 +73,12 @@ pub struct SqliteCryptoStore {
 impl fmt::Debug for SqliteCryptoStore {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("SqliteCryptoStore").finish_non_exhaustive()
+    }
+}
+
+impl EncryptableStore for SqliteCryptoStore {
+    fn get_cypher(&self) -> Option<&StoreCipher> {
+        self.store_cipher.as_deref()
     }
 }
 
@@ -130,45 +134,6 @@ impl SqliteCryptoStore {
         })
     }
 
-    fn encode_value(&self, value: Vec<u8>) -> Result<Vec<u8>> {
-        if let Some(key) = &self.store_cipher {
-            let encrypted = key.encrypt_value_data(value)?;
-            Ok(rmp_serde::to_vec_named(&encrypted)?)
-        } else {
-            Ok(value)
-        }
-    }
-
-    fn decode_value<'a>(&self, value: &'a [u8]) -> Result<Cow<'a, [u8]>> {
-        if let Some(key) = &self.store_cipher {
-            let encrypted = rmp_serde::from_slice(value)?;
-            let decrypted = key.decrypt_value_data(encrypted)?;
-            Ok(Cow::Owned(decrypted))
-        } else {
-            Ok(Cow::Borrowed(value))
-        }
-    }
-
-    fn serialize_json(&self, value: &impl Serialize) -> Result<Vec<u8>> {
-        let serialized = serde_json::to_vec(value)?;
-        self.encode_value(serialized)
-    }
-
-    fn deserialize_json<T: DeserializeOwned>(&self, data: &[u8]) -> Result<T> {
-        let decoded = self.decode_value(data)?;
-        Ok(serde_json::from_slice(&decoded)?)
-    }
-
-    fn serialize_value(&self, value: &impl Serialize) -> Result<Vec<u8>> {
-        let serialized = rmp_serde::to_vec_named(value)?;
-        self.encode_value(serialized)
-    }
-
-    fn deserialize_value<T: DeserializeOwned>(&self, value: &[u8]) -> Result<T> {
-        let decoded = self.decode_value(value)?;
-        Ok(rmp_serde::from_slice(&decoded)?)
-    }
-
     fn deserialize_and_unpickle_inbound_group_session(
         &self,
         value: Vec<u8>,
@@ -191,15 +156,6 @@ impl SqliteCryptoStore {
         // needed for other stores though
         request.sent_out = sent_out;
         Ok(request)
-    }
-
-    fn encode_key(&self, table_name: &str, key: impl AsRef<[u8]>) -> Key {
-        let bytes = key.as_ref();
-        if let Some(store_cipher) = &self.store_cipher {
-            Key::Hashed(store_cipher.hash_key(table_name, bytes))
-        } else {
-            Key::Plain(bytes.to_owned())
-        }
     }
 
     fn get_static_account(&self) -> Option<StaticAccountData> {
