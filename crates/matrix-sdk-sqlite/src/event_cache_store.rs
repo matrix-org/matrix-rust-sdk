@@ -14,7 +14,7 @@
 
 //! An SQLite-based backend for the [`EventCacheStore`].
 
-use std::{borrow::Cow, fmt, iter::once, path::Path, sync::Arc};
+use std::{fmt, iter::once, path::Path, sync::Arc};
 
 use async_trait::async_trait;
 use deadpool_sqlite::{Object as SqliteAsyncConn, Pool as SqlitePool, Runtime};
@@ -49,8 +49,8 @@ use tracing::{debug, error, trace};
 use crate::{
     error::{Error, Result},
     utils::{
-        repeat_vars, time_to_timestamp, Key, SqliteAsyncConnExt, SqliteKeyValueStoreAsyncConnExt,
-        SqliteKeyValueStoreConnExt, SqliteTransactionExt,
+        repeat_vars, time_to_timestamp, EncryptableStore, Key, SqliteAsyncConnExt,
+        SqliteKeyValueStoreAsyncConnExt, SqliteKeyValueStoreConnExt, SqliteTransactionExt,
     },
     OpenStoreError, SqliteStoreConfig,
 };
@@ -94,6 +94,12 @@ pub struct SqliteEventCacheStore {
 impl fmt::Debug for SqliteEventCacheStore {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("SqliteEventCacheStore").finish_non_exhaustive()
+    }
+}
+
+impl EncryptableStore for SqliteEventCacheStore {
+    fn get_cypher(&self) -> Option<&StoreCipher> {
+        self.store_cipher.as_deref()
     }
 }
 
@@ -146,34 +152,6 @@ impl SqliteEventCacheStore {
         media_service.restore(media_retention_policy, last_media_cleanup_time);
 
         Ok(Self { store_cipher, pool, media_service })
-    }
-
-    fn encode_value(&self, value: Vec<u8>) -> Result<Vec<u8>> {
-        if let Some(key) = &self.store_cipher {
-            let encrypted = key.encrypt_value_data(value)?;
-            Ok(rmp_serde::to_vec_named(&encrypted)?)
-        } else {
-            Ok(value)
-        }
-    }
-
-    fn decode_value<'a>(&self, value: &'a [u8]) -> Result<Cow<'a, [u8]>> {
-        if let Some(key) = &self.store_cipher {
-            let encrypted = rmp_serde::from_slice(value)?;
-            let decrypted = key.decrypt_value_data(encrypted)?;
-            Ok(Cow::Owned(decrypted))
-        } else {
-            Ok(Cow::Borrowed(value))
-        }
-    }
-
-    fn encode_key(&self, table_name: &str, key: impl AsRef<[u8]>) -> Key {
-        let bytes = key.as_ref();
-        if let Some(store_cipher) = &self.store_cipher {
-            Key::Hashed(store_cipher.hash_key(table_name, bytes))
-        } else {
-            Key::Plain(bytes.to_owned())
-        }
     }
 
     async fn acquire(&self) -> Result<SqliteAsyncConn> {
@@ -1709,7 +1687,11 @@ mod tests {
     use tempfile::{tempdir, TempDir};
 
     use super::SqliteEventCacheStore;
-    use crate::{event_cache_store::keys, utils::SqliteAsyncConnExt, SqliteStoreConfig};
+    use crate::{
+        event_cache_store::keys,
+        utils::{EncryptableStore as _, SqliteAsyncConnExt},
+        SqliteStoreConfig,
+    };
 
     static TMP_DIR: Lazy<TempDir> = Lazy::new(|| tempdir().unwrap());
     static NUM: AtomicU32 = AtomicU32::new(0);
