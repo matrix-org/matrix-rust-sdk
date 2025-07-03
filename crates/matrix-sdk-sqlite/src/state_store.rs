@@ -36,14 +36,14 @@ use ruma::{
     OwnedTransactionId, OwnedUserId, RoomId, TransactionId, UInt, UserId,
 };
 use rusqlite::{OptionalExtension, Transaction};
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use tokio::fs;
-use tracing::{debug, error, warn};
+use tracing::{debug, warn};
 
 use crate::{
     error::{Error, Result},
     utils::{
-        repeat_vars, Key, SqliteAsyncConnExt, SqliteKeyValueStoreAsyncConnExt,
+        repeat_vars, EncryptableStore, Key, SqliteAsyncConnExt, SqliteKeyValueStoreAsyncConnExt,
         SqliteKeyValueStoreConnExt,
     },
     OpenStoreError, SqliteStoreConfig,
@@ -359,79 +359,6 @@ impl SqliteStateStore {
         Ok(())
     }
 
-    fn encode_value(&self, value: Vec<u8>) -> Result<Vec<u8>> {
-        if let Some(key) = &self.store_cipher {
-            let encrypted = key.encrypt_value_data(value)?;
-            Ok(rmp_serde::to_vec_named(&encrypted)?)
-        } else {
-            Ok(value)
-        }
-    }
-
-    fn serialize_value(&self, value: &impl Serialize) -> Result<Vec<u8>> {
-        let serialized = rmp_serde::to_vec_named(value)?;
-        self.encode_value(serialized)
-    }
-
-    fn serialize_json(&self, value: &impl Serialize) -> Result<Vec<u8>> {
-        let serialized = serde_json::to_vec(value)?;
-        self.encode_value(serialized)
-    }
-
-    fn decode_value<'a>(&self, value: &'a [u8]) -> Result<Cow<'a, [u8]>> {
-        if let Some(key) = &self.store_cipher {
-            let encrypted = rmp_serde::from_slice(value)?;
-            let decrypted = key.decrypt_value_data(encrypted)?;
-            Ok(Cow::Owned(decrypted))
-        } else {
-            Ok(Cow::Borrowed(value))
-        }
-    }
-
-    fn deserialize_json<T: DeserializeOwned>(&self, data: &[u8]) -> Result<T> {
-        let decoded = self.decode_value(data)?;
-
-        let json_deserializer = &mut serde_json::Deserializer::from_slice(&decoded);
-
-        serde_path_to_error::deserialize(json_deserializer).map_err(|err| {
-            let raw_json: Option<Raw<serde_json::Value>> = serde_json::from_slice(&decoded).ok();
-
-            let target_type = std::any::type_name::<T>();
-            let serde_path = err.path().to_string();
-
-            error!(
-                sentry = true,
-                %err,
-                "Failed to deserialize {target_type} in the state state: {serde_path}",
-            );
-
-            if let Some(raw) = raw_json {
-                if let Some(room_id) = raw.get_field::<OwnedRoomId>("room_id").ok().flatten() {
-                    warn!("Found a room id in the source data to deserialize: {room_id}");
-                }
-                if let Some(event_id) = raw.get_field::<OwnedEventId>("event_id").ok().flatten() {
-                    warn!("Found an event id in the source data to deserialize: {event_id}");
-                }
-            }
-
-            err.into_inner().into()
-        })
-    }
-
-    fn deserialize_value<T: DeserializeOwned>(&self, value: &[u8]) -> Result<T> {
-        let decoded = self.decode_value(value)?;
-        Ok(rmp_serde::from_slice(&decoded)?)
-    }
-
-    fn encode_key(&self, table_name: &str, key: impl AsRef<[u8]>) -> Key {
-        let bytes = key.as_ref();
-        if let Some(store_cipher) = &self.store_cipher {
-            Key::Hashed(store_cipher.hash_key(table_name, bytes))
-        } else {
-            Key::Plain(bytes.to_owned())
-        }
-    }
-
     fn encode_state_store_data_key(&self, key: StateStoreDataKey<'_>) -> Key {
         let key_s = match key {
             StateStoreDataKey::SyncToken => Cow::Borrowed(StateStoreDataKey::SYNC_TOKEN),
@@ -491,6 +418,12 @@ impl SqliteStateStore {
 
         let member_room_id = self.encode_key(keys::MEMBER, room_id);
         txn.remove_room_members(&member_room_id, Some(stripped))
+    }
+}
+
+impl EncryptableStore for SqliteStateStore {
+    fn get_cypher(&self) -> Option<&StoreCipher> {
+        self.store_cipher.as_deref()
     }
 }
 
@@ -2296,7 +2229,7 @@ mod migration_tests {
     use super::{init, keys, SqliteStateStore, DATABASE_NAME};
     use crate::{
         error::{Error, Result},
-        utils::{SqliteAsyncConnExt, SqliteKeyValueStoreAsyncConnExt},
+        utils::{EncryptableStore as _, SqliteAsyncConnExt, SqliteKeyValueStoreAsyncConnExt},
         OpenStoreError,
     };
 
