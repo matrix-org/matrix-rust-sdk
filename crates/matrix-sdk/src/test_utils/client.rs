@@ -36,10 +36,13 @@ impl MockClientBuilder {
     /// Create a new [`MockClientBuilder`] connected to the given homeserver,
     /// using Matrix V1.12, and which will not attempt any network retry (by
     /// default).
-    pub(crate) fn new(homeserver: String) -> Self {
+    ///
+    /// If no homeserver is provided, `http://localhost` is used as a homeserver.
+    pub(crate) fn new(homeserver: Option<&str>) -> Self {
+        let homeserver = homeserver.unwrap_or("http://localhost");
+
         let default_builder = Client::builder()
-            .homeserver_url(&homeserver)
-            .server_versions([MatrixVersion::V1_12])
+            .homeserver_url(homeserver)
             .request_config(RequestConfig::new().disable_retry());
 
         Self {

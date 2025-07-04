@@ -2010,7 +2010,7 @@ mod timed_tests {
 
         let event_cache_store = Arc::new(MemoryStore::new());
 
-        let client = MockClientBuilder::new("http://localhost".to_owned())
+        let client = MockClientBuilder::new(None)
             .store_config(
                 StoreConfig::new("hodlor".to_owned()).event_cache_store(event_cache_store.clone()),
             )
@@ -2084,7 +2084,7 @@ mod timed_tests {
 
         let event_cache_store = Arc::new(MemoryStore::new());
 
-        let client = MockClientBuilder::new("http://localhost".to_owned())
+        let client = MockClientBuilder::new(None)
             .store_config(
                 StoreConfig::new("hodlor".to_owned()).event_cache_store(event_cache_store.clone()),
             )
@@ -2223,7 +2223,7 @@ mod timed_tests {
             .await
             .unwrap();
 
-        let client = MockClientBuilder::new("http://localhost".to_owned())
+        let client = MockClientBuilder::new(None)
             .store_config(
                 StoreConfig::new("hodlor".to_owned()).event_cache_store(event_cache_store.clone()),
             )
@@ -2361,7 +2361,7 @@ mod timed_tests {
             .await
             .unwrap();
 
-        let client = MockClientBuilder::new("http://localhost".to_owned())
+        let client = MockClientBuilder::new(None)
             .store_config(
                 StoreConfig::new("hodlor".to_owned()).event_cache_store(event_cache_store.clone()),
             )
@@ -2482,7 +2482,7 @@ mod timed_tests {
             .await
             .unwrap();
 
-        let client = MockClientBuilder::new("http://localhost".to_owned())
+        let client = MockClientBuilder::new(None)
             .store_config(
                 StoreConfig::new("holder".to_owned()).event_cache_store(event_cache_store.clone()),
             )
@@ -2516,7 +2516,7 @@ mod timed_tests {
     async fn test_no_useless_gaps() {
         let room_id = room_id!("!galette:saucisse.bzh");
 
-        let client = MockClientBuilder::new("http://localhost".to_owned()).build().await;
+        let client = MockClientBuilder::new(None).build().await;
 
         let event_cache = client.event_cache();
         event_cache.subscribe().unwrap();
@@ -2638,7 +2638,7 @@ mod timed_tests {
     async fn test_shrink_to_last_chunk() {
         let room_id = room_id!("!galette:saucisse.bzh");
 
-        let client = MockClientBuilder::new("http://localhost".to_owned()).build().await;
+        let client = MockClientBuilder::new(None).build().await;
 
         let f = EventFactory::new().room(room_id);
 
@@ -2747,7 +2747,7 @@ mod timed_tests {
     async fn test_room_ordering() {
         let room_id = room_id!("!galette:saucisse.bzh");
 
-        let client = MockClientBuilder::new("http://localhost".to_owned()).build().await;
+        let client = MockClientBuilder::new(None).build().await;
 
         let f = EventFactory::new().room(room_id).sender(*ALICE);
 
@@ -2882,7 +2882,7 @@ mod timed_tests {
     async fn test_auto_shrink_after_all_subscribers_are_gone() {
         let room_id = room_id!("!galette:saucisse.bzh");
 
-        let client = MockClientBuilder::new("http://localhost".to_owned()).build().await;
+        let client = MockClientBuilder::new(None).build().await;
 
         let f = EventFactory::new().room(room_id);
 
@@ -2993,7 +2993,7 @@ mod timed_tests {
     async fn test_rfind_event_in_memory_by() {
         let user_id = user_id!("@mnt_io:matrix.org");
         let room_id = room_id!("!raclette:patate.ch");
-        let client = MockClientBuilder::new("http://localhost".to_owned()).build().await;
+        let client = MockClientBuilder::new(None).build().await;
 
         let event_factory = EventFactory::new().room(room_id);
 

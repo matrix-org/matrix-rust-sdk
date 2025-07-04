@@ -180,7 +180,7 @@ impl MatrixMockServer {
     /// Creates a new [`MockClientBuilder`] configured to use this server,
     /// preconfigured with a session expected by the server endpoints.
     pub fn client_builder(&self) -> MockClientBuilder {
-        MockClientBuilder::new(self.server.uri())
+        MockClientBuilder::new(Some(&self.server.uri()))
     }
 
     /// Return the underlying [`wiremock`] server.

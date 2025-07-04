@@ -483,7 +483,7 @@ async fn test_finish_login() -> anyhow::Result<()> {
 
 #[async_test]
 async fn test_oauth_session() -> anyhow::Result<()> {
-    let client = MockClientBuilder::new("https://example.org".to_owned()).unlogged().build().await;
+    let client = MockClientBuilder::new(None).unlogged().build().await;
     let oauth = client.oauth();
 
     let tokens = mock_session_tokens_with_refresh();
