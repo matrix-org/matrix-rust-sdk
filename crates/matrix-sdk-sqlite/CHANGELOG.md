@@ -5,6 +5,9 @@ All notable changes to this project will be documented in this file.
 <!-- next-header -->
 
 ## [Unreleased] - ReleaseDate
+### Security Fixes
+- Fix SQL injection vulnerability in `find_event_relations()` (related to [CVE-2025-53549](https://www.cve.org/CVERecord?id=CVE-2025-53549) / [GHSA-275g-g844-73jh](https://github.com/matrix-org/matrix-rust-sdk/security/advisories/GHSA-275g-g844-73jh))
+
 
 ## [0.12.0] - 2025-06-10
 

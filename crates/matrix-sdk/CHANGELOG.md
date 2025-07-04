@@ -6,6 +6,11 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased] - ReleaseDate
 
+### Security Fixes
+- Fix SQL injection vulnerability in `EventCache` (Moderate,
+  [CVE-2025-53549](https://www.cve.org/CVERecord?id=CVE-2025-53549) /
+  [GHSA-275g-g844-73jh](https://github.com/matrix-org/matrix-rust-sdk/security/advisories/GHSA-275g-g844-73jh)).
+
 ### Bug fixes
 
 - When joining a room via `Client::join_room_by_id()`, if the client has `enable_share_history_on_invite` enabled,
