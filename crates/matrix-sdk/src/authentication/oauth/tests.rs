@@ -174,8 +174,7 @@ async fn test_high_level_login_cancellation() -> anyhow::Result<()> {
 
     assert_eq!(oauth.client_id().map(|id| id.as_str()), Some("test_client_id"));
 
-    check_authorization_url(&authorization_data, &oauth, &server.server().uri(), None, None, None)
-        .await;
+    check_authorization_url(&authorization_data, &oauth, &server.uri(), None, None, None).await;
 
     // When completing login with a cancellation callback.
     redirect_uri.set_query(Some(&format!(
@@ -206,8 +205,7 @@ async fn test_high_level_login_invalid_state() -> anyhow::Result<()> {
 
     assert_eq!(oauth.client_id().map(|id| id.as_str()), Some("test_client_id"));
 
-    check_authorization_url(&authorization_data, &oauth, &server.server().uri(), None, None, None)
-        .await;
+    check_authorization_url(&authorization_data, &oauth, &server.uri(), None, None, None).await;
 
     // When completing login with an old/tampered state.
     redirect_uri.set_query(Some("code=42&state=imposter_alert"));
@@ -228,7 +226,7 @@ async fn test_high_level_login_invalid_state() -> anyhow::Result<()> {
 #[async_test]
 async fn test_login_url() -> anyhow::Result<()> {
     let server = MatrixMockServer::new().await;
-    let server_uri = server.server().uri();
+    let server_uri = server.uri();
 
     let oauth_server = server.oauth();
     oauth_server.mock_server_metadata().ok().expect(3).mount().await;
@@ -509,7 +507,7 @@ async fn test_oauth_session() -> anyhow::Result<()> {
 #[async_test]
 async fn test_insecure_clients() -> anyhow::Result<()> {
     let server = MatrixMockServer::new().await;
-    let server_url = server.server().uri();
+    let server_url = server.uri();
 
     server.mock_well_known().ok().expect(1..).named("well_known").mount().await;
     server.mock_versions().ok().expect(1..).named("versions").mount().await;
