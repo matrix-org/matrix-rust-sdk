@@ -60,7 +60,7 @@ reqwest = { version = "0.12.12", default-features = false }
 rmp-serde = "1.3.0"
 # Be careful to use commits from the https://github.com/ruma/ruma/tree/ruma-0.12
 # branch until a proper release with breaking changes happens.
-ruma = { git = "https://github.com/ruma/ruma", rev = "724ed061ae3bf9a2b5ccfdbcd500e77e6069a3be", features = [
+ruma = { git = "https://github.com/ruma/ruma", rev = "4eaf35990ed9f14f1a44997a13ef35cb1d658d3a", features = [
     "client-api-c",
     "compat-upload-signatures",
     "compat-user-id",
@@ -68,6 +68,7 @@ ruma = { git = "https://github.com/ruma/ruma", rev = "724ed061ae3bf9a2b5ccfdbcd5
     "compat-tag-info",
     "compat-encrypted-stickers",
     "compat-lax-room-create-deser",
+    "compat-lax-room-topic-deser",
     "unstable-msc3401",
     "unstable-msc3488",
     "unstable-msc3489",
@@ -78,7 +79,7 @@ ruma = { git = "https://github.com/ruma/ruma", rev = "724ed061ae3bf9a2b5ccfdbcd5
     "unstable-msc4278",
     "unstable-msc4286",
 ] }
-ruma-common = { git = "https://github.com/ruma/ruma", rev = "724ed061ae3bf9a2b5ccfdbcd500e77e6069a3be" }
+ruma-common = { git = "https://github.com/ruma/ruma", rev = "4eaf35990ed9f14f1a44997a13ef35cb1d658d3a" }
 sentry = "0.36.0"
 sentry-tracing = "0.36.0"
 serde = { version = "1.0.217", features = ["rc"] }
