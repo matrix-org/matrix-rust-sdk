@@ -52,17 +52,13 @@ async fn login(
 async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt::init();
 
-    let (homeserver_url, username, password) =
-        match (env::args().nth(1), env::args().nth(2), env::args().nth(3)) {
-            (Some(a), Some(b), Some(c)) => (a, b, c),
-            _ => {
-                eprintln!(
-                    "Usage: {} <homeserver_url> <mxid> <password>",
-                    env::args().next().unwrap()
-                );
-                exit(1)
-            }
-        };
+    // parse the command line for homeserver, username and password
+    let (Some(homeserver_url), Some(username), Some(password)) =
+        (env::args().nth(1), env::args().nth(2), env::args().nth(3))
+    else {
+        eprintln!("Usage: {} <homeserver_url> <mxid> <password>", env::args().next().unwrap());
+        exit(1)
+    };
 
     let client = login(homeserver_url, &username, &password).await?;
 

@@ -215,7 +215,7 @@ impl<'a> IntoFuture for SendRawMessageLikeEvent<'a> {
             } else {
                 Span::current().record("is_room_encrypted", false);
                 trace!("Sending plaintext event because the room is NOT encrypted.");
-            };
+            }
 
             let request = send_message_event::v3::Request::new_raw(
                 room.room_id().to_owned(),

@@ -432,7 +432,7 @@ impl Media {
             {
                 return Ok(content);
             }
-        };
+        }
 
         // Use the authenticated endpoints when the server supports Matrix 1.11 or the
         // authenticated media stable feature.

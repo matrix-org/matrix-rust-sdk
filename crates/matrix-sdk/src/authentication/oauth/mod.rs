@@ -472,7 +472,7 @@ impl OAuth {
         if self.client_id().is_some() {
             tracing::info!("OAuth 2.0 is already configured.");
             return Ok(());
-        };
+        }
 
         let Some(data) = data else {
             return Err(OAuthError::NotRegistered);

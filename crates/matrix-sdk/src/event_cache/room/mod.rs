@@ -855,7 +855,7 @@ mod private {
 
                 // Return the error.
                 return Err(err.into());
-            };
+            }
 
             // ⚠️ Let's not propagate the updates to the store! We already have these data
             // in the store! Let's drain them.
@@ -1676,7 +1676,7 @@ mod private {
                 // The gap can be ditched too, as it won't be useful to backpaginate any
                 // further.
                 new_token = None;
-            };
+            }
 
             // `/messages` has been called with `dir=b` (backwards), so the events are in
             // the inverted order; reorder them.

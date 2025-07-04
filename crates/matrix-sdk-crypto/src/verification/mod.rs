@@ -781,7 +781,7 @@ pub(crate) mod tests {
         sender: &UserId,
         content: OutgoingContent,
     ) -> ToDeviceEvents {
-        let content = if let OutgoingContent::ToDevice(c) = content { c } else { unreachable!() };
+        let OutgoingContent::ToDevice(content) = content else { unreachable!() };
         let sender = sender.to_owned();
 
         match *content {

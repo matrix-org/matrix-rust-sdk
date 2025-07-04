@@ -786,7 +786,7 @@ impl Drop for TimelineDropHandle {
     fn drop(&mut self) {
         if let Some(handle) = self.pinned_events_join_handle.take() {
             handle.abort()
-        };
+        }
 
         self.local_echo_listener_handle.abort();
         self.room_update_join_handle.abort();

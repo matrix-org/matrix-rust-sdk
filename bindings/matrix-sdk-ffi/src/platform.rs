@@ -137,7 +137,7 @@ where
 
         if let Some(max_files) = c.max_files {
             builder = builder.max_log_files(max_files as usize)
-        };
+        }
         if let Some(file_suffix) = c.file_suffix {
             builder = builder.filename_suffix(file_suffix)
         }

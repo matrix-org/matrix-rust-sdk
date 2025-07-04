@@ -66,17 +66,12 @@ async fn login_and_sync(
 async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt::init();
 
-    let (homeserver_url, username, password) =
-        match (env::args().nth(1), env::args().nth(2), env::args().nth(3)) {
-            (Some(a), Some(b), Some(c)) => (a, b, c),
-            _ => {
-                eprintln!(
-                    "Usage: {} <homeserver_url> <username> <password>",
-                    env::args().next().unwrap()
-                );
-                exit(1)
-            }
-        };
+    let (Some(homeserver_url), Some(username), Some(password)) =
+        (env::args().nth(1), env::args().nth(2), env::args().nth(3))
+    else {
+        eprintln!("Usage: {} <homeserver_url> <username> <password>", env::args().next().unwrap());
+        exit(1)
+    };
 
     login_and_sync(homeserver_url, username, password).await?;
     Ok(())

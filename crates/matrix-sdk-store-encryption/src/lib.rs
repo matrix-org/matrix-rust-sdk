@@ -341,7 +341,7 @@ impl StoreCipher {
 
         if let KdfInfo::Pbkdf2ToChaCha20Poly1305 { .. } = encrypted.kdf_info {
             return Err(Error::KdfMismatch);
-        };
+        }
 
         let key = ChachaKey::from_slice(key.as_ref());
 

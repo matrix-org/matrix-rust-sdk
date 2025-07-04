@@ -853,7 +853,7 @@ impl<const CAP: usize, Item, Gap> LinkedChunk<CAP, Item, Gap> {
 
             if chunk.is_items() {
                 return Err(Error::ChunkIsItems { identifier: chunk_identifier });
-            };
+            }
 
             let chunk_was_first = chunk.is_first_chunk();
 

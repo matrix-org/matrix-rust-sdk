@@ -410,7 +410,7 @@ impl EventCacheStoreMedia for MemoryStore {
         if !ignore_policy && policy.exceeds_max_file_size(data.len() as u64) {
             // Do not store it.
             return Ok(());
-        };
+        }
 
         // Now, let's add it.
         let mut inner = self.inner.write().unwrap();

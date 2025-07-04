@@ -139,13 +139,15 @@ cloned_instead_of_copied = "warn"
 dbg_macro = "warn"
 inefficient_to_string = "warn"
 macro_use_imports = "warn"
+manual_let_else = "warn"
 mut_mut = "warn"
 needless_borrow = "warn"
 nonstandard_macro_braces = "warn"
+redundant_clone = "warn"
 str_to_string = "warn"
 todo = "warn"
+unnecessary_semicolon = "warn"
 unused_async = "warn"
-redundant_clone = "warn"
 
 # Default development profile; default for most Cargo commands, otherwise
 # selected with `--debug`

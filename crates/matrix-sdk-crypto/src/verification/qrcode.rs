@@ -640,7 +640,7 @@ impl QrVerification {
                 }
                 check_master_key(qr_code.second_key(), other_identity)?;
             }
-        };
+        }
 
         let secret = qr_code.secret().to_owned();
         let own_device_id = store.account.device_id.clone();

@@ -618,7 +618,7 @@ impl OlmMachine {
             AnyIncomingResponse::KeysBackup(_) => {
                 Box::pin(self.inner.backup_machine.mark_request_as_sent(request_id)).await?;
             }
-        };
+        }
 
         Ok(())
     }

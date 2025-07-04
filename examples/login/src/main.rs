@@ -137,7 +137,7 @@ async fn offer_choices_and_login(client: &Client, choices: Vec<LoginChoice>) -> 
                 }
             }
             Err(_) => eprintln!("This is not a valid choice. Try again.\n"),
-        };
+        }
     };
 
     choices[choice].login(client).await?;

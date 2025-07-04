@@ -724,7 +724,7 @@ impl IdentityManager {
                     warn!(error = ?e, "Couldn't create new user identity");
                 }
             }
-        };
+        }
 
         Ok(())
     }
@@ -1145,7 +1145,7 @@ impl IdentityManager {
                     "cannot update existing InboundGroupSession due to ownership error: {e}",
                 );
             }
-        };
+        }
 
         Ok(())
     }

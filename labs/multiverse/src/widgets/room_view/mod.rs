@@ -681,6 +681,6 @@ impl Widget for &mut RoomView {
             }
         } else {
             render_paragraph(buf, "Nothing to see here...".to_owned())
-        };
+        }
     }
 }

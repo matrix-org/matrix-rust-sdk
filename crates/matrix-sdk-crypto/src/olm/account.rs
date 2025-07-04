@@ -1137,15 +1137,12 @@ impl Account {
         };
 
         #[cfg(not(feature = "experimental-algorithms"))]
-        let content = if let ToDeviceEncryptedEventContent::OlmV1Curve25519AesSha2(c) = message {
-            c
-        } else {
+        let ToDeviceEncryptedEventContent::OlmV1Curve25519AesSha2(content) = message
+        else {
             panic!("Invalid encrypted event algorithm {}", message.algorithm());
         };
 
-        let prekey = if let OlmMessage::PreKey(m) = content.ciphertext {
-            m
-        } else {
+        let OlmMessage::PreKey(prekey) = content.ciphertext else {
             panic!("Wrong Olm message type");
         };
 

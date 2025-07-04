@@ -245,7 +245,7 @@ where
     loop {
         if let Some(r) = cb(attempt_count).await {
             return Ok(r);
-        };
+        }
         if start - Instant::now() > timeout_duration {
             return Err(ElapsedError());
         }

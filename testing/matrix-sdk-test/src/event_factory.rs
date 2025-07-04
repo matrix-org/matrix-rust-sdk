@@ -409,7 +409,7 @@ impl EventBuilder<UnstablePollStartEventContent> {
             content.relates_to = Some(RelationWithoutReplacement::Reply {
                 in_reply_to: InReplyTo::new(event_id.to_owned()),
             });
-        };
+        }
         self
     }
 
@@ -420,7 +420,7 @@ impl EventBuilder<UnstablePollStartEventContent> {
 
         if let UnstablePollStartEventContent::New(content) = &mut self.content {
             content.relates_to = Some(RelationWithoutReplacement::Thread(thread));
-        };
+        }
         self
     }
 }

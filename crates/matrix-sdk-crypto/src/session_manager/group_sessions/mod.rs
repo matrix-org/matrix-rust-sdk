@@ -1008,7 +1008,7 @@ impl EncryptForDevicesResultBuilder {
                 "Created a to-device request carrying room keys",
             );
             encrypt_for_devices_result.to_device_request = Some(request);
-        };
+        }
 
         encrypt_for_devices_result
     }

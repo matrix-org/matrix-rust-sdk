@@ -306,7 +306,7 @@ impl PrivateCrossSigningIdentity {
         if let Some(user_signing_key) = user_signing_key {
             let subkey = UserSigning::from_base64(self.user_id().to_owned(), user_signing_key)?;
             *self.user_signing_key.lock().await = Some(subkey);
-        };
+        }
 
         if let Some(self_signing_key) = self_signing_key {
             let subkey = SelfSigning::from_base64(self.user_id().to_owned(), self_signing_key)?;

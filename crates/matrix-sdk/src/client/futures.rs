@@ -133,7 +133,7 @@ where
                                     // The refresh failed for other reasons, no
                                     // need to sign out.
                                 }
-                            };
+                            }
                             return Err(HttpError::RefreshToken(refresh_error));
                         }
 

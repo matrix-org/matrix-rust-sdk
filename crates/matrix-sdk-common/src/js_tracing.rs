@@ -190,7 +190,7 @@ fn write_message_to_logger(level: Level, message: &JsValue, logger: &JsLogger) {
         Level::INFO => logger.info(message),
         Level::WARN => logger.warn(message),
         Level::ERROR => logger.error(message),
-    };
+    }
 }
 
 fn write_message_to_console(level: Level, message: &JsValue) {
@@ -199,7 +199,7 @@ fn write_message_to_console(level: Level, message: &JsValue) {
         Level::INFO => web_sys::console::info_1(message),
         Level::WARN => web_sys::console::warn_1(message),
         Level::ERROR => web_sys::console::error_1(message),
-    };
+    }
 }
 
 /// An implementation of [`FormatEvent`] which formats events in a sensible way

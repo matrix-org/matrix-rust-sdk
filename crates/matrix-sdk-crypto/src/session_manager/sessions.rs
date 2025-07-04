@@ -414,7 +414,7 @@ impl SessionManager {
                     failed_devices_lock.entry(user_id.clone()).or_default().extend(device_set);
                 }
             }
-        };
+        }
     }
 
     /// Receive a successful key claim response and create new Olm sessions with
