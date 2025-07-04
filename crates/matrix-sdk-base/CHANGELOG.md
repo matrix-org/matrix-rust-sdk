@@ -6,6 +6,13 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased] - ReleaseDate
 
+### Features
+- The `RoomInfo` now remembers when an invite was explicitly accepted when the
+  `BaseClient::room_joined()` method was called. A new getter for this
+  timestamp exists, the `RoomInfo::invite_accepted_at()` method returns this
+  timestamp.
+  ([#5333](https://github.com/matrix-org/matrix-rust-sdk/pull/5333))
+
 ### Refactor
 
 - The cached `ServerCapabilities` has been renamed to `ServerInfo` and
