@@ -30,6 +30,7 @@ use crate::{
 pub struct MockClientBuilder {
     builder: ClientBuilder,
     auth_state: AuthState,
+    server_versions: ServerVersions,
 }
 
 impl MockClientBuilder {
@@ -52,7 +53,20 @@ impl MockClientBuilder {
                 user_id: None,
                 device_id: None,
             },
+            server_versions: ServerVersions::Default,
         }
+    }
+
+    /// Don't cache server versions in the client.
+    pub fn no_server_versions(mut self) -> Self {
+        self.server_versions = ServerVersions::None;
+        self
+    }
+
+    /// Set the cached server versions in the client.
+    pub fn server_versions(mut self, versions: Vec<MatrixVersion>) -> Self {
+        self.server_versions = ServerVersions::Custom(versions);
+        self
     }
 
     /// Doesn't log-in a user.
@@ -90,6 +104,13 @@ impl MockClientBuilder {
         self
     }
 
+    /// Override the default [`RequestConfig`] for the underlying
+    /// [`ClientBuilder`].
+    pub fn request_config(mut self, request_config: RequestConfig) -> Self {
+        self.builder = self.builder.request_config(request_config);
+        self
+    }
+
     /// Provides another [`StoreConfig`] for the underlying [`ClientBuilder`].
     pub fn store_config(mut self, store_config: StoreConfig) -> Self {
         self.builder = self.builder.store_config(store_config);
@@ -112,7 +133,13 @@ impl MockClientBuilder {
 
     /// Finish building the client into the final [`Client`] instance.
     pub async fn build(self) -> Client {
-        let client = self.builder.build().await.expect("building client failed");
+        let mut builder = self.builder;
+
+        if let Some(versions) = self.server_versions.into_vec() {
+            builder = builder.server_versions(versions);
+        }
+
+        let client = builder.build().await.expect("building client failed");
         self.auth_state.maybe_restore_client(&client).await;
 
         client
@@ -174,6 +201,29 @@ impl AuthState {
                     .await
                     .unwrap();
             }
+        }
+    }
+}
+
+/// The server versions cached during client creation.
+enum ServerVersions {
+    /// Cache the default server version.
+    Default,
+    /// Don't cache any server versions.
+    None,
+    /// Cache the given server versions.
+    Custom(Vec<MatrixVersion>),
+}
+
+impl ServerVersions {
+    /// Convert these `ServerVersions` to a list of matrix versions.
+    ///
+    /// Returns `None` if no server versions should be cached in the client.
+    fn into_vec(self) -> Option<Vec<MatrixVersion>> {
+        match self {
+            Self::Default => Some(vec![MatrixVersion::V1_12]),
+            Self::None => None,
+            Self::Custom(versions) => Some(versions),
         }
     }
 }
