@@ -52,6 +52,7 @@ impl<T> From<serde_wasm_bindgen::Error> for IndexeddbEventCacheStoreSerializerEr
 /// [`EventCacheStore`][1].
 ///
 /// [1]: matrix_sdk_base::event_cache::store::EventCacheStore
+#[derive(Debug)]
 pub struct IndexeddbEventCacheStoreSerializer {
     inner: IndexeddbSerializer,
 }
