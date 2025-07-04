@@ -1560,7 +1560,7 @@ impl EventCacheStoreMedia for SqliteEventCacheStore {
                                     limit_reached = true;
                                     rows_to_remove.push(row_id);
                                 }
-                            };
+                            }
                         }
 
                         if !rows_to_remove.is_empty() {

@@ -1920,7 +1920,7 @@ impl AllRemoteEvents {
         // `timeline_item_index` that come after this one.
         if let Some(removed_timeline_item_index) = event_meta.timeline_item_index {
             self.decrement_all_timeline_item_index_after(removed_timeline_item_index);
-        };
+        }
 
         Some(event_meta)
     }

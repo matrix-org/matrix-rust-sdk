@@ -95,9 +95,8 @@ async fn test_start_live_location_share_for_room() {
     let raw_event = state_events.first().expect("There should be a beacon_info state event");
 
     let ev = raw_event.deserialize().expect("Failed to deserialize event");
-    let ev = match ev.as_sync() {
-        Some(AnySyncStateEvent::BeaconInfo(ev)) => ev,
-        _ => panic!("Expected a BeaconInfo event"),
+    let Some(AnySyncStateEvent::BeaconInfo(ev)) = ev.as_sync() else {
+        panic!("Expected a BeaconInfo event");
     };
 
     let content = ev.as_original().unwrap().content.clone();
@@ -229,9 +228,8 @@ async fn test_stop_sharing_live_location() {
     let raw_event = state_events.first().expect("There should be a beacon_info state event");
 
     let ev = raw_event.deserialize().expect("Failed to deserialize event");
-    let ev = match ev.as_sync() {
-        Some(AnySyncStateEvent::BeaconInfo(ev)) => ev,
-        _ => panic!("Expected a BeaconInfo event"),
+    let Some(AnySyncStateEvent::BeaconInfo(ev)) = ev.as_sync() else {
+        panic!("Expected a BeaconInfo event");
     };
 
     let content = ev.as_original().unwrap().content.clone();

@@ -227,7 +227,7 @@ async fn test_creation_failure() {
 
                     if counter == 3 {
                         break;
-                    };
+                    }
                 }
                 state => {
                     panic!("Received an invalid state for the creation of the backp {state:?}")

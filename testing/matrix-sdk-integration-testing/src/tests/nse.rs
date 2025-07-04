@@ -404,7 +404,7 @@ impl NotificationClientWrapper {
                         }
                     }
                 }
-            };
+            }
         }
 
         panic!(

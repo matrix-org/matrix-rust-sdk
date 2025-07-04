@@ -267,7 +267,7 @@ impl MatrixDriver {
                             "Received to-device event in clear for a widget in an e2e room, dropping."
                         );
                         return;
-                    };
+                    }
 
                     // There are no per-room specific decryption settings (trust requirements), so we can just send it to the
                     // widget.

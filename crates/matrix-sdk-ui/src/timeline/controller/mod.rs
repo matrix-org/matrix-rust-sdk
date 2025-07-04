@@ -1629,7 +1629,7 @@ async fn fetch_replied_to_event<P: RoomDataProvider>(
         let details = TimelineDetails::Ready(Box::new(EmbeddedEvent::from_timeline_item(&item)));
         trace!("Found replied-to event locally");
         return Ok(details);
-    };
+    }
 
     // Replace the item with a new timeline item that has the fetching status of the
     // replied-to event to pending.

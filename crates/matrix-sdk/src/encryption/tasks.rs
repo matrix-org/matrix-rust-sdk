@@ -369,7 +369,7 @@ impl BackupDownloadTaskListenerState {
                 "Not performing backup download because this room key has already been downloaded recently"
             );
             return false;
-        };
+        }
 
         // Check if we're backing off from attempts to download this room key
         if self.failures_cache.contains(&room_key_info) {

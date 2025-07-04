@@ -442,7 +442,7 @@ impl Encryption {
             Err(error) => {
                 error!("Failed fetching identity from the store: {error}");
             }
-        };
+        }
 
         info!("Requesting identity from the server.");
 

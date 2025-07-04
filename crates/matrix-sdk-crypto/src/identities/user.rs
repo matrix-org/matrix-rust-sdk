@@ -477,7 +477,7 @@ impl OtherUserIdentity {
         if !self.inner.was_previously_verified() {
             // If that identity has never been verified it cannot be in violation.
             return false;
-        };
+        }
 
         !self.is_verified()
     }

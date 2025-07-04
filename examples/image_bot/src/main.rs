@@ -57,17 +57,15 @@ async fn login_and_sync(
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt::init();
-    let (homeserver_url, username, password, image_path) =
-        match (env::args().nth(1), env::args().nth(2), env::args().nth(3), env::args().nth(4)) {
-            (Some(a), Some(b), Some(c), Some(d)) => (a, b, c, d),
-            _ => {
-                eprintln!(
-                    "Usage: {} <homeserver_url> <username> <password> <image>",
-                    env::args().next().unwrap()
-                );
-                exit(1)
-            }
-        };
+    let (Some(homeserver_url), Some(username), Some(password), Some(image_path)) =
+        (env::args().nth(1), env::args().nth(2), env::args().nth(3), env::args().nth(4))
+    else {
+        eprintln!(
+            "Usage: {} <homeserver_url> <username> <password> <image>",
+            env::args().next().unwrap()
+        );
+        exit(1)
+    };
 
     println!("helloooo {homeserver_url} {username} {password} {image_path:#?}");
     let image = fs::read(&image_path).expect("Can't open image file.");

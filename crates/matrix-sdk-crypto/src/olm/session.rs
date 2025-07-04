@@ -391,9 +391,7 @@ mod tests {
         #[cfg(not(feature = "experimental-algorithms"))]
         assert_let!(ToDeviceEncryptedEventContent::OlmV1Curve25519AesSha2(content) = message);
 
-        let prekey = if let OlmMessage::PreKey(m) = content.ciphertext {
-            m
-        } else {
+        let OlmMessage::PreKey(prekey) = content.ciphertext else {
             panic!("Wrong Olm message type");
         };
 

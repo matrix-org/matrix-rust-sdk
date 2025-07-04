@@ -513,7 +513,7 @@ impl BackupMachine {
                 ?request_id,
                 "Tried to mark a pending backup as sent but there isn't a backup pending"
             );
-        };
+        }
 
         Ok(())
     }

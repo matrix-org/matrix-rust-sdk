@@ -501,7 +501,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                 }
                 trace!("Handling remote event");
             }
-        };
+        }
 
         let mut added_item = false;
 

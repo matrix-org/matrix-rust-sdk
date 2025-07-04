@@ -117,7 +117,7 @@ impl BaseClient {
             // we received a room reshuffling event only, there won't be anything for us to
             // process. stop early
             return Ok(SyncResponse::default());
-        };
+        }
 
         let mut context = processors::Context::default();
 
