@@ -60,8 +60,8 @@ use ruma::{
         sticker::StickerEventContent,
         typing::TypingEventContent,
         AnyMessageLikeEvent, AnyStateEvent, AnySyncStateEvent, AnySyncTimelineEvent,
-        AnyTimelineEvent, BundledMessageLikeRelations, EventContent,
-        RedactedMessageLikeEventContent, RedactedStateEventContent, StateEventContent,
+        AnyTimelineEvent, BundledMessageLikeRelations, RedactedMessageLikeEventContent,
+        RedactedStateEventContent, StateEventContent, StaticEventContent,
     },
     serde::Raw,
     server_name, EventId, Int, MilliSecondsSinceUnixEpoch, MxcUri, OwnedEventId, OwnedMxcUri,
@@ -105,7 +105,7 @@ struct RedactedBecause {
 }
 
 #[derive(Debug, Serialize)]
-struct Unsigned<C: EventContent> {
+struct Unsigned<C: StaticEventContent> {
     #[serde(skip_serializing_if = "Option::is_none")]
     prev_content: Option<C>,
 
@@ -123,7 +123,7 @@ struct Unsigned<C: EventContent> {
 }
 
 // rustc can't derive Default because C isn't marked as `Default` 🤔 oh well.
-impl<C: EventContent> Default for Unsigned<C> {
+impl<C: StaticEventContent> Default for Unsigned<C> {
     fn default() -> Self {
         Self {
             prev_content: None,
@@ -136,7 +136,7 @@ impl<C: EventContent> Default for Unsigned<C> {
 }
 
 #[derive(Debug)]
-pub struct EventBuilder<C: EventContent> {
+pub struct EventBuilder<C: StaticEventContent> {
     sender: Option<OwnedUserId>,
     /// Whether the event is an ephemeral one. As such, it doesn't require a
     /// room id or a sender.
@@ -152,10 +152,7 @@ pub struct EventBuilder<C: EventContent> {
     state_key: Option<String>,
 }
 
-impl<E: EventContent> EventBuilder<E>
-where
-    E::EventType: Serialize,
-{
+impl<E: StaticEventContent> EventBuilder<E> {
     pub fn room(mut self, room_id: &RoomId) -> Self {
         self.room = Some(room_id.to_owned());
         self
@@ -257,7 +254,7 @@ where
         }
 
         let mut json = json!({
-            "type": self.content.event_type(),
+            "type": E::TYPE,
             "content": self.content,
             "origin_server_ts": self.server_ts,
         });
@@ -451,46 +448,31 @@ impl EventBuilder<StickerEventContent> {
     }
 }
 
-impl<E: EventContent> From<EventBuilder<E>> for Raw<AnySyncTimelineEvent>
-where
-    E::EventType: Serialize,
-{
+impl<E: StaticEventContent> From<EventBuilder<E>> for Raw<AnySyncTimelineEvent> {
     fn from(val: EventBuilder<E>) -> Self {
         val.into_raw_sync()
     }
 }
 
-impl<E: EventContent> From<EventBuilder<E>> for Raw<AnyTimelineEvent>
-where
-    E::EventType: Serialize,
-{
+impl<E: StaticEventContent> From<EventBuilder<E>> for Raw<AnyTimelineEvent> {
     fn from(val: EventBuilder<E>) -> Self {
         val.into_raw_timeline()
     }
 }
 
-impl<E: EventContent> From<EventBuilder<E>> for TimelineEvent
-where
-    E::EventType: Serialize,
-{
+impl<E: StaticEventContent> From<EventBuilder<E>> for TimelineEvent {
     fn from(val: EventBuilder<E>) -> Self {
         val.into_event()
     }
 }
 
-impl<E: StateEventContent> From<EventBuilder<E>> for Raw<AnySyncStateEvent>
-where
-    E::EventType: Serialize,
-{
+impl<E: StaticEventContent + StateEventContent> From<EventBuilder<E>> for Raw<AnySyncStateEvent> {
     fn from(val: EventBuilder<E>) -> Self {
         Raw::new(&val.construct_json(false)).unwrap().cast()
     }
 }
 
-impl<E: StateEventContent> From<EventBuilder<E>> for Raw<AnyStateEvent>
-where
-    E::EventType: Serialize,
-{
+impl<E: StaticEventContent + StateEventContent> From<EventBuilder<E>> for Raw<AnyStateEvent> {
     fn from(val: EventBuilder<E>) -> Self {
         Raw::new(&val.construct_json(true)).unwrap().cast()
     }
@@ -528,7 +510,7 @@ impl EventFactory {
     }
 
     /// Create an event from any event content.
-    pub fn event<E: EventContent>(&self, content: E) -> EventBuilder<E> {
+    pub fn event<E: StaticEventContent>(&self, content: E) -> EventBuilder<E> {
         EventBuilder {
             sender: self.sender.clone(),
             is_ephemeral: false,
@@ -698,7 +680,7 @@ impl EventFactory {
 
     /// Create a redacted event, with extra information in the unsigned section
     /// about the redaction itself.
-    pub fn redacted<T: RedactedMessageLikeEventContent>(
+    pub fn redacted<T: StaticEventContent + RedactedMessageLikeEventContent>(
         &self,
         redacter: &UserId,
         content: T,
@@ -719,7 +701,7 @@ impl EventFactory {
 
     /// Create a redacted state event, with extra information in the unsigned
     /// section about the redaction itself.
-    pub fn redacted_state<T: RedactedStateEventContent>(
+    pub fn redacted_state<T: StaticEventContent + RedactedStateEventContent>(
         &self,
         redacter: &UserId,
         state_key: impl Into<String>,
