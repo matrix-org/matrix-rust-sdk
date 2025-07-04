@@ -188,6 +188,11 @@ impl MatrixMockServer {
         &self.server
     }
 
+    /// Return the URI of this server.
+    pub fn uri(&self) -> String {
+        self.server.uri()
+    }
+
     /// Get an `OAuthMockServer` that uses the same mock server as this one.
     pub fn oauth(&self) -> oauth::OAuthMockServer<'_> {
         oauth::OAuthMockServer::new(self)
