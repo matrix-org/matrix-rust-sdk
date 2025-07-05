@@ -46,7 +46,7 @@ use ruma::{
 use serde::Deserialize;
 use serde_json::{json, Value};
 use wiremock::{
-    matchers::{body_partial_json, header, method, path, path_regex, query_param},
+    matchers::{body_json, body_partial_json, header, method, path, path_regex, query_param},
     Mock, MockBuilder, MockGuard, MockServer, Request, Respond, ResponseTemplate, Times,
 };
 
@@ -1197,6 +1197,34 @@ impl MatrixMockServer {
     ) -> MockEndpoint<'_, AuthenticatedMediaConfigEndpoint> {
         let mock = Mock::given(method("GET")).and(path("/_matrix/client/v1/media/config"));
         self.mock_endpoint(mock, AuthenticatedMediaConfigEndpoint).expect_default_access_token()
+    }
+
+    /// Create a prebuilt mock for the endpoint used to log into a session.
+    pub fn mock_login(&self) -> MockEndpoint<'_, LoginEndpoint> {
+        let mock = Mock::given(method("POST")).and(path("/_matrix/client/v3/login"));
+        self.mock_endpoint(mock, LoginEndpoint)
+    }
+
+    /// Create a prebuilt mock for the endpoint used to list the devices of a
+    /// user.
+    pub fn mock_devices(&self) -> MockEndpoint<'_, DevicesEndpoint> {
+        let mock = Mock::given(method("GET")).and(path("/_matrix/client/v3/devices"));
+        self.mock_endpoint(mock, DevicesEndpoint).expect_default_access_token()
+    }
+
+    /// Create a prebuilt mock for the endpoint used to search in the user
+    /// directory.
+    pub fn mock_user_directory(&self) -> MockEndpoint<'_, UserDirectoryEndpoint> {
+        let mock = Mock::given(method("POST"))
+            .and(path("/_matrix/client/v3/user_directory/search"))
+            .and(body_json(&*test_json::search_users::SEARCH_USERS_REQUEST));
+        self.mock_endpoint(mock, UserDirectoryEndpoint).expect_default_access_token()
+    }
+
+    /// Create a prebuilt mock for the endpoint used to create a new room.
+    pub fn mock_create_room(&self) -> MockEndpoint<'_, CreateRoomEndpoint> {
+        let mock = Mock::given(method("POST")).and(path("/_matrix/client/v3/createRoom"));
+        self.mock_endpoint(mock, CreateRoomEndpoint).expect_default_access_token()
     }
 }
 
@@ -2605,33 +2633,37 @@ impl<'a> MockEndpoint<'a, BanUserEndpoint> {
 pub struct VersionsEndpoint;
 
 impl<'a> MockEndpoint<'a, VersionsEndpoint> {
+    // Get a JSON array of commonly supported versions.
+    fn versions() -> Value {
+        json!([
+            "r0.0.1", "r0.2.0", "r0.3.0", "r0.4.0", "r0.5.0", "r0.6.0", "r0.6.1", "v1.1", "v1.2",
+            "v1.3", "v1.4", "v1.5", "v1.6", "v1.7", "v1.8", "v1.9", "v1.10", "v1.11"
+        ])
+    }
+
     /// Returns a successful `/_matrix/client/versions` request.
     ///
     /// The response will return some commonly supported versions.
     pub fn ok(self) -> MatrixMock<'a> {
         self.respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "unstable_features": {},
+            "versions": Self::versions()
+        })))
+    }
+
+    /// Returns a successful `/_matrix/client/versions` request.
+    ///
+    /// The response will return some commonly supported versions and unstable
+    /// features supported by the SDK.
+    pub fn ok_with_unstable_features(self) -> MatrixMock<'a> {
+        self.respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "unstable_features": {
+                "org.matrix.label_based_filtering": true,
+                "org.matrix.e2e_cross_signing": true,
+                "org.matrix.msc4028": true,
+                "org.matrix.simplified_msc3575": true,
             },
-            "versions": [
-                "r0.0.1",
-                "r0.2.0",
-                "r0.3.0",
-                "r0.4.0",
-                "r0.5.0",
-                "r0.6.0",
-                "r0.6.1",
-                "v1.1",
-                "v1.2",
-                "v1.3",
-                "v1.4",
-                "v1.5",
-                "v1.6",
-                "v1.7",
-                "v1.8",
-                "v1.9",
-                "v1.10",
-                "v1.11"
-            ]
+            "versions": Self::versions()
         })))
     }
 }
@@ -2726,14 +2758,30 @@ impl<'a> MockEndpoint<'a, QueryKeysEndpoint> {
 pub struct WellKnownEndpoint;
 
 impl<'a> MockEndpoint<'a, WellKnownEndpoint> {
-    /// Returns a successful response.
+    /// Returns a successful response with the URL for this homeserver.
     pub fn ok(self) -> MatrixMock<'a> {
         let server_uri = self.server.uri();
+        self.ok_with_homeserver_url(&server_uri)
+    }
+
+    /// Returns a successful response with the given homeserver URL.
+    pub fn ok_with_homeserver_url(self, homeserver_url: &str) -> MatrixMock<'a> {
         self.respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "m.homeserver": {
-                "base_url": server_uri,
+                "base_url": homeserver_url,
             },
+            "m.rtc_foci": [
+                {
+                    "type": "livekit",
+                    "livekit_service_url": "https://livekit.example.com",
+                },
+            ],
         })))
+    }
+
+    /// Returns a 404 error response.
+    pub fn error404(self) -> MatrixMock<'a> {
+        self.respond_with(ResponseTemplate::new(404))
     }
 }
 
@@ -3081,5 +3129,50 @@ impl<'a> MockEndpoint<'a, AuthenticatedMediaConfigEndpoint> {
         self.respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "m.upload.size": UInt::MAX,
         })))
+    }
+}
+
+/// A prebuilt mock for `POST /login` requests.
+pub struct LoginEndpoint;
+
+impl<'a> MockEndpoint<'a, LoginEndpoint> {
+    /// Returns a successful response.
+    pub fn ok(self) -> MatrixMock<'a> {
+        self.respond_with(ResponseTemplate::new(200).set_body_json(&*test_json::LOGIN))
+    }
+}
+
+/// A prebuilt mock for `GET /devices` requests.
+pub struct DevicesEndpoint;
+
+impl<'a> MockEndpoint<'a, DevicesEndpoint> {
+    /// Returns a successful response.
+    pub fn ok(self) -> MatrixMock<'a> {
+        self.respond_with(ResponseTemplate::new(200).set_body_json(&*test_json::DEVICES))
+    }
+}
+
+/// A prebuilt mock for `POST /user_directory/search` requests.
+pub struct UserDirectoryEndpoint;
+
+impl<'a> MockEndpoint<'a, UserDirectoryEndpoint> {
+    /// Returns a successful response.
+    pub fn ok(self) -> MatrixMock<'a> {
+        self.respond_with(
+            ResponseTemplate::new(200)
+                .set_body_json(&*test_json::search_users::SEARCH_USERS_RESPONSE),
+        )
+    }
+}
+
+/// A prebuilt mock for `POST /createRoom` requests.
+pub struct CreateRoomEndpoint;
+
+impl<'a> MockEndpoint<'a, CreateRoomEndpoint> {
+    /// Returns a successful response.
+    pub fn ok(self) -> MatrixMock<'a> {
+        self.respond_with(
+            ResponseTemplate::new(200).set_body_json(json!({ "room_id": "!room:example.org"})),
+        )
     }
 }
