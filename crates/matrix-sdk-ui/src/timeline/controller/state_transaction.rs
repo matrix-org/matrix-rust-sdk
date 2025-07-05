@@ -39,7 +39,8 @@ use super::{
 use crate::timeline::{
     controller::TimelineFocusKind,
     event_handler::{FailedToParseEvent, RemovedItem, TimelineAction},
-    EmbeddedEvent, ThreadSummary, TimelineDetails, VirtualTimelineItem,
+    event_item::EmbeddedEvent,
+    ThreadSummary, TimelineDetails, VirtualTimelineItem,
 };
 
 pub(in crate::timeline) struct TimelineStateTransaction<'a, P: RoomDataProvider> {

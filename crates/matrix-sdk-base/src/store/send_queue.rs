@@ -109,6 +109,22 @@ pub enum QueuedRequestKind {
         #[cfg(feature = "unstable-msc4274")]
         #[serde(default)]
         accumulated: Vec<AccumulatedSentMediaInfo>,
+
+        /// The number of bytes in the unencrypted file (or thumbnail) to be
+        /// uploaded by this request.
+        #[serde(default)]
+        file_size: usize,
+
+        /// If this is a media file upload and a related thumbnail was
+        /// previously, uploaded, the number of bytes in the unencrypted
+        /// thumbnail.
+        #[serde(default)]
+        thumbnail_file_size: Option<usize>,
+
+        /// If this is a thumbnail upload, the number of bytes in the
+        /// unencrypted media file to be uploaded subsequently.
+        #[serde(default)]
+        media_file_size: Option<usize>,
     },
 }
 
@@ -241,6 +257,22 @@ pub enum DependentQueuedRequestKind {
         #[cfg(feature = "unstable-msc4274")]
         #[serde(default = "default_parent_is_thumbnail_upload")]
         parent_is_thumbnail_upload: bool,
+
+        /// The number of bytes in the unencrypted file (or thumbnail) to be
+        /// uploaded by this request.
+        #[serde(default)]
+        file_size: usize,
+
+        /// If this is a media file upload and a related thumbnail was
+        /// previously, uploaded, the number of bytes in the unencrypted
+        /// thumbnail.
+        #[serde(default)]
+        thumbnail_file_size: Option<usize>,
+
+        /// If this is a thumbnail upload, the number of bytes in the
+        /// unencrypted media file to be uploaded subsequently.
+        #[serde(default)]
+        media_file_size: Option<usize>,
     },
 
     /// Finish an upload by updating references to the media cache and sending

@@ -224,6 +224,24 @@ impl From<matrix_sdk::TransmissionProgress> for TransmissionProgress {
     }
 }
 
+/// Progress of an operation in abstract units.
+#[derive(Clone, Copy, uniffi::Record)]
+pub struct AbstractProgress {
+    /// How many units were already transferred.
+    pub current: u64,
+    /// How many units there are in total.
+    pub total: u64,
+}
+
+impl From<matrix_sdk::AbstractProgress> for AbstractProgress {
+    fn from(value: matrix_sdk::AbstractProgress) -> Self {
+        Self {
+            current: value.current.try_into().unwrap_or(u64::MAX),
+            total: value.total.try_into().unwrap_or(u64::MAX),
+        }
+    }
+}
+
 #[derive(uniffi::Object)]
 pub struct Client {
     pub(crate) inner: AsyncRuntimeDropped<MatrixClient>,

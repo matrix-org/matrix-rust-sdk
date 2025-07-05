@@ -53,11 +53,10 @@ use super::{
         TimelineEventItemId,
     },
     traits::RoomDataProvider,
-    EmbeddedEvent, EncryptedMessage, EventTimelineItem, InReplyToDetails, MsgLikeContent,
-    MsgLikeKind, OtherState, ReactionStatus, Sticker, ThreadSummary, TimelineDetails, TimelineItem,
-    TimelineItemContent,
+    EncryptedMessage, EventTimelineItem, InReplyToDetails, MsgLikeContent, MsgLikeKind, OtherState,
+    ReactionStatus, Sticker, ThreadSummary, TimelineDetails, TimelineItem, TimelineItemContent,
 };
-use crate::timeline::controller::aggregations::PendingEdit;
+use crate::timeline::{controller::aggregations::PendingEdit, event_item::EmbeddedEvent};
 
 /// When adding an event, useful information related to the source of the event.
 pub(super) enum Flow {
@@ -741,7 +740,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
 
         let kind: EventTimelineItemKind = match &self.ctx.flow {
             Flow::Local { txn_id, send_handle } => LocalEventTimelineItem {
-                send_state: EventSendState::NotSentYet,
+                send_state: EventSendState::NotSentYet { progress: None },
                 transaction_id: txn_id.to_owned(),
                 send_handle: send_handle.clone(),
             }
