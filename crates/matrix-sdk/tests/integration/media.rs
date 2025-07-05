@@ -1,9 +1,6 @@
 use matrix_sdk::{
-    config::RequestConfig,
     media::{MediaFormat, MediaRequestParameters, MediaThumbnailSettings},
-    store::RoomLoadSettings,
-    test_utils::{client::mock_matrix_session, logged_in_client_with_server},
-    Client,
+    test_utils::mocks::MatrixMockServer,
 };
 use matrix_sdk_test::async_test;
 use ruma::{
@@ -12,25 +9,19 @@ use ruma::{
     events::room::{message::ImageMessageEventContent, ImageInfo, MediaSource},
     mxc_uri, owned_mxc_uri, uint,
 };
-use serde_json::json;
-use wiremock::{
-    matchers::{header, method, path, query_param},
-    Mock, ResponseTemplate,
-};
 
 #[async_test]
 async fn test_get_media_content_no_auth() {
-    let (client, server) = logged_in_client_with_server().await;
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().no_server_versions().build().await;
+    let expected_content = b"Hello, World!";
 
-    // The client will call this endpoint to get the list of unstable features.
-    Mock::given(method("GET"))
-        .and(path("/_matrix/client/versions"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-            "versions": ["r0.6.1"],
-        })))
+    server
+        .mock_versions()
+        .ok_custom(&["v1.1"], &Default::default())
         .named("versions")
         .expect(1)
-        .mount(&server)
+        .mount()
         .await;
 
     let media = client.media();
@@ -42,82 +33,71 @@ async fn test_get_media_content_no_auth() {
 
     // First time, without the cache.
     {
-        let expected_content = "Hello, World!";
-        let _mock_guard = Mock::given(method("GET"))
-            .and(path("/_matrix/media/r0/download/localhost/textfile"))
-            .respond_with(ResponseTemplate::new(200).set_body_string(expected_content))
+        let _mock_guard = server
+            .mock_media_download()
+            .ok_plain_text()
             .named("get_file_no_cache")
             .expect(1)
-            .mount_as_scoped(&server)
+            .mount_as_scoped()
             .await;
 
-        assert_eq!(
-            media.get_media_content(&request, false).await.unwrap(),
-            expected_content.as_bytes()
-        );
+        assert_eq!(media.get_media_content(&request, false).await.unwrap(), expected_content);
     }
 
     // Second time, without the cache, error from the HTTP server.
     {
-        let _mock_guard = Mock::given(method("GET"))
-            .and(path("/_matrix/media/r0/download/localhost/textfile"))
-            .respond_with(ResponseTemplate::new(500))
+        let _mock_guard = server
+            .mock_media_download()
+            .error500()
             .named("get_file_no_cache_error")
             .expect(1)
-            .mount_as_scoped(&server)
+            .mount_as_scoped()
             .await;
 
         assert!(media.get_media_content(&request, false).await.is_err());
     }
 
-    let expected_content = "Hello, World (2)!";
-
     // Third time, with the cache.
     {
-        let _mock_guard = Mock::given(method("GET"))
-            .and(path("/_matrix/media/r0/download/localhost/textfile"))
-            .respond_with(ResponseTemplate::new(200).set_body_string(expected_content))
+        let _mock_guard = server
+            .mock_media_download()
+            .ok_plain_text()
             .named("get_file_with_cache")
             .expect(1)
-            .mount_as_scoped(&server)
+            .mount_as_scoped()
             .await;
 
-        assert_eq!(
-            media.get_media_content(&request, true).await.unwrap(),
-            expected_content.as_bytes()
-        );
+        assert_eq!(media.get_media_content(&request, true).await.unwrap(), expected_content);
     }
 
     // Third time, with the cache, the HTTP server isn't reached.
     {
-        let _mock_guard = Mock::given(method("GET"))
-            .and(path("/_matrix/media/r0/download/localhost/textfile"))
-            .respond_with(ResponseTemplate::new(500))
+        let _mock_guard = server
+            .mock_media_download()
+            .error500()
             .named("get_file_with_cache_error")
             .expect(0)
-            .mount_as_scoped(&server)
+            .mount_as_scoped()
             .await;
 
         assert_eq!(
             client.media().get_media_content(&request, true).await.unwrap(),
-            expected_content.as_bytes()
+            expected_content
         );
     }
 }
 
 #[async_test]
 async fn test_get_media_file_no_auth() {
-    let (client, server) = logged_in_client_with_server().await;
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().no_server_versions().build().await;
 
-    // The client will call this endpoint to get the list of unstable features.
-    Mock::given(method("GET"))
-        .and(path("/_matrix/client/versions"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-            "versions": ["r0.6.1"],
-        })))
+    server
+        .mock_versions()
+        .ok_custom(&["v1.1"], &Default::default())
         .named("versions")
         .expect(1)
-        .mount(&server)
+        .mount()
         .await;
 
     let event_content = ImageMessageEventContent::plain(
@@ -132,29 +112,17 @@ async fn test_get_media_file_no_auth() {
     })));
 
     // Get the file.
-    Mock::given(method("GET"))
-        .and(path("/_matrix/media/r0/download/example.org/image"))
-        .respond_with(ResponseTemplate::new(200).set_body_raw("binaryjpegdata", "image/jpeg"))
-        .named("get_file")
-        .expect(1)
-        .mount(&server)
-        .await;
+    server.mock_media_download().ok_image().named("get_file").expect(1).mount().await;
 
     client.media().get_file(&event_content, false).await.unwrap();
 
     // Get a thumbnail, not animated.
-    Mock::given(method("GET"))
-        .and(path("/_matrix/media/r0/thumbnail/example.org/image"))
-        .and(query_param("method", "scale"))
-        .and(query_param("width", "100"))
-        .and(query_param("height", "100"))
-        .and(query_param("animated", "false"))
-        .respond_with(
-            ResponseTemplate::new(200).set_body_raw("smallerbinaryjpegdata", "image/jpeg"),
-        )
+    server
+        .mock_media_thumbnail(Method::Scale, 100, 100, false)
+        .ok()
         .expect(1)
         .named("get_thumbnail_no_animated")
-        .mount(&server)
+        .mount()
         .await;
 
     client
@@ -168,18 +136,12 @@ async fn test_get_media_file_no_auth() {
         .unwrap();
 
     // Get a thumbnail, animated.
-    Mock::given(method("GET"))
-        .and(path("/_matrix/media/r0/thumbnail/example.org/image"))
-        .and(query_param("method", "crop"))
-        .and(query_param("width", "100"))
-        .and(query_param("height", "100"))
-        .and(query_param("animated", "true"))
-        .respond_with(
-            ResponseTemplate::new(200).set_body_raw("smallerbinaryjpegdata", "image/jpeg"),
-        )
+    server
+        .mock_media_thumbnail(Method::Crop, 100, 100, true)
+        .ok()
         .expect(1)
         .named("get_thumbnail_animated_true")
-        .mount(&server)
+        .mount()
         .await;
 
     let settings = MediaThumbnailSettings {
@@ -193,34 +155,18 @@ async fn test_get_media_file_no_auth() {
 
 #[async_test]
 async fn test_get_media_file_with_auth_matrix_1_11() {
-    // The server must advertise support for v1.11 for authenticated media support,
-    // so we make the request instead of assuming.
-    let server = wiremock::MockServer::start().await;
+    // The server must advertise support for v1.11 or newer for authenticated media
+    // support, so we make the request instead of assuming.
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().no_server_versions().build().await;
 
-    Mock::given(method("GET"))
-        .and(path("/_matrix/client/versions"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-            "versions": ["v1.7", "v1.8", "v1.9", "v1.10", "v1.11"],
-        })))
-        .named("versions")
+    server
+        .mock_versions()
+        .ok_custom(&["v1.11"], &Default::default())
         .expect(1)
-        .mount(&server)
+        .named("versions")
+        .mount()
         .await;
-
-    // Build client.
-    let client = Client::builder()
-        .homeserver_url(server.uri())
-        .request_config(RequestConfig::new().disable_retry())
-        .build()
-        .await
-        .unwrap();
-
-    // Restore session.
-    client
-        .matrix_auth()
-        .restore_session(mock_matrix_session(), RoomLoadSettings::default())
-        .await
-        .unwrap();
 
     // Build event content.
     let event_content = ImageMessageEventContent::plain(
@@ -235,31 +181,17 @@ async fn test_get_media_file_with_auth_matrix_1_11() {
     })));
 
     // Get the full file.
-    Mock::given(method("GET"))
-        .and(path("/_matrix/client/v1/media/download/example.org/image"))
-        .and(header("authorization", "Bearer 1234"))
-        .respond_with(ResponseTemplate::new(200).set_body_raw("binaryjpegdata", "image/jpeg"))
-        .named("get_file")
-        .expect(1)
-        .mount(&server)
-        .await;
+    server.mock_authed_media_download().ok_image().named("get_file").expect(1).mount().await;
 
     client.media().get_file(&event_content, false).await.unwrap();
 
     // Get a thumbnail, not animated.
-    Mock::given(method("GET"))
-        .and(path("/_matrix/client/v1/media/thumbnail/example.org/image"))
-        .and(query_param("method", "scale"))
-        .and(query_param("width", "100"))
-        .and(query_param("height", "100"))
-        .and(query_param("animated", "false"))
-        .and(header("authorization", "Bearer 1234"))
-        .respond_with(
-            ResponseTemplate::new(200).set_body_raw("smallerbinaryjpegdata", "image/jpeg"),
-        )
+    server
+        .mock_authed_media_thumbnail(Method::Scale, 100, 100, false)
+        .ok()
         .expect(1)
         .named("get_thumbnail_no_animated")
-        .mount(&server)
+        .mount()
         .await;
 
     client
@@ -273,19 +205,12 @@ async fn test_get_media_file_with_auth_matrix_1_11() {
         .unwrap();
 
     // Get a thumbnail, animated.
-    Mock::given(method("GET"))
-        .and(path("/_matrix/client/v1/media/thumbnail/example.org/image"))
-        .and(query_param("method", "crop"))
-        .and(query_param("width", "100"))
-        .and(query_param("height", "100"))
-        .and(query_param("animated", "true"))
-        .and(header("authorization", "Bearer 1234"))
-        .respond_with(
-            ResponseTemplate::new(200).set_body_raw("smallerbinaryjpegdata", "image/jpeg"),
-        )
+    server
+        .mock_authed_media_thumbnail(Method::Crop, 100, 100, true)
+        .ok()
         .expect(1)
         .named("get_thumbnail_animated_true")
-        .mount(&server)
+        .mount()
         .await;
 
     let settings = MediaThumbnailSettings {
@@ -301,35 +226,19 @@ async fn test_get_media_file_with_auth_matrix_1_11() {
 async fn test_get_media_file_with_auth_matrix_stable_feature() {
     // The server must advertise support for the stable feature for authenticated
     // media support, so we make the request instead of assuming.
-    let server = wiremock::MockServer::start().await;
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().no_server_versions().build().await;
 
-    Mock::given(method("GET"))
-        .and(path("/_matrix/client/versions"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-            "versions": ["v1.7", "v1.8", "v1.9", "v1.10"],
-            "unstable_features": {
-                "org.matrix.msc3916.stable": true,
-            },
-        })))
+    server
+        .mock_versions()
+        .ok_custom(
+            &["v1.7", "v1.8", "v1.9", "v1.10"],
+            &[("org.matrix.msc3916.stable", true)].into(),
+        )
         .named("versions")
         .expect(1)
-        .mount(&server)
+        .mount()
         .await;
-
-    // Build client.
-    let client = Client::builder()
-        .homeserver_url(server.uri())
-        .request_config(RequestConfig::new().disable_retry())
-        .build()
-        .await
-        .unwrap();
-
-    // Restore session.
-    client
-        .matrix_auth()
-        .restore_session(mock_matrix_session(), RoomLoadSettings::default())
-        .await
-        .unwrap();
 
     // Build event content.
     let event_content = ImageMessageEventContent::plain(
@@ -344,31 +253,17 @@ async fn test_get_media_file_with_auth_matrix_stable_feature() {
     })));
 
     // Get the full file.
-    Mock::given(method("GET"))
-        .and(path("/_matrix/client/v1/media/download/example.org/image"))
-        .and(header("authorization", "Bearer 1234"))
-        .respond_with(ResponseTemplate::new(200).set_body_raw("binaryjpegdata", "image/jpeg"))
-        .named("get_file")
-        .expect(1)
-        .mount(&server)
-        .await;
+    server.mock_authed_media_download().ok_image().named("get_file").expect(1).mount().await;
 
     client.media().get_file(&event_content, false).await.unwrap();
 
     // Get a thumbnail, not animated.
-    Mock::given(method("GET"))
-        .and(path("/_matrix/client/v1/media/thumbnail/example.org/image"))
-        .and(query_param("method", "scale"))
-        .and(query_param("width", "100"))
-        .and(query_param("height", "100"))
-        .and(query_param("animated", "false"))
-        .and(header("authorization", "Bearer 1234"))
-        .respond_with(
-            ResponseTemplate::new(200).set_body_raw("smallerbinaryjpegdata", "image/jpeg"),
-        )
+    server
+        .mock_authed_media_thumbnail(Method::Scale, 100, 100, false)
+        .ok()
         .expect(1)
         .named("get_thumbnail_no_animated")
-        .mount(&server)
+        .mount()
         .await;
 
     client
@@ -382,19 +277,12 @@ async fn test_get_media_file_with_auth_matrix_stable_feature() {
         .unwrap();
 
     // Get a thumbnail, animated.
-    Mock::given(method("GET"))
-        .and(path("/_matrix/client/v1/media/thumbnail/example.org/image"))
-        .and(query_param("method", "crop"))
-        .and(query_param("width", "100"))
-        .and(query_param("height", "100"))
-        .and(query_param("animated", "true"))
-        .and(header("authorization", "Bearer 1234"))
-        .respond_with(
-            ResponseTemplate::new(200).set_body_raw("smallerbinaryjpegdata", "image/jpeg"),
-        )
+    server
+        .mock_authed_media_thumbnail(Method::Crop, 100, 100, true)
+        .ok()
         .expect(1)
         .named("get_thumbnail_animated_true")
-        .mount(&server)
+        .mount()
         .await;
 
     let settings = MediaThumbnailSettings {
@@ -408,39 +296,19 @@ async fn test_get_media_file_with_auth_matrix_stable_feature() {
 
 #[async_test]
 async fn test_async_media_upload() {
-    let (client, server) = logged_in_client_with_server().await;
-
-    client.reset_server_info().await.unwrap();
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().no_server_versions().build().await;
 
     // Declare Matrix version v1.7.
-    Mock::given(method("GET"))
-        .and(path("/_matrix/client/versions"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-            "versions": [
-                "v1.7"
-            ],
-        })))
-        .expect(1)
-        .mount(&server)
-        .await;
+    server.mock_versions().ok_custom(&["v1.7"], &Default::default()).expect(1).mount().await;
 
-    Mock::given(method("POST"))
-        .and(path("/_matrix/media/v1/create"))
-        .and(header("authorization", "Bearer 1234"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-          "content_uri": "mxc://example.com/AQwafuaFswefuhsfAFAgsw"
-        })))
-        .expect(1)
-        .mount(&server)
-        .await;
+    server.mock_media_allocate().ok().expect(1).mount().await;
 
-    Mock::given(method("PUT"))
-        .and(path("/_matrix/media/v3/upload/example.com/AQwafuaFswefuhsfAFAgsw"))
-        .and(header("authorization", "Bearer 1234"))
-        .and(header("content-type", "image/jpeg"))
-        .respond_with(ResponseTemplate::new(200))
+    server
+        .mock_media_allocated_upload("example.com", "AQwafuaFswefuhsfAFAgsw")
+        .ok()
         .expect(1)
-        .mount(&server)
+        .mount()
         .await;
 
     let mxc_uri = client.media().create_content_uri().await.unwrap();

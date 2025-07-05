@@ -1177,7 +1177,7 @@ mod tests {
 
     #[async_test]
     async fn test_dont_ignore_oneself() {
-        let client = MockClientBuilder::new("https://example.org".to_owned()).build().await;
+        let client = MockClientBuilder::new(None).build().await;
 
         // It's forbidden to ignore the logged-in user.
         assert_matches!(

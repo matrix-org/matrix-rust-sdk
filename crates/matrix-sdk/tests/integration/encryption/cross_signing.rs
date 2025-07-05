@@ -153,7 +153,7 @@ async fn test_reset_oauth() {
     assert_let!(CrossSigningResetAuthType::OAuth(oauth_info) = reset_handle.auth_type());
     assert_eq!(
         oauth_info.approval_url.as_str(),
-        format!("{}/account/?action=org.matrix.cross_signing_reset", server.server().uri())
+        format!("{}/account/?action=org.matrix.cross_signing_reset", server.uri())
     );
 
     // Then it retries until it succeeds.

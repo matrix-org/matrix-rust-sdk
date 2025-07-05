@@ -38,6 +38,7 @@ use ruma::{
         room::member::RoomMemberEvent, AnyStateEvent, AnyTimelineEvent, GlobalAccountDataEventType,
         MessageLikeEventType, RoomAccountDataEventType, StateEventType,
     },
+    media::Method,
     serde::Raw,
     time::Duration,
     DeviceId, MxcUri, OwnedDeviceId, OwnedEventId, OwnedOneTimeKeyId, OwnedRoomId, OwnedUserId,
@@ -46,7 +47,7 @@ use ruma::{
 use serde::Deserialize;
 use serde_json::{json, Value};
 use wiremock::{
-    matchers::{body_partial_json, header, method, path, path_regex, query_param},
+    matchers::{body_json, body_partial_json, header, method, path, path_regex, query_param},
     Mock, MockBuilder, MockGuard, MockServer, Request, Respond, ResponseTemplate, Times,
 };
 
@@ -180,12 +181,17 @@ impl MatrixMockServer {
     /// Creates a new [`MockClientBuilder`] configured to use this server,
     /// preconfigured with a session expected by the server endpoints.
     pub fn client_builder(&self) -> MockClientBuilder {
-        MockClientBuilder::new(self.server.uri())
+        MockClientBuilder::new(Some(&self.server.uri()))
     }
 
     /// Return the underlying [`wiremock`] server.
     pub fn server(&self) -> &MockServer {
         &self.server
+    }
+
+    /// Return the URI of this server.
+    pub fn uri(&self) -> String {
+        self.server.uri()
     }
 
     /// Get an `OAuthMockServer` that uses the same mock server as this one.
@@ -1192,6 +1198,104 @@ impl MatrixMockServer {
     ) -> MockEndpoint<'_, AuthenticatedMediaConfigEndpoint> {
         let mock = Mock::given(method("GET")).and(path("/_matrix/client/v1/media/config"));
         self.mock_endpoint(mock, AuthenticatedMediaConfigEndpoint).expect_default_access_token()
+    }
+
+    /// Create a prebuilt mock for the endpoint used to log into a session.
+    pub fn mock_login(&self) -> MockEndpoint<'_, LoginEndpoint> {
+        let mock = Mock::given(method("POST")).and(path("/_matrix/client/v3/login"));
+        self.mock_endpoint(mock, LoginEndpoint)
+    }
+
+    /// Create a prebuilt mock for the endpoint used to list the devices of a
+    /// user.
+    pub fn mock_devices(&self) -> MockEndpoint<'_, DevicesEndpoint> {
+        let mock = Mock::given(method("GET")).and(path("/_matrix/client/v3/devices"));
+        self.mock_endpoint(mock, DevicesEndpoint).expect_default_access_token()
+    }
+
+    /// Create a prebuilt mock for the endpoint used to search in the user
+    /// directory.
+    pub fn mock_user_directory(&self) -> MockEndpoint<'_, UserDirectoryEndpoint> {
+        let mock = Mock::given(method("POST"))
+            .and(path("/_matrix/client/v3/user_directory/search"))
+            .and(body_json(&*test_json::search_users::SEARCH_USERS_REQUEST));
+        self.mock_endpoint(mock, UserDirectoryEndpoint).expect_default_access_token()
+    }
+
+    /// Create a prebuilt mock for the endpoint used to create a new room.
+    pub fn mock_create_room(&self) -> MockEndpoint<'_, CreateRoomEndpoint> {
+        let mock = Mock::given(method("POST")).and(path("/_matrix/client/v3/createRoom"));
+        self.mock_endpoint(mock, CreateRoomEndpoint).expect_default_access_token()
+    }
+
+    /// Create a prebuilt mock for the endpoint used to pre-allocate a MXC URI
+    /// for a media file.
+    pub fn mock_media_allocate(&self) -> MockEndpoint<'_, MediaAllocateEndpoint> {
+        let mock = Mock::given(method("POST")).and(path("/_matrix/media/v1/create"));
+        self.mock_endpoint(mock, MediaAllocateEndpoint)
+    }
+
+    /// Create a prebuilt mock for the endpoint used to upload a media file with
+    /// a pre-allocated MXC URI.
+    pub fn mock_media_allocated_upload(
+        &self,
+        server_name: &str,
+        media_id: &str,
+    ) -> MockEndpoint<'_, MediaAllocatedUploadEndpoint> {
+        let mock = Mock::given(method("PUT"))
+            .and(path(format!("/_matrix/media/v3/upload/{server_name}/{media_id}")));
+        self.mock_endpoint(mock, MediaAllocatedUploadEndpoint)
+    }
+
+    /// Create a prebuilt mock for the endpoint used to download a media file
+    /// without requiring authentication.
+    pub fn mock_media_download(&self) -> MockEndpoint<'_, MediaDownloadEndpoint> {
+        let mock = Mock::given(method("GET")).and(path_regex("^/_matrix/media/v3/download/"));
+        self.mock_endpoint(mock, MediaDownloadEndpoint)
+    }
+
+    /// Create a prebuilt mock for the endpoint used to download a thumbnail of
+    /// a media file without requiring authentication.
+    pub fn mock_media_thumbnail(
+        &self,
+        resize_method: Method,
+        width: u16,
+        height: u16,
+        animated: bool,
+    ) -> MockEndpoint<'_, MediaThumbnailEndpoint> {
+        let mock = Mock::given(method("GET"))
+            .and(path_regex("^/_matrix/media/v3/thumbnail/"))
+            .and(query_param("method", resize_method.as_str()))
+            .and(query_param("width", width.to_string()))
+            .and(query_param("height", height.to_string()))
+            .and(query_param("animated", animated.to_string()));
+        self.mock_endpoint(mock, MediaThumbnailEndpoint)
+    }
+
+    /// Create a prebuilt mock for the endpoint used to download a media file
+    /// that requires authentication.
+    pub fn mock_authed_media_download(&self) -> MockEndpoint<'_, AuthedMediaDownloadEndpoint> {
+        let mock =
+            Mock::given(method("GET")).and(path_regex("^/_matrix/client/v1/media/download/"));
+        self.mock_endpoint(mock, AuthedMediaDownloadEndpoint).expect_default_access_token()
+    }
+
+    /// Create a prebuilt mock for the endpoint used to download a thumbnail of
+    /// a media file that requires authentication.
+    pub fn mock_authed_media_thumbnail(
+        &self,
+        resize_method: Method,
+        width: u16,
+        height: u16,
+        animated: bool,
+    ) -> MockEndpoint<'_, AuthedMediaThumbnailEndpoint> {
+        let mock = Mock::given(method("GET"))
+            .and(path_regex("^/_matrix/client/v1/media/thumbnail/"))
+            .and(query_param("method", resize_method.as_str()))
+            .and(query_param("width", width.to_string()))
+            .and(query_param("height", height.to_string()))
+            .and(query_param("animated", animated.to_string()));
+        self.mock_endpoint(mock, AuthedMediaThumbnailEndpoint).expect_default_access_token()
     }
 }
 
@@ -2600,33 +2704,50 @@ impl<'a> MockEndpoint<'a, BanUserEndpoint> {
 pub struct VersionsEndpoint;
 
 impl<'a> MockEndpoint<'a, VersionsEndpoint> {
+    // Get a JSON array of commonly supported versions.
+    fn versions() -> Value {
+        json!([
+            "r0.0.1", "r0.2.0", "r0.3.0", "r0.4.0", "r0.5.0", "r0.6.0", "r0.6.1", "v1.1", "v1.2",
+            "v1.3", "v1.4", "v1.5", "v1.6", "v1.7", "v1.8", "v1.9", "v1.10", "v1.11"
+        ])
+    }
+
     /// Returns a successful `/_matrix/client/versions` request.
     ///
     /// The response will return some commonly supported versions.
     pub fn ok(self) -> MatrixMock<'a> {
         self.respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "unstable_features": {},
+            "versions": Self::versions()
+        })))
+    }
+
+    /// Returns a successful `/_matrix/client/versions` request.
+    ///
+    /// The response will return some commonly supported versions and unstable
+    /// features supported by the SDK.
+    pub fn ok_with_unstable_features(self) -> MatrixMock<'a> {
+        self.respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "unstable_features": {
+                "org.matrix.label_based_filtering": true,
+                "org.matrix.e2e_cross_signing": true,
+                "org.matrix.msc4028": true,
+                "org.matrix.simplified_msc3575": true,
             },
-            "versions": [
-                "r0.0.1",
-                "r0.2.0",
-                "r0.3.0",
-                "r0.4.0",
-                "r0.5.0",
-                "r0.6.0",
-                "r0.6.1",
-                "v1.1",
-                "v1.2",
-                "v1.3",
-                "v1.4",
-                "v1.5",
-                "v1.6",
-                "v1.7",
-                "v1.8",
-                "v1.9",
-                "v1.10",
-                "v1.11"
-            ]
+            "versions": Self::versions()
+        })))
+    }
+
+    /// Returns a successful `/_matrix/client/versions` request with the given
+    /// versions and unstable features.
+    pub fn ok_custom(
+        self,
+        versions: &[&str],
+        unstable_features: &BTreeMap<&str, bool>,
+    ) -> MatrixMock<'a> {
+        self.respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "unstable_features": unstable_features,
+            "versions": versions,
         })))
     }
 }
@@ -2721,14 +2842,30 @@ impl<'a> MockEndpoint<'a, QueryKeysEndpoint> {
 pub struct WellKnownEndpoint;
 
 impl<'a> MockEndpoint<'a, WellKnownEndpoint> {
-    /// Returns a successful response.
+    /// Returns a successful response with the URL for this homeserver.
     pub fn ok(self) -> MatrixMock<'a> {
         let server_uri = self.server.uri();
+        self.ok_with_homeserver_url(&server_uri)
+    }
+
+    /// Returns a successful response with the given homeserver URL.
+    pub fn ok_with_homeserver_url(self, homeserver_url: &str) -> MatrixMock<'a> {
         self.respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "m.homeserver": {
-                "base_url": server_uri,
+                "base_url": homeserver_url,
             },
+            "m.rtc_foci": [
+                {
+                    "type": "livekit",
+                    "livekit_service_url": "https://livekit.example.com",
+                },
+            ],
         })))
+    }
+
+    /// Returns a 404 error response.
+    pub fn error404(self) -> MatrixMock<'a> {
+        self.respond_with(ResponseTemplate::new(404))
     }
 }
 
@@ -3076,5 +3213,131 @@ impl<'a> MockEndpoint<'a, AuthenticatedMediaConfigEndpoint> {
         self.respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "m.upload.size": UInt::MAX,
         })))
+    }
+}
+
+/// A prebuilt mock for `POST /login` requests.
+pub struct LoginEndpoint;
+
+impl<'a> MockEndpoint<'a, LoginEndpoint> {
+    /// Returns a successful response.
+    pub fn ok(self) -> MatrixMock<'a> {
+        self.respond_with(ResponseTemplate::new(200).set_body_json(&*test_json::LOGIN))
+    }
+}
+
+/// A prebuilt mock for `GET /devices` requests.
+pub struct DevicesEndpoint;
+
+impl<'a> MockEndpoint<'a, DevicesEndpoint> {
+    /// Returns a successful response.
+    pub fn ok(self) -> MatrixMock<'a> {
+        self.respond_with(ResponseTemplate::new(200).set_body_json(&*test_json::DEVICES))
+    }
+}
+
+/// A prebuilt mock for `POST /user_directory/search` requests.
+pub struct UserDirectoryEndpoint;
+
+impl<'a> MockEndpoint<'a, UserDirectoryEndpoint> {
+    /// Returns a successful response.
+    pub fn ok(self) -> MatrixMock<'a> {
+        self.respond_with(
+            ResponseTemplate::new(200)
+                .set_body_json(&*test_json::search_users::SEARCH_USERS_RESPONSE),
+        )
+    }
+}
+
+/// A prebuilt mock for `POST /createRoom` requests.
+pub struct CreateRoomEndpoint;
+
+impl<'a> MockEndpoint<'a, CreateRoomEndpoint> {
+    /// Returns a successful response.
+    pub fn ok(self) -> MatrixMock<'a> {
+        self.respond_with(
+            ResponseTemplate::new(200).set_body_json(json!({ "room_id": "!room:example.org"})),
+        )
+    }
+}
+
+/// A prebuilt mock for `POST /media/v1/create` requests.
+pub struct MediaAllocateEndpoint;
+
+impl<'a> MockEndpoint<'a, MediaAllocateEndpoint> {
+    /// Returns a successful response.
+    pub fn ok(self) -> MatrixMock<'a> {
+        self.respond_with(ResponseTemplate::new(200).set_body_json(json!({
+          "content_uri": "mxc://example.com/AQwafuaFswefuhsfAFAgsw"
+        })))
+    }
+}
+
+/// A prebuilt mock for `PUT /media/v3/upload/{server_name}/{media_id}`
+/// requests.
+pub struct MediaAllocatedUploadEndpoint;
+
+impl<'a> MockEndpoint<'a, MediaAllocatedUploadEndpoint> {
+    /// Returns a successful response.
+    pub fn ok(self) -> MatrixMock<'a> {
+        self.respond_with(ResponseTemplate::new(200).set_body_json(json!({})))
+    }
+}
+
+/// A prebuilt mock for `GET /media/v3/download` requests.
+pub struct MediaDownloadEndpoint;
+
+impl<'a> MockEndpoint<'a, MediaDownloadEndpoint> {
+    /// Returns a successful response with a plain text content.
+    pub fn ok_plain_text(self) -> MatrixMock<'a> {
+        self.respond_with(ResponseTemplate::new(200).set_body_string("Hello, World!"))
+    }
+
+    /// Returns a successful response with a fake image content.
+    pub fn ok_image(self) -> MatrixMock<'a> {
+        self.respond_with(
+            ResponseTemplate::new(200).set_body_raw(b"binaryjpegfullimagedata", "image/jpeg"),
+        )
+    }
+}
+
+/// A prebuilt mock for `GET /media/v3/thumbnail` requests.
+pub struct MediaThumbnailEndpoint;
+
+impl<'a> MockEndpoint<'a, MediaThumbnailEndpoint> {
+    /// Returns a successful response with a fake image content.
+    pub fn ok(self) -> MatrixMock<'a> {
+        self.respond_with(
+            ResponseTemplate::new(200).set_body_raw(b"binaryjpegthumbnaildata", "image/jpeg"),
+        )
+    }
+}
+
+/// A prebuilt mock for `GET /client/v1/media/download` requests.
+pub struct AuthedMediaDownloadEndpoint;
+
+impl<'a> MockEndpoint<'a, AuthedMediaDownloadEndpoint> {
+    /// Returns a successful response with a plain text content.
+    pub fn ok_plain_text(self) -> MatrixMock<'a> {
+        self.respond_with(ResponseTemplate::new(200).set_body_string("Hello, World!"))
+    }
+
+    /// Returns a successful response with a fake image content.
+    pub fn ok_image(self) -> MatrixMock<'a> {
+        self.respond_with(
+            ResponseTemplate::new(200).set_body_raw(b"binaryjpegfullimagedata", "image/jpeg"),
+        )
+    }
+}
+
+/// A prebuilt mock for `GET /client/v1/media/thumbnail` requests.
+pub struct AuthedMediaThumbnailEndpoint;
+
+impl<'a> MockEndpoint<'a, AuthedMediaThumbnailEndpoint> {
+    /// Returns a successful response with a fake image content.
+    pub fn ok(self) -> MatrixMock<'a> {
+        self.respond_with(
+            ResponseTemplate::new(200).set_body_raw(b"binaryjpegthumbnaildata", "image/jpeg"),
+        )
     }
 }

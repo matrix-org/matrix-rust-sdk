@@ -69,7 +69,7 @@ impl<'a> OAuthMockServer<'a> {
 
     /// Get the mock OAuth 2.0 server metadata.
     pub fn server_metadata(&self) -> AuthorizationServerMetadata {
-        MockServerMetadataBuilder::new(&self.server.server().uri())
+        MockServerMetadataBuilder::new(&self.server.uri())
             .build()
             .deserialize()
             .expect("mock OAuth 2.0 server metadata should deserialize successfully")

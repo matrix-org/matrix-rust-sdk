@@ -290,16 +290,12 @@ mod tests {
     use matrix_sdk_test::async_test;
     use ruma::{assign, events::AnySyncTimelineEvent, room_id, serde::Raw};
     use serde_json::json;
-    use wiremock::{
-        matchers::{method, path},
-        Mock, ResponseTemplate,
-    };
 
     use super::{get_supported_versions, Version, VersionBuilder};
     use crate::{
         error::Result,
         sliding_sync::{client::SlidingSyncResponseProcessor, http, VersionBuilderError},
-        test_utils::{logged_in_client, logged_in_client_with_server},
+        test_utils::{client::MockClientBuilder, mocks::MatrixMockServer},
         SlidingSyncList, SlidingSyncMode,
     };
 
@@ -342,7 +338,7 @@ mod tests {
 
     #[async_test]
     async fn test_available_sliding_sync_versions_none() {
-        let (client, _server) = logged_in_client_with_server().await;
+        let client = MockClientBuilder::new(None).build().await;
         let available_versions = client.available_sliding_sync_versions().await;
 
         // `.well-known` and `/versions` aren't available. It's impossible to find any
@@ -352,18 +348,10 @@ mod tests {
 
     #[async_test]
     async fn test_available_sliding_sync_versions_native() {
-        let (client, server) = logged_in_client_with_server().await;
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().no_server_versions().build().await;
 
-        Mock::given(method("GET"))
-            .and(path("/_matrix/client/versions"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-                "versions": [],
-                "unstable_features": {
-                    "org.matrix.simplified_msc3575": true,
-                },
-            })))
-            .mount(&server)
-            .await;
+        server.mock_versions().ok_with_unstable_features().mock_once().mount().await;
 
         let available_versions = client.available_sliding_sync_versions().await;
 
@@ -374,7 +362,7 @@ mod tests {
 
     #[async_test]
     async fn test_cache_user_defined_notification_mode() -> Result<()> {
-        let (client, _server) = logged_in_client_with_server().await;
+        let client = MockClientBuilder::new(None).build().await;
         let room_id = room_id!("!r0:matrix.org");
 
         let sliding_sync = client
@@ -500,8 +488,8 @@ mod tests {
     async fn test_read_receipt_can_trigger_a_notable_update_reason() {
         use ruma::api::client::sync::sync_events::v5 as http;
 
-        // Given a logged-in client
-        let client = logged_in_client(None).await;
+        // Given a logged-in client.
+        let client = MockClientBuilder::new(None).build().await;
         client.event_cache().subscribe().unwrap();
 
         let mut room_info_notable_update_stream = client.room_info_notable_update_receiver();

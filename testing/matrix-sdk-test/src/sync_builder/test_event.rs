@@ -147,6 +147,7 @@ impl From<PresenceTestEvent> for Raw<PresenceEvent> {
 pub enum GlobalAccountDataTestEvent {
     Direct,
     PushRules,
+    IgnoredUserList,
     Custom(JsonValue),
 }
 
@@ -155,6 +156,9 @@ impl From<GlobalAccountDataTestEvent> for JsonValue {
         match val {
             GlobalAccountDataTestEvent::Direct => test_json::sync_events::DIRECT.to_owned(),
             GlobalAccountDataTestEvent::PushRules => test_json::sync_events::PUSH_RULES.to_owned(),
+            GlobalAccountDataTestEvent::IgnoredUserList => {
+                test_json::sync_events::IGNORED_USER_LIST.to_owned()
+            }
             GlobalAccountDataTestEvent::Custom(json) => json,
         }
     }

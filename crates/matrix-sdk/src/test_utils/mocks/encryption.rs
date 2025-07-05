@@ -96,7 +96,7 @@ impl MatrixMockServer {
             mappings.insert(auth_string, user_id.to_owned());
         }
 
-        MockClientBuilder::new(self.server.uri()).logged_in_with_token(
+        MockClientBuilder::new(Some(&self.server.uri())).logged_in_with_token(
             access_token,
             user_id.to_owned(),
             device_id.to_owned(),
