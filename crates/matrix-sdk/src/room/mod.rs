@@ -3675,7 +3675,7 @@ impl RoomIdentityProvider for Room {
 
 /// A wrapper for a weak client and a room id that allows to lazily retrieve a
 /// room, only when needed.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub(crate) struct WeakRoom {
     client: WeakClient,
     room_id: OwnedRoomId,
