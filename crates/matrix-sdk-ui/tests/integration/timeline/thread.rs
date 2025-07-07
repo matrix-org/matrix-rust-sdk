@@ -216,6 +216,7 @@ async fn test_thread_backpagination() {
 async fn test_extract_bundled_thread_summary() {
     // A sync event that includes a bundled thread summary receives a
     // `ThreadSummary` in the associated timeline content.
+
     let server = MatrixMockServer::new().await;
     let client = server.client_builder().build().await;
 
@@ -267,7 +268,10 @@ async fn test_extract_bundled_thread_summary() {
 }
 
 #[async_test]
-async fn test_new_thread_reply_causes_thread_summary() {
+async fn test_new_thread_reply_causes_thread_summary_update() {
+    // A new thread reply received in sync will cause the thread root's thread
+    // summary to be updated.
+
     let server = MatrixMockServer::new().await;
     let client = server.client_builder().build().await;
 
@@ -416,7 +420,13 @@ async fn test_new_thread_reply_causes_thread_summary() {
 }
 
 #[async_test]
-async fn test_thread_filtering() {
+async fn test_thread_filtering_for_sync() {
+    // Make sure that:
+    // - a live timeline that shows threaded events will show them
+    // - a live timeline that hides threaded events *will* hide them (and only keep
+    //   the summary)
+    // - a thread timeline will show the threaded events
+
     let server = MatrixMockServer::new().await;
     let client = server.client_builder().build().await;
 
@@ -536,7 +546,6 @@ async fn test_thread_filtering() {
         assert_let!(VectorDiff::PushFront { value } = &timeline_updates[5]);
         assert!(value.is_date_divider());
 
-        // That's all for now, folks!
         assert_pending!(timeline_stream);
     }
 
@@ -566,7 +575,6 @@ async fn test_thread_filtering() {
         assert_let!(VectorDiff::PushFront { value } = &timeline_updates[3]);
         assert!(value.is_date_divider());
 
-        // That's all for now, folks!
         assert_pending!(timeline_stream);
     }
 }
