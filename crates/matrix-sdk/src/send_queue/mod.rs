@@ -1467,7 +1467,6 @@ impl QueueStorage {
                         content_type: content_type.to_string(),
                         cache_key: file_media_request,
                         related_to: send_event_txn,
-                        #[cfg(feature = "unstable-msc4274")]
                         parent_is_thumbnail_upload: true,
                     },
                 )
@@ -1859,24 +1858,11 @@ impl QueueStorage {
                 content_type,
                 cache_key,
                 related_to,
-                #[cfg(feature = "unstable-msc4274")]
                 parent_is_thumbnail_upload,
             } => {
                 let Some(parent_key) = parent_key else {
                     // Not finished yet, we should retry later => false.
                     return Ok(false);
-                };
-                let parent_is_thumbnail_upload = {
-                    cfg_if::cfg_if! {
-                        if #[cfg(feature = "unstable-msc4274")] {
-                            parent_is_thumbnail_upload
-                        } else {
-                            // Before parent_is_thumbnail_upload was introduced, the only
-                            // possible usage for this request was a file upload following
-                            // a thumbnail upload.
-                            true
-                        }
-                    }
                 };
                 self.handle_dependent_file_or_thumbnail_upload(
                     client,
