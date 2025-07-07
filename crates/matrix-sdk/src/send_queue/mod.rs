@@ -248,6 +248,7 @@ impl SendQueue {
             data.is_dropping.clone(),
             &self.client,
             owned_room_id.clone(),
+            data.report_media_upload_progress.clone(),
         );
 
         map.insert(owned_room_id, room_q.clone());
@@ -283,6 +284,11 @@ impl SendQueue {
     /// granularity.
     pub fn is_enabled(&self) -> bool {
         self.data().globally_enabled.load(Ordering::SeqCst)
+    }
+
+    /// Enable or disable progress reporting for media uploads.
+    pub fn enable_upload_progress(&self, enabled: bool) {
+        self.data().report_media_upload_progress.store(enabled, Ordering::SeqCst);
     }
 
     /// Subscribe to all updates for all rooms.
@@ -345,6 +351,9 @@ pub(super) struct SendQueueData {
 
     /// Are we currently dropping the Client?
     is_dropping: Arc<AtomicBool>,
+
+    /// Will media upload progress be reported via send queue updates?
+    report_media_upload_progress: Arc<AtomicBool>,
 }
 
 impl SendQueueData {
@@ -359,6 +368,7 @@ impl SendQueueData {
             global_update_sender,
             error_sender,
             is_dropping: Arc::new(false.into()),
+            report_media_upload_progress: Arc::new(false.into()),
         }
     }
 }
@@ -407,6 +417,7 @@ impl RoomSendQueue {
         is_dropping: Arc<AtomicBool>,
         client: &Client,
         room_id: OwnedRoomId,
+        report_media_upload_progress: Arc<AtomicBool>,
     ) -> Self {
         let (update_sender, _) = broadcast::channel(32);
 
@@ -425,6 +436,7 @@ impl RoomSendQueue {
             locally_enabled.clone(),
             global_error_sender,
             is_dropping,
+            report_media_upload_progress,
         ));
 
         Self {
@@ -548,6 +560,7 @@ impl RoomSendQueue {
         locally_enabled: Arc<AtomicBool>,
         global_error_sender: broadcast::Sender<SendQueueRoomError>,
         is_dropping: Arc<AtomicBool>,
+        _report_media_upload_progress: Arc<AtomicBool>,
     ) {
         trace!("spawned the sending task");
 
