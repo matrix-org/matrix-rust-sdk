@@ -110,6 +110,29 @@ impl MatrixMockServer {
         known_otks.entry(user_id).or_default().entry(device_id).or_default().clear();
     }
 
+    /// Ensure that the given clients are aware of each others public
+    /// identities.
+    pub async fn exchange_e2ee_identities(&self, alice: &Client, bob: &Client) {
+        let alice_user_id = alice.user_id().expect("Alice should have a user ID configured");
+        let bob_user_id = bob.user_id().expect("Bob should have a user ID configured");
+
+        // Have Alice track Bob, so she queries his keys later.
+        alice.update_tracked_users_for_testing([bob_user_id]).await;
+
+        // let bob be aware of Alice keys in order to be able to decrypt custom
+        // to-device (the device keys check are deferred for `m.room.key` so this is not
+        // needed for sending room messages for example).
+        bob.update_tracked_users_for_testing([alice_user_id]).await;
+
+        // Have Alice and Bob upload their signed device keys.
+        self.mock_sync().ok_and_run(alice, |_x| {}).await;
+        self.mock_sync().ok_and_run(bob, |_x| {}).await;
+
+        // Run a sync so we do send outgoing requests, including the /keys/query for
+        // getting bob's identity.
+        self.mock_sync().ok_and_run(alice, |_x| {}).await;
+    }
+
     /// Utility to properly setup two clients. These two clients will know about
     /// each others (alice will have downloaded bob device keys).
     pub async fn set_up_alice_and_bob_for_encryption(&self) -> (Client, Client) {
@@ -126,21 +149,7 @@ impl MatrixMockServer {
         let bob =
             self.client_builder_for_crypto_end_to_end(&bob_user_id, &bob_device_id).build().await;
 
-        // Have Alice track Bob, so she queries his keys later.
-        alice.update_tracked_users_for_testing([bob_user_id.as_ref()]).await;
-
-        // let bob be aware of Alice keys in order to be able to decrypt custom
-        // to-device (the device keys check are deferred for `m.room.key` so this is not
-        // needed for sending room messages for example).
-        bob.update_tracked_users_for_testing([alice_user_id.as_ref()]).await;
-
-        // Have Alice and Bob upload their signed device keys.
-        self.mock_sync().ok_and_run(&alice, |_x| {}).await;
-        self.mock_sync().ok_and_run(&bob, |_x| {}).await;
-
-        // Run a sync so we do send outgoing requests, including the /keys/query for
-        // getting bob's identity.
-        self.mock_sync().ok_and_run(&alice, |_x| {}).await;
+        self.exchange_e2ee_identities(&alice, &bob).await;
 
         (alice, bob)
     }
