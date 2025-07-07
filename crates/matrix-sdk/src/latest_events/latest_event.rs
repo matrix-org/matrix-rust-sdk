@@ -91,9 +91,10 @@ impl LatestEvent {
 }
 
 /// A latest event value!
-#[derive(Debug, Clone)]
+#[derive(Debug, Default, Clone)]
 pub enum LatestEventValue {
     /// No value has been computed yet, or no candidate value was found.
+    #[default]
     None,
 
     /// A `m.room.message` event.
@@ -148,7 +149,7 @@ impl LatestEventValue {
         room_event_cache
             .rfind_map_event_in_memory_by(|event| find_and_map(event, power_levels))
             .await
-            .unwrap_or(LatestEventValue::None)
+            .unwrap_or_default()
     }
 }
 
