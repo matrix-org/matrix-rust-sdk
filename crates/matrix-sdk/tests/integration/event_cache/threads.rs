@@ -1,6 +1,5 @@
 use assert_matches2::assert_let;
 use eyeball_im::VectorDiff;
-use futures_util::FutureExt;
 use matrix_sdk::{
     assert_let_timeout,
     deserialized_responses::ThreadSummaryStatus,
@@ -246,7 +245,7 @@ async fn test_gappy_sync_empties_all_threads() {
     assert_eq!(thread1_events.len(), 2);
     assert_event_matches_msg(&thread1_events[0], "hey there");
     assert_event_matches_msg(&thread1_events[1], "hoy!");
-    assert!(thread1_stream.recv().now_or_never().is_none());
+    assert!(thread1_stream.is_empty());
 
     // The second thread contains the in-thread event (but not the root, for the
     // same reason as above).
@@ -254,7 +253,7 @@ async fn test_gappy_sync_empties_all_threads() {
         room_event_cache.subscribe_to_thread(thread_root2.to_owned()).await;
     assert_eq!(thread2_events.len(), 1);
     assert_event_matches_msg(&thread2_events[0], "bye there");
-    assert!(thread2_stream.recv().now_or_never().is_none());
+    assert!(thread2_stream.is_empty());
 
     // Also subscribe to the room.
     let (room_events, mut room_stream) = room_event_cache.subscribe().await;
@@ -309,4 +308,89 @@ async fn test_gappy_sync_empties_all_threads() {
 
     // That's all, folks!
     assert!(thread1_stream.is_empty());
+}
+
+#[async_test]
+async fn test_deduplication() {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+
+    // Immediately subscribe the event cache to sync updates.
+    client.event_cache().subscribe().unwrap();
+
+    let room_id = room_id!("!omelette:fromage.fr");
+
+    let f = EventFactory::new().sender(*ALICE);
+
+    let thread_root = event_id!("$thread_root");
+    let first_reply_event_id = event_id!("$first_reply");
+    let first_reply = f
+        .text_msg("hey there")
+        .in_thread(thread_root, thread_root)
+        .event_id(first_reply_event_id)
+        .into_event();
+    let second_reply_event_id = event_id!("$second_reply");
+    let second_reply = f
+        .text_msg("hoy!")
+        .in_thread(thread_root, first_reply_event_id)
+        .event_id(second_reply_event_id)
+        .into_event();
+
+    // Given a room with a thread, that has two replies.
+    let room = server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id)
+                .add_timeline_bulk(vec![first_reply.raw().clone(), second_reply.raw().clone()]),
+        )
+        .await;
+
+    // And we subscribe to the thread,
+    let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+    let (events, thread_stream) =
+        room_event_cache.subscribe_to_thread(thread_root.to_owned()).await;
+
+    // Then, at first, the thread contains the two initial events.
+    assert_eq!(events.len(), 2);
+    assert_event_matches_msg(&events[0], "hey there");
+    assert_event_matches_msg(&events[1], "hoy!");
+
+    // No updates on the stream.
+    assert!(thread_stream.is_empty());
+
+    // We receive a sync with the same tail events.
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id).add_timeline_bulk(vec![f
+                .text_msg("hoy!")
+                .in_thread(thread_root, first_reply_event_id)
+                .event_id(second_reply_event_id)
+                .into_raw_sync()]),
+        )
+        .await;
+
+    // Still no updates on the stream: the event has been deduplicated, and there
+    // were no gaps.
+    assert!(thread_stream.is_empty());
+
+    // If I backpaginate in that thread, and the pagination only returns events I
+    // already knew about, the stream is still empty.
+    server
+        .mock_room_relations()
+        .match_target_event(thread_root.to_owned())
+        .ok(RoomRelationsResponseTemplate::default()
+            .events(vec![
+                first_reply.raw().cast_ref().clone(),
+                second_reply.raw().cast_ref().clone(),
+            ])
+            .next_batch("next_batch"))
+        .mock_once()
+        .mount()
+        .await;
+
+    room_event_cache.paginate_thread_backwards(thread_root.to_owned(), 42).await.unwrap();
+
+    // The events were already known, so the stream is still empty.
+    assert!(thread_stream.is_empty());
 }
