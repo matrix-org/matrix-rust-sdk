@@ -2,7 +2,7 @@ use std::collections::BTreeSet;
 
 use matrix_sdk_base::{sync::SyncResponse, RequestedRequiredStates};
 use matrix_sdk_common::deserialized_responses::ProcessedToDeviceEvent;
-use ruma::api::client::{discovery::get_supported_versions, sync::sync_events::v5 as http};
+use ruma::api::{client::sync::sync_events::v5 as http, FeatureFlag, SupportedVersions};
 use tracing::error;
 
 use super::{SlidingSync, SlidingSyncBuilder};
@@ -73,7 +73,7 @@ impl VersionBuilder {
     /// invalid data.
     pub fn build(
         self,
-        versions: Option<&get_supported_versions::Response>,
+        supported: Option<&SupportedVersions>,
     ) -> Result<Version, VersionBuilderError> {
         Ok(match self {
             Self::None => Version::None,
@@ -81,13 +81,14 @@ impl VersionBuilder {
             Self::Native => Version::Native,
 
             Self::DiscoverNative => {
-                let Some(versions) = versions else {
+                let Some(supported) = supported else {
                     return Err(VersionBuilderError::MissingVersionsResponse);
                 };
 
-                match versions.unstable_features.get("org.matrix.simplified_msc3575") {
-                    Some(value) if *value => Version::Native,
-                    _ => return Err(VersionBuilderError::NativeVersionIsUnset),
+                if supported.features.contains(&FeatureFlag::Msc4186) {
+                    Version::Native
+                } else {
+                    return Err(VersionBuilderError::NativeVersionIsUnset);
                 }
             }
         })
@@ -103,12 +104,7 @@ impl Client {
     /// If `.well-known` or `/versions` is unreachable, it will simply move
     /// potential sliding sync versions aside. No error will be reported.
     pub async fn available_sliding_sync_versions(&self) -> Vec<Version> {
-        let supported_versions = self.unstable_features().await.ok().map(|unstable_features| {
-            let mut response = get_supported_versions::Response::new(vec![]);
-            response.unstable_features = unstable_features;
-
-            response
-        });
+        let supported_versions = self.supported_versions().await.ok();
 
         [VersionBuilder::DiscoverNative]
             .into_iter()
@@ -288,10 +284,13 @@ mod tests {
         RoomInfoNotableUpdate, RoomInfoNotableUpdateReasons,
     };
     use matrix_sdk_test::async_test;
-    use ruma::{assign, events::AnySyncTimelineEvent, room_id, serde::Raw};
+    use ruma::{
+        api::client::discovery::get_supported_versions, assign, events::AnySyncTimelineEvent,
+        room_id, serde::Raw,
+    };
     use serde_json::json;
 
-    use super::{get_supported_versions, Version, VersionBuilder};
+    use super::{Version, VersionBuilder};
     use crate::{
         error::Result,
         sliding_sync::{client::SlidingSyncResponseProcessor, http, VersionBuilderError},
@@ -314,7 +313,10 @@ mod tests {
         let mut response = get_supported_versions::Response::new(vec![]);
         response.unstable_features = [("org.matrix.simplified_msc3575".to_owned(), true)].into();
 
-        assert_matches!(VersionBuilder::DiscoverNative.build(Some(&response)), Ok(Version::Native));
+        assert_matches!(
+            VersionBuilder::DiscoverNative.build(Some(&response.as_supported_versions())),
+            Ok(Version::Native)
+        );
     }
 
     #[test]
@@ -331,7 +333,7 @@ mod tests {
         response.unstable_features = [("org.matrix.simplified_msc3575".to_owned(), false)].into();
 
         assert_matches!(
-            VersionBuilder::DiscoverNative.build(Some(&response)),
+            VersionBuilder::DiscoverNative.build(Some(&response.as_supported_versions())),
             Err(VersionBuilderError::NativeVersionIsUnset)
         );
     }
