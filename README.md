@@ -1,29 +1,28 @@
 <h1 align="center">Matrix Rust SDK</h1>
+
 <div align="center">
-    <i>Your all-in-one toolkit for creating Matrix clients with Rust, from simple bots to full-featured apps.</i>
-    <br/><br/>
-    <img src="contrib/logo.svg">
-    <br>
-    <hr>
-    <a href="https://github.com/matrix-org/matrix-rust-sdk/releases">
-        <img src="https://img.shields.io/github/v/release/matrix-org/matrix-rust-sdk?style=flat&labelColor=1C2E27&color=66845F&logo=GitHub&logoColor=white"></a>
-    <a href="https://crates.io/crates/matrix-sdk/">
-        <img src="https://img.shields.io/crates/v/matrix-sdk?style=flat&labelColor=1C2E27&color=66845F&logo=Rust&logoColor=white"></a>
-    <a href="https://codecov.io/gh/matrix-org/matrix-rust-sdk">
-        <img src="https://img.shields.io/codecov/c/gh/matrix-org/matrix-rust-sdk?style=flat&labelColor=1C2E27&color=66845F&logo=Codecov&logoColor=white"></a>
-    <br>
-    <a href="https://docs.rs/matrix-sdk/">
-        <img src="https://img.shields.io/docsrs/matrix-sdk?style=flat&labelColor=1C2E27&color=66845F&logo=Rust&logoColor=white"></a>
-    <a href="https://github.com/matrix-org/matrix-rust-sdk/actions/workflows/ci.yml">
-        <img src="https://img.shields.io/github/actions/workflow/status/matrix-org/matrix-rust-sdk/ci.yml?style=flat&labelColor=1C2E27&color=66845F&logo=GitHub%20Actions&logoColor=white"></a>
-    <br>
-    <br>
-    <br>
+  <em>Your all-in-one toolkit for creating Matrix clients with Rust, from simple bots to full-featured apps.</em>
+  <br />
+  <img src="contrib/logo.svg">
+  <hr />
+  <a href="https://github.com/matrix-org/matrix-rust-sdk/releases">
+    <img src="https://img.shields.io/github/v/release/matrix-org/matrix-rust-sdk?style=flat&labelColor=1C2E27&color=66845F&logo=GitHub&logoColor=white"></a>
+  <a href="https://crates.io/crates/matrix-sdk/">
+    <img src="https://img.shields.io/crates/v/matrix-sdk?style=flat&labelColor=1C2E27&color=66845F&logo=Rust&logoColor=white"></a>
+  <a href="https://codecov.io/gh/matrix-org/matrix-rust-sdk">
+    <img src="https://img.shields.io/codecov/c/gh/matrix-org/matrix-rust-sdk?style=flat&labelColor=1C2E27&color=66845F&logo=Codecov&logoColor=white"></a>
+  <br />
+  <a href="https://docs.rs/matrix-sdk/">
+    <img src="https://img.shields.io/docsrs/matrix-sdk?style=flat&labelColor=1C2E27&color=66845F&logo=Rust&logoColor=white"></a>
+  <a href="https://github.com/matrix-org/matrix-rust-sdk/actions/workflows/ci.yml">
+    <img src="https://img.shields.io/github/actions/workflow/status/matrix-org/matrix-rust-sdk/ci.yml?style=flat&labelColor=1C2E27&color=66845F&logo=GitHub%20Actions&logoColor=white"></a>
 </div>
 
 <div align="center">
+
 The Matrix Rust SDK is a collection of libraries that make it easier to build [Matrix] clients in [Rust].
-<br><br>
+<br />
+<br />
 
 <picture>
   <source srcset="contrib/element-logo-light.png" media="(prefers-color-scheme: dark)">
@@ -31,10 +30,13 @@ The Matrix Rust SDK is a collection of libraries that make it easier to build [M
   <img src="contrib/element-logo-fallback.png" alt="Element logo">
 </picture>
 
-<br><br>
+<br />
+<br />
+
 Development of the SDK is proudly sponsored and maintained by [Element](https://element.io). Element uses the SDK in their next-generation mobile apps Element X on [iOS](https://github.com/element-hq/element-x-ios) and [Android](https://github.com/element-hq/element-x-android) and has plans to introduce it to the web and desktop clients as well.
 
 The SDK is also the basis for multiple Matrix projects and we welcome contributions from all.
+
 </div>
 
 ## Purpose
@@ -43,9 +45,6 @@ The SDK takes care of the low-level details like encryption,
 syncing, and room state, so you can focus on your app's logic and UI. Whether
 you're writing a small bot, a desktop client, or something in between, the SDK
 is designed to be flexible, async-friendly, and ready to use out of the box.
-
-[Matrix]: https://matrix.org/
-[Rust]: https://www.rust-lang.org/
 
 ## Project structure
 
@@ -81,3 +80,7 @@ into your language of choice.
 ## License
 
 [Apache-2.0](https://www.apache.org/licenses/LICENSE-2.0)
+
+
+[Matrix]: https://matrix.org/
+[Rust]: https://www.rust-lang.org/
