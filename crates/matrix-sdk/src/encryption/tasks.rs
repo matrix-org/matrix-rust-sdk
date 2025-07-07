@@ -16,7 +16,9 @@ use std::{collections::BTreeMap, sync::Arc, time::Duration};
 
 use futures_core::Stream;
 use futures_util::{pin_mut, StreamExt};
-use matrix_sdk_base::{crypto::store::types::RoomKeyBundleInfo, RoomState};
+use matrix_sdk_base::{
+    crypto::store::types::RoomKeyBundleInfo, InviteAcceptanceDetails, RoomState,
+};
 use matrix_sdk_common::failures_cache::FailuresCache;
 use ruma::{
     events::room::encrypted::{EncryptedEventScheme, OriginalSyncRoomEncryptedEvent},
@@ -441,20 +443,40 @@ impl BundleReceiverTask {
         }
     }
 
-    fn should_accept_bundle(room: &Room, _bundle_info: &RoomKeyBundleInfo) -> bool {
-        // TODO: Check that the person that invited us to this room is the same as the
-        // sender, of the bundle. Otherwise don't ignore the bundle.
-        // TODO: Check that we joined the room "recently". (How do you do this if you
-        // accept the invite on another client? I guess we remember when the transition
-        // from Invited to Joined happened, but can't the server force us into a joined
-        // state if we do this?
-        room.state() == RoomState::Joined
+    fn should_accept_bundle(room: &Room, bundle_info: &RoomKeyBundleInfo) -> bool {
+        // We accept historic room key bundles up to one day after we have accepted an
+        // invite.
+        const DAY: Duration = Duration::from_secs(24 * 60 * 60);
+
+        // If we don't have any invite acceptance details, then this client wasn't the
+        // one that accepted the invite.
+        let Some(InviteAcceptanceDetails { invite_accepted_at, inviter }) =
+            room.invite_acceptance_details()
+        else {
+            return false;
+        };
+
+        let state = room.state();
+        let elapsed_since_join = invite_accepted_at.to_system_time().and_then(|t| t.elapsed().ok());
+        let bundle_sender = &bundle_info.sender;
+
+        match (state, elapsed_since_join) {
+            (RoomState::Joined, Some(elapsed_since_join)) => {
+                elapsed_since_join < DAY && bundle_sender == &inviter
+            }
+            (RoomState::Joined, None) => false,
+            (RoomState::Left | RoomState::Invited | RoomState::Knocked | RoomState::Banned, _) => {
+                false
+            }
+        }
     }
 }
 
 #[cfg(all(test, not(target_family = "wasm")))]
 mod test {
-    use matrix_sdk_test::{async_test, InvitedRoomBuilder, JoinedRoomBuilder};
+    use matrix_sdk_test::{
+        async_test, event_factory::EventFactory, InvitedRoomBuilder, JoinedRoomBuilder,
+    };
     use ruma::{event_id, room_id, user_id};
     use serde_json::json;
     use wiremock::MockServer;
@@ -524,28 +546,51 @@ mod test {
     #[async_test]
     async fn test_should_accept_bundle() {
         let server = MatrixMockServer::new().await;
-        let client = server.client_builder().logged_in_with_oauth().build().await;
 
-        let user_id = user_id!("@alice:localhost");
+        let alice_user_id = user_id!("@alice:localhost");
+        let bob_user_id = user_id!("@bob:localhost");
         let joined_room_id = room_id!("!joined:localhost");
         let invited_rom_id = room_id!("!invited:localhost");
+
+        let client = server
+            .client_builder()
+            .logged_in_with_token("ABCD".to_owned(), alice_user_id.into(), "DEVICEID".into())
+            .build()
+            .await;
+
+        let event_factory = EventFactory::new().room(invited_rom_id);
+        let bob_member_event = event_factory.member(bob_user_id).into_raw_timeline();
+        let alice_member_event =
+            event_factory.member(bob_user_id).invited(alice_user_id).into_raw_timeline();
 
         server
             .mock_sync()
             .ok_and_run(&client, |builder| {
-                builder
-                    .add_joined_room(JoinedRoomBuilder::new(joined_room_id))
-                    .add_invited_room(InvitedRoomBuilder::new(invited_rom_id));
+                builder.add_joined_room(JoinedRoomBuilder::new(joined_room_id)).add_invited_room(
+                    InvitedRoomBuilder::new(invited_rom_id)
+                        .add_state_event(bob_member_event.cast())
+                        .add_state_event(alice_member_event.cast()),
+                );
             })
             .await;
 
         let room =
             client.get_room(joined_room_id).expect("We should have access to our joined room now");
 
-        let bundle_info =
-            RoomKeyBundleInfo { sender: user_id.to_owned(), room_id: joined_room_id.to_owned() };
+        assert!(
+            room.invite_acceptance_details().is_none(),
+            "We shouldn't have any invite acceptance details if we didn't join the room on this Client"
+        );
 
-        assert!(BundleReceiverTask::should_accept_bundle(&room, &bundle_info));
+        let bundle_info = RoomKeyBundleInfo {
+            sender: bob_user_id.to_owned(),
+            room_id: joined_room_id.to_owned(),
+        };
+
+        assert!(
+            !BundleReceiverTask::should_accept_bundle(&room, &bundle_info),
+            "We should not acceept a bundle if we did not join the room from this Client"
+        );
 
         let invited_room =
             client.get_room(invited_rom_id).expect("We should have access to our invited room now");
@@ -555,7 +600,21 @@ mod test {
             "We should not accept a bundle if we didn't join the room."
         );
 
-        // TODO: Add more cases here once we figure out the correct acceptance
-        // rules.
+        server.mock_room_join(invited_rom_id).ok().mock_once().mount().await;
+
+        let room = client
+            .join_room_by_id(invited_rom_id)
+            .await
+            .expect("We should be able to join the invited room");
+
+        let details = room
+            .invite_acceptance_details()
+            .expect("We should have stored the invite acceptance details");
+        assert_eq!(details.inviter, bob_user_id, "We should have recorded that Bob has invited us");
+
+        assert!(
+            BundleReceiverTask::should_accept_bundle(&room, &bundle_info),
+            "We should accept a bundle if we just joined the room and did so from this very Client object"
+        );
     }
 }
