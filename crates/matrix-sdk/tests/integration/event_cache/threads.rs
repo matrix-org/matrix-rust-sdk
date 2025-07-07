@@ -1,8 +1,9 @@
 use assert_matches2::assert_let;
 use eyeball_im::VectorDiff;
+use imbl::Vector;
 use matrix_sdk::{
     assert_let_timeout,
-    deserialized_responses::ThreadSummaryStatus,
+    deserialized_responses::{ThreadSummaryStatus, TimelineEvent},
     event_cache::{RoomEventCacheUpdate, ThreadEventCacheUpdate},
     test_utils::{
         assert_event_matches_msg,
@@ -14,6 +15,30 @@ use matrix_sdk_test::{
 };
 use ruma::{event_id, room_id, user_id};
 use serde_json::json;
+use tokio::sync::broadcast;
+
+/// Small helper for backpagination tests, to wait for initial events to
+/// stabilize.
+async fn wait_for_initial_events(
+    mut events: Vec<TimelineEvent>,
+    stream: &mut broadcast::Receiver<ThreadEventCacheUpdate>,
+) -> Vec<TimelineEvent> {
+    if events.is_empty() {
+        // Wait for a first update.
+        let mut vector = Vector::new();
+
+        assert_let_timeout!(Ok(ThreadEventCacheUpdate { diffs, .. }) = stream.recv());
+
+        for diff in diffs {
+            diff.apply(&mut vector);
+        }
+
+        events.extend(vector);
+        events
+    } else {
+        events
+    }
+}
 
 #[async_test]
 async fn test_thread_can_paginate_even_if_seen_sync_event() {
@@ -43,24 +68,13 @@ async fn test_thread_can_paginate_even_if_seen_sync_event() {
 
     let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
 
-    let (mut thread_events, mut thread_stream) =
+    let (thread_events, mut thread_stream) =
         room_event_cache.subscribe_to_thread(thread_root_id.to_owned()).await;
 
-    // Sanity check: the sync event is added to the thread. This is racy because the
-    // update might not have been handled by the event cache yet.
-    let first_event = if thread_events.is_empty() {
-        assert_let_timeout!(Ok(ThreadEventCacheUpdate { diffs, .. }) = thread_stream.recv());
-        assert_eq!(diffs.len(), 1);
-        let mut diffs = diffs;
-        assert_let!(VectorDiff::Append { values } = diffs.remove(0));
-        assert_eq!(values.len(), 1);
-        let mut values = values;
-        values.remove(0)
-    } else {
-        assert_eq!(thread_events.len(), 1);
-        thread_events.remove(0)
-    };
-    assert_eq!(first_event.event_id().as_deref(), Some(thread_resp_id));
+    // Sanity check: the sync event is added to the thread.
+    let mut thread_events = wait_for_initial_events(thread_events, &mut thread_stream).await;
+    assert_eq!(thread_events.len(), 1);
+    assert_eq!(thread_events.remove(0).event_id().as_deref(), Some(thread_resp_id));
 
     // It's possible to paginate the thread, and this will push the thread root
     // because there's no prev-batch token.
@@ -134,6 +148,7 @@ async fn test_ignored_user_empties_threads() {
         room_event_cache.subscribe_to_thread(thread_root.to_owned()).await;
 
     // Then, at first, the thread contains the two initial events.
+    let events = wait_for_initial_events(events, &mut thread_stream).await;
     assert_eq!(events.len(), 2);
     assert_event_matches_msg(&events[0], "hey there");
     assert_event_matches_msg(&events[1], "hoy!");
@@ -207,8 +222,31 @@ async fn test_gappy_sync_empties_all_threads() {
     let thread_root2 = event_id!("$t2root");
     let thread2_reply1 = event_id!("$t2ev1");
 
+    // We subscribe to each thread (before the initial sync, so the state is stable
+    // before running checks).
+    let room = server.sync_joined_room(&client, room_id).await;
+
+    let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+    let (thread1_events, mut thread1_stream) =
+        room_event_cache.subscribe_to_thread(thread_root1.to_owned()).await;
+
+    assert!(thread1_events.is_empty());
+    assert!(thread1_stream.is_empty());
+
+    let (thread2_events, mut thread2_stream) =
+        room_event_cache.subscribe_to_thread(thread_root2.to_owned()).await;
+
+    assert!(thread2_events.is_empty());
+    assert!(thread2_stream.is_empty());
+
+    // Also subscribe to the room.
+    let (room_events, mut room_stream) = room_event_cache.subscribe().await;
+
+    assert!(room_events.is_empty());
+    assert!(room_stream.is_empty());
+
     // Given a room with two threads, each having some replies,
-    let room = server
+    server
         .sync_room(
             &client,
             JoinedRoomBuilder::new(room_id).add_timeline_bulk(vec![
@@ -235,31 +273,34 @@ async fn test_gappy_sync_empties_all_threads() {
         )
         .await;
 
-    // We subscribe to each thread.
-    let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
-    let (thread1_events, mut thread1_stream) =
-        room_event_cache.subscribe_to_thread(thread_root1.to_owned()).await;
-
-    // The first thread contains all thread events. Note it doesn't include the
-    // root, because when we receive it, we didn't know it was a thread root yet!
-    assert_eq!(thread1_events.len(), 2);
-    assert_event_matches_msg(&thread1_events[0], "hey there");
-    assert_event_matches_msg(&thread1_events[1], "hoy!");
-    assert!(thread1_stream.is_empty());
+    // The first thread contains all thread events, including the root.
+    assert_let_timeout!(Ok(ThreadEventCacheUpdate { diffs, .. }) = thread1_stream.recv());
+    assert_eq!(diffs.len(), 1);
+    assert_let!(VectorDiff::Append { values: thread1_events } = &diffs[0]);
+    assert_eq!(thread1_events.len(), 3);
+    assert_event_matches_msg(&thread1_events[0], "say hi in thread");
+    assert_event_matches_msg(&thread1_events[1], "hey there");
+    assert_event_matches_msg(&thread1_events[2], "hoy!");
 
     // The second thread contains the in-thread event (but not the root, for the
     // same reason as above).
-    let (thread2_events, mut thread2_stream) =
-        room_event_cache.subscribe_to_thread(thread_root2.to_owned()).await;
-    assert_eq!(thread2_events.len(), 1);
-    assert_event_matches_msg(&thread2_events[0], "bye there");
-    assert!(thread2_stream.is_empty());
-
-    // Also subscribe to the room.
-    let (room_events, mut room_stream) = room_event_cache.subscribe().await;
+    assert_let_timeout!(Ok(ThreadEventCacheUpdate { diffs, .. }) = thread2_stream.recv());
+    assert_eq!(diffs.len(), 1);
+    assert_let!(VectorDiff::Append { values: thread2_events } = &diffs[0]);
+    assert_eq!(thread2_events.len(), 2);
+    assert_event_matches_msg(&thread2_events[0], "say bye in thread");
+    assert_event_matches_msg(&thread2_events[1], "bye there");
 
     // The room contains all five events.
+    assert_let_timeout!(
+        Ok(RoomEventCacheUpdate::UpdateTimelineEvents { diffs, .. }) = room_stream.recv()
+    );
+    assert_eq!(diffs.len(), 3);
+    assert_let!(VectorDiff::Append { values: room_events } = &diffs[0]);
     assert_eq!(room_events.len(), 5);
+    // Two thread summary updates, for the thread roots.
+    assert_let!(VectorDiff::Set { index: 0, .. } = &diffs[1]);
+    assert_let!(VectorDiff::Set { index: 1, .. } = &diffs[2]);
 
     // Receive a gappy sync for the room, with no events (so the event cache doesn't
     // filter the gap out).
@@ -347,10 +388,11 @@ async fn test_deduplication() {
 
     // And we subscribe to the thread,
     let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
-    let (events, thread_stream) =
+    let (events, mut thread_stream) =
         room_event_cache.subscribe_to_thread(thread_root.to_owned()).await;
 
     // Then, at first, the thread contains the two initial events.
+    let events = wait_for_initial_events(events, &mut thread_stream).await;
     assert_eq!(events.len(), 2);
     assert_event_matches_msg(&events[0], "hey there");
     assert_event_matches_msg(&events[1], "hoy!");
