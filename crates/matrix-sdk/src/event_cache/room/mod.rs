@@ -1708,10 +1708,33 @@ mod private {
                 // Sad time: there's a gap, somewhere, in the timeline, and there's at least one
                 // non-duplicated event. We don't know which threads might have gappy, so we
                 // must invalidate them all :(
-                // TODO(bnjbvr): absorb moar caffeine and create a good solution to this
-                // problem.
-                for (_, thread) in self.threads.iter_mut() {
+                // TODO(bnjbvr): figure out a better catchup mechanism for threads.
+                let mut summaries_to_update = Vec::new();
+
+                for (thread_root, thread) in self.threads.iter_mut() {
+                    // Empty the thread's linked chunk.
                     thread.clear();
+
+                    summaries_to_update.push(thread_root.clone());
+                }
+
+                // Now, update the summaries to indicate that we're not sure what the latest
+                // thread event is. The thread count can remain as is, as it might still be
+                // valid, and there's no good value to reset it to, anyways.
+                for thread_root in summaries_to_update {
+                    let Some((location, mut target_event)) = self.find_event(&thread_root).await?
+                    else {
+                        trace!(%thread_root, "thread root event is unknown, when updating thread summary after a gappy sync");
+                        continue;
+                    };
+
+                    if let Some(mut prev_summary) = target_event.thread_summary.summary().cloned() {
+                        prev_summary.latest_reply = None;
+
+                        target_event.thread_summary = ThreadSummaryStatus::Some(prev_summary);
+
+                        self.replace_event_at(location, target_event).await?;
+                    }
                 }
             }
 

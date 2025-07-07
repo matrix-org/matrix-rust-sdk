@@ -1,8 +1,10 @@
 use assert_matches2::assert_let;
 use eyeball_im::VectorDiff;
+use futures_util::FutureExt;
 use matrix_sdk::{
     assert_let_timeout,
-    event_cache::ThreadEventCacheUpdate,
+    deserialized_responses::ThreadSummaryStatus,
+    event_cache::{RoomEventCacheUpdate, ThreadEventCacheUpdate},
     test_utils::{
         assert_event_matches_msg,
         mocks::{MatrixMockServer, RoomRelationsResponseTemplate},
@@ -185,4 +187,126 @@ async fn test_ignored_user_empties_threads() {
 
     // That's all, folks!
     assert!(thread_stream.is_empty());
+}
+
+#[async_test]
+async fn test_gappy_sync_empties_all_threads() {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+
+    // Immediately subscribe the event cache to sync updates.
+    client.event_cache().subscribe().unwrap();
+
+    let room_id = room_id!("!omelette:fromage.fr");
+
+    let f = EventFactory::new().sender(*ALICE);
+
+    let thread_root1 = event_id!("$t1root");
+    let thread1_reply1 = event_id!("$t1ev1");
+    let thread1_reply2 = event_id!("$t1ev2");
+
+    let thread_root2 = event_id!("$t2root");
+    let thread2_reply1 = event_id!("$t2ev1");
+
+    // Given a room with two threads, each having some replies,
+    let room = server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id).add_timeline_bulk(vec![
+                // First thread root.
+                f.text_msg("say hi in thread").event_id(thread_root1).into_raw_sync(),
+                // Second thread root.
+                f.text_msg("say bye in thread").event_id(thread_root2).into_raw_sync(),
+                // Reply to the first thread.
+                f.text_msg("hey there")
+                    .in_thread(thread_root1, thread_root1)
+                    .event_id(thread1_reply1)
+                    .into_raw_sync(),
+                // Reply to the second thread.
+                f.text_msg("bye there")
+                    .in_thread(thread_root2, thread_root2)
+                    .event_id(thread2_reply1)
+                    .into_raw_sync(),
+                // Another reply to the first thread.
+                f.text_msg("hoy!")
+                    .in_thread(thread_root1, thread1_reply1)
+                    .event_id(thread1_reply2)
+                    .into_raw_sync(),
+            ]),
+        )
+        .await;
+
+    // We subscribe to each thread.
+    let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+    let (thread1_events, mut thread1_stream) =
+        room_event_cache.subscribe_to_thread(thread_root1.to_owned()).await;
+
+    // The first thread contains all thread events. Note it doesn't include the
+    // root, because when we receive it, we didn't know it was a thread root yet!
+    assert_eq!(thread1_events.len(), 2);
+    assert_event_matches_msg(&thread1_events[0], "hey there");
+    assert_event_matches_msg(&thread1_events[1], "hoy!");
+    assert!(thread1_stream.recv().now_or_never().is_none());
+
+    // The second thread contains the in-thread event (but not the root, for the
+    // same reason as above).
+    let (thread2_events, mut thread2_stream) =
+        room_event_cache.subscribe_to_thread(thread_root2.to_owned()).await;
+    assert_eq!(thread2_events.len(), 1);
+    assert_event_matches_msg(&thread2_events[0], "bye there");
+    assert!(thread2_stream.recv().now_or_never().is_none());
+
+    // Also subscribe to the room.
+    let (room_events, mut room_stream) = room_event_cache.subscribe().await;
+
+    // The room contains all five events.
+    assert_eq!(room_events.len(), 5);
+
+    // Receive a gappy sync for the room, with no events (so the event cache doesn't
+    // filter the gap out).
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id)
+                .set_timeline_limited()
+                .set_timeline_prev_batch("prev_batch"),
+        )
+        .await;
+
+    // Both threads are cleared.
+    {
+        assert_let_timeout!(Ok(ThreadEventCacheUpdate { diffs, .. }) = thread1_stream.recv());
+        assert_eq!(diffs.len(), 1);
+        assert_let!(VectorDiff::Clear = &diffs[0]);
+    }
+    {
+        assert_let_timeout!(Ok(ThreadEventCacheUpdate { diffs, .. }) = thread2_stream.recv());
+        assert_eq!(diffs.len(), 1);
+        assert_let!(VectorDiff::Clear = &diffs[0]);
+    }
+
+    // The room is shrunk to the gap.
+    {
+        assert_let_timeout!(
+            Ok(RoomEventCacheUpdate::UpdateTimelineEvents { diffs, .. }) = room_stream.recv()
+        );
+        assert_eq!(diffs.len(), 1);
+        assert_let!(VectorDiff::Clear = &diffs[0]);
+    }
+
+    // If we manually load the root events from the db, the summaries have been
+    // updated too:
+    // - the count is still the same, as it's based on the number of replies known
+    //   in the room linked chunk (that's persisted on disk). It might be outdated,
+    //   but that's a lower bound.
+    // - but the latest reply is now `None`, as we're not sure that the latest reply
+    //   is still the latest one.
+
+    let reloaded_thread1 = room_event_cache.find_event(thread_root1).await.unwrap();
+    assert_let!(ThreadSummaryStatus::Some(summary) = reloaded_thread1.thread_summary);
+    assert_eq!(summary.num_replies, 2);
+    assert!(summary.latest_reply.is_none());
+
+    // That's all, folks!
+    assert!(thread1_stream.is_empty());
 }
