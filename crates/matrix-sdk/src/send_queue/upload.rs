@@ -46,7 +46,7 @@ use ruma::{
 };
 use tracing::{debug, error, instrument, trace, warn, Span};
 
-use super::{QueueStorage, RoomSendQueue, RoomSendQueueError};
+use super::{QueueStorage, QueueThumbnailInfo, RoomSendQueue, RoomSendQueueError};
 use crate::{
     attachment::{AttachmentConfig, Thumbnail},
     room::edit::update_media_caption,
@@ -170,7 +170,7 @@ fn update_gallery_event_after_upload(
 struct MediaCacheResult {
     upload_thumbnail_txn: Option<OwnedTransactionId>,
     event_thumbnail_info: Option<(MediaSource, Box<ThumbnailInfo>)>,
-    queue_thumbnail_info: Option<(FinishUploadThumbnailInfo, MediaRequestParameters, Mime)>,
+    queue_thumbnail_info: Option<QueueThumbnailInfo>,
 }
 
 impl RoomSendQueue {
@@ -464,11 +464,15 @@ impl RoomSendQueue {
                     thumbnail_media_request.source.clone(),
                     thumbnail_info,
                 )),
-                queue_thumbnail_info: Some((
-                    FinishUploadThumbnailInfo { txn, width: None, height: None },
-                    thumbnail_media_request,
+                queue_thumbnail_info: Some(QueueThumbnailInfo {
+                    finish_upload_thumbnail_info: FinishUploadThumbnailInfo {
+                        txn,
+                        width: None,
+                        height: None,
+                    },
+                    media_request_parameters: thumbnail_media_request,
                     content_type,
-                )),
+                }),
             })
         } else {
             Ok(Default::default())
