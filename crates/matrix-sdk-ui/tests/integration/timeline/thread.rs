@@ -655,6 +655,26 @@ async fn test_thread_timeline_gets_related_events_from_sync() {
     let event_item = value.as_event().unwrap();
     assert_eq!(event_item.event_id().unwrap(), threaded_event_id);
     assert!(event_item.content().reactions().unwrap().is_empty().not());
+
+    // If I open another timeline on the same thread, I still see the related event.
+    let other_timeline = room
+        .timeline_builder()
+        .with_focus(TimelineFocus::Thread { root_event_id: thread_root_event_id })
+        .build()
+        .await
+        .unwrap();
+
+    let (initial_items, _thread_stream) = other_timeline.subscribe().await;
+
+    assert_eq!(initial_items.len(), 2);
+
+    // The date divider.
+    assert!(initial_items[0].is_date_divider());
+
+    // The threaded event with the reaction.
+    let event_item = initial_items[1].as_event().unwrap();
+    assert_eq!(event_item.event_id(), Some(threaded_event_id));
+    assert!(event_item.content().reactions().unwrap().is_empty().not());
 }
 
 #[async_test]
