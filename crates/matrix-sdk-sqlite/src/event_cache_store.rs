@@ -2646,10 +2646,17 @@ mod encrypted_tests {
     use std::sync::atomic::{AtomicU32, Ordering::SeqCst};
 
     use matrix_sdk_base::{
-        event_cache::store::EventCacheStoreError, event_cache_store_integration_tests,
-        event_cache_store_integration_tests_time, event_cache_store_media_integration_tests,
+        event_cache::store::{EventCacheStore, EventCacheStoreError},
+        event_cache_store_integration_tests, event_cache_store_integration_tests_time,
+        event_cache_store_media_integration_tests,
     };
+    use matrix_sdk_test::{async_test, event_factory::EventFactory};
     use once_cell::sync::Lazy;
+    use ruma::{
+        event_id,
+        events::{relation::RelationType, room::message::RoomMessageEventContentWithoutRelation},
+        room_id, user_id,
+    };
     use tempfile::{tempdir, TempDir};
 
     use super::SqliteEventCacheStore;
@@ -2674,4 +2681,67 @@ mod encrypted_tests {
     event_cache_store_integration_tests!();
     event_cache_store_integration_tests_time!();
     event_cache_store_media_integration_tests!();
+
+    #[async_test]
+    async fn test_no_sqlite_injection_in_find_event_relations() {
+        let room_id = room_id!("!test:localhost");
+        let another_room_id = room_id!("!r1:matrix.org");
+        let sender = user_id!("@alice:localhost");
+
+        let store = get_event_cache_store()
+            .await
+            .expect("We should be able to create a new, empty, event cache store");
+
+        let f = EventFactory::new().room(room_id).sender(sender);
+
+        // Create an event for the first room.
+        let event_id = event_id!("$DO_NOT_FIND_ME:matrix.org");
+        let event = f.text_msg("DO NOT FIND").event_id(event_id).into_event();
+
+        // Create a related event.
+        let edit_id = event_id!("$find_me:matrix.org");
+        let edit = f
+            .text_msg("Find me")
+            .event_id(edit_id)
+            .edit(event_id, RoomMessageEventContentWithoutRelation::text_plain("jebote"))
+            .into_event();
+
+        // Create an event for the second room.
+        let f = f.room(another_room_id);
+
+        let another_event_id = event_id!("$DO_NOT_FIND_ME_EITHER:matrix.org");
+        let another_event =
+            f.text_msg("DO NOT FIND ME EITHER").event_id(another_event_id).into_event();
+
+        // Save the events in the DB.
+        store.save_event(room_id, event).await.unwrap();
+        store.save_event(room_id, edit).await.unwrap();
+        store.save_event(another_room_id, another_event).await.unwrap();
+
+        // Craft a `RelationType` that will inject some SQL to be executed. The
+        // `OR 1=1` ensures that all the previous parameters, the room
+        // ID and event ID are ignored.
+        let filter = Some(vec![RelationType::Replacement, "x\") OR 1=1; --".into()]);
+
+        // Attempt to find events in the first room.
+        let results = store
+            .find_event_relations(room_id, event_id, filter.as_deref())
+            .await
+            .expect("We should be able to attempt to find event relations");
+
+        // Ensure that we only got the single related event the first room contains.
+        similar_asserts::assert_eq!(
+            results.len(),
+            1,
+            "We should only have loaded events for the first room {results:#?}"
+        );
+
+        // The event needs to be the edit event, otherwise something is wrong.
+        let (found_event, _) = &results[0];
+        assert_eq!(
+            found_event.event_id().as_deref(),
+            Some(edit_id),
+            "The single event we found should be the edit event"
+        );
+    }
 }
