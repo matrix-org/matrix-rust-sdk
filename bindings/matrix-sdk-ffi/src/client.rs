@@ -621,6 +621,12 @@ impl Client {
         self.inner.send_queue().set_enabled(enable).await;
     }
 
+    /// Enables or disables progress reporting for media uploads in the send
+    /// queue.
+    pub fn enable_send_queue_upload_progress(&self, enable: bool) {
+        self.inner.send_queue().enable_upload_progress(enable);
+    }
+
     /// Subscribe to the global enablement status of the send queue, at the
     /// client-wide level.
     ///
