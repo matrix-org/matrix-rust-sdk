@@ -445,6 +445,7 @@ impl RoomSendQueue {
             // Create the information required for filling the thumbnail section of the
             // event.
             let (data, content_type, thumbnail_info) = thumbnail.into_parts();
+            let file_size = data.len();
 
             // Cache thumbnail in the cache store.
             let thumbnail_media_request = Media::make_local_file_media_request(&txn);
@@ -472,6 +473,7 @@ impl RoomSendQueue {
                     },
                     media_request_parameters: thumbnail_media_request,
                     content_type,
+                    file_size,
                 }),
             })
         } else {
