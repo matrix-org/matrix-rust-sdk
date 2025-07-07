@@ -238,7 +238,6 @@ pub enum DependentQueuedRequestKind {
         related_to: OwnedTransactionId,
 
         /// Whether the depended upon request was a thumbnail or a file upload.
-        #[cfg(feature = "unstable-msc4274")]
         #[serde(default = "default_parent_is_thumbnail_upload")]
         parent_is_thumbnail_upload: bool,
     },
@@ -275,7 +274,6 @@ pub enum DependentQueuedRequestKind {
 /// If parent_is_thumbnail_upload is missing, we assume the request is for a
 /// file upload following a thumbnail upload. This was the only possible case
 /// before parent_is_thumbnail_upload was introduced.
-#[cfg(feature = "unstable-msc4274")]
 fn default_parent_is_thumbnail_upload() -> bool {
     true
 }
