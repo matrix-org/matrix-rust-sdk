@@ -3,10 +3,16 @@ use eyeball_im::VectorDiff;
 use matrix_sdk::{
     assert_let_timeout,
     event_cache::ThreadEventCacheUpdate,
-    test_utils::mocks::{MatrixMockServer, RoomRelationsResponseTemplate},
+    test_utils::{
+        assert_event_matches_msg,
+        mocks::{MatrixMockServer, RoomRelationsResponseTemplate},
+    },
 };
-use matrix_sdk_test::{async_test, event_factory::EventFactory, JoinedRoomBuilder, ALICE};
-use ruma::{event_id, room_id};
+use matrix_sdk_test::{
+    async_test, event_factory::EventFactory, GlobalAccountDataTestEvent, JoinedRoomBuilder, ALICE,
+};
+use ruma::{event_id, room_id, user_id};
+use serde_json::json;
 
 #[async_test]
 async fn test_thread_can_paginate_even_if_seen_sync_event() {
@@ -81,4 +87,102 @@ async fn test_thread_can_paginate_even_if_seen_sync_event() {
     assert_eq!(diffs.len(), 1);
     assert_let!(VectorDiff::Insert { index: 0, value } = &diffs[0]);
     assert_eq!(value.event_id().as_deref(), Some(thread_root_id));
+}
+
+#[async_test]
+async fn test_ignored_user_empties_threads() {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+
+    // Immediately subscribe the event cache to sync updates.
+    client.event_cache().subscribe().unwrap();
+
+    let room_id = room_id!("!omelette:fromage.fr");
+
+    let dexter = user_id!("@dexter:lab.org");
+    let ivan = user_id!("@ivan:lab.ch");
+
+    let f = EventFactory::new();
+
+    let thread_root = event_id!("$thread_root");
+    let first_reply_event_id = event_id!("$first_reply");
+    let second_reply_event_id = event_id!("$second_reply");
+
+    // Given a room with a thread, that has two replies.
+    let room = server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id).add_timeline_bulk(vec![
+                f.text_msg("hey there")
+                    .sender(dexter)
+                    .in_thread(thread_root, thread_root)
+                    .event_id(first_reply_event_id)
+                    .into_raw_sync(),
+                f.text_msg("hoy!")
+                    .sender(ivan)
+                    .in_thread(thread_root, first_reply_event_id)
+                    .event_id(second_reply_event_id)
+                    .into_raw_sync(),
+            ]),
+        )
+        .await;
+
+    // And we subscribe to the thread,
+    let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+    let (events, mut thread_stream) =
+        room_event_cache.subscribe_to_thread(thread_root.to_owned()).await;
+
+    // Then, at first, the thread contains the two initial events.
+    assert_eq!(events.len(), 2);
+    assert_event_matches_msg(&events[0], "hey there");
+    assert_event_matches_msg(&events[1], "hoy!");
+
+    // `dexter` is ignored.
+    server
+        .mock_sync()
+        .ok_and_run(&client, |sync_builder| {
+            sync_builder.add_global_account_data_event(GlobalAccountDataTestEvent::Custom(json!({
+                "content": {
+                    "ignored_users": {
+                        dexter: {}
+                    }
+                },
+                "type": "m.ignored_user_list",
+            })));
+        })
+        .await;
+
+    // We do receive a clear.
+    {
+        assert_let_timeout!(Ok(ThreadEventCacheUpdate { diffs, .. }) = thread_stream.recv());
+        assert_eq!(diffs.len(), 1);
+        assert_let!(VectorDiff::Clear = &diffs[0]);
+    }
+
+    // Receiving new events still works.
+    server
+        .mock_sync()
+        .ok_and_run(&client, |sync_builder| {
+            sync_builder.add_joined_room(
+                JoinedRoomBuilder::new(room_id).add_timeline_event(
+                    f.text_msg("i don't like this dexter")
+                        .in_thread(thread_root, second_reply_event_id)
+                        .sender(ivan),
+                ),
+            );
+        })
+        .await;
+
+    // We do receive the new event.
+    {
+        assert_let_timeout!(Ok(ThreadEventCacheUpdate { diffs, .. }) = thread_stream.recv());
+        assert_eq!(diffs.len(), 1);
+
+        assert_let!(VectorDiff::Append { values: events } = &diffs[0]);
+        assert_eq!(events.len(), 1);
+        assert_event_matches_msg(&events[0], "i don't like this dexter");
+    }
+
+    // That's all, folks!
+    assert!(thread_stream.is_empty());
 }
