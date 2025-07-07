@@ -1,11 +1,12 @@
 use std::ops::Deref;
 
 use anyhow::Result;
-use assert_matches2::assert_let;
+use assert_matches2::{assert_let, assert_matches};
 use assign::assign;
 use futures::{pin_mut, FutureExt, StreamExt};
 use matrix_sdk::{
     assert_decrypted_message_eq,
+    deserialized_responses::TimelineEventKind,
     encryption::EncryptionSettings,
     ruma::{
         api::client::room::create_room::v3::{Request as CreateRoomRequest, RoomPreset},
@@ -124,6 +125,110 @@ async fn test_history_share_on_invite() -> Result<()> {
         event,
         "Hello Bob",
         "The decrypted event should match the message Alice has sent"
+    );
+
+    Ok(())
+}
+
+/// When a shared history bundle arrives after we joined we accept the bundle.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn test_history_share_on_invite_out_of_order() -> Result<()> {
+    let alice_span = tracing::info_span!("alice");
+    let bob_span = tracing::info_span!("bob");
+
+    let encryption_settings =
+        EncryptionSettings { auto_enable_cross_signing: true, ..Default::default() };
+
+    let alice = TestClientBuilder::new("alice")
+        .encryption_settings(encryption_settings)
+        .enable_share_history_on_invite(true)
+        .build()
+        .await?;
+
+    let sync_service_span = tracing::info_span!(parent: &alice_span, "sync_service");
+    let alice_sync_service = SyncService::builder(alice.clone())
+        .with_parent_span(sync_service_span)
+        .build()
+        .await
+        .expect("Could not build alice sync service");
+
+    alice.encryption().wait_for_e2ee_initialization_tasks().await;
+    alice_sync_service.start().await;
+
+    let bob = SyncTokenAwareClient::new(
+        TestClientBuilder::new("bob")
+            .encryption_settings(encryption_settings)
+            .enable_share_history_on_invite(true)
+            .build()
+            .await?,
+    );
+
+    // Alice creates a room ...
+    let alice_room = alice
+        .create_room(assign!(CreateRoomRequest::new(), {
+            preset: Some(RoomPreset::PublicChat),
+        }))
+        .await?;
+    alice_room.enable_encryption().await?;
+
+    info!(room_id = ?alice_room.room_id(), "Alice has created and enabled encryption in the room");
+
+    // ... and sends a message
+    let event_id = alice_room
+        .send(RoomMessageEventContent::text_plain("Hello Bob"))
+        .await
+        .expect("We should be able to send a message to the room")
+        .event_id;
+
+    let bundle_stream = bob
+        .encryption()
+        .historic_room_key_stream()
+        .await
+        .expect("We should be able to get the bundle stream");
+    pin_mut!(bundle_stream);
+
+    // Alice invites Bob to the room
+    alice_room.invite_user_by_id(bob.user_id().unwrap()).await?;
+
+    // Alice is done. Bob has been invited and the room key bundle should have been
+    // sent out. Let's stop syncing so the logs contain less noise.
+    alice_sync_service.stop().await;
+
+    // Let's first join without syncing, this ensures that the bundle doesn't arrive
+    // until after we're joined.
+    let bob_room = bob.join_room_by_id(alice_room.room_id()).instrument(bob_span.clone()).await?;
+    let event = bob_room.event(&event_id, None).instrument(bob_span.clone()).await?;
+
+    assert_matches!(
+        event.kind,
+        TimelineEventKind::UnableToDecrypt { .. },
+        "We didn't yet sync the bundle, so this should be a UTD."
+    );
+    assert!(bundle_stream.next().now_or_never().flatten().is_none());
+
+    // Ok, the event is a UTD and there's no info about the bundle on the stream.
+    // Let's now sync to receive the bundle.
+    bob.sync_once().instrument(bob_span.clone()).await?;
+
+    let info = bundle_stream
+        .next()
+        .now_or_never()
+        .flatten()
+        .expect("We should be notified about the received bundle");
+
+    assert_eq!(Some(info.sender.deref()), alice.user_id());
+    assert_eq!(info.room_id, alice_room.room_id());
+
+    let event = bob_room
+        .event(&event_id, None)
+        .instrument(bob_span.clone())
+        .await
+        .expect("Bob should be able to fetch the historic event");
+
+    assert_decrypted_message_eq!(
+        event,
+        "Hello Bob",
+        "Now that we synced, we should have accepted the bundle and the event should be decrypted"
     );
 
     Ok(())
