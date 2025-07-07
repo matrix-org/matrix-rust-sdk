@@ -578,3 +578,76 @@ async fn test_thread_filtering_for_sync() {
         assert_pending!(timeline_stream);
     }
 }
+
+#[async_test]
+async fn test_thread_timeline_gets_related_events_from_sync() {
+    // If a thread timeline receives a sync event related to an in-thread event, it
+    // gets updated.
+
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+
+    let room_id = room_id!("!a:b.c");
+    let sender_id = user_id!("@alice:b.c");
+    let thread_root_event_id = owned_event_id!("$root");
+    let threaded_event_id = event_id!("$threaded_event");
+
+    let room = server.sync_joined_room(&client, room_id).await;
+
+    let timeline = room
+        .timeline_builder()
+        .with_focus(TimelineFocus::Thread { root_event_id: thread_root_event_id.clone() })
+        .build()
+        .await
+        .unwrap();
+
+    let (initial_items, mut stream) = timeline.subscribe().await;
+
+    // At first, the timeline is empty.
+    assert!(initial_items.is_empty());
+    assert_pending!(stream);
+
+    // After a sync with an in-thread event, the timeline receives an update.
+    let f = EventFactory::new();
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id).add_timeline_event(
+                f.text_msg("Within thread")
+                    .sender(sender_id)
+                    .event_id(threaded_event_id)
+                    .in_thread(&thread_root_event_id, threaded_event_id),
+            ),
+        )
+        .await;
+
+    assert_let_timeout!(Some(timeline_updates) = stream.next());
+    assert_eq!(timeline_updates.len(), 2);
+
+    assert_let!(VectorDiff::PushBack { value } = &timeline_updates[0]);
+    let event_item = value.as_event().unwrap();
+    assert_eq!(event_item.event_id(), Some(threaded_event_id));
+    assert!(event_item.content().reactions().unwrap().is_empty());
+
+    assert_let!(VectorDiff::PushFront { value } = &timeline_updates[1]);
+    assert!(value.is_date_divider());
+
+    assert_pending!(stream);
+
+    // When we get a reaction for the in-thread event, from sync, the timeline gets
+    // updated, even though the reaction doesn't mention the thread directly.
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id)
+                .add_timeline_event(f.reaction(threaded_event_id, "👍").sender(sender_id)),
+        )
+        .await;
+
+    assert_let_timeout!(Some(timeline_updates) = stream.next());
+    assert_eq!(timeline_updates.len(), 1);
+    assert_let!(VectorDiff::Set { index: 1, value } = &timeline_updates[0]);
+    let event_item = value.as_event().unwrap();
+    assert_eq!(event_item.event_id().unwrap(), threaded_event_id);
+    assert!(event_item.content().reactions().unwrap().is_empty().not());
+}
