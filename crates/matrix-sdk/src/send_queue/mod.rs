@@ -246,6 +246,7 @@ impl SendQueue {
             data.is_dropping.clone(),
             &self.client,
             owned_room_id.clone(),
+            data.report_media_upload_progress.clone(),
         );
 
         map.insert(owned_room_id, room_q.clone());
@@ -330,11 +331,14 @@ pub(super) struct SendQueueData {
 
     /// Are we currently dropping the Client?
     is_dropping: Arc<AtomicBool>,
+
+    /// Will media upload progress be reported via send queue updates?
+    report_media_upload_progress: Arc<AtomicBool>,
 }
 
 impl SendQueueData {
     /// Create the data for a send queue, in the given enabled state.
-    pub fn new(globally_enabled: bool) -> Self {
+    pub fn new(globally_enabled: bool, report_media_upload_progress: bool) -> Self {
         let (sender, _) = broadcast::channel(32);
 
         Self {
@@ -342,6 +346,7 @@ impl SendQueueData {
             globally_enabled: AtomicBool::new(globally_enabled),
             error_reporter: sender,
             is_dropping: Arc::new(false.into()),
+            report_media_upload_progress: Arc::new(AtomicBool::new(report_media_upload_progress)),
         }
     }
 }
@@ -389,6 +394,7 @@ impl RoomSendQueue {
         is_dropping: Arc<AtomicBool>,
         client: &Client,
         room_id: OwnedRoomId,
+        report_media_upload_progress: Arc<AtomicBool>,
     ) -> Self {
         let (updates_sender, _) = broadcast::channel(32);
 
@@ -406,6 +412,7 @@ impl RoomSendQueue {
             locally_enabled.clone(),
             global_error_reporter,
             is_dropping,
+            report_media_upload_progress,
         ));
 
         Self {
@@ -514,6 +521,7 @@ impl RoomSendQueue {
     ///
     /// It only progresses forward: nothing can be cancelled at any point, which
     /// makes the implementation not overly complicated to follow.
+    #[allow(clippy::too_many_arguments)]
     #[instrument(skip_all, fields(room_id = %room.room_id()))]
     async fn sending_task(
         room: WeakRoom,
@@ -523,6 +531,7 @@ impl RoomSendQueue {
         locally_enabled: Arc<AtomicBool>,
         global_error_reporter: broadcast::Sender<SendQueueRoomError>,
         is_dropping: Arc<AtomicBool>,
+        _report_media_upload_progress: Arc<AtomicBool>,
     ) {
         trace!("spawned the sending task");
 

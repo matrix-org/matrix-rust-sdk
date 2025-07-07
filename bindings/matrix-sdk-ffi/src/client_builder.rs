@@ -129,6 +129,7 @@ pub struct ClientBuilder {
     decryption_settings: DecryptionSettings,
     enable_share_history_on_invite: bool,
     request_config: Option<RequestConfig>,
+    enable_send_queue_media_upload_progress_reporting: bool,
 
     #[cfg(not(target_family = "wasm"))]
     user_agent: Option<String>,
@@ -180,6 +181,7 @@ impl ClientBuilder {
             enable_share_history_on_invite: false,
             request_config: Default::default(),
             threads_enabled: false,
+            enable_send_queue_media_upload_progress_reporting: false,
         })
     }
 
@@ -386,6 +388,18 @@ impl ClientBuilder {
         Arc::new(builder)
     }
 
+    /// Set whether to enable progress reporting for media uploads in the send
+    /// queue.
+    pub fn enable_send_queue_media_upload_progress_reporting(
+        self: Arc<Self>,
+        enable_send_queue_media_upload_progress_reporting: bool,
+    ) -> Arc<Self> {
+        let mut builder = unwrap_or_clone_arc(self);
+        builder.enable_send_queue_media_upload_progress_reporting =
+            enable_send_queue_media_upload_progress_reporting;
+        Arc::new(builder)
+    }
+
     /// Add a default request config to this client.
     pub fn request_config(self: Arc<Self>, config: RequestConfig) -> Arc<Self> {
         let mut builder = unwrap_or_clone_arc(self);
@@ -524,7 +538,10 @@ impl ClientBuilder {
             .with_encryption_settings(builder.encryption_settings)
             .with_room_key_recipient_strategy(builder.room_key_recipient_strategy)
             .with_decryption_settings(builder.decryption_settings)
-            .with_enable_share_history_on_invite(builder.enable_share_history_on_invite);
+            .with_enable_share_history_on_invite(builder.enable_share_history_on_invite)
+            .with_enable_send_queue_media_upload_progress_reporting(
+                builder.enable_send_queue_media_upload_progress_reporting,
+            );
 
         match builder.sliding_sync_version_builder {
             SlidingSyncVersionBuilder::None => {
