@@ -435,10 +435,10 @@ impl BaseClient {
     /// # Examples
     ///
     /// ```rust
-    /// # use matrix_sdk_base::{BaseClient, store::StoreConfig, RoomState};
+    /// # use matrix_sdk_base::{BaseClient, store::StoreConfig, RoomState, ThreadingSupport};
     /// # use ruma::OwnedRoomId;
     /// # async {
-    /// # let client = BaseClient::new(StoreConfig::new("example".to_owned()));
+    /// # let client = BaseClient::new(StoreConfig::new("example".to_owned()), ThreadingSupport::Disabled);
     /// # async fn send_join_request() -> anyhow::Result<OwnedRoomId> { todo!() }
     /// let room_id = send_join_request().await?;
     /// let room = client.room_joined(&room_id).await?;
