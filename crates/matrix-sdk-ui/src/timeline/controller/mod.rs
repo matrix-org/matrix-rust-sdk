@@ -1366,7 +1366,7 @@ impl<P: RoomDataProvider, D: Decryptor> TimelineController<P, D> {
                     .await;
             }
 
-            RoomSendQueueUpdate::UploadedMedia { related_to, .. } => {
+            RoomSendQueueUpdate::MediaUpload { related_to, .. } => {
                 // TODO(bnjbvr): Do something else?
                 info!(txn_id = %related_to, "some media for a media event has been uploaded");
             }

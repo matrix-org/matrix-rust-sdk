@@ -667,7 +667,7 @@ impl RoomSendQueue {
                                 &global_update_sender,
                                 &update_sender,
                                 room_id,
-                                RoomSendQueueUpdate::UploadedMedia {
+                                RoomSendQueueUpdate::MediaUpload {
                                     related_to: related_txn_id.as_ref().unwrap_or(&txn_id).clone(),
                                     file: media_info.file,
                                 },
@@ -2219,8 +2219,9 @@ pub enum RoomSendQueueUpdate {
         event_id: OwnedEventId,
     },
 
-    /// A media has been successfully uploaded.
-    UploadedMedia {
+    /// A media upload (consisting of a file and possibly a thumbnail) has made
+    /// progress.
+    MediaUpload {
         /// The media event this uploaded media relates to.
         related_to: OwnedTransactionId,
 

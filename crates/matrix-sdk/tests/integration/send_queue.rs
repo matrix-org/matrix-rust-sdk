@@ -165,12 +165,12 @@ macro_rules! assert_update {
     // Returns a tuple of (transaction_id, send_handle).
     (($global_watch:ident, $watch:ident) => uploaded { related_to = $related_to:expr, mxc = $mxc:expr }) => {{
         assert_let!(
-            Ok(Ok(RoomSendQueueUpdate::UploadedMedia {
+            Ok(Ok(RoomSendQueueUpdate::MediaUpload {
                 related_to,
                 file,
             })) = timeout(Duration::from_secs(1), $watch.recv()).await
         );
-        assert_matches!($global_watch.recv().await, Ok(SendQueueUpdate { update: RoomSendQueueUpdate::UploadedMedia { .. }, .. }));
+        assert_matches!($global_watch.recv().await, Ok(SendQueueUpdate { update: RoomSendQueueUpdate::MediaUpload { .. }, .. }));
 
         assert_eq!(related_to, $related_to);
         assert_let!(MediaSource::Plain(mxc) = file);
