@@ -318,6 +318,9 @@ struct QueueThumbnailInfo {
 
     /// The thumbnail's mime type.
     content_type: Mime,
+
+    /// The thumbnail's file size in bytes.
+    file_size: usize,
 }
 
 /// A specific room's send queue ran into an error, and it has disabled itself.
@@ -998,6 +1001,20 @@ struct StoreLock {
     ///
     /// Also used as the lock to access the state store.
     being_sent: Arc<Mutex<Option<BeingSentInfo>>>,
+
+    /// In-memory mapping of media transaction IDs to thumbnail sizes for the
+    /// purpose of progress reporting.
+    ///
+    /// The keys are the transaction IDs for sending the media or gallery event
+    /// after all uploads have finished. This allows us to easily clean up the
+    /// cache after the event was sent.
+    ///
+    /// For media uploads, the value vector will always have a single element.
+    ///
+    /// For galleries, some gallery items might not have a thumbnail while
+    /// others do. Since we access the thumbnails by their index within the
+    /// gallery, the vector needs to hold optional usize's.
+    thumbnail_size_cache: Arc<Mutex<HashMap<OwnedTransactionId, Vec<Option<usize>>>>>,
 }
 
 impl StoreLock {
@@ -1006,6 +1023,7 @@ impl StoreLock {
         StoreLockGuard {
             client: self.client.clone(),
             being_sent: self.being_sent.clone().lock_owned().await,
+            thumbnail_size_cache: self.thumbnail_size_cache.clone().lock_owned().await,
         }
     }
 }
@@ -1019,6 +1037,10 @@ struct StoreLockGuard {
     /// The one queued request that is being sent at the moment, along with
     /// associated data that can be useful to act upon it.
     being_sent: OwnedMutexGuard<Option<BeingSentInfo>>,
+
+    /// In-memory mapping of media transaction IDs to thumbnail sizes for the
+    /// purpose of progress reporting.
+    thumbnail_size_cache: OwnedMutexGuard<HashMap<OwnedTransactionId, Vec<Option<usize>>>>,
 }
 
 impl StoreLockGuard {
@@ -1047,7 +1069,14 @@ impl QueueStorage {
 
     /// Create a new queue for queuing requests to be sent later.
     fn new(client: WeakClient, room: OwnedRoomId) -> Self {
-        Self { room_id: room, store: StoreLock { client, being_sent: Default::default() } }
+        Self {
+            room_id: room,
+            store: StoreLock {
+                client,
+                being_sent: Default::default(),
+                thumbnail_size_cache: Default::default(),
+            },
+        }
     }
 
     /// Push a new event to be sent in the queue, with a default priority of 0.
@@ -1204,6 +1233,8 @@ impl QueueStorage {
             warn!(txn_id = %transaction_id, "request marked as sent was missing from storage");
         }
 
+        guard.thumbnail_size_cache.remove(transaction_id);
+
         Ok(())
     }
 
@@ -1217,7 +1248,7 @@ impl QueueStorage {
         &self,
         transaction_id: &TransactionId,
     ) -> Result<bool, RoomSendQueueStorageError> {
-        let guard = self.store.lock().await;
+        let mut guard = self.store.lock().await;
 
         if guard.being_sent.as_ref().map(|info| info.transaction_id.as_ref())
             == Some(transaction_id)
@@ -1243,6 +1274,8 @@ impl QueueStorage {
             .state_store()
             .remove_send_queue_request(&self.room_id, transaction_id)
             .await?;
+
+        guard.thumbnail_size_cache.remove(transaction_id);
 
         Ok(removed)
     }
@@ -1302,9 +1335,11 @@ impl QueueStorage {
         file_media_request: MediaRequestParameters,
         thumbnail: Option<QueueThumbnailInfo>,
     ) -> Result<(), RoomSendQueueStorageError> {
-        let guard = self.store.lock().await;
+        let mut guard = self.store.lock().await;
         let client = guard.client()?;
         let store = client.state_store();
+
+        let media_sizes = vec![thumbnail.as_ref().map(|t| t.file_size)];
 
         let thumbnail_info = self
             .push_thumbnail_and_media_uploads(
@@ -1323,7 +1358,7 @@ impl QueueStorage {
             .save_dependent_queued_request(
                 &self.room_id,
                 &upload_file_txn,
-                send_event_txn.into(),
+                send_event_txn.clone().into(),
                 created_at,
                 DependentQueuedRequestKind::FinishUpload {
                     local_echo: Box::new(event),
@@ -1332,6 +1367,8 @@ impl QueueStorage {
                 },
             )
             .await?;
+
+        guard.thumbnail_size_cache.insert(send_event_txn, media_sizes);
 
         Ok(())
     }
@@ -1348,11 +1385,12 @@ impl QueueStorage {
         created_at: MilliSecondsSinceUnixEpoch,
         item_queue_infos: Vec<GalleryItemQueueInfo>,
     ) -> Result<(), RoomSendQueueStorageError> {
-        let guard = self.store.lock().await;
+        let mut guard = self.store.lock().await;
         let client = guard.client()?;
         let store = client.state_store();
 
         let mut finish_item_infos = Vec::with_capacity(item_queue_infos.len());
+        let mut media_sizes = Vec::with_capacity(item_queue_infos.len());
 
         let Some((first, rest)) = item_queue_infos.split_first() else {
             return Ok(());
@@ -1375,6 +1413,7 @@ impl QueueStorage {
 
         finish_item_infos
             .push(FinishGalleryItemInfo { file_upload: upload_file_txn.clone(), thumbnail_info });
+        media_sizes.push(thumbnail.as_ref().map(|t| t.file_size));
 
         let mut last_upload_file_txn = upload_file_txn.clone();
 
@@ -1439,6 +1478,7 @@ impl QueueStorage {
                 file_upload: upload_file_txn.clone(),
                 thumbnail_info: thumbnail_info.cloned(),
             });
+            media_sizes.push(thumbnail.as_ref().map(|t| t.file_size));
 
             last_upload_file_txn = upload_file_txn.clone();
         }
@@ -1449,7 +1489,7 @@ impl QueueStorage {
             .save_dependent_queued_request(
                 &self.room_id,
                 &last_upload_file_txn,
-                send_event_txn.into(),
+                send_event_txn.clone().into(),
                 created_at,
                 DependentQueuedRequestKind::FinishGallery {
                     local_echo: Box::new(event),
@@ -1457,6 +1497,8 @@ impl QueueStorage {
                 },
             )
             .await?;
+
+        guard.thumbnail_size_cache.insert(send_event_txn, media_sizes);
 
         Ok(())
     }
