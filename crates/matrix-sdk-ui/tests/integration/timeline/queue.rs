@@ -379,7 +379,10 @@ async fn test_clear_with_echoes() {
     // The message that failed to send.
     assert_matches!(event_items[1].send_state(), Some(EventSendState::SendingFailed { .. }));
     // The message that is still pending.
-    assert_matches!(event_items[2].send_state(), Some(EventSendState::NotSentYet));
+    assert_matches!(
+        event_items[2].send_state(),
+        Some(EventSendState::NotSentYet { progress: None })
+    );
 
     // When we clear the timeline now,
     timeline.clear().await;
@@ -390,7 +393,10 @@ async fn test_clear_with_echoes() {
 
     assert_eq!(event_items.len(), 2);
     assert_matches!(event_items[0].send_state(), Some(EventSendState::SendingFailed { .. }));
-    assert_matches!(event_items[1].send_state(), Some(EventSendState::NotSentYet));
+    assert_matches!(
+        event_items[1].send_state(),
+        Some(EventSendState::NotSentYet { progress: None })
+    );
 }
 
 #[async_test]

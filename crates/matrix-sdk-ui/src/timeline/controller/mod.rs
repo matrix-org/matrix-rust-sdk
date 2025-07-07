@@ -62,8 +62,8 @@ pub(super) use self::{
 };
 use super::{
     DateDividerMode, EmbeddedEvent, Error, EventSendState, EventTimelineItem, InReplyToDetails,
-    PaginationError, Profile, TimelineDetails, TimelineEventItemId, TimelineFocus, TimelineItem,
-    TimelineItemContent, TimelineItemKind, VirtualTimelineItem,
+    MediaUploadProgress, PaginationError, Profile, TimelineDetails, TimelineEventItemId,
+    TimelineFocus, TimelineItem, TimelineItemContent, TimelineItemKind, VirtualTimelineItem,
     algorithms::{rfind_event_by_id, rfind_event_item},
     event_item::{ReactionStatus, RemoteEventOrigin},
     item::TimelineUniqueId,
@@ -1072,7 +1072,11 @@ impl<P: RoomDataProvider, D: Decryptor> TimelineController<P, D> {
                 warn!("We looked for a local item, but it transitioned as remote??");
                 return false;
             };
-            prev_local_item.with_send_state(EventSendState::NotSentYet)
+            // If the local echo had an upload progress, retain it.
+            let progress = as_variant!(&prev_local_item.send_state,
+                EventSendState::NotSentYet { progress } => progress.clone())
+            .flatten();
+            prev_local_item.with_send_state(EventSendState::NotSentYet { progress })
         };
 
         // Replace the local-related state (kind) and the content state.
@@ -1358,7 +1362,11 @@ impl<P: RoomDataProvider, D: Decryptor> TimelineController<P, D> {
             }
 
             RoomSendQueueUpdate::RetryEvent { transaction_id } => {
-                self.update_event_send_state(&transaction_id, EventSendState::NotSentYet).await;
+                self.update_event_send_state(
+                    &transaction_id,
+                    EventSendState::NotSentYet { progress: None },
+                )
+                .await;
             }
 
             RoomSendQueueUpdate::SentEvent { transaction_id, event_id } => {
@@ -1366,9 +1374,14 @@ impl<P: RoomDataProvider, D: Decryptor> TimelineController<P, D> {
                     .await;
             }
 
-            RoomSendQueueUpdate::MediaUpload { related_to, .. } => {
-                // TODO(bnjbvr): Do something else?
-                info!(txn_id = %related_to, "some media for a media event has been uploaded");
+            RoomSendQueueUpdate::MediaUpload { related_to, index, progress, .. } => {
+                self.update_event_send_state(
+                    &related_to,
+                    EventSendState::NotSentYet {
+                        progress: Some(MediaUploadProgress { index, progress }),
+                    },
+                )
+                .await;
             }
         }
     }
