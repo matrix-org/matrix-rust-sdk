@@ -35,17 +35,19 @@ use ruma::{
     directory::PublicRoomsChunk,
     encryption::{CrossSigningKey, DeviceKeys, OneTimeKey},
     events::{
-        receipt::ReceiptThread, room::member::RoomMemberEvent, AnyStateEvent, AnyTimelineEvent,
-        GlobalAccountDataEventType, MessageLikeEventType, RoomAccountDataEventType, StateEventType,
+        receipt::ReceiptThread, room::member::RoomMemberEvent, AnyStateEvent, AnySyncTimelineEvent,
+        AnyTimelineEvent, GlobalAccountDataEventType, MessageLikeEventType,
+        RoomAccountDataEventType, StateEventType,
     },
     media::Method,
     serde::Raw,
     time::Duration,
-    DeviceId, EventId, MxcUri, OwnedDeviceId, OwnedEventId, OwnedOneTimeKeyId, OwnedRoomId,
-    OwnedUserId, RoomId, ServerName, UserId,
+    DeviceId, EventId, MilliSecondsSinceUnixEpoch, MxcUri, OwnedDeviceId, OwnedEventId,
+    OwnedOneTimeKeyId, OwnedRoomId, OwnedUserId, RoomId, ServerName, UserId,
 };
 use serde::Deserialize;
-use serde_json::{json, Value};
+use serde_json::{from_value, json, Value};
+use tokio::sync::oneshot::{self, Receiver};
 use wiremock::{
     matchers::{body_json, body_partial_json, header, method, path, path_regex, query_param},
     Mock, MockBuilder, MockGuard, MockServer, Request, Respond, ResponseTemplate, Times,
@@ -340,6 +342,36 @@ impl MatrixMockServer {
             SyncEndpoint { sync_response_builder: self.sync_response_builder.clone() },
         )
         .expect_default_access_token()
+    }
+
+    /// Creates a prebuilt mock for joining a room.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # tokio_test::block_on(async {
+    /// use matrix_sdk::{ruma::{room_id, event_id}, test_utils::mocks::MatrixMockServer};
+    /// use serde_json::json;
+    ///
+    /// let mock_server = MatrixMockServer::new().await;
+    /// let client = mock_server.client_builder().build().await;
+    /// let room_id = room_id!("!test:localhost");
+    ///
+    /// mock_server.mock_room_join(room_id).ok().mount();
+    ///
+    /// let room = client.join_room_by_id(room_id).await?;
+    ///
+    /// assert_eq!(
+    ///     room_id,
+    ///     room.room_id(),
+    ///     "The room ID we mocked should match the one we received when we joined the room"
+    /// );
+    /// # anyhow::Ok(()) });
+    /// ```
+    pub fn mock_room_join(&self, room_id: &RoomId) -> MockEndpoint<'_, JoinRoomEndpoint> {
+        let mock = Mock::given(method("POST"))
+            .and(path_regex(format!("^/_matrix/client/v3/rooms/{room_id}/join")));
+        self.mock_endpoint(mock, JoinRoomEndpoint { room_id: room_id.to_owned() })
     }
 
     /// Creates a prebuilt mock for sending an event in a room.
@@ -1832,6 +1864,102 @@ impl<'a> MockEndpoint<'a, RoomSendEndpoint> {
     pub fn ok(self, returned_event_id: impl Into<OwnedEventId>) -> MatrixMock<'a> {
         self.ok_with_event_id(returned_event_id.into())
     }
+
+    /// Returns a send endpoint that emulates success, i.e. the event has been
+    /// sent with the given event id.
+    ///
+    /// The sent event is captured and can be accessed using the returned
+    /// [`Receiver`]. The [`Receiver`] is valid only for a send call. The given
+    /// `event_sender` are added to the event JSON.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # tokio_test::block_on(async {
+    /// use matrix_sdk::{
+    ///     ruma::{
+    ///         event_id, events::room::message::RoomMessageEventContent, room_id,
+    ///     },
+    ///     test_utils::mocks::MatrixMockServer,
+    /// };
+    /// use matrix_sdk_test::JoinedRoomBuilder;
+    ///
+    /// let room_id = room_id!("!room_id:localhost");
+    /// let event_id = event_id!("$some_id");
+    ///
+    /// let server = MatrixMockServer::new().await;
+    /// let client = server.client_builder().build().await;
+    ///
+    /// let user_id = client.user_id().expect("We should have a user ID by now");
+    ///
+    /// let (receiver, mock) =
+    ///     server.mock_room_send().ok_with_capture(event_id, user_id);
+    ///
+    /// server
+    ///     .mock_sync()
+    ///     .ok_and_run(&client, |builder| {
+    ///         builder.add_joined_room(JoinedRoomBuilder::new(room_id));
+    ///     })
+    ///     .await;
+    ///
+    /// // Mock any additional endpoints that might be needed to send the message.
+    ///
+    /// let room = client
+    ///     .get_room(room_id)
+    ///     .expect("We should have access to our room now");
+    ///
+    /// let event_id = room
+    ///     .send(RoomMessageEventContent::text_plain("It's a secret to everybody"))
+    ///     .await
+    ///     .expect("We should be able to send an initial message")
+    ///     .event_id;
+    ///
+    /// let event = receiver.await?;
+    /// # anyhow::Ok(()) });
+    /// ```
+    pub fn ok_with_capture(
+        self,
+        returned_event_id: impl Into<OwnedEventId>,
+        event_sender: impl Into<OwnedUserId>,
+    ) -> (Receiver<Raw<AnySyncTimelineEvent>>, MatrixMock<'a>) {
+        let event_id = returned_event_id.into();
+        let event_sender = event_sender.into();
+
+        let (sender, receiver) = oneshot::channel();
+        let sender = Arc::new(Mutex::new(Some(sender)));
+
+        let ret = self.respond_with(move |request: &Request| {
+            if let Some(sender) = sender.lock().unwrap().take() {
+                let uri = &request.url;
+                let path_segments = uri.path_segments();
+                let maybe_event_type = path_segments.and_then(|mut s| s.nth_back(1));
+                let event_type = maybe_event_type
+                    .as_ref()
+                    .map(|&e| e.to_owned())
+                    .unwrap_or("m.room.message".to_owned());
+
+                let body: Value =
+                    request.body_json().expect("The received body should be valid JSON");
+
+                let event = json!({
+                    "event_id": event_id.clone(),
+                    "sender": event_sender,
+                    "type": event_type,
+                    "origin_server_ts": MilliSecondsSinceUnixEpoch::now(),
+                    "content": body,
+                });
+
+                let event: Raw<AnySyncTimelineEvent> = from_value(event)
+                    .expect("We should be able to create a raw event from the content");
+
+                sender.send(event).expect("We should be able to send the event to the receiver");
+            }
+
+            ResponseTemplate::new(200).set_body_json(json!({ "event_id": event_id.clone() }))
+        });
+
+        (receiver, ret)
+    }
 }
 
 /// A prebuilt mock for sending a state event in a room.
@@ -2444,8 +2572,58 @@ impl<'a> MockEndpoint<'a, UploadEndpoint> {
         Self { mock: self.mock.and(header("content-type", content_type)), ..self }
     }
 
-    /// Returns a redact endpoint that emulates success, i.e. the redaction
-    /// event has been sent with the given event id.
+    /// Returns a upload endpoint that emulates success, i.e. the media has been
+    /// uploaded to the media server and can be accessed using the given
+    /// event has been sent with the given [`MxcUri`].
+    ///
+    /// The uploaded content is captured and can be accessed using the returned
+    /// [`Receiver`]. The [`Receiver`] is valid only for a single media
+    /// upload.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # tokio_test::block_on(async {
+    /// use matrix_sdk::{
+    ///     ruma::{event_id, mxc_uri, room_id},
+    ///     test_utils::mocks::MatrixMockServer,
+    /// };
+    ///
+    /// let mxid = mxc_uri!("mxc://localhost/12345");
+    ///
+    /// let server = MatrixMockServer::new().await;
+    /// let (receiver, upload_mock) = server.mock_upload().ok_with_capture(mxid);
+    /// let client = server.client_builder().build().await;
+    ///
+    /// client.media().upload(&mime::TEXT_PLAIN, vec![1, 2, 3, 4, 5], None).await?;
+    ///
+    /// let uploaded = receiver.await?;
+    ///
+    /// assert_eq!(uploaded, vec![1, 2, 3, 4, 5]);
+    /// # anyhow::Ok(()) });
+    /// ```
+    pub fn ok_with_capture(self, mxc_id: &MxcUri) -> (Receiver<Vec<u8>>, MatrixMock<'a>) {
+        let (sender, receiver) = oneshot::channel();
+        let sender = Arc::new(Mutex::new(Some(sender)));
+        let response_body = json!({"content_uri": mxc_id});
+
+        let ret = self.respond_with(move |request: &Request| {
+            let maybe_sender = sender.lock().unwrap().take();
+
+            if let Some(sender) = maybe_sender {
+                let body = request.body.clone();
+                let _ = sender.send(body);
+            }
+
+            ResponseTemplate::new(200).set_body_json(response_body.clone())
+        });
+
+        (receiver, ret)
+    }
+
+    /// Returns a upload endpoint that emulates success, i.e. the media has been
+    /// uploaded to the media server and can be accessed using the given
+    /// event has been sent with the given [`MxcUri`].
     pub fn ok(self, mxc_id: &MxcUri) -> MatrixMock<'a> {
         self.respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "content_uri": mxc_id
@@ -3269,7 +3447,7 @@ impl<'a> MockEndpoint<'a, LoginEndpoint> {
     ///
     /// # Examples
     ///
-    /// ```rust
+    /// ```
     /// use matrix_sdk::test_utils::mocks::{
     ///     LoginResponseTemplate200, MatrixMockServer,
     /// };
@@ -3483,6 +3661,13 @@ impl<'a> MockEndpoint<'a, MediaDownloadEndpoint> {
         self.respond_with(ResponseTemplate::new(200).set_body_string("Hello, World!"))
     }
 
+    /// Returns a successful response with the given bytes.
+    pub fn ok_bytes(self, bytes: Vec<u8>) -> MatrixMock<'a> {
+        self.respond_with(
+            ResponseTemplate::new(200).set_body_raw(bytes, "application/octet-stream"),
+        )
+    }
+
     /// Returns a successful response with a fake image content.
     pub fn ok_image(self) -> MatrixMock<'a> {
         self.respond_with(
@@ -3529,5 +3714,21 @@ impl<'a> MockEndpoint<'a, AuthedMediaThumbnailEndpoint> {
         self.respond_with(
             ResponseTemplate::new(200).set_body_raw(b"binaryjpegthumbnaildata", "image/jpeg"),
         )
+    }
+}
+
+/// A prebuilt mock for `GET /client/v3/rooms/{room_id}/join` requests.
+pub struct JoinRoomEndpoint {
+    room_id: OwnedRoomId,
+}
+
+impl<'a> MockEndpoint<'a, JoinRoomEndpoint> {
+    /// Returns a successful response using the provided [`RoomId`].
+    pub fn ok(self) -> MatrixMock<'a> {
+        let room_id = self.endpoint.room_id.to_owned();
+
+        self.respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "room_id": room_id,
+        })))
     }
 }
