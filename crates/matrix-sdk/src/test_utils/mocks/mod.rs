@@ -382,7 +382,7 @@ impl MatrixMockServer {
     pub fn mock_room_send(&self) -> MockEndpoint<'_, RoomSendEndpoint> {
         let mock = Mock::given(method("PUT"))
             .and(path_regex(r"^/_matrix/client/v3/rooms/.*/send/.*".to_owned()));
-        self.mock_endpoint(mock, RoomSendEndpoint).expect_default_access_token()
+        self.mock_endpoint(mock, RoomSendEndpoint)
     }
 
     /// Creates a prebuilt mock for sending a state event in a room.
@@ -561,7 +561,7 @@ impl MatrixMockServer {
     /// Create a prebuilt mock for uploading media.
     pub fn mock_upload(&self) -> MockEndpoint<'_, UploadEndpoint> {
         let mock = Mock::given(method("POST")).and(path("/_matrix/media/v3/upload"));
-        self.mock_endpoint(mock, UploadEndpoint).expect_default_access_token()
+        self.mock_endpoint(mock, UploadEndpoint)
     }
 
     /// Create a prebuilt mock for resolving room aliases.
@@ -1197,7 +1197,7 @@ impl MatrixMockServer {
         &self,
     ) -> MockEndpoint<'_, AuthenticatedMediaConfigEndpoint> {
         let mock = Mock::given(method("GET")).and(path("/_matrix/client/v1/media/config"));
-        self.mock_endpoint(mock, AuthenticatedMediaConfigEndpoint).expect_default_access_token()
+        self.mock_endpoint(mock, AuthenticatedMediaConfigEndpoint)
     }
 
     /// Create a prebuilt mock for the endpoint used to log into a session.
