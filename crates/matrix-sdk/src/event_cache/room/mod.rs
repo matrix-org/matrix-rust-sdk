@@ -1260,6 +1260,15 @@ mod private {
         async fn reset_internal(&mut self) -> Result<(), EventCacheError> {
             self.room_linked_chunk.reset();
 
+            // No need to update the thread summaries: the room events are
+            // gone because of the
+            // reset of `room_linked_chunk`.
+            //
+            // Clear the threads.
+            for thread in self.threads.values_mut() {
+                thread.clear();
+            }
+
             self.propagate_changes().await?;
 
             // Reset the pagination state too: pretend we never waited for the initial

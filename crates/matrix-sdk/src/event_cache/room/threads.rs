@@ -71,6 +71,11 @@ impl ThreadEventCache {
     /// Clear a thread, after a gappy sync for instance.
     pub fn clear(&mut self) {
         self.chunk.reset();
+
+        let diffs = self.chunk.updates_as_vector_diffs();
+        if !diffs.is_empty() {
+            let _ = self.sender.send(ThreadEventCacheUpdate { diffs, origin: EventsOrigin::Cache });
+        }
     }
 
     /// Push some live events to this thread, and propagate the updates to
