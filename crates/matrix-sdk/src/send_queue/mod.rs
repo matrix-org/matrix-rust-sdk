@@ -138,6 +138,7 @@ use std::{
 };
 
 use as_variant::as_variant;
+use eyeball::SharedObservable;
 #[cfg(feature = "unstable-msc4274")]
 use matrix_sdk_base::store::FinishGalleryItemInfo;
 use matrix_sdk_base::{
@@ -176,7 +177,7 @@ use crate::{
     config::RequestConfig,
     error::RetryKind,
     room::{edit::EditedContent, WeakRoom},
-    Client, Media, Room,
+    Client, Media, Room, TransmissionProgress,
 };
 
 mod upload;
@@ -606,7 +607,7 @@ impl RoomSendQueue {
                 continue;
             };
 
-            match Self::handle_request(&room, queued_request, cancel_upload_rx).await {
+            match Self::handle_request(&room, queued_request, cancel_upload_rx, None).await {
                 Ok(Some(parent_key)) => match queue.mark_as_sent(&txn_id, parent_key.clone()).await
                 {
                     Ok(()) => match parent_key {
@@ -707,6 +708,7 @@ impl RoomSendQueue {
         room: &Room,
         request: QueuedRequest,
         cancel_upload_rx: Option<oneshot::Receiver<()>>,
+        progress: Option<SharedObservable<TransmissionProgress>>,
     ) -> Result<Option<SentRequestKey>, crate::Error> {
         match request.kind {
             QueuedRequestKind::Event { content } => {
@@ -754,18 +756,29 @@ impl RoomSendQueue {
                     let media_source = if room.latest_encryption_state().await?.is_encrypted() {
                         trace!("upload will be encrypted (encrypted room)");
                         let mut cursor = std::io::Cursor::new(data);
-                        let encrypted_file = room
-                            .client()
+                        let client = room.client();
+                        let mut req = client
                             .upload_encrypted_file(&mut cursor)
-                            .with_request_config(RequestConfig::short_retry())
-                            .await?;
+                            .with_request_config(RequestConfig::short_retry());
+
+                        if let Some(progress) = progress {
+                            req = req.with_send_progress_observable(progress);
+                        }
+
+                        let encrypted_file = req.await?;
                         MediaSource::Encrypted(Box::new(encrypted_file))
                     } else {
                         trace!("upload will be in clear text (room without encryption)");
                         let request_config = RequestConfig::short_retry()
                             .timeout(Media::reasonable_upload_timeout(&data));
-                        let res =
-                            room.client().media().upload(&mime, data, Some(request_config)).await?;
+                        let mut req =
+                            room.client().media().upload(&mime, data, Some(request_config));
+
+                        if let Some(progress) = progress {
+                            req = req.with_send_progress_observable(progress);
+                        }
+
+                        let res = req.await?;
                         MediaSource::Plain(res.content_uri)
                     };
 
@@ -773,8 +786,14 @@ impl RoomSendQueue {
                     let media_source = {
                         let request_config = RequestConfig::short_retry()
                             .timeout(Media::reasonable_upload_timeout(&data));
-                        let res =
-                            room.client().media().upload(&mime, data, Some(request_config)).await?;
+                        let mut req =
+                            room.client().media().upload(&mime, data, Some(request_config));
+
+                        if let Some(progress) = progress {
+                            req = req.with_send_progress_observable(progress);
+                        }
+
+                        let res = req.await?;
                         MediaSource::Plain(res.content_uri)
                     };
 
