@@ -244,7 +244,7 @@ async fn test_redact_message() {
     assert_let!(VectorDiff::PushBack { value: second } = &timeline_updates[0]);
 
     let second = second.as_event().unwrap();
-    assert_matches!(second.send_state(), Some(EventSendState::NotSentYet));
+    assert_matches!(second.send_state(), Some(EventSendState::NotSentYet { progress: None }));
 
     assert_let!(Some(timeline_updates) = timeline_stream.next().await);
     assert_eq!(timeline_updates.len(), 1);
@@ -298,7 +298,7 @@ async fn test_redact_local_sent_message() {
     assert_let!(VectorDiff::PushBack { value: item } = &timeline_updates[0]);
     let event = item.as_event().unwrap();
     assert!(event.is_local_echo());
-    assert_matches!(event.send_state(), Some(EventSendState::NotSentYet));
+    assert_matches!(event.send_state(), Some(EventSendState::NotSentYet { progress: None }));
 
     // As well as a date divider.
     assert_let!(VectorDiff::PushFront { value: date_divider } = &timeline_updates[1]);
