@@ -726,8 +726,8 @@ mod observable_items_tests {
 
     use super::*;
     use crate::timeline::{
-        controller::{EventTimelineItemKind, RemoteEventOrigin},
-        event_item::{LocalEventTimelineItem, RemoteEventTimelineItem},
+        controller::RemoteEventOrigin,
+        event_item::{EventTimelineItemKind, LocalEventTimelineItem, RemoteEventTimelineItem},
         EventSendState, EventTimelineItem, Message, MsgLikeContent, MsgLikeKind, TimelineDetails,
         TimelineItemContent, TimelineItemKind, TimelineUniqueId, VirtualTimelineItem,
     };

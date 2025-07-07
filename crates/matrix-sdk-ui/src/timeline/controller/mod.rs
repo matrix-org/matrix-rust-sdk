@@ -74,7 +74,7 @@ use crate::{
     timeline::{
         algorithms::rfind_event_by_item_id,
         date_dividers::DateDividerAdjuster,
-        event_item::EventTimelineItemKind,
+        event_item::TimelineItemHandle,
         pinned_events_loader::{PinnedEventsLoader, PinnedEventsLoaderError},
         MsgLikeContent, MsgLikeKind, TimelineEventFilterFn,
     },
@@ -608,33 +608,29 @@ impl<P: RoomDataProvider, D: Decryptor> TimelineController<P, D> {
             .and_then(|map| Some(map.get(key)?.get(user_id)?.status.clone()));
 
         let Some(prev_status) = prev_status else {
-            match &item.kind {
-                EventTimelineItemKind::Local(local) => {
-                    if let Some(send_handle) = &local.send_handle {
-                        if send_handle
-                            .react(key.to_owned())
-                            .await
-                            .map_err(|err| Error::SendQueueError(err.into()))?
-                            .is_some()
-                        {
-                            trace!("adding a reaction to a local echo");
-                            return Ok(true);
-                        }
-
-                        warn!("couldn't toggle reaction for local echo");
-                        return Ok(false);
+            // Adding the new reaction.
+            match item.handle() {
+                TimelineItemHandle::Local(send_handle) => {
+                    if send_handle
+                        .react(key.to_owned())
+                        .await
+                        .map_err(|err| Error::SendQueueError(err.into()))?
+                        .is_some()
+                    {
+                        trace!("adding a reaction to a local echo");
+                        return Ok(true);
                     }
 
-                    warn!("missing send handle for local echo; is this a test?");
+                    warn!("couldn't toggle reaction for local echo");
                     return Ok(false);
                 }
 
-                EventTimelineItemKind::Remote(remote) => {
+                TimelineItemHandle::Remote(event_id) => {
                     // Add a reaction through the room data provider.
                     // No need to reflect the effect locally, since the local echo handling will
                     // take care of it.
                     trace!("adding a reaction to a remote echo");
-                    let annotation = Annotation::new(remote.event_id.to_owned(), key.to_owned());
+                    let annotation = Annotation::new(event_id.to_owned(), key.to_owned());
                     self.room_data_provider
                         .send(ReactionEventContent::from(annotation).into())
                         .await?;
