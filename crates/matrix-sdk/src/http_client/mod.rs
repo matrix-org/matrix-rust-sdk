@@ -231,6 +231,21 @@ pub struct TransmissionProgress {
     pub total: usize,
 }
 
+/// Progress of an operation in abstract units.
+///
+/// Contrary to [`TransmissionProgress`], this allows tracking the progress
+/// of sending or receiving a payload in estimated pseudo units representing a
+/// percentage. This is helpful in cases where the exact progress in bytes isn't
+/// known, for instance, because encryption (which changes the size) happens on
+/// the fly.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct AbstractProgress {
+    /// How many units were already transferred.
+    pub current: usize,
+    /// How many units there are in total.
+    pub total: usize,
+}
+
 async fn response_to_http_response(
     mut response: reqwest::Response,
 ) -> Result<http::Response<Bytes>, reqwest::Error> {
