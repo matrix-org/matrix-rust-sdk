@@ -153,7 +153,7 @@ impl LatestEventValue {
     }
 }
 
-pub fn find_and_map(
+fn find_and_map(
     event: &Event,
     power_levels: &Option<(&UserId, RoomPowerLevels)>,
 ) -> Option<LatestEventValue> {
@@ -237,5 +237,368 @@ pub fn find_and_map(
 
             None
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use assert_matches::assert_matches;
+    use matrix_sdk_test::event_factory::EventFactory;
+    use ruma::{event_id, user_id};
+
+    use super::{find_and_map, LatestEventValue};
+
+    macro_rules! assert_latest_event_value {
+        ( with | $event_factory:ident | $event_builder:block
+          it produces $match:pat ) => {
+            let user_id = user_id!("@mnt_io:matrix.org");
+            let event_factory = EventFactory::new().sender(user_id);
+            let event = {
+                let $event_factory = event_factory;
+                $event_builder
+            };
+
+            assert_matches!(find_and_map(&event, &None), $match);
+        };
+    }
+
+    #[test]
+    fn test_latest_event_value_room_message() {
+        assert_latest_event_value!(
+            with |event_factory| {
+                event_factory.text_msg("hello").into_event()
+            }
+            it produces Some(LatestEventValue::RoomMessage(_))
+        );
+    }
+
+    #[test]
+    fn test_latest_event_value_room_message_redacted() {
+        assert_latest_event_value!(
+            with |event_factory| {
+                event_factory
+                    .redacted(
+                        user_id!("@mnt_io:matrix.org"),
+                        ruma::events::room::message::RedactedRoomMessageEventContent::new()
+                    )
+                    .into_event()
+            }
+            it produces Some(LatestEventValue::RoomMessage(_))
+        );
+    }
+
+    #[test]
+    fn test_latest_event_value_room_message_replacement() {
+        assert_latest_event_value!(
+            with |event_factory| {
+                event_factory
+                    .text_msg("bonjour")
+                    .edit(
+                        event_id!("$ev0"),
+                        ruma::events::room::message::RoomMessageEventContent::text_plain("hello").into()
+                    )
+                    .into_event()
+            }
+            it produces None
+        );
+    }
+
+    #[test]
+    fn test_latest_event_value_poll() {
+        assert_latest_event_value!(
+            with |event_factory| {
+                event_factory
+                    .poll_start(
+                        "the people need to know",
+                        "comté > gruyère",
+                        vec!["yes", "oui"]
+                    )
+                    .into_event()
+            }
+            it produces Some(LatestEventValue::Poll(_))
+        );
+    }
+
+    #[test]
+    fn test_latest_event_value_call_invite() {
+        assert_latest_event_value!(
+            with |event_factory| {
+                event_factory
+                    .call_invite(
+                        ruma::OwnedVoipId::from("vvooiipp".to_owned()),
+                        ruma::UInt::from(1234u32),
+                        ruma::events::call::SessionDescription::new("type".to_owned(), "sdp".to_owned()),
+                        ruma::VoipVersionId::V1,
+                    )
+                    .into_event()
+            }
+            it produces Some(LatestEventValue::CallInvite(_))
+        );
+    }
+
+    #[test]
+    fn test_latest_event_value_call_notify() {
+        assert_latest_event_value!(
+            with |event_factory| {
+                event_factory
+                    .call_notify(
+                        "call_id".to_owned(),
+                        ruma::events::call::notify::ApplicationType::Call,
+                        ruma::events::call::notify::NotifyType::Ring,
+                        ruma::events::Mentions::new(),
+                    )
+                    .into_event()
+            }
+            it produces Some(LatestEventValue::CallNotify(_))
+        );
+    }
+
+    #[test]
+    fn test_latest_event_value_sticker() {
+        assert_latest_event_value!(
+            with |event_factory| {
+                event_factory
+                    .sticker(
+                        "wink wink",
+                        ruma::events::room::ImageInfo::new(),
+                        ruma::OwnedMxcUri::from("mxc://foo/bar")
+                    )
+                    .into_event()
+            }
+            it produces Some(LatestEventValue::Sticker(_))
+        );
+    }
+
+    #[test]
+    fn test_latest_event_value_encrypted_room_message() {
+        assert_latest_event_value!(
+            with |event_factory| {
+                event_factory
+                    .event(ruma::events::room::encrypted::RoomEncryptedEventContent::new(
+                        ruma::events::room::encrypted::EncryptedEventScheme::MegolmV1AesSha2(
+                            ruma::events::room::encrypted::MegolmV1AesSha2ContentInit {
+                                ciphertext: "cipher".to_owned(),
+                                sender_key: "sender_key".to_owned(),
+                                device_id: "device_id".into(),
+                                session_id: "session_id".to_owned(),
+                            }
+                            .into(),
+                        ),
+                        None,
+                    ))
+                    .into_event()
+            }
+            it produces None
+        );
+    }
+
+    #[test]
+    fn test_latest_event_value_reaction() {
+        // Take a random message-like event.
+        assert_latest_event_value!(
+            with |event_factory| {
+                event_factory
+                    .reaction(event_id!("$ev0"), "+1")
+                    .into_event()
+            }
+            it produces None
+        );
+    }
+
+    #[test]
+    fn test_latest_event_state_event() {
+        assert_latest_event_value!(
+            with |event_factory| {
+                event_factory
+                    .room_topic("new room topic")
+                    .into_event()
+            }
+            it produces None
+        );
+    }
+
+    #[test]
+    fn test_latest_event_knocked_state_event_without_power_levels() {
+        assert_latest_event_value!(
+            with |event_factory| {
+                event_factory
+                    .member(user_id!("@other_mnt_io:server.name"))
+                    .membership(ruma::events::room::member::MembershipState::Knock)
+                    .into_event()
+            }
+            it produces None
+        );
+    }
+
+    #[test]
+    fn test_latest_event_knocked_state_event_with_power_levels() {
+        use ruma::events::room::power_levels::{RoomPowerLevels, RoomPowerLevelsEventContent};
+
+        let user_id = user_id!("@mnt_io:matrix.org");
+        let other_user_id = user_id!("@other_mnt_io:server.name");
+        let event_factory = EventFactory::new().sender(user_id);
+        let event = event_factory
+            .member(other_user_id)
+            .membership(ruma::events::room::member::MembershipState::Knock)
+            .into_event();
+
+        let room_power_levels_event = RoomPowerLevelsEventContent::new();
+        let mut room_power_levels = RoomPowerLevels::from(room_power_levels_event);
+        room_power_levels.users_default = 5.into();
+
+        // Cannot accept. Cannot decline.
+        {
+            let mut room_power_levels = room_power_levels.clone();
+            room_power_levels.invite = 10.into();
+            room_power_levels.kick = 10.into();
+            assert_matches!(
+                find_and_map(&event, &Some((user_id, room_power_levels))),
+                None,
+                "cannot accept, cannot decline",
+            );
+        }
+
+        // Can accept. Cannot decline.
+        {
+            let mut room_power_levels = room_power_levels.clone();
+            room_power_levels.invite = 0.into();
+            room_power_levels.kick = 10.into();
+            assert_matches!(
+                find_and_map(&event, &Some((user_id, room_power_levels))),
+                Some(LatestEventValue::KnockedStateEvent(_)),
+                "can accept, cannot decline",
+            );
+        }
+
+        // Cannot accept. Can decline.
+        {
+            let mut room_power_levels = room_power_levels.clone();
+            room_power_levels.invite = 10.into();
+            room_power_levels.kick = 0.into();
+            assert_matches!(
+                find_and_map(&event, &Some((user_id, room_power_levels))),
+                Some(LatestEventValue::KnockedStateEvent(_)),
+                "cannot accept, can decline",
+            );
+        }
+
+        // Can accept. Can decline.
+        {
+            room_power_levels.invite = 0.into();
+            room_power_levels.kick = 0.into();
+            assert_matches!(
+                find_and_map(&event, &Some((user_id, room_power_levels))),
+                Some(LatestEventValue::KnockedStateEvent(_)),
+                "can accept, can decline",
+            );
+        }
+    }
+
+    #[test]
+    fn test_latest_event_value_room_message_verification_request() {
+        assert_latest_event_value!(
+            with |event_factory| {
+                event_factory
+                    .event(
+                        ruma::events::room::message::RoomMessageEventContent::new(
+                            ruma::events::room::message::MessageType::VerificationRequest(
+                                ruma::events::room::message::KeyVerificationRequestEventContent::new(
+                                    "body".to_owned(),
+                                    vec![],
+                                    ruma::OwnedDeviceId::from("device_id"),
+                                    user_id!("@user:server.name").to_owned(),
+                                )
+                            )
+                        )
+                    )
+                    .into_event()
+            }
+            it produces None
+        );
+    }
+}
+
+#[cfg(all(not(target_family = "wasm"), test))]
+mod tests_non_wasm {
+    use assert_matches::assert_matches;
+    use matrix_sdk_test::{async_test, event_factory::EventFactory};
+    use ruma::{event_id, room_id, user_id};
+
+    use super::LatestEventValue;
+    use crate::test_utils::mocks::MatrixMockServer;
+
+    #[async_test]
+    async fn test_latest_event_value_is_scanning_event_backwards_from_event_cache() {
+        use matrix_sdk_base::{
+            linked_chunk::{ChunkIdentifier, Position, Update},
+            RoomState,
+        };
+
+        use crate::{client::WeakClient, room::WeakRoom};
+
+        let room_id = room_id!("!r0");
+        let user_id = user_id!("@mnt_io:matrix.org");
+        let event_factory = EventFactory::new().sender(user_id).room(room_id);
+        let event_id_0 = event_id!("$ev0");
+        let event_id_1 = event_id!("$ev1");
+        let event_id_2 = event_id!("$ev2");
+
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+
+        // Prelude.
+        {
+            // Create the room.
+            client.base_client().get_or_create_room(room_id, RoomState::Joined);
+
+            // Initialise the event cache store.
+            client
+                .event_cache_store()
+                .lock()
+                .await
+                .unwrap()
+                .handle_linked_chunk_updates(
+                    matrix_sdk_base::linked_chunk::LinkedChunkId::Room(room_id),
+                    vec![
+                        Update::NewItemsChunk {
+                            previous: None,
+                            new: ChunkIdentifier::new(0),
+                            next: None,
+                        },
+                        Update::PushItems {
+                            at: Position::new(ChunkIdentifier::new(0), 0),
+                            items: vec![
+                                // a latest event candidate
+                                event_factory.text_msg("hello").event_id(event_id_0).into(),
+                                // a latest event candidate
+                                event_factory.text_msg("world").event_id(event_id_1).into(),
+                                // not a latest event candidate
+                                event_factory
+                                    .room_topic("new room topic")
+                                    .event_id(event_id_2)
+                                    .into(),
+                            ],
+                        },
+                    ],
+                )
+                .await
+                .unwrap();
+        }
+
+        let event_cache = client.event_cache();
+        event_cache.subscribe().unwrap();
+
+        let (room_event_cache, _) = event_cache.for_room(room_id).await.unwrap();
+        let weak_room = WeakRoom::new(WeakClient::from_client(&client), room_id.to_owned());
+
+        assert_matches!(
+            LatestEventValue::new(room_id, None, &room_event_cache, &weak_room).await,
+            LatestEventValue::RoomMessage(given_event) => {
+                // We get `event_id_1` because `event_id_2` isn't a candidate,
+                // and `event_id_0` hasn't been read yet (because events are
+                // read backwards).
+                assert_eq!(given_event.event_id(), event_id_1);
+            }
+        );
     }
 }

@@ -647,15 +647,20 @@ async fn compute_latest_events(registered_rooms: &RegisteredRooms, for_rooms: &[
 mod tests {
     use std::ops::Not;
 
-    use matrix_sdk_base::RoomState;
-    use matrix_sdk_test::async_test;
-    use ruma::{event_id, owned_room_id, room_id};
+    use assert_matches::assert_matches;
+    use matrix_sdk_base::{
+        linked_chunk::{ChunkIdentifier, LinkedChunkId, Position, Update},
+        RoomState,
+    };
+    use matrix_sdk_test::{async_test, event_factory::EventFactory, JoinedRoomBuilder};
+    use ruma::{event_id, owned_room_id, room_id, user_id};
+    use stream_assert::assert_pending;
 
     use super::{
-        broadcast, compute_latest_events, listen_to_event_cache_and_send_queue_updates, mpsc,
-        HashSet, RegisteredRooms, RoomEventCacheGenericUpdate, RoomRegistration, WeakClient,
+        broadcast, listen_to_event_cache_and_send_queue_updates, mpsc, HashSet, LatestEventValue,
+        RoomEventCacheGenericUpdate, RoomRegistration,
     };
-    use crate::test_utils::logged_in_client_with_server;
+    use crate::test_utils::mocks::MatrixMockServer;
 
     #[async_test]
     async fn test_latest_events_are_lazy() {
@@ -665,7 +670,8 @@ mod tests {
         let thread_id_1_0 = event_id!("$ev1.0");
         let thread_id_2_0 = event_id!("$ev2.0");
 
-        let (client, _server) = logged_in_client_with_server().await;
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
 
         client.base_client().get_or_create_room(room_id_0, RoomState::Joined);
         client.base_client().get_or_create_room(room_id_1, RoomState::Joined);
@@ -727,7 +733,8 @@ mod tests {
         let room_id_0 = room_id!("!r0");
         let room_id_1 = room_id!("!r1");
 
-        let (client, _server) = logged_in_client_with_server().await;
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
 
         client.base_client().get_or_create_room(room_id_0, RoomState::Joined);
         client.base_client().get_or_create_room(room_id_1, RoomState::Joined);
@@ -766,7 +773,8 @@ mod tests {
         let room_id_1 = room_id!("!r1");
         let thread_id_0_0 = event_id!("$ev0.0");
 
-        let (client, _server) = logged_in_client_with_server().await;
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
 
         client.base_client().get_or_create_room(room_id_0, RoomState::Joined);
         client.base_client().get_or_create_room(room_id_1, RoomState::Joined);
@@ -995,19 +1003,91 @@ mod tests {
     }
 
     #[async_test]
-    async fn test_compute_latest_events() {
+    async fn test_latest_event_value_is_updated_via_event_cache() {
         let room_id = owned_room_id!("!r0");
+        let user_id = user_id!("@mnt_io:matrix.org");
+        let event_factory = EventFactory::new().sender(user_id).room(&room_id);
+        let event_id_0 = event_id!("$ev0");
+        let event_id_1 = event_id!("$ev1");
+        let event_id_2 = event_id!("$ev2");
 
-        let (client, _server) = logged_in_client_with_server().await;
-        let weak_client = WeakClient::from_client(&client);
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+
+        // Prelude.
+        {
+            // Create the room.
+            client.base_client().get_or_create_room(&room_id, RoomState::Joined);
+
+            // Initialise the event cache store.
+            client
+                .event_cache_store()
+                .lock()
+                .await
+                .unwrap()
+                .handle_linked_chunk_updates(
+                    LinkedChunkId::Room(&room_id),
+                    vec![
+                        Update::NewItemsChunk {
+                            previous: None,
+                            new: ChunkIdentifier::new(0),
+                            next: None,
+                        },
+                        Update::PushItems {
+                            at: Position::new(ChunkIdentifier::new(0), 0),
+                            items: vec![
+                                event_factory.text_msg("hello").event_id(event_id_0).into(),
+                                event_factory.text_msg("world").event_id(event_id_1).into(),
+                            ],
+                        },
+                    ],
+                )
+                .await
+                .unwrap();
+        }
 
         let event_cache = client.event_cache();
         event_cache.subscribe().unwrap();
 
-        let (room_registration_sender, _room_registration_receiver) = mpsc::channel(1);
-        let registered_rooms =
-            RegisteredRooms::new(room_registration_sender, weak_client, event_cache);
+        let latest_events = client.latest_events().await;
 
-        compute_latest_events(&registered_rooms, &[room_id]).await;
+        // Subscribe to the latest event values for this room.
+        let mut latest_event_stream =
+            latest_events.listen_and_subscribe_to_room(&room_id).await.unwrap().unwrap();
+
+        // The initial latest event value is set to `event_id_1` because it's… the…
+        // latest event!
+        assert_matches!(
+            latest_event_stream.get().await,
+            LatestEventValue::RoomMessage(event) => {
+                assert_eq!(event.event_id(), event_id_1);
+            }
+        );
+
+        // The stream is pending: no new latest event for the moment.
+        assert_pending!(latest_event_stream);
+
+        // Update the event cache with a sync.
+        server
+            .sync_room(
+                &client,
+                JoinedRoomBuilder::new(&room_id).add_timeline_event(
+                    event_factory
+                        .text_msg("venez découvrir cette nouvelle raclette !")
+                        .event_id(event_id_2)
+                        .into_raw(),
+                ),
+            )
+            .await;
+
+        // The event cache has received its update from the sync. It has emitted a
+        // generic update, which has been received by `LatestEvents` tasks, up to the
+        // `compute_latest_events` which has updated the latest event value.
+        assert_matches!(
+            latest_event_stream.next().await,
+            Some(LatestEventValue::RoomMessage(event)) => {
+                assert_eq!(event.event_id(), event_id_2);
+            }
+        );
     }
 }
