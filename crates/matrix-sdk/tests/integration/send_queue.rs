@@ -14,7 +14,7 @@ use matrix_sdk::{
         RoomSendQueueUpdate, SendHandle,
     },
     test_utils::mocks::{MatrixMock, MatrixMockServer},
-    Client, MemoryStore,
+    AbstractProgress, Client, MemoryStore,
 };
 use matrix_sdk_test::{
     async_test, event_factory::EventFactory, InvitedRoomBuilder, KnockedRoomBuilder,
@@ -167,12 +167,47 @@ macro_rules! assert_update {
             Ok(Ok(RoomSendQueueUpdate::MediaUpload {
                 related_to,
                 file,
+                ..
             })) = timeout(Duration::from_secs(1), $watch.recv()).await
         );
 
         assert_eq!(related_to, $related_to);
-        assert_let!(MediaSource::Plain(mxc) = file);
+        assert_let!(Some(MediaSource::Plain(mxc)) = file);
         assert_eq!(mxc, $mxc);
+    }};
+
+    // Check the next stream events communicate upload progress and finally the uploaded media.
+    // Returns a tuple of (transaction_id, send_handle).
+    ($watch:ident => uploaded_with_progress { related_to = $related_to:expr, mxc = $mxc:expr, progress_start = $progress_start:expr, progress_end = $progress_end:expr, progress_total = $progress_total:expr }) => {{
+        let mut prev_progress: Option<AbstractProgress> = None;
+
+         loop {
+            assert_let!(
+                Ok(Ok(RoomSendQueueUpdate::MediaUpload {
+                    related_to,
+                    file,
+                    progress, ..
+                })) = timeout(Duration::from_secs(1), $watch.recv()).await
+            );
+
+            assert_eq!(related_to, $related_to);
+
+            if let Some(progress_start) = $progress_start {
+                assert!(progress.current >= progress_start);
+            }
+            assert!(progress.current <= $progress_end);
+            assert_eq!(progress.total, $progress_total);
+            if let Some(prev_progress) = prev_progress {
+                assert!(progress.current >= prev_progress.current);
+            }
+            prev_progress = Some(progress);
+
+            if let Some(MediaSource::Plain(mxc)) = file {
+                assert_eq!(progress.current, $progress_end);
+                assert_eq!(mxc, $mxc);
+                break;
+            }
+        }
     }};
 
     // Check the next stream event is a local echo for a reaction with the content $key which
@@ -1792,7 +1827,11 @@ async fn test_media_uploads() {
 
     // Mark the room as joined.
     let room_id = room_id!("!a:b.c");
-    let client = mock.client_builder().build().await;
+    let client = mock
+        .client_builder()
+        .with_enable_send_queue_media_upload_progress_reporting(true)
+        .build()
+        .await;
     let room = mock.sync_joined_room(&client, room_id).await;
 
     let q = room.send_queue();
@@ -1822,6 +1861,9 @@ async fn test_media_uploads() {
         is_animated: Some(false),
         ..Default::default()
     });
+
+    let size_data = data.len();
+    let size_thumbnail = thumbnail.data.len();
 
     let transaction_id = TransactionId::new();
     let mentions = Mentions::with_user_ids([owned_user_id!("@ivan:sdk.rs")]);
@@ -1982,14 +2024,20 @@ async fn test_media_uploads() {
     assert!(watch.is_empty());
     drop(block_upload);
 
-    assert_update!(watch => uploaded {
+    assert_update!(watch => uploaded_with_progress {
         related_to = transaction_id,
-        mxc = mxc_uri!("mxc://sdk.rs/thumbnail")
+        mxc = mxc_uri!("mxc://sdk.rs/thumbnail"),
+        progress_start = None,
+        progress_end = size_thumbnail,
+        progress_total = size_data + size_thumbnail
     });
 
-    assert_update!(watch => uploaded {
+    assert_update!(watch => uploaded_with_progress {
         related_to = transaction_id,
-        mxc = mxc_uri!("mxc://sdk.rs/media")
+        mxc = mxc_uri!("mxc://sdk.rs/media"),
+        progress_start = Some(size_thumbnail),
+        progress_end = size_data + size_thumbnail,
+        progress_total = size_data + size_thumbnail
     });
 
     let edit_msg = assert_update!(watch => edit local echo {
