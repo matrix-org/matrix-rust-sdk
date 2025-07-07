@@ -14,6 +14,9 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
+- Add `Client::supported_versions()`, which returns the results of both `Client::server_versions()` and
+  `Client::unstable_features()` with a single call.
+  ([#5357](https://github.com/matrix-org/matrix-rust-sdk/pull/5357))
 - `Client::add_event_handler`: Set `Option<EncryptionInfo>` in `EventHandlerData` for to-device messages.
   If the to-device message was encrypted, the `EncryptionInfo` will be set. If it is `None` the message was sent in clear.
   ([#5099](https://github.com/matrix-org/matrix-rust-sdk/pull/5099))
@@ -25,6 +28,9 @@ All notable changes to this project will be documented in this file.
 
 ### Refactor
 
+- [**breaking**]: `Client::unstable_features()` returns a `BTreeSet<FeatureFlag>`, containing only
+  the features whose value was set to true in the response to the `/versions` endpoint.
+  ([#5357](https://github.com/matrix-org/matrix-rust-sdk/pull/5357))
 - `ClientServerCapabilities` has been renamed to `ClientServerInfo`. Alongside this,
   `Client::reset_server_info` is now `Client::reset_server_info` and `Client::fetch_server_capabilities`
   is now `Client::fetch_server_versions`, returning the server versions response directly.
