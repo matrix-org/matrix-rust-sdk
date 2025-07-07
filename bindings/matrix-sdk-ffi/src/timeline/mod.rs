@@ -30,7 +30,8 @@ use matrix_sdk_common::{
     stream::StreamExt,
 };
 use matrix_sdk_ui::timeline::{
-    self, AttachmentConfig, AttachmentSource, EventItemOrigin, Profile, TimelineDetails,
+    self, AttachmentConfig, AttachmentSource, EventItemOrigin,
+    MediaUploadProgress as SdkMediaUploadProgress, Profile, TimelineDetails,
     TimelineUniqueId as SdkTimelineUniqueId,
 };
 use mime::Mime;
@@ -235,6 +236,50 @@ impl From<UploadSource> for AttachmentSource {
         match value {
             UploadSource::File { filename } => Self::File(filename.into()),
             UploadSource::Data { bytes, filename } => Self::Data { bytes, filename },
+        }
+    }
+}
+
+/// This type represents the progress of a media (consisting of a file and
+/// possibly a thumbnail) being uploaded.
+#[derive(Clone, Copy, uniffi::Record)]
+pub struct MediaUploadProgress {
+    /// The index of the media within the transaction. A file and its
+    /// thumbnail share the same index. Will always be 0 for non-gallery
+    /// media uploads.
+    pub index: u64,
+
+    /// The current combined upload progress for both the file and,
+    /// if it exists, its thumbnail.
+    pub progress: AbstractProgress,
+}
+
+impl From<SdkMediaUploadProgress> for MediaUploadProgress {
+    fn from(value: SdkMediaUploadProgress) -> Self {
+        Self { index: value.index, progress: value.progress.into() }
+    }
+}
+
+/// Progress of an operation in abstract units.
+///
+/// Contrary to [`TransmissionProgress`], this allows tracking the progress
+/// of sending or receiving a payload in estimated pseudo units representing a
+/// percentage. This is helpful in cases where the exact progress in bytes isn't
+/// known, for instance, because encryption (which changes the size) happens on
+/// the fly.
+#[derive(Clone, Copy, uniffi::Record)]
+pub struct AbstractProgress {
+    /// How many units were already transferred.
+    pub current: u64,
+    /// How many units there are in total.
+    pub total: u64,
+}
+
+impl From<matrix_sdk::send_queue::AbstractProgress> for AbstractProgress {
+    fn from(value: matrix_sdk::send_queue::AbstractProgress) -> Self {
+        Self {
+            current: value.current.try_into().unwrap_or(u64::MAX),
+            total: value.total.try_into().unwrap_or(u64::MAX),
         }
     }
 }
@@ -928,7 +973,11 @@ impl TimelineItem {
 #[derive(Clone, uniffi::Enum)]
 pub enum EventSendState {
     /// The local event has not been sent yet.
-    NotSentYet,
+    NotSentYet {
+        /// The progress of the sending operation, if the event involves a media
+        /// upload.
+        progress: Option<MediaUploadProgress>,
+    },
 
     /// The local event has been sent to the server, but unsuccessfully: The
     /// sending has failed.
@@ -953,7 +1002,9 @@ impl From<&matrix_sdk_ui::timeline::EventSendState> for EventSendState {
         use matrix_sdk_ui::timeline::EventSendState::*;
 
         match value {
-            NotSentYet => Self::NotSentYet,
+            NotSentYet { progress } => {
+                Self::NotSentYet { progress: progress.clone().map(|p| p.into()) }
+            }
             SendingFailed { error, is_recoverable } => {
                 let as_queue_wedge_error: matrix_sdk::QueueWedgeError = (&**error).into();
                 Self::SendingFailed {
