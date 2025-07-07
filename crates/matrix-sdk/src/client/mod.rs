@@ -15,7 +15,7 @@
 // limitations under the License.
 
 use std::{
-    collections::{btree_map, BTreeMap},
+    collections::{btree_map, BTreeMap, BTreeSet},
     fmt::{self, Debug},
     future::{ready, Future},
     pin::Pin,
@@ -47,8 +47,7 @@ use ruma::{
             device::{delete_devices, get_devices, update_device},
             directory::{get_public_rooms, get_public_rooms_filtered},
             discovery::{
-                discover_homeserver,
-                discover_homeserver::RtcFocusInfo,
+                discover_homeserver::{self, RtcFocusInfo},
                 get_capabilities::{self, Capabilities},
                 get_supported_versions,
             },
@@ -63,7 +62,7 @@ use ruma::{
             user_directory::search_users,
         },
         error::FromHttpResponseError,
-        MatrixVersion, OutgoingRequest,
+        FeatureFlag, MatrixVersion, OutgoingRequest, SupportedVersions,
     },
     assign,
     push::Ruleset,
@@ -1926,18 +1925,49 @@ impl Client {
         let server_info = self.load_or_fetch_server_info().await?;
 
         // Fill both unstable features and server versions at once.
-        let mut versions = server_info.known_versions();
-        if versions.is_empty() {
-            versions.push(MatrixVersion::V1_0);
+        let mut supported = server_info.supported_versions();
+        if supported.versions.is_empty() {
+            supported.versions = [MatrixVersion::V1_0].into();
         }
 
-        guarded_server_info.server_versions = CachedValue::Cached(versions.into());
-        guarded_server_info.unstable_features = CachedValue::Cached(server_info.unstable_features);
+        guarded_server_info.supported_versions = CachedValue::Cached(supported);
         guarded_server_info.well_known = CachedValue::Cached(server_info.well_known);
 
         // SAFETY: all fields were set above, so (assuming the caller doesn't attempt to
         // fetch an optional property), the function will always return some.
         Ok(map(&guarded_server_info).unwrap_cached_value())
+    }
+
+    /// Get the Matrix versions and features supported by the homeserver by
+    /// fetching them from the server or the cache.
+    ///
+    /// This is equivalent to calling both [`Client::server_versions()`] and
+    /// [`Client::unstable_features()`]. To always fetch the result from the
+    /// homeserver, you can call [`Client::fetch_server_versions()`] instead,
+    /// and then `.as_supported_versions()` on the response.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use ruma::api::{FeatureFlag, MatrixVersion};
+    /// # use matrix_sdk::{Client, config::SyncSettings};
+    /// # use url::Url;
+    /// # async {
+    /// # let homeserver = Url::parse("http://localhost:8080")?;
+    /// # let mut client = Client::new(homeserver).await?;
+    ///
+    /// let supported = client.supported_versions().await?;
+    /// let supports_1_1 = supported.versions.contains(&MatrixVersion::V1_1);
+    /// println!("The homeserver supports Matrix 1.1: {supports_1_1:?}");
+    ///
+    /// let msc_x_feature = FeatureFlag::from("msc_x");
+    /// let supports_msc_x = supported.features.contains(&msc_x_feature);
+    /// println!("The homeserver supports msc X: {supports_msc_x:?}");
+    /// # anyhow::Ok(()) };
+    /// ```
+    pub async fn supported_versions(&self) -> HttpResult<SupportedVersions> {
+        self.get_or_load_and_cache_server_info(|server_info| server_info.supported_versions.clone())
+            .await
     }
 
     /// Get the Matrix versions supported by the homeserver by fetching them
@@ -1959,8 +1989,10 @@ impl Client {
     /// # anyhow::Ok(()) };
     /// ```
     pub async fn server_versions(&self) -> HttpResult<Box<[MatrixVersion]>> {
-        self.get_or_load_and_cache_server_info(|server_info| server_info.server_versions.clone())
-            .await
+        self.get_or_load_and_cache_server_info(|server_info| {
+            server_info.supported_versions.as_ref().map(|supported| supported.versions.clone())
+        })
+        .await
     }
 
     /// Get the unstable features supported by the homeserver by fetching them
@@ -1969,20 +2001,24 @@ impl Client {
     /// # Examples
     ///
     /// ```no_run
+    /// use matrix_sdk::ruma::api::FeatureFlag;
     /// # use matrix_sdk::{Client, config::SyncSettings};
     /// # use url::Url;
     /// # async {
     /// # let homeserver = Url::parse("http://localhost:8080")?;
     /// # let mut client = Client::new(homeserver).await?;
+    ///
+    /// let msc_x_feature = FeatureFlag::from("msc_x");
     /// let unstable_features = client.unstable_features().await?;
-    /// let supports_msc_x =
-    ///     unstable_features.get("msc_x").copied().unwrap_or(false);
+    /// let supports_msc_x = unstable_features.contains(&msc_x_feature);
     /// println!("The homeserver supports msc X: {supports_msc_x:?}");
     /// # anyhow::Ok(()) };
     /// ```
-    pub async fn unstable_features(&self) -> HttpResult<BTreeMap<String, bool>> {
-        self.get_or_load_and_cache_server_info(|server_info| server_info.unstable_features.clone())
-            .await
+    pub async fn unstable_features(&self) -> HttpResult<BTreeSet<FeatureFlag>> {
+        self.get_or_load_and_cache_server_info(|server_info| {
+            server_info.supported_versions.as_ref().map(|supported| supported.features.clone())
+        })
+        .await
     }
 
     /// Get information about the homeserver's advertised RTC foci by fetching
@@ -2021,8 +2057,7 @@ impl Client {
     pub async fn reset_server_info(&self) -> Result<()> {
         // Empty the in-memory caches.
         let mut guard = self.inner.caches.server_info.write().await;
-        guard.server_versions = CachedValue::NotSet;
-        guard.unstable_features = CachedValue::NotSet;
+        guard.supported_versions = CachedValue::NotSet;
 
         // Empty the store cache.
         Ok(self.state_store().remove_kv_data(StateStoreDataKey::ServerInfo).await?)
@@ -2043,7 +2078,7 @@ impl Client {
     /// # anyhow::Ok(()) };
     /// ```
     pub async fn can_homeserver_push_encrypted_event_to_device(&self) -> HttpResult<bool> {
-        Ok(self.unstable_features().await?.get("org.matrix.msc4028").copied().unwrap_or(false))
+        Ok(self.unstable_features().await?.contains(&FeatureFlag::from("org.matrix.msc4028")))
     }
 
     /// Get information of all our own devices.
@@ -2793,11 +2828,9 @@ impl WeakClient {
 
 #[derive(Clone)]
 struct ClientServerInfo {
-    /// The Matrix versions the server supports (known ones only).
-    server_versions: CachedValue<Box<[MatrixVersion]>>,
-
-    /// The unstable features and their on/off state on the server.
-    unstable_features: CachedValue<BTreeMap<String, bool>>,
+    /// The Matrix versions and unstable features the server supports (known
+    /// ones only).
+    supported_versions: CachedValue<SupportedVersions>,
 
     /// The server's well-known file, if any.
     well_known: CachedValue<Option<WellKnownResponse>>,
@@ -2824,6 +2857,27 @@ impl<Value> CachedValue<Value> {
         match self {
             CachedValue::Cached(value) => value,
             CachedValue::NotSet => panic!("Tried to unwrap a cached value that wasn't set"),
+        }
+    }
+
+    /// Converts from `&CachedValue<Value>` to `CachedValue<&Value>`.
+    fn as_ref(&self) -> CachedValue<&Value> {
+        match self {
+            Self::Cached(value) => CachedValue::Cached(value),
+            Self::NotSet => CachedValue::NotSet,
+        }
+    }
+
+    /// Maps a `CachedValue<Value>` to `CachedValue<Other>` by applying a
+    /// function to a contained value (if `Cached`) or returns `NotSet` (if
+    /// `NotSet`).
+    fn map<Other, F>(self, f: F) -> CachedValue<Other>
+    where
+        F: FnOnce(Value) -> Other,
+    {
+        match self {
+            Self::Cached(value) => CachedValue::Cached(f(value)),
+            Self::NotSet => CachedValue::NotSet,
         }
     }
 }
@@ -2862,7 +2916,7 @@ pub(crate) mod tests {
                 discovery::discover_homeserver::RtcFocusInfo,
                 room::create_room::v3::Request as CreateRoomRequest,
             },
-            MatrixVersion,
+            FeatureFlag, MatrixVersion,
         },
         assign,
         events::{
@@ -3078,8 +3132,8 @@ pub(crate) mod tests {
         server.mock_versions().ok_with_unstable_features().mock_once().mount().await;
 
         let unstable_features = client.unstable_features().await.unwrap();
-        assert_eq!(unstable_features.get("org.matrix.e2e_cross_signing"), Some(&true));
-        assert_eq!(unstable_features.get("you.shall.pass"), None);
+        assert!(unstable_features.contains(&FeatureFlag::from("org.matrix.e2e_cross_signing")));
+        assert!(!unstable_features.contains(&FeatureFlag::from("you.shall.pass")));
     }
 
     #[async_test]
@@ -3250,11 +3304,15 @@ pub(crate) mod tests {
             .build()
             .await;
 
-        // This call to the new client hits the on-disk cache.
-        assert_eq!(
-            client.unstable_features().await.unwrap().get("org.matrix.e2e_cross_signing"),
-            Some(&true)
-        );
+        // These calls to the new client hit the on-disk cache.
+        assert!(client
+            .unstable_features()
+            .await
+            .unwrap()
+            .contains(&FeatureFlag::from("org.matrix.e2e_cross_signing")));
+        let supported = client.supported_versions().await.unwrap();
+        assert!(supported.versions.contains(&MatrixVersion::V1_0));
+        assert!(supported.features.contains(&FeatureFlag::from("org.matrix.e2e_cross_signing")));
 
         // Then this call hits the in-memory cache.
         assert_eq!(client.rtc_foci().await.unwrap(), rtc_foci);
@@ -3319,10 +3377,11 @@ pub(crate) mod tests {
             .await;
 
         // This call to the new client hits the on-disk cache.
-        assert_eq!(
-            client.unstable_features().await.unwrap().get("org.matrix.e2e_cross_signing"),
-            Some(&true)
-        );
+        assert!(client
+            .unstable_features()
+            .await
+            .unwrap()
+            .contains(&FeatureFlag::from("org.matrix.e2e_cross_signing")));
 
         // Then this call hits the in-memory cache.
         assert_eq!(client.rtc_foci().await.unwrap(), rtc_foci);

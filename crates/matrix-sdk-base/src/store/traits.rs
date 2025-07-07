@@ -25,14 +25,10 @@ use growable_bloom_filter::GrowableBloom;
 use matrix_sdk_common::AsyncTraitDeps;
 use ruma::{
     api::{
-        client::discovery::{
-            discover_homeserver,
-            discover_homeserver::{
-                HomeserverInfo, IdentityServerInfo, RtcFocusInfo, TileServerInfo,
-            },
-            get_supported_versions,
+        client::discovery::discover_homeserver::{
+            self, HomeserverInfo, IdentityServerInfo, RtcFocusInfo, TileServerInfo,
         },
-        MatrixVersion,
+        SupportedVersions,
     },
     events::{
         presence::PresenceEvent,
@@ -1004,14 +1000,13 @@ impl ServerInfo {
         }
     }
 
-    /// Extracts known Matrix versions from the un-typed list of strings.
+    /// Extracts known Matrix versions and features from the un-typed lists of
+    /// strings.
     ///
     /// Note: Matrix versions that Ruma cannot parse, or does not know about,
     /// are discarded.
-    pub fn known_versions(&self) -> Vec<MatrixVersion> {
-        get_supported_versions::Response::new(self.versions.clone())
-            .known_versions()
-            .collect::<Vec<_>>()
+    pub fn supported_versions(&self) -> SupportedVersions {
+        SupportedVersions::from_parts(&self.versions, &self.unstable_features)
     }
 }
 
