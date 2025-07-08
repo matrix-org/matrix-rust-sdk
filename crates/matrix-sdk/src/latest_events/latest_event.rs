@@ -81,12 +81,7 @@ impl LatestEvent {
         )
         .await;
 
-        if let LatestEventValue::None = new_value {
-            // The new value is `None`. It means no new value has been
-            // computed. Let's keep the old value.
-        } else {
-            self.value.set(new_value).await;
-        }
+        self.value.set(new_value).await;
     }
 }
 
