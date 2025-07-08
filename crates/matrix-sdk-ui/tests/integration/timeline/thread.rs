@@ -974,6 +974,70 @@ async fn test_read_receipts() {
 }
 
 #[async_test]
+async fn test_initial_read_receipts_are_correctly_populated() {
+    // If there are initial read receipts in the store, they should be correctly
+    // populated in the timeline.
+
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+    client.event_cache().subscribe().unwrap();
+
+    let room_id = room_id!("!a:b.c");
+    let thread_root = owned_event_id!("$root");
+    let receipt_thread = ReceiptThread::Thread(thread_root.clone());
+
+    // Start with a room that has an event with some initial read receipts.
+    //
+    // It is sync'd *before* the timeline is created, so the timeline will have to
+    // load the receipts from the store.
+    let f = EventFactory::new();
+    let room = server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id)
+                .add_timeline_event(
+                    f.text_msg("hey to you too!")
+                        .sender(*ALICE)
+                        .in_thread(&thread_root, &thread_root)
+                        .event_id(event_id!("$1")),
+                )
+                .add_receipt(
+                    f.read_receipts()
+                        .add(event_id!("$1"), *BOB, ReceiptType::Read, receipt_thread.clone())
+                        .into_event(),
+                ),
+        )
+        .await;
+
+    // Create a threaded timeline.
+    let timeline = room
+        .timeline_builder()
+        .with_focus(TimelineFocus::Thread { root_event_id: thread_root.clone() })
+        .build()
+        .await
+        .unwrap();
+
+    let (mut initial_items, mut stream) = timeline.subscribe().await;
+
+    if initial_items.is_empty() {
+        assert_let_timeout!(Some(timeline_updates) = stream.next());
+        for up in timeline_updates {
+            up.apply(&mut initial_items);
+        }
+    }
+
+    // After stabilizing the timeline, we should see the initial read receipts
+    // set as intended.
+    assert_eq!(initial_items.len(), 2);
+    let ev = initial_items[1].as_event().unwrap();
+    assert_eq!(ev.event_id(), Some(event_id!("$1")));
+    let rr = ev.read_receipts();
+    assert_eq!(rr.len(), 2);
+    assert_eq!(rr[*ALICE].thread, receipt_thread);
+    assert_eq!(rr[*BOB].thread, receipt_thread);
+}
+
+#[async_test]
 async fn test_send_read_receipts() {
     // Threaded read receipts can be sent from a thread timeline. Trying to send a
     // read receipt on an event that had one is a no-op.
