@@ -41,7 +41,7 @@ use matrix_sdk_base::{
 use matrix_sdk_test::{ALICE, DEFAULT_TEST_ROOM_ID, event_factory::EventFactory};
 use ruma::{
     EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedRoomId, OwnedTransactionId,
-    OwnedUserId, TransactionId, UInt, UserId,
+    OwnedUserId, TransactionId, UInt, UserId, assign,
     events::{
         AnyMessageLikeEventContent, AnyTimelineEvent,
         reaction::ReactionEventContent,
@@ -407,18 +407,20 @@ impl RoomDataProvider for TestRoomDataProvider {
 
     async fn push_context(&self) -> Option<PushContext> {
         let push_rules = Ruleset::server_default(&ALICE);
-        let power_levels = PushConditionPowerLevelsCtx {
-            users: BTreeMap::new(),
-            users_default: int!(0),
-            notifications: NotificationPowerLevels::new(),
-        };
-        let push_condition_room_ctx = PushConditionRoomCtx {
-            room_id: room_id!("!my_room:server.name").to_owned(),
-            member_count: uint!(2),
-            user_id: ALICE.to_owned(),
-            user_display_name: "Alice".to_owned(),
-            power_levels: Some(power_levels),
-        };
+        let power_levels = PushConditionPowerLevelsCtx::new(
+            BTreeMap::new(),
+            int!(0),
+            NotificationPowerLevels::new(),
+        );
+        let push_condition_room_ctx = assign!(
+            PushConditionRoomCtx::new(
+                room_id!("!my_room:server.name").to_owned(),
+                uint!(2),
+                ALICE.to_owned(),
+                "Alice".to_owned(),
+            ),
+            { power_levels: Some(power_levels) }
+        );
         Some(PushContext::new(push_condition_room_ctx, push_rules))
     }
 
