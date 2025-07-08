@@ -929,7 +929,7 @@ mod tests {
         // New event cache update, but the `LatestEvents` isn't listening to it.
         {
             room_event_cache_generic_update_sender
-                .send(RoomEventCacheGenericUpdate::TimelineUpdated { room_id: room_id.clone() })
+                .send(RoomEventCacheGenericUpdate::UpdateTimeline { room_id: room_id.clone() })
                 .unwrap();
 
             // Run the task.
@@ -952,7 +952,7 @@ mod tests {
         {
             room_registration_sender.send(RoomRegistration::Add(room_id.clone())).await.unwrap();
             room_event_cache_generic_update_sender
-                .send(RoomEventCacheGenericUpdate::TimelineUpdated { room_id: room_id.clone() })
+                .send(RoomEventCacheGenericUpdate::UpdateTimeline { room_id: room_id.clone() })
                 .unwrap();
 
             // Run the task to handle the `RoomRegistration` and the

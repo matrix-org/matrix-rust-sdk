@@ -387,7 +387,7 @@ impl RoomEventCache {
         let _ = self
             .inner
             .generic_update_sender
-            .send(RoomEventCacheGenericUpdate::Cleared { room_id: self.inner.room_id.clone() });
+            .send(RoomEventCacheGenericUpdate::Clear { room_id: self.inner.room_id.clone() });
 
         Ok(())
     }
@@ -576,7 +576,7 @@ impl RoomEventCacheInner {
         }
 
         if update_has_been_sent {
-            let _ = self.generic_update_sender.send(RoomEventCacheGenericUpdate::TimelineUpdated {
+            let _ = self.generic_update_sender.send(RoomEventCacheGenericUpdate::UpdateTimeline {
                 room_id: self.room_id.clone(),
             });
         }
@@ -2253,7 +2253,7 @@ mod timed_tests {
         // Just checking the generic update is correct.
         assert_matches!(
             generic_stream.recv().await,
-            Ok(RoomEventCacheGenericUpdate::TimelineUpdated { room_id: expected_room_id }) => {
+            Ok(RoomEventCacheGenericUpdate::UpdateTimeline { room_id: expected_room_id }) => {
                 assert_eq!(expected_room_id, room_id);
             }
         );
@@ -2329,7 +2329,7 @@ mod timed_tests {
         // Just checking the generic update is correct.
         assert_matches!(
             generic_stream.recv().await,
-            Ok(RoomEventCacheGenericUpdate::TimelineUpdated { room_id: expected_room_id }) => {
+            Ok(RoomEventCacheGenericUpdate::UpdateTimeline { room_id: expected_room_id }) => {
                 assert_eq!(expected_room_id, room_id);
             }
         );
@@ -2495,12 +2495,12 @@ mod timed_tests {
 
         // … same with a generic update.
         assert_let_timeout!(
-            Ok(RoomEventCacheGenericUpdate::TimelineUpdated { room_id: received_room_id }) =
+            Ok(RoomEventCacheGenericUpdate::UpdateTimeline { room_id: received_room_id }) =
                 generic_stream.recv()
         );
         assert_eq!(received_room_id, room_id);
         assert_let_timeout!(
-            Ok(RoomEventCacheGenericUpdate::Cleared { room_id: received_room_id }) =
+            Ok(RoomEventCacheGenericUpdate::Clear { room_id: received_room_id }) =
                 generic_stream.recv()
         );
         assert_eq!(received_room_id, room_id);
@@ -2607,7 +2607,7 @@ mod timed_tests {
         // triggered.
         assert_matches!(
             generic_stream.recv().await,
-            Ok(RoomEventCacheGenericUpdate::TimelineUpdated { room_id: expected_room_id }) => {
+            Ok(RoomEventCacheGenericUpdate::UpdateTimeline { room_id: expected_room_id }) => {
                 assert_eq!(room_id, expected_room_id);
             }
         );
@@ -2640,7 +2640,7 @@ mod timed_tests {
         // A generic update is triggered too.
         assert_matches!(
             generic_stream.recv().await,
-            Ok(RoomEventCacheGenericUpdate::TimelineUpdated { room_id: expected_room_id }) => {
+            Ok(RoomEventCacheGenericUpdate::UpdateTimeline { room_id: expected_room_id }) => {
                 assert_eq!(expected_room_id, room_id);
             }
         );
@@ -2768,7 +2768,7 @@ mod timed_tests {
         // Just checking the generic update is correct.
         assert_matches!(
             generic_stream.recv().await,
-            Ok(RoomEventCacheGenericUpdate::TimelineUpdated { room_id: expected_room_id }) => {
+            Ok(RoomEventCacheGenericUpdate::UpdateTimeline { room_id: expected_room_id }) => {
                 assert_eq!(expected_room_id, room_id);
             }
         );
@@ -2829,7 +2829,7 @@ mod timed_tests {
         // Just checking the generic update is correct.
         assert_matches!(
             generic_stream.recv().await,
-            Ok(RoomEventCacheGenericUpdate::TimelineUpdated { room_id: expected_room_id }) => {
+            Ok(RoomEventCacheGenericUpdate::UpdateTimeline { room_id: expected_room_id }) => {
                 assert_eq!(expected_room_id, room_id);
             }
         );
@@ -2936,7 +2936,7 @@ mod timed_tests {
 
         // Same for the generic update.
         assert_let_timeout!(
-            Ok(RoomEventCacheGenericUpdate::TimelineUpdated { room_id: received_room_id }) =
+            Ok(RoomEventCacheGenericUpdate::UpdateTimeline { room_id: received_room_id }) =
                 generic_stream.recv()
         );
         assert_eq!(received_room_id, room_id);
