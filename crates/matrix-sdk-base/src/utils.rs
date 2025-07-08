@@ -24,7 +24,8 @@ use ruma::{
         RedactContent, RedactedStateEventContent, StateEventContent, StaticStateEventContent,
         SyncStateEvent,
     },
-    EventId, OwnedEventId, RoomVersionId,
+    room_version_rules::RedactionRules,
+    EventId, OwnedEventId,
 };
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
@@ -118,13 +119,13 @@ where
     /// Redacts this event.
     ///
     /// Does nothing if it is already redacted.
-    pub fn redact(&mut self, room_version: &RoomVersionId)
+    pub fn redact(&mut self, rules: &RedactionRules)
     where
         C: Clone,
     {
         if let MinimalStateEvent::Original(ev) = self {
             *self = MinimalStateEvent::Redacted(RedactedMinimalStateEvent {
-                content: ev.content.clone().redact(room_version),
+                content: ev.content.clone().redact(rules),
                 event_id: ev.event_id.clone(),
             });
         }

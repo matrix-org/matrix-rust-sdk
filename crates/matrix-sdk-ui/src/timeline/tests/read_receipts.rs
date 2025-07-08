@@ -24,7 +24,9 @@ use ruma::{
         room::message::{MessageType, RoomMessageEventContent, SyncRoomMessageEvent},
         AnySyncMessageLikeEvent, AnySyncTimelineEvent,
     },
-    owned_event_id, room_id, uint, RoomVersionId,
+    owned_event_id, room_id,
+    room_version_rules::RoomVersionRules,
+    uint,
 };
 use stream_assert::{assert_next_matches, assert_pending};
 
@@ -33,7 +35,7 @@ use crate::timeline::{
     controller::TimelineSettings, tests::TestTimelineBuilder, MsgLikeContent, MsgLikeKind,
 };
 
-fn filter_notice(ev: &AnySyncTimelineEvent, _room_version: &RoomVersionId) -> bool {
+fn filter_notice(ev: &AnySyncTimelineEvent, _rules: &RoomVersionRules) -> bool {
     match ev {
         AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::RoomMessage(
             SyncRoomMessageEvent::Original(msg),
@@ -380,12 +382,12 @@ async fn test_read_receipts_updates_on_message_decryption() {
         events::room::encrypted::{
             EncryptedEventScheme, MegolmV1AesSha2ContentInit, RoomEncryptedEventContent,
         },
-        user_id, RoomVersionId,
+        user_id,
     };
 
     use crate::timeline::{EncryptedMessage, TimelineItemContent};
 
-    fn filter_text_msg(ev: &AnySyncTimelineEvent, _room_version_id: &RoomVersionId) -> bool {
+    fn filter_text_msg(ev: &AnySyncTimelineEvent, _rules: &RoomVersionRules) -> bool {
         match ev {
             AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::RoomMessage(
                 SyncRoomMessageEvent::Original(msg),

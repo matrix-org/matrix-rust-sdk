@@ -136,20 +136,19 @@ impl<'a, R: Read + 'a> AttachmentDecryptor<'a, R> {
 
         let hash =
             info.hashes.get("sha256").ok_or(DecryptorError::MissingHash)?.as_bytes().to_owned();
-        let mut key = info.key.k.into_inner();
+        let key = info.key.k.as_bytes();
         let iv = info.iv.into_inner();
 
         if key.len() != KEY_SIZE {
             return Err(DecryptorError::KeyNonceLength);
         }
 
-        let key_array = GenericArray::from_slice(&key);
+        let key_array = GenericArray::from_slice(key);
         let iv = GenericArray::from_exact_iter(iv).ok_or(DecryptorError::KeyNonceLength)?;
 
         let sha = Sha256::default();
 
         let aes = Aes256Ctr::new(key_array, &iv);
-        key.zeroize();
 
         Ok(AttachmentDecryptor { inner: input, expected_hash: hash, sha, aes })
     }

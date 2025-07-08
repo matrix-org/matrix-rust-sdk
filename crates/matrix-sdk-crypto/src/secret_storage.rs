@@ -36,7 +36,7 @@ use ruma::{
             },
             secret::SecretEncryptedData,
         },
-        EventContent, GlobalAccountDataEventType,
+        GlobalAccountDataEventContent, GlobalAccountDataEventType,
     },
     serde::Base64,
     UInt,
