@@ -28,9 +28,12 @@ use matrix_sdk_test::{
 };
 use matrix_sdk_ui::timeline::{RoomExt as _, TimelineBuilder, TimelineDetails, TimelineFocus};
 use ruma::{
-    api::client::receipt::create_receipt::v3::ReceiptType,
+    api::client::receipt::create_receipt::v3::ReceiptType as SendReceiptType,
     event_id,
-    events::room::message::{ReplyWithinThread, RoomMessageEventContentWithoutRelation},
+    events::{
+        receipt::{ReceiptThread, ReceiptType},
+        room::message::{ReplyWithinThread, RoomMessageEventContentWithoutRelation},
+    },
     owned_event_id, room_id, user_id, MilliSecondsSinceUnixEpoch,
 };
 use stream_assert::assert_pending;
@@ -827,6 +830,144 @@ async fn test_sending_read_receipt_with_no_events_doesnt_unset_read_flag() {
     // Try to mark the timeline as read.
     // This should not unset the unread flag on the room (if it tried to do so, the
     // test would fail with a 404, because the endpoint hasn't been set).
-    let marked_as_read = timeline.mark_as_read(ReceiptType::Read).await.unwrap();
+    let marked_as_read = timeline.mark_as_read(SendReceiptType::Read).await.unwrap();
     assert!(marked_as_read.not());
+}
+
+#[async_test]
+async fn test_read_receipts() {
+    // Threaded read receipts are correctly handled in a thread timeline.
+
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+
+    let room_id = room_id!("!a:b.c");
+    let thread_root = owned_event_id!("$root");
+    let receipt_thread = ReceiptThread::Thread(thread_root.clone());
+
+    // Start with a room manually marked as unread.
+    let room = server.sync_joined_room(&client, room_id).await;
+
+    // Create a threaded timeline, with no events in it.
+    let timeline = room
+        .timeline_builder()
+        .with_focus(TimelineFocus::Thread { root_event_id: thread_root.clone() })
+        .build()
+        .await
+        .unwrap();
+
+    let (initial_items, mut stream) = timeline.subscribe().await;
+
+    // Sanity check: the timeline is empty.
+    assert!(initial_items.is_empty());
+    assert_pending!(stream);
+
+    // Receive two events from the server, one of which is a read receipt.
+    let f = EventFactory::new();
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id)
+                .add_timeline_event(
+                    f.text_msg("hey to you too!")
+                        .sender(*ALICE)
+                        .in_thread(&thread_root, &thread_root)
+                        .event_id(event_id!("$1")),
+                )
+                .add_timeline_event(
+                    f.text_msg("how's it going?")
+                        .sender(*ALICE)
+                        .in_thread(&thread_root, event_id!("$1"))
+                        .event_id(event_id!("$2")),
+                )
+                .add_timeline_event(
+                    f.text_msg("good, u?")
+                        .sender(*BOB)
+                        .in_thread(&thread_root, event_id!("$2"))
+                        .event_id(event_id!("$3")),
+                ),
+        )
+        .await;
+
+    // Sanity check: we receive the three events, plus a date divider.
+    assert_let_timeout!(Some(timeline_updates) = stream.next());
+    assert_eq!(timeline_updates.len(), 5);
+
+    // Second event has Alice's implicit read receipt, third event has Bob's
+    // implicit read receipt.
+    {
+        // Alice's event gets pushed back, first, with its own implicit read receipt.
+        assert_let!(VectorDiff::PushBack { value } = &timeline_updates[0]);
+        let ev0 = value.as_event().unwrap();
+        assert_eq!(ev0.event_id(), Some(event_id!("$1")));
+        let rr = ev0.read_receipts();
+        assert_eq!(rr.len(), 1);
+        assert_eq!(rr[*ALICE].thread, receipt_thread);
+
+        // But then, as we're about to push another event from Alice, its read receipt
+        // disappears from the first event.
+        // XXX wouldn't it be nice that we didn't have this update?
+        assert_let!(VectorDiff::Set { index: 0, value } = &timeline_updates[1]);
+        let ev0 = value.as_event().unwrap();
+        assert_eq!(ev0.event_id(), Some(event_id!("$1")));
+        assert!(ev0.read_receipts().is_empty());
+
+        // Second event has Alice's implicit read receipt.
+        assert_let!(VectorDiff::PushBack { value } = &timeline_updates[2]);
+        let ev1 = value.as_event().unwrap();
+        assert_eq!(ev1.event_id(), Some(event_id!("$2")));
+        let rr = ev1.read_receipts();
+        assert_eq!(rr.len(), 1);
+        assert_eq!(rr[*ALICE].thread, receipt_thread);
+
+        // Third event has Bob's implicit read receipt.
+        assert_let!(VectorDiff::PushBack { value } = &timeline_updates[3]);
+        let ev2 = value.as_event().unwrap();
+        assert_eq!(ev2.event_id(), Some(event_id!("$3")));
+        let rr = ev2.read_receipts();
+        assert_eq!(rr.len(), 1);
+        assert_eq!(rr[*BOB].thread, receipt_thread);
+
+        assert_let!(VectorDiff::PushFront { value } = &timeline_updates[4]);
+        assert!(value.is_date_divider());
+    }
+
+    // Receive a read receipt update:
+    // - an explicit read receipt for Alice on $3, which will move their read
+    //   receipt to the latest event.
+    // - an explicit read receipt for Bob on $3, which will not do anything (because
+    //   of the implicit read receipt)
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id).add_receipt(
+                f.read_receipts()
+                    .add(event_id!("$3"), *ALICE, ReceiptType::Read, receipt_thread.clone())
+                    .add(event_id!("$3"), *BOB, ReceiptType::Read, receipt_thread.clone())
+                    .into_event(),
+            ),
+        )
+        .await;
+
+    assert_let_timeout!(Some(timeline_updates) = stream.next());
+    assert_eq!(timeline_updates.len(), 2);
+
+    // Alice's previous event is updated, and loses its read receipt.
+    {
+        assert_let!(VectorDiff::Set { index: 2, value } = &timeline_updates[0]);
+        let event_item = value.as_event().unwrap();
+        assert_eq!(event_item.event_id(), Some(event_id!("$2")));
+        assert!(event_item.read_receipts().is_empty());
+    }
+
+    // Bob's event is updated, and it gets a read receipt for Alice.
+    {
+        assert_let!(VectorDiff::Set { index: 3, value } = &timeline_updates[1]);
+        let event_item = value.as_event().unwrap();
+        assert_eq!(event_item.event_id(), Some(event_id!("$3")));
+        let rr = event_item.read_receipts();
+        assert_eq!(rr.len(), 2);
+        assert_eq!(rr[*ALICE].thread, receipt_thread);
+        assert_eq!(rr[*BOB].thread, receipt_thread);
+    }
 }
