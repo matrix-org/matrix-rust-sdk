@@ -32,7 +32,7 @@ use ruma::{
             Relation, RoomMessageEventContent, RoomMessageEventContentWithoutRelation,
         },
         AnyMessageLikeEventContent, AnySyncMessageLikeEvent, AnySyncStateEvent,
-        AnySyncTimelineEvent, EventContent, FullStateEventContent, MessageLikeEventType,
+        AnySyncTimelineEvent, FullStateEventContent, MessageLikeEventContent, MessageLikeEventType,
         StateEventType, SyncStateEvent,
     },
     serde::Raw,

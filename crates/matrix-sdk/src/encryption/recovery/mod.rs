@@ -97,7 +97,7 @@ use ruma::{
     events::{
         secret::{request::SecretName, send::ToDeviceSecretSendEvent},
         secret_storage::{default_key::SecretStorageDefaultKeyEvent, secret::SecretEventContent},
-        GlobalAccountDataEventType,
+        GlobalAccountDataEventType, StaticEventContent,
     },
     serde::Raw,
 };
@@ -408,7 +408,7 @@ impl Recovery {
     /// # let client = Client::new(homeserver).await?;
     /// # let user_id = unimplemented!();
     /// let encryption = client.encryption();
-    ///       
+    ///
     /// if let Some(handle) = encryption.recovery().reset_identity().await? {
     ///     match handle.auth_type() {
     ///         CrossSigningResetAuthType::Uiaa(uiaa) => {
@@ -592,7 +592,7 @@ impl Recovery {
         Ok(self
             .client
             .account()
-            .fetch_account_data(BackupDisabledContent::event_type())
+            .fetch_account_data(BackupDisabledContent::TYPE.into())
             .await?
             .map(|event| {
                 event

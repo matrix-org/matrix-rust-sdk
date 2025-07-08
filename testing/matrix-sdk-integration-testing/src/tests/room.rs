@@ -9,7 +9,7 @@ use matrix_sdk::{
         assign, event_id, events,
         events::{
             room::message::RoomMessageEventContent, AnyRoomAccountDataEventContent,
-            AnySyncStateEvent, AnySyncTimelineEvent, EventContent,
+            AnySyncStateEvent, AnySyncTimelineEvent, RoomAccountDataEventContent,
         },
         serde::Raw,
         uint,
