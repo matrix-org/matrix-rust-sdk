@@ -82,6 +82,7 @@ mod virt;
 #[derive(Default)]
 struct TestTimelineBuilder {
     provider: Option<TestRoomDataProvider>,
+    focus: Option<TimelineFocus>,
     internal_id_prefix: Option<String>,
     utd_hook: Option<Arc<UtdHookManager>>,
     is_room_encrypted: bool,
@@ -120,10 +121,15 @@ impl TestTimelineBuilder {
         self
     }
 
+    fn focus(mut self, focus: TimelineFocus) -> Self {
+        self.focus = Some(focus);
+        self
+    }
+
     fn build(self) -> TestTimeline {
         let controller = TimelineController::new(
             self.provider.unwrap_or_default(),
-            TimelineFocus::Live { hide_threaded_events: false },
+            self.focus.unwrap_or(TimelineFocus::Live { hide_threaded_events: false }),
             self.internal_id_prefix,
             self.utd_hook,
             self.is_room_encrypted,
