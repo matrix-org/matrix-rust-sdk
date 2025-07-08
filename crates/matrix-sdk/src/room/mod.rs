@@ -1264,7 +1264,7 @@ impl Room {
     /// use matrix_sdk::ruma::{
     ///     events::{
     ///         marked_unread::MarkedUnreadEventContent,
-    ///         AnyRoomAccountDataEventContent, EventContent,
+    ///         AnyRoomAccountDataEventContent, RoomAccountDataEventContent,
     ///     },
     ///     serde::Raw,
     /// };

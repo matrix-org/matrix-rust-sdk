@@ -17,7 +17,7 @@ use ruma::{
     events::{
         macros::EventContent,
         room::create::{PreviousRoom, RoomCreateEventContent},
-        EmptyStateKey, RedactContent, RedactedStateEventContent,
+        EmptyStateKey, RedactContent, RedactedStateEventContent, StateEventType,
     },
     room::RoomType,
     OwnedUserId, RoomVersionId,
@@ -100,6 +100,10 @@ pub type RedactedRoomCreateWithCreatorEventContent = RoomCreateWithCreatorEventC
 
 impl RedactedStateEventContent for RedactedRoomCreateWithCreatorEventContent {
     type StateKey = EmptyStateKey;
+
+    fn event_type(&self) -> StateEventType {
+        StateEventType::RoomCreate
+    }
 }
 
 impl RedactContent for RoomCreateWithCreatorEventContent {

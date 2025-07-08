@@ -26,7 +26,7 @@ use ruma::{
     TransactionId,
     events::{
         AnyMessageLikeEventContent, AnySyncMessageLikeEvent, AnySyncStateEvent,
-        AnySyncTimelineEvent, EventContent, FullStateEventContent, MessageLikeEventType,
+        AnySyncTimelineEvent, FullStateEventContent, MessageLikeEventContent, MessageLikeEventType,
         StateEventType, SyncStateEvent,
         poll::unstable_start::{
             NewUnstablePollStartEventContentWithoutRelation, UnstablePollStartEventContent,

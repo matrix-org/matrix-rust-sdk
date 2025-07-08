@@ -161,7 +161,7 @@ use ruma::{
             message::{FormattedBody, RoomMessageEventContent},
             MediaSource,
         },
-        AnyMessageLikeEventContent, EventContent as _, Mentions,
+        AnyMessageLikeEventContent, Mentions, MessageLikeEventContent as _,
     },
     serde::Raw,
     MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedRoomId, OwnedTransactionId, RoomId,

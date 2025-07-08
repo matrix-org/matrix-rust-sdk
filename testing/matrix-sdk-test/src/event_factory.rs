@@ -238,7 +238,12 @@ impl<E: StaticEventContent> EventBuilder<E> {
         self.state_key = Some(state_key.into());
         self
     }
+}
 
+impl<E> EventBuilder<E>
+where
+    E: StaticEventContent + Serialize,
+{
     #[inline(always)]
     fn construct_json(self, requires_room: bool) -> serde_json::Value {
         // Use the `sender` preferably, or resort to the `redacted_because` sender if
@@ -454,19 +459,28 @@ impl EventBuilder<StickerEventContent> {
     }
 }
 
-impl<E: StaticEventContent> From<EventBuilder<E>> for Raw<AnySyncTimelineEvent> {
+impl<E: StaticEventContent> From<EventBuilder<E>> for Raw<AnySyncTimelineEvent>
+where
+    E: Serialize,
+{
     fn from(val: EventBuilder<E>) -> Self {
         val.into_raw_sync()
     }
 }
 
-impl<E: StaticEventContent> From<EventBuilder<E>> for Raw<AnyTimelineEvent> {
+impl<E: StaticEventContent> From<EventBuilder<E>> for Raw<AnyTimelineEvent>
+where
+    E: Serialize,
+{
     fn from(val: EventBuilder<E>) -> Self {
         val.into_raw_timeline()
     }
 }
 
-impl<E: StaticEventContent> From<EventBuilder<E>> for TimelineEvent {
+impl<E: StaticEventContent> From<EventBuilder<E>> for TimelineEvent
+where
+    E: Serialize,
+{
     fn from(val: EventBuilder<E>) -> Self {
         val.into_event()
     }

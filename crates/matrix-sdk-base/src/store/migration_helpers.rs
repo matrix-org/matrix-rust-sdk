@@ -35,7 +35,7 @@ use ruma::{
             tombstone::RoomTombstoneEventContent,
             topic::RoomTopicEventContent,
         },
-        EmptyStateKey, EventContent, RedactContent, StateEventContent, StateEventType,
+        EmptyStateKey, RedactContent, StateEventContent, StateEventType,
     },
     OwnedRoomId, OwnedUserId, RoomId,
 };
@@ -222,16 +222,12 @@ struct RoomNameEventContentV1 {
     name: Option<String>,
 }
 
-impl EventContent for RoomNameEventContentV1 {
-    type EventType = StateEventType;
-
-    fn event_type(&self) -> Self::EventType {
-        StateEventType::RoomName
-    }
-}
-
 impl StateEventContent for RoomNameEventContentV1 {
     type StateKey = EmptyStateKey;
+
+    fn event_type(&self) -> StateEventType {
+        StateEventType::RoomName
+    }
 }
 
 impl RedactContent for RoomNameEventContentV1 {

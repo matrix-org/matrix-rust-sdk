@@ -614,7 +614,7 @@ impl StateChanges {
     where
         C: StaticEventContent + StaticStateEventContent + RedactContent,
         C::Redacted: RedactedStateEventContent,
-        C::PossiblyRedacted: DeserializeOwned,
+        C::PossiblyRedacted: StaticEventContent + DeserializeOwned,
         C::StateKey: Borrow<K>,
         K: AsRef<str> + ?Sized,
     {
