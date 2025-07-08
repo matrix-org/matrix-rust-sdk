@@ -349,8 +349,9 @@ pub struct OAuthCrossSigningResetInfo {
 
 impl OAuthCrossSigningResetInfo {
     fn from_auth_info(auth_info: &UiaaInfo) -> Result<Self> {
-        let parameters =
-            serde_json::from_str::<OAuthCrossSigningResetUiaaParameters>(auth_info.params.get())?;
+        let parameters = serde_json::from_str::<OAuthCrossSigningResetUiaaParameters>(
+            auth_info.params.as_ref().map(|value| value.get()).unwrap_or_default(),
+        )?;
 
         Ok(OAuthCrossSigningResetInfo { approval_url: parameters.reset.url })
     }

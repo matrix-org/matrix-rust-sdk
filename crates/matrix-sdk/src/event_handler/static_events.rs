@@ -16,11 +16,9 @@
 
 use ruma::{
     events::{
-        self,
-        presence::{PresenceEvent, PresenceEventContent},
-        AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent, AnyStrippedStateEvent,
-        AnySyncEphemeralRoomEvent, AnySyncMessageLikeEvent, AnySyncStateEvent,
-        AnySyncTimelineEvent, AnyToDeviceEvent, EphemeralRoomEventContent,
+        self, presence::PresenceEvent, AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent,
+        AnyStrippedStateEvent, AnySyncEphemeralRoomEvent, AnySyncMessageLikeEvent,
+        AnySyncStateEvent, AnySyncTimelineEvent, AnyToDeviceEvent, EphemeralRoomEventContent,
         GlobalAccountDataEventContent, MessageLikeEventContent, PossiblyRedactedStateEventContent,
         RedactContent, RedactedMessageLikeEventContent, RedactedStateEventContent,
         RoomAccountDataEventContent, StaticEventContent, StaticStateEventContent,
@@ -141,7 +139,7 @@ where
 
 impl SyncEvent for PresenceEvent {
     const KIND: HandlerKind = HandlerKind::Presence;
-    const TYPE: Option<&'static str> = Some(PresenceEventContent::TYPE);
+    const TYPE: Option<&'static str> = None;
 }
 
 impl SyncEvent for AnyGlobalAccountDataEvent {

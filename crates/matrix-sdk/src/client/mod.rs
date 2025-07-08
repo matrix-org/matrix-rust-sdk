@@ -48,7 +48,7 @@ use ruma::{
             directory::{get_public_rooms, get_public_rooms_filtered},
             discovery::{
                 discover_homeserver::{self, RtcFocusInfo},
-                get_capabilities::{self, Capabilities},
+                get_capabilities::{self, v3::Capabilities},
                 get_supported_versions,
             },
             error::ErrorKind,
