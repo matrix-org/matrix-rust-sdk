@@ -157,7 +157,7 @@ impl RoomPagination {
                 // Send a room event cache generic update.
                 if !outcome.events.is_empty() {
                     let _ = self.inner.generic_update_sender.send(
-                        RoomEventCacheGenericUpdate::TimelineUpdated {
+                        RoomEventCacheGenericUpdate::UpdateTimeline {
                             room_id: self.inner.room_id.clone(),
                         },
                     );
