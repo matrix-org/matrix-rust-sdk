@@ -46,7 +46,7 @@ pub(in crate::timeline) struct TimelineState<P: RoomDataProvider> {
     pub meta: TimelineMetadata,
 
     /// The kind of focus of this timeline.
-    focus: Arc<TimelineFocusKind<P>>,
+    pub(super) focus: Arc<TimelineFocusKind<P>>,
 }
 
 impl<P: RoomDataProvider> TimelineState<P> {
