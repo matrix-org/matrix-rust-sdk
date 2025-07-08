@@ -488,10 +488,17 @@ impl EventCacheInner {
         // propagate updates to observers.
         try_join_all(room_locks.into_iter().map(|(room, mut state_guard)| async move {
             let updates_as_vector_diffs = state_guard.reset().await?;
+
             let _ = room.inner.sender.send(RoomEventCacheUpdate::UpdateTimelineEvents {
                 diffs: updates_as_vector_diffs,
                 origin: EventsOrigin::Cache,
             });
+
+            let _ = room
+                .inner
+                .generic_update_sender
+                .send(RoomEventCacheGenericUpdate::Cleared { room_id: room.inner.room_id.clone() });
+
             Ok::<_, EventCacheError>(())
         }))
         .await?;
@@ -637,6 +644,12 @@ pub enum RoomEventCacheGenericUpdate {
         /// The room ID owning the timeline.
         room_id: OwnedRoomId,
     },
+
+    /// The room has been cleared, all events have been deleted.
+    Cleared {
+        /// The ID of the room that has been cleared.
+        room_id: OwnedRoomId,
+    },
 }
 
 impl RoomEventCacheGenericUpdate {
@@ -644,6 +657,7 @@ impl RoomEventCacheGenericUpdate {
     pub fn room_id(&self) -> &RoomId {
         match self {
             Self::TimelineUpdated { room_id } => room_id,
+            Self::Cleared { room_id } => room_id,
         }
     }
 }

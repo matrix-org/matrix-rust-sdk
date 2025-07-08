@@ -383,6 +383,12 @@ impl RoomEventCache {
             origin: EventsOrigin::Cache,
         });
 
+        // Notify observers about the generic update.
+        let _ = self
+            .inner
+            .generic_update_sender
+            .send(RoomEventCacheGenericUpdate::Cleared { room_id: self.inner.room_id.clone() });
+
         Ok(())
     }
 
@@ -2446,6 +2452,7 @@ mod timed_tests {
         let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
 
         let (items, mut stream) = room_event_cache.subscribe().await;
+        let mut generic_stream = event_cache.subscribe_to_room_generic_updates();
 
         // The rooms knows about all cached events.
         {
@@ -2487,6 +2494,18 @@ mod timed_tests {
         );
         assert_eq!(diffs.len(), 1);
         assert_let!(VectorDiff::Clear = &diffs[0]);
+
+        // … same with a generic update.
+        assert_let_timeout!(
+            Ok(RoomEventCacheGenericUpdate::TimelineUpdated { room_id: received_room_id }) =
+                generic_stream.recv()
+        );
+        assert_eq!(received_room_id, room_id);
+        assert_let_timeout!(
+            Ok(RoomEventCacheGenericUpdate::Cleared { room_id: received_room_id }) =
+                generic_stream.recv()
+        );
+        assert_eq!(received_room_id, room_id);
 
         // Events individually are not forgotten by the event cache, after clearing a
         // room.
@@ -2898,6 +2917,8 @@ mod timed_tests {
         assert_eq!(events[0].event_id().as_deref(), Some(evid2));
         assert!(stream.is_empty());
 
+        let mut generic_stream = event_cache.subscribe_to_room_generic_updates();
+
         // Force loading the full linked chunk by back-paginating.
         let outcome = room_event_cache.pagination().run_backwards_once(20).await.unwrap();
         assert_eq!(outcome.events.len(), 1);
@@ -2914,6 +2935,13 @@ mod timed_tests {
         });
 
         assert!(stream.is_empty());
+
+        // Same for the generic update.
+        assert_let_timeout!(
+            Ok(RoomEventCacheGenericUpdate::TimelineUpdated { room_id: received_room_id }) =
+                generic_stream.recv()
+        );
+        assert_eq!(received_room_id, room_id);
 
         // Shrink the linked chunk to the last chunk.
         let diffs = room_event_cache
@@ -2934,6 +2962,9 @@ mod timed_tests {
         });
 
         assert!(stream.is_empty());
+
+        // No generic update is sent in this case.
+        assert!(generic_stream.is_empty());
 
         // When reading the events, we do get only the last one.
         let events = room_event_cache.events().await;
