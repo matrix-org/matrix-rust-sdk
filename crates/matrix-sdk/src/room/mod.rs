@@ -2936,13 +2936,15 @@ impl Room {
             .and_then(|e| e.deserialize().ok())
             .map(|e| e.power_levels().into());
 
-        Ok(Some(PushConditionRoomCtx {
-            user_id: user_id.to_owned(),
-            room_id: room_id.to_owned(),
-            member_count: UInt::new(member_count).unwrap_or(UInt::MAX),
-            user_display_name,
-            power_levels,
-        }))
+        Ok(Some(assign!(
+            PushConditionRoomCtx::new(
+                room_id.to_owned(),
+                UInt::new(member_count).unwrap_or(UInt::MAX),
+                user_id.to_owned(),
+                user_display_name,
+            ),
+            { power_levels }
+        )))
     }
 
     /// Retrieves a [`PushContext`] that can be used to compute the push
