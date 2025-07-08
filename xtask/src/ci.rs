@@ -7,7 +7,7 @@ use std::{
 use clap::{Args, Subcommand, ValueEnum};
 use xshell::cmd;
 
-use crate::{build_docs, sh, workspace, DenyWarnings, Result, NIGHTLY};
+use crate::{DenyWarnings, NIGHTLY, Result, build_docs, sh, workspace};
 
 const WASM_TIMEOUT_ENV_KEY: &str = "WASM_BINDGEN_TEST_TIMEOUT";
 const WASM_TIMEOUT_VALUE: &str = "120";

@@ -4,7 +4,7 @@ use camino::Utf8PathBuf;
 use serde::Deserialize;
 use xshell::cmd;
 
-use crate::{sh, Result};
+use crate::{Result, sh};
 
 pub fn root_path() -> Result<Utf8PathBuf> {
     #[derive(Deserialize)]

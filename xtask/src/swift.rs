@@ -8,7 +8,7 @@ use clap::{Args, Subcommand};
 use uniffi_bindgen::{bindings::SwiftBindingGenerator, library_mode::generate_bindings};
 use xshell::cmd;
 
-use crate::{sh, workspace, Result};
+use crate::{Result, sh, workspace};
 
 /// Builds the SDK for Swift as a Static Library or XCFramework.
 #[derive(Args)]

@@ -15,7 +15,7 @@ use fixup::FixupArgs;
 use kotlin::KotlinArgs;
 use release::ReleaseArgs;
 use swift::SwiftArgs;
-use xshell::{cmd, Shell};
+use xshell::{Shell, cmd};
 
 const NIGHTLY: &str = "nightly-2025-06-27";
 
