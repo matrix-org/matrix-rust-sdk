@@ -35,14 +35,14 @@ use ruma::{
     directory::PublicRoomsChunk,
     encryption::{CrossSigningKey, DeviceKeys, OneTimeKey},
     events::{
-        room::member::RoomMemberEvent, AnyStateEvent, AnyTimelineEvent, GlobalAccountDataEventType,
-        MessageLikeEventType, RoomAccountDataEventType, StateEventType,
+        receipt::ReceiptThread, room::member::RoomMemberEvent, AnyStateEvent, AnyTimelineEvent,
+        GlobalAccountDataEventType, MessageLikeEventType, RoomAccountDataEventType, StateEventType,
     },
     media::Method,
     serde::Raw,
     time::Duration,
-    DeviceId, MxcUri, OwnedDeviceId, OwnedEventId, OwnedOneTimeKeyId, OwnedRoomId, OwnedUserId,
-    RoomId, ServerName, UserId,
+    DeviceId, EventId, MxcUri, OwnedDeviceId, OwnedEventId, OwnedOneTimeKeyId, OwnedRoomId,
+    OwnedUserId, RoomId, ServerName, UserId,
 };
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -3179,6 +3179,28 @@ impl<'a> MockEndpoint<'a, ReceiptEndpoint> {
     /// parameter.
     pub fn body_json(self, body: Value) -> Self {
         Self { mock: self.mock.and(body_json(body)), ..self }
+    }
+
+    /// Ensures that the request matches a specific receipt thread.
+    pub fn match_thread(self, thread: ReceiptThread) -> Self {
+        if let Some(thread_str) = thread.as_str() {
+            self.body_matches_partial_json(json!({
+                "thread_id": thread_str
+            }))
+        } else {
+            self
+        }
+    }
+
+    /// Ensures that the request matches a specific event id.
+    pub fn match_event_id(self, event_id: &EventId) -> Self {
+        Self {
+            mock: self.mock.and(path_regex(format!(
+                r"^/_matrix/client/v3/rooms/.*/receipt/.*/{}$",
+                event_id.as_str().replace("$", "\\$")
+            ))),
+            ..self
+        }
     }
 }
 

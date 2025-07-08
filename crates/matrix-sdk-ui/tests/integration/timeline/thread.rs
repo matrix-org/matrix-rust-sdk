@@ -37,6 +37,7 @@ use ruma::{
     owned_event_id, room_id, user_id, MilliSecondsSinceUnixEpoch,
 };
 use stream_assert::assert_pending;
+use tokio::task::yield_now;
 
 #[async_test]
 async fn test_new_empty_thread() {
@@ -845,7 +846,7 @@ async fn test_read_receipts() {
     let thread_root = owned_event_id!("$root");
     let receipt_thread = ReceiptThread::Thread(thread_root.clone());
 
-    // Start with a room manually marked as unread.
+    // Start with an empty room.
     let room = server.sync_joined_room(&client, room_id).await;
 
     // Create a threaded timeline, with no events in it.
@@ -970,4 +971,180 @@ async fn test_read_receipts() {
         assert_eq!(rr[*ALICE].thread, receipt_thread);
         assert_eq!(rr[*BOB].thread, receipt_thread);
     }
+}
+
+#[async_test]
+async fn test_send_read_receipts() {
+    // Threaded read receipts can be sent from a thread timeline. Trying to send a
+    // read receipt on an event that had one is a no-op.
+
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+    client.event_cache().subscribe().unwrap();
+
+    let user_id = client.user_id().unwrap();
+
+    let room_id = room_id!("!a:b.c");
+    let thread_root = owned_event_id!("$root");
+    let receipt_thread = ReceiptThread::Thread(thread_root.clone());
+
+    // Start with a room with some events.
+    let f = EventFactory::new();
+    let room = server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id)
+                .add_timeline_event(
+                    f.text_msg("hey to you too!")
+                        .sender(*ALICE)
+                        .in_thread(&thread_root, &thread_root)
+                        .event_id(event_id!("$1")),
+                )
+                .add_timeline_event(
+                    f.text_msg("how's it going?")
+                        .sender(user_id)
+                        .in_thread(&thread_root, event_id!("$1"))
+                        .event_id(event_id!("$2")),
+                )
+                .add_timeline_event(
+                    f.text_msg("good and you?")
+                        .sender(*BOB)
+                        .in_thread(&thread_root, event_id!("$2"))
+                        .event_id(event_id!("$3")),
+                )
+                .add_timeline_event(
+                    f.text_msg("u there?")
+                        .sender(*BOB)
+                        .in_thread(&thread_root, event_id!("$3"))
+                        .event_id(event_id!("$4")),
+                ),
+        )
+        .await;
+
+    // Create a threaded timeline.
+    let timeline = room
+        .timeline_builder()
+        .with_focus(TimelineFocus::Thread { root_event_id: thread_root.clone() })
+        .build()
+        .await
+        .unwrap();
+
+    let (mut initial_items, mut stream) = timeline.subscribe().await;
+
+    // Either the initial timeline is not empty, or it will soon receive an update
+    // from the event cache.
+    if initial_items.is_empty() {
+        assert_let_timeout!(Some(timeline_updates) = stream.next());
+        for up in timeline_updates {
+            up.apply(&mut initial_items);
+        }
+    }
+
+    // Now that the timeline is populated, we can check the initial read receipts.
+    // Note: 0 is the index of the date divider.
+    let ev = initial_items[1].as_event().unwrap();
+    assert_eq!(ev.event_id(), Some(event_id!("$1")));
+    let rr = ev.read_receipts();
+    assert_eq!(rr.len(), 1);
+    assert_eq!(rr[*ALICE].thread, receipt_thread);
+
+    // The timeline doesn't include the read receipt for the current user, but this
+    // is where it would be, if it did.
+    let ev = initial_items[2].as_event().unwrap();
+    assert_eq!(ev.event_id(), Some(event_id!("$2")));
+    assert!(ev.read_receipts().is_empty());
+
+    let ev = initial_items[3].as_event().unwrap();
+    assert_eq!(ev.event_id(), Some(event_id!("$3")));
+    assert!(ev.read_receipts().is_empty());
+
+    let ev = initial_items[4].as_event().unwrap();
+    assert_eq!(ev.event_id(), Some(event_id!("$4")));
+    let rr = ev.read_receipts();
+    assert_eq!(rr.len(), 1);
+    assert_eq!(rr[*BOB].thread, receipt_thread);
+
+    // If the user tries to send a read receipt for an event sent before one of
+    // theirs, it is a no-op.
+    let did_send =
+        timeline.send_single_receipt(SendReceiptType::Read, owned_event_id!("$1")).await.unwrap();
+    assert!(did_send.not());
+
+    // If the user tries to send a read receipt for their own event, it is a no-op.
+    let did_send =
+        timeline.send_single_receipt(SendReceiptType::Read, owned_event_id!("$2")).await.unwrap();
+    assert!(did_send.not());
+
+    // But they can send it to a following event.
+    server
+        .mock_send_receipt(SendReceiptType::Read)
+        .match_thread(ReceiptThread::Thread(thread_root.clone()))
+        .match_event_id(event_id!("$3"))
+        .ok()
+        .mock_once()
+        .mount()
+        .await;
+
+    let did_send =
+        timeline.send_single_receipt(SendReceiptType::Read, owned_event_id!("$3")).await.unwrap();
+    assert!(did_send);
+
+    // At this point, the read receipts aren't optimistically updated.
+    assert_pending!(stream);
+
+    // Simulate a remote echo for the read receipt.
+    {
+        server
+            .sync_room(
+                &client,
+                JoinedRoomBuilder::new(room_id).add_receipt(
+                    f.read_receipts()
+                        .add(event_id!("$3"), user_id, ReceiptType::Read, receipt_thread.clone())
+                        .into_event(),
+                ),
+            )
+            .await;
+
+        // The timeline receives an update for the read receipt, but it won't move it,
+        // since it doesn't signal our own read receipt.
+        yield_now().await;
+        assert_pending!(stream);
+    }
+
+    // And the user can mark the whole thread as read, which will send a read
+    // receipt on the last event.
+    server
+        .mock_send_receipt(SendReceiptType::Read)
+        .match_thread(ReceiptThread::Thread(thread_root.clone()))
+        .match_event_id(event_id!("$4"))
+        .ok()
+        .mock_once()
+        .mount()
+        .await;
+
+    let did_send = timeline.mark_as_read(SendReceiptType::Read).await.unwrap();
+    assert!(did_send);
+
+    // Simulate a remote echo for the read receipt.
+    {
+        server
+            .sync_room(
+                &client,
+                JoinedRoomBuilder::new(room_id).add_receipt(
+                    f.read_receipts()
+                        .add(event_id!("$4"), user_id, ReceiptType::Read, receipt_thread.clone())
+                        .into_event(),
+                ),
+            )
+            .await;
+
+        // The timeline receives an update for the read receipt, but it won't move it,
+        // since it doesn't signal our own read receipt.
+        yield_now().await;
+        assert_pending!(stream);
+    }
+
+    // Trying to mark the thread as read again is a no-op.
+    let did_send = timeline.mark_as_read(SendReceiptType::Read).await.unwrap();
+    assert!(did_send.not());
 }
