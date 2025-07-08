@@ -1,7 +1,7 @@
 use clap::{Args, Subcommand, ValueEnum};
-use xshell::{cmd, Cmd};
+use xshell::{Cmd, cmd};
 
-use crate::{sh, Result};
+use crate::{Result, sh};
 
 #[derive(Args)]
 pub struct ReleaseArgs {
