@@ -126,6 +126,31 @@ pub(in crate::timeline) enum TimelineFocusKind<P: RoomDataProvider> {
     },
 }
 
+impl<P: RoomDataProvider> TimelineFocusKind<P> {
+    /// Returns the [`ReceiptThread`] that should be used for the current
+    /// timeline focus.
+    ///
+    /// Live and event timelines will use the unthreaded read receipt type in
+    /// general, unless they hide in-thread events, in which case they will
+    /// use the main thread.
+    pub(super) fn receipt_thread(&self) -> ReceiptThread {
+        match self {
+            TimelineFocusKind::Live { hide_threaded_events }
+            | TimelineFocusKind::Event { hide_threaded_events, .. } => {
+                if *hide_threaded_events {
+                    ReceiptThread::Main
+                } else {
+                    ReceiptThread::Unthreaded
+                }
+            }
+            TimelineFocusKind::Thread { root_event_id } => {
+                ReceiptThread::Thread(root_event_id.clone())
+            }
+            TimelineFocusKind::PinnedEvents { .. } => ReceiptThread::Unthreaded,
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 pub(super) struct TimelineController<P: RoomDataProvider = Room, D: Decryptor = Room> {
     /// Inner mutable state.
@@ -1196,7 +1221,13 @@ impl<P: RoomDataProvider, D: Decryptor> TimelineController<P, D> {
         &self,
         user_id: &UserId,
     ) -> Option<(OwnedEventId, Receipt)> {
-        self.state.read().await.latest_user_read_receipt(user_id, &self.room_data_provider).await
+        let receipt_thread = self.focus.receipt_thread();
+
+        self.state
+            .read()
+            .await
+            .latest_user_read_receipt(user_id, receipt_thread, &self.room_data_provider)
+            .await
     }
 
     /// Get the ID of the timeline event with the latest read receipt for the
@@ -1460,22 +1491,9 @@ impl TimelineController {
         receipt_type: &SendReceiptType,
     ) -> ReceiptThread {
         if matches!(receipt_type, SendReceiptType::FullyRead) {
-            return ReceiptThread::Unthreaded;
-        }
-
-        match &*self.focus {
-            TimelineFocusKind::Live { hide_threaded_events }
-            | TimelineFocusKind::Event { hide_threaded_events, .. } => {
-                if *hide_threaded_events {
-                    ReceiptThread::Main
-                } else {
-                    ReceiptThread::Unthreaded
-                }
-            }
-            TimelineFocusKind::Thread { root_event_id, .. } => {
-                ReceiptThread::Thread(root_event_id.to_owned())
-            }
-            TimelineFocusKind::PinnedEvents { .. } => ReceiptThread::Unthreaded,
+            ReceiptThread::Unthreaded
+        } else {
+            self.focus.receipt_thread()
         }
     }
 
@@ -1485,14 +1503,9 @@ impl TimelineController {
     pub(super) async fn should_send_receipt(
         &self,
         receipt_type: &SendReceiptType,
-        thread: &ReceiptThread,
+        receipt_thread: &ReceiptThread,
         event_id: &EventId,
     ) -> bool {
-        // We don't support threaded receipts yet.
-        if *thread != ReceiptThread::Unthreaded {
-            return true;
-        }
-
         let own_user_id = self.room().own_user_id();
         let state = self.state.read().await;
         let room = self.room();
@@ -1504,6 +1517,7 @@ impl TimelineController {
                     .user_receipt(
                         own_user_id,
                         ReceiptType::Read,
+                        receipt_thread.clone(),
                         room,
                         state.items.all_remote_events(),
                     )
@@ -1522,11 +1536,12 @@ impl TimelineController {
                     }
                 }
             }
+
             // Implicit read receipts are saved as public read receipts, so get the latest. It also
             // doesn't make sense to have a private read receipt behind a public one.
             SendReceiptType::ReadPrivate => {
                 if let Some((old_priv_read, _)) =
-                    state.latest_user_read_receipt(own_user_id, room).await
+                    state.latest_user_read_receipt(own_user_id, receipt_thread.clone(), room).await
                 {
                     trace!(%old_priv_read, "found a previous private receipt");
                     if let Some(relative_pos) = state.meta.compare_events_positions(
@@ -1541,6 +1556,7 @@ impl TimelineController {
                     }
                 }
             }
+
             SendReceiptType::FullyRead => {
                 if let Some(prev_event_id) = self.room_data_provider.load_fully_read_marker().await
                 {
@@ -1553,6 +1569,7 @@ impl TimelineController {
                     }
                 }
             }
+
             _ => {}
         }
 

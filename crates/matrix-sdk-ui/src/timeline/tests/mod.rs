@@ -382,6 +382,7 @@ impl RoomDataProvider for TestRoomDataProvider {
     async fn load_event_receipts<'a>(
         &'a self,
         event_id: &'a EventId,
+        _receipt_thread: ReceiptThread,
     ) -> IndexMap<OwnedUserId, Receipt> {
         let mut map = IndexMap::new();
 
