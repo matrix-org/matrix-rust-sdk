@@ -174,6 +174,7 @@ impl HttpClient {
                 AuthScheme::AccessToken
                 | AuthScheme::AccessTokenOptional
                 | AuthScheme::AppserviceToken
+                | AuthScheme::AppserviceTokenOptional
                 | AuthScheme::None => {}
                 AuthScheme::ServerSignatures => {
                     return Err(HttpError::NotClientRequest);
