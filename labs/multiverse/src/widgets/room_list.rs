@@ -68,7 +68,7 @@ impl RoomList {
     /// Focus the list on the next item, wraps around if needs be.
     ///
     /// Returns the index only if there was a meaningful change.
-    pub fn next_room(&mut self) {
+    pub async fn next_room(&mut self) {
         let num_items = self.rooms.lock().len();
 
         // If there's no item to select, leave early.
@@ -83,14 +83,14 @@ impl RoomList {
 
         if prev != Some(new) {
             self.state.select(Some(new));
-            self.subscribe_to_room(new);
+            self.subscribe_to_room(new).await;
         }
     }
 
     /// Focus the list on the previous item, wraps around if needs be.
     ///
     /// Returns the index only if there was a meaningful change.
-    pub fn previous_room(&mut self) {
+    pub async fn previous_room(&mut self) {
         let num_items = self.rooms.lock().len();
 
         // If there's no item to select, leave early.
@@ -105,7 +105,7 @@ impl RoomList {
 
         if prev != Some(new) {
             self.state.select(Some(new));
-            self.subscribe_to_room(new);
+            self.subscribe_to_room(new).await;
         }
     }
 
@@ -121,7 +121,7 @@ impl RoomList {
     }
 
     /// Subscribe to room that is shown at the given `index`.
-    fn subscribe_to_room(&mut self, index: usize) {
+    async fn subscribe_to_room(&mut self, index: usize) {
         // Cancel the subscription to the previous room, if any.
         self.current_room_subscription.take();
 
@@ -129,7 +129,7 @@ impl RoomList {
         if let Some(room) =
             self.get_room_id_of_entry(index).and_then(|room_id| self.client.get_room(&room_id))
         {
-            self.sync_service.room_list_service().subscribe_to_rooms(&[room.room_id()]);
+            self.sync_service.room_list_service().subscribe_to_rooms(&[room.room_id()]).await;
             self.current_room_subscription = Some(room);
         }
     }
