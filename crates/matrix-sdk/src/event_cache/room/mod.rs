@@ -603,7 +603,7 @@ pub(super) enum LoadMoreEventsBackwardsOutcome {
 // Use a private module to hide `events` to this parent module.
 mod private {
     use std::{
-        collections::{HashMap, HashSet},
+        collections::{BTreeMap, HashMap, HashSet},
         sync::{atomic::AtomicUsize, Arc},
     };
 
@@ -1428,7 +1428,7 @@ mod private {
             // Update the store before doing the post-processing.
             self.propagate_changes().await?;
 
-            let mut new_events_by_thread: HashMap<_, Vec<_>> = HashMap::new();
+            let mut new_events_by_thread: BTreeMap<_, Vec<_>> = BTreeMap::new();
 
             for event in events {
                 self.maybe_apply_new_redaction(&event).await?;
@@ -1464,7 +1464,7 @@ mod private {
         #[instrument(skip_all)]
         async fn update_threads(
             &mut self,
-            new_events_by_thread: HashMap<OwnedEventId, Vec<Event>>,
+            new_events_by_thread: BTreeMap<OwnedEventId, Vec<Event>>,
             is_sync: bool,
         ) -> Result<(), EventCacheError> {
             for (thread_root, new_events) in new_events_by_thread {
