@@ -584,9 +584,7 @@ impl<P: RoomDataProvider, D: Decryptor> TimelineController<P, D> {
         Vector<Arc<TimelineItem>>,
         impl Stream<Item = VectorDiff<Arc<TimelineItem>>> + SendOutsideWasm,
     ) {
-        let state = self.state.read().await;
-
-        state.items.subscribe().into_values_and_stream()
+        self.state.read().await.items.subscribe().into_values_and_stream()
     }
 
     pub(super) async fn subscribe(&self) -> (Vector<Arc<TimelineItem>>, TimelineSubscriber) {
