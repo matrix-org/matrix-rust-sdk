@@ -11,7 +11,7 @@ use matrix_sdk::{
     room::reply::Reply,
     send_queue::{
         LocalEcho, LocalEchoContent, RoomSendQueue, RoomSendQueueError, RoomSendQueueStorageError,
-        RoomSendQueueUpdate, SendHandle,
+        RoomSendQueueUpdate, SendHandle, SendQueueUpdate,
     },
     test_utils::mocks::{MatrixMock, MatrixMockServer},
     Client, MemoryStore,
@@ -133,7 +133,7 @@ fn mock_jpeg_upload<'a>(
 macro_rules! assert_update {
     // Check the next stream event is a local echo for an uploaded media.
     // Returns a tuple of (transaction_id, send_handle, room_message).
-    ($watch:ident => local echo event) => {{
+    (($global_watch:ident, $watch:ident) => local echo event) => {{
         assert_let!(
             Ok(Ok(RoomSendQueueUpdate::NewLocalEvent(LocalEcho {
                 content: LocalEchoContent::Event {
@@ -145,6 +145,7 @@ macro_rules! assert_update {
                 transaction_id: txn,
             }))) = timeout(Duration::from_secs(1), $watch.recv()).await
         );
+        assert_matches!($global_watch.recv().await, Ok(SendQueueUpdate { update: RoomSendQueueUpdate::NewLocalEvent(_), .. }));
 
         let content = serialized_event.deserialize().unwrap();
         assert_let!(AnyMessageLikeEventContent::RoomMessage(room_message) = content);
@@ -154,21 +155,22 @@ macro_rules! assert_update {
 
     // Check the next stream event is a local echo for a message with the content $body.
     // Returns a tuple of (transaction_id, send_handle).
-    ($watch:ident => local echo { body = $body:expr }) => {{
-        let (txn, send_handle, room_message) = assert_update!($watch => local echo event);
+    (($global_watch:ident, $watch:ident) => local echo { body = $body:expr }) => {{
+        let (txn, send_handle, room_message) = assert_update!(($global_watch, $watch) => local echo event);
         assert_eq!(room_message.body(), $body);
         (txn, send_handle)
     }};
 
     // Check the next stream event is a notification about an uploaded media.
     // Returns a tuple of (transaction_id, send_handle).
-    ($watch:ident => uploaded { related_to = $related_to:expr, mxc = $mxc:expr }) => {{
+    (($global_watch:ident, $watch:ident) => uploaded { related_to = $related_to:expr, mxc = $mxc:expr }) => {{
         assert_let!(
             Ok(Ok(RoomSendQueueUpdate::UploadedMedia {
                 related_to,
                 file,
             })) = timeout(Duration::from_secs(1), $watch.recv()).await
         );
+        assert_matches!($global_watch.recv().await, Ok(SendQueueUpdate { update: RoomSendQueueUpdate::UploadedMedia { .. }, .. }));
 
         assert_eq!(related_to, $related_to);
         assert_let!(MediaSource::Plain(mxc) = file);
@@ -177,7 +179,7 @@ macro_rules! assert_update {
 
     // Check the next stream event is a local echo for a reaction with the content $key which
     // applies to the local echo with transaction id $parent.
-    ($watch:ident => local reaction { key = $key:expr, parent = $parent_txn_id:expr }) => {{
+    (($global_watch:ident, $watch:ident) => local reaction { key = $key:expr, parent = $parent_txn_id:expr }) => {{
         assert_let!(
             Ok(Ok(RoomSendQueueUpdate::NewLocalEvent(LocalEcho {
                 content: LocalEchoContent::React {
@@ -188,6 +190,7 @@ macro_rules! assert_update {
                 transaction_id: txn,
             }))) = timeout(Duration::from_secs(1), $watch.recv()).await
         );
+        assert_matches!($global_watch.recv().await, Ok(SendQueueUpdate { update: RoomSendQueueUpdate::NewLocalEvent { .. }, .. }));
 
         assert_eq!(key, $key);
         assert_eq!(applies_to, $parent_txn_id);
@@ -197,13 +200,14 @@ macro_rules! assert_update {
 
     // Check the next stream event is an edit event, and that the
     // transaction id is the one we expect.
-    ($watch:ident => edit local echo { txn = $transaction_id:expr }) => {{
+    (($global_watch:ident, $watch:ident) => edit local echo { txn = $transaction_id:expr }) => {{
         assert_let!(
             Ok(Ok(RoomSendQueueUpdate::ReplacedLocalEvent {
                 transaction_id: txn,
                 new_content: serialized_event,
             })) = timeout(Duration::from_secs(1), $watch.recv()).await
         );
+        assert_matches!($global_watch.recv().await, Ok(SendQueueUpdate { update: RoomSendQueueUpdate::ReplacedLocalEvent { .. }, .. }));
 
         assert_eq!(txn, $transaction_id);
 
@@ -215,28 +219,30 @@ macro_rules! assert_update {
 
     // Check the next stream event is an edit for a local echo with the content $body, and that the
     // transaction id is the one we expect.
-    ($watch:ident => edit { body = $body:expr, txn = $transaction_id:expr }) => {{
-        let msg = assert_update!($watch => edit local echo { txn = $transaction_id });
+    (($global_watch:ident, $watch:ident) => edit { body = $body:expr, txn = $transaction_id:expr }) => {{
+        let msg = assert_update!(($global_watch, $watch) => edit local echo { txn = $transaction_id });
         assert_eq!(msg.body(), $body);
     }};
 
     // Check the next stream event is a retry event, with optional checks on txn=$txn
-    ($watch:ident => retry { $(txn=$txn:expr)? }) => {
+    (($global_watch:ident, $watch:ident) => retry { $(txn=$txn:expr)? }) => {
         assert_let!(
             Ok(Ok(RoomSendQueueUpdate::RetryEvent { transaction_id: _txn })) =
                 timeout(Duration::from_secs(1), $watch.recv()).await
         );
+        assert_matches!($global_watch.recv().await, Ok(SendQueueUpdate { update: RoomSendQueueUpdate::RetryEvent { .. }, .. }));
 
         $(assert_eq!(_txn, $txn);)?
     };
 
     // Check the next stream event is a sent event, with optional checks on txn=$txn and
     // event_id=$event_id.
-    ($watch:ident => sent { $(txn=$txn:expr,)? $(event_id=$event_id:expr)? }) => {
+    (($global_watch:ident, $watch:ident) => sent { $(txn=$txn:expr,)? $(event_id=$event_id:expr)? }) => {
         assert_let!(
             Ok(Ok(RoomSendQueueUpdate::SentEvent { event_id: _event_id, transaction_id: _txn })) =
                 timeout(Duration::from_secs(1), $watch.recv()).await
         );
+        assert_matches!($global_watch.recv().await, Ok(SendQueueUpdate { update: RoomSendQueueUpdate::SentEvent { .. }, .. }));
 
         $(assert_eq!(_event_id, $event_id);)?
         $(assert_eq!(_txn, $txn);)?
@@ -246,11 +252,12 @@ macro_rules! assert_update {
     // status and transaction id.
     //
     // Returns the error for additional checks.
-    ($watch:ident => error { $(recoverable=$recoverable:expr,)? $(txn=$txn:expr)? }) => {{
+    (($global_watch:ident, $watch:ident) => error { $(recoverable=$recoverable:expr,)? $(txn=$txn:expr)? }) => {{
         assert_let!(
             Ok(Ok(RoomSendQueueUpdate::SendError { transaction_id: _txn, error, is_recoverable: _is_recoverable })) =
                 timeout(Duration::from_secs(10), $watch.recv()).await
         );
+        assert_matches!($global_watch.recv().await, Ok(SendQueueUpdate { update: RoomSendQueueUpdate::SendError { .. }, .. }));
 
         $(assert_eq!(_txn, $txn);)?
         $(assert_eq!(_is_recoverable, $recoverable);)?
@@ -259,11 +266,13 @@ macro_rules! assert_update {
     }};
 
     // Check the next stream event is a cancelled local echo for the given transaction id.
-    ($watch:ident => cancelled { txn = $txn:expr }) => {{
+    (($global_watch:ident, $watch:ident) => cancelled { txn = $txn:expr }) => {{
         assert_let!(
             Ok(Ok(RoomSendQueueUpdate::CancelledLocalEvent { transaction_id: txn })) =
                 timeout(Duration::from_secs(10), $watch.recv()).await
         );
+        assert_matches!($global_watch.recv().await, Ok(SendQueueUpdate { update: RoomSendQueueUpdate::CancelledLocalEvent { .. }, .. }));
+
         assert_eq!(txn, $txn);
     }};
 }
@@ -362,6 +371,7 @@ async fn test_smoke() {
     let room = mock.sync_joined_room(&client, room_id).await;
 
     let q = room.send_queue();
+    let mut global_watch = client.send_queue().subscribe();
 
     let (local_echoes, mut watch) = q.subscribe().await.unwrap();
     assert!(local_echoes.is_empty());
@@ -399,7 +409,7 @@ async fn test_smoke() {
 
     room.send_queue().send(RoomMessageEventContent::text_plain("1").into()).await.unwrap();
 
-    let (txn1, _) = assert_update!(watch => local echo { body = "1" });
+    let (txn1, _) = assert_update!((global_watch, watch) => local echo { body = "1" });
 
     {
         let (local_echoes, _) = q.subscribe().await.unwrap();
@@ -412,7 +422,7 @@ async fn test_smoke() {
 
     drop(lock_guard);
 
-    assert_update!(watch => sent { txn = txn1, event_id = event_id });
+    assert_update!((global_watch, watch) => sent { txn = txn1, event_id = event_id });
 
     assert!(watch.is_empty());
 }
@@ -427,6 +437,7 @@ async fn test_smoke_raw() {
     let room = mock.sync_joined_room(&client, room_id).await;
 
     let q = room.send_queue();
+    let mut global_watch = client.send_queue().subscribe();
 
     let (local_echoes, mut watch) = q.subscribe().await.unwrap();
     assert!(local_echoes.is_empty());
@@ -448,6 +459,10 @@ async fn test_smoke_raw() {
             transaction_id: txn1,
         }))) = timeout(Duration::from_secs(1), watch.recv()).await
     );
+    assert_matches!(
+        global_watch.recv().await,
+        Ok(SendQueueUpdate { update: RoomSendQueueUpdate::NewLocalEvent(_), .. })
+    );
 
     let content = serialized_event.deserialize().unwrap();
     assert_matches!(&content, AnyMessageLikeEventContent::_Custom { .. });
@@ -457,7 +472,7 @@ async fn test_smoke_raw() {
     assert_eq!(event_type, "m.room.frenchie");
     assert_eq!(raw.json().to_string(), json_content);
 
-    assert_update!(watch => sent { txn = txn1, event_id = event_id });
+    assert_update!((global_watch, watch) => sent { txn = txn1, event_id = event_id });
 
     assert!(watch.is_empty());
 }
@@ -478,6 +493,7 @@ async fn test_error_then_locally_reenabling() {
     let room = mock.sync_joined_room(&client, room_id).await;
 
     let q = room.send_queue();
+    let mut global_watch = client.send_queue().subscribe();
 
     let (local_echoes, mut watch) = q.subscribe().await.unwrap();
     assert!(local_echoes.is_empty());
@@ -511,7 +527,7 @@ async fn test_error_then_locally_reenabling() {
 
     q.send(RoomMessageEventContent::text_plain("1").into()).await.unwrap();
 
-    let (txn1, _) = assert_update!(watch => local echo { body = "1" });
+    let (txn1, _) = assert_update!((global_watch, watch) => local echo { body = "1" });
 
     {
         let (local_echoes, _) = q.subscribe().await.unwrap();
@@ -530,7 +546,7 @@ async fn test_error_then_locally_reenabling() {
     // non-determinism, so let it fail after a large amount of time (10
     // seconds).
     // It's the same transaction id that's used to signal the send error.
-    let error = assert_update!(watch => error { recoverable=true, txn=txn1 });
+    let error = assert_update!((global_watch, watch) => error { recoverable=true, txn=txn1 });
     let error = error.as_client_api_error().unwrap();
     assert_eq!(error.status_code, 500);
 
@@ -558,7 +574,7 @@ async fn test_error_then_locally_reenabling() {
     assert!(client.send_queue().is_enabled());
     assert!(room.send_queue().is_enabled());
 
-    assert_update!(watch => sent { txn=txn1, event_id=event_id!("$42") });
+    assert_update!((global_watch, watch) => sent { txn=txn1, event_id=event_id!("$42") });
 
     assert!(errors.is_empty());
     assert!(watch.is_empty());
@@ -580,6 +596,7 @@ async fn test_error_then_globally_reenabling() {
     let room = mock.sync_joined_room(&client, room_id).await;
 
     let q = room.send_queue();
+    let mut global_watch = client.send_queue().subscribe();
 
     let (local_echoes, mut watch) = q.subscribe().await.unwrap();
     assert!(local_echoes.is_empty());
@@ -591,7 +608,7 @@ async fn test_error_then_globally_reenabling() {
 
     q.send(RoomMessageEventContent::text_plain("1").into()).await.unwrap();
 
-    let (txn1, _) = assert_update!(watch => local echo { body = "1" });
+    let (txn1, _) = assert_update!((global_watch, watch) => local echo { body = "1" });
 
     assert!(watch.is_empty());
 
@@ -604,7 +621,7 @@ async fn test_error_then_globally_reenabling() {
     // non-determinism, so let it fail after a large amount of time (10
     // seconds).
     // It's the same transaction id that's used to signal the send error.
-    assert_update!(watch => error { txn=txn1 });
+    assert_update!((global_watch, watch) => error { txn=txn1 });
 
     // The send queue is still globally enabled,
     assert!(client.send_queue().is_enabled());
@@ -623,7 +640,7 @@ async fn test_error_then_globally_reenabling() {
     assert!(client.send_queue().is_enabled());
     assert!(room.send_queue().is_enabled());
 
-    assert_update!(watch => sent { txn=txn1, event_id=event_id!("$42") });
+    assert_update!((global_watch, watch) => sent { txn=txn1, event_id=event_id!("$42") });
 
     assert!(errors.is_empty());
     assert!(watch.is_empty());
@@ -650,6 +667,7 @@ async fn test_reenabling_queue() {
     assert!(errors.is_empty());
 
     let q = room.send_queue();
+    let mut global_watch = client.send_queue().subscribe();
 
     let (local_echoes, mut watch) = q.subscribe().await.unwrap();
 
@@ -662,7 +680,7 @@ async fn test_reenabling_queue() {
     q.send(RoomMessageEventContent::text_plain("msg3").into()).await.unwrap();
 
     for i in 1..=3 {
-        assert_update!(watch => local echo { body = format!("msg{i}") });
+        assert_update!((global_watch, watch) => local echo { body = format!("msg{i}") });
     }
 
     {
@@ -693,7 +711,7 @@ async fn test_reenabling_queue() {
     // They're sent, in the same order.
     for i in 1..=3 {
         let event_id = OwnedEventId::try_from(format!("${i}").as_str()).unwrap();
-        assert_update!(watch => sent { event_id = event_id });
+        assert_update!((global_watch, watch) => sent { event_id = event_id });
     }
 
     assert!(errors.is_empty());
@@ -747,6 +765,7 @@ async fn test_cancellation() {
     let room = mock.sync_joined_room(&client, room_id).await;
 
     let q = room.send_queue();
+    let mut global_watch = client.send_queue().subscribe();
 
     let (local_echoes, mut watch) = q.subscribe().await.unwrap();
 
@@ -796,11 +815,11 @@ async fn test_cancellation() {
     q.send(RoomMessageEventContent::text_plain("msg5").into()).await.unwrap();
 
     // Receiving updates for local echoes.
-    let (txn1, _) = assert_update!(watch => local echo { body = "msg1" });
-    let (txn2, _) = assert_update!(watch => local echo { body = "msg2" });
-    let (txn3, handle3) = assert_update!(watch => local echo { body = "msg3" });
-    let (txn4, _) = assert_update!(watch => local echo { body = "msg4" });
-    let (txn5, _) = assert_update!(watch => local echo { body = "msg5" });
+    let (txn1, _) = assert_update!((global_watch, watch) => local echo { body = "msg1" });
+    let (txn2, _) = assert_update!((global_watch, watch) => local echo { body = "msg2" });
+    let (txn3, handle3) = assert_update!((global_watch, watch) => local echo { body = "msg3" });
+    let (txn4, _) = assert_update!((global_watch, watch) => local echo { body = "msg4" });
+    let (txn5, _) = assert_update!((global_watch, watch) => local echo { body = "msg5" });
     assert!(watch.is_empty());
 
     // Let the background task start now.
@@ -809,19 +828,19 @@ async fn test_cancellation() {
     // While the first item is being sent, the system records the intent to abort
     // it.
     assert!(handle1.abort().await.unwrap());
-    assert_update!(watch => cancelled { txn = txn1 });
+    assert_update!((global_watch, watch) => cancelled { txn = txn1 });
     assert!(watch.is_empty());
 
     // The second item is pending, so we can abort it, using the handle returned by
     // `send()`.
     assert!(handle2.abort().await.unwrap());
-    assert_update!(watch => cancelled { txn = txn2 });
+    assert_update!((global_watch, watch) => cancelled { txn = txn2 });
     assert!(watch.is_empty());
 
     // The third item is pending, so we can abort it, using the handle received from
     // the update.
     assert!(handle3.abort().await.unwrap());
-    assert_update!(watch => cancelled { txn = txn3 });
+    assert_update!((global_watch, watch) => cancelled { txn = txn3 });
     assert!(watch.is_empty());
 
     // The fourth item is pending, so we can abort it, using an handle provided by
@@ -838,15 +857,15 @@ async fn test_cancellation() {
         panic!("unexpected local echo content");
     };
     assert!(handle4.abort().await.unwrap());
-    assert_update!(watch => cancelled { txn = txn4 });
+    assert_update!((global_watch, watch) => cancelled { txn = txn4 });
     assert!(watch.is_empty());
 
     // Let the server process the responses.
     drop(lock_guard);
 
     // Now the server will process msg1 and msg5.
-    assert_update!(watch => sent { txn = txn1, });
-    assert_update!(watch => sent { txn = txn5, });
+    assert_update!((global_watch, watch) => sent { txn = txn1, });
+    assert_update!((global_watch, watch) => sent { txn = txn5, });
     assert!(watch.is_empty());
 }
 
@@ -864,6 +883,7 @@ async fn test_edit() {
     let room = mock.sync_joined_room(&client, room_id).await;
 
     let q = room.send_queue();
+    let mut global_watch = client.send_queue().subscribe();
 
     let (local_echoes, mut watch) = q.subscribe().await.unwrap();
 
@@ -921,8 +941,8 @@ async fn test_edit() {
     let handle2 = q.send(RoomMessageEventContent::text_plain("msg2").into()).await.unwrap();
 
     // Receiving updates for local echoes.
-    let (txn1, _) = assert_update!(watch => local echo { body = "msg1" });
-    let (txn2, _) = assert_update!(watch => local echo { body = "msg2" });
+    let (txn1, _) = assert_update!((global_watch, watch) => local echo { body = "msg1" });
+    let (txn2, _) = assert_update!((global_watch, watch) => local echo { body = "msg2" });
     assert!(watch.is_empty());
 
     // Let the background task start now.
@@ -934,7 +954,7 @@ async fn test_edit() {
         .edit(RoomMessageEventContent::text_plain("it's never too late!").into())
         .await
         .unwrap());
-    assert_update!(watch => edit { body = "it's never too late!", txn = txn1 });
+    assert_update!((global_watch, watch) => edit { body = "it's never too late!", txn = txn1 });
 
     // The second item is pending, so we can edit it, using the handle returned by
     // `send()`.
@@ -942,21 +962,21 @@ async fn test_edit() {
         .edit(RoomMessageEventContent::text_plain("new content, who diz").into())
         .await
         .unwrap());
-    assert_update!(watch => edit { body = "new content, who diz", txn = txn2 });
+    assert_update!((global_watch, watch) => edit { body = "new content, who diz", txn = txn2 });
     assert!(watch.is_empty());
 
     // Let the server process the responses.
     drop(lock_guard);
 
     // The queue sends the first event, without the edit.
-    assert_update!(watch => sent { txn = txn1, });
+    assert_update!((global_watch, watch) => sent { txn = txn1, });
 
     // The queue sends the edit; we can't check the transaction id because it's
     // unknown.
-    assert_update!(watch => sent {});
+    assert_update!((global_watch, watch) => sent {});
 
     // The queue sends the second event.
-    assert_update!(watch => sent { txn = txn2, });
+    assert_update!((global_watch, watch) => sent { txn = txn2, });
 
     assert!(watch.is_empty());
 }
@@ -971,6 +991,7 @@ async fn test_edit_with_poll_start() {
     let room = mock.sync_joined_room(&client, room_id).await;
 
     let q = room.send_queue();
+    let mut global_watch = client.send_queue().subscribe();
 
     let (local_echoes, mut watch) = q.subscribe().await.unwrap();
 
@@ -1044,6 +1065,10 @@ async fn test_edit_with_poll_start() {
             transaction_id: txn1,
         }))) = timeout(Duration::from_secs(1), watch.recv()).await
     );
+    assert_matches!(
+        global_watch.recv().await,
+        Ok(SendQueueUpdate { update: RoomSendQueueUpdate::NewLocalEvent(_), .. })
+    );
 
     let content = serialized_event.deserialize().unwrap();
     assert_let!(AnyMessageLikeEventContent::UnstablePollStart(_) = content);
@@ -1067,6 +1092,10 @@ async fn test_edit_with_poll_start() {
             new_content: serialized_event,
         })) = timeout(Duration::from_secs(1), watch.recv()).await
     );
+    assert_matches!(
+        global_watch.recv().await,
+        Ok(SendQueueUpdate { update: RoomSendQueueUpdate::ReplacedLocalEvent { .. }, .. })
+    );
     let content = serialized_event.deserialize().unwrap();
     assert_let!(
         AnyMessageLikeEventContent::UnstablePollStart(UnstablePollStartEventContent::New(
@@ -1081,10 +1110,10 @@ async fn test_edit_with_poll_start() {
     drop(lock_guard);
 
     // Now the server will process the events in order.
-    assert_update!(watch => sent { txn = txn1, });
+    assert_update!((global_watch, watch) => sent { txn = txn1, });
 
     // Let a bit of time to process the edit event sent to the server for txn1.
-    assert_update!(watch => sent {});
+    assert_update!((global_watch, watch) => sent {});
 
     assert!(watch.is_empty());
 }
@@ -1099,6 +1128,7 @@ async fn test_edit_while_being_sent_and_fails() {
     let room = mock.sync_joined_room(&client, room_id).await;
 
     let q = room.send_queue();
+    let mut global_watch = client.send_queue().subscribe();
 
     let (local_echoes, mut watch) = q.subscribe().await.unwrap();
 
@@ -1133,7 +1163,7 @@ async fn test_edit_while_being_sent_and_fails() {
     let handle = q.send(RoomMessageEventContent::text_plain("yo").into()).await.unwrap();
 
     // Receiving updates for local echoes.
-    let (txn1, _) = assert_update!(watch => local echo { body = "yo" });
+    let (txn1, _) = assert_update!((global_watch, watch) => local echo { body = "yo" });
     assert!(watch.is_empty());
 
     // Let the background task start now.
@@ -1145,13 +1175,13 @@ async fn test_edit_while_being_sent_and_fails() {
         .edit(RoomMessageEventContent::text_plain("it's never too late!").into())
         .await
         .unwrap());
-    assert_update!(watch => edit { body = "it's never too late!", txn = txn1 });
+    assert_update!((global_watch, watch) => edit { body = "it's never too late!", txn = txn1 });
 
     // Let the server process the responses.
     drop(lock_guard);
 
     // Now the server will process the messages in order.
-    assert_update!(watch => error { recoverable = true, txn = txn1 });
+    assert_update!((global_watch, watch) => error { recoverable = true, txn = txn1 });
 
     assert!(watch.is_empty());
 
@@ -1180,6 +1210,7 @@ async fn test_edit_wakes_the_sending_task() {
     let room = mock.sync_joined_room(&client, room_id).await;
 
     let q = room.send_queue();
+    let mut global_watch = client.send_queue().subscribe();
 
     let (local_echoes, mut watch) = q.subscribe().await.unwrap();
 
@@ -1194,13 +1225,14 @@ async fn test_edit_wakes_the_sending_task() {
         q.send(RoomMessageEventContent::text_plain("welcome to my ted talk").into()).await.unwrap();
 
     // Receiving an update for the local echo.
-    let (txn, _) = assert_update!(watch => local echo { body = "welcome to my ted talk" });
+    let (txn, _) =
+        assert_update!((global_watch, watch) => local echo { body = "welcome to my ted talk" });
     assert!(watch.is_empty());
 
     // Let the background task start now.
     yield_now().await;
 
-    assert_update!(watch => error { recoverable = false, txn = txn });
+    assert_update!((global_watch, watch) => error { recoverable = false, txn = txn });
     assert!(watch.is_empty());
 
     // Now edit the event's content (imagine we make it "shorter").
@@ -1219,8 +1251,8 @@ async fn test_edit_wakes_the_sending_task() {
     assert!(edited);
 
     // Let the server process the message.
-    assert_update!(watch => edit { body = "here's the summary of my ted talk", txn = txn });
-    assert_update!(watch => sent { txn = txn, });
+    assert_update!((global_watch, watch) => edit { body = "here's the summary of my ted talk", txn = txn });
+    assert_update!((global_watch, watch) => sent { txn = txn, });
 
     assert!(watch.is_empty());
 }
@@ -1244,6 +1276,7 @@ async fn test_abort_after_disable() {
     assert!(client.send_queue().is_enabled());
 
     let q = room.send_queue();
+    let mut global_watch = client.send_queue().subscribe();
 
     let (local_echoes, mut watch) = q.subscribe().await.unwrap();
 
@@ -1261,14 +1294,14 @@ async fn test_abort_after_disable() {
     let handle = q.send(RoomMessageEventContent::text_plain("hey there").into()).await.unwrap();
 
     // It is first seen as a local echo,
-    let (txn, _) = assert_update!(watch => local echo { body = "hey there" });
+    let (txn, _) = assert_update!((global_watch, watch) => local echo { body = "hey there" });
 
     // Waiting for the global status to report the queue is getting disabled.
     let report = errors.recv().await.unwrap();
     assert_eq!(report.room_id, room.room_id());
 
     // The room updates will report the error, then the cancelled event, eventually.
-    assert_update!(watch => error { recoverable=true, });
+    assert_update!((global_watch, watch) => error { recoverable=true, });
 
     // The room queue has been disabled, but not the client wide one.
     assert!(!room.send_queue().is_enabled());
@@ -1277,7 +1310,7 @@ async fn test_abort_after_disable() {
     // Aborting the sending should work.
     assert!(handle.abort().await.unwrap());
 
-    assert_update!(watch => cancelled { txn = txn });
+    assert_update!((global_watch, watch) => cancelled { txn = txn });
 
     assert!(watch.is_empty());
     assert!(errors.is_empty());
@@ -1296,6 +1329,7 @@ async fn test_abort_or_edit_after_send() {
     client.send_queue().set_enabled(true).await;
 
     let q = room.send_queue();
+    let mut global_watch = client.send_queue().subscribe();
 
     let (local_echoes, mut watch) = q.subscribe().await.unwrap();
     assert!(local_echoes.is_empty());
@@ -1308,9 +1342,9 @@ async fn test_abort_or_edit_after_send() {
     let handle = q.send(RoomMessageEventContent::text_plain("hey there").into()).await.unwrap();
 
     // It is first seen as a local echo,
-    let (txn, _) = assert_update!(watch => local echo { body = "hey there" });
+    let (txn, _) = assert_update!((global_watch, watch) => local echo { body = "hey there" });
     // Then sent.
-    assert_update!(watch => sent { txn = txn, });
+    assert_update!((global_watch, watch) => sent { txn = txn, });
 
     // Editing shouldn't work anymore.
     assert!(handle
@@ -1336,6 +1370,7 @@ async fn test_abort_while_being_sent_and_fails() {
     let room = mock.sync_joined_room(&client, room_id).await;
 
     let q = room.send_queue();
+    let mut global_watch = client.send_queue().subscribe();
 
     let (local_echoes, mut watch) = q.subscribe().await.unwrap();
 
@@ -1370,7 +1405,7 @@ async fn test_abort_while_being_sent_and_fails() {
     let handle = q.send(RoomMessageEventContent::text_plain("yo").into()).await.unwrap();
 
     // Receiving updates for local echoes.
-    let (txn1, _) = assert_update!(watch => local echo { body = "yo" });
+    let (txn1, _) = assert_update!((global_watch, watch) => local echo { body = "yo" });
     assert!(watch.is_empty());
 
     // Let the background task start now.
@@ -1379,13 +1414,13 @@ async fn test_abort_while_being_sent_and_fails() {
     // While the item is being sent, the system remembers the intent to redact it
     // later.
     assert!(handle.abort().await.unwrap());
-    assert_update!(watch => cancelled { txn = txn1 });
+    assert_update!((global_watch, watch) => cancelled { txn = txn1 });
 
     // Let the server process the responses.
     drop(lock_guard);
 
     // Now the server will process the messages in order.
-    assert_update!(watch => error { recoverable = true, txn = txn1 });
+    assert_update!((global_watch, watch) => error { recoverable = true, txn = txn1 });
 
     assert!(watch.is_empty());
 
@@ -1414,6 +1449,7 @@ async fn test_unrecoverable_errors() {
     assert!(client.send_queue().is_enabled());
 
     let q = room.send_queue();
+    let mut global_watch = client.send_queue().subscribe();
 
     let (local_echoes, mut watch) = q.subscribe().await.unwrap();
 
@@ -1434,10 +1470,11 @@ async fn test_unrecoverable_errors() {
     q.send(RoomMessageEventContent::text_plain("aloha").into()).await.unwrap();
 
     // First message is seen as a local echo.
-    let (txn1, _) = assert_update!(watch => local echo { body = "i'm too big for ya" });
+    let (txn1, _) =
+        assert_update!((global_watch, watch) => local echo { body = "i'm too big for ya" });
 
     // Second message is seen as a local echo.
-    let (txn2, _) = assert_update!(watch => local echo { body = "aloha" });
+    let (txn2, _) = assert_update!((global_watch, watch) => local echo { body = "aloha" });
 
     // There will be an error report for the first message, indicating that the
     // error is unrecoverable.
@@ -1447,14 +1484,14 @@ async fn test_unrecoverable_errors() {
 
     // The room updates will report the error for the first message as unrecoverable
     // too.
-    assert_update!(watch => error { recoverable=false, txn=txn1 });
+    assert_update!((global_watch, watch) => error { recoverable=false, txn=txn1 });
 
     // The permanent error disables the room send queue.
     assert!(!room.send_queue().is_enabled());
     room.send_queue().set_enabled(true);
 
     // The second message will be properly sent.
-    assert_update!(watch => sent { txn=txn2, event_id=event_id!("$42") });
+    assert_update!((global_watch, watch) => sent { txn=txn2, event_id=event_id!("$42") });
 
     assert!(room.send_queue().is_enabled());
     assert!(client.send_queue().is_enabled());
@@ -1479,6 +1516,7 @@ async fn test_unwedge_unrecoverable_errors() {
     assert!(client.send_queue().is_enabled());
 
     let q = room.send_queue();
+    let mut global_watch = client.send_queue().subscribe();
 
     let (local_echoes, mut watch) = q.subscribe().await.unwrap();
 
@@ -1499,7 +1537,8 @@ async fn test_unwedge_unrecoverable_errors() {
         q.send(RoomMessageEventContent::text_plain("i'm too big for ya").into()).await.unwrap();
 
     // Message is seen as a local echo.
-    let (txn1, _) = assert_update!(watch => local echo { body = "i'm too big for ya" });
+    let (txn1, _) =
+        assert_update!((global_watch, watch) => local echo { body = "i'm too big for ya" });
 
     // There will be an error report for the first message, indicating that the
     // error is unrecoverable.
@@ -1509,7 +1548,7 @@ async fn test_unwedge_unrecoverable_errors() {
 
     // The room updates will report the error for the first message as unrecoverable
     // too.
-    assert_update!(watch => error { recoverable=false, txn=txn1 });
+    assert_update!((global_watch, watch) => error { recoverable=false, txn=txn1 });
 
     // The queue is disabled, because it ran into an error.
     assert!(!room.send_queue().is_enabled());
@@ -1524,10 +1563,10 @@ async fn test_unwedge_unrecoverable_errors() {
     send_handle.unwedge().await.unwrap();
 
     // The message should be retried
-    assert_update!(watch => retry { txn=txn1 });
+    assert_update!((global_watch, watch) => retry { txn=txn1 });
 
     // Then eventually sent and a remote echo received
-    assert_update!(watch => sent { txn=txn1, event_id=event_id!("$42") });
+    assert_update!((global_watch, watch) => sent { txn=txn1, event_id=event_id!("$42") });
 }
 
 #[async_test]
@@ -1556,6 +1595,8 @@ async fn test_no_network_access_error_is_recoverable() {
     assert!(client.send_queue().is_enabled());
 
     let q = room.send_queue();
+    let mut global_watch = client.send_queue().subscribe();
+
     let (local_echoes, mut watch) = q.subscribe().await.unwrap();
 
     assert!(local_echoes.is_empty());
@@ -1567,7 +1608,7 @@ async fn test_no_network_access_error_is_recoverable() {
         .unwrap();
 
     // First message is seen as a local echo.
-    let (txn1, _) = assert_update!(watch => local echo { body = "is there anyone around here" });
+    let (txn1, _) = assert_update!((global_watch, watch) => local echo { body = "is there anyone around here" });
 
     // There will be an error report for the first message, indicating that the
     // error is recoverable: because network is unreachable.
@@ -1577,7 +1618,7 @@ async fn test_no_network_access_error_is_recoverable() {
 
     // The room updates will report the error for the first message as recoverable
     // too.
-    assert_update!(watch => error { recoverable=true, txn=txn1});
+    assert_update!((global_watch, watch) => error { recoverable=true, txn=txn1});
 
     // The room queue is disabled, because the error was recoverable.
     assert!(!room.send_queue().is_enabled());
@@ -1673,6 +1714,7 @@ async fn test_reactions() {
     let room = mock.sync_joined_room(&client, room_id).await;
 
     let q = room.send_queue();
+    let mut global_watch = client.send_queue().subscribe();
 
     let (local_echoes, mut watch) = q.subscribe().await.unwrap();
     assert!(local_echoes.is_empty());
@@ -1724,10 +1766,13 @@ async fn test_reactions() {
     let emoji_handle3 =
         msg_handle.react("👍".to_owned()).await.unwrap().expect("fourth emoji was queued");
 
-    let (txn1, _) = assert_update!(watch => local echo { body = "1" });
-    let emoji1_txn = assert_update!(watch => local reaction { key = "💯", parent = txn1 });
-    let emoji2_txn = assert_update!(watch => local reaction { key = "🍭", parent = txn1 });
-    let emoji3_txn = assert_update!(watch => local reaction { key = "👍", parent = txn1 });
+    let (txn1, _) = assert_update!((global_watch, watch) => local echo { body = "1" });
+    let emoji1_txn =
+        assert_update!((global_watch, watch) => local reaction { key = "💯", parent = txn1 });
+    let emoji2_txn =
+        assert_update!((global_watch, watch) => local reaction { key = "🍭", parent = txn1 });
+    let emoji3_txn =
+        assert_update!((global_watch, watch) => local reaction { key = "👍", parent = txn1 });
 
     {
         let (local_echoes, _) = q.subscribe().await.unwrap();
@@ -1754,13 +1799,13 @@ async fn test_reactions() {
     // Cancel the first reaction before the original event is sent.
     let aborted = emoji_handle.abort().await.unwrap();
     assert!(aborted);
-    assert_update!(watch => cancelled { txn = emoji1_txn });
+    assert_update!((global_watch, watch) => cancelled { txn = emoji1_txn });
     assert!(watch.is_empty());
 
     // Let the original event be sent, and re-take the lock immediately so no
     // reactions aren't sent (since the lock is fair).
     drop(lock_guard);
-    assert_update!(watch => sent { txn = txn1, event_id = event_id!("$0") });
+    assert_update!((global_watch, watch) => sent { txn = txn1, event_id = event_id!("$0") });
     let lock_guard = lock.lock().await;
     assert!(watch.is_empty());
 
@@ -1768,17 +1813,17 @@ async fn test_reactions() {
     // *then* sent and redacted.
     let aborted = emoji_handle2.abort().await.unwrap();
     assert!(aborted);
-    assert_update!(watch => cancelled { txn = emoji2_txn });
+    assert_update!((global_watch, watch) => cancelled { txn = emoji2_txn });
     assert!(watch.is_empty());
 
     // Drop the guard to let the mock server process events.
     drop(lock_guard);
 
     // Previous emoji has been sent; it will be redacted later.
-    assert_update!(watch => sent { txn = emoji2_txn, event_id = event_id!("$1") });
+    assert_update!((global_watch, watch) => sent { txn = emoji2_txn, event_id = event_id!("$1") });
 
     // The final emoji is sent.
-    assert_update!(watch => sent { txn = emoji3_txn, event_id = event_id!("$2") });
+    assert_update!((global_watch, watch) => sent { txn = emoji3_txn, event_id = event_id!("$2") });
 
     // Cancelling sending of the third emoji fails because it's been sent already.
     assert!(emoji_handle3.abort().await.unwrap().not());
@@ -1796,6 +1841,7 @@ async fn test_media_uploads() {
     let room = mock.sync_joined_room(&client, room_id).await;
 
     let q = room.send_queue();
+    let mut global_watch = client.send_queue().subscribe();
 
     let (local_echoes, mut watch) = q.subscribe().await.unwrap();
     assert!(local_echoes.is_empty());
@@ -1875,7 +1921,7 @@ async fn test_media_uploads() {
 
     // ----------------------
     // Observe the local echo.
-    let (txn, send_handle, content) = assert_update!(watch => local echo event);
+    let (txn, send_handle, content) = assert_update!((global_watch, watch) => local echo event);
     assert_eq!(txn, transaction_id);
 
     // Check mentions.
@@ -1982,17 +2028,17 @@ async fn test_media_uploads() {
     assert!(watch.is_empty());
     drop(block_upload);
 
-    assert_update!(watch => uploaded {
+    assert_update!((global_watch, watch) => uploaded {
         related_to = transaction_id,
         mxc = mxc_uri!("mxc://sdk.rs/thumbnail")
     });
 
-    assert_update!(watch => uploaded {
+    assert_update!((global_watch, watch) => uploaded {
         related_to = transaction_id,
         mxc = mxc_uri!("mxc://sdk.rs/media")
     });
 
-    let edit_msg = assert_update!(watch => edit local echo {
+    let edit_msg = assert_update!((global_watch, watch) => edit local echo {
         txn = transaction_id
     });
     assert_let!(MessageType::Image(new_content) = edit_msg.msgtype);
@@ -2035,7 +2081,7 @@ async fn test_media_uploads() {
         .expect_err("media with local URI should not be found");
 
     // The event is sent, at some point.
-    assert_update!(watch => sent {
+    assert_update!((global_watch, watch) => sent {
         txn = transaction_id,
         event_id = event_id!("$1")
     });
@@ -2055,6 +2101,7 @@ async fn test_gallery_uploads() {
     let room = mock.sync_joined_room(&client, room_id).await;
 
     let q = room.send_queue();
+    let mut global_watch = client.send_queue().subscribe();
 
     let (local_echoes, mut watch) = q.subscribe().await.unwrap();
     assert!(local_echoes.is_empty());
@@ -2177,7 +2224,7 @@ async fn test_gallery_uploads() {
 
     // ----------------------
     // Observe the local echo.
-    let (txn, send_handle, content) = assert_update!(watch => local echo event);
+    let (txn, send_handle, content) = assert_update!((global_watch, watch) => local echo event);
     assert_eq!(txn, transaction_id);
 
     // Check mentions.
@@ -2365,27 +2412,27 @@ async fn test_gallery_uploads() {
     assert!(watch.is_empty());
     drop(block_upload);
 
-    assert_update!(watch => uploaded {
+    assert_update!((global_watch, watch) => uploaded {
         related_to = transaction_id,
         mxc = mxc_uri!("mxc://sdk.rs/thumbnail1")
     });
 
-    assert_update!(watch => uploaded {
+    assert_update!((global_watch, watch) => uploaded {
         related_to = transaction_id,
         mxc = mxc_uri!("mxc://sdk.rs/media1")
     });
 
-    assert_update!(watch => uploaded {
+    assert_update!((global_watch, watch) => uploaded {
         related_to = transaction_id,
         mxc = mxc_uri!("mxc://sdk.rs/thumbnail2")
     });
 
-    assert_update!(watch => uploaded {
+    assert_update!((global_watch, watch) => uploaded {
         related_to = transaction_id,
         mxc = mxc_uri!("mxc://sdk.rs/media2")
     });
 
-    let edit_msg = assert_update!(watch => edit local echo {
+    let edit_msg = assert_update!((global_watch, watch) => edit local echo {
         txn = transaction_id
     });
     assert_let!(MessageType::Gallery(gallery_content) = edit_msg.msgtype);
@@ -2486,7 +2533,7 @@ async fn test_gallery_uploads() {
         .expect_err("media with local URI should not be found");
 
     // The event is sent, at some point.
-    assert_update!(watch => sent {
+    assert_update!((global_watch, watch) => sent {
         txn = transaction_id,
         event_id = event_id!("$1")
     });
@@ -2508,6 +2555,8 @@ async fn test_media_upload_retry() {
     let (local_echoes, mut watch) = q.subscribe().await.unwrap();
     assert!(local_echoes.is_empty());
 
+    let mut global_watch = client.send_queue().subscribe();
+
     // Prepare endpoints.
     mock.mock_authenticated_media_config().ok_default().mount().await;
     mock.mock_room_state_encryption().plain().mount().await;
@@ -2526,12 +2575,13 @@ async fn test_media_upload_retry() {
     let (_handle, filename) = queue_attachment_no_thumbnail(&q).await;
 
     // Observe the local echo.
-    let (event_txn, _send_handle, content) = assert_update!(watch => local echo event);
+    let (event_txn, _send_handle, content) =
+        assert_update!((global_watch, watch) => local echo event);
     assert_let!(MessageType::Image(img_content) = content.msgtype);
     assert_eq!(img_content.body, filename);
 
     // Let the upload stumble and the queue disable itself.
-    let error = assert_update!(watch => error { recoverable=true, txn=event_txn });
+    let error = assert_update!((global_watch, watch) => error { recoverable=true, txn=event_txn });
     let error = error.as_client_api_error().unwrap();
     assert_eq!(error.status_code, 500);
     assert!(q.is_enabled().not());
@@ -2548,12 +2598,12 @@ async fn test_media_upload_retry() {
     // Restart the send queue.
     q.set_enabled(true);
 
-    assert_update!(watch => uploaded {
+    assert_update!((global_watch, watch) => uploaded {
         related_to = event_txn,
         mxc = mxc_uri!("mxc://sdk.rs/media")
     });
 
-    let edit_msg = assert_update!(watch => edit local echo {
+    let edit_msg = assert_update!((global_watch, watch) => edit local echo {
         txn = event_txn
     });
     assert_let!(MessageType::Image(new_content) = edit_msg.msgtype);
@@ -2561,7 +2611,7 @@ async fn test_media_upload_retry() {
     assert_eq!(new_uri, mxc_uri!("mxc://sdk.rs/media"));
 
     // The event is sent, at some point.
-    assert_update!(watch => sent {
+    assert_update!((global_watch, watch) => sent {
         txn = event_txn,
         event_id = event_id!("$1")
     });
@@ -2583,6 +2633,8 @@ async fn test_media_upload_retry_with_520_http_status_code() {
     let (local_echoes, mut watch) = q.subscribe().await.unwrap();
     assert!(local_echoes.is_empty());
 
+    let mut global_watch = client.send_queue().subscribe();
+
     // Prepare endpoints.
     mock.mock_room_state_encryption().plain().mount().await;
 
@@ -2602,12 +2654,13 @@ async fn test_media_upload_retry_with_520_http_status_code() {
     let (_handle, filename) = queue_attachment_no_thumbnail(&q).await;
 
     // Observe the local echo.
-    let (event_txn, _send_handle, content) = assert_update!(watch => local echo event);
+    let (event_txn, _send_handle, content) =
+        assert_update!((global_watch, watch) => local echo event);
     assert_let!(MessageType::Image(img_content) = content.msgtype);
     assert_eq!(img_content.body, filename);
 
     // Let the upload stumble and the queue disable itself.
-    let error = assert_update!(watch => error { recoverable=false, txn=event_txn });
+    let error = assert_update!((global_watch, watch) => error { recoverable=false, txn=event_txn });
     let error = error.as_client_api_error().unwrap();
     assert_eq!(error.status_code, 520);
     assert!(q.is_enabled().not());
@@ -2626,6 +2679,8 @@ async fn test_unwedging_media_upload() {
     let (local_echoes, mut watch) = q.subscribe().await.unwrap();
     assert!(local_echoes.is_empty());
 
+    let mut global_watch = client.send_queue().subscribe();
+
     // Prepare endpoints.
     mock.mock_authenticated_media_config().ok_default().mount().await;
     mock.mock_room_state_encryption().plain().mount().await;
@@ -2639,13 +2694,14 @@ async fn test_unwedging_media_upload() {
     let (_handle, filename) = queue_attachment_no_thumbnail(&q).await;
 
     // Observe the local echo.
-    let (event_txn, send_handle, content) = assert_update!(watch => local echo event);
+    let (event_txn, send_handle, content) =
+        assert_update!((global_watch, watch) => local echo event);
     assert_let!(MessageType::Image(img_content) = content.msgtype);
     assert_eq!(img_content.body, filename);
 
     // Although the actual error happens on the file upload transaction id, it must
     // be reported with the *event* transaction id.
-    let error = assert_update!(watch => error { recoverable=false, txn=event_txn });
+    let error = assert_update!((global_watch, watch) => error { recoverable=false, txn=event_txn });
     let error = error.as_client_api_error().unwrap();
     assert_eq!(error.status_code, 413);
     assert!(!q.is_enabled());
@@ -2661,18 +2717,18 @@ async fn test_unwedging_media_upload() {
     send_handle.unwedge().await.unwrap();
 
     // Observe the notification for the retry itself.
-    assert_update!(watch => retry { txn = event_txn });
+    assert_update!((global_watch, watch) => retry { txn = event_txn });
 
     // Observe the upload succeeding at some point.
-    assert_update!(watch => uploaded { related_to = event_txn, mxc = mxc_uri!("mxc://sdk.rs/media") });
+    assert_update!((global_watch, watch) => uploaded { related_to = event_txn, mxc = mxc_uri!("mxc://sdk.rs/media") });
 
-    let edit_msg = assert_update!(watch => edit local echo { txn = event_txn });
+    let edit_msg = assert_update!((global_watch, watch) => edit local echo { txn = event_txn });
     assert_let!(MessageType::Image(new_content) = edit_msg.msgtype);
     assert_let!(MediaSource::Plain(new_uri) = &new_content.source);
     assert_eq!(new_uri, mxc_uri!("mxc://sdk.rs/media"));
 
     // The event is sent, at some point.
-    assert_update!(watch => sent { txn = event_txn, event_id = event_id!("$1") });
+    assert_update!((global_watch, watch) => sent { txn = event_txn, event_id = event_id!("$1") });
 
     // That's all, folks!
     assert!(watch.is_empty());
@@ -2684,6 +2740,7 @@ async fn test_unwedging_media_upload() {
 /// - the medias aren't present in the cache store
 async fn abort_and_verify(
     client: &Client,
+    global_watch: &mut Receiver<SendQueueUpdate>,
     watch: &mut Receiver<RoomSendQueueUpdate>,
     img_content: ImageMessageEventContent,
     upload_handle: SendHandle,
@@ -2696,7 +2753,7 @@ async fn abort_and_verify(
     let aborted = upload_handle.abort().await.unwrap();
     assert!(aborted, "upload must have been aborted");
 
-    assert_update!(watch => cancelled { txn = upload_txn });
+    assert_update!((global_watch, watch) => cancelled { txn = upload_txn });
 
     // The event cache doesn't contain the medias anymore.
     client
@@ -2733,6 +2790,7 @@ async fn test_media_event_is_sent_in_order() {
 
     let (local_echoes, mut watch) = q.subscribe().await.unwrap();
     assert!(local_echoes.is_empty());
+    let mut global_watch = client.send_queue().subscribe();
 
     // Prepare endpoints.
     mock.mock_authenticated_media_config().ok_default().mount().await;
@@ -2745,8 +2803,9 @@ async fn test_media_event_is_sent_in_order() {
         // 1. Send a text message that will get wedged.
         mock.mock_room_send().error_too_large().mock_once().mount().await;
         q.send(RoomMessageEventContent::text_plain("error").into()).await.unwrap();
-        let (text_txn, _send_handle) = assert_update!(watch => local echo { body = "error" });
-        assert_update!(watch => error { recoverable = false, txn = text_txn });
+        let (text_txn, _send_handle) =
+            assert_update!((global_watch, watch) => local echo { body = "error" });
+        assert_update!((global_watch, watch) => error { recoverable = false, txn = text_txn });
     }
 
     // Re-enable the send queue after the permanent error.
@@ -2763,25 +2822,27 @@ async fn test_media_event_is_sent_in_order() {
     q.send(RoomMessageEventContent::text_plain("hello world").into()).await.unwrap();
 
     // Observe the local echo for the media.
-    let (event_txn, _send_handle, content) = assert_update!(watch => local echo event);
+    let (event_txn, _send_handle, content) =
+        assert_update!((global_watch, watch) => local echo event);
     assert_let!(MessageType::Image(img_content) = content.msgtype);
     assert_eq!(img_content.body, filename);
 
     // Observe the local echo for the message.
-    let (text_txn, _send_handle) = assert_update!(watch => local echo { body = "hello world" });
+    let (text_txn, _send_handle) =
+        assert_update!((global_watch, watch) => local echo { body = "hello world" });
 
     // The media gets uploaded.
-    assert_update!(watch => uploaded { related_to = event_txn, mxc = mxc_uri!("mxc://sdk.rs/media") });
+    assert_update!((global_watch, watch) => uploaded { related_to = event_txn, mxc = mxc_uri!("mxc://sdk.rs/media") });
 
     // The media event gets updated with the final MXC IDs.
-    assert_update!(watch => edit local echo { txn = event_txn });
+    assert_update!((global_watch, watch) => edit local echo { txn = event_txn });
 
     // This is the main thing we're testing: the media must be effectively sent
     // *before* the text message, despite implementation details (the media is
     // sent over multiple send queue requests).
 
-    assert_update!(watch => sent { txn = event_txn, event_id = event_id!("$media") });
-    assert_update!(watch => sent { txn = text_txn, event_id = event_id!("$text") });
+    assert_update!((global_watch, watch) => sent { txn = event_txn, event_id = event_id!("$media") });
+    assert_update!((global_watch, watch) => sent { txn = text_txn, event_id = event_id!("$text") });
 
     // That's all, folks!
     assert!(watch.is_empty());
@@ -2803,6 +2864,7 @@ async fn test_cancel_upload_before_active() {
     let room = mock.sync_joined_room(&client, room_id).await;
 
     let q = room.send_queue();
+    let mut global_watch = client.send_queue().subscribe();
 
     let (local_echoes, mut watch) = q.subscribe().await.unwrap();
     assert!(local_echoes.is_empty());
@@ -2822,27 +2884,36 @@ async fn test_cancel_upload_before_active() {
 
     // Send an event which sending will be "slow" (blocked by mutex).
     q.send(RoomMessageEventContent::text_plain("hey").into()).await.unwrap();
-    let (msg_txn, _handle) = assert_update!(watch => local echo { body = "hey" });
+    let (msg_txn, _handle) = assert_update!((global_watch, watch) => local echo { body = "hey" });
 
     // Send the media.
     assert!(watch.is_empty());
 
     let (upload_handle, filename) = queue_attachment_with_thumbnail(&q).await;
 
-    let (upload_txn, _send_handle, content) = assert_update!(watch => local echo event);
+    let (upload_txn, _send_handle, content) =
+        assert_update!((global_watch, watch) => local echo event);
 
     assert_let!(MessageType::Image(img_content) = content.msgtype);
     assert_eq!(img_content.filename(), filename);
 
     // Abort the upload.
-    abort_and_verify(&client, &mut watch, img_content, upload_handle, upload_txn).await;
+    abort_and_verify(
+        &client,
+        &mut global_watch,
+        &mut watch,
+        img_content,
+        upload_handle,
+        upload_txn,
+    )
+    .await;
 
     // Let the sending progress.
     assert!(watch.is_empty());
     sleep(Duration::from_secs(1)).await;
 
     // The text event is sent, at some point.
-    assert_update!(watch => sent { txn = msg_txn, });
+    assert_update!((global_watch, watch) => sent { txn = msg_txn, });
 
     // Wait a bit of time for things to settle.
     sleep(Duration::from_millis(500)).await;
@@ -2861,6 +2932,7 @@ async fn test_cancel_upload_with_thumbnail_active() {
     let room = mock.sync_joined_room(&client, room_id).await;
 
     let q = room.send_queue();
+    let mut global_watch = client.send_queue().subscribe();
 
     let (local_echoes, mut watch) = q.subscribe().await.unwrap();
     assert!(local_echoes.is_empty());
@@ -2883,7 +2955,8 @@ async fn test_cancel_upload_with_thumbnail_active() {
 
     let (upload_handle, filename) = queue_attachment_with_thumbnail(&q).await;
 
-    let (upload_txn, _send_handle, content) = assert_update!(watch => local echo event);
+    let (upload_txn, _send_handle, content) =
+        assert_update!((global_watch, watch) => local echo event);
     assert_let!(MessageType::Image(img_content) = content.msgtype);
     assert_eq!(img_content.filename(), filename);
 
@@ -2891,13 +2964,21 @@ async fn test_cancel_upload_with_thumbnail_active() {
     sleep(Duration::from_millis(500)).await;
 
     // Abort the upload.
-    abort_and_verify(&client, &mut watch, img_content, upload_handle, upload_txn).await;
+    abort_and_verify(
+        &client,
+        &mut global_watch,
+        &mut watch,
+        img_content,
+        upload_handle,
+        upload_txn,
+    )
+    .await;
 
     // To prove we're not waiting for the upload to finish, send a message and
     // observe it's immediately sent.
     q.send(RoomMessageEventContent::text_plain("hi").into()).await.unwrap();
-    let (msg_txn, _handle) = assert_update!(watch => local echo { body = "hi" });
-    assert_update!(watch => sent { txn = msg_txn, });
+    let (msg_txn, _handle) = assert_update!((global_watch, watch) => local echo { body = "hi" });
+    assert_update!((global_watch, watch) => sent { txn = msg_txn, });
 
     // That's all, folks!
     assert!(watch.is_empty());
@@ -2913,6 +2994,7 @@ async fn test_cancel_upload_with_uploaded_thumbnail_and_file_active() {
     let room = mock.sync_joined_room(&client, room_id).await;
 
     let q = room.send_queue();
+    let mut global_watch = client.send_queue().subscribe();
 
     let (local_echoes, mut watch) = q.subscribe().await.unwrap();
     assert!(local_echoes.is_empty());
@@ -2944,24 +3026,33 @@ async fn test_cancel_upload_with_uploaded_thumbnail_and_file_active() {
 
     let (upload_handle, filename) = queue_attachment_with_thumbnail(&q).await;
 
-    let (upload_txn, _send_handle, content) = assert_update!(watch => local echo event);
+    let (upload_txn, _send_handle, content) =
+        assert_update!((global_watch, watch) => local echo event);
     assert_let!(MessageType::Image(img_content) = content.msgtype);
     assert_eq!(img_content.filename(), filename);
 
     // The thumbnail uploads just fine.
-    assert_update!(watch => uploaded { related_to = upload_txn, mxc = mxc_uri!("mxc://sdk.rs/thumbnail") });
+    assert_update!((global_watch, watch) => uploaded { related_to = upload_txn, mxc = mxc_uri!("mxc://sdk.rs/thumbnail") });
 
     // Let the file upload request start.
     sleep(Duration::from_millis(500)).await;
 
     // Abort the upload.
-    abort_and_verify(&client, &mut watch, img_content, upload_handle, upload_txn).await;
+    abort_and_verify(
+        &client,
+        &mut global_watch,
+        &mut watch,
+        img_content,
+        upload_handle,
+        upload_txn,
+    )
+    .await;
 
     // To prove we're not waiting for the upload to finish, send a message and
     // observe it's immediately sent.
     q.send(RoomMessageEventContent::text_plain("hi").into()).await.unwrap();
-    let (msg_txn, _handle) = assert_update!(watch => local echo { body = "hi" });
-    assert_update!(watch => sent { txn = msg_txn, });
+    let (msg_txn, _handle) = assert_update!((global_watch, watch) => local echo { body = "hi" });
+    assert_update!((global_watch, watch) => sent { txn = msg_txn, });
 
     // That's all, folks!
     assert!(watch.is_empty());
@@ -2977,6 +3068,7 @@ async fn test_cancel_upload_only_file_with_file_active() {
     let room = mock.sync_joined_room(&client, room_id).await;
 
     let q = room.send_queue();
+    let mut global_watch = client.send_queue().subscribe();
 
     let (local_echoes, mut watch) = q.subscribe().await.unwrap();
     assert!(local_echoes.is_empty());
@@ -3000,7 +3092,8 @@ async fn test_cancel_upload_only_file_with_file_active() {
 
     let (upload_handle, filename) = queue_attachment_no_thumbnail(&q).await;
 
-    let (upload_txn, _send_handle, content) = assert_update!(watch => local echo event);
+    let (upload_txn, _send_handle, content) =
+        assert_update!((global_watch, watch) => local echo event);
     assert_let!(MessageType::Image(img_content) = content.msgtype);
     assert_eq!(img_content.filename(), filename);
 
@@ -3011,7 +3104,7 @@ async fn test_cancel_upload_only_file_with_file_active() {
     let aborted = upload_handle.abort().await.unwrap();
     assert!(aborted, "upload must have been aborted");
 
-    assert_update!(watch => cancelled { txn = upload_txn });
+    assert_update!((global_watch, watch) => cancelled { txn = upload_txn });
 
     // The event cache doesn't contain the medias anymore.
     client
@@ -3026,8 +3119,8 @@ async fn test_cancel_upload_only_file_with_file_active() {
     // To prove we're not waiting for the upload to finish, send a message and
     // observe it's immediately sent.
     q.send(RoomMessageEventContent::text_plain("hi").into()).await.unwrap();
-    let (msg_txn, _handle) = assert_update!(watch => local echo { body = "hi" });
-    assert_update!(watch => sent { txn = msg_txn, });
+    let (msg_txn, _handle) = assert_update!((global_watch, watch) => local echo { body = "hi" });
+    assert_update!((global_watch, watch) => sent { txn = msg_txn, });
 
     // That's all, folks!
     assert!(watch.is_empty());
@@ -3043,6 +3136,7 @@ async fn test_cancel_upload_while_sending_event() {
     let room = mock.sync_joined_room(&client, room_id).await;
 
     let q = room.send_queue();
+    let mut global_watch = client.send_queue().subscribe();
 
     let (local_echoes, mut watch) = q.subscribe().await.unwrap();
     assert!(local_echoes.is_empty());
@@ -3082,13 +3176,14 @@ async fn test_cancel_upload_while_sending_event() {
 
     let (upload_handle, filename) = queue_attachment_no_thumbnail(&q).await;
 
-    let (upload_txn, _send_handle, content) = assert_update!(watch => local echo event);
+    let (upload_txn, _send_handle, content) =
+        assert_update!((global_watch, watch) => local echo event);
     assert_let!(MessageType::Image(local_content) = content.msgtype);
     assert_eq!(local_content.filename(), filename);
 
-    assert_update!(watch => uploaded { related_to = upload_txn, mxc = mxc_uri!("mxc://sdk.rs/media") });
+    assert_update!((global_watch, watch) => uploaded { related_to = upload_txn, mxc = mxc_uri!("mxc://sdk.rs/media") });
 
-    let edit_msg = assert_update!(watch => edit local echo { txn = upload_txn });
+    let edit_msg = assert_update!((global_watch, watch) => edit local echo { txn = upload_txn });
     assert_let!(MessageType::Image(remote_content) = edit_msg.msgtype);
     assert_let!(MediaSource::Plain(new_uri) = &remote_content.source);
     assert_eq!(new_uri, mxc_uri!("mxc://sdk.rs/media"));
@@ -3101,9 +3196,9 @@ async fn test_cancel_upload_while_sending_event() {
     assert!(aborted, "upload must have been aborted");
 
     // We get a local echo for the cancelled media event…
-    assert_update!(watch => cancelled { txn = upload_txn });
+    assert_update!((global_watch, watch) => cancelled { txn = upload_txn });
     // …But the event is still sent, before getting redacted.
-    assert_update!(watch => sent { txn = upload_txn, });
+    assert_update!((global_watch, watch) => sent { txn = upload_txn, });
 
     // The event cache doesn't contain the media with the local URI.
     client
@@ -3147,6 +3242,7 @@ async fn test_update_caption_while_sending_media() {
     let room = mock.sync_joined_room(&client, room_id).await;
 
     let q = room.send_queue();
+    let mut global_watch = client.send_queue().subscribe();
 
     let (local_echoes, mut watch) = q.subscribe().await.unwrap();
     assert!(local_echoes.is_empty());
@@ -3181,7 +3277,8 @@ async fn test_update_caption_while_sending_media() {
 
     let (upload_handle, filename) = queue_attachment_no_thumbnail(&q).await;
 
-    let (upload_txn, _send_handle, content) = assert_update!(watch => local echo event);
+    let (upload_txn, _send_handle, content) =
+        assert_update!((global_watch, watch) => local echo event);
     assert_let!(MessageType::Image(local_content) = content.msgtype);
     assert_eq!(local_content.filename(), filename);
 
@@ -3191,7 +3288,8 @@ async fn test_update_caption_while_sending_media() {
     assert!(edited);
 
     {
-        let new_content = assert_update!(watch => edit local echo { txn = upload_txn });
+        let new_content =
+            assert_update!((global_watch, watch) => edit local echo { txn = upload_txn });
         assert_let!(MessageType::Image(image) = new_content.msgtype);
         assert_eq!(image.filename(), filename);
         assert_eq!(image.caption(), Some("caption"));
@@ -3200,11 +3298,12 @@ async fn test_update_caption_while_sending_media() {
 
     // Then the media is uploaded.
     sleep(Duration::from_secs(1)).await;
-    assert_update!(watch => uploaded { related_to = upload_txn, mxc = mxc_uri!("mxc://sdk.rs/media") });
+    assert_update!((global_watch, watch) => uploaded { related_to = upload_txn, mxc = mxc_uri!("mxc://sdk.rs/media") });
 
     // Then the media event is updated with the MXC ID.
     {
-        let edit_msg = assert_update!(watch => edit local echo { txn = upload_txn });
+        let edit_msg =
+            assert_update!((global_watch, watch) => edit local echo { txn = upload_txn });
         assert_let!(MessageType::Image(image) = edit_msg.msgtype);
         assert_let!(MediaSource::Plain(new_uri) = &image.source);
         assert_eq!(new_uri, mxc_uri!("mxc://sdk.rs/media"));
@@ -3216,7 +3315,7 @@ async fn test_update_caption_while_sending_media() {
     }
 
     // Then the event is sent.
-    assert_update!(watch => sent { txn = upload_txn, });
+    assert_update!((global_watch, watch) => sent { txn = upload_txn, });
 
     // That's all, folks!
     assert!(watch.is_empty());
@@ -3234,6 +3333,7 @@ async fn test_update_caption_before_event_is_sent() {
     let room = mock.sync_joined_room(&client, room_id).await;
 
     let q = room.send_queue();
+    let mut global_watch = client.send_queue().subscribe();
 
     let (local_echoes, mut watch) = q.subscribe().await.unwrap();
     assert!(local_echoes.is_empty());
@@ -3274,17 +3374,19 @@ async fn test_update_caption_before_event_is_sent() {
     // media event.
     q.set_enabled(false);
 
-    let (upload_txn, _send_handle, content) = assert_update!(watch => local echo event);
+    let (upload_txn, _send_handle, content) =
+        assert_update!((global_watch, watch) => local echo event);
     assert_let!(MessageType::Image(local_content) = content.msgtype);
     assert_eq!(local_content.filename(), filename);
 
     // Wait for the media to be uploaded.
     sleep(Duration::from_secs(1)).await;
-    assert_update!(watch => uploaded { related_to = upload_txn, mxc = mxc_uri!("mxc://sdk.rs/media") });
+    assert_update!((global_watch, watch) => uploaded { related_to = upload_txn, mxc = mxc_uri!("mxc://sdk.rs/media") });
 
     // The media event is updated with the remote MXC ID.
     let mxc = {
-        let new_content = assert_update!(watch => edit local echo { txn = upload_txn });
+        let new_content =
+            assert_update!((global_watch, watch) => edit local echo { txn = upload_txn });
         assert_let!(MessageType::Image(image) = new_content.msgtype);
         assert_eq!(image.filename(), filename);
         assert_eq!(image.caption(), None);
@@ -3304,7 +3406,8 @@ async fn test_update_caption_before_event_is_sent() {
 
     // The media event is updated with the captions.
     {
-        let edit_msg = assert_update!(watch => edit local echo { txn = upload_txn });
+        let edit_msg =
+            assert_update!((global_watch, watch) => edit local echo { txn = upload_txn });
         assert_let!(MessageType::Image(image) = edit_msg.msgtype);
 
         assert_eq!(image.filename(), filename);
@@ -3320,7 +3423,7 @@ async fn test_update_caption_before_event_is_sent() {
     q.set_enabled(true);
 
     // Then the event is sent.
-    assert_update!(watch => sent { txn = upload_txn, });
+    assert_update!((global_watch, watch) => sent { txn = upload_txn, });
 
     // That's all, folks!
     assert!(watch.is_empty());
@@ -3336,6 +3439,7 @@ async fn test_add_mention_to_caption_before_media_sent() {
     let room = mock.sync_joined_room(&client, room_id).await;
 
     let q = room.send_queue();
+    let mut global_watch = client.send_queue().subscribe();
 
     let (local_echoes, mut watch) = q.subscribe().await.unwrap();
     assert!(local_echoes.is_empty());
@@ -3377,17 +3481,19 @@ async fn test_add_mention_to_caption_before_media_sent() {
     // media event.
     q.set_enabled(false);
 
-    let (upload_txn, _send_handle, content) = assert_update!(watch => local echo event);
+    let (upload_txn, _send_handle, content) =
+        assert_update!((global_watch, watch) => local echo event);
     assert_let!(MessageType::Image(local_content) = content.msgtype);
     assert_eq!(local_content.filename(), filename);
 
     // Wait for the media to be uploaded.
     sleep(Duration::from_secs(1)).await;
-    assert_update!(watch => uploaded { related_to = upload_txn, mxc = mxc_uri!("mxc://sdk.rs/media") });
+    assert_update!((global_watch, watch) => uploaded { related_to = upload_txn, mxc = mxc_uri!("mxc://sdk.rs/media") });
 
     // The media event is updated with the remote MXC ID.
     {
-        let new_content = assert_update!(watch => edit local echo { txn = upload_txn });
+        let new_content =
+            assert_update!((global_watch, watch) => edit local echo { txn = upload_txn });
         assert_let!(MessageType::Image(image) = new_content.msgtype);
         assert_eq!(image.filename(), filename);
         assert_eq!(image.caption(), None);
@@ -3410,7 +3516,8 @@ async fn test_add_mention_to_caption_before_media_sent() {
 
     // The media event is updated with the captions, including the mention.
     {
-        let edit_msg = assert_update!(watch => edit local echo { txn = upload_txn });
+        let edit_msg =
+            assert_update!((global_watch, watch) => edit local echo { txn = upload_txn });
         assert_let!(Some(mentions) = edit_msg.mentions);
         assert!(!mentions.room);
         assert_eq!(mentions.user_ids.into_iter().collect::<Vec<_>>(), vec![mentioned_user_id]);
@@ -3420,7 +3527,7 @@ async fn test_add_mention_to_caption_before_media_sent() {
     q.set_enabled(true);
 
     // Then the event is sent.
-    assert_update!(watch => sent { txn = upload_txn, });
+    assert_update!((global_watch, watch) => sent { txn = upload_txn, });
 
     // That's all, folks!
     assert!(watch.is_empty());
@@ -3436,6 +3543,7 @@ async fn test_update_caption_while_sending_media_event() {
     let room = mock.sync_joined_room(&client, room_id).await;
 
     let q = room.send_queue();
+    let mut global_watch = client.send_queue().subscribe();
 
     let (local_echoes, mut watch) = q.subscribe().await.unwrap();
     assert!(local_echoes.is_empty());
@@ -3494,16 +3602,18 @@ async fn test_update_caption_while_sending_media_event() {
     let (upload_handle, filename) = queue_attachment_no_thumbnail(&q).await;
 
     // See local echo.
-    let (upload_txn, _send_handle, content) = assert_update!(watch => local echo event);
+    let (upload_txn, _send_handle, content) =
+        assert_update!((global_watch, watch) => local echo event);
     assert_let!(MessageType::Image(local_content) = content.msgtype);
     assert_eq!(local_content.filename(), filename);
 
     // Wait for the media to be uploaded.
-    assert_update!(watch => uploaded { related_to = upload_txn, mxc = mxc_uri!("mxc://sdk.rs/media") });
+    assert_update!((global_watch, watch) => uploaded { related_to = upload_txn, mxc = mxc_uri!("mxc://sdk.rs/media") });
 
     // The media event is updated with the remote MXC ID.
     let mxc = {
-        let new_content = assert_update!(watch => edit local echo { txn = upload_txn });
+        let new_content =
+            assert_update!((global_watch, watch) => edit local echo { txn = upload_txn });
         assert_let!(MessageType::Image(image) = new_content.msgtype);
         assert_eq!(image.filename(), filename);
         assert_eq!(image.caption(), None);
@@ -3521,7 +3631,8 @@ async fn test_update_caption_while_sending_media_event() {
 
     // The media event is updated with the captions.
     {
-        let edit_msg = assert_update!(watch => edit local echo { txn = upload_txn });
+        let edit_msg =
+            assert_update!((global_watch, watch) => edit local echo { txn = upload_txn });
         assert_let!(MessageType::Image(image) = edit_msg.msgtype);
 
         assert_eq!(image.filename(), filename);
@@ -3535,10 +3646,10 @@ async fn test_update_caption_while_sending_media_event() {
 
     // Then the event is sent.
     sleep(Duration::from_secs(1)).await;
-    assert_update!(watch => sent { txn = upload_txn, });
+    assert_update!((global_watch, watch) => sent { txn = upload_txn, });
 
     // Then the edit event is set, with another transaction id we don't know about.
-    assert_update!(watch => sent {});
+    assert_update!((global_watch, watch) => sent {});
 
     // That's all, folks!
     assert!(watch.is_empty());
