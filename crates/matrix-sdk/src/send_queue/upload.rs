@@ -267,7 +267,7 @@ impl RoomSendQueue {
             created_at,
         };
 
-        let _ = self.inner.updates.send(RoomSendQueueUpdate::NewLocalEvent(LocalEcho {
+        self.send_update(RoomSendQueueUpdate::NewLocalEvent(LocalEcho {
             transaction_id: send_event_txn.clone().into(),
             content: LocalEchoContent::Event {
                 serialized_event: SerializableEventContent::new(&event_content.into())
@@ -400,7 +400,7 @@ impl RoomSendQueue {
             created_at,
         };
 
-        let _ = self.inner.updates.send(RoomSendQueueUpdate::NewLocalEvent(LocalEcho {
+        self.send_update(RoomSendQueueUpdate::NewLocalEvent(LocalEcho {
             transaction_id: send_event_txn.clone().into(),
             content: LocalEchoContent::Event {
                 serialized_event: SerializableEventContent::new(&event_content.into())
