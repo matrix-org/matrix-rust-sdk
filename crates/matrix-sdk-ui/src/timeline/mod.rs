@@ -679,8 +679,10 @@ impl Timeline {
         } else {
             trace!("can't mark room as read because there's no latest event id");
 
-            // Unset the read marker.
-            self.room().set_unread_flag(false).await?;
+            // For live timelines, unset the read marker in this case.
+            if self.controller.is_live() {
+                self.room().set_unread_flag(false).await?;
+            }
 
             Ok(false)
         }
