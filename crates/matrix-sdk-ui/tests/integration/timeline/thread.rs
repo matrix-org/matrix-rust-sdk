@@ -22,9 +22,13 @@ use matrix_sdk::{
     room::reply::{EnforceThread, Reply},
     test_utils::mocks::{MatrixMockServer, RoomRelationsResponseTemplate},
 };
-use matrix_sdk_test::{async_test, event_factory::EventFactory, JoinedRoomBuilder, ALICE, BOB};
+use matrix_sdk_test::{
+    async_test, event_factory::EventFactory, JoinedRoomBuilder, RoomAccountDataTestEvent, ALICE,
+    BOB,
+};
 use matrix_sdk_ui::timeline::{RoomExt as _, TimelineBuilder, TimelineDetails, TimelineFocus};
 use ruma::{
+    api::client::receipt::create_receipt::v3::ReceiptType,
     event_id,
     events::room::message::{ReplyWithinThread, RoomMessageEventContentWithoutRelation},
     owned_event_id, room_id, user_id, MilliSecondsSinceUnixEpoch,
@@ -784,4 +788,45 @@ async fn test_thread_timeline_gets_local_echoes() {
 
     // Then we're done.
     assert_pending!(stream);
+}
+
+#[async_test]
+async fn test_sending_read_receipt_with_no_events_doesnt_unset_read_flag() {
+    // If a thread timeline has no events, then marking it as read doesn't unset the
+    // unread flag on the room.
+
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+
+    let room_id = room_id!("!a:b.c");
+    let thread_root_event_id = owned_event_id!("$root");
+
+    // Start with a room manually marked as unread.
+    let room = server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id)
+                .add_account_data(RoomAccountDataTestEvent::MarkedUnread),
+        )
+        .await;
+
+    // Create a threaded timeline, with no events in it.
+    let timeline = room
+        .timeline_builder()
+        .with_focus(TimelineFocus::Thread { root_event_id: thread_root_event_id.clone() })
+        .build()
+        .await
+        .unwrap();
+
+    let (initial_items, mut stream) = timeline.subscribe().await;
+
+    // Sanity check: the timeline is empty.
+    assert!(initial_items.is_empty());
+    assert_pending!(stream);
+
+    // Try to mark the timeline as read.
+    // This should not unset the unread flag on the room (if it tried to do so, the
+    // test would fail with a 404, because the endpoint hasn't been set).
+    let marked_as_read = timeline.mark_as_read(ReceiptType::Read).await.unwrap();
+    assert!(marked_as_read.not());
 }
