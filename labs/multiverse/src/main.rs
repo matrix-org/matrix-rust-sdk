@@ -325,7 +325,7 @@ impl App {
                 modifiers: KeyModifiers::CONTROL,
                 ..
             }) => {
-                self.room_list.next_room();
+                self.room_list.next_room().await;
                 let room_id = self.room_list.get_selected_room_id();
                 self.room_view.set_selected_room(room_id);
             }
@@ -333,7 +333,7 @@ impl App {
             Event::Key(KeyEvent {
                 code: Char('k') | Up, modifiers: KeyModifiers::CONTROL, ..
             }) => {
-                self.room_list.previous_room();
+                self.room_list.previous_room().await;
                 let room_id = self.room_list.get_selected_room_id();
                 self.room_view.set_selected_room(room_id);
             }

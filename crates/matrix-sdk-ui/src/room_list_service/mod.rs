@@ -72,7 +72,7 @@ use ruma::{
 };
 pub use state::*;
 use thiserror::Error;
-use tracing::debug;
+use tracing::{debug, error};
 
 /// The default `required_state` constant value for sliding sync lists and
 /// sliding sync room subscriptions.
@@ -393,7 +393,15 @@ impl RoomListService {
     ///
     /// It means that all events from these rooms will be received every time,
     /// no matter how the `RoomList` is configured.
-    pub fn subscribe_to_rooms(&self, room_ids: &[&RoomId]) {
+    ///
+    /// [`LatestEvents::listen_to_room`][listen_to_room] will be called for each
+    /// room in `room_ids`, so that the [`LatestEventValue`] will automatically
+    /// be calculated and updated for these rooms, for free.
+    ///
+    /// [listen_to_room]: matrix_sdk::latest_events::LatestEvents::listen_to_room
+    /// [`LatestEventValue`]: matrix_sdk::latest_events::LatestEventValue
+    pub async fn subscribe_to_rooms(&self, room_ids: &[&RoomId]) {
+        // Calculate the settings for the room subscriptions.
         let settings = assign!(http::request::RoomSubscription::default(), {
             required_state: DEFAULT_REQUIRED_STATE.iter().map(|(state_event, value)| {
                 (state_event.clone(), (*value).to_owned())
@@ -407,6 +415,7 @@ impl RoomListService {
             timeline_limit: UInt::from(DEFAULT_ROOM_SUBSCRIPTION_TIMELINE_LIMIT),
         });
 
+        // Decide whether the in-flight request (if any) should be cancelled if needed.
         let cancel_in_flight_request = match self.state_machine.get() {
             State::Init | State::Recovering | State::Error { .. } | State::Terminated { .. } => {
                 false
@@ -414,6 +423,19 @@ impl RoomListService {
             State::SettingUp | State::Running => true,
         };
 
+        // Before subscribing, let's listen these rooms to calculate their latest
+        // events.
+        let latest_events = self.client.latest_events().await;
+
+        for room_id in room_ids {
+            if let Err(error) = latest_events.listen_to_room(room_id).await {
+                // Let's not fail the room subscription. Instead, emit a log because it's very
+                // unlikely to happen.
+                error!(?error, ?room_id, "Failed to listen to the latest event for this room");
+            }
+        }
+
+        // Subscribe to the rooms.
         self.sliding_sync.subscribe_to_rooms(room_ids, Some(settings), cancel_in_flight_request)
     }
 

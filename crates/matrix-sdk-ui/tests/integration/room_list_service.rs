@@ -2247,7 +2247,7 @@ async fn test_room_subscription() -> Result<(), Error> {
 
     // Subscribe.
 
-    room_list.subscribe_to_rooms(&[room_id_1]);
+    room_list.subscribe_to_rooms(&[room_id_1]).await;
 
     sync_then_assert_request_and_fake_response! {
         [server, room_list, sync]
@@ -2290,7 +2290,7 @@ async fn test_room_subscription() -> Result<(), Error> {
 
     // Subscribe to another room.
 
-    room_list.subscribe_to_rooms(&[room_id_2]);
+    room_list.subscribe_to_rooms(&[room_id_2]).await;
 
     sync_then_assert_request_and_fake_response! {
         [server, room_list, sync]
@@ -2333,7 +2333,7 @@ async fn test_room_subscription() -> Result<(), Error> {
 
     // Subscribe to an already subscribed room. Nothing happens.
 
-    room_list.subscribe_to_rooms(&[room_id_1]);
+    room_list.subscribe_to_rooms(&[room_id_1]).await;
 
     sync_then_assert_request_and_fake_response! {
         [server, room_list, sync]
