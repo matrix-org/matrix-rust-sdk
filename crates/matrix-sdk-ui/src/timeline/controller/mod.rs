@@ -16,12 +16,12 @@ use std::{collections::BTreeSet, fmt, sync::Arc};
 
 use as_variant::as_variant;
 use decryption_retry_task::DecryptionRetryTask;
-use eyeball_im::VectorDiff;
-use eyeball_im_util::vector::VectorObserverExt;
+use eyeball_im::{VectorDiff, VectorSubscriberStream};
+use eyeball_im_util::vector::{FilterMap, VectorObserverExt};
 use futures_core::Stream;
 use imbl::Vector;
 #[cfg(test)]
-use matrix_sdk::{crypto::OlmMachine, SendOutsideWasm};
+use matrix_sdk::crypto::OlmMachine;
 use matrix_sdk::{
     deserialized_responses::TimelineEvent,
     event_cache::{RoomEventCache, RoomPaginationStatus},
@@ -580,10 +580,7 @@ impl<P: RoomDataProvider, D: Decryptor> TimelineController<P, D> {
     #[cfg(test)]
     pub(super) async fn subscribe_raw(
         &self,
-    ) -> (
-        Vector<Arc<TimelineItem>>,
-        impl Stream<Item = VectorDiff<Arc<TimelineItem>>> + SendOutsideWasm,
-    ) {
+    ) -> (Vector<Arc<TimelineItem>>, VectorSubscriberStream<Arc<TimelineItem>>) {
         self.state.read().await.items.subscribe().into_values_and_stream()
     }
 
@@ -596,7 +593,7 @@ impl<P: RoomDataProvider, D: Decryptor> TimelineController<P, D> {
     pub(super) async fn subscribe_filter_map<U, F>(
         &self,
         f: F,
-    ) -> (Vector<U>, impl Stream<Item = VectorDiff<U>>)
+    ) -> (Vector<U>, FilterMap<VectorSubscriberStream<Arc<TimelineItem>>, F>)
     where
         U: Clone,
         F: Fn(Arc<TimelineItem>) -> Option<U>,
