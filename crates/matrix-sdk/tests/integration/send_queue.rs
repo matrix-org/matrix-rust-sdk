@@ -176,7 +176,13 @@ macro_rules! assert_update {
     }};
 
     // Check the next stream events communicate upload progress and finally the uploaded media.
-    ($watch:ident => uploaded_with_progress { related_to = $related_to:expr, mxc = $mxc:expr, progress_start = $progress_start:expr, progress_end = $progress_end:expr, progress_total = $progress_total:expr }) => {{
+    ($watch:ident => uploaded_with_progress {
+        related_to = $related_to:expr,
+        mxc = $mxc:expr,
+        progress_start = $progress_start:expr,
+        progress_end = $progress_end:expr,
+        progress_total = $progress_total:expr
+    }) => {{
         let mut prev_progress: Option<AbstractProgress> = None;
 
          loop {
