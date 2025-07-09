@@ -100,7 +100,8 @@ pub enum EventSendProgress {
         index: u64,
 
         /// The combined upload progress across the file and, if existing, its
-        /// thumbnail.
+        /// thumbnail. For gallery uploads, the progress is reported per indexed
+        /// gallery item.
         progress: AbstractProgress,
     },
 }
