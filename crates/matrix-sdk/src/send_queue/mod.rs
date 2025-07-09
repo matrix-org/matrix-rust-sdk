@@ -152,7 +152,10 @@ use matrix_sdk_base::{
     store_locks::LockStoreError,
     RoomState, StoreError,
 };
-use matrix_sdk_common::executor::{spawn, JoinHandle};
+use matrix_sdk_common::{
+    executor::{spawn, JoinHandle},
+    locks::Mutex as SyncMutex,
+};
 use mime::Mime;
 use ruma::{
     events::{
@@ -773,7 +776,7 @@ impl RoomSendQueue {
         // If this is a file upload, get the size of any previously uploaded thumbnail
         // from the in-memory media sizes cache.
         let uploaded_thumbnail_bytes = if thumbnail_source.is_some() {
-            if let Some(sizes) = queue.thumbnail_size_cache.lock().await.get(related_to) {
+            if let Some(sizes) = queue.thumbnail_size_cache.lock().get(related_to) {
                 sizes.get(index).copied().flatten().unwrap_or(0)
             } else {
                 0
@@ -1253,7 +1256,7 @@ struct QueueStorage {
     /// For galleries, some gallery items might not have a thumbnail while
     /// others do. Since we access the thumbnails by their index within the
     /// gallery, the vector needs to hold optional usize's.
-    thumbnail_size_cache: Arc<Mutex<HashMap<OwnedTransactionId, Vec<Option<usize>>>>>,
+    thumbnail_size_cache: Arc<SyncMutex<HashMap<OwnedTransactionId, Vec<Option<usize>>>>>,
 }
 
 impl QueueStorage {
@@ -1268,7 +1271,7 @@ impl QueueStorage {
         Self {
             room_id: room,
             store: StoreLock { client, being_sent: Default::default() },
-            thumbnail_size_cache: Arc::new(Mutex::new(HashMap::new())),
+            thumbnail_size_cache: Arc::new(SyncMutex::new(HashMap::new())),
         }
     }
 
@@ -1426,7 +1429,7 @@ impl QueueStorage {
             warn!(txn_id = %transaction_id, "request marked as sent was missing from storage");
         }
 
-        self.thumbnail_size_cache.lock().await.remove(transaction_id);
+        self.thumbnail_size_cache.lock().remove(transaction_id);
 
         Ok(())
     }
@@ -1468,7 +1471,7 @@ impl QueueStorage {
             .remove_send_queue_request(&self.room_id, transaction_id)
             .await?;
 
-        self.thumbnail_size_cache.lock().await.remove(transaction_id);
+        self.thumbnail_size_cache.lock().remove(transaction_id);
 
         Ok(removed)
     }
@@ -1561,7 +1564,7 @@ impl QueueStorage {
             )
             .await?;
 
-        self.thumbnail_size_cache.lock().await.insert(send_event_txn, media_sizes);
+        self.thumbnail_size_cache.lock().insert(send_event_txn, media_sizes);
 
         Ok(())
     }
@@ -1691,7 +1694,7 @@ impl QueueStorage {
             )
             .await?;
 
-        self.thumbnail_size_cache.lock().await.insert(send_event_txn, media_sizes);
+        self.thumbnail_size_cache.lock().insert(send_event_txn, media_sizes);
 
         Ok(())
     }
