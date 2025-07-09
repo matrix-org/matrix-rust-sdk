@@ -23,8 +23,11 @@ All notable changes to this project will be documented in this file.
 - `EventCache::subscribe_to_room_generic_updates` is added to subscribe to _all_
   room updates without having to subscribe to all rooms individually
   ([#5247](https://github.com/matrix-org/matrix-rust-sdk/pull/5247))
-- [**breaking**]: The element call widget URL configuration struct uses the new `header` url parameter
+- [**breaking**] The element call widget URL configuration struct uses the new `header` url parameter
   instead of the now deprecated `hideHeader` parameter. This is only compatible with EC v0.13.0 or newer.
+- [**breaking**] `RoomEventCacheGenericUpdate` gains a new `Clear` variant, and sees
+  its `TimelineUpdated` variant being renamed to `UpdateTimeline`.
+  ([#5363](https://github.com/matrix-org/matrix-rust-sdk/pull/5363/))
 
 ### Refactor
 
