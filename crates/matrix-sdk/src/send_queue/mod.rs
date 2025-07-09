@@ -648,8 +648,7 @@ impl RoomSendQueue {
                                         current: media_upload_info.bytes,
                                         total: media_upload_info.bytes,
                                     },
-                                    media_upload_info.uploaded_thumbnail_bytes,
-                                    media_upload_info.pending_file_bytes,
+                                    &media_upload_info,
                                 ),
                             });
                         }
@@ -875,8 +874,7 @@ impl RoomSendQueue {
                         index: media_upload_info.index,
                         progress: estimate_combined_media_upload_progress(
                             estimate_media_upload_progress(progress, media_upload_info.bytes),
-                            media_upload_info.uploaded_thumbnail_bytes,
-                            media_upload_info.pending_file_bytes,
+                            &media_upload_info,
                         ),
                     });
                 }
@@ -1079,21 +1077,14 @@ fn estimate_media_upload_progress(
 /// * `progress` - The progress of uploading the current file mapped into units
 ///   of the original file size before encryption.
 ///
-/// * `uploaded_thumbnail_bytes` - If this is a media file upload and an
-///   associated thumbnail was previously uploaded, the number of bytes in the
-///   thumbnail before encryption. Otherwise, zero.
-///
-/// * `pending_file_bytes` - If this is a thumbnail upload, the number of bytes
-///   in the still to be uploaded associated media file before encryption.
-///   Otherwise, zero.
+/// * `info` - Information about the file(s) being uploaded.
 fn estimate_combined_media_upload_progress(
     progress: AbstractProgress,
-    uploaded_thumbnail_bytes: usize,
-    pending_file_bytes: usize,
+    info: &MediaUploadInfo,
 ) -> AbstractProgress {
     AbstractProgress {
-        current: uploaded_thumbnail_bytes + progress.current,
-        total: uploaded_thumbnail_bytes + progress.total + pending_file_bytes,
+        current: info.uploaded_thumbnail_bytes + progress.current,
+        total: info.uploaded_thumbnail_bytes + progress.total + info.pending_file_bytes,
     }
 }
 
