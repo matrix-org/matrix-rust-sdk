@@ -49,7 +49,7 @@ is designed to be flexible, async-friendly, and ready to use out of the box.
 ## Project structure
 
 The Matrix Rust SDK is made up of several crates that build on top of each
-other. The following crates are expected to be usable independently:
+other. The following crates are expected to be usable as direct dependencies:
 
 - [matrix-sdk-ui](https://docs.rs/matrix-sdk-ui/latest/matrix_sdk_ui/) – A high-level client library that makes it easy to build
   full-featured UI clients with minimal setup. Check out our reference client,
