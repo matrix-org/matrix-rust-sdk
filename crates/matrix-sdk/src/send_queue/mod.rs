@@ -285,6 +285,11 @@ impl SendQueue {
         self.data().globally_enabled.load(Ordering::SeqCst)
     }
 
+    /// Enable or disable progress reporting for media uploads.
+    pub fn enable_upload_progress(&self, enabled: bool) {
+        self.data().report_media_upload_progress.store(enabled, Ordering::SeqCst);
+    }
+
     /// A subscriber to the enablement status (enabled or disabled) of the
     /// send queue, along with useful errors.
     pub fn subscribe_errors(&self) -> broadcast::Receiver<SendQueueRoomError> {
@@ -356,7 +361,7 @@ pub(super) struct SendQueueData {
 
 impl SendQueueData {
     /// Create the data for a send queue, in the given enabled state.
-    pub fn new(globally_enabled: bool, report_media_upload_progress: bool) -> Self {
+    pub fn new(globally_enabled: bool) -> Self {
         let (sender, _) = broadcast::channel(32);
 
         Self {
@@ -364,7 +369,7 @@ impl SendQueueData {
             globally_enabled: AtomicBool::new(globally_enabled),
             error_reporter: sender,
             is_dropping: Arc::new(false.into()),
-            report_media_upload_progress: Arc::new(AtomicBool::new(report_media_upload_progress)),
+            report_media_upload_progress: Arc::new(false.into()),
         }
     }
 }

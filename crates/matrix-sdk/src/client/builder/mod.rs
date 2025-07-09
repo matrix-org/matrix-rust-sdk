@@ -114,7 +114,6 @@ pub struct ClientBuilder {
     enable_share_history_on_invite: bool,
     cross_process_store_locks_holder_name: String,
     threading_support: ThreadingSupport,
-    enable_send_queue_media_upload_progress_reporting: bool,
 }
 
 impl ClientBuilder {
@@ -146,7 +145,6 @@ impl ClientBuilder {
             cross_process_store_locks_holder_name:
                 Self::DEFAULT_CROSS_PROCESS_STORE_LOCKS_HOLDER_NAME.to_owned(),
             threading_support: ThreadingSupport::Disabled,
-            enable_send_queue_media_upload_progress_reporting: false,
         }
     }
 
@@ -491,16 +489,6 @@ impl ClientBuilder {
         self
     }
 
-    /// Set whether to report media upload progress via the send queue.
-    pub fn with_enable_send_queue_media_upload_progress_reporting(
-        mut self,
-        enable_send_queue_media_upload_progress_reporting: bool,
-    ) -> Self {
-        self.enable_send_queue_media_upload_progress_reporting =
-            enable_send_queue_media_upload_progress_reporting;
-        self
-    }
-
     /// Create a [`Client`] with the options set on this builder.
     ///
     /// # Errors
@@ -585,10 +573,7 @@ impl ClientBuilder {
         });
 
         // Enable the send queue by default.
-        let send_queue = Arc::new(SendQueueData::new(
-            true,
-            self.enable_send_queue_media_upload_progress_reporting,
-        ));
+        let send_queue = Arc::new(SendQueueData::new(true));
 
         let server_info = ClientServerInfo {
             server_versions: match self.server_versions {
