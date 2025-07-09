@@ -131,7 +131,15 @@ impl RoomListService {
     /// to create one in this case using
     /// [`EncryptionSyncService`][crate::encryption_sync_service::EncryptionSyncService].
     pub async fn new(client: Client) -> Result<Self, Error> {
-        let builder = client
+        Self::new_with_share_pos(client, true).await
+    }
+
+    /// Like [`RoomListService::new`] but with a flag to turn the
+    /// [`SlidingSyncBuilder::share_pos`] on and off.
+    ///
+    /// [`SlidingSyncBuilder::share_pos`]: matrix_sdk::sliding_sync::SlidingSyncBuilder::share_pos
+    pub async fn new_with_share_pos(client: Client, share_pos: bool) -> Result<Self, Error> {
+        let mut builder = client
             .sliding_sync("room-list")
             .map_err(Error::SlidingSync)?
             .with_account_data_extension(
@@ -143,9 +151,12 @@ impl RoomListService {
             }))
             .with_typing_extension(assign!(http::request::Typing::default(), {
                 enabled: Some(true),
-            }))
+            }));
+
+        if share_pos {
             // We don't deal with encryption device messages here so this is safe
-            .share_pos();
+            builder = builder.share_pos();
+        }
 
         let sliding_sync = builder
             .add_cached_list(
