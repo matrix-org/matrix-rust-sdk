@@ -59,27 +59,16 @@ impl From<web_sys::DomException> for IndexeddbEventCacheStoreError {
 
 impl From<IndexeddbEventCacheStoreError> for EventCacheStoreError {
     fn from(value: IndexeddbEventCacheStoreError) -> Self {
+        use IndexeddbEventCacheStoreError::*;
+
         match value {
-            IndexeddbEventCacheStoreError::DomException { .. }
-            | IndexeddbEventCacheStoreError::ChunksContainCycle
-            | IndexeddbEventCacheStoreError::ChunksContainDisjointLists
-            | IndexeddbEventCacheStoreError::NoMaxChunkId
-            | IndexeddbEventCacheStoreError::UnableToLoadChunk => {
-                Self::InvalidData { details: value.to_string() }
-            }
-            IndexeddbEventCacheStoreError::Transaction(ref inner) => match inner {
-                IndexeddbEventCacheStoreTransactionError::DomException { .. } => {
-                    Self::InvalidData { details: value.to_string() }
-                }
-                IndexeddbEventCacheStoreTransactionError::Serialization(e) => {
-                    Self::Serialization(serde_json::Error::custom(e.to_string()))
-                }
-                IndexeddbEventCacheStoreTransactionError::ItemIsNotUnique
-                | IndexeddbEventCacheStoreTransactionError::ItemNotFound => {
-                    Self::InvalidData { details: value.to_string() }
-                }
-            },
-            IndexeddbEventCacheStoreError::MemoryStore(inner) => inner,
+            DomException { .. }
+            | ChunksContainCycle
+            | ChunksContainDisjointLists
+            | NoMaxChunkId
+            | UnableToLoadChunk => Self::InvalidData { details: value.to_string() },
+            Transaction(inner) => inner.into(),
+            MemoryStore(inner) => inner,
         }
     }
 }

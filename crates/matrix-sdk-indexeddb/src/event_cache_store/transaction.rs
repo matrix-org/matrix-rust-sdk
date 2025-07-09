@@ -14,11 +14,14 @@
 
 use indexed_db_futures::{prelude::IdbTransaction, IdbQuerySource};
 use matrix_sdk_base::{
-    event_cache::{Event as RawEvent, Gap as RawGap},
+    event_cache::{store::EventCacheStoreError, Event as RawEvent, Gap as RawGap},
     linked_chunk::{ChunkContent, ChunkIdentifier, RawChunk},
 };
 use ruma::{events::relation::RelationType, OwnedEventId, RoomId};
-use serde::{de::DeserializeOwned, Serialize};
+use serde::{
+    de::{DeserializeOwned, Error},
+    Serialize,
+};
 use thiserror::Error;
 use web_sys::IdbCursorDirection;
 
@@ -55,9 +58,19 @@ impl From<web_sys::DomException> for IndexeddbEventCacheStoreTransactionError {
 
 impl From<serde_wasm_bindgen::Error> for IndexeddbEventCacheStoreTransactionError {
     fn from(e: serde_wasm_bindgen::Error) -> Self {
-        Self::Serialization(Box::new(<serde_json::Error as serde::de::Error>::custom(
-            e.to_string(),
-        )))
+        Self::Serialization(Box::new(serde_json::Error::custom(e.to_string())))
+    }
+}
+
+impl From<IndexeddbEventCacheStoreTransactionError> for EventCacheStoreError {
+    fn from(value: IndexeddbEventCacheStoreTransactionError) -> Self {
+        use IndexeddbEventCacheStoreTransactionError::*;
+
+        match value {
+            DomException { .. } => Self::InvalidData { details: value.to_string() },
+            Serialization(e) => Self::Serialization(serde_json::Error::custom(e.to_string())),
+            ItemIsNotUnique | ItemNotFound => Self::InvalidData { details: value.to_string() },
+        }
     }
 }
 
