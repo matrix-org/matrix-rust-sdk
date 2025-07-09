@@ -11,8 +11,8 @@ use matrix_sdk::{
     executor::spawn,
     store::RoomLoadSettings,
     test_utils::{
-        client::mock_session_meta, logged_in_client_with_server, no_retry_test_client_with_server,
-        test_client_builder_with_server,
+        client::mock_session_meta, logged_in_client_with_server, mocks::MatrixMockServer,
+        no_retry_test_client_with_server, test_client_builder_with_server,
     },
     HttpError, RefreshTokenError, SessionChange, SessionTokens,
 };
@@ -43,18 +43,15 @@ fn session() -> MatrixSession {
 
 #[async_test]
 async fn test_login_username_refresh_token() {
-    let (client, server) = no_retry_test_client_with_server().await;
-
-    Mock::given(method("POST"))
-        .and(path("/_matrix/client/r0/login"))
-        .and(body_partial_json(json!({
-            "refresh_token": true,
-        })))
-        .respond_with(
-            ResponseTemplate::new(200).set_body_json(&*test_json::LOGIN_WITH_REFRESH_TOKEN),
-        )
-        .mount(&server)
+    let server = MatrixMockServer::new().await;
+    server
+        .mock_login()
+        .body_matches_partial_json(json!({"refresh_token": true}))
+        .ok_with(ResponseTemplate::new(200).set_body_json(&*test_json::LOGIN_WITH_REFRESH_TOKEN))
+        .mount()
         .await;
+
+    let client = server.client_builder().unlogged().build().await;
 
     let res = client
         .matrix_auth()
@@ -63,7 +60,7 @@ async fn test_login_username_refresh_token() {
         .send()
         .await
         .unwrap();
-
+    
     assert!(client.is_active(), "Client should be active");
     res.refresh_token.unwrap();
 }

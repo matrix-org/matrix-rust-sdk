@@ -3252,7 +3252,19 @@ impl<'a> MockEndpoint<'a, LoginEndpoint> {
     pub fn ok(self) -> MatrixMock<'a> {
         self.respond_with(ResponseTemplate::new(200).set_body_json(&*test_json::LOGIN))
     }
+
+    /// Returns a successful response with a given message.
+    pub fn ok_with(self, response: ResponseTemplate) -> MatrixMock<'a> {
+        self.respond_with(response)
+    }
+
+    /// Ensures that the body of the request is a superset of the provided
+    /// `body` parameter.
+    pub fn body_matches_partial_json(self, body: Value) -> Self {
+        Self { mock: self.mock.and(body_partial_json(body)), ..self }
+    }
 }
+
 
 /// A prebuilt mock for `GET /devices` requests.
 pub struct DevicesEndpoint;
