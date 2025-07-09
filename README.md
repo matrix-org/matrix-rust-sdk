@@ -48,7 +48,8 @@ is designed to be flexible, async-friendly, and ready to use out of the box.
 
 ## Project structure
 
-The Matrix Rust SDK is made up of several crates that build on top of each other. Here are the key ones:
+The Matrix Rust SDK is made up of several crates that build on top of each
+other. The following crates are expected to be usable independently:
 
 - [matrix-sdk-ui](https://docs.rs/matrix-sdk-ui/latest/matrix_sdk_ui/) – A high-level client library that makes it easy to build
   full-featured UI clients with minimal setup. Check out our reference client,
@@ -60,6 +61,10 @@ The Matrix Rust SDK is made up of several crates that build on top of each other
   providing end-to-end encryption support for Matrix clients and libraries.
   See the [crypto tutorial](https://docs.rs/matrix-sdk-crypto/latest/matrix_sdk_crypto/tutorial/index.html)
   for a step-by-step introduction.
+
+All other crates are effectively internal-only and only structured as crates
+for organisational purposes and to improve compilation times. Depend on them
+directly at your own risk.
 
 ## Status
 
