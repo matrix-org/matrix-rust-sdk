@@ -648,8 +648,8 @@ impl RoomSendQueue {
                                         current: media_upload_info.bytes,
                                         total: media_upload_info.bytes,
                                     },
-                                    media_upload_info.uploaded,
-                                    media_upload_info.pending,
+                                    media_upload_info.uploaded_thumbnail_bytes,
+                                    media_upload_info.pending_file_bytes,
                                 ),
                             });
                         }
@@ -773,7 +773,7 @@ impl RoomSendQueue {
 
         // If this is a file upload, get the size of any previously uploaded thumbnail
         // from the in-memory media sizes cache.
-        let uploaded = if thumbnail_source.is_some() {
+        let uploaded_thumbnail_bytes = if thumbnail_source.is_some() {
             if let Some(sizes) = queue.thumbnail_size_cache.lock().await.get(related_to) {
                 sizes.get(index).copied().flatten().unwrap_or(0)
             } else {
@@ -785,14 +785,19 @@ impl RoomSendQueue {
 
         // If this is a thumbnail upload, get the size of the pending file upload from
         // the dependent requests.
-        let pending = RoomSendQueue::get_dependent_pending_file_upload_size(
+        let pending_file_bytes = RoomSendQueue::get_dependent_pending_file_upload_size(
             queued_request.transaction_id.clone(),
             queue,
             room,
         )
         .await;
 
-        Some(MediaUploadInfo { index: index as u64, bytes, uploaded, pending })
+        Some(MediaUploadInfo {
+            index: index as u64,
+            bytes,
+            uploaded_thumbnail_bytes,
+            pending_file_bytes,
+        })
     }
 
     /// Determine the size of a pending file upload, if this is a thumbnail
@@ -872,8 +877,8 @@ impl RoomSendQueue {
                             index: media_upload_info.index,
                             progress: estimate_combined_media_upload_progress(
                                 estimate_media_upload_progress(progress, media_upload_info.bytes),
-                                media_upload_info.uploaded,
-                                media_upload_info.pending,
+                                media_upload_info.uploaded_thumbnail_bytes,
+                                media_upload_info.pending_file_bytes,
                             ),
                         });
                     }
@@ -1077,21 +1082,21 @@ fn estimate_media_upload_progress(
 /// * `progress` - The progress of uploading the current file mapped into units
 ///   of the original file size before encryption.
 ///
-/// * `uploaded` - If this is a media file upload and an associated thumbnail
-///   was previously uploaded, the number of bytes in the thumbnail before
-///   encryption. Otherwise, zero.
+/// * `uploaded_thumbnail_bytes` - If this is a media file upload and an
+///   associated thumbnail was previously uploaded, the number of bytes in the
+///   thumbnail before encryption. Otherwise, zero.
 ///
-/// * `pending` - If this is a thumbnail upload, the number of bytes in the
-///   still to be uploaded associated media file before encryption. Otherwise,
-///   zero.
+/// * `pending_file_bytes` - If this is a thumbnail upload, the number of bytes
+///   in the still to be uploaded associated media file before encryption.
+///   Otherwise, zero.
 fn estimate_combined_media_upload_progress(
     progress: AbstractProgress,
-    uploaded: usize,
-    pending: usize,
+    uploaded_thumbnail_bytes: usize,
+    pending_file_bytes: usize,
 ) -> AbstractProgress {
     AbstractProgress {
-        current: uploaded + progress.current,
-        total: uploaded + progress.total + pending,
+        current: uploaded_thumbnail_bytes + progress.current,
+        total: uploaded_thumbnail_bytes + progress.total + pending_file_bytes,
     }
 }
 
@@ -1176,10 +1181,10 @@ struct MediaUploadInfo {
     bytes: usize,
     /// If the current file is not a thumbnail, the total number of bytes in a
     /// previously uploaded thumbnail, if any exists. Otherwise, zero.
-    uploaded: usize,
+    uploaded_thumbnail_bytes: usize,
     /// If the current file is a thumbnail, the total number of bytes in the
     /// related media file still to be uploaded. Otherwise, zero.
-    pending: usize,
+    pending_file_bytes: usize,
 }
 
 impl BeingSentInfo {
