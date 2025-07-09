@@ -135,7 +135,16 @@ impl HttpClient {
     #[allow(clippy::too_many_arguments)]
     #[instrument(
         skip(self, request, config, homeserver, access_token, server_versions, send_progress),
-        fields(uri, method, request_size, request_id, status, response_size, sentry_event_id)
+        fields(
+            uri,
+            method,
+            request_id,
+            request_size,
+            request_duration,
+            status,
+            response_size,
+            sentry_event_id
+        )
     )]
     pub async fn send<R>(
         &self,
