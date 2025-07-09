@@ -36,13 +36,19 @@ impl HttpClient {
         tracing::debug!("Sending request");
 
         let request = reqwest::Request::try_from(request)?;
+
+        let before = ruma::time::Instant::now();
+
         let response = response_to_http_response(self.inner.execute(request).await?).await?;
 
+        let request_duration = ruma::time::Instant::now().saturating_duration_since(before);
         let status_code = response.status();
         let response_size = ByteSize(response.body().len().try_into().unwrap_or(u64::MAX));
+
         tracing::Span::current()
             .record("status", status_code.as_u16())
-            .record("response_size", response_size.display().si_short().to_string());
+            .record("response_size", response_size.display().si_short().to_string())
+            .record("request_duration", tracing::field::debug(request_duration));
 
         Ok(R::IncomingResponse::try_from_http_response(response)?)
     }
