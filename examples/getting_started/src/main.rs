@@ -32,7 +32,6 @@ async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt::init();
 
     // parse the command line for homeserver, username and password
-    // parse the command line for homeserver, username and password
     let (Some(homeserver_url), Some(username), Some(password)) =
         (env::args().nth(1), env::args().nth(2), env::args().nth(3))
     else {
