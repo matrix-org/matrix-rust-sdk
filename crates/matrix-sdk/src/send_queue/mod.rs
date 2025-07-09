@@ -2400,7 +2400,8 @@ pub enum RoomSendQueueUpdate {
         file: Option<MediaSource>,
 
         /// The index of the media within the transaction. A file and its
-        /// thumbnail share the same index.
+        /// thumbnail share the same index. Will always be 0 for non-gallery
+        /// media uploads.
         index: u64,
 
         /// The combined upload progress across the file and, if existing, its
