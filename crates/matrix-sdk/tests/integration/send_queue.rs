@@ -179,6 +179,7 @@ macro_rules! assert_update {
     ($watch:ident => uploaded_with_progress {
         related_to = $related_to:expr,
         mxc = $mxc:expr,
+        index = $index:expr,
         progress_start = $progress_start:expr,
         progress_end = $progress_end:expr,
         progress_total = $progress_total:expr
@@ -190,11 +191,13 @@ macro_rules! assert_update {
                 Ok(Ok(RoomSendQueueUpdate::MediaUpload {
                     related_to,
                     file,
+                    index,
                     progress, ..
                 })) = timeout(Duration::from_secs(1), $watch.recv()).await
             );
 
             assert_eq!(related_to, $related_to);
+            assert_eq!(index, $index);
 
             if let Some(progress_start) = $progress_start {
                 assert!(progress.current >= progress_start);
@@ -2028,6 +2031,7 @@ async fn test_media_uploads() {
     assert_update!(watch => uploaded_with_progress {
         related_to = transaction_id,
         mxc = mxc_uri!("mxc://sdk.rs/thumbnail"),
+        index = 0,
         progress_start = None,
         progress_end = size_thumbnail,
         progress_total = size_data + size_thumbnail
@@ -2036,6 +2040,7 @@ async fn test_media_uploads() {
     assert_update!(watch => uploaded_with_progress {
         related_to = transaction_id,
         mxc = mxc_uri!("mxc://sdk.rs/media"),
+        index = 0,
         progress_start = Some(size_thumbnail),
         progress_end = size_data + size_thumbnail,
         progress_total = size_data + size_thumbnail
