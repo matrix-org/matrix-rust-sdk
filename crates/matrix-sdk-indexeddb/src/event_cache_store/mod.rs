@@ -36,7 +36,7 @@ use web_sys::IdbTransactionMode;
 use crate::event_cache_store::{
     migrations::current::keys,
     serializer::IndexeddbEventCacheStoreSerializer,
-    transaction::IndexeddbEventCacheStoreTransaction,
+    transaction::{IndexeddbEventCacheStoreTransaction, IndexeddbEventCacheStoreTransactionError},
     types::{ChunkType, InBandEvent},
 };
 
@@ -300,10 +300,38 @@ impl_event_cache_store! {
         (Option<RawChunk<Event, Gap>>, ChunkIdentifierGenerator),
         IndexeddbEventCacheStoreError,
     > {
-        self.memory_store
-            .load_last_chunk(linked_chunk_id)
-            .await
-            .map_err(IndexeddbEventCacheStoreError::MemoryStore)
+        let linked_chunk_id = linked_chunk_id.to_owned();
+        let room_id = linked_chunk_id.room_id();
+        let transaction = self.transaction(
+            &[keys::LINKED_CHUNKS, keys::EVENTS, keys::GAPS],
+            IdbTransactionMode::Readonly,
+        )?;
+
+        if transaction.get_chunks_count_in_room(room_id).await? == 0 {
+            return Ok((None, ChunkIdentifierGenerator::new_from_scratch()));
+        }
+        match transaction.get_chunk_by_next_chunk_id(room_id, &None).await {
+            Err(IndexeddbEventCacheStoreTransactionError::ItemIsNotUnique) => {
+                Err(IndexeddbEventCacheStoreError::ChunksContainDisjointLists)
+            }
+            Err(e) => Err(e.into()),
+            Ok(None) => Err(IndexeddbEventCacheStoreError::ChunksContainCycle),
+            Ok(Some(last_chunk)) => {
+                let last_chunk_identifier = ChunkIdentifier::new(last_chunk.identifier);
+                let last_raw_chunk = transaction
+                    .load_chunk_by_id(room_id, &last_chunk_identifier)
+                    .await?
+                    .ok_or(IndexeddbEventCacheStoreError::UnableToLoadChunk)?;
+                let max_chunk_id = transaction
+                    .get_max_chunk_by_id(room_id)
+                    .await?
+                    .map(|chunk| ChunkIdentifier::new(chunk.identifier))
+                    .ok_or(IndexeddbEventCacheStoreError::NoMaxChunkId)?;
+                let generator =
+                    ChunkIdentifierGenerator::new_from_previous_chunk_identifier(max_chunk_id);
+                Ok((Some(last_raw_chunk), generator))
+            }
+        }
     }
 
     async fn load_previous_chunk(
