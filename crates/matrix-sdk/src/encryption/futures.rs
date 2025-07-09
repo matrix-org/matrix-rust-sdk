@@ -30,7 +30,7 @@ use crate::{config::RequestConfig, Client, Media, Result, TransmissionProgress};
 pub struct UploadEncryptedFile<'a, R: ?Sized> {
     client: &'a Client,
     reader: &'a mut R,
-    pub(crate) send_progress: SharedObservable<TransmissionProgress>,
+    send_progress: SharedObservable<TransmissionProgress>,
     request_config: Option<RequestConfig>,
 }
 
