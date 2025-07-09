@@ -1827,11 +1827,8 @@ async fn test_media_uploads() {
 
     // Mark the room as joined.
     let room_id = room_id!("!a:b.c");
-    let client = mock
-        .client_builder()
-        .with_enable_send_queue_media_upload_progress_reporting(true)
-        .build()
-        .await;
+    let client = mock.client_builder().build().await;
+    client.send_queue().enable_upload_progress(true);
     let room = mock.sync_joined_room(&client, room_id).await;
 
     let q = room.send_queue();

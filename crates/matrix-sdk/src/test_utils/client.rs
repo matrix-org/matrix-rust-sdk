@@ -131,17 +131,6 @@ impl MockClientBuilder {
         self
     }
 
-    /// Set whether to report media upload progress via the send queue.
-    pub fn with_enable_send_queue_media_upload_progress_reporting(
-        mut self,
-        enable_send_queue_media_upload_progress_reporting: bool,
-    ) -> Self {
-        self.builder = self.builder.with_enable_send_queue_media_upload_progress_reporting(
-            enable_send_queue_media_upload_progress_reporting,
-        );
-        self
-    }
-
     /// Finish building the client into the final [`Client`] instance.
     pub async fn build(self) -> Client {
         let mut builder = self.builder;
