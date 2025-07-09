@@ -860,7 +860,6 @@ impl RoomSendQueue {
             let progress: SharedObservable<TransmissionProgress> = Default::default();
             let mut subscriber = progress.subscribe();
 
-            let report_media_upload_progress = Arc::clone(report_media_upload_progress);
             let media_upload_info = media_upload_info.clone();
             let related_to = related_txn_id.clone();
             let updates = updates.clone();
@@ -870,18 +869,16 @@ impl RoomSendQueue {
             // task will end.
             spawn(async move {
                 while let Some(progress) = subscriber.next().await {
-                    if report_media_upload_progress.load(Ordering::SeqCst) {
-                        let _ = updates.send(RoomSendQueueUpdate::MediaUpload {
-                            related_to: related_to.clone(),
-                            file: None,
-                            index: media_upload_info.index,
-                            progress: estimate_combined_media_upload_progress(
-                                estimate_media_upload_progress(progress, media_upload_info.bytes),
-                                media_upload_info.uploaded_thumbnail_bytes,
-                                media_upload_info.pending_file_bytes,
-                            ),
-                        });
-                    }
+                    let _ = updates.send(RoomSendQueueUpdate::MediaUpload {
+                        related_to: related_to.clone(),
+                        file: None,
+                        index: media_upload_info.index,
+                        progress: estimate_combined_media_upload_progress(
+                            estimate_media_upload_progress(progress, media_upload_info.bytes),
+                            media_upload_info.uploaded_thumbnail_bytes,
+                            media_upload_info.pending_file_bytes,
+                        ),
+                    });
                 }
             });
 
