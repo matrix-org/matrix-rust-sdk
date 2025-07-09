@@ -63,8 +63,7 @@ other. The following crates are expected to be usable independently:
   for a step-by-step introduction.
 
 All other crates are effectively internal-only and only structured as crates
-for organisational purposes and to improve compilation times. Depend on them
-directly at your own risk.
+for organizational purposes and to improve compilation times. Direct usage of them is discouraged.
 
 ## Status
 
