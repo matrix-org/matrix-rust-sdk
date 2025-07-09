@@ -310,12 +310,26 @@ impl_event_cache_store! {
         if transaction.get_chunks_count_in_room(room_id).await? == 0 {
             return Ok((None, ChunkIdentifierGenerator::new_from_scratch()));
         }
+        // Now that we know we have some chunks in the room, we query IndexedDB
+        // for the last chunk in the room by getting the chunk which does not
+        // have a next chunk.
         match transaction.get_chunk_by_next_chunk_id(room_id, &None).await {
             Err(IndexeddbEventCacheStoreTransactionError::ItemIsNotUnique) => {
+                // If there are multiple chunks that do not have a next chunk, that
+                // means we have more than one last chunk, which means that we have
+                // more than one list in the room.
                 Err(IndexeddbEventCacheStoreError::ChunksContainDisjointLists)
             }
-            Err(e) => Err(e.into()),
-            Ok(None) => Err(IndexeddbEventCacheStoreError::ChunksContainCycle),
+            Err(e) => {
+                // There was some error querying IndexedDB, but it is not necessarily
+                // a violation of our data constraints.
+                Err(e.into())
+            },
+            Ok(None) => {
+                // If there is no chunk without a next chunk, that means every chunk
+                // points to another chunk, which means that we have a cycle in our list.
+                Err(IndexeddbEventCacheStoreError::ChunksContainCycle)
+            },
             Ok(Some(last_chunk)) => {
                 let last_chunk_identifier = ChunkIdentifier::new(last_chunk.identifier);
                 let last_raw_chunk = transaction
