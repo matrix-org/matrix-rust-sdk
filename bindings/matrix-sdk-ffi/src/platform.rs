@@ -160,31 +160,8 @@ fn text_layers(
     let (file_layer, reload_handle) = config
         .write_to_files
         .map(|c| {
-            let mut builder = RollingFileAppender::builder()
-                .rotation(Rotation::HOURLY)
-                .filename_prefix(&c.file_prefix);
-
-            if let Some(max_files) = c.max_files {
-                builder = builder.max_log_files(max_files as usize)
-            };
-            if let Some(file_suffix) = c.file_suffix {
-                builder = builder.filename_suffix(file_suffix)
-            }
-
-            let writer = builder.build(&c.path).expect("Failed to create a rolling file appender.");
-
-            let layer = fmt::layer()
-                .fmt_fields(FieldsFormatterForFiles::default())
-                .event_format(EventFormatter::new())
-                // EventFormatter doesn't support ANSI colors anyways, but the
-                // default field formatter does, which is unhelpful for iOS +
-                // Android logs, but enabled by default.
-                .with_ansi(false)
-                .with_writer(writer);
-
-            let (layer, reload_handle) = reload::Layer::new(layer);
-
-            (layer, reload_handle)
+            let layer = make_file_layer(c);
+            reload::Layer::new(layer)
         })
         .unzip();
 
@@ -229,6 +206,38 @@ fn text_layers(
     );
 
     (layers, reload_handle)
+}
+
+fn make_file_layer(
+    file_configuration: TracingFileConfiguration,
+) -> tracing_subscriber::fmt::Layer<
+    Layered<EnvFilter, Registry, Registry>,
+    FieldsFormatterForFiles,
+    EventFormatter,
+    RollingFileAppender,
+> {
+    let mut builder = RollingFileAppender::builder()
+        .rotation(Rotation::HOURLY)
+        .filename_prefix(&file_configuration.file_prefix);
+
+    if let Some(max_files) = file_configuration.max_files {
+        builder = builder.max_log_files(max_files as usize)
+    }
+    if let Some(file_suffix) = file_configuration.file_suffix {
+        builder = builder.filename_suffix(file_suffix)
+    }
+
+    let writer =
+        builder.build(&file_configuration.path).expect("Failed to create a rolling file appender.");
+
+    fmt::layer()
+        .fmt_fields(FieldsFormatterForFiles::default())
+        .event_format(EventFormatter::new())
+        // EventFormatter doesn't support ANSI colors anyways, but the
+        // default field formatter does, which is unhelpful for iOS +
+        // Android logs, but enabled by default.
+        .with_ansi(false)
+        .with_writer(writer)
 }
 
 /// Configuration to save logs to (rotated) log-files.
@@ -591,6 +600,36 @@ pub fn enable_sentry_logging(enabled: bool) {
         // Can't use log statements here, since logging hasn't been enabled yet 🧠
         eprintln!("Logging hasn't been enabled yet");
     };
+}
+
+/// Updates the tracing subscriber with a new file writer based on the provided
+/// configuration.
+///
+/// This method will throw if `init_platform` hasn't been called, or if it was
+/// called with `write_to_files` set to `None`.
+#[matrix_sdk_ffi_macros::export]
+pub fn reload_tracing_file_writer(
+    configuration: TracingFileConfiguration,
+) -> Result<(), ClientError> {
+    let Some(logging_context) = LOGGING.get() else {
+        return Err(ClientError::Generic {
+            msg: "Logging hasn't been initialized yet".to_owned(),
+            details: None,
+        });
+    };
+
+    let Some(reload_handle) = logging_context.reload_handle.as_ref() else {
+        return Err(ClientError::Generic {
+            msg: "Logging wasn't initialized with a file config".to_owned(),
+            details: None,
+        });
+    };
+
+    let layer = make_file_layer(configuration);
+    reload_handle.reload(layer).map_err(|error| ClientError::Generic {
+        msg: format!("Failed to reload file config: {error}"),
+        details: None,
+    })
 }
 
 #[cfg(not(target_family = "wasm"))]
