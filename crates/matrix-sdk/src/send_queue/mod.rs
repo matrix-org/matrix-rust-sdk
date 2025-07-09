@@ -1243,6 +1243,16 @@ struct QueueStorage {
 
     /// In-memory mapping of media transaction IDs to thumbnail sizes for the
     /// purpose of progress reporting.
+    ///
+    /// The keys are the transaction IDs for sending the media or gallery event
+    /// after all uploads have finished. This allows us to easily clean up the
+    /// cache after the event was sent.
+    ///
+    /// For media uploads, the value vector will always have a single element.
+    ///
+    /// For galleries, some gallery items might not have a thumbnail while
+    /// others do. Since we access the thumbnails by their index within the
+    /// gallery, the vector needs to hold optional usize's.
     thumbnail_size_cache: Arc<Mutex<HashMap<OwnedTransactionId, Vec<Option<usize>>>>>,
 }
 
