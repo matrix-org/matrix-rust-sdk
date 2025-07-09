@@ -536,6 +536,19 @@ pub(crate) fn time_to_timestamp(time: SystemTime) -> i64 {
 pub(crate) trait EncryptableStore {
     fn get_cypher(&self) -> Option<&StoreCipher>;
 
+    /// If the store is using encryption, this will hash the given key. This is
+    /// useful when we need to do queries against a given key, but we don't
+    /// need to store the key in plain text (i.e. it's not both a key and a
+    /// value).
+    fn encode_key(&self, table_name: &str, key: impl AsRef<[u8]>) -> Key {
+        let bytes = key.as_ref();
+        if let Some(store_cipher) = self.get_cypher() {
+            Key::Hashed(store_cipher.hash_key(table_name, bytes))
+        } else {
+            Key::Plain(bytes.to_owned())
+        }
+    }
+
     fn encode_value(&self, value: Vec<u8>) -> Result<Vec<u8>> {
         if let Some(key) = self.get_cypher() {
             let encrypted = key.encrypt_value_data(value)?;
@@ -543,16 +556,6 @@ pub(crate) trait EncryptableStore {
         } else {
             Ok(value)
         }
-    }
-
-    fn serialize_value(&self, value: &impl Serialize) -> Result<Vec<u8>> {
-        let serialized = rmp_serde::to_vec_named(value)?;
-        self.encode_value(serialized)
-    }
-
-    fn serialize_json(&self, value: &impl Serialize) -> Result<Vec<u8>> {
-        let serialized = serde_json::to_vec(value)?;
-        self.encode_value(serialized)
     }
 
     fn decode_value<'a>(&self, value: &'a [u8]) -> Result<Cow<'a, [u8]>> {
@@ -563,6 +566,21 @@ pub(crate) trait EncryptableStore {
         } else {
             Ok(Cow::Borrowed(value))
         }
+    }
+
+    fn serialize_value(&self, value: &impl Serialize) -> Result<Vec<u8>> {
+        let serialized = rmp_serde::to_vec_named(value)?;
+        self.encode_value(serialized)
+    }
+
+    fn deserialize_value<T: DeserializeOwned>(&self, value: &[u8]) -> Result<T> {
+        let decoded = self.decode_value(value)?;
+        Ok(rmp_serde::from_slice(&decoded)?)
+    }
+
+    fn serialize_json(&self, value: &impl Serialize) -> Result<Vec<u8>> {
+        let serialized = serde_json::to_vec(value)?;
+        self.encode_value(serialized)
     }
 
     fn deserialize_json<T: DeserializeOwned>(&self, data: &[u8]) -> Result<T> {
@@ -593,20 +611,6 @@ pub(crate) trait EncryptableStore {
 
             err.into_inner().into()
         })
-    }
-
-    fn deserialize_value<T: DeserializeOwned>(&self, value: &[u8]) -> Result<T> {
-        let decoded = self.decode_value(value)?;
-        Ok(rmp_serde::from_slice(&decoded)?)
-    }
-
-    fn encode_key(&self, table_name: &str, key: impl AsRef<[u8]>) -> Key {
-        let bytes = key.as_ref();
-        if let Some(store_cipher) = self.get_cypher() {
-            Key::Hashed(store_cipher.hash_key(table_name, bytes))
-        } else {
-            Key::Plain(bytes.to_owned())
-        }
     }
 }
 
