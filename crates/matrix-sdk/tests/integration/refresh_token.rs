@@ -11,7 +11,9 @@ use matrix_sdk::{
     executor::spawn,
     store::RoomLoadSettings,
     test_utils::{
-        client::mock_session_meta, logged_in_client_with_server, mocks::MatrixMockServer,
+        client::mock_session_meta,
+        logged_in_client_with_server,
+        mocks::{LoginResponseTemplate200, MatrixMockServer},
         no_retry_test_client_with_server, test_client_builder_with_server,
     },
     HttpError, RefreshTokenError, SessionChange, SessionTokens,
@@ -22,7 +24,7 @@ use ruma::{
         client::{account::register, error::ErrorKind},
         MatrixVersion,
     },
-    assign,
+    assign, owned_device_id, owned_user_id,
 };
 use serde_json::json;
 use tokio::sync::{broadcast::error::TryRecvError, mpsc};
@@ -47,7 +49,15 @@ async fn test_login_username_refresh_token() {
     server
         .mock_login()
         .body_matches_partial_json(json!({"refresh_token": true}))
-        .ok_with(ResponseTemplate::new(200).set_body_json(&*test_json::LOGIN_WITH_REFRESH_TOKEN))
+        .ok_with(
+            LoginResponseTemplate200::new(
+                "abc123",
+                owned_device_id!("GHTYAJCE"),
+                owned_user_id!("@cheeky_monkey:matrix.org"),
+            )
+            .expires_in(Duration::from_millis(432000000))
+            .refresh_token("zyx987"),
+        )
         .mount()
         .await;
 
@@ -60,7 +70,7 @@ async fn test_login_username_refresh_token() {
         .send()
         .await
         .unwrap();
-    
+
     assert!(client.is_active(), "Client should be active");
     res.refresh_token.unwrap();
 }
