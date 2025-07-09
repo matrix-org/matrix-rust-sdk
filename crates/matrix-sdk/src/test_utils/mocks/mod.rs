@@ -3231,9 +3231,85 @@ impl<'a> MockEndpoint<'a, LoginEndpoint> {
         self.respond_with(ResponseTemplate::new(200).set_body_json(&*test_json::LOGIN))
     }
 
-    /// Returns a successful response with a given message.
-    pub fn ok_with(self, response: ResponseTemplate) -> MatrixMock<'a> {
-        self.respond_with(response)
+    /// Returns a given response on POST /login requests
+    ///
+    /// This function
+    /// to-device messages sent via the `/sendToDevice` endpoint.
+    ///
+    /// # Arguments
+    ///
+    /// * `response` - The response that the mock server sends on POST /login
+    ///   requests.
+    ///
+    /// # Returns
+    ///
+    /// Returns a [`MatrixMock`] which can be mounted.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use matrix_sdk::test_utils::mocks::{
+    ///     LoginResponseTemplate200, MatrixMockServer,
+    /// };
+    /// use matrix_sdk_test::async_test;
+    /// use ruma::{device_id, time::Duration, user_id};
+    ///
+    /// #[async_test]
+    /// async fn test_ok_with() {
+    ///     let server = MatrixMockServer::new().await;
+    ///     server
+    ///         .mock_login()
+    ///         .ok_with(LoginResponseTemplate200::new(
+    ///             "qwerty",
+    ///             device_id!("DEADBEEF"),
+    ///             user_id!("@cheeky_monkey:matrix.org"),
+    ///         ))
+    ///         .mount()
+    ///         .await;
+    ///
+    ///     let client = server.client_builder().unlogged().build().await;
+    ///
+    ///     let result = client
+    ///         .matrix_auth()
+    ///         .login_username("example", "wordpass")
+    ///         .send()
+    ///         .await
+    ///         .unwrap();
+    ///
+    ///     assert!(
+    ///         result.access_tokesn.unwrap() == "qwerty",
+    ///         "wrong access token in response"
+    ///     );
+    ///     assert!(
+    ///         result.device_id.unwrap() == "DEADBEEF",
+    ///         "wrong device id in response"
+    ///     );
+    ///     assert!(
+    ///         result.user_id.unwrap() == "@cheeky_monkey:matrix.org",
+    ///         "wrong user id in response"
+    ///     );
+    /// }
+    /// ```
+    pub fn ok_with(self, response: LoginResponseTemplate200) -> MatrixMock<'a> {
+        self.respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "access_token": response.access_token,
+            "device_id": response.device_id,
+            "user_id": response.user_id,
+            "expires_in": response.expires_in.map(|duration| { duration.as_millis() }),
+            "refresh_token": response.refresh_token,
+            "well_known": response.well_known.map(|vals| {
+                json!({
+                    "m.homeserver": {
+                        "base_url": vals.homeserver_url
+                    },
+                    "m.identity_server": vals.identity_url.map(|url| {
+                        json!({
+                            "base_url": url
+                        })
+                    })
+                })
+            }),
+        })))
     }
 
     /// Ensures that the body of the request is a superset of the provided
@@ -3243,6 +3319,80 @@ impl<'a> MockEndpoint<'a, LoginEndpoint> {
     }
 }
 
+#[derive(Default)]
+struct LoginResponseWellKnown {
+    /// Required if well_known is used: The base URL for the homeserver for
+    /// client-server connections.
+    homeserver_url: String,
+
+    /// Required if well_known and m.identity_server are used: The base URL for
+    /// the identity server for client-server connections.
+    identity_url: Option<String>,
+}
+
+/// A response to a [`LoginEndpoint`] query with status code 200.
+#[derive(Default)]
+pub struct LoginResponseTemplate200 {
+    /// Required: An access token for the account. This access token can then be
+    /// used to authorize other requests.
+    access_token: Option<String>,
+
+    /// Required: ID of the logged-in device. Will be the same as the
+    /// corresponding parameter in the request, if one was specified.
+    device_id: Option<OwnedDeviceId>,
+
+    /// The lifetime of the access token, in milliseconds. Once the access token
+    /// has expired a new access token can be obtained by using the provided
+    /// refresh token. If no refresh token is provided, the client will need
+    /// to re-log in to obtain a new access token. If not given, the client
+    /// can assume that the access token will not expire.
+    expires_in: Option<Duration>,
+
+    /// A refresh token for the account. This token can be used to obtain a new
+    /// access token when it expires by calling the /refresh endpoint.
+    refresh_token: Option<String>,
+
+    /// Required: The fully-qualified Matrix ID for the account.
+    user_id: Option<OwnedUserId>,
+
+    /// Optional client configuration provided by the server.
+    well_known: Option<LoginResponseWellKnown>,
+}
+
+impl LoginResponseTemplate200 {
+    /// Constructor for empty response
+    pub fn new<T1: Into<OwnedDeviceId>, T2: Into<OwnedUserId>>(
+        access_token: &str,
+        device_id: T1,
+        user_id: T2,
+    ) -> Self {
+        Self {
+            access_token: Some(access_token.to_owned()),
+            device_id: Some(device_id.into()),
+            user_id: Some(user_id.into()),
+            ..Default::default()
+        }
+    }
+
+    /// sets expires_in
+    pub fn expires_in(mut self, value: Duration) -> Self {
+        self.expires_in = Some(value);
+        self
+    }
+
+    /// sets refresh_token
+    pub fn refresh_token(mut self, value: &str) -> Self {
+        self.refresh_token = Some(value.to_owned());
+        self
+    }
+
+    /// sets well_known which takes a homeserver_url and an optional
+    /// identity_url
+    pub fn well_known(mut self, homeserver_url: String, identity_url: Option<String>) -> Self {
+        self.well_known = Some(LoginResponseWellKnown { homeserver_url, identity_url });
+        self
+    }
+}
 
 /// A prebuilt mock for `GET /devices` requests.
 pub struct DevicesEndpoint;
