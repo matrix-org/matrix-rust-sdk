@@ -14,164 +14,181 @@ use tracing_subscriber::{
         time::FormatTime,
         FormatEvent, FormatFields, FormattedFields,
     },
-    layer::SubscriberExt as _,
+    layer::{Layered, SubscriberExt as _},
     registry::LookupSpan,
+    reload::{self, Handle},
     util::SubscriberInitExt as _,
-    Layer,
+    EnvFilter, Layer, Registry,
 };
 
 use crate::{error::ClientError, tracing::LogLevel};
 
-fn text_layers<S>(config: TracingConfiguration) -> impl Layer<S>
+// Adjusted version of tracing_subscriber::fmt::Format
+struct EventFormatter {
+    display_timestamp: bool,
+    display_level: bool,
+}
+
+impl EventFormatter {
+    fn new() -> Self {
+        Self { display_timestamp: true, display_level: true }
+    }
+
+    #[cfg(target_os = "android")]
+    fn for_logcat() -> Self {
+        // Level and time are already captured by logcat separately
+        Self { display_timestamp: false, display_level: false }
+    }
+
+    fn format_timestamp(&self, writer: &mut fmt::format::Writer<'_>) -> std::fmt::Result {
+        if fmt::time::SystemTime.format_time(writer).is_err() {
+            writer.write_str("<unknown time>")?;
+        }
+        Ok(())
+    }
+
+    fn write_filename(
+        &self,
+        writer: &mut fmt::format::Writer<'_>,
+        filename: &str,
+    ) -> std::fmt::Result {
+        const CRATES_IO_PATH_MATCHER: &str = ".cargo/registry/src/index.crates.io";
+        let crates_io_filename = filename
+            .split_once(CRATES_IO_PATH_MATCHER)
+            .and_then(|(_, rest)| rest.split_once('/').map(|(_, rest)| rest));
+
+        if let Some(filename) = crates_io_filename {
+            writer.write_str("<crates.io>/")?;
+            writer.write_str(filename)
+        } else {
+            writer.write_str(filename)
+        }
+    }
+}
+
+impl<S, N> FormatEvent<S, N> for EventFormatter
 where
     S: Subscriber + for<'a> LookupSpan<'a>,
+    N: for<'a> FormatFields<'a> + 'static,
 {
-    // Adjusted version of tracing_subscriber::fmt::Format
-    struct EventFormatter {
-        display_timestamp: bool,
-        display_level: bool,
-    }
+    fn format_event(
+        &self,
+        ctx: &fmt::FmtContext<'_, S, N>,
+        mut writer: fmt::format::Writer<'_>,
+        event: &tracing_core::Event<'_>,
+    ) -> std::fmt::Result {
+        let meta = event.metadata();
 
-    impl EventFormatter {
-        fn new() -> Self {
-            Self { display_timestamp: true, display_level: true }
+        if self.display_timestamp {
+            self.format_timestamp(&mut writer)?;
+            writer.write_char(' ')?;
         }
 
-        #[cfg(target_os = "android")]
-        fn for_logcat() -> Self {
-            // Level and time are already captured by logcat separately
-            Self { display_timestamp: false, display_level: false }
+        if self.display_level {
+            // For info and warn, add a padding space to the left
+            write!(writer, "{:>5} ", meta.level())?;
         }
 
-        fn format_timestamp(&self, writer: &mut fmt::format::Writer<'_>) -> std::fmt::Result {
-            if fmt::time::SystemTime.format_time(writer).is_err() {
-                writer.write_str("<unknown time>")?;
-            }
-            Ok(())
-        }
+        write!(writer, "{}: ", meta.target())?;
 
-        fn write_filename(
-            &self,
-            writer: &mut fmt::format::Writer<'_>,
-            filename: &str,
-        ) -> std::fmt::Result {
-            const CRATES_IO_PATH_MATCHER: &str = ".cargo/registry/src/index.crates.io";
-            let crates_io_filename = filename
-                .split_once(CRATES_IO_PATH_MATCHER)
-                .and_then(|(_, rest)| rest.split_once('/').map(|(_, rest)| rest));
+        ctx.format_fields(writer.by_ref(), event)?;
 
-            if let Some(filename) = crates_io_filename {
-                writer.write_str("<crates.io>/")?;
-                writer.write_str(filename)
-            } else {
-                writer.write_str(filename)
+        if let Some(filename) = meta.file() {
+            writer.write_str(" | ")?;
+            self.write_filename(&mut writer, filename)?;
+            if let Some(line_number) = meta.line() {
+                write!(writer, ":{line_number}")?;
             }
         }
-    }
 
-    impl<S, N> FormatEvent<S, N> for EventFormatter
-    where
-        S: Subscriber + for<'a> LookupSpan<'a>,
-        N: for<'a> FormatFields<'a> + 'static,
-    {
-        fn format_event(
-            &self,
-            ctx: &fmt::FmtContext<'_, S, N>,
-            mut writer: fmt::format::Writer<'_>,
-            event: &tracing_core::Event<'_>,
-        ) -> std::fmt::Result {
-            let meta = event.metadata();
+        if let Some(scope) = ctx.event_scope() {
+            writer.write_str(" | spans: ")?;
 
-            if self.display_timestamp {
-                self.format_timestamp(&mut writer)?;
-                writer.write_char(' ')?;
-            }
+            let mut first = true;
 
-            if self.display_level {
-                // For info and warn, add a padding space to the left
-                write!(writer, "{:>5} ", meta.level())?;
-            }
-
-            write!(writer, "{}: ", meta.target())?;
-
-            ctx.format_fields(writer.by_ref(), event)?;
-
-            if let Some(filename) = meta.file() {
-                writer.write_str(" | ")?;
-                self.write_filename(&mut writer, filename)?;
-                if let Some(line_number) = meta.line() {
-                    write!(writer, ":{line_number}")?;
+            for span in scope.from_root() {
+                if !first {
+                    writer.write_str(" > ")?;
                 }
-            }
 
-            if let Some(scope) = ctx.event_scope() {
-                writer.write_str(" | spans: ")?;
+                first = false;
 
-                let mut first = true;
+                write!(writer, "{}", span.name())?;
 
-                for span in scope.from_root() {
-                    if !first {
-                        writer.write_str(" > ")?;
-                    }
-
-                    first = false;
-
-                    write!(writer, "{}", span.name())?;
-
-                    if let Some(fields) = &span.extensions().get::<FormattedFields<N>>() {
-                        if !fields.is_empty() {
-                            write!(writer, "{{{fields}}}")?;
-                        }
+                if let Some(fields) = &span.extensions().get::<FormattedFields<N>>() {
+                    if !fields.is_empty() {
+                        write!(writer, "{{{fields}}}")?;
                     }
                 }
             }
-
-            writeln!(writer)
         }
+
+        writeln!(writer)
     }
+}
 
-    let file_layer = config.write_to_files.map(|c| {
-        let mut builder = RollingFileAppender::builder()
-            .rotation(Rotation::HOURLY)
-            .filename_prefix(&c.file_prefix);
+// Another fields formatter is necessary because of this bug
+// https://github.com/tokio-rs/tracing/issues/1372. Using a new
+// formatter for the fields forces to record them in different span
+// extensions, and thus remove the duplicated fields in the span.
+#[derive(Default)]
+struct FieldsFormatterForFiles(DefaultFields);
 
-        if let Some(max_files) = c.max_files {
-            builder = builder.max_log_files(max_files as usize)
-        }
-        if let Some(file_suffix) = c.file_suffix {
-            builder = builder.filename_suffix(file_suffix)
-        }
+impl<'writer> FormatFields<'writer> for FieldsFormatterForFiles {
+    fn format_fields<R: RecordFields>(
+        &self,
+        writer: Writer<'writer>,
+        fields: R,
+    ) -> std::fmt::Result {
+        self.0.format_fields(writer, fields)
+    }
+}
 
-        let writer = builder.build(&c.path).expect("Failed to create a rolling file appender.");
+type ReloadHandle = Handle<
+    tracing_subscriber::fmt::Layer<
+        Layered<EnvFilter, Registry>,
+        FieldsFormatterForFiles,
+        EventFormatter,
+        RollingFileAppender,
+    >,
+    Layered<EnvFilter, Registry>,
+>;
 
-        // Another fields formatter is necessary because of this bug
-        // https://github.com/tokio-rs/tracing/issues/1372. Using a new
-        // formatter for the fields forces to record them in different span
-        // extensions, and thus remove the duplicated fields in the span.
-        #[derive(Default)]
-        struct FieldsFormatterForFiles(DefaultFields);
+fn text_layers(
+    config: TracingConfiguration,
+) -> (impl Layer<Layered<EnvFilter, Registry>>, Option<ReloadHandle>) {
+    let (file_layer, reload_handle) = config
+        .write_to_files
+        .map(|c| {
+            let mut builder = RollingFileAppender::builder()
+                .rotation(Rotation::HOURLY)
+                .filename_prefix(&c.file_prefix);
 
-        impl<'writer> FormatFields<'writer> for FieldsFormatterForFiles {
-            fn format_fields<R: RecordFields>(
-                &self,
-                writer: Writer<'writer>,
-                fields: R,
-            ) -> std::fmt::Result {
-                self.0.format_fields(writer, fields)
+            if let Some(max_files) = c.max_files {
+                builder = builder.max_log_files(max_files as usize)
+            };
+            if let Some(file_suffix) = c.file_suffix {
+                builder = builder.filename_suffix(file_suffix)
             }
-        }
 
-        fmt::layer()
-            .fmt_fields(FieldsFormatterForFiles::default())
-            .event_format(EventFormatter::new())
-            // EventFormatter doesn't support ANSI colors anyways, but the
-            // default field formatter does, which is unhelpful for iOS +
-            // Android logs, but enabled by default.
-            .with_ansi(false)
-            .with_writer(writer)
-    });
+            let writer = builder.build(&c.path).expect("Failed to create a rolling file appender.");
 
-    Layer::and_then(
+            let layer = fmt::layer()
+                .fmt_fields(FieldsFormatterForFiles::default())
+                .event_format(EventFormatter::new())
+                // EventFormatter doesn't support ANSI colors anyways, but the
+                // default field formatter does, which is unhelpful for iOS +
+                // Android logs, but enabled by default.
+                .with_ansi(false)
+                .with_writer(writer);
+
+            let (layer, reload_handle) = reload::Layer::new(layer);
+
+            (layer, reload_handle)
+        })
+        .unzip();
+
+    let layers = Layer::and_then(
         file_layer,
         config.write_to_stdout_or_system.then(|| {
             // Another fields formatter is necessary because of this bug
@@ -209,7 +226,9 @@ where
                     "org.matrix.rust.sdk".to_owned(),
                 ));
         }),
-    )
+    );
+
+    (layers, reload_handle)
 }
 
 /// Configuration to save logs to (rotated) log-files.
@@ -359,6 +378,7 @@ struct SentryLoggingCtx {
 }
 
 struct LoggingCtx {
+    reload_handle: Option<ReloadHandle>,
     #[cfg(feature = "sentry")]
     sentry: Option<SentryLoggingCtx>,
 }
@@ -463,20 +483,23 @@ impl TracingConfiguration {
                 } else {
                     (None, None)
                 };
+            let (text_layers, reload_handle) = crate::platform::text_layers(self);
+
             tracing_subscriber::registry()
                 .with(tracing_subscriber::EnvFilter::new(&env_filter))
-                .with(crate::platform::text_layers(self))
+                .with(text_layers)
                 .with(sentry_layer)
                 .init();
-            logging_ctx = LoggingCtx { sentry: sentry_logging_ctx };
+            logging_ctx = LoggingCtx { reload_handle, sentry: sentry_logging_ctx };
         }
         #[cfg(not(feature = "sentry"))]
         {
+            let (text_layers, reload_handle) = crate::platform::text_layers(self);
             tracing_subscriber::registry()
                 .with(tracing_subscriber::EnvFilter::new(&env_filter))
-                .with(crate::platform::text_layers(self))
+                .with(text_layers)
                 .init();
-            logging_ctx = LoggingCtx {};
+            logging_ctx = LoggingCtx { reload_handle };
         }
 
         // Log the log levels 🧠.
