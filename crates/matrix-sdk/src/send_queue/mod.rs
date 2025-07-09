@@ -845,7 +845,7 @@ impl RoomSendQueue {
         }
     }
 
-    /// Try to creates an observable to watch a media's upload progress.
+    /// Try to create an observable to watch a media's upload progress.
     fn try_create_media_upload_progress_observable(
         report_media_upload_progress: &Arc<AtomicBool>,
         media_upload_info: &MediaUploadInfo,
