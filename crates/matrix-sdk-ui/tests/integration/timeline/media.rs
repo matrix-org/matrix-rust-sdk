@@ -197,11 +197,8 @@ async fn test_send_attachment_from_file() {
 #[async_test]
 async fn test_send_attachment_from_bytes() {
     let mock = MatrixMockServer::new().await;
-    let client = mock
-        .client_builder()
-        .with_enable_send_queue_media_upload_progress_reporting(true)
-        .build()
-        .await;
+    let client = mock.client_builder().build().await;
+    client.send_queue().enable_upload_progress(true);
 
     mock.mock_authenticated_media_config().ok_default().mount().await;
     mock.mock_room_state_encryption().plain().mount().await;
