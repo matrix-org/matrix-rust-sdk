@@ -763,6 +763,11 @@ pub struct SyncServiceBuilder {
     /// The offline mode is described in the [`State::Offline`] enum variant.
     with_offline_mode: bool,
 
+    /// Whether to turn [`SlidingSyncBuilder::share_pos`] on or off.
+    ///
+    /// [`SlidingSyncBuilder::share_pos`]: matrix_sdk::sliding_sync::SlidingSyncBuilder::share_pos
+    with_share_pos: bool,
+
     /// The parent tracing span to use for the tasks within this service.
     ///
     /// Normally this will be [`Span::none`], but it may be useful to assign a
@@ -777,6 +782,7 @@ impl SyncServiceBuilder {
             client,
             with_cross_process_lock: false,
             with_offline_mode: false,
+            with_share_pos: true,
             parent_span: Span::none(),
         }
     }
@@ -805,6 +811,14 @@ impl SyncServiceBuilder {
         self
     }
 
+    /// Whether to turn [`SlidingSyncBuilder::share_pos`] on or off.
+    ///
+    /// [`SlidingSyncBuilder::share_pos`]: matrix_sdk::sliding_sync::SlidingSyncBuilder::share_pos
+    pub fn with_share_pos(mut self, enable: bool) -> Self {
+        self.with_share_pos = enable;
+        self
+    }
+
     /// Set the parent tracing span to be used for the tasks within this
     /// service.
     pub fn with_parent_span(mut self, parent_span: Span) -> Self {
@@ -818,11 +832,17 @@ impl SyncServiceBuilder {
     /// the background. The resulting [`SyncService`] must be kept alive as long
     /// as the sliding syncs are supposed to run.
     pub async fn build(self) -> Result<SyncService, Error> {
-        let Self { client, with_cross_process_lock, with_offline_mode, parent_span } = self;
+        let Self {
+            client,
+            with_cross_process_lock,
+            with_offline_mode,
+            with_share_pos,
+            parent_span,
+        } = self;
 
         let encryption_sync_permit = Arc::new(AsyncMutex::new(EncryptionSyncPermit::new()));
 
-        let room_list = RoomListService::new(client.clone()).await?;
+        let room_list = RoomListService::new_with_share_pos(client.clone(), with_share_pos).await?;
 
         let encryption_sync = Arc::new(
             EncryptionSyncService::new(client, None, WithLocking::from(with_cross_process_lock))
