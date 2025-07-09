@@ -435,6 +435,73 @@ pub async fn test_linked_chunk_update_is_a_transaction(store: IndexeddbEventCach
     assert!(chunks.is_empty());
 }
 
+pub async fn test_load_last_chunk(store: IndexeddbEventCacheStore) {
+    let room_id = &DEFAULT_TEST_ROOM_ID;
+    let linked_chunk_id = LinkedChunkId::Room(room_id);
+    let event = |msg: &str| make_test_event(room_id, msg);
+
+    // Case #1: no last chunk.
+    let (last_chunk, chunk_identifier_generator) =
+        store.load_last_chunk(linked_chunk_id).await.unwrap();
+    assert!(last_chunk.is_none());
+    assert_eq!(chunk_identifier_generator.current(), 0);
+
+    // Case #2: only one chunk is present.
+    let updates = vec![
+        Update::NewItemsChunk { previous: None, new: ChunkIdentifier::new(42), next: None },
+        Update::PushItems {
+            at: Position::new(ChunkIdentifier::new(42), 0),
+            items: vec![event("saucisse de morteau"), event("comté")],
+        },
+    ];
+    store.handle_linked_chunk_updates(linked_chunk_id, updates).await.unwrap();
+
+    let (last_chunk, chunk_identifier_generator) =
+        store.load_last_chunk(linked_chunk_id).await.unwrap();
+    assert_matches!(last_chunk, Some(last_chunk) => {
+        assert_eq!(last_chunk.identifier, 42);
+        assert!(last_chunk.previous.is_none());
+        assert!(last_chunk.next.is_none());
+        assert_matches!(last_chunk.content, ChunkContent::Items(items) => {
+            assert_eq!(items.len(), 2);
+            check_test_event(&items[0], "saucisse de morteau");
+            check_test_event(&items[1], "comté");
+        });
+    });
+    assert_eq!(chunk_identifier_generator.current(), 42);
+
+    // Case #3: more chunks are present.
+    let updates = vec![
+        Update::NewItemsChunk {
+            previous: Some(ChunkIdentifier::new(42)),
+            new: ChunkIdentifier::new(7),
+            next: None,
+        },
+        Update::PushItems {
+            at: Position::new(ChunkIdentifier::new(7), 0),
+            items: vec![event("fondue"), event("gruyère"), event("mont d'or")],
+        },
+    ];
+    store.handle_linked_chunk_updates(linked_chunk_id, updates).await.unwrap();
+
+    let (last_chunk, chunk_identifier_generator) =
+        store.load_last_chunk(linked_chunk_id).await.unwrap();
+    assert_matches!(last_chunk, Some(last_chunk) => {
+        assert_eq!(last_chunk.identifier, 7);
+        assert_matches!(last_chunk.previous, Some(previous) => {
+            assert_eq!(previous, 42);
+        });
+        assert!(last_chunk.next.is_none());
+        assert_matches!(last_chunk.content, ChunkContent::Items(items) => {
+            assert_eq!(items.len(), 3);
+            check_test_event(&items[0], "fondue");
+            check_test_event(&items[1], "gruyère");
+            check_test_event(&items[2], "mont d'or");
+        });
+    });
+    assert_eq!(chunk_identifier_generator.current(), 42);
+}
+
 /// Macro for generating tests for IndexedDB implementation of
 /// [`EventCacheStore`]
 ///
@@ -545,6 +612,13 @@ macro_rules! indexeddb_event_cache_store_integration_tests {
             async fn test_linked_chunk_update_is_a_transaction() {
                 let store = get_event_cache_store().await.expect("Failed to get event cache store");
                 $crate::event_cache_store::integration_tests::test_linked_chunk_update_is_a_transaction(store)
+                    .await
+            }
+
+            #[async_test]
+            async fn test_load_last_chunk() {
+                let store = get_event_cache_store().await.expect("Failed to get event cache store");
+                $crate::event_cache_store::integration_tests::test_load_last_chunk(store)
                     .await
             }
         }
