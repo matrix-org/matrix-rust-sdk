@@ -276,7 +276,8 @@ pub enum EventSendProgress {
     /// A media is being uploaded.
     MediaUpload {
         /// The index of the media within the transaction. A file and its
-        /// thumbnail share the same index.
+        /// thumbnail share the same index. Will always be 0 for non-gallery
+        /// media uploads.
         index: u64,
 
         /// The current combined upload progress for both the file and,
