@@ -29,7 +29,7 @@ use mime::Mime;
 use ruma::{
     api::{
         client::{authenticated_media, error::ErrorKind, media},
-        MatrixVersion,
+        FeatureFlag, MatrixVersion,
     },
     assign,
     events::room::{MediaSource, ThumbnailInfo},
@@ -436,18 +436,10 @@ impl Media {
 
         // Use the authenticated endpoints when the server supports Matrix 1.11 or the
         // authenticated media stable feature.
-        const AUTHENTICATED_MEDIA_STABLE_FEATURE: &str = "org.matrix.msc3916.stable";
-
         let (use_auth, request_config) =
             if self.client.server_versions().await?.contains(&MatrixVersion::V1_11) {
                 (true, None)
-            } else if self
-                .client
-                .unstable_features()
-                .await?
-                .get(AUTHENTICATED_MEDIA_STABLE_FEATURE)
-                .is_some_and(|is_supported| *is_supported)
-            {
+            } else if self.client.unstable_features().await?.contains(&FeatureFlag::Msc3916Stable) {
                 // We need to force the use of the stable endpoint with the Matrix version
                 // because Ruma does not handle stable features.
                 let request_config = self.client.request_config();

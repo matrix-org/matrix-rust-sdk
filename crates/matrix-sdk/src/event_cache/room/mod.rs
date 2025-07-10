@@ -319,11 +319,11 @@ impl RoomEventCache {
     ///
     /// **Warning**! It looks into the loaded events from the in-memory linked
     /// chunk **only**. It doesn't look inside the storage.
-    pub async fn rfind_event_in_memory_by<P>(&self, predicate: P) -> Option<Event>
+    pub async fn rfind_map_event_in_memory_by<O, P>(&self, predicate: P) -> Option<O>
     where
-        P: FnMut(&Event) -> bool,
+        P: FnMut(&Event) -> Option<O>,
     {
-        self.inner.state.read().await.rfind_event_in_memory_by(predicate)
+        self.inner.state.read().await.rfind_map_event_in_memory_by(predicate)
     }
 
     /// Try to find an event by ID in this room.
@@ -382,6 +382,12 @@ impl RoomEventCache {
             diffs: updates_as_vector_diffs,
             origin: EventsOrigin::Cache,
         });
+
+        // Notify observers about the generic update.
+        let _ = self
+            .inner
+            .generic_update_sender
+            .send(RoomEventCacheGenericUpdate::Clear { room_id: self.inner.room_id.clone() });
 
         Ok(())
     }
@@ -570,7 +576,7 @@ impl RoomEventCacheInner {
         }
 
         if update_has_been_sent {
-            let _ = self.generic_update_sender.send(RoomEventCacheGenericUpdate::TimelineUpdated {
+            let _ = self.generic_update_sender.send(RoomEventCacheGenericUpdate::UpdateTimeline {
                 room_id: self.room_id.clone(),
             });
         }
@@ -603,7 +609,7 @@ pub(super) enum LoadMoreEventsBackwardsOutcome {
 // Use a private module to hide `events` to this parent module.
 mod private {
     use std::{
-        collections::{HashMap, HashSet},
+        collections::{BTreeMap, HashMap, HashSet},
         sync::{atomic::AtomicUsize, Arc},
     };
 
@@ -1260,6 +1266,15 @@ mod private {
         async fn reset_internal(&mut self) -> Result<(), EventCacheError> {
             self.room_linked_chunk.reset();
 
+            // No need to update the thread summaries: the room events are
+            // gone because of the
+            // reset of `room_linked_chunk`.
+            //
+            // Clear the threads.
+            for thread in self.threads.values_mut() {
+                thread.clear();
+            }
+
             self.propagate_changes().await?;
 
             // Reset the pagination state too: pretend we never waited for the initial
@@ -1282,13 +1297,11 @@ mod private {
         /// **Warning**! It looks into the loaded events from the in-memory
         /// linked chunk **only**. It doesn't look inside the storage,
         /// contrary to [`Self::find_event`].
-        pub fn rfind_event_in_memory_by<P>(&self, mut predicate: P) -> Option<Event>
+        pub fn rfind_map_event_in_memory_by<O, P>(&self, mut predicate: P) -> Option<O>
         where
-            P: FnMut(&Event) -> bool,
+            P: FnMut(&Event) -> Option<O>,
         {
-            self.room_linked_chunk
-                .revents()
-                .find_map(|(_position, event)| predicate(event).then(|| event.clone()))
+            self.room_linked_chunk.revents().find_map(|(_position, event)| predicate(event))
         }
 
         /// Find a single event in this room.
@@ -1419,7 +1432,7 @@ mod private {
             // Update the store before doing the post-processing.
             self.propagate_changes().await?;
 
-            let mut new_events_by_thread: HashMap<_, Vec<_>> = HashMap::new();
+            let mut new_events_by_thread: BTreeMap<_, Vec<_>> = BTreeMap::new();
 
             for event in events {
                 self.maybe_apply_new_redaction(&event).await?;
@@ -1455,7 +1468,7 @@ mod private {
         #[instrument(skip_all)]
         async fn update_threads(
             &mut self,
-            new_events_by_thread: HashMap<OwnedEventId, Vec<Event>>,
+            new_events_by_thread: BTreeMap<OwnedEventId, Vec<Event>>,
             is_sync: bool,
         ) -> Result<(), EventCacheError> {
             for (thread_root, new_events) in new_events_by_thread {
@@ -1699,10 +1712,33 @@ mod private {
                 // Sad time: there's a gap, somewhere, in the timeline, and there's at least one
                 // non-duplicated event. We don't know which threads might have gappy, so we
                 // must invalidate them all :(
-                // TODO(bnjbvr): absorb moar caffeine and create a good solution to this
-                // problem.
-                for (_, thread) in self.threads.iter_mut() {
+                // TODO(bnjbvr): figure out a better catchup mechanism for threads.
+                let mut summaries_to_update = Vec::new();
+
+                for (thread_root, thread) in self.threads.iter_mut() {
+                    // Empty the thread's linked chunk.
                     thread.clear();
+
+                    summaries_to_update.push(thread_root.clone());
+                }
+
+                // Now, update the summaries to indicate that we're not sure what the latest
+                // thread event is. The thread count can remain as is, as it might still be
+                // valid, and there's no good value to reset it to, anyways.
+                for thread_root in summaries_to_update {
+                    let Some((location, mut target_event)) = self.find_event(&thread_root).await?
+                    else {
+                        trace!(%thread_root, "thread root event is unknown, when updating thread summary after a gappy sync");
+                        continue;
+                    };
+
+                    if let Some(mut prev_summary) = target_event.thread_summary.summary().cloned() {
+                        prev_summary.latest_reply = None;
+
+                        target_event.thread_summary = ThreadSummaryStatus::Some(prev_summary);
+
+                        self.replace_event_at(location, target_event).await?;
+                    }
                 }
             }
 
@@ -2217,7 +2253,7 @@ mod timed_tests {
         // Just checking the generic update is correct.
         assert_matches!(
             generic_stream.recv().await,
-            Ok(RoomEventCacheGenericUpdate::TimelineUpdated { room_id: expected_room_id }) => {
+            Ok(RoomEventCacheGenericUpdate::UpdateTimeline { room_id: expected_room_id }) => {
                 assert_eq!(expected_room_id, room_id);
             }
         );
@@ -2293,7 +2329,7 @@ mod timed_tests {
         // Just checking the generic update is correct.
         assert_matches!(
             generic_stream.recv().await,
-            Ok(RoomEventCacheGenericUpdate::TimelineUpdated { room_id: expected_room_id }) => {
+            Ok(RoomEventCacheGenericUpdate::UpdateTimeline { room_id: expected_room_id }) => {
                 assert_eq!(expected_room_id, room_id);
             }
         );
@@ -2414,6 +2450,7 @@ mod timed_tests {
         let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
 
         let (items, mut stream) = room_event_cache.subscribe().await;
+        let mut generic_stream = event_cache.subscribe_to_room_generic_updates();
 
         // The rooms knows about all cached events.
         {
@@ -2455,6 +2492,18 @@ mod timed_tests {
         );
         assert_eq!(diffs.len(), 1);
         assert_let!(VectorDiff::Clear = &diffs[0]);
+
+        // … same with a generic update.
+        assert_let_timeout!(
+            Ok(RoomEventCacheGenericUpdate::UpdateTimeline { room_id: received_room_id }) =
+                generic_stream.recv()
+        );
+        assert_eq!(received_room_id, room_id);
+        assert_let_timeout!(
+            Ok(RoomEventCacheGenericUpdate::Clear { room_id: received_room_id }) =
+                generic_stream.recv()
+        );
+        assert_eq!(received_room_id, room_id);
 
         // Events individually are not forgotten by the event cache, after clearing a
         // room.
@@ -2558,7 +2607,7 @@ mod timed_tests {
         // triggered.
         assert_matches!(
             generic_stream.recv().await,
-            Ok(RoomEventCacheGenericUpdate::TimelineUpdated { room_id: expected_room_id }) => {
+            Ok(RoomEventCacheGenericUpdate::UpdateTimeline { room_id: expected_room_id }) => {
                 assert_eq!(room_id, expected_room_id);
             }
         );
@@ -2591,7 +2640,7 @@ mod timed_tests {
         // A generic update is triggered too.
         assert_matches!(
             generic_stream.recv().await,
-            Ok(RoomEventCacheGenericUpdate::TimelineUpdated { room_id: expected_room_id }) => {
+            Ok(RoomEventCacheGenericUpdate::UpdateTimeline { room_id: expected_room_id }) => {
                 assert_eq!(expected_room_id, room_id);
             }
         );
@@ -2719,7 +2768,7 @@ mod timed_tests {
         // Just checking the generic update is correct.
         assert_matches!(
             generic_stream.recv().await,
-            Ok(RoomEventCacheGenericUpdate::TimelineUpdated { room_id: expected_room_id }) => {
+            Ok(RoomEventCacheGenericUpdate::UpdateTimeline { room_id: expected_room_id }) => {
                 assert_eq!(expected_room_id, room_id);
             }
         );
@@ -2780,7 +2829,7 @@ mod timed_tests {
         // Just checking the generic update is correct.
         assert_matches!(
             generic_stream.recv().await,
-            Ok(RoomEventCacheGenericUpdate::TimelineUpdated { room_id: expected_room_id }) => {
+            Ok(RoomEventCacheGenericUpdate::UpdateTimeline { room_id: expected_room_id }) => {
                 assert_eq!(expected_room_id, room_id);
             }
         );
@@ -2866,6 +2915,8 @@ mod timed_tests {
         assert_eq!(events[0].event_id().as_deref(), Some(evid2));
         assert!(stream.is_empty());
 
+        let mut generic_stream = event_cache.subscribe_to_room_generic_updates();
+
         // Force loading the full linked chunk by back-paginating.
         let outcome = room_event_cache.pagination().run_backwards_once(20).await.unwrap();
         assert_eq!(outcome.events.len(), 1);
@@ -2882,6 +2933,13 @@ mod timed_tests {
         });
 
         assert!(stream.is_empty());
+
+        // Same for the generic update.
+        assert_let_timeout!(
+            Ok(RoomEventCacheGenericUpdate::UpdateTimeline { room_id: received_room_id }) =
+                generic_stream.recv()
+        );
+        assert_eq!(received_room_id, room_id);
 
         // Shrink the linked chunk to the last chunk.
         let diffs = room_event_cache
@@ -2902,6 +2960,9 @@ mod timed_tests {
         });
 
         assert!(stream.is_empty());
+
+        // No generic update is sent in this case.
+        assert!(generic_stream.is_empty());
 
         // When reading the events, we do get only the last one.
         let events = room_event_cache.events().await;
@@ -3163,7 +3224,7 @@ mod timed_tests {
     }
 
     #[async_test]
-    async fn test_rfind_event_in_memory_by() {
+    async fn test_rfind_map_event_in_memory_by() {
         let user_id = user_id!("@mnt_io:matrix.org");
         let room_id = room_id!("!raclette:patate.ch");
         let client = MockClientBuilder::new(None).build().await;
@@ -3226,12 +3287,12 @@ mod timed_tests {
         // Look for an event from `BOB`: it must be `event_0`.
         assert_matches!(
             room_event_cache
-                .rfind_event_in_memory_by(|event| {
-                    event.raw().get_field::<OwnedUserId>("sender").unwrap().as_deref() == Some(*BOB)
+                .rfind_map_event_in_memory_by(|event| {
+                    (event.raw().get_field::<OwnedUserId>("sender").unwrap().as_deref() == Some(*BOB)).then(|| event.event_id())
                 })
                 .await,
-            Some(event) => {
-                assert_eq!(event.event_id().as_deref(), Some(event_id_0));
+            Some(event_id) => {
+                assert_eq!(event_id.as_deref(), Some(event_id_0));
             }
         );
 
@@ -3239,24 +3300,26 @@ mod timed_tests {
         // because events are looked for in reverse order.
         assert_matches!(
             room_event_cache
-                .rfind_event_in_memory_by(|event| {
-                    event.raw().get_field::<OwnedUserId>("sender").unwrap().as_deref() == Some(*ALICE)
+                .rfind_map_event_in_memory_by(|event| {
+                    (event.raw().get_field::<OwnedUserId>("sender").unwrap().as_deref() == Some(*ALICE)).then(|| event.event_id())
                 })
                 .await,
-            Some(event) => {
-                assert_eq!(event.event_id().as_deref(), Some(event_id_2));
+            Some(event_id) => {
+                assert_eq!(event_id.as_deref(), Some(event_id_2));
             }
         );
 
         // Look for an event that is inside the storage, but not loaded.
         assert!(room_event_cache
-            .rfind_event_in_memory_by(|event| {
-                event.raw().get_field::<OwnedUserId>("sender").unwrap().as_deref() == Some(user_id)
+            .rfind_map_event_in_memory_by(|event| {
+                (event.raw().get_field::<OwnedUserId>("sender").unwrap().as_deref()
+                    == Some(user_id))
+                .then(|| event.event_id())
             })
             .await
             .is_none());
 
         // Look for an event that doesn't exist.
-        assert!(room_event_cache.rfind_event_in_memory_by(|_| false).await.is_none());
+        assert!(room_event_cache.rfind_map_event_in_memory_by(|_| None::<()>).await.is_none());
     }
 }

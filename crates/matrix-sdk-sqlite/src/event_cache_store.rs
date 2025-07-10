@@ -14,7 +14,7 @@
 
 //! An SQLite-based backend for the [`EventCacheStore`].
 
-use std::{borrow::Cow, fmt, iter::once, path::Path, sync::Arc};
+use std::{fmt, iter::once, path::Path, sync::Arc};
 
 use async_trait::async_trait;
 use deadpool_sqlite::{Object as SqliteAsyncConn, Pool as SqlitePool, Runtime};
@@ -49,8 +49,8 @@ use tracing::{debug, error, trace};
 use crate::{
     error::{Error, Result},
     utils::{
-        repeat_vars, time_to_timestamp, Key, SqliteAsyncConnExt, SqliteKeyValueStoreAsyncConnExt,
-        SqliteKeyValueStoreConnExt, SqliteTransactionExt,
+        repeat_vars, time_to_timestamp, EncryptableStore, Key, SqliteAsyncConnExt,
+        SqliteKeyValueStoreAsyncConnExt, SqliteKeyValueStoreConnExt, SqliteTransactionExt,
     },
     OpenStoreError, SqliteStoreConfig,
 };
@@ -94,6 +94,12 @@ pub struct SqliteEventCacheStore {
 impl fmt::Debug for SqliteEventCacheStore {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("SqliteEventCacheStore").finish_non_exhaustive()
+    }
+}
+
+impl EncryptableStore for SqliteEventCacheStore {
+    fn get_cypher(&self) -> Option<&StoreCipher> {
+        self.store_cipher.as_deref()
     }
 }
 
@@ -146,34 +152,6 @@ impl SqliteEventCacheStore {
         media_service.restore(media_retention_policy, last_media_cleanup_time);
 
         Ok(Self { store_cipher, pool, media_service })
-    }
-
-    fn encode_value(&self, value: Vec<u8>) -> Result<Vec<u8>> {
-        if let Some(key) = &self.store_cipher {
-            let encrypted = key.encrypt_value_data(value)?;
-            Ok(rmp_serde::to_vec_named(&encrypted)?)
-        } else {
-            Ok(value)
-        }
-    }
-
-    fn decode_value<'a>(&self, value: &'a [u8]) -> Result<Cow<'a, [u8]>> {
-        if let Some(key) = &self.store_cipher {
-            let encrypted = rmp_serde::from_slice(value)?;
-            let decrypted = key.decrypt_value_data(encrypted)?;
-            Ok(Cow::Owned(decrypted))
-        } else {
-            Ok(Cow::Borrowed(value))
-        }
-    }
-
-    fn encode_key(&self, table_name: &str, key: impl AsRef<[u8]>) -> Key {
-        let bytes = key.as_ref();
-        if let Some(store_cipher) = &self.store_cipher {
-            Key::Hashed(store_cipher.hash_key(table_name, bytes))
-        } else {
-            Key::Plain(bytes.to_owned())
-        }
     }
 
     async fn acquire(&self) -> Result<SqliteAsyncConn> {
@@ -1173,57 +1151,19 @@ impl EventCacheStore for SqliteEventCacheStore {
 
         let event_id = event_id.to_owned();
         let filters = filters.map(ToOwned::to_owned);
-        let this = self.clone();
+        let store = self.clone();
 
         self.acquire()
             .await?
             .with_transaction(move |txn| -> Result<_> {
-                let filter_query = if let Some(filters) = compute_filters_string(filters.as_deref())
-                {
-                    format!(
-                        " AND rel_type IN ({})",
-                        filters
-                            .into_iter()
-                            .map(|f| format!(r#""{f}""#))
-                            .collect::<Vec<_>>()
-                            .join(", ")
-                    )
-                } else {
-                    "".to_owned()
-                };
-
-                let query = format!(
-                    "SELECT events.content, event_chunks.chunk_id, event_chunks.position
-                    FROM events
-                    LEFT JOIN event_chunks ON events.event_id = event_chunks.event_id AND event_chunks.linked_chunk_id = ?
-                    WHERE relates_to = ? AND room_id = ? {filter_query}"
-                );
-
-                // Collect related events.
-                let mut related = Vec::new();
-                for result in
-                    txn.prepare(&query)?.query_map((hashed_linked_chunk_id, event_id.as_str(), hashed_room_id), |row| {
-                        Ok((
-                            row.get::<_, Vec<u8>>(0)?,
-                            row.get::<_, Option<u64>>(1)?,
-                            row.get::<_, Option<usize>>(2)?,
-                        ))
-                    })?
-                {
-                    let (event_blob, chunk_id, index) = result?;
-
-                    let event: Event = serde_json::from_slice(&this.decode_value(&event_blob)?)?;
-
-                    // Only build the position if both the chunk_id and position were present; in
-                    // theory, they should either be present at the same time, or not at all.
-                    let pos = chunk_id.zip(index).map(|(chunk_id, index)| {
-                        Position::new(ChunkIdentifier::new(chunk_id), index)
-                    });
-
-                    related.push((event, pos));
-                }
-
-                Ok(related)
+                find_event_relations_transaction(
+                    store,
+                    hashed_room_id,
+                    hashed_linked_chunk_id,
+                    event_id,
+                    filters,
+                    txn,
+                )
             })
             .await
     }
@@ -1597,6 +1537,91 @@ impl EventCacheStoreMedia for SqliteEventCacheStore {
     }
 }
 
+fn find_event_relations_transaction(
+    store: SqliteEventCacheStore,
+    hashed_room_id: Key,
+    hashed_linked_chunk_id: Key,
+    event_id: OwnedEventId,
+    filters: Option<Vec<RelationType>>,
+    txn: &Transaction<'_>,
+) -> Result<Vec<(Event, Option<Position>)>> {
+    let get_rows = |row: &rusqlite::Row<'_>| {
+        Ok((
+            row.get::<_, Vec<u8>>(0)?,
+            row.get::<_, Option<u64>>(1)?,
+            row.get::<_, Option<usize>>(2)?,
+        ))
+    };
+
+    // Collect related events.
+    let collect_results = |transaction| {
+        let mut related = Vec::new();
+
+        for result in transaction {
+            let (event_blob, chunk_id, index): (Vec<u8>, Option<u64>, _) = result?;
+
+            let event: Event = serde_json::from_slice(&store.decode_value(&event_blob)?)?;
+
+            // Only build the position if both the chunk_id and position were present; in
+            // theory, they should either be present at the same time, or not at all.
+            let pos = chunk_id
+                .zip(index)
+                .map(|(chunk_id, index)| Position::new(ChunkIdentifier::new(chunk_id), index));
+
+            related.push((event, pos));
+        }
+
+        Ok(related)
+    };
+
+    let related = if let Some(filters) = compute_filters_string(filters.as_deref()) {
+        let question_marks = repeat_vars(filters.len());
+        let query = format!(
+            "SELECT events.content, event_chunks.chunk_id, event_chunks.position
+            FROM events
+            LEFT JOIN event_chunks ON events.event_id = event_chunks.event_id AND event_chunks.linked_chunk_id = ?
+            WHERE relates_to = ? AND room_id = ? AND rel_type IN ({question_marks})"
+        );
+
+        let filters: Vec<_> = filters.iter().map(|f| f.to_sql().unwrap()).collect();
+        let parameters = params_from_iter(
+            [
+                hashed_linked_chunk_id.to_sql().expect(
+                    "We should be able to convert a hashed linked chunk ID to a SQLite value",
+                ),
+                event_id
+                    .as_str()
+                    .to_sql()
+                    .expect("We should be able to convert an event ID to a SQLite value"),
+                hashed_room_id
+                    .to_sql()
+                    .expect("We should be able to convert a room ID to a SQLite value"),
+            ]
+            .into_iter()
+            .chain(filters),
+        );
+
+        let mut transaction = txn.prepare(&query)?;
+        let transaction = transaction.query_map(parameters, get_rows)?;
+
+        collect_results(transaction)
+    } else {
+        let query =
+            "SELECT events.content, event_chunks.chunk_id, event_chunks.position
+            FROM events
+            LEFT JOIN event_chunks ON events.event_id = event_chunks.event_id AND event_chunks.linked_chunk_id = ?
+            WHERE relates_to = ? AND room_id = ?";
+        let parameters = (hashed_linked_chunk_id, event_id.as_str(), hashed_room_id);
+
+        let mut transaction = txn.prepare(query)?;
+        let transaction = transaction.query_map(parameters, get_rows)?;
+
+        collect_results(transaction)
+    };
+
+    related
+}
+
 /// Like `deadpool::managed::Object::with_transaction`, but starts the
 /// transaction in immediate (write) mode from the beginning, precluding errors
 /// of the kind SQLITE_BUSY from happening, for transactions that may involve
@@ -1709,7 +1734,11 @@ mod tests {
     use tempfile::{tempdir, TempDir};
 
     use super::SqliteEventCacheStore;
-    use crate::{event_cache_store::keys, utils::SqliteAsyncConnExt, SqliteStoreConfig};
+    use crate::{
+        event_cache_store::keys,
+        utils::{EncryptableStore as _, SqliteAsyncConnExt},
+        SqliteStoreConfig,
+    };
 
     static TMP_DIR: Lazy<TempDir> = Lazy::new(|| tempdir().unwrap());
     static NUM: AtomicU32 = AtomicU32::new(0);
@@ -2664,10 +2693,17 @@ mod encrypted_tests {
     use std::sync::atomic::{AtomicU32, Ordering::SeqCst};
 
     use matrix_sdk_base::{
-        event_cache::store::EventCacheStoreError, event_cache_store_integration_tests,
-        event_cache_store_integration_tests_time, event_cache_store_media_integration_tests,
+        event_cache::store::{EventCacheStore, EventCacheStoreError},
+        event_cache_store_integration_tests, event_cache_store_integration_tests_time,
+        event_cache_store_media_integration_tests,
     };
+    use matrix_sdk_test::{async_test, event_factory::EventFactory};
     use once_cell::sync::Lazy;
+    use ruma::{
+        event_id,
+        events::{relation::RelationType, room::message::RoomMessageEventContentWithoutRelation},
+        room_id, user_id,
+    };
     use tempfile::{tempdir, TempDir};
 
     use super::SqliteEventCacheStore;
@@ -2692,4 +2728,67 @@ mod encrypted_tests {
     event_cache_store_integration_tests!();
     event_cache_store_integration_tests_time!();
     event_cache_store_media_integration_tests!();
+
+    #[async_test]
+    async fn test_no_sqlite_injection_in_find_event_relations() {
+        let room_id = room_id!("!test:localhost");
+        let another_room_id = room_id!("!r1:matrix.org");
+        let sender = user_id!("@alice:localhost");
+
+        let store = get_event_cache_store()
+            .await
+            .expect("We should be able to create a new, empty, event cache store");
+
+        let f = EventFactory::new().room(room_id).sender(sender);
+
+        // Create an event for the first room.
+        let event_id = event_id!("$DO_NOT_FIND_ME:matrix.org");
+        let event = f.text_msg("DO NOT FIND").event_id(event_id).into_event();
+
+        // Create a related event.
+        let edit_id = event_id!("$find_me:matrix.org");
+        let edit = f
+            .text_msg("Find me")
+            .event_id(edit_id)
+            .edit(event_id, RoomMessageEventContentWithoutRelation::text_plain("jebote"))
+            .into_event();
+
+        // Create an event for the second room.
+        let f = f.room(another_room_id);
+
+        let another_event_id = event_id!("$DO_NOT_FIND_ME_EITHER:matrix.org");
+        let another_event =
+            f.text_msg("DO NOT FIND ME EITHER").event_id(another_event_id).into_event();
+
+        // Save the events in the DB.
+        store.save_event(room_id, event).await.unwrap();
+        store.save_event(room_id, edit).await.unwrap();
+        store.save_event(another_room_id, another_event).await.unwrap();
+
+        // Craft a `RelationType` that will inject some SQL to be executed. The
+        // `OR 1=1` ensures that all the previous parameters, the room
+        // ID and event ID are ignored.
+        let filter = Some(vec![RelationType::Replacement, "x\") OR 1=1; --".into()]);
+
+        // Attempt to find events in the first room.
+        let results = store
+            .find_event_relations(room_id, event_id, filter.as_deref())
+            .await
+            .expect("We should be able to attempt to find event relations");
+
+        // Ensure that we only got the single related event the first room contains.
+        similar_asserts::assert_eq!(
+            results.len(),
+            1,
+            "We should only have loaded events for the first room {results:#?}"
+        );
+
+        // The event needs to be the edit event, otherwise something is wrong.
+        let (found_event, _) = &results[0];
+        assert_eq!(
+            found_event.event_id().as_deref(),
+            Some(edit_id),
+            "The single event we found should be the edit event"
+        );
+    }
 }

@@ -60,7 +60,7 @@ reqwest = { version = "0.12.12", default-features = false }
 rmp-serde = "1.3.0"
 # Be careful to use commits from the https://github.com/ruma/ruma/tree/ruma-0.12
 # branch until a proper release with breaking changes happens.
-ruma = { version = "0.12.4", features = [
+ruma = { version = "0.12.5", features = [
     "client-api-c",
     "compat-upload-signatures",
     "compat-user-id",
@@ -79,7 +79,7 @@ ruma = { version = "0.12.4", features = [
     "unstable-msc4278",
     "unstable-msc4286",
 ] }
-ruma-common = "0.15.3"
+ruma-common = "0.15.4"
 sentry = "0.36.0"
 sentry-tracing = "0.36.0"
 serde = { version = "1.0.217", features = ["rc"] }
@@ -107,17 +107,17 @@ web-sys = "0.3.69"
 wiremock = "0.6.2"
 zeroize = "1.8.1"
 
-matrix-sdk = { path = "crates/matrix-sdk", version = "0.12.0", default-features = false }
-matrix-sdk-base = { path = "crates/matrix-sdk-base", version = "0.12.0" }
-matrix-sdk-common = { path = "crates/matrix-sdk-common", version = "0.12.0" }
-matrix-sdk-crypto = { path = "crates/matrix-sdk-crypto", version = "0.12.0" }
+matrix-sdk = { path = "crates/matrix-sdk", version = "0.13.0", default-features = false }
+matrix-sdk-base = { path = "crates/matrix-sdk-base", version = "0.13.0" }
+matrix-sdk-common = { path = "crates/matrix-sdk-common", version = "0.13.0" }
+matrix-sdk-crypto = { path = "crates/matrix-sdk-crypto", version = "0.13.0" }
 matrix-sdk-ffi-macros = { path = "bindings/matrix-sdk-ffi-macros", version = "0.7.0" }
-matrix-sdk-indexeddb = { path = "crates/matrix-sdk-indexeddb", version = "0.12.0", default-features = false }
-matrix-sdk-qrcode = { path = "crates/matrix-sdk-qrcode", version = "0.12.0" }
-matrix-sdk-sqlite = { path = "crates/matrix-sdk-sqlite", version = "0.12.0", default-features = false }
-matrix-sdk-store-encryption = { path = "crates/matrix-sdk-store-encryption", version = "0.12.0" }
-matrix-sdk-test = { path = "testing/matrix-sdk-test", version = "0.12.0" }
-matrix-sdk-ui = { path = "crates/matrix-sdk-ui", version = "0.12.0", default-features = false }
+matrix-sdk-indexeddb = { path = "crates/matrix-sdk-indexeddb", version = "0.13.0", default-features = false }
+matrix-sdk-qrcode = { path = "crates/matrix-sdk-qrcode", version = "0.13.0" }
+matrix-sdk-sqlite = { path = "crates/matrix-sdk-sqlite", version = "0.13.0", default-features = false }
+matrix-sdk-store-encryption = { path = "crates/matrix-sdk-store-encryption", version = "0.13.0" }
+matrix-sdk-test = { path = "testing/matrix-sdk-test", version = "0.13.0" }
+matrix-sdk-ui = { path = "crates/matrix-sdk-ui", version = "0.13.0", default-features = false }
 
 [workspace.lints.rust]
 rust_2018_idioms = "warn"

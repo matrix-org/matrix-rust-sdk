@@ -176,8 +176,9 @@ impl NotificationClient {
     ///
     /// Returns an error if the flow failed when preparing to fetch the
     /// notifications, and a [`HashMap`] containing either a
-    /// [`NotificationItem`] or no entry for it if it failed to fetch a
-    /// notification for the provided [`EventId`].
+    /// [`BatchNotificationResult`], that indicates if the notification was
+    /// successfully fetched (in which case, it's a [`NotificationStatus`]), or
+    /// an error message if it couldn't be fetched.
     pub async fn get_notifications(
         &self,
         requests: Vec<NotificationItemsRequest>,

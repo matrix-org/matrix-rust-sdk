@@ -6,15 +6,23 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased] - ReleaseDate
 
+## [0.13.0] - 2025-07-10
+
 ### Features
 
 - Infer timeline read receipt threads for the `send_single_receipt` method from
-  the focus mode and associated `hide_threaded_events` flag. ([5325](https://github.com/matrix-org/matrix-rust-sdk/pull/5325))
+  the focus mode and associated `hide_threaded_events` flag.
+  ([5325](https://github.com/matrix-org/matrix-rust-sdk/pull/5325))
 - Add `NotificationItem::room_topic` to the `NotificationItem` struct, which
   contains the topic of the room. This is useful for displaying the room topic
-  in notifications. ([#5300](https://github.com/matrix-org/matrix-rust-sdk/pull/5300))
+  in notifications.
+  ([#5300](https://github.com/matrix-org/matrix-rust-sdk/pull/5300))
 - Add `EmbeddedEvent::timestamp` and `EmbeddedEvent::identifier` which are already
-  available in regular timeline items. ([#5331](https://github.com/matrix-org/matrix-rust-sdk/pull/5331))
+  available in regular timeline items.
+  ([#5331](https://github.com/matrix-org/matrix-rust-sdk/pull/5331))
+- `RoomListService::subscribe_to_rooms` becomes `async` and automatically calls
+  `matrix_sdk::latest_events::LatestEvents::listen_to_room`
+  ([#5369](https://github.com/matrix-org/matrix-rust-sdk/pull/5369))
 
 ## [0.12.0] - 2025-06-10
 

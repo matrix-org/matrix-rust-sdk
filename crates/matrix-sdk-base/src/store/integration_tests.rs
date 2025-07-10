@@ -9,7 +9,7 @@ use matrix_sdk_test::{event_factory::EventFactory, test_json};
 use ruma::{
     api::{
         client::discovery::discover_homeserver::{HomeserverInfo, RtcFocusInfo},
-        MatrixVersion,
+        FeatureFlag, MatrixVersion,
     },
     event_id,
     events::{
@@ -502,12 +502,11 @@ impl StateStoreIntegrationTests for DynStateStore {
         assert_eq!(stored_info, server_info);
 
         let decoded_server_info = stored_info.maybe_decode().unwrap();
-        let stored_versions = decoded_server_info.known_versions();
-        let stored_features = decoded_server_info.unstable_features;
+        let stored_supported = decoded_server_info.supported_versions();
 
-        assert_eq!(stored_versions, versions);
-        assert_eq!(stored_features.len(), 1);
-        assert_eq!(stored_features.get("org.matrix.experimental"), Some(&true));
+        assert_eq!(stored_supported.versions.as_ref(), versions);
+        assert_eq!(stored_supported.features.len(), 1);
+        assert!(stored_supported.features.contains(&FeatureFlag::from("org.matrix.experimental")));
 
         self.remove_kv_data(StateStoreDataKey::ServerInfo).await.unwrap();
         assert_matches!(self.get_kv_data(StateStoreDataKey::ServerInfo).await, Ok(None));

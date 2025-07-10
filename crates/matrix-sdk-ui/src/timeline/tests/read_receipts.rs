@@ -31,6 +31,7 @@ use stream_assert::{assert_next_matches, assert_pending};
 use super::{ReadReceiptMap, TestRoomDataProvider};
 use crate::timeline::{
     controller::TimelineSettings, tests::TestTimelineBuilder, MsgLikeContent, MsgLikeKind,
+    TimelineFocus,
 };
 
 fn filter_notice(ev: &AnySyncTimelineEvent, _room_version: &RoomVersionId) -> bool {
@@ -747,4 +748,79 @@ async fn test_implicit_read_receipt_before_explicit_read_receipt() {
     assert_eq!(receipt_event_id, carol_event_id);
     let (receipt_event_id, _) = timeline.controller.latest_user_read_receipt(*CAROL).await.unwrap();
     assert_eq!(receipt_event_id, carol_event_id);
+}
+
+#[async_test]
+async fn test_threaded_latest_user_read_receipt() {
+    let thread_root = owned_event_id!("$thread_root");
+    let receipt_thread = ReceiptThread::Thread(thread_root.clone());
+
+    let timeline = TestTimelineBuilder::new()
+        .focus(TimelineFocus::Thread { root_event_id: thread_root })
+        .settings(TimelineSettings { track_read_receipts: true, ..Default::default() })
+        .build();
+
+    // Sanity check: no read receipts before any events.
+    assert!(timeline.controller.latest_user_read_receipt(*ALICE).await.is_none());
+    assert!(timeline.controller.latest_user_read_receipt(*BOB).await.is_none());
+
+    // Add some sync events.
+    let f = &timeline.factory;
+
+    timeline
+        .handle_live_event(f.text_msg("hi I'm Bob.").sender(*ALICE).event_id(event_id!("$1")))
+        .await;
+
+    timeline
+        .handle_live_event(f.text_msg("hi Alice, I'm Bob.").sender(*BOB).event_id(event_id!("$2")))
+        .await;
+
+    // Implicit receipts are taken into account.
+    let (receipt_event_id, receipt) =
+        timeline.controller.latest_user_read_receipt(*ALICE).await.unwrap();
+    assert_eq!(receipt_event_id, event_id!("$1"));
+    assert_eq!(receipt.thread, receipt_thread);
+
+    let (receipt_event_id, receipt) =
+        timeline.controller.latest_user_read_receipt(*BOB).await.unwrap();
+    assert_eq!(receipt_event_id, event_id!("$2"));
+    assert_eq!(receipt.thread, receipt_thread);
+
+    timeline
+        .handle_live_event(f.text_msg("nice to meet you!").sender(*ALICE).event_id(event_id!("$3")))
+        .await;
+
+    // Alice's latest read receipt is updated.
+    let (receipt_event_id, receipt) =
+        timeline.controller.latest_user_read_receipt(*ALICE).await.unwrap();
+    assert_eq!(receipt_event_id, event_id!("$3"));
+    assert_eq!(receipt.thread, receipt_thread);
+
+    // But Bob's isn't.
+    let (receipt_event_id, receipt) =
+        timeline.controller.latest_user_read_receipt(*BOB).await.unwrap();
+    assert_eq!(receipt_event_id, event_id!("$2"));
+    assert_eq!(receipt.thread, receipt_thread);
+
+    // Bob sees Alice's message.
+    timeline
+        .handle_read_receipts([(
+            owned_event_id!("$3"),
+            ReceiptType::Read,
+            BOB.to_owned(),
+            receipt_thread.clone(),
+        )])
+        .await;
+
+    // Alice's latest read receipt is at the same position.
+    let (receipt_event_id, receipt) =
+        timeline.controller.latest_user_read_receipt(*ALICE).await.unwrap();
+    assert_eq!(receipt_event_id, event_id!("$3"));
+    assert_eq!(receipt.thread, receipt_thread);
+
+    // But Bob's has moved!
+    let (receipt_event_id, receipt) =
+        timeline.controller.latest_user_read_receipt(*BOB).await.unwrap();
+    assert_eq!(receipt_event_id, event_id!("$3"));
+    assert_eq!(receipt.thread, receipt_thread);
 }

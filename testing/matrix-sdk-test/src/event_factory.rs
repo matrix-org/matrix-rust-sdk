@@ -26,6 +26,11 @@ use matrix_sdk_common::deserialized_responses::{
 use ruma::{
     events::{
         beacon::BeaconEventContent,
+        call::{
+            invite::CallInviteEventContent,
+            notify::{ApplicationType, CallNotifyEventContent, NotifyType},
+            SessionDescription,
+        },
         member_hints::MemberHintsEventContent,
         poll::{
             unstable_end::UnstablePollEndEventContent,
@@ -60,13 +65,13 @@ use ruma::{
         sticker::StickerEventContent,
         typing::TypingEventContent,
         AnyMessageLikeEvent, AnyStateEvent, AnySyncStateEvent, AnySyncTimelineEvent,
-        AnyTimelineEvent, BundledMessageLikeRelations, RedactedMessageLikeEventContent,
+        AnyTimelineEvent, BundledMessageLikeRelations, Mentions, RedactedMessageLikeEventContent,
         RedactedStateEventContent, StateEventContent, StaticEventContent,
     },
     serde::Raw,
     server_name, EventId, Int, MilliSecondsSinceUnixEpoch, MxcUri, OwnedEventId, OwnedMxcUri,
-    OwnedRoomAliasId, OwnedRoomId, OwnedTransactionId, OwnedUserId, RoomId, RoomVersionId,
-    TransactionId, UInt, UserId,
+    OwnedRoomAliasId, OwnedRoomId, OwnedTransactionId, OwnedUserId, OwnedVoipId, RoomId,
+    RoomVersionId, TransactionId, UInt, UserId, VoipVersionId,
 };
 use serde::Serialize;
 use serde_json::json;
@@ -926,6 +931,28 @@ impl EventFactory {
         url: OwnedMxcUri,
     ) -> EventBuilder<StickerEventContent> {
         self.event(StickerEventContent::new(body.into(), info, url))
+    }
+
+    /// Create a new `m.call.invite` event.
+    pub fn call_invite(
+        &self,
+        call_id: OwnedVoipId,
+        lifetime: UInt,
+        offer: SessionDescription,
+        version: VoipVersionId,
+    ) -> EventBuilder<CallInviteEventContent> {
+        self.event(CallInviteEventContent::new(call_id, lifetime, offer, version))
+    }
+
+    /// Create a new `m.call.notify` event.
+    pub fn call_notify(
+        &self,
+        call_id: String,
+        application: ApplicationType,
+        notify_type: NotifyType,
+        mentions: Mentions,
+    ) -> EventBuilder<CallNotifyEventContent> {
+        self.event(CallNotifyEventContent::new(call_id, application, notify_type, mentions))
     }
 
     /// Set the next server timestamp.

@@ -26,7 +26,7 @@ use matrix_sdk_base::{store::StoreConfig, BaseClient, ThreadingSupport};
 #[cfg(feature = "sqlite")]
 use matrix_sdk_sqlite::SqliteStoreConfig;
 use ruma::{
-    api::{error::FromHttpResponseError, MatrixVersion},
+    api::{error::FromHttpResponseError, MatrixVersion, SupportedVersions},
     OwnedServerName, ServerName,
 };
 use thiserror::Error;
@@ -552,7 +552,9 @@ impl ClientBuilder {
                 None => None,
             };
 
-            let version = self.sliding_sync_version_builder.build(supported_versions.as_ref())?;
+            let version = self.sliding_sync_version_builder.build(
+                supported_versions.map(|response| response.as_supported_versions()).as_ref(),
+            )?;
 
             tracing::info!(?version, "selected sliding sync version");
 
@@ -576,11 +578,12 @@ impl ClientBuilder {
         let send_queue = Arc::new(SendQueueData::new(true));
 
         let server_info = ClientServerInfo {
-            server_versions: match self.server_versions {
-                Some(versions) => Cached(versions),
+            supported_versions: match self.server_versions {
+                Some(versions) => {
+                    Cached(SupportedVersions { versions, features: Default::default() })
+                }
                 None => NotSet,
             },
-            unstable_features: NotSet,
             well_known: Cached(well_known.map(Into::into)),
         };
 

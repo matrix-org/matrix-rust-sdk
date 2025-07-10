@@ -119,6 +119,12 @@ impl SyncServiceBuilder {
         Arc::new(Self { builder, ..this })
     }
 
+    pub fn with_share_pos(self: Arc<Self>, enable: bool) -> Arc<Self> {
+        let this = unwrap_or_clone_arc(self);
+        let builder = this.builder.with_share_pos(enable);
+        Arc::new(Self { builder, ..this })
+    }
+
     pub async fn finish(self: Arc<Self>) -> Result<Arc<SyncService>, ClientError> {
         let this = unwrap_or_clone_arc(self);
         Ok(Arc::new(SyncService {

@@ -6,6 +6,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased] - ReleaseDate
 
+## [0.13.0] - 2025-07-10
+
 ### Features
 
 - Add `NotificationRoomInfo::topic` to the `NotificationRoomInfo` struct, which
@@ -14,6 +16,9 @@ All notable changes to this project will be documented in this file.
 - Add `EmbeddedEventDetails::timestamp` and `EmbeddedEventDetails::event_or_transaction_id`
   which are already available in regular timeline items.
   ([#5331](https://github.com/matrix-org/matrix-rust-sdk/pull/5331))
+- `RoomListService::subscribe_to_rooms` becomes `async` and automatically calls
+  `matrix_sdk::latest_events::LatestEvents::listen_to_room`
+  ([#5369](https://github.com/matrix-org/matrix-rust-sdk/pull/5369))
 
 ### Refactor
 

@@ -76,15 +76,19 @@ impl HttpClient {
             async {
                 let num_attempt = retry_count.fetch_add(1, Ordering::SeqCst);
                 debug!(num_attempt, "Sending request");
+                let before = ruma::time::Instant::now();
 
                 let response =
                     send_request(&self.inner, &request, config.timeout, send_progress).await?;
+
+                let request_duration = ruma::time::Instant::now().saturating_duration_since(before);
 
                 let status_code = response.status();
                 let response_size = ByteSize(response.body().len().try_into().unwrap_or(u64::MAX));
                 tracing::Span::current()
                     .record("status", status_code.as_u16())
-                    .record("response_size", response_size.display().si_short().to_string());
+                    .record("response_size", response_size.display().si_short().to_string())
+                    .record("request_duration", tracing::field::debug(request_duration));
 
                 // Record interesting headers. If you add more headers, ensure they're not
                 // confidential.

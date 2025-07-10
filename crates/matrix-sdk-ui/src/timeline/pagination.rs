@@ -46,6 +46,8 @@ impl super::Timeline {
 
             Ok(self.live_paginate_backwards(num_events).await?)
         } else if let Some(thread_root) = self.controller.thread_root() {
+            // Note: in the future (when the event cache implements persistent storage for
+            // threads), we might need to load the related events too here.
             Ok(self.event_cache.paginate_thread_backwards(thread_root, num_events).await?)
         } else {
             Ok(self.controller.focused_paginate_backwards(num_events).await?)

@@ -79,7 +79,7 @@ pub(super) struct SlidingSyncInner {
     poll_timeout: Duration,
 
     /// Extra duration for the sliding sync request to timeout. This is added to
-    /// the [`Self::proxy_timeout`].
+    /// the [`Self::poll_timeout`].
     network_timeout: Duration,
 
     /// The storage key to keep this cache at and load it from.

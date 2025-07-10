@@ -29,7 +29,7 @@
 
 use std::{
     collections::BTreeMap,
-    fmt::Debug,
+    fmt,
     sync::{Arc, OnceLock},
 };
 
@@ -132,8 +132,8 @@ pub struct EventCacheDropHandles {
     auto_shrink_linked_chunk_task: JoinHandle<()>,
 }
 
-impl Debug for EventCacheDropHandles {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Debug for EventCacheDropHandles {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("EventCacheDropHandles").finish_non_exhaustive()
     }
 }
@@ -157,8 +157,8 @@ pub struct EventCache {
     inner: Arc<EventCacheInner>,
 }
 
-impl Debug for EventCache {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Debug for EventCache {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("EventCache").finish_non_exhaustive()
     }
 }
@@ -379,7 +379,7 @@ impl EventCache {
     /// If one wants to get a high-overview, generic, updates for rooms, and
     /// without side-effects, this method is recommended. For example, it
     /// doesn't provide a list of new events, but rather a
-    /// [`RoomEventCacheGenericUpdate::TimelineUpdated`] update. Also, dropping
+    /// [`RoomEventCacheGenericUpdate::UpdateTimeline`] update. Also, dropping
     /// the receiver of this channel will not trigger any side-effect.
     pub fn subscribe_to_room_generic_updates(&self) -> Receiver<RoomEventCacheGenericUpdate> {
         self.inner.room_event_cache_generic_update_sender.subscribe()
@@ -488,10 +488,17 @@ impl EventCacheInner {
         // propagate updates to observers.
         try_join_all(room_locks.into_iter().map(|(room, mut state_guard)| async move {
             let updates_as_vector_diffs = state_guard.reset().await?;
+
             let _ = room.inner.sender.send(RoomEventCacheUpdate::UpdateTimelineEvents {
                 diffs: updates_as_vector_diffs,
                 origin: EventsOrigin::Cache,
             });
+
+            let _ = room
+                .inner
+                .generic_update_sender
+                .send(RoomEventCacheGenericUpdate::Clear { room_id: room.inner.room_id.clone() });
+
             Ok::<_, EventCacheError>(())
         }))
         .await?;
@@ -597,9 +604,7 @@ impl EventCacheInner {
                 // emit a generic update.
                 if timeline_is_not_empty {
                     let _ = self.room_event_cache_generic_update_sender.send(
-                        RoomEventCacheGenericUpdate::TimelineUpdated {
-                            room_id: room_id.to_owned(),
-                        },
+                        RoomEventCacheGenericUpdate::UpdateTimeline { room_id: room_id.to_owned() },
                     );
                 }
 
@@ -633,8 +638,14 @@ pub struct BackPaginationOutcome {
 pub enum RoomEventCacheGenericUpdate {
     /// The timeline has been updated, i.e. an event has been added, redacted,
     /// removed, or reloaded.
-    TimelineUpdated {
+    UpdateTimeline {
         /// The room ID owning the timeline.
+        room_id: OwnedRoomId,
+    },
+
+    /// The room has been cleared, all events have been deleted.
+    Clear {
+        /// The ID of the room that has been cleared.
         room_id: OwnedRoomId,
     },
 }
@@ -643,7 +654,8 @@ impl RoomEventCacheGenericUpdate {
     /// Get the room ID that has triggered this generic update.
     pub fn room_id(&self) -> &RoomId {
         match self {
-            Self::TimelineUpdated { room_id } => room_id,
+            Self::UpdateTimeline { room_id } => room_id,
+            Self::Clear { room_id } => room_id,
         }
     }
 }
@@ -911,7 +923,7 @@ mod tests {
 
             assert_matches!(
                 generic_stream.recv().await,
-                Ok(RoomEventCacheGenericUpdate::TimelineUpdated { room_id }) => {
+                Ok(RoomEventCacheGenericUpdate::UpdateTimeline { room_id }) => {
                     assert_eq!(room_id, room_id_0);
                 }
             );
@@ -999,7 +1011,7 @@ mod tests {
 
         assert_matches!(
             generic_stream.recv().await,
-            Ok(RoomEventCacheGenericUpdate::TimelineUpdated { room_id: expected_room_id }) => {
+            Ok(RoomEventCacheGenericUpdate::UpdateTimeline { room_id: expected_room_id }) => {
                 assert_eq!(room_id, expected_room_id);
             }
         );
@@ -1013,7 +1025,7 @@ mod tests {
         assert!(pagination_outcome.reached_start.not());
         assert_matches!(
             generic_stream.recv().await,
-            Ok(RoomEventCacheGenericUpdate::TimelineUpdated { room_id: expected_room_id }) => {
+            Ok(RoomEventCacheGenericUpdate::UpdateTimeline { room_id: expected_room_id }) => {
                 assert_eq!(room_id, expected_room_id);
             }
         );

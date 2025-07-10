@@ -165,7 +165,8 @@ use ruma::{
         AnyMessageLikeEventContent, EventContent as _, Mentions,
     },
     serde::Raw,
-    MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedRoomId, OwnedTransactionId, TransactionId,
+    MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedRoomId, OwnedTransactionId, RoomId,
+    TransactionId,
 };
 use tokio::sync::{broadcast, oneshot, Mutex, Notify, OwnedMutexGuard};
 use tracing::{debug, error, info, instrument, trace, warn};
@@ -243,7 +244,8 @@ impl SendQueue {
         let owned_room_id = room_id.to_owned();
         let room_q = RoomSendQueue::new(
             self.is_enabled(),
-            data.error_reporter.clone(),
+            data.global_update_sender.clone(),
+            data.error_sender.clone(),
             data.is_dropping.clone(),
             &self.client,
             owned_room_id.clone(),
@@ -290,10 +292,18 @@ impl SendQueue {
         self.data().report_media_upload_progress.store(enabled, Ordering::SeqCst);
     }
 
+    /// Subscribe to all updates for all rooms.
+    ///
+    /// Use [`RoomSendQueue::subscribe`] to subscribe to update for a _specific
+    /// room_.
+    pub fn subscribe(&self) -> broadcast::Receiver<SendQueueUpdate> {
+        self.data().global_update_sender.subscribe()
+    }
+
     /// A subscriber to the enablement status (enabled or disabled) of the
     /// send queue, along with useful errors.
     pub fn subscribe_errors(&self) -> broadcast::Receiver<SendQueueRoomError> {
-        self.data().error_reporter.subscribe()
+        self.data().error_sender.subscribe()
     }
 }
 
@@ -349,8 +359,13 @@ pub(super) struct SendQueueData {
     /// initial enablement state.
     globally_enabled: AtomicBool,
 
+    /// Global sender to send [`SendQueueUpdate`].
+    ///
+    /// See [`SendQueue::subscribe`].
+    global_update_sender: broadcast::Sender<SendQueueUpdate>,
+
     /// Global error updates for the send queue.
-    error_reporter: broadcast::Sender<SendQueueRoomError>,
+    error_sender: broadcast::Sender<SendQueueRoomError>,
 
     /// Are we currently dropping the Client?
     is_dropping: Arc<AtomicBool>,
@@ -362,12 +377,14 @@ pub(super) struct SendQueueData {
 impl SendQueueData {
     /// Create the data for a send queue, in the given enabled state.
     pub fn new(globally_enabled: bool) -> Self {
-        let (sender, _) = broadcast::channel(32);
+        let (global_update_sender, _) = broadcast::channel(32);
+        let (error_sender, _) = broadcast::channel(32);
 
         Self {
             rooms: Default::default(),
             globally_enabled: AtomicBool::new(globally_enabled),
-            error_reporter: sender,
+            global_update_sender,
+            error_sender,
             is_dropping: Arc::new(false.into()),
             report_media_upload_progress: Arc::new(false.into()),
         }
@@ -413,13 +430,14 @@ impl std::fmt::Debug for RoomSendQueue {
 impl RoomSendQueue {
     fn new(
         globally_enabled: bool,
-        global_error_reporter: broadcast::Sender<SendQueueRoomError>,
+        global_update_sender: broadcast::Sender<SendQueueUpdate>,
+        global_error_sender: broadcast::Sender<SendQueueRoomError>,
         is_dropping: Arc<AtomicBool>,
         client: &Client,
         room_id: OwnedRoomId,
         report_media_upload_progress: Arc<AtomicBool>,
     ) -> Self {
-        let (updates_sender, _) = broadcast::channel(32);
+        let (update_sender, _) = broadcast::channel(32);
 
         let queue = QueueStorage::new(WeakClient::from_client(client), room_id.clone());
         let notifier = Arc::new(Notify::new());
@@ -431,9 +449,10 @@ impl RoomSendQueue {
             weak_room.clone(),
             queue.clone(),
             notifier.clone(),
-            updates_sender.clone(),
+            global_update_sender.clone(),
+            update_sender.clone(),
             locally_enabled.clone(),
-            global_error_reporter,
+            global_error_sender,
             is_dropping,
             report_media_upload_progress,
         ));
@@ -441,7 +460,8 @@ impl RoomSendQueue {
         Self {
             inner: Arc::new(RoomSendQueueInner {
                 room: weak_room,
-                updates: updates_sender,
+                global_update_sender,
+                update_sender,
                 _task: task,
                 queue,
                 notifier,
@@ -491,7 +511,7 @@ impl RoomSendQueue {
             created_at,
         };
 
-        let _ = self.inner.updates.send(RoomSendQueueUpdate::NewLocalEvent(LocalEcho {
+        self.send_update(RoomSendQueueUpdate::NewLocalEvent(LocalEcho {
             transaction_id,
             content: LocalEchoContent::Event {
                 serialized_event: content,
@@ -530,13 +550,16 @@ impl RoomSendQueue {
 
     /// Returns the current local requests as well as a receiver to listen to
     /// the send queue updates, as defined in [`RoomSendQueueUpdate`].
+    ///
+    /// Use [`SendQueue::subscribe`] to subscribe to update for _all rooms_ with
+    /// a single receiver.
     pub async fn subscribe(
         &self,
     ) -> Result<(Vec<LocalEcho>, broadcast::Receiver<RoomSendQueueUpdate>), RoomSendQueueError>
     {
         let local_echoes = self.inner.queue.local_echoes(self).await?;
 
-        Ok((local_echoes, self.inner.updates.subscribe()))
+        Ok((local_echoes, self.inner.update_sender.subscribe()))
     }
 
     /// A task that must be spawned in the async runtime, running in the
@@ -550,13 +573,16 @@ impl RoomSendQueue {
         room: WeakRoom,
         queue: QueueStorage,
         notifier: Arc<Notify>,
-        updates: broadcast::Sender<RoomSendQueueUpdate>,
+        global_update_sender: broadcast::Sender<SendQueueUpdate>,
+        update_sender: broadcast::Sender<RoomSendQueueUpdate>,
         locally_enabled: Arc<AtomicBool>,
-        global_error_reporter: broadcast::Sender<SendQueueRoomError>,
+        global_error_sender: broadcast::Sender<SendQueueRoomError>,
         is_dropping: Arc<AtomicBool>,
         report_media_upload_progress: Arc<AtomicBool>,
     ) {
         trace!("spawned the sending task");
+
+        let room_id = room.room_id();
 
         loop {
             // A request to shut down should be preferred above everything else.
@@ -573,7 +599,7 @@ impl RoomSendQueue {
             }
 
             for up in new_updates {
-                let _ = updates.send(up);
+                send_update(&global_update_sender, &update_sender, room_id, up);
             }
 
             if !locally_enabled.load(Ordering::SeqCst) {
@@ -621,7 +647,9 @@ impl RoomSendQueue {
                 &report_media_upload_progress,
                 &media_upload_info,
                 &related_txn_id,
-                &updates,
+                room_id,
+                &global_update_sender,
+                &update_sender,
             );
 
             match Self::handle_request(&room, queued_request, cancel_upload_rx, progress.clone())
@@ -631,26 +659,33 @@ impl RoomSendQueue {
                 {
                     Ok(()) => match parent_key {
                         SentRequestKey::Event(event_id) => {
-                            let _ = updates.send(RoomSendQueueUpdate::SentEvent {
-                                transaction_id: txn_id,
-                                event_id,
-                            });
+                            send_update(
+                                &global_update_sender,
+                                &update_sender,
+                                room_id,
+                                RoomSendQueueUpdate::SentEvent { transaction_id: txn_id, event_id },
+                            );
                         }
 
                         SentRequestKey::Media(media_info) => {
-                            let _ = updates.send(RoomSendQueueUpdate::MediaUpload {
-                                related_to: related_txn_id.as_ref().unwrap_or(&txn_id).clone(),
-                                file: Some(media_info.file),
-                                index: media_upload_info.index,
-                                progress: estimate_combined_media_upload_progress(
-                                    // The file finished uploading
-                                    AbstractProgress {
-                                        current: media_upload_info.bytes,
-                                        total: media_upload_info.bytes,
-                                    },
-                                    &media_upload_info,
-                                ),
-                            });
+                            send_update(
+                                &global_update_sender,
+                                &update_sender,
+                                room_id,
+                                RoomSendQueueUpdate::MediaUpload {
+                                    related_to: related_txn_id.as_ref().unwrap_or(&txn_id).clone(),
+                                    file: Some(media_info.file),
+                                    index: media_upload_info.index,
+                                    progress: estimate_combined_media_upload_progress(
+                                        // The file finished uploading
+                                        AbstractProgress {
+                                            current: media_upload_info.bytes,
+                                            total: media_upload_info.bytes,
+                                        },
+                                        &media_upload_info,
+                                    ),
+                                },
+                            );
                         }
                     },
 
@@ -711,17 +746,22 @@ impl RoomSendQueue {
 
                     let error = Arc::new(err);
 
-                    let _ = global_error_reporter.send(SendQueueRoomError {
-                        room_id: room.room_id().to_owned(),
+                    let _ = global_error_sender.send(SendQueueRoomError {
+                        room_id: room_id.to_owned(),
                         error: error.clone(),
                         is_recoverable,
                     });
 
-                    let _ = updates.send(RoomSendQueueUpdate::SendError {
-                        transaction_id: related_txn_id.unwrap_or(txn_id),
-                        error,
-                        is_recoverable,
-                    });
+                    send_update(
+                        &global_update_sender,
+                        &update_sender,
+                        room_id,
+                        RoomSendQueueUpdate::SendError {
+                            transaction_id: related_txn_id.unwrap_or(txn_id),
+                            error,
+                            is_recoverable,
+                        },
+                    );
                 }
             }
         }
@@ -849,7 +889,9 @@ impl RoomSendQueue {
         report_media_upload_progress: &Arc<AtomicBool>,
         media_upload_info: &MediaUploadInfo,
         related_txn_id: &Option<OwnedTransactionId>,
-        updates: &broadcast::Sender<RoomSendQueueUpdate>,
+        room_id: &RoomId,
+        global_update_sender: &broadcast::Sender<SendQueueUpdate>,
+        update_sender: &broadcast::Sender<RoomSendQueueUpdate>,
     ) -> Option<SharedObservable<TransmissionProgress>> {
         if !report_media_upload_progress.load(Ordering::SeqCst) {
             return None;
@@ -861,22 +903,29 @@ impl RoomSendQueue {
 
             let media_upload_info = media_upload_info.clone();
             let related_to = related_txn_id.clone();
-            let updates = updates.clone();
+            let room_id = room_id.to_owned();
+            let global_update_sender = global_update_sender.clone();
+            let update_sender = update_sender.clone();
 
             // Watch and communicate the progress on a detached background task. Once
             // the progress observable is dropped, next() will return None and the
             // task will end.
             spawn(async move {
                 while let Some(progress) = subscriber.next().await {
-                    let _ = updates.send(RoomSendQueueUpdate::MediaUpload {
-                        related_to: related_to.clone(),
-                        file: None,
-                        index: media_upload_info.index,
-                        progress: estimate_combined_media_upload_progress(
-                            estimate_media_upload_progress(progress, media_upload_info.bytes),
-                            &media_upload_info,
-                        ),
-                    });
+                    send_update(
+                        &global_update_sender,
+                        &update_sender,
+                        &room_id,
+                        RoomSendQueueUpdate::MediaUpload {
+                            related_to: related_to.clone(),
+                            file: None,
+                            index: media_upload_info.index,
+                            progress: estimate_combined_media_upload_progress(
+                                estimate_media_upload_progress(progress, media_upload_info.bytes),
+                                &media_upload_info,
+                            ),
+                        },
+                    );
                 }
             });
 
@@ -1034,6 +1083,28 @@ impl RoomSendQueue {
             self.inner.notifier.notify_one();
         }
     }
+
+    /// Send an update on the room send queue channel, and on the global send
+    /// queue channel, i.e. it sends a [`RoomSendQueueUpdate`] and a
+    /// [`SendQueueUpdate`].
+    fn send_update(&self, update: RoomSendQueueUpdate) {
+        let _ = self.inner.update_sender.send(update.clone());
+        let _ = self
+            .inner
+            .global_update_sender
+            .send(SendQueueUpdate { room_id: self.inner.room.room_id().to_owned(), update });
+    }
+}
+
+/// Emit a send queue update.
+fn send_update(
+    global_update_sender: &broadcast::Sender<SendQueueUpdate>,
+    update_sender: &broadcast::Sender<RoomSendQueueUpdate>,
+    room_id: &RoomId,
+    update: RoomSendQueueUpdate,
+) {
+    let _ = update_sender.send(update.clone());
+    let _ = global_update_sender.send(SendQueueUpdate { room_id: room_id.to_owned(), update });
 }
 
 /// Estimates the upload progress for a single media file (either a thumbnail or
@@ -1122,10 +1193,17 @@ struct RoomSendQueueInner {
     /// The room which this send queue relates to.
     room: WeakRoom,
 
+    /// Global sender to send [`SendQueueUpdate`].
+    ///
+    /// See [`SendQueue::subscribe`].
+    global_update_sender: broadcast::Sender<SendQueueUpdate>,
+
     /// Broadcaster for notifications about the statuses of requests to be sent.
     ///
     /// Can be subscribed to from the outside.
-    updates: broadcast::Sender<RoomSendQueueUpdate>,
+    ///
+    /// See [`RoomSendQueue::subscribe`].
+    update_sender: broadcast::Sender<RoomSendQueueUpdate>,
 
     /// Queue of requests that are either to be sent, or being sent.
     ///
@@ -2422,6 +2500,19 @@ pub enum RoomSendQueueUpdate {
     },
 }
 
+/// A [`RoomSendQueueUpdate`] with an associated [`OwnedRoomId`].
+///
+/// This is used by [`SendQueue::subscribe`] to get a single channel to receive
+/// updates for all [`RoomSendQueue`]s.
+#[derive(Clone, Debug)]
+pub struct SendQueueUpdate {
+    /// The room where the update happened.
+    pub room_id: OwnedRoomId,
+
+    /// The update for this room.
+    pub update: RoomSendQueueUpdate,
+}
+
 /// An error triggered by the send queue module.
 #[derive(Debug, thiserror::Error)]
 pub enum RoomSendQueueError {
@@ -2544,7 +2635,7 @@ impl SendHandle {
         for handles in &self.media_handles {
             if queue.abort_upload(&self.transaction_id, handles).await? {
                 // Propagate a cancelled update.
-                let _ = self.room.inner.updates.send(RoomSendQueueUpdate::CancelledLocalEvent {
+                self.room.send_update(RoomSendQueueUpdate::CancelledLocalEvent {
                     transaction_id: self.transaction_id.clone(),
                 });
 
@@ -2560,7 +2651,7 @@ impl SendHandle {
             trace!("successful abort");
 
             // Propagate a cancelled update too.
-            let _ = self.room.inner.updates.send(RoomSendQueueUpdate::CancelledLocalEvent {
+            self.room.send_update(RoomSendQueueUpdate::CancelledLocalEvent {
                 transaction_id: self.transaction_id.clone(),
             });
 
@@ -2593,7 +2684,7 @@ impl SendHandle {
             self.room.inner.notifier.notify_one();
 
             // Propagate a replaced update too.
-            let _ = self.room.inner.updates.send(RoomSendQueueUpdate::ReplacedLocalEvent {
+            self.room.send_update(RoomSendQueueUpdate::ReplacedLocalEvent {
                 transaction_id: self.transaction_id.clone(),
                 new_content: serializable,
             });
@@ -2646,7 +2737,7 @@ impl SendHandle {
                 .map_err(RoomSendQueueStorageError::JsonSerialization)?;
 
             // Propagate a replaced update too.
-            let _ = self.room.inner.updates.send(RoomSendQueueUpdate::ReplacedLocalEvent {
+            self.room.send_update(RoomSendQueueUpdate::ReplacedLocalEvent {
                 transaction_id: self.transaction_id.clone(),
                 new_content,
             });
@@ -2688,9 +2779,9 @@ impl SendHandle {
         // Wake up the queue, in case the room was asleep before unwedging the request.
         room.notifier.notify_one();
 
-        let _ = room
-            .updates
-            .send(RoomSendQueueUpdate::RetryEvent { transaction_id: self.transaction_id.clone() });
+        self.room.send_update(RoomSendQueueUpdate::RetryEvent {
+            transaction_id: self.transaction_id.clone(),
+        });
 
         Ok(())
     }
@@ -2721,9 +2812,9 @@ impl SendHandle {
                 transaction_id: reaction_txn_id.clone(),
             };
 
-            let _ = self.room.inner.updates.send(RoomSendQueueUpdate::NewLocalEvent(LocalEcho {
-                // Note: we do want to use the txn_id we're going to use for the reaction, not the
-                // one for the event we're reacting to.
+            self.room.send_update(RoomSendQueueUpdate::NewLocalEvent(LocalEcho {
+                // Note: we do want to use the `txn_id` we're going to use for the reaction, not
+                // the one for the event we're reacting to.
                 transaction_id: reaction_txn_id.into(),
                 content: LocalEchoContent::React {
                     key,
@@ -2759,7 +2850,7 @@ impl SendReactionHandle {
             // Simple case: the reaction was found in the dependent event list.
 
             // Propagate a cancelled update too.
-            let _ = self.room.inner.updates.send(RoomSendQueueUpdate::CancelledLocalEvent {
+            self.room.send_update(RoomSendQueueUpdate::CancelledLocalEvent {
                 transaction_id: self.transaction_id.clone().into(),
             });
 

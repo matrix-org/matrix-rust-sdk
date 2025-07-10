@@ -71,6 +71,11 @@ impl ThreadEventCache {
     /// Clear a thread, after a gappy sync for instance.
     pub fn clear(&mut self) {
         self.chunk.reset();
+
+        let diffs = self.chunk.updates_as_vector_diffs();
+        if !diffs.is_empty() {
+            let _ = self.sender.send(ThreadEventCacheUpdate { diffs, origin: EventsOrigin::Cache });
+        }
     }
 
     /// Push some live events to this thread, and propagate the updates to
@@ -226,17 +231,17 @@ impl ThreadEventCache {
 
         let deduplication = self.filter_duplicate_events(topo_ordered_events);
 
-        assert!(
-            deduplication.in_store_duplicated_event_ids.is_empty(),
-            "persistent storage for threads is not implemented yet"
-        );
-        self.remove_in_memory_duplicated_events(deduplication.in_memory_duplicated_event_ids);
-
         let (events, new_gap) = if deduplication.non_empty_all_duplicates {
             // If all events are duplicates, we don't need to do anything; ignore
             // the new events and the new gap.
             (Vec::new(), None)
         } else {
+            assert!(
+                deduplication.in_store_duplicated_event_ids.is_empty(),
+                "persistent storage for threads is not implemented yet"
+            );
+            self.remove_in_memory_duplicated_events(deduplication.in_memory_duplicated_event_ids);
+
             // Keep events and the gap.
             (deduplication.all_events, new_gap)
         };

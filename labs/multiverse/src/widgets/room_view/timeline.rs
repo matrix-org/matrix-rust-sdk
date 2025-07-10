@@ -1,7 +1,11 @@
 use std::sync::Arc;
 
 use imbl::Vector;
-use matrix_sdk::ruma::{UserId, events::room::message::MessageType};
+use indexmap::IndexMap;
+use matrix_sdk::ruma::{
+    OwnedUserId, UserId,
+    events::{receipt::Receipt, room::message::MessageType},
+};
 use matrix_sdk_ui::timeline::{
     MembershipChange, Message, MsgLikeContent, MsgLikeKind, RoomMembershipChange, ThreadSummary,
     TimelineDetails, TimelineItem, TimelineItemContent, TimelineItemKind, VirtualTimelineItem,
@@ -93,7 +97,7 @@ fn format_timeline_item(item: &Arc<TimelineItem>, is_thread: bool) -> Option<Lis
                 }) => {
                     let thread_summary =
                         if is_thread { None } else { ev.content().thread_summary() };
-                    format_text_message(sender, message, thread_summary)?
+                    format_text_message(sender, message, thread_summary, ev.read_receipts())?
                 }
 
                 TimelineItemContent::MsgLike(MsgLikeContent {
@@ -140,6 +144,7 @@ fn format_text_message(
     sender: &UserId,
     message: &Message,
     thread_summary: Option<ThreadSummary>,
+    read_receipts: &IndexMap<OwnedUserId, Receipt>,
 ) -> Option<ListItem<'static>> {
     if let MessageType::Text(text) = message.msgtype() {
         let mut lines = Vec::new();
@@ -171,6 +176,25 @@ fn format_text_message(
                 }
                 TimelineDetails::Error(_) => {}
             }
+        }
+
+        if !read_receipts.is_empty() {
+            // Read by [5 first users who read it], optionally followed by "and X others".
+            let mut read_by = read_receipts
+                .iter()
+                .take(5)
+                .map(|(user_id, _)| user_id.as_str())
+                .collect::<Vec<_>>()
+                .join(", ");
+            if read_receipts.len() > 5 {
+                let others_count = read_receipts.len() - 5;
+                if others_count == 1 {
+                    read_by.push_str(" and 1 other");
+                } else {
+                    read_by = format!("{read_by} and {others_count} others");
+                }
+            }
+            lines.push(Line::from(format!("  👀 read by {read_by}")));
         }
 
         Some(ListItem::from(lines))
