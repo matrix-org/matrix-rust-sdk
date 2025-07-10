@@ -43,6 +43,11 @@ All notable changes to this project will be documented in this file.
 - [**breaking**]: `Client::unstable_features()` returns a `BTreeSet<FeatureFlag>`, containing only
   the features whose value was set to true in the response to the `/versions` endpoint.
   ([#5357](https://github.com/matrix-org/matrix-rust-sdk/pull/5357))
+- [**breaking**]: The family of `Room::can_user_*` methods has been removed. The
+  same functionality can be accessed using the `RoomPowerLevels::user_can_*`
+  family of methods. The `RoomPowerLevels` object can be accessed using the
+  `Room::power_levels()` method.
+  ([#5250](https://github.com/matrix-org/matrix-rust-sdk/pull/5250/))
 - `ClientServerCapabilities` has been renamed to `ClientServerInfo`. Alongside this,
   `Client::reset_server_info` is now `Client::reset_server_info` and `Client::fetch_server_capabilities`
   is now `Client::fetch_server_versions`, returning the server versions response directly.
