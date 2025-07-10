@@ -6,6 +6,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased] - ReleaseDate
 
+## [0.13.0] - 2025-07-10
+
 ### Features
 
 - Infer timeline read receipt threads for the `send_single_receipt` method from

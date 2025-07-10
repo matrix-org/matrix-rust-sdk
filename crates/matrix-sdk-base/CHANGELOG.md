@@ -6,6 +6,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased] - ReleaseDate
 
+## [0.13.0] - 2025-07-10
+
 ### Features
 - The `RoomInfo` now remembers when an invite was explicitly accepted when the
   `BaseClient::room_joined()` method was called. A new getter for this
