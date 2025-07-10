@@ -1151,80 +1151,19 @@ impl EventCacheStore for SqliteEventCacheStore {
 
         let event_id = event_id.to_owned();
         let filters = filters.map(ToOwned::to_owned);
-        let this = self.clone();
+        let store = self.clone();
 
         self.acquire()
             .await?
             .with_transaction(move |txn| -> Result<_> {
-                let get_rows = |row: &rusqlite::Row<'_>| {
-                    Ok((
-                            row.get::<_, Vec<u8>>(0)?,
-                            row.get::<_, Option<u64>>(1)?,
-                            row.get::<_, Option<usize>>(2)?,
-                    ))
-                };
-
-                // Collect related events.
-                let collect_results = |transaction| {
-                    let mut related = Vec::new();
-
-                    for result in transaction {
-                        let (event_blob, chunk_id, index): (Vec<u8>, Option<u64>, _) = result?;
-
-                        let event: Event = serde_json::from_slice(&this.decode_value(&event_blob)?)?;
-
-                        // Only build the position if both the chunk_id and position were present; in
-                        // theory, they should either be present at the same time, or not at all.
-                        let pos = chunk_id.zip(index).map(|(chunk_id, index)| {
-                            Position::new(ChunkIdentifier::new(chunk_id), index)
-                        });
-
-                        related.push((event, pos));
-                    }
-
-                    Ok(related)
-                };
-
-                let related = if let Some(filters) = compute_filters_string(filters.as_deref()) {
-                    let question_marks = repeat_vars(filters.len());
-                    let query = format!(
-                        "SELECT events.content, event_chunks.chunk_id, event_chunks.position
-                        FROM events
-                        LEFT JOIN event_chunks ON events.event_id = event_chunks.event_id AND event_chunks.linked_chunk_id = ?
-                        WHERE relates_to = ? AND room_id = ? AND rel_type IN ({question_marks})"
-                    );
-
-                    let filters: Vec<_> = filters.iter().map(|f| f.to_sql().unwrap()).collect();
-                    let parameters = params_from_iter(
-                        [
-                            hashed_linked_chunk_id.to_sql().expect("We should be able to convert a hashed linked chunk ID to a SQLite value"),
-                            event_id.as_str().to_sql().expect("We should be able to convert an event ID to a SQLite value"),
-                            hashed_room_id.to_sql().expect("We should be able to convert a room ID to a SQLite value")
-                        ]
-                            .into_iter()
-                            .chain(filters)
-                    );
-
-                    let mut transaction = txn.prepare(&query)?;
-                    let transaction = transaction.query_map(parameters, get_rows)?;
-
-                    collect_results(transaction)
-
-                } else {
-                    let query =
-                        "SELECT events.content, event_chunks.chunk_id, event_chunks.position
-                        FROM events
-                        LEFT JOIN event_chunks ON events.event_id = event_chunks.event_id AND event_chunks.linked_chunk_id = ?
-                        WHERE relates_to = ? AND room_id = ?";
-                    let parameters = (hashed_linked_chunk_id, event_id.as_str(), hashed_room_id);
-
-                    let mut transaction = txn.prepare(query)?;
-                    let transaction = transaction.query_map(parameters, get_rows)?;
-
-                    collect_results(transaction)
-                };
-
-                related
+                find_event_relations_transaction(
+                    store,
+                    hashed_room_id,
+                    hashed_linked_chunk_id,
+                    event_id,
+                    filters,
+                    txn,
+                )
             })
             .await
     }
@@ -1596,6 +1535,91 @@ impl EventCacheStoreMedia for SqliteEventCacheStore {
         let conn = self.acquire().await?;
         conn.get_serialized_kv(keys::LAST_MEDIA_CLEANUP_TIME).await
     }
+}
+
+fn find_event_relations_transaction(
+    store: SqliteEventCacheStore,
+    hashed_room_id: Key,
+    hashed_linked_chunk_id: Key,
+    event_id: OwnedEventId,
+    filters: Option<Vec<RelationType>>,
+    txn: &Transaction<'_>,
+) -> Result<Vec<(Event, Option<Position>)>> {
+    let get_rows = |row: &rusqlite::Row<'_>| {
+        Ok((
+            row.get::<_, Vec<u8>>(0)?,
+            row.get::<_, Option<u64>>(1)?,
+            row.get::<_, Option<usize>>(2)?,
+        ))
+    };
+
+    // Collect related events.
+    let collect_results = |transaction| {
+        let mut related = Vec::new();
+
+        for result in transaction {
+            let (event_blob, chunk_id, index): (Vec<u8>, Option<u64>, _) = result?;
+
+            let event: Event = serde_json::from_slice(&store.decode_value(&event_blob)?)?;
+
+            // Only build the position if both the chunk_id and position were present; in
+            // theory, they should either be present at the same time, or not at all.
+            let pos = chunk_id
+                .zip(index)
+                .map(|(chunk_id, index)| Position::new(ChunkIdentifier::new(chunk_id), index));
+
+            related.push((event, pos));
+        }
+
+        Ok(related)
+    };
+
+    let related = if let Some(filters) = compute_filters_string(filters.as_deref()) {
+        let question_marks = repeat_vars(filters.len());
+        let query = format!(
+            "SELECT events.content, event_chunks.chunk_id, event_chunks.position
+            FROM events
+            LEFT JOIN event_chunks ON events.event_id = event_chunks.event_id AND event_chunks.linked_chunk_id = ?
+            WHERE relates_to = ? AND room_id = ? AND rel_type IN ({question_marks})"
+        );
+
+        let filters: Vec<_> = filters.iter().map(|f| f.to_sql().unwrap()).collect();
+        let parameters = params_from_iter(
+            [
+                hashed_linked_chunk_id.to_sql().expect(
+                    "We should be able to convert a hashed linked chunk ID to a SQLite value",
+                ),
+                event_id
+                    .as_str()
+                    .to_sql()
+                    .expect("We should be able to convert an event ID to a SQLite value"),
+                hashed_room_id
+                    .to_sql()
+                    .expect("We should be able to convert a room ID to a SQLite value"),
+            ]
+            .into_iter()
+            .chain(filters),
+        );
+
+        let mut transaction = txn.prepare(&query)?;
+        let transaction = transaction.query_map(parameters, get_rows)?;
+
+        collect_results(transaction)
+    } else {
+        let query =
+            "SELECT events.content, event_chunks.chunk_id, event_chunks.position
+            FROM events
+            LEFT JOIN event_chunks ON events.event_id = event_chunks.event_id AND event_chunks.linked_chunk_id = ?
+            WHERE relates_to = ? AND room_id = ?";
+        let parameters = (hashed_linked_chunk_id, event_id.as_str(), hashed_room_id);
+
+        let mut transaction = txn.prepare(query)?;
+        let transaction = transaction.query_map(parameters, get_rows)?;
+
+        collect_results(transaction)
+    };
+
+    related
 }
 
 /// Like `deadpool::managed::Object::with_transaction`, but starts the
