@@ -773,7 +773,7 @@ impl RoomSendQueue {
         // If this is a file upload, get the size of any previously uploaded thumbnail
         // from the in-memory media sizes cache.
         let uploaded_thumbnail_bytes = if thumbnail_source.is_some() {
-            if let Some(sizes) = queue.thumbnail_size_cache.lock().get(related_to) {
+            if let Some(sizes) = queue.store.lock().await.thumbnail_size_cache.get(related_to) {
                 sizes.get(index).copied().flatten().unwrap_or(0)
             } else {
                 0
