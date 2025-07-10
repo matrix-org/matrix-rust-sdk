@@ -6,6 +6,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased] - ReleaseDate
 
+## [0.13.0] - 2025-07-10
+
 ### Features
 
 - Add `NotificationRoomInfo::topic` to the `NotificationRoomInfo` struct, which

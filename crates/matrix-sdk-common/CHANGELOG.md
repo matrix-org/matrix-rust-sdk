@@ -6,6 +6,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased] - ReleaseDate
 
+## [0.13.0] - 2025-07-10
+
 ### Features
 
 - Expose the `ROOM_VERSION_FALLBACK` that should be used when the version of a
