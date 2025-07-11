@@ -1480,7 +1480,16 @@ impl Client {
             false
         };
 
-        let base_room = self.base_client().room_joined(room_id).await?;
+        let base_room = self
+            .base_client()
+            .room_joined(
+                room_id,
+                pre_join_room_info
+                    .as_ref()
+                    .and_then(|info| info.inviter.as_ref())
+                    .map(|i| i.user_id().to_owned()),
+            )
+            .await?;
         let room = Room::new(self.clone(), base_room);
 
         if mark_as_dm {

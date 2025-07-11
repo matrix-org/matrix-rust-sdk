@@ -44,7 +44,8 @@ use matrix_sdk_common::ring_buffer::RingBuffer;
 pub use members::{RoomMember, RoomMembersUpdate, RoomMemberships};
 pub(crate) use room_info::SyncInfo;
 pub use room_info::{
-    apply_redaction, BaseRoomInfo, RoomInfo, RoomInfoNotableUpdate, RoomInfoNotableUpdateReasons,
+    apply_redaction, BaseRoomInfo, InviteAcceptanceDetails, RoomInfo, RoomInfoNotableUpdate,
+    RoomInfoNotableUpdateReasons,
 };
 #[cfg(feature = "e2e-encryption")]
 use ruma::{events::AnySyncTimelineEvent, serde::Raw};
@@ -455,6 +456,17 @@ impl Room {
     /// Please read `RoomInfo::recency_stamp` to learn more.
     pub fn recency_stamp(&self) -> Option<u64> {
         self.inner.read().recency_stamp
+    }
+
+    /// Returns the details about an invite to this room if the invite has been
+    /// accepted by this specific client.
+    ///
+    /// # Returns
+    /// - `Some` if an invite has been accepted by this specific client.
+    /// - `None` if we didn't join this room using an invite or the invite
+    ///   wasn't accepted by this client.
+    pub fn invite_acceptance_details(&self) -> Option<InviteAcceptanceDetails> {
+        self.inner.read().invite_acceptance_details.clone()
     }
 
     /// Get a `Stream` of loaded pinned events for this room.
