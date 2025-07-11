@@ -121,7 +121,7 @@ impl RoomInfoV1 {
             cached_display_name: None,
             cached_user_defined_notification_mode: None,
             recency_stamp: None,
-            invite_accepted_at: None,
+            invite_acceptance_details: None,
         }
     }
 }

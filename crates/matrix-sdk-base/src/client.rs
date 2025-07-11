@@ -43,7 +43,7 @@ use ruma::{
     },
     push::Ruleset,
     time::Instant,
-    OwnedRoomId, OwnedUserId, RoomId, UserId,
+    MilliSecondsSinceUnixEpoch, OwnedRoomId, OwnedUserId, RoomId, UserId,
 };
 use tokio::sync::{broadcast, Mutex};
 #[cfg(feature = "e2e-encryption")]
@@ -66,7 +66,7 @@ use crate::{
         StateStoreDataValue, StateStoreExt, StoreConfig,
     },
     sync::{RoomUpdates, SyncResponse},
-    RoomStateFilter, SessionMeta,
+    InviteAcceptanceDetails, RoomStateFilter, SessionMeta,
 };
 
 /// A no (network) IO client implementation.
@@ -432,21 +432,36 @@ impl BaseClient {
     ///
     /// Update the internal and cached state accordingly. Return the final Room.
     ///
+    /// # Arguments
+    ///
+    /// * `room_id` - The unique ID identifying the joined room.
+    /// * `inviter` - When joining this room in response to an invitation, the
+    ///   inviter should be recorded before sending the join request to the
+    ///   server. Providing the inviter here ensures that the
+    ///   [`InviteAcceptanceDetails`] are stored for this room.
+    ///
     /// # Examples
     ///
     /// ```rust
     /// # use matrix_sdk_base::{BaseClient, store::StoreConfig, RoomState, ThreadingSupport};
-    /// # use ruma::OwnedRoomId;
+    /// # use ruma::{OwnedRoomId, OwnedUserId, RoomId};
     /// # async {
     /// # let client = BaseClient::new(StoreConfig::new("example".to_owned()), ThreadingSupport::Disabled);
     /// # async fn send_join_request() -> anyhow::Result<OwnedRoomId> { todo!() }
+    /// # async fn maybe_get_inviter(room_id: &RoomId) -> anyhow::Result<Option<OwnedUserId>> { todo!() }
+    /// # let room_id: &RoomId = todo!();
+    /// let maybe_inviter = maybe_get_inviter(room_id).await?;
     /// let room_id = send_join_request().await?;
-    /// let room = client.room_joined(&room_id).await?;
+    /// let room = client.room_joined(&room_id, maybe_inviter).await?;
     ///
     /// assert_eq!(room.state(), RoomState::Joined);
     /// # anyhow::Ok(()) };
     /// ```
-    pub async fn room_joined(&self, room_id: &RoomId) -> Result<Room> {
+    pub async fn room_joined(
+        &self,
+        room_id: &RoomId,
+        inviter: Option<OwnedUserId>,
+    ) -> Result<Room> {
         let room = self.state_store.get_or_create_room(
             room_id,
             RoomState::Joined,
@@ -459,10 +474,15 @@ impl BaseClient {
             let _sync_lock = self.sync_lock().lock().await;
 
             let mut room_info = room.clone_info();
+            let previous_state = room.state();
+
+            room_info.mark_as_joined();
+            room_info.mark_state_partially_synced();
+            room_info.mark_members_missing(); // the own member event changed
 
             // If our previous state was an invite and we're now in the joined state, this
-            // means that the user has explicitly accepted the invite. Let's
-            // remember when this has happened.
+            // means that the user has explicitly accepted an invite. Let's
+            // remember some details about the invite.
             //
             // This is somewhat of a workaround for our lack of cryptographic membership.
             // Later on we will decide if historic room keys should be accepted
@@ -470,13 +490,15 @@ impl BaseClient {
             // key bundle shortly after, we might accept it. If we don't do
             // this, the homeserver could trick us into accepting any historic room key
             // bundle.
-            if room.state() == RoomState::Invited {
-                room_info.set_invite_accepted_now();
+            if previous_state == RoomState::Invited {
+                if let Some(inviter) = inviter {
+                    let details = InviteAcceptanceDetails {
+                        invite_accepted_at: MilliSecondsSinceUnixEpoch::now(),
+                        inviter,
+                    };
+                    room_info.set_invite_acceptance_details(details);
+                }
             }
-
-            room_info.mark_as_joined();
-            room_info.mark_state_partially_synced();
-            room_info.mark_members_missing(); // the own member event changed
 
             let mut changes = StateChanges::default();
             changes.add_room(room_info.clone());
@@ -1131,7 +1153,7 @@ impl From<&v5::Request> for RequestedRequiredStates {
 mod tests {
     use std::collections::HashMap;
 
-    use assert_matches2::assert_let;
+    use assert_matches2::{assert_let, assert_matches};
     use futures_util::FutureExt as _;
     use matrix_sdk_test::{
         async_test, event_factory::EventFactory, ruma_response_from_json, InvitedRoomBuilder,
@@ -1739,8 +1761,9 @@ mod tests {
     }
 
     #[async_test]
-    async fn test_joined_at_timestamp_is_set() {
-        let client = logged_in_base_client(None).await;
+    async fn test_invite_details_are_set() {
+        let user_id = user_id!("@alice:localhost");
+        let client = logged_in_base_client(Some(user_id)).await;
         let invited_room_id = room_id!("!invited:localhost");
         let unknown_room_id = room_id!("!unknown:localhost");
 
@@ -1757,27 +1780,41 @@ mod tests {
             .expect("The sync should have created a room in the invited state");
 
         assert_eq!(invited_room.state(), RoomState::Invited);
-        assert!(invited_room.inner.get().invite_accepted_at().is_none());
+        assert!(invited_room.invite_acceptance_details().is_none());
 
         // Now we join the room.
         let joined_room = client
-            .room_joined(invited_room_id)
+            .room_joined(invited_room_id, Some(user_id.to_owned()))
             .await
             .expect("We should be able to mark a room as joined");
 
-        // Yup, there's a timestamp now.
+        // Yup, we now have some invite details.
         assert_eq!(joined_room.state(), RoomState::Joined);
-        assert!(joined_room.inner.get().invite_accepted_at().is_some());
+        assert_matches!(joined_room.invite_acceptance_details(), Some(details));
+        assert_eq!(details.inviter, user_id);
 
         // If we didn't know about the room before the join, we assume that there wasn't
         // an invite and we don't record the timestamp.
         assert!(client.get_room(unknown_room_id).is_none());
         let unknown_room = client
-            .room_joined(unknown_room_id)
+            .room_joined(unknown_room_id, Some(user_id.to_owned()))
             .await
             .expect("We should be able to mark a room as joined");
 
         assert_eq!(unknown_room.state(), RoomState::Joined);
-        assert!(unknown_room.inner.get().invite_accepted_at().is_none());
+        assert!(unknown_room.invite_acceptance_details().is_none());
+
+        sync_builder.clear();
+        let response =
+            sync_builder.add_left_room(LeftRoomBuilder::new(invited_room_id)).build_sync_response();
+        client.receive_sync_response(response).await.unwrap();
+
+        // Now that we left the room, we shouldn't have any details anymore.
+        let left_room = client
+            .get_room(invited_room_id)
+            .expect("The sync should have created a room in the invited state");
+
+        assert_eq!(left_room.state(), RoomState::Left);
+        assert!(left_room.invite_acceptance_details().is_none());
     }
 }

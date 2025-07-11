@@ -6,6 +6,15 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased] - ReleaseDate
 
+### Features
+- [**breaking**] The `RoomInfo` method now remembers the inviter at the time
+  when the `BaseClient::room_joined()` method was called. The caller is
+  responsible to remember the inviter before a server request to join the room
+  is made. The  `RoomInfo::invite_accepted_at` method was removed, the
+  `RoomInfo::invite_details` method returns both the timestamp and the
+  inviter.
+  ([#5390](https://github.com/matrix-org/matrix-rust-sdk/pull/5390))
+
 ## [0.13.0] - 2025-07-10
 
 ### Features
