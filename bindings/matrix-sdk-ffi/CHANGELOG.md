@@ -6,6 +6,12 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased] - ReleaseDate
 
+### Breaking changes:
+
+- `ClientBuilder::build_with_qr_code` has been removed. Instead, the Client should be built by passing
+  `QrCodeData::server_name` to `ClientBuilder::server_name_or_homeserver_url`, after which QR login can be performed by
+  calling `Client::login_with_qr_code`. ([#5388](https://github.com/matrix-org/matrix-rust-sdk/pull/5388))
+
 ## [0.13.0] - 2025-07-10
 
 ### Features
