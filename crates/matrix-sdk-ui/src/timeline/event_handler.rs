@@ -741,7 +741,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
 
         let kind: EventTimelineItemKind = match &self.ctx.flow {
             Flow::Local { txn_id, send_handle } => LocalEventTimelineItem {
-                send_state: EventSendState::NotSentYet,
+                send_state: EventSendState::NotSentYet { progress: None },
                 transaction_id: txn_id.to_owned(),
                 send_handle: send_handle.clone(),
             }

@@ -784,7 +784,7 @@ mod observable_items_tests {
                     thread_summary: None,
                 }),
                 EventTimelineItemKind::Local(LocalEventTimelineItem {
-                    send_state: EventSendState::NotSentYet,
+                    send_state: EventSendState::NotSentYet { progress: None },
                     transaction_id: transaction_id.into(),
                     send_handle: None,
                 }),

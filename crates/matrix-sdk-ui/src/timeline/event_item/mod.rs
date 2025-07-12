@@ -56,7 +56,7 @@ pub use self::{
         PollResult, PollState, RoomMembershipChange, RoomPinnedEventsChange, Sticker,
         ThreadSummary, TimelineItemContent,
     },
-    local::EventSendState,
+    local::{EventSendProgress, EventSendState},
 };
 
 /// An item in the timeline that represents at least one event.
