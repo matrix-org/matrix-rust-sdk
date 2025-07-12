@@ -526,6 +526,7 @@ impl OlmMachine {
         key_counts: HashMap<String, i32>,
         unused_fallback_keys: Option<Vec<String>>,
         next_batch_token: String,
+        decryption_settings: &DecryptionSettings,
     ) -> Result<SyncChangesResult, CryptoStoreError> {
         let to_device: ToDevice = serde_json::from_str(&events)?;
         let device_changes: RumaDeviceLists = device_changes.into();
@@ -544,15 +545,17 @@ impl OlmMachine {
         let unused_fallback_keys: Option<Vec<OneTimeKeyAlgorithm>> =
             unused_fallback_keys.map(|u| u.into_iter().map(OneTimeKeyAlgorithm::from).collect());
 
-        let (to_device_events, room_key_infos) = self.runtime.block_on(
-            self.inner.receive_sync_changes(matrix_sdk_crypto::EncryptionSyncChanges {
-                to_device_events: to_device.events,
-                changed_devices: &device_changes,
-                one_time_keys_counts: &key_counts,
-                unused_fallback_keys: unused_fallback_keys.as_deref(),
-                next_batch_token: Some(next_batch_token),
-            }),
-        )?;
+        let (to_device_events, room_key_infos) =
+            self.runtime.block_on(self.inner.receive_sync_changes(
+                matrix_sdk_crypto::EncryptionSyncChanges {
+                    to_device_events: to_device.events,
+                    changed_devices: &device_changes,
+                    one_time_keys_counts: &key_counts,
+                    unused_fallback_keys: unused_fallback_keys.as_deref(),
+                    next_batch_token: Some(next_batch_token),
+                },
+                decryption_settings,
+            ))?;
 
         let to_device_events = to_device_events
             .into_iter()

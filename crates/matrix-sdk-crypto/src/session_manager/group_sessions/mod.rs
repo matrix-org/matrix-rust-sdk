@@ -1068,7 +1068,7 @@ mod tests {
             requests::ToDeviceRequest,
             DeviceKeys, EventEncryptionAlgorithm,
         },
-        EncryptionSettings, LocalTrust, OlmMachine,
+        DecryptionSettings, EncryptionSettings, LocalTrust, OlmMachine, TrustRequirement,
     };
 
     fn alice_id() -> &'static UserId {
@@ -1649,7 +1649,12 @@ mod tests {
                 unused_fallback_keys: None,
                 next_batch_token: None,
             };
-            let (decrypted, _) = machine.receive_sync_changes(sync_changes).await.unwrap();
+
+            let decryption_settings =
+                DecryptionSettings { sender_device_trust_requirement: TrustRequirement::Untrusted };
+
+            let (decrypted, _) =
+                machine.receive_sync_changes(sync_changes, &decryption_settings).await.unwrap();
 
             assert_eq!(1, decrypted.len());
         }
@@ -1714,7 +1719,12 @@ mod tests {
                 unused_fallback_keys: None,
                 next_batch_token: None,
             };
-            let (decrypted, _) = machine.receive_sync_changes(sync_changes).await.unwrap();
+
+            let decryption_settings =
+                DecryptionSettings { sender_device_trust_requirement: TrustRequirement::Untrusted };
+
+            let (decrypted, _) =
+                machine.receive_sync_changes(sync_changes, &decryption_settings).await.unwrap();
 
             assert_eq!(1, decrypted.len());
         }
@@ -1822,7 +1832,12 @@ mod tests {
             unused_fallback_keys: None,
             next_batch_token: None,
         };
-        let (decrypted, _) = bob.receive_sync_changes(sync_changes).await.unwrap();
+
+        let decryption_settings =
+            DecryptionSettings { sender_device_trust_requirement: TrustRequirement::Untrusted };
+
+        let (decrypted, _) =
+            bob.receive_sync_changes(sync_changes, &decryption_settings).await.unwrap();
         assert_eq!(1, decrypted.len());
         use crate::types::events::EventType;
         assert_let!(
