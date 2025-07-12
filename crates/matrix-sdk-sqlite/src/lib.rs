@@ -25,6 +25,7 @@ mod event_cache_store;
 mod state_store;
 mod utils;
 use std::{
+    cmp::max,
     fmt,
     path::{Path, PathBuf},
 };
@@ -66,6 +67,12 @@ impl fmt::Debug for SqliteStoreConfig {
     }
 }
 
+/// The minimum size of the connections pool.
+///
+/// We need at least 2 connections: one connection for write operations, and one
+/// connection for read operations.
+const POOL_MINIMUM_SIZE: usize = 2;
+
 impl SqliteStoreConfig {
     /// Create a new [`SqliteStoreConfig`] with a path representing the
     /// directory containing the store database.
@@ -76,7 +83,7 @@ impl SqliteStoreConfig {
         Self {
             path: path.as_ref().to_path_buf(),
             passphrase: None,
-            pool_config: PoolConfig::new(num_cpus::get_physical() * 4),
+            pool_config: PoolConfig::new(max(POOL_MINIMUM_SIZE, num_cpus::get_physical() * 4)),
             runtime_config: RuntimeConfig::default(),
         }
     }
@@ -122,7 +129,7 @@ impl SqliteStoreConfig {
     ///
     /// See [`deadpool_sqlite::PoolConfig::max_size`] to learn more.
     pub fn pool_max_size(mut self, max_size: usize) -> Self {
-        self.pool_config.max_size = max_size;
+        self.pool_config.max_size = max(POOL_MINIMUM_SIZE, max_size);
         self
     }
 
@@ -218,7 +225,7 @@ mod tests {
         path::{Path, PathBuf},
     };
 
-    use super::SqliteStoreConfig;
+    use super::{SqliteStoreConfig, POOL_MINIMUM_SIZE};
 
     #[test]
     fn test_new() {
@@ -262,5 +269,12 @@ mod tests {
         let store_config = SqliteStoreConfig::new(Path::new("foo")).path(Path::new("bar"));
 
         assert_eq!(store_config.path, PathBuf::from("bar"));
+    }
+
+    #[test]
+    fn test_pool_size_has_a_minimum() {
+        let store_config = SqliteStoreConfig::new(Path::new("foo")).pool_max_size(1);
+
+        assert_eq!(store_config.pool_config.max_size, POOL_MINIMUM_SIZE);
     }
 }
