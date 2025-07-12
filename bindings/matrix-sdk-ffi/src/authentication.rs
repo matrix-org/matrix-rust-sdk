@@ -22,8 +22,8 @@ pub struct HomeserverLoginDetails {
     pub(crate) url: String,
     pub(crate) sliding_sync_version: SlidingSyncVersion,
     pub(crate) supports_oidc_login: bool,
-    pub(crate) supports_sso_login: bool,
     pub(crate) supported_oidc_prompts: Vec<OidcPrompt>,
+    pub(crate) supports_sso_login: bool,
     pub(crate) supports_password_login: bool,
 }
 
