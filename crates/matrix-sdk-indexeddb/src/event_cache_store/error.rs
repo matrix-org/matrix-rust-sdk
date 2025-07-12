@@ -33,6 +33,14 @@ impl<T> AsyncErrorDeps for T where T: std::error::Error + SendOutsideWasm + Sync
 pub enum IndexeddbEventCacheStoreError {
     #[error("DomException {name} ({code}): {message}")]
     DomException { name: String, message: String, code: u16 },
+    #[error("chunks contain disjoint lists")]
+    ChunksContainDisjointLists,
+    #[error("chunks contain cycle")]
+    ChunksContainCycle,
+    #[error("unable to load chunk")]
+    UnableToLoadChunk,
+    #[error("no max chunk id")]
+    NoMaxChunkId,
     #[error("transaction: {0}")]
     Transaction(#[from] IndexeddbEventCacheStoreTransactionError),
     #[error("media store: {0}")]
@@ -51,23 +59,16 @@ impl From<web_sys::DomException> for IndexeddbEventCacheStoreError {
 
 impl From<IndexeddbEventCacheStoreError> for EventCacheStoreError {
     fn from(value: IndexeddbEventCacheStoreError) -> Self {
+        use IndexeddbEventCacheStoreError::*;
+
         match value {
-            IndexeddbEventCacheStoreError::DomException { .. } => {
-                Self::InvalidData { details: value.to_string() }
-            }
-            IndexeddbEventCacheStoreError::Transaction(ref inner) => match inner {
-                IndexeddbEventCacheStoreTransactionError::DomException { .. } => {
-                    Self::InvalidData { details: value.to_string() }
-                }
-                IndexeddbEventCacheStoreTransactionError::Serialization(e) => {
-                    Self::Serialization(serde_json::Error::custom(e.to_string()))
-                }
-                IndexeddbEventCacheStoreTransactionError::ItemIsNotUnique
-                | IndexeddbEventCacheStoreTransactionError::ItemNotFound => {
-                    Self::InvalidData { details: value.to_string() }
-                }
-            },
-            IndexeddbEventCacheStoreError::MemoryStore(inner) => inner,
+            DomException { .. }
+            | ChunksContainCycle
+            | ChunksContainDisjointLists
+            | NoMaxChunkId
+            | UnableToLoadChunk => Self::InvalidData { details: value.to_string() },
+            Transaction(inner) => inner.into(),
+            MemoryStore(inner) => inner,
         }
     }
 }
