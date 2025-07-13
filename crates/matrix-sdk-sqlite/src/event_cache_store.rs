@@ -36,6 +36,7 @@ use matrix_sdk_base::{
         Position, RawChunk, Update,
     },
     media::{MediaRequestParameters, UniqueKey},
+    timer,
 };
 use matrix_sdk_store_encryption::StoreCipher;
 use ruma::{
@@ -176,10 +177,9 @@ impl SqliteEventCacheStore {
     #[instrument(skip_all)]
     async fn read(&self) -> Result<SqliteAsyncConn> {
         trace!("Taking a `read` connection");
+        let _timer = timer!("connection");
 
         let connection = self.pool.get().await?;
-
-        trace!("`read` connection taken");
 
         // Per https://www.sqlite.org/foreignkeys.html#fk_enable, foreign key
         // support must be enabled on a per-connection basis. Execute it every
@@ -194,10 +194,9 @@ impl SqliteEventCacheStore {
     #[instrument(skip_all)]
     async fn write(&self) -> Result<OwnedMutexGuard<SqliteAsyncConn>> {
         trace!("Taking a `write` connection");
+        let _timer = timer!("connection");
 
         let connection = self.write_connection.clone().lock_owned().await;
-
-        trace!("`write` connection taken");
 
         // Per https://www.sqlite.org/foreignkeys.html#fk_enable, foreign key
         // support must be enabled on a per-connection basis. Execute it every
