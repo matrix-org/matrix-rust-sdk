@@ -56,7 +56,9 @@ impl ReadReceipts {
     }
 
     /// Subscribe to changes in the read receipts of our own user.
-    pub(super) fn subscribe_own_user_read_receipts_changed(&self) -> impl Stream<Item = ()> {
+    pub(super) fn subscribe_own_user_read_receipts_changed(
+        &self,
+    ) -> impl Stream<Item = ()> + use<> {
         let subscriber = self.own_user_read_receipts_changed_sender.subscribe();
         WatchStream::from_changes(subscriber)
     }

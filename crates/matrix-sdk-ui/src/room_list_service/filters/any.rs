@@ -16,7 +16,7 @@ use super::{BoxedFilterFn, Filter};
 
 /// Create a new filter that will run multiple filters. It returns `true` if at
 /// least one of the filter returns `true`.
-pub fn new_filter(filters: Vec<BoxedFilterFn>) -> impl Filter {
+pub fn new_filter(filters: Vec<BoxedFilterFn>) -> impl Filter + use<> {
     move |room| -> bool { filters.iter().any(|filter| filter(room)) }
 }
 

@@ -326,7 +326,7 @@ impl RoomListService {
         &self,
         delay_before_showing: Duration,
         delay_before_hiding: Duration,
-    ) -> impl Stream<Item = SyncIndicator> {
+    ) -> impl Stream<Item = SyncIndicator> + use<> {
         let mut state = self.state();
 
         stream! {
