@@ -20,17 +20,17 @@ use futures_core::Stream;
 use futures_util::{FutureExt as _, StreamExt as _};
 use imbl::vector;
 use matrix_sdk::assert_next_matches_with_timeout;
-use matrix_sdk_test::{async_test, ALICE, BOB};
+use matrix_sdk_test::{ALICE, BOB, async_test};
 use ruma::{
-    event_id, events::AnyMessageLikeEventContent, server_name, uint, EventId,
-    MilliSecondsSinceUnixEpoch, OwnedEventId,
+    EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, event_id,
+    events::AnyMessageLikeEventContent, server_name, uint,
 };
 use stream_assert::{assert_next_matches, assert_pending};
 use tokio::time::timeout;
 
 use crate::timeline::{
-    event_item::RemoteEventOrigin, tests::TestTimeline, ReactionStatus, TimelineEventItemId,
-    TimelineItem,
+    ReactionStatus, TimelineEventItemId, TimelineItem, event_item::RemoteEventOrigin,
+    tests::TestTimeline,
 };
 
 const REACTION_KEY: &str = "👍";
@@ -144,13 +144,15 @@ async fn test_redact_reaction_success() {
 
     // Will immediately redact it on the item.
     let event = assert_item_update!(stream, &event_id, item_pos);
-    assert!(event
-        .content()
-        .reactions()
-        .cloned()
-        .unwrap_or_default()
-        .get(&REACTION_KEY.to_owned())
-        .is_none());
+    assert!(
+        event
+            .content()
+            .reactions()
+            .cloned()
+            .unwrap_or_default()
+            .get(&REACTION_KEY.to_owned())
+            .is_none()
+    );
 
     // And send a redaction request for that reaction.
     {

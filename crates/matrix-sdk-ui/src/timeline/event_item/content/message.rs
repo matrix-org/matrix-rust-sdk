@@ -17,7 +17,9 @@
 use std::fmt;
 
 use ruma::{
+    OwnedEventId,
     events::{
+        AnySyncMessageLikeEvent, AnySyncTimelineEvent, BundledMessageLikeRelations, Mentions,
         poll::unstable_start::{
             NewUnstablePollStartEventContentWithoutRelation, SyncUnstablePollStartEvent,
             UnstablePollStartEventContent,
@@ -25,11 +27,9 @@ use ruma::{
         room::message::{
             MessageType, Relation, RoomMessageEventContentWithoutRelation, SyncRoomMessageEvent,
         },
-        AnySyncMessageLikeEvent, AnySyncTimelineEvent, BundledMessageLikeRelations, Mentions,
     },
     html::RemoveReplyFallback,
     serde::Raw,
-    OwnedEventId,
 };
 use tracing::{error, trace};
 

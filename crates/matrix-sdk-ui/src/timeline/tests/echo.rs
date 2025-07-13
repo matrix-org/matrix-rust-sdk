@@ -18,11 +18,11 @@ use assert_matches::assert_matches;
 use eyeball_im::VectorDiff;
 use matrix_sdk::{assert_next_matches_with_timeout, send_queue::RoomSendQueueUpdate};
 use matrix_sdk_base::store::QueueWedgeError;
-use matrix_sdk_test::{async_test, ALICE, BOB};
+use matrix_sdk_test::{ALICE, BOB, async_test};
 use ruma::{
-    event_id,
-    events::{room::message::RoomMessageEventContent, AnyMessageLikeEventContent},
-    user_id, MilliSecondsSinceUnixEpoch,
+    MilliSecondsSinceUnixEpoch, event_id,
+    events::{AnyMessageLikeEventContent, room::message::RoomMessageEventContent},
+    user_id,
 };
 use stream_assert::{assert_next_matches, assert_pending};
 

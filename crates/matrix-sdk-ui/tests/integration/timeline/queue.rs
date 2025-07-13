@@ -18,22 +18,22 @@ use assert_matches::assert_matches;
 use assert_matches2::assert_let;
 use eyeball_im::VectorDiff;
 use futures_util::StreamExt;
-use matrix_sdk::{config::SyncSettings, test_utils::logged_in_client_with_server, Error};
+use matrix_sdk::{Error, config::SyncSettings, test_utils::logged_in_client_with_server};
 use matrix_sdk_base::store::QueueWedgeError;
 use matrix_sdk_test::{
-    async_test, event_factory::EventFactory, mocks::mock_encryption_state, JoinedRoomBuilder,
-    SyncResponseBuilder, ALICE,
+    ALICE, JoinedRoomBuilder, SyncResponseBuilder, async_test, event_factory::EventFactory,
+    mocks::mock_encryption_state,
 };
 use matrix_sdk_ui::timeline::{EventItemOrigin, EventSendState, RoomExt};
 use ruma::{
-    event_id, events::room::message::RoomMessageEventContent, room_id, MilliSecondsSinceUnixEpoch,
+    MilliSecondsSinceUnixEpoch, event_id, events::room::message::RoomMessageEventContent, room_id,
 };
 use serde_json::json;
 use stream_assert::{assert_next_matches, assert_pending};
 use tokio::{task::yield_now, time::sleep};
 use wiremock::{
-    matchers::{body_string_contains, header, method, path_regex},
     Mock, ResponseTemplate,
+    matchers::{body_string_contains, header, method, path_regex},
 };
 
 use crate::mock_sync;

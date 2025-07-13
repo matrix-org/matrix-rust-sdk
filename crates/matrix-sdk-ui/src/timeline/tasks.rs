@@ -26,11 +26,11 @@ use matrix_sdk::{
     send_queue::RoomSendQueueUpdate,
 };
 use ruma::OwnedEventId;
-use tokio::sync::broadcast::{error::RecvError, Receiver};
+use tokio::sync::broadcast::{Receiver, error::RecvError};
 use tokio_stream::StreamExt as _;
 use tracing::{instrument, trace, warn};
 
-use crate::timeline::{event_item::RemoteEventOrigin, TimelineController, TimelineFocus};
+use crate::timeline::{TimelineController, TimelineFocus, event_item::RemoteEventOrigin};
 
 /// Long-lived task, in the pinned events focus mode, that updates the timeline
 /// after any changes in the pinned events.

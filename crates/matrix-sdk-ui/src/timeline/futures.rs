@@ -1,7 +1,7 @@
 use std::future::IntoFuture;
 
 use eyeball::SharedObservable;
-use matrix_sdk::{attachment::AttachmentConfig, TransmissionProgress};
+use matrix_sdk::{TransmissionProgress, attachment::AttachmentConfig};
 use matrix_sdk_base::boxed_into_future;
 use mime::Mime;
 use tracing::{Instrument as _, Span};

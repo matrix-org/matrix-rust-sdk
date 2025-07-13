@@ -16,10 +16,10 @@ use std::iter;
 
 use matrix_sdk::event_handler::EventHandler;
 use ruma::{
-    events::{forwarded_room_key::ToDeviceForwardedRoomKeyEvent, room_key::ToDeviceRoomKeyEvent},
     OwnedRoomId,
+    events::{forwarded_room_key::ToDeviceForwardedRoomKeyEvent, room_key::ToDeviceRoomKeyEvent},
 };
-use tracing::{debug_span, trace, Instrument};
+use tracing::{Instrument, debug_span, trace};
 
 use super::controller::TimelineController;
 

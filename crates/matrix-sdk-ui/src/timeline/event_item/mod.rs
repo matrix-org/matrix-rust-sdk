@@ -20,20 +20,20 @@ use std::{
 use as_variant::as_variant;
 use indexmap::IndexMap;
 use matrix_sdk::{
+    Client, Error,
     deserialized_responses::{EncryptionInfo, ShieldState},
     send_queue::{SendHandle, SendReactionHandle},
-    Client, Error,
 };
 use matrix_sdk_base::{
-    deserialized_responses::{ShieldStateCode, SENT_IN_CLEAR},
+    deserialized_responses::{SENT_IN_CLEAR, ShieldStateCode},
     latest_event::LatestEvent,
 };
 use once_cell::sync::Lazy;
 use ruma::{
-    events::{receipt::Receipt, room::message::MessageType, AnySyncTimelineEvent},
-    serde::Raw,
     EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedMxcUri, OwnedTransactionId,
     OwnedUserId, RoomId, RoomVersionId, TransactionId, UserId,
+    events::{AnySyncTimelineEvent, receipt::Receipt, room::message::MessageType},
+    serde::Raw,
 };
 use tracing::warn;
 use unicode_segmentation::UnicodeSegmentation;
@@ -42,13 +42,6 @@ mod content;
 mod local;
 mod remote;
 
-pub(super) use self::{
-    content::{
-        extract_bundled_edit_event_json, extract_poll_edit_content, extract_room_msg_edit_content,
-    },
-    local::LocalEventTimelineItem,
-    remote::{RemoteEventOrigin, RemoteEventTimelineItem},
-};
 pub use self::{
     content::{
         AnyOtherFullStateEventContent, EmbeddedEvent, EncryptedMessage, InReplyToDetails,
@@ -57,6 +50,13 @@ pub use self::{
         ThreadSummary, TimelineItemContent,
     },
     local::EventSendState,
+};
+pub(super) use self::{
+    content::{
+        extract_bundled_edit_event_json, extract_poll_edit_content, extract_room_msg_edit_content,
+    },
+    local::LocalEventTimelineItem,
+    remote::{RemoteEventOrigin, RemoteEventTimelineItem},
 };
 
 /// An item in the timeline that represents at least one event.
@@ -792,23 +792,24 @@ mod tests {
     use assert_matches2::assert_let;
     use matrix_sdk::test_utils::logged_in_client;
     use matrix_sdk_base::{
-        deserialized_responses::TimelineEvent, latest_event::LatestEvent, MinimalStateEvent,
-        OriginalMinimalStateEvent, RequestedRequiredStates,
+        MinimalStateEvent, OriginalMinimalStateEvent, RequestedRequiredStates,
+        deserialized_responses::TimelineEvent, latest_event::LatestEvent,
     };
     use matrix_sdk_test::{async_test, event_factory::EventFactory, sync_state_event};
     use ruma::{
+        RoomId, UInt, UserId,
         api::client::sync::sync_events::v5 as http,
         event_id,
         events::{
+            AnySyncStateEvent,
             room::{
                 member::RoomMemberEventContent,
                 message::{MessageFormat, MessageType},
             },
-            AnySyncStateEvent,
         },
         room_id,
         serde::Raw,
-        user_id, RoomId, UInt, UserId,
+        user_id,
     };
 
     use super::{EventTimelineItem, Profile};
@@ -1006,8 +1007,8 @@ mod tests {
     }
 
     #[async_test]
-    async fn test_latest_message_event_can_be_wrapped_as_a_timeline_item_with_sender_from_the_storage(
-    ) {
+    async fn test_latest_message_event_can_be_wrapped_as_a_timeline_item_with_sender_from_the_storage()
+     {
         // Given a sync event that is suitable to be used as a latest_event, and a room
         // with a member event for the sender
 
@@ -1055,8 +1056,8 @@ mod tests {
     }
 
     #[async_test]
-    async fn test_latest_message_event_can_be_wrapped_as_a_timeline_item_with_sender_from_the_cache(
-    ) {
+    async fn test_latest_message_event_can_be_wrapped_as_a_timeline_item_with_sender_from_the_cache()
+     {
         // Given a sync event that is suitable to be used as a latest_event, a room, and
         // a member event for the sender (which isn't part of the room yet).
 

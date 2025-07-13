@@ -15,10 +15,11 @@
 use assert_matches2::assert_let;
 use eyeball_im::VectorDiff;
 use matrix_sdk::deserialized_responses::TimelineEvent;
-use matrix_sdk_test::{async_test, sync_timeline_event, ALICE, BOB};
+use matrix_sdk_test::{ALICE, BOB, async_test, sync_timeline_event};
 use ruma::{
-    events::{room::message::MessageType, MessageLikeEventType, StateEventType},
-    uint, MilliSecondsSinceUnixEpoch,
+    MilliSecondsSinceUnixEpoch,
+    events::{MessageLikeEventType, StateEventType, room::message::MessageType},
+    uint,
 };
 use stream_assert::assert_next_matches;
 

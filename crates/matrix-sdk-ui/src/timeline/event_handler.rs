@@ -22,7 +22,12 @@ use matrix_sdk::{
     send_queue::SendHandle,
 };
 use ruma::{
+    EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, OwnedUserId,
+    TransactionId,
     events::{
+        AnyMessageLikeEventContent, AnySyncMessageLikeEvent, AnySyncStateEvent,
+        AnySyncTimelineEvent, EventContent, FullStateEventContent, MessageLikeEventType,
+        StateEventType, SyncStateEvent,
         poll::unstable_start::{
             NewUnstablePollStartEventContentWithoutRelation, UnstablePollStartEventContent,
         },
@@ -31,20 +36,18 @@ use ruma::{
         room::message::{
             Relation, RoomMessageEventContent, RoomMessageEventContentWithoutRelation,
         },
-        AnyMessageLikeEventContent, AnySyncMessageLikeEvent, AnySyncStateEvent,
-        AnySyncTimelineEvent, EventContent, FullStateEventContent, MessageLikeEventType,
-        StateEventType, SyncStateEvent,
     },
     serde::Raw,
-    EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, OwnedUserId,
-    TransactionId,
 };
 use tracing::{debug, error, field::debug, instrument, trace, warn};
 
 use super::{
+    EmbeddedEvent, EncryptedMessage, EventTimelineItem, InReplyToDetails, MsgLikeContent,
+    MsgLikeKind, OtherState, ReactionStatus, Sticker, ThreadSummary, TimelineDetails, TimelineItem,
+    TimelineItemContent,
     controller::{
-        find_item_and_apply_aggregation, Aggregation, AggregationKind, ObservableItemsTransaction,
-        PendingEditKind, TimelineMetadata, TimelineStateTransaction,
+        Aggregation, AggregationKind, ObservableItemsTransaction, PendingEditKind,
+        TimelineMetadata, TimelineStateTransaction, find_item_and_apply_aggregation,
     },
     date_dividers::DateDividerAdjuster,
     event_item::{
@@ -53,9 +56,6 @@ use super::{
         TimelineEventItemId,
     },
     traits::RoomDataProvider,
-    EmbeddedEvent, EncryptedMessage, EventTimelineItem, InReplyToDetails, MsgLikeContent,
-    MsgLikeKind, OtherState, ReactionStatus, Sticker, ThreadSummary, TimelineDetails, TimelineItem,
-    TimelineItemContent,
 };
 use crate::timeline::controller::aggregations::PendingEdit;
 

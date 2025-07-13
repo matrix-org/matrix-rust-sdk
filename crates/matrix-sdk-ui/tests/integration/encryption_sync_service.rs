@@ -1,12 +1,12 @@
 use std::{
     collections::{BTreeMap, HashSet},
     sync::{
-        atomic::{AtomicBool, Ordering},
         Arc, Mutex,
+        atomic::{AtomicBool, Ordering},
     },
 };
 
-use futures_util::{pin_mut, StreamExt as _};
+use futures_util::{StreamExt as _, pin_mut};
 use matrix_sdk::{
     config::RequestConfig,
     test_utils::{
@@ -23,13 +23,13 @@ use serde_json::json;
 use tokio::sync::Mutex as AsyncMutex;
 use tracing::{error, info, trace, warn};
 use wiremock::{
-    matchers::{method, path},
     Mock, MockGuard, MockServer, Request, ResponseTemplate,
+    matchers::{method, path},
 };
 
 use crate::{
     mock_sync,
-    sliding_sync::{check_requests, PartialSlidingSyncRequest, SlidingSyncMatcher},
+    sliding_sync::{PartialSlidingSyncRequest, SlidingSyncMatcher, check_requests},
     sliding_sync_then_assert_request_and_fake_response,
 };
 
