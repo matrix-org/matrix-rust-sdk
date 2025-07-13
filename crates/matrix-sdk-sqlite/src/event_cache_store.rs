@@ -127,7 +127,12 @@ impl SqliteEventCacheStore {
     }
 
     /// Open the SQLite-based event cache store with the config open config.
+    #[instrument(skip(config), fields(path = ?config.path))]
     pub async fn open_with_config(config: SqliteStoreConfig) -> Result<Self, OpenStoreError> {
+        debug!(?config);
+
+        let _timer = timer!("open_with_config");
+
         let SqliteStoreConfig { path, passphrase, pool_config, runtime_config } = config;
 
         fs::create_dir_all(&path).await.map_err(OpenStoreError::CreateDir)?;
