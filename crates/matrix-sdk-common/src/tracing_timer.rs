@@ -33,7 +33,7 @@ impl std::fmt::Debug for TracingTimer {
 
 impl Drop for TracingTimer {
     fn drop(&mut self) {
-        let message = format!("`{}` finished in {:?}", self.id, self.start.elapsed());
+        let message = format!("_{}_ finished in {:?}", self.id, self.start.elapsed());
 
         let enabled = tracing::level_enabled!(self.level) && {
             let interest = self.callsite.interest();
@@ -62,12 +62,8 @@ impl Drop for TracingTimer {
 }
 
 impl TracingTimer {
-    /// Create a new `TracingTimer` at the `debug` log level.
-    pub fn new_debug(
-        callsite: &'static DefaultCallsite,
-        id: String,
-        level: tracing::Level,
-    ) -> Self {
+    /// Create a new `TracingTimer`.
+    pub fn new(callsite: &'static DefaultCallsite, id: String, level: tracing::Level) -> Self {
         Self { id, callsite, start: Instant::now(), level }
     }
 }
@@ -111,7 +107,7 @@ macro_rules! timer {
             fields: []
         };
 
-        $crate::tracing_timer::TracingTimer::new_debug(&__CALLSITE, $string.into(), $level)
+        $crate::tracing_timer::TracingTimer::new(&__CALLSITE, $string.into(), $level)
     }};
 
     ($string:expr) => {
@@ -133,7 +129,7 @@ mod tests {
                 let _timer_guard = timer!(tracing::Level::DEBUG, "test");
                 tokio::time::sleep(ruma::time::Duration::from_millis(123)).await;
                 // Displays: 2023-08-25T15:18:31.169498Z DEBUG
-                // matrix_sdk_common::tracing_timer::tests: test finished in
+                // matrix_sdk_common::tracing_timer::tests: _test_ finished in
                 // 124ms
             }
         }
