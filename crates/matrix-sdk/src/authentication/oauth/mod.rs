@@ -909,6 +909,10 @@ impl OAuth {
     ///   [`OAuth::register_client()`] or [`OAuth::restore_registered_client()`]
     ///   was called previously.
     ///
+    /// * `additional_scopes` - Additional scopes to request from the
+    ///   authorization server. If not set, only the scopes for API access and
+    ///   the device ID will be requested.
+    ///
     /// # Example
     ///
     /// ```no_run
