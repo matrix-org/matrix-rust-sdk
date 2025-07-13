@@ -854,7 +854,10 @@ impl OAuth {
     }
 
     /// The scopes to request for logging in and the corresponding device ID.
-    fn login_scopes(device_id: Option<OwnedDeviceId>) -> ([Scope; 2], OwnedDeviceId) {
+    fn login_scopes(
+        device_id: Option<OwnedDeviceId>,
+        additional_scopes: Option<Vec<Scope>>,
+    ) -> (Vec<Scope>, OwnedDeviceId) {
         /// Scope to grand full access to the client-server API.
         const SCOPE_MATRIX_CLIENT_SERVER_API_FULL_ACCESS: &str =
             "urn:matrix:org.matrix.msc2967.client:api:*";
@@ -864,13 +867,16 @@ impl OAuth {
         // Generate the device ID if it is not provided.
         let device_id = device_id.unwrap_or_else(DeviceId::new);
 
-        (
-            [
-                Scope::new(SCOPE_MATRIX_CLIENT_SERVER_API_FULL_ACCESS.to_owned()),
-                Scope::new(format!("{SCOPE_MATRIX_DEVICE_ID_PREFIX}{device_id}")),
-            ],
-            device_id,
-        )
+        let mut scopes = vec![
+            Scope::new(SCOPE_MATRIX_CLIENT_SERVER_API_FULL_ACCESS.to_owned()),
+            Scope::new(format!("{SCOPE_MATRIX_DEVICE_ID_PREFIX}{device_id}")),
+        ];
+
+        if let Some(extra_scopes) = additional_scopes {
+            scopes.extend(extra_scopes);
+        }
+
+        (scopes, device_id)
     }
 
     /// Log in via OAuth 2.0 with the Authorization Code flow.
@@ -921,7 +927,7 @@ impl OAuth {
     /// let client_metadata: Raw<ClientMetadata> = client_metadata();
     /// let registration_data = client_metadata.into();
     ///
-    /// let auth_data = oauth.login(redirect_uri, None, Some(registration_data))
+    /// let auth_data = oauth.login(redirect_uri, None, Some(registration_data), None)
     ///                      .build()
     ///                      .await?;
     ///
@@ -942,8 +948,9 @@ impl OAuth {
         redirect_uri: Url,
         device_id: Option<OwnedDeviceId>,
         registration_data: Option<ClientRegistrationData>,
+        additional_scopes: Option<Vec<Scope>>,
     ) -> OAuthAuthCodeUrlBuilder {
-        let (scopes, device_id) = Self::login_scopes(device_id);
+        let (scopes, device_id) = Self::login_scopes(device_id, additional_scopes);
 
         OAuthAuthCodeUrlBuilder::new(
             self.clone(),
@@ -1125,7 +1132,7 @@ impl OAuth {
         device_id: Option<OwnedDeviceId>,
     ) -> Result<oauth2::StandardDeviceAuthorizationResponse, qrcode::DeviceAuthorizationOAuthError>
     {
-        let (scopes, _) = Self::login_scopes(device_id);
+        let (scopes, _) = Self::login_scopes(device_id, None);
 
         let client_id = self.client_id().ok_or(OAuthError::NotRegistered)?.clone();
 

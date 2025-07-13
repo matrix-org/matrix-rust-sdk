@@ -466,7 +466,8 @@ impl Client {
         let registration_data = oidc_configuration.registration_data()?;
         let redirect_uri = oidc_configuration.redirect_uri()?;
 
-        let mut url_builder = self.inner.oauth().login(redirect_uri, None, Some(registration_data));
+        let mut url_builder =
+            self.inner.oauth().login(redirect_uri, None, Some(registration_data), None);
 
         if let Some(prompt) = prompt {
             url_builder = url_builder.prompt(vec![prompt.into()]);
