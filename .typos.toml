@@ -1,0 +1,39 @@
+[default]
+extend-ignore-re = [
+    # base 58 strings with spaces every four chars.
+    # this would also match regular sentence parts with eight or more words of
+    # exactly four characters in row, but that doesn't really happen.
+    "[1-9A-Za-z]{4}( [1-9A-Za-z]{4}){7,}",
+    # some heuristics for base64 strings with no false matches found at the
+    # time of writing.
+    "[A-Za-z0-9+=]{72,}",
+    "([A-Za-z0-9+=]|\\\\\\s\\*){72,}",
+    "[0-9+][A-Za-z0-9+]{30,}[a-z0-9+]",
+    "\\$[A-Z0-9+][A-Za-z0-9+]{6,}[a-z0-9+]",
+    "\\b[a-z0-9+/=][A-Za-z0-9+/=]{7,}[a-z0-9+/=][A-Z]\\b",
+]
+
+[default.extend-identifiers]
+WeeChat = "WeeChat"
+
+# all of these are valid words, but should never appear in this repo
+[default.extend-words]
+sing = "sign"
+singed = "signed"
+singing = "signing"
+ratatui = "ratatui"
+# base64 false positives
+Nd = "Nd"
+Abl = "Abl"
+Som = "Som"
+Ba = "Ba"
+Yur = "Yur" # as found in crates/matrix-sdk-indexeddb/src/crypto_store/migrations/mod.rs
+TYE = "TYE" # as found in testing/matrix-sdk-test/src/test_json/keys_query_sets.rs
+
+[files]
+extend-exclude = [
+    # Our json files contain a bunch of base64 encoded ed25519 keys.
+    "*.json",
+    # Fuzzy match patterns that can be understood as typos confusingly.
+    "crates/matrix-sdk-ui/tests/integration/room_list_service.rs",
+]

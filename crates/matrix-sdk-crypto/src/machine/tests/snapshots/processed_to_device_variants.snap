@@ -1,0 +1,32 @@
+---
+source: crates/matrix-sdk-crypto/src/machine/tests/send_encrypted_to_device.rs
+expression: "processed_event.to_raw().deserialize_as::<Value>().unwrap()"
+---
+{
+  "content": {
+    "call_id": "",
+    "device_id": "XYZABCDE",
+    "keys": [
+      {
+        "index": 0,
+        "key": "I7qrSrCR7Yo9B4iGVnR8IA"
+      }
+    ]
+  },
+  "keys": {
+    "ed25519": "[sender_ed25519_key]"
+  },
+  "recipient": "@bob:example.com",
+  "recipient_keys": {
+    "ed25519": "[recipient_sender_key]"
+  },
+  "sender": "@alice:example.org",
+  "sender_device_keys": {
+    "algorithms": "++REDACTED++",
+    "device_id": "[ABCDEFGH]",
+    "keys": "++REDACTED++",
+    "signatures": "++REDACTED++",
+    "user_id": "@alice:example.org"
+  },
+  "type": "rtc.call.encryption_keys"
+}

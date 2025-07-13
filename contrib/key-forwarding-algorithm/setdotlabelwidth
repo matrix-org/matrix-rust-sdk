@@ -1,0 +1,37 @@
+#!/usr/bin/perl
+#
+# Adapted from https://stackoverflow.com/a/68057031
+
+use strict;
+
+my $usage = "setdotlabelwidth [char-width] < [dotfile]";
+my $width = shift() or die("Usage: $usage $!");
+
+while(<STDIN>)
+{
+  if (m/label="(.*?)"/)
+  {
+    my $labeltext = $1;
+    my @words = split(/ +|(?=\\n)/, $labeltext);
+    my @newtext = ();
+    my $newline = "";
+    foreach my $word(@words)
+    {
+      if (length($newline) > 0 and
+          length($newline) + length($word) > $width)
+      {
+        push(@newtext, $newline);
+        $newline = "";
+      }
+
+      $newline .= " " if (length($newline) > 0);
+      $newline .= $word;
+    }
+
+    push(@newtext, $newline) if (length($newline) > 0);
+    my $newlabel = join("\\n", @newtext);
+    s/label=".*?"/label="$newlabel"/;
+  }
+
+  print;
+}

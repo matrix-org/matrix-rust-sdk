@@ -1,0 +1,6 @@
+[bindings.kotlin]
+package_name = "org.matrix.rustcomponents.sdk.crypto"
+cdylib_name = "matrix_sdk_crypto_ffi"
+
+[bindings.swift]
+module_name = "MatrixSDKCrypto"

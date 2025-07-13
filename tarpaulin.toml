@@ -1,0 +1,28 @@
+[default-config]
+debug = false
+verbose = false
+exclude-files = [
+    "examples/*",
+    "testing/*",
+    "labs/*",
+    "**/tests/*",
+]
+workspace = true
+# sqlite crypto store is not tested otherwise because it's only activated by
+# matrix-sdk-crypto-ffi, which is excluded from testing below.
+features = "crypto-store"
+exclude = [
+    # bindings
+    "matrix-sdk-crypto-ffi",
+    "matrix-sdk-ffi",
+    # wasm only, can't get coverage
+    "matrix-sdk-indexeddb",
+    # testing
+    "matrix-sdk-test",
+    "matrix-sdk-test-macros",
+    # repo automation (ci, codegen)
+    "uniffi-bindgen",
+    "xtask",
+    # until it doesn't segfault anymore, this is excluded :(
+    "matrix-sdk-base",
+]

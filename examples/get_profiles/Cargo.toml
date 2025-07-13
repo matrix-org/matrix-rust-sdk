@@ -1,0 +1,25 @@
+[package]
+name = "example-get-profiles"
+version = "0.1.0"
+edition = "2024"
+publish = false
+license = "Apache-2.0"
+
+[package.metadata.release]
+release = false
+
+[[bin]]
+name = "example-get-profiles"
+test = false
+
+[dependencies]
+anyhow.workspace = true
+# when copy-pasting this, please use a git dependency or make sure that you
+# have copied the example as it was at the time of the release you use.
+matrix-sdk = { path = "../../crates/matrix-sdk" }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+tracing-subscriber.workspace = true
+url.workspace = true
+
+[lints]
+workspace = true

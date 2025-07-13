@@ -1,0 +1,10 @@
+namespace matrix_sdk_ffi {};
+
+dictionary Mentions {
+  sequence<string> user_ids;
+  boolean room;
+};
+
+interface RoomMessageEventContentWithoutRelation {
+    RoomMessageEventContentWithoutRelation with_mentions(Mentions mentions);
+};

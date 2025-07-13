@@ -1,0 +1,10 @@
+max_width = 100
+comment_width = 80
+wrap_comments = true
+imports_granularity = "Crate"
+use_small_heuristics = "Max"
+group_imports = "StdExternalCrate"
+format_code_in_doc_comments = true
+doc_comment_code_block_width = 80
+# Workaround for https://github.com/rust-lang/rust.vim/issues/464
+edition = "2021"

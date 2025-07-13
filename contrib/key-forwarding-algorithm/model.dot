@@ -1,0 +1,45 @@
+digraph {
+    label="Matrix room key forwarding algorithm"
+    fontname="Fira Sans"
+    ratio=0.5
+
+    node [shape=box, colorscheme=paired6, style=filled, fillcolor=white, fontname="Fira Sans"]
+    edge [fontname="Fira Sans"]
+
+    /* Non-end states, additional checks needed. */
+    verified_device_check [label="START\n\nIs this our own, verified device?", labelfontname="Fira Sans"]
+    outbound_session_check [label="Outbound session exists?"]
+    outbound_exists [label="Session previously previously_shared with this user ID/device ID pair?"]
+    previously_shared [label="Requesting device sender (Curve25519) key matches the key we originally shared with?"]
+    own_device_check [label="Is this our own device?"]
+
+    /* End states */
+    allow_verified [label="Share the entire session from the earliest known index.\n\nOk(None)", color=4, fillcolor=3]
+    allow_limited [label="Share a limited session starting from index i, which is the index we previously shared at.\n\nOk(Some(i))", color=4, fillcolor=3]
+    refuse_device_key_changed [label="Sender key changed, refuse to forward.\n\nErr(KeyForwardDecision::ChangedSenderKey)", color=6, fillcolor=5]
+    refuse_not_shared [label="Session was never shared with this device, refuse to forward.\n\nErr(KeyForwardDecision::OutboundSessionNotShared)", color=6, fillcolor=5]
+    refuse_untrusted_own_device [label="Our own device, but it is untrusted and we haven't previously shared with it. Refuse to forward.\n\nErr(KeyForwardDecision::UntrustedDevice)", color=6, fillcolor=5]
+    refuse_missing_outbound_session [label="Not our device and haven't previously shared with it. Refuse to forward.\n\nErr(KeyForwardDecision::MissingOutboundSession)", color=6, fillcolor=5]
+
+    /* Checks */
+
+    /* Is this our own verified device? */
+    verified_device_check -> allow_verified [label="Yes"]
+    verified_device_check -> outbound_session_check [label="No"]
+
+    /* Does the outbound session exist? */
+    outbound_session_check -> outbound_exists [label="Yes"]
+    outbound_session_check -> own_device_check [label="No"]
+
+    /* Previously shared? */
+    outbound_exists -> previously_shared [label="Yes"]
+    outbound_exists -> refuse_not_shared [label="No"]
+
+    /* Requesting device sender key matches key it was shared with? */
+    previously_shared -> allow_limited [label="Yes"]
+    previously_shared -> refuse_device_key_changed [label="No"]
+
+    /* Is this our own device? */
+    own_device_check -> refuse_untrusted_own_device [label="Yes"]
+    own_device_check -> refuse_missing_outbound_session [label="No"]
+}

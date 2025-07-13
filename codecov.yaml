@@ -1,0 +1,32 @@
+coverage:
+  status:
+    project:
+      default:
+        # by default, we only care about test coverage of the main
+        # rust crates
+        target: auto
+        threshold: 1%
+        paths:
+          - "crates/matrix-sdk/"
+          - "crates/matrix-sdk-base/"
+          - "crates/matrix-sdk-common/"
+          - "crates/matrix-sdk-crypto/"
+          - "crates/matrix-sdk-qrcode/"
+          - "crates/matrix-sdk-sqlite/"
+          - "crates/matrix-sdk-store-encryption/"
+          # Coverage of wasm tests isn't supported at the moment,
+          # see rustwasm/wasm-bindgen#2276
+          # - "crates/matrix-sdk-indexeddb"
+      bindings:
+        # Coverage of binding tests is recorded but for informational
+        # purposes only
+        informational: true
+        paths:
+          - "bindings/"
+    patch: off
+ignore:
+  - "bindings/matrix-sdk-crypto-ffi"
+  - "bindings/matrix-sdk-ffi"
+  - "crates/matrix-sdk-indexeddb"
+  - "testing"
+  - "xtask"

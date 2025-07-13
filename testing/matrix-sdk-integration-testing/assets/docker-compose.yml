@@ -1,0 +1,14 @@
+services:
+
+  synapse:
+    build: .
+    restart: "no"
+    healthcheck:
+      disable: true
+    volumes:
+      - synapse:/data
+    ports:
+      - 8228:8008/tcp
+
+volumes:
+  synapse:

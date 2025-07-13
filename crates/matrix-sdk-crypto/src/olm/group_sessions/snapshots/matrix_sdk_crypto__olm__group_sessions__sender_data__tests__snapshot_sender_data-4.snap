@@ -1,0 +1,11 @@
+---
+source: crates/matrix-sdk-crypto/src/olm/group_sessions/sender_data.rs
+expression: "SenderData::VerificationViolation(KnownSenderData\n{\n    user_id: owned_user_id!(\"@foo:bar.baz\"), device_id:\n    Some(owned_device_id!(\"DEV\")), master_key:\n    Box::new(Ed25519PublicKey::from_slice(&[0u8; 32]).unwrap()),\n})"
+---
+{
+  "VerificationViolation": {
+    "user_id": "@foo:bar.baz",
+    "device_id": "DEV",
+    "master_key": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+  }
+}

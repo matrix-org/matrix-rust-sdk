@@ -1,0 +1,54 @@
+---
+source: testing/matrix-sdk-test/src/test_json/keys_query_sets.rs
+expression: data
+---
+{
+  "master_keys": {
+    "@me:localhost": {
+      "keys": {
+        "ed25519:KOS8zz9SJnMOxpfPOx9LO2+abuEcnZP/lxDo5RsXao4": "KOS8zz9SJnMOxpfPOx9LO2+abuEcnZP/lxDo5RsXao4"
+      },
+      "signatures": {
+        "@me:localhost": {
+          "ed25519:KOS8zz9SJnMOxpfPOx9LO2+abuEcnZP/lxDo5RsXao4": "5G9+Ns28rzNd+2DvP73Y0orr8sxduRQcrJj0YB7ZygH7oeXshvGLeQn6mcNs7q7ZrMR5bYlXxopufKSWWoKpCg"
+        }
+      },
+      "usage": [
+        "master"
+      ],
+      "user_id": "@me:localhost"
+    }
+  },
+  "self_signing_keys": {
+    "@me:localhost": {
+      "keys": {
+        "ed25519:9gXJQzvqZ+KQunfBTd0g9AkrulwEeFfspyWTSQFqqrw": "9gXJQzvqZ+KQunfBTd0g9AkrulwEeFfspyWTSQFqqrw"
+      },
+      "signatures": {
+        "@me:localhost": {
+          "ed25519:KOS8zz9SJnMOxpfPOx9LO2+abuEcnZP/lxDo5RsXao4": "amiKDLpWIwUQPzq+eov6KJsoskkWA1YzrGNb7HF3OcGV0nm4t7df0tUdZB/OpREtT5D78BKtzOPUipde2DxUAw"
+        }
+      },
+      "usage": [
+        "self_signing"
+      ],
+      "user_id": "@me:localhost"
+    }
+  },
+  "user_signing_keys": {
+    "@me:localhost": {
+      "keys": {
+        "ed25519:mvzOc2EuHoVfZTk1hX3y0hyjUs4MrfPv2V/PUFzMQJY": "mvzOc2EuHoVfZTk1hX3y0hyjUs4MrfPv2V/PUFzMQJY"
+      },
+      "signatures": {
+        "@me:localhost": {
+          "ed25519:KOS8zz9SJnMOxpfPOx9LO2+abuEcnZP/lxDo5RsXao4": "Cv56vTHAzRkvdcELleOlhECZQP0pXcikCdEZrnXbkjXQ/k0ZvVOJ1beG/SiH8xc6zh1bCIMYv96C9p8o+7VZCQ"
+        }
+      },
+      "usage": [
+        "user_signing"
+      ],
+      "user_id": "@me:localhost"
+    }
+  }
+}

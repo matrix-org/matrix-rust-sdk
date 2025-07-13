@@ -1,0 +1,22 @@
+[package]
+name = "xtask"
+version = "0.1.0"
+edition = "2024"
+publish = false
+license = "Apache-2.0"
+
+[package.metadata.release]
+release = false
+
+[[bin]]
+name = "xtask"
+test = false
+
+[dependencies]
+camino = "1.0.8"
+clap = { version = "4.0.18", features = ["derive"] }
+fs_extra = "1"
+serde = { workspace = true, features = ["derive"] }
+serde_json.workspace = true
+uniffi_bindgen.workspace = true
+xshell = "0.2.2"

@@ -1,0 +1,67 @@
+[package]
+authors = ["Damir Jelić <poljar@termina.org.uk>"]
+description = "Collection of common types and imports used in the matrix-sdk"
+edition = "2021"
+homepage = "https://github.com/matrix-org/matrix-rust-sdk"
+keywords = ["matrix", "chat", "messaging", "ruma", "nio"]
+license = "Apache-2.0"
+name = "matrix-sdk-common"
+readme = "README.md"
+repository = "https://github.com/matrix-org/matrix-rust-sdk"
+rust-version.workspace = true
+version = "0.13.0"
+
+[package.metadata.docs.rs]
+default-target = "x86_64-unknown-linux-gnu"
+targets = ["x86_64-unknown-linux-gnu", "wasm32-unknown-unknown"]
+rustdoc-args = ["--generate-link-to-definition"]
+
+[features]
+js = ["wasm-bindgen-futures"]
+uniffi = ["dep:uniffi"]
+# Private feature, see
+# https://github.com/matrix-org/matrix-rust-sdk/pull/3749#issuecomment-2312939823 for the gory
+# details.
+test-send-sync = []
+
+[dependencies]
+eyeball-im.workspace = true
+futures-core.workspace = true
+futures-util.workspace = true
+imbl.workspace = true
+ruma.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+uniffi = { workspace = true, optional = true }
+
+[target.'cfg(not(target_family = "wasm"))'.dependencies]
+# Enable the test macro.
+tokio = { workspace = true, features = ["rt", "time", "macros"] }
+
+[target.'cfg(target_family = "wasm")'.dependencies]
+futures-executor.workspace = true
+futures-util = { workspace = true, features = ["channel"] }
+gloo-timers = { workspace = true, features = ["futures"] }
+tokio = { workspace = true, features = ["sync", "macros", "time"] }
+tracing-subscriber = { workspace = true, features = ["fmt", "ansi"] }
+wasm-bindgen.workspace = true
+wasm-bindgen-futures = { version = "0.4.33", optional = true }
+web-sys = { workspace = true, features = ["console"] }
+
+[dev-dependencies]
+assert_matches.workspace = true
+assert_matches2.workspace = true
+insta.workspace = true
+matrix-sdk-test-macros = { path = "../../testing/matrix-sdk-test-macros" }
+proptest.workspace = true
+wasm-bindgen-test.workspace = true
+
+[target.'cfg(target_family = "wasm")'.dev-dependencies]
+# Enable the JS feature for getrandom.
+getrandom = { workspace = true, default-features = false, features = ["js"] }
+js-sys.workspace = true
+
+[lints]
+workspace = true

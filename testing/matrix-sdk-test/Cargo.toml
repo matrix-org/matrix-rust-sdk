@@ -1,0 +1,46 @@
+[package]
+authors = ["Damir Jelić <poljar@termina.org.uk>"]
+description = "Helpers to write tests for the Matrix SDK"
+edition = "2021"
+homepage = "https://github.com/matrix-org/matrix-rust-sdk"
+keywords = ["matrix", "chat", "messaging", "ruma"]
+license = "Apache-2.0"
+name = "matrix-sdk-test"
+readme = "README.md"
+repository = "https://github.com/matrix-org/matrix-rust-sdk"
+rust-version.workspace = true
+version = "0.13.0"
+
+[package.metadata.release]
+release = true
+
+[lib]
+test = false
+doctest = false
+
+[dependencies]
+as_variant.workspace = true
+http.workspace = true
+insta.workspace = true
+matrix-sdk-common = { version = "0.13.0", path = "../../crates/matrix-sdk-common" }
+matrix-sdk-test-macros = { version = "0.13.0", path = "../matrix-sdk-test-macros" }
+once_cell.workspace = true
+# Enable the unstable feature for polls support.
+# "client-api-s" enables need the "server" feature of ruma-client-api, which is needed to serialize Response objects to JSON.
+ruma = { workspace = true, features = ["canonical-json", "client-api-s", "rand", "unstable-msc3381", "unstable-msc4274"] }
+serde.workspace = true
+serde_json.workspace = true
+vodozemac.workspace = true
+
+[target.'cfg(not(target_family = "wasm"))'.dependencies]
+ctor = "0.2.9"
+tokio = { workspace = true, features = ["rt", "macros"] }
+tracing-subscriber = { workspace = true, features = ["env-filter"] }
+wiremock.workspace = true
+
+[target.'cfg(target_family = "wasm")'.dependencies]
+getrandom = { version = "0.2.6", default-features = false, features = ["js"] }
+wasm-bindgen-test.workspace = true
+
+[lints]
+workspace = true

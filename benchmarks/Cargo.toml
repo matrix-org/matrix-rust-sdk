@@ -1,0 +1,49 @@
+[package]
+name = "benchmarks"
+description = "Matrix SDK benchmarks"
+edition = "2021"
+license = "Apache-2.0"
+rust-version.workspace = true
+version = "1.0.0"
+publish = false
+
+[package.metadata.release]
+release = false
+
+[dependencies]
+criterion = { version = "0.5.1", features = ["async", "async_tokio", "html_reports"] }
+matrix-sdk = { workspace = true, features = ["native-tls", "e2e-encryption", "sqlite", "testing"] }
+matrix-sdk-base.workspace = true
+matrix-sdk-crypto.workspace = true
+matrix-sdk-sqlite = { workspace = true, features = ["crypto-store"] }
+matrix-sdk-test.workspace = true
+matrix-sdk-ui.workspace = true
+ruma.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tempfile = "3.3.0"
+tokio = { workspace = true, default-features = false, features = ["rt-multi-thread"] }
+wiremock.workspace = true
+
+[target.'cfg(target_os = "linux")'.dependencies]
+pprof = { version = "0.14.0", features = ["flamegraph", "criterion"] }
+
+[[bench]]
+name = "crypto_bench"
+harness = false
+
+[[bench]]
+name = "linked_chunk"
+harness = false
+
+[[bench]]
+name = "store_bench"
+harness = false
+
+[[bench]]
+name = "room_bench"
+harness = false
+
+[[bench]]
+name = "timeline"
+harness = false

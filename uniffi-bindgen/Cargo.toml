@@ -1,0 +1,12 @@
+[package]
+name = "uniffi-bindgen"
+version = "0.1.0"
+edition = "2024"
+publish = false
+license = "Apache-2.0"
+
+[package.metadata.release]
+release = false
+
+[dependencies]
+uniffi = { workspace = true, features = ["cli"] }

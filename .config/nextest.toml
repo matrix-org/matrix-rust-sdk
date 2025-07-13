@@ -1,0 +1,13 @@
+[profile.default]
+retries = { backoff = "exponential", count = 3, delay = "1s", jitter = true }
+# kill the slow tests if they still aren't up after 180s
+slow-timeout = { period = "60s", terminate-after = 3 }
+
+[profile.ci]
+retries = { backoff = "exponential", count = 4, delay = "1s", jitter = true }
+# kill the slow tests if they still aren't up after 180s
+slow-timeout = { period = "60s", terminate-after = 3 }
+
+[profile.ci.junit]
+path = "junit.xml"
+store-success-output = true

@@ -1,0 +1,124 @@
+name: Code Coverage
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  # without matrix_sdk=trace, expressions in `trace!` fields are not evaluated
+  # when the `trace!` statement is hit, and thus not covered
+  RUST_LOG: info,matrix_sdk=trace
+
+jobs:
+  xtask:
+    uses: ./.github/workflows/xtask.yml
+
+  code_coverage:
+    name: Code Coverage
+    needs: xtask
+    runs-on: "ubuntu-latest"
+
+    # run several docker containers with the same networking stack so the hostname 'synapse'
+    # maps to the synapse container, etc.
+    services:
+      # tests need a synapse: this is a service and not michaelkaye/setup-matrix-synapse@main as the
+      # latter does not provide networking for services to communicate with it.
+      synapse:
+        image: ghcr.io/matrix-org/synapse-service:v1.117.0 # keep in sync with ./ci.yml
+        env:
+            SYNAPSE_COMPLEMENT_DATABASE: sqlite
+            SERVER_NAME: synapse
+        ports:
+            - 8008:8008
+
+    steps:
+      # This CI workflow can run into space issue, so we're cleaning up some
+      # space here.
+      - name: Create some more space
+        run: rm -rf /opt/hostedtoolcache
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Install libsqlite
+        run: |
+          sudo apt-get update
+          sudo apt-get install libsqlite3-dev
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      # Cargo config can screw with caching and is only used for alias config
+      # and extra lints, which we don't care about here
+      - name: Delete cargo config
+        run: rm .cargo/config.toml
+
+      - name: Load cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          prefix-key: "coverage"
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+
+      - name: Install cargo-llvm-cov
+        uses: taiki-e/install-action@cargo-llvm-cov
+
+      - name: Install nextest
+        uses: taiki-e/install-action@nextest
+
+      - name: Get xtask
+        uses: actions/cache/restore@v4
+        with:
+          path: target/debug/xtask
+          key: "${{ needs.xtask.outputs.cachekey-linux }}"
+          fail-on-cache-miss: true
+
+      - name: Create the coverage report
+        run: |
+          target/debug/xtask ci coverage -o codecov 
+        env:
+          CARGO_PROFILE_COV_INHERITS: 'dev'
+          CARGO_PROFILE_COV_DEBUG: 1
+          HOMESERVER_URL: "http://localhost:8008"
+          HOMESERVER_DOMAIN: "synapse"
+
+      # Copied with minimal adjustments, source:
+      # https://github.com/google/mdbook-i18n-helpers/blob/2168b9cea1f4f76b55426591a9bcc308a620194f/.github/workflows/test.yml
+      - name: Get PR number and commit SHA
+        run: |
+          echo "Storing PR number ${{ github.event.number }}"
+          echo "${{ github.event.number }}" > pr_number.txt
+
+          echo "Storing commit SHA ${{ github.event.pull_request.head.sha }}"
+          echo "${{ github.event.pull_request.head.sha }}" > commit_sha.txt
+
+      - name: Move the JUnit file into the root directory
+        shell: bash
+        run: |
+          mv target/nextest/ci/junit.xml ./junit.xml
+
+      # This stores the coverage report and metadata in artifacts.
+      # The actual upload to Codecov is executed by a different workflow `upload_coverage.yml`.
+      # The reason for this split is because `on.pull_request` workflows don't have access to secrets.
+      - name: Store coverage report in artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: codecov_report
+          path: |
+            coverage.xml
+            junit.xml
+            pr_number.txt
+            commit_sha.txt
+          if-no-files-found: error
+
+      - run: |
+          echo 'The coverage report was stored in Github artifacts.'
+          echo 'It will be uploaded to Codecov using `upload_coverage.yml` workflow shortly.'

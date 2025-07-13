@@ -1,0 +1,16 @@
+---
+source: crates/matrix-sdk-crypto/src/types/backup.rs
+expression: info
+---
+{
+  "algorithm": "m.megolm_backup.v1.curve25519-aes-sha2",
+  "auth_data": {
+    "foo": "bar",
+    "public_key": "AgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgI",
+    "signatures": {
+      "@alice:localhost": {
+        "ed25519:ABCDEFG": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+      }
+    }
+  }
+}

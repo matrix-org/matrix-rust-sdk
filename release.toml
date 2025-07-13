@@ -1,0 +1,13 @@
+owners = ["poljar", "github:matrix-org:rust"]
+
+pre-release-commit-message = "chore: Release matrix-sdk version {{version}}"
+pre-release-replacements = [
+    {file="CHANGELOG.md", search="Unreleased", replace="{{version}}"},
+    {file="CHANGELOG.md", search="ReleaseDate", replace="{{date}}"},
+    {file="CHANGELOG.md", search="<!-- next-header -->", replace="<!-- next-header -->\n\n## [Unreleased] - ReleaseDate", exactly=1},
+]
+
+sign-tag = true
+tag-message = "Release {{crate_name}} version {{version}}"
+tag-name = "{{prefix}}{{version}}"
+shared-version = true

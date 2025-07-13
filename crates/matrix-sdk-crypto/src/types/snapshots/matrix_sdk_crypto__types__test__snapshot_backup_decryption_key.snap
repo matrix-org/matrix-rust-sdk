@@ -1,0 +1,38 @@
+---
+source: crates/matrix-sdk-crypto/src/types/mod.rs
+expression: "BackupDecryptionKey { inner: Box::new([1u8;32]) }"
+---
+[
+  1,
+  1,
+  1,
+  1,
+  1,
+  1,
+  1,
+  1,
+  1,
+  1,
+  1,
+  1,
+  1,
+  1,
+  1,
+  1,
+  1,
+  1,
+  1,
+  1,
+  1,
+  1,
+  1,
+  1,
+  1,
+  1,
+  1,
+  1,
+  1,
+  1,
+  1,
+  1
+]

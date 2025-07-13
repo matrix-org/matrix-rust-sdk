@@ -1,0 +1,23 @@
+target
+generated
+master.zip
+emsdk-*
+.idea/
+.env
+.build
+.swiftpm
+/Package.swift
+# code coverage report
+cobertura.xml
+
+## User settings
+xcuserdata/
+.vscode/
+
+## OS garbage
+.DS_Store
+
+## Kotlin bindings generated files
+bindings/kotlin/.gradle/
+bindings/kotlin/buildSrc/build/
+bindings/kotlin/buildSrc/.gradle/

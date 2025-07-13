@@ -1,0 +1,54 @@
+---
+source: testing/matrix-sdk-test/src/test_json/keys_query_sets.rs
+expression: data
+---
+{
+  "master_keys": {
+    "@alice:localhost": {
+      "keys": {
+        "ed25519:EPVg/QLG9+FmNvKjNXfycZEpQLtfHDaTN+rENAURZSk": "EPVg/QLG9+FmNvKjNXfycZEpQLtfHDaTN+rENAURZSk"
+      },
+      "signatures": {
+        "@alice:localhost": {
+          "ed25519:EPVg/QLG9+FmNvKjNXfycZEpQLtfHDaTN+rENAURZSk": "FX+srrw9SRmi12fexYHH1jrlEIWgOfre1aPNzDZWcAlaP9WKRdhcQGh70/3F9hk/PGr51I+ux62YgU4xnRTqAA"
+        }
+      },
+      "usage": [
+        "master"
+      ],
+      "user_id": "@alice:localhost"
+    }
+  },
+  "self_signing_keys": {
+    "@alice:localhost": {
+      "keys": {
+        "ed25519:WXLer0esHUanp8DCeu2Be0xB5ms9aKFFBrCFl50COjw": "WXLer0esHUanp8DCeu2Be0xB5ms9aKFFBrCFl50COjw"
+      },
+      "signatures": {
+        "@alice:localhost": {
+          "ed25519:EPVg/QLG9+FmNvKjNXfycZEpQLtfHDaTN+rENAURZSk": "lCV9R1xjD34arzq/CAuej1XBv+Ip4dFfAGHfe7znbW7rnwKDaX5PaX3MHk+EIC7nXvUYEAn502WcUFme5c0cCQ"
+        }
+      },
+      "usage": [
+        "self_signing"
+      ],
+      "user_id": "@alice:localhost"
+    }
+  },
+  "user_signing_keys": {
+    "@alice:localhost": {
+      "keys": {
+        "ed25519:MXob/N/bYI7U2655O1/AI9NOX1245RnE03Nl4Hvf+u0": "MXob/N/bYI7U2655O1/AI9NOX1245RnE03Nl4Hvf+u0"
+      },
+      "signatures": {
+        "@alice:localhost": {
+          "ed25519:EPVg/QLG9+FmNvKjNXfycZEpQLtfHDaTN+rENAURZSk": "A73QfZ5Dzhh7abdal/sEaq1bfgxzPFU8Bvwa9Y5TIe/a5jTmLVubNmsMSsO5tOT+b6aVJg1G4FtId0Q/cb1aAA"
+        }
+      },
+      "usage": [
+        "user_signing"
+      ],
+      "user_id": "@alice:localhost"
+    }
+  }
+}

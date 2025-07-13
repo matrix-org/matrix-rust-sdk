@@ -1,0 +1,399 @@
+name: Rust tests
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  # Insta.rs is run directly via cargo test. We don't want insta.rs to create new snapshots files.
+  # Just want it to run the tests (option `no` instead of `auto`).
+  INSTA_UPDATE: no
+
+jobs:
+  xtask:
+    uses: ./.github/workflows/xtask.yml
+
+  test-matrix-sdk-features:
+    name: 🐧 [m], ${{ matrix.name }}
+    needs: xtask
+
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: true
+      matrix:
+        name:
+          - no-encryption
+          - no-sqlite
+          - no-encryption-and-sqlite
+          - sqlite-cryptostore
+          - rustls-tls
+          - markdown
+          - socks
+          - sso-login
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install libsqlite
+        run: |
+          sudo apt-get update
+          sudo apt-get install libsqlite3-dev
+
+      - name: Load cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          # use a separate cache for each job to work around
+          # https://github.com/Swatinem/rust-cache/issues/124
+          key: "${{ matrix.name }}"
+
+          # ... but only save the cache on the main branch
+          # cf https://github.com/Swatinem/rust-cache/issues/95
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+
+      - name: Install nextest
+        uses: taiki-e/install-action@nextest
+
+      - name: Get xtask
+        uses: actions/cache/restore@v4
+        with:
+          path: target/debug/xtask
+          key: "${{ needs.xtask.outputs.cachekey-linux }}"
+          fail-on-cache-miss: true
+
+      - name: Test
+        run: |
+          target/debug/xtask ci test-features ${{ matrix.name }}
+
+  test-matrix-sdk-examples:
+    name: 🐧 [m]-examples
+    needs: xtask
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout the repo
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Load cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+
+      - name: Install nextest
+        uses: taiki-e/install-action@nextest
+
+      - name: Get xtask
+        uses: actions/cache/restore@v4
+        with:
+          path: target/debug/xtask
+          key: "${{ needs.xtask.outputs.cachekey-linux }}"
+          fail-on-cache-miss: true
+
+      - name: Test
+        run: |
+          target/debug/xtask ci examples
+
+  test-matrix-sdk-crypto:
+    name: 🐧 [m]-crypto
+    needs: xtask
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout the repo
+        uses: actions/checkout@v4
+
+      - name: Install libsqlite
+        run: |
+          sudo apt-get update
+          sudo apt-get install libsqlite3-dev
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Load cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+
+      - name: Install nextest
+        uses: taiki-e/install-action@nextest
+
+      - name: Get xtask
+        uses: actions/cache/restore@v4
+        with:
+          path: target/debug/xtask
+          key: "${{ needs.xtask.outputs.cachekey-linux }}"
+          fail-on-cache-miss: true
+
+      - name: Test
+        run: |
+          target/debug/xtask ci test-crypto
+
+  test-all-crates:
+    name: ${{ matrix.name }}
+
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - name: 🐧 all crates, 🦀 stable
+            rust: stable
+            os: ubuntu-latest
+
+          - name: 🐧 all crates, 🦀 beta
+            rust: beta
+            os: ubuntu-latest
+
+          - name: 🍏 all crates, 🦀 stable
+            rust: stable
+            os: macos-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install protoc
+        uses: taiki-e/install-action@v2
+        with:
+          tool: protoc@3.20.3
+
+      - name: Install libsqlite
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install libsqlite3-dev
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ matrix.rust }}
+
+      - name: Load cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+
+      - name: Install nextest
+        uses: taiki-e/install-action@nextest
+
+      - name: Test
+        run: |
+          cargo nextest run --workspace \
+            --exclude matrix-sdk-integration-testing --features testing
+
+      - name: Test documentation
+        run: |
+          cargo test --doc --features docsrs
+
+  test-wasm:
+    name: 🕸️ ${{ matrix.name }}
+    needs: xtask
+
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - name: '[m]-qrcode'
+            cmd: matrix-sdk-qrcode
+
+          - name: '[m]-base'
+            cmd: matrix-sdk-base
+
+          - name: '[m]-common'
+            cmd: matrix-sdk-common
+
+          - name: '[m], no-default'
+            cmd: matrix-sdk-no-default
+
+          - name: '[m]-ui'
+            cmd: matrix-sdk-ui
+            check_only: true
+
+          - name: '[m]-indexeddb'
+            cmd: indexeddb
+
+          - name: '[m], indexeddb stores'
+            cmd: matrix-sdk-indexeddb-stores
+
+          - name: '[m], indexeddb stores, no crypto'
+            cmd: matrix-sdk-indexeddb-stores-no-crypto
+
+    steps:
+      - name: Checkout the repo
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+          components: clippy
+
+      - name: Install wasm-pack
+        uses: qmaru/wasm-pack-action@v0.5.1
+        if: '!matrix.check_only'
+        with:
+          version: v0.10.3
+
+      - name: Load cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          # use a separate cache for each job to work around
+          # https://github.com/Swatinem/rust-cache/issues/124
+          key: "${{ matrix.cmd }}"
+
+          # ... but only save the cache on the main branch
+          # cf https://github.com/Swatinem/rust-cache/issues/95
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+
+      - name: Install nextest
+        uses: taiki-e/install-action@nextest
+
+      - name: Get xtask
+        uses: actions/cache/restore@v4
+        with:
+          path: target/debug/xtask
+          key: "${{ needs.xtask.outputs.cachekey-linux }}"
+          fail-on-cache-miss: true
+
+      - name: Rust Check
+        run: |
+          target/debug/xtask ci wasm ${{ matrix.cmd }}
+
+      - name: Wasm-Pack test
+        if: '!matrix.check_only'
+        run: |
+          target/debug/xtask ci wasm-pack ${{ matrix.cmd }}
+
+  typos:
+    name: Spell Check with Typos
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Actions Repository
+        uses: actions/checkout@v4
+
+      - name: Check the spelling of the files in our repo
+        uses: crate-ci/typos@v1.34.0
+
+  lint:
+    name: Lint
+    needs: xtask
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout the repo
+        uses: actions/checkout@v4
+
+      - name: Install protoc
+        uses: taiki-e/install-action@v2
+        with:
+          tool: protoc@3.20.3
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly-2025-06-27
+          components: clippy, rustfmt
+
+      - name: Load cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+
+      - name: Get xtask
+        uses: actions/cache/restore@v4
+        with:
+          path: target/debug/xtask
+          key: "${{ needs.xtask.outputs.cachekey-linux }}"
+          fail-on-cache-miss: true
+
+      - name: Check Formatting
+        run: |
+          target/debug/xtask ci style
+
+      - name: Clippy
+        run: |
+          target/debug/xtask ci clippy
+
+  integration-tests:
+    name: Integration test
+
+    runs-on: ubuntu-latest
+
+    # run several docker containers with the same networking stack so the hostname 'synapse'
+    # maps to the synapse container, etc.
+    services:
+      # tests need a synapse: this is a service and not michaelkaye/setup-matrix-synapse@main as the
+      # latter does not provide networking for services to communicate with it.
+      synapse:
+        image: ghcr.io/matrix-org/synapse-service:v1.117.0 # keep in sync with ./coverage.yml
+        env:
+            SYNAPSE_COMPLEMENT_DATABASE: sqlite
+            SERVER_NAME: synapse
+        ports:
+            - 8008:8008
+
+    steps:
+      - name: Checkout the repo
+        uses: actions/checkout@v4
+
+      - name: Install libsqlite
+        run: |
+          sudo apt-get update
+          sudo apt-get install libsqlite3-dev
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Load cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+
+      - name: Install nextest
+        uses: taiki-e/install-action@nextest
+
+      - name: Test
+        env:
+          RUST_LOG: "info,matrix_sdk=trace"
+          HOMESERVER_URL: "http://localhost:8008"
+          HOMESERVER_DOMAIN: "synapse"
+        run: |
+          cargo nextest run -p matrix-sdk-integration-testing
+
+  compile-bench:
+    name: 🚄 Compile benchmarks
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout the repo
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Load cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+
+      - name: Compile benchmarks (no run)
+        run: |
+          cargo bench --profile dev --no-run
