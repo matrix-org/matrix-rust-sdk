@@ -78,7 +78,7 @@ use ruma::{
         RoomAccountDataEvent as RumaRoomAccountDataEvent,
     },
     push::{HttpPusherData as RumaHttpPusherData, PushFormat as RumaPushFormat},
-    OwnedServerName, RoomAliasId, RoomOrAliasId, ServerName,
+    OwnedDeviceId, OwnedServerName, RoomAliasId, RoomOrAliasId, ServerName,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -457,16 +457,25 @@ impl Client {
     ///   However, it should be noted that when providing a user ID as a hint
     ///   for MAS (with no upstream provider), then the format to use is defined
     ///   by [MSC4198]: https://github.com/matrix-org/matrix-spec-proposals/pull/4198
+    ///
+    /// * `device_id` - The unique ID that will be associated with the session.
+    ///   If not set, a random one will be generated. It can be an existing
+    ///   device ID from a previous login call. Note that this should be done
+    ///   only if the client also holds the corresponding encryption keys.
     pub async fn url_for_oidc(
         &self,
         oidc_configuration: &OidcConfiguration,
         prompt: Option<OidcPrompt>,
         login_hint: Option<String>,
+        device_id: Option<String>,
     ) -> Result<Arc<OAuthAuthorizationData>, OidcError> {
         let registration_data = oidc_configuration.registration_data()?;
         let redirect_uri = oidc_configuration.redirect_uri()?;
 
-        let mut url_builder = self.inner.oauth().login(redirect_uri, None, Some(registration_data));
+        let device_id = device_id.map(|id| OwnedDeviceId::from(id));
+
+        let mut url_builder =
+            self.inner.oauth().login(redirect_uri, device_id, Some(registration_data));
 
         if let Some(prompt) = prompt {
             url_builder = url_builder.prompt(vec![prompt.into()]);
