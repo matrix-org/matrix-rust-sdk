@@ -78,6 +78,7 @@ tracing-subscriber = { workspace = true, features = ["env-filter"] }
 url.workspace = true
 uuid = { version = "1.4.1", features = ["v4"] }
 zeroize.workspace = true
+oauth2.workspace = true
 
 [target.'cfg(target_family = "wasm")'.dependencies]
 console_error_panic_hook = "0.1.7"

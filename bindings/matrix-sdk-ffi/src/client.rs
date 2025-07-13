@@ -51,6 +51,7 @@ use matrix_sdk_ui::{
     unable_to_decrypt_hook::UtdHookManager,
 };
 use mime::Mime;
+use oauth2::Scope;
 use ruma::{
     api::client::{alias::get_alias, error::ErrorKind, uiaa::UserIdentifier},
     events::{
@@ -457,17 +458,30 @@ impl Client {
     ///   However, it should be noted that when providing a user ID as a hint
     ///   for MAS (with no upstream provider), then the format to use is defined
     ///   by [MSC4198]: https://github.com/matrix-org/matrix-spec-proposals/pull/4198
+    ///
+    /// * `additional_scopes` - Additional scopes to request from the
+    ///   authorization server. If not set, only the scopes for API access and
+    ///   the device ID will be requested.
+
     pub async fn url_for_oidc(
         &self,
         oidc_configuration: &OidcConfiguration,
         prompt: Option<OidcPrompt>,
         login_hint: Option<String>,
+        additional_scopes: Option<Vec<String>>,
     ) -> Result<Arc<OAuthAuthorizationData>, OidcError> {
         let registration_data = oidc_configuration.registration_data()?;
         let redirect_uri = oidc_configuration.redirect_uri()?;
 
-        let mut url_builder =
-            self.inner.oauth().login(redirect_uri, None, Some(registration_data), None);
+        let additional_scopes =
+            additional_scopes.map(|scopes| scopes.into_iter().map(Scope::new).collect::<Vec<_>>());
+
+        let mut url_builder = self.inner.oauth().login(
+            redirect_uri,
+            None,
+            Some(registration_data),
+            additional_scopes,
+        );
 
         if let Some(prompt) = prompt {
             url_builder = url_builder.prompt(vec![prompt.into()]);
