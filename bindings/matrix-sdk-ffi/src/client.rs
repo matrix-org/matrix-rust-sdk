@@ -472,7 +472,7 @@ impl Client {
         let registration_data = oidc_configuration.registration_data()?;
         let redirect_uri = oidc_configuration.redirect_uri()?;
 
-        let device_id = device_id.map(|id| OwnedDeviceId::from(id));
+        let device_id = device_id.map(OwnedDeviceId::from);
 
         let mut url_builder =
             self.inner.oauth().login(redirect_uri, device_id, Some(registration_data));
