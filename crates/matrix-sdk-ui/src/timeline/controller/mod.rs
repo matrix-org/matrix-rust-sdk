@@ -1240,7 +1240,9 @@ impl<P: RoomDataProvider, D: Decryptor> TimelineController<P, D> {
     }
 
     /// Subscribe to changes in the read receipts of our own user.
-    pub async fn subscribe_own_user_read_receipts_changed(&self) -> impl Stream<Item = ()> {
+    pub async fn subscribe_own_user_read_receipts_changed(
+        &self,
+    ) -> impl Stream<Item = ()> + use<P, D> {
         self.state.read().await.meta.read_receipts.subscribe_own_user_read_receipts_changed()
     }
 

@@ -251,7 +251,8 @@ impl Timeline {
     /// and batches them.
     pub async fn subscribe(
         &self,
-    ) -> (Vector<Arc<TimelineItem>>, impl Stream<Item = Vec<VectorDiff<Arc<TimelineItem>>>>) {
+    ) -> (Vector<Arc<TimelineItem>>, impl Stream<Item = Vec<VectorDiff<Arc<TimelineItem>>>> + use<>)
+    {
         let (items, stream) = self.controller.subscribe().await;
         let stream = TimelineWithDropHandle::new(stream, self.drop_handle.clone());
         (items, stream)
@@ -560,7 +561,7 @@ impl Timeline {
     }
 
     /// Subscribe to changes in the read receipts of our own user.
-    pub async fn subscribe_own_user_read_receipts_changed(&self) -> impl Stream<Item = ()> {
+    pub async fn subscribe_own_user_read_receipts_changed(&self) -> impl Stream<Item = ()> + use<> {
         self.controller.subscribe_own_user_read_receipts_changed().await
     }
 

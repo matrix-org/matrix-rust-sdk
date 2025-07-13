@@ -107,7 +107,7 @@ impl super::Timeline {
     /// call to [`Self::paginate_backwards()`].
     pub async fn live_back_pagination_status(
         &self,
-    ) -> Option<(RoomPaginationStatus, impl Stream<Item = RoomPaginationStatus>)> {
+    ) -> Option<(RoomPaginationStatus, impl Stream<Item = RoomPaginationStatus> + use<>)> {
         if !self.controller.is_live() {
             return None;
         }
