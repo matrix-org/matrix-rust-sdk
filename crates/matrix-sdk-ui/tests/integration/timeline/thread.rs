@@ -23,18 +23,19 @@ use matrix_sdk::{
     test_utils::mocks::{MatrixMockServer, RoomRelationsResponseTemplate},
 };
 use matrix_sdk_test::{
-    async_test, event_factory::EventFactory, JoinedRoomBuilder, RoomAccountDataTestEvent, ALICE,
-    BOB,
+    ALICE, BOB, JoinedRoomBuilder, RoomAccountDataTestEvent, async_test,
+    event_factory::EventFactory,
 };
 use matrix_sdk_ui::timeline::{RoomExt as _, TimelineBuilder, TimelineDetails, TimelineFocus};
 use ruma::{
+    MilliSecondsSinceUnixEpoch,
     api::client::receipt::create_receipt::v3::ReceiptType as SendReceiptType,
     event_id,
     events::{
         receipt::{ReceiptThread, ReceiptType},
         room::message::{ReplyWithinThread, RoomMessageEventContentWithoutRelation},
     },
-    owned_event_id, room_id, user_id, MilliSecondsSinceUnixEpoch,
+    owned_event_id, room_id, user_id,
 };
 use stream_assert::assert_pending;
 use tokio::task::yield_now;

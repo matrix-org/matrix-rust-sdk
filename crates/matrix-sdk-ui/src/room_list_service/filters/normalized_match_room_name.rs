@@ -14,7 +14,7 @@
 
 use tracing::error;
 
-use super::{normalize_string, Filter};
+use super::{Filter, normalize_string};
 
 struct NormalizedMatcher {
     pattern: Option<String>,

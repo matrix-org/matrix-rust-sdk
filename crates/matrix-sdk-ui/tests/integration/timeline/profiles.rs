@@ -18,15 +18,15 @@ use assert_matches::assert_matches;
 use matrix_sdk::{config::SyncSettings, test_utils::logged_in_client_with_server};
 use matrix_sdk_common::executor::spawn;
 use matrix_sdk_test::{
-    async_test, event_factory::EventFactory, mocks::mock_encryption_state, JoinedRoomBuilder,
-    SyncResponseBuilder, ALICE, BOB, CAROL, DEFAULT_TEST_ROOM_ID,
+    ALICE, BOB, CAROL, DEFAULT_TEST_ROOM_ID, JoinedRoomBuilder, SyncResponseBuilder, async_test,
+    event_factory::EventFactory, mocks::mock_encryption_state,
 };
 use matrix_sdk_ui::timeline::{RoomExt, TimelineDetails};
 use ruma::events::room::member::MembershipState;
 use serde_json::json;
 use wiremock::{
-    matchers::{method, path_regex},
     Mock, ResponseTemplate,
+    matchers::{method, path_regex},
 };
 
 use crate::mock_sync;

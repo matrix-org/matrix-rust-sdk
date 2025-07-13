@@ -21,8 +21,8 @@ use futures_util::StreamExt;
 use matrix_sdk::{config::SyncSettings, test_utils::logged_in_client_with_server};
 use matrix_sdk_common::executor::spawn;
 use matrix_sdk_test::{
-    async_test, event_factory::EventFactory, mocks::mock_encryption_state,
-    GlobalAccountDataTestEvent, JoinedRoomBuilder, SyncResponseBuilder, ALICE, BOB,
+    ALICE, BOB, GlobalAccountDataTestEvent, JoinedRoomBuilder, SyncResponseBuilder, async_test,
+    event_factory::EventFactory, mocks::mock_encryption_state,
 };
 use matrix_sdk_ui::timeline::{RoomExt, TimelineDetails};
 use ruma::{

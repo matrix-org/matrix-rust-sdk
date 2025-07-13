@@ -17,7 +17,7 @@
 use std::{future::ready, sync::Mutex};
 
 use eyeball::{SharedObservable, Subscriber};
-use matrix_sdk::{sliding_sync::Range, SlidingSync, SlidingSyncMode};
+use matrix_sdk::{SlidingSync, SlidingSyncMode, sliding_sync::Range};
 use ruma::time::{Duration, Instant};
 
 use super::Error;

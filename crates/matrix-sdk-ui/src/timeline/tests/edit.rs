@@ -20,7 +20,7 @@ use matrix_sdk::deserialized_responses::{
     AlgorithmInfo, EncryptionInfo, VerificationLevel, VerificationState,
 };
 use matrix_sdk_base::deserialized_responses::{DecryptedRoomEvent, TimelineEvent};
-use matrix_sdk_test::{async_test, ALICE, BOB};
+use matrix_sdk_test::{ALICE, BOB, async_test};
 use ruma::{
     event_id,
     events::room::message::{MessageType, RedactedRoomMessageEventContent},

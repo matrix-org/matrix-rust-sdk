@@ -17,18 +17,18 @@ use std::{cmp::Ordering, collections::HashMap};
 use futures_core::Stream;
 use indexmap::IndexMap;
 use ruma::{
-    events::receipt::{Receipt, ReceiptEventContent, ReceiptThread, ReceiptType},
     EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedUserId, UserId,
+    events::receipt::{Receipt, ReceiptEventContent, ReceiptThread, ReceiptType},
 };
 use tokio::sync::watch;
 use tokio_stream::wrappers::WatchStream;
 use tracing::{debug, error, instrument, trace, warn};
 
 use super::{
-    rfind_event_by_id, AllRemoteEvents, ObservableItemsTransaction, RelativePosition,
-    RoomDataProvider, TimelineMetadata, TimelineState,
+    AllRemoteEvents, ObservableItemsTransaction, RelativePosition, RoomDataProvider,
+    TimelineMetadata, TimelineState, rfind_event_by_id,
 };
-use crate::timeline::{controller::TimelineStateTransaction, TimelineItem};
+use crate::timeline::{TimelineItem, controller::TimelineStateTransaction};
 
 /// In-memory caches for read receipts.
 #[derive(Clone, Debug, Default)]

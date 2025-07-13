@@ -17,15 +17,15 @@ use assert_matches2::assert_let;
 use chrono::{Datelike, TimeZone, Utc};
 use eyeball_im::VectorDiff;
 use futures_util::{FutureExt, StreamExt as _};
-use matrix_sdk_test::{async_test, ALICE, BOB};
+use matrix_sdk_test::{ALICE, BOB, async_test};
 use ruma::{
     event_id,
-    events::{room::message::RoomMessageEventContent, AnyMessageLikeEventContent},
+    events::{AnyMessageLikeEventContent, room::message::RoomMessageEventContent},
 };
 use stream_assert::assert_next_matches;
 
 use super::TestTimeline;
-use crate::timeline::{traits::RoomDataProvider as _, VirtualTimelineItem};
+use crate::timeline::{VirtualTimelineItem, traits::RoomDataProvider as _};
 
 #[async_test]
 async fn test_date_divider() {

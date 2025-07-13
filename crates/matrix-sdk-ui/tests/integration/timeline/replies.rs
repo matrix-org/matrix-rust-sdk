@@ -10,35 +10,35 @@ use matrix_sdk::{
 };
 use matrix_sdk_base::timeout::timeout;
 use matrix_sdk_test::{
-    async_test, event_factory::EventFactory, JoinedRoomBuilder, ALICE, BOB, CAROL,
+    ALICE, BOB, CAROL, JoinedRoomBuilder, async_test, event_factory::EventFactory,
 };
 use matrix_sdk_ui::timeline::{
     Error as TimelineError, EventSendState, MsgLikeContent, MsgLikeKind, RoomExt, TimelineDetails,
     TimelineEventItemId, TimelineItemContent,
 };
 use ruma::{
-    event_id,
+    MilliSecondsSinceUnixEpoch, UInt, event_id,
     events::{
+        Mentions,
         reaction::RedactedReactionEventContent,
         relation::InReplyTo,
         room::{
+            ImageInfo,
             encrypted::{
                 EncryptedEventScheme, MegolmV1AesSha2ContentInit, RoomEncryptedEventContent,
             },
             message::{Relation, ReplyWithinThread, RoomMessageEventContentWithoutRelation},
-            ImageInfo,
         },
         sticker::{StickerEventContent, StickerMediaSource},
-        Mentions,
     },
-    owned_event_id, owned_mxc_uri, room_id, MilliSecondsSinceUnixEpoch, UInt,
+    owned_event_id, owned_mxc_uri, room_id,
 };
 use serde_json::json;
 use stream_assert::{assert_next_matches, assert_pending};
 use tokio::task::yield_now;
 use wiremock::{
-    matchers::{header, method, path_regex},
     Mock, Request, ResponseTemplate,
+    matchers::{header, method, path_regex},
 };
 
 #[async_test]
