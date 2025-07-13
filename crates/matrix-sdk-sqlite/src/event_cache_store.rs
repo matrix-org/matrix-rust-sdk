@@ -453,6 +453,7 @@ async fn run_migrations(conn: &SqliteAsyncConn, version: u8) -> Result<()> {
 impl EventCacheStore for SqliteEventCacheStore {
     type Error = Error;
 
+    #[instrument(skip(self))]
     async fn try_take_leased_lock(
         &self,
         lease_duration_ms: u32,
@@ -486,6 +487,7 @@ impl EventCacheStore for SqliteEventCacheStore {
         Ok(num_touched == 1)
     }
 
+    #[instrument(skip(self, updates))]
     async fn handle_linked_chunk_updates(
         &self,
         linked_chunk_id: LinkedChunkId<'_>,
@@ -814,6 +816,7 @@ impl EventCacheStore for SqliteEventCacheStore {
         Ok(())
     }
 
+    #[instrument(skip(self))]
     async fn load_all_chunks(
         &self,
         linked_chunk_id: LinkedChunkId<'_>,
@@ -855,6 +858,7 @@ impl EventCacheStore for SqliteEventCacheStore {
         Ok(result)
     }
 
+    #[instrument(skip(self))]
     async fn load_all_chunks_metadata(
         &self,
         linked_chunk_id: LinkedChunkId<'_>,
@@ -915,6 +919,7 @@ impl EventCacheStore for SqliteEventCacheStore {
             .await
     }
 
+    #[instrument(skip(self))]
     async fn load_last_chunk(
         &self,
         linked_chunk_id: LinkedChunkId<'_>,
@@ -1007,6 +1012,7 @@ impl EventCacheStore for SqliteEventCacheStore {
             .await
     }
 
+    #[instrument(skip(self))]
     async fn load_previous_chunk(
         &self,
         linked_chunk_id: LinkedChunkId<'_>,
@@ -1058,6 +1064,7 @@ impl EventCacheStore for SqliteEventCacheStore {
             .await
     }
 
+    #[instrument(skip(self))]
     async fn clear_all_linked_chunks(&self) -> Result<(), Self::Error> {
         self.write()
             .await?
@@ -1071,6 +1078,7 @@ impl EventCacheStore for SqliteEventCacheStore {
         Ok(())
     }
 
+    #[instrument(skip(self, events))]
     async fn filter_duplicated_events(
         &self,
         linked_chunk_id: LinkedChunkId<'_>,
@@ -1150,6 +1158,7 @@ impl EventCacheStore for SqliteEventCacheStore {
             .await
     }
 
+    #[instrument(skip(self, event_id))]
     async fn find_event(
         &self,
         room_id: &RoomId,
@@ -1179,6 +1188,7 @@ impl EventCacheStore for SqliteEventCacheStore {
             .await
     }
 
+    #[instrument(skip(self, event_id, filters))]
     async fn find_event_relations(
         &self,
         room_id: &RoomId,
@@ -1209,6 +1219,7 @@ impl EventCacheStore for SqliteEventCacheStore {
             .await
     }
 
+    #[instrument(skip(self, event))]
     async fn save_event(&self, room_id: &RoomId, event: Event) -> Result<(), Self::Error> {
         let Some(event_id) = event.event_id() else {
             error!(%room_id, "Trying to save an event with no ID");
@@ -1231,6 +1242,7 @@ impl EventCacheStore for SqliteEventCacheStore {
             .await
     }
 
+    #[instrument(skip_all)]
     async fn add_media_content(
         &self,
         request: &MediaRequestParameters,
@@ -1240,6 +1252,7 @@ impl EventCacheStore for SqliteEventCacheStore {
         self.media_service.add_media_content(self, request, content, ignore_policy).await
     }
 
+    #[instrument(skip_all)]
     async fn replace_media_key(
         &self,
         from: &MediaRequestParameters,
@@ -1261,10 +1274,12 @@ impl EventCacheStore for SqliteEventCacheStore {
         Ok(())
     }
 
+    #[instrument(skip_all)]
     async fn get_media_content(&self, request: &MediaRequestParameters) -> Result<Option<Vec<u8>>> {
         self.media_service.get_media_content(self, request).await
     }
 
+    #[instrument(skip_all)]
     async fn remove_media_content(&self, request: &MediaRequestParameters) -> Result<()> {
         let uri = self.encode_key(keys::MEDIA, request.source.unique_key());
         let format = self.encode_key(keys::MEDIA, request.format.unique_key());
@@ -1275,6 +1290,7 @@ impl EventCacheStore for SqliteEventCacheStore {
         Ok(())
     }
 
+    #[instrument(skip(self))]
     async fn get_media_content_for_uri(
         &self,
         uri: &MxcUri,
@@ -1282,6 +1298,7 @@ impl EventCacheStore for SqliteEventCacheStore {
         self.media_service.get_media_content_for_uri(self, uri).await
     }
 
+    #[instrument(skip(self))]
     async fn remove_media_content_for_uri(&self, uri: &MxcUri) -> Result<()> {
         let uri = self.encode_key(keys::MEDIA, uri);
 
@@ -1291,6 +1308,7 @@ impl EventCacheStore for SqliteEventCacheStore {
         Ok(())
     }
 
+    #[instrument(skip_all)]
     async fn set_media_retention_policy(
         &self,
         policy: MediaRetentionPolicy,
@@ -1298,10 +1316,12 @@ impl EventCacheStore for SqliteEventCacheStore {
         self.media_service.set_media_retention_policy(self, policy).await
     }
 
+    #[instrument(skip_all)]
     fn media_retention_policy(&self) -> MediaRetentionPolicy {
         self.media_service.media_retention_policy()
     }
 
+    #[instrument(skip_all)]
     async fn set_ignore_media_retention_policy(
         &self,
         request: &MediaRequestParameters,
@@ -1310,6 +1330,7 @@ impl EventCacheStore for SqliteEventCacheStore {
         self.media_service.set_ignore_media_retention_policy(self, request, ignore_policy).await
     }
 
+    #[instrument(skip_all)]
     async fn clean_up_media_cache(&self) -> Result<(), Self::Error> {
         self.media_service.clean_up_media_cache(self).await
     }
