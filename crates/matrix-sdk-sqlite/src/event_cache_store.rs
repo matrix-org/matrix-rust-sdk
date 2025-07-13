@@ -465,6 +465,8 @@ impl EventCacheStore for SqliteEventCacheStore {
         key: &str,
         holder: &str,
     ) -> Result<bool> {
+        let _timer = timer!("method");
+
         let key = key.to_owned();
         let holder = holder.to_owned();
 
@@ -498,6 +500,8 @@ impl EventCacheStore for SqliteEventCacheStore {
         linked_chunk_id: LinkedChunkId<'_>,
         updates: Vec<Update<Event, Gap>>,
     ) -> Result<(), Self::Error> {
+        let _timer = timer!("method");
+
         // Use a single transaction throughout this function, so that either all updates
         // work, or none is taken into account.
         let hashed_linked_chunk_id =
@@ -826,6 +830,8 @@ impl EventCacheStore for SqliteEventCacheStore {
         &self,
         linked_chunk_id: LinkedChunkId<'_>,
     ) -> Result<Vec<RawChunk<Event, Gap>>, Self::Error> {
+        let _timer = timer!("method");
+
         let hashed_linked_chunk_id =
             self.encode_key(keys::LINKED_CHUNKS, linked_chunk_id.storage_key());
 
@@ -868,6 +874,8 @@ impl EventCacheStore for SqliteEventCacheStore {
         &self,
         linked_chunk_id: LinkedChunkId<'_>,
     ) -> Result<Vec<ChunkMetadata>, Self::Error> {
+        let _timer = timer!("method");
+
         let hashed_linked_chunk_id =
             self.encode_key(keys::LINKED_CHUNKS, linked_chunk_id.storage_key());
 
@@ -929,6 +937,8 @@ impl EventCacheStore for SqliteEventCacheStore {
         &self,
         linked_chunk_id: LinkedChunkId<'_>,
     ) -> Result<(Option<RawChunk<Event, Gap>>, ChunkIdentifierGenerator), Self::Error> {
+        let _timer = timer!("method");
+
         let hashed_linked_chunk_id =
             self.encode_key(keys::LINKED_CHUNKS, linked_chunk_id.storage_key());
 
@@ -1023,6 +1033,8 @@ impl EventCacheStore for SqliteEventCacheStore {
         linked_chunk_id: LinkedChunkId<'_>,
         before_chunk_identifier: ChunkIdentifier,
     ) -> Result<Option<RawChunk<Event, Gap>>, Self::Error> {
+        let _timer = timer!("method");
+
         let hashed_linked_chunk_id =
             self.encode_key(keys::LINKED_CHUNKS, linked_chunk_id.storage_key());
 
@@ -1071,6 +1083,8 @@ impl EventCacheStore for SqliteEventCacheStore {
 
     #[instrument(skip(self))]
     async fn clear_all_linked_chunks(&self) -> Result<(), Self::Error> {
+        let _timer = timer!("method");
+
         self.write()
             .await?
             .with_transaction(move |txn| {
@@ -1080,6 +1094,7 @@ impl EventCacheStore for SqliteEventCacheStore {
                 txn.execute("DELETE FROM events", ())
             })
             .await?;
+
         Ok(())
     }
 
@@ -1089,6 +1104,8 @@ impl EventCacheStore for SqliteEventCacheStore {
         linked_chunk_id: LinkedChunkId<'_>,
         events: Vec<OwnedEventId>,
     ) -> Result<Vec<(OwnedEventId, Position)>, Self::Error> {
+        let _timer = timer!("method");
+
         // If there's no events for which we want to check duplicates, we can return
         // early. It's not only an optimization to do so: it's required, otherwise the
         // `repeat_vars` call below will panic.
@@ -1169,6 +1186,8 @@ impl EventCacheStore for SqliteEventCacheStore {
         room_id: &RoomId,
         event_id: &EventId,
     ) -> Result<Option<Event>, Self::Error> {
+        let _timer = timer!("method");
+
         let event_id = event_id.to_owned();
         let this = self.clone();
 
@@ -1200,6 +1219,8 @@ impl EventCacheStore for SqliteEventCacheStore {
         event_id: &EventId,
         filters: Option<&[RelationType]>,
     ) -> Result<Vec<(Event, Option<Position>)>, Self::Error> {
+        let _timer = timer!("method");
+
         let hashed_room_id = self.encode_key(keys::LINKED_CHUNKS, room_id);
 
         let hashed_linked_chunk_id =
@@ -1226,6 +1247,8 @@ impl EventCacheStore for SqliteEventCacheStore {
 
     #[instrument(skip(self, event))]
     async fn save_event(&self, room_id: &RoomId, event: Event) -> Result<(), Self::Error> {
+        let _timer = timer!("method");
+
         let Some(event_id) = event.event_id() else {
             error!(%room_id, "Trying to save an event with no ID");
             return Ok(());
@@ -1254,6 +1277,8 @@ impl EventCacheStore for SqliteEventCacheStore {
         content: Vec<u8>,
         ignore_policy: IgnoreMediaRetentionPolicy,
     ) -> Result<()> {
+        let _timer = timer!("method");
+
         self.media_service.add_media_content(self, request, content, ignore_policy).await
     }
 
@@ -1263,6 +1288,8 @@ impl EventCacheStore for SqliteEventCacheStore {
         from: &MediaRequestParameters,
         to: &MediaRequestParameters,
     ) -> Result<(), Self::Error> {
+        let _timer = timer!("method");
+
         let prev_uri = self.encode_key(keys::MEDIA, from.source.unique_key());
         let prev_format = self.encode_key(keys::MEDIA, from.format.unique_key());
 
@@ -1281,11 +1308,15 @@ impl EventCacheStore for SqliteEventCacheStore {
 
     #[instrument(skip_all)]
     async fn get_media_content(&self, request: &MediaRequestParameters) -> Result<Option<Vec<u8>>> {
+        let _timer = timer!("method");
+
         self.media_service.get_media_content(self, request).await
     }
 
     #[instrument(skip_all)]
     async fn remove_media_content(&self, request: &MediaRequestParameters) -> Result<()> {
+        let _timer = timer!("method");
+
         let uri = self.encode_key(keys::MEDIA, request.source.unique_key());
         let format = self.encode_key(keys::MEDIA, request.format.unique_key());
 
@@ -1300,11 +1331,15 @@ impl EventCacheStore for SqliteEventCacheStore {
         &self,
         uri: &MxcUri,
     ) -> Result<Option<Vec<u8>>, Self::Error> {
+        let _timer = timer!("method");
+
         self.media_service.get_media_content_for_uri(self, uri).await
     }
 
     #[instrument(skip(self))]
     async fn remove_media_content_for_uri(&self, uri: &MxcUri) -> Result<()> {
+        let _timer = timer!("method");
+
         let uri = self.encode_key(keys::MEDIA, uri);
 
         let conn = self.write().await?;
@@ -1318,11 +1353,15 @@ impl EventCacheStore for SqliteEventCacheStore {
         &self,
         policy: MediaRetentionPolicy,
     ) -> Result<(), Self::Error> {
+        let _timer = timer!("method");
+
         self.media_service.set_media_retention_policy(self, policy).await
     }
 
     #[instrument(skip_all)]
     fn media_retention_policy(&self) -> MediaRetentionPolicy {
+        let _timer = timer!("method");
+
         self.media_service.media_retention_policy()
     }
 
@@ -1332,11 +1371,15 @@ impl EventCacheStore for SqliteEventCacheStore {
         request: &MediaRequestParameters,
         ignore_policy: IgnoreMediaRetentionPolicy,
     ) -> Result<(), Self::Error> {
+        let _timer = timer!("method");
+
         self.media_service.set_ignore_media_retention_policy(self, request, ignore_policy).await
     }
 
     #[instrument(skip_all)]
     async fn clean_up_media_cache(&self) -> Result<(), Self::Error> {
+        let _timer = timer!("method");
+
         self.media_service.clean_up_media_cache(self).await
     }
 }
