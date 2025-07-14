@@ -258,10 +258,16 @@ impl SlidingSync {
         // happens here.
 
         let sync_response = {
+            let _timer = timer!("response processor");
+
             let response_processor = {
                 // Take the lock to avoid concurrent sliding syncs overwriting each other's room
                 // infos.
-                let _sync_lock = self.inner.client.base_client().sync_lock().lock().await;
+                let _sync_lock = {
+                    let _timer = timer!("acquiring the `sync_lock`");
+
+                    self.inner.client.base_client().sync_lock().lock().await
+                };
 
                 let mut response_processor =
                     SlidingSyncResponseProcessor::new(self.inner.client.clone());
