@@ -92,14 +92,12 @@ async fn test_thread_backpagination() {
             .text_msg("Threaded event 4")
             .event_id(event_id!("$4"))
             .in_thread_reply(&thread_root_event_id, event_id!("$2"))
-            .into_raw_sync()
-            .cast(),
+            .into_raw(),
         factory
             .text_msg("Threaded event 3")
             .event_id(event_id!("$3"))
             .in_thread(&thread_root_event_id, event_id!("$2"))
-            .into_raw_sync()
-            .cast(),
+            .into_raw(),
     ];
 
     let batch2 = vec![
@@ -107,14 +105,12 @@ async fn test_thread_backpagination() {
             .text_msg("Threaded event 2")
             .event_id(event_id!("$2"))
             .in_thread(&thread_root_event_id, event_id!("$1"))
-            .into_raw_sync()
-            .cast(),
+            .into_raw(),
         factory
             .text_msg("Threaded event 1")
             .event_id(event_id!("$1"))
             .in_thread(&thread_root_event_id, event_id!("$root"))
-            .into_raw_sync()
-            .cast(),
+            .into_raw(),
     ];
 
     server
