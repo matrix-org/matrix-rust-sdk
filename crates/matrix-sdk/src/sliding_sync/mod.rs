@@ -815,8 +815,6 @@ impl SlidingSync {
 pub(super) struct SlidingSyncPositionMarkers {
     /// An ephemeral position in the current stream, as received from the
     /// previous `/sync` response, or `None` for the first request.
-    ///
-    /// Should not be persisted.
     pos: Option<String>,
 }
 
