@@ -390,20 +390,17 @@ impl NotificationClientWrapper {
                 .await
                 .expect("Failed to get_notification");
 
-            if let NotificationStatus::Event(item) = item {
-                if let NotificationEvent::Timeline(sync_timeline_event) = item.event {
-                    if let AnySyncTimelineEvent::MessageLike(event) = sync_timeline_event.as_ref() {
-                        if let AnyMessageLikeEventContent::RoomMessage(event_content) =
-                            event.original_content().expect("Empty original content")
-                        {
-                            self.events
-                                .lock()
-                                .unwrap()
-                                .push((event_info.0.clone(), event_content.body().to_owned()));
-                            return;
-                        }
-                    }
-                }
+            if let NotificationStatus::Event(item) = item
+                && let NotificationEvent::Timeline(sync_timeline_event) = item.event
+                && let AnySyncTimelineEvent::MessageLike(event) = *sync_timeline_event
+                && let AnyMessageLikeEventContent::RoomMessage(event_content) =
+                    event.original_content().expect("Empty original content")
+            {
+                self.events
+                    .lock()
+                    .unwrap()
+                    .push((event_info.0.clone(), event_content.body().to_owned()));
+                return;
             }
         }
 
