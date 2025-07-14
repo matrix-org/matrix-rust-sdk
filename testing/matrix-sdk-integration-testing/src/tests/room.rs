@@ -3,24 +3,24 @@ use std::time::Duration;
 use anyhow::Result;
 use assert_matches2::{assert_let, assert_matches};
 use matrix_sdk::{
+    RoomState,
     room::MessagesOptions,
     ruma::{
         api::client::room::create_room::v3::Request as CreateRoomRequest,
         assign, event_id, events,
         events::{
-            room::message::RoomMessageEventContent, AnyRoomAccountDataEventContent,
-            AnySyncStateEvent, AnySyncTimelineEvent, EventContent,
+            AnyRoomAccountDataEventContent, AnySyncStateEvent, AnySyncTimelineEvent, EventContent,
+            room::message::RoomMessageEventContent,
         },
         serde::Raw,
         uint,
     },
     test_utils::assert_event_matches_msg,
-    RoomState,
 };
 use tokio::{spawn, time::sleep};
 use tracing::error;
 
-use crate::helpers::{wait_for_room, TestClientBuilder};
+use crate::helpers::{TestClientBuilder, wait_for_room};
 
 #[tokio::test]
 async fn test_event_with_context() -> Result<()> {

@@ -1,16 +1,16 @@
 use ruma::{
+    OwnedRoomId, RoomId,
     api::client::sync::sync_events::v3::JoinedRoom,
     events::{
-        receipt::ReceiptEventContent, typing::TypingEventContent, AnyRoomAccountDataEvent,
-        AnySyncStateEvent, AnySyncTimelineEvent,
+        AnyRoomAccountDataEvent, AnySyncStateEvent, AnySyncTimelineEvent,
+        receipt::ReceiptEventContent, typing::TypingEventContent,
     },
     serde::Raw,
-    OwnedRoomId, RoomId,
 };
-use serde_json::{from_value as from_json_value, Value as JsonValue};
+use serde_json::{Value as JsonValue, from_value as from_json_value};
 
 use super::RoomAccountDataTestEvent;
-use crate::{event_factory::EventBuilder, DEFAULT_TEST_ROOM_ID};
+use crate::{DEFAULT_TEST_ROOM_ID, event_factory::EventBuilder};
 
 pub struct JoinedRoomBuilder {
     pub(super) room_id: OwnedRoomId,

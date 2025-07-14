@@ -1,7 +1,7 @@
 use std::ops::Range;
 
 use ruma::{
-    events::{room::member::MembershipState, AnySyncStateEvent},
+    events::{AnySyncStateEvent, room::member::MembershipState},
     serde::Raw,
 };
 use serde_json::{from_value as from_json_value, json};

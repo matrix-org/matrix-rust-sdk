@@ -1,8 +1,8 @@
 use ruma::{
+    OwnedRoomId, RoomId,
     api::client::sync::sync_events::v3::LeftRoom,
     events::{AnyRoomAccountDataEvent, AnySyncStateEvent, AnySyncTimelineEvent},
     serde::Raw,
-    OwnedRoomId, RoomId,
 };
 
 use super::{RoomAccountDataTestEvent, StateTestEvent};

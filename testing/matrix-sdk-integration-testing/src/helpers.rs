@@ -10,21 +10,21 @@ use std::{
 use anyhow::Result;
 use assign::assign;
 use matrix_sdk::{
+    Client, ClientBuilder, Room,
     config::{RequestConfig, SyncSettings},
     encryption::EncryptionSettings,
     ruma::{
+        RoomId,
         api::client::{account::register::v3::Request as RegistrationRequest, uiaa},
         time::Instant,
-        RoomId,
     },
     sliding_sync::VersionBuilder,
     sync::SyncResponse,
     timeout::ElapsedError,
-    Client, ClientBuilder, Room,
 };
 use once_cell::sync::Lazy;
 use rand::Rng as _;
-use tempfile::{tempdir, TempDir};
+use tempfile::{TempDir, tempdir};
 use tokio::{sync::Mutex, time::sleep};
 
 /// This global maintains temp directories alive for the whole lifetime of the
@@ -47,7 +47,7 @@ pub struct TestClientBuilder {
 
 impl TestClientBuilder {
     pub fn new(username: impl AsRef<str>) -> Self {
-        let suffix: u128 = rand::thread_rng().gen();
+        let suffix: u128 = rand::thread_rng().r#gen();
         let randomized_username = format!("{}{}", username.as_ref(), suffix);
         Self::with_exact_username(randomized_username)
     }

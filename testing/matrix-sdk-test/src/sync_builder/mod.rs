@@ -2,17 +2,17 @@ use std::collections::HashMap;
 
 use http::Response;
 use ruma::{
+    OwnedRoomId, OwnedUserId, UserId,
     api::{
+        IncomingResponse,
         client::sync::sync_events::v3::{
             InvitedRoom, JoinedRoom, KnockedRoom, LeftRoom, Response as SyncResponse,
         },
-        IncomingResponse,
     },
-    events::{presence::PresenceEvent, AnyGlobalAccountDataEvent, AnyToDeviceEvent},
+    events::{AnyGlobalAccountDataEvent, AnyToDeviceEvent, presence::PresenceEvent},
     serde::Raw,
-    OwnedRoomId, OwnedUserId, UserId,
 };
-use serde_json::{from_value as from_json_value, json, Value as JsonValue};
+use serde_json::{Value as JsonValue, from_value as from_json_value, json};
 
 use super::test_json;
 
