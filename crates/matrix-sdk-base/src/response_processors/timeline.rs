@@ -16,10 +16,7 @@ use matrix_sdk_common::deserialized_responses::TimelineEvent;
 #[cfg(feature = "e2e-encryption")]
 use ruma::events::SyncMessageLikeEvent;
 use ruma::{
-    events::{
-        room::power_levels::RoomPowerLevelsEventContent, AnySyncMessageLikeEvent,
-        AnySyncTimelineEvent,
-    },
+    events::{AnySyncMessageLikeEvent, AnySyncTimelineEvent},
     push::{Action, PushConditionRoomCtx},
     UInt, UserId,
 };
@@ -28,11 +25,7 @@ use tracing::{instrument, trace, warn};
 #[cfg(feature = "e2e-encryption")]
 use super::{e2ee, verification};
 use super::{notification, Context};
-use crate::{
-    store::{BaseStateStore, StateStoreExt as _},
-    sync::Timeline,
-    Result, Room, RoomInfo,
-};
+use crate::{sync::Timeline, Result, Room, RoomInfo};
 
 /// Process a set of sync timeline event, and create a [`Timeline`].
 ///
@@ -51,8 +44,7 @@ pub async fn build<'notification, 'e2ee>(
     #[cfg(feature = "e2e-encryption")] e2ee: e2ee::E2EE<'e2ee>,
 ) -> Result<Timeline> {
     let mut timeline = Timeline::new(timeline_inputs.limited, timeline_inputs.prev_batch);
-    let mut push_condition_room_ctx =
-        get_push_room_context(context, room, room_info, notification.state_store).await?;
+    let mut push_condition_room_ctx = get_push_room_context(context, room, room_info).await?;
     let room_id = room.room_id();
 
     for raw_event in timeline_inputs.raw_events {
@@ -131,8 +123,7 @@ pub async fn build<'notification, 'e2ee>(
                     )
                 } else {
                     push_condition_room_ctx =
-                        get_push_room_context(context, room, room_info, notification.state_store)
-                            .await?;
+                        get_push_room_context(context, room, room_info).await?;
                 }
 
                 if let Some(push_condition_room_ctx) = &push_condition_room_ctx {
@@ -225,7 +216,6 @@ pub async fn get_push_room_context(
     context: &Context,
     room: &Room,
     room_info: &RoomInfo,
-    state_store: &BaseStateStore,
 ) -> Result<Option<PushConditionRoomCtx>> {
     let room_id = room.room_id();
     let user_id = room.own_user_id();
@@ -245,11 +235,7 @@ pub async fn get_push_room_context(
     let power_levels = if let Some(power_levels) = context.state_changes.power_levels(room_id) {
         Some(power_levels)
     } else {
-        state_store
-            .get_state_event_static::<RoomPowerLevelsEventContent>(room_id)
-            .await?
-            .and_then(|e| e.deserialize().ok())
-            .map(|event| event.power_levels())
+        room.power_levels().await.ok()
     };
 
     Ok(Some(PushConditionRoomCtx {

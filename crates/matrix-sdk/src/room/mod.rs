@@ -2930,11 +2930,7 @@ impl Room {
             return Ok(None);
         };
 
-        let power_levels = self
-            .get_state_event_static::<RoomPowerLevelsEventContent>()
-            .await?
-            .and_then(|e| e.deserialize().ok())
-            .map(|e| e.power_levels().into());
+        let power_levels = self.power_levels().await.ok().map(Into::into);
 
         Ok(Some(PushConditionRoomCtx {
             user_id: user_id.to_owned(),
