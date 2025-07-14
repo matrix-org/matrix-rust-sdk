@@ -74,7 +74,7 @@ pub fn make_test_event_with_event_id(
     if let Some(event_id) = event_id {
         builder = builder.event_id(event_id);
     }
-    let event = builder.into_raw_timeline().cast();
+    let event = builder.into_raw();
 
     TimelineEvent::from_decrypted(
         DecryptedRoomEvent { event, encryption_info, unsigned_encryption_info: None },
