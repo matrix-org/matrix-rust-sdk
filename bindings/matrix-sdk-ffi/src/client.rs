@@ -460,8 +460,10 @@ impl Client {
     ///   by [MSC4198]: https://github.com/matrix-org/matrix-spec-proposals/pull/4198
     ///
     /// * `additional_scopes` - Additional scopes to request from the
-    ///   authorization server. If not set, only the scopes for API access and
-    ///   the device ID will be requested.
+    ///   authorization server, e.g. "urn:matrix:client:com.example.msc9999.foo". 
+    ///   The scopes for API access and the device ID according to the
+    ///   [specification](https://spec.matrix.org/v1.15/client-server-api/#allocated-scope-tokens) 
+    ///   are always requested.
 
     pub async fn url_for_oidc(
         &self,
