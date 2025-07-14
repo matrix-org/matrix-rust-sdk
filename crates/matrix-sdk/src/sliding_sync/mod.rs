@@ -399,7 +399,11 @@ impl SlidingSync {
         // has been fully handled successfully, in this case the `pos` is updated, or
         // the response handling has failed, in this case the `pos` hasn't been updated
         // and the same `pos` will be used for this new request.
-        let mut position_guard = self.inner.position.clone().lock_owned().await;
+        let mut position_guard = {
+            let _timer = timer!("acquiring the `position` lock");
+
+            self.inner.position.clone().lock_owned().await
+        };
 
         let to_device_enabled =
             self.inner.sticky.read().unwrap().data().extensions.to_device.enabled == Some(true);
