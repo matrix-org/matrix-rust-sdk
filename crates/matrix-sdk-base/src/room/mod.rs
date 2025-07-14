@@ -47,9 +47,8 @@ pub use room_info::{
     apply_redaction, BaseRoomInfo, InviteAcceptanceDetails, RoomInfo, RoomInfoNotableUpdate,
     RoomInfoNotableUpdateReasons,
 };
-#[cfg(feature = "e2e-encryption")]
-use ruma::{events::AnySyncTimelineEvent, serde::Raw};
 use ruma::{
+    assign,
     events::{
         direct::OwnedDirectUserIdentifier,
         receipt::{Receipt, ReceiptThread, ReceiptType},
@@ -61,9 +60,12 @@ use ruma::{
             power_levels::{RoomPowerLevels, RoomPowerLevelsEventContent},
         },
     },
+    int,
     room::RoomType,
     EventId, OwnedEventId, OwnedMxcUri, OwnedRoomAliasId, OwnedRoomId, OwnedUserId, RoomId, UserId,
 };
+#[cfg(feature = "e2e-encryption")]
+use ruma::{events::AnySyncTimelineEvent, serde::Raw};
 use serde::{Deserialize, Serialize};
 pub use state::{RoomState, RoomStateFilter};
 pub(crate) use tags::RoomNotableTags;
@@ -369,6 +371,23 @@ impl Room {
             .ok_or(Error::InsufficientData)?
             .deserialize()?
             .power_levels())
+    }
+
+    /// Get the current power levels of this room, or a sensible default if they
+    /// are not known.
+    pub async fn power_levels_or_default(&self) -> RoomPowerLevels {
+        if let Ok(power_levels) = self.power_levels().await {
+            return power_levels;
+        }
+
+        // As a fallback, create the default power levels of a room, with the creator at
+        // level 100.
+        let creator = self.creator();
+        assign!(
+            RoomPowerLevelsEventContent::new(),
+            { users: creator.into_iter().map(|user_id| (user_id, int!(100))).collect() }
+        )
+        .into()
     }
 
     /// Get the `m.room.name` of this room.
