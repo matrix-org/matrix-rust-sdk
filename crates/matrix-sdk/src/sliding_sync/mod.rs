@@ -364,6 +364,8 @@ impl SlidingSync {
         // Everything went well, we can update the position markers.
         //
         // Save the new position markers.
+        debug!(previous_pos = position.pos, new_pos = pos, "Updating `pos`");
+
         position.pos = pos;
 
         Ok(update_summary)
