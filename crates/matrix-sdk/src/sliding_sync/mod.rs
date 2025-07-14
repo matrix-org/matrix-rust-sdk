@@ -371,6 +371,7 @@ impl SlidingSync {
         Ok(update_summary)
     }
 
+    #[instrument(skip_all)]
     async fn generate_sync_request(
         &self,
         txn_id: &mut LazyTransactionId,
@@ -400,10 +401,14 @@ impl SlidingSync {
         // the response handling has failed, in this case the `pos` hasn't been updated
         // and the same `pos` will be used for this new request.
         let mut position_guard = {
+            debug!("Waiting to acquire the `position` lock");
+
             let _timer = timer!("acquiring the `position` lock");
 
             self.inner.position.clone().lock_owned().await
         };
+
+        debug!(pos = ?position_guard.pos, "Got a position");
 
         let to_device_enabled =
             self.inner.sticky.read().unwrap().data().extensions.to_device.enabled == Some(true);
