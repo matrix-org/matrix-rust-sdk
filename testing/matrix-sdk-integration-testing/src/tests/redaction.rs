@@ -2,15 +2,15 @@ use anyhow::Result;
 use assert_matches::assert_matches;
 use assign::assign;
 use matrix_sdk::{
+    Client,
     config::SyncSettings,
     ruma::{
         api::client::room::create_room::v3::Request as CreateRoomRequest,
         events::{
-            room::name::{RoomNameEventContent, SyncRoomNameEvent},
             AnySyncStateEvent, StateEventType,
+            room::name::{RoomNameEventContent, SyncRoomNameEvent},
         },
     },
-    Client,
 };
 
 use crate::helpers::TestClientBuilder;

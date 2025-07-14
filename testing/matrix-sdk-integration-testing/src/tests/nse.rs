@@ -8,22 +8,22 @@ use anyhow::Result;
 use assign::assign;
 use futures::Future;
 use matrix_sdk::{
+    Client, Room,
     encryption::EncryptionSettings,
     ruma::{
+        EventEncryptionAlgorithm, OwnedEventId, OwnedRoomId, RoomId,
         api::client::room::create_room::v3::Request as CreateRoomRequest,
         events::{
+            AnyMessageLikeEventContent, AnySyncTimelineEvent, OriginalSyncMessageLikeEvent,
             room::{
                 encrypted::{OriginalSyncRoomEncryptedEvent, RoomEncryptedEventContent},
                 encryption::RoomEncryptionEventContent,
                 message::{MessageType, OriginalSyncRoomMessageEvent, RoomMessageEventContent},
             },
             room_key::ToDeviceRoomKeyEvent,
-            AnyMessageLikeEventContent, AnySyncTimelineEvent, OriginalSyncMessageLikeEvent,
         },
         serde::Raw,
-        EventEncryptionAlgorithm, OwnedEventId, OwnedRoomId, RoomId,
     },
-    Client, Room,
 };
 use matrix_sdk_ui::{
     notification_client::{
@@ -33,7 +33,7 @@ use matrix_sdk_ui::{
 };
 use serde_json::json;
 use tempfile::tempdir;
-use tracing::{info, instrument, span, Level};
+use tracing::{Level, info, instrument, span};
 
 use crate::helpers::{SyncTokenAwareClient, TestClientBuilder};
 
