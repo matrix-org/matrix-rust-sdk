@@ -18,7 +18,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::types::{
     events::{
-        room::scheme::{
+        encryption_schemes::{
             scheme_serialization, Helper, OlmV1Curve25519AesSha2Content, UnknownEncryptedContent,
         },
         EventType, ToDeviceEvent,
@@ -91,9 +91,9 @@ pub(crate) mod tests {
     use serde_json::{json, Value};
     use vodozemac::Curve25519PublicKey;
 
-    use crate::types::events::room::{
-        scheme::OlmV1Curve25519AesSha2Content,
-        to_device::{EncryptedToDeviceEvent, ToDeviceEncryptedEventContent},
+    use crate::types::events::{
+        encryption_schemes::OlmV1Curve25519AesSha2Content,
+        to_device::encrypted::{EncryptedToDeviceEvent, ToDeviceEncryptedEventContent},
     };
 
     pub fn olm_v1_json() -> Value {

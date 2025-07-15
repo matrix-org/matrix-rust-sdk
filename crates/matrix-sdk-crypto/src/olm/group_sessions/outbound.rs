@@ -53,9 +53,8 @@ use crate::{
     store::caches::SequenceNumber,
     types::{
         events::{
-            room::encrypted::{
-                MegolmV1AesSha2Content, RoomEncryptedEventContent, RoomEventEncryptionScheme,
-            },
+            encryption_schemes::MegolmV1AesSha2Content,
+            room::encrypted::{RoomEncryptedEventContent, RoomEventEncryptionScheme},
             room_key::{MegolmV1AesSha2Content as MegolmV1AesSha2RoomKeyContent, RoomKeyContent},
             room_key_withheld::RoomKeyWithheldContent,
         },

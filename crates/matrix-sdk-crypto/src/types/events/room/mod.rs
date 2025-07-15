@@ -23,9 +23,6 @@ use serde_json::Value;
 use super::EventType;
 
 pub mod encrypted;
-pub mod room;
-pub mod scheme;
-pub mod to_device;
 
 /// Generic room event with a known type and content.
 #[derive(Debug, Deserialize)]

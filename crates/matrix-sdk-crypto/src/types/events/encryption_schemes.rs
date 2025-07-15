@@ -185,8 +185,9 @@ pub struct UnknownEncryptedContent {
     pub other: BTreeMap<String, Value>,
 }
 
+/// A deserialisation helper.
 #[derive(Debug, Deserialize, Serialize)]
-pub(super) struct Helper {
+pub(crate) struct Helper {
     pub algorithm: EventEncryptionAlgorithm,
     #[serde(flatten)]
     pub other: Value,

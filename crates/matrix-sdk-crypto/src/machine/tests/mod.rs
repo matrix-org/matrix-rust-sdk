@@ -69,8 +69,8 @@ use crate::{
     },
     types::{
         events::{
-            room::encrypted::{EncryptedToDeviceEvent, ToDeviceEncryptedEventContent},
             room_key_withheld::{MegolmV1AesSha2WithheldContent, RoomKeyWithheldContent},
+            to_device::encrypted::{EncryptedToDeviceEvent, ToDeviceEncryptedEventContent},
             ToDeviceEvent,
         },
         requests::{AnyOutgoingRequest, ToDeviceRequest},

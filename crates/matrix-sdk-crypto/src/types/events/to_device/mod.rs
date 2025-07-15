@@ -38,14 +38,15 @@ use zeroize::Zeroize;
 use super::{
     dummy::DummyEvent,
     forwarded_room_key::{ForwardedRoomKeyContent, ForwardedRoomKeyEvent},
-    room::encrypted::EncryptedToDeviceEvent,
     room_key::RoomKeyEvent,
     room_key_request::RoomKeyRequestEvent,
     room_key_withheld::RoomKeyWithheldEvent,
     secret_send::SecretSendEvent,
     EventType,
 };
-use crate::types::events::from_str;
+use crate::types::events::{from_str, to_device::encrypted::EncryptedToDeviceEvent};
+
+pub mod encrypted;
 
 /// An enum over the various to-device events we support.
 #[derive(Debug)]
@@ -540,7 +541,7 @@ mod tests {
             dummy_event => Dummy,
 
             // `m.room.encrypted`
-            crate::types::events::room::to_device::tests::json => RoomEncrypted,
+            crate::types::events::to_device::encrypted::tests::json => RoomEncrypted,
         );
 
         Ok(())
@@ -587,7 +588,7 @@ mod tests {
             dummy_event => Dummy,
 
             // `m.room.encrypted`
-            crate::types::events::room::to_device::tests::json => RoomEncrypted,
+            crate::types::events::to_device::encrypted::tests::json => RoomEncrypted,
         );
 
         Ok(())
