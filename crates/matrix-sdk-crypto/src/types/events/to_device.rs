@@ -540,7 +540,7 @@ mod tests {
             dummy_event => Dummy,
 
             // `m.room.encrypted`
-            crate::types::events::room::encrypted::tests::to_device_json => RoomEncrypted,
+            crate::types::events::room::to_device::tests::json => RoomEncrypted,
         );
 
         Ok(())
@@ -587,7 +587,7 @@ mod tests {
             dummy_event => Dummy,
 
             // `m.room.encrypted`
-            crate::types::events::room::encrypted::tests::to_device_json => RoomEncrypted,
+            crate::types::events::room::to_device::tests::json => RoomEncrypted,
         );
 
         Ok(())
