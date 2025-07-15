@@ -480,10 +480,32 @@ impl_event_cache_store! {
         filters: Option<&[RelationType]>,
     ) -> Result<Vec<(Event, Option<Position>)>, IndexeddbEventCacheStoreError> {
         let _timer = timer!("method");
-        self.memory_store
-            .find_event_relations(room_id, event_id, filters)
-            .await
-            .map_err(IndexeddbEventCacheStoreError::MemoryStore)
+
+        let transaction =
+            self.transaction(&[keys::EVENTS], IdbTransactionMode::Readonly)?;
+
+        let mut related_events = Vec::new();
+        match filters {
+            Some(relation_types) if !relation_types.is_empty() => {
+                for relation_type in relation_types {
+                    let relation = (event_id.to_owned(), relation_type.clone());
+                    let events = transaction.get_events_by_relation(room_id, &relation).await?;
+                    for event in events {
+                        let position = event.position().map(Into::into);
+                        related_events.push((event.into(), position));
+                    }
+                }
+            }
+            _ => {
+                for event in
+                    transaction.get_events_by_related_event(room_id, &event_id.to_owned()).await?
+                {
+                    let position = event.position().map(Into::into);
+                    related_events.push((event.into(), position));
+                }
+            }
+        }
+        Ok(related_events)
     }
 
     #[instrument(skip(self, event))]
