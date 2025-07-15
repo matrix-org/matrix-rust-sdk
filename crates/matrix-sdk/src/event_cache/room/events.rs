@@ -19,7 +19,7 @@ use matrix_sdk_base::{
     event_cache::store::DEFAULT_CHUNK_CAPACITY,
     linked_chunk::{
         lazy_loader::{self, LazyLoaderError},
-        ChunkContent, ChunkIdentifierGenerator, ChunkMetadata, OrderTracker, RawChunk,
+        ChunkContent, ChunkIdentifierGenerator, RawChunk,
     },
 };
 use matrix_sdk_common::linked_chunk::{
@@ -38,9 +38,6 @@ pub(in crate::event_cache) struct EventLinkedChunk {
     ///
     /// [`Update`]: matrix_sdk_base::linked_chunk::Update
     chunks_updates_as_vectordiffs: AsVector<Event, Gap>,
-
-    /// Tracker of the events ordering in this room.
-    pub order_tracker: OrderTracker<Event, Gap>,
 }
 
 impl Default for EventLinkedChunk {
@@ -52,7 +49,7 @@ impl Default for EventLinkedChunk {
 impl EventLinkedChunk {
     /// Build a new [`EventLinkedChunk`] struct with zero events.
     pub fn new() -> Self {
-        Self::with_initial_linked_chunk(None, None)
+        Self::with_initial_linked_chunk(None)
     }
 
     /// Build a new [`EventLinkedChunk`] struct with prior chunks knowledge.
@@ -60,7 +57,6 @@ impl EventLinkedChunk {
     /// The provided [`LinkedChunk`] must have been built with update history.
     pub fn with_initial_linked_chunk(
         linked_chunk: Option<LinkedChunk<DEFAULT_CHUNK_CAPACITY, Event, Gap>>,
-        full_linked_chunk_metadata: Option<Vec<ChunkMetadata>>,
     ) -> Self {
         let mut linked_chunk = linked_chunk.unwrap_or_else(LinkedChunk::new_with_update_history);
 
@@ -68,11 +64,7 @@ impl EventLinkedChunk {
             .as_vector()
             .expect("`LinkedChunk` must have been built with `new_with_update_history`");
 
-        let order_tracker = linked_chunk
-            .order_tracker(full_linked_chunk_metadata)
-            .expect("`LinkedChunk` must have been built with `new_with_update_history`");
-
-        Self { chunks: linked_chunk, chunks_updates_as_vectordiffs, order_tracker }
+        Self { chunks: linked_chunk, chunks_updates_as_vectordiffs }
     }
 
     /// Clear all events.
@@ -194,36 +186,6 @@ impl EventLinkedChunk {
         self.chunks.items()
     }
 
-    /// Return the order of an event in the room linked chunk.
-    ///
-    /// Can return `None` if the event can't be found in the linked chunk.
-    pub fn event_order(&self, event_pos: Position) -> Option<usize> {
-        self.order_tracker.ordering(event_pos)
-    }
-
-    #[cfg(any(test, debug_assertions))]
-    #[allow(dead_code)] // Temporarily, until we figure out why it's crashing production builds.
-    fn assert_event_ordering(&self) {
-        let mut iter = self.chunks.items().enumerate();
-        let Some((i, (first_event_pos, _))) = iter.next() else {
-            return;
-        };
-
-        // Sanity check.
-        assert_eq!(i, 0);
-
-        // That's the offset in the full linked chunk. Will be 0 if the linked chunk is
-        // entirely loaded, may be non-zero otherwise.
-        let offset =
-            self.event_order(first_event_pos).expect("first event's ordering must be known");
-
-        for (i, (next_pos, _)) in iter {
-            let next_index =
-                self.event_order(next_pos).expect("next event's ordering must be known");
-            assert_eq!(offset + i, next_index, "event ordering must be continuous");
-        }
-    }
-
     /// Get all updates from the room events as [`VectorDiff`].
     ///
     /// Be careful that each `VectorDiff` is returned only once!
@@ -232,11 +194,7 @@ impl EventLinkedChunk {
     ///
     /// [`Update`]: matrix_sdk_base::linked_chunk::Update
     pub fn updates_as_vector_diffs(&mut self) -> Vec<VectorDiff<Event>> {
-        let updates = self.chunks_updates_as_vectordiffs.take();
-
-        self.order_tracker.flush_updates(false);
-
-        updates
+        self.chunks_updates_as_vectordiffs.take()
     }
 
     /// Get a mutable reference to the [`LinkedChunk`] updates, aka
@@ -256,8 +214,7 @@ impl EventLinkedChunk {
         let mut result = Vec::new();
 
         for chunk in self.chunks.chunks() {
-            let content =
-                chunk_debug_string(chunk.identifier(), chunk.content(), &self.order_tracker);
+            let content = chunk_debug_string(chunk.content());
             let lazy_previous = if let Some(cid) = chunk.lazy_previous() {
                 format!(" (lazy previous = {})", cid.index())
             } else {
@@ -400,28 +357,6 @@ impl EventLinkedChunk {
 
 // Methods related to lazy-loading.
 impl EventLinkedChunk {
-    /// Inhibits all the linked chunk updates caused by the function `f` on the
-    /// ordering tracker.
-    ///
-    /// Updates to the linked chunk that happen because of lazy loading must not
-    /// be taken into account by the order tracker, otherwise the
-    /// fully-loaded state (tracked by the order tracker) wouldn't match
-    /// reality anymore. This provides a facility to help applying such
-    /// updates.
-    fn inhibit_updates_to_ordering_tracker<F: FnOnce(&mut Self) -> R, R>(&mut self, f: F) -> R {
-        // Start by flushing previous pending updates to the chunk ordering, if any.
-        self.order_tracker.flush_updates(false);
-
-        // Call the function.
-        let r = f(self);
-
-        // Now, flush other pending updates which have been caused by the function, and
-        // ignore them.
-        self.order_tracker.flush_updates(true);
-
-        r
-    }
-
     /// Replace the events with the given last chunk of events and generator.
     ///
     /// Happens only during lazy loading.
@@ -433,11 +368,7 @@ impl EventLinkedChunk {
         last_chunk: Option<RawChunk<Event, Gap>>,
         chunk_identifier_generator: ChunkIdentifierGenerator,
     ) -> Result<(), LazyLoaderError> {
-        // Since `replace_with` is used only to unload some chunks, we don't want it to
-        // affect the chunk ordering.
-        self.inhibit_updates_to_ordering_tracker(move |this| {
-            lazy_loader::replace_with(&mut this.chunks, last_chunk, chunk_identifier_generator)
-        })
+        lazy_loader::replace_with(&mut self.chunks, last_chunk, chunk_identifier_generator)
     }
 
     /// Prepends a lazily-loaded chunk at the beginning of the linked chunk.
@@ -445,20 +376,12 @@ impl EventLinkedChunk {
         &mut self,
         raw_new_first_chunk: RawChunk<Event, Gap>,
     ) -> Result<(), LazyLoaderError> {
-        // This is only used when reinserting a chunk that was in persisted storage, so
-        // we don't need to touch the chunk ordering for this.
-        self.inhibit_updates_to_ordering_tracker(move |this| {
-            lazy_loader::insert_new_first_chunk(&mut this.chunks, raw_new_first_chunk)
-        })
+        lazy_loader::insert_new_first_chunk(&mut self.chunks, raw_new_first_chunk)
     }
 }
 
 /// Create a debug string for a [`ChunkContent`] for an event/gap pair.
-fn chunk_debug_string(
-    chunk_id: ChunkIdentifier,
-    content: &ChunkContent<Event, Gap>,
-    order_tracker: &OrderTracker<Event, Gap>,
-) -> String {
+fn chunk_debug_string(content: &ChunkContent<Event, Gap>) -> String {
     match content {
         ChunkContent::Gap(Gap { prev_token }) => {
             format!("gap['{prev_token}']")
@@ -466,18 +389,12 @@ fn chunk_debug_string(
         ChunkContent::Items(vec) => {
             let items = vec
                 .iter()
-                .enumerate()
-                .map(|(i, event)| {
+                .map(|event| {
                     event.event_id().map_or_else(
                         || "<no event id>".to_owned(),
                         |id| {
-                            let pos = Position::new(chunk_id, i);
-                            let order = format!("#{}: ", order_tracker.ordering(pos).unwrap());
-
                             // Limit event ids to 8 chars *after* the $.
-                            let event_id = id.as_str().chars().take(1 + 8).collect::<String>();
-
-                            format!("{order}{event_id}")
+                            id.as_str().chars().take(1 + 8).collect::<String>()
                         },
                     )
                 })
@@ -762,13 +679,10 @@ mod tests {
         ]);
         linked_chunk.chunks.push_gap_back(Gap { prev_token: "raclette".to_owned() });
 
-        // Flush updates to the order tracker.
-        let _ = linked_chunk.updates_as_vector_diffs();
-
         let output = linked_chunk.debug_string();
 
         assert_eq!(output.len(), 2);
-        assert_eq!(&output[0], "chunk #0: events[#0: $12345678, #1: $2]");
+        assert_eq!(&output[0], "chunk #0: events[$12345678, $2]");
         assert_eq!(&output[1], "chunk #1: gap['raclette']");
     }
 
