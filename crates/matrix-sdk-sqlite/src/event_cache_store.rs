@@ -882,31 +882,37 @@ impl EventCacheStore for SqliteEventCacheStore {
         self.read()
             .await?
             .with_transaction(move |txn| -> Result<_> {
-                // I'm not a DB analyst, so for my own future sanity: this query joins the
-                // linked_chunks and events_chunks tables together, with a few specificities:
+                // This query will visit all chunks of a linked chunk with ID
+                // `hashed_linked_chunk_id`. For each chunk, it collects its ID
+                // (`ChunkIdentifier`), previous chunk, next chunk, and number of events
+                // (`num_events`). If it's a gap, `num_events` is equal to 0, otherwise it
+                // counts the number of events in `event_chunks` where `event_chunks.chunk_id =
+                // linked_chunks.id`.
                 //
-                // - the `GROUP BY` clause will regroup the joined item lines by chunk.
-                // - the `COUNT(ec.event_id)` counts the number of unique non-NULL lines from
-                //   the events_chunks table, aka the number of events in the chunk.
-                // - using a `LEFT JOIN` makes it so that if there's a chunk that has no events
-                //   (because it's a gap, or an empty events chunk), there will still be a
-                //   result for that chunk, and the count will be `0` (because the joined lines
-                //   would be `NULL`).
-                //
-                // Overall, this query will return what we want:
-                // - for a gap or an empty item chunk: a count of 0,
-                // - otherwise, the number of related lines in `event_chunks` for that chunk,
-                //   i.e. the number of events in that chunk.
+                // Why not using a `(LEFT) JOIN` + `COUNT`? Because for gaps, the entire
+                // `event_chunks` will be traversed every time. It's extremely inefficient. To
+                // speed that up, we could use an `INDEX` but it will consume more storage
+                // space. This solution is nice trade-off and offers great performance.
                 //
                 // Also, use `ORDER BY id` to get a deterministic ordering for testing purposes.
 
                 txn.prepare(
                     r#"
-                        SELECT lc.id, lc.previous, lc.next, COUNT(ec.event_id)
+                        SELECT
+                            lc.id,
+                            lc.previous,
+                            lc.next,
+                            CASE lc.type
+                            WHEN 'E' THEN (
+                                SELECT COUNT(ec.event_id)
+                                FROM event_chunks as ec
+                                WHERE ec.chunk_id = lc.id
+                            )
+                            ELSE
+                                0
+                            END as num_events
                         FROM linked_chunks as lc
-                        LEFT JOIN event_chunks as ec ON ec.chunk_id = lc.id
                         WHERE lc.linked_chunk_id = ?
-                        GROUP BY lc.id
                         ORDER BY lc.id"#,
                 )?
                 .query_map((&hashed_linked_chunk_id,), |row| {
