@@ -35,13 +35,13 @@ fn writing(c: &mut Criterion) {
     let mut group = c.benchmark_group("writing");
     group.sample_size(10).measurement_time(Duration::from_secs(30));
 
-    for number_of_events in [10, 100, 1000, 10_000, 100_000] {
+    for number_of_events in [/* 10, 100, 1000, 10_000, */ 100_000] {
         let sqlite_temp_dir = tempdir().unwrap();
 
         // Declare new stores for this set of events.
-        let stores: [(&str, Option<Arc<DynEventCacheStore>>); 3] = [
-            ("none", None),
-            ("memory store", Some(MemoryStore::default().into_event_cache_store())),
+        let stores: [(&str, Option<Arc<DynEventCacheStore>>); 1] = [
+            // ("none", None),
+            // ("memory store", Some(MemoryStore::default().into_event_cache_store())),
             (
                 "sqlite store",
                 runtime.block_on(async {
@@ -152,12 +152,12 @@ fn reading(c: &mut Criterion) {
     let mut group = c.benchmark_group("reading");
     group.sample_size(10);
 
-    for num_events in [10, 100, 1000, 10_000, 100_000] {
+    for num_events in [/* 10, 100, 1000, 10_000, */ 100_000] {
         let sqlite_temp_dir = tempdir().unwrap();
 
         // Declare new stores for this set of events.
-        let stores: [(&str, Arc<DynEventCacheStore>); 2] = [
-            ("memory store", MemoryStore::default().into_event_cache_store()),
+        let stores: [(&str, Arc<DynEventCacheStore>); 1] = [
+            // ("memory store", MemoryStore::default().into_event_cache_store()),
             (
                 "sqlite store",
                 runtime.block_on(async {
@@ -187,11 +187,14 @@ fn reading(c: &mut Criterion) {
 
                 while events.peek().is_some() {
                     let events_chunk = events.by_ref().take(80).collect::<Vec<_>>();
+
                     if events_chunk.is_empty() {
                         break;
                     }
+
                     lc.push_items_back(events_chunk);
                     lc.push_gap_back(Gap { prev_token: format!("gap{num_gaps}") });
+
                     num_gaps += 1;
                 }
 
@@ -205,30 +208,47 @@ fn reading(c: &mut Criterion) {
             // Define the throughput.
             group.throughput(Throughput::Elements(num_events));
 
-            // Get a bencher.
-            group.bench_function(BenchmarkId::new(store_name, num_events), |bencher| {
-                // Bench the routine.
-                bencher.to_async(&runtime).iter(|| async {
-                    // Load the last chunk first,
-                    let (last_chunk, chunk_id_gen) =
-                        store.load_last_chunk(linked_chunk_id).await.unwrap();
+            // Bench the lazy loader.
+            group.bench_function(
+                BenchmarkId::new(format!("lazy_loader/{store_name}"), num_events),
+                |bencher| {
+                    // Bench the routine.
+                    bencher.to_async(&runtime).iter(|| async {
+                        // Load the last chunk first,
+                        let (last_chunk, chunk_id_gen) =
+                            store.load_last_chunk(linked_chunk_id).await.unwrap();
 
-                    let mut lc =
-                        lazy_loader::from_last_chunk::<128, _, _>(last_chunk, chunk_id_gen)
-                            .expect("no error when reconstructing the linked chunk")
-                            .expect("there is a linked chunk in the store");
+                        let mut lc =
+                            lazy_loader::from_last_chunk::<128, _, _>(last_chunk, chunk_id_gen)
+                                .expect("no error when reconstructing the linked chunk")
+                                .expect("there is a linked chunk in the store");
 
-                    // Then load until the start of the linked chunk.
-                    let mut cur_chunk_id = lc.chunks().next().unwrap().identifier();
-                    while let Some(prev) =
-                        store.load_previous_chunk(linked_chunk_id, cur_chunk_id).await.unwrap()
-                    {
-                        cur_chunk_id = prev.identifier;
-                        lazy_loader::insert_new_first_chunk(&mut lc, prev)
-                            .expect("no error when linking the previous lazy-loaded chunk");
-                    }
-                })
-            });
+                        // Then load until the start of the linked chunk.
+                        let mut cur_chunk_id = lc.chunks().next().unwrap().identifier();
+                        while let Some(prev) =
+                            store.load_previous_chunk(linked_chunk_id, cur_chunk_id).await.unwrap()
+                        {
+                            cur_chunk_id = prev.identifier;
+                            lazy_loader::insert_new_first_chunk(&mut lc, prev)
+                                .expect("no error when linking the previous lazy-loaded chunk");
+                        }
+                    })
+                },
+            );
+
+            // Bench the metadata loader.
+            group.bench_function(
+                BenchmarkId::new(format!("metadata/{store_name}"), num_events),
+                |bencher| {
+                    // Bench the routine.
+                    bencher.to_async(&runtime).iter(|| async {
+                        let _metadata = store
+                            .load_all_chunks_metadata(linked_chunk_id)
+                            .await
+                            .expect("metadata must load");
+                    })
+                },
+            );
 
             {
                 let _guard = runtime.enter();

@@ -26,7 +26,7 @@ tokio = { workspace = true, default-features = false, features = ["rt-multi-thre
 wiremock.workspace = true
 
 [target.'cfg(target_os = "linux")'.dependencies]
-pprof = { version = "0.14.0", features = ["flamegraph", "criterion"] }
+pprof = { version = "0.15.0", features = ["flamegraph", "criterion"] }
 
 [[bench]]
 name = "crypto_bench"
