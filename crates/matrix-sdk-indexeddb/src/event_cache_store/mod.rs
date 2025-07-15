@@ -204,7 +204,7 @@ impl_event_cache_store! {
 
                     for (i, item) in items.into_iter().enumerate() {
                         transaction
-                            .add_item(
+                            .put_item(
                                 room_id,
                                 &types::Event::InBand(InBandEvent {
                                     content: item,
