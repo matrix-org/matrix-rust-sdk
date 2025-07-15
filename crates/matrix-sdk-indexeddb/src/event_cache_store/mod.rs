@@ -462,10 +462,14 @@ impl_event_cache_store! {
         event_id: &EventId,
     ) -> Result<Option<Event>, IndexeddbEventCacheStoreError> {
         let _timer = timer!("method");
-        self.memory_store
-            .find_event(room_id, event_id)
+
+        let transaction =
+            self.transaction(&[keys::EVENTS], IdbTransactionMode::Readonly)?;
+        transaction
+            .get_event_by_id(room_id, &event_id.to_owned())
             .await
-            .map_err(IndexeddbEventCacheStoreError::MemoryStore)
+            .map(|ok| ok.map(Into::into))
+            .map_err(Into::into)
     }
 
     #[instrument(skip(self, event_id, filters))]
