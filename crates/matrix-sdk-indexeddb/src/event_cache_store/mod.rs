@@ -287,10 +287,27 @@ impl_event_cache_store! {
         &self,
         linked_chunk_id: LinkedChunkId<'_>,
     ) -> Result<Vec<ChunkMetadata>, IndexeddbEventCacheStoreError> {
-        self.memory_store
-            .load_all_chunks_metadata(linked_chunk_id)
-            .await
-            .map_err(IndexeddbEventCacheStoreError::MemoryStore)
+        let linked_chunk_id = linked_chunk_id.to_owned();
+        let room_id = linked_chunk_id.room_id();
+
+        let transaction = self.transaction(
+            &[keys::LINKED_CHUNKS, keys::EVENTS, keys::GAPS],
+            IdbTransactionMode::Readwrite,
+        )?;
+
+        let mut raw_chunks = Vec::new();
+        let chunks = transaction.get_chunks_in_room(room_id).await?;
+        for chunk in chunks {
+            let chunk_id = ChunkIdentifier::new(chunk.identifier);
+            let num_items = transaction.get_events_count_by_chunk(room_id, &chunk_id).await?;
+            raw_chunks.push(ChunkMetadata {
+                num_items,
+                previous: chunk.previous.map(ChunkIdentifier::new),
+                identifier: ChunkIdentifier::new(chunk.identifier),
+                next: chunk.next.map(ChunkIdentifier::new),
+            });
+        }
+        Ok(raw_chunks)
     }
 
     async fn load_last_chunk(

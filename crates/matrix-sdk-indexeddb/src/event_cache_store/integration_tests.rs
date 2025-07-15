@@ -729,6 +729,13 @@ macro_rules! event_cache_store_integration_tests {
             }
 
             #[async_test]
+            async fn test_load_all_chunks_metadata() {
+                let event_cache_store =
+                    get_event_cache_store().await.unwrap().into_event_cache_store();
+                event_cache_store.test_load_all_chunks_metadata().await;
+            }
+
+            #[async_test]
             async fn test_clear_all_linked_chunks() {
                 let event_cache_store =
                     get_event_cache_store().await.unwrap().into_event_cache_store();
