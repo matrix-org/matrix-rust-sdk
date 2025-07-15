@@ -631,6 +631,32 @@ impl<'a> IndexeddbEventCacheStoreTransaction<'a> {
         self.get_events_count_by_position(room_id, range).await
     }
 
+    /// Query IndexedDB for events that match the given relation range in the
+    /// given room.
+    pub async fn get_events_by_relation(
+        &self,
+        room_id: &RoomId,
+        range: impl Into<IndexedKeyRange<&(OwnedEventId, RelationType)>>,
+    ) -> Result<Vec<Event>, IndexeddbEventCacheStoreTransactionError> {
+        let range = range.into().encoded(room_id, self.serializer.inner());
+        self.get_items_by_key::<Event, IndexedEventRelationKey>(room_id, range).await
+    }
+
+    /// Query IndexedDB for events that are related to the given event in the
+    /// given room.
+    pub async fn get_events_by_related_event(
+        &self,
+        room_id: &RoomId,
+        related_event_id: &OwnedEventId,
+    ) -> Result<Vec<Event>, IndexeddbEventCacheStoreTransactionError> {
+        let lower = IndexedEventRelationKey::lower_key(room_id, self.serializer.inner())
+            .with_related_event_id(related_event_id, self.serializer.inner());
+        let upper = IndexedEventRelationKey::upper_key(room_id, self.serializer.inner())
+            .with_related_event_id(related_event_id, self.serializer.inner());
+        let range = IndexedKeyRange::Bound(lower, upper);
+        self.get_items_by_key::<Event, IndexedEventRelationKey>(room_id, range).await
+    }
+
     /// Puts an event in the given room. If an event with the same key already
     /// exists, it will be overwritten.
     pub async fn put_event(
