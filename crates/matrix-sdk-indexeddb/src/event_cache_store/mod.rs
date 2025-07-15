@@ -31,14 +31,14 @@ use matrix_sdk_base::{
     timer,
 };
 use ruma::{events::relation::RelationType, EventId, MxcUri, OwnedEventId, RoomId};
-use tracing::{instrument, trace};
+use tracing::{error, instrument, trace};
 use web_sys::IdbTransactionMode;
 
 use crate::event_cache_store::{
     migrations::current::keys,
     serializer::IndexeddbEventCacheStoreSerializer,
     transaction::{IndexeddbEventCacheStoreTransaction, IndexeddbEventCacheStoreTransactionError},
-    types::{ChunkType, InBandEvent},
+    types::{ChunkType, InBandEvent, OutOfBandEvent},
 };
 
 mod builder;
@@ -493,10 +493,20 @@ impl_event_cache_store! {
         event: Event,
     ) -> Result<(), IndexeddbEventCacheStoreError> {
         let _timer = timer!("method");
-        self.memory_store
-            .save_event(room_id, event)
-            .await
-            .map_err(IndexeddbEventCacheStoreError::MemoryStore)
+
+        let Some(event_id) = event.event_id() else {
+            error!(%room_id, "Trying to save an event with no ID");
+            return Ok(());
+        };
+        let transaction =
+            self.transaction(&[keys::EVENTS], IdbTransactionMode::Readwrite)?;
+        let event = match transaction.get_event_by_id(room_id, &event_id).await? {
+            Some(mut inner) => inner.with_content(event),
+            None => types::Event::OutOfBand(OutOfBandEvent { content: event, position: () }),
+        };
+        transaction.put_event(room_id, &event).await?;
+        transaction.commit().await?;
+        Ok(())
     }
 
     #[instrument(skip_all)]
