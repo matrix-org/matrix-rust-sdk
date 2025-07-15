@@ -369,10 +369,15 @@ impl_event_cache_store! {
     }
 
     async fn clear_all_linked_chunks(&self) -> Result<(), IndexeddbEventCacheStoreError> {
-        self.memory_store
-            .clear_all_linked_chunks()
-            .await
-            .map_err(IndexeddbEventCacheStoreError::MemoryStore)
+        let transaction = self.transaction(
+            &[keys::LINKED_CHUNKS, keys::EVENTS, keys::GAPS],
+            IdbTransactionMode::Readwrite,
+        )?;
+        transaction.clear::<types::Chunk>().await?;
+        transaction.clear::<types::Event>().await?;
+        transaction.clear::<types::Gap>().await?;
+        transaction.commit().await?;
+        Ok(())
     }
 
     async fn filter_duplicated_events(
