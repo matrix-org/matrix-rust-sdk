@@ -11,7 +11,7 @@ publish = false
 release = false
 
 [dependencies]
-criterion = { version = "0.5.1", features = ["async", "async_tokio", "html_reports"] }
+criterion = { version = "0.6.0", features = ["async", "async_tokio", "html_reports"] }
 matrix-sdk = { workspace = true, features = ["native-tls", "e2e-encryption", "sqlite", "testing"] }
 matrix-sdk-base.workspace = true
 matrix-sdk-crypto.workspace = true
