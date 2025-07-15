@@ -435,10 +435,24 @@ impl_event_cache_store! {
         events: Vec<OwnedEventId>,
     ) -> Result<Vec<(OwnedEventId, Position)>, IndexeddbEventCacheStoreError> {
         let _timer = timer!("method");
-        self.memory_store
-            .filter_duplicated_events(linked_chunk_id, events)
-            .await
-            .map_err(IndexeddbEventCacheStoreError::MemoryStore)
+
+        if events.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let linked_chunk_id = linked_chunk_id.to_owned();
+        let room_id = linked_chunk_id.room_id();
+        let transaction =
+            self.transaction(&[keys::EVENTS], IdbTransactionMode::Readonly)?;
+        let mut duplicated = Vec::new();
+        for event_id in events {
+            if let Some(types::Event::InBand(event)) =
+                transaction.get_event_by_id(room_id, &event_id).await?
+            {
+                duplicated.push((event_id, event.position.into()));
+            }
+        }
+        Ok(duplicated)
     }
 
     #[instrument(skip(self, event_id))]
