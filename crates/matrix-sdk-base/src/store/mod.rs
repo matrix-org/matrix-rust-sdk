@@ -21,6 +21,7 @@
 //! store.
 
 use std::{
+    borrow::Borrow,
     collections::{BTreeMap, BTreeSet, HashMap},
     fmt,
     ops::Deref,
@@ -47,13 +48,20 @@ use ruma::{
     events::{
         presence::PresenceEvent,
         receipt::ReceiptEventContent,
-        room::{member::StrippedRoomMemberEvent, redaction::SyncRoomRedactionEvent},
+        room::{
+            member::{RoomMemberEventContent, StrippedRoomMemberEvent},
+            power_levels::{RoomPowerLevels, RoomPowerLevelsEventContent},
+            redaction::SyncRoomRedactionEvent,
+        },
         AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent, AnyStrippedStateEvent,
-        AnySyncStateEvent, GlobalAccountDataEventType, RoomAccountDataEventType, StateEventType,
+        AnySyncStateEvent, EmptyStateKey, GlobalAccountDataEventType, RedactContent,
+        RedactedStateEventContent, RoomAccountDataEventType, StateEventType, StaticEventContent,
+        StaticStateEventContent, StrippedStateEvent, SyncStateEvent,
     },
     serde::Raw,
     EventId, OwnedEventId, OwnedRoomId, OwnedUserId, RoomId, UserId,
 };
+use serde::de::DeserializeOwned;
 use tokio::sync::{broadcast, Mutex, RwLock};
 use tracing::warn;
 
@@ -555,6 +563,88 @@ impl StateChanges {
     /// `Receipts`.
     pub fn add_receipts(&mut self, room_id: &RoomId, event: ReceiptEventContent) {
         self.receipts.insert(room_id.to_owned(), event);
+    }
+
+    /// Get a specific state event of statically-known type with the given state
+    /// key in the given room, if it is present in the `state` map of these
+    /// `StateChanges`.
+    pub(crate) fn state_static_for_key<C, K>(
+        &self,
+        room_id: &RoomId,
+        state_key: &K,
+    ) -> Option<&Raw<SyncStateEvent<C>>>
+    where
+        C: StaticEventContent + StaticStateEventContent + RedactContent,
+        C::Redacted: RedactedStateEventContent,
+        C::StateKey: Borrow<K>,
+        K: AsRef<str> + ?Sized,
+    {
+        self.state.get(room_id)?.get(&C::TYPE.into())?.get(state_key.as_ref()).map(Raw::cast_ref)
+    }
+
+    /// Get a specific stripped state event of statically-known type with the
+    /// given state key in the given room, if it is present in the
+    /// `stripped_state` map of these `StateChanges`.
+    pub(crate) fn stripped_state_static_for_key<C, K>(
+        &self,
+        room_id: &RoomId,
+        state_key: &K,
+    ) -> Option<&Raw<StrippedStateEvent<C::PossiblyRedacted>>>
+    where
+        C: StaticEventContent + StaticStateEventContent,
+        C::StateKey: Borrow<K>,
+        K: AsRef<str> + ?Sized,
+    {
+        self.stripped_state
+            .get(room_id)?
+            .get(&C::TYPE.into())?
+            .get(state_key.as_ref())
+            .map(Raw::cast_ref)
+    }
+
+    /// Get a specific state event of statically-known type with the given state
+    /// key in the given room, if it is present in the `state` or
+    /// `stripped_state` map of these `StateChanges` and it deserializes
+    /// successfully.
+    pub(crate) fn any_state_static_for_key<C, K>(
+        &self,
+        room_id: &RoomId,
+        state_key: &K,
+    ) -> Option<StrippedStateEvent<C::PossiblyRedacted>>
+    where
+        C: StaticEventContent + StaticStateEventContent + RedactContent,
+        C::Redacted: RedactedStateEventContent,
+        C::PossiblyRedacted: DeserializeOwned,
+        C::StateKey: Borrow<K>,
+        K: AsRef<str> + ?Sized,
+    {
+        self.state_static_for_key::<C, K>(room_id, state_key)
+            .map(Raw::cast_ref)
+            .or_else(|| self.stripped_state_static_for_key::<C, K>(room_id, state_key))?
+            .deserialize()
+            .ok()
+    }
+
+    /// Get the member for the given user in the given room from an event
+    /// contained in these `StateChanges`, if any.
+    pub(crate) fn member(
+        &self,
+        room_id: &RoomId,
+        user_id: &UserId,
+    ) -> Option<StrippedRoomMemberEvent> {
+        self.any_state_static_for_key::<RoomMemberEventContent, _>(room_id, user_id)
+    }
+
+    /// Get the power levels for the given room from an event contained in these
+    /// `StateChanges`, if any.
+    pub(crate) fn power_levels(&self, room_id: &RoomId) -> Option<RoomPowerLevels> {
+        Some(
+            self.any_state_static_for_key::<RoomPowerLevelsEventContent, _>(
+                room_id,
+                &EmptyStateKey,
+            )?
+            .power_levels(),
+        )
     }
 }
 

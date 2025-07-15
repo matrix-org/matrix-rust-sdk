@@ -79,7 +79,7 @@ use ruma::{
         RoomAccountDataEvent as RumaRoomAccountDataEvent,
     },
     push::{HttpPusherData as RumaHttpPusherData, PushFormat as RumaPushFormat},
-    OwnedServerName, RoomAliasId, RoomOrAliasId, ServerName,
+    OwnedDeviceId, OwnedServerName, RoomAliasId, RoomOrAliasId, ServerName,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -459,28 +459,35 @@ impl Client {
     ///   for MAS (with no upstream provider), then the format to use is defined
     ///   by [MSC4198]: https://github.com/matrix-org/matrix-spec-proposals/pull/4198
     ///
+    /// * `device_id` - The unique ID that will be associated with the session.
+    ///   If not set, a random one will be generated. It can be an existing
+    ///   device ID from a previous login call. Note that this should be done
+    ///   only if the client also holds the corresponding encryption keys.
+    ///
     /// * `additional_scopes` - Additional scopes to request from the
     ///   authorization server, e.g. "urn:matrix:client:com.example.msc9999.foo".
     ///   The scopes for API access and the device ID according to the
     ///   [specification](https://spec.matrix.org/v1.15/client-server-api/#allocated-scope-tokens)
     ///   are always requested.
-
     pub async fn url_for_oidc(
         &self,
         oidc_configuration: &OidcConfiguration,
         prompt: Option<OidcPrompt>,
         login_hint: Option<String>,
+        device_id: Option<String>,
         additional_scopes: Option<Vec<String>>,
     ) -> Result<Arc<OAuthAuthorizationData>, OidcError> {
         let registration_data = oidc_configuration.registration_data()?;
         let redirect_uri = oidc_configuration.redirect_uri()?;
+
+        let device_id = device_id.map(OwnedDeviceId::from);
 
         let additional_scopes =
             additional_scopes.map(|scopes| scopes.into_iter().map(Scope::new).collect::<Vec<_>>());
 
         let mut url_builder = self.inner.oauth().login(
             redirect_uri,
-            None,
+            device_id,
             Some(registration_data),
             additional_scopes,
         );

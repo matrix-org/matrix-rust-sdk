@@ -18,38 +18,39 @@ use std::{
     time::Duration,
 };
 
-use futures_util::{pin_mut, StreamExt as _};
+use futures_util::{StreamExt as _, pin_mut};
 use matrix_sdk::{
-    room::Room, sleep::sleep, Client, ClientBuildError, SlidingSyncList, SlidingSyncMode,
+    Client, ClientBuildError, SlidingSyncList, SlidingSyncMode, room::Room, sleep::sleep,
 };
-use matrix_sdk_base::{deserialized_responses::TimelineEvent, RoomState, StoreError};
+use matrix_sdk_base::{RoomState, StoreError, deserialized_responses::TimelineEvent};
 use ruma::{
+    EventId, OwnedEventId, OwnedRoomId, RoomId, UserId,
     api::client::sync::sync_events::v5 as http,
     assign,
     directory::RoomTypeFilter,
     events::{
+        AnyFullStateEventContent, AnyMessageLikeEventContent, AnyStateEvent,
+        AnySyncMessageLikeEvent, AnySyncTimelineEvent, FullStateEventContent, StateEventType,
+        TimelineEventType,
         room::{
             join_rules::JoinRule,
             member::{MembershipState, StrippedRoomMemberEvent},
             message::{Relation, SyncRoomMessageEvent},
         },
-        AnyFullStateEventContent, AnyMessageLikeEventContent, AnyStateEvent,
-        AnySyncMessageLikeEvent, AnySyncTimelineEvent, FullStateEventContent, StateEventType,
-        TimelineEventType,
     },
     html::RemoveReplyFallback,
     push::Action,
     serde::Raw,
-    uint, EventId, OwnedEventId, OwnedRoomId, RoomId, UserId,
+    uint,
 };
 use thiserror::Error;
 use tokio::sync::Mutex as AsyncMutex;
 use tracing::{debug, info, instrument, trace, warn};
 
 use crate::{
+    DEFAULT_SANITIZER_MODE,
     encryption_sync_service::{EncryptionSyncPermit, EncryptionSyncService, WithLocking},
     sync_service::SyncService,
-    DEFAULT_SANITIZER_MODE,
 };
 
 /// What kind of process setup do we have for this notification client?

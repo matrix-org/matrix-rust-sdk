@@ -3,7 +3,7 @@ use std::ops::Deref;
 use anyhow::Result;
 use assert_matches2::assert_let;
 use assign::assign;
-use futures::{pin_mut, FutureExt, StreamExt};
+use futures::{FutureExt, StreamExt, pin_mut};
 use matrix_sdk::{
     assert_decrypted_message_eq,
     encryption::EncryptionSettings,
@@ -15,7 +15,7 @@ use matrix_sdk::{
 use matrix_sdk_common::deserialized_responses::ProcessedToDeviceEvent;
 use matrix_sdk_ui::sync_service::SyncService;
 use similar_asserts::assert_eq;
-use tracing::{info, Instrument};
+use tracing::{Instrument, info};
 
 use crate::helpers::{SyncTokenAwareClient, TestClientBuilder};
 

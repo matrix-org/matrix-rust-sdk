@@ -23,18 +23,19 @@ use matrix_sdk::{
     test_utils::mocks::{MatrixMockServer, RoomRelationsResponseTemplate},
 };
 use matrix_sdk_test::{
-    async_test, event_factory::EventFactory, JoinedRoomBuilder, RoomAccountDataTestEvent, ALICE,
-    BOB,
+    ALICE, BOB, JoinedRoomBuilder, RoomAccountDataTestEvent, async_test,
+    event_factory::EventFactory,
 };
 use matrix_sdk_ui::timeline::{RoomExt as _, TimelineBuilder, TimelineDetails, TimelineFocus};
 use ruma::{
+    MilliSecondsSinceUnixEpoch,
     api::client::receipt::create_receipt::v3::ReceiptType as SendReceiptType,
     event_id,
     events::{
         receipt::{ReceiptThread, ReceiptType},
         room::message::{ReplyWithinThread, RoomMessageEventContentWithoutRelation},
     },
-    owned_event_id, room_id, user_id, MilliSecondsSinceUnixEpoch,
+    owned_event_id, room_id, user_id,
 };
 use stream_assert::assert_pending;
 use tokio::task::yield_now;
@@ -92,14 +93,12 @@ async fn test_thread_backpagination() {
             .text_msg("Threaded event 4")
             .event_id(event_id!("$4"))
             .in_thread_reply(&thread_root_event_id, event_id!("$2"))
-            .into_raw_sync()
-            .cast(),
+            .into_raw(),
         factory
             .text_msg("Threaded event 3")
             .event_id(event_id!("$3"))
             .in_thread(&thread_root_event_id, event_id!("$2"))
-            .into_raw_sync()
-            .cast(),
+            .into_raw(),
     ];
 
     let batch2 = vec![
@@ -107,14 +106,12 @@ async fn test_thread_backpagination() {
             .text_msg("Threaded event 2")
             .event_id(event_id!("$2"))
             .in_thread(&thread_root_event_id, event_id!("$1"))
-            .into_raw_sync()
-            .cast(),
+            .into_raw(),
         factory
             .text_msg("Threaded event 1")
             .event_id(event_id!("$1"))
             .in_thread(&thread_root_event_id, event_id!("$root"))
-            .into_raw_sync()
-            .cast(),
+            .into_raw(),
     ];
 
     server

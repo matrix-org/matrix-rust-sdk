@@ -18,16 +18,16 @@ use anyhow::{Context as _, Result};
 use assert_matches::assert_matches;
 use assert_matches2::assert_let;
 use eyeball_im::{Vector, VectorDiff};
-use futures_util::{pin_mut, Stream, StreamExt};
+use futures_util::{Stream, StreamExt, pin_mut};
 use matrix_sdk::{
-    test_utils::logged_in_client_with_server, Client, SlidingSync, SlidingSyncList,
-    SlidingSyncListBuilder, SlidingSyncMode, UpdateSummary,
+    Client, SlidingSync, SlidingSyncList, SlidingSyncListBuilder, SlidingSyncMode, UpdateSummary,
+    test_utils::logged_in_client_with_server,
 };
 use matrix_sdk_test::{async_test, mocks::mock_encryption_state};
 use matrix_sdk_ui::timeline::{TimelineBuilder, TimelineItem, TimelineItemKind};
-use ruma::{room_id, user_id, RoomId};
+use ruma::{RoomId, room_id, user_id};
 use serde_json::json;
-use wiremock::{http::Method, Match, Mock, MockServer, Request, ResponseTemplate};
+use wiremock::{Match, Mock, MockServer, Request, ResponseTemplate, http::Method};
 
 macro_rules! receive_response {
     (
@@ -420,8 +420,10 @@ impl Match for SlidingSyncMatcher {
 
 #[async_test]
 async fn test_timeline_basic() -> Result<()> {
-    let (client, server, sliding_sync) = new_sliding_sync(vec![SlidingSyncList::builder("foo")
-        .sync_mode(SlidingSyncMode::new_selective().add_range(0..=10))])
+    let (client, server, sliding_sync) = new_sliding_sync(vec![
+        SlidingSyncList::builder("foo")
+            .sync_mode(SlidingSyncMode::new_selective().add_range(0..=10)),
+    ])
     .await?;
 
     let stream = sliding_sync.sync();
@@ -468,8 +470,10 @@ async fn test_timeline_basic() -> Result<()> {
 
 #[async_test]
 async fn test_timeline_duplicated_events() -> Result<()> {
-    let (client, server, sliding_sync) = new_sliding_sync(vec![SlidingSyncList::builder("foo")
-        .sync_mode(SlidingSyncMode::new_selective().add_range(0..=10))])
+    let (client, server, sliding_sync) = new_sliding_sync(vec![
+        SlidingSyncList::builder("foo")
+            .sync_mode(SlidingSyncMode::new_selective().add_range(0..=10)),
+    ])
     .await?;
 
     let stream = sliding_sync.sync();
@@ -546,8 +550,10 @@ async fn test_timeline_duplicated_events() -> Result<()> {
 
 #[async_test]
 async fn test_timeline_read_receipts_are_updated_live() -> Result<()> {
-    let (client, server, sliding_sync) = new_sliding_sync(vec![SlidingSyncList::builder("foo")
-        .sync_mode(SlidingSyncMode::new_selective().add_range(0..=10))])
+    let (client, server, sliding_sync) = new_sliding_sync(vec![
+        SlidingSyncList::builder("foo")
+            .sync_mode(SlidingSyncMode::new_selective().add_range(0..=10)),
+    ])
     .await?;
 
     let stream = sliding_sync.sync();

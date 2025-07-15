@@ -14,11 +14,14 @@
 
 use indexed_db_futures::{prelude::IdbTransaction, IdbQuerySource};
 use matrix_sdk_base::{
-    event_cache::{Event as RawEvent, Gap as RawGap},
+    event_cache::{store::EventCacheStoreError, Event as RawEvent, Gap as RawGap},
     linked_chunk::{ChunkContent, ChunkIdentifier, RawChunk},
 };
 use ruma::{events::relation::RelationType, OwnedEventId, RoomId};
-use serde::{de::DeserializeOwned, Serialize};
+use serde::{
+    de::{DeserializeOwned, Error},
+    Serialize,
+};
 use thiserror::Error;
 use web_sys::IdbCursorDirection;
 
@@ -55,9 +58,19 @@ impl From<web_sys::DomException> for IndexeddbEventCacheStoreTransactionError {
 
 impl From<serde_wasm_bindgen::Error> for IndexeddbEventCacheStoreTransactionError {
     fn from(e: serde_wasm_bindgen::Error) -> Self {
-        Self::Serialization(Box::new(<serde_json::Error as serde::de::Error>::custom(
-            e.to_string(),
-        )))
+        Self::Serialization(Box::new(serde_json::Error::custom(e.to_string())))
+    }
+}
+
+impl From<IndexeddbEventCacheStoreTransactionError> for EventCacheStoreError {
+    fn from(value: IndexeddbEventCacheStoreTransactionError) -> Self {
+        use IndexeddbEventCacheStoreTransactionError::*;
+
+        match value {
+            DomException { .. } => Self::InvalidData { details: value.to_string() },
+            Serialization(e) => Self::Serialization(serde_json::Error::custom(e.to_string())),
+            ItemIsNotUnique | ItemNotFound => Self::InvalidData { details: value.to_string() },
+        }
     }
 }
 
@@ -406,12 +419,40 @@ impl<'a> IndexeddbEventCacheStoreTransaction<'a> {
         self.get_item_by_key_components::<Chunk, IndexedChunkIdKey>(room_id, chunk_id).await
     }
 
+    /// Query IndexedDB for chunks such that the next chunk matches the given
+    /// chunk identifier in the given room. If more than one item is found,
+    /// an error is returned.
+    pub async fn get_chunk_by_next_chunk_id(
+        &self,
+        room_id: &RoomId,
+        next_chunk_id: &Option<ChunkIdentifier>,
+    ) -> Result<Option<Chunk>, IndexeddbEventCacheStoreTransactionError> {
+        self.get_item_by_key_components::<Chunk, IndexedNextChunkIdKey>(room_id, next_chunk_id)
+            .await
+    }
+
     /// Query IndexedDB for all chunks in the given room
     pub async fn get_chunks_in_room(
         &self,
         room_id: &RoomId,
     ) -> Result<Vec<Chunk>, IndexeddbEventCacheStoreTransactionError> {
         self.get_items_in_room::<Chunk, IndexedChunkIdKey>(room_id).await
+    }
+
+    /// Query IndexedDB for the number of chunks in the given room.
+    pub async fn get_chunks_count_in_room(
+        &self,
+        room_id: &RoomId,
+    ) -> Result<usize, IndexeddbEventCacheStoreTransactionError> {
+        self.get_items_count_in_room::<Chunk, IndexedChunkIdKey>(room_id).await
+    }
+
+    /// Query IndexedDB for the chunk with the maximum key in the given room.
+    pub async fn get_max_chunk_by_id(
+        &self,
+        room_id: &RoomId,
+    ) -> Result<Option<Chunk>, IndexeddbEventCacheStoreTransactionError> {
+        self.get_max_item_by_key::<Chunk, IndexedChunkIdKey>(room_id).await
     }
 
     /// Query IndexedDB for given chunk in given room and additionally query
@@ -539,6 +580,17 @@ impl<'a> IndexeddbEventCacheStoreTransaction<'a> {
         self.get_items_by_key_components::<Event, IndexedEventPositionKey>(room_id, range).await
     }
 
+    /// Query IndexedDB for number of events in the given position range in the
+    /// given room.
+    pub async fn get_events_count_by_position(
+        &self,
+        room_id: &RoomId,
+        range: impl Into<IndexedKeyRange<&Position>>,
+    ) -> Result<usize, IndexeddbEventCacheStoreTransactionError> {
+        self.get_items_count_by_key_components::<Event, IndexedEventPositionKey>(room_id, range)
+            .await
+    }
+
     /// Query IndexedDB for events in the given chunk in the given room.
     pub async fn get_events_by_chunk(
         &self,
@@ -551,6 +603,21 @@ impl<'a> IndexeddbEventCacheStoreTransaction<'a> {
         upper.chunk_identifier = chunk_id.index();
         let range = IndexedKeyRange::Bound(&lower, &upper);
         self.get_events_by_position(room_id, range).await
+    }
+
+    /// Query IndexedDB for number of events in the given chunk in the given
+    /// room.
+    pub async fn get_events_count_by_chunk(
+        &self,
+        room_id: &RoomId,
+        chunk_id: &ChunkIdentifier,
+    ) -> Result<usize, IndexeddbEventCacheStoreTransactionError> {
+        let mut lower = IndexedEventPositionKey::lower_key_components();
+        lower.chunk_identifier = chunk_id.index();
+        let mut upper = IndexedEventPositionKey::upper_key_components();
+        upper.chunk_identifier = chunk_id.index();
+        let range = IndexedKeyRange::Bound(&lower, &upper);
+        self.get_events_count_by_position(room_id, range).await
     }
 
     /// Puts an event in the given room. If an event with the same key already

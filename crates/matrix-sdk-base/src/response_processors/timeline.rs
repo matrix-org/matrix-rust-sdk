@@ -16,13 +16,7 @@ use matrix_sdk_common::deserialized_responses::TimelineEvent;
 #[cfg(feature = "e2e-encryption")]
 use ruma::events::SyncMessageLikeEvent;
 use ruma::{
-    events::{
-        room::power_levels::{
-            RoomPowerLevelsEvent, RoomPowerLevelsEventContent, StrippedRoomPowerLevelsEvent,
-        },
-        AnyStrippedStateEvent, AnySyncMessageLikeEvent, AnySyncStateEvent, AnySyncTimelineEvent,
-        StateEventType,
-    },
+    events::{AnySyncMessageLikeEvent, AnySyncTimelineEvent},
     push::{Action, PushConditionRoomCtx},
     UInt, UserId,
 };
@@ -31,11 +25,7 @@ use tracing::{instrument, trace, warn};
 #[cfg(feature = "e2e-encryption")]
 use super::{e2ee, verification};
 use super::{notification, Context};
-use crate::{
-    store::{BaseStateStore, StateStoreExt as _},
-    sync::Timeline,
-    Result, Room, RoomInfo,
-};
+use crate::{sync::Timeline, Result, Room, RoomInfo};
 
 /// Process a set of sync timeline event, and create a [`Timeline`].
 ///
@@ -54,8 +44,7 @@ pub async fn build<'notification, 'e2ee>(
     #[cfg(feature = "e2e-encryption")] e2ee: e2ee::E2EE<'e2ee>,
 ) -> Result<Timeline> {
     let mut timeline = Timeline::new(timeline_inputs.limited, timeline_inputs.prev_batch);
-    let mut push_condition_room_ctx =
-        get_push_room_context(context, room, room_info, notification.state_store).await?;
+    let mut push_condition_room_ctx = get_push_room_context(context, room, room_info).await?;
     let room_id = room.room_id();
 
     for raw_event in timeline_inputs.raw_events {
@@ -134,8 +123,7 @@ pub async fn build<'notification, 'e2ee>(
                     )
                 } else {
                     push_condition_room_ctx =
-                        get_push_room_context(context, room, room_info, notification.state_store)
-                            .await?;
+                        get_push_room_context(context, room, room_info).await?;
                 }
 
                 if let Some(push_condition_room_ctx) = &push_condition_room_ctx {
@@ -207,23 +195,13 @@ fn update_push_room_context(
     push_rules.member_count = UInt::new(room_info.active_members_count()).unwrap_or(UInt::MAX);
 
     // TODO: Use if let chain once stable
-    if let Some(AnySyncStateEvent::RoomMember(member)) =
-        context.state_changes.state.get(room_id).and_then(|events| {
-            events.get(&StateEventType::RoomMember)?.get(user_id.as_str())?.deserialize().ok()
-        })
-    {
-        push_rules.user_display_name = member
-            .as_original()
-            .and_then(|ev| ev.content.displayname.clone())
-            .unwrap_or_else(|| user_id.localpart().to_owned())
+    if let Some(member) = context.state_changes.member(room_id, user_id) {
+        push_rules.user_display_name =
+            member.content.displayname.unwrap_or_else(|| user_id.localpart().to_owned())
     }
 
-    if let Some(AnySyncStateEvent::RoomPowerLevels(event)) =
-        context.state_changes.state.get(room_id).and_then(|types| {
-            types.get(&StateEventType::RoomPowerLevels)?.get("")?.deserialize().ok()
-        })
-    {
-        push_rules.power_levels = Some(event.power_levels().into());
+    if let Some(power_levels) = context.state_changes.power_levels(room_id) {
+        push_rules.power_levels = Some(power_levels.into());
     }
 }
 
@@ -238,7 +216,6 @@ pub async fn get_push_room_context(
     context: &Context,
     room: &Room,
     room_info: &RoomInfo,
-    state_store: &BaseStateStore,
 ) -> Result<Option<PushConditionRoomCtx>> {
     let room_id = room.room_id();
     let user_id = room.own_user_id();
@@ -246,19 +223,7 @@ pub async fn get_push_room_context(
     let member_count = room_info.active_members_count();
 
     // TODO: Use if let chain once stable
-    let user_display_name = if let Some(AnySyncStateEvent::RoomMember(member)) =
-        context.state_changes.state.get(room_id).and_then(|events| {
-            events.get(&StateEventType::RoomMember)?.get(user_id.as_str())?.deserialize().ok()
-        }) {
-        member
-            .as_original()
-            .and_then(|ev| ev.content.displayname.clone())
-            .unwrap_or_else(|| user_id.localpart().to_owned())
-    } else if let Some(AnyStrippedStateEvent::RoomMember(member)) =
-        context.state_changes.stripped_state.get(room_id).and_then(|events| {
-            events.get(&StateEventType::RoomMember)?.get(user_id.as_str())?.deserialize().ok()
-        })
-    {
+    let user_display_name = if let Some(member) = context.state_changes.member(room_id, user_id) {
         member.content.displayname.unwrap_or_else(|| user_id.localpart().to_owned())
     } else if let Some(member) = Box::pin(room.get_member(user_id)).await? {
         member.name().to_owned()
@@ -267,31 +232,10 @@ pub async fn get_push_room_context(
         return Ok(None);
     };
 
-    let power_levels = if let Some(event) =
-        context.state_changes.state.get(room_id).and_then(|types| {
-            types
-                .get(&StateEventType::RoomPowerLevels)?
-                .get("")?
-                .deserialize_as::<RoomPowerLevelsEvent>()
-                .ok()
-        }) {
-        Some(event.power_levels().into())
-    } else if let Some(event) =
-        context.state_changes.stripped_state.get(room_id).and_then(|types| {
-            types
-                .get(&StateEventType::RoomPowerLevels)?
-                .get("")?
-                .deserialize_as::<StrippedRoomPowerLevelsEvent>()
-                .ok()
-        })
-    {
-        Some(event.power_levels().into())
+    let power_levels = if let Some(power_levels) = context.state_changes.power_levels(room_id) {
+        Some(power_levels)
     } else {
-        state_store
-            .get_state_event_static::<RoomPowerLevelsEventContent>(room_id)
-            .await?
-            .and_then(|e| e.deserialize().ok())
-            .map(|event| event.power_levels().into())
+        room.power_levels().await.ok()
     };
 
     Ok(Some(PushConditionRoomCtx {
@@ -299,6 +243,6 @@ pub async fn get_push_room_context(
         room_id: room_id.to_owned(),
         member_count: UInt::new(member_count).unwrap_or(UInt::MAX),
         user_display_name,
-        power_levels,
+        power_levels: power_levels.map(Into::into),
     }))
 }

@@ -17,18 +17,18 @@ use std::{cmp::Ordering, collections::HashMap};
 use futures_core::Stream;
 use indexmap::IndexMap;
 use ruma::{
-    events::receipt::{Receipt, ReceiptEventContent, ReceiptThread, ReceiptType},
     EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedUserId, UserId,
+    events::receipt::{Receipt, ReceiptEventContent, ReceiptThread, ReceiptType},
 };
 use tokio::sync::watch;
 use tokio_stream::wrappers::WatchStream;
 use tracing::{debug, error, instrument, trace, warn};
 
 use super::{
-    rfind_event_by_id, AllRemoteEvents, ObservableItemsTransaction, RelativePosition,
-    RoomDataProvider, TimelineMetadata, TimelineState,
+    AllRemoteEvents, ObservableItemsTransaction, RelativePosition, RoomDataProvider,
+    TimelineMetadata, TimelineState, rfind_event_by_id,
 };
-use crate::timeline::{controller::TimelineStateTransaction, TimelineItem};
+use crate::timeline::{TimelineItem, controller::TimelineStateTransaction};
 
 /// In-memory caches for read receipts.
 #[derive(Clone, Debug, Default)]
@@ -56,7 +56,9 @@ impl ReadReceipts {
     }
 
     /// Subscribe to changes in the read receipts of our own user.
-    pub(super) fn subscribe_own_user_read_receipts_changed(&self) -> impl Stream<Item = ()> {
+    pub(super) fn subscribe_own_user_read_receipts_changed(
+        &self,
+    ) -> impl Stream<Item = ()> + use<> {
         let subscriber = self.own_user_read_receipts_changed_sender.subscribe();
         WatchStream::from_changes(subscriber)
     }

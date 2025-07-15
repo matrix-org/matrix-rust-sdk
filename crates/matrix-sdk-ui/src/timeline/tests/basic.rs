@@ -18,33 +18,32 @@ use eyeball_im::VectorDiff;
 use futures_util::StreamExt;
 use imbl::vector;
 use matrix_sdk_test::{
-    async_test,
+    ALICE, BOB, CAROL, async_test,
     event_factory::{EventFactory, PreviousMembership},
-    ALICE, BOB, CAROL,
 };
 use ruma::{
-    event_id,
+    MilliSecondsSinceUnixEpoch, event_id,
     events::{
+        FullStateEventContent,
         receipt::{Receipt, ReceiptThread, ReceiptType},
         room::{
+            ImageInfo,
             member::{MembershipState, RedactedRoomMemberEventContent},
             message::MessageType,
             topic::RedactedRoomTopicEventContent,
-            ImageInfo,
         },
-        FullStateEventContent,
     },
-    mxc_uri, owned_event_id, owned_mxc_uri, user_id, MilliSecondsSinceUnixEpoch,
+    mxc_uri, owned_event_id, owned_mxc_uri, user_id,
 };
 use stream_assert::assert_next_matches;
 
 use super::TestTimeline;
 use crate::timeline::{
+    MembershipChange, MsgLikeContent, MsgLikeKind, TimelineDetails, TimelineItemContent,
+    TimelineItemKind, VirtualTimelineItem,
     controller::TimelineSettings,
     event_item::{AnyOtherFullStateEventContent, RemoteEventOrigin},
     tests::{ReadReceiptMap, TestRoomDataProvider, TestTimelineBuilder},
-    MembershipChange, MsgLikeContent, MsgLikeKind, TimelineDetails, TimelineItemContent,
-    TimelineItemKind, VirtualTimelineItem,
 };
 
 #[async_test]

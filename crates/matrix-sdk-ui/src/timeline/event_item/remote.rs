@@ -17,9 +17,9 @@ use std::{fmt, sync::Arc};
 use indexmap::IndexMap;
 use matrix_sdk::deserialized_responses::EncryptionInfo;
 use ruma::{
-    events::{receipt::Receipt, AnySyncTimelineEvent},
-    serde::Raw,
     OwnedEventId, OwnedTransactionId, OwnedUserId,
+    events::{AnySyncTimelineEvent, receipt::Receipt},
+    serde::Raw,
 };
 
 /// An item for an event that was received from the homeserver.

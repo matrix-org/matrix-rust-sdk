@@ -19,8 +19,8 @@
 use std::{collections::HashMap, iter};
 
 use ruma::{
-    api::client::keys::get_keys::v3::Response as KeyQueryResponse, device_id, user_id, DeviceId,
-    UserId,
+    DeviceId, UserId, api::client::keys::get_keys::v3::Response as KeyQueryResponse, device_id,
+    user_id,
 };
 use serde_json::json;
 

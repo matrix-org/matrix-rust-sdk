@@ -30,11 +30,11 @@ use std::{pin::Pin, time::Duration};
 
 use async_stream::stream;
 use futures_core::stream::Stream;
-use futures_util::{pin_mut, StreamExt};
-use matrix_sdk::{sleep::sleep, Client, SlidingSync, LEASE_DURATION_MS};
+use futures_util::{StreamExt, pin_mut};
+use matrix_sdk::{Client, LEASE_DURATION_MS, SlidingSync, sleep::sleep};
 use ruma::{api::client::sync::sync_events::v5 as http, assign};
 use tokio::sync::OwnedMutexGuard;
-use tracing::{debug, instrument, trace, Span};
+use tracing::{Span, debug, instrument, trace};
 
 /// Unit type representing a permit to *use* an [`EncryptionSyncService`].
 ///
@@ -66,11 +66,7 @@ pub enum WithLocking {
 
 impl From<bool> for WithLocking {
     fn from(value: bool) -> Self {
-        if value {
-            Self::Yes
-        } else {
-            Self::No
-        }
+        if value { Self::Yes } else { Self::No }
     }
 }
 
@@ -130,7 +126,7 @@ impl EncryptionSyncService {
                     // Any other error is fatal
                     return Err(Error::ClientError(err));
                 }
-            };
+            }
         }
 
         Ok(Self { client, sliding_sync, with_locking })

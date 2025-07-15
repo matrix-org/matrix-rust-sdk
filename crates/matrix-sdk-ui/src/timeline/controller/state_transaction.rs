@@ -20,8 +20,8 @@ use matrix_sdk::deserialized_responses::{
     ThreadSummaryStatus, TimelineEvent, TimelineEventKind, UnsignedEventLocation,
 };
 use ruma::{
-    events::AnySyncTimelineEvent, push::Action, serde::Raw, EventId, MilliSecondsSinceUnixEpoch,
-    OwnedEventId, OwnedTransactionId, OwnedUserId, UserId,
+    EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, OwnedUserId, UserId,
+    events::AnySyncTimelineEvent, push::Action, serde::Raw,
 };
 use tracing::{debug, instrument, warn};
 
@@ -33,13 +33,13 @@ use super::{
         event_item::RemoteEventOrigin,
         traits::RoomDataProvider,
     },
-    metadata::EventMeta,
     ObservableItems, ObservableItemsTransaction, TimelineMetadata, TimelineSettings,
+    metadata::EventMeta,
 };
 use crate::timeline::{
+    EmbeddedEvent, ThreadSummary, TimelineDetails, VirtualTimelineItem,
     controller::TimelineFocusKind,
     event_handler::{FailedToParseEvent, RemovedItem, TimelineAction},
-    EmbeddedEvent, ThreadSummary, TimelineDetails, VirtualTimelineItem,
 };
 
 pub(in crate::timeline) struct TimelineStateTransaction<'a, P: RoomDataProvider> {

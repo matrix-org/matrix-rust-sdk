@@ -397,8 +397,7 @@ async fn test_observing_live_location_does_not_return_own_beacon_updates() {
         .event_id(event_id)
         .sender(user_id)
         .state_key(user_id)
-        .into_raw_timeline()
-        .cast()]);
+        .into_raw()]);
 
     let room = server.sync_room(&client, joined_room_builder).await;
 

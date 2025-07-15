@@ -22,26 +22,26 @@ use futures_util::pin_mut;
 use imbl::Vector;
 use itertools::{Either, Itertools as _};
 use matrix_sdk::{
+    Client, Room,
     crypto::store::types::RoomKeyInfo,
     deserialized_responses::TimelineEventKind as SdkTimelineEventKind,
     encryption::backups::BackupState,
     event_handler::EventHandlerHandle,
-    executor::{spawn, JoinHandle},
-    Client, Room,
+    executor::{JoinHandle, spawn},
 };
 use tokio::sync::{
-    mpsc::{self, Receiver, Sender},
     RwLock,
+    mpsc::{self, Receiver, Sender},
 };
-use tokio_stream::{wrappers::errors::BroadcastStreamRecvError, StreamExt as _};
-use tracing::{debug, error, field, info, info_span, warn, Instrument as _};
+use tokio_stream::{StreamExt as _, wrappers::errors::BroadcastStreamRecvError};
+use tracing::{Instrument as _, debug, error, field, info, info_span, warn};
 
 use crate::timeline::{
+    EncryptedMessage, EventTimelineItem, TimelineController, TimelineItem, TimelineItemKind,
     controller::{TimelineSettings, TimelineState},
     event_item::EventTimelineItemKind,
     to_device::{handle_forwarded_room_key_event, handle_room_key_event},
     traits::{Decryptor, RoomDataProvider},
-    EncryptedMessage, EventTimelineItem, TimelineController, TimelineItem, TimelineItemKind,
 };
 
 /// All the drop handles for the tasks used for crypto, namely message
@@ -382,11 +382,7 @@ fn compute_event_indices_to_retry_decryption(
         // Break the result into 2 lists: (utds, decrypted)
         .partition_map(
             |(idx, event)| {
-                if event.content().is_unable_to_decrypt() {
-                    Left(idx)
-                } else {
-                    Right(idx)
-                }
+                if event.content().is_unable_to_decrypt() { Left(idx) } else { Right(idx) }
             },
         )
 }
@@ -518,6 +514,7 @@ mod tests {
         deserialized_responses::{AlgorithmInfo, EncryptionInfo, VerificationState},
     };
     use ruma::{
+        MilliSecondsSinceUnixEpoch, OwnedTransactionId,
         events::room::{
             encrypted::{
                 EncryptedEventScheme, MegolmV1AesSha2Content, MegolmV1AesSha2ContentInit,
@@ -525,19 +522,18 @@ mod tests {
             },
             message::RoomMessageEventContent,
         },
-        owned_device_id, owned_event_id, owned_user_id, MilliSecondsSinceUnixEpoch,
-        OwnedTransactionId,
+        owned_device_id, owned_event_id, owned_user_id,
     };
 
     use crate::timeline::{
+        EncryptedMessage, EventSendState, EventTimelineItem, MsgLikeContent,
+        ReactionsByKeyBySender, TimelineDetails, TimelineItem, TimelineItemContent,
+        TimelineItemKind, TimelineUniqueId, VirtualTimelineItem,
         controller::decryption_retry_task::compute_event_indices_to_retry_decryption,
         event_item::{
             EventTimelineItemKind, LocalEventTimelineItem, RemoteEventOrigin,
             RemoteEventTimelineItem,
         },
-        EncryptedMessage, EventSendState, EventTimelineItem, MsgLikeContent,
-        ReactionsByKeyBySender, TimelineDetails, TimelineItem, TimelineItemContent,
-        TimelineItemKind, TimelineUniqueId, VirtualTimelineItem,
     };
 
     #[test]

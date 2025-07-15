@@ -1,24 +1,24 @@
 use assert_matches::assert_matches;
 use eyeball_im::VectorDiff;
 use matrix_sdk_base::deserialized_responses::{ShieldState, ShieldStateCode};
-use matrix_sdk_test::{async_test, event_factory::EventFactory, ALICE};
+use matrix_sdk_test::{ALICE, async_test, event_factory::EventFactory};
 use ruma::{
     event_id,
     events::{
+        AnyMessageLikeEventContent,
         room::{
             encrypted::{
                 EncryptedEventScheme, MegolmV1AesSha2ContentInit, RoomEncryptedEventContent,
             },
             message::RoomMessageEventContent,
         },
-        AnyMessageLikeEventContent,
     },
 };
 use stream_assert::{assert_next_matches, assert_pending};
 
 use crate::timeline::{
-    tests::{TestTimeline, TestTimelineBuilder},
     EventSendState,
+    tests::{TestTimeline, TestTimelineBuilder},
 };
 
 #[async_test]

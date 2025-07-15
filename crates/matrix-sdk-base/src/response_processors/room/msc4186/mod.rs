@@ -20,8 +20,6 @@ use std::collections::BTreeSet;
 
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk_common::deserialized_responses::TimelineEvent;
-#[cfg(feature = "e2e-encryption")]
-use ruma::events::StateEventType;
 use ruma::{
     api::client::sync::sync_events::{
         v3::{InviteState, InvitedRoom, KnockState, KnockedRoom},
@@ -441,19 +439,9 @@ pub(crate) async fn cache_latest_events(
     let mut encrypted_events =
         Vec::with_capacity(room.latest_encrypted_events.read().unwrap().capacity());
 
-    // Try to get room power levels from the current changes
-    let power_levels_from_changes = || {
-        let state_changes = changes?.state.get(room_info.room_id())?;
-        let room_power_levels_state =
-            state_changes.get(&StateEventType::RoomPowerLevels)?.values().next()?;
-        match room_power_levels_state.deserialize().ok()? {
-            AnySyncStateEvent::RoomPowerLevels(ev) => Some(ev.power_levels()),
-            _ => None,
-        }
-    };
-
-    // If we didn't get any info, try getting it from local data
-    let power_levels = match power_levels_from_changes() {
+    // Try to get room power levels from the current changes. If we didn't get any
+    // info, try getting it from local data.
+    let power_levels = match changes.and_then(|changes| changes.power_levels(room_info.room_id())) {
         Some(power_levels) => Some(power_levels),
         None => room.power_levels().await.ok(),
     };

@@ -42,6 +42,7 @@ use matrix_sdk_base::{
     linked_chunk::lazy_loader::LazyLoaderError,
     store_locks::LockStoreError,
     sync::RoomUpdates,
+    timer,
 };
 use matrix_sdk_common::executor::{spawn, JoinHandle};
 use room::RoomEventCacheState;
@@ -252,6 +253,8 @@ impl EventCache {
         loop {
             match room_updates_feed.recv().await {
                 Ok(updates) => {
+                    trace!("Receiving `RoomUpdates`");
+
                     if let Err(err) = inner.handle_room_updates(updates).await {
                         match err {
                             EventCacheError::ClientDropped => {
@@ -511,7 +514,10 @@ impl EventCacheInner {
     async fn handle_room_updates(&self, updates: RoomUpdates) -> Result<()> {
         // First, take the lock that indicates we're processing updates, to avoid
         // handling multiple updates concurrently.
-        let _lock = self.multiple_room_updates_lock.lock().await;
+        let _lock = {
+            let _timer = timer!("Taking the `multiple_room_updates_lock`");
+            self.multiple_room_updates_lock.lock().await
+        };
 
         // Left rooms.
         for (room_id, left_room_update) in updates.left {
@@ -525,6 +531,8 @@ impl EventCacheInner {
 
         // Joined rooms.
         for (room_id, joined_room_update) in updates.joined {
+            trace!(?room_id, "Handling a `JoinedRoomUpdate`");
+
             let room = self.for_room(&room_id).await?;
 
             if let Err(err) = room.inner.handle_joined_room_update(joined_room_update).await {

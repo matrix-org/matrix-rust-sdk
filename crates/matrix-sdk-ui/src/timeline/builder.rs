@@ -14,14 +14,14 @@
 
 use std::sync::Arc;
 
-use matrix_sdk::{executor::spawn, Room};
+use matrix_sdk::{Room, executor::spawn};
 use matrix_sdk_base::{SendOutsideWasm, SyncOutsideWasm};
-use ruma::{events::AnySyncTimelineEvent, RoomVersionId};
-use tracing::{info_span, Instrument, Span};
+use ruma::{RoomVersionId, events::AnySyncTimelineEvent};
+use tracing::{Instrument, Span, info_span};
 
 use super::{
-    controller::{TimelineController, TimelineSettings},
     DateDividerMode, Error, Timeline, TimelineDropHandle, TimelineFocus,
+    controller::{TimelineController, TimelineSettings},
 };
 use crate::{
     timeline::{

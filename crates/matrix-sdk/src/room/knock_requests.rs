@@ -129,8 +129,7 @@ mod tests {
             .member(user_id)
             .membership(MembershipState::Knock)
             .event_id(event_id)
-            .into_raw_timeline()
-            .cast()]);
+            .into_raw()]);
         let room = server.sync_room(&client, joined_room_builder).await;
 
         let knock_request = make_knock_request(&room, Some(event_id));

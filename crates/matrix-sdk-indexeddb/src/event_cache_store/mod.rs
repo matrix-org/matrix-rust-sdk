@@ -28,15 +28,16 @@ use matrix_sdk_base::{
         RawChunk, Update,
     },
     media::MediaRequestParameters,
+    timer,
 };
 use ruma::{events::relation::RelationType, EventId, MxcUri, OwnedEventId, RoomId};
-use tracing::trace;
+use tracing::{instrument, trace};
 use web_sys::IdbTransactionMode;
 
 use crate::event_cache_store::{
     migrations::current::keys,
     serializer::IndexeddbEventCacheStoreSerializer,
-    transaction::IndexeddbEventCacheStoreTransaction,
+    transaction::{IndexeddbEventCacheStoreTransaction, IndexeddbEventCacheStoreTransactionError},
     types::{ChunkType, InBandEvent},
 };
 
@@ -123,23 +124,28 @@ macro_rules! impl_event_cache_store {
 }
 
 impl_event_cache_store! {
+    #[instrument(skip(self))]
     async fn try_take_leased_lock(
         &self,
         lease_duration_ms: u32,
         key: &str,
         holder: &str,
     ) -> Result<bool, IndexeddbEventCacheStoreError> {
+        let _timer = timer!("method");
         self.memory_store
             .try_take_leased_lock(lease_duration_ms, key, holder)
             .await
             .map_err(IndexeddbEventCacheStoreError::MemoryStore)
     }
 
+    #[instrument(skip(self, updates))]
     async fn handle_linked_chunk_updates(
         &self,
         linked_chunk_id: LinkedChunkId<'_>,
         updates: Vec<Update<Event, Gap>>,
     ) -> Result<(), IndexeddbEventCacheStoreError> {
+        let _timer = timer!("method");
+
         let linked_chunk_id = linked_chunk_id.to_owned();
         let room_id = linked_chunk_id.room_id();
 
@@ -258,10 +264,13 @@ impl_event_cache_store! {
         Ok(())
     }
 
+    #[instrument(skip(self))]
     async fn load_all_chunks(
         &self,
         linked_chunk_id: LinkedChunkId<'_>,
     ) -> Result<Vec<RawChunk<Event, Gap>>, IndexeddbEventCacheStoreError> {
+        let _ = timer!("method");
+
         let linked_chunk_id = linked_chunk_id.to_owned();
         let room_id = linked_chunk_id.room_id();
 
@@ -283,16 +292,47 @@ impl_event_cache_store! {
         Ok(raw_chunks)
     }
 
+    #[instrument(skip(self))]
     async fn load_all_chunks_metadata(
         &self,
         linked_chunk_id: LinkedChunkId<'_>,
     ) -> Result<Vec<ChunkMetadata>, IndexeddbEventCacheStoreError> {
-        self.memory_store
-            .load_all_chunks_metadata(linked_chunk_id)
-            .await
-            .map_err(IndexeddbEventCacheStoreError::MemoryStore)
+        // TODO: This call could possibly take a very long time and the
+        // amount of time increases linearly with the number of chunks
+        // it needs to load from the database. This will likely require
+        // some refactoring to deal with performance issues.
+        //
+        // For details on the performance penalties associated with this
+        // call, see https://github.com/matrix-org/matrix-rust-sdk/pull/5407.
+        //
+        // For how this was improved in the SQLite implementation, see
+        // https://github.com/matrix-org/matrix-rust-sdk/pull/5382.
+        let _ = timer!("method");
+
+        let linked_chunk_id = linked_chunk_id.to_owned();
+        let room_id = linked_chunk_id.room_id();
+
+        let transaction = self.transaction(
+            &[keys::LINKED_CHUNKS, keys::EVENTS, keys::GAPS],
+            IdbTransactionMode::Readwrite,
+        )?;
+
+        let mut raw_chunks = Vec::new();
+        let chunks = transaction.get_chunks_in_room(room_id).await?;
+        for chunk in chunks {
+            let chunk_id = ChunkIdentifier::new(chunk.identifier);
+            let num_items = transaction.get_events_count_by_chunk(room_id, &chunk_id).await?;
+            raw_chunks.push(ChunkMetadata {
+                num_items,
+                previous: chunk.previous.map(ChunkIdentifier::new),
+                identifier: ChunkIdentifier::new(chunk.identifier),
+                next: chunk.next.map(ChunkIdentifier::new),
+            });
+        }
+        Ok(raw_chunks)
     }
 
+    #[instrument(skip(self))]
     async fn load_last_chunk(
         &self,
         linked_chunk_id: LinkedChunkId<'_>,
@@ -300,164 +340,256 @@ impl_event_cache_store! {
         (Option<RawChunk<Event, Gap>>, ChunkIdentifierGenerator),
         IndexeddbEventCacheStoreError,
     > {
-        self.memory_store
-            .load_last_chunk(linked_chunk_id)
-            .await
-            .map_err(IndexeddbEventCacheStoreError::MemoryStore)
+        let _timer = timer!("method");
+
+        let linked_chunk_id = linked_chunk_id.to_owned();
+        let room_id = linked_chunk_id.room_id();
+        let transaction = self.transaction(
+            &[keys::LINKED_CHUNKS, keys::EVENTS, keys::GAPS],
+            IdbTransactionMode::Readonly,
+        )?;
+
+        if transaction.get_chunks_count_in_room(room_id).await? == 0 {
+            return Ok((None, ChunkIdentifierGenerator::new_from_scratch()));
+        }
+        // Now that we know we have some chunks in the room, we query IndexedDB
+        // for the last chunk in the room by getting the chunk which does not
+        // have a next chunk.
+        match transaction.get_chunk_by_next_chunk_id(room_id, &None).await {
+            Err(IndexeddbEventCacheStoreTransactionError::ItemIsNotUnique) => {
+                // If there are multiple chunks that do not have a next chunk, that
+                // means we have more than one last chunk, which means that we have
+                // more than one list in the room.
+                Err(IndexeddbEventCacheStoreError::ChunksContainDisjointLists)
+            }
+            Err(e) => {
+                // There was some error querying IndexedDB, but it is not necessarily
+                // a violation of our data constraints.
+                Err(e.into())
+            },
+            Ok(None) => {
+                // If there is no chunk without a next chunk, that means every chunk
+                // points to another chunk, which means that we have a cycle in our list.
+                Err(IndexeddbEventCacheStoreError::ChunksContainCycle)
+            },
+            Ok(Some(last_chunk)) => {
+                let last_chunk_identifier = ChunkIdentifier::new(last_chunk.identifier);
+                let last_raw_chunk = transaction
+                    .load_chunk_by_id(room_id, &last_chunk_identifier)
+                    .await?
+                    .ok_or(IndexeddbEventCacheStoreError::UnableToLoadChunk)?;
+                let max_chunk_id = transaction
+                    .get_max_chunk_by_id(room_id)
+                    .await?
+                    .map(|chunk| ChunkIdentifier::new(chunk.identifier))
+                    .ok_or(IndexeddbEventCacheStoreError::NoMaxChunkId)?;
+                let generator =
+                    ChunkIdentifierGenerator::new_from_previous_chunk_identifier(max_chunk_id);
+                Ok((Some(last_raw_chunk), generator))
+            }
+        }
     }
 
+    #[instrument(skip(self))]
     async fn load_previous_chunk(
         &self,
         linked_chunk_id: LinkedChunkId<'_>,
         before_chunk_identifier: ChunkIdentifier,
     ) -> Result<Option<RawChunk<Event, Gap>>, IndexeddbEventCacheStoreError> {
-        self.memory_store
-            .load_previous_chunk(linked_chunk_id, before_chunk_identifier)
-            .await
-            .map_err(IndexeddbEventCacheStoreError::MemoryStore)
+        let _timer = timer!("method");
+
+        let linked_chunk_id = linked_chunk_id.to_owned();
+        let room_id = linked_chunk_id.room_id();
+        let transaction = self.transaction(
+            &[keys::LINKED_CHUNKS, keys::EVENTS, keys::GAPS],
+            IdbTransactionMode::Readonly,
+        )?;
+        if let Some(chunk) = transaction.get_chunk_by_id(room_id, &before_chunk_identifier).await? {
+            if let Some(previous_identifier) = chunk.previous {
+                let previous_identifier = ChunkIdentifier::new(previous_identifier);
+                return Ok(transaction.load_chunk_by_id(room_id, &previous_identifier).await?);
+            }
+        }
+        Ok(None)
     }
 
+    #[instrument(skip(self))]
     async fn clear_all_linked_chunks(&self) -> Result<(), IndexeddbEventCacheStoreError> {
-        self.memory_store
-            .clear_all_linked_chunks()
-            .await
-            .map_err(IndexeddbEventCacheStoreError::MemoryStore)
+        let _timer = timer!("method");
+
+        let transaction = self.transaction(
+            &[keys::LINKED_CHUNKS, keys::EVENTS, keys::GAPS],
+            IdbTransactionMode::Readwrite,
+        )?;
+        transaction.clear::<types::Chunk>().await?;
+        transaction.clear::<types::Event>().await?;
+        transaction.clear::<types::Gap>().await?;
+        transaction.commit().await?;
+        Ok(())
     }
 
+    #[instrument(skip(self, events))]
     async fn filter_duplicated_events(
         &self,
         linked_chunk_id: LinkedChunkId<'_>,
         events: Vec<OwnedEventId>,
     ) -> Result<Vec<(OwnedEventId, Position)>, IndexeddbEventCacheStoreError> {
+        let _timer = timer!("method");
         self.memory_store
             .filter_duplicated_events(linked_chunk_id, events)
             .await
             .map_err(IndexeddbEventCacheStoreError::MemoryStore)
     }
 
+    #[instrument(skip(self, event_id))]
     async fn find_event(
         &self,
         room_id: &RoomId,
         event_id: &EventId,
     ) -> Result<Option<Event>, IndexeddbEventCacheStoreError> {
+        let _timer = timer!("method");
         self.memory_store
             .find_event(room_id, event_id)
             .await
             .map_err(IndexeddbEventCacheStoreError::MemoryStore)
     }
 
+    #[instrument(skip(self, event_id, filters))]
     async fn find_event_relations(
         &self,
         room_id: &RoomId,
         event_id: &EventId,
         filters: Option<&[RelationType]>,
     ) -> Result<Vec<(Event, Option<Position>)>, IndexeddbEventCacheStoreError> {
+        let _timer = timer!("method");
         self.memory_store
             .find_event_relations(room_id, event_id, filters)
             .await
             .map_err(IndexeddbEventCacheStoreError::MemoryStore)
     }
 
+    #[instrument(skip(self, event))]
     async fn save_event(
         &self,
         room_id: &RoomId,
         event: Event,
     ) -> Result<(), IndexeddbEventCacheStoreError> {
+        let _timer = timer!("method");
         self.memory_store
             .save_event(room_id, event)
             .await
             .map_err(IndexeddbEventCacheStoreError::MemoryStore)
     }
 
+    #[instrument(skip_all)]
     async fn add_media_content(
         &self,
         request: &MediaRequestParameters,
         content: Vec<u8>,
         ignore_policy: IgnoreMediaRetentionPolicy,
     ) -> Result<(), IndexeddbEventCacheStoreError> {
+        let _timer = timer!("method");
         self.memory_store
             .add_media_content(request, content, ignore_policy)
             .await
             .map_err(IndexeddbEventCacheStoreError::MemoryStore)
     }
 
+    #[instrument(skip_all)]
     async fn replace_media_key(
         &self,
         from: &MediaRequestParameters,
         to: &MediaRequestParameters,
     ) -> Result<(), IndexeddbEventCacheStoreError> {
+        let _timer = timer!("method");
         self.memory_store
             .replace_media_key(from, to)
             .await
             .map_err(IndexeddbEventCacheStoreError::MemoryStore)
     }
 
+    #[instrument(skip_all)]
     async fn get_media_content(
         &self,
         request: &MediaRequestParameters,
     ) -> Result<Option<Vec<u8>>, IndexeddbEventCacheStoreError> {
+        let _timer = timer!("method");
         self.memory_store
             .get_media_content(request)
             .await
             .map_err(IndexeddbEventCacheStoreError::MemoryStore)
     }
 
+    #[instrument(skip_all)]
     async fn remove_media_content(
         &self,
         request: &MediaRequestParameters,
     ) -> Result<(), IndexeddbEventCacheStoreError> {
+        let _timer = timer!("method");
         self.memory_store
             .remove_media_content(request)
             .await
             .map_err(IndexeddbEventCacheStoreError::MemoryStore)
     }
 
+    #[instrument(skip(self))]
     async fn get_media_content_for_uri(
         &self,
         uri: &MxcUri,
     ) -> Result<Option<Vec<u8>>, IndexeddbEventCacheStoreError> {
+        let _timer = timer!("method");
         self.memory_store
             .get_media_content_for_uri(uri)
             .await
             .map_err(IndexeddbEventCacheStoreError::MemoryStore)
     }
 
+    #[instrument(skip(self))]
     async fn remove_media_content_for_uri(
         &self,
         uri: &MxcUri,
     ) -> Result<(), IndexeddbEventCacheStoreError> {
+        let _timer = timer!("method");
         self.memory_store
             .remove_media_content_for_uri(uri)
             .await
             .map_err(IndexeddbEventCacheStoreError::MemoryStore)
     }
 
+    #[instrument(skip_all)]
     async fn set_media_retention_policy(
         &self,
         policy: MediaRetentionPolicy,
     ) -> Result<(), IndexeddbEventCacheStoreError> {
+        let _timer = timer!("method");
         self.memory_store
             .set_media_retention_policy(policy)
             .await
             .map_err(IndexeddbEventCacheStoreError::MemoryStore)
     }
 
+    #[instrument(skip_all)]
     fn media_retention_policy(&self) -> MediaRetentionPolicy {
+        let _timer = timer!("method");
         self.memory_store.media_retention_policy()
     }
 
+    #[instrument(skip_all)]
     async fn set_ignore_media_retention_policy(
         &self,
         request: &MediaRequestParameters,
         ignore_policy: IgnoreMediaRetentionPolicy,
     ) -> Result<(), IndexeddbEventCacheStoreError> {
+        let _timer = timer!("method");
         self.memory_store
             .set_ignore_media_retention_policy(request, ignore_policy)
             .await
             .map_err(IndexeddbEventCacheStoreError::MemoryStore)
     }
 
+    #[instrument(skip_all)]
     async fn clean_up_media_cache(&self) -> Result<(), IndexeddbEventCacheStoreError> {
+        let _timer = timer!("method");
         self.memory_store
             .clean_up_media_cache()
             .await
