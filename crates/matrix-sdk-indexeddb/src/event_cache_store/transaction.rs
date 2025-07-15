@@ -570,6 +570,17 @@ impl<'a> IndexeddbEventCacheStoreTransaction<'a> {
         self.delete_items_in_room::<Chunk, IndexedChunkIdKey>(room_id).await
     }
 
+    /// Query IndexedDB for events that match the given event id in the given
+    /// room. If more than one item is found, an error is returned.
+    pub async fn get_event_by_id(
+        &self,
+        room_id: &RoomId,
+        event_id: &OwnedEventId,
+    ) -> Result<Option<Event>, IndexeddbEventCacheStoreTransactionError> {
+        let key = self.serializer.encode_key(room_id, event_id);
+        self.get_item_by_key::<Event, IndexedEventIdKey>(room_id, key).await
+    }
+
     /// Query IndexedDB for events in the given position range in the given
     /// room.
     pub async fn get_events_by_position(
