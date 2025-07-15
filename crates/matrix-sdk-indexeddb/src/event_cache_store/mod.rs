@@ -353,10 +353,19 @@ impl_event_cache_store! {
         linked_chunk_id: LinkedChunkId<'_>,
         before_chunk_identifier: ChunkIdentifier,
     ) -> Result<Option<RawChunk<Event, Gap>>, IndexeddbEventCacheStoreError> {
-        self.memory_store
-            .load_previous_chunk(linked_chunk_id, before_chunk_identifier)
-            .await
-            .map_err(IndexeddbEventCacheStoreError::MemoryStore)
+        let linked_chunk_id = linked_chunk_id.to_owned();
+        let room_id = linked_chunk_id.room_id();
+        let transaction = self.transaction(
+            &[keys::LINKED_CHUNKS, keys::EVENTS, keys::GAPS],
+            IdbTransactionMode::Readonly,
+        )?;
+        if let Some(chunk) = transaction.get_chunk_by_id(room_id, &before_chunk_identifier).await? {
+            if let Some(previous_identifier) = chunk.previous {
+                let previous_identifier = ChunkIdentifier::new(previous_identifier);
+                return Ok(transaction.load_chunk_by_id(room_id, &previous_identifier).await?);
+            }
+        }
+        Ok(None)
     }
 
     async fn clear_all_linked_chunks(&self) -> Result<(), IndexeddbEventCacheStoreError> {
