@@ -1,7 +1,7 @@
 [package]
 name = "matrix-sdk-store-encryption"
 version = "0.13.0"
-edition = "2021"
+edition = "2024"
 description = "Helpers for encrypted storage keys for the Matrix SDK"
 repository = "https://github.com/matrix-org/matrix-rust-sdk"
 license = "Apache-2.0"
