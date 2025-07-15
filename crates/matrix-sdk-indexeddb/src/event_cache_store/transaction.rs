@@ -580,6 +580,17 @@ impl<'a> IndexeddbEventCacheStoreTransaction<'a> {
         self.get_items_by_key_components::<Event, IndexedEventPositionKey>(room_id, range).await
     }
 
+    /// Query IndexedDB for number of events in the given position range in the
+    /// given room.
+    pub async fn get_events_count_by_position(
+        &self,
+        room_id: &RoomId,
+        range: impl Into<IndexedKeyRange<&Position>>,
+    ) -> Result<usize, IndexeddbEventCacheStoreTransactionError> {
+        self.get_items_count_by_key_components::<Event, IndexedEventPositionKey>(room_id, range)
+            .await
+    }
+
     /// Query IndexedDB for events in the given chunk in the given room.
     pub async fn get_events_by_chunk(
         &self,
@@ -592,6 +603,21 @@ impl<'a> IndexeddbEventCacheStoreTransaction<'a> {
         upper.chunk_identifier = chunk_id.index();
         let range = IndexedKeyRange::Bound(&lower, &upper);
         self.get_events_by_position(room_id, range).await
+    }
+
+    /// Query IndexedDB for number of events in the given chunk in the given
+    /// room.
+    pub async fn get_events_count_by_chunk(
+        &self,
+        room_id: &RoomId,
+        chunk_id: &ChunkIdentifier,
+    ) -> Result<usize, IndexeddbEventCacheStoreTransactionError> {
+        let mut lower = IndexedEventPositionKey::lower_key_components();
+        lower.chunk_identifier = chunk_id.index();
+        let mut upper = IndexedEventPositionKey::upper_key_components();
+        upper.chunk_identifier = chunk_id.index();
+        let range = IndexedKeyRange::Bound(&lower, &upper);
+        self.get_events_count_by_position(room_id, range).await
     }
 
     /// Puts an event in the given room. If an event with the same key already
