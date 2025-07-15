@@ -762,6 +762,13 @@ macro_rules! event_cache_store_integration_tests {
                     get_event_cache_store().await.unwrap().into_event_cache_store();
                 event_cache_store.test_find_event().await;
             }
+
+            #[async_test]
+            async fn test_save_event() {
+                let event_cache_store =
+                    get_event_cache_store().await.unwrap().into_event_cache_store();
+                event_cache_store.test_save_event().await;
+            }
         }
     };
 }

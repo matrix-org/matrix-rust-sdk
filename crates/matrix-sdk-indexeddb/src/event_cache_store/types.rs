@@ -94,6 +94,15 @@ impl Event {
             Event::OutOfBand(e) => e.relation(),
         }
     }
+
+    /// Sets the content of the underlying [`GenericEvent`]
+    pub fn set_content(mut self, content: TimelineEvent) -> Self {
+        match self {
+            Event::InBand(ref mut i) => i.content = content,
+            Event::OutOfBand(ref mut o) => o.content = content,
+        }
+        self
+    }
 }
 
 /// A generic representation of an
