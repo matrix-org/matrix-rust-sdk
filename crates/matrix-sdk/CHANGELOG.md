@@ -6,6 +6,10 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased] - ReleaseDate
 
+### Refactor
+
+- ([#5409](https://github.com/matrix-org/matrix-rust-sdk/pull/5409)) Update imports to `matrix-sdk-crypto`.
+
 ## [0.13.0] - 2025-07-10
 
 ### Security Fixes
