@@ -3116,6 +3116,7 @@ dependencies = [
  "matrix-sdk-ffi-macros",
  "matrix-sdk-ui",
  "mime",
+ "oauth2",
  "once_cell",
  "paranoid-android",
  "ruma",

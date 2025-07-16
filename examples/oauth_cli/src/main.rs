@@ -187,8 +187,10 @@ impl OAuthCli {
             // the redirect when the custom URI scheme is opened.
             let (redirect_uri, server_handle) = LocalServerBuilder::new().spawn().await?;
 
-            let OAuthAuthorizationData { url, .. } =
-                oauth.login(redirect_uri, None, Some(client_metadata().into())).build().await?;
+            let OAuthAuthorizationData { url, .. } = oauth
+                .login(redirect_uri, None, Some(client_metadata().into()), None)
+                .build()
+                .await?;
 
             let query_string =
                 use_auth_url(&url, server_handle).await.map(|query| query.0).unwrap_or_default();

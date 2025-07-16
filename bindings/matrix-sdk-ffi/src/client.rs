@@ -51,6 +51,7 @@ use matrix_sdk_ui::{
     unable_to_decrypt_hook::UtdHookManager,
 };
 use mime::Mime;
+use oauth2::Scope;
 use ruma::{
     api::client::{alias::get_alias, error::ErrorKind, uiaa::UserIdentifier},
     events::{
@@ -462,20 +463,34 @@ impl Client {
     ///   If not set, a random one will be generated. It can be an existing
     ///   device ID from a previous login call. Note that this should be done
     ///   only if the client also holds the corresponding encryption keys.
+    ///
+    /// * `additional_scopes` - Additional scopes to request from the
+    ///   authorization server, e.g. "urn:matrix:client:com.example.msc9999.foo".
+    ///   The scopes for API access and the device ID according to the
+    ///   [specification](https://spec.matrix.org/v1.15/client-server-api/#allocated-scope-tokens)
+    ///   are always requested.
     pub async fn url_for_oidc(
         &self,
         oidc_configuration: &OidcConfiguration,
         prompt: Option<OidcPrompt>,
         login_hint: Option<String>,
         device_id: Option<String>,
+        additional_scopes: Option<Vec<String>>,
     ) -> Result<Arc<OAuthAuthorizationData>, OidcError> {
         let registration_data = oidc_configuration.registration_data()?;
         let redirect_uri = oidc_configuration.redirect_uri()?;
 
         let device_id = device_id.map(OwnedDeviceId::from);
 
-        let mut url_builder =
-            self.inner.oauth().login(redirect_uri, device_id, Some(registration_data));
+        let additional_scopes =
+            additional_scopes.map(|scopes| scopes.into_iter().map(Scope::new).collect::<Vec<_>>());
+
+        let mut url_builder = self.inner.oauth().login(
+            redirect_uri,
+            device_id,
+            Some(registration_data),
+            additional_scopes,
+        );
 
         if let Some(prompt) = prompt {
             url_builder = url_builder.prompt(vec![prompt.into()]);
