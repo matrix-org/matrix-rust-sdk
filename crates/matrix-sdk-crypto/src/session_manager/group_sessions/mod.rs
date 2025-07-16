@@ -28,7 +28,10 @@ use matrix_sdk_common::{
     deserialized_responses::WithheldCode, executor::spawn, locks::RwLock as StdRwLock,
 };
 use ruma::{
-    events::{AnyMessageLikeEventContent, AnyToDeviceEventContent, ToDeviceEventType},
+    events::{
+        AnyMessageLikeEventContent, AnyStateEventContent, AnyToDeviceEventContent,
+        ToDeviceEventType,
+    },
     serde::Raw,
     to_device::DeviceIdOrAllDevices,
     DeviceId, OwnedDeviceId, OwnedRoomId, OwnedTransactionId, OwnedUserId, RoomId, TransactionId,
@@ -212,6 +215,26 @@ impl GroupSessionManager {
         assert!(!session.expired(), "Session expired");
 
         let content = session.encrypt(event_type, content).await;
+
+        let mut changes = Changes::default();
+        changes.outbound_group_sessions.push(session);
+        self.store.save_changes(changes).await?;
+
+        Ok(content)
+    }
+
+    pub async fn encrypt_state(
+        &self,
+        room_id: &RoomId,
+        event_type: &str,
+        content: &Raw<AnyStateEventContent>,
+    ) -> MegolmResult<Raw<RoomEncryptedEventContent>> {
+        let session =
+            self.sessions.get_or_load(room_id).await.expect("Session wasn't created nor shared");
+
+        assert!(!session.expired(), "Session expired");
+
+        let content = session.encrypt_state(event_type, content).await;
 
         let mut changes = Changes::default();
         changes.outbound_group_sessions.push(session);

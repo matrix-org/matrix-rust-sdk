@@ -28,7 +28,7 @@ use matrix_sdk_common::{deserialized_responses::WithheldCode, locks::RwLock as S
 use ruma::{
     events::{
         room::{encryption::RoomEncryptionEventContent, history_visibility::HistoryVisibility},
-        AnyMessageLikeEventContent,
+        AnyMessageLikeEventContent, AnyStateEventContent,
     },
     serde::Raw,
     DeviceId, OwnedDeviceId, OwnedRoomId, OwnedTransactionId, OwnedUserId, RoomId,
@@ -484,6 +484,51 @@ impl OutboundGroupSession {
             #[serde(rename = "type")]
             event_type: &'a str,
             content: &'a Raw<AnyMessageLikeEventContent>,
+            room_id: &'a RoomId,
+        }
+
+        let payload = Payload { event_type, content, room_id: &self.room_id };
+        let payload_json =
+            serde_json::to_string(&payload).expect("payload serialization never fails");
+
+        let relates_to = content
+            .get_field::<serde_json::Value>("m.relates_to")
+            .expect("serde_json::Value deserialization with valid JSON input never fails");
+
+        let ciphertext = self.encrypt_helper(payload_json).await;
+        let scheme: RoomEventEncryptionScheme = match self.settings.algorithm {
+            EventEncryptionAlgorithm::MegolmV1AesSha2 => MegolmV1AesSha2Content {
+                ciphertext,
+                sender_key: self.account_identity_keys.curve25519,
+                session_id: self.session_id().to_owned(),
+                device_id: (*self.device_id).to_owned(),
+            }
+            .into(),
+            #[cfg(feature = "experimental-algorithms")]
+            EventEncryptionAlgorithm::MegolmV2AesSha2 => {
+                MegolmV2AesSha2Content { ciphertext, session_id: self.session_id().to_owned() }
+                    .into()
+            }
+            _ => unreachable!(
+                "An outbound group session is always using one of the supported algorithms"
+            ),
+        };
+
+        let content = RoomEncryptedEventContent { scheme, relates_to, other: Default::default() };
+
+        Raw::new(&content).expect("m.room.encrypted event content can always be serialized")
+    }
+
+    pub async fn encrypt_state(
+        &self,
+        event_type: &str,
+        content: &Raw<AnyStateEventContent>,
+    ) -> Raw<RoomEncryptedEventContent> {
+        #[derive(Serialize)]
+        struct Payload<'a> {
+            #[serde(rename = "type")]
+            event_type: &'a str,
+            content: &'a Raw<AnyStateEventContent>,
             room_id: &'a RoomId,
         }
 

@@ -47,6 +47,9 @@ where
     #[serde(default)]
     pub unsigned: BTreeMap<String, Value>,
 
+    /// Present if, and only if, this event is a state event.
+    pub state_key: Option<String>,
+
     /// Any other unknown data of the room event.
     #[serde(flatten)]
     pub(crate) other: BTreeMap<String, Value>,
@@ -70,6 +73,7 @@ where
             origin_server_ts: MilliSecondsSinceUnixEpoch,
             #[serde(skip_serializing_if = "BTreeMap::is_empty")]
             unsigned: &'a BTreeMap<String, Value>,
+            state_key: &'a Option<String>,
             #[serde(flatten)]
             other: &'a BTreeMap<String, Value>,
         }
@@ -83,6 +87,7 @@ where
             other: &self.other,
             event_id: &self.event_id,
             origin_server_ts: self.origin_server_ts,
+            state_key: &self.state_key,
             unsigned: &self.unsigned,
         };
 

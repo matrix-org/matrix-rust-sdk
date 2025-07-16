@@ -45,7 +45,7 @@ use ruma::{
     assign,
     events::{
         secret::request::SecretName, AnyMessageLikeEvent, AnyMessageLikeEventContent,
-        AnyToDeviceEvent, MessageLikeEventContent,
+        AnyStateEventContent, AnyToDeviceEvent, MessageLikeEventContent, StateEventContent,
     },
     serde::{JsonObject, Raw},
     DeviceId, MilliSecondsSinceUnixEpoch, OneTimeKeyAlgorithm, OwnedDeviceId, OwnedDeviceKeyId,
@@ -1096,6 +1096,25 @@ impl OlmMachine {
         content: &Raw<AnyMessageLikeEventContent>,
     ) -> MegolmResult<Raw<RoomEncryptedEventContent>> {
         self.inner.group_session_manager.encrypt(room_id, event_type, content).await
+    }
+
+    pub async fn encrypt_state_event(
+        &self,
+        room_id: &RoomId,
+        content: impl StateEventContent,
+    ) -> MegolmResult<Raw<RoomEncryptedEventContent>> {
+        let event_type = content.event_type().to_string();
+        let content = Raw::new(&content)?.cast_unchecked();
+        self.encrypt_state_event_raw(room_id, &event_type, &content).await
+    }
+
+    pub async fn encrypt_state_event_raw(
+        &self,
+        room_id: &RoomId,
+        event_type: &str,
+        content: &Raw<AnyStateEventContent>,
+    ) -> MegolmResult<Raw<RoomEncryptedEventContent>> {
+        self.inner.group_session_manager.encrypt_state(room_id, event_type, content).await
     }
 
     /// Forces the currently active room key, which is used to encrypt messages,
