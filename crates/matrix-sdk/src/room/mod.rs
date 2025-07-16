@@ -365,6 +365,11 @@ impl Room {
             }
         }
 
+        if let Some(pred_room) = self.predecessor_room() {
+            let pred = self.client.get_room(&pred_room.room_id).expect("Couldn't find predecessor");
+            Box::pin(pred.leave()).await?;
+        }
+
         Ok(())
     }
 

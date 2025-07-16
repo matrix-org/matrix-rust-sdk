@@ -189,12 +189,12 @@ async fn test_leave_room_also_leaves_predecessor() -> Result<(), anyhow::Error> 
     let server = MatrixMockServer::new().await;
     let client = server.client_builder().build().await;
 
-    let user/*: &UserId */ = user_id!("@example:localhost");
-    let room_a_id/*: &RoomId */ = room_id!("!room_a_id:localhost");
-    let room_b_id/*: &RoomId */ = room_id!("!room_b_id:localhost");
-    let create_room_a_event_id/*: &EventId */ = event_id!("$create_room_a_event_id:localhost");
-    let tombstone_room_a_event_id/*: &EventId */ = event_id!("$tombstone_room_a_event_id:localhost");
-    let create_room_b_event_id/*: &EventId */ = event_id!("$create_room_b_event_id:localhost");
+    let user = user_id!("@example:localhost");
+    let room_a_id = room_id!("!room_a_id:localhost");
+    let room_b_id = room_id!("!room_b_id:localhost");
+    let create_room_a_event_id = event_id!("$create_room_a_event_id:localhost");
+    let tombstone_room_a_event_id = event_id!("$tombstone_room_a_event_id:localhost");
+    let create_room_b_event_id = event_id!("$create_room_b_event_id:localhost");
 
     server
         .mock_sync()
@@ -247,11 +247,7 @@ async fn test_leave_room_also_leaves_predecessor() -> Result<(), anyhow::Error> 
 
     let room_b = client.get_room(room_b_id).expect("Room B not created");
 
-    server
-        .mock_room_leave()
-        .ok_with(ResponseTemplate::new(200).set_body_json(&*test_json::EMPTY))
-        .mount()
-        .await;
+    server.mock_room_leave().ok(room_b_id).mount().await;
 
     assert_eq!(room_a.state(), RoomState::Joined, "Room A not Joined");
     assert_eq!(room_b.state(), RoomState::Joined, "Room B not Joined");

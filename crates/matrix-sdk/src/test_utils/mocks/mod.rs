@@ -3465,7 +3465,7 @@ pub struct UpgradeRoomEndpoint;
 
 impl<'a> MockEndpoint<'a, UpgradeRoomEndpoint> {
     /// Returns a successful response with desired replacement_room ID.
-    pub fn ok_with(self, new_room_id: &RoomId) -> MatrixMock<'a> {       
+    pub fn ok_with(self, new_room_id: &RoomId) -> MatrixMock<'a> {
         self.respond_with(
             ResponseTemplate::new(200)
                 .set_body_json(json!({ "replacement_room": new_room_id.as_str()})),
