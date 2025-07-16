@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Types for the `m.room.encrypted` room events. Re-exports for compatibility with existing code.
+//! Types for the `m.room.encrypted` room event.
 
 use std::collections::BTreeMap;
 

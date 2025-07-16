@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Types for `m.room.encrypted` to-device events.
+//! Encrypted to-device event types.
 
 use serde::{Deserialize, Serialize};
 

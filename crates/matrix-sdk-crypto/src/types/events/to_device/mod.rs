@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+//! Types for to-device events.
+
 use std::{collections::BTreeMap, fmt::Debug};
 
 use ruma::{
