@@ -42,7 +42,7 @@ use wiremock::{
 };
 
 use crate::{
-    crypto::types::events::room::encrypted::EncryptedToDeviceEvent,
+    crypto::types::events::to_device::encrypted::EncryptedToDeviceEvent,
     test_utils::{
         client::MockClientBuilder,
         mocks::{Keys, MatrixMockServer},

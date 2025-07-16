@@ -75,11 +75,9 @@ use crate::{
     },
     types::{
         events::{
+            encryption_schemes::OlmV1Curve25519AesSha2Content,
             olm_v1::AnyDecryptedOlmEvent,
-            room::encrypted::{
-                EncryptedToDeviceEvent, OlmV1Curve25519AesSha2Content,
-                ToDeviceEncryptedEventContent,
-            },
+            to_device::encrypted::{EncryptedToDeviceEvent, ToDeviceEncryptedEventContent},
         },
         requests::UploadSigningKeysRequest,
         CrossSigningKey, DeviceKeys, EventEncryptionAlgorithm, MasterPubkey, OneTimeKey, SignedKey,

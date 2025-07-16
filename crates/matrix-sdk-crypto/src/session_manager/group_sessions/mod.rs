@@ -49,9 +49,8 @@ use crate::{
     store::{types::Changes, CryptoStoreWrapper, Result as StoreResult, Store},
     types::{
         events::{
-            room::encrypted::{RoomEncryptedEventContent, ToDeviceEncryptedEventContent},
-            room_key_bundle::RoomKeyBundleContent,
-            EventType,
+            room::encrypted::RoomEncryptedEventContent, room_key_bundle::RoomKeyBundleContent,
+            to_device::encrypted::ToDeviceEncryptedEventContent, EventType,
         },
         requests::ToDeviceRequest,
     },
@@ -1061,9 +1060,9 @@ mod tests {
         session_manager::{group_sessions::CollectRecipientsResult, CollectStrategy},
         types::{
             events::{
-                room::encrypted::EncryptedToDeviceEvent,
                 room_key_bundle::RoomKeyBundleContent,
                 room_key_withheld::RoomKeyWithheldContent::{self, MegolmV1AesSha2},
+                to_device::encrypted::EncryptedToDeviceEvent,
             },
             requests::ToDeviceRequest,
             DeviceKeys, EventEncryptionAlgorithm,

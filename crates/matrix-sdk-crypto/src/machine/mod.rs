@@ -85,17 +85,17 @@ use crate::{
     },
     types::{
         events::{
+            encryption_schemes::SupportedEventEncryptionSchemes,
             olm_v1::{AnyDecryptedOlmEvent, DecryptedRoomKeyBundleEvent, DecryptedRoomKeyEvent},
             room::encrypted::{
-                EncryptedEvent, EncryptedToDeviceEvent, RoomEncryptedEventContent,
-                RoomEventEncryptionScheme, SupportedEventEncryptionSchemes,
-                ToDeviceEncryptedEventContent,
+                EncryptedEvent, RoomEncryptedEventContent, RoomEventEncryptionScheme,
             },
             room_key::{MegolmV1AesSha2Content, RoomKeyContent},
             room_key_bundle::RoomKeyBundleContent,
             room_key_withheld::{
                 MegolmV1AesSha2WithheldContent, RoomKeyWithheldContent, RoomKeyWithheldEvent,
             },
+            to_device::encrypted::{EncryptedToDeviceEvent, ToDeviceEncryptedEventContent},
             ToDeviceEvent, ToDeviceEvents,
         },
         requests::{

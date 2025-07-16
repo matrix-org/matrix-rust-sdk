@@ -30,8 +30,9 @@ use crate::{
     error::{EventError, OlmResult, SessionUnpickleError},
     types::{
         events::{
+            encryption_schemes::OlmV1Curve25519AesSha2Content,
             olm_v1::{DecryptedOlmV1Event, OlmV1Keys},
-            room::encrypted::{OlmV1Curve25519AesSha2Content, ToDeviceEncryptedEventContent},
+            to_device::encrypted::ToDeviceEncryptedEventContent,
             EventType,
         },
         DeviceKeys, EventEncryptionAlgorithm,
@@ -351,7 +352,7 @@ mod tests {
         olm::Account,
         types::events::{
             dummy::DummyEventContent, olm_v1::DecryptedOlmV1Event,
-            room::encrypted::ToDeviceEncryptedEventContent,
+            to_device::encrypted::ToDeviceEncryptedEventContent,
         },
     };
 

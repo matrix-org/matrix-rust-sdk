@@ -34,7 +34,9 @@ use crate::{
     },
     olm::{InboundGroupSession, SenderData},
     store::types::RoomKeyInfo,
-    types::events::{room::encrypted::ToDeviceEncryptedEventContent, EventType, ToDeviceEvent},
+    types::events::{
+        to_device::encrypted::ToDeviceEncryptedEventContent, EventType, ToDeviceEvent,
+    },
     DeviceData, EncryptionSettings, EncryptionSyncChanges, OlmMachine, Session,
 };
 

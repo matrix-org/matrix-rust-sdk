@@ -1138,9 +1138,8 @@ mod tests {
             types::{Changes, PendingChanges},
             CryptoStoreWrapper, MemoryStore, Store,
         },
-        types::events::room::encrypted::{
-            EncryptedEvent, EncryptedToDeviceEvent, RoomEncryptedEventContent,
-        },
+        types::events::room::encrypted::{EncryptedEvent, RoomEncryptedEventContent},
+        types::events::to_device::encrypted::EncryptedToDeviceEvent,
         verification::VerificationMachine,
     };
 
