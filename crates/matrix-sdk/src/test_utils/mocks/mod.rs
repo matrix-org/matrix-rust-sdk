@@ -1228,6 +1228,13 @@ impl MatrixMockServer {
         self.mock_endpoint(mock, CreateRoomEndpoint).expect_default_access_token()
     }
 
+    /// Create a prebuilt mock for the endpoint used to upgrade a room.
+    pub fn mock_upgrade_room(&self) -> MockEndpoint<'_, UpgradeRoomEndpoint> {
+        let mock =
+            Mock::given(method("POST")).and(path_regex("/_matrix/client/v3/rooms/.*/upgrade"));
+        self.mock_endpoint(mock, UpgradeRoomEndpoint).expect_default_access_token()
+    }
+
     /// Create a prebuilt mock for the endpoint used to pre-allocate a MXC URI
     /// for a media file.
     pub fn mock_media_allocate(&self) -> MockEndpoint<'_, MediaAllocateEndpoint> {
@@ -2951,6 +2958,11 @@ impl<'a> MockEndpoint<'a, RoomLeaveEndpoint> {
         })))
     }
 
+    /// Returns a successful given response
+    pub fn ok_with(self, response: ResponseTemplate) -> MatrixMock<'a> {
+        self.respond_with(response)
+    }
+
     /// Returns a `M_FORBIDDEN` response.
     pub fn forbidden(self) -> MatrixMock<'a> {
         self.respond_with(ResponseTemplate::new(403).set_body_json(json!({
@@ -3255,9 +3267,6 @@ impl<'a> MockEndpoint<'a, LoginEndpoint> {
 
     /// Returns a given response on POST /login requests
     ///
-    /// This function
-    /// to-device messages sent via the `/sendToDevice` endpoint.
-    ///
     /// # Arguments
     ///
     /// * `response` - The response that the mock server sends on POST /login
@@ -3447,6 +3456,19 @@ impl<'a> MockEndpoint<'a, CreateRoomEndpoint> {
     pub fn ok(self) -> MatrixMock<'a> {
         self.respond_with(
             ResponseTemplate::new(200).set_body_json(json!({ "room_id": "!room:example.org"})),
+        )
+    }
+}
+
+/// A prebuilt mock for `POST /rooms/{roomId}/upgrade` requests.
+pub struct UpgradeRoomEndpoint;
+
+impl<'a> MockEndpoint<'a, UpgradeRoomEndpoint> {
+    /// Returns a successful response with desired replacement_room ID.
+    pub fn ok_with(self, new_room_id: &RoomId) -> MatrixMock<'a> {       
+        self.respond_with(
+            ResponseTemplate::new(200)
+                .set_body_json(json!({ "replacement_room": new_room_id.as_str()})),
         )
     }
 }
