@@ -16,12 +16,12 @@
 
 #![deny(unreachable_pub)]
 
-use std::future::IntoFuture;
+use std::{borrow::Borrow, future::IntoFuture};
 
 use eyeball::SharedObservable;
 use matrix_sdk_common::boxed_into_future;
 use mime::Mime;
-use ruma::events::{EmptyStateKey, MessageLikeEventContent, StateEventContent};
+use ruma::events::{MessageLikeEventContent, StateEventContent};
 #[cfg(doc)]
 use ruma::events::{MessageLikeUnsigned, SyncMessageLikeEvent};
 use ruma::{
@@ -323,22 +323,27 @@ impl<'a> IntoFuture for SendAttachment<'a> {
     }
 }
 
+/// Future returned by [`Room::send_state_event`].
 #[allow(missing_debug_implementations)]
 pub struct SendStateEvent<'a> {
     room: &'a Room,
     event_type: String,
+    state_key: String,
     content: serde_json::Result<serde_json::Value>,
     request_config: Option<RequestConfig>,
 }
 
 impl<'a> SendStateEvent<'a> {
-    pub(crate) fn new(
-        room: &'a Room,
-        content: impl StateEventContent<StateKey = EmptyStateKey>,
-    ) -> Self {
+    pub(crate) fn new<C, K>(room: &'a Room, state_key: &K, content: C) -> Self
+    where
+        C: StateEventContent,
+        C::StateKey: Borrow<K>,
+        K: AsRef<str> + ?Sized,
+    {
         let event_type = content.event_type().to_string();
+        let state_key = state_key.as_ref().to_owned();
         let content = serde_json::to_value(&content);
-        Self { room, event_type, content, request_config: None }
+        Self { room, event_type, state_key, content, request_config: None }
     }
 
     /// Assign a given [`RequestConfig`] to configure how this request should
@@ -354,10 +359,11 @@ impl<'a> IntoFuture for SendStateEvent<'a> {
     boxed_into_future!(extra_bounds: 'a);
 
     fn into_future(self) -> Self::IntoFuture {
-        let Self { room, event_type, content, request_config } = self;
+        let Self { room, state_key, event_type, content, request_config } = self;
         Box::pin(async move {
             let content = content?;
-            assign!(room.send_state_event_raw(&event_type, "", content), { request_config }).await
+            assign!(room.send_state_event_raw(&event_type, &state_key, content), { request_config })
+                .await
         })
     }
 }
