@@ -15,6 +15,9 @@ All notable changes to this project will be documented in this file.
 - `ClientBuilder::build_with_qr_code` has been removed. Instead, the Client should be built by passing
   `QrCodeData::server_name` to `ClientBuilder::server_name_or_homeserver_url`, after which QR login can be performed by
   calling `Client::login_with_qr_code`. ([#5388](https://github.com/matrix-org/matrix-rust-sdk/pull/5388))
+- The `event_id` field of `PredecessorRoom` was removed, due to its removal in the Matrix
+  specification with MSC4291.
+  ([#5419](https://github.com/matrix-org/matrix-rust-sdk/pull/5419))
 
 ## [0.13.0] - 2025-07-10
 
