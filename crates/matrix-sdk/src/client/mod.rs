@@ -414,7 +414,7 @@ impl ClientInner {
         let client = Arc::new(client);
 
         #[cfg(feature = "e2e-encryption")]
-        client.e2ee.initialize_room_key_tasks(&client);
+        client.e2ee.initialize_tasks(&client);
 
         let _ = client
             .event_cache

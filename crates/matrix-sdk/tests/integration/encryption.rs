@@ -2,6 +2,7 @@ mod backups;
 mod cross_signing;
 mod recovery;
 mod secret_storage;
+mod shared_history;
 mod to_device;
 mod verification;
 

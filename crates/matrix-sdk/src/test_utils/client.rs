@@ -63,6 +63,23 @@ impl MockClientBuilder {
         self
     }
 
+    /// Enable the share history on invite feature for the Client.
+    #[cfg(feature = "e2e-encryption")]
+    pub fn enable_share_history_on_invite(mut self) -> Self {
+        self.builder = self.builder.with_enable_share_history_on_invite(true);
+        self
+    }
+
+    /// Use the given encryption settings with the test client.
+    #[cfg(feature = "e2e-encryption")]
+    pub fn with_encryption_settings(
+        mut self,
+        settings: crate::encryption::EncryptionSettings,
+    ) -> Self {
+        self.builder = self.builder.with_encryption_settings(settings);
+        self
+    }
+
     /// Set the cached server versions in the client.
     pub fn server_versions(mut self, versions: Vec<MatrixVersion>) -> Self {
         self.server_versions = ServerVersions::Custom(versions);
