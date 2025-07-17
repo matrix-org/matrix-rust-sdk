@@ -15,6 +15,11 @@ All notable changes to this project will be documented in this file.
   inviter.
   ([#5390](https://github.com/matrix-org/matrix-rust-sdk/pull/5390))
 
+### Refactor
+- [**breaking**] The `event_id` field of `PredecessorRoom` was removed, due to
+  its removal in the Matrix specification with MSC4291.
+  ([#5419](https://github.com/matrix-org/matrix-rust-sdk/pull/5419))
+
 ## [0.13.0] - 2025-07-10
 
 ### Features
@@ -59,8 +64,8 @@ No notable changes in this release.
   - `EventCacheStoreMedia` has a new method `last_media_cleanup_time_inner`
   - There are new `'static` bounds in `MediaService` for the media cache stores
 - `event_cache::store::MemoryStore` implements `Clone`.
-- `BaseClient` now has a `handle_verification_events` field which is `true` by 
-  default and can be negated so the `NotificationClient` won't handle received 
+- `BaseClient` now has a `handle_verification_events` field which is `true` by
+  default and can be negated so the `NotificationClient` won't handle received
   verification events too, causing errors in the `VerificationMachine`.
 - [**breaking**] `Room::is_encryption_state_synced` has been removed
   ([#4777](https://github.com/matrix-org/matrix-rust-sdk/pull/4777))
