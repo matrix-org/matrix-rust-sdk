@@ -35,7 +35,8 @@ use crate::{
     olm::{InboundGroupSession, SenderData},
     store::types::RoomKeyInfo,
     types::events::{room::encrypted::ToDeviceEncryptedEventContent, EventType, ToDeviceEvent},
-    DeviceData, EncryptionSettings, EncryptionSyncChanges, OlmMachine, Session,
+    DecryptionSettings, DeviceData, EncryptionSettings, EncryptionSyncChanges, OlmMachine, Session,
+    TrustRequirement,
 };
 
 /// Test the behaviour when a megolm session is received from an unknown device,
@@ -55,8 +56,11 @@ async fn test_receive_megolm_session_from_unknown_device() {
     let room_id = room_id!("!test:example.org");
     let event = create_and_share_session_without_sender_data(&alice, &bob, room_id).await;
 
+    let decryption_settings =
+        DecryptionSettings { sender_device_trust_requirement: TrustRequirement::Untrusted };
+
     // Bob receives the to-device message
-    receive_to_device_event(&bob, &event).await;
+    receive_to_device_event(&bob, &event, &decryption_settings).await;
 
     // Then Bob should know about the session, and it should have
     // `SenderData::UnknownDevice`.
@@ -92,8 +96,11 @@ async fn test_receive_megolm_session_from_known_device() {
         ),
     );
 
+    let decryption_settings =
+        DecryptionSettings { sender_device_trust_requirement: TrustRequirement::Untrusted };
+
     // Bob receives the to-device message
-    receive_to_device_event(&bob, &event).await;
+    receive_to_device_event(&bob, &event, &decryption_settings).await;
 
     // Then Bob should know about the session, and it should have
     // `SenderData::DeviceInfo`
@@ -126,8 +133,11 @@ async fn test_update_unknown_device_senderdata_on_keys_query() {
     let room_id = room_id!("!test:example.org");
     let event = create_and_share_session_without_sender_data(&alice, &bob, room_id).await;
 
+    let decryption_settings =
+        DecryptionSettings { sender_device_trust_requirement: TrustRequirement::Untrusted };
+
     // Bob receives the to-device message
-    receive_to_device_event(&bob, &event).await;
+    receive_to_device_event(&bob, &event, &decryption_settings).await;
 
     // and now Bob should know about the session.
     let room_key_info = get_room_key_received_update(&mut bob_room_keys_received_stream);
@@ -183,8 +193,12 @@ async fn test_update_device_info_senderdata_on_keys_query() {
         alice.user_id().to_owned(),
         to_device_requests_to_content(to_device_requests),
     );
+
+    let decryption_settings =
+        DecryptionSettings { sender_device_trust_requirement: TrustRequirement::Untrusted };
+
     // Bob receives the to-device message
-    receive_to_device_event(&bob, &event).await;
+    receive_to_device_event(&bob, &event, &decryption_settings).await;
 
     // and now Bob should know about the session.
     let room_key_info = get_room_key_received_update(&mut bob_room_keys_received_stream);
@@ -287,6 +301,7 @@ async fn create_and_share_session_without_sender_data(
 pub async fn receive_to_device_event<C>(
     machine: &OlmMachine,
     event: &ToDeviceEvent<C>,
+    decryption_settings: &DecryptionSettings,
 ) -> (Vec<ProcessedToDeviceEvent>, Vec<RoomKeyInfo>)
 where
     C: EventType + Serialize + Debug,
@@ -294,13 +309,16 @@ where
     let event_json = serde_json::to_string(event).expect("Unable to serialize to-device message");
 
     machine
-        .receive_sync_changes(EncryptionSyncChanges {
-            to_device_events: vec![serde_json::from_str(&event_json).unwrap()],
-            changed_devices: &Default::default(),
-            one_time_keys_counts: &Default::default(),
-            unused_fallback_keys: None,
-            next_batch_token: None,
-        })
+        .receive_sync_changes(
+            EncryptionSyncChanges {
+                to_device_events: vec![serde_json::from_str(&event_json).unwrap()],
+                changed_devices: &Default::default(),
+                one_time_keys_counts: &Default::default(),
+                unused_fallback_keys: None,
+                next_batch_token: None,
+            },
+            decryption_settings,
+        )
         .await
         .expect("Error receiving to-device event")
 }

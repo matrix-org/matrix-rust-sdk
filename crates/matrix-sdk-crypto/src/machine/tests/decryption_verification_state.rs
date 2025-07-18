@@ -79,10 +79,20 @@ async fn test_decryption_verification_state() {
         tests::to_device_requests_to_content(to_device_requests),
     );
 
+    let decryption_settings =
+        DecryptionSettings { sender_device_trust_requirement: TrustRequirement::Untrusted };
+
     let group_session = bob
         .store()
         .with_transaction(|mut tr| async {
-            let res = bob.decrypt_to_device_event(&mut tr, &event, &mut Changes::default()).await?;
+            let res = bob
+                .decrypt_to_device_event(
+                    &mut tr,
+                    &event,
+                    &mut Changes::default(),
+                    &decryption_settings,
+                )
+                .await?;
             Ok((tr, res))
         })
         .await
@@ -633,11 +643,20 @@ async fn encrypt_message(
         tests::to_device_requests_to_content(to_device_requests),
     );
 
+    let decryption_settings =
+        DecryptionSettings { sender_device_trust_requirement: TrustRequirement::Untrusted };
+
     let group_session = recipient
         .store()
         .with_transaction(|mut tr| async {
-            let res =
-                recipient.decrypt_to_device_event(&mut tr, &event, &mut Changes::default()).await?;
+            let res = recipient
+                .decrypt_to_device_event(
+                    &mut tr,
+                    &event,
+                    &mut Changes::default(),
+                    &decryption_settings,
+                )
+                .await?;
             Ok((tr, res))
         })
         .await
