@@ -216,7 +216,7 @@ impl MatrixDriver {
         let room_id = self.room.room_id().to_owned();
 
         let handle = self.room.add_event_handler(move |raw: Raw<AnySyncTimelineEvent>| {
-            let _ = tx.send(attach_room_id(raw.cast_ref(), &room_id));
+            let _ = tx.send(attach_room_id(&raw, &room_id));
             async {}
         });
         let drop_guard = self.room.client().event_handler_drop_guard(handle);
