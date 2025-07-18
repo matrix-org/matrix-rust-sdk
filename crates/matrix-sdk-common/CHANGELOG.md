@@ -10,9 +10,19 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
+- Expose the `ROOM_VERSION_RULES_FALLBACK` that should be used when the rules of
+  a room are unknown.
+  ([#5337](https://github.com/matrix-org/matrix-rust-sdk/pull/5337))
 - Expose the `ROOM_VERSION_FALLBACK` that should be used when the version of a
   room is unknown.
   ([#5306](https://github.com/matrix-org/matrix-rust-sdk/pull/5306))
+
+### Refactor
+
+- [**breaking**] `extract_bundled_thread_summary()` returns a
+  `Raw<AnySyncMessageLikeEvent>` for the latest event instead of a
+  `Raw<AnyMessageLikeEvent>`.
+  ([#5337](https://github.com/matrix-org/matrix-rust-sdk/pull/5337))
 
 ## [0.12.0] - 2025-06-10
 

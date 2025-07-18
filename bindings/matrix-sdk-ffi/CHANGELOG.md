@@ -15,6 +15,13 @@ All notable changes to this project will be documented in this file.
 
 ### Breaking changes:
 
+- The `reason` argument of `Room::report_room` is now required, do to a clarification in the spec.
+  ([#5337](https://github.com/matrix-org/matrix-rust-sdk/pull/5337))
+- `PublicRoomJoinRule` has more variants, supporting all the known values from the spec.
+  ([#5337](https://github.com/matrix-org/matrix-rust-sdk/pull/5337))
+- The fields of `MediaPreviewConfig` are both optional, allowing to use the type for room account
+  data as well as global account data.
+  ([#5337](https://github.com/matrix-org/matrix-rust-sdk/pull/5337))
 - The `event_id` field of `PredecessorRoom` was removed, due to its removal in the Matrix
   specification with MSC4291.
   ([#5419](https://github.com/matrix-org/matrix-rust-sdk/pull/5419))
