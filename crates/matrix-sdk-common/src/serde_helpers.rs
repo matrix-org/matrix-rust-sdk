@@ -16,7 +16,7 @@
 //! to access some fields.
 
 use ruma::{
-    events::{relation::BundledThread, AnyMessageLikeEvent, AnySyncTimelineEvent},
+    events::{relation::BundledThread, AnySyncMessageLikeEvent, AnySyncTimelineEvent},
     serde::Raw,
     OwnedEventId,
 };
@@ -76,7 +76,7 @@ struct Unsigned {
 /// Try to extract a bundled thread summary of a timeline event, if available.
 pub fn extract_bundled_thread_summary(
     event: &Raw<AnySyncTimelineEvent>,
-) -> (ThreadSummaryStatus, Option<Raw<AnyMessageLikeEvent>>) {
+) -> (ThreadSummaryStatus, Option<Raw<AnySyncMessageLikeEvent>>) {
     match event.get_field::<Unsigned>("unsigned") {
         Ok(Some(Unsigned { relations: Some(Relations { thread: Some(bundled_thread) }) })) => {
             // Take the count from the bundled thread summary, if available. If it can't be

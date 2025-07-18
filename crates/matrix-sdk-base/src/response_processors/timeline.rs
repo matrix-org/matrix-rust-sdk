@@ -16,6 +16,7 @@ use matrix_sdk_common::deserialized_responses::TimelineEvent;
 #[cfg(feature = "e2e-encryption")]
 use ruma::events::SyncMessageLikeEvent;
 use ruma::{
+    assign,
     events::{AnySyncMessageLikeEvent, AnySyncTimelineEvent},
     push::{Action, PushConditionRoomCtx},
     UInt, UserId,
@@ -65,9 +66,9 @@ pub async fn build<'notification, 'e2ee>(
                     AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::RoomRedaction(
                         redaction_event,
                     )) => {
-                        let room_version = room_info.room_version_or_default();
+                        let redaction_rules = room_info.room_version_rules_or_default().redaction;
 
-                        if let Some(redacts) = redaction_event.redacts(&room_version) {
+                        if let Some(redacts) = redaction_event.redacts(&redaction_rules) {
                             room_info
                                 .handle_redaction(redaction_event, timeline_event.raw().cast_ref());
 
@@ -238,11 +239,13 @@ pub async fn get_push_room_context(
         room.power_levels().await.ok()
     };
 
-    Ok(Some(PushConditionRoomCtx {
-        user_id: user_id.to_owned(),
-        room_id: room_id.to_owned(),
-        member_count: UInt::new(member_count).unwrap_or(UInt::MAX),
-        user_display_name,
-        power_levels: power_levels.map(Into::into),
-    }))
+    Ok(Some(assign!(
+        PushConditionRoomCtx::new(
+            room_id.to_owned(),
+            UInt::new(member_count).unwrap_or(UInt::MAX),
+            user_id.to_owned(),
+            user_display_name
+        ),
+        { power_levels: power_levels.map(Into::into) }
+    )))
 }

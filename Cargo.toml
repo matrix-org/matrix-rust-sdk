@@ -59,12 +59,9 @@ proptest = { version = "1.6.0", default-features = false, features = ["std"] }
 rand = "0.8.5"
 reqwest = { version = "0.12.12", default-features = false }
 rmp-serde = "1.3.0"
-# Be careful to use commits from the https://github.com/ruma/ruma/tree/ruma-0.12
-# branch until a proper release with breaking changes happens.
-ruma = { version = "0.12.5", features = [
+ruma = { git = "https://github.com/ruma/ruma", rev = "a3663c04511f79f99376924d739f84d839600de6", features = [
     "client-api-c",
     "compat-upload-signatures",
-    "compat-user-id",
     "compat-arbitrary-length-ids",
     "compat-tag-info",
     "compat-encrypted-stickers",
@@ -80,7 +77,7 @@ ruma = { version = "0.12.5", features = [
     "unstable-msc4278",
     "unstable-msc4286",
 ] }
-ruma-common = "0.15.4"
+ruma-common = { git = "https://github.com/ruma/ruma", rev = "a3663c04511f79f99376924d739f84d839600de6" }
 sentry = "0.36.0"
 sentry-tracing = "0.36.0"
 serde = { version = "1.0.217", features = ["rc"] }

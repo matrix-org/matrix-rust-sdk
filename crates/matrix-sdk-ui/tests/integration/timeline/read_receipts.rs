@@ -28,7 +28,7 @@ use matrix_sdk_test::{
 };
 use matrix_sdk_ui::timeline::{RoomExt, TimelineFocus};
 use ruma::{
-    MilliSecondsSinceUnixEpoch, RoomVersionId,
+    MilliSecondsSinceUnixEpoch,
     api::client::receipt::create_receipt::v3::ReceiptType as CreateReceiptType,
     event_id,
     events::{
@@ -36,13 +36,15 @@ use ruma::{
         receipt::{ReceiptThread, ReceiptType as EventReceiptType},
         room::message::{MessageType, RoomMessageEventContent, SyncRoomMessageEvent},
     },
-    owned_event_id, room_id, uint, user_id,
+    owned_event_id, room_id,
+    room_version_rules::RoomVersionRules,
+    uint, user_id,
 };
 use serde_json::json;
 use stream_assert::{assert_pending, assert_ready};
 use tokio::task::yield_now;
 
-fn filter_notice(ev: &AnySyncTimelineEvent, _room_version: &RoomVersionId) -> bool {
+fn filter_notice(ev: &AnySyncTimelineEvent, _rules: &RoomVersionRules) -> bool {
     match ev {
         AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::RoomMessage(
             SyncRoomMessageEvent::Original(msg),

@@ -18,13 +18,15 @@ use eyeball_im::VectorDiff;
 use matrix_sdk::assert_next_matches_with_timeout;
 use matrix_sdk_test::{ALICE, BOB, CAROL, async_test, event_factory::EventFactory};
 use ruma::{
-    RoomVersionId, event_id,
+    event_id,
     events::{
         AnySyncMessageLikeEvent, AnySyncTimelineEvent,
         receipt::{Receipt, ReceiptThread, ReceiptType},
         room::message::{MessageType, RoomMessageEventContent, SyncRoomMessageEvent},
     },
-    owned_event_id, room_id, uint,
+    owned_event_id, room_id,
+    room_version_rules::RoomVersionRules,
+    uint,
 };
 use stream_assert::{assert_next_matches, assert_pending};
 
@@ -34,7 +36,7 @@ use crate::timeline::{
     tests::TestTimelineBuilder,
 };
 
-fn filter_notice(ev: &AnySyncTimelineEvent, _room_version: &RoomVersionId) -> bool {
+fn filter_notice(ev: &AnySyncTimelineEvent, _rules: &RoomVersionRules) -> bool {
     match ev {
         AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::RoomMessage(
             SyncRoomMessageEvent::Original(msg),
@@ -378,7 +380,6 @@ async fn test_read_receipts_updates_on_message_decryption() {
     use assert_matches2::assert_let;
     use matrix_sdk_base::crypto::{OlmMachine, decrypt_room_key_export};
     use ruma::{
-        RoomVersionId,
         events::room::encrypted::{
             EncryptedEventScheme, MegolmV1AesSha2ContentInit, RoomEncryptedEventContent,
         },
@@ -387,7 +388,7 @@ async fn test_read_receipts_updates_on_message_decryption() {
 
     use crate::timeline::{EncryptedMessage, TimelineItemContent};
 
-    fn filter_text_msg(ev: &AnySyncTimelineEvent, _room_version_id: &RoomVersionId) -> bool {
+    fn filter_text_msg(ev: &AnySyncTimelineEvent, _rules: &RoomVersionRules) -> bool {
         match ev {
             AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::RoomMessage(
                 SyncRoomMessageEvent::Original(msg),

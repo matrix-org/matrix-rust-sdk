@@ -23,7 +23,7 @@ use ruma::{
             request::ToDeviceKeyVerificationRequestEvent, start::ToDeviceKeyVerificationStartEvent,
         },
         secret::request::{SecretName, ToDeviceSecretRequestEvent},
-        EventContent, ToDeviceEventType,
+        ToDeviceEventContent, ToDeviceEventType,
     },
     serde::Raw,
     OwnedUserId, UserId,

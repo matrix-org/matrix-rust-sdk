@@ -34,9 +34,9 @@ use matrix_sdk::{
                 message::RoomMessageEventContent,
             },
         },
-        mxc_uri, owned_server_name, room_id,
-        space::SpaceRoomJoinRule,
-        uint,
+        mxc_uri, owned_server_name,
+        room::JoinRuleSummary,
+        room_id, uint,
     },
     sliding_sync::VersionBuilder,
     test_utils::{logged_in_client_with_server, mocks::MatrixMockServer},
@@ -1235,7 +1235,7 @@ fn assert_room_preview(preview: &RoomPreview, room_alias: &str) {
     assert_eq!(preview.avatar_url.as_ref().unwrap(), mxc_uri!("mxc://localhost/alice"));
     assert_eq!(preview.num_joined_members, 1);
     assert!(preview.room_type.is_none());
-    assert_eq!(preview.join_rule, Some(SpaceRoomJoinRule::Invite));
+    assert_eq!(preview.join_rule, Some(JoinRuleSummary::Invite));
     assert!(preview.is_world_readable.unwrap());
 }
 

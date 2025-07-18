@@ -16,6 +16,14 @@ All notable changes to this project will be documented in this file.
   ([#5390](https://github.com/matrix-org/matrix-rust-sdk/pull/5390))
 
 ### Refactor
+- [**breaking**] `RoomInfo::room_version_or_default()` was replaced with
+  `room_version_rules_or_default()`. The room version should only be used for
+  display purposes. The rules contain flags for all the differences in behavior
+  between all known room versions.
+  ([#5337](https://github.com/matrix-org/matrix-rust-sdk/pull/5337))
+- [**breaking**] `MinimalStateEvent::redact()` takes `RedactionRules` instead of
+  a `RoomVersionId`.
+  ([#5337](https://github.com/matrix-org/matrix-rust-sdk/pull/5337))
 - [**breaking**] The `event_id` field of `PredecessorRoom` was removed, due to
   its removal in the Matrix specification with MSC4291.
   ([#5419](https://github.com/matrix-org/matrix-rust-sdk/pull/5419))

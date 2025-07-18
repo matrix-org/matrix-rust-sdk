@@ -105,20 +105,20 @@ impl MatrixAuth {
         idp_id: Option<&str>,
     ) -> Result<String> {
         let homeserver = self.client.homeserver();
-        let server_versions = self.client.server_versions().await?;
+        let supported_versions = self.client.supported_versions().await?;
 
         let request = if let Some(id) = idp_id {
             sso_login_with_provider::v3::Request::new(id.to_owned(), redirect_url.to_owned())
                 .try_into_http_request::<Vec<u8>>(
                     homeserver.as_str(),
                     SendAccessToken::None,
-                    &server_versions,
+                    &supported_versions,
                 )
         } else {
             sso_login::v3::Request::new(redirect_url.to_owned()).try_into_http_request::<Vec<u8>>(
                 homeserver.as_str(),
                 SendAccessToken::None,
-                &server_versions,
+                &supported_versions,
             )
         };
 

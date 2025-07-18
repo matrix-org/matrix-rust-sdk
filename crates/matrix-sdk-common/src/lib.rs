@@ -42,7 +42,7 @@ pub mod ttl_cache;
 #[cfg(all(target_family = "wasm", not(tarpaulin_include)))]
 pub mod js_tracing;
 
-use ruma::RoomVersionId;
+use ruma::{room_version_rules::RoomVersionRules, RoomVersionId};
 pub use store_locks::LEASE_DURATION_MS;
 
 /// Alias for `Send` on non-wasm, empty trait (implemented by everything) on
@@ -108,3 +108,9 @@ uniffi::setup_scaffolding!();
 
 /// The room version to use as a fallback when the version of a room is unknown.
 pub const ROOM_VERSION_FALLBACK: RoomVersionId = RoomVersionId::V11;
+
+/// The room version rules to use as a fallback when the version of a room is
+/// unknown or unsupported.
+///
+/// These are the rules of the [`ROOM_VERSION_FALLBACK`].
+pub const ROOM_VERSION_RULES_FALLBACK: RoomVersionRules = RoomVersionRules::V11;

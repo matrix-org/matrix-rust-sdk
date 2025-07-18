@@ -1631,7 +1631,7 @@ impl Client {
     ) -> Result<Option<MediaPreviews>, ClientError> {
         let configuration = self.inner.account().get_media_preview_config_event_content().await?;
         match configuration {
-            Some(configuration) => Ok(Some(configuration.media_previews.into())),
+            Some(configuration) => Ok(configuration.media_previews.map(Into::into)),
             None => Ok(None),
         }
     }
@@ -1652,7 +1652,7 @@ impl Client {
     ) -> Result<Option<InviteAvatars>, ClientError> {
         let configuration = self.inner.account().get_media_preview_config_event_content().await?;
         match configuration {
-            Some(configuration) => Ok(Some(configuration.invite_avatars.into())),
+            Some(configuration) => Ok(configuration.invite_avatars.map(Into::into)),
             None => Ok(None),
         }
     }
@@ -2468,9 +2468,7 @@ impl TryFrom<AllowRule> for RumaAllowRule {
         match value {
             AllowRule::RoomMembership { room_id } => {
                 let room_id = RoomId::parse(room_id)?;
-                Ok(Self::RoomMembership(ruma::events::room::join_rules::RoomMembership::new(
-                    room_id,
-                )))
+                Ok(Self::RoomMembership(ruma::room::RoomMembership::new(room_id)))
             }
             AllowRule::Custom { json } => Ok(Self::_Custom(Box::new(serde_json::from_str(&json)?))),
         }

@@ -1381,5 +1381,5 @@ async fn test_report_room() {
     let _response = client.sync_once(sync_settings).await.unwrap();
     let room = client.get_room(&DEFAULT_TEST_ROOM_ID).unwrap();
 
-    room.report_room(Some(reason.to_owned())).await.unwrap();
+    room.report_room(reason.to_owned()).await.unwrap();
 }

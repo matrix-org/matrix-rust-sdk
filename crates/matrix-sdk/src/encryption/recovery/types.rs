@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use matrix_sdk_base::crypto::store::types::RoomKeyCounts;
-use ruma::exports::ruma_macros::EventContent;
+use ruma::events::macros::EventContent;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use zeroize::{Zeroize, ZeroizeOnDrop};

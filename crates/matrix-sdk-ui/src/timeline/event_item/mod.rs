@@ -31,8 +31,9 @@ use matrix_sdk_base::{
 use once_cell::sync::Lazy;
 use ruma::{
     EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedMxcUri, OwnedTransactionId,
-    OwnedUserId, RoomId, RoomVersionId, TransactionId, UserId,
+    OwnedUserId, RoomId, TransactionId, UserId,
     events::{AnySyncTimelineEvent, receipt::Receipt, room::message::MessageType},
+    room_version_rules::RedactionRules,
     serde::Raw,
 };
 use tracing::warn;
@@ -534,8 +535,8 @@ impl EventTimelineItem {
     }
 
     /// Create a clone of the current item, with content that's been redacted.
-    pub(super) fn redact(&self, room_version: &RoomVersionId) -> Self {
-        let content = self.content.redact(room_version);
+    pub(super) fn redact(&self, rules: &RedactionRules) -> Self {
+        let content = self.content.redact(rules);
         let kind = match &self.kind {
             EventTimelineItemKind::Local(l) => EventTimelineItemKind::Local(l.clone()),
             EventTimelineItemKind::Remote(r) => EventTimelineItemKind::Remote(r.redact()),

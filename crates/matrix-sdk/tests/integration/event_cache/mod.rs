@@ -29,7 +29,9 @@ use matrix_sdk_test::{
 use ruma::{
     event_id,
     events::{AnySyncMessageLikeEvent, AnySyncTimelineEvent, TimelineEventType},
-    room_id, user_id, EventId, RoomVersionId,
+    room_id,
+    room_version_rules::RedactionRules,
+    user_id, EventId,
 };
 use serde_json::json;
 use tokio::{spawn, sync::broadcast, time::sleep};
@@ -1411,7 +1413,7 @@ async fn test_apply_redaction_when_redaction_comes_later() {
         assert_let!(
             AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::RoomRedaction(ev)) = ev
         );
-        assert_eq!(ev.redacts(&RoomVersionId::V1).unwrap(), event_id!("$1"));
+        assert_eq!(ev.redacts(&RedactionRules::V1).unwrap(), event_id!("$1"));
     }
 
     // Then, we have an update for the redacted event.
@@ -1641,7 +1643,7 @@ async fn test_apply_redaction_when_redacted_and_redaction_are_in_same_sync() {
         assert_let!(
             AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::RoomRedaction(ev)) = ev
         );
-        assert_eq!(ev.redacts(&RoomVersionId::V1).unwrap(), event_id!("$2"));
+        assert_eq!(ev.redacts(&RedactionRules::V1).unwrap(), event_id!("$2"));
     }
 
     // Then the redaction of the event happens separately.

@@ -484,7 +484,7 @@ impl Room {
     /// # Errors
     ///
     /// Returns an error if the room is not found or on rate limit
-    pub async fn report_room(&self, reason: Option<String>) -> Result<(), ClientError> {
+    pub async fn report_room(&self, reason: String) -> Result<(), ClientError> {
         self.inner.report_room(reason).await?;
 
         Ok(())

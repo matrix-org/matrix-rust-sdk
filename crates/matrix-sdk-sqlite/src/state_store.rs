@@ -16,7 +16,7 @@ use matrix_sdk_base::{
         RoomLoadSettings, SentRequestKey,
     },
     MinimalRoomMemberEvent, RoomInfo, RoomMemberships, RoomState, StateChanges, StateStore,
-    StateStoreDataKey, StateStoreDataValue, ROOM_VERSION_FALLBACK,
+    StateStoreDataKey, StateStoreDataValue, ROOM_VERSION_FALLBACK, ROOM_VERSION_RULES_FALLBACK,
 };
 use matrix_sdk_store_encryption::StoreCipher;
 use ruma::{
@@ -1271,24 +1271,24 @@ impl StateStore for SqliteStateStore {
                 }
 
                 for (room_id, redactions) in redactions {
-                    let make_room_version = || {
+                    let make_redaction_rules = || {
                         let encoded_room_id = this.encode_key(keys::ROOM_INFO, &room_id);
                         txn.get_room_info(&encoded_room_id)
                             .ok()
                             .flatten()
                             .and_then(|v| this.deserialize_json::<RoomInfo>(&v).ok())
-                            .map(|info| info.room_version_or_default())
+                            .map(|info| info.room_version_rules_or_default())
                             .unwrap_or_else(|| {
                                 warn!(
                                     ?room_id,
-                                    "Unable to find the room version, assuming {ROOM_VERSION_FALLBACK}"
+                                    "Unable to get the room version rules, defaulting to rules for room version {ROOM_VERSION_FALLBACK}"
                                 );
-                                ROOM_VERSION_FALLBACK
-                            })
+                                ROOM_VERSION_RULES_FALLBACK
+                            }).redaction
                     };
 
                     let encoded_room_id = this.encode_key(keys::STATE_EVENT, &room_id);
-                    let mut room_version = None;
+                    let mut redaction_rules = None;
 
                     for (event_id, redaction) in redactions {
                         let event_id = this.encode_key(keys::STATE_EVENT, event_id);
@@ -1300,7 +1300,7 @@ impl StateStore for SqliteStateStore {
                             let event = raw_event.deserialize()?;
                             let redacted = redact(
                                 raw_event.deserialize_as::<CanonicalJsonObject>()?,
-                                room_version.get_or_insert_with(make_room_version),
+                                redaction_rules.get_or_insert_with(make_redaction_rules),
                                 Some(RedactedBecause::from_raw_event(&redaction)?),
                             )
                             .map_err(Error::Redaction)?;

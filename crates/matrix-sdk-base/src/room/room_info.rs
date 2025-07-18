@@ -19,7 +19,9 @@ use std::{
 
 use bitflags::bitflags;
 use eyeball::Subscriber;
-use matrix_sdk_common::{deserialized_responses::TimelineEventKind, ROOM_VERSION_FALLBACK};
+use matrix_sdk_common::{
+    deserialized_responses::TimelineEventKind, ROOM_VERSION_FALLBACK, ROOM_VERSION_RULES_FALLBACK,
+};
 use ruma::{
     api::client::sync::sync_events::v3::RoomSummary as RumaSummary,
     assign,
@@ -45,6 +47,7 @@ use ruma::{
         RedactedStateEventContent, StateEventType, StaticStateEventContent, SyncStateEvent,
     },
     room::RoomType,
+    room_version_rules::{RedactionRules, RoomVersionRules},
     serde::Raw,
     EventId, MilliSecondsSinceUnixEpoch, MxcUri, OwnedEventId, OwnedMxcUri, OwnedRoomAliasId,
     OwnedRoomId, OwnedUserId, RoomAliasId, RoomId, RoomVersionId, UserId,
@@ -322,27 +325,31 @@ impl BaseRoomInfo {
     }
 
     pub(super) fn handle_redaction(&mut self, redacts: &EventId) {
-        let room_version = self.room_version().unwrap_or(&ROOM_VERSION_FALLBACK).to_owned();
+        let redaction_rules = self
+            .room_version()
+            .and_then(|room_version| room_version.rules())
+            .unwrap_or(ROOM_VERSION_RULES_FALLBACK)
+            .redaction;
 
         // FIXME: Use let chains once available to get rid of unwrap()s
         if self.avatar.has_event_id(redacts) {
-            self.avatar.as_mut().unwrap().redact(&room_version);
+            self.avatar.as_mut().unwrap().redact(&redaction_rules);
         } else if self.canonical_alias.has_event_id(redacts) {
-            self.canonical_alias.as_mut().unwrap().redact(&room_version);
+            self.canonical_alias.as_mut().unwrap().redact(&redaction_rules);
         } else if self.create.has_event_id(redacts) {
-            self.create.as_mut().unwrap().redact(&room_version);
+            self.create.as_mut().unwrap().redact(&redaction_rules);
         } else if self.guest_access.has_event_id(redacts) {
-            self.guest_access.as_mut().unwrap().redact(&room_version);
+            self.guest_access.as_mut().unwrap().redact(&redaction_rules);
         } else if self.history_visibility.has_event_id(redacts) {
-            self.history_visibility.as_mut().unwrap().redact(&room_version);
+            self.history_visibility.as_mut().unwrap().redact(&redaction_rules);
         } else if self.join_rules.has_event_id(redacts) {
-            self.join_rules.as_mut().unwrap().redact(&room_version);
+            self.join_rules.as_mut().unwrap().redact(&redaction_rules);
         } else if self.name.has_event_id(redacts) {
-            self.name.as_mut().unwrap().redact(&room_version);
+            self.name.as_mut().unwrap().redact(&redaction_rules);
         } else if self.tombstone.has_event_id(redacts) {
-            self.tombstone.as_mut().unwrap().redact(&room_version);
+            self.tombstone.as_mut().unwrap().redact(&redaction_rules);
         } else if self.topic.has_event_id(redacts) {
-            self.topic.as_mut().unwrap().redact(&room_version);
+            self.topic.as_mut().unwrap().redact(&redaction_rules);
         } else {
             self.rtc_member_events
                 .retain(|_, member_event| member_event.event_id() != Some(redacts));
@@ -451,11 +458,11 @@ pub struct RoomInfo {
     /// room state.
     pub(crate) base_info: Box<BaseRoomInfo>,
 
-    /// Did we already warn about an unknown room version in
-    /// [`RoomInfo::room_version_or_default`]? This is done to avoid
-    /// spamming about unknown room versions in the log for the same room.
+    /// Whether we already warned about unknown room version rules in
+    /// [`RoomInfo::room_version_rules_or_default`]. This is done to avoid
+    /// spamming about unknown room versions rules in the log for the same room.
     #[serde(skip)]
-    pub(crate) warned_about_unknown_room_version: Arc<AtomicBool>,
+    pub(crate) warned_about_unknown_room_version_rules: Arc<AtomicBool>,
 
     /// Cached display name, useful for sync access.
     ///
@@ -502,7 +509,7 @@ impl RoomInfo {
             latest_event: None,
             read_receipts: Default::default(),
             base_info: Box::new(BaseRoomInfo::new()),
-            warned_about_unknown_room_version: Arc::new(false.into()),
+            warned_about_unknown_room_version_rules: Arc::new(false.into()),
             cached_display_name: None,
             cached_user_defined_notification_mode: None,
             recency_stamp: None,
@@ -670,9 +677,9 @@ impl RoomInfo {
         event: &SyncRoomRedactionEvent,
         _raw: &Raw<SyncRoomRedactionEvent>,
     ) {
-        let room_version = self.room_version_or_default();
+        let redaction_rules = self.room_version_rules_or_default().redaction;
 
-        let Some(redacts) = event.redacts(&room_version) else {
+        let Some(redacts) = event.redacts(&redaction_rules) else {
             info!("Can't apply redaction, redacts field is missing");
             return;
         };
@@ -681,7 +688,7 @@ impl RoomInfo {
         if let Some(latest_event) = &mut self.latest_event {
             tracing::trace!("Checking if redaction applies to latest event");
             if latest_event.event_id().as_deref() == Some(redacts) {
-                match apply_redaction(latest_event.event().raw(), _raw, &room_version) {
+                match apply_redaction(latest_event.event().raw(), _raw, &redaction_rules) {
                     Some(redacted) => {
                         // Even if the original event was encrypted, redaction removes all its
                         // fields so it cannot possibly be successfully decrypted after redaction.
@@ -842,24 +849,26 @@ impl RoomInfo {
         self.base_info.room_version()
     }
 
-    /// Get the room version of this room, or a sensible default.
+    /// Get the room version rules of this room, or a sensible default.
     ///
-    /// Will warn (at most once) if the room creation event is missing from this
-    /// [`RoomInfo`].
-    pub fn room_version_or_default(&self) -> RoomVersionId {
+    /// Will warn (at most once) if the room create event is missing from this
+    /// [`RoomInfo`] or if the room version is unsupported.
+    pub fn room_version_rules_or_default(&self) -> RoomVersionRules {
         use std::sync::atomic::Ordering;
 
-        self.base_info.room_version().cloned().unwrap_or_else(|| {
-            if self
-                .warned_about_unknown_room_version
-                .compare_exchange(false, true, Ordering::Relaxed, Ordering::Relaxed)
-                .is_ok()
-            {
-                warn!("Unknown room version, falling back to {ROOM_VERSION_FALLBACK}");
-            }
+        self.base_info.room_version().and_then(|room_version| room_version.rules()).unwrap_or_else(
+            || {
+                if self
+                    .warned_about_unknown_room_version_rules
+                    .compare_exchange(false, true, Ordering::Relaxed, Ordering::Relaxed)
+                    .is_ok()
+                {
+                    warn!("Unable to get the room version rules, defaulting to rules for room version {ROOM_VERSION_FALLBACK}");
+                }
 
-            ROOM_VERSION_FALLBACK
-        })
+                ROOM_VERSION_RULES_FALLBACK
+            },
+        )
     }
 
     /// Get the room type of this room.
@@ -1109,7 +1118,7 @@ pub(crate) enum SyncInfo {
 pub fn apply_redaction(
     event: &Raw<AnySyncTimelineEvent>,
     raw_redaction: &Raw<SyncRoomRedactionEvent>,
-    room_version: &RoomVersionId,
+    rules: &RedactionRules,
 ) -> Option<Raw<AnySyncTimelineEvent>> {
     use ruma::canonical_json::{redact_in_place, RedactedBecause};
 
@@ -1129,7 +1138,7 @@ pub fn apply_redaction(
         }
     };
 
-    let redact_result = redact_in_place(&mut event_json, room_version, Some(redacted_because));
+    let redact_result = redact_in_place(&mut event_json, rules, Some(redacted_because));
 
     if let Err(e) = redact_result {
         warn!("Failed to redact event: {e}");
@@ -1259,7 +1268,7 @@ mod tests {
                 assign!(BaseRoomInfo::new(), { pinned_events: Some(RoomPinnedEventsEventContent::new(vec![owned_event_id!("$a")])) }),
             ),
             read_receipts: Default::default(),
-            warned_about_unknown_room_version: Arc::new(false.into()),
+            warned_about_unknown_room_version_rules: Arc::new(false.into()),
             cached_display_name: None,
             cached_user_defined_notification_mode: None,
             recency_stamp: Some(42),

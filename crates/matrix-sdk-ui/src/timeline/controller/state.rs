@@ -19,8 +19,9 @@ use matrix_sdk::{deserialized_responses::TimelineEvent, send_queue::SendHandle};
 #[cfg(test)]
 use ruma::events::receipt::ReceiptEventContent;
 use ruma::{
-    MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, OwnedUserId, RoomVersionId,
+    MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, OwnedUserId,
     events::{AnyMessageLikeEventContent, AnySyncEphemeralRoomEvent},
+    room_version_rules::RoomVersionRules,
     serde::Raw,
 };
 use tracing::{instrument, trace, warn};
@@ -53,7 +54,7 @@ impl<P: RoomDataProvider> TimelineState<P> {
     pub(super) fn new(
         focus: Arc<TimelineFocusKind<P>>,
         own_user_id: OwnedUserId,
-        room_version: RoomVersionId,
+        room_version_rules: RoomVersionRules,
         internal_id_prefix: Option<String>,
         unable_to_decrypt_hook: Option<Arc<UtdHookManager>>,
         is_room_encrypted: bool,
@@ -62,7 +63,7 @@ impl<P: RoomDataProvider> TimelineState<P> {
             items: ObservableItems::new(),
             meta: TimelineMetadata::new(
                 own_user_id,
-                room_version,
+                room_version_rules,
                 internal_id_prefix,
                 unable_to_decrypt_hook,
                 is_room_encrypted,

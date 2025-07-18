@@ -632,8 +632,9 @@ mod private {
             relation::RelationType, room::redaction::SyncRoomRedactionEvent, AnySyncTimelineEvent,
             MessageLikeEventType,
         },
+        room_version_rules::RoomVersionRules,
         serde::Raw,
-        EventId, OwnedEventId, OwnedRoomId, RoomVersionId,
+        EventId, OwnedEventId, OwnedRoomId,
     };
     use tokio::sync::broadcast::Receiver;
     use tracing::{debug, error, instrument, trace, warn};
@@ -656,8 +657,8 @@ mod private {
         /// The room this state relates to.
         room: OwnedRoomId,
 
-        /// The room version for this room.
-        room_version: RoomVersionId,
+        /// The rules for the version of this room.
+        room_version_rules: RoomVersionRules,
 
         /// Reference to the underlying backing store.
         store: EventCacheStoreLock,
@@ -696,7 +697,7 @@ mod private {
         /// [`LinkedChunk`]: matrix_sdk_common::linked_chunk::LinkedChunk
         pub async fn new(
             room_id: OwnedRoomId,
-            room_version: RoomVersionId,
+            room_version_rules: RoomVersionRules,
             store: EventCacheStoreLock,
             pagination_status: SharedObservable<RoomPaginationStatus>,
         ) -> Result<Self, EventCacheError> {
@@ -736,7 +737,7 @@ mod private {
 
             Ok(Self {
                 room: room_id,
-                room_version,
+                room_version_rules,
                 store,
                 room_linked_chunk,
                 threads,
@@ -1419,7 +1420,7 @@ mod private {
                 return Ok(());
             };
 
-            let Some(event_id) = redaction.redacts(&self.room_version) else {
+            let Some(event_id) = redaction.redacts(&self.room_version_rules.redaction) else {
                 warn!("missing target event id from the redaction event");
                 return Ok(());
             };
@@ -1449,7 +1450,7 @@ mod private {
             if let Some(redacted_event) = apply_redaction(
                 target_event.raw(),
                 event.raw().cast_ref::<SyncRoomRedactionEvent>(),
-                &self.room_version,
+                &self.room_version_rules.redaction,
             ) {
                 // It's safe to cast `redacted_event` here:
                 // - either the event was an `AnyTimelineEvent` cast to `AnySyncTimelineEvent`

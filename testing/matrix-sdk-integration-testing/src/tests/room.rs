@@ -9,8 +9,8 @@ use matrix_sdk::{
         api::client::room::create_room::v3::Request as CreateRoomRequest,
         assign, event_id, events,
         events::{
-            AnyRoomAccountDataEventContent, AnySyncStateEvent, AnySyncTimelineEvent, EventContent,
-            room::message::RoomMessageEventContent,
+            AnyRoomAccountDataEventContent, AnySyncStateEvent, AnySyncTimelineEvent,
+            RoomAccountDataEventContent, room::message::RoomMessageEventContent,
         },
         serde::Raw,
         uint,

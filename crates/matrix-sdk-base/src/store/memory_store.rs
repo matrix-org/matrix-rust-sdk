@@ -19,7 +19,7 @@ use std::{
 
 use async_trait::async_trait;
 use growable_bloom_filter::GrowableBloom;
-use matrix_sdk_common::ROOM_VERSION_FALLBACK;
+use matrix_sdk_common::{ROOM_VERSION_FALLBACK, ROOM_VERSION_RULES_FALLBACK};
 use ruma::{
     canonical_json::{redact, RedactedBecause},
     events::{
@@ -439,19 +439,19 @@ impl StateStore for MemoryStore {
             }
         }
 
-        let make_room_version = |room_info: &HashMap<OwnedRoomId, RoomInfo>, room_id| {
-            room_info.get(room_id).map(|info| info.room_version_or_default()).unwrap_or_else(|| {
+        let make_redaction_rules = |room_info: &HashMap<OwnedRoomId, RoomInfo>, room_id| {
+            room_info.get(room_id).map(|info| info.room_version_rules_or_default()).unwrap_or_else(|| {
                 warn!(
                     ?room_id,
-                    "Unable to find the room version, assuming {ROOM_VERSION_FALLBACK}"
+                    "Unable to get the room version rules, defaulting to rules for room version {ROOM_VERSION_FALLBACK}"
                 );
-                ROOM_VERSION_FALLBACK
-            })
+                ROOM_VERSION_RULES_FALLBACK
+            }).redaction
         };
 
         let inner = &mut *inner;
         for (room_id, redactions) in &changes.redactions {
-            let mut room_version = None;
+            let mut redaction_rules = None;
 
             if let Some(room) = inner.room_state.get_mut(room_id) {
                 for ref_room_mu in room.values_mut() {
@@ -460,8 +460,8 @@ impl StateStore for MemoryStore {
                             if let Some(redaction) = redactions.get(&event_id) {
                                 let redacted = redact(
                                     raw_evt.deserialize_as::<CanonicalJsonObject>()?,
-                                    room_version.get_or_insert_with(|| {
-                                        make_room_version(&inner.room_info, room_id)
+                                    redaction_rules.get_or_insert_with(|| {
+                                        make_redaction_rules(&inner.room_info, room_id)
                                     }),
                                     Some(RedactedBecause::from_raw_event(redaction)?),
                                 )
