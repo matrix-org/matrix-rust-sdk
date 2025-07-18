@@ -770,7 +770,7 @@ async fn test_encrypt_room_event() {
         "content": content,
     }))
     .expect("We should be able to construct a full event from the encrypted event content")
-    .cast();
+    .cast_unchecked();
 
     let push_ctx =
         room.push_context().await.expect("We should be able to get the push action context");
@@ -1338,11 +1338,11 @@ async fn test_restore_room() {
 
     let mut changes = StateChanges::default();
 
-    let raw_tag_event = Raw::new(&*TAG).unwrap().cast();
+    let raw_tag_event = Raw::new(&*TAG).unwrap().cast_unchecked();
     let tag_event = raw_tag_event.deserialize().unwrap();
     changes.add_room_account_data(room_id, tag_event, raw_tag_event);
 
-    let raw_pinned_events_event = Raw::new(&*PINNED_EVENTS).unwrap().cast();
+    let raw_pinned_events_event = Raw::new(&*PINNED_EVENTS).unwrap().cast_unchecked();
     let pinned_events_event = raw_pinned_events_event.deserialize().unwrap();
     changes.add_state_event(room_id, pinned_events_event, raw_pinned_events_event);
 

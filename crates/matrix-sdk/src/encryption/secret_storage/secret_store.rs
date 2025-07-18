@@ -152,7 +152,8 @@ impl SecretStore {
         let event_type = GlobalAccountDataEventType::from(secret_name.to_owned());
 
         if let Some(secret_content) = self.client.account().fetch_account_data(event_type).await? {
-            let mut secret_content = secret_content.deserialize_as::<SecretEventContent>()?;
+            let mut secret_content =
+                secret_content.deserialize_as_unchecked::<SecretEventContent>()?;
 
             // The `SecretEventContent` contains a map from the secret storage key ID to the
             // ciphertext. Let's try to find a secret which was encrypted using our
@@ -241,7 +242,7 @@ impl SecretStore {
             self.client.account().fetch_account_data(event_type.to_owned()).await?
         {
             secret_content
-                .deserialize_as::<SecretEventContent>()
+                .deserialize_as_unchecked::<SecretEventContent>()
                 .unwrap_or_else(|_| SecretEventContent::new(Default::default()))
         } else {
             SecretEventContent::new(Default::default())

@@ -185,7 +185,7 @@ mod tests {
             "pinned": ids,
         }))
         .unwrap()
-        .cast::<PossiblyRedactedRoomPinnedEventsEventContent>()
+        .cast_unchecked::<PossiblyRedactedRoomPinnedEventsEventContent>()
         .deserialize()
         .ok()
     }

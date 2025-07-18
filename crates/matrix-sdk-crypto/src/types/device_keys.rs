@@ -22,7 +22,8 @@ use std::collections::BTreeMap;
 
 use js_option::JsOption;
 use ruma::{
-    serde::Raw, DeviceKeyAlgorithm, DeviceKeyId, OwnedDeviceId, OwnedDeviceKeyId, OwnedUserId,
+    serde::{JsonCastable, Raw},
+    DeviceKeyAlgorithm, DeviceKeyId, OwnedDeviceId, OwnedDeviceKeyId, OwnedUserId,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{value::to_raw_value, Value};
@@ -134,6 +135,8 @@ impl DeviceKeys {
         })
     }
 }
+
+impl JsonCastable<DeviceKeys> for ruma::encryption::DeviceKeys {}
 
 /// Additional data added to device key information by intermediate servers.
 #[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq)]

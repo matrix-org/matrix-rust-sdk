@@ -312,7 +312,7 @@ where
     /// The generic argument `T` allows you to automatically cast the [`Raw`]
     /// event into any desired type.
     pub fn into_raw<T>(self) -> Raw<T> {
-        Raw::new(&self.construct_json(true)).unwrap().cast()
+        Raw::new(&self.construct_json(true)).unwrap().cast_unchecked()
     }
 
     pub fn into_raw_timeline(self) -> Raw<AnyTimelineEvent> {
@@ -320,7 +320,7 @@ where
     }
 
     pub fn into_raw_sync(self) -> Raw<AnySyncTimelineEvent> {
-        Raw::new(&self.construct_json(false)).unwrap().cast()
+        Raw::new(&self.construct_json(false)).unwrap().cast_unchecked()
     }
 
     pub fn into_event(self) -> TimelineEvent {
@@ -488,13 +488,13 @@ where
 
 impl<E: StaticEventContent + StateEventContent> From<EventBuilder<E>> for Raw<AnySyncStateEvent> {
     fn from(val: EventBuilder<E>) -> Self {
-        Raw::new(&val.construct_json(false)).unwrap().cast()
+        Raw::new(&val.construct_json(false)).unwrap().cast_unchecked()
     }
 }
 
 impl<E: StaticEventContent + StateEventContent> From<EventBuilder<E>> for Raw<AnyStateEvent> {
     fn from(val: EventBuilder<E>) -> Self {
-        Raw::new(&val.construct_json(true)).unwrap().cast()
+        Raw::new(&val.construct_json(true)).unwrap().cast_unchecked()
     }
 }
 

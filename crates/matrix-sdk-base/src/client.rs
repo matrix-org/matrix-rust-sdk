@@ -1040,7 +1040,7 @@ impl BaseClient {
     ) -> Result<Ruleset> {
         if let Some(event) = global_account_data_processor
             .push_rules()
-            .and_then(|ev| ev.deserialize_as::<PushRulesEvent>().ok())
+            .and_then(|ev| ev.deserialize_as_unchecked::<PushRulesEvent>().ok())
         {
             Ok(event.content.global)
         } else if let Some(event) = self

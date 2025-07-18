@@ -1067,7 +1067,7 @@ impl OlmMachine {
         content: impl MessageLikeEventContent,
     ) -> MegolmResult<Raw<RoomEncryptedEventContent>> {
         let event_type = content.event_type().to_string();
-        let content = Raw::new(&content)?.cast();
+        let content = Raw::new(&content)?.cast_unchecked();
         self.encrypt_room_event_raw(room_id, &event_type, &content).await
     }
 
@@ -1378,7 +1378,7 @@ impl OlmMachine {
             content: ContentStub<'a>,
         }
 
-        if let Ok(event) = event.deserialize_as::<ToDeviceStub<'_>>() {
+        if let Ok(event) = event.deserialize_as_unchecked::<ToDeviceStub<'_>>() {
             Span::current().record("sender", event.sender);
             Span::current().record("event_type", event.event_type);
             Span::current().record("message_id", event.content.message_id);

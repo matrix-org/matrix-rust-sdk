@@ -1018,7 +1018,7 @@ async fn test_enable_from_secret_storage() {
 
     assert_matches!(event.encryption_info(), Some(..), "The event should now be decrypted");
     let event: RoomMessageEvent =
-        event.raw().deserialize_as().expect("We should be able to deserialize the event");
+        event.raw().deserialize_as_unchecked().expect("We should be able to deserialize the event");
     let event = event.as_original().unwrap();
     assert_eq!(event.content.body(), "tt");
 
@@ -1365,7 +1365,7 @@ async fn test_enable_from_secret_storage_and_download_after_utd() {
 
     assert_matches!(event.encryption_info(), Some(..), "The event should now be decrypted");
     let event: RoomMessageEvent =
-        event.raw().deserialize_as().expect("We should be able to deserialize the event");
+        event.raw().deserialize_as_unchecked().expect("We should be able to deserialize the event");
     let event = event.as_original().unwrap();
     assert_eq!(event.content.body(), "tt");
 
@@ -1491,7 +1491,7 @@ async fn test_enable_from_secret_storage_and_download_after_utd_from_old_message
 
     assert_matches!(event.encryption_info(), Some(..), "The event should now be decrypted");
     let event: RoomMessageEvent =
-        event.raw().deserialize_as().expect("We should be able to deserialize the event");
+        event.raw().deserialize_as_unchecked().expect("We should be able to deserialize the event");
     let event = event.as_original().unwrap();
     assert_eq!(event.content.body(), "tt");
 

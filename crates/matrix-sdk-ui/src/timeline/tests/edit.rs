@@ -158,7 +158,7 @@ async fn test_edit_updates_encryption_info() {
         .sender(*ALICE)
         .event_id(original_event_id)
         .room(room_id)
-        .into_raw_timeline();
+        .into_raw();
 
     let mut encryption_info = Arc::new(EncryptionInfo {
         sender: (*ALICE).into(),
@@ -173,7 +173,7 @@ async fn test_edit_updates_encryption_info() {
 
     let original_event = TimelineEvent::from_decrypted(
         DecryptedRoomEvent {
-            event: original_event.cast(),
+            event: original_event,
             encryption_info: encryption_info.clone(),
             unsigned_encryption_info: None,
         },
@@ -199,12 +199,12 @@ async fn test_edit_updates_encryption_info() {
         .sender(*ALICE)
         .room(room_id)
         .edit(original_event_id, MessageType::text_plain("!!edited!! **better** message").into())
-        .into_raw_timeline();
+        .into_raw();
     Arc::make_mut(&mut encryption_info).verification_state =
         VerificationState::Unverified(VerificationLevel::UnverifiedIdentity);
     let edit_event = TimelineEvent::from_decrypted(
         DecryptedRoomEvent {
-            event: edit_event.cast(),
+            event: edit_event,
             encryption_info: encryption_info.clone(),
             unsigned_encryption_info: None,
         },

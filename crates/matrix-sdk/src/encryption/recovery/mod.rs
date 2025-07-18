@@ -314,7 +314,10 @@ impl Recovery {
 
                 self.client
                     .account()
-                    .set_account_data_raw(event_type, Raw::new(&json!({})).expect("").cast())
+                    .set_account_data_raw(
+                        event_type,
+                        Raw::new(&json!({})).expect("").cast_unchecked(),
+                    )
                     .await?;
             }
         }

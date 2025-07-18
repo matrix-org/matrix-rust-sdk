@@ -16,7 +16,7 @@
 
 use std::collections::BTreeMap;
 
-use ruma::{OwnedDeviceId, RoomId};
+use ruma::{events::AnyToDeviceEventContent, serde::JsonCastable, OwnedDeviceId, RoomId};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use vodozemac::{megolm::MegolmMessage, olm::OlmMessage, Curve25519PublicKey};
@@ -65,6 +65,11 @@ impl EncryptedEvent {
     }
 }
 
+impl JsonCastable<EncryptedEvent>
+    for ruma::events::room::encrypted::OriginalSyncRoomEncryptedEvent
+{
+}
+
 /// An m.room.encrypted to-device event.
 pub type EncryptedToDeviceEvent = ToDeviceEvent<ToDeviceEncryptedEventContent>;
 
@@ -94,6 +99,8 @@ pub enum ToDeviceEncryptedEventContent {
 impl EventType for ToDeviceEncryptedEventContent {
     const EVENT_TYPE: &'static str = "m.room.encrypted";
 }
+
+impl JsonCastable<AnyToDeviceEventContent> for ToDeviceEncryptedEventContent {}
 
 impl ToDeviceEncryptedEventContent {
     /// Get the algorithm of the event content.
@@ -220,6 +227,8 @@ impl RoomEncryptedEventContent {
 impl EventType for RoomEncryptedEventContent {
     const EVENT_TYPE: &'static str = "m.room.encrypted";
 }
+
+impl JsonCastable<ruma::events::AnyMessageLikeEventContent> for RoomEncryptedEventContent {}
 
 /// An enum for per encryption algorithm event contents.
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]

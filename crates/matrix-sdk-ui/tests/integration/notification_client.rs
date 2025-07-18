@@ -23,7 +23,7 @@ use matrix_sdk_ui::{
 };
 use ruma::{
     event_id,
-    events::{AnyStateEvent, TimelineEventType, room::member::MembershipState},
+    events::{TimelineEventType, room::member::MembershipState},
     mxc_uri, room_id, user_id,
 };
 use serde_json::json;
@@ -91,7 +91,7 @@ async fn test_notification_client_with_context() {
             .and(header("authorization", "Bearer 1234"))
             .respond_with(ResponseTemplate::new(200).set_body_json(json!({
                 "event": event_json,
-                "state": [sender_member_event.cast::<AnyStateEvent>()]
+                "state": [sender_member_event]
             })))
             .mount(&server)
             .await;
@@ -593,13 +593,13 @@ async fn test_notification_client_mixed() {
         .display_name(sender_display_name)
         .avatar_url(sender_avatar_url)
         .membership(MembershipState::Join)
-        .into_raw_sync();
+        .into_raw();
 
     let own_member_event = event_factory
         .member(&my_user_id)
         .display_name("My self")
         .membership(MembershipState::Join)
-        .into_raw_sync();
+        .into_raw();
 
     let power_levels_event =
         event_factory.power_levels(&mut BTreeMap::new()).sender(sender).into_raw_sync();
@@ -619,7 +619,7 @@ async fn test_notification_client_mixed() {
     let mut sync_builder = SyncResponseBuilder::new();
     sync_builder.add_joined_room(
         JoinedRoomBuilder::new(room_id)
-            .add_state_bulk([sender_member_event.clone().cast(), own_member_event.clone().cast()]),
+            .add_state_bulk([sender_member_event.clone(), own_member_event.clone()]),
     );
 
     // First, mock a sync that contains a state event so we get a valid room for

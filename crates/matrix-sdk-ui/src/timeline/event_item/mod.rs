@@ -1076,7 +1076,7 @@ mod tests {
                 .display_name("Alice Margatroid")
                 .reason("")
                 .into_raw_sync()
-                .deserialize_as::<OriginalMinimalStateEvent<RoomMemberEventContent>>()
+                .deserialize_as_unchecked::<OriginalMinimalStateEvent<RoomMemberEventContent>>()
                 .unwrap(),
         );
 

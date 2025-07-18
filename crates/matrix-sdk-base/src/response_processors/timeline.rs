@@ -69,13 +69,15 @@ pub async fn build<'notification, 'e2ee>(
                         let redaction_rules = room_info.room_version_rules_or_default().redaction;
 
                         if let Some(redacts) = redaction_event.redacts(&redaction_rules) {
-                            room_info
-                                .handle_redaction(redaction_event, timeline_event.raw().cast_ref());
+                            room_info.handle_redaction(
+                                redaction_event,
+                                timeline_event.raw().cast_ref_unchecked(),
+                            );
 
                             context.state_changes.add_redaction(
                                 room_id,
                                 redacts,
-                                timeline_event.raw().clone().cast(),
+                                timeline_event.raw().clone().cast_unchecked(),
                             );
                         }
                     }

@@ -129,7 +129,7 @@ pub fn to_device_requests_to_content(
         .values()
         .next()
         .unwrap()
-        .deserialize_as()
+        .deserialize_as_unchecked()
         .unwrap()
 }
 
@@ -268,7 +268,7 @@ fn test_one_time_key_signing() {
         .values_mut()
         .next()
         .expect("One time keys should be generated")
-        .deserialize_as()
+        .deserialize_as_unchecked()
         .unwrap();
 
     ed25519_key
@@ -311,7 +311,7 @@ async fn test_keys_for_upload() {
         .values_mut()
         .next()
         .expect("One time keys should be generated")
-        .deserialize_as()
+        .deserialize_as_unchecked()
         .unwrap();
 
     let ret = ed25519_key.verify_json(
@@ -735,7 +735,7 @@ async fn test_withheld_unverified() {
         .values()
         .next()
         .unwrap()
-        .deserialize_as::<RoomKeyWithheldContent>()
+        .deserialize_as_unchecked::<RoomKeyWithheldContent>()
         .expect("Deserialize should work");
 
     let event = ToDeviceEvent::new(alice.user_id().to_owned(), wh_content);

@@ -1100,7 +1100,7 @@ mod private {
                 let unsigned = val.get_mut("unsigned")?;
                 let unsigned_obj = unsigned.as_object_mut()?;
                 if unsigned_obj.remove("m.relations").is_some() {
-                    *event = Raw::new(&val).ok()?.cast();
+                    *event = Raw::new(&val).ok()?.cast_unchecked();
                 }
                 None
             };
@@ -1621,14 +1621,14 @@ mod private {
 
             if let Some(redacted_event) = apply_redaction(
                 target_event.raw(),
-                event.raw().cast_ref::<SyncRoomRedactionEvent>(),
+                event.raw().cast_ref_unchecked::<SyncRoomRedactionEvent>(),
                 &self.room_version_rules.redaction,
             ) {
                 // It's safe to cast `redacted_event` here:
                 // - either the event was an `AnyTimelineEvent` cast to `AnySyncTimelineEvent`
                 //   when calling .raw(), so it's still one under the hood.
                 // - or it wasn't, and it's a plain `AnySyncTimelineEvent` in this case.
-                target_event.replace_raw(redacted_event.cast());
+                target_event.replace_raw(redacted_event.cast_unchecked());
 
                 self.replace_event_at(location, target_event).await?;
             }

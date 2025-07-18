@@ -339,7 +339,9 @@ impl fmt::Debug for Notification {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let event_debug = match &self.event {
             RawAnySyncOrStrippedTimelineEvent::Sync(ev) => DebugRawEvent(ev),
-            RawAnySyncOrStrippedTimelineEvent::Stripped(ev) => DebugRawEvent(ev.cast_ref()),
+            RawAnySyncOrStrippedTimelineEvent::Stripped(ev) => {
+                DebugRawEvent(ev.cast_ref_unchecked())
+            }
         };
 
         f.debug_struct("Notification")

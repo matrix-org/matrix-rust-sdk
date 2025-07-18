@@ -878,7 +878,7 @@ pub trait StateStoreExt: StateStore {
     where
         C: StaticEventContent + GlobalAccountDataEventContent,
     {
-        Ok(self.get_account_data_event(C::TYPE.into()).await?.map(Raw::cast))
+        Ok(self.get_account_data_event(C::TYPE.into()).await?.map(Raw::cast_unchecked))
     }
 
     /// Get an event of a statically-known type from the room account data
@@ -895,7 +895,10 @@ pub trait StateStoreExt: StateStore {
     where
         C: StaticEventContent + RoomAccountDataEventContent,
     {
-        Ok(self.get_room_account_data_event(room_id, C::TYPE.into()).await?.map(Raw::cast))
+        Ok(self
+            .get_room_account_data_event(room_id, C::TYPE.into())
+            .await?
+            .map(Raw::cast_unchecked))
     }
 
     /// Get the `MemberEvent` for the given state key in the given room id.

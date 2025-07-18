@@ -304,8 +304,8 @@ impl RawAnySyncOrStrippedState {
         C::Redacted: RedactedStateEventContent,
     {
         match self {
-            Self::Sync(raw) => RawSyncOrStrippedState::Sync(raw.cast()),
-            Self::Stripped(raw) => RawSyncOrStrippedState::Stripped(raw.cast()),
+            Self::Sync(raw) => RawSyncOrStrippedState::Sync(raw.cast_unchecked()),
+            Self::Stripped(raw) => RawSyncOrStrippedState::Stripped(raw.cast_unchecked()),
         }
     }
 }

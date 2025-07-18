@@ -107,7 +107,7 @@ mod tests {
                 let user_id = user_id!("@example:localhost");
                 let response = own_key_query();
                 let raw = response.$field.get(user_id).unwrap();
-                let key: $key_type = raw.deserialize_as().unwrap();
+                let key: $key_type = raw.deserialize_as_unchecked().unwrap();
 
                 // A different key is naturally not the same as our key.
                 let other_identity = get_other_own_identity().await;
@@ -118,7 +118,7 @@ mod tests {
                 let other_user_id = user_id!("@example2:localhost");
                 let other_response = own_key_query_with_user_id(&other_user_id);
                 let other_raw = other_response.$field.get(other_user_id).unwrap();
-                let other_key: $key_type = other_raw.deserialize_as().unwrap();
+                let other_key: $key_type = other_raw.deserialize_as_unchecked().unwrap();
                 assert_ne!(key, other_key);
 
                 // Now let's add another signature to our key.

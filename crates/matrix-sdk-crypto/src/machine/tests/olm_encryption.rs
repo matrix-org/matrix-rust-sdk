@@ -207,7 +207,9 @@ async fn olm_encryption_test_helper(use_fallback_key: bool) {
 
     let event = ToDeviceEvent::new(
         alice.user_id().to_owned(),
-        content.deserialize_as().expect("We should be able to deserialize the encrypted content"),
+        content
+            .deserialize_as_unchecked()
+            .expect("We should be able to deserialize the encrypted content"),
     );
 
     // Decrypting the first time should succeed.

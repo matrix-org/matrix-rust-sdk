@@ -17,7 +17,7 @@
 use std::collections::BTreeMap;
 
 use matrix_sdk_common::deserialized_responses::WithheldCode;
-use ruma::{OwnedDeviceId, OwnedRoomId};
+use ruma::{events::AnyToDeviceEventContent, serde::JsonCastable, OwnedDeviceId, OwnedRoomId};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use vodozemac::Curve25519PublicKey;
@@ -154,6 +154,8 @@ impl RoomKeyWithheldContent {
 impl EventType for RoomKeyWithheldContent {
     const EVENT_TYPE: &'static str = "m.room_key.withheld";
 }
+
+impl JsonCastable<AnyToDeviceEventContent> for RoomKeyWithheldContent {}
 
 #[derive(Debug, Deserialize, Serialize)]
 struct WithheldHelper {

@@ -758,15 +758,16 @@ impl_state_store!({
                         stripped_state.delete(&key)?;
 
                         if *event_type == StateEventType::RoomMember {
-                            let event = match raw_event.deserialize_as::<SyncRoomMemberEvent>() {
-                                Ok(ev) => ev,
-                                Err(e) => {
-                                    let event_id: Option<String> =
-                                        raw_event.get_field("event_id").ok().flatten();
-                                    debug!(event_id, "Failed to deserialize member event: {e}");
-                                    continue;
-                                }
-                            };
+                            let event =
+                                match raw_event.deserialize_as_unchecked::<SyncRoomMemberEvent>() {
+                                    Ok(ev) => ev,
+                                    Err(e) => {
+                                        let event_id: Option<String> =
+                                            raw_event.get_field("event_id").ok().flatten();
+                                        debug!(event_id, "Failed to deserialize member event: {e}");
+                                        continue;
+                                    }
+                                };
 
                             let key = (room, state_key);
 
@@ -824,7 +825,8 @@ impl_state_store!({
                         store.put_key_val(&key, &self.serialize_value(&raw_event)?)?;
 
                         if *event_type == StateEventType::RoomMember {
-                            let event = match raw_event.deserialize_as::<StrippedRoomMemberEvent>()
+                            let event = match raw_event
+                                .deserialize_as_unchecked::<StrippedRoomMemberEvent>()
                             {
                                 Ok(ev) => ev,
                                 Err(e) => {

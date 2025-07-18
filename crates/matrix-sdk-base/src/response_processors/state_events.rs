@@ -64,7 +64,7 @@ pub mod sync {
         super::collect(raw_events.iter().filter_map(|raw_event| {
             // Only state events have a `state_key` field.
             match raw_event.get_field::<&str>("state_key") {
-                Ok(Some(_)) => Some(raw_event.cast_ref()),
+                Ok(Some(_)) => Some(raw_event.cast_ref_unchecked()),
                 _ => None,
             }
         }))

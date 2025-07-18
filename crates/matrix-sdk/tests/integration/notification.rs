@@ -33,7 +33,7 @@ async fn test_notifications_joined() {
     // Set up the room state, no notifications.
     let mut sync_builder = SyncResponseBuilder::new();
     let joined_room = JoinedRoomBuilder::new(room_id).add_state_bulk([
-        Raw::new(&*test_json::POWER_LEVELS).unwrap().cast(),
+        Raw::new(&*test_json::POWER_LEVELS).unwrap().cast_unchecked(),
         sync_state_event!({
             "content": {
                 "avatar_url": null,
@@ -109,7 +109,7 @@ async fn test_notifications_invite() {
 
     let mut sync_builder = SyncResponseBuilder::new();
     let invited_room = InvitedRoomBuilder::new(room_id).add_state_bulk([
-        Raw::new(&*test_json::POWER_LEVELS).unwrap().cast(),
+        Raw::new(&*test_json::POWER_LEVELS).unwrap().cast_unchecked(),
         stripped_state_event!({
             "content": {
                 "membership": "join"

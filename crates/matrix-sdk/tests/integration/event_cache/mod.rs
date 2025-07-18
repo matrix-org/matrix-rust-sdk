@@ -1448,7 +1448,7 @@ async fn test_apply_redaction_when_redaction_comes_later() {
     assert_eq!(events.len(), 2);
 
     // The initial event (that's been redacted),
-    let ev = events[0].raw().cast_ref::<AnySyncMessageLikeEvent>().deserialize().unwrap();
+    let ev = events[0].raw().cast_ref_unchecked::<AnySyncMessageLikeEvent>().deserialize().unwrap();
     assert!(ev.is_redacted());
 
     // And the redacted event.

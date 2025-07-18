@@ -14,10 +14,10 @@
 
 use ruma::{
     events::{
-        AnyStateEvent, AnyTimelineEvent, AnyToDeviceEvent, MessageLikeEventType, StateEventType,
-        ToDeviceEventType,
+        AnyMessageLikeEvent, AnyStateEvent, AnyTimelineEvent, AnyToDeviceEvent,
+        MessageLikeEventType, StateEventType, ToDeviceEventType,
     },
-    serde::Raw,
+    serde::{JsonCastable, Raw},
 };
 use serde::Deserialize;
 use tracing::debug;
@@ -235,6 +235,12 @@ impl<'a> TryFrom<&'a Raw<AnyStateEvent>> for FilterInput<'a> {
     }
 }
 
+impl<'a> JsonCastable<FilterInput<'a>> for AnyTimelineEvent {}
+
+impl<'a> JsonCastable<FilterInput<'a>> for AnyStateEvent {}
+
+impl<'a> JsonCastable<FilterInput<'a>> for AnyMessageLikeEvent {}
+
 #[derive(Debug, Deserialize)]
 pub struct FilterInputToDevice<'a> {
     #[serde(rename = "type")]
@@ -251,6 +257,8 @@ impl<'a> TryFrom<&'a Raw<AnyToDeviceEvent>> for FilterInput<'a> {
         raw_event.deserialize_as::<FilterInputToDevice<'a>>().map(FilterInput::ToDevice)
     }
 }
+
+impl<'a> JsonCastable<FilterInputToDevice<'a>> for AnyToDeviceEvent {}
 
 impl<'a> From<&'a SendToDeviceRequest> for FilterInput<'a> {
     fn from(request: &'a SendToDeviceRequest) -> Self {

@@ -263,7 +263,8 @@ pub async fn get_machine_pair_with_setup_sessions_test_helper(
         bob_device.encrypt("m.dummy", ToDeviceDummyEventContent::new()).await.unwrap();
     alice.store().save_sessions(&[session]).await.unwrap();
 
-    let event = ToDeviceEvent::new(alice.user_id().to_owned(), content.deserialize_as().unwrap());
+    let event =
+        ToDeviceEvent::new(alice.user_id().to_owned(), content.deserialize_as_unchecked().unwrap());
 
     let decrypted = bob
         .store()
