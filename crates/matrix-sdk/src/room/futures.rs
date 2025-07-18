@@ -417,7 +417,21 @@ impl<'a> IntoFuture for SendStateEventRaw<'a> {
             room.ensure_room_joined()?;
 
             #[cfg(feature = "e2e-encryption")]
-            if room.latest_encryption_state().await?.is_encrypted() {
+            if room.latest_encryption_state().await?.is_encrypted()
+                && !matches!(
+                    event_type,
+                    "m.room.create"
+                        | "m.room.member"
+                        | "m.room.join_rules"
+                        | "m.room.power_levels"
+                        | "m.room.third_party_invite"
+                        | "m.room.history_visibility"
+                        | "m.room.guest_access"
+                        | "m.room.encryption"
+                        | "m.space.child"
+                        | "m.space.parent"
+                )
+            {
                 let olm = room.client.olm_machine().await;
                 let olm = olm.as_ref().expect("Olm machine wasn't started");
 

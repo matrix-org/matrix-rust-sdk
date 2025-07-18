@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use js_int::uint;
-use matrix_sdk::config::SyncSettings;
+use matrix_sdk::{config::SyncSettings, test_utils::mocks::MatrixMockServer};
 use matrix_sdk_test::{async_test, test_json, DEFAULT_TEST_ROOM_ID};
 use ruma::{
     event_id,
@@ -18,26 +18,34 @@ use crate::{logged_in_client_with_server, mock_sync};
 
 #[async_test]
 async fn test_start_live_location_share_for_room() {
-    let (client, server) = logged_in_client_with_server().await;
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().logged_in_with_oauth().build().await;
+
+    server.mock_room_state_encryption().plain().mount().await;
 
     // Validate request body and response, partial body matching due to
     // auto-generated `org.matrix.msc3488.ts`.
-    Mock::given(method("PUT"))
-        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/state/org.matrix.msc3672.beacon_info/.*"))
-        .and(header("authorization", "Bearer 1234"))
-        .and(body_partial_json(json!({
+    server
+        .mock_room_send_state()
+        .for_type(StateEventType::BeaconInfo)
+        .for_key("@example:localhost".to_owned())
+        .body_matches_partial_json(json!({
             "description": "Live Share",
             "live": true,
             "timeout": 3000,
             "org.matrix.msc3488.asset": { "type": "m.self" }
-        })))
-        .respond_with(ResponseTemplate::new(200).set_body_json(&*test_json::EVENT_ID))
-        .mount(&server)
+        }))
+        .ok(event_id!("$h29iv0s8:example.com"))
+        .mount()
         .await;
 
     let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
 
-    mock_sync(&server, &*test_json::SYNC, None).await;
+    server
+        .mock_sync()
+        .respond_with(ResponseTemplate::new(200).set_body_json(&*test_json::SYNC))
+        .mount()
+        .await;
 
     client.sync_once(sync_settings.clone()).await.unwrap();
 
@@ -47,11 +55,11 @@ async fn test_start_live_location_share_for_room() {
         room.start_live_location_share(3000, Some("Live Share".to_owned())).await.unwrap();
 
     assert_eq!(event_id!("$h29iv0s8:example.com"), response.event_id);
-    server.reset().await;
+    server.verify_and_reset().await;
 
-    mock_sync(
-        &server,
-        json!({
+    server
+        .mock_sync()
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "next_batch": "s526_47314_0_7_1_1_1_1_1",
             "rooms": {
                 "join": {
@@ -80,14 +88,12 @@ async fn test_start_live_location_share_for_room() {
                     }
                 }
             }
-
-        }),
-        None,
-    )
-    .await;
+        })))
+        .mount()
+        .await;
 
     client.sync_once(sync_settings.clone()).await.unwrap();
-    server.reset().await;
+    server.verify_and_reset().await;
 
     let state_events = room.get_state_events(StateEventType::BeaconInfo).await.unwrap();
     assert_eq!(state_events.len(), 1);
@@ -117,28 +123,32 @@ async fn test_start_live_location_share_for_room() {
 
 #[async_test]
 async fn test_stop_sharing_live_location() {
-    let (client, server) = logged_in_client_with_server().await;
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().logged_in_with_oauth().build().await;
 
     // Validate request body and response, partial body matching due to
     // auto-generated `org.matrix.msc3488.ts`.
-    Mock::given(method("PUT"))
-        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/state/org.matrix.msc3672.beacon_info/.*"))
-        .and(header("authorization", "Bearer 1234"))
-        .and(body_partial_json(json!({
+    server
+        .mock_room_send_state()
+        .for_type(StateEventType::BeaconInfo)
+        .for_key("@example:localhost".to_owned())
+        .body_matches_partial_json(json!({
             "description": "Live Share",
             "live": false,
             "timeout": 3000,
             "org.matrix.msc3488.asset": { "type": "m.self" }
-        })))
-        .respond_with(ResponseTemplate::new(200).set_body_json(&*test_json::EVENT_ID))
-        .mount(&server)
+        }))
+        .ok(event_id!("$h29iv0s8:example.com"))
+        .mount()
         .await;
+
+    server.mock_room_state_encryption().plain().mount().await;
 
     let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
 
-    mock_sync(
-        &server,
-        json!({
+    server
+        .mock_sync()
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "next_batch": "s526_47314_0_7_1_1_1_1_1",
             "rooms": {
                 "join": {
@@ -168,10 +178,9 @@ async fn test_stop_sharing_live_location() {
                 }
             }
 
-        }),
-        None,
-    )
-    .await;
+        })))
+        .mount()
+        .await;
 
     client.sync_once(sync_settings.clone()).await.unwrap();
 
@@ -180,11 +189,11 @@ async fn test_stop_sharing_live_location() {
     let response = room.stop_live_location_share().await.unwrap();
 
     assert_eq!(event_id!("$h29iv0s8:example.com"), response.event_id);
-    server.reset().await;
+    server.verify_and_reset().await;
 
-    mock_sync(
-        &server,
-        json!({
+    server
+        .mock_sync()
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "next_batch": "s526_47314_1_7_1_1_1_1_1",
             "rooms": {
                 "join": {
@@ -214,13 +223,12 @@ async fn test_stop_sharing_live_location() {
                 }
             }
 
-        }),
-        None,
-    )
-    .await;
+        })))
+        .mount()
+        .await;
 
     client.sync_once(sync_settings.clone()).await.unwrap();
-    server.reset().await;
+    server.verify_and_reset().await;
 
     let state_events = room.get_state_events(StateEventType::BeaconInfo).await.unwrap();
     assert_eq!(state_events.len(), 1);

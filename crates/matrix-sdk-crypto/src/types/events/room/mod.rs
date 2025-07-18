@@ -73,6 +73,7 @@ where
             origin_server_ts: MilliSecondsSinceUnixEpoch,
             #[serde(skip_serializing_if = "BTreeMap::is_empty")]
             unsigned: &'a BTreeMap<String, Value>,
+            #[serde(skip_serializing_if = "Option::is_none")]
             state_key: &'a Option<String>,
             #[serde(flatten)]
             other: &'a BTreeMap<String, Value>,
