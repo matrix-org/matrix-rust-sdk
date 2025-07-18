@@ -293,7 +293,7 @@ impl SlidingSync {
         };
 
         debug!("Sliding Sync response has been handled by the client");
-        trace!(?sync_response, "Sliding sync response");
+        trace!(?sync_response);
 
         // Commit sticky parameters, if needed.
         if let Some(ref txn_id) = sliding_sync_response.txn_id {
