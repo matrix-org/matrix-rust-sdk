@@ -9,12 +9,7 @@ use ruma::{
     MilliSecondsSinceUnixEpoch,
 };
 use serde_json::json;
-use wiremock::{
-    matchers::{body_partial_json, header, method, path_regex},
-    Mock, ResponseTemplate,
-};
-
-use crate::{logged_in_client_with_server, mock_sync};
+use wiremock::ResponseTemplate;
 
 #[async_test]
 async fn test_start_live_location_share_for_room() {

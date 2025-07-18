@@ -519,20 +519,41 @@ impl OutboundGroupSession {
         Raw::new(&content).expect("m.room.encrypted event content can always be serialized")
     }
 
+    /// Encrypt a room state event for the given room.
+    ///
+    /// Beware that a room key needs to be shared before this method
+    /// can be called using the `share_room_key()` method.
+    ///
+    /// # Arguments
+    ///
+    /// * `event_type` - The plaintext type of the event, the outer type of the
+    ///   event will become `m.room.encrypted`.
+    ///
+    /// * `state_key` - The plaintext state key of the event, the outer state
+    ///   key will be derived from this and the event type.
+    ///
+    /// * `content` - The plaintext content of the message that should be
+    ///   encrypted in raw JSON form.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the content can't be serialized.
     pub async fn encrypt_state(
         &self,
         event_type: &str,
+        state_key: &str,
         content: &Raw<AnyStateEventContent>,
     ) -> Raw<RoomEncryptedEventContent> {
         #[derive(Serialize)]
         struct Payload<'a> {
             #[serde(rename = "type")]
             event_type: &'a str,
+            state_key: &'a str,
             content: &'a Raw<AnyStateEventContent>,
             room_id: &'a RoomId,
         }
 
-        let payload = Payload { event_type, content, room_id: &self.room_id };
+        let payload = Payload { event_type, state_key, content, room_id: &self.room_id };
         let payload_json =
             serde_json::to_string(&payload).expect("payload serialization never fails");
 

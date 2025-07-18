@@ -227,6 +227,7 @@ impl GroupSessionManager {
         &self,
         room_id: &RoomId,
         event_type: &str,
+        state_key: &str,
         content: &Raw<AnyStateEventContent>,
     ) -> MegolmResult<Raw<RoomEncryptedEventContent>> {
         let session =
@@ -234,7 +235,7 @@ impl GroupSessionManager {
 
         assert!(!session.expired(), "Session expired");
 
-        let content = session.encrypt_state(event_type, content).await;
+        let content = session.encrypt_state(event_type, state_key, content).await;
 
         let mut changes = Changes::default();
         changes.outbound_group_sessions.push(session);

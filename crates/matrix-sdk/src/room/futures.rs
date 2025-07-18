@@ -21,13 +21,15 @@ use std::{borrow::Borrow, future::IntoFuture};
 use eyeball::SharedObservable;
 use matrix_sdk_common::boxed_into_future;
 use mime::Mime;
-use ruma::events::{MessageLikeEventContent, StateEventContent};
 #[cfg(doc)]
 use ruma::events::{MessageLikeUnsigned, SyncMessageLikeEvent};
 use ruma::{
     api::client::{message::send_message_event, state::send_state_event},
     assign,
-    events::{AnyMessageLikeEventContent, AnyStateEventContent},
+    events::{
+        AnyMessageLikeEventContent, AnyStateEventContent, MessageLikeEventContent,
+        StateEventContent,
+    },
     serde::Raw,
     OwnedTransactionId, TransactionId,
 };
@@ -417,8 +419,8 @@ impl<'a> IntoFuture for SendStateEventRaw<'a> {
             room.ensure_room_joined()?;
 
             #[cfg(feature = "e2e-encryption")]
-            if room.latest_encryption_state().await?.is_encrypted()
-                && !matches!(
+            if room.latest_encryption_state().await?.is_encrypted() {
+                if matches!(
                     event_type,
                     "m.room.create"
                         | "m.room.member"
@@ -430,16 +432,30 @@ impl<'a> IntoFuture for SendStateEventRaw<'a> {
                         | "m.room.encryption"
                         | "m.space.child"
                         | "m.space.parent"
-                )
-            {
-                let olm = room.client.olm_machine().await;
-                let olm = olm.as_ref().expect("Olm machine wasn't started");
+                ) {
+                    trace!("Sending plaintext event because of the event type.");
+                } else {
+                    trace!(
+                        room_id = ?room.room_id(),
+                        "Sending encrypted event because the room is encrypted.",
+                    );
 
-                content = olm
-                    .encrypt_state_event_raw(room.room_id(), event_type, &content)
-                    .await?
-                    .cast_unchecked();
-                event_type = "m.room.encrypted";
+                    if !room.are_members_synced() {
+                        room.sync_members().await?;
+                    }
+
+                    room.query_keys_for_untracked_or_dirty_users().await?;
+                    room.preshare_room_key().await?;
+
+                    let olm = room.client.olm_machine().await;
+                    let olm = olm.as_ref().expect("Olm machine wasn't started");
+
+                    content = olm
+                        .encrypt_state_event_raw(room.room_id(), event_type, state_key, &content)
+                        .await?
+                        .cast_unchecked();
+                    event_type = "m.room.encrypted";
+                }
             } else {
                 Span::current().record("is_room_encrypted", false);
                 trace!("Sending plaintext event because the room is NOT encrypted.");

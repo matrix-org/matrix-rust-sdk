@@ -13,6 +13,7 @@
 // limitations under the License.
 
 use std::{
+    borrow::Borrow,
     collections::{BTreeMap, HashMap, HashSet},
     sync::Arc,
     time::Duration,
@@ -1098,23 +1099,59 @@ impl OlmMachine {
         self.inner.group_session_manager.encrypt(room_id, event_type, content).await
     }
 
-    pub async fn encrypt_state_event(
+    /// Encrypt raw JSON content for the given room state event.
+    ///
+    /// # Arguments
+    ///
+    /// * `room_id` - The id of the room for which the message should be
+    ///   encrypted.
+    ///
+    /// * `content` - The plaintext content of the event that should be
+    ///   encrypted.
+    ///
+    /// * `state_key` - The associated state key of the event.
+    pub async fn encrypt_state_event<C, K>(
         &self,
         room_id: &RoomId,
-        content: impl StateEventContent,
-    ) -> MegolmResult<Raw<RoomEncryptedEventContent>> {
+        content: C,
+        state_key: K,
+    ) -> MegolmResult<Raw<RoomEncryptedEventContent>>
+    where
+        C: StateEventContent,
+        C::StateKey: Borrow<K>,
+        K: AsRef<str>,
+    {
         let event_type = content.event_type().to_string();
         let content = Raw::new(&content)?.cast_unchecked();
-        self.encrypt_state_event_raw(room_id, &event_type, &content).await
+        self.encrypt_state_event_raw(room_id, &event_type, state_key.as_ref(), &content).await
     }
 
+    /// Encrypt raw JSON content for the given room state event.
+    ///
+    /// This method is equivalent to [`OlmMachine::encrypt_state_event`]
+    /// method but operates on an arbitrary JSON value instead of strongly-typed
+    /// event content struct.
+    ///
+    /// # Arguments
+    ///
+    /// * `room_id` - The id of the room for which the message should be
+    ///   encrypted.
+    ///
+    /// * `content` - The plaintext content of the event that should be
+    ///   encrypted as a raw JSON value.
+    ///
+    /// * `state_key` - The associated state key of the event.
     pub async fn encrypt_state_event_raw(
         &self,
         room_id: &RoomId,
         event_type: &str,
+        state_key: &str,
         content: &Raw<AnyStateEventContent>,
     ) -> MegolmResult<Raw<RoomEncryptedEventContent>> {
-        self.inner.group_session_manager.encrypt_state(room_id, event_type, content).await
+        self.inner
+            .group_session_manager
+            .encrypt_state(room_id, event_type, state_key, content)
+            .await
     }
 
     /// Forces the currently active room key, which is used to encrypt messages,
