@@ -13,10 +13,7 @@
 // limitations under the License.
 
 use matrix_sdk_base::crypto::store::types::RoomKeyCounts;
-use ruma::{
-    events::{EventContent, GlobalAccountDataEventType},
-    exports::ruma_macros::EventContent,
-};
+use ruma::exports::ruma_macros::EventContent;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use zeroize::{Zeroize, ZeroizeOnDrop};
@@ -114,13 +111,4 @@ pub(super) struct SecretStorageDisabledContent {}
 #[ruma_event(type = "m.org.matrix.custom.backup_disabled", kind = GlobalAccountData)]
 pub(super) struct BackupDisabledContent {
     pub disabled: bool,
-}
-
-impl BackupDisabledContent {
-    /// Get the event type of the [`BackupDisabledContent`] global account data
-    /// event.
-    pub(super) fn event_type() -> GlobalAccountDataEventType {
-        // This is dumb, there's got to be a better way to get to the event type?
-        Self { disabled: false }.event_type()
-    }
 }

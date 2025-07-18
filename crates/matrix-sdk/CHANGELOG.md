@@ -8,6 +8,10 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
+- Add `Account::fetch_account_data_static` to fetch account data from the server
+  with a statically-known type, with a signature similar to
+  `Account::account_data`.
+  ([#5424](https://github.com/matrix-org/matrix-rust-sdk/pull/5424))
 - Add support to accept historic room key bundles that arrive out of order, i.e.
   the bundle arrives after the invite has already been accepted.
   ([#5322](https://github.com/matrix-org/matrix-rust-sdk/pull/5322))
