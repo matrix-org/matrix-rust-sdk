@@ -361,7 +361,7 @@ async fn test_deduplication() {
 
     let room_id = room_id!("!omelette:fromage.fr");
 
-    let f = EventFactory::new().sender(*ALICE);
+    let f = EventFactory::new().room(room_id).sender(*ALICE);
 
     let thread_root = event_id!("$thread_root");
     let first_reply_event_id = event_id!("$first_reply");
@@ -369,20 +369,20 @@ async fn test_deduplication() {
         .text_msg("hey there")
         .in_thread(thread_root, thread_root)
         .event_id(first_reply_event_id)
-        .into_event();
+        .into_raw_timeline();
     let second_reply_event_id = event_id!("$second_reply");
     let second_reply = f
         .text_msg("hoy!")
         .in_thread(thread_root, first_reply_event_id)
         .event_id(second_reply_event_id)
-        .into_event();
+        .into_raw_timeline();
 
     // Given a room with a thread, that has two replies.
     let room = server
         .sync_room(
             &client,
             JoinedRoomBuilder::new(room_id)
-                .add_timeline_bulk(vec![first_reply.raw().clone(), second_reply.raw().clone()]),
+                .add_timeline_bulk(vec![first_reply.clone().cast(), second_reply.clone().cast()]),
         )
         .await;
 
@@ -422,10 +422,7 @@ async fn test_deduplication() {
         .mock_room_relations()
         .match_target_event(thread_root.to_owned())
         .ok(RoomRelationsResponseTemplate::default()
-            .events(vec![
-                first_reply.raw().cast_ref().clone(),
-                second_reply.raw().cast_ref().clone(),
-            ])
+            .events(vec![first_reply, second_reply])
             .next_batch("next_batch"))
         .mock_once()
         .mount()
