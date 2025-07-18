@@ -585,8 +585,7 @@ pub(super) mod tests {
             sender_key,
             device_id.to_owned(),
         );
-        let content: Raw<RoomKeyWithheldContent> =
-            Raw::new(&content).expect("We can always serialize a withheld content info").cast();
+        let content = Raw::new(&content).expect("We can always serialize a withheld content info");
 
         messages
             .entry(user_id.to_owned())

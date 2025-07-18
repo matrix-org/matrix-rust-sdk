@@ -146,7 +146,7 @@ impl EventTimelineItem {
         let raw_sync_event = latest_event.event().raw().clone();
         let encryption_info = latest_event.event().encryption_info().cloned();
 
-        let Ok(event) = raw_sync_event.deserialize_as::<AnySyncTimelineEvent>() else {
+        let Ok(event) = raw_sync_event.deserialize() else {
             warn!("Unable to deserialize latest_event as an AnySyncTimelineEvent!");
             return None;
         };
