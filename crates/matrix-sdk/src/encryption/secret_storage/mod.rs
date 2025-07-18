@@ -283,12 +283,9 @@ impl SecretStorage {
     pub async fn fetch_default_key_id(
         &self,
     ) -> crate::Result<Option<Raw<SecretStorageDefaultKeyEventContent>>> {
-        let maybe_default_key_id = self
-            .client
+        self.client
             .account()
-            .fetch_account_data(GlobalAccountDataEventType::SecretStorageDefaultKey)
-            .await?;
-
-        Ok(maybe_default_key_id.map(|event| event.cast()))
+            .fetch_account_data_static::<SecretStorageDefaultKeyEventContent>()
+            .await
     }
 }

@@ -75,7 +75,6 @@ use ruma::{
         },
         tag::TagEventContent,
         GlobalAccountDataEvent as RumaGlobalAccountDataEvent,
-        GlobalAccountDataEventType as RumaGlobalAccountDataEventType,
         RoomAccountDataEvent as RumaRoomAccountDataEvent,
     },
     push::{HttpPusherData as RumaHttpPusherData, PushFormat as RumaPushFormat},
@@ -1253,13 +1252,10 @@ impl Client {
     // Ignored users
 
     pub async fn ignored_users(&self) -> Result<Vec<String>, ClientError> {
-        if let Some(raw_content) = self
-            .inner
-            .account()
-            .fetch_account_data(RumaGlobalAccountDataEventType::IgnoredUserList)
-            .await?
+        if let Some(raw_content) =
+            self.inner.account().fetch_account_data_static::<IgnoredUserListEventContent>().await?
         {
-            let content = raw_content.deserialize_as::<IgnoredUserListEventContent>()?;
+            let content = raw_content.deserialize()?;
             let user_ids: Vec<String> =
                 content.ignored_users.keys().map(|id| id.to_string()).collect();
 

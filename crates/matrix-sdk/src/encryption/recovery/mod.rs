@@ -408,7 +408,7 @@ impl Recovery {
     /// # let client = Client::new(homeserver).await?;
     /// # let user_id = unimplemented!();
     /// let encryption = client.encryption();
-    ///       
+    ///
     /// if let Some(handle) = encryption.recovery().reset_identity().await? {
     ///     match handle.auth_type() {
     ///         CrossSigningResetAuthType::Uiaa(uiaa) => {
@@ -592,14 +592,9 @@ impl Recovery {
         Ok(self
             .client
             .account()
-            .fetch_account_data(BackupDisabledContent::event_type())
+            .fetch_account_data_static::<BackupDisabledContent>()
             .await?
-            .map(|event| {
-                event
-                    .deserialize_as::<BackupDisabledContent>()
-                    .map(|event| event.disabled)
-                    .unwrap_or(false)
-            })
+            .map(|event| event.deserialize().map(|event| event.disabled).unwrap_or(false))
             .unwrap_or(false))
     }
 
