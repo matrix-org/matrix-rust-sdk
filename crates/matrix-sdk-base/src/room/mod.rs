@@ -157,9 +157,9 @@ impl Room {
         &self.room_id
     }
 
-    /// Get a copy of the room creator.
-    pub fn creator(&self) -> Option<OwnedUserId> {
-        self.inner.read().creator().map(ToOwned::to_owned)
+    /// Get a copy of the room creators.
+    pub fn creators(&self) -> Option<Vec<OwnedUserId>> {
+        self.inner.read().creators()
     }
 
     /// Get our own user id.

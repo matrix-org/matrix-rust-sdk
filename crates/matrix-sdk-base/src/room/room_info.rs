@@ -24,7 +24,7 @@ use matrix_sdk_common::{
 };
 use ruma::{
     EventId, MilliSecondsSinceUnixEpoch, MxcUri, OwnedEventId, OwnedMxcUri, OwnedRoomAliasId,
-    OwnedRoomId, OwnedUserId, RoomAliasId, RoomId, RoomVersionId, UserId,
+    OwnedRoomId, OwnedUserId, RoomAliasId, RoomId, RoomVersionId,
     api::client::sync::sync_events::v3::RoomSummary as RumaSummary,
     assign,
     events::{
@@ -882,11 +882,11 @@ impl RoomInfo {
         }
     }
 
-    /// Get the creator of this room.
-    pub fn creator(&self) -> Option<&UserId> {
+    /// Get the creators of this room.
+    pub fn creators(&self) -> Option<Vec<OwnedUserId>> {
         match self.base_info.create.as_ref()? {
-            MinimalStateEvent::Original(ev) => Some(&ev.content.creator),
-            MinimalStateEvent::Redacted(ev) => Some(&ev.content.creator),
+            MinimalStateEvent::Original(ev) => Some(ev.content.creators()),
+            MinimalStateEvent::Redacted(ev) => Some(ev.content.creators()),
         }
     }
 

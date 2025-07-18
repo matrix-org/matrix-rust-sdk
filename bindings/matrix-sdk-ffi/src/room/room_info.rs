@@ -17,7 +17,7 @@ use crate::{
 pub struct RoomInfo {
     id: String,
     encryption_state: EncryptionState,
-    creator: Option<String>,
+    creators: Option<Vec<String>>,
     /// The room's name from the room state event if received from sync, or one
     /// that's been computed otherwise.
     display_name: Option<String>,
@@ -102,7 +102,9 @@ impl RoomInfo {
         Ok(Self {
             id: room.room_id().to_string(),
             encryption_state: room.encryption_state(),
-            creator: room.creator().as_ref().map(ToString::to_string),
+            creators: room
+                .creators()
+                .map(|creators| creators.into_iter().map(Into::into).collect()),
             display_name: room.cached_display_name().map(|name| name.to_string()),
             raw_name: room.name(),
             topic: room.topic(),
