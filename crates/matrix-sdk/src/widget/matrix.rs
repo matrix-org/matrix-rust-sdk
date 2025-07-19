@@ -15,7 +15,10 @@
 //! Matrix driver implementation that exposes Matrix functionality
 //! that is relevant for the widget API.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    time::Duration,
+};
 
 use as_variant::as_variant;
 use matrix_sdk_base::deserialized_responses::{EncryptionInfo, RawAnySyncOrStrippedState};
@@ -46,8 +49,8 @@ use tracing::{error, trace, warn};
 
 use super::{machine::SendEventResponse, StateKeySelector};
 use crate::{
-    event_handler::EventHandlerDropGuard, room::MessagesOptions, sync::RoomUpdate,
-    widget::machine::SendToDeviceEventResponse, Client, Error, Result, Room,
+    config::RequestConfig, event_handler::EventHandlerDropGuard, room::MessagesOptions,
+    sync::RoomUpdate, widget::machine::SendToDeviceEventResponse, Client, Error, Result, Room,
 };
 
 /// Thin wrapper around a [`Room`] that provides functionality relevant for
@@ -205,8 +208,18 @@ impl MatrixDriver {
         delay_id: String,
         action: UpdateAction,
     ) -> Result<delayed_events::update_delayed_event::unstable::Response> {
-        let r = delayed_events::update_delayed_event::unstable::Request::new(delay_id, action);
-        self.room.client.send(r).await.map_err(|error| Error::Http(Box::new(error)))
+        let request =
+            delayed_events::update_delayed_event::unstable::Request::new(delay_id, action.clone());
+        let mut send_request = self.room.client.send(request);
+        if action.as_str() == UpdateAction::Restart.as_str() {
+            // Restarting a delayed event is a short operation, so we limit the local
+            // timeout to 2.3 seconds. Delayed event restarts are often used as
+            // a heartbeat ping. A shorter timeout allows for more retries
+            // before the heartbeat is considered failed.
+            send_request = send_request
+                .with_request_config(RequestConfig::new().timeout(Duration::from_millis(2300)));
+        }
+        send_request.await.map_err(|error| Error::Http(Box::new(error)))
     }
 
     /// Starts forwarding new room events. Once the returned `EventReceiver`
