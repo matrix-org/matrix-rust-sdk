@@ -414,6 +414,8 @@ impl Room {
                 .iter()
                 .map(|room| match room.state() {
                     RoomState::Joined => Ok(Some(room.leave_this())),
+                    RoomState::Invited => Ok(Some(room.leave_this())),
+                    RoomState::Knocked => Ok(Some(room.leave_this())),
                     RoomState::Left => Ok(None),
                     _ => Err(Error::PredecessorWrongState),
                 })
@@ -423,7 +425,7 @@ impl Room {
                 .collect::<Vec<_>>();
 
             if join_all(batch).await.iter().any(Result::is_err) {
-                error!("Error occured while leaving room.");
+                error!("Error occurred while leaving room.");
                 return Err(Error::ErrorDuringRoomLeave);
             }
         }

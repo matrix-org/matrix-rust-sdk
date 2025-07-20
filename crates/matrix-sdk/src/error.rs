@@ -277,7 +277,7 @@ impl RetryKind {
 #[non_exhaustive]
 pub enum Error {
     /// Error during room.leave().
-    #[error("an error occured during room leave")]
+    #[error("an error occurred during room leave")]
     ErrorDuringRoomLeave,
 
     /// Error doing a get_room(predecessor).
