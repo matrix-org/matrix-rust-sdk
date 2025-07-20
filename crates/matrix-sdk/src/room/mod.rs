@@ -317,7 +317,7 @@ impl Room {
     /// Only invited and joined rooms can be left.
     #[doc(alias = "reject_invitation")]
     #[instrument(skip_all, fields(room_id = ?self.inner.room_id()))]
-    pub async fn leave(&self) -> Result<()> {
+    async fn leave_this(&self) -> Result<()> {
         let state = self.state();
         if state == RoomState::Left {
             return Err(Error::WrongRoomState(Box::new(WrongRoomState::new(
@@ -365,9 +365,67 @@ impl Room {
             }
         }
 
-        if let Some(pred_room) = self.predecessor_room() {
-            let pred = self.client.get_room(&pred_room.room_id).expect("Couldn't find predecessor");
-            Box::pin(pred.leave()).await?;
+        Ok(())
+    }
+
+    /// Leave this room and all predecessors.
+    /// If any room was in [`RoomState::Invited`] state, it'll also be forgotten
+    /// automatically.
+    ///
+    /// Only invited and joined rooms can be left.
+    pub async fn leave(&self) -> Result<()> {
+        let mut rooms: Vec<Room> = vec![self.clone()];
+        let mut cur_room = self;
+
+        'leave_aggregate_loop: loop {
+            let pred = cur_room.predecessor_room();
+            let pred = pred.map(|this_pred| {
+                cur_room
+                    .client
+                    .get_room(&this_pred.room_id)
+                    .ok_or(Error::PredecessorWrongOrForgotten)
+            });
+
+            match pred {
+                None => break 'leave_aggregate_loop,
+                Some(room) => match room {
+                    Ok(room) => {
+                        rooms.push(room);
+                        cur_room = rooms.last().expect("rooms just pushed so can't be empty");
+                    }
+                    Err(e) => {
+                        debug!("Tombstone following terminated early: {e:?}");
+                        break 'leave_aggregate_loop;
+                    }
+                },
+            }
+        }
+
+        let mut rooms_iter = rooms.into_iter();
+        let batch_size = 5;
+
+        'leave_action_loop: loop {
+            let batch: Vec<Room> = rooms_iter.by_ref().take(batch_size).collect();
+            if batch.is_empty() {
+                break 'leave_action_loop;
+            }
+
+            let batch = batch
+                .iter()
+                .map(|room| match room.state() {
+                    RoomState::Joined => Ok(Some(room.leave_this())),
+                    RoomState::Left => Ok(None),
+                    _ => Err(Error::PredecessorWrongState),
+                })
+                .collect::<Result<Vec<Option<_>>, _>>()?
+                .into_iter()
+                .flatten()
+                .collect::<Vec<_>>();
+
+            if join_all(batch).await.iter().any(Result::is_err) {
+                error!("Error occured while leaving room.");
+                return Err(Error::ErrorDuringRoomLeave);
+            }
         }
 
         Ok(())

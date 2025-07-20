@@ -2958,11 +2958,6 @@ impl<'a> MockEndpoint<'a, RoomLeaveEndpoint> {
         })))
     }
 
-    /// Returns a successful given response
-    pub fn ok_with(self, response: ResponseTemplate) -> MatrixMock<'a> {
-        self.respond_with(response)
-    }
-
     /// Returns a `M_FORBIDDEN` response.
     pub fn forbidden(self) -> MatrixMock<'a> {
         self.respond_with(ResponseTemplate::new(403).set_body_json(json!({
