@@ -8,6 +8,11 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
+- [**breaking**] [`Timeline::send_reply()`] now automatically fills in the thread relationship,
+  based on the timeline focus. As a result, it only takes an `OwnedEventId` parameter, instead of
+  the `Reply` type. The proper way to start a thread is now thus to create a threaded-focused
+  timeline, and then use `Timeline::send()`.
+  ([5427](https://github.com/matrix-org/matrix-rust-sdk/pull/5427))
 - `Timeline::send()` will now automatically fill the thread relationship, if the timeline has a
   thread focus, and the sent event doesn't have a prefilled `relates_to` field (i.e. a relationship).
   ([5427](https://github.com/matrix-org/matrix-rust-sdk/pull/5427))
