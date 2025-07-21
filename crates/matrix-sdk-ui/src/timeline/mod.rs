@@ -172,7 +172,7 @@ pub enum DateDividerMode {
 /// Configuration for sending an attachment.
 ///
 /// Like [`matrix_sdk::attachment::AttachmentConfig`], but instead of the
-/// `reply` field, there's only a `replied_to` event id; it's the timeline
+/// `reply` field, there's only a `in_reply_to` event id; it's the timeline
 /// deciding to fill the rest of the reply parameters.
 #[derive(Debug, Default)]
 pub struct AttachmentConfig {
@@ -182,7 +182,7 @@ pub struct AttachmentConfig {
     pub caption: Option<String>,
     pub formatted_caption: Option<FormattedBody>,
     pub mentions: Option<Mentions>,
-    pub replied_to: Option<OwnedEventId>,
+    pub in_reply_to: Option<OwnedEventId>,
 }
 
 impl Timeline {
@@ -346,10 +346,10 @@ impl Timeline {
     pub async fn send_reply(
         &self,
         content: RoomMessageEventContentWithoutRelation,
-        replied_to: OwnedEventId,
+        in_reply_to: OwnedEventId,
     ) -> Result<(), Error> {
         let reply = self
-            .infer_reply(Some(replied_to))
+            .infer_reply(Some(in_reply_to))
             .await
             .expect("the reply will always be set because we provided a replied-to event id");
         let content = self.room().make_reply_event(content, reply).await?;
@@ -357,19 +357,19 @@ impl Timeline {
         Ok(())
     }
 
-    /// Given a message or media to send, and an optional `replied_to` event,
+    /// Given a message or media to send, and an optional `in_reply_to` event,
     /// automatically fills the [`Reply`] information based on the current
     /// timeline focus.
-    pub(crate) async fn infer_reply(&self, replied_to: Option<OwnedEventId>) -> Option<Reply> {
+    pub(crate) async fn infer_reply(&self, in_reply_to: Option<OwnedEventId>) -> Option<Reply> {
         // If there's a replied-to event id, the reply is pretty straightforward, and we
         // should only infer the `EnforceThread` based on the current focus.
-        if let Some(replied_to) = replied_to {
+        if let Some(in_reply_to) = in_reply_to {
             let enforce_thread = if self.controller.is_threaded() {
                 EnforceThread::Threaded(ReplyWithinThread::Yes)
             } else {
                 EnforceThread::MaybeThreaded
             };
-            return Some(Reply { event_id: replied_to, enforce_thread });
+            return Some(Reply { event_id: in_reply_to, enforce_thread });
         }
 
         let thread_root = self.controller.thread_root()?;

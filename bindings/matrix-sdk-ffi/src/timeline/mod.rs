@@ -110,7 +110,7 @@ impl Timeline {
         let mime_str = mime_type.as_ref().ok_or(RoomError::InvalidAttachmentMimeType)?;
         let mime_type =
             mime_str.parse::<Mime>().map_err(|_| RoomError::InvalidAttachmentMimeType)?;
-        let replied_to_event_id = params
+        let in_reply_to_event_id = params
             .in_reply_to
             .map(EventId::parse)
             .transpose()
@@ -127,7 +127,7 @@ impl Timeline {
             caption: params.caption,
             formatted_caption,
             mentions: params.mentions.map(Into::into),
-            replied_to: replied_to_event_id,
+            in_reply_to: in_reply_to_event_id,
             ..Default::default()
         };
 
