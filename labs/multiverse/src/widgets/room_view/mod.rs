@@ -8,13 +8,9 @@ use invited_room::InvitedRoomView;
 use matrix_sdk::{
     Client, Room, RoomState,
     locks::Mutex,
-    room::reply::{EnforceThread::Threaded, Reply},
     ruma::{
-        OwnedEventId, OwnedRoomId, RoomId, UserId,
-        api::client::receipt::create_receipt::v3::ReceiptType,
-        events::room::message::{
-            ReplyWithinThread, RoomMessageEventContent, RoomMessageEventContentWithoutRelation,
-        },
+        OwnedRoomId, RoomId, UserId, api::client::receipt::create_receipt::v3::ReceiptType,
+        events::room::message::RoomMessageEventContent,
     },
 };
 use matrix_sdk_ui::{
@@ -56,8 +52,6 @@ enum TimelineKind {
 
     Thread {
         room: OwnedRoomId,
-        /// The root event ID of the thread.
-        root: OwnedEventId,
         /// The threaded-focused timeline for this thread.
         timeline: Arc<OnceCell<Arc<Timeline>>>,
         /// Items in the thread timeline (to avoid recomputing them every single
@@ -150,7 +144,7 @@ impl RoomView {
 
         let i = items.clone();
         let t = thread_timeline.clone();
-        let root = root_event_id.clone();
+        let root = root_event_id;
         let r = room.clone();
         let task = spawn(async move {
             let timeline = TimelineBuilder::new(&r)
@@ -178,7 +172,6 @@ impl RoomView {
 
         self.kind = TimelineKind::Thread {
             room: room.room_id().to_owned(),
-            root: root_event_id,
             timeline: thread_timeline,
             items,
             task,
@@ -492,70 +485,17 @@ impl RoomView {
     }
 
     async fn send_message(&mut self, message: String) {
-        match &self.kind {
-            TimelineKind::Room { .. } => {
-                if let Some(sdk_timeline) = self.get_selected_timeline() {
-                    match sdk_timeline
-                        .send(RoomMessageEventContent::text_plain(message).into())
-                        .await
-                    {
-                        Ok(_) => {
-                            self.input.clear();
-                        }
-                        Err(err) => {
-                            self.status_handle
-                                .set_message(format!("error when sending event: {err}"));
-                        }
-                    }
-                } else {
-                    self.status_handle.set_message("missing timeline for room".to_owned());
+        if let Some(sdk_timeline) = self.get_selected_timeline() {
+            match sdk_timeline.send(RoomMessageEventContent::text_plain(message).into()).await {
+                Ok(_) => {
+                    self.input.clear();
+                }
+                Err(err) => {
+                    self.status_handle.set_message(format!("error when sending event: {err}"));
                 }
             }
-
-            TimelineKind::Thread { root, .. } => {
-                let root = root.clone();
-                if let Some(sdk_timeline) = self.get_selected_timeline() {
-                    // Pretend a reply to the previous item that can be
-                    // replied to.
-                    let prev_item_event_id = {
-                        let items = sdk_timeline.items().await;
-                        items
-                            .iter()
-                            .rev()
-                            .find_map(|item| {
-                                let event_item = item.as_event()?;
-                                if event_item.can_be_replied_to() {
-                                    event_item.event_id().map(ToOwned::to_owned)
-                                } else {
-                                    None
-                                }
-                            })
-                            .unwrap_or(root)
-                    };
-
-                    // TODO: ogod this is awful
-                    match sdk_timeline
-                        .send_reply(
-                            RoomMessageEventContentWithoutRelation::text_plain(message),
-                            Reply {
-                                event_id: prev_item_event_id,
-                                enforce_thread: Threaded(ReplyWithinThread::No),
-                            },
-                        )
-                        .await
-                    {
-                        Ok(_) => {
-                            self.input.clear();
-                        }
-                        Err(err) => {
-                            self.status_handle
-                                .set_message(format!("error when sending event: {err}"));
-                        }
-                    }
-                } else {
-                    self.status_handle.set_message("missing timeline for room".to_owned());
-                }
-            }
+        } else {
+            self.status_handle.set_message("missing timeline for room".to_owned());
         }
     }
 

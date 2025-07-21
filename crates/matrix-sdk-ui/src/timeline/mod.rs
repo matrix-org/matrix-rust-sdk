@@ -33,7 +33,11 @@ use matrix_sdk::{
     deserialized_responses::TimelineEvent,
     event_cache::{EventCacheDropHandles, RoomEventCache},
     executor::JoinHandle,
-    room::{Receipts, Room, edit::EditedContent, reply::Reply},
+    room::{
+        Receipts, Room,
+        edit::EditedContent,
+        reply::{EnforceThread, Reply},
+    },
     send_queue::{RoomSendQueueError, SendHandle},
 };
 use mime::Mime;
@@ -46,7 +50,7 @@ use ruma::{
         poll::unstable_start::{NewUnstablePollStartEventContent, UnstablePollStartEventContent},
         receipt::{Receipt, ReceiptThread},
         room::{
-            message::RoomMessageEventContentWithoutRelation,
+            message::{ReplyWithinThread, RoomMessageEventContentWithoutRelation},
             pinned_events::RoomPinnedEventsEventContent,
         },
     },
@@ -270,18 +274,65 @@ impl Timeline {
     /// If sending the message fails, the local echo item will change its
     /// `send_state` to [`EventSendState::SendingFailed`].
     ///
+    /// This will do the right thing in the presence of threads:
+    /// - if this timeline is not focused on a thread, then it will send the
+    ///   event as is.
+    /// - if this is a threaded timeline, and the event to send is a room
+    ///   message without a relationship, it will automatically mark it as a
+    ///   thread reply with the correct reply fallback, and send it.
+    ///
     /// # Arguments
     ///
     /// * `content` - The content of the message event.
-    ///
-    /// [`MessageLikeUnsigned`]: ruma::events::MessageLikeUnsigned
-    /// [`SyncMessageLikeEvent`]: ruma::events::SyncMessageLikeEvent
     #[instrument(skip(self, content), fields(room_id = ?self.room().room_id()))]
-    pub async fn send(
-        &self,
-        content: AnyMessageLikeEventContent,
-    ) -> Result<SendHandle, RoomSendQueueError> {
-        self.room().send_queue().send(content).await
+    pub async fn send(&self, content: AnyMessageLikeEventContent) -> Result<SendHandle, Error> {
+        // If this is a room event we're sending in a threaded timeline, we add the
+        // thread relation ourselves.
+        if let AnyMessageLikeEventContent::RoomMessage(ref room_msg_content) = content
+            && room_msg_content.relates_to.is_none()
+            && let Some(thread_root) = self.controller.thread_root()
+        {
+            // The latest event id is used for the reply-to fallback, for clients which
+            // don't handle threads. It should be correctly set to the latest
+            // event in the thread, which the timeline instance might or might
+            // not know about; in this case, we do a best effort of filling it, and resort
+            // to using the thread root if we don't know about any event.
+            //
+            // Note: we could trigger a back-pagination if the timeline is empty, and wait
+            // for the results, if the timeline is too often empty.
+            let latest_event_id = self
+                .controller
+                .items()
+                .await
+                .iter()
+                .rev()
+                .find_map(|item| {
+                    if let TimelineItemKind::Event(event) = item.kind() {
+                        event.event_id().map(ToOwned::to_owned)
+                    } else {
+                        None
+                    }
+                })
+                .unwrap_or(thread_root);
+
+            let content = self
+                .room()
+                .make_reply_event(
+                    // Note: this `.into()` gets rid of the relation, but we've checked previously
+                    // that the `relates_to` field wasn't set.
+                    room_msg_content.clone().into(),
+                    Reply {
+                        event_id: latest_event_id,
+                        enforce_thread: EnforceThread::Threaded(ReplyWithinThread::No),
+                    },
+                )
+                .await?;
+
+            Ok(self.room().send_queue().send(content.into()).await?)
+        } else {
+            // Otherwise, we send the message as is.
+            Ok(self.room().send_queue().send(content).await?)
+        }
     }
 
     /// Send a reply to the given event.

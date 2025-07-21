@@ -6,6 +6,12 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased] - ReleaseDate
 
+### Features
+
+- `Timeline::send()` will now automatically fill the thread relationship, if the timeline has a
+  thread focus, and the sent event doesn't have a prefilled `relates_to` field (i.e. a relationship).
+  ([5427](https://github.com/matrix-org/matrix-rust-sdk/pull/5427))
+
 ### Refactor
 
 - [**breaking**] The MSRV has been bumped to Rust 1.88.
