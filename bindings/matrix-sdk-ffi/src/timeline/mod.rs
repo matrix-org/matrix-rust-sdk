@@ -20,8 +20,7 @@ use eyeball_im::VectorDiff;
 use futures_util::pin_mut;
 use matrix_sdk::{
     attachment::{
-        AttachmentConfig, AttachmentInfo, BaseAudioInfo, BaseFileInfo, BaseImageInfo,
-        BaseVideoInfo, Thumbnail,
+        AttachmentInfo, BaseAudioInfo, BaseFileInfo, BaseImageInfo, BaseVideoInfo, Thumbnail,
     },
     deserialized_responses::{ShieldState as SdkShieldState, ShieldStateCode},
     event_cache::RoomPaginationStatus,
@@ -35,7 +34,7 @@ use matrix_sdk_common::{
     stream::StreamExt,
 };
 use matrix_sdk_ui::timeline::{
-    self, AttachmentSource, EventItemOrigin, Profile, TimelineDetails,
+    self, AttachmentConfig, AttachmentSource, EventItemOrigin, Profile, TimelineDetails,
     TimelineUniqueId as SdkTimelineUniqueId,
 };
 use mime::Mime;
@@ -111,19 +110,26 @@ impl Timeline {
         let mime_str = mime_type.as_ref().ok_or(RoomError::InvalidAttachmentMimeType)?;
         let mime_type =
             mime_str.parse::<Mime>().map_err(|_| RoomError::InvalidAttachmentMimeType)?;
+        let replied_to_event_id = params
+            .in_reply_to
+            .map(EventId::parse)
+            .transpose()
+            .map_err(|_| RoomError::InvalidRepliedToEventId)?;
 
         let formatted_caption = formatted_body_from(
             params.caption.as_deref(),
             params.formatted_caption.map(Into::into),
         );
 
-        let attachment_config = AttachmentConfig::new()
-            .thumbnail(thumbnail)
-            .info(attachment_info)
-            .caption(params.caption)
-            .formatted_caption(formatted_caption)
-            .mentions(params.mentions.map(Into::into))
-            .reply(params.reply_params.map(|p| p.try_into()).transpose()?);
+        let attachment_config = AttachmentConfig {
+            info: Some(attachment_info),
+            thumbnail,
+            caption: params.caption,
+            formatted_caption,
+            mentions: params.mentions.map(Into::into),
+            replied_to: replied_to_event_id,
+            ..Default::default()
+        };
 
         let handle = SendAttachmentJoinHandle::new(get_runtime_handle().spawn(async move {
             let mut request =
@@ -205,8 +211,8 @@ pub struct UploadParameters {
     formatted_caption: Option<FormattedBody>,
     /// Optional intentional mentions to be sent with the media.
     mentions: Option<Mentions>,
-    /// Optional parameters for sending the media as (threaded) reply.
-    reply_params: Option<ReplyParameters>,
+    /// Optional Event ID to reply to.
+    in_reply_to: Option<String>,
     /// Should the media be sent with the send queue, or synchronously?
     ///
     /// Watching progress only works with the synchronous method, at the moment.

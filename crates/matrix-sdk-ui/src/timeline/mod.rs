@@ -25,11 +25,9 @@ use eyeball_im::VectorDiff;
 use futures::SendGallery;
 use futures_core::Stream;
 use imbl::Vector;
-#[cfg(feature = "unstable-msc4274")]
-use matrix_sdk::attachment::{AttachmentInfo, Thumbnail};
 use matrix_sdk::{
     Result,
-    attachment::AttachmentConfig,
+    attachment::{AttachmentInfo, Thumbnail},
     deserialized_responses::TimelineEvent,
     event_cache::{EventCacheDropHandles, RoomEventCache},
     executor::JoinHandle,
@@ -43,23 +41,18 @@ use matrix_sdk::{
 use mime::Mime;
 use pinned_events_loader::PinnedEventsRoom;
 use ruma::{
-    EventId, OwnedEventId, UserId,
+    EventId, OwnedEventId, OwnedTransactionId, UserId,
     api::client::receipt::create_receipt::v3::ReceiptType,
     events::{
-        AnyMessageLikeEventContent, AnySyncTimelineEvent,
+        AnyMessageLikeEventContent, AnySyncTimelineEvent, Mentions,
         poll::unstable_start::{NewUnstablePollStartEventContent, UnstablePollStartEventContent},
         receipt::{Receipt, ReceiptThread},
         room::{
-            message::{ReplyWithinThread, RoomMessageEventContentWithoutRelation},
+            message::{FormattedBody, ReplyWithinThread, RoomMessageEventContentWithoutRelation},
             pinned_events::RoomPinnedEventsEventContent,
         },
     },
     room_version_rules::RoomVersionRules,
-};
-#[cfg(feature = "unstable-msc4274")]
-use ruma::{
-    OwnedTransactionId,
-    events::{Mentions, room::message::FormattedBody},
 };
 use subscriber::TimelineWithDropHandle;
 use thiserror::Error;
@@ -176,6 +169,22 @@ pub enum DateDividerMode {
     Monthly,
 }
 
+/// Configuration for sending an attachment.
+///
+/// Like [`matrix_sdk::attachment::AttachmentConfig`], but instead of the
+/// `reply` field, there's only a `replied_to` event id; it's the timeline
+/// deciding to fill the rest of the reply parameters.
+#[derive(Debug, Default)]
+pub struct AttachmentConfig {
+    pub txn_id: Option<OwnedTransactionId>,
+    pub info: Option<AttachmentInfo>,
+    pub thumbnail: Option<Thumbnail>,
+    pub caption: Option<String>,
+    pub formatted_caption: Option<FormattedBody>,
+    pub mentions: Option<Mentions>,
+    pub replied_to: Option<OwnedEventId>,
+}
+
 impl Timeline {
     /// Returns the room for this timeline.
     pub fn room(&self) -> &Room {
@@ -290,44 +299,21 @@ impl Timeline {
         // thread relation ourselves.
         if let AnyMessageLikeEventContent::RoomMessage(ref room_msg_content) = content
             && room_msg_content.relates_to.is_none()
-            && let Some(thread_root) = self.controller.thread_root()
+            && self.controller.is_threaded()
         {
-            // The latest event id is used for the reply-to fallback, for clients which
-            // don't handle threads. It should be correctly set to the latest
-            // event in the thread, which the timeline instance might or might
-            // not know about; in this case, we do a best effort of filling it, and resort
-            // to using the thread root if we don't know about any event.
-            //
-            // Note: we could trigger a back-pagination if the timeline is empty, and wait
-            // for the results, if the timeline is too often empty.
-            let latest_event_id = self
-                .controller
-                .items()
+            let reply = self
+                .infer_reply(None)
                 .await
-                .iter()
-                .rev()
-                .find_map(|item| {
-                    if let TimelineItemKind::Event(event) = item.kind() {
-                        event.event_id().map(ToOwned::to_owned)
-                    } else {
-                        None
-                    }
-                })
-                .unwrap_or(thread_root);
-
+                .expect("a reply will always be set for threaded timelines");
             let content = self
                 .room()
                 .make_reply_event(
                     // Note: this `.into()` gets rid of the relation, but we've checked previously
                     // that the `relates_to` field wasn't set.
                     room_msg_content.clone().into(),
-                    Reply {
-                        event_id: latest_event_id,
-                        enforce_thread: EnforceThread::Threaded(ReplyWithinThread::No),
-                    },
+                    reply,
                 )
                 .await?;
-
             Ok(self.room().send_queue().send(content.into()).await?)
         } else {
             // Otherwise, we send the message as is.
@@ -362,17 +348,60 @@ impl Timeline {
         content: RoomMessageEventContentWithoutRelation,
         replied_to: OwnedEventId,
     ) -> Result<(), Error> {
-        let enforce_thread = if self.controller.thread_root().is_some() {
-            EnforceThread::Threaded(ReplyWithinThread::Yes)
-        } else {
-            EnforceThread::MaybeThreaded
-        };
-        let content = self
-            .room()
-            .make_reply_event(content, Reply { event_id: replied_to, enforce_thread })
-            .await?;
+        let reply = self
+            .infer_reply(Some(replied_to))
+            .await
+            .expect("the reply will always be set because we provided a replied-to event id");
+        let content = self.room().make_reply_event(content, reply).await?;
         self.send(content.into()).await?;
         Ok(())
+    }
+
+    /// Given a message or media to send, and an optional `replied_to` event,
+    /// automatically fills the [`Reply`] information based on the current
+    /// timeline focus.
+    pub(crate) async fn infer_reply(&self, replied_to: Option<OwnedEventId>) -> Option<Reply> {
+        // If there's a replied-to event id, the reply is pretty straightforward, and we
+        // should only infer the `EnforceThread` based on the current focus.
+        if let Some(replied_to) = replied_to {
+            let enforce_thread = if self.controller.is_threaded() {
+                EnforceThread::Threaded(ReplyWithinThread::Yes)
+            } else {
+                EnforceThread::MaybeThreaded
+            };
+            return Some(Reply { event_id: replied_to, enforce_thread });
+        }
+
+        let thread_root = self.controller.thread_root()?;
+
+        // The latest event id is used for the reply-to fallback, for clients which
+        // don't handle threads. It should be correctly set to the latest
+        // event in the thread, which the timeline instance might or might
+        // not know about; in this case, we do a best effort of filling it, and resort
+        // to using the thread root if we don't know about any event.
+        //
+        // Note: we could trigger a back-pagination if the timeline is empty, and wait
+        // for the results, if the timeline is too often empty.
+
+        let latest_event_id = self
+            .controller
+            .items()
+            .await
+            .iter()
+            .rev()
+            .find_map(|item| {
+                if let TimelineItemKind::Event(event) = item.kind() {
+                    event.event_id().map(ToOwned::to_owned)
+                } else {
+                    None
+                }
+            })
+            .unwrap_or(thread_root);
+
+        Some(Reply {
+            event_id: latest_event_id,
+            enforce_thread: EnforceThread::Threaded(ReplyWithinThread::No),
+        })
     }
 
     /// Edit an event given its [`TimelineEventItemId`] and some new content.

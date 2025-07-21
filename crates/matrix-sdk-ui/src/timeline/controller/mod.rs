@@ -591,6 +591,11 @@ impl<P: RoomDataProvider, D: Decryptor> TimelineController<P, D> {
         matches!(&*self.focus, TimelineFocusKind::Live { .. })
     }
 
+    /// Is this timeline focused on a thread?
+    pub(super) fn is_threaded(&self) -> bool {
+        matches!(&*self.focus, TimelineFocusKind::Thread { .. })
+    }
+
     pub(super) fn thread_root(&self) -> Option<OwnedEventId> {
         as_variant!(&*self.focus, TimelineFocusKind::Thread { root_event_id } => root_event_id.clone())
     }

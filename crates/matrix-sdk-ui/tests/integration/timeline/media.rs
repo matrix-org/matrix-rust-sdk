@@ -20,14 +20,11 @@ use eyeball_im::VectorDiff;
 use futures_util::StreamExt;
 #[cfg(feature = "unstable-msc4274")]
 use matrix_sdk::attachment::{AttachmentInfo, BaseFileInfo};
-use matrix_sdk::{
-    assert_let_timeout,
-    attachment::AttachmentConfig,
-    room::reply::{EnforceThread, Reply},
-    test_utils::mocks::MatrixMockServer,
-};
+use matrix_sdk::{assert_let_timeout, test_utils::mocks::MatrixMockServer};
 use matrix_sdk_test::{ALICE, JoinedRoomBuilder, async_test, event_factory::EventFactory};
-use matrix_sdk_ui::timeline::{AttachmentSource, EventSendState, RoomExt};
+use matrix_sdk_ui::timeline::{
+    AttachmentConfig, AttachmentSource, EventSendState, RoomExt, TimelineFocus,
+};
 #[cfg(feature = "unstable-msc4274")]
 use matrix_sdk_ui::timeline::{GalleryConfig, GalleryItemInfo};
 #[cfg(feature = "unstable-msc4274")]
@@ -36,10 +33,7 @@ use ruma::events::room::message::GalleryItemType;
 use ruma::owned_mxc_uri;
 use ruma::{
     event_id,
-    events::room::{
-        MediaSource,
-        message::{MessageType, ReplyWithinThread},
-    },
+    events::room::{MediaSource, message::MessageType},
     room_id,
 };
 use serde_json::json;
@@ -115,12 +109,19 @@ async fn test_send_attachment_from_file() {
 
     mock.mock_room_send().ok(event_id!("$media")).mock_once().mount().await;
 
-    // Queue sending of an attachment.
-    let config = AttachmentConfig::new().caption(Some("caption".to_owned())).reply(Some(Reply {
-        event_id: event_id.to_owned(),
-        enforce_thread: EnforceThread::Threaded(ReplyWithinThread::No),
-    }));
-    timeline.send_attachment(&file_path, mime::TEXT_PLAIN, config).use_send_queue().await.unwrap();
+    // Queue sending of an attachment in the thread.
+    let thread_timeline = room
+        .timeline_builder()
+        .with_focus(TimelineFocus::Thread { root_event_id: event_id.to_owned() })
+        .build()
+        .await
+        .unwrap();
+    let config = AttachmentConfig { caption: Some("caption".to_owned()), ..Default::default() };
+    thread_timeline
+        .send_attachment(&file_path, mime::TEXT_PLAIN, config)
+        .use_send_queue()
+        .await
+        .unwrap();
 
     {
         assert_let_timeout!(Some(VectorDiff::PushBack { value: item }) = timeline_stream.next());
@@ -222,7 +223,7 @@ async fn test_send_attachment_from_bytes() {
     mock.mock_room_send().ok(event_id!("$media")).mock_once().mount().await;
 
     // Queue sending of an attachment.
-    let config = AttachmentConfig::new().caption(Some("caption".to_owned()));
+    let config = AttachmentConfig { caption: Some("caption".to_owned()), ..Default::default() };
     timeline.send_attachment(source, mime::TEXT_PLAIN, config).use_send_queue().await.unwrap();
 
     {
@@ -422,7 +423,7 @@ async fn test_react_to_local_media() {
     let (_tmp_dir, file_path) = create_temporary_file("test.bin");
 
     // Queue sending of an attachment (no captions).
-    let config = AttachmentConfig::new();
+    let config = AttachmentConfig::default();
     timeline.send_attachment(&file_path, mime::TEXT_PLAIN, config).use_send_queue().await.unwrap();
 
     let item_id = {

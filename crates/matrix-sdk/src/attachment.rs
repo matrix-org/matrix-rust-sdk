@@ -184,13 +184,29 @@ impl Thumbnail {
 /// Configuration for sending an attachment.
 #[derive(Debug, Default)]
 pub struct AttachmentConfig {
-    pub(crate) txn_id: Option<OwnedTransactionId>,
-    pub(crate) info: Option<AttachmentInfo>,
-    pub(crate) thumbnail: Option<Thumbnail>,
-    pub(crate) caption: Option<String>,
-    pub(crate) formatted_caption: Option<FormattedBody>,
-    pub(crate) mentions: Option<Mentions>,
-    pub(crate) reply: Option<Reply>,
+    /// A fixed transaction id to be used for sending this attachment.
+    ///
+    /// Otherwise, a random one will be generated.
+    pub txn_id: Option<OwnedTransactionId>,
+
+    /// Type-specific metadata about the attachment.
+    pub info: Option<AttachmentInfo>,
+
+    /// An optional thumbnail to send with the attachment.
+    pub thumbnail: Option<Thumbnail>,
+
+    /// An optional caption for the attachment.
+    pub caption: Option<String>,
+
+    /// An optional formatted caption for the attachment.
+    pub formatted_caption: Option<FormattedBody>,
+
+    /// Intentional mentions to be included in the media event.
+    pub mentions: Option<Mentions>,
+
+    /// Reply parameters for the attachment (replied-to event and thread-related
+    /// metadata).
+    pub reply: Option<Reply>,
 }
 
 impl AttachmentConfig {
