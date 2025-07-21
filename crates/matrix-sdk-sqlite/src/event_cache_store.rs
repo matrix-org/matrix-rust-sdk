@@ -14,7 +14,7 @@
 
 //! An SQLite-based backend for the [`EventCacheStore`].
 
-use std::{fmt, iter::once, path::Path, sync::Arc};
+use std::{collections::HashMap, fmt, iter::once, path::Path, sync::Arc};
 
 use async_trait::async_trait;
 use deadpool_sqlite::{Object as SqliteAsyncConn, Pool as SqlitePool, Runtime};
@@ -882,19 +882,45 @@ impl EventCacheStore for SqliteEventCacheStore {
         self.read()
             .await?
             .with_transaction(move |txn| -> Result<_> {
-                // This query will visit all chunks of a linked chunk with ID
-                // `hashed_linked_chunk_id`. For each chunk, it collects its ID
-                // (`ChunkIdentifier`), previous chunk, next chunk, and number of events
-                // (`num_events`). If it's a gap, `num_events` is equal to 0, otherwise it
-                // counts the number of events in `event_chunks` where `event_chunks.chunk_id =
-                // linked_chunks.id`.
+                // We want to collect the metadata about each chunk (id, next, previous), and
+                // for event chunks, the number of events in it. For gaps, the
+                // number of events is 0, by convention.
                 //
-                // Why not using a `(LEFT) JOIN` + `COUNT`? Because for gaps, the entire
-                // `event_chunks` will be traversed every time. It's extremely inefficient. To
-                // speed that up, we could use an `INDEX` but it will consume more storage
-                // space. This solution is nice trade-off and offers great performance.
+                // We've tried different strategies over time:
+                // - use a `LEFT JOIN` + `COUNT`, which was extremely inefficient because it
+                //   caused a full table traversal for each chunk, including for gaps which
+                //   don't have any events. This happened in
+                //   https://github.com/matrix-org/matrix-rust-sdk/pull/5225.
+                // - use a `CASE` statement on the chunk's type: if it's an event chunk, run an
+                //   additional `SELECT` query. It was an immense improvement, but still caused
+                //   one select query per event chunk. This happened in
+                //   https://github.com/matrix-org/matrix-rust-sdk/pull/5411.
                 //
-                // Also, use `ORDER BY id` to get a deterministic ordering for testing purposes.
+                // The current solution is to run two queries:
+                // - one to get each chunk and its number of events, by doing a single `SELECT`
+                //   query over the `event_chunks` table, grouping by chunk ids. This gives us a
+                //   list of `(chunk_id, num_events)` pairs, which can be transformed into a
+                //   hashmap.
+                // - one to get each chunk's metadata (id, previous, next, type) from the
+                //   database with a `SELECT`, and then use the hashmap to get the number of
+                //   events.
+                //
+                // This strategy minimizes the number of queries to the database, and keeps them
+                // super simple, while doing a bit more processing here, which is much faster.
+
+                let num_events_by_chunk_ids = txn
+                    .prepare(
+                        r#"
+                            SELECT ec.chunk_id, COUNT(ec.event_id)
+                            FROM event_chunks as ec
+                            WHERE ec.linked_chunk_id = ?
+                            GROUP BY ec.chunk_id
+                        "#,
+                    )?
+                    .query_map((&hashed_linked_chunk_id,), |row| {
+                        Ok((row.get::<_, u64>(0)?, row.get::<_, usize>(1)?))
+                    })?
+                    .collect::<Result<HashMap<_, _>, _>>()?;
 
                 txn.prepare(
                     r#"
@@ -902,15 +928,7 @@ impl EventCacheStore for SqliteEventCacheStore {
                             lc.id,
                             lc.previous,
                             lc.next,
-                            CASE lc.type
-                            WHEN 'E' THEN (
-                                SELECT COUNT(ec.event_id)
-                                FROM event_chunks as ec
-                                WHERE ec.chunk_id = lc.id
-                            )
-                            ELSE
-                                0
-                            END as num_events
+                            lc.type
                         FROM linked_chunks as lc
                         WHERE lc.linked_chunk_id = ?
                         ORDER BY lc.id"#,
@@ -920,11 +938,22 @@ impl EventCacheStore for SqliteEventCacheStore {
                         row.get::<_, u64>(0)?,
                         row.get::<_, Option<u64>>(1)?,
                         row.get::<_, Option<u64>>(2)?,
-                        row.get::<_, usize>(3)?,
+                        row.get::<_, String>(3)?,
                     ))
                 })?
                 .map(|data| -> Result<_> {
-                    let (id, previous, next, num_items) = data?;
+                    let (id, previous, next, chunk_type) = data?;
+
+                    // Note: since a gap has 0 events, an alternative could be to *not* retrieve
+                    // the chunk type, and just let the hashmap lookup fail for gaps. However,
+                    // benchmarking shows that this is slightly slower than matching the chunk
+                    // type (around 1%, so in the realm of noise), so we keep the explicit
+                    // check instead.
+                    let num_items = if chunk_type == CHUNK_TYPE_GAP_TYPE_STRING {
+                        0
+                    } else {
+                        num_events_by_chunk_ids.get(&id).copied().unwrap_or(0)
+                    };
 
                     Ok(ChunkMetadata {
                         identifier: ChunkIdentifier::new(id),
