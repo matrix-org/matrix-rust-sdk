@@ -529,9 +529,10 @@ impl Timeline {
     pub async fn send_reply(
         &self,
         msg: Arc<RoomMessageEventContentWithoutRelation>,
-        reply_params: ReplyParameters,
+        event_id: String,
     ) -> Result<(), ClientError> {
-        self.inner.send_reply((*msg).clone(), reply_params.try_into()?).await?;
+        let event_id = EventId::parse(&event_id).map_err(|_| RoomError::InvalidRepliedToEventId)?;
+        self.inner.send_reply((*msg).clone(), event_id).await?;
         Ok(())
     }
 
@@ -585,7 +586,7 @@ impl Timeline {
         description: Option<String>,
         zoom_level: Option<u8>,
         asset_type: Option<AssetType>,
-        reply_params: Option<ReplyParameters>,
+        replied_to_event_id: Option<String>,
     ) -> Result<(), ClientError> {
         let mut location_event_message_content =
             LocationMessageEventContent::new(body, geo_uri.clone());
@@ -604,8 +605,8 @@ impl Timeline {
             MessageType::Location(location_event_message_content),
         );
 
-        if let Some(reply_params) = reply_params {
-            self.send_reply(Arc::new(room_message_event_content), reply_params).await
+        if let Some(replied_to_event_id) = replied_to_event_id {
+            self.send_reply(Arc::new(room_message_event_content), replied_to_event_id).await
         } else {
             self.send(Arc::new(room_message_event_content)).await?;
             Ok(())

@@ -339,26 +339,38 @@ impl Timeline {
     ///
     /// Currently it only supports events with an event ID and JSON being
     /// available (which can be removed by local redactions). This is subject to
-    /// change. Please check [`EventTimelineItem::can_be_replied_to`] to decide
-    /// whether to render a reply button.
+    /// change. Use [`EventTimelineItem::can_be_replied_to`] to decide whether
+    /// to render a reply button.
     ///
     /// The sender will be added to the mentions of the reply if
     /// and only if the event has not been written by the sender.
     ///
+    /// This will do the right thing in the presence of threads:
+    /// - if this timeline is not focused on a thread, then it will forward the
+    ///   thread relationship of the replied-to event, if present.
+    /// - if this is a threaded timeline, it will mark the reply as an in-thread
+    ///   reply.
+    ///
     /// # Arguments
     ///
-    /// * `content` - The content of the reply
+    /// * `content` - The content of the reply.
     ///
-    /// * `event_id` - The ID of the event to reply to
-    ///
-    /// * `enforce_thread` - Whether to enforce a thread relation on the reply
+    /// * `event_id` - The ID of the event to reply to.
     #[instrument(skip(self, content))]
     pub async fn send_reply(
         &self,
         content: RoomMessageEventContentWithoutRelation,
-        reply: Reply,
+        replied_to: OwnedEventId,
     ) -> Result<(), Error> {
-        let content = self.room().make_reply_event(content, reply).await?;
+        let enforce_thread = if self.controller.thread_root().is_some() {
+            EnforceThread::Threaded(ReplyWithinThread::Yes)
+        } else {
+            EnforceThread::MaybeThreaded
+        };
+        let content = self
+            .room()
+            .make_reply_event(content, Reply { event_id: replied_to, enforce_thread })
+            .await?;
         self.send(content.into()).await?;
         Ok(())
     }
