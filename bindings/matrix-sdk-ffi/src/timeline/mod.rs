@@ -24,10 +24,7 @@ use matrix_sdk::{
     },
     deserialized_responses::{ShieldState as SdkShieldState, ShieldStateCode},
     event_cache::RoomPaginationStatus,
-    room::{
-        edit::EditedContent as SdkEditedContent,
-        reply::{EnforceThread, Reply},
-    },
+    room::edit::EditedContent as SdkEditedContent,
 };
 use matrix_sdk_common::{
     executor::{AbortHandle, JoinHandle},
@@ -51,8 +48,7 @@ use ruma::{
             },
         },
         room::message::{
-            LocationMessageEventContent, MessageType, ReplyWithinThread,
-            RoomMessageEventContentWithoutRelation,
+            LocationMessageEventContent, MessageType, RoomMessageEventContentWithoutRelation,
         },
         AnyMessageLikeEventContent,
     },
@@ -242,37 +238,6 @@ impl From<UploadSource> for AttachmentSource {
             UploadSource::File { filename } => Self::File(filename.into()),
             UploadSource::Data { bytes, filename } => Self::Data { bytes, filename },
         }
-    }
-}
-
-#[derive(uniffi::Record)]
-pub struct ReplyParameters {
-    /// The ID of the event to reply to.
-    event_id: String,
-    /// Whether to enforce a thread relation.
-    enforce_thread: bool,
-    /// If enforcing a threaded relation, whether the message is a reply on a
-    /// thread.
-    reply_within_thread: bool,
-}
-
-impl TryInto<Reply> for ReplyParameters {
-    type Error = RoomError;
-
-    fn try_into(self) -> Result<Reply, Self::Error> {
-        let event_id =
-            EventId::parse(&self.event_id).map_err(|_| RoomError::InvalidRepliedToEventId)?;
-        let enforce_thread = if self.enforce_thread {
-            EnforceThread::Threaded(if self.reply_within_thread {
-                ReplyWithinThread::Yes
-            } else {
-                ReplyWithinThread::No
-            })
-        } else {
-            EnforceThread::MaybeThreaded
-        };
-
-        Ok(Reply { event_id, enforce_thread })
     }
 }
 
@@ -1401,6 +1366,7 @@ mod galleries {
     use matrix_sdk_common::executor::{AbortHandle, JoinHandle};
     use matrix_sdk_ui::timeline::GalleryConfig;
     use mime::Mime;
+    use ruma::EventId;
     use tokio::sync::Mutex;
     use tracing::error;
 
@@ -1408,7 +1374,7 @@ mod galleries {
         error::RoomError,
         ruma::{AudioInfo, FileInfo, FormattedBody, ImageInfo, Mentions, VideoInfo},
         runtime::get_runtime_handle,
-        timeline::{build_thumbnail_info, ReplyParameters, Timeline},
+        timeline::{build_thumbnail_info, Timeline},
     };
 
     #[derive(uniffi::Record)]
@@ -1419,8 +1385,8 @@ mod galleries {
         formatted_caption: Option<FormattedBody>,
         /// Optional intentional mentions to be sent with the gallery.
         mentions: Option<Mentions>,
-        /// Optional parameters for sending the media as (threaded) reply.
-        reply_params: Option<ReplyParameters>,
+        /// Optional Event ID to reply to.
+        in_reply_to: Option<String>,
     }
 
     #[derive(uniffi::Enum)]
@@ -1605,11 +1571,18 @@ mod galleries {
                 params.formatted_caption.map(Into::into),
             );
 
+            let in_reply_to = params
+                .in_reply_to
+                .as_ref()
+                .map(|event_id| EventId::parse(event_id))
+                .transpose()
+                .map_err(|_| RoomError::InvalidRepliedToEventId)?;
+
             let mut gallery_config = GalleryConfig::new()
                 .caption(params.caption)
                 .formatted_caption(formatted_caption)
                 .mentions(params.mentions.map(Into::into))
-                .reply(params.reply_params.map(|p| p.try_into()).transpose()?);
+                .in_reply_to(in_reply_to);
 
             for item_info in item_infos {
                 gallery_config = gallery_config.add_item(item_info.try_into()?);

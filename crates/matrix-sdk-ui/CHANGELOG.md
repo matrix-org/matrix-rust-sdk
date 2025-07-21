@@ -8,6 +8,13 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
+- [**breaking**] [`Timeline::send_gallery()`] now automatically fills in the thread relationship,
+  based on the timeline focus. As a result, the `GalleryConfig::reply()` builder method has been
+  replaced with `GalleryConfig::in_reply_to`, and only takes an optional event id (the event that is
+  effectively replied to) instead of the `Reply` type. The proper way to start a thread with a
+  gallery event is now thus to create a threaded-focused timeline, and then use
+  `Timeline::send_gallery()`.
+  ([5427](https://github.com/matrix-org/matrix-rust-sdk/pull/5427))
 - [**breaking**] [`Timeline::send_attachment()`] now automatically fills in the thread
   relationship, based on the timeline focus. As a result, there's a new
   `matrix_sdk_ui::timeline::AttachmentConfig` type in town, that has a simplified optional parameter

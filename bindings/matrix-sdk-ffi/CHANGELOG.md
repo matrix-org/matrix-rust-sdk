@@ -8,6 +8,11 @@ All notable changes to this project will be documented in this file.
 
 ### Features:
 
+- [**breaking**] [`GalleryUploadParameters::reply`] and [`UploadParameters::reply`] have been both
+  replaced with a new optional `in_reply_to` field, that's a string which will be parsed into an
+  `OwnedEventId` when sending the event. The thread relationship will be automatically filled in,
+  based on the timeline focus.
+  ([5427](https://github.com/matrix-org/matrix-rust-sdk/pull/5427))
 - [**breaking**] [`Timeline::send_reply()`] now automatically fills in the thread relationship,
   based on the timeline focus. As a result, it only takes an `OwnedEventId` parameter, instead of
   the `Reply` type. The proper way to start a thread is now thus to create a threaded-focused
