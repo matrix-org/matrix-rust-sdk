@@ -73,7 +73,7 @@ impl<'a> IntoFuture for SendAttachment<'a> {
         let fut = async move {
             let (data, filename) = source.try_into_bytes_and_filename()?;
 
-            let reply = timeline.infer_reply(config.replied_to).await;
+            let reply = timeline.infer_reply(config.in_reply_to).await;
             let sdk_config = matrix_sdk::attachment::AttachmentConfig {
                 txn_id: config.txn_id,
                 info: config.info,
