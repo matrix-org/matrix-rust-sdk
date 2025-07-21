@@ -141,9 +141,30 @@ mod galleries {
             let Self { timeline, gallery, tracing_span } = self;
 
             let fut = async move {
-                let send_queue = timeline.room().send_queue();
-                let fut = send_queue.send_gallery(gallery.try_into()?);
-                fut.await.map_err(|_| Error::FailedSendingAttachment)?;
+                let reply = timeline.infer_reply(gallery.in_reply_to).await;
+
+                let mut config = matrix_sdk::attachment::GalleryConfig::new();
+
+                if let Some(txn_id) = gallery.txn_id {
+                    config = config.txn_id(txn_id);
+                }
+
+                for item in gallery.items {
+                    config = config.add_item(item.try_into()?);
+                }
+
+                config = config
+                    .caption(gallery.caption)
+                    .formatted_caption(gallery.formatted_caption)
+                    .mentions(gallery.mentions)
+                    .reply(reply);
+
+                timeline
+                    .room()
+                    .send_queue()
+                    .send_gallery(config)
+                    .await
+                    .map_err(|_| Error::FailedSendingAttachment)?;
 
                 Ok(())
             };

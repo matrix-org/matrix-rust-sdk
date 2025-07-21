@@ -956,7 +956,7 @@ pub struct GalleryConfig {
     pub(crate) caption: Option<String>,
     pub(crate) formatted_caption: Option<FormattedBody>,
     pub(crate) mentions: Option<Mentions>,
-    pub(crate) reply: Option<Reply>,
+    pub(crate) in_reply_to: Option<OwnedEventId>,
 }
 
 #[cfg(feature = "unstable-msc4274")]
@@ -1024,9 +1024,9 @@ impl GalleryConfig {
     ///
     /// # Arguments
     ///
-    /// * `reply` - The reply information of the message.
-    pub fn reply(mut self, reply: Option<Reply>) -> Self {
-        self.reply = reply;
+    /// * `event_id` - The event ID to reply to.
+    pub fn in_reply_to(mut self, event_id: Option<OwnedEventId>) -> Self {
+        self.in_reply_to = event_id;
         self
     }
 
@@ -1038,30 +1038,6 @@ impl GalleryConfig {
     /// Checks whether the gallery contains any media items or not.
     pub fn is_empty(&self) -> bool {
         self.items.is_empty()
-    }
-}
-
-#[cfg(feature = "unstable-msc4274")]
-impl TryFrom<GalleryConfig> for matrix_sdk::attachment::GalleryConfig {
-    type Error = Error;
-
-    fn try_from(value: GalleryConfig) -> Result<Self, Self::Error> {
-        let mut config = matrix_sdk::attachment::GalleryConfig::new();
-
-        if let Some(txn_id) = value.txn_id {
-            config = config.txn_id(txn_id);
-        }
-
-        for item in value.items {
-            config = config.add_item(item.try_into()?);
-        }
-
-        config = config.caption(value.caption);
-        config = config.formatted_caption(value.formatted_caption);
-        config = config.mentions(value.mentions);
-        config = config.reply(value.reply);
-
-        Ok(config)
     }
 }
 
