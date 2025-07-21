@@ -47,9 +47,12 @@ use matrix_sdk_base::{
 use matrix_sdk_common::executor::{spawn, JoinHandle};
 use room::RoomEventCacheState;
 use ruma::{events::AnySyncEphemeralRoomEvent, serde::Raw, OwnedEventId, OwnedRoomId, RoomId};
-use tokio::sync::{
-    broadcast::{channel, error::RecvError, Receiver, Sender},
-    mpsc, Mutex, RwLock,
+use tokio::{
+    join,
+    sync::{
+        broadcast::{channel, error::RecvError, Receiver, Sender},
+        mpsc, Mutex, RwLock,
+    },
 };
 use tracing::{debug, error, info, info_span, instrument, trace, warn, Instrument as _, Span};
 
@@ -519,27 +522,36 @@ impl EventCacheInner {
             self.multiple_room_updates_lock.lock().await
         };
 
+        let mut left_futures = Vec::with_capacity(updates.left.len());
+        let mut joined_futures = Vec::with_capacity(updates.joined.len());
+
         // Left rooms.
         for (room_id, left_room_update) in updates.left {
             let room = self.for_room(&room_id).await?;
+            left_futures.push(async move {
+                trace!(?room_id, "Handling a `LeftRoomUpdate`");
 
-            if let Err(err) = room.inner.handle_left_room_update(left_room_update).await {
-                // Non-fatal error, try to continue to the next room.
-                error!("handling left room update: {err}");
-            }
+                if let Err(err) = room.inner.handle_left_room_update(left_room_update).await {
+                    // Non-fatal error, try to continue to the next room.
+                    error!("handling left room update: {err}");
+                }
+            });
         }
 
         // Joined rooms.
         for (room_id, joined_room_update) in updates.joined {
-            trace!(?room_id, "Handling a `JoinedRoomUpdate`");
-
             let room = self.for_room(&room_id).await?;
+            joined_futures.push(async move {
+                trace!(?room_id, "Handling a `JoinedRoomUpdate`");
 
-            if let Err(err) = room.inner.handle_joined_room_update(joined_room_update).await {
-                // Non-fatal error, try to continue to the next room.
-                error!(%room_id, "handling joined room update: {err}");
-            }
+                if let Err(err) = room.inner.handle_joined_room_update(joined_room_update).await {
+                    // Non-fatal error, try to continue to the next room.
+                    error!(%room_id, "handling joined room update: {err}");
+                }
+            });
         }
+
+        join!(join_all(left_futures), join_all(joined_futures));
 
         // Invited rooms.
         // TODO: we don't anything with `updates.invite` at this point.
