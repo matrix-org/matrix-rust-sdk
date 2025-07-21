@@ -868,10 +868,7 @@ async fn test_thread_timeline_can_send_edit() {
     timeline
         .send(
             RoomMessageEventContent::text_plain("bonjour monde")
-                .make_replacement(
-                    ReplacementMetadata::new(threaded_event_id.to_owned(), None),
-                    None,
-                )
+                .make_replacement(ReplacementMetadata::new(threaded_event_id.to_owned(), None))
                 .into(),
         )
         .await

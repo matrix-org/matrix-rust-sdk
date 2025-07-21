@@ -1,12 +1,13 @@
 use std::future::IntoFuture;
 
 use eyeball::SharedObservable;
-use matrix_sdk::{TransmissionProgress, attachment::AttachmentConfig};
+use matrix_sdk::TransmissionProgress;
 use matrix_sdk_base::boxed_into_future;
 use mime::Mime;
 use tracing::{Instrument as _, Span};
 
 use super::{AttachmentSource, Error, Timeline};
+use crate::timeline::AttachmentConfig;
 
 pub struct SendAttachment<'a> {
     timeline: &'a Timeline,
@@ -72,17 +73,32 @@ impl<'a> IntoFuture for SendAttachment<'a> {
         let fut = async move {
             let (data, filename) = source.try_into_bytes_and_filename()?;
 
+            let reply = timeline.infer_reply(config.replied_to).await;
+            let sdk_config = matrix_sdk::attachment::AttachmentConfig {
+                txn_id: config.txn_id,
+                info: config.info,
+                thumbnail: config.thumbnail,
+                caption: config.caption,
+                formatted_caption: config.formatted_caption,
+                mentions: config.mentions,
+                reply,
+            };
+
             if use_send_queue {
-                let send_queue = timeline.room().send_queue();
-                let fut = send_queue.send_attachment(filename, mime_type, data, config);
-                fut.await.map_err(|_| Error::FailedSendingAttachment)?;
-            } else {
-                let fut = timeline
+                timeline
                     .room()
-                    .send_attachment(filename, &mime_type, data, config)
+                    .send_queue()
+                    .send_attachment(filename, mime_type, data, sdk_config)
+                    .await
+                    .map_err(|_| Error::FailedSendingAttachment)?;
+            } else {
+                timeline
+                    .room()
+                    .send_attachment(filename, &mime_type, data, sdk_config)
                     .with_send_progress_observable(send_progress)
-                    .store_in_cache();
-                fut.await.map_err(|_| Error::FailedSendingAttachment)?;
+                    .store_in_cache()
+                    .await
+                    .map_err(|_| Error::FailedSendingAttachment)?;
             }
 
             Ok(())
