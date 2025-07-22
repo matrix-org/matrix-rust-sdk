@@ -1290,19 +1290,13 @@ impl QueueStorage {
         let client = guard.client()?;
         let store = client.state_store();
 
-        let mut filename = match &event.msgtype {
+        let filename = match &event.msgtype {
             MessageType::Image(msgtype) => msgtype.filename_or_body(),
             MessageType::Audio(msgtype) => msgtype.filename_or_body(),
             MessageType::Video(msgtype) => msgtype.filename_or_body(),
             MessageType::File(msgtype) => msgtype.filename_or_body(),
             _ => None,
         };
-
-        // If there is no filename, use the `body` if it's not empty, since for media
-        // events with no captions it'll contain the filename
-        if filename.is_none() && !event.body().is_empty() {
-            filename = Some(event.body().to_owned());
-        }
 
         let thumbnail_info = self
             .push_thumbnail_and_media_uploads(
