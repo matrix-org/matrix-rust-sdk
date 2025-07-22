@@ -104,6 +104,8 @@ async fn test_room_attachment_send_info() {
 
     mock.mock_authenticated_media_config().ok_default().mount().await;
 
+    let filename = "image.jpg";
+
     let expected_event_id = event_id!("$h29iv0s8:example.com");
     mock.mock_room_send()
         .body_matches_partial_json(json!({
@@ -120,7 +122,15 @@ async fn test_room_attachment_send_info() {
 
     mock.mock_upload()
         .expect_mime_type("image/jpeg")
-        .expect_filename("image.jpg")
+        .expect_filename(filename)
+        .ok(mxc_uri!("mxc://example.com/AQwafuaFswefuhsfAFAgsw"))
+        .mock_once()
+        .mount()
+        .await;
+
+    mock.mock_upload()
+        .expect_mime_type("image/jpeg")
+        .expect_filename("thumbnail-image.jpg")
         .ok(mxc_uri!("mxc://example.com/AQwafuaFswefuhsfAFAgsw"))
         .mock_once()
         .mount()
@@ -136,10 +146,17 @@ async fn test_room_attachment_send_info() {
             width: Some(uint!(800)),
             ..Default::default()
         }))
-        .caption(Some("image caption".to_owned()));
+        .caption(Some("image caption".to_owned()))
+        .thumbnail(Some(Thumbnail {
+            data: "A thumbnail".as_bytes().to_owned(),
+            content_type: mime::IMAGE_JPEG,
+            height: uint!(200),
+            width: uint!(200),
+            size: uint!(200),
+        }));
 
     let response = room
-        .send_attachment("image.jpg", &mime::IMAGE_JPEG, b"Hello world".to_vec(), config)
+        .send_attachment(filename, &mime::IMAGE_JPEG, b"Hello world".to_vec(), config)
         .await
         .unwrap();
 

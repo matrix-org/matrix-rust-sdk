@@ -2216,7 +2216,7 @@ async fn test_gallery_uploads() {
     mock_jpeg_upload(
         &mock,
         mxc_uri!("mxc://sdk.rs/thumbnail1"),
-        None,
+        Some(format!("thumbnail-{filename1}")),
         allow_upload_lock.clone(),
     )
     .mock_once()
@@ -2234,7 +2234,7 @@ async fn test_gallery_uploads() {
     mock_jpeg_upload(
         &mock,
         mxc_uri!("mxc://sdk.rs/thumbnail2"),
-        None,
+        Some(format!("thumbnail-{filename2}")),
         allow_upload_lock.clone(),
     )
     .mock_once()

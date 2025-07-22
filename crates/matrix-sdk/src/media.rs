@@ -729,7 +729,8 @@ impl Media {
         thumbnail: Option<Thumbnail>,
         send_progress: SharedObservable<TransmissionProgress>,
     ) -> Result<(MediaSource, Option<(MediaSource, Box<ThumbnailInfo>)>)> {
-        let upload_thumbnail = self.upload_thumbnail(thumbnail, send_progress.clone());
+        let upload_thumbnail =
+            self.upload_thumbnail(thumbnail, filename.clone(), send_progress.clone());
 
         let upload_attachment = async move {
             self.upload(content_type, data, filename, None)
@@ -747,6 +748,7 @@ impl Media {
     async fn upload_thumbnail(
         &self,
         thumbnail: Option<Thumbnail>,
+        filename: Option<String>,
         send_progress: SharedObservable<TransmissionProgress>,
     ) -> Result<Option<(MediaSource, Box<ThumbnailInfo>)>> {
         let Some(thumbnail) = thumbnail else {
@@ -755,8 +757,9 @@ impl Media {
 
         let (data, content_type, thumbnail_info) = thumbnail.into_parts();
 
+        let filename = filename.map(|name| format!("thumbnail-{name}"));
         let response = self
-            .upload(&content_type, data, None, None)
+            .upload(&content_type, data, filename, None)
             .with_send_progress_observable(send_progress)
             .await?;
         let url = response.content_uri;
