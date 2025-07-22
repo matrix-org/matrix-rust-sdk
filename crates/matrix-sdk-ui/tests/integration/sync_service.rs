@@ -110,22 +110,22 @@ async fn test_sync_service_state() -> anyhow::Result<()> {
 
         let mut json_value = serde_json::from_slice::<serde_json::Value>(&request.body).unwrap();
 
-        if let Some(root) = json_value.as_object_mut() {
-            if let Some(conn_id) = root.get("conn_id").and_then(|obj| obj.as_str()) {
-                if conn_id == "encryption" {
-                    num_encryption_sync_requests += 1;
-                } else if conn_id == "room-list" {
-                    num_room_list_requests += 1;
+        if let Some(root) = json_value.as_object_mut()
+            && let Some(conn_id) = root.get("conn_id").and_then(|obj| obj.as_str())
+        {
+            if conn_id == "encryption" {
+                num_encryption_sync_requests += 1;
+            } else if conn_id == "room-list" {
+                num_room_list_requests += 1;
 
-                    // Retrieve the position used in the query.
-                    for (key, val) in request.url.query_pairs() {
-                        if key == "pos" {
-                            latest_room_list_pos = Some(val.to_string());
-                        }
+                // Retrieve the position used in the query.
+                for (key, val) in request.url.query_pairs() {
+                    if key == "pos" {
+                        latest_room_list_pos = Some(val.to_string());
                     }
-                } else {
-                    panic!("unexpected conn id seen server side: {conn_id}");
                 }
+            } else {
+                panic!("unexpected conn id seen server side: {conn_id}");
             }
         }
     }
@@ -167,29 +167,29 @@ async fn test_sync_service_state() -> anyhow::Result<()> {
 
         let mut json_value = serde_json::from_slice::<serde_json::Value>(&request.body).unwrap();
 
-        if let Some(root) = json_value.as_object_mut() {
-            if let Some(conn_id) = root.get("conn_id").and_then(|obj| obj.as_str()) {
-                if conn_id == "encryption" {
-                    num_encryption_sync_requests += 1;
-                } else if conn_id == "room-list" {
-                    if num_room_list_requests == 0 {
-                        // Either it's the same pos, or it's the next one if the request could be
-                        // processed by the client.
-                        let mut current_pos = None;
-                        for (key, val) in request.url.query_pairs() {
-                            if key == "pos" {
-                                current_pos = Some(val);
-                            }
+        if let Some(root) = json_value.as_object_mut()
+            && let Some(conn_id) = root.get("conn_id").and_then(|obj| obj.as_str())
+        {
+            if conn_id == "encryption" {
+                num_encryption_sync_requests += 1;
+            } else if conn_id == "room-list" {
+                if num_room_list_requests == 0 {
+                    // Either it's the same pos, or it's the next one if the request could be
+                    // processed by the client.
+                    let mut current_pos = None;
+                    for (key, val) in request.url.query_pairs() {
+                        if key == "pos" {
+                            current_pos = Some(val);
                         }
-                        let current_pos: i32 = current_pos.unwrap().parse()?;
-                        let prev_pos: i32 = latest_room_list_pos.take().unwrap().parse()?;
-                        assert!((current_pos - prev_pos).abs() <= 1);
                     }
-
-                    num_room_list_requests += 1;
-                } else {
-                    panic!("unexpected conn id seen server side: {conn_id}");
+                    let current_pos: i32 = current_pos.unwrap().parse()?;
+                    let prev_pos: i32 = latest_room_list_pos.take().unwrap().parse()?;
+                    assert!((current_pos - prev_pos).abs() <= 1);
                 }
+
+                num_room_list_requests += 1;
+            } else {
+                panic!("unexpected conn id seen server side: {conn_id}");
             }
         }
     }

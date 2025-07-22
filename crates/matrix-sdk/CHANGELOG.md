@@ -19,6 +19,11 @@ All notable changes to this project will be documented in this file.
 - [**breaking**] `OAuth::login` now allows requesting additional scopes for the authorization code grant.
   ([#5395](https://github.com/matrix-org/matrix-rust-sdk/pull/5395))
 
+### Refactor
+
+- [**breaking**] The MSRV has been bumped to Rust 1.88.
+  ([#5431](https://github.com/matrix-org/matrix-rust-sdk/pull/5431))
+
 ## [0.13.0] - 2025-07-10
 
 ### Security Fixes
