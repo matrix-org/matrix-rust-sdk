@@ -241,10 +241,10 @@ fn membership(
         // We need to find the membership event since it could be for either an invited
         // or knocked room.
         let membership_event = state_events.1.iter().find_map(|event| {
-            if let AnyStrippedStateEvent::RoomMember(membership_event) = event {
-                if membership_event.state_key == user_id {
-                    return Some(membership_event.content.clone());
-                }
+            if let AnyStrippedStateEvent::RoomMember(membership_event) = event
+                && membership_event.state_key == user_id
+            {
+                return Some(membership_event.content.clone());
             }
             None
         });
@@ -497,17 +497,17 @@ pub(crate) async fn cache_latest_events(
                     }
 
                     // Otherwise, look up the sender's profile from the `Store`.
-                    if sender_profile.is_none() {
-                        if let Some(store) = store {
-                            sender_profile = store
-                                .get_profile(room.room_id(), timeline_event.sender())
-                                .await
-                                .ok()
-                                .flatten();
+                    if sender_profile.is_none()
+                        && let Some(store) = store
+                    {
+                        sender_profile = store
+                            .get_profile(room.room_id(), timeline_event.sender())
+                            .await
+                            .ok()
+                            .flatten();
 
-                            // TODO: need to update `sender_name_is_ambiguous`,
-                            // but how?
-                        }
+                        // TODO: need to update `sender_name_is_ambiguous`,
+                        // but how?
                     }
 
                     let latest_event = Box::new(LatestEvent::new_with_sender_details(

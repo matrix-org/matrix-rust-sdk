@@ -492,14 +492,14 @@ impl BaseClient {
             // key bundle shortly after, we might accept it. If we don't do
             // this, the homeserver could trick us into accepting any historic room key
             // bundle.
-            if previous_state == RoomState::Invited {
-                if let Some(inviter) = inviter {
-                    let details = InviteAcceptanceDetails {
-                        invite_accepted_at: MilliSecondsSinceUnixEpoch::now(),
-                        inviter,
-                    };
-                    room_info.set_invite_acceptance_details(details);
-                }
+            if previous_state == RoomState::Invited
+                && let Some(inviter) = inviter
+            {
+                let details = InviteAcceptanceDetails {
+                    invite_accepted_at: MilliSecondsSinceUnixEpoch::now(),
+                    inviter,
+                };
+                room_info.set_invite_acceptance_details(details);
             }
 
             let mut changes = StateChanges::default();
@@ -861,14 +861,11 @@ impl BaseClient {
                 _ => (),
             }
 
-            if let StateEvent::Original(e) = &member {
-                if let Some(d) = &e.content.displayname {
-                    let display_name = DisplayName::new(d);
-                    ambiguity_map
-                        .entry(display_name)
-                        .or_default()
-                        .insert(member.state_key().clone());
-                }
+            if let StateEvent::Original(e) = &member
+                && let Some(d) = &e.content.displayname
+            {
+                let display_name = DisplayName::new(d);
+                ambiguity_map.entry(display_name).or_default().insert(member.state_key().clone());
             }
 
             let sync_member: SyncRoomMemberEvent = member.clone().into();

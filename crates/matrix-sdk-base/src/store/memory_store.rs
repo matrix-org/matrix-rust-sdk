@@ -415,14 +415,12 @@ impl StateStore for MemoryStore {
                             .insert(user_id.clone(), (event_id.clone(), receipt.clone()))
                         {
                             // Remove the old receipt from the room event receipts
-                            if let Some(receipt_map) = inner.room_event_receipts.get_mut(room) {
-                                if let Some(event_map) =
+                            if let Some(receipt_map) = inner.room_event_receipts.get_mut(room)
+                                && let Some(event_map) =
                                     receipt_map.get_mut(&(receipt_type.to_string(), thread.clone()))
-                                {
-                                    if let Some(user_map) = event_map.get_mut(&old_event) {
-                                        user_map.remove(user_id);
-                                    }
-                                }
+                                && let Some(user_map) = event_map.get_mut(&old_event)
+                            {
+                                user_map.remove(user_id);
                             }
                         }
 
@@ -458,18 +456,18 @@ impl StateStore for MemoryStore {
             if let Some(room) = inner.room_state.get_mut(room_id) {
                 for ref_room_mu in room.values_mut() {
                     for raw_evt in ref_room_mu.values_mut() {
-                        if let Ok(Some(event_id)) = raw_evt.get_field::<OwnedEventId>("event_id") {
-                            if let Some(redaction) = redactions.get(&event_id) {
-                                let redacted = redact(
-                                    raw_evt.deserialize_as::<CanonicalJsonObject>()?,
-                                    redaction_rules.get_or_insert_with(|| {
-                                        make_redaction_rules(&inner.room_info, room_id)
-                                    }),
-                                    Some(RedactedBecause::from_raw_event(redaction)?),
-                                )
-                                .map_err(StoreError::Redaction)?;
-                                *raw_evt = Raw::new(&redacted)?.cast_unchecked();
-                            }
+                        if let Ok(Some(event_id)) = raw_evt.get_field::<OwnedEventId>("event_id")
+                            && let Some(redaction) = redactions.get(&event_id)
+                        {
+                            let redacted = redact(
+                                raw_evt.deserialize_as::<CanonicalJsonObject>()?,
+                                redaction_rules.get_or_insert_with(|| {
+                                    make_redaction_rules(&inner.room_info, room_id)
+                                }),
+                                Some(RedactedBecause::from_raw_event(redaction)?),
+                            )
+                            .map_err(StoreError::Redaction)?;
+                            *raw_evt = Raw::new(&redacted)?.cast_unchecked();
                         }
                     }
                 }
