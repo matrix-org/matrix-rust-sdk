@@ -171,7 +171,11 @@ impl MediaEventContent for AudioMessageEventContent {
     }
 
     fn filename_or_body(&self) -> Option<String> {
-        Some(self.filename.clone().unwrap_or_else(|| self.body.clone()))
+        if let Some(filename) = &self.filename {
+            Some(filename.clone())
+        } else {
+            Some(self.body.clone())
+        }
     }
 
     fn thumbnail_source(&self) -> Option<MediaSource> {
@@ -185,7 +189,11 @@ impl MediaEventContent for FileMessageEventContent {
     }
 
     fn filename_or_body(&self) -> Option<String> {
-        Some(self.filename.clone().unwrap_or_else(|| self.body.clone()))
+        if let Some(filename) = &self.filename {
+            Some(filename.clone())
+        } else {
+            Some(self.body.clone())
+        }
     }
 
     fn thumbnail_source(&self) -> Option<MediaSource> {
@@ -199,7 +207,11 @@ impl MediaEventContent for ImageMessageEventContent {
     }
 
     fn filename_or_body(&self) -> Option<String> {
-        self.filename.clone()
+        if let Some(filename) = &self.filename {
+            Some(filename.clone())
+        } else {
+            Some(self.body.clone())
+        }
     }
 
     fn thumbnail_source(&self) -> Option<MediaSource> {
@@ -216,7 +228,11 @@ impl MediaEventContent for VideoMessageEventContent {
     }
 
     fn filename_or_body(&self) -> Option<String> {
-        Some(self.filename.clone().unwrap_or_else(|| self.body.clone()))
+        if let Some(filename) = &self.filename {
+            Some(filename.clone())
+        } else {
+            Some(self.body.clone())
+        }
     }
 
     fn thumbnail_source(&self) -> Option<MediaSource> {
