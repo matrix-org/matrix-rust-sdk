@@ -276,18 +276,6 @@ impl RetryKind {
 #[derive(Error, Debug)]
 #[non_exhaustive]
 pub enum Error {
-    /// Error during room.leave().
-    #[error("an error occurred during room leave")]
-    ErrorDuringRoomLeave,
-
-    /// Error doing a get_room(predecessor).
-    #[error("the predecessor is wrong or forgotten")]
-    PredecessorWrongOrForgotten,
-
-    /// Error doing room.leave()
-    #[error("the predecessor is not Joined or Left")]
-    PredecessorWrongState,
-
     /// Error doing an HTTP request.
     #[error(transparent)]
     Http(Box<HttpError>),

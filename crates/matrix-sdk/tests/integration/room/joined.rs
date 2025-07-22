@@ -384,6 +384,50 @@ async fn test_leave_room_with_fake_predecessor_no_error() -> Result<(), anyhow::
     Ok(())
 }
 
+#[async_test]
+async fn test_leave_room_fails_with_error() -> Result<(), anyhow::Error> {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+
+    let user = user_id!("@example:localhost");
+    let room_id = room_id!("!room_id:localhost");
+    let create_room_event_id = event_id!("$create_room_event_id:localhost");
+
+    server
+        .mock_sync()
+        .ok_and_run(&client, |builder| {
+            builder.add_joined_room(
+                JoinedRoomBuilder::new(room_id).add_state_event(
+                    EventFactory::new()
+                        .create(user, RoomVersionId::V2)
+                        .room(room_id)
+                        .sender(user)
+                        .event_id(create_room_event_id),
+                ),
+            );
+        })
+        .await;
+
+    let room = client.get_room(room_id).expect("Room not created");
+
+    server
+        .mock_room_leave()
+        .respond_with(
+            ResponseTemplate::new(429).set_body_json(json!({"errcode": "M_LIMIT_EXCEEDED"})),
+        )
+        .mount()
+        .await;
+
+    assert_eq!(room.state(), RoomState::Joined, "Room not Joined");
+
+    let res = room.leave().await;
+
+    assert!(res.is_err(), "Should have returned Error");
+    assert_eq!(room.state(), RoomState::Joined, "Room should still be joined");
+
+    Ok(())
+}
+
 /// This test reflects a particular use case where a user is trying to leave a
 /// room and the server replies the user is forbidden to do so.
 #[async_test]

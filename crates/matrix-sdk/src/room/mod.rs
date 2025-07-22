@@ -26,7 +26,9 @@ use std::{
 use async_stream::stream;
 use eyeball::SharedObservable;
 use futures_core::Stream;
-use futures_util::{future::join_all, stream::FuturesUnordered};
+use futures_util::{
+    future::join_all, stream as futures_stream, stream::FuturesUnordered, StreamExt,
+};
 use http::StatusCode;
 #[cfg(feature = "e2e-encryption")]
 pub use identity_status_changes::IdentityStatusChanges;
@@ -124,7 +126,6 @@ use ruma::{
 use serde::de::DeserializeOwned;
 use thiserror::Error;
 use tokio::{join, sync::broadcast};
-use tokio_stream::StreamExt;
 use tracing::{debug, error, info, instrument, trace, warn};
 
 use self::futures::{SendAttachment, SendMessageLikeEvent, SendRawMessageLikeEvent};
@@ -317,13 +318,16 @@ impl Room {
     /// Only invited and joined rooms can be left.
     #[doc(alias = "reject_invitation")]
     #[instrument(skip_all, fields(room_id = ?self.inner.room_id()))]
-    async fn leave_this(&self) -> Result<()> {
+    async fn leave_impl(&self) -> (Result<()>, &Room) {
         let state = self.state();
         if state == RoomState::Left {
-            return Err(Error::WrongRoomState(Box::new(WrongRoomState::new(
-                "Joined or Invited",
-                state,
-            ))));
+            return (
+                Err(Error::WrongRoomState(Box::new(WrongRoomState::new(
+                    "Joined or Invited",
+                    state,
+                )))),
+                self,
+            );
         }
 
         // If the room was in Invited state we should also forget it when declining the
@@ -351,11 +355,13 @@ impl Room {
             error!(?error, ignore_error, should_forget, "Failed to leave the room");
 
             if !ignore_error {
-                return Err(error.into());
+                return (Err(error.into()), self);
             }
         }
 
-        self.client.base_client().room_left(self.room_id()).await?;
+        if let Err(e) = self.client.base_client().room_left(self.room_id()).await {
+            return (Err(e.into()), self);
+        }
 
         if should_forget {
             trace!("Trying to forget the room");
@@ -365,7 +371,7 @@ impl Room {
             }
         }
 
-        Ok(())
+        (Ok(()), self)
     }
 
     /// Leave this room and all predecessors.
@@ -375,59 +381,48 @@ impl Room {
     /// Only invited and joined rooms can be left.
     pub async fn leave(&self) -> Result<()> {
         let mut rooms: Vec<Room> = vec![self.clone()];
-        let mut cur_room = self;
+        let mut current_room = self;
 
-        'leave_aggregate_loop: loop {
-            let pred = cur_room.predecessor_room();
-            let pred = pred.map(|this_pred| {
-                cur_room
-                    .client
-                    .get_room(&this_pred.room_id)
-                    .ok_or(Error::PredecessorWrongOrForgotten)
-            });
+        while let Some(predecessor) = current_room.predecessor_room() {
+            let maybe_predecessor_room = current_room.client.get_room(&predecessor.room_id);
 
-            match pred {
-                None => break 'leave_aggregate_loop,
-                Some(room) => match room {
-                    Ok(room) => {
-                        rooms.push(room);
-                        cur_room = rooms.last().expect("rooms just pushed so can't be empty");
-                    }
-                    Err(e) => {
-                        debug!("Tombstone following terminated early: {e:?}");
-                        break 'leave_aggregate_loop;
-                    }
-                },
+            if let Some(predecessor_room) = maybe_predecessor_room {
+                rooms.push(predecessor_room.clone());
+                current_room = rooms.last().expect("Room just pushed so can't be empty");
+            } else {
+                warn!("Cannot find predecessor room");
+                break;
             }
         }
 
-        let mut rooms_iter = rooms.into_iter();
         let batch_size = 5;
 
-        'leave_action_loop: loop {
-            let batch: Vec<Room> = rooms_iter.by_ref().take(batch_size).collect();
-            if batch.is_empty() {
-                break 'leave_action_loop;
-            }
+        let rooms_futures: Vec<_> = rooms
+            .iter()
+            .filter_map(|room| match room.state() {
+                RoomState::Joined | RoomState::Invited | RoomState::Knocked => {
+                    Some(room.leave_impl())
+                }
+                RoomState::Banned | RoomState::Left => None,
+            })
+            .collect();
 
-            let batch = batch
-                .iter()
-                .map(|room| match room.state() {
-                    RoomState::Joined => Ok(Some(room.leave_this())),
-                    RoomState::Invited => Ok(Some(room.leave_this())),
-                    RoomState::Knocked => Ok(Some(room.leave_this())),
-                    RoomState::Left => Ok(None),
-                    _ => Err(Error::PredecessorWrongState),
-                })
-                .collect::<Result<Vec<Option<_>>, _>>()?
-                .into_iter()
-                .flatten()
-                .collect::<Vec<_>>();
+        let mut futures_stream = futures_stream::iter(rooms_futures).buffer_unordered(batch_size);
 
-            if join_all(batch).await.iter().any(Result::is_err) {
-                error!("Error occurred while leaving room.");
-                return Err(Error::ErrorDuringRoomLeave);
+        let mut maybe_this_room_failed_with: Option<Error> = None;
+
+        while let Some(result) = futures_stream.next().await {
+            if let (Err(e), room) = result {
+                if room.room_id() == self.room_id() {
+                    maybe_this_room_failed_with = Some(e);
+                    continue;
+                }
+                warn!("{e:?}");
             }
+        }
+
+        if let Some(error) = maybe_this_room_failed_with {
+            return Err(error);
         }
 
         Ok(())
