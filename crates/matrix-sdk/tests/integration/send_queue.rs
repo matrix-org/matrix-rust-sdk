@@ -110,10 +110,18 @@ async fn queue_attachment_with_thumbnail(q: &RoomSendQueue) -> (SendHandle, &'st
 fn mock_jpeg_upload<'a>(
     mock: &'a MatrixMockServer,
     mxc: &MxcUri,
+    filename: Option<String>,
     lock: Arc<Mutex<()>>,
 ) -> MatrixMock<'a> {
     let mxc = mxc.to_owned();
-    mock.mock_upload().expect_mime_type("image/jpeg").respond_with(move |_req: &Request| {
+    let mut mocked_upload = mock.mock_upload().expect_mime_type("image/jpeg");
+    mocked_upload = if let Some(filename) = filename {
+        mocked_upload.expect_filename(&filename)
+    } else {
+        mocked_upload
+    };
+
+    mocked_upload.respond_with(move |_req: &Request| {
         // Wait for the signal from the main task that we can process this query.
         let mock_lock = lock.clone();
         std::thread::spawn(move || {
@@ -1903,14 +1911,19 @@ async fn test_media_uploads() {
     let allow_upload_lock = Arc::new(Mutex::new(()));
     let block_upload = allow_upload_lock.lock().await;
 
-    mock_jpeg_upload(&mock, mxc_uri!("mxc://sdk.rs/thumbnail"), allow_upload_lock.clone())
+    mock_jpeg_upload(&mock, mxc_uri!("mxc://sdk.rs/thumbnail"), None, allow_upload_lock.clone())
         .mock_once()
         .mount()
         .await;
-    mock_jpeg_upload(&mock, mxc_uri!("mxc://sdk.rs/media"), allow_upload_lock.clone())
-        .mock_once()
-        .mount()
-        .await;
+    mock_jpeg_upload(
+        &mock,
+        mxc_uri!("mxc://sdk.rs/media"),
+        Some(filename.to_owned()),
+        allow_upload_lock.clone(),
+    )
+    .mock_once()
+    .mount()
+    .await;
 
     // ----------------------
     // Send the media.
@@ -2200,22 +2213,42 @@ async fn test_gallery_uploads() {
     let allow_upload_lock = Arc::new(Mutex::new(()));
     let block_upload = allow_upload_lock.lock().await;
 
-    mock_jpeg_upload(&mock, mxc_uri!("mxc://sdk.rs/thumbnail1"), allow_upload_lock.clone())
-        .mock_once()
-        .mount()
-        .await;
-    mock_jpeg_upload(&mock, mxc_uri!("mxc://sdk.rs/media1"), allow_upload_lock.clone())
-        .mock_once()
-        .mount()
-        .await;
-    mock_jpeg_upload(&mock, mxc_uri!("mxc://sdk.rs/thumbnail2"), allow_upload_lock.clone())
-        .mock_once()
-        .mount()
-        .await;
-    mock_jpeg_upload(&mock, mxc_uri!("mxc://sdk.rs/media2"), allow_upload_lock.clone())
-        .mock_once()
-        .mount()
-        .await;
+    mock_jpeg_upload(
+        &mock,
+        mxc_uri!("mxc://sdk.rs/thumbnail1"),
+        None,
+        allow_upload_lock.clone(),
+    )
+    .mock_once()
+    .mount()
+    .await;
+    mock_jpeg_upload(
+        &mock,
+        mxc_uri!("mxc://sdk.rs/media1"),
+        Some(filename1.to_owned()),
+        allow_upload_lock.clone(),
+    )
+    .mock_once()
+    .mount()
+    .await;
+    mock_jpeg_upload(
+        &mock,
+        mxc_uri!("mxc://sdk.rs/thumbnail2"),
+        None,
+        allow_upload_lock.clone(),
+    )
+    .mock_once()
+    .mount()
+    .await;
+    mock_jpeg_upload(
+        &mock,
+        mxc_uri!("mxc://sdk.rs/media2"),
+        Some(filename2.to_owned()),
+        allow_upload_lock.clone(),
+    )
+    .mock_once()
+    .mount()
+    .await;
 
     // ----------------------
     // Send the media.
