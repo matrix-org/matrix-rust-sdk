@@ -490,7 +490,7 @@ impl Room {
 
     /// Get a `Stream` of loaded pinned events for this room.
     /// If no pinned events are found a single empty `Vec` will be returned.
-    pub fn pinned_event_ids_stream(&self) -> impl Stream<Item = Vec<OwnedEventId>> {
+    pub fn pinned_event_ids_stream(&self) -> impl Stream<Item = Vec<OwnedEventId>> + use<> {
         self.inner
             .subscribe()
             .map(|i| i.base_info.pinned_events.map(|c| c.pinned).unwrap_or_default())

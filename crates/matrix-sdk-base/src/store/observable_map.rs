@@ -125,7 +125,7 @@ where
     }
 
     /// Get a [`Stream`] of the values.
-    pub(crate) fn stream(&self) -> (Vector<V>, impl Stream<Item = Vec<VectorDiff<V>>>) {
+    pub(crate) fn stream(&self) -> (Vector<V>, impl Stream<Item = Vec<VectorDiff<V>>> + use<K, V>) {
         self.values.subscribe().into_values_and_batched_stream()
     }
 

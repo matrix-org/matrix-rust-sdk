@@ -273,7 +273,7 @@ impl BaseClient {
 
     /// Get a stream of all the rooms changes, in addition to the existing
     /// rooms.
-    pub fn rooms_stream(&self) -> (Vector<Room>, impl Stream<Item = Vec<VectorDiff<Room>>>) {
+    pub fn rooms_stream(&self) -> (Vector<Room>, impl Stream<Item = Vec<VectorDiff<Room>>> + use<>) {
         self.state_store.rooms_stream()
     }
 
