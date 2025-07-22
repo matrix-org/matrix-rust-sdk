@@ -614,8 +614,8 @@ impl Timeline {
     /// This also unsets the unread marker of the room if necessary.
     #[instrument(skip(self))]
     pub async fn send_multiple_receipts(&self, mut receipts: Receipts) -> Result<()> {
-        if let Some(fully_read) = &receipts.fully_read {
-            if !self
+        if let Some(fully_read) = &receipts.fully_read
+            && !self
                 .controller
                 .should_send_receipt(
                     &ReceiptType::FullyRead,
@@ -623,23 +623,21 @@ impl Timeline {
                     fully_read,
                 )
                 .await
-            {
-                receipts.fully_read = None;
-            }
+        {
+            receipts.fully_read = None;
         }
 
-        if let Some(read_receipt) = &receipts.public_read_receipt {
-            if !self
+        if let Some(read_receipt) = &receipts.public_read_receipt
+            && !self
                 .controller
                 .should_send_receipt(&ReceiptType::Read, &ReceiptThread::Unthreaded, read_receipt)
                 .await
-            {
-                receipts.public_read_receipt = None;
-            }
+        {
+            receipts.public_read_receipt = None;
         }
 
-        if let Some(private_read_receipt) = &receipts.private_read_receipt {
-            if !self
+        if let Some(private_read_receipt) = &receipts.private_read_receipt
+            && !self
                 .controller
                 .should_send_receipt(
                     &ReceiptType::ReadPrivate,
@@ -647,9 +645,8 @@ impl Timeline {
                     private_read_receipt,
                 )
                 .await
-            {
-                receipts.private_read_receipt = None;
-            }
+        {
+            receipts.private_read_receipt = None;
         }
 
         let room = self.room();

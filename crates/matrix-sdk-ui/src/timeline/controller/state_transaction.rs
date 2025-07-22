@@ -850,15 +850,14 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
             TimelineItemPosition::UpdateAt { .. } => {
                 if let Some(event) =
                     self.items.get_remote_event_by_event_id_mut(&event_meta.event_id)
+                    && event.visible != event_meta.visible
                 {
-                    if event.visible != event_meta.visible {
-                        event.visible = event_meta.visible;
+                    event.visible = event_meta.visible;
 
-                        if settings.track_read_receipts {
-                            // Since the event's visibility changed, we need to update the read
-                            // receipts of the previous visible event.
-                            self.maybe_update_read_receipts_of_prev_event(&event_meta.event_id);
-                        }
+                    if settings.track_read_receipts {
+                        // Since the event's visibility changed, we need to update the read
+                        // receipts of the previous visible event.
+                        self.maybe_update_read_receipts_of_prev_event(&event_meta.event_id);
                     }
                 }
             }

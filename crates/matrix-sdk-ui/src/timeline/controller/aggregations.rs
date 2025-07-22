@@ -377,13 +377,12 @@ impl Aggregations {
 
         // If there was any redaction among the current aggregation, adding a new one
         // should be a noop.
-        if let Some(previous_aggregations) = self.related_events.get(&related_to) {
-            if previous_aggregations
+        if let Some(previous_aggregations) = self.related_events.get(&related_to)
+            && previous_aggregations
                 .iter()
                 .any(|agg| matches!(agg.kind, AggregationKind::Redaction))
-            {
-                return;
-            }
+        {
+            return;
         }
 
         self.inverted_map.insert(aggregation.own_id.clone(), related_to.clone());
@@ -553,26 +552,26 @@ impl Aggregations {
             return false;
         };
 
-        if let Some(aggregations) = self.related_events.get_mut(&target) {
-            if let Some(found) = aggregations.iter_mut().find(|agg| agg.own_id == from) {
-                found.own_id = to.clone();
+        if let Some(aggregations) = self.related_events.get_mut(&target)
+            && let Some(found) = aggregations.iter_mut().find(|agg| agg.own_id == from)
+        {
+            found.own_id = to.clone();
 
-                match &mut found.kind {
-                    AggregationKind::PollResponse { .. }
-                    | AggregationKind::PollEnd { .. }
-                    | AggregationKind::Edit(..)
-                    | AggregationKind::Redaction => {
-                        // Nothing particular to do.
-                    }
+            match &mut found.kind {
+                AggregationKind::PollResponse { .. }
+                | AggregationKind::PollEnd { .. }
+                | AggregationKind::Edit(..)
+                | AggregationKind::Redaction => {
+                    // Nothing particular to do.
+                }
 
-                    AggregationKind::Reaction { reaction_status, .. } => {
-                        // Mark the reaction as becoming remote, and signal that update to the
-                        // caller.
-                        *reaction_status = ReactionStatus::RemoteToRemote(event_id);
+                AggregationKind::Reaction { reaction_status, .. } => {
+                    // Mark the reaction as becoming remote, and signal that update to the
+                    // caller.
+                    *reaction_status = ReactionStatus::RemoteToRemote(event_id);
 
-                        let found = found.clone();
-                        find_item_and_apply_aggregation(self, items, &target, found, room_version);
-                    }
+                    let found = found.clone();
+                    find_item_and_apply_aggregation(self, items, &target, found, room_version);
                 }
             }
         }
@@ -754,16 +753,14 @@ pub(crate) fn find_item_and_apply_aggregation(
             Some(new_event_item)
         }
         ApplyAggregationResult::Edit => {
-            if let Some(aggregations) = aggregations.related_events.get(target) {
-                if resolve_edits(aggregations, items, &mut cowed) {
-                    let new_event_item = cowed.into_owned();
-                    let new_item = TimelineItem::new(
-                        new_event_item.clone(),
-                        event_item.internal_id.to_owned(),
-                    );
-                    items.replace(idx, new_item);
-                    return Some(new_event_item);
-                }
+            if let Some(aggregations) = aggregations.related_events.get(target)
+                && resolve_edits(aggregations, items, &mut cowed)
+            {
+                let new_event_item = cowed.into_owned();
+                let new_item =
+                    TimelineItem::new(new_event_item.clone(), event_item.internal_id.to_owned());
+                items.replace(idx, new_item);
+                return Some(new_event_item);
             }
             None
         }

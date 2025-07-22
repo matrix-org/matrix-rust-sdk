@@ -318,21 +318,21 @@ impl TimelineMetadata {
         timeline_items: &Vector<Arc<TimelineItem>>,
         is_thread_focus: bool,
     ) -> (Option<InReplyToDetails>, Option<OwnedEventId>) {
-        if let AnySyncTimelineEvent::MessageLike(ev) = event {
-            if let Some(content) = ev.original_content() {
-                let remote_ctx = Some(RemoteEventContext {
-                    event_id: ev.event_id(),
-                    raw_event,
-                    relations: ev.relations(),
-                    bundled_edit_encryption_info,
-                });
-                return self.process_content_relations(
-                    &content,
-                    remote_ctx,
-                    timeline_items,
-                    is_thread_focus,
-                );
-            }
+        if let AnySyncTimelineEvent::MessageLike(ev) = event
+            && let Some(content) = ev.original_content()
+        {
+            let remote_ctx = Some(RemoteEventContext {
+                event_id: ev.event_id(),
+                raw_event,
+                relations: ev.relations(),
+                bundled_edit_encryption_info,
+            });
+            return self.process_content_relations(
+                &content,
+                remote_ctx,
+                timeline_items,
+                is_thread_focus,
+            );
         }
         (None, None)
     }

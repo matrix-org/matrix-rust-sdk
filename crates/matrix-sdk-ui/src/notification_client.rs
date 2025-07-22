@@ -747,10 +747,10 @@ impl NotificationClient {
             timeline_event = decrypted_event;
         }
 
-        if let Some(actions) = timeline_event.push_actions() {
-            if !actions.iter().any(|a| a.should_notify()) {
-                return Ok(NotificationStatus::EventFilteredOut);
-            }
+        if let Some(actions) = timeline_event.push_actions()
+            && !actions.iter().any(|a| a.should_notify())
+        {
+            return Ok(NotificationStatus::EventFilteredOut);
         }
 
         let push_actions = timeline_event.push_actions().map(ToOwned::to_owned);

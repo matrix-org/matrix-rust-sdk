@@ -773,14 +773,14 @@ impl ReactionsByKeyBySender {
         sender: &UserId,
         annotation: &str,
     ) -> Option<ReactionInfo> {
-        if let Some(by_user) = self.0.get_mut(annotation) {
-            if let Some(info) = by_user.swap_remove(sender) {
-                // If this was the last reaction, remove the annotation entry.
-                if by_user.is_empty() {
-                    self.0.swap_remove(annotation);
-                }
-                return Some(info);
+        if let Some(by_user) = self.0.get_mut(annotation)
+            && let Some(info) = by_user.swap_remove(sender)
+        {
+            // If this was the last reaction, remove the annotation entry.
+            if by_user.is_empty() {
+                self.0.swap_remove(annotation);
             }
+            return Some(info);
         }
         None
     }

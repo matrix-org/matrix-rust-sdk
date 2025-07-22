@@ -2008,10 +2008,10 @@ impl AllRemoteEvents {
     ) {
         self.increment_all_timeline_item_index_after(new_timeline_item_index);
 
-        if let Some(event_index) = event_index {
-            if let Some(event_meta) = self.0.get_mut(event_index) {
-                event_meta.timeline_item_index = Some(new_timeline_item_index);
-            }
+        if let Some(event_index) = event_index
+            && let Some(event_meta) = self.0.get_mut(event_index)
+        {
+            event_meta.timeline_item_index = Some(new_timeline_item_index);
         }
     }
 

@@ -850,12 +850,11 @@ impl<P: RoomDataProvider, D: Decryptor> TimelineController<P, D> {
                 .await;
         }
 
-        if track_read_markers {
-            if let Some(fully_read_event_id) =
+        if track_read_markers
+            && let Some(fully_read_event_id) =
                 self.room_data_provider.load_fully_read_marker().await
-            {
-                state.handle_fully_read_marker(fully_read_event_id);
-            }
+        {
+            state.handle_fully_read_marker(fully_read_event_id);
         }
     }
 
@@ -1561,14 +1560,13 @@ impl TimelineController {
 
             SendReceiptType::FullyRead => {
                 if let Some(prev_event_id) = self.room_data_provider.load_fully_read_marker().await
-                {
-                    if let Some(relative_pos) = state.meta.compare_events_positions(
+                    && let Some(relative_pos) = state.meta.compare_events_positions(
                         &prev_event_id,
                         event_id,
                         state.items.all_remote_events(),
-                    ) {
-                        return relative_pos == RelativePosition::After;
-                    }
+                    )
+                {
+                    return relative_pos == RelativePosition::After;
                 }
             }
 
