@@ -264,15 +264,15 @@ impl RoomReadReceipts {
             // Sliding sync sometimes sends the same event multiple times, so it can be at
             // the beginning and end of a batch, for instance. In that case, just reset
             // every time we see the event matching the receipt.
-            if let Some(event_id) = event.event_id() {
-                if event_id == receipt_event_id {
-                    // Bingo! Switch over to the counting state, after resetting the
-                    // previous counts.
-                    trace!("Found the event the receipt was referring to! Starting to count.");
-                    self.reset();
-                    counting_receipts = true;
-                    continue;
-                }
+            if let Some(event_id) = event.event_id()
+                && event_id == receipt_event_id
+            {
+                // Bingo! Switch over to the counting state, after resetting the
+                // previous counts.
+                trace!("Found the event the receipt was referring to! Starting to count.");
+                self.reset();
+                counting_receipts = true;
+                continue;
             }
 
             if counting_receipts {
@@ -387,17 +387,17 @@ impl ReceiptSelector {
         // Now consider new receipts.
         for (event_id, receipts) in &receipt_event.0 {
             for ty in [ReceiptType::Read, ReceiptType::ReadPrivate] {
-                if let Some(receipt) = receipts.get(&ty).and_then(|receipts| receipts.get(user_id))
+                if let Some(receipts) = receipts.get(&ty)
+                    && let Some(receipt) = receipts.get(user_id)
+                    && matches!(receipt.thread, ReceiptThread::Main | ReceiptThread::Unthreaded)
                 {
-                    if matches!(receipt.thread, ReceiptThread::Main | ReceiptThread::Unthreaded) {
-                        trace!(%event_id, "found new candidate");
-                        if let Some(event_pos) = self.event_id_to_pos.get(event_id) {
-                            self.try_select_later(event_id, *event_pos);
-                        } else {
-                            // It's a new pending receipt.
-                            trace!(%event_id, "stashed as pending");
-                            pending.push(event_id.clone());
-                        }
+                    trace!(%event_id, "found new candidate");
+                    if let Some(event_pos) = self.event_id_to_pos.get(event_id) {
+                        self.try_select_later(event_id, *event_pos);
+                    } else {
+                        // It's a new pending receipt.
+                        trace!(%event_id, "stashed as pending");
+                        pending.push(event_id.clone());
                     }
                 }
             }
