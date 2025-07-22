@@ -111,7 +111,10 @@ mod builder;
 pub(crate) mod caches;
 pub(crate) mod futures;
 
-pub use self::builder::{sanitize_server_name, ClientBuildError, ClientBuilder};
+pub use self::{
+    builder::{sanitize_server_name, ClientBuildError, ClientBuilder},
+    futures::SendMediaUploadRequest,
+};
 
 #[cfg(not(target_family = "wasm"))]
 type NotificationHandlerFut = Pin<Box<dyn Future<Output = ()> + Send>>;
@@ -2909,7 +2912,6 @@ pub(crate) mod tests {
 
     use assert_matches::assert_matches;
     use assert_matches2::assert_let;
-    use eyeball::SharedObservable;
     use futures_util::{pin_mut, FutureExt};
     use js_int::{uint, UInt};
     use matrix_sdk_base::{
@@ -2950,10 +2952,9 @@ pub(crate) mod tests {
     use crate::{
         client::{futures::SendMediaUploadRequest, WeakClient},
         config::RequestConfig,
-        futures::SendRequest,
         media::MediaError,
         test_utils::{client::MockClientBuilder, mocks::MatrixMockServer},
-        Error, TransmissionProgress,
+        Error,
     };
 
     #[async_test]
@@ -3781,15 +3782,7 @@ pub(crate) mod tests {
         assert_eq!(*client.inner.server_max_upload_size.lock().await.get().unwrap(), uint!(1));
 
         let data = vec![1, 2];
-        let upload_request =
-            ruma::api::client::media::create_content::v3::Request::new(data.clone());
-        let request = SendRequest {
-            client: client.clone(),
-            request: upload_request,
-            config: None,
-            send_progress: SharedObservable::new(TransmissionProgress::default()),
-        };
-        let media_request = SendMediaUploadRequest::new(request);
+        let media_request = SendMediaUploadRequest::new(client, data.clone());
 
         let error = media_request.await.err();
         assert_let!(Some(Error::Media(MediaError::MediaTooLargeToUpload { max, current })) = error);

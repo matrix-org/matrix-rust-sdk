@@ -41,8 +41,8 @@ use tempfile::{Builder as TempFileBuilder, NamedTempFile, TempDir};
 use tokio::{fs::File as TokioFile, io::AsyncWriteExt};
 
 use crate::{
-    attachment::Thumbnail, client::futures::SendMediaUploadRequest, config::RequestConfig, Client,
-    Error, Result, TransmissionProgress,
+    attachment::Thumbnail, client::futures::SendMediaUploadRequest, Client, Error, Result,
+    TransmissionProgress,
 };
 
 /// A conservative upload speed of 1Mbps
@@ -165,24 +165,14 @@ impl Media {
         Self { client }
     }
 
-    /// Upload some media to the server.
-    ///
-    /// # Arguments
-    ///
-    /// * `content_type` - The type of the media, this will be used as the
-    ///   content-type header.
-    ///
-    /// * `data` - Vector of bytes to be uploaded to the server.
-    ///
-    /// * `request_config` - Optional request configuration for the HTTP client,
-    ///   overriding the default. If not provided, a reasonable timeout value is
-    ///   inferred.
+    /// Upload some media to the server using the provided
+    /// [`SendMediaUploadRequest`].
     ///
     /// # Examples
     ///
     /// ```no_run
     /// # use std::fs;
-    /// # use matrix_sdk::{Client, ruma::room_id};
+    /// # use matrix_sdk::{Client, ruma::room_id, SendMediaUploadRequest};
     /// # use url::Url;
     /// # use mime;
     /// # async {
@@ -190,32 +180,25 @@ impl Media {
     /// # let mut client = Client::new(homeserver).await?;
     /// let image = fs::read("/home/example/my-cat.jpg")?;
     ///
-    /// let response = client
-    ///     .media()
-    ///     .upload(&mime::IMAGE_JPEG, image, Some("my-cat.jpg".to_string()), None)
-    ///     .await?;
+    /// let send_media_request = SendMediaUploadRequest::new(client.clone(), image)
+    ///     .with_content_type(mime::IMAGE_JPEG.essence_str().to_string())
+    ///     .with_filename(Some("my-cat.jpg"));
+    ///
+    /// let response = client.media().upload(send_media_request).await?;
     ///
     /// println!("Cat URI: {}", response.content_uri);
     /// # anyhow::Ok(()) };
     /// ```
-    pub fn upload(
+    pub async fn upload(
         &self,
-        content_type: &Mime,
-        data: Vec<u8>,
-        filename: Option<String>,
-        request_config: Option<RequestConfig>,
-    ) -> SendMediaUploadRequest {
-        let request_config = request_config.unwrap_or_else(|| {
-            self.client.request_config().timeout(Self::reasonable_upload_timeout(&data))
+        send_media_upload_request: SendMediaUploadRequest,
+    ) -> Result<media::create_content::v3::Response, Error> {
+        let request_config = send_media_upload_request.request_config.unwrap_or_else(|| {
+            self.client
+                .request_config()
+                .timeout(Self::reasonable_upload_timeout(send_media_upload_request.data()))
         });
-
-        let request = assign!(media::create_content::v3::Request::new(data), {
-            filename,
-            content_type: Some(content_type.essence_str().to_owned()),
-        });
-
-        let request = self.client.send(request).with_request_config(request_config);
-        SendMediaUploadRequest::new(request)
+        send_media_upload_request.with_request_config(Some(request_config)).await
     }
 
     /// Returns a reasonable upload timeout for an upload, based on the size of
@@ -732,11 +715,12 @@ impl Media {
         let upload_thumbnail =
             self.upload_thumbnail(thumbnail, filename.clone(), send_progress.clone());
 
-        let upload_attachment = async move {
-            self.upload(content_type, data, filename, None)
-                .with_send_progress_observable(send_progress)
-                .await
-        };
+        let send_media_request = SendMediaUploadRequest::new(self.client.clone(), data)
+            .with_content_type(content_type.essence_str().to_owned())
+            .with_filename(filename)
+            .with_send_progress_observable(send_progress);
+
+        let upload_attachment = async move { self.upload(send_media_request).await };
 
         let (thumbnail, response) = try_join(upload_thumbnail, upload_attachment).await?;
 
@@ -758,10 +742,13 @@ impl Media {
         let (data, content_type, thumbnail_info) = thumbnail.into_parts();
 
         let filename = filename.map(|name| format!("thumbnail-{name}"));
-        let response = self
-            .upload(&content_type, data, filename, None)
-            .with_send_progress_observable(send_progress)
-            .await?;
+
+        let send_media_request = SendMediaUploadRequest::new(self.client.clone(), data)
+            .with_content_type(content_type.essence_str().to_owned())
+            .with_filename(filename)
+            .with_send_progress_observable(send_progress);
+
+        let response = self.upload(send_media_request).await?;
         let url = response.content_uri;
 
         Ok(Some((MediaSource::Plain(url), thumbnail_info)))

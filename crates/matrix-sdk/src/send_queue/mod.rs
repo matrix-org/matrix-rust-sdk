@@ -142,7 +142,7 @@ use as_variant::as_variant;
 use matrix_sdk_base::store::FinishGalleryItemInfo;
 use matrix_sdk_base::{
     event_cache::store::EventCacheStoreError,
-    media::MediaRequestParameters,
+    media::{MediaEventContent, MediaRequestParameters},
     store::{
         ChildTransactionId, DependentQueuedRequest, DependentQueuedRequestKind, DynStateStore,
         FinishUploadThumbnailInfo, QueueWedgeError, QueuedRequest, QueuedRequestKind,
@@ -169,7 +169,7 @@ use ruma::{
 };
 use tokio::sync::{broadcast, oneshot, Mutex, Notify, OwnedMutexGuard};
 use tracing::{debug, error, info, instrument, trace, warn};
-use matrix_sdk_base::media::MediaEventContent;
+
 #[cfg(feature = "e2e-encryption")]
 use crate::crypto::{OlmError, SessionRecipientCollectionError};
 use crate::{
@@ -177,7 +177,7 @@ use crate::{
     config::RequestConfig,
     error::RetryKind,
     room::{edit::EditedContent, WeakRoom},
-    Client, Media, Room,
+    Client, Media, Room, SendMediaUploadRequest,
 };
 
 mod upload;
@@ -789,11 +789,13 @@ impl RoomSendQueue {
                         trace!("upload will be in clear text (room without encryption)");
                         let request_config = RequestConfig::short_retry()
                             .timeout(Media::reasonable_upload_timeout(&data));
-                        let res = room
-                            .client()
-                            .media()
-                            .upload(&mime, data, filename, Some(request_config))
-                            .await?;
+
+                        let send_media_request = SendMediaUploadRequest::new(room.client(), data)
+                            .with_content_type(mime.essence_str())
+                            .with_request_config(Some(request_config))
+                            .with_filename(filename);
+
+                        let res = room.client().media().upload(send_media_request).await?;
                         MediaSource::Plain(res.content_uri)
                     };
 
@@ -801,8 +803,13 @@ impl RoomSendQueue {
                     let media_source = {
                         let request_config = RequestConfig::short_retry()
                             .timeout(Media::reasonable_upload_timeout(&data));
-                        let res =
-                            room.client().media().upload(&mime, data, Some(request_config)).await?;
+
+                        let send_media_request = SendMediaUploadRequest::new(room.client(), data)
+                            .with_content_type(mime.essence_str())
+                            .with_request_config(Some(request_config))
+                            .with_filename(filename);
+
+                        let res = room.client().media().upload(send_media_request).await?;
                         MediaSource::Plain(res.content_uri)
                     };
 

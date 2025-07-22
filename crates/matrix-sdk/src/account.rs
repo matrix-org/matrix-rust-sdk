@@ -55,7 +55,7 @@ use ruma::{
 use serde::Deserialize;
 use tracing::error;
 
-use crate::{config::RequestConfig, Client, Error, Result};
+use crate::{config::RequestConfig, Client, Error, Result, SendMediaUploadRequest};
 
 /// A high-level API to manage the client owner's account.
 ///
@@ -264,7 +264,10 @@ impl Account {
     ///
     /// [`Media::upload()`]: crate::Media::upload
     pub async fn upload_avatar(&self, content_type: &Mime, data: Vec<u8>) -> Result<OwnedMxcUri> {
-        let upload_response = self.client.media().upload(content_type, data, None, None).await?;
+        let send_media_request = SendMediaUploadRequest::new(self.client.clone(), data)
+            .with_content_type(content_type.essence_str().to_owned());
+
+        let upload_response = self.client.media().upload(send_media_request).await?;
         self.set_avatar_url(Some(&upload_response.content_uri)).await?;
         Ok(upload_response.content_uri)
     }

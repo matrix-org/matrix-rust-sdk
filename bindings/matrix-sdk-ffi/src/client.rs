@@ -39,8 +39,8 @@ use matrix_sdk::{
     },
     sliding_sync::Version as SdkSlidingSyncVersion,
     store::RoomLoadSettings as SdkRoomLoadSettings,
-    AuthApi, AuthSession, Client as MatrixClient, SessionChange, SessionTokens,
-    STATE_STORE_DATABASE_NAME,
+    AuthApi, AuthSession, Client as MatrixClient, SendMediaUploadRequest, SessionChange,
+    SessionTokens, STATE_STORE_DATABASE_NAME,
 };
 use matrix_sdk_common::{stream::StreamExt, SendOutsideWasm, SyncOutsideWasm};
 use matrix_sdk_ui::{
@@ -1030,10 +1030,12 @@ impl Client {
         progress_watcher: Option<Box<dyn ProgressWatcher>>,
     ) -> Result<String, ClientError> {
         let mime_type: mime::Mime = mime_type.parse().context("Parsing mime type")?;
-        let request = self.inner.media().upload(&mime_type, data, filename, None);
+        let send_media_request = SendMediaUploadRequest::new((*self.inner).clone(), data)
+            .with_content_type(mime_type.essence_str().to_owned())
+            .with_filename(filename);
 
         if let Some(progress_watcher) = progress_watcher {
-            let mut subscriber = request.subscribe_to_send_progress();
+            let mut subscriber = send_media_request.subscribe_to_send_progress();
             get_runtime_handle().spawn(async move {
                 while let Some(progress) = subscriber.next().await {
                     progress_watcher.transmission_progress(progress.into());
@@ -1041,7 +1043,7 @@ impl Client {
             });
         }
 
-        let response = request.await?;
+        let response = self.inner.media().upload(send_media_request).await?;
 
         Ok(String::from(response.content_uri))
     }

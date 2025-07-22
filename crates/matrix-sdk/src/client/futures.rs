@@ -156,17 +156,50 @@ where
     }
 }
 
-/// `IntoFuture` used to send media upload requests. It wraps another
-/// [`SendRequest`], checking its size will be accepted by the homeserver before
-/// uploading.
+/// `IntoFuture` used to send media upload requests. It works as a builder which
+/// can create a [`SendRequest`] given several configuration options, checking
+/// its size will be accepted by the homeserver before uploading.
 #[allow(missing_debug_implementations)]
 pub struct SendMediaUploadRequest {
-    send_request: SendRequest<media::create_content::v3::Request>,
+    client: Client,
+    request: media::create_content::v3::Request,
+    /// The [`RequestConfig`] to use for uploading the media file.
+    pub request_config: Option<RequestConfig>,
+    progress_observable: SharedObservable<TransmissionProgress>,
 }
 
 impl SendMediaUploadRequest {
-    pub fn new(request: SendRequest<media::create_content::v3::Request>) -> Self {
-        Self { send_request: request }
+    /// Creates a new instance.
+    pub fn new(client: Client, file: Vec<u8>) -> Self {
+        Self {
+            client,
+            request: media::create_content::v3::Request::new(file),
+            request_config: Default::default(),
+            progress_observable: SharedObservable::new(TransmissionProgress::default()),
+        }
+    }
+
+    /// Returns the data to upload.
+    pub fn data(&self) -> &Vec<u8> {
+        &self.request.file
+    }
+
+    /// Sets the content type of the media for the media upload request.
+    pub fn with_content_type(mut self, content_type: impl Into<String>) -> Self {
+        self.request.content_type = Some(content_type.into());
+        self
+    }
+
+    /// Sets the filename for the media upload request.
+    pub fn with_filename(mut self, filename: Option<impl Into<String>>) -> Self {
+        self.request.filename = filename.map(Into::into);
+        self
+    }
+
+    /// Applies the provided [`RequestConfig`] to the future [`SendRequest`].
+    pub fn with_request_config(mut self, request_config: Option<RequestConfig>) -> Self {
+        self.request_config = request_config;
+        self
     }
 
     /// Replace the default `SharedObservable` used for tracking upload
@@ -179,14 +212,24 @@ impl SendMediaUploadRequest {
         mut self,
         send_progress: SharedObservable<TransmissionProgress>,
     ) -> Self {
-        self.send_request = self.send_request.with_send_progress_observable(send_progress);
+        self.progress_observable = send_progress;
         self
     }
 
     /// Get a subscriber to observe the progress of sending the request
     /// body.
     pub fn subscribe_to_send_progress(&self) -> Subscriber<TransmissionProgress> {
-        self.send_request.send_progress.subscribe()
+        self.progress_observable.subscribe()
+    }
+
+    /// Creates the [`SendRequest`] using the provided parameters.
+    pub fn build_send_request(self) -> SendRequest<media::create_content::v3::Request> {
+        SendRequest {
+            client: self.client,
+            request: self.request,
+            config: self.request_config,
+            send_progress: self.progress_observable,
+        }
     }
 }
 
@@ -195,9 +238,9 @@ impl IntoFuture for SendMediaUploadRequest {
     boxed_into_future!();
 
     fn into_future(self) -> Self::IntoFuture {
-        let request_length = self.send_request.request.file.len();
-        let client = self.send_request.client.clone();
-        let send_request = self.send_request;
+        let send_request = self.build_send_request();
+        let request_length = send_request.request.file.len();
+        let client = send_request.client.clone();
 
         Box::pin(async move {
             let max_upload_size = client.load_or_fetch_max_upload_size().await?;

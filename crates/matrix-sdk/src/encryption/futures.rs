@@ -23,7 +23,9 @@ use eyeball::{SharedObservable, Subscriber};
 use matrix_sdk_common::boxed_into_future;
 use ruma::events::room::{EncryptedFile, EncryptedFileInit};
 
-use crate::{config::RequestConfig, Client, Media, Result, TransmissionProgress};
+use crate::{
+    config::RequestConfig, Client, Media, Result, SendMediaUploadRequest, TransmissionProgress,
+};
 
 /// Future returned by [`Client::upload_encrypted_file`].
 #[allow(missing_debug_implementations)]
@@ -89,11 +91,12 @@ where
             let request_config =
                 request_config.map(|config| config.timeout(Media::reasonable_upload_timeout(&buf)));
 
-            let response = client
-                .media()
-                .upload(&mime::APPLICATION_OCTET_STREAM, buf, None, request_config)
-                .with_send_progress_observable(send_progress)
-                .await?;
+            let send_media_request = SendMediaUploadRequest::new(self.client.clone(), buf)
+                .with_content_type(mime::APPLICATION_OCTET_STREAM.essence_str())
+                .with_request_config(request_config)
+                .with_send_progress_observable(send_progress);
+
+            let response = client.media().upload(send_media_request).await?;
 
             let file: EncryptedFile = {
                 let keys = encryptor.finish();

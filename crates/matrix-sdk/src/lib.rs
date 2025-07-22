@@ -94,6 +94,9 @@ pub use sliding_sync::{
 uniffi::setup_scaffolding!();
 
 pub mod live_location_share;
+
+pub use client::SendMediaUploadRequest;
+
 #[cfg(any(test, feature = "testing"))]
 pub mod test_utils;
 
