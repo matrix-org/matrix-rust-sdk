@@ -39,7 +39,7 @@ use matrix_sdk::{
 use mime::Mime;
 use pinned_events_loader::PinnedEventsRoom;
 use ruma::{
-    EventId, OwnedEventId, RoomVersionId, UserId,
+    EventId, OwnedEventId, UserId,
     api::client::receipt::create_receipt::v3::ReceiptType,
     events::{
         AnyMessageLikeEventContent, AnySyncTimelineEvent,
@@ -50,6 +50,7 @@ use ruma::{
             pinned_events::RoomPinnedEventsEventContent,
         },
     },
+    room_version_rules::RoomVersionRules,
 };
 #[cfg(feature = "unstable-msc4274")]
 use ruma::{
@@ -796,9 +797,9 @@ impl Drop for TimelineDropHandle {
 
 #[cfg(not(target_family = "wasm"))]
 pub type TimelineEventFilterFn =
-    dyn Fn(&AnySyncTimelineEvent, &RoomVersionId) -> bool + Send + Sync;
+    dyn Fn(&AnySyncTimelineEvent, &RoomVersionRules) -> bool + Send + Sync;
 #[cfg(target_family = "wasm")]
-pub type TimelineEventFilterFn = dyn Fn(&AnySyncTimelineEvent, &RoomVersionId) -> bool;
+pub type TimelineEventFilterFn = dyn Fn(&AnySyncTimelineEvent, &RoomVersionRules) -> bool;
 
 /// A source for sending an attachment.
 ///

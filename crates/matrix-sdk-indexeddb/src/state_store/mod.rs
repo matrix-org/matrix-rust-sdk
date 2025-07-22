@@ -30,7 +30,7 @@ use matrix_sdk_base::{
         SerializableEventContent, ServerInfo, StateChanges, StateStore, StoreError,
     },
     MinimalRoomMemberEvent, RoomInfo, RoomMemberships, StateStoreDataKey, StateStoreDataValue,
-    ROOM_VERSION_FALLBACK,
+    ROOM_VERSION_FALLBACK, ROOM_VERSION_RULES_FALLBACK,
 };
 use matrix_sdk_store_encryption::{Error as EncryptionError, StoreCipher};
 use ruma::{
@@ -917,32 +917,32 @@ impl_state_store!({
                 let range = self.encode_to_range(keys::ROOM_STATE, room_id)?;
                 let Some(cursor) = state.open_cursor_with_range(&range)?.await? else { continue };
 
-                let mut room_version = None;
+                let mut redaction_rules = None;
 
                 while let Some(key) = cursor.key() {
                     let raw_evt =
                         self.deserialize_value::<Raw<AnySyncStateEvent>>(&cursor.value())?;
                     if let Ok(Some(event_id)) = raw_evt.get_field::<OwnedEventId>("event_id") {
                         if let Some(redaction) = redactions.get(&event_id) {
-                            let version = {
-                                if room_version.is_none() {
-                                    room_version.replace(room_info
+                            let redaction_rules = {
+                                if redaction_rules.is_none() {
+                                    redaction_rules.replace(room_info
                                         .get(&self.encode_key(keys::ROOM_INFOS, room_id))?
                                         .await?
                                         .and_then(|f| self.deserialize_value::<RoomInfo>(&f).ok())
-                                        .map(|info| info.room_version_or_default())
+                                        .map(|info| info.room_version_rules_or_default())
                                         .unwrap_or_else(|| {
-                                            warn!(?room_id, "Unable to find the room version, assuming {ROOM_VERSION_FALLBACK}");
-                                            ROOM_VERSION_FALLBACK
-                                        })
+                                            warn!(?room_id, "Unable to get the room version rules, defaulting to rules for room version {ROOM_VERSION_FALLBACK}");
+                                            ROOM_VERSION_RULES_FALLBACK
+                                        }).redaction
                                     );
                                 }
-                                room_version.as_ref().unwrap()
+                                redaction_rules.as_ref().unwrap()
                             };
 
                             let redacted = redact(
                                 raw_evt.deserialize_as::<CanonicalJsonObject>()?,
-                                version,
+                                redaction_rules,
                                 Some(RedactedBecause::from_raw_event(redaction)?),
                             )
                             .map_err(StoreError::Redaction)?;

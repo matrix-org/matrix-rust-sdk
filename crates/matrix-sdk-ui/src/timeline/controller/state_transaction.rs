@@ -398,8 +398,9 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
         thread_root: Option<&EventId>,
         position: TimelineItemPosition,
     ) -> bool {
-        let room_version = room_data_provider.room_version();
-        if !(settings.event_filter)(event, &room_version) {
+        let rules = room_data_provider.room_version_rules();
+
+        if !(settings.event_filter)(event, &rules) {
             // The user filtered out the event.
             return false;
         }

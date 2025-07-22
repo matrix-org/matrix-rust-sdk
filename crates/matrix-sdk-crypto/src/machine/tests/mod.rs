@@ -36,8 +36,8 @@ use ruma::{
         room::message::{
             AddMentions, MessageType, Relation, ReplyWithinThread, RoomMessageEventContent,
         },
-        AnyMessageLikeEvent, AnyMessageLikeEventContent, AnyToDeviceEvent, MessageLikeEvent,
-        OriginalMessageLikeEvent, ToDeviceEventType,
+        AnyMessageLikeEvent, AnyMessageLikeEventContent, AnySyncMessageLikeEvent, AnyToDeviceEvent,
+        MessageLikeEvent, OriginalMessageLikeEvent, ToDeviceEventType,
     },
     room_id,
     serde::Raw,
@@ -1442,8 +1442,8 @@ async fn test_unsigned_decryption() {
 
     // Encrypt a second message, an edit.
     let second_message_text = "This is the ~~original~~ edited message";
-    let second_message_content = RoomMessageEventContent::text_plain(second_message_text)
-        .make_replacement(first_message, None);
+    let second_message_content =
+        RoomMessageEventContent::text_plain(second_message_text).make_replacement(first_message);
     let second_message_encrypted_content =
         alice.encrypt_room_event(room_id, second_message_content).await.unwrap();
 
@@ -1579,7 +1579,10 @@ async fn test_unsigned_decryption() {
     assert!(first_message.unsigned.relations.replace.is_some());
     // Deserialization of the thread event succeeded, but it is still encrypted.
     let thread = first_message.unsigned.relations.thread.as_ref().unwrap();
-    assert_matches!(thread.latest_event.deserialize(), Ok(AnyMessageLikeEvent::RoomEncrypted(_)));
+    assert_matches!(
+        thread.latest_event.deserialize(),
+        Ok(AnySyncMessageLikeEvent::RoomEncrypted(_))
+    );
 
     let unsigned_encryption_info = raw_decrypted_event.unsigned_encryption_info.unwrap();
     assert_eq!(unsigned_encryption_info.len(), 2);
@@ -1625,7 +1628,7 @@ async fn test_unsigned_decryption() {
     let thread = &first_message.unsigned.relations.thread.as_ref().unwrap();
     assert_matches!(
         thread.latest_event.deserialize(),
-        Ok(AnyMessageLikeEvent::RoomMessage(third_message))
+        Ok(AnySyncMessageLikeEvent::RoomMessage(third_message))
     );
     let third_message = third_message.as_original().unwrap();
     assert_eq!(third_message.content.body(), third_message_text);

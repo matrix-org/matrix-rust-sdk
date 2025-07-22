@@ -17,9 +17,10 @@ use ruma::{
     events::{
         macros::EventContent,
         room::create::{PreviousRoom, RoomCreateEventContent},
-        EmptyStateKey, RedactContent, RedactedStateEventContent,
+        EmptyStateKey, RedactContent, RedactedStateEventContent, StateEventType,
     },
     room::RoomType,
+    room_version_rules::RedactionRules,
     OwnedUserId, RoomVersionId,
 };
 use serde::{Deserialize, Serialize};
@@ -100,15 +101,19 @@ pub type RedactedRoomCreateWithCreatorEventContent = RoomCreateWithCreatorEventC
 
 impl RedactedStateEventContent for RedactedRoomCreateWithCreatorEventContent {
     type StateKey = EmptyStateKey;
+
+    fn event_type(&self) -> StateEventType {
+        StateEventType::RoomCreate
+    }
 }
 
 impl RedactContent for RoomCreateWithCreatorEventContent {
     type Redacted = RedactedRoomCreateWithCreatorEventContent;
 
-    fn redact(self, version: &RoomVersionId) -> Self::Redacted {
+    fn redact(self, rules: &RedactionRules) -> Self::Redacted {
         let (content, sender) = self.into_event_content();
         // Use Ruma's redaction algorithm.
-        let content = content.redact(version);
+        let content = content.redact(rules);
         Self::from_event_content(content, sender)
     }
 }

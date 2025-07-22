@@ -35,8 +35,9 @@ use ruma::{
             tombstone::RoomTombstoneEventContent,
             topic::RoomTopicEventContent,
         },
-        EmptyStateKey, EventContent, RedactContent, StateEventContent, StateEventType,
+        EmptyStateKey, RedactContent, StateEventContent, StateEventType,
     },
+    room_version_rules::RedactionRules,
     OwnedRoomId, OwnedUserId, RoomId,
 };
 use serde::{Deserialize, Serialize};
@@ -117,7 +118,7 @@ impl RoomInfoV1 {
             latest_event: latest_event.map(|ev| Box::new(LatestEvent::new(ev))),
             read_receipts: Default::default(),
             base_info: base_info.migrate(create),
-            warned_about_unknown_room_version: Arc::new(false.into()),
+            warned_about_unknown_room_version_rules: Arc::new(false.into()),
             cached_display_name: None,
             cached_user_defined_notification_mode: None,
             recency_stamp: None,
@@ -222,22 +223,18 @@ struct RoomNameEventContentV1 {
     name: Option<String>,
 }
 
-impl EventContent for RoomNameEventContentV1 {
-    type EventType = StateEventType;
-
-    fn event_type(&self) -> Self::EventType {
-        StateEventType::RoomName
-    }
-}
-
 impl StateEventContent for RoomNameEventContentV1 {
     type StateKey = EmptyStateKey;
+
+    fn event_type(&self) -> StateEventType {
+        StateEventType::RoomName
+    }
 }
 
 impl RedactContent for RoomNameEventContentV1 {
     type Redacted = RedactedRoomNameEventContent;
 
-    fn redact(self, _version: &ruma::RoomVersionId) -> Self::Redacted {
+    fn redact(self, _rules: &RedactionRules) -> Self::Redacted {
         RedactedRoomNameEventContent::new()
     }
 }

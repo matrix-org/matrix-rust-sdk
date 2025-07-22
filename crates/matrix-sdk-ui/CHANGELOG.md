@@ -30,6 +30,13 @@ All notable changes to this project will be documented in this file.
   `matrix_sdk::latest_events::LatestEvents::listen_to_room`
   ([#5369](https://github.com/matrix-org/matrix-rust-sdk/pull/5369))
 
+### Refactor
+
+- [**breaking**] The function provided to `TimelineBuilder::event_filter()`
+  must take `RoomVersionRules` as second argument instead of a `RoomVersionId`.
+  The `default_event_filter()` reflects that change.
+  ([#5337](https://github.com/matrix-org/matrix-rust-sdk/pull/5337))
+
 ## [0.12.0] - 2025-06-10
 
 ### Refactor

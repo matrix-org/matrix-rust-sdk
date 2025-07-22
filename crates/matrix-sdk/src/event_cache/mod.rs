@@ -577,11 +577,11 @@ impl EventCacheInner {
                 let room = client
                     .get_room(room_id)
                     .ok_or_else(|| EventCacheError::RoomNotFound { room_id: room_id.to_owned() })?;
-                let room_version = room.clone_info().room_version_or_default();
+                let room_version_rules = room.clone_info().room_version_rules_or_default();
 
                 let room_state = RoomEventCacheState::new(
                     room_id.to_owned(),
-                    room_version,
+                    room_version_rules,
                     self.store.clone(),
                     pagination_status.clone(),
                 )

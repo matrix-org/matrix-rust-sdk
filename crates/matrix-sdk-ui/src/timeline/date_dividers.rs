@@ -654,7 +654,10 @@ enum DateDividerInsertError {
 #[cfg(test)]
 mod tests {
     use assert_matches2::assert_let;
-    use ruma::{MilliSecondsSinceUnixEpoch, owned_event_id, owned_user_id, uint};
+    use ruma::{
+        MilliSecondsSinceUnixEpoch, owned_event_id, owned_user_id,
+        room_version_rules::RoomVersionRules, uint,
+    };
 
     use super::{super::controller::ObservableItems, DateDividerAdjuster};
     use crate::timeline::{
@@ -688,7 +691,7 @@ mod tests {
     }
 
     fn test_metadata() -> TimelineMetadata {
-        TimelineMetadata::new(owned_user_id!("@a:b.c"), ruma::RoomVersionId::V11, None, None, false)
+        TimelineMetadata::new(owned_user_id!("@a:b.c"), RoomVersionRules::V11, None, None, false)
     }
 
     #[test]

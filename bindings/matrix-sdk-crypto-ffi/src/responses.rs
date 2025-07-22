@@ -27,7 +27,7 @@ use ruma::{
         to_device::send_event_to_device::v3::Response as ToDeviceResponse,
     },
     assign,
-    events::EventContent,
+    events::MessageLikeEventContent,
     OwnedTransactionId, UserId,
 };
 use serde_json::json;

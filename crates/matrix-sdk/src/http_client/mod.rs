@@ -14,6 +14,7 @@
 
 use std::{
     any::type_name,
+    borrow::Cow,
     fmt::Debug,
     num::NonZeroUsize,
     sync::{
@@ -29,7 +30,7 @@ use eyeball::SharedObservable;
 use http::Method;
 use ruma::api::{
     error::{FromHttpResponseError, IntoHttpError},
-    AuthScheme, MatrixVersion, OutgoingRequest, SendAccessToken,
+    AuthScheme, OutgoingRequest, SendAccessToken, SupportedVersions,
 };
 use tokio::sync::{Semaphore, SemaphorePermit};
 use tracing::{debug, field::debug, instrument, trace};
@@ -101,17 +102,20 @@ impl HttpClient {
         config: RequestConfig,
         homeserver: String,
         access_token: Option<&str>,
-        server_versions: &[MatrixVersion],
+        supported_versions: &SupportedVersions,
     ) -> Result<http::Request<Bytes>, IntoHttpError>
     where
         R: OutgoingRequest + Debug,
     {
         trace!(request_type = type_name::<R>(), "Serializing request");
 
-        let server_versions = if config.force_matrix_version.is_some() {
-            config.force_matrix_version.as_slice()
+        let supported_versions = if let Some(matrix_version) = config.force_matrix_version {
+            Cow::Owned(SupportedVersions {
+                versions: [matrix_version].into(),
+                features: Default::default(),
+            })
         } else {
-            server_versions
+            Cow::Borrowed(supported_versions)
         };
 
         let send_access_token = match access_token {
@@ -126,7 +130,7 @@ impl HttpClient {
         };
 
         let request = request
-            .try_into_http_request::<BytesMut>(&homeserver, send_access_token, server_versions)?
+            .try_into_http_request::<BytesMut>(&homeserver, send_access_token, &supported_versions)?
             .map(|body| body.freeze());
 
         Ok(request)
@@ -134,7 +138,7 @@ impl HttpClient {
 
     #[allow(clippy::too_many_arguments)]
     #[instrument(
-        skip(self, request, config, homeserver, access_token, server_versions, send_progress),
+        skip(self, request, config, homeserver, access_token, supported_versions, send_progress),
         fields(
             uri,
             method,
@@ -152,7 +156,7 @@ impl HttpClient {
         config: Option<RequestConfig>,
         homeserver: String,
         access_token: Option<&str>,
-        server_versions: &[MatrixVersion],
+        supported_versions: &SupportedVersions,
         send_progress: SharedObservable<TransmissionProgress>,
     ) -> Result<R::IncomingResponse, HttpError>
     where
@@ -179,6 +183,7 @@ impl HttpClient {
                 AuthScheme::AccessToken
                 | AuthScheme::AccessTokenOptional
                 | AuthScheme::AppserviceToken
+                | AuthScheme::AppserviceTokenOptional
                 | AuthScheme::None => {}
                 AuthScheme::ServerSignatures => {
                     return Err(HttpError::NotClientRequest);
@@ -186,7 +191,7 @@ impl HttpClient {
             }
 
             let request = self
-                .serialize_request(request, config, homeserver, access_token, server_versions)
+                .serialize_request(request, config, homeserver, access_token, supported_versions)
                 .map_err(HttpError::IntoHttp)?;
 
             let method = request.method();
