@@ -1,7 +1,7 @@
 [package]
 authors = ["Damir Jelić <poljar@termina.org.uk>"]
 description = "The base component to build a Matrix client library."
-edition = "2021"
+edition = "2024"
 homepage = "https://github.com/matrix-org/matrix-rust-sdk"
 keywords = ["matrix", "chat", "messaging", "ruma", "nio"]
 license = "Apache-2.0"
