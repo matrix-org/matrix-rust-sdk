@@ -821,7 +821,7 @@ pub enum AttachmentSource {
     /// An attachment loaded from a file.
     ///
     /// The bytes and the filename will be read from the file at the given path.
-    File(PathBuf),
+    File { filename: Option<String>, path: PathBuf },
 }
 
 impl AttachmentSource {
@@ -829,13 +829,16 @@ impl AttachmentSource {
     pub(crate) fn try_into_bytes_and_filename(self) -> Result<(Vec<u8>, String), Error> {
         match self {
             Self::Data { bytes, filename } => Ok((bytes, filename)),
-            Self::File(path) => {
-                let filename = path
-                    .file_name()
-                    .ok_or(Error::InvalidAttachmentFileName)?
-                    .to_str()
-                    .ok_or(Error::InvalidAttachmentFileName)?
-                    .to_owned();
+            Self::File { path, filename } => {
+                let filename = if let Some(filename) = filename {
+                    filename
+                } else {
+                    path.file_name()
+                        .ok_or(Error::InvalidAttachmentFileName)?
+                        .to_str()
+                        .ok_or(Error::InvalidAttachmentFileName)?
+                        .to_owned()
+                };
                 let bytes = fs::read(&path).map_err(|_| Error::InvalidAttachmentData)?;
                 Ok((bytes, filename))
             }
@@ -848,7 +851,7 @@ where
     P: Into<PathBuf>,
 {
     fn from(value: P) -> Self {
-        Self::File(value.into())
+        Self::File { path: value.into(), filename: None }
     }
 }
 

@@ -2624,6 +2624,13 @@ impl<'a> MockEndpoint<'a, UploadEndpoint> {
     /// Returns a upload endpoint that emulates success, i.e. the media has been
     /// uploaded to the media server and can be accessed using the given
     /// event has been sent with the given [`MxcUri`].
+    /// Expect the filename query param to match the provided value.
+    pub fn expect_filename(self, filename: &str) -> Self {
+        Self { mock: self.mock.and(query_param("filename", filename)), ..self }
+    }
+
+    /// Returns a redact endpoint that emulates success, i.e. the redaction
+    /// event has been sent with the given event id.
     pub fn ok(self, mxc_id: &MxcUri) -> MatrixMock<'a> {
         self.respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "content_uri": mxc_id

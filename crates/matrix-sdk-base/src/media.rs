@@ -142,6 +142,9 @@ pub trait MediaEventContent {
     /// Returns `None` if `Self` has no file.
     fn source(&self) -> Option<MediaSource>;
 
+    /// Get the name of the uploaded file for `Self`.
+    fn filename(&self) -> Option<String>;
+
     /// Get the source of the thumbnail for `Self`.
     ///
     /// Returns `None` if `Self` has no thumbnail.
@@ -151,6 +154,10 @@ pub trait MediaEventContent {
 impl MediaEventContent for StickerEventContent {
     fn source(&self) -> Option<MediaSource> {
         Some(MediaSource::from(self.source.clone()))
+    }
+
+    fn filename(&self) -> Option<String> {
+        None
     }
 
     fn thumbnail_source(&self) -> Option<MediaSource> {
@@ -163,6 +170,10 @@ impl MediaEventContent for AudioMessageEventContent {
         Some(self.source.clone())
     }
 
+    fn filename(&self) -> Option<String> {
+        self.filename.clone()
+    }
+
     fn thumbnail_source(&self) -> Option<MediaSource> {
         None
     }
@@ -173,6 +184,10 @@ impl MediaEventContent for FileMessageEventContent {
         Some(self.source.clone())
     }
 
+    fn filename(&self) -> Option<String> {
+        self.filename.clone()
+    }
+
     fn thumbnail_source(&self) -> Option<MediaSource> {
         self.info.as_ref()?.thumbnail_source.clone()
     }
@@ -181,6 +196,10 @@ impl MediaEventContent for FileMessageEventContent {
 impl MediaEventContent for ImageMessageEventContent {
     fn source(&self) -> Option<MediaSource> {
         Some(self.source.clone())
+    }
+
+    fn filename(&self) -> Option<String> {
+        self.filename.clone()
     }
 
     fn thumbnail_source(&self) -> Option<MediaSource> {
@@ -196,6 +215,10 @@ impl MediaEventContent for VideoMessageEventContent {
         Some(self.source.clone())
     }
 
+    fn filename(&self) -> Option<String> {
+        self.filename.clone()
+    }
+
     fn thumbnail_source(&self) -> Option<MediaSource> {
         self.info
             .as_ref()
@@ -206,6 +229,10 @@ impl MediaEventContent for VideoMessageEventContent {
 
 impl MediaEventContent for LocationMessageEventContent {
     fn source(&self) -> Option<MediaSource> {
+        None
+    }
+
+    fn filename(&self) -> Option<String> {
         None
     }
 

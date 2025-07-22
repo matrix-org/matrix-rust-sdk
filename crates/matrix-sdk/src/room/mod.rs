@@ -2247,6 +2247,7 @@ impl Room {
                     // TODO: get rid of this clone; wait for Ruma to use `Bytes` or something
                     // similar.
                     data.clone(),
+                    Some(filename.clone()),
                     thumbnail,
                     send_progress,
                 )
@@ -2514,7 +2515,7 @@ impl Room {
     ) -> Result<send_state_event::v3::Response> {
         self.ensure_room_joined()?;
 
-        let upload_response = self.client.media().upload(mime, data, None).await?;
+        let upload_response = self.client.media().upload(mime, data, None, None).await?;
         let mut info = info.unwrap_or_default();
         info.blurhash = upload_response.blurhash;
         info.mimetype = Some(mime.to_string());

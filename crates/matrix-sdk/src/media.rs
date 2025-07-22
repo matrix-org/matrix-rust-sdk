@@ -190,8 +190,10 @@ impl Media {
     /// # let mut client = Client::new(homeserver).await?;
     /// let image = fs::read("/home/example/my-cat.jpg")?;
     ///
-    /// let response =
-    ///     client.media().upload(&mime::IMAGE_JPEG, image, None).await?;
+    /// let response = client
+    ///     .media()
+    ///     .upload(&mime::IMAGE_JPEG, image, Some("my-cat.jpg".to_string()), None)
+    ///     .await?;
     ///
     /// println!("Cat URI: {}", response.content_uri);
     /// # anyhow::Ok(()) };
@@ -200,6 +202,7 @@ impl Media {
         &self,
         content_type: &Mime,
         data: Vec<u8>,
+        filename: Option<String>,
         request_config: Option<RequestConfig>,
     ) -> SendMediaUploadRequest {
         let request_config = request_config.unwrap_or_else(|| {
@@ -207,6 +210,7 @@ impl Media {
         });
 
         let request = assign!(media::create_content::v3::Request::new(data), {
+            filename,
             content_type: Some(content_type.essence_str().to_owned()),
         });
 
@@ -721,13 +725,16 @@ impl Media {
         &self,
         content_type: &Mime,
         data: Vec<u8>,
+        filename: Option<String>,
         thumbnail: Option<Thumbnail>,
         send_progress: SharedObservable<TransmissionProgress>,
     ) -> Result<(MediaSource, Option<(MediaSource, Box<ThumbnailInfo>)>)> {
         let upload_thumbnail = self.upload_thumbnail(thumbnail, send_progress.clone());
 
         let upload_attachment = async move {
-            self.upload(content_type, data, None).with_send_progress_observable(send_progress).await
+            self.upload(content_type, data, filename, None)
+                .with_send_progress_observable(send_progress)
+                .await
         };
 
         let (thumbnail, response) = try_join(upload_thumbnail, upload_attachment).await?;
@@ -749,7 +756,7 @@ impl Media {
         let (data, content_type, thumbnail_info) = thumbnail.into_parts();
 
         let response = self
-            .upload(&content_type, data, None)
+            .upload(&content_type, data, None, None)
             .with_send_progress_observable(send_progress)
             .await?;
         let url = response.content_uri;

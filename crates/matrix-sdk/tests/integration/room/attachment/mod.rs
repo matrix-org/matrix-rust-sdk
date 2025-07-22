@@ -120,6 +120,7 @@ async fn test_room_attachment_send_info() {
 
     mock.mock_upload()
         .expect_mime_type("image/jpeg")
+        .expect_filename("image.jpg")
         .ok(mxc_uri!("mxc://example.com/AQwafuaFswefuhsfAFAgsw"))
         .mock_once()
         .mount()
