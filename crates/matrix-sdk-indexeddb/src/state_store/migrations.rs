@@ -1234,12 +1234,13 @@ mod tests {
 
         let room_id = room_id!("!room:localhost");
         let member_event =
-            Raw::new(&*test_json::MEMBER_INVITE).unwrap().cast::<SyncRoomMemberEvent>();
+            Raw::new(&*test_json::MEMBER_INVITE).unwrap().cast_unchecked::<SyncRoomMemberEvent>();
         let user_id = user_id!("@invited:localhost");
 
         let stripped_room_id = room_id!("!stripped_room:localhost");
-        let stripped_member_event =
-            Raw::new(&*test_json::MEMBER_STRIPPED).unwrap().cast::<StrippedRoomMemberEvent>();
+        let stripped_member_event = Raw::new(&*test_json::MEMBER_STRIPPED)
+            .unwrap()
+            .cast_unchecked::<StrippedRoomMemberEvent>();
         let stripped_user_id = user_id!("@example:localhost");
 
         // Populate DB with old table.
@@ -1308,15 +1309,16 @@ mod tests {
 
         let room_id = room_id!("!room:localhost");
         let invite_member_event =
-            Raw::new(&*test_json::MEMBER_INVITE).unwrap().cast::<SyncRoomMemberEvent>();
+            Raw::new(&*test_json::MEMBER_INVITE).unwrap().cast_unchecked::<SyncRoomMemberEvent>();
         let invite_user_id = user_id!("@invited:localhost");
         let ban_member_event =
-            Raw::new(&*test_json::MEMBER_BAN).unwrap().cast::<SyncRoomMemberEvent>();
+            Raw::new(&*test_json::MEMBER_BAN).unwrap().cast_unchecked::<SyncRoomMemberEvent>();
         let ban_user_id = user_id!("@banned:localhost");
 
         let stripped_room_id = room_id!("!stripped_room:localhost");
-        let stripped_member_event =
-            Raw::new(&*test_json::MEMBER_STRIPPED).unwrap().cast::<StrippedRoomMemberEvent>();
+        let stripped_member_event = Raw::new(&*test_json::MEMBER_STRIPPED)
+            .unwrap()
+            .cast_unchecked::<StrippedRoomMemberEvent>();
         let stripped_user_id = user_id!("@example:localhost");
 
         // Populate DB with old table.

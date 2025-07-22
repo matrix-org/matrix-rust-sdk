@@ -1055,7 +1055,7 @@ pub enum RoomEventDecryptionResult {
 ///         let content = Raw::new(&json!({
 ///             "body": message,
 ///             "msgtype": "m.text",
-///         }))?.cast();
+///         }))?.cast_unchecked();
 ///
 ///         let users = get_joined_members(room_id).await;
 ///
