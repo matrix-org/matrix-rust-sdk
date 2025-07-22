@@ -244,6 +244,12 @@ impl EventCache {
         .await;
     }
 
+    /// For benchmarking purposes only.
+    #[doc(hidden)]
+    pub async fn handle_room_updates(&self, updates: RoomUpdates) -> Result<()> {
+        self.inner.handle_room_updates(updates).await
+    }
+
     #[instrument(skip_all)]
     async fn listen_task(
         inner: Arc<EventCacheInner>,

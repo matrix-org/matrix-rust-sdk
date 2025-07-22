@@ -464,6 +464,12 @@ pub trait IntoEventCacheStore {
     fn into_event_cache_store(self) -> Arc<DynEventCacheStore>;
 }
 
+impl IntoEventCacheStore for Arc<DynEventCacheStore> {
+    fn into_event_cache_store(self) -> Arc<DynEventCacheStore> {
+        self
+    }
+}
+
 impl<T> IntoEventCacheStore for T
 where
     T: EventCacheStore + Sized + 'static,
