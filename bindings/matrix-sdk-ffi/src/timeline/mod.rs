@@ -219,7 +219,11 @@ pub enum UploadSource {
     /// Upload source is a file on disk
     File {
         /// Path to file
-        filename: String,
+        path: String,
+
+        /// An optional filename, if the one in the path is not the one we want
+        /// to use for the file.
+        filename: Option<String>,
     },
     /// Upload source is data in memory
     Data {
@@ -233,7 +237,7 @@ pub enum UploadSource {
 impl From<UploadSource> for AttachmentSource {
     fn from(value: UploadSource) -> Self {
         match value {
-            UploadSource::File { filename } => Self::File(filename.into()),
+            UploadSource::File { path, filename } => Self::File { path: path.into(), filename },
             UploadSource::Data { bytes, filename } => Self::Data { bytes, filename },
         }
     }
