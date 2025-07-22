@@ -13,11 +13,11 @@
 // limitations under the License.
 
 use ruma::{
-    events::{
-        room::member::{MembershipState, RoomMemberEventContent},
-        SyncStateEvent,
-    },
     RoomId,
+    events::{
+        SyncStateEvent,
+        room::member::{MembershipState, RoomMemberEventContent},
+    },
 };
 
 use super::Context;

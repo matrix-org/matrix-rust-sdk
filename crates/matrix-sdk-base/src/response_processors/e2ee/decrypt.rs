@@ -14,7 +14,7 @@
 
 use matrix_sdk_common::deserialized_responses::TimelineEvent;
 use matrix_sdk_crypto::RoomEventDecryptionResult;
-use ruma::{events::AnySyncTimelineEvent, serde::Raw, RoomId};
+use ruma::{RoomId, events::AnySyncTimelineEvent, serde::Raw};
 
 use super::{super::verification, E2EE};
 use crate::Result;

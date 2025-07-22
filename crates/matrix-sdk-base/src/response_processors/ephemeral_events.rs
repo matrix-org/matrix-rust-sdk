@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use ruma::{events::AnySyncEphemeralRoomEvent, serde::Raw, RoomId};
+use ruma::{RoomId, events::AnySyncEphemeralRoomEvent, serde::Raw};
 use tracing::info;
 
 use super::Context;

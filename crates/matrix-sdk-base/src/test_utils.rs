@@ -16,12 +16,12 @@
 
 #![allow(dead_code)]
 
-use ruma::{owned_user_id, UserId};
+use ruma::{UserId, owned_user_id};
 
 use crate::{
+    BaseClient, SessionMeta,
     client::ThreadingSupport,
     store::{RoomLoadSettings, StoreConfig},
-    BaseClient, SessionMeta,
 };
 
 /// Create a [`BaseClient`] with the given user id, if provided, or an hardcoded

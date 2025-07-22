@@ -20,24 +20,24 @@ use std::{
 
 use bitflags::bitflags;
 use ruma::{
+    MxcUri, OwnedUserId, UserId,
     events::{
+        MessageLikeEventType, StateEventType,
         ignored_user_list::IgnoredUserListEventContent,
         presence::PresenceEvent,
         room::{
             member::{MembershipState, RoomMemberEventContent},
             power_levels::{PowerLevelAction, RoomPowerLevels},
         },
-        MessageLikeEventType, StateEventType,
     },
-    MxcUri, OwnedUserId, UserId,
 };
 use tracing::debug;
 
 use super::Room;
 use crate::{
-    deserialized_responses::{DisplayName, MemberEvent},
-    store::{ambiguity_map::is_display_name_ambiguous, Result as StoreResult, StateStoreExt},
     MinimalRoomMemberEvent,
+    deserialized_responses::{DisplayName, MemberEvent},
+    store::{Result as StoreResult, StateStoreExt, ambiguity_map::is_display_name_ambiguous},
 };
 
 impl Room {
@@ -255,11 +255,7 @@ impl RoomMember {
     /// This returns either the display name or the local part of the user id if
     /// the member didn't set a display name.
     pub fn name(&self) -> &str {
-        if let Some(d) = self.display_name() {
-            d
-        } else {
-            self.user_id().localpart()
-        }
+        if let Some(d) = self.display_name() { d } else { self.user_id().localpart() }
     }
 
     /// Get the avatar url of the member, if there is one.

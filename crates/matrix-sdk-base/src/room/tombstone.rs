@@ -14,7 +14,7 @@
 
 use std::ops::Not;
 
-use ruma::{events::room::tombstone::RoomTombstoneEventContent, OwnedRoomId};
+use ruma::{OwnedRoomId, events::room::tombstone::RoomTombstoneEventContent};
 
 use super::Room;
 
@@ -109,11 +109,11 @@ mod tests {
 
     use assert_matches::assert_matches;
     use matrix_sdk_test::{
-        async_test, event_factory::EventFactory, JoinedRoomBuilder, SyncResponseBuilder,
+        JoinedRoomBuilder, SyncResponseBuilder, async_test, event_factory::EventFactory,
     };
-    use ruma::{event_id, room_id, user_id, RoomVersionId};
+    use ruma::{RoomVersionId, event_id, room_id, user_id};
 
-    use crate::{test_utils::logged_in_base_client, RoomState};
+    use crate::{RoomState, test_utils::logged_in_base_client};
 
     #[async_test]
     async fn test_no_successor_room() {

@@ -14,18 +14,22 @@
 
 use std::{
     collections::{BTreeMap, HashSet},
-    sync::{atomic::AtomicBool, Arc},
+    sync::{Arc, atomic::AtomicBool},
 };
 
 use bitflags::bitflags;
 use eyeball::Subscriber;
 use matrix_sdk_common::{
-    deserialized_responses::TimelineEventKind, ROOM_VERSION_FALLBACK, ROOM_VERSION_RULES_FALLBACK,
+    ROOM_VERSION_FALLBACK, ROOM_VERSION_RULES_FALLBACK, deserialized_responses::TimelineEventKind,
 };
 use ruma::{
+    EventId, MilliSecondsSinceUnixEpoch, MxcUri, OwnedEventId, OwnedMxcUri, OwnedRoomAliasId,
+    OwnedRoomId, OwnedUserId, RoomAliasId, RoomId, RoomVersionId, UserId,
     api::client::sync::sync_events::v3::RoomSummary as RumaSummary,
     assign,
     events::{
+        AnyStrippedStateEvent, AnySyncStateEvent, AnySyncTimelineEvent, RedactContent,
+        RedactedStateEventContent, StateEventType, StaticStateEventContent, SyncStateEvent,
         beacon_info::BeaconInfoEventContent,
         call::member::{CallMemberEventContent, CallMemberStateKey, MembershipData},
         direct::OwnedDirectUserIdentifier,
@@ -43,14 +47,10 @@ use ruma::{
             topic::RoomTopicEventContent,
         },
         tag::{TagEventContent, TagName, Tags},
-        AnyStrippedStateEvent, AnySyncStateEvent, AnySyncTimelineEvent, RedactContent,
-        RedactedStateEventContent, StateEventType, StaticStateEventContent, SyncStateEvent,
     },
     room::RoomType,
     room_version_rules::{RedactionRules, RoomVersionRules},
     serde::Raw,
-    EventId, MilliSecondsSinceUnixEpoch, MxcUri, OwnedEventId, OwnedMxcUri, OwnedRoomAliasId,
-    OwnedRoomId, OwnedUserId, RoomAliasId, RoomId, RoomVersionId, UserId,
 };
 use serde::{Deserialize, Serialize};
 use tracing::{debug, error, field::debug, info, instrument, warn};
@@ -60,13 +60,13 @@ use super::{
     RoomHero, RoomNotableTags, RoomState, RoomSummary,
 };
 use crate::{
+    MinimalStateEvent, OriginalMinimalStateEvent,
     deserialized_responses::RawSyncOrStrippedState,
     latest_event::LatestEvent,
     notification_settings::RoomNotificationMode,
     read_receipts::RoomReadReceipts,
     store::{DynStateStore, StateStoreExt},
     sync::UnreadNotificationsCount,
-    MinimalStateEvent, OriginalMinimalStateEvent,
 };
 
 /// A struct remembering details of an invite and if the invite has been
@@ -1120,7 +1120,7 @@ pub fn apply_redaction(
     raw_redaction: &Raw<SyncRoomRedactionEvent>,
     rules: &RedactionRules,
 ) -> Option<Raw<AnySyncTimelineEvent>> {
-    use ruma::canonical_json::{redact_in_place, RedactedBecause};
+    use ruma::canonical_json::{RedactedBecause, redact_in_place};
 
     let mut event_json = match event.deserialize_as() {
         Ok(json) => json,
@@ -1216,7 +1216,7 @@ mod tests {
     use matrix_sdk_common::deserialized_responses::TimelineEvent;
     use matrix_sdk_test::{
         async_test,
-        test_json::{sync_events::PINNED_EVENTS, TAG},
+        test_json::{TAG, sync_events::PINNED_EVENTS},
     };
     use ruma::{
         assign, events::room::pinned_events::RoomPinnedEventsEventContent, owned_event_id,
@@ -1227,12 +1227,12 @@ mod tests {
 
     use super::{BaseRoomInfo, RoomInfo, SyncInfo};
     use crate::{
+        RoomDisplayName, RoomHero, RoomState, StateChanges,
         latest_event::LatestEvent,
         notification_settings::RoomNotificationMode,
         room::{RoomNotableTags, RoomSummary},
         store::{IntoStateStore, MemoryStore},
         sync::UnreadNotificationsCount,
-        RoomDisplayName, RoomHero, RoomState, StateChanges,
     };
 
     #[test]
