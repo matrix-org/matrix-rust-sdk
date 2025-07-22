@@ -21,33 +21,33 @@ use std::collections::BTreeSet;
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk_common::deserialized_responses::TimelineEvent;
 use ruma::{
+    JsOption, OwnedRoomId, RoomId, UserId,
     api::client::sync::sync_events::{
         v3::{InviteState, InvitedRoom, KnockState, KnockedRoom},
         v5 as http,
     },
     assign,
     events::{
-        room::member::{MembershipState, RoomMemberEventContent},
         AnyRoomAccountDataEvent, AnyStrippedStateEvent, AnySyncStateEvent,
+        room::member::{MembershipState, RoomMemberEventContent},
     },
     serde::Raw,
-    JsOption, OwnedRoomId, RoomId, UserId,
 };
 use tokio::sync::broadcast::Sender;
 
 #[cfg(feature = "e2e-encryption")]
 use super::super::e2ee;
 use super::{
-    super::{notification, state_events, timeline, Context},
+    super::{Context, notification, state_events, timeline},
     RoomCreationData,
 };
 #[cfg(feature = "e2e-encryption")]
 use crate::StateChanges;
 use crate::{
-    store::BaseStateStore,
-    sync::{InvitedRoomUpdate, JoinedRoomUpdate, KnockedRoomUpdate, LeftRoomUpdate},
     Result, Room, RoomHero, RoomInfo, RoomInfoNotableUpdate, RoomInfoNotableUpdateReasons,
     RoomState,
+    store::BaseStateStore,
+    sync::{InvitedRoomUpdate, JoinedRoomUpdate, KnockedRoomUpdate, LeftRoomUpdate},
 };
 
 /// Represent any kind of room updates.
@@ -432,7 +432,7 @@ pub(crate) async fn cache_latest_events(
 
     use crate::{
         deserialized_responses::DisplayName,
-        latest_event::{is_suitable_for_latest_event, LatestEvent, PossibleLatestEvent},
+        latest_event::{LatestEvent, PossibleLatestEvent, is_suitable_for_latest_event},
         store::ambiguity_map::is_display_name_ambiguous,
     };
 

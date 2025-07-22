@@ -21,7 +21,9 @@ use std::{
 
 use matrix_sdk_common::deserialized_responses::TimelineEvent;
 use ruma::{
+    OwnedRoomId, OwnedUserId, RoomId,
     events::{
+        EmptyStateKey, RedactContent, StateEventContent, StateEventType,
         direct::OwnedDirectUserIdentifier,
         room::{
             avatar::RoomAvatarEventContent,
@@ -35,19 +37,17 @@ use ruma::{
             tombstone::RoomTombstoneEventContent,
             topic::RoomTopicEventContent,
         },
-        EmptyStateKey, RedactContent, StateEventContent, StateEventType,
     },
     room_version_rules::RedactionRules,
-    OwnedRoomId, OwnedUserId, RoomId,
 };
 use serde::{Deserialize, Serialize};
 
 use crate::{
+    MinimalStateEvent, OriginalMinimalStateEvent, RoomInfo, RoomState,
     deserialized_responses::SyncOrStrippedState,
     latest_event::LatestEvent,
     room::{BaseRoomInfo, RoomSummary, SyncInfo},
     sync::UnreadNotificationsCount,
-    MinimalStateEvent, OriginalMinimalStateEvent, RoomInfo, RoomState,
 };
 
 /// [`RoomInfo`] version 1.

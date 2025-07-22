@@ -33,9 +33,9 @@ use matrix_sdk_common::store_locks::{
 };
 pub use matrix_sdk_store_encryption::Error as StoreEncryptionError;
 use ruma::{
-    events::{relation::RelationType, AnySyncTimelineEvent},
-    serde::Raw,
     OwnedEventId,
+    events::{AnySyncTimelineEvent, relation::RelationType},
+    serde::Raw,
 };
 use tracing::trace;
 
@@ -43,7 +43,7 @@ use tracing::trace;
 pub use self::integration_tests::EventCacheStoreIntegrationTests;
 pub use self::{
     memory_store::MemoryStore,
-    traits::{DynEventCacheStore, EventCacheStore, IntoEventCacheStore, DEFAULT_CHUNK_CAPACITY},
+    traits::{DEFAULT_CHUNK_CAPACITY, DynEventCacheStore, EventCacheStore, IntoEventCacheStore},
 };
 
 /// The high-level public type to represent an `EventCacheStore` lock.
@@ -236,11 +236,7 @@ pub fn compute_filters_string(filters: Option<&[RelationType]>) -> Option<Vec<St
         filter
             .iter()
             .map(|f| {
-                if *f == RelationType::Replacement {
-                    "m.replace".to_owned()
-                } else {
-                    f.to_string()
-                }
+                if *f == RelationType::Replacement { "m.replace".to_owned() } else { f.to_string() }
             })
             .collect()
     })

@@ -7,12 +7,16 @@ use assert_matches2::assert_let;
 use growable_bloom_filter::GrowableBloomBuilder;
 use matrix_sdk_test::{event_factory::EventFactory, test_json};
 use ruma::{
+    EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedUserId, RoomId, TransactionId, UserId,
     api::{
-        client::discovery::discover_homeserver::{HomeserverInfo, RtcFocusInfo},
         FeatureFlag, MatrixVersion,
+        client::discovery::discover_homeserver::{HomeserverInfo, RtcFocusInfo},
     },
     event_id,
     events::{
+        AnyGlobalAccountDataEvent, AnyMessageLikeEventContent, AnyRoomAccountDataEvent,
+        AnyStrippedStateEvent, AnySyncStateEvent, GlobalAccountDataEventType,
+        RoomAccountDataEventType, StateEventType, SyncStateEvent,
         presence::PresenceEvent,
         receipt::{ReceiptThread, ReceiptType},
         room::{
@@ -24,25 +28,21 @@ use ruma::{
             power_levels::RoomPowerLevelsEventContent,
             topic::RoomTopicEventContent,
         },
-        AnyGlobalAccountDataEvent, AnyMessageLikeEventContent, AnyRoomAccountDataEvent,
-        AnyStrippedStateEvent, AnySyncStateEvent, GlobalAccountDataEventType,
-        RoomAccountDataEventType, StateEventType, SyncStateEvent,
     },
     owned_event_id, owned_mxc_uri, room_id,
     serde::Raw,
-    uint, user_id, EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedUserId, RoomId,
-    TransactionId, UserId,
+    uint, user_id,
 };
 use serde_json::{json, value::Value as JsonValue};
 
 use super::{
-    send_queue::SentRequestKey, DependentQueuedRequestKind, DisplayName, DynStateStore,
-    RoomLoadSettings, ServerInfo, WellKnownResponse,
+    DependentQueuedRequestKind, DisplayName, DynStateStore, RoomLoadSettings, ServerInfo,
+    WellKnownResponse, send_queue::SentRequestKey,
 };
 use crate::{
+    RoomInfo, RoomMemberships, RoomState, StateChanges, StateStoreDataKey, StateStoreDataValue,
     deserialized_responses::MemberEvent,
     store::{ChildTransactionId, QueueWedgeError, Result, SerializableEventContent, StateStoreExt},
-    RoomInfo, RoomMemberships, RoomState, StateChanges, StateStoreDataKey, StateStoreDataValue,
 };
 
 /// `StateStore` integration tests.
@@ -272,10 +272,9 @@ impl StateStoreIntegrationTests for DynStateStore {
             2,
             "Expected to find 2 room infos"
         );
-        assert!(self
-            .get_account_data_event(GlobalAccountDataEventType::PushRules)
-            .await?
-            .is_some());
+        assert!(
+            self.get_account_data_event(GlobalAccountDataEventType::PushRules).await?.is_some()
+        );
 
         assert!(self.get_state_event(room_id, StateEventType::RoomName, "").await?.is_some());
         assert_eq!(
@@ -305,19 +304,21 @@ impl StateStoreIntegrationTests for DynStateStore {
             2,
             "Expected to find 2 display names for room"
         );
-        assert!(self
-            .get_room_account_data_event(room_id, RoomAccountDataEventType::Tag)
-            .await?
-            .is_some());
-        assert!(self
-            .get_user_room_receipt_event(
+        assert!(
+            self.get_room_account_data_event(room_id, RoomAccountDataEventType::Tag)
+                .await?
+                .is_some()
+        );
+        assert!(
+            self.get_user_room_receipt_event(
                 room_id,
                 ReceiptType::Read,
                 ReceiptThread::Unthreaded,
                 user_id
             )
             .await?
-            .is_some());
+            .is_some()
+        );
         assert_eq!(
             self.get_event_room_receipt_events(
                 room_id,
@@ -671,20 +672,22 @@ impl StateStoreIntegrationTests for DynStateStore {
         let raw_event = power_level_event();
         let event = raw_event.deserialize().unwrap();
 
-        assert!(self
-            .get_state_event(room_id, StateEventType::RoomPowerLevels, "")
-            .await
-            .unwrap()
-            .is_none());
+        assert!(
+            self.get_state_event(room_id, StateEventType::RoomPowerLevels, "")
+                .await
+                .unwrap()
+                .is_none()
+        );
         let mut changes = StateChanges::default();
         changes.add_state_event(room_id, event, raw_event);
 
         self.save_changes(&changes).await.unwrap();
-        assert!(self
-            .get_state_event(room_id, StateEventType::RoomPowerLevels, "")
-            .await
-            .unwrap()
-            .is_some());
+        assert!(
+            self.get_state_event(room_id, StateEventType::RoomPowerLevels, "")
+                .await
+                .unwrap()
+                .is_some()
+        );
     }
 
     async fn test_receipts_saving(&self) {
@@ -731,8 +734,8 @@ impl StateStoreIntegrationTests for DynStateStore {
         }))
         .expect("json creation failed");
 
-        assert!(self
-            .get_user_room_receipt_event(
+        assert!(
+            self.get_user_room_receipt_event(
                 room_id,
                 ReceiptType::Read,
                 ReceiptThread::Unthreaded,
@@ -740,9 +743,10 @@ impl StateStoreIntegrationTests for DynStateStore {
             )
             .await
             .expect("failed to read unthreaded user room receipt")
-            .is_none());
-        assert!(self
-            .get_event_room_receipt_events(
+            .is_none()
+        );
+        assert!(
+            self.get_event_room_receipt_events(
                 room_id,
                 ReceiptType::Read,
                 ReceiptThread::Unthreaded,
@@ -750,9 +754,10 @@ impl StateStoreIntegrationTests for DynStateStore {
             )
             .await
             .expect("failed to read unthreaded event room receipt for 1")
-            .is_empty());
-        assert!(self
-            .get_event_room_receipt_events(
+            .is_empty()
+        );
+        assert!(
+            self.get_event_room_receipt_events(
                 room_id,
                 ReceiptType::Read,
                 ReceiptThread::Unthreaded,
@@ -760,7 +765,8 @@ impl StateStoreIntegrationTests for DynStateStore {
             )
             .await
             .expect("failed to read unthreaded event room receipt for 2")
-            .is_empty());
+            .is_empty()
+        );
 
         let mut changes = StateChanges::default();
         changes.add_receipts(room_id, first_receipt_event);
@@ -794,8 +800,8 @@ impl StateStoreIntegrationTests for DynStateStore {
         );
         assert_eq!(first_event_unthreaded_receipts[0].0, user_id());
         assert_eq!(first_event_unthreaded_receipts[0].1.ts.unwrap().0, first_receipt_ts);
-        assert!(self
-            .get_event_room_receipt_events(
+        assert!(
+            self.get_event_room_receipt_events(
                 room_id,
                 ReceiptType::Read,
                 ReceiptThread::Unthreaded,
@@ -803,7 +809,8 @@ impl StateStoreIntegrationTests for DynStateStore {
             )
             .await
             .expect("failed to read unthreaded event room receipt for 2 after save")
-            .is_empty());
+            .is_empty()
+        );
 
         let mut changes = StateChanges::default();
         changes.add_receipts(room_id, second_receipt_event);
@@ -821,8 +828,8 @@ impl StateStoreIntegrationTests for DynStateStore {
             .unwrap();
         assert_eq!(unthreaded_user_receipt_event_id, second_event_id);
         assert_eq!(unthreaded_user_receipt.ts.unwrap().0, second_receipt_ts);
-        assert!(self
-            .get_event_room_receipt_events(
+        assert!(
+            self.get_event_room_receipt_events(
                 room_id,
                 ReceiptType::Read,
                 ReceiptThread::Unthreaded,
@@ -830,7 +837,8 @@ impl StateStoreIntegrationTests for DynStateStore {
             )
             .await
             .expect("Getting unthreaded event room receipt events for first event failed")
-            .is_empty());
+            .is_empty()
+        );
         let second_event_unthreaded_receipts = self
             .get_event_room_receipt_events(
                 room_id,
@@ -848,13 +856,19 @@ impl StateStoreIntegrationTests for DynStateStore {
         assert_eq!(second_event_unthreaded_receipts[0].0, user_id());
         assert_eq!(second_event_unthreaded_receipts[0].1.ts.unwrap().0, second_receipt_ts);
 
-        assert!(self
-            .get_user_room_receipt_event(room_id, ReceiptType::Read, ReceiptThread::Main, user_id())
+        assert!(
+            self.get_user_room_receipt_event(
+                room_id,
+                ReceiptType::Read,
+                ReceiptThread::Main,
+                user_id()
+            )
             .await
             .expect("failed to read threaded user room receipt")
-            .is_none());
-        assert!(self
-            .get_event_room_receipt_events(
+            .is_none()
+        );
+        assert!(
+            self.get_event_room_receipt_events(
                 room_id,
                 ReceiptType::Read,
                 ReceiptThread::Main,
@@ -862,7 +876,8 @@ impl StateStoreIntegrationTests for DynStateStore {
             )
             .await
             .expect("Getting threaded event room receipts for 2 failed")
-            .is_empty());
+            .is_empty()
+        );
 
         let mut changes = StateChanges::default();
         changes.add_receipts(room_id, third_receipt_event);
@@ -1043,19 +1058,21 @@ impl StateStoreIntegrationTests for DynStateStore {
             self.get_users_with_display_name(room_id, &display_name).await?.is_empty(),
             "still display names found"
         );
-        assert!(self
-            .get_room_account_data_event(room_id, RoomAccountDataEventType::Tag)
-            .await?
-            .is_none());
-        assert!(self
-            .get_user_room_receipt_event(
+        assert!(
+            self.get_room_account_data_event(room_id, RoomAccountDataEventType::Tag)
+                .await?
+                .is_none()
+        );
+        assert!(
+            self.get_user_room_receipt_event(
                 room_id,
                 ReceiptType::Read,
                 ReceiptThread::Unthreaded,
                 user_id
             )
             .await?
-            .is_none());
+            .is_none()
+        );
         assert!(
             self.get_event_room_receipt_events(
                 room_id,

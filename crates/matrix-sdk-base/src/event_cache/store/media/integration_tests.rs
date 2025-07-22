@@ -22,7 +22,7 @@ use ruma::{
 };
 
 use super::{
-    media_service::IgnoreMediaRetentionPolicy, EventCacheStoreMedia, MediaRetentionPolicy,
+    EventCacheStoreMedia, MediaRetentionPolicy, media_service::IgnoreMediaRetentionPolicy,
 };
 use crate::media::{MediaFormat, MediaRequestParameters};
 

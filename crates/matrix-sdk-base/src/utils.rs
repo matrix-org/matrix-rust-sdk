@@ -1,6 +1,8 @@
 use ruma::{
-    assign,
+    EventId, OwnedEventId, assign,
     events::{
+        RedactContent, RedactedStateEventContent, StateEventContent, StaticStateEventContent,
+        SyncStateEvent,
         room::{
             avatar::{RoomAvatarEventContent, StrippedRoomAvatarEvent},
             canonical_alias::{RoomCanonicalAliasEventContent, StrippedRoomCanonicalAliasEvent},
@@ -21,13 +23,10 @@ use ruma::{
             },
             topic::{RedactedRoomTopicEventContent, RoomTopicEventContent, StrippedRoomTopicEvent},
         },
-        RedactContent, RedactedStateEventContent, StateEventContent, StaticStateEventContent,
-        SyncStateEvent,
     },
     room_version_rules::RedactionRules,
-    EventId, OwnedEventId,
 };
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
 use crate::room::RoomCreateWithCreatorEventContent;
 

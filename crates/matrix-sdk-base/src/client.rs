@@ -26,33 +26,34 @@ use eyeball_im::{Vector, VectorDiff};
 use futures_util::Stream;
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk_crypto::{
-    store::DynCryptoStore, types::requests::ToDeviceRequest, CollectStrategy, DecryptionSettings,
-    EncryptionSettings, OlmError, OlmMachine, TrustRequirement,
+    CollectStrategy, DecryptionSettings, EncryptionSettings, OlmError, OlmMachine,
+    TrustRequirement, store::DynCryptoStore, types::requests::ToDeviceRequest,
 };
-#[cfg(feature = "e2e-encryption")]
-use ruma::events::room::{history_visibility::HistoryVisibility, member::MembershipState};
 #[cfg(doc)]
 use ruma::DeviceId;
+#[cfg(feature = "e2e-encryption")]
+use ruma::events::room::{history_visibility::HistoryVisibility, member::MembershipState};
 use ruma::{
+    MilliSecondsSinceUnixEpoch, OwnedRoomId, OwnedUserId, RoomId, UserId,
     api::client::{self as api, sync::sync_events::v5},
     events::{
+        StateEvent, StateEventType,
         ignored_user_list::IgnoredUserListEventContent,
         push_rules::{PushRulesEvent, PushRulesEventContent},
         room::member::SyncRoomMemberEvent,
-        StateEvent, StateEventType,
     },
     push::Ruleset,
     time::Instant,
-    MilliSecondsSinceUnixEpoch, OwnedRoomId, OwnedUserId, RoomId, UserId,
 };
-use tokio::sync::{broadcast, Mutex};
+use tokio::sync::{Mutex, broadcast};
 #[cfg(feature = "e2e-encryption")]
 use tokio::sync::{RwLock, RwLockReadGuard};
-use tracing::{debug, enabled, info, instrument, warn, Level};
+use tracing::{Level, debug, enabled, info, instrument, warn};
 
 #[cfg(feature = "e2e-encryption")]
 use crate::RoomMemberships;
 use crate::{
+    InviteAcceptanceDetails, RoomStateFilter, SessionMeta,
     deserialized_responses::DisplayName,
     error::{Error, Result},
     event_cache::store::EventCacheStoreLock,
@@ -61,12 +62,11 @@ use crate::{
         Room, RoomInfoNotableUpdate, RoomInfoNotableUpdateReasons, RoomMembersUpdate, RoomState,
     },
     store::{
-        ambiguity_map::AmbiguityCache, BaseStateStore, DynStateStore, MemoryStore,
-        Result as StoreResult, RoomLoadSettings, StateChanges, StateStoreDataKey,
-        StateStoreDataValue, StateStoreExt, StoreConfig,
+        BaseStateStore, DynStateStore, MemoryStore, Result as StoreResult, RoomLoadSettings,
+        StateChanges, StateStoreDataKey, StateStoreDataValue, StateStoreExt, StoreConfig,
+        ambiguity_map::AmbiguityCache,
     },
     sync::{RoomUpdates, SyncResponse},
-    InviteAcceptanceDetails, RoomStateFilter, SessionMeta,
 };
 
 /// A no (network) IO client implementation.
@@ -76,7 +76,7 @@ use crate::{
 /// rather through `matrix_sdk::Client`.
 ///
 /// ```rust
-/// use matrix_sdk_base::{store::StoreConfig, BaseClient, ThreadingSupport};
+/// use matrix_sdk_base::{BaseClient, ThreadingSupport, store::StoreConfig};
 ///
 /// let client = BaseClient::new(
 ///     StoreConfig::new("cross-process-holder-name".to_owned()),
@@ -273,7 +273,9 @@ impl BaseClient {
 
     /// Get a stream of all the rooms changes, in addition to the existing
     /// rooms.
-    pub fn rooms_stream(&self) -> (Vector<Room>, impl Stream<Item = Vec<VectorDiff<Room>>> + use<>) {
+    pub fn rooms_stream(
+        &self,
+    ) -> (Vector<Room>, impl Stream<Item = Vec<VectorDiff<Room>>> + use<>) {
         self.state_store.rooms_stream()
     }
 
@@ -1156,13 +1158,13 @@ mod tests {
     use assert_matches2::{assert_let, assert_matches};
     use futures_util::FutureExt as _;
     use matrix_sdk_test::{
-        async_test, event_factory::EventFactory, ruma_response_from_json, InvitedRoomBuilder,
-        LeftRoomBuilder, StateTestEvent, StrippedStateTestEvent, SyncResponseBuilder, BOB,
+        BOB, InvitedRoomBuilder, LeftRoomBuilder, StateTestEvent, StrippedStateTestEvent,
+        SyncResponseBuilder, async_test, event_factory::EventFactory, ruma_response_from_json,
     };
     use ruma::{
         api::client::{self as api, sync::sync_events::v5},
         event_id,
-        events::{room::member::MembershipState, StateEventType},
+        events::{StateEventType, room::member::MembershipState},
         room_id,
         serde::Raw,
         user_id,
@@ -1171,10 +1173,10 @@ mod tests {
 
     use super::{BaseClient, RequestedRequiredStates};
     use crate::{
+        RoomDisplayName, RoomState, SessionMeta,
         client::ThreadingSupport,
         store::{RoomLoadSettings, StateStoreExt, StoreConfig},
         test_utils::logged_in_base_client,
-        RoomDisplayName, RoomState, SessionMeta,
     };
 
     #[test]

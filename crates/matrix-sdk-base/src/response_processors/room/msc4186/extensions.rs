@@ -15,19 +15,19 @@
 use std::collections::BTreeMap;
 
 use ruma::{
-    api::client::sync::sync_events::v5 as http,
-    events::{receipt::ReceiptEventContent, AnySyncEphemeralRoomEvent, SyncEphemeralRoomEvent},
-    serde::Raw,
     OwnedRoomId, RoomId,
+    api::client::sync::sync_events::v5 as http,
+    events::{AnySyncEphemeralRoomEvent, SyncEphemeralRoomEvent, receipt::ReceiptEventContent},
+    serde::Raw,
 };
 
 use super::super::super::{
-    account_data::for_room as account_data_for_room, ephemeral_events::dispatch_receipt, Context,
+    Context, account_data::for_room as account_data_for_room, ephemeral_events::dispatch_receipt,
 };
 use crate::{
+    RoomState,
     store::BaseStateStore,
     sync::{JoinedRoomUpdate, RoomUpdates},
-    RoomState,
 };
 
 /// Dispatch the ephemeral events in the `extensions.typing` part of the

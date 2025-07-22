@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use bitflags::bitflags;
-use ruma::events::{tag::Tags, AnyRoomAccountDataEvent, RoomAccountDataEventType};
+use ruma::events::{AnyRoomAccountDataEvent, RoomAccountDataEventType, tag::Tags};
 use serde::{Deserialize, Serialize};
 
 use super::Room;
@@ -82,10 +82,10 @@ mod tests {
 
     use super::{super::BaseRoomInfo, RoomNotableTags};
     use crate::{
+        BaseClient, RoomState, SessionMeta,
         client::ThreadingSupport,
         response_processors as processors,
         store::{RoomLoadSettings, StoreConfig},
-        BaseClient, RoomState, SessionMeta,
     };
 
     #[async_test]
