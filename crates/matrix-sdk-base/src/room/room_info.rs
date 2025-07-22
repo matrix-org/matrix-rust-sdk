@@ -28,8 +28,8 @@ use ruma::{
     api::client::sync::sync_events::v3::RoomSummary as RumaSummary,
     assign,
     events::{
-        AnyStrippedStateEvent, AnySyncStateEvent, AnySyncTimelineEvent, RedactContent,
-        RedactedStateEventContent, StateEventType, StaticStateEventContent, SyncStateEvent,
+        AnyStrippedStateEvent, AnySyncStateEvent, AnySyncTimelineEvent, StateEventType,
+        SyncStateEvent,
         beacon_info::BeaconInfoEventContent,
         call::member::{CallMemberEventContent, CallMemberStateKey, MembershipData},
         direct::OwnedDirectUserIdentifier,
@@ -331,25 +331,42 @@ impl BaseRoomInfo {
             .unwrap_or(ROOM_VERSION_RULES_FALLBACK)
             .redaction;
 
-        // FIXME: Use let chains once available to get rid of unwrap()s
-        if self.avatar.has_event_id(redacts) {
-            self.avatar.as_mut().unwrap().redact(&redaction_rules);
-        } else if self.canonical_alias.has_event_id(redacts) {
-            self.canonical_alias.as_mut().unwrap().redact(&redaction_rules);
-        } else if self.create.has_event_id(redacts) {
-            self.create.as_mut().unwrap().redact(&redaction_rules);
-        } else if self.guest_access.has_event_id(redacts) {
-            self.guest_access.as_mut().unwrap().redact(&redaction_rules);
-        } else if self.history_visibility.has_event_id(redacts) {
-            self.history_visibility.as_mut().unwrap().redact(&redaction_rules);
-        } else if self.join_rules.has_event_id(redacts) {
-            self.join_rules.as_mut().unwrap().redact(&redaction_rules);
-        } else if self.name.has_event_id(redacts) {
-            self.name.as_mut().unwrap().redact(&redaction_rules);
-        } else if self.tombstone.has_event_id(redacts) {
-            self.tombstone.as_mut().unwrap().redact(&redaction_rules);
-        } else if self.topic.has_event_id(redacts) {
-            self.topic.as_mut().unwrap().redact(&redaction_rules);
+        if let Some(ev) = &mut self.avatar
+            && ev.event_id() == Some(redacts)
+        {
+            ev.redact(&redaction_rules);
+        } else if let Some(ev) = &mut self.canonical_alias
+            && ev.event_id() == Some(redacts)
+        {
+            ev.redact(&redaction_rules);
+        } else if let Some(ev) = &mut self.create
+            && ev.event_id() == Some(redacts)
+        {
+            ev.redact(&redaction_rules);
+        } else if let Some(ev) = &mut self.guest_access
+            && ev.event_id() == Some(redacts)
+        {
+            ev.redact(&redaction_rules);
+        } else if let Some(ev) = &mut self.history_visibility
+            && ev.event_id() == Some(redacts)
+        {
+            ev.redact(&redaction_rules);
+        } else if let Some(ev) = &mut self.join_rules
+            && ev.event_id() == Some(redacts)
+        {
+            ev.redact(&redaction_rules);
+        } else if let Some(ev) = &mut self.name
+            && ev.event_id() == Some(redacts)
+        {
+            ev.redact(&redaction_rules);
+        } else if let Some(ev) = &mut self.tombstone
+            && ev.event_id() == Some(redacts)
+        {
+            ev.redact(&redaction_rules);
+        } else if let Some(ev) = &mut self.topic
+            && ev.event_id() == Some(redacts)
+        {
+            ev.redact(&redaction_rules);
         } else {
             self.rtc_member_events
                 .retain(|_, member_event| member_event.event_id() != Some(redacts));
@@ -393,20 +410,6 @@ impl Default for BaseRoomInfo {
             notable_tags: RoomNotableTags::empty(),
             pinned_events: None,
         }
-    }
-}
-
-trait OptionExt {
-    fn has_event_id(&self, ev_id: &EventId) -> bool;
-}
-
-impl<C> OptionExt for Option<MinimalStateEvent<C>>
-where
-    C: StaticStateEventContent + RedactContent,
-    C::Redacted: RedactedStateEventContent,
-{
-    fn has_event_id(&self, ev_id: &EventId) -> bool {
-        self.as_ref().is_some_and(|ev| ev.event_id() == Some(ev_id))
     }
 }
 
