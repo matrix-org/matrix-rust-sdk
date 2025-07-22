@@ -15,6 +15,9 @@ All notable changes to this project will be documented in this file.
 
 ### Breaking changes:
 
+- `RoomPreview::info()` doesn't return a result anymore. All unknown join rules are handled in the
+  `JoinRule::Custom` variant.
+  ([#5337](https://github.com/matrix-org/matrix-rust-sdk/pull/5337))
 - The `reason` argument of `Room::report_room` is now required, do to a clarification in the spec.
   ([#5337](https://github.com/matrix-org/matrix-rust-sdk/pull/5337))
 - `PublicRoomJoinRule` has more variants, supporting all the known values from the spec.

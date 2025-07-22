@@ -1,7 +1,6 @@
 use anyhow::Context as _;
 use matrix_sdk::{room_preview::RoomPreview as SdkRoomPreview, Client};
 use ruma::room::{JoinRuleSummary, RoomType as RumaRoomType};
-use tracing::warn;
 
 use crate::{
     client::{AllowRule, JoinRule},
@@ -22,9 +21,9 @@ pub struct RoomPreview {
 #[matrix_sdk_ffi_macros::export]
 impl RoomPreview {
     /// Returns the room info the preview contains.
-    pub fn info(&self) -> Result<RoomPreviewInfo, ClientError> {
+    pub fn info(&self) -> RoomPreviewInfo {
         let info = &self.inner;
-        Ok(RoomPreviewInfo {
+        RoomPreviewInfo {
             room_id: info.room_id.to_string(),
             canonical_alias: info.canonical_alias.as_ref().map(|alias| alias.to_string()),
             name: info.name.clone(),
@@ -35,18 +34,13 @@ impl RoomPreview {
             room_type: info.room_type.as_ref().into(),
             is_history_world_readable: info.is_world_readable,
             membership: info.state.map(|state| state.into()),
-            join_rule: info
-                .join_rule
-                .as_ref()
-                .map(TryInto::try_into)
-                .transpose()
-                .map_err(|_| anyhow::anyhow!("unhandled JoinRuleSummary kind"))?,
+            join_rule: info.join_rule.as_ref().map(Into::into),
             is_direct: info.is_direct,
             heroes: info
                 .heroes
                 .as_ref()
                 .map(|heroes| heroes.iter().map(|h| h.to_owned().into()).collect()),
-        })
+        }
     }
 
     /// Leave the room if the room preview state is either joined, invited or
@@ -122,11 +116,9 @@ pub struct RoomPreviewInfo {
     pub heroes: Option<Vec<RoomHero>>,
 }
 
-impl TryFrom<&JoinRuleSummary> for JoinRule {
-    type Error = ();
-
-    fn try_from(join_rule: &JoinRuleSummary) -> Result<Self, ()> {
-        Ok(match join_rule {
+impl From<&JoinRuleSummary> for JoinRule {
+    fn from(join_rule: &JoinRuleSummary) -> Self {
+        match join_rule {
             JoinRuleSummary::Invite => JoinRule::Invite,
             JoinRuleSummary::Knock => JoinRule::Knock,
             JoinRuleSummary::Private => JoinRule::Private,
@@ -145,12 +137,8 @@ impl TryFrom<&JoinRuleSummary> for JoinRule {
                     .collect(),
             },
             JoinRuleSummary::Public => JoinRule::Public,
-            JoinRuleSummary::_Custom(_) => JoinRule::Custom { repr: join_rule.as_str().to_owned() },
-            _ => {
-                warn!("unhandled JoinRuleSummary: {}", join_rule.as_str());
-                return Err(());
-            }
-        })
+            _ => JoinRule::Custom { repr: join_rule.as_str().to_owned() },
+        }
     }
 }
 
