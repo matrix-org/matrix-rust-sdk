@@ -169,7 +169,7 @@ use ruma::{
 };
 use tokio::sync::{broadcast, oneshot, Mutex, Notify, OwnedMutexGuard};
 use tracing::{debug, error, info, instrument, trace, warn};
-
+use matrix_sdk_base::media::MediaEventContent;
 #[cfg(feature = "e2e-encryption")]
 use crate::crypto::{OlmError, SessionRecipientCollectionError};
 use crate::{
@@ -1284,10 +1284,10 @@ impl QueueStorage {
         let store = client.state_store();
 
         let mut filename = match &event.msgtype {
-            MessageType::Image(msgtype) => msgtype.filename.clone(),
-            MessageType::Audio(msgtype) => msgtype.filename.clone(),
-            MessageType::Video(msgtype) => msgtype.filename.clone(),
-            MessageType::File(msgtype) => msgtype.filename.clone(),
+            MessageType::Image(msgtype) => msgtype.filename_or_body(),
+            MessageType::Audio(msgtype) => msgtype.filename_or_body(),
+            MessageType::Video(msgtype) => msgtype.filename_or_body(),
+            MessageType::File(msgtype) => msgtype.filename_or_body(),
             _ => None,
         };
 

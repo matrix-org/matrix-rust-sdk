@@ -143,7 +143,7 @@ pub trait MediaEventContent {
     fn source(&self) -> Option<MediaSource>;
 
     /// Get the name of the uploaded file for `Self`.
-    fn filename(&self) -> Option<String>;
+    fn filename_or_body(&self) -> Option<String>;
 
     /// Get the source of the thumbnail for `Self`.
     ///
@@ -156,7 +156,7 @@ impl MediaEventContent for StickerEventContent {
         Some(MediaSource::from(self.source.clone()))
     }
 
-    fn filename(&self) -> Option<String> {
+    fn filename_or_body(&self) -> Option<String> {
         None
     }
 
@@ -170,8 +170,8 @@ impl MediaEventContent for AudioMessageEventContent {
         Some(self.source.clone())
     }
 
-    fn filename(&self) -> Option<String> {
-        self.filename.clone()
+    fn filename_or_body(&self) -> Option<String> {
+        Some(self.filename.clone().unwrap_or_else(|| self.body.clone()))
     }
 
     fn thumbnail_source(&self) -> Option<MediaSource> {
@@ -184,8 +184,8 @@ impl MediaEventContent for FileMessageEventContent {
         Some(self.source.clone())
     }
 
-    fn filename(&self) -> Option<String> {
-        self.filename.clone()
+    fn filename_or_body(&self) -> Option<String> {
+        Some(self.filename.clone().unwrap_or_else(|| self.body.clone()))
     }
 
     fn thumbnail_source(&self) -> Option<MediaSource> {
@@ -198,7 +198,7 @@ impl MediaEventContent for ImageMessageEventContent {
         Some(self.source.clone())
     }
 
-    fn filename(&self) -> Option<String> {
+    fn filename_or_body(&self) -> Option<String> {
         self.filename.clone()
     }
 
@@ -215,8 +215,8 @@ impl MediaEventContent for VideoMessageEventContent {
         Some(self.source.clone())
     }
 
-    fn filename(&self) -> Option<String> {
-        self.filename.clone()
+    fn filename_or_body(&self) -> Option<String> {
+        Some(self.filename.clone().unwrap_or_else(|| self.body.clone()))
     }
 
     fn thumbnail_source(&self) -> Option<MediaSource> {
@@ -232,7 +232,7 @@ impl MediaEventContent for LocationMessageEventContent {
         None
     }
 
-    fn filename(&self) -> Option<String> {
+    fn filename_or_body(&self) -> Option<String> {
         None
     }
 
