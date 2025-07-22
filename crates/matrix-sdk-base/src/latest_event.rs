@@ -345,7 +345,6 @@ mod tests {
             AnySyncMessageLikeEvent, AnySyncStateEvent, AnySyncTimelineEvent, EmptyStateKey,
             Mentions, MessageLikeUnsigned, OriginalSyncMessageLikeEvent, OriginalSyncStateEvent,
             RedactedSyncMessageLikeEvent, RedactedUnsigned, StateUnsigned, SyncMessageLikeEvent,
-            UnsignedRoomRedactionEvent,
         },
         owned_event_id, owned_mxc_uri, owned_user_id, MilliSecondsSinceUnixEpoch, UInt,
         VoipVersionId,
@@ -501,7 +500,7 @@ mod tests {
     #[test]
     fn test_redacted_messages_are_suitable() {
         // Ruma does not allow constructing UnsignedRoomRedactionEvent instances.
-        let room_redaction_event: UnsignedRoomRedactionEvent = serde_json::from_value(json!({
+        let room_redaction_event = serde_json::from_value(json!({
             "content": {},
             "event_id": "$redaction",
             "sender": "@x:y.za",

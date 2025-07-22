@@ -207,7 +207,8 @@ impl StateStoreIntegrationTests for DynStateStore {
         changes.add_room(stripped_room);
 
         let stripped_member_json: &JsonValue = &test_json::MEMBER_STRIPPED;
-        let stripped_member_event = Raw::new(&stripped_member_json.clone()).unwrap().cast();
+        let stripped_member_event =
+            Raw::new(&stripped_member_json.clone()).unwrap().cast_unchecked();
         changes.add_stripped_member(stripped_room_id, user_id, stripped_member_event);
 
         self.save_changes(&changes).await?;
@@ -1969,7 +1970,7 @@ fn custom_stripped_membership_event(user_id: &UserId) -> Raw<StrippedRoomMemberE
         "state_key": user_id,
     });
 
-    Raw::new(&ev_json).unwrap().cast()
+    Raw::new(&ev_json).unwrap().cast_unchecked()
 }
 
 fn membership_event() -> Raw<SyncRoomMemberEvent> {
@@ -1986,7 +1987,7 @@ fn custom_membership_event(user_id: &UserId, event_id: &EventId) -> Raw<SyncRoom
         "state_key": user_id,
     });
 
-    Raw::new(&ev_json).unwrap().cast()
+    Raw::new(&ev_json).unwrap().cast_unchecked()
 }
 
 fn custom_presence_event(user_id: &UserId) -> Raw<PresenceEvent> {
@@ -1997,5 +1998,5 @@ fn custom_presence_event(user_id: &UserId) -> Raw<PresenceEvent> {
         "sender": user_id,
     });
 
-    Raw::new(&ev_json).unwrap().cast()
+    Raw::new(&ev_json).unwrap().cast_unchecked()
 }

@@ -749,7 +749,7 @@ impl Account {
     /// use matrix_sdk::ruma::events::{ignored_user_list::IgnoredUserListEventContent, GlobalAccountDataEventType};
     ///
     /// if let Some(raw_content) = account.fetch_account_data(GlobalAccountDataEventType::IgnoredUserList).await? {
-    ///     let content = raw_content.deserialize_as::<IgnoredUserListEventContent>()?;
+    ///     let content = raw_content.deserialize_as_unchecked::<IgnoredUserListEventContent>()?;
     ///
     ///     println!("Ignored users:");
     ///
@@ -787,7 +787,7 @@ impl Account {
     where
         C: GlobalAccountDataEventContent + StaticEventContent,
     {
-        Ok(self.fetch_account_data(C::TYPE.into()).await?.map(Raw::cast))
+        Ok(self.fetch_account_data(C::TYPE.into()).await?.map(Raw::cast_unchecked))
     }
 
     /// Set the given account data event.
@@ -1173,7 +1173,7 @@ fn get_raw_content<Ev, C>(raw: Option<Raw<Ev>>) -> Result<Option<Raw<C>>> {
     }
 
     Ok(raw
-        .map(|event| event.deserialize_as::<GetRawContent<C>>())
+        .map(|event| event.deserialize_as_unchecked::<GetRawContent<C>>())
         .transpose()?
         .map(|get_raw| get_raw.content))
 }

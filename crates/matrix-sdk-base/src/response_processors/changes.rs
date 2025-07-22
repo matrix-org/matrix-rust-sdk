@@ -80,7 +80,7 @@ fn apply_changes(
     if let Some(event) =
         context.state_changes.account_data.get(&GlobalAccountDataEventType::IgnoredUserList)
     {
-        match event.deserialize_as::<IgnoredUserListEvent>() {
+        match event.deserialize_as_unchecked::<IgnoredUserListEvent>() {
             Ok(event) => {
                 let user_ids: Vec<String> =
                     event.content.ignored_users.keys().map(|id| id.to_string()).collect();

@@ -579,7 +579,7 @@ impl Room {
             SyncMessageLikeEvent::Original(_),
         ))) = event.deserialize_as::<AnySyncTimelineEvent>()
         {
-            if let Ok(event) = self.decrypt_event(event.cast_ref(), push_ctx).await {
+            if let Ok(event) = self.decrypt_event(event.cast_ref_unchecked(), push_ctx).await {
                 return event;
             }
         }
@@ -759,9 +759,11 @@ impl Room {
                     "".to_owned(),
                 );
                 let response = match self.client.send(request).await {
-                    Ok(response) => {
-                        Some(response.content.deserialize_as::<RoomEncryptionEventContent>()?)
-                    }
+                    Ok(response) => Some(
+                        response
+                            .content
+                            .deserialize_as_unchecked::<RoomEncryptionEventContent>()?,
+                    ),
                     Err(err) if err.client_api_error_kind() == Some(&ErrorKind::NotFound) => None,
                     Err(err) => return Err(err.into()),
                 };
@@ -1196,7 +1198,7 @@ impl Room {
     where
         C: StaticEventContent + RoomAccountDataEventContent,
     {
-        Ok(self.account_data(C::TYPE.into()).await?.map(Raw::cast))
+        Ok(self.account_data(C::TYPE.into()).await?.map(Raw::cast_unchecked))
     }
 
     /// Check if all members of this room are verified and all their devices are
@@ -3423,9 +3425,9 @@ impl Room {
             .await;
 
         match response {
-            Ok(response) => {
-                Ok(Some(response.content.deserialize_as::<RoomPinnedEventsEventContent>()?.pinned))
-            }
+            Ok(response) => Ok(Some(
+                response.content.deserialize_as_unchecked::<RoomPinnedEventsEventContent>()?.pinned,
+            )),
             Err(http_error) => match http_error.as_client_api_error() {
                 Some(error) if error.status_code == StatusCode::NOT_FOUND => Ok(None),
                 _ => Err(http_error.into()),

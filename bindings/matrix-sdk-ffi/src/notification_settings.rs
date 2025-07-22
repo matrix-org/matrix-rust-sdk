@@ -172,7 +172,7 @@ impl TryFrom<SdkPushCondition> for PushCondition {
                 Self::RoomMemberCount { prefix: is.prefix.into(), count: is.count.into() }
             }
             SdkPushCondition::SenderNotificationPermission { key } => {
-                Self::SenderNotificationPermission { key }
+                Self::SenderNotificationPermission { key: key.to_string() }
             }
             SdkPushCondition::EventPropertyIs { key, value } => {
                 Self::EventPropertyIs { key, value: value.into() }
@@ -197,7 +197,7 @@ impl From<PushCondition> for SdkPushCondition {
                 },
             },
             PushCondition::SenderNotificationPermission { key } => {
-                Self::SenderNotificationPermission { key }
+                Self::SenderNotificationPermission { key: key.into() }
             }
             PushCondition::EventPropertyIs { key, value } => {
                 Self::EventPropertyIs { key, value: value.into() }

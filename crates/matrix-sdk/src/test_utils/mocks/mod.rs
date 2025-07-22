@@ -942,8 +942,7 @@ impl MatrixMockServer {
     ///     .event_id(event_id)
     ///     .sender(alice_user_id)
     ///     .state_key(alice_user_id)
-    ///     .into_raw_timeline()
-    ///     .cast();
+    ///     .into_raw();
     ///
     /// mock_server
     ///     .mock_get_members()

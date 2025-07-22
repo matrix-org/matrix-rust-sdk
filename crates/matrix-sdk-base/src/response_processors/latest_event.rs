@@ -111,7 +111,7 @@ async fn decrypt_sync_room_event(
     let event = match e2ee
         .olm_machine
         .expect("An `OlmMachine` is expected")
-        .try_decrypt_room_event(event.cast_ref(), room_id, e2ee.decryption_settings)
+        .try_decrypt_room_event(event.cast_ref_unchecked(), room_id, e2ee.decryption_settings)
         .await?
     {
         RoomEventDecryptionResult::Decrypted(decrypted) => {

@@ -46,7 +46,7 @@ async fn test_shared_history_out_of_order() {
     matrix_mock_server.exchange_e2ee_identities(&alice, &bob).await;
 
     let event_factory = EventFactory::new().room(room_id);
-    let alice_member_event = event_factory.member(alice_user_id).into_raw_timeline();
+    let alice_member_event = event_factory.member(alice_user_id).into_raw();
 
     matrix_mock_server
         .mock_sync()
@@ -70,7 +70,7 @@ async fn test_shared_history_out_of_order() {
 
     matrix_mock_server
         .mock_get_members()
-        .ok(vec![alice_member_event.clone().cast()])
+        .ok(vec![alice_member_event.clone()])
         .mock_once()
         .mount()
         .await;
@@ -105,7 +105,7 @@ async fn test_shared_history_out_of_order() {
             builder.add_invited_room(
                 InvitedRoomBuilder::new(room_id)
                     .add_state_event(alice_member_event.cast())
-                    .add_state_event(bob_member_event.into_raw_timeline().cast()),
+                    .add_state_event(bob_member_event.into_raw()),
             );
         })
         .await;

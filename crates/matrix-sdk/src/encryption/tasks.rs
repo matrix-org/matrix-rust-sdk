@@ -559,17 +559,17 @@ mod test {
             .await;
 
         let event_factory = EventFactory::new().room(invited_rom_id);
-        let bob_member_event = event_factory.member(bob_user_id).into_raw_timeline();
+        let bob_member_event = event_factory.member(bob_user_id).into_raw();
         let alice_member_event =
-            event_factory.member(bob_user_id).invited(alice_user_id).into_raw_timeline();
+            event_factory.member(bob_user_id).invited(alice_user_id).into_raw();
 
         server
             .mock_sync()
             .ok_and_run(&client, |builder| {
                 builder.add_joined_room(JoinedRoomBuilder::new(joined_room_id)).add_invited_room(
                     InvitedRoomBuilder::new(invited_rom_id)
-                        .add_state_event(bob_member_event.cast())
-                        .add_state_event(alice_member_event.cast()),
+                        .add_state_event(bob_member_event)
+                        .add_state_event(alice_member_event),
                 );
             })
             .await;

@@ -623,7 +623,7 @@ mod tests {
             "state_key": user_id,
         }))
         .expect("Failed to make raw event")
-        .cast();
+        .cast_unchecked();
         room.invite_state = Some(vec![event]);
 
         let response = response_with_room(room_id, room);
@@ -1327,7 +1327,7 @@ mod tests {
         // When the sliding sync response contains a timeline
         let events = &[knock_event];
         let mut room = room_with_timeline(events);
-        room.required_state.push(Raw::new(&power_levels).unwrap().cast());
+        room.required_state.push(Raw::new(&power_levels).unwrap().cast_unchecked());
         let response = response_with_room(room_id, room);
         client
             .process_sliding_sync(&response, &RequestedRequiredStates::default())
@@ -1375,7 +1375,7 @@ mod tests {
         // When the sliding sync response contains a timeline
         let events = &[knock_event];
         let mut room = room_with_timeline(events);
-        room.required_state.push(Raw::new(&power_levels).unwrap().cast());
+        room.required_state.push(Raw::new(&power_levels).unwrap().cast_unchecked());
         let response = response_with_room(room_id, room);
         client
             .process_sliding_sync(&response, &RequestedRequiredStates::default())
@@ -2708,7 +2708,7 @@ mod tests {
             "state_key": invitee,
         }))
         .expect("Failed to make raw event")
-        .cast();
+        .cast_unchecked();
 
         room.invite_state = Some(vec![evt]);
 
@@ -2736,7 +2736,7 @@ mod tests {
             "state_key": knocker,
         }))
         .expect("Failed to make raw event")
-        .cast();
+        .cast_unchecked();
 
         room.invite_state = Some(vec![evt]);
     }
@@ -2771,7 +2771,7 @@ mod tests {
             "content": content,
         }))
         .expect("Failed to create account data event")
-        .cast()
+        .cast_unchecked()
     }
 
     fn make_state_event<C: StateEventContent, E>(
@@ -2796,6 +2796,6 @@ mod tests {
             "unsigned": unsigned,
         }))
         .expect("Failed to create state event")
-        .cast()
+        .cast_unchecked()
     }
 }

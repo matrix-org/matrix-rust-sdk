@@ -323,7 +323,7 @@ impl Decryptor for Room {
         raw: &Raw<AnySyncTimelineEvent>,
         push_ctx: Option<&PushContext>,
     ) -> Result<TimelineEvent> {
-        self.decrypt_event(raw.cast_ref(), push_ctx).await
+        self.decrypt_event(raw.cast_ref_unchecked(), push_ctx).await
     }
 }
 
@@ -339,7 +339,7 @@ impl Decryptor for (matrix_sdk_base::crypto::OlmMachine, ruma::OwnedRoomId) {
             DecryptionSettings { sender_device_trust_requirement: TrustRequirement::Untrusted };
 
         match olm_machine
-            .try_decrypt_room_event(raw.cast_ref(), room_id, &decryption_settings)
+            .try_decrypt_room_event(raw.cast_ref_unchecked(), room_id, &decryption_settings)
             .await?
         {
             RoomEventDecryptionResult::Decrypted(decrypted) => {

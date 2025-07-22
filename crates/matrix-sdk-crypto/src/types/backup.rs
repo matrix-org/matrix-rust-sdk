@@ -14,6 +14,7 @@
 
 use std::collections::BTreeMap;
 
+use ruma::serde::JsonCastable;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use vodozemac::Curve25519PublicKey;
@@ -61,6 +62,10 @@ pub enum RoomKeyBackupInfo {
         auth_data: BTreeMap<String, Value>,
     },
 }
+
+impl JsonCastable<ruma::api::client::backup::BackupAlgorithm> for RoomKeyBackupInfo {}
+
+impl JsonCastable<RoomKeyBackupInfo> for ruma::api::client::backup::BackupAlgorithm {}
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 struct BackupInfoHelper {

@@ -92,7 +92,7 @@ impl MatrixDriver {
         Ok(messages
             .chunk
             .into_iter()
-            .map(|ev| ev.into_raw().cast())
+            .map(|ev| ev.into_raw().cast_unchecked())
             .filter(|ev| match &state_key {
                 Some(state_key) => {
                     ev.get_field::<String>("state_key").is_ok_and(|key| match state_key {
@@ -548,13 +548,14 @@ impl StateUpdateReceiver {
 }
 
 fn attach_room_id(raw_ev: &Raw<AnySyncTimelineEvent>, room_id: &RoomId) -> Raw<AnyTimelineEvent> {
-    let mut ev_obj = raw_ev.deserialize_as::<BTreeMap<String, Box<RawJsonValue>>>().unwrap();
+    let mut ev_obj =
+        raw_ev.deserialize_as_unchecked::<BTreeMap<String, Box<RawJsonValue>>>().unwrap();
     ev_obj.insert("room_id".to_owned(), serde_json::value::to_raw_value(room_id).unwrap());
-    Raw::new(&ev_obj).unwrap().cast()
+    Raw::new(&ev_obj).unwrap().cast_unchecked()
 }
 
 fn attach_room_id_state(raw_ev: &Raw<AnySyncStateEvent>, room_id: &RoomId) -> Raw<AnyStateEvent> {
-    attach_room_id(raw_ev.cast_ref(), room_id).cast()
+    attach_room_id(raw_ev.cast_ref(), room_id).cast_unchecked()
 }
 
 #[cfg(test)]
@@ -578,7 +579,7 @@ mod tests {
             }
         }))
         .unwrap()
-        .cast();
+        .cast_unchecked();
         let room_id = room_id!("!my_id:example.org");
         let new = attach_room_id(&raw, room_id);
 
@@ -606,7 +607,7 @@ mod tests {
             }
         }))
         .unwrap()
-        .cast();
+        .cast_unchecked();
         let room_id = room_id!("!my_id:example.org");
         let new = attach_room_id(&raw, room_id);
 

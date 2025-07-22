@@ -18,7 +18,7 @@ macro_rules! message_like_event_content {
     ($( $tt:tt )*) => {
         ::ruma::serde::Raw::new(&::serde_json::json!( $($tt)* ))
             .unwrap()
-            .cast::<::ruma::events::AnyMessageLikeEventContent>()
+            .cast_unchecked::<::ruma::events::AnyMessageLikeEventContent>()
     }
 }
 
@@ -30,7 +30,7 @@ macro_rules! timeline_event {
     ($( $tt:tt )*) => {
         ::ruma::serde::Raw::new(&::serde_json::json!( $($tt)* ))
             .unwrap()
-            .cast::<::ruma::events::AnyTimelineEvent>()
+            .cast_unchecked::<::ruma::events::AnyTimelineEvent>()
     }
 }
 
@@ -42,7 +42,7 @@ macro_rules! sync_timeline_event {
     ($( $tt:tt )*) => {
         ::ruma::serde::Raw::new(&::serde_json::json!( $($tt)* ))
             .unwrap()
-            .cast::<::ruma::events::AnySyncTimelineEvent>()
+            .cast_unchecked::<::ruma::events::AnySyncTimelineEvent>()
     }
 }
 
@@ -54,7 +54,7 @@ macro_rules! sync_state_event {
     ($( $tt:tt )*) => {
         ::ruma::serde::Raw::new(&::serde_json::json!( $($tt)* ))
             .unwrap()
-            .cast::<::ruma::events::AnySyncStateEvent>()
+            .cast_unchecked::<::ruma::events::AnySyncStateEvent>()
     }
 }
 
@@ -66,7 +66,7 @@ macro_rules! stripped_state_event {
     ($( $tt:tt )*) => {
         ::ruma::serde::Raw::new(&::serde_json::json!( $($tt)* ))
             .unwrap()
-            .cast::<::ruma::events::AnyStrippedStateEvent>()
+            .cast_unchecked::<::ruma::events::AnyStrippedStateEvent>()
     }
 }
 

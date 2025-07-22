@@ -132,7 +132,7 @@ mod tests {
             "type": "m.tag",
         }))
         .unwrap()
-        .cast();
+        .cast_unchecked();
 
         // When the new tag is handled and applied.
         let mut context = processors::Context::default();
@@ -164,7 +164,7 @@ mod tests {
             "type": "m.tag"
         }))
         .unwrap()
-        .cast();
+        .cast_unchecked();
 
         processors::account_data::for_room(&mut context, room_id, &[tag_raw], &client.state_store)
             .await;
@@ -230,7 +230,7 @@ mod tests {
             "type": "m.tag"
         }))
         .unwrap()
-        .cast();
+        .cast_unchecked();
 
         // When the new tag is handled and applied.
         let mut context = processors::Context::default();
@@ -262,7 +262,7 @@ mod tests {
             "type": "m.tag"
         }))
         .unwrap()
-        .cast();
+        .cast_unchecked();
 
         processors::account_data::for_room(&mut context, room_id, &[tag_raw], &client.state_store)
             .await;

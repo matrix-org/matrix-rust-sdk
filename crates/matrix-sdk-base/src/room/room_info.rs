@@ -1146,7 +1146,7 @@ pub fn apply_redaction(
     }
 
     let raw = Raw::new(&event_json).expect("CanonicalJsonObject must be serializable");
-    Some(raw.cast())
+    Some(raw.cast_unchecked())
 }
 
 /// Indicates that a notable update of `RoomInfo` has been applied, and why.
@@ -1412,11 +1412,11 @@ mod tests {
         // Add events to the store.
         let mut changes = StateChanges::default();
 
-        let raw_tag_event = Raw::new(&*TAG).unwrap().cast();
+        let raw_tag_event = Raw::new(&*TAG).unwrap().cast_unchecked();
         let tag_event = raw_tag_event.deserialize().unwrap();
         changes.add_room_account_data(&room_info.room_id, tag_event, raw_tag_event);
 
-        let raw_pinned_events_event = Raw::new(&*PINNED_EVENTS).unwrap().cast();
+        let raw_pinned_events_event = Raw::new(&*PINNED_EVENTS).unwrap().cast_unchecked();
         let pinned_events_event = raw_pinned_events_event.deserialize().unwrap();
         changes.add_state_event(&room_info.room_id, pinned_events_event, raw_pinned_events_event);
 

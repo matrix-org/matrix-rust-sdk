@@ -333,15 +333,16 @@ impl StateStore for MemoryStore {
                     inner.stripped_room_state.remove(room);
 
                     if *event_type == StateEventType::RoomMember {
-                        let event = match raw_event.deserialize_as::<SyncRoomMemberEvent>() {
-                            Ok(ev) => ev,
-                            Err(e) => {
-                                let event_id: Option<String> =
-                                    raw_event.get_field("event_id").ok().flatten();
-                                debug!(event_id, "Failed to deserialize member event: {e}");
-                                continue;
-                            }
-                        };
+                        let event =
+                            match raw_event.deserialize_as_unchecked::<SyncRoomMemberEvent>() {
+                                Ok(ev) => ev,
+                                Err(e) => {
+                                    let event_id: Option<String> =
+                                        raw_event.get_field("event_id").ok().flatten();
+                                    debug!(event_id, "Failed to deserialize member event: {e}");
+                                    continue;
+                                }
+                            };
 
                         inner.stripped_members.remove(room);
 
@@ -375,18 +376,19 @@ impl StateStore for MemoryStore {
                         .insert(state_key.to_owned(), raw_event.clone());
 
                     if *event_type == StateEventType::RoomMember {
-                        let event = match raw_event.deserialize_as::<StrippedRoomMemberEvent>() {
-                            Ok(ev) => ev,
-                            Err(e) => {
-                                let event_id: Option<String> =
-                                    raw_event.get_field("event_id").ok().flatten();
-                                debug!(
-                                    event_id,
-                                    "Failed to deserialize stripped member event: {e}"
-                                );
-                                continue;
-                            }
-                        };
+                        let event =
+                            match raw_event.deserialize_as_unchecked::<StrippedRoomMemberEvent>() {
+                                Ok(ev) => ev,
+                                Err(e) => {
+                                    let event_id: Option<String> =
+                                        raw_event.get_field("event_id").ok().flatten();
+                                    debug!(
+                                        event_id,
+                                        "Failed to deserialize stripped member event: {e}"
+                                    );
+                                    continue;
+                                }
+                            };
 
                         inner
                             .stripped_members
@@ -466,7 +468,7 @@ impl StateStore for MemoryStore {
                                     Some(RedactedBecause::from_raw_event(redaction)?),
                                 )
                                 .map_err(StoreError::Redaction)?;
-                                *raw_evt = Raw::new(&redacted)?.cast();
+                                *raw_evt = Raw::new(&redacted)?.cast_unchecked();
                             }
                         }
                     }

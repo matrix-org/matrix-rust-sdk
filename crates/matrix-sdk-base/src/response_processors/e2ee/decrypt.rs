@@ -35,7 +35,7 @@ pub async fn sync_timeline_event(
 
     Ok(Some(
         match olm
-            .try_decrypt_room_event(event.cast_ref(), room_id, e2ee.decryption_settings)
+            .try_decrypt_room_event(event.cast_ref_unchecked(), room_id, e2ee.decryption_settings)
             .await?
         {
             RoomEventDecryptionResult::Decrypted(decrypted) => {

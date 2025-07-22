@@ -554,7 +554,7 @@ mod tests {
             "state_key": user_id,
         });
 
-        Raw::new(&ev_json).unwrap().cast()
+        Raw::new(&ev_json).unwrap().cast_unchecked()
     }
 
     fn make_canonical_alias_event() -> MinimalStateEvent<RoomCanonicalAliasEventContent> {

@@ -564,7 +564,7 @@ impl TimelineEvent {
                                 DecryptedRoomEvent {
                                     // Safety: A decrypted event always includes a room_id in its
                                     // payload.
-                                    event: latest_event.cast(),
+                                    event: latest_event.cast_unchecked(),
                                     encryption_info: encryption_info.clone(),
                                     // A bundled latest event is never a thread root. It could have
                                     // a replacement event, but we don't carry this information
@@ -753,7 +753,7 @@ impl TimelineEventKind {
             // expected to contain a `room_id`). It just means that the `room_id` will be ignored
             // in a future deserialization.
             TimelineEventKind::Decrypted(d) => d.event.cast_ref(),
-            TimelineEventKind::UnableToDecrypt { event, .. } => event.cast_ref(),
+            TimelineEventKind::UnableToDecrypt { event, .. } => event,
             TimelineEventKind::PlainText { event } => event,
         }
     }
@@ -794,7 +794,7 @@ impl TimelineEventKind {
             // expected to contain a `room_id`). It just means that the `room_id` will be ignored
             // in a future deserialization.
             TimelineEventKind::Decrypted(d) => d.event.cast(),
-            TimelineEventKind::UnableToDecrypt { event, .. } => event.cast(),
+            TimelineEventKind::UnableToDecrypt { event, .. } => event,
             TimelineEventKind::PlainText { event } => event,
         }
     }
@@ -1159,7 +1159,7 @@ impl From<SyncTimelineEventDeserializationHelperV0> for TimelineEvent {
                     // That *should* be ok, because if this is genuinely a decrypted
                     // room event (as the encryption_info indicates), then it will have
                     // a room_id.
-                    event: event.cast(),
+                    event: event.cast_unchecked(),
                     encryption_info,
                     unsigned_encryption_info,
                 })
@@ -1261,7 +1261,8 @@ mod tests {
 
     #[test]
     fn sync_timeline_debug_content() {
-        let room_event = TimelineEvent::from_plaintext(Raw::new(&example_event()).unwrap().cast());
+        let room_event =
+            TimelineEvent::from_plaintext(Raw::new(&example_event()).unwrap().cast_unchecked());
         let debug_s = format!("{room_event:?}");
         assert!(
             !debug_s.contains("secret"),
@@ -1381,7 +1382,7 @@ mod tests {
     fn sync_timeline_event_serialisation() {
         let room_event = TimelineEvent {
             kind: TimelineEventKind::Decrypted(DecryptedRoomEvent {
-                event: Raw::new(&example_event()).unwrap().cast(),
+                event: Raw::new(&example_event()).unwrap().cast_unchecked(),
                 encryption_info: Arc::new(EncryptionInfo {
                     sender: user_id!("@sender:example.com").to_owned(),
                     sender_device: None,
@@ -1556,7 +1557,7 @@ mod tests {
             }
         });
 
-        let raw = Raw::new(&event).unwrap().cast();
+        let raw = Raw::new(&event).unwrap().cast_unchecked();
 
         // When creating a timeline event from a raw event, the thread summary is always
         // extracted, if available.
@@ -1818,7 +1819,7 @@ mod tests {
     fn snapshot_test_sync_timeline_event() {
         let room_event = TimelineEvent {
             kind: TimelineEventKind::Decrypted(DecryptedRoomEvent {
-                event: Raw::new(&example_event()).unwrap().cast(),
+                event: Raw::new(&example_event()).unwrap().cast_unchecked(),
                 encryption_info: Arc::new(EncryptionInfo {
                     sender: user_id!("@sender:example.com").to_owned(),
                     sender_device: Some(device_id!("ABCDEFGHIJ").to_owned()),

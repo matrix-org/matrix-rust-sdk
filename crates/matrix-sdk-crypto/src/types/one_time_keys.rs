@@ -114,7 +114,7 @@ impl OneTimeKey {
     ) -> Result<Self, serde_json::Error> {
         match algorithm {
             OneTimeKeyAlgorithm::SignedCurve25519 => {
-                let key: SignedKey = key.deserialize_as()?;
+                let key: SignedKey = key.deserialize_as_unchecked()?;
                 Ok(OneTimeKey::SignedKey(key))
             }
             _ => Err(serde::de::Error::custom(format!("Unsupported key algorithm {algorithm}"))),

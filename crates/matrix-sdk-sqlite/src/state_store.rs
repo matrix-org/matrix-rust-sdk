@@ -1153,7 +1153,7 @@ impl StateStore for SqliteStateStore {
 
                             if event_type == StateEventType::RoomMember {
                                 let member_event = match raw_state_event
-                                    .deserialize_as::<SyncRoomMemberEvent>()
+                                    .deserialize_as_unchecked::<SyncRoomMemberEvent>()
                                 {
                                     Ok(ev) => ev,
                                     Err(e) => {
@@ -1210,7 +1210,7 @@ impl StateStore for SqliteStateStore {
 
                             if event_type == StateEventType::RoomMember {
                                 let member_event = match raw_stripped_state_event
-                                    .deserialize_as::<StrippedRoomMemberEvent>(
+                                    .deserialize_as_unchecked::<StrippedRoomMemberEvent>(
                                 ) {
                                     Ok(ev) => ev,
                                     Err(e) => {

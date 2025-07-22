@@ -621,8 +621,8 @@ impl WidgetMachine {
             response_data: impl Serialize,
         ) -> Action {
             let f = || {
-                let mut object =
-                    raw_request.deserialize_as::<IndexMap<String, Box<RawJsonValue>>>()?;
+                let mut object = raw_request
+                    .deserialize_as_unchecked::<IndexMap<String, Box<RawJsonValue>>>()?;
                 let response_data = serde_json::value::to_raw_value(&response_data)?;
                 object.insert("response".to_owned(), response_data);
                 serde_json::to_string(&object)

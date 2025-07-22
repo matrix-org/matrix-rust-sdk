@@ -25,7 +25,7 @@ use ruma::{
         secret::request::{SecretName, ToDeviceSecretRequestEvent},
         ToDeviceEventContent, ToDeviceEventType,
     },
-    serde::Raw,
+    serde::{JsonCastable, Raw},
     OwnedUserId, UserId,
 };
 use serde::{Deserialize, Serialize};
@@ -233,6 +233,10 @@ impl ToDeviceEvents {
         Ok(serialized)
     }
 }
+
+impl JsonCastable<ToDeviceEvents> for ruma::events::AnyToDeviceEvent {}
+
+impl JsonCastable<ruma::events::AnyToDeviceEvent> for ToDeviceEvents {}
 
 /// A to-device event with an unknown type and content.
 #[derive(Clone, Debug, Deserialize, Serialize)]

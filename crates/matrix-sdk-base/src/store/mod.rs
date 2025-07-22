@@ -579,7 +579,11 @@ impl StateChanges {
         C::StateKey: Borrow<K>,
         K: AsRef<str> + ?Sized,
     {
-        self.state.get(room_id)?.get(&C::TYPE.into())?.get(state_key.as_ref()).map(Raw::cast_ref)
+        self.state
+            .get(room_id)?
+            .get(&C::TYPE.into())?
+            .get(state_key.as_ref())
+            .map(Raw::cast_ref_unchecked)
     }
 
     /// Get a specific stripped state event of statically-known type with the
@@ -599,7 +603,7 @@ impl StateChanges {
             .get(room_id)?
             .get(&C::TYPE.into())?
             .get(state_key.as_ref())
-            .map(Raw::cast_ref)
+            .map(Raw::cast_ref_unchecked)
     }
 
     /// Get a specific state event of statically-known type with the given state
