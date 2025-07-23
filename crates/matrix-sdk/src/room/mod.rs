@@ -80,6 +80,7 @@ use ruma::{
         room::{get_room_event, report_content, report_room},
         state::{get_state_event_for_key, send_state_event},
         tag::{create_tag, delete_tag},
+        threads::{get_thread_subscription, subscribe_thread, unsubscribe_thread},
         typing::create_typing_event::{self, v3::Typing},
     },
     assign,
@@ -3711,6 +3712,101 @@ impl Room {
     ) -> Result<Relations> {
         opts.send(self, event_id).await
     }
+
+    /// Subscribe to a given thread in this room.
+    ///
+    /// This will subscribe the user to the thread, so that they will receive
+    /// notifications for that thread specifically.
+    ///
+    /// # Arguments
+    ///
+    /// - `thread_root`: The ID of the thread root event to subscribe to.
+    /// - `automatic`: Whether the subscription was made automatically by a
+    ///   client, not by manual user choice. If there was a previous automatic
+    ///   subscription, and that's set to `true` (i.e. we're now subscribing
+    ///   manually), the subscription will be overridden to a manual one
+    ///   instead.
+    ///
+    /// # Returns
+    ///
+    /// - A 404 error if the event isn't known, or isn't a thread root.
+    /// - An `Ok` result if the subscription was successful.
+    pub async fn subscribe_thread(&self, thread_root: OwnedEventId, automatic: bool) -> Result<()> {
+        self.client
+            .send(subscribe_thread::unstable::Request::new(
+                self.room_id().to_owned(),
+                thread_root,
+                automatic,
+            ))
+            .await?;
+        Ok(())
+    }
+
+    /// Unsubscribe from a given thread in this room.
+    ///
+    /// # Arguments
+    ///
+    /// - `thread_root`: The ID of the thread root event to unsubscribe to.
+    ///
+    /// # Returns
+    ///
+    /// - An `Ok` result if the unsubscription was successful, or the thread was
+    ///   already unsubscribed.
+    /// - A 404 error if the event isn't known, or isn't a thread root.
+    pub async fn unsubscribe_thread(&self, thread_root: OwnedEventId) -> Result<()> {
+        self.client
+            .send(unsubscribe_thread::unstable::Request::new(
+                self.room_id().to_owned(),
+                thread_root,
+            ))
+            .await?;
+        Ok(())
+    }
+
+    /// Return the current thread subscription for the given thread root in this
+    /// room.
+    ///
+    /// # Arguments
+    ///
+    /// - `thread_root`: The ID of the thread root event to get the subscription
+    ///   for.
+    ///
+    /// # Returns
+    ///
+    /// - An `Ok` result with `Some(ThreadSubscription)` if the subscription
+    ///   exists.
+    /// - An `Ok` result with `None` if the subscription does not exist, or the
+    ///   event couldn't be found, or the event isn't a thread.
+    /// - An error if the request fails for any other reason, such as a network
+    ///   error.
+    pub async fn fetch_thread_subscription(
+        &self,
+        thread_root: OwnedEventId,
+    ) -> Result<Option<ThreadSubscription>> {
+        let result = self
+            .client
+            .send(get_thread_subscription::unstable::Request::new(
+                self.room_id().to_owned(),
+                thread_root,
+            ))
+            .await;
+
+        match result {
+            Ok(response) => Ok(Some(ThreadSubscription { automatic: response.automatic })),
+            Err(http_error) => match http_error.as_client_api_error() {
+                Some(error) if error.status_code == StatusCode::NOT_FOUND => Ok(None),
+                _ => Err(http_error.into()),
+            },
+        }
+    }
+}
+
+/// Status of a thread subscription.
+#[derive(Debug, Clone, Copy)]
+pub struct ThreadSubscription {
+    /// Whether the subscription was made automatically by a client, not by
+    /// manual user choice.
+    pub automatic: bool,
 }
 
 #[cfg(feature = "e2e-encryption")]
