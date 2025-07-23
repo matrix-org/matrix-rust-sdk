@@ -47,8 +47,12 @@ use ruma::{
         AnyMessageLikeEventContent, AnySyncTimelineEvent, Mentions,
         poll::unstable_start::{NewUnstablePollStartEventContent, UnstablePollStartEventContent},
         receipt::{Receipt, ReceiptThread},
+        relation::Thread,
         room::{
-            message::{FormattedBody, ReplyWithinThread, RoomMessageEventContentWithoutRelation},
+            message::{
+                FormattedBody, Relation, RelationWithoutReplacement, ReplyWithinThread,
+                RoomMessageEventContentWithoutRelation,
+            },
             pinned_events::RoomPinnedEventsEventContent,
         },
     },
@@ -294,31 +298,50 @@ impl Timeline {
     ///
     /// * `content` - The content of the message event.
     #[instrument(skip(self, content), fields(room_id = ?self.room().room_id()))]
-    pub async fn send(&self, content: AnyMessageLikeEventContent) -> Result<SendHandle, Error> {
+    pub async fn send(&self, mut content: AnyMessageLikeEventContent) -> Result<SendHandle, Error> {
         // If this is a room event we're sending in a threaded timeline, we add the
         // thread relation ourselves.
-        if let AnyMessageLikeEventContent::RoomMessage(ref room_msg_content) = content
-            && room_msg_content.relates_to.is_none()
-            && self.controller.is_threaded()
+        if content.relation().is_none()
+            && let Some(reply) = self.infer_reply(None).await
         {
-            let reply = self
-                .infer_reply(None)
-                .await
-                .expect("a reply will always be set for threaded timelines");
-            let content = self
-                .room()
-                .make_reply_event(
-                    // Note: this `.into()` gets rid of the relation, but we've checked previously
-                    // that the `relates_to` field wasn't set.
-                    room_msg_content.clone().into(),
-                    reply,
-                )
-                .await?;
-            Ok(self.room().send_queue().send(content.into()).await?)
-        } else {
-            // Otherwise, we send the message as is.
-            Ok(self.room().send_queue().send(content).await?)
+            match &mut content {
+                AnyMessageLikeEventContent::RoomMessage(room_msg_content) => {
+                    content = self
+                        .room()
+                        .make_reply_event(
+                            // Note: this `.into()` gets rid of the relation, but we've checked
+                            // previously that the `relates_to` field wasn't
+                            // set.
+                            room_msg_content.clone().into(),
+                            reply,
+                        )
+                        .await?
+                        .into();
+                }
+
+                AnyMessageLikeEventContent::UnstablePollStart(
+                    UnstablePollStartEventContent::New(poll),
+                ) => {
+                    if let Some(thread_root) = self.controller.thread_root() {
+                        poll.relates_to = Some(RelationWithoutReplacement::Thread(Thread::plain(
+                            thread_root,
+                            reply.event_id,
+                        )));
+                    }
+                }
+
+                AnyMessageLikeEventContent::Sticker(sticker) => {
+                    if let Some(thread_root) = self.controller.thread_root() {
+                        sticker.relates_to =
+                            Some(Relation::Thread(Thread::plain(thread_root, reply.event_id)));
+                    }
+                }
+
+                _ => {}
+            }
         }
+
+        Ok(self.room().send_queue().send(content).await?)
     }
 
     /// Send a reply to the given event.
@@ -341,7 +364,7 @@ impl Timeline {
     ///
     /// * `content` - The content of the reply.
     ///
-    /// * `event_id` - The ID of the event to reply to.
+    /// * `in_reply_to` - The ID of the event to reply to.
     #[instrument(skip(self, content))]
     pub async fn send_reply(
         &self,
