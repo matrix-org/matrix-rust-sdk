@@ -133,6 +133,11 @@ pub struct ClientBuilder {
     threads_enabled: bool,
 }
 
+/// The timeout applies to each read operation, and resets after a successful
+/// read. This is more appropriate for detecting stalled connections when the
+/// size isn’t known beforehand.
+const DEFAULT_READ_TIMEOUT: Duration = Duration::from_secs(60);
+
 #[matrix_sdk_ffi_macros::export]
 impl ClientBuilder {
     #[uniffi::constructor]
@@ -539,6 +544,7 @@ impl ClientBuilder {
             if let Some(timeout) = config.timeout {
                 updated_config = updated_config.timeout(Duration::from_millis(timeout));
             }
+            updated_config = updated_config.read_timeout(DEFAULT_READ_TIMEOUT);
             if let Some(max_concurrent_requests) = config.max_concurrent_requests {
                 if max_concurrent_requests > 0 {
                     updated_config = updated_config.max_concurrent_requests(NonZeroUsize::new(
