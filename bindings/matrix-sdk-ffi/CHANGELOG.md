@@ -15,6 +15,9 @@ All notable changes to this project will be documented in this file.
 
 ### Breaking changes:
 
+- `Client::get_url` now returns a `Vec<u8>` instead of a `String`. It also throws an error when the
+  response isn't status code 200 OK, instead of providing the error in the response body.
+  ([#whoknows](whoknows))
 - `RoomPreview::info()` doesn't return a result anymore. All unknown join rules are handled in the
   `JoinRule::Custom` variant.
   ([#5337](https://github.com/matrix-org/matrix-rust-sdk/pull/5337))

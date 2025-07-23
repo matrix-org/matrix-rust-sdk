@@ -775,11 +775,24 @@ impl Client {
         }
     }
 
-    /// Allows generic GET requests to be made through the SDKs internal HTTP
-    /// client
-    pub async fn get_url(&self, url: String) -> Result<String, ClientError> {
-        let http_client = self.inner.http_client();
-        Ok(http_client.get(url).send().await?.text().await?)
+    /// Allows generic GET requests to be made through the SDK's internal HTTP
+    /// client. This is useful when the caller's native HTTP client wouldn't
+    /// have the same configuration (such as certificates, proxies, etc.) This
+    /// method returns the raw bytes of the response, so that any kind of
+    /// resource can be fetched including images, files, etc.
+    ///
+    /// Note: When an HTTP error occurs, the error response can be found in the
+    /// `ClientError::Generic`'s `details` field.
+    pub async fn get_url(&self, url: String) -> Result<Vec<u8>, ClientError> {
+        let response = self.inner.http_client().get(url).send().await?;
+        if response.status().is_success() {
+            Ok(response.bytes().await?.into())
+        } else {
+            Err(ClientError::Generic {
+                msg: response.status().to_string(),
+                details: response.text().await.ok(),
+            })
+        }
     }
 
     /// Empty the server version and unstable features cache.
