@@ -434,18 +434,24 @@ impl Media {
             }
         }
 
+        let request_config = self
+            .client
+            .request_config()
+            // Downloading a file should have no timeout as we don't know the network connectivity
+            // available for the user or the file size
+            .timeout(None);
+
         // Use the authenticated endpoints when the server supports Matrix 1.11 or the
         // authenticated media stable feature.
         let (use_auth, request_config) =
             if self.client.server_versions().await?.contains(&MatrixVersion::V1_11) {
-                (true, None)
+                (true, request_config)
             } else if self.client.unstable_features().await?.contains(&FeatureFlag::Msc3916Stable) {
                 // We need to force the use of the stable endpoint with the Matrix version
                 // because Ruma does not handle stable features.
-                let request_config = self.client.request_config();
-                (true, Some(request_config.force_matrix_version(MatrixVersion::V1_11)))
+                (true, request_config.force_matrix_version(MatrixVersion::V1_11))
             } else {
-                (false, None)
+                (false, request_config)
             };
 
         let content: Vec<u8> = match &request.source {
