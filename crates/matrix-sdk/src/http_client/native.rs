@@ -185,6 +185,10 @@ impl HttpSettings {
             http_client = http_client.timeout(timeout);
         }
 
+        if let Some(read_timeout) = self.read_timeout {
+            http_client = http_client.read_timeout(read_timeout);
+        }
+
         if self.disable_ssl_verification {
             warn!("SSL verification disabled in the HTTP client!");
             http_client = http_client.danger_accept_invalid_certs(true)
