@@ -131,6 +131,10 @@ impl RoomMemberRole {
                     Self::User
                 }
             }
+            // This branch is only necessary because the enum is non-exhaustive.
+            // TODO: Use the `non_exhaustive_omitted_patterns` lint when it becomes stable to be
+            // warned when a variant is added.
+            // Tracking issue: https://github.com/rust-lang/rust/issues/89554
             _ => unimplemented!(),
         }
     }
