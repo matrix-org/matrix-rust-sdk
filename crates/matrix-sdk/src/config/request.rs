@@ -43,8 +43,8 @@ use crate::http_client::DEFAULT_REQUEST_TIMEOUT;
 /// ```
 #[derive(Copy, Clone)]
 pub struct RequestConfig {
-    pub(crate) timeout: Duration,
     pub(crate) timeout: Option<Duration>,
+    pub(crate) read_timeout: Option<Duration>,
     pub(crate) retry_limit: Option<usize>,
     pub(crate) max_retry_time: Option<Duration>,
     pub(crate) max_concurrent_requests: Option<NonZeroUsize>,
@@ -57,6 +57,7 @@ impl Debug for RequestConfig {
     fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
         let Self {
             timeout,
+            read_timeout,
             retry_limit,
             max_retry_time: retry_timeout,
             force_auth,
@@ -66,6 +67,7 @@ impl Debug for RequestConfig {
 
         let mut res = fmt.debug_struct("RequestConfig");
         res.field("timeout", timeout)
+            .maybe_field("read_timeout", read_timeout)
             .maybe_field("retry_limit", retry_limit)
             .maybe_field("max_retry_time", retry_timeout)
             .maybe_field("max_concurrent_requests", max_concurrent_requests)
@@ -82,8 +84,8 @@ impl Debug for RequestConfig {
 impl Default for RequestConfig {
     fn default() -> Self {
         Self {
-            timeout: DEFAULT_REQUEST_TIMEOUT,
             timeout: Some(DEFAULT_REQUEST_TIMEOUT),
+            read_timeout: None,
             retry_limit: Default::default(),
             max_retry_time: Default::default(),
             max_concurrent_requests: Default::default(),
@@ -139,6 +141,20 @@ impl RequestConfig {
         self
     }
 
+    /// Set the read timeout duration for all HTTP requests.
+    ///
+    /// The timeout applies to each read operation, and resets after a
+    /// successful read. This is more appropriate for detecting stalled
+    /// connections when the size isn’t known beforehand.
+    ///
+    /// **IMPORTANT**: note this value can only be applied when the HTTP client
+    /// is instantiated, it won't have any effect on a per-request basis.
+    #[must_use]
+    pub fn read_timeout(mut self, timeout: impl Into<Option<Duration>>) -> Self {
+        self.read_timeout = timeout.into();
+        self
+    }
+
     /// Set a time limit for how long a request should be retried. The default
     /// is that there isn't a limit, meaning requests are retried forever.
     ///
@@ -182,12 +198,14 @@ mod tests {
             .force_auth()
             .max_retry_time(Duration::from_secs(32))
             .retry_limit(4)
-            .timeout(Duration::from_secs(600));
+            .timeout(Duration::from_secs(600))
+            .read_timeout(Duration::from_secs(10));
 
         assert!(cfg.force_auth);
         assert_eq!(cfg.retry_limit, Some(4));
         assert_eq!(cfg.max_retry_time, Some(Duration::from_secs(32)));
-        assert_eq!(cfg.timeout, Duration::from_secs(600));
+        assert_eq!(cfg.timeout, Some(Duration::from_secs(600)));
+        assert_eq!(cfg.read_timeout, Some(Duration::from_secs(10)));
     }
 
     #[test]
