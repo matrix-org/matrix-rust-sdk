@@ -89,7 +89,7 @@ impl Status {
                 let status_message = status_message.clone();
 
                 async move {
-                    // Clear the status message in 4 seconds.
+                    // Clear the status message after the standard duration.
                     sleep(MESSAGE_DURATION).await;
                     status_message.lock().take();
                 }
