@@ -52,7 +52,7 @@ use ruma::{
     power_levels::NotificationPowerLevels,
     push::{PushConditionPowerLevelsCtx, PushConditionRoomCtx, Ruleset},
     room_id,
-    room_version_rules::RoomVersionRules,
+    room_version_rules::{AuthorizationRules, RoomPowerLevelsRules, RoomVersionRules},
     serde::Raw,
     uint,
 };
@@ -411,6 +411,7 @@ impl RoomDataProvider for TestRoomDataProvider {
             BTreeMap::new(),
             int!(0),
             NotificationPowerLevels::new(),
+            RoomPowerLevelsRules::new(&AuthorizationRules::V1, None),
         );
         let push_condition_room_ctx = assign!(
             PushConditionRoomCtx::new(

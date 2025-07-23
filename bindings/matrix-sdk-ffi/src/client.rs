@@ -78,6 +78,7 @@ use ruma::{
         RoomAccountDataEvent as RumaRoomAccountDataEvent,
     },
     push::{HttpPusherData as RumaHttpPusherData, PushFormat as RumaPushFormat},
+    room_version_rules::AuthorizationRules,
     OwnedDeviceId, OwnedServerName, RoomAliasId, RoomOrAliasId, ServerName,
 };
 use serde::{Deserialize, Serialize};
@@ -1911,7 +1912,7 @@ pub struct PowerLevels {
 
 impl From<PowerLevels> for RoomPowerLevelsEventContent {
     fn from(value: PowerLevels) -> Self {
-        let mut power_levels = RoomPowerLevelsEventContent::new();
+        let mut power_levels = RoomPowerLevelsEventContent::new(&AuthorizationRules::V1);
 
         if let Some(users_default) = value.users_default {
             power_levels.users_default = users_default.into();

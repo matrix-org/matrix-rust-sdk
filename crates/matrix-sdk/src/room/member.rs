@@ -1,6 +1,9 @@
 use std::ops::Deref;
 
-use ruma::events::room::MediaSource;
+use ruma::{
+    events::room::{power_levels::UserPowerLevel, MediaSource},
+    int,
+};
 
 use crate::{
     media::{MediaFormat, MediaRequestParameters},
@@ -95,6 +98,17 @@ impl RoomMember {
 #[derive(Clone, Debug, PartialEq)]
 #[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
 pub enum RoomMemberRole {
+    /// The member is a creator.
+    ///
+    /// A creator has infinite power levels and cannot be demoted, so this role
+    /// is immutable. A room can have several creators.
+    ///
+    /// It is available in room versions where
+    /// `explicitly_privilege_room_creators` in [`AuthorizationRules`] is set to
+    /// `true`.
+    ///
+    /// [`AuthorizationRules`]: ruma::room_version_rules::AuthorizationRules
+    Creator,
     /// The member is an administrator.
     Administrator,
     /// The member is a moderator.
@@ -105,22 +119,29 @@ pub enum RoomMemberRole {
 
 impl RoomMemberRole {
     /// Creates the suggested role for a given power level.
-    pub fn suggested_role_for_power_level(power_level: i64) -> Self {
-        if power_level >= 100 {
-            Self::Administrator
-        } else if power_level >= 50 {
-            Self::Moderator
-        } else {
-            Self::User
+    pub fn suggested_role_for_power_level(power_level: UserPowerLevel) -> Self {
+        match power_level {
+            UserPowerLevel::Infinite => RoomMemberRole::Creator,
+            UserPowerLevel::Int(value) => {
+                if value >= int!(100) {
+                    Self::Administrator
+                } else if value >= int!(50) {
+                    Self::Moderator
+                } else {
+                    Self::User
+                }
+            }
+            _ => unimplemented!(),
         }
     }
 
     /// Get the suggested power level for this role.
-    pub fn suggested_power_level(&self) -> i64 {
+    pub fn suggested_power_level(&self) -> UserPowerLevel {
         match self {
-            Self::Administrator => 100,
-            Self::Moderator => 50,
-            Self::User => 0,
+            Self::Creator => UserPowerLevel::Infinite,
+            Self::Administrator => UserPowerLevel::Int(int!(100)),
+            Self::Moderator => UserPowerLevel::Int(int!(50)),
+            Self::User => UserPowerLevel::Int(int!(0)),
         }
     }
 }
@@ -133,33 +154,51 @@ mod tests {
     fn test_suggested_roles() {
         assert_eq!(
             RoomMemberRole::Administrator,
-            RoomMemberRole::suggested_role_for_power_level(100)
+            RoomMemberRole::suggested_role_for_power_level(int!(100).into())
         );
-        assert_eq!(RoomMemberRole::Moderator, RoomMemberRole::suggested_role_for_power_level(50));
-        assert_eq!(RoomMemberRole::User, RoomMemberRole::suggested_role_for_power_level(0));
+        assert_eq!(
+            RoomMemberRole::Moderator,
+            RoomMemberRole::suggested_role_for_power_level(int!(50).into())
+        );
+        assert_eq!(
+            RoomMemberRole::User,
+            RoomMemberRole::suggested_role_for_power_level(int!(0).into())
+        );
     }
 
     #[test]
     fn test_unexpected_power_levels() {
         assert_eq!(
             RoomMemberRole::Administrator,
-            RoomMemberRole::suggested_role_for_power_level(200)
+            RoomMemberRole::suggested_role_for_power_level(int!(200).into())
         );
         assert_eq!(
             RoomMemberRole::Administrator,
-            RoomMemberRole::suggested_role_for_power_level(101)
+            RoomMemberRole::suggested_role_for_power_level(int!(101).into())
         );
-        assert_eq!(RoomMemberRole::Moderator, RoomMemberRole::suggested_role_for_power_level(99));
-        assert_eq!(RoomMemberRole::Moderator, RoomMemberRole::suggested_role_for_power_level(51));
-        assert_eq!(RoomMemberRole::User, RoomMemberRole::suggested_role_for_power_level(-1));
-        assert_eq!(RoomMemberRole::User, RoomMemberRole::suggested_role_for_power_level(-100));
+        assert_eq!(
+            RoomMemberRole::Moderator,
+            RoomMemberRole::suggested_role_for_power_level(int!(99).into())
+        );
+        assert_eq!(
+            RoomMemberRole::Moderator,
+            RoomMemberRole::suggested_role_for_power_level(int!(51).into())
+        );
+        assert_eq!(
+            RoomMemberRole::User,
+            RoomMemberRole::suggested_role_for_power_level(int!(-1).into())
+        );
+        assert_eq!(
+            RoomMemberRole::User,
+            RoomMemberRole::suggested_role_for_power_level(int!(-100).into())
+        );
     }
 
     #[test]
     fn test_default_power_levels() {
-        assert_eq!(100, RoomMemberRole::Administrator.suggested_power_level());
-        assert_eq!(50, RoomMemberRole::Moderator.suggested_power_level());
-        assert_eq!(0, RoomMemberRole::User.suggested_power_level());
+        assert_eq!(int!(100), RoomMemberRole::Administrator.suggested_power_level());
+        assert_eq!(int!(50), RoomMemberRole::Moderator.suggested_power_level());
+        assert_eq!(int!(0), RoomMemberRole::User.suggested_power_level());
 
         assert_eq!(
             RoomMemberRole::Administrator,

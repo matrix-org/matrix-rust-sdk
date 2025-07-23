@@ -30,6 +30,7 @@ use ruma::{
             power_levels::{RoomPowerLevels, RoomPowerLevelsEventContent},
         },
     },
+    room_version_rules::AuthorizationRules,
     serde::Raw,
 };
 use serde::Serialize;
@@ -517,10 +518,14 @@ impl MemberEvent {
 
 impl SyncOrStrippedState<RoomPowerLevelsEventContent> {
     /// The power levels of the event.
-    pub fn power_levels(&self) -> RoomPowerLevels {
+    pub fn power_levels(
+        &self,
+        rules: &AuthorizationRules,
+        creators: Vec<OwnedUserId>,
+    ) -> RoomPowerLevels {
         match self {
-            Self::Sync(e) => e.power_levels(),
-            Self::Stripped(e) => e.power_levels(),
+            Self::Sync(e) => e.power_levels(rules, creators),
+            Self::Stripped(e) => e.power_levels(rules, creators),
         }
     }
 }

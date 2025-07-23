@@ -1,5 +1,5 @@
 use matrix_sdk::room::{RoomMember as SdkRoomMember, RoomMemberRole};
-use ruma::UserId;
+use ruma::{events::room::power_levels::UserPowerLevel, UserId};
 
 use crate::error::{ClientError, NotYetImplemented};
 
@@ -57,16 +57,22 @@ impl TryFrom<matrix_sdk::ruma::events::room::member::MembershipState> for Member
     }
 }
 
+/// Get the suggested role for the given power level.
+///
+/// Returns an error if the value of the power level is out of range for numbers
+/// accepted in canonical JSON.
 #[matrix_sdk_ffi_macros::export]
-pub fn suggested_role_for_power_level(power_level: i64) -> RoomMemberRole {
+pub fn suggested_role_for_power_level(
+    power_level: PowerLevel,
+) -> Result<RoomMemberRole, ClientError> {
     // It's not possible to expose the constructor on the Enum through Uniffi ☹️
-    RoomMemberRole::suggested_role_for_power_level(power_level)
+    Ok(RoomMemberRole::suggested_role_for_power_level(power_level.try_into()?))
 }
 
 #[matrix_sdk_ffi_macros::export]
-pub fn suggested_power_level_for_role(role: RoomMemberRole) -> i64 {
+pub fn suggested_power_level_for_role(role: RoomMemberRole) -> PowerLevel {
     // It's not possible to expose methods on an Enum through Uniffi ☹️
-    role.suggested_power_level()
+    role.suggested_power_level().into()
 }
 
 /// Generates a `matrix.to` permalink to the given userID.
@@ -83,8 +89,8 @@ pub struct RoomMember {
     pub avatar_url: Option<String>,
     pub membership: MembershipState,
     pub is_name_ambiguous: bool,
-    pub power_level: i64,
-    pub normalized_power_level: i64,
+    pub power_level: PowerLevel,
+    pub normalized_power_level: PowerLevel,
     pub is_ignored: bool,
     pub suggested_role_for_power_level: RoomMemberRole,
     pub membership_change_reason: Option<String>,
@@ -100,8 +106,8 @@ impl TryFrom<SdkRoomMember> for RoomMember {
             avatar_url: m.avatar_url().map(|a| a.to_string()),
             membership: m.membership().clone().try_into()?,
             is_name_ambiguous: m.name_ambiguous(),
-            power_level: m.power_level(),
-            normalized_power_level: m.normalized_power_level(),
+            power_level: m.power_level().into(),
+            normalized_power_level: m.normalized_power_level().into(),
             is_ignored: m.is_ignored(),
             suggested_role_for_power_level: m.suggested_role_for_power_level(),
             membership_change_reason: m.event().reason().map(|s| s.to_owned()),
@@ -127,6 +133,43 @@ impl TryFrom<matrix_sdk::room::RoomMemberWithSenderInfo> for RoomMemberWithSende
         Ok(Self {
             room_member: value.room_member.try_into()?,
             sender_info: value.sender_info.map(|member| member.try_into()).transpose()?,
+        })
+    }
+}
+
+#[derive(Clone, uniffi::Enum)]
+pub enum PowerLevel {
+    /// The user is a room creator and has infinite power level.
+    ///
+    /// This power level was introduced in room version 12.
+    Infinite,
+
+    /// The user has the given power level.
+    Value { value: i64 },
+}
+
+impl From<UserPowerLevel> for PowerLevel {
+    fn from(value: UserPowerLevel) -> Self {
+        match value {
+            UserPowerLevel::Infinite => Self::Infinite,
+            UserPowerLevel::Int(value) => Self::Value { value: value.into() },
+            _ => unimplemented!(),
+        }
+    }
+}
+
+impl TryFrom<PowerLevel> for UserPowerLevel {
+    type Error = ClientError;
+
+    fn try_from(value: PowerLevel) -> Result<Self, Self::Error> {
+        Ok(match value {
+            PowerLevel::Infinite => Self::Infinite,
+            PowerLevel::Value { value } => {
+                Self::Int(value.try_into().map_err(|err| ClientError::Generic {
+                    msg: "Power level is out of range".to_owned(),
+                    details: Some(format!("{err:?}")),
+                })?)
+            }
         })
     }
 }

@@ -32,6 +32,7 @@ use std::{
 
 use eyeball_im::{Vector, VectorDiff};
 use futures_util::Stream;
+use matrix_sdk_common::ROOM_VERSION_RULES_FALLBACK;
 use once_cell::sync::OnceCell;
 
 #[cfg(any(test, feature = "testing"))]
@@ -54,6 +55,7 @@ use ruma::{
         presence::PresenceEvent,
         receipt::ReceiptEventContent,
         room::{
+            create::RoomCreateEventContent,
             member::{RoomMemberEventContent, StrippedRoomMemberEvent},
             power_levels::{RoomPowerLevels, RoomPowerLevelsEventContent},
             redaction::SyncRoomRedactionEvent,
@@ -66,7 +68,7 @@ use tokio::sync::{Mutex, RwLock, broadcast};
 use tracing::warn;
 
 use crate::{
-    MinimalRoomMemberEvent, Room, RoomStateFilter, SessionMeta,
+    MinimalRoomMemberEvent, Room, RoomCreateWithCreatorEventContent, RoomStateFilter, SessionMeta,
     deserialized_responses::DisplayName,
     event_cache::store as event_cache_store,
     room::{RoomInfo, RoomInfoNotableUpdate, RoomState},
@@ -641,16 +643,28 @@ impl StateChanges {
         self.any_state_static_for_key::<RoomMemberEventContent, _>(room_id, user_id)
     }
 
+    /// Get the create event for the given room from an event contained in these
+    /// `StateChanges`, if any.
+    pub(crate) fn create(&self, room_id: &RoomId) -> Option<RoomCreateWithCreatorEventContent> {
+        self.any_state_static_for_key::<RoomCreateEventContent, _>(room_id, &EmptyStateKey)
+            .map(|event| {
+                RoomCreateWithCreatorEventContent::from_event_content(event.content, event.sender)
+            })
+            // Fallback to the content in the room info.
+            .or_else(|| self.room_infos.get(room_id)?.create().cloned())
+    }
+
     /// Get the power levels for the given room from an event contained in these
     /// `StateChanges`, if any.
     pub(crate) fn power_levels(&self, room_id: &RoomId) -> Option<RoomPowerLevels> {
-        Some(
-            self.any_state_static_for_key::<RoomPowerLevelsEventContent, _>(
-                room_id,
-                &EmptyStateKey,
-            )?
-            .power_levels(),
-        )
+        let power_levels_content = self
+            .any_state_static_for_key::<RoomPowerLevelsEventContent, _>(room_id, &EmptyStateKey)?;
+
+        let create_content = self.create(room_id)?;
+        let rules = create_content.room_version.rules().unwrap_or(ROOM_VERSION_RULES_FALLBACK);
+        let creators = create_content.creators();
+
+        Some(power_levels_content.power_levels(&rules.authorization, creators))
     }
 }
 

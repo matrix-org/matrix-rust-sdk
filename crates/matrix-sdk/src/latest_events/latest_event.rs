@@ -239,7 +239,10 @@ fn find_and_map(
 mod tests {
     use assert_matches::assert_matches;
     use matrix_sdk_test::event_factory::EventFactory;
-    use ruma::{event_id, user_id};
+    use ruma::{
+        event_id, events::room::power_levels::RoomPowerLevelsSource,
+        room_version_rules::AuthorizationRules, user_id,
+    };
 
     use super::{find_and_map, LatestEventValue};
 
@@ -427,7 +430,7 @@ mod tests {
 
     #[test]
     fn test_latest_event_knocked_state_event_with_power_levels() {
-        use ruma::events::room::power_levels::{RoomPowerLevels, RoomPowerLevelsEventContent};
+        use ruma::events::room::power_levels::RoomPowerLevels;
 
         let user_id = user_id!("@mnt_io:matrix.org");
         let other_user_id = user_id!("@other_mnt_io:server.name");
@@ -437,8 +440,8 @@ mod tests {
             .membership(ruma::events::room::member::MembershipState::Knock)
             .into_event();
 
-        let room_power_levels_event = RoomPowerLevelsEventContent::new();
-        let mut room_power_levels = RoomPowerLevels::from(room_power_levels_event);
+        let mut room_power_levels =
+            RoomPowerLevels::new(RoomPowerLevelsSource::None, &AuthorizationRules::V1, []);
         room_power_levels.users_default = 5.into();
 
         // Cannot accept. Cannot decline.

@@ -1315,6 +1315,17 @@ mod tests {
         let client = logged_in_base_client(Some(own_user_id)).await;
         let room_id = room_id!("!r:e.uk");
 
+        // The room create event.
+        let create = json!({
+            "sender":"@ignacio:example.com",
+            "state_key":"",
+            "type":"m.room.create",
+            "event_id": "$idc",
+            "origin_server_ts": 12344415,
+            "content":{ "room_version": "11" },
+            "room_id": room_id,
+        });
+
         // Give the current user invite or kick permissions in this room
         let power_levels = json!({
             "sender":"@alice:example.com",
@@ -1340,7 +1351,10 @@ mod tests {
         // When the sliding sync response contains a timeline
         let events = &[knock_event];
         let mut room = room_with_timeline(events);
-        room.required_state.push(Raw::new(&power_levels).unwrap().cast_unchecked());
+        room.required_state.extend([
+            Raw::new(&create).unwrap().cast_unchecked(),
+            Raw::new(&power_levels).unwrap().cast_unchecked(),
+        ]);
         let response = response_with_room(room_id, room);
         client
             .process_sliding_sync(&response, &RequestedRequiredStates::default())

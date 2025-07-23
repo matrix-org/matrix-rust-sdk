@@ -1984,7 +1984,11 @@ impl<'a> MockEndpoint<'a, RoomSendStateEndpoint> {
     /// ```
     /// # tokio_test::block_on(async {
     /// use matrix_sdk::{
-    ///     ruma::{room_id, event_id, events::room::power_levels::RoomPowerLevelsEventContent},
+    ///     ruma::{
+    ///         room_id, event_id,
+    ///         events::room::power_levels::RoomPowerLevelsEventContent,
+    ///         room_version_rules::AuthorizationRules
+    ///     },
     ///     test_utils::mocks::MatrixMockServer
     /// };
     /// use serde_json::json;
@@ -2009,7 +2013,7 @@ impl<'a> MockEndpoint<'a, RoomSendStateEndpoint> {
     ///     .mount()
     ///     .await;
     ///
-    /// let mut content = RoomPowerLevelsEventContent::new();
+    /// let mut content = RoomPowerLevelsEventContent::new(&AuthorizationRules::V1);
     /// // Update the power level to a non default value.
     /// // Otherwise it will be skipped from serialization.
     /// content.redact = 51.into();
@@ -2045,6 +2049,7 @@ impl<'a> MockEndpoint<'a, RoomSendStateEndpoint> {
     ///         },
     ///         events::StateEventType,
     ///         room_id,
+    ///         room_version_rules::AuthorizationRules,
     ///     },
     ///     test_utils::mocks::MatrixMockServer,
     /// };
@@ -2070,7 +2075,7 @@ impl<'a> MockEndpoint<'a, RoomSendStateEndpoint> {
     /// // The `m.room.reaction` event type should not be mocked by the server.
     /// assert!(response_not_mocked.is_err());
     ///
-    /// let response = room.send_state_event(RoomPowerLevelsEventContent::new()).await?;
+    /// let response = room.send_state_event(RoomPowerLevelsEventContent::new(&AuthorizationRules::V1)).await?;
     /// // The `m.room.message` event type should be mocked by the server.
     /// assert_eq!(
     ///     event_id, response.event_id,

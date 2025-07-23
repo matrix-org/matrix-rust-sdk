@@ -866,8 +866,20 @@ mod tests {
         );
         let client = logged_in_client(None).await;
 
-        // Add power levels state event, otherwise the knock state event can't be used
-        // as the latest event
+        // Add create and power levels state event, otherwise the knock state event
+        // can't be used as the latest event
+        let create_event = sync_state_event!({
+            "type": "m.room.create",
+            "content": { "room_version": "11" },
+            "event_id": "$143278582443PhrSm:example.org",
+            "origin_server_ts": 143273580,
+            "room_id": room_id,
+            "sender": user_id,
+            "state_key": "",
+            "unsigned": {
+              "age": 1235
+            }
+        });
         let power_level_event = sync_state_event!({
             "type": "m.room.power_levels",
             "content": {},
@@ -881,7 +893,7 @@ mod tests {
             }
         });
         let mut room = http::response::Room::new();
-        room.required_state.push(power_level_event);
+        room.required_state.extend([create_event, power_level_event]);
 
         // And the room is stored in the client so it can be extracted when needed
         let response = response_with_room(room_id, room);

@@ -101,7 +101,9 @@ use ruma::{
             },
             name::RoomNameEventContent,
             pinned_events::RoomPinnedEventsEventContent,
-            power_levels::{RoomPowerLevels, RoomPowerLevelsEventContent},
+            power_levels::{
+                RoomPowerLevels, RoomPowerLevelsEventContent, RoomPowerLevelsSource, UserPowerLevel,
+            },
             server_acl::RoomServerAclEventContent,
             topic::RoomTopicEventContent,
             ImageInfo, MediaSource, ThumbnailInfo,
@@ -115,6 +117,7 @@ use ruma::{
         RoomAccountDataEventType, StateEventContent, StateEventType, StaticEventContent,
         StaticStateEventContent, SyncStateEvent,
     },
+    int,
     push::{Action, PushConditionRoomCtx, Ruleset},
     serde::Raw,
     time::Instant,
@@ -2412,7 +2415,7 @@ impl Room {
             }
         }
 
-        self.send_state_event(RoomPowerLevelsEventContent::from(power_levels)).await
+        self.send_state_event(RoomPowerLevelsEventContent::try_from(power_levels)?).await
     }
 
     /// Applies a set of power level changes to this room.
@@ -2422,7 +2425,7 @@ impl Room {
     pub async fn apply_power_level_changes(&self, changes: RoomPowerLevelChanges) -> Result<()> {
         let mut power_levels = self.power_levels().await?;
         power_levels.apply(changes)?;
-        self.send_state_event(RoomPowerLevelsEventContent::from(power_levels)).await?;
+        self.send_state_event(RoomPowerLevelsEventContent::try_from(power_levels)?).await?;
         Ok(())
     }
 
@@ -2430,7 +2433,11 @@ impl Room {
     ///
     /// [spec]: https://spec.matrix.org/v1.9/client-server-api/#mroompower_levels
     pub async fn reset_power_levels(&self) -> Result<RoomPowerLevels> {
-        let default_power_levels = RoomPowerLevels::from(RoomPowerLevelsEventContent::new());
+        let creators = self.creators().unwrap_or_default();
+        let rules = self.clone_info().room_version_rules_or_default();
+
+        let default_power_levels =
+            RoomPowerLevels::new(RoomPowerLevelsSource::None, &rules.authorization, creators);
         let changes = RoomPowerLevelChanges::from(default_power_levels);
         self.apply_power_level_changes(changes).await?;
         Ok(self.power_levels().await?)
@@ -2449,9 +2456,9 @@ impl Room {
     ///
     /// This method checks the `RoomPowerLevels` events instead of loading the
     /// member list and looking for the member.
-    pub async fn get_user_power_level(&self, user_id: &UserId) -> Result<i64> {
+    pub async fn get_user_power_level(&self, user_id: &UserId) -> Result<UserPowerLevel> {
         let event = self.power_levels().await?;
-        Ok(event.for_user(user_id).into())
+        Ok(event.for_user(user_id))
     }
 
     /// Gets a map with the `UserId` of users with power levels other than `0`
@@ -2771,7 +2778,7 @@ impl Room {
         let max = members
             .iter()
             .max_by_key(|member| member.power_level())
-            .filter(|max| max.power_level() >= 50)
+            .filter(|max| max.power_level() >= int!(50))
             .map(|member| member.user_id().server_name());
 
         // Sort the servers by population.

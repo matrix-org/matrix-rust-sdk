@@ -71,6 +71,7 @@ use ruma::{
         sticker::StickerEventContent,
         typing::TypingEventContent,
     },
+    room_version_rules::AuthorizationRules,
     serde::Raw,
     server_name,
 };
@@ -875,7 +876,7 @@ impl EventFactory {
         &self,
         map: &mut BTreeMap<OwnedUserId, Int>,
     ) -> EventBuilder<RoomPowerLevelsEventContent> {
-        let mut event = RoomPowerLevelsEventContent::new();
+        let mut event = RoomPowerLevelsEventContent::new(&AuthorizationRules::V1);
         event.users.append(map);
         self.event(event)
     }
