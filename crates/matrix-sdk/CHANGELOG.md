@@ -31,6 +31,13 @@ All notable changes to this project will be documented in this file.
 - [**breaking**] The MSRV has been bumped to Rust 1.88.
   ([#5431](https://github.com/matrix-org/matrix-rust-sdk/pull/5431))
 
+### Bugfix
+
+- All HTTP requests now have a default `read_timeout` of 60s, which means they'll disconnect if the connection stalls.
+ `RequestConfig::timeout` is now optional and can be disabled on a per-request basis. This will be done for
+ the requests used to download media, so they don't get cancelled after the default 30s timeout for no good reason. 
+ ([#5437](https://github.com/matrix-org/matrix-rust-sdk/pull/5437))
+
 ## [0.13.0] - 2025-07-10
 
 ### Security Fixes

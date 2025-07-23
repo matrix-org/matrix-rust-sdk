@@ -20,6 +20,7 @@ use std::{
     future::{ready, Future},
     pin::Pin,
     sync::{Arc, Mutex as StdMutex, RwLock as StdRwLock, Weak},
+    time::Duration,
 };
 
 use caches::ClientCaches;
@@ -2312,7 +2313,8 @@ impl Client {
         });
         let mut request_config = self.request_config();
         if let Some(timeout) = sync_settings.timeout {
-            request_config.timeout = Some(timeout);
+            let base_timeout = request_config.timeout.unwrap_or(Duration::from_secs(30));
+            request_config.timeout = Some(base_timeout + timeout);
         }
 
         let response = self.send(request).with_request_config(request_config).await?;
