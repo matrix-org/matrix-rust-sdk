@@ -25,6 +25,9 @@ All notable changes to this project will be documented in this file.
 
 ### Breaking changes:
 
+- `Client::get_url` now returns a `Vec<u8>` instead of a `String`. It also throws an error when the
+  response isn't status code 200 OK, instead of providing the error in the response body.
+  ([#5438](https://github.com/matrix-org/matrix-rust-sdk/pull/5438))
 - `RoomPreview::info()` doesn't return a result anymore. All unknown join rules are handled in the
   `JoinRule::Custom` variant.
   ([#5337](https://github.com/matrix-org/matrix-rust-sdk/pull/5337))
@@ -47,7 +50,6 @@ All notable changes to this project will be documented in this file.
   calling `Client::login_with_qr_code`. ([#5388](https://github.com/matrix-org/matrix-rust-sdk/pull/5388))
 - The MSRV has been bumped to Rust 1.88.
   ([#5431](https://github.com/matrix-org/matrix-rust-sdk/pull/5431))
-
 
 ## [0.13.0] - 2025-07-10
 
@@ -115,7 +117,8 @@ Additions:
   we can automatically update the UI.
 - `Client::get_max_media_upload_size` to get the max size of a request sent to the homeserver so we can tweak our media
   uploads by compressing/transcoding the media.
-- Add `ClientBuilder::enable_share_history_on_invite` to enable experimental support for sharing encrypted room history on invite, per [MSC4268](https://github.com/matrix-org/matrix-spec-proposals/pull/4268).
+- Add `ClientBuilder::enable_share_history_on_invite` to enable experimental support for sharing encrypted room history
+  on invite, per [MSC4268](https://github.com/matrix-org/matrix-spec-proposals/pull/4268).
   ([#5141](https://github.com/matrix-org/matrix-rust-sdk/pull/5141))
 - Support for adding a Sentry layer to the FFI bindings has been added. Only `tracing` statements with
   the field `sentry=true` will be forwarded to Sentry, in addition to default Sentry filters.
@@ -208,7 +211,8 @@ Breaking changes:
 - The `dynamic_registrations_file` field of `OidcConfiguration` was removed.
   Clients are supposed to re-register with the homeserver for every login.
 
-- `RoomPreview::own_membership_details` is now `RoomPreview::member_with_sender_info`, takes any user id and returns an `Option<RoomMemberWithSenderInfo>`.
+- `RoomPreview::own_membership_details` is now `RoomPreview::member_with_sender_info`, takes any user id and returns an
+  `Option<RoomMemberWithSenderInfo>`.
 
 Additions:
 
@@ -223,9 +227,11 @@ Additions:
 - Add `Timeline::send_thread_reply` for clients that need to start threads
   themselves.
   ([4819](https://github.com/matrix-org/matrix-rust-sdk/pull/4819))
-- Add `ClientBuilder::session_pool_max_size`, `::session_cache_size` and `::session_journal_size_limit` to control the stores configuration, especially their memory consumption
+- Add `ClientBuilder::session_pool_max_size`, `::session_cache_size` and `::session_journal_size_limit` to control the
+  stores configuration, especially their memory consumption
   ([#4870](https://github.com/matrix-org/matrix-rust-sdk/pull/4870/))
 - Add `ClientBuilder::system_is_memory_constrained` to indicate that the system
   has less memory available than the current standard
   ([#4894](https://github.com/matrix-org/matrix-rust-sdk/pull/4894))
-- Add `Room::member_with_sender_info` to get both a room member's info and for the user who sent the `m.room.member` event the `RoomMember` is based on.
+- Add `Room::member_with_sender_info` to get both a room member's info and for the user who sent the `m.room.member`
+  event the `RoomMember` is based on.
