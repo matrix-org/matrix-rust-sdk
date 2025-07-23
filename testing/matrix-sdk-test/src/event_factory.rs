@@ -71,6 +71,7 @@ use ruma::{
         sticker::StickerEventContent,
         typing::TypingEventContent,
     },
+    room_version_rules::AuthorizationRules,
     serde::Raw,
     server_name,
 };
@@ -438,8 +439,8 @@ impl EventBuilder<UnstablePollStartEventContent> {
 
 impl EventBuilder<RoomCreateEventContent> {
     /// Define the predecessor fields.
-    pub fn predecessor(mut self, room_id: &RoomId, event_id: &EventId) -> Self {
-        self.content.predecessor = Some(PreviousRoom::new(room_id.to_owned(), event_id.to_owned()));
+    pub fn predecessor(mut self, room_id: &RoomId) -> Self {
+        self.content.predecessor = Some(PreviousRoom::new(room_id.to_owned()));
         self
     }
 
@@ -875,7 +876,7 @@ impl EventFactory {
         &self,
         map: &mut BTreeMap<OwnedUserId, Int>,
     ) -> EventBuilder<RoomPowerLevelsEventContent> {
-        let mut event = RoomPowerLevelsEventContent::new();
+        let mut event = RoomPowerLevelsEventContent::new(&AuthorizationRules::V1);
         event.users.append(map);
         self.event(event)
     }

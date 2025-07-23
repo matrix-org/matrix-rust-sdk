@@ -25,6 +25,13 @@ All notable changes to this project will be documented in this file.
 
 ### Breaking changes:
 
+- The `creator` field of `RoomInfo` has been renamed to `creators` and can now contain a list of
+  user IDs, to reflect that a room can now have several creators, as introduced in room version 12.
+  ([#5436](https://github.com/matrix-org/matrix-rust-sdk/pull/5436))
+- The `PowerLevel` type was introduced to represent power levels instead of `i64` to differentiate
+  the infinite power level of creators, as introduced in room version 12. It is used in
+  `suggested_role_for_power_level`, `suggested_power_level_for_role` and `RoomMember`.
+  ([#5436](https://github.com/matrix-org/matrix-rust-sdk/pull/5436))
 - `Client::get_url` now returns a `Vec<u8>` instead of a `String`. It also throws an error when the
   response isn't status code 200 OK, instead of providing the error in the response body.
   ([#5438](https://github.com/matrix-org/matrix-rust-sdk/pull/5438))

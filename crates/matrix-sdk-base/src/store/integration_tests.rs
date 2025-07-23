@@ -30,6 +30,7 @@ use ruma::{
         },
     },
     owned_event_id, owned_mxc_uri, room_id,
+    room_version_rules::AuthorizationRules,
     serde::Raw,
     uint, user_id,
 };
@@ -1961,7 +1962,7 @@ fn first_receipt_event_id() -> &'static EventId {
 }
 
 fn power_level_event() -> Raw<AnySyncStateEvent> {
-    let content = RoomPowerLevelsEventContent::default();
+    let content = RoomPowerLevelsEventContent::new(&AuthorizationRules::V1);
 
     let event = json!({
         "event_id": "$h29iv0s8:example.com",

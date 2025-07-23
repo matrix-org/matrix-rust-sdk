@@ -27,7 +27,7 @@ use ruma::{
         presence::PresenceEvent,
         room::{
             member::{MembershipState, RoomMemberEventContent},
-            power_levels::{PowerLevelAction, RoomPowerLevels},
+            power_levels::{PowerLevelAction, RoomPowerLevels, UserPowerLevel},
         },
     },
 };
@@ -270,19 +270,27 @@ impl RoomMember {
     /// Get the normalized power level of this member.
     ///
     /// The normalized power level depends on the maximum power level that can
-    /// be found in a certain room, positive values are always in the range of
-    /// 0-100.
-    pub fn normalized_power_level(&self) -> i64 {
+    /// be found in a certain room, positive values that are not `Infinite` are
+    /// always in the range of 0-100.
+    pub fn normalized_power_level(&self) -> UserPowerLevel {
+        let UserPowerLevel::Int(power_level) = self.power_level() else {
+            return UserPowerLevel::Infinite;
+        };
+
+        let mut power_level = i64::from(power_level);
+
         if self.max_power_level > 0 {
-            (self.power_level() * 100) / self.max_power_level
-        } else {
-            self.power_level()
+            power_level = (power_level * 100) / self.max_power_level;
         }
+
+        UserPowerLevel::Int(
+            power_level.try_into().expect("normalized power level should fit in Int"),
+        )
     }
 
     /// Get the power level of this member.
-    pub fn power_level(&self) -> i64 {
-        self.power_levels.for_user(self.user_id()).into()
+    pub fn power_level(&self) -> UserPowerLevel {
+        self.power_levels.for_user(self.user_id())
     }
 
     /// Whether this user can ban other users based on the power levels.

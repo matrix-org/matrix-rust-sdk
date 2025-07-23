@@ -690,12 +690,12 @@ async fn test_get_power_level_for_user() {
 
     let power_level_admin =
         room.get_user_power_level(user_id!("@example:localhost")).await.unwrap();
-    assert_eq!(power_level_admin, 100);
+    assert_eq!(power_level_admin, int!(100));
 
     // This user either does not exist in the room or has no special power level
     let power_level_unknown =
         room.get_user_power_level(user_id!("@non-existing:localhost")).await.unwrap();
-    assert_eq!(power_level_unknown, 0);
+    assert_eq!(power_level_unknown, int!(0));
 }
 
 #[async_test]
@@ -800,7 +800,9 @@ async fn test_call_notifications_ring_for_dms() {
     let (client, server) = logged_in_client_with_server().await;
 
     let mut sync_builder = SyncResponseBuilder::new();
-    let room_builder = JoinedRoomBuilder::default().add_state_event(StateTestEvent::PowerLevels);
+    let room_builder = JoinedRoomBuilder::default()
+        .add_state_event(StateTestEvent::Create)
+        .add_state_event(StateTestEvent::PowerLevels);
     sync_builder.add_joined_room(room_builder);
     sync_builder.add_global_account_data_event(GlobalAccountDataTestEvent::Direct);
 
@@ -845,7 +847,9 @@ async fn test_call_notifications_notify_for_rooms() {
     let (client, server) = logged_in_client_with_server().await;
 
     let mut sync_builder = SyncResponseBuilder::new();
-    let room_builder = JoinedRoomBuilder::default().add_state_event(StateTestEvent::PowerLevels);
+    let room_builder = JoinedRoomBuilder::default()
+        .add_state_event(StateTestEvent::Create)
+        .add_state_event(StateTestEvent::PowerLevels);
     sync_builder.add_joined_room(room_builder);
     mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
 
@@ -895,7 +899,9 @@ async fn test_call_notifications_dont_notify_room_without_mention_powerlevel() {
         json!({"room": 101});
 
     sync_builder.add_joined_room(
-        JoinedRoomBuilder::default().add_state_event(StateTestEvent::Custom(power_level_event)),
+        JoinedRoomBuilder::default()
+            .add_state_event(StateTestEvent::Create)
+            .add_state_event(StateTestEvent::Custom(power_level_event)),
     );
 
     mock_sync(&server, sync_builder.build_json_sync_response(), None).await;

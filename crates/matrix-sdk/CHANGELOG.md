@@ -8,6 +8,10 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
+- [**breaking**] `RoomMemberRole` has a new `Creator` variant, that
+  differentiates room creators with infinite power levels, as introduced in room
+  version 12.
+  ([#5436](https://github.com/matrix-org/matrix-rust-sdk/pull/5436))
 - Add `Account::fetch_account_data_static` to fetch account data from the server
   with a statically-known type, with a signature similar to
   `Account::account_data`.
@@ -21,6 +25,11 @@ All notable changes to this project will be documented in this file.
 
 ### Refactor
 
+- [**breaking**] `RoomMemberRole::suggested_role_for_power_level()` and
+  `RoomMemberRole::suggested_power_level()` now use `UserPowerLevel` to represent
+  power levels instead of `i64` to differentiate the infinite power level of
+  creators, as introduced in room version 12.
+  ([#5436](https://github.com/matrix-org/matrix-rust-sdk/pull/5436))
 - [**breaking**] The `reason` argument of `Room::report_room()` is now required,
   due to a clarification in the spec.
   ([#5337](https://github.com/matrix-org/matrix-rust-sdk/pull/5337))

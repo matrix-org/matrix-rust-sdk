@@ -111,7 +111,7 @@ mod tests {
     use matrix_sdk_test::{
         JoinedRoomBuilder, SyncResponseBuilder, async_test, event_factory::EventFactory,
     };
-    use ruma::{RoomVersionId, event_id, room_id, user_id};
+    use ruma::{RoomVersionId, room_id, user_id};
 
     use crate::{RoomState, test_utils::logged_in_base_client};
 
@@ -226,7 +226,6 @@ mod tests {
         let sender = user_id!("@mnt_io:matrix.org");
         let room_id = room_id!("!r1");
         let predecessor_room_id = room_id!("!r0");
-        let predecessor_last_event_id = event_id!("$ev42");
         let room = client.get_or_create_room(room_id, RoomState::Joined);
 
         let mut sync_builder = SyncResponseBuilder::new();
@@ -235,7 +234,7 @@ mod tests {
                 JoinedRoomBuilder::new(room_id).add_timeline_event(
                     EventFactory::new()
                         .create(sender, RoomVersionId::V11)
-                        .predecessor(predecessor_room_id, predecessor_last_event_id)
+                        .predecessor(predecessor_room_id)
                         .into_raw_sync(),
                 ),
             )

@@ -37,7 +37,7 @@ use ruma::{
         },
         error::{FromHttpResponseError, IntoHttpError},
     },
-    events::tag::InvalidUserTagName,
+    events::{room::power_levels::PowerLevelsError, tag::InvalidUserTagName},
     push::{InsertPushRuleError, RemovePushRuleError},
     IdParseError,
 };
@@ -415,6 +415,10 @@ pub enum Error {
     /// An error happened while attempting to reply to an event.
     #[error(transparent)]
     ReplyError(#[from] ReplyError),
+
+    /// An error happened while attempting to change power levels.
+    #[error("power levels error: {0}")]
+    PowerLevels(#[from] PowerLevelsError),
 }
 
 #[rustfmt::skip] // stop rustfmt breaking the `<code>` in docs across multiple lines

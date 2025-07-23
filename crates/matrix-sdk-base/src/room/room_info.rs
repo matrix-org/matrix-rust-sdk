@@ -24,7 +24,7 @@ use matrix_sdk_common::{
 };
 use ruma::{
     EventId, MilliSecondsSinceUnixEpoch, MxcUri, OwnedEventId, OwnedMxcUri, OwnedRoomAliasId,
-    OwnedRoomId, OwnedUserId, RoomAliasId, RoomId, RoomVersionId, UserId,
+    OwnedRoomId, OwnedUserId, RoomAliasId, RoomId, RoomVersionId,
     api::client::sync::sync_events::v3::RoomSummary as RumaSummary,
     assign,
     events::{
@@ -49,7 +49,7 @@ use ruma::{
         tag::{TagEventContent, TagName, Tags},
     },
     room::RoomType,
-    room_version_rules::{RedactionRules, RoomVersionRules},
+    room_version_rules::{AuthorizationRules, RedactionRules, RoomVersionRules},
     serde::Raw,
 };
 use serde::{Deserialize, Serialize};
@@ -230,7 +230,8 @@ impl BaseRoomInfo {
                 self.tombstone = Some(t.into());
             }
             AnySyncStateEvent::RoomPowerLevels(p) => {
-                self.max_power_level = p.power_levels().max().into();
+                // The rules and creators do not affect the max power level.
+                self.max_power_level = p.power_levels(&AuthorizationRules::V1, vec![]).max().into();
             }
             AnySyncStateEvent::CallMember(m) => {
                 let Some(o_ev) = m.as_original() else {
@@ -306,7 +307,8 @@ impl BaseRoomInfo {
                 self.tombstone = Some(t.into());
             }
             AnyStrippedStateEvent::RoomPowerLevels(p) => {
-                self.max_power_level = p.power_levels().max().into();
+                // The rules and creators do not affect the max power level.
+                self.max_power_level = p.power_levels(&AuthorizationRules::V1, vec![]).max().into();
             }
             AnyStrippedStateEvent::CallMember(_) => {
                 // Ignore stripped call state events. Rooms that are not in Joined or Left state
@@ -882,11 +884,11 @@ impl RoomInfo {
         }
     }
 
-    /// Get the creator of this room.
-    pub fn creator(&self) -> Option<&UserId> {
+    /// Get the creators of this room.
+    pub fn creators(&self) -> Option<Vec<OwnedUserId>> {
         match self.base_info.create.as_ref()? {
-            MinimalStateEvent::Original(ev) => Some(&ev.content.creator),
-            MinimalStateEvent::Redacted(ev) => Some(&ev.content.creator),
+            MinimalStateEvent::Original(ev) => Some(ev.content.creators()),
+            MinimalStateEvent::Redacted(ev) => Some(ev.content.creators()),
         }
     }
 

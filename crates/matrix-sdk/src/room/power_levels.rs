@@ -199,7 +199,9 @@ pub fn power_level_user_changes(
 mod tests {
     use std::collections::BTreeMap;
 
-    use ruma::{int, power_levels::NotificationPowerLevels};
+    use ruma::{
+        int, power_levels::NotificationPowerLevels, room_version_rules::AuthorizationRules,
+    };
 
     use super::*;
 
@@ -424,11 +426,15 @@ mod tests {
     }
 
     fn default_power_levels() -> RoomPowerLevels {
-        default_power_levels_event_content().into()
+        RoomPowerLevels::new(
+            default_power_levels_event_content().into(),
+            &AuthorizationRules::V1,
+            [],
+        )
     }
 
     fn default_power_levels_event_content() -> RoomPowerLevelsEventContent {
-        let mut content = RoomPowerLevelsEventContent::new();
+        let mut content = RoomPowerLevelsEventContent::new(&AuthorizationRules::V1);
         content.ban = int!(50);
         content.invite = int!(50);
         content.kick = int!(50);
