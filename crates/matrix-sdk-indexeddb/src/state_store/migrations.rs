@@ -815,9 +815,9 @@ mod tests {
             },
             AnySyncStateEvent, StateEventType,
         },
-        room_id,
+        owned_user_id, room_id,
         serde::Raw,
-        server_name, user_id, EventId, MilliSecondsSinceUnixEpoch, RoomId, UserId,
+        server_name, user_id, EventId, MilliSecondsSinceUnixEpoch, OwnedUserId, RoomId, UserId,
     };
     use serde_json::json;
     use uuid::Uuid;
@@ -1494,10 +1494,11 @@ mod tests {
         room_state_store: &IdbObjectStore<'_>,
         room_id: &RoomId,
         name: Option<&str>,
-        create_creator: Option<&UserId>,
+        create_creator: Option<OwnedUserId>,
         create_sender: Option<&UserId>,
     ) -> Result<()> {
-        let room_info_json = room_info_v1_json(room_id, RoomState::Joined, name, create_creator);
+        let room_info_json =
+            room_info_v1_json(room_id, RoomState::Joined, name, create_creator.as_deref());
 
         room_infos_store.put_key_val(
             &encode_key(None, keys::ROOM_INFOS, room_id),
@@ -1510,7 +1511,7 @@ mod tests {
         };
 
         let create_content = match create_creator {
-            Some(creator) => RoomCreateEventContent::new_v1(creator.to_owned()),
+            Some(creator) => RoomCreateEventContent::new_v1(creator),
             None => RoomCreateEventContent::new_v11(),
         };
 
@@ -1518,7 +1519,7 @@ mod tests {
         let create_event = json!({
             "content": create_content,
             "event_id": event_id,
-            "sender": create_sender.to_owned(),
+            "sender": create_sender,
             "origin_server_ts": MilliSecondsSinceUnixEpoch::now(),
             "state_key": "",
             "type": "m.room.create",
@@ -1540,17 +1541,17 @@ mod tests {
         // Room A: with name, creator and sender.
         let room_a_id = room_id!("!room_a:dummy.local");
         let room_a_name = "Room A";
-        let room_a_creator = user_id!("@creator:dummy.local");
+        let room_a_creator = owned_user_id!("@creator:dummy.local");
         // Use a different sender to check that sender is used over creator in
         // migration.
-        let room_a_create_sender = user_id!("@sender:dummy.local");
+        let room_a_create_sender = owned_user_id!("@sender:dummy.local");
 
         // Room B: without name, creator and sender.
         let room_b_id = room_id!("!room_b:dummy.local");
 
         // Room C: only with sender.
         let room_c_id = room_id!("!room_c:dummy.local");
-        let room_c_create_sender = user_id!("@creator:dummy.local");
+        let room_c_create_sender = owned_user_id!("@creator:dummy.local");
 
         // Create and populate db.
         {
@@ -1569,7 +1570,7 @@ mod tests {
                 room_a_id,
                 Some(room_a_name),
                 Some(room_a_creator),
-                Some(room_a_create_sender),
+                Some(&room_a_create_sender),
             )?;
             add_room_v7(&room_infos_store, &room_state_store, room_b_id, None, None, None)?;
             add_room_v7(
@@ -1578,7 +1579,7 @@ mod tests {
                 room_c_id,
                 None,
                 None,
-                Some(room_c_create_sender),
+                Some(&room_c_create_sender),
             )?;
 
             tx.await.into_result()?;
@@ -1594,15 +1595,15 @@ mod tests {
 
         let room_a = room_infos.iter().find(|r| r.room_id() == room_a_id).unwrap();
         assert_eq!(room_a.name(), Some(room_a_name));
-        assert_eq!(room_a.creator(), Some(room_a_create_sender));
+        assert_eq!(room_a.creators(), Some(vec![room_a_create_sender]));
 
         let room_b = room_infos.iter().find(|r| r.room_id() == room_b_id).unwrap();
         assert_eq!(room_b.name(), None);
-        assert_eq!(room_b.creator(), None);
+        assert_eq!(room_b.creators(), None);
 
         let room_c = room_infos.iter().find(|r| r.room_id() == room_c_id).unwrap();
         assert_eq!(room_c.name(), None);
-        assert_eq!(room_c.creator(), Some(room_c_create_sender));
+        assert_eq!(room_c.creators(), Some(vec![room_c_create_sender]));
 
         Ok(())
     }
