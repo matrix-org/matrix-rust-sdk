@@ -7,3 +7,4 @@ mod left;
 mod notification_mode;
 mod spaces;
 mod tags;
+mod thread;
