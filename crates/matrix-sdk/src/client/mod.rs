@@ -2312,7 +2312,7 @@ impl Client {
         });
         let mut request_config = self.request_config();
         if let Some(timeout) = sync_settings.timeout {
-            request_config.timeout += timeout;
+            request_config.timeout = Some(timeout);
         }
 
         let response = self.send(request).with_request_config(request_config).await?;

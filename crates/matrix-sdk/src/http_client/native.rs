@@ -149,7 +149,8 @@ pub(crate) struct HttpSettings {
     pub(crate) disable_ssl_verification: bool,
     pub(crate) proxy: Option<String>,
     pub(crate) user_agent: Option<String>,
-    pub(crate) timeout: Duration,
+    pub(crate) timeout: Option<Duration>,
+    pub(crate) read_timeout: Option<Duration>,
     pub(crate) additional_root_certificates: Vec<Certificate>,
     pub(crate) disable_built_in_root_certificates: bool,
 }
@@ -161,7 +162,8 @@ impl Default for HttpSettings {
             disable_ssl_verification: false,
             proxy: None,
             user_agent: None,
-            timeout: DEFAULT_REQUEST_TIMEOUT,
+            timeout: Some(DEFAULT_REQUEST_TIMEOUT),
+            read_timeout: None,
             additional_root_certificates: Default::default(),
             disable_built_in_root_certificates: false,
         }
@@ -175,10 +177,13 @@ impl HttpSettings {
         let user_agent = self.user_agent.clone().unwrap_or_else(|| "matrix-rust-sdk".to_owned());
         let mut http_client = reqwest::Client::builder()
             .user_agent(user_agent)
-            .timeout(self.timeout)
             // As recommended by BCP 195.
             // See: https://datatracker.ietf.org/doc/bcp195/
             .min_tls_version(tls::Version::TLS_1_2);
+
+        if let Some(timeout) = self.timeout {
+            http_client = http_client.timeout(timeout);
+        }
 
         if self.disable_ssl_verification {
             warn!("SSL verification disabled in the HTTP client!");
@@ -213,7 +218,7 @@ impl HttpSettings {
 pub(super) async fn send_request(
     client: &reqwest::Client,
     request: &http::Request<Bytes>,
-    timeout: Duration,
+    timeout: Option<Duration>,
     send_progress: SharedObservable<TransmissionProgress>,
 ) -> Result<http::Response<Bytes>, HttpError> {
     use std::convert::Infallible;
@@ -251,7 +256,7 @@ pub(super) async fn send_request(
             reqwest::Request::try_from(request)?
         };
 
-        *request.timeout_mut() = Some(timeout);
+        *request.timeout_mut() = timeout;
         request
     };
 
