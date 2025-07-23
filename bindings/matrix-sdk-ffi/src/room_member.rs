@@ -69,10 +69,13 @@ pub fn suggested_role_for_power_level(
     Ok(RoomMemberRole::suggested_role_for_power_level(power_level.try_into()?))
 }
 
+/// Get the suggested power level for the given role.
+///
+/// Returns an error if the value of the power level is unsupported.
 #[matrix_sdk_ffi_macros::export]
-pub fn suggested_power_level_for_role(role: RoomMemberRole) -> PowerLevel {
+pub fn suggested_power_level_for_role(role: RoomMemberRole) -> Result<PowerLevel, ClientError> {
     // It's not possible to expose methods on an Enum through Uniffi ☹️
-    role.suggested_power_level().into()
+    Ok(role.suggested_power_level().try_into()?)
 }
 
 /// Generates a `matrix.to` permalink to the given userID.
@@ -106,8 +109,8 @@ impl TryFrom<SdkRoomMember> for RoomMember {
             avatar_url: m.avatar_url().map(|a| a.to_string()),
             membership: m.membership().clone().try_into()?,
             is_name_ambiguous: m.name_ambiguous(),
-            power_level: m.power_level().into(),
-            normalized_power_level: m.normalized_power_level().into(),
+            power_level: m.power_level().try_into()?,
+            normalized_power_level: m.normalized_power_level().try_into()?,
             is_ignored: m.is_ignored(),
             suggested_role_for_power_level: m.suggested_role_for_power_level(),
             membership_change_reason: m.event().reason().map(|s| s.to_owned()),
@@ -148,12 +151,14 @@ pub enum PowerLevel {
     Value { value: i64 },
 }
 
-impl From<UserPowerLevel> for PowerLevel {
-    fn from(value: UserPowerLevel) -> Self {
+impl TryFrom<UserPowerLevel> for PowerLevel {
+    type Error = NotYetImplemented;
+
+    fn try_from(value: UserPowerLevel) -> Result<Self, Self::Error> {
         match value {
-            UserPowerLevel::Infinite => Self::Infinite,
-            UserPowerLevel::Int(value) => Self::Value { value: value.into() },
-            _ => unimplemented!(),
+            UserPowerLevel::Infinite => Ok(Self::Infinite),
+            UserPowerLevel::Int(value) => Ok(Self::Value { value: value.into() }),
+            _ => Err(NotYetImplemented),
         }
     }
 }
