@@ -44,6 +44,7 @@ use crate::http_client::DEFAULT_REQUEST_TIMEOUT;
 #[derive(Copy, Clone)]
 pub struct RequestConfig {
     pub(crate) timeout: Duration,
+    pub(crate) timeout: Option<Duration>,
     pub(crate) retry_limit: Option<usize>,
     pub(crate) max_retry_time: Option<Duration>,
     pub(crate) max_concurrent_requests: Option<NonZeroUsize>,
@@ -82,6 +83,7 @@ impl Default for RequestConfig {
     fn default() -> Self {
         Self {
             timeout: DEFAULT_REQUEST_TIMEOUT,
+            timeout: Some(DEFAULT_REQUEST_TIMEOUT),
             retry_limit: Default::default(),
             max_retry_time: Default::default(),
             max_concurrent_requests: Default::default(),
@@ -132,8 +134,8 @@ impl RequestConfig {
 
     /// Set the timeout duration for all HTTP requests.
     #[must_use]
-    pub fn timeout(mut self, timeout: Duration) -> Self {
-        self.timeout = timeout;
+    pub fn timeout(mut self, timeout: impl Into<Option<Duration>>) -> Self {
+        self.timeout = timeout.into();
         self
     }
 
