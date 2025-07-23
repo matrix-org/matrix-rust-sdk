@@ -1,18 +1,21 @@
-use std::ops::Deref;
+use std::{ops::Deref, time::Duration};
 
 use anyhow::Result;
 use assert_matches2::assert_let;
 use assign::assign;
-use futures::{pin_mut, FutureExt, StreamExt};
+use futures::{FutureExt, StreamExt, pin_mut};
 use matrix_sdk::{
-    assert_decrypted_message_eq,
+    deserialized_responses::TimelineEventKind,
     encryption::EncryptionSettings,
-    ruma::api::client::room::create_room::v3::{Request as CreateRoomRequest, RoomPreset},
+    ruma::{
+        api::client::room::create_room::v3::{Request as CreateRoomRequest, RoomPreset},
+        events::{AnyStateEvent, StateEvent},
+    },
 };
 use matrix_sdk_common::deserialized_responses::ProcessedToDeviceEvent;
 use matrix_sdk_ui::sync_service::SyncService;
 use similar_asserts::assert_eq;
-use tracing::{info, Instrument};
+use tracing::{Instrument, info};
 
 use crate::helpers::{SyncTokenAwareClient, TestClientBuilder};
 
@@ -115,7 +118,23 @@ async fn test_e2e_location_sharing() -> Result<()> {
         .await
         .expect("Bob should be able to fetch the historic event");
 
-    println!("{:?}", event);
+    assert_let!(TimelineEventKind::Decrypted(decrypted_event) = event.kind);
+
+    let deserialized_event = decrypted_event
+        .event
+        // TODO: Current casting work around.
+        .deserialize_as_unchecked::<AnyStateEvent>()
+        .expect("We should be able to deserialize the decrypted event");
+
+    assert_let!(AnyStateEvent::BeaconInfo(beacon_info) = deserialized_event);
+
+    let timeout = beacon_info
+        .as_original()
+        .expect("We should be able to access the original content")
+        .content
+        .timeout;
+
+    assert_eq!(timeout, Duration::from_secs(86_400));
 
     Ok(())
 }
