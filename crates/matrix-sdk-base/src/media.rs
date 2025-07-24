@@ -1,18 +1,18 @@
 //! Common types for [media content](https://matrix.org/docs/spec/client_server/r0.6.1#id66).
 
 use ruma::{
+    MxcUri, UInt,
     api::client::media::get_content_thumbnail::v3::Method,
     events::{
         room::{
+            MediaSource,
             message::{
                 AudioMessageEventContent, FileMessageEventContent, ImageMessageEventContent,
                 LocationMessageEventContent, VideoMessageEventContent,
             },
-            MediaSource,
         },
         sticker::StickerEventContent,
     },
-    MxcUri, UInt,
 };
 use serde::{Deserialize, Serialize};
 

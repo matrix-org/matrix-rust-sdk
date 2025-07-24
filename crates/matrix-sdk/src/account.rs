@@ -698,7 +698,8 @@ impl Account {
         Ok(self.client.send(request).await?)
     }
 
-    /// Get the content of an account data event of statically-known type.
+    /// Get the content of an account data event of statically-known type, from
+    /// storage.
     ///
     /// # Examples
     ///
@@ -726,7 +727,7 @@ impl Account {
         get_raw_content(self.client.state_store().get_account_data_event_static::<C>().await?)
     }
 
-    /// Get the content of an account data event of a given type.
+    /// Get the content of an account data event of a given type, from storage.
     pub async fn account_data_raw(
         &self,
         event_type: GlobalAccountDataEventType,
@@ -748,7 +749,7 @@ impl Account {
     /// use matrix_sdk::ruma::events::{ignored_user_list::IgnoredUserListEventContent, GlobalAccountDataEventType};
     ///
     /// if let Some(raw_content) = account.fetch_account_data(GlobalAccountDataEventType::IgnoredUserList).await? {
-    ///     let content = raw_content.deserialize_as::<IgnoredUserListEventContent>()?;
+    ///     let content = raw_content.deserialize_as_unchecked::<IgnoredUserListEventContent>()?;
     ///
     ///     println!("Ignored users:");
     ///
@@ -779,6 +780,14 @@ impl Account {
                 }
             }
         }
+    }
+
+    /// Fetch an account data event of statically-known type from the server.
+    pub async fn fetch_account_data_static<C>(&self) -> Result<Option<Raw<C>>>
+    where
+        C: GlobalAccountDataEventContent + StaticEventContent,
+    {
+        Ok(self.fetch_account_data(C::TYPE.into()).await?.map(Raw::cast_unchecked))
     }
 
     /// Set the given account data event.
@@ -862,12 +871,12 @@ impl Account {
 
         // We are fetching the content from the server because we currently can't rely
         // on `/sync` giving us the correct data in a timely manner.
-        let raw_content = self.fetch_account_data(GlobalAccountDataEventType::Direct).await?;
+        let raw_content = self.fetch_account_data_static::<DirectEventContent>().await?;
 
         let mut content = if let Some(raw_content) = raw_content {
             // Log the error and pass it upwards if we fail to deserialize the m.direct
             // event.
-            raw_content.deserialize_as::<DirectEventContent>().map_err(|err| {
+            raw_content.deserialize().map_err(|err| {
                 error!("unable to deserialize m.direct event content; aborting request to mark {room_id} as dm: {err}");
                 err
             })?
@@ -1081,21 +1090,22 @@ impl Account {
     pub async fn fetch_media_preview_config_event_content(
         &self,
     ) -> Result<Option<MediaPreviewConfigEventContent>> {
-        // First we check if there is avalue in the stable event
+        // First we check if there is a value in the stable event
         let media_preview_config =
-            self.fetch_account_data(GlobalAccountDataEventType::MediaPreviewConfig).await?;
+            self.fetch_account_data_static::<MediaPreviewConfigEventContent>().await?;
 
         let media_preview_config = if let Some(media_preview_config) = media_preview_config {
             Some(media_preview_config)
         } else {
             // If there is no value in the stable event, we check the unstable
-            self.fetch_account_data(GlobalAccountDataEventType::UnstableMediaPreviewConfig).await?
+            self.fetch_account_data_static::<UnstableMediaPreviewConfigEventContent>()
+                .await?
+                .map(Raw::cast)
         };
 
         // We deserialize the content of the event, if is not found we return the
         // default
-        let media_preview_config = media_preview_config
-            .and_then(|value| value.deserialize_as::<MediaPreviewConfigEventContent>().ok());
+        let media_preview_config = media_preview_config.and_then(|value| value.deserialize().ok());
 
         Ok(media_preview_config)
     }
@@ -1129,7 +1139,7 @@ impl Account {
     pub async fn set_media_previews_display_policy(&self, policy: MediaPreviews) -> Result<()> {
         let mut media_preview_config =
             self.fetch_media_preview_config_event_content().await?.unwrap_or_default();
-        media_preview_config.media_previews = policy;
+        media_preview_config.media_previews = Some(policy);
 
         // Updating the unstable account data
         let unstable_media_preview_config =
@@ -1145,7 +1155,7 @@ impl Account {
     pub async fn set_invite_avatars_display_policy(&self, policy: InviteAvatars) -> Result<()> {
         let mut media_preview_config =
             self.fetch_media_preview_config_event_content().await?.unwrap_or_default();
-        media_preview_config.invite_avatars = policy;
+        media_preview_config.invite_avatars = Some(policy);
 
         // Updating the unstable account data
         let unstable_media_preview_config =
@@ -1163,7 +1173,7 @@ fn get_raw_content<Ev, C>(raw: Option<Raw<Ev>>) -> Result<Option<Raw<C>>> {
     }
 
     Ok(raw
-        .map(|event| event.deserialize_as::<GetRawContent<C>>())
+        .map(|event| event.deserialize_as_unchecked::<GetRawContent<C>>())
         .transpose()?
         .map(|get_raw| get_raw.content))
 }

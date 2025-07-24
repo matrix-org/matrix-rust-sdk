@@ -31,8 +31,9 @@ use matrix_sdk_base::{
 use once_cell::sync::Lazy;
 use ruma::{
     EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedMxcUri, OwnedTransactionId,
-    OwnedUserId, RoomId, RoomVersionId, TransactionId, UserId,
+    OwnedUserId, RoomId, TransactionId, UserId,
     events::{AnySyncTimelineEvent, receipt::Receipt, room::message::MessageType},
+    room_version_rules::RedactionRules,
     serde::Raw,
 };
 use tracing::warn;
@@ -146,7 +147,7 @@ impl EventTimelineItem {
         let raw_sync_event = latest_event.event().raw().clone();
         let encryption_info = latest_event.event().encryption_info().cloned();
 
-        let Ok(event) = raw_sync_event.deserialize_as::<AnySyncTimelineEvent>() else {
+        let Ok(event) = raw_sync_event.deserialize() else {
             warn!("Unable to deserialize latest_event as an AnySyncTimelineEvent!");
             return None;
         };
@@ -534,8 +535,8 @@ impl EventTimelineItem {
     }
 
     /// Create a clone of the current item, with content that's been redacted.
-    pub(super) fn redact(&self, room_version: &RoomVersionId) -> Self {
-        let content = self.content.redact(room_version);
+    pub(super) fn redact(&self, rules: &RedactionRules) -> Self {
+        let content = self.content.redact(rules);
         let kind = match &self.kind {
             EventTimelineItemKind::Local(l) => EventTimelineItemKind::Local(l.clone()),
             EventTimelineItemKind::Remote(r) => EventTimelineItemKind::Remote(r.redact()),
@@ -773,14 +774,14 @@ impl ReactionsByKeyBySender {
         sender: &UserId,
         annotation: &str,
     ) -> Option<ReactionInfo> {
-        if let Some(by_user) = self.0.get_mut(annotation) {
-            if let Some(info) = by_user.swap_remove(sender) {
-                // If this was the last reaction, remove the annotation entry.
-                if by_user.is_empty() {
-                    self.0.swap_remove(annotation);
-                }
-                return Some(info);
+        if let Some(by_user) = self.0.get_mut(annotation)
+            && let Some(info) = by_user.swap_remove(sender)
+        {
+            // If this was the last reaction, remove the annotation entry.
+            if by_user.is_empty() {
+                self.0.swap_remove(annotation);
             }
+            return Some(info);
         }
         None
     }
@@ -865,8 +866,20 @@ mod tests {
         );
         let client = logged_in_client(None).await;
 
-        // Add power levels state event, otherwise the knock state event can't be used
-        // as the latest event
+        // Add create and power levels state event, otherwise the knock state event
+        // can't be used as the latest event
+        let create_event = sync_state_event!({
+            "type": "m.room.create",
+            "content": { "room_version": "11" },
+            "event_id": "$143278582443PhrSm:example.org",
+            "origin_server_ts": 143273580,
+            "room_id": room_id,
+            "sender": user_id,
+            "state_key": "",
+            "unsigned": {
+              "age": 1235
+            }
+        });
         let power_level_event = sync_state_event!({
             "type": "m.room.power_levels",
             "content": {},
@@ -880,7 +893,7 @@ mod tests {
             }
         });
         let mut room = http::response::Room::new();
-        room.required_state.push(power_level_event);
+        room.required_state.extend([create_event, power_level_event]);
 
         // And the room is stored in the client so it can be extracted when needed
         let response = response_with_room(room_id, room);
@@ -1075,7 +1088,7 @@ mod tests {
                 .display_name("Alice Margatroid")
                 .reason("")
                 .into_raw_sync()
-                .deserialize_as::<OriginalMinimalStateEvent<RoomMemberEventContent>>()
+                .deserialize_as_unchecked::<OriginalMinimalStateEvent<RoomMemberEventContent>>()
                 .unwrap(),
         );
 

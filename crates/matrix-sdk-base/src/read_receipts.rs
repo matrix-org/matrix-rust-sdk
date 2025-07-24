@@ -127,15 +127,15 @@ use matrix_sdk_common::{
     serde_helpers::extract_thread_root,
 };
 use ruma::{
+    EventId, OwnedEventId, OwnedUserId, RoomId, UserId,
     events::{
+        AnySyncMessageLikeEvent, AnySyncTimelineEvent, OriginalSyncMessageLikeEvent,
+        SyncMessageLikeEvent,
         poll::{start::PollStartEventContent, unstable_start::UnstablePollStartEventContent},
         receipt::{ReceiptEventContent, ReceiptThread, ReceiptType},
         room::message::Relation,
-        AnySyncMessageLikeEvent, AnySyncTimelineEvent, OriginalSyncMessageLikeEvent,
-        SyncMessageLikeEvent,
     },
     serde::Raw,
-    EventId, OwnedEventId, OwnedUserId, RoomId, UserId,
 };
 use serde::{Deserialize, Serialize};
 use tracing::{debug, instrument, trace, warn};
@@ -264,15 +264,15 @@ impl RoomReadReceipts {
             // Sliding sync sometimes sends the same event multiple times, so it can be at
             // the beginning and end of a batch, for instance. In that case, just reset
             // every time we see the event matching the receipt.
-            if let Some(event_id) = event.event_id() {
-                if event_id == receipt_event_id {
-                    // Bingo! Switch over to the counting state, after resetting the
-                    // previous counts.
-                    trace!("Found the event the receipt was referring to! Starting to count.");
-                    self.reset();
-                    counting_receipts = true;
-                    continue;
-                }
+            if let Some(event_id) = event.event_id()
+                && event_id == receipt_event_id
+            {
+                // Bingo! Switch over to the counting state, after resetting the
+                // previous counts.
+                trace!("Found the event the receipt was referring to! Starting to count.");
+                self.reset();
+                counting_receipts = true;
+                continue;
             }
 
             if counting_receipts {
@@ -387,17 +387,17 @@ impl ReceiptSelector {
         // Now consider new receipts.
         for (event_id, receipts) in &receipt_event.0 {
             for ty in [ReceiptType::Read, ReceiptType::ReadPrivate] {
-                if let Some(receipt) = receipts.get(&ty).and_then(|receipts| receipts.get(user_id))
+                if let Some(receipts) = receipts.get(&ty)
+                    && let Some(receipt) = receipts.get(user_id)
+                    && matches!(receipt.thread, ReceiptThread::Main | ReceiptThread::Unthreaded)
                 {
-                    if matches!(receipt.thread, ReceiptThread::Main | ReceiptThread::Unthreaded) {
-                        trace!(%event_id, "found new candidate");
-                        if let Some(event_pos) = self.event_id_to_pos.get(event_id) {
-                            self.try_select_later(event_id, *event_pos);
-                        } else {
-                            // It's a new pending receipt.
-                            trace!(%event_id, "stashed as pending");
-                            pending.push(event_id.clone());
-                        }
+                    trace!(%event_id, "found new candidate");
+                    if let Some(event_pos) = self.event_id_to_pos.get(event_id) {
+                        self.try_select_later(event_id, *event_pos);
+                    } else {
+                        // It's a new pending receipt.
+                        trace!(%event_id, "stashed as pending");
+                        pending.push(event_id.clone());
                     }
                 }
             }
@@ -631,20 +631,20 @@ mod tests {
     use matrix_sdk_common::{deserialized_responses::TimelineEvent, ring_buffer::RingBuffer};
     use matrix_sdk_test::event_factory::EventFactory;
     use ruma::{
-        event_id,
+        EventId, UserId, event_id,
         events::{
             receipt::{ReceiptThread, ReceiptType},
             room::{member::MembershipState, message::MessageType},
         },
         owned_event_id, owned_user_id,
         push::Action,
-        room_id, user_id, EventId, UserId,
+        room_id, user_id,
     };
 
     use super::compute_unread_counts;
     use crate::{
-        read_receipts::{marks_as_unread, ReceiptSelector, RoomReadReceipts},
         ThreadingSupport,
+        read_receipts::{ReceiptSelector, RoomReadReceipts, marks_as_unread},
     };
 
     #[test]
@@ -805,9 +805,9 @@ mod tests {
         // When provided with no events, we report not finding the event to which the
         // receipt relates.
         let mut receipts = RoomReadReceipts::default();
-        assert!(receipts
-            .find_and_process_events(ev0, user_id, &[], ThreadingSupport::Disabled)
-            .not());
+        assert!(
+            receipts.find_and_process_events(ev0, user_id, &[], ThreadingSupport::Disabled).not()
+        );
         assert_eq!(receipts.num_unread, 0);
         assert_eq!(receipts.num_notifications, 0);
         assert_eq!(receipts.num_mentions, 0);
@@ -828,14 +828,16 @@ mod tests {
             num_mentions: 37,
             ..Default::default()
         };
-        assert!(receipts
-            .find_and_process_events(
-                ev0,
-                user_id,
-                &[make_event(event_id!("$1"))],
-                ThreadingSupport::Disabled
-            )
-            .not());
+        assert!(
+            receipts
+                .find_and_process_events(
+                    ev0,
+                    user_id,
+                    &[make_event(event_id!("$1"))],
+                    ThreadingSupport::Disabled
+                )
+                .not()
+        );
         assert_eq!(receipts.num_unread, 42);
         assert_eq!(receipts.num_notifications, 13);
         assert_eq!(receipts.num_mentions, 37);
@@ -867,18 +869,20 @@ mod tests {
             num_mentions: 37,
             ..Default::default()
         };
-        assert!(receipts
-            .find_and_process_events(
-                ev0,
-                user_id,
-                &[
-                    make_event(event_id!("$1")),
-                    make_event(event_id!("$2")),
-                    make_event(event_id!("$3"))
-                ],
-                ThreadingSupport::Disabled
-            )
-            .not());
+        assert!(
+            receipts
+                .find_and_process_events(
+                    ev0,
+                    user_id,
+                    &[
+                        make_event(event_id!("$1")),
+                        make_event(event_id!("$2")),
+                        make_event(event_id!("$3"))
+                    ],
+                    ThreadingSupport::Disabled
+                )
+                .not()
+        );
         assert_eq!(receipts.num_unread, 42);
         assert_eq!(receipts.num_notifications, 13);
         assert_eq!(receipts.num_mentions, 37);

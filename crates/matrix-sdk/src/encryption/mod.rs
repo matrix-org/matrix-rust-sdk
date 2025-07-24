@@ -62,6 +62,7 @@ use ruma::{
 #[cfg(feature = "experimental-send-custom-to-device")]
 use ruma::{events::AnyToDeviceEventContent, serde::Raw, to_device::DeviceIdOrAllDevices};
 use serde::Deserialize;
+use tasks::BundleReceiverTask;
 use tokio::sync::{Mutex, RwLockReadGuard};
 use tokio_stream::wrappers::errors::BroadcastStreamRecvError;
 use tracing::{debug, error, instrument, trace, warn};
@@ -134,7 +135,7 @@ impl EncryptionData {
         }
     }
 
-    pub fn initialize_room_key_tasks(&self, client: &Arc<ClientInner>) {
+    pub fn initialize_tasks(&self, client: &Arc<ClientInner>) {
         let weak_client = WeakClient::from_inner(client);
 
         let mut tasks = self.tasks.lock();
@@ -348,8 +349,9 @@ pub struct OAuthCrossSigningResetInfo {
 
 impl OAuthCrossSigningResetInfo {
     fn from_auth_info(auth_info: &UiaaInfo) -> Result<Self> {
-        let parameters =
-            serde_json::from_str::<OAuthCrossSigningResetUiaaParameters>(auth_info.params.get())?;
+        let parameters = serde_json::from_str::<OAuthCrossSigningResetUiaaParameters>(
+            auth_info.params.as_ref().map(|value| value.get()).unwrap_or_default(),
+        )?;
 
         Ok(OAuthCrossSigningResetInfo { approval_url: parameters.reset.url })
     }
@@ -1685,10 +1687,20 @@ impl Encryption {
     ///   there is a proposal (MSC3967) to remove this requirement, which would
     ///   allow for the initial upload of cross-signing keys without
     ///   authentication, rendering this parameter obsolete.
-    pub(crate) fn spawn_initialization_task(&self, auth_data: Option<AuthData>) {
+    pub(crate) async fn spawn_initialization_task(&self, auth_data: Option<AuthData>) {
+        // It's fine to be async here as we're only getting the lock protecting the
+        // `OlmMachine`. Since the lock shouldn't be that contested right after logging
+        // in we won't delay the login or restoration of the Client.
+        let bundle_receiver_task = if self.client.inner.enable_share_history_on_invite {
+            Some(BundleReceiverTask::new(&self.client).await)
+        } else {
+            None
+        };
+
         let mut tasks = self.client.inner.e2ee.tasks.lock();
 
         let this = self.clone();
+
         tasks.setup_e2ee = Some(spawn(async move {
             // Update the current state first, so we don't have to wait for the result of
             // network requests
@@ -1707,6 +1719,8 @@ impl Encryption {
                 error!("Couldn't setup and resume recovery {e:?}");
             }
         }));
+
+        tasks.receive_historic_room_key_bundles = bundle_receiver_task;
     }
 
     /// Waits for end-to-end encryption initialization tasks to finish, if any

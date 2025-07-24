@@ -22,9 +22,8 @@ use futures_util::future::join_all;
 use matrix_sdk_base::{RoomHero, RoomInfo, RoomState};
 use ruma::{
     api::client::{membership::joined_members, state::get_state_events},
-    events::room::{history_visibility::HistoryVisibility, join_rules::JoinRule},
-    room::RoomType,
-    space::SpaceRoomJoinRule,
+    events::room::history_visibility::HistoryVisibility,
+    room::{JoinRuleSummary, RoomType},
     OwnedMxcUri, OwnedRoomAliasId, OwnedRoomId, OwnedServerName, RoomId, RoomOrAliasId, ServerName,
 };
 use tokio::try_join;
@@ -63,7 +62,7 @@ pub struct RoomPreview {
     pub room_type: Option<RoomType>,
 
     /// What's the join rule for this room?
-    pub join_rule: Option<SpaceRoomJoinRule>,
+    pub join_rule: Option<JoinRuleSummary>,
 
     /// Is the room world-readable (i.e. is its history_visibility set to
     /// world_readable)?
@@ -101,19 +100,7 @@ impl RoomPreview {
             topic: room_info.topic().map(ToOwned::to_owned),
             avatar_url: room_info.avatar_url().map(ToOwned::to_owned),
             room_type: room_info.room_type().cloned(),
-            join_rule: room_info.join_rule().map(|rule| match rule {
-                JoinRule::Invite => SpaceRoomJoinRule::Invite,
-                JoinRule::Knock => SpaceRoomJoinRule::Knock,
-                JoinRule::Private => SpaceRoomJoinRule::Private,
-                JoinRule::Restricted(_) => SpaceRoomJoinRule::Restricted,
-                JoinRule::KnockRestricted(_) => SpaceRoomJoinRule::KnockRestricted,
-                JoinRule::Public => SpaceRoomJoinRule::Public,
-                _ => {
-                    // The JoinRule enum is non-exhaustive. Let's do a white lie and pretend it's
-                    // private (a cautious choice).
-                    SpaceRoomJoinRule::Private
-                }
-            }),
+            join_rule: room_info.join_rule().cloned().map(Into::into),
             is_world_readable: room_info
                 .history_visibility()
                 .map(|vis| *vis == HistoryVisibility::WorldReadable),
@@ -288,7 +275,7 @@ impl RoomPreview {
             num_joined_members: summary.num_joined_members.into(),
             num_active_members,
             room_type: summary.room_type,
-            join_rule: Some(summary.join_rule.into()),
+            join_rule: Some(summary.join_rule),
             is_world_readable: Some(summary.world_readable),
             state,
             is_direct,

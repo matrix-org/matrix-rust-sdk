@@ -484,7 +484,7 @@ impl Room {
     /// # Errors
     ///
     /// Returns an error if the room is not found or on rate limit
-    pub async fn report_room(&self, reason: Option<String>) -> Result<(), ClientError> {
+    pub async fn report_room(&self, reason: String) -> Result<(), ClientError> {
         self.inner.report_room(reason).await?;
 
         Ok(())
@@ -1504,13 +1504,10 @@ impl From<SdkSuccessorRoom> for SuccessorRoom {
 pub struct PredecessorRoom {
     /// The ID of the replacement room.
     pub room_id: String,
-
-    /// The event ID of the last known event in the predecesssor room.
-    pub last_event_id: String,
 }
 
 impl From<SdkPredecessorRoom> for PredecessorRoom {
     fn from(value: SdkPredecessorRoom) -> Self {
-        Self { room_id: value.room_id.to_string(), last_event_id: value.last_event_id.to_string() }
+        Self { room_id: value.room_id.to_string() }
     }
 }

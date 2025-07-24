@@ -1486,17 +1486,17 @@ impl From<RumaSecretStorageV1AesHmacSha2Properties> for SecretStorageV1AesHmacSh
 #[derive(Clone, uniffi::Record, Default)]
 pub struct MediaPreviewConfig {
     /// The media previews setting for the user.
-    pub media_previews: MediaPreviews,
+    pub media_previews: Option<MediaPreviews>,
 
     /// The invite avatars setting for the user.
-    pub invite_avatars: InviteAvatars,
+    pub invite_avatars: Option<InviteAvatars>,
 }
 
 impl From<MediaPreviewConfigEventContent> for MediaPreviewConfig {
     fn from(value: MediaPreviewConfigEventContent) -> Self {
         Self {
-            media_previews: value.media_previews.into(),
-            invite_avatars: value.invite_avatars.into(),
+            media_previews: value.media_previews.map(Into::into),
+            invite_avatars: value.invite_avatars.map(Into::into),
         }
     }
 }

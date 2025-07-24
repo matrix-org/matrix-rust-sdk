@@ -47,3 +47,7 @@ harness = false
 [[bench]]
 name = "timeline"
 harness = false
+
+[[bench]]
+name = "event_cache"
+harness = false

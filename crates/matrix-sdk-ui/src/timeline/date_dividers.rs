@@ -297,16 +297,16 @@ impl DateDividerAdjuster {
                 if timestamp_to_date(*prev_ts) != event_date {
                     // The date divider is wrong. Should we replace it with the correct value, or
                     // remove it entirely?
-                    if let Some(last_event_ts) = latest_event_ts {
-                        if timestamp_to_date(last_event_ts) == event_date {
-                            // There's a previous event with the same date: remove the divider.
-                            trace!(
-                                "removed date divider @ {item_index} between two events \
+                    if let Some(last_event_ts) = latest_event_ts
+                        && timestamp_to_date(last_event_ts) == event_date
+                    {
+                        // There's a previous event with the same date: remove the divider.
+                        trace!(
+                            "removed date divider @ {item_index} between two events \
                                  that have the same date"
-                            );
-                            self.ops.insert(insert_op_at, DateDividerOperation::Remove(item_index));
-                            return;
-                        }
+                        );
+                        self.ops.insert(insert_op_at, DateDividerOperation::Remove(item_index));
+                        return;
                     }
 
                     // There's no previous event or there's one with a different date: replace
@@ -440,10 +440,10 @@ impl DateDividerAdjuster {
         };
 
         // 3. There's no trailing date divider.
-        if let Some(last) = items.last() {
-            if last.is_date_divider() {
-                report.errors.push(DateDividerInsertError::TrailingDateDivider);
-            }
+        if let Some(last) = items.last()
+            && last.is_date_divider()
+        {
+            report.errors.push(DateDividerInsertError::TrailingDateDivider);
         }
 
         // 4. Items are properly separated with date dividers.
@@ -456,12 +456,12 @@ impl DateDividerAdjuster {
                     let ts = ev.timestamp();
 
                     // We have the same date as the previous event we've seen.
-                    if let Some(prev_ts) = prev_event_ts {
-                        if !self.is_same_date_divider_group_as(prev_ts, ts) {
-                            report.errors.push(
-                                DateDividerInsertError::MissingDateDividerBetweenEvents { at: i },
-                            );
-                        }
+                    if let Some(prev_ts) = prev_event_ts
+                        && !self.is_same_date_divider_group_as(prev_ts, ts)
+                    {
+                        report.errors.push(
+                            DateDividerInsertError::MissingDateDividerBetweenEvents { at: i },
+                        );
                     }
 
                     // There is a date divider before us, and it's the same date as our timestamp.
@@ -484,12 +484,10 @@ impl DateDividerAdjuster {
                     item.kind()
                 {
                     // The previous date divider is for a different date.
-                    if let Some(prev_ts) = prev_date_divider_ts {
-                        if self.is_same_date_divider_group_as(prev_ts, *ts) {
-                            report
-                                .errors
-                                .push(DateDividerInsertError::DuplicateDateDivider { at: i });
-                        }
+                    if let Some(prev_ts) = prev_date_divider_ts
+                        && self.is_same_date_divider_group_as(prev_ts, *ts)
+                    {
+                        report.errors.push(DateDividerInsertError::DuplicateDateDivider { at: i });
                     }
 
                     prev_event_ts = None;
@@ -500,15 +498,14 @@ impl DateDividerAdjuster {
 
         // 5. If there was a read marker at the beginning, there should be one at the
         //    end.
-        if let Some(state) = &report.initial_state {
-            if state.iter().any(|item| item.is_read_marker())
-                && !report
-                    .final_state
-                    .iter_remotes_and_locals_regions()
-                    .any(|(_i, item)| item.is_read_marker())
-            {
-                report.errors.push(DateDividerInsertError::ReadMarkerDisappeared);
-            }
+        if let Some(state) = &report.initial_state
+            && state.iter().any(|item| item.is_read_marker())
+            && !report
+                .final_state
+                .iter_remotes_and_locals_regions()
+                .any(|(_i, item)| item.is_read_marker())
+        {
+            report.errors.push(DateDividerInsertError::ReadMarkerDisappeared);
         }
 
         if report.errors.is_empty() { None } else { Some(report) }
@@ -657,7 +654,10 @@ enum DateDividerInsertError {
 #[cfg(test)]
 mod tests {
     use assert_matches2::assert_let;
-    use ruma::{MilliSecondsSinceUnixEpoch, owned_event_id, owned_user_id, uint};
+    use ruma::{
+        MilliSecondsSinceUnixEpoch, owned_event_id, owned_user_id,
+        room_version_rules::RoomVersionRules, uint,
+    };
 
     use super::{super::controller::ObservableItems, DateDividerAdjuster};
     use crate::timeline::{
@@ -691,7 +691,7 @@ mod tests {
     }
 
     fn test_metadata() -> TimelineMetadata {
-        TimelineMetadata::new(owned_user_id!("@a:b.c"), ruma::RoomVersionId::V11, None, None, false)
+        TimelineMetadata::new(owned_user_id!("@a:b.c"), RoomVersionRules::V11, None, None, false)
     }
 
     #[test]

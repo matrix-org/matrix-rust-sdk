@@ -244,6 +244,12 @@ impl EventCache {
         .await;
     }
 
+    /// For benchmarking purposes only.
+    #[doc(hidden)]
+    pub async fn handle_room_updates(&self, updates: RoomUpdates) -> Result<()> {
+        self.inner.handle_room_updates(updates).await
+    }
+
     #[instrument(skip_all)]
     async fn listen_task(
         inner: Arc<EventCacheInner>,
@@ -519,6 +525,11 @@ impl EventCacheInner {
             self.multiple_room_updates_lock.lock().await
         };
 
+        // Note: bnjbvr tried to make this concurrent at some point, but it turned out
+        // to be a performance regression, even for large sync updates. Lacking
+        // time to investigate, this code remains sequential for now. See also
+        // https://github.com/matrix-org/matrix-rust-sdk/pull/5426.
+
         // Left rooms.
         for (room_id, left_room_update) in updates.left {
             let room = self.for_room(&room_id).await?;
@@ -577,11 +588,11 @@ impl EventCacheInner {
                 let room = client
                     .get_room(room_id)
                     .ok_or_else(|| EventCacheError::RoomNotFound { room_id: room_id.to_owned() })?;
-                let room_version = room.clone_info().room_version_or_default();
+                let room_version_rules = room.clone_info().room_version_rules_or_default();
 
                 let room_state = RoomEventCacheState::new(
                     room_id.to_owned(),
-                    room_version,
+                    room_version_rules,
                     self.store.clone(),
                     pagination_status.clone(),
                 )

@@ -6,6 +6,38 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased] - ReleaseDate
 
+### Features
+
+- [**breaking**] [`Timeline::send_gallery()`] now automatically fills in the thread relationship,
+  based on the timeline focus. As a result, the `GalleryConfig::reply()` builder method has been
+  replaced with `GalleryConfig::in_reply_to`, and only takes an optional event id (the event that is
+  effectively replied to) instead of the `Reply` type. The proper way to start a thread with a
+  gallery event is now thus to create a threaded-focused timeline, and then use
+  `Timeline::send_gallery()`.
+  ([5427](https://github.com/matrix-org/matrix-rust-sdk/pull/5427))
+- [**breaking**] [`Timeline::send_attachment()`] now automatically fills in the thread
+  relationship, based on the timeline focus. As a result, there's a new
+  `matrix_sdk_ui::timeline::AttachmentConfig` type in town, that has a simplified optional parameter
+  `replied_to` of type `OwnedEventId` instead of the `Reply` type and that must be used in place of
+  `matrix_sdk::attachment::AttachmentConfig`. The proper way to start a thread with a media
+  attachment is now thus to create a threaded-focused timeline, and then use
+  `Timeline::send_attachment()`.
+  ([5427](https://github.com/matrix-org/matrix-rust-sdk/pull/5427))
+- [**breaking**] [`Timeline::send_reply()`] now automatically fills in the thread relationship,
+  based on the timeline focus. As a result, it only takes an `OwnedEventId` parameter, instead of
+  the `Reply` type. The proper way to start a thread is now thus to create a threaded-focused
+  timeline, and then use `Timeline::send()`.
+  ([5427](https://github.com/matrix-org/matrix-rust-sdk/pull/5427))
+- `Timeline::send()` will now automatically fill the thread relationship, if the timeline has a
+  thread focus, and the sent event doesn't have a prefilled `relates_to` field (i.e. a relationship).
+  ([5427](https://github.com/matrix-org/matrix-rust-sdk/pull/5427))
+
+### Refactor
+
+- [**breaking**] The MSRV has been bumped to Rust 1.88.
+  ([#5431](https://github.com/matrix-org/matrix-rust-sdk/pull/5431))
+
+
 ## [0.13.0] - 2025-07-10
 
 ### Features
@@ -23,6 +55,13 @@ All notable changes to this project will be documented in this file.
 - `RoomListService::subscribe_to_rooms` becomes `async` and automatically calls
   `matrix_sdk::latest_events::LatestEvents::listen_to_room`
   ([#5369](https://github.com/matrix-org/matrix-rust-sdk/pull/5369))
+
+### Refactor
+
+- [**breaking**] The function provided to `TimelineBuilder::event_filter()`
+  must take `RoomVersionRules` as second argument instead of a `RoomVersionId`.
+  The `default_event_filter()` reflects that change.
+  ([#5337](https://github.com/matrix-org/matrix-rust-sdk/pull/5337))
 
 ## [0.12.0] - 2025-06-10
 

@@ -18,13 +18,13 @@ use std::{collections::BTreeMap, fmt, ops::Deref};
 
 use as_variant::as_variant;
 use ruma::{
-    events::{
-        room::{message::RoomMessageEventContent, MediaSource},
-        AnyMessageLikeEventContent, EventContent as _, RawExt as _,
-    },
-    serde::Raw,
     MilliSecondsSinceUnixEpoch, OwnedDeviceId, OwnedEventId, OwnedTransactionId, OwnedUserId,
     TransactionId, UInt,
+    events::{
+        AnyMessageLikeEventContent, MessageLikeEventContent as _, RawExt as _,
+        room::{MediaSource, message::RoomMessageEventContent},
+    },
+    serde::Raw,
 };
 use serde::{Deserialize, Serialize};
 
@@ -63,7 +63,7 @@ impl SerializableEventContent {
     /// Convert a [`SerializableEventContent`] back into a
     /// [`AnyMessageLikeEventContent`].
     pub fn deserialize(&self) -> Result<AnyMessageLikeEventContent, serde_json::Error> {
-        self.event.deserialize_with_type(self.event_type.clone().into())
+        self.event.deserialize_with_type(&self.event_type)
     }
 
     /// Returns the raw event content along with its type.

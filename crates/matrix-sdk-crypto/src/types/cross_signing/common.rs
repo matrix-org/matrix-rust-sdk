@@ -23,8 +23,9 @@ use std::collections::BTreeMap;
 
 use as_variant::as_variant;
 use ruma::{
-    encryption::KeyUsage, serde::Raw, DeviceKeyAlgorithm, DeviceKeyId, OwnedDeviceKeyId,
-    OwnedUserId, UserId,
+    encryption::KeyUsage,
+    serde::{JsonCastable, Raw},
+    DeviceKeyAlgorithm, DeviceKeyId, OwnedDeviceKeyId, OwnedUserId, UserId,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{value::to_raw_value, Value};
@@ -85,6 +86,8 @@ impl CrossSigningKey {
         self.keys.iter().find_map(|(id, key)| Some((id.as_ref(), key.ed25519()?)))
     }
 }
+
+impl JsonCastable<CrossSigningKey> for ruma::encryption::CrossSigningKey {}
 
 /// An enum over the different key types a cross-signing key can have.
 ///

@@ -7,6 +7,10 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased] - ReleaseDate
 
 ### Features
+- [**breaking**] `RoomCreateWithCreatorEventContent` has a new field
+  `additional_creators` that allows to specify additional room creators beside
+  the user sending the `m.room.create` event, introduced with room version 12.
+  ([#5436](https://github.com/matrix-org/matrix-rust-sdk/pull/5436))
 - [**breaking**] The `RoomInfo` method now remembers the inviter at the time
   when the `BaseClient::room_joined()` method was called. The caller is
   responsible to remember the inviter before a server request to join the room
@@ -14,6 +18,32 @@ All notable changes to this project will be documented in this file.
   `RoomInfo::invite_details` method returns both the timestamp and the
   inviter.
   ([#5390](https://github.com/matrix-org/matrix-rust-sdk/pull/5390))
+
+### Refactor
+- [**breaking**] `SyncOrStrippedState<RoomPowerLevelsEventContent>::power_levels()`
+  takes `AuthorizationRules` and a list of creators, because creators can have
+  infinite power levels, as introduced in room version 12.
+  ([#5436](https://github.com/matrix-org/matrix-rust-sdk/pull/5436))
+- [**breaking**] `RoomMember::power_level()` and
+  `RoomMember::normalized_power_level()` now use `UserPowerLevel` to represent
+  power levels instead of `i64` to differentiate the infinite power level of
+  creators, as introduced in room version 12.
+  ([#5436](https://github.com/matrix-org/matrix-rust-sdk/pull/5436))
+- [**breaking**] The `creator()` methods of `Room` and `RoomInfo` have been
+  renamed to `creators()` and can now return a list of user IDs, to reflect that
+  a room can have several creators, as introduced in room version 12.
+  ([#5436](https://github.com/matrix-org/matrix-rust-sdk/pull/5436))
+- [**breaking**] `RoomInfo::room_version_or_default()` was replaced with
+  `room_version_rules_or_default()`. The room version should only be used for
+  display purposes. The rules contain flags for all the differences in behavior
+  between all known room versions.
+  ([#5337](https://github.com/matrix-org/matrix-rust-sdk/pull/5337))
+- [**breaking**] `MinimalStateEvent::redact()` takes `RedactionRules` instead of
+  a `RoomVersionId`.
+  ([#5337](https://github.com/matrix-org/matrix-rust-sdk/pull/5337))
+- [**breaking**] The `event_id` field of `PredecessorRoom` was removed, due to
+  its removal in the Matrix specification with MSC4291.
+  ([#5419](https://github.com/matrix-org/matrix-rust-sdk/pull/5419))
 
 ## [0.13.0] - 2025-07-10
 
@@ -59,8 +89,8 @@ No notable changes in this release.
   - `EventCacheStoreMedia` has a new method `last_media_cleanup_time_inner`
   - There are new `'static` bounds in `MediaService` for the media cache stores
 - `event_cache::store::MemoryStore` implements `Clone`.
-- `BaseClient` now has a `handle_verification_events` field which is `true` by 
-  default and can be negated so the `NotificationClient` won't handle received 
+- `BaseClient` now has a `handle_verification_events` field which is `true` by
+  default and can be negated so the `NotificationClient` won't handle received
   verification events too, causing errors in the `VerificationMachine`.
 - [**breaking**] `Room::is_encryption_state_synced` has been removed
   ([#4777](https://github.com/matrix-org/matrix-rust-sdk/pull/4777))

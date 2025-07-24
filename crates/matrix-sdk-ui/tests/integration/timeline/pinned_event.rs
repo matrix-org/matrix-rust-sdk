@@ -660,7 +660,7 @@ async fn mock_events_endpoint(
             .mock_room_event()
             .room(room_id.to_owned())
             .match_event_id()
-            .ok(TimelineEvent::from_plaintext(event.cast()))
+            .ok(TimelineEvent::from_plaintext(event))
             .mount()
             .await;
     }
@@ -715,10 +715,9 @@ impl PinnedEventsSync {
                 .event(RoomPinnedEventsEventContent::new(pinned_event_ids))
                 .sender(user_id!("@example:localhost"))
                 .state_key("")
-                .into_raw_sync();
+                .into_raw();
 
-            joined_room_builder =
-                joined_room_builder.add_state_bulk(vec![pinned_events_event.cast()]);
+            joined_room_builder = joined_room_builder.add_state_bulk(vec![pinned_events_event]);
         }
 
         Ok(server.sync_room(client, joined_room_builder).await)

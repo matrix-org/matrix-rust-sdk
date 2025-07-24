@@ -417,6 +417,23 @@ pub type IndexedEventPositionIndex = usize;
 #[derive(Debug, Serialize, Deserialize)]
 pub struct IndexedEventRelationKey(IndexedRoomId, IndexedEventId, IndexedRelationType);
 
+impl IndexedEventRelationKey {
+    /// Returns an identical key, but with the related event field updated to
+    /// the given related event. This is helpful when searching for all
+    /// events which are related to the given event.
+    pub fn with_related_event_id(
+        &self,
+        related_event_id: &OwnedEventId,
+        serializer: &IndexeddbSerializer,
+    ) -> Self {
+        let room_id = self.0.clone();
+        let related_event_id =
+            serializer.encode_key_as_string(keys::EVENTS_RELATION_RELATED_EVENTS, related_event_id);
+        let relation_type = self.2.clone();
+        Self(room_id, related_event_id, relation_type)
+    }
+}
+
 impl IndexedKey<Event> for IndexedEventRelationKey {
     const INDEX: Option<&'static str> = Some(keys::EVENTS_RELATION);
 

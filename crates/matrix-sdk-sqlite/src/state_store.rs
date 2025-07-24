@@ -16,7 +16,7 @@ use matrix_sdk_base::{
         RoomLoadSettings, SentRequestKey,
     },
     MinimalRoomMemberEvent, RoomInfo, RoomMemberships, RoomState, StateChanges, StateStore,
-    StateStoreDataKey, StateStoreDataValue, ROOM_VERSION_FALLBACK,
+    StateStoreDataKey, StateStoreDataValue, ROOM_VERSION_FALLBACK, ROOM_VERSION_RULES_FALLBACK,
 };
 use matrix_sdk_store_encryption::StoreCipher;
 use ruma::{
@@ -1153,7 +1153,7 @@ impl StateStore for SqliteStateStore {
 
                             if event_type == StateEventType::RoomMember {
                                 let member_event = match raw_state_event
-                                    .deserialize_as::<SyncRoomMemberEvent>()
+                                    .deserialize_as_unchecked::<SyncRoomMemberEvent>()
                                 {
                                     Ok(ev) => ev,
                                     Err(e) => {
@@ -1210,7 +1210,7 @@ impl StateStore for SqliteStateStore {
 
                             if event_type == StateEventType::RoomMember {
                                 let member_event = match raw_stripped_state_event
-                                    .deserialize_as::<StrippedRoomMemberEvent>(
+                                    .deserialize_as_unchecked::<StrippedRoomMemberEvent>(
                                 ) {
                                     Ok(ev) => ev,
                                     Err(e) => {
@@ -1271,24 +1271,24 @@ impl StateStore for SqliteStateStore {
                 }
 
                 for (room_id, redactions) in redactions {
-                    let make_room_version = || {
+                    let make_redaction_rules = || {
                         let encoded_room_id = this.encode_key(keys::ROOM_INFO, &room_id);
                         txn.get_room_info(&encoded_room_id)
                             .ok()
                             .flatten()
                             .and_then(|v| this.deserialize_json::<RoomInfo>(&v).ok())
-                            .map(|info| info.room_version_or_default())
+                            .map(|info| info.room_version_rules_or_default())
                             .unwrap_or_else(|| {
                                 warn!(
                                     ?room_id,
-                                    "Unable to find the room version, assuming {ROOM_VERSION_FALLBACK}"
+                                    "Unable to get the room version rules, defaulting to rules for room version {ROOM_VERSION_FALLBACK}"
                                 );
-                                ROOM_VERSION_FALLBACK
-                            })
+                                ROOM_VERSION_RULES_FALLBACK
+                            }).redaction
                     };
 
                     let encoded_room_id = this.encode_key(keys::STATE_EVENT, &room_id);
-                    let mut room_version = None;
+                    let mut redaction_rules = None;
 
                     for (event_id, redaction) in redactions {
                         let event_id = this.encode_key(keys::STATE_EVENT, event_id);
@@ -1300,7 +1300,7 @@ impl StateStore for SqliteStateStore {
                             let event = raw_event.deserialize()?;
                             let redacted = redact(
                                 raw_event.deserialize_as::<CanonicalJsonObject>()?,
-                                room_version.get_or_insert_with(make_room_version),
+                                redaction_rules.get_or_insert_with(make_redaction_rules),
                                 Some(RedactedBecause::from_raw_event(&redaction)?),
                             )
                             .map_err(Error::Redaction)?;
@@ -2463,15 +2463,15 @@ mod migration_tests {
 
         let room_a = room_infos.iter().find(|r| r.room_id() == room_a_id).unwrap();
         assert_eq!(room_a.name(), Some(room_a_name));
-        assert_eq!(room_a.creator(), Some(room_a_create_sender));
+        assert_eq!(room_a.creators(), Some(vec![room_a_create_sender.to_owned()]));
 
         let room_b = room_infos.iter().find(|r| r.room_id() == room_b_id).unwrap();
         assert_eq!(room_b.name(), None);
-        assert_eq!(room_b.creator(), None);
+        assert_eq!(room_b.creators(), None);
 
         let room_c = room_infos.iter().find(|r| r.room_id() == room_c_id).unwrap();
         assert_eq!(room_c.name(), None);
-        assert_eq!(room_c.creator(), Some(room_c_create_sender));
+        assert_eq!(room_c.creators(), Some(vec![room_c_create_sender.to_owned()]));
     }
 
     #[async_test]

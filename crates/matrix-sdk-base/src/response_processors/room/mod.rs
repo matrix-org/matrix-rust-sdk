@@ -15,7 +15,7 @@
 use ruma::RoomId;
 use tokio::sync::broadcast::Sender;
 
-use crate::{store::ambiguity_map::AmbiguityCache, RequestedRequiredStates, RoomInfoNotableUpdate};
+use crate::{RequestedRequiredStates, RoomInfoNotableUpdate, store::ambiguity_map::AmbiguityCache};
 
 pub mod display_name;
 pub mod msc4186;

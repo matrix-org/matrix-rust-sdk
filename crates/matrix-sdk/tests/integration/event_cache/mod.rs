@@ -28,8 +28,13 @@ use matrix_sdk_test::{
 };
 use ruma::{
     event_id,
-    events::{AnySyncMessageLikeEvent, AnySyncTimelineEvent, TimelineEventType},
-    room_id, user_id, EventId, RoomVersionId,
+    events::{
+        room::message::RoomMessageEventContentWithoutRelation, AnySyncMessageLikeEvent,
+        AnySyncTimelineEvent, TimelineEventType,
+    },
+    room_id,
+    room_version_rules::RedactionRules,
+    user_id, EventId,
 };
 use serde_json::json;
 use tokio::{spawn, sync::broadcast, time::sleep};
@@ -1411,7 +1416,7 @@ async fn test_apply_redaction_when_redaction_comes_later() {
         assert_let!(
             AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::RoomRedaction(ev)) = ev
         );
-        assert_eq!(ev.redacts(&RoomVersionId::V1).unwrap(), event_id!("$1"));
+        assert_eq!(ev.redacts(&RedactionRules::V1).unwrap(), event_id!("$1"));
     }
 
     // Then, we have an update for the redacted event.
@@ -1443,7 +1448,7 @@ async fn test_apply_redaction_when_redaction_comes_later() {
     assert_eq!(events.len(), 2);
 
     // The initial event (that's been redacted),
-    let ev = events[0].raw().cast_ref::<AnySyncMessageLikeEvent>().deserialize().unwrap();
+    let ev = events[0].raw().cast_ref_unchecked::<AnySyncMessageLikeEvent>().deserialize().unwrap();
     assert!(ev.is_redacted());
 
     // And the redacted event.
@@ -1641,7 +1646,7 @@ async fn test_apply_redaction_when_redacted_and_redaction_are_in_same_sync() {
         assert_let!(
             AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::RoomRedaction(ev)) = ev
         );
-        assert_eq!(ev.redacts(&RoomVersionId::V1).unwrap(), event_id!("$2"));
+        assert_eq!(ev.redacts(&RedactionRules::V1).unwrap(), event_id!("$2"));
     }
 
     // Then the redaction of the event happens separately.
@@ -2521,4 +2526,163 @@ async fn test_sync_while_back_paginate() {
     assert_let!(VectorDiff::Insert { index: 2, value: _ } = &diffs[2]);
 
     assert!(subscriber.is_empty());
+}
+
+#[async_test]
+async fn test_relations_ordering() {
+    let server = MatrixMockServer::new().await;
+
+    let room_id = room_id!("!galette:saucisse.bzh");
+    let f = EventFactory::new().room(room_id).sender(*ALICE);
+
+    let target_event_id = event_id!("$1");
+
+    // Start with a prefilled event cache store that includes the target event.
+    let ev1 = f.text_msg("bonjour monde").event_id(target_event_id).into_event();
+
+    let event_cache_store = Arc::new(MemoryStore::new());
+    event_cache_store
+        .handle_linked_chunk_updates(
+            LinkedChunkId::Room(room_id),
+            vec![
+                // An empty items chunk.
+                Update::NewItemsChunk { previous: None, new: ChunkIdentifier::new(0), next: None },
+                Update::PushItems {
+                    at: Position::new(ChunkIdentifier::new(0), 0),
+                    items: vec![ev1.clone()],
+                },
+            ],
+        )
+        .await
+        .unwrap();
+
+    let client = server
+        .client_builder()
+        .store_config(
+            StoreConfig::new("hodlor".to_owned()).event_cache_store(event_cache_store.clone()),
+        )
+        .build()
+        .await;
+
+    let event_cache = client.event_cache();
+    event_cache.subscribe().unwrap();
+
+    let room = server.sync_joined_room(&client, room_id).await;
+
+    let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+
+    let (initial_events, mut listener) = room_event_cache.subscribe().await;
+    assert_eq!(initial_events.len(), 1);
+    assert!(listener.recv().now_or_never().is_none());
+
+    // Sanity check: there are no relations for the target event yet.
+    let (_, relations) =
+        room_event_cache.find_event_with_relations(target_event_id, None).await.unwrap();
+    assert!(relations.is_empty());
+
+    let edit2 = event_id!("$edit2");
+    let ev2 = f
+        .text_msg("* hola mundo")
+        .edit(target_event_id, RoomMessageEventContentWithoutRelation::text_plain("hola mundo"))
+        .event_id(edit2)
+        .into_raw();
+
+    let edit3 = event_id!("$edit3");
+    let ev3 = f
+        .text_msg("* ciao mondo")
+        .edit(target_event_id, RoomMessageEventContentWithoutRelation::text_plain("ciao mondo"))
+        .event_id(edit3)
+        .into_raw();
+
+    let edit4 = event_id!("$edit4");
+    let ev4 = f
+        .text_msg("* hello world")
+        .edit(target_event_id, RoomMessageEventContentWithoutRelation::text_plain("hello world"))
+        .event_id(edit4)
+        .into_raw();
+
+    // We receive two edit events via sync, as well as a gap; this will shrink the
+    // linked chunk.
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id)
+                .add_timeline_event(ev3.clone())
+                .add_timeline_event(ev4.clone())
+                .set_timeline_limited()
+                .set_timeline_prev_batch("prev_batch"),
+        )
+        .await;
+
+    // Wait for the listener to tell us we've received something.
+    loop {
+        assert_let_timeout!(
+            Ok(RoomEventCacheUpdate::UpdateTimelineEvents { diffs, .. }) = listener.recv()
+        );
+        // We've received the shrink.
+        if diffs.iter().any(|diff| matches!(diff, VectorDiff::Clear)) {
+            break;
+        }
+    }
+
+    // At this point, relations are known for the target event.
+    let (_, relations) =
+        room_event_cache.find_event_with_relations(target_event_id, None).await.unwrap();
+    assert_eq!(relations.len(), 2);
+    // And the edit events are correctly ordered according to their position in the
+    // linked chunk.
+    assert_eq!(relations[0].event_id().unwrap(), edit3);
+    assert_eq!(relations[1].event_id().unwrap(), edit4);
+
+    // Now, we resolve the gap; this returns ev2, another edit.
+    server
+        .mock_room_messages()
+        .match_from("prev_batch")
+        .ok(RoomMessagesResponseTemplate::default().events(vec![ev2.clone()]))
+        .named("room/messages")
+        .mock_once()
+        .mount()
+        .await;
+
+    // Run the pagination.
+    let outcome = room_event_cache.pagination().run_backwards_once(1).await.unwrap();
+    assert!(outcome.reached_start.not());
+    assert_eq!(outcome.events.len(), 1);
+
+    {
+        // Sanity check: we load the first chunk with the first event, from disk, and
+        // reach the start of the timeline.
+        let outcome = room_event_cache.pagination().run_backwards_once(1).await.unwrap();
+        assert!(outcome.reached_start);
+    }
+
+    // Relations are returned accordingly.
+    let (_, relations) =
+        room_event_cache.find_event_with_relations(target_event_id, None).await.unwrap();
+    assert_eq!(relations.len(), 3);
+    assert_eq!(relations[0].event_id().unwrap(), edit2);
+    assert_eq!(relations[1].event_id().unwrap(), edit3);
+    assert_eq!(relations[2].event_id().unwrap(), edit4);
+
+    // If I save an additional event without storing it in the linked chunk, it will
+    // be present at the start of the relations list.
+    let edit5 = event_id!("$edit5");
+    let ev5 = f
+        .text_msg("* hallo Welt")
+        .edit(target_event_id, RoomMessageEventContentWithoutRelation::text_plain("hallo Welt"))
+        .event_id(edit5)
+        .into_event();
+
+    server.mock_room_event().ok(ev5).mock_once().mount().await;
+
+    // This saves the event, but without a position.
+    room.event(edit5, None).await.unwrap();
+
+    let (_, relations) =
+        room_event_cache.find_event_with_relations(target_event_id, None).await.unwrap();
+    assert_eq!(relations.len(), 4);
+    assert_eq!(relations[0].event_id().unwrap(), edit5);
+    assert_eq!(relations[1].event_id().unwrap(), edit2);
+    assert_eq!(relations[2].event_id().unwrap(), edit3);
+    assert_eq!(relations[3].event_id().unwrap(), edit4);
 }

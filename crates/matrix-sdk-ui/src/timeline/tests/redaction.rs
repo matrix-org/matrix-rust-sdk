@@ -70,7 +70,7 @@ async fn test_redact_replied_to_event() {
     let first_item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
     assert!(first_item.content().is_message());
     let first_event: OriginalSyncRoomMessageEvent =
-        first_item.original_json().unwrap().deserialize_as().unwrap();
+        first_item.original_json().unwrap().deserialize_as_unchecked().unwrap();
 
     timeline
         .handle_live_event(f.text_msg("Hello, alice.").sender(&BOB).reply_to(&first_event.event_id))

@@ -570,6 +570,17 @@ impl<'a> IndexeddbEventCacheStoreTransaction<'a> {
         self.delete_items_in_room::<Chunk, IndexedChunkIdKey>(room_id).await
     }
 
+    /// Query IndexedDB for events that match the given event id in the given
+    /// room. If more than one item is found, an error is returned.
+    pub async fn get_event_by_id(
+        &self,
+        room_id: &RoomId,
+        event_id: &OwnedEventId,
+    ) -> Result<Option<Event>, IndexeddbEventCacheStoreTransactionError> {
+        let key = self.serializer.encode_key(room_id, event_id);
+        self.get_item_by_key::<Event, IndexedEventIdKey>(room_id, key).await
+    }
+
     /// Query IndexedDB for events in the given position range in the given
     /// room.
     pub async fn get_events_by_position(
@@ -618,6 +629,32 @@ impl<'a> IndexeddbEventCacheStoreTransaction<'a> {
         upper.chunk_identifier = chunk_id.index();
         let range = IndexedKeyRange::Bound(&lower, &upper);
         self.get_events_count_by_position(room_id, range).await
+    }
+
+    /// Query IndexedDB for events that match the given relation range in the
+    /// given room.
+    pub async fn get_events_by_relation(
+        &self,
+        room_id: &RoomId,
+        range: impl Into<IndexedKeyRange<&(OwnedEventId, RelationType)>>,
+    ) -> Result<Vec<Event>, IndexeddbEventCacheStoreTransactionError> {
+        let range = range.into().encoded(room_id, self.serializer.inner());
+        self.get_items_by_key::<Event, IndexedEventRelationKey>(room_id, range).await
+    }
+
+    /// Query IndexedDB for events that are related to the given event in the
+    /// given room.
+    pub async fn get_events_by_related_event(
+        &self,
+        room_id: &RoomId,
+        related_event_id: &OwnedEventId,
+    ) -> Result<Vec<Event>, IndexeddbEventCacheStoreTransactionError> {
+        let lower = IndexedEventRelationKey::lower_key(room_id, self.serializer.inner())
+            .with_related_event_id(related_event_id, self.serializer.inner());
+        let upper = IndexedEventRelationKey::upper_key(room_id, self.serializer.inner())
+            .with_related_event_id(related_event_id, self.serializer.inner());
+        let range = IndexedKeyRange::Bound(lower, upper);
+        self.get_items_by_key::<Event, IndexedEventRelationKey>(room_id, range).await
     }
 
     /// Puts an event in the given room. If an event with the same key already

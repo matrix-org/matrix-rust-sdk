@@ -20,17 +20,18 @@ pub use matrix_sdk_common::deserialized_responses::*;
 use once_cell::sync::Lazy;
 use regex::Regex;
 use ruma::{
+    EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedRoomId, OwnedUserId, UInt, UserId,
     events::{
+        AnyStrippedStateEvent, AnySyncStateEvent, AnySyncTimelineEvent, EventContentFromType,
+        PossiblyRedactedStateEventContent, RedactContent, RedactedStateEventContent,
+        StateEventContent, StaticStateEventContent, StrippedStateEvent, SyncStateEvent,
         room::{
             member::{MembershipState, RoomMemberEvent, RoomMemberEventContent},
             power_levels::{RoomPowerLevels, RoomPowerLevelsEventContent},
         },
-        AnyStrippedStateEvent, AnySyncStateEvent, AnySyncTimelineEvent, EventContentFromType,
-        PossiblyRedactedStateEventContent, RedactContent, RedactedStateEventContent,
-        StateEventContent, StaticStateEventContent, StrippedStateEvent, SyncStateEvent,
     },
+    room_version_rules::AuthorizationRules,
     serde::Raw,
-    EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedRoomId, OwnedUserId, UInt, UserId,
 };
 use serde::Serialize;
 use unicode_normalization::UnicodeNormalization;
@@ -304,8 +305,8 @@ impl RawAnySyncOrStrippedState {
         C::Redacted: RedactedStateEventContent,
     {
         match self {
-            Self::Sync(raw) => RawSyncOrStrippedState::Sync(raw.cast()),
-            Self::Stripped(raw) => RawSyncOrStrippedState::Stripped(raw.cast()),
+            Self::Sync(raw) => RawSyncOrStrippedState::Sync(raw.cast_unchecked()),
+            Self::Stripped(raw) => RawSyncOrStrippedState::Stripped(raw.cast_unchecked()),
         }
     }
 }
@@ -517,10 +518,14 @@ impl MemberEvent {
 
 impl SyncOrStrippedState<RoomPowerLevelsEventContent> {
     /// The power levels of the event.
-    pub fn power_levels(&self) -> RoomPowerLevels {
+    pub fn power_levels(
+        &self,
+        rules: &AuthorizationRules,
+        creators: Vec<OwnedUserId>,
+    ) -> RoomPowerLevels {
         match self {
-            Self::Sync(e) => e.power_levels(),
-            Self::Stripped(e) => e.power_levels(),
+            Self::Sync(e) => e.power_levels(rules, creators),
+            Self::Stripped(e) => e.power_levels(rules, creators),
         }
     }
 }

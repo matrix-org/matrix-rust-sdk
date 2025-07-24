@@ -1087,7 +1087,7 @@ async fn test_secret_gossip_after_interactive_verification() -> Result<()> {
         .expect("The event should have been encrypted and successfully decrypted.");
 
     let event: OriginalSyncMessageLikeEvent<RoomMessageEventContent> =
-        timeline_event.raw().deserialize_as()?;
+        timeline_event.raw().deserialize_as_unchecked()?;
     let message = event.content.msgtype;
 
     assert_let!(MessageType::Text(message) = message);
@@ -1141,7 +1141,7 @@ async fn test_recovery_disabling_deletes_secret_storage_secrets() -> Result<()> 
             .expect("The secret event should still exist");
 
         let event = event
-            .deserialize_as::<SecretEventContent>()
+            .deserialize_as_unchecked::<SecretEventContent>()
             .expect("We should be able to deserialize the content of known secrets");
 
         assert!(
@@ -1165,7 +1165,7 @@ async fn test_recovery_disabling_deletes_secret_storage_secrets() -> Result<()> 
             .expect("The secret event should still exist");
 
         let event = event
-            .deserialize_as::<SecretEventContent>()
+            .deserialize_as_unchecked::<SecretEventContent>()
             .expect("We should be able to deserialize the content since that's what we uploaded");
 
         assert!(

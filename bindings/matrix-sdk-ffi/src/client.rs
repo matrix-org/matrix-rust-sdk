@@ -75,10 +75,10 @@ use ruma::{
         },
         tag::TagEventContent,
         GlobalAccountDataEvent as RumaGlobalAccountDataEvent,
-        GlobalAccountDataEventType as RumaGlobalAccountDataEventType,
         RoomAccountDataEvent as RumaRoomAccountDataEvent,
     },
     push::{HttpPusherData as RumaHttpPusherData, PushFormat as RumaPushFormat},
+    room_version_rules::AuthorizationRules,
     OwnedDeviceId, OwnedServerName, RoomAliasId, RoomOrAliasId, ServerName,
 };
 use serde::{Deserialize, Serialize};
@@ -341,7 +341,24 @@ impl Client {
             }
         };
 
-        let supports_password_login = self.supports_password_login().await.ok().unwrap_or(false);
+        let login_types = self.inner.matrix_auth().get_login_types().await.ok();
+        let supports_password_login = login_types
+            .as_ref()
+            .map(|login_types| {
+                login_types.flows.iter().any(|login_type| {
+                    matches!(login_type, get_login_types::v3::LoginType::Password(_))
+                })
+            })
+            .unwrap_or(false);
+        let supports_sso_login = login_types
+            .as_ref()
+            .map(|login_types| {
+                login_types
+                    .flows
+                    .iter()
+                    .any(|login_type| matches!(login_type, get_login_types::v3::LoginType::Sso(_)))
+            })
+            .unwrap_or(false);
         let sliding_sync_version = self.sliding_sync_version();
 
         Arc::new(HomeserverLoginDetails {
@@ -349,6 +366,7 @@ impl Client {
             sliding_sync_version,
             supports_oidc_login,
             supported_oidc_prompts,
+            supports_sso_login,
             supports_password_login,
         })
     }
@@ -758,11 +776,24 @@ impl Client {
         }
     }
 
-    /// Allows generic GET requests to be made through the SDKs internal HTTP
-    /// client
-    pub async fn get_url(&self, url: String) -> Result<String, ClientError> {
-        let http_client = self.inner.http_client();
-        Ok(http_client.get(url).send().await?.text().await?)
+    /// Allows generic GET requests to be made through the SDK's internal HTTP
+    /// client. This is useful when the caller's native HTTP client wouldn't
+    /// have the same configuration (such as certificates, proxies, etc.) This
+    /// method returns the raw bytes of the response, so that any kind of
+    /// resource can be fetched including images, files, etc.
+    ///
+    /// Note: When an HTTP error occurs, the error response can be found in the
+    /// `ClientError::Generic`'s `details` field.
+    pub async fn get_url(&self, url: String) -> Result<Vec<u8>, ClientError> {
+        let response = self.inner.http_client().get(url).send().await?;
+        if response.status().is_success() {
+            Ok(response.bytes().await?.into())
+        } else {
+            Err(ClientError::Generic {
+                msg: response.status().to_string(),
+                details: response.text().await.ok(),
+            })
+        }
     }
 
     /// Empty the server version and unstable features cache.
@@ -805,18 +836,6 @@ impl Client {
             .await?;
 
         Ok(Arc::new(MediaFileHandle::new(handle)))
-    }
-}
-
-impl Client {
-    /// Whether or not the client's homeserver supports the password login flow.
-    pub(crate) async fn supports_password_login(&self) -> anyhow::Result<bool> {
-        let login_types = self.inner.matrix_auth().get_login_types().await?;
-        let supports_password = login_types
-            .flows
-            .iter()
-            .any(|login_type| matches!(login_type, get_login_types::v3::LoginType::Password(_)));
-        Ok(supports_password)
     }
 }
 
@@ -1247,13 +1266,10 @@ impl Client {
     // Ignored users
 
     pub async fn ignored_users(&self) -> Result<Vec<String>, ClientError> {
-        if let Some(raw_content) = self
-            .inner
-            .account()
-            .fetch_account_data(RumaGlobalAccountDataEventType::IgnoredUserList)
-            .await?
+        if let Some(raw_content) =
+            self.inner.account().fetch_account_data_static::<IgnoredUserListEventContent>().await?
         {
-            let content = raw_content.deserialize_as::<IgnoredUserListEventContent>()?;
+            let content = raw_content.deserialize()?;
             let user_ids: Vec<String> =
                 content.ignored_users.keys().map(|id| id.to_string()).collect();
 
@@ -1629,7 +1645,7 @@ impl Client {
     ) -> Result<Option<MediaPreviews>, ClientError> {
         let configuration = self.inner.account().get_media_preview_config_event_content().await?;
         match configuration {
-            Some(configuration) => Ok(Some(configuration.media_previews.into())),
+            Some(configuration) => Ok(configuration.media_previews.map(Into::into)),
             None => Ok(None),
         }
     }
@@ -1650,7 +1666,7 @@ impl Client {
     ) -> Result<Option<InviteAvatars>, ClientError> {
         let configuration = self.inner.account().get_media_preview_config_event_content().await?;
         match configuration {
-            Some(configuration) => Ok(Some(configuration.invite_avatars.into())),
+            Some(configuration) => Ok(configuration.invite_avatars.map(Into::into)),
             None => Ok(None),
         }
     }
@@ -1896,7 +1912,7 @@ pub struct PowerLevels {
 
 impl From<PowerLevels> for RoomPowerLevelsEventContent {
     fn from(value: PowerLevels) -> Self {
-        let mut power_levels = RoomPowerLevelsEventContent::new();
+        let mut power_levels = RoomPowerLevelsEventContent::new(&AuthorizationRules::V1);
 
         if let Some(users_default) = value.users_default {
             power_levels.users_default = users_default.into();
@@ -2466,9 +2482,7 @@ impl TryFrom<AllowRule> for RumaAllowRule {
         match value {
             AllowRule::RoomMembership { room_id } => {
                 let room_id = RoomId::parse(room_id)?;
-                Ok(Self::RoomMembership(ruma::events::room::join_rules::RoomMembership::new(
-                    room_id,
-                )))
+                Ok(Self::RoomMembership(ruma::room::RoomMembership::new(room_id)))
             }
             AllowRule::Custom { json } => Ok(Self::_Custom(Box::new(serde_json::from_str(&json)?))),
         }

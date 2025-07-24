@@ -17,7 +17,7 @@ use std::collections::BTreeSet;
 use matrix_sdk_crypto::OlmMachine;
 use ruma::{OwnedUserId, RoomId};
 
-use crate::{store::BaseStateStore, EncryptionState, Result, RoomMemberships};
+use crate::{EncryptionState, Result, RoomMemberships, store::BaseStateStore};
 
 /// Update tracked users, if the room is encrypted.
 pub async fn update(
@@ -25,12 +25,11 @@ pub async fn update(
     room_encryption_state: EncryptionState,
     user_ids_to_track: &BTreeSet<OwnedUserId>,
 ) -> Result<()> {
-    if room_encryption_state.is_encrypted() {
-        if let Some(olm) = olm_machine {
-            if !user_ids_to_track.is_empty() {
-                olm.update_tracked_users(user_ids_to_track.iter().map(AsRef::as_ref)).await?
-            }
-        }
+    if room_encryption_state.is_encrypted()
+        && let Some(olm) = olm_machine
+        && !user_ids_to_track.is_empty()
+    {
+        olm.update_tracked_users(user_ids_to_track.iter().map(AsRef::as_ref)).await?
     }
 
     Ok(())
@@ -46,19 +45,19 @@ pub async fn update_or_set_if_room_is_newly_encrypted(
     room_id: &RoomId,
     state_store: &BaseStateStore,
 ) -> Result<()> {
-    if new_room_encryption_state.is_encrypted() {
-        if let Some(olm) = olm_machine {
-            if !previous_room_encryption_state.is_encrypted() {
-                // The room turned on encryption in this sync, we need
-                // to also get all the existing users and mark them for
-                // tracking.
-                let user_ids = state_store.get_user_ids(room_id, RoomMemberships::ACTIVE).await?;
-                olm.update_tracked_users(user_ids.iter().map(AsRef::as_ref)).await?
-            }
+    if new_room_encryption_state.is_encrypted()
+        && let Some(olm) = olm_machine
+    {
+        if !previous_room_encryption_state.is_encrypted() {
+            // The room turned on encryption in this sync, we need
+            // to also get all the existing users and mark them for
+            // tracking.
+            let user_ids = state_store.get_user_ids(room_id, RoomMemberships::ACTIVE).await?;
+            olm.update_tracked_users(user_ids.iter().map(AsRef::as_ref)).await?
+        }
 
-            if !user_ids_to_track.is_empty() {
-                olm.update_tracked_users(user_ids_to_track.iter().map(AsRef::as_ref)).await?;
-            }
+        if !user_ids_to_track.is_empty() {
+            olm.update_tracked_users(user_ids_to_track.iter().map(AsRef::as_ref)).await?;
         }
     }
 

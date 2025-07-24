@@ -16,19 +16,19 @@ use std::collections::BTreeMap;
 
 use eyeball::{AsyncLock, ObservableWriteGuard};
 use ruma::{
-    events::{
-        room::member::{MembershipState, RoomMemberEventContent},
-        StateEventType, SyncStateEvent,
-    },
     OwnedEventId, OwnedUserId,
+    events::{
+        StateEventType, SyncStateEvent,
+        room::member::{MembershipState, RoomMemberEventContent},
+    },
 };
 use tracing::warn;
 
 use super::Room;
 use crate::{
+    StateStoreDataKey, StateStoreDataValue, StoreError,
     deserialized_responses::{MemberEvent, RawMemberEvent, SyncOrStrippedState},
     store::{Result as StoreResult, StateStoreExt},
-    StateStoreDataKey, StateStoreDataValue, StoreError,
 };
 
 impl Room {

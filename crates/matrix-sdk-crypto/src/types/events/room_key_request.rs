@@ -16,7 +16,10 @@
 
 use std::collections::BTreeMap;
 
-use ruma::{OwnedDeviceId, OwnedRoomId, OwnedTransactionId, RoomId};
+use ruma::{
+    events::AnyToDeviceEventContent, serde::JsonCastable, OwnedDeviceId, OwnedRoomId,
+    OwnedTransactionId, RoomId,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use vodozemac::Curve25519PublicKey;
@@ -66,6 +69,8 @@ impl RoomKeyRequestContent {
 impl EventType for RoomKeyRequestContent {
     const EVENT_TYPE: &'static str = "m.room_key_request";
 }
+
+impl JsonCastable<AnyToDeviceEventContent> for RoomKeyRequestContent {}
 
 /// Enum describing different actions a room key request event can be carrying.
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]

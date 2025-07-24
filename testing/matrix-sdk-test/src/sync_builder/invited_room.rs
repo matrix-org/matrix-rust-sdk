@@ -3,7 +3,6 @@ use ruma::{
     events::AnyStrippedStateEvent, serde::Raw,
 };
 
-use super::StrippedStateTestEvent;
 use crate::DEFAULT_TEST_ROOM_ID;
 
 pub struct InvitedRoomBuilder {
@@ -26,7 +25,7 @@ impl InvitedRoomBuilder {
     }
 
     /// Add an event to the state.
-    pub fn add_state_event(mut self, event: StrippedStateTestEvent) -> Self {
+    pub fn add_state_event(mut self, event: impl Into<Raw<AnyStrippedStateEvent>>) -> Self {
         self.inner.invite_state.events.push(event.into());
         self
     }

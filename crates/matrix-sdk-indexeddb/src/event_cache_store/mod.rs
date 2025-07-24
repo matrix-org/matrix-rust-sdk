@@ -31,14 +31,14 @@ use matrix_sdk_base::{
     timer,
 };
 use ruma::{events::relation::RelationType, EventId, MxcUri, OwnedEventId, RoomId};
-use tracing::{instrument, trace};
+use tracing::{error, instrument, trace};
 use web_sys::IdbTransactionMode;
 
 use crate::event_cache_store::{
     migrations::current::keys,
     serializer::IndexeddbEventCacheStoreSerializer,
     transaction::{IndexeddbEventCacheStoreTransaction, IndexeddbEventCacheStoreTransactionError},
-    types::{ChunkType, InBandEvent},
+    types::{ChunkType, InBandEvent, OutOfBandEvent},
 };
 
 mod builder;
@@ -204,7 +204,7 @@ impl_event_cache_store! {
 
                     for (i, item) in items.into_iter().enumerate() {
                         transaction
-                            .add_item(
+                            .put_item(
                                 room_id,
                                 &types::Event::InBand(InBandEvent {
                                     content: item,
@@ -435,10 +435,24 @@ impl_event_cache_store! {
         events: Vec<OwnedEventId>,
     ) -> Result<Vec<(OwnedEventId, Position)>, IndexeddbEventCacheStoreError> {
         let _timer = timer!("method");
-        self.memory_store
-            .filter_duplicated_events(linked_chunk_id, events)
-            .await
-            .map_err(IndexeddbEventCacheStoreError::MemoryStore)
+
+        if events.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let linked_chunk_id = linked_chunk_id.to_owned();
+        let room_id = linked_chunk_id.room_id();
+        let transaction =
+            self.transaction(&[keys::EVENTS], IdbTransactionMode::Readonly)?;
+        let mut duplicated = Vec::new();
+        for event_id in events {
+            if let Some(types::Event::InBand(event)) =
+                transaction.get_event_by_id(room_id, &event_id).await?
+            {
+                duplicated.push((event_id, event.position.into()));
+            }
+        }
+        Ok(duplicated)
     }
 
     #[instrument(skip(self, event_id))]
@@ -448,10 +462,14 @@ impl_event_cache_store! {
         event_id: &EventId,
     ) -> Result<Option<Event>, IndexeddbEventCacheStoreError> {
         let _timer = timer!("method");
-        self.memory_store
-            .find_event(room_id, event_id)
+
+        let transaction =
+            self.transaction(&[keys::EVENTS], IdbTransactionMode::Readonly)?;
+        transaction
+            .get_event_by_id(room_id, &event_id.to_owned())
             .await
-            .map_err(IndexeddbEventCacheStoreError::MemoryStore)
+            .map(|ok| ok.map(Into::into))
+            .map_err(Into::into)
     }
 
     #[instrument(skip(self, event_id, filters))]
@@ -462,10 +480,32 @@ impl_event_cache_store! {
         filters: Option<&[RelationType]>,
     ) -> Result<Vec<(Event, Option<Position>)>, IndexeddbEventCacheStoreError> {
         let _timer = timer!("method");
-        self.memory_store
-            .find_event_relations(room_id, event_id, filters)
-            .await
-            .map_err(IndexeddbEventCacheStoreError::MemoryStore)
+
+        let transaction =
+            self.transaction(&[keys::EVENTS], IdbTransactionMode::Readonly)?;
+
+        let mut related_events = Vec::new();
+        match filters {
+            Some(relation_types) if !relation_types.is_empty() => {
+                for relation_type in relation_types {
+                    let relation = (event_id.to_owned(), relation_type.clone());
+                    let events = transaction.get_events_by_relation(room_id, &relation).await?;
+                    for event in events {
+                        let position = event.position().map(Into::into);
+                        related_events.push((event.into(), position));
+                    }
+                }
+            }
+            _ => {
+                for event in
+                    transaction.get_events_by_related_event(room_id, &event_id.to_owned()).await?
+                {
+                    let position = event.position().map(Into::into);
+                    related_events.push((event.into(), position));
+                }
+            }
+        }
+        Ok(related_events)
     }
 
     #[instrument(skip(self, event))]
@@ -475,10 +515,20 @@ impl_event_cache_store! {
         event: Event,
     ) -> Result<(), IndexeddbEventCacheStoreError> {
         let _timer = timer!("method");
-        self.memory_store
-            .save_event(room_id, event)
-            .await
-            .map_err(IndexeddbEventCacheStoreError::MemoryStore)
+
+        let Some(event_id) = event.event_id() else {
+            error!(%room_id, "Trying to save an event with no ID");
+            return Ok(());
+        };
+        let transaction =
+            self.transaction(&[keys::EVENTS], IdbTransactionMode::Readwrite)?;
+        let event = match transaction.get_event_by_id(room_id, &event_id).await? {
+            Some(mut inner) => inner.with_content(event),
+            None => types::Event::OutOfBand(OutOfBandEvent { content: event, position: () }),
+        };
+        transaction.put_event(room_id, &event).await?;
+        transaction.commit().await?;
+        Ok(())
     }
 
     #[instrument(skip_all)]

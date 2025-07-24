@@ -16,7 +16,7 @@
 //! to access some fields.
 
 use ruma::{
-    events::{relation::BundledThread, AnyMessageLikeEvent, AnySyncTimelineEvent},
+    events::{relation::BundledThread, AnySyncMessageLikeEvent, AnySyncTimelineEvent},
     serde::Raw,
     OwnedEventId,
 };
@@ -76,7 +76,7 @@ struct Unsigned {
 /// Try to extract a bundled thread summary of a timeline event, if available.
 pub fn extract_bundled_thread_summary(
     event: &Raw<AnySyncTimelineEvent>,
-) -> (ThreadSummaryStatus, Option<Raw<AnyMessageLikeEvent>>) {
+) -> (ThreadSummaryStatus, Option<Raw<AnySyncMessageLikeEvent>>) {
     match event.get_field::<Unsigned>("unsigned") {
         Ok(Some(Unsigned { relations: Some(Relations { thread: Some(bundled_thread) }) })) => {
             // Take the count from the bundled thread summary, if available. If it can't be
@@ -130,7 +130,7 @@ mod tests {
             }
         }))
         .unwrap()
-        .cast();
+        .cast_unchecked();
 
         let observed_thread_root = extract_thread_root(&event);
         assert_eq!(observed_thread_root.as_deref(), Some(thread_root));
@@ -144,7 +144,7 @@ mod tests {
             "origin_server_ts": 42,
         }))
         .unwrap()
-        .cast();
+        .cast_unchecked();
 
         let observed_thread_root = extract_thread_root(&event);
         assert_matches!(observed_thread_root, None);
@@ -160,7 +160,7 @@ mod tests {
             }
         }))
         .unwrap()
-        .cast();
+        .cast_unchecked();
 
         let observed_thread_root = extract_thread_root(&event);
         assert_matches!(observed_thread_root, None);
@@ -180,7 +180,7 @@ mod tests {
             }
         }))
         .unwrap()
-        .cast();
+        .cast_unchecked();
 
         let observed_thread_root = extract_thread_root(&event);
         assert_matches!(observed_thread_root, None);
@@ -216,7 +216,7 @@ mod tests {
             }
         }))
         .unwrap()
-        .cast();
+        .cast_unchecked();
 
         assert_matches!(
             extract_bundled_thread_summary(&event),
@@ -231,7 +231,7 @@ mod tests {
             "origin_server_ts": 42,
         }))
         .unwrap()
-        .cast();
+        .cast_unchecked();
 
         assert_matches!(extract_bundled_thread_summary(&event), (ThreadSummaryStatus::None, None));
 
@@ -260,7 +260,7 @@ mod tests {
             }
         }))
         .unwrap()
-        .cast();
+        .cast_unchecked();
 
         assert_matches!(extract_bundled_thread_summary(&event), (ThreadSummaryStatus::None, None));
 
@@ -280,7 +280,7 @@ mod tests {
             }
         }))
         .unwrap()
-        .cast();
+        .cast_unchecked();
 
         assert_matches!(
             extract_bundled_thread_summary(&event),

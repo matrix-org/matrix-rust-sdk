@@ -14,8 +14,8 @@
 
 use super::super::Context;
 use crate::{
-    room::UpdatedRoomDisplayName, store::BaseStateStore, sync::RoomUpdates,
-    RoomInfoNotableUpdateReasons,
+    RoomInfoNotableUpdateReasons, room::UpdatedRoomDisplayName, store::BaseStateStore,
+    sync::RoomUpdates,
 };
 
 pub async fn update_for_rooms(

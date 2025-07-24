@@ -50,7 +50,7 @@ async fn test_encrypt_and_send_to_device() {
         "sent_ts": 1000
     }))
     .unwrap()
-    .cast();
+    .cast_unchecked();
 
     Mock::given(method("PUT"))
         .and(path_regex(r"^/_matrix/client/.*/sendToDevice/m.room.encrypted/.*"))
@@ -94,7 +94,7 @@ async fn test_encrypt_and_send_to_device_report_failures_server() {
         "sent_ts": 1000
     }))
     .unwrap()
-    .cast();
+    .cast_unchecked();
 
     // Fail
     Mock::given(method("PUT"))
@@ -157,7 +157,7 @@ async fn test_to_device_event_handler_olm_encryption_info() {
         "sent_ts": 1000
     }))
     .unwrap()
-    .cast();
+    .cast_unchecked();
 
     // Capture the event sent by Alice to feed it back to Bob's client later.
     let bob_received_to_device_future =
@@ -215,7 +215,7 @@ async fn test_encrypt_and_send_to_device_report_failures_encryption_error() {
         "sent_ts": 1000
     }))
     .unwrap()
-    .cast();
+    .cast_unchecked();
 
     // Should not be called
     Mock::given(method("PUT"))

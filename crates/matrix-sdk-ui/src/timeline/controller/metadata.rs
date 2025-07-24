@@ -20,12 +20,13 @@ use std::{
 use imbl::Vector;
 use matrix_sdk::deserialized_responses::EncryptionInfo;
 use ruma::{
-    EventId, OwnedEventId, OwnedUserId, RoomVersionId,
+    EventId, OwnedEventId, OwnedUserId,
     events::{
         AnyMessageLikeEventContent, AnySyncMessageLikeEvent, AnySyncTimelineEvent,
         BundledMessageLikeRelations, poll::unstable_start::UnstablePollStartEventContent,
         relation::Replacement, room::message::RelationWithoutReplacement,
     },
+    room_version_rules::RoomVersionRules,
     serde::Raw,
 };
 use tracing::trace;
@@ -80,10 +81,10 @@ pub(in crate::timeline) struct TimelineMetadata {
     /// May be false until we fetch the actual room encryption state.
     pub is_room_encrypted: bool,
 
-    /// Matrix room version of the timeline's room, or a sensible default.
+    /// Rules of the version of the timeline's room, or a sensible default.
     ///
     /// This value is constant over the lifetime of the metadata.
-    pub room_version: RoomVersionId,
+    pub room_version_rules: RoomVersionRules,
 
     /// The own [`OwnedUserId`] of the client who opened the timeline.
     pub(crate) own_user_id: OwnedUserId,
@@ -129,7 +130,7 @@ pub(in crate::timeline) struct TimelineMetadata {
 impl TimelineMetadata {
     pub(in crate::timeline) fn new(
         own_user_id: OwnedUserId,
-        room_version: RoomVersionId,
+        room_version_rules: RoomVersionRules,
         internal_id_prefix: Option<String>,
         unable_to_decrypt_hook: Option<Arc<UtdHookManager>>,
         is_room_encrypted: bool,
@@ -145,7 +146,7 @@ impl TimelineMetadata {
             // field, otherwise we'll keep on exiting early in `Self::update_read_marker`.
             has_up_to_date_read_marker_item: true,
             read_receipts: Default::default(),
-            room_version,
+            room_version_rules,
             unable_to_decrypt_hook,
             internal_id_prefix,
             is_room_encrypted,
@@ -318,21 +319,21 @@ impl TimelineMetadata {
         timeline_items: &Vector<Arc<TimelineItem>>,
         is_thread_focus: bool,
     ) -> (Option<InReplyToDetails>, Option<OwnedEventId>) {
-        if let AnySyncTimelineEvent::MessageLike(ev) = event {
-            if let Some(content) = ev.original_content() {
-                let remote_ctx = Some(RemoteEventContext {
-                    event_id: ev.event_id(),
-                    raw_event,
-                    relations: ev.relations(),
-                    bundled_edit_encryption_info,
-                });
-                return self.process_content_relations(
-                    &content,
-                    remote_ctx,
-                    timeline_items,
-                    is_thread_focus,
-                );
-            }
+        if let AnySyncTimelineEvent::MessageLike(ev) = event
+            && let Some(content) = ev.original_content()
+        {
+            let remote_ctx = Some(RemoteEventContext {
+                event_id: ev.event_id(),
+                raw_event,
+                relations: ev.relations(),
+                bundled_edit_encryption_info,
+            });
+            return self.process_content_relations(
+                &content,
+                remote_ctx,
+                timeline_items,
+                is_thread_focus,
+            );
         }
         (None, None)
     }

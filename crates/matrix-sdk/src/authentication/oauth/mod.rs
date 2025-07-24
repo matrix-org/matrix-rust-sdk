@@ -817,7 +817,7 @@ impl OAuth {
         }
 
         #[cfg(feature = "e2e-encryption")]
-        self.client.encryption().spawn_initialization_task(None);
+        self.client.encryption().spawn_initialization_task(None).await;
 
         Ok(())
     }
@@ -1031,7 +1031,7 @@ impl OAuth {
             self.enable_cross_process_lock().await.map_err(OAuthError::from)?;
 
             #[cfg(feature = "e2e-encryption")]
-            self.client.encryption().spawn_initialization_task(None);
+            self.client.encryption().spawn_initialization_task(None).await;
         }
 
         Ok(())

@@ -1,6 +1,8 @@
 use ruma::{
-    assign,
+    EventId, OwnedEventId, assign,
     events::{
+        RedactContent, RedactedStateEventContent, StateEventContent, StaticStateEventContent,
+        SyncStateEvent,
         room::{
             avatar::{RoomAvatarEventContent, StrippedRoomAvatarEvent},
             canonical_alias::{RoomCanonicalAliasEventContent, StrippedRoomCanonicalAliasEvent},
@@ -21,12 +23,10 @@ use ruma::{
             },
             topic::{RedactedRoomTopicEventContent, RoomTopicEventContent, StrippedRoomTopicEvent},
         },
-        RedactContent, RedactedStateEventContent, StateEventContent, StaticStateEventContent,
-        SyncStateEvent,
     },
-    EventId, OwnedEventId, RoomVersionId,
+    room_version_rules::RedactionRules,
 };
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
 use crate::room::RoomCreateWithCreatorEventContent;
 
@@ -118,13 +118,13 @@ where
     /// Redacts this event.
     ///
     /// Does nothing if it is already redacted.
-    pub fn redact(&mut self, room_version: &RoomVersionId)
+    pub fn redact(&mut self, rules: &RedactionRules)
     where
         C: Clone,
     {
         if let MinimalStateEvent::Original(ev) = self {
             *self = MinimalStateEvent::Redacted(RedactedMinimalStateEvent {
-                content: ev.content.clone().redact(room_version),
+                content: ev.content.clone().redact(rules),
                 event_id: ev.event_id.clone(),
             });
         }
@@ -233,13 +233,10 @@ impl From<&StrippedRoomNameEvent> for MinimalStateEvent<RoomNameEventContent> {
 
 impl From<&StrippedRoomCreateEvent> for MinimalStateEvent<RoomCreateWithCreatorEventContent> {
     fn from(event: &StrippedRoomCreateEvent) -> Self {
-        let content = RoomCreateWithCreatorEventContent {
-            creator: event.sender.clone(),
-            federate: event.content.federate,
-            room_version: event.content.room_version.clone(),
-            predecessor: event.content.predecessor.clone(),
-            room_type: event.content.room_type.clone(),
-        };
+        let content = RoomCreateWithCreatorEventContent::from_event_content(
+            event.content.clone(),
+            event.sender.clone(),
+        );
         Self::Original(OriginalMinimalStateEvent { content, event_id: None })
     }
 }

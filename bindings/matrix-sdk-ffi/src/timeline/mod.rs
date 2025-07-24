@@ -20,22 +20,18 @@ use eyeball_im::VectorDiff;
 use futures_util::pin_mut;
 use matrix_sdk::{
     attachment::{
-        AttachmentConfig, AttachmentInfo, BaseAudioInfo, BaseFileInfo, BaseImageInfo,
-        BaseVideoInfo, Thumbnail,
+        AttachmentInfo, BaseAudioInfo, BaseFileInfo, BaseImageInfo, BaseVideoInfo, Thumbnail,
     },
     deserialized_responses::{ShieldState as SdkShieldState, ShieldStateCode},
     event_cache::RoomPaginationStatus,
-    room::{
-        edit::EditedContent as SdkEditedContent,
-        reply::{EnforceThread, Reply},
-    },
+    room::edit::EditedContent as SdkEditedContent,
 };
 use matrix_sdk_common::{
     executor::{AbortHandle, JoinHandle},
     stream::StreamExt,
 };
 use matrix_sdk_ui::timeline::{
-    self, AttachmentSource, EventItemOrigin, Profile, TimelineDetails,
+    self, AttachmentConfig, AttachmentSource, EventItemOrigin, Profile, TimelineDetails,
     TimelineUniqueId as SdkTimelineUniqueId,
 };
 use mime::Mime;
@@ -52,8 +48,7 @@ use ruma::{
             },
         },
         room::message::{
-            LocationMessageEventContent, MessageType, ReplyWithinThread,
-            RoomMessageEventContentWithoutRelation,
+            LocationMessageEventContent, MessageType, RoomMessageEventContentWithoutRelation,
         },
         AnyMessageLikeEventContent,
     },
@@ -111,19 +106,26 @@ impl Timeline {
         let mime_str = mime_type.as_ref().ok_or(RoomError::InvalidAttachmentMimeType)?;
         let mime_type =
             mime_str.parse::<Mime>().map_err(|_| RoomError::InvalidAttachmentMimeType)?;
+        let in_reply_to_event_id = params
+            .in_reply_to
+            .map(EventId::parse)
+            .transpose()
+            .map_err(|_| RoomError::InvalidRepliedToEventId)?;
 
         let formatted_caption = formatted_body_from(
             params.caption.as_deref(),
             params.formatted_caption.map(Into::into),
         );
 
-        let attachment_config = AttachmentConfig::new()
-            .thumbnail(thumbnail)
-            .info(attachment_info)
-            .caption(params.caption)
-            .formatted_caption(formatted_caption)
-            .mentions(params.mentions.map(Into::into))
-            .reply(params.reply_params.map(|p| p.try_into()).transpose()?);
+        let attachment_config = AttachmentConfig {
+            info: Some(attachment_info),
+            thumbnail,
+            caption: params.caption,
+            formatted_caption,
+            mentions: params.mentions.map(Into::into),
+            in_reply_to: in_reply_to_event_id,
+            ..Default::default()
+        };
 
         let handle = SendAttachmentJoinHandle::new(get_runtime_handle().spawn(async move {
             let mut request =
@@ -205,8 +207,8 @@ pub struct UploadParameters {
     formatted_caption: Option<FormattedBody>,
     /// Optional intentional mentions to be sent with the media.
     mentions: Option<Mentions>,
-    /// Optional parameters for sending the media as (threaded) reply.
-    reply_params: Option<ReplyParameters>,
+    /// Optional Event ID to reply to.
+    in_reply_to: Option<String>,
     /// Should the media be sent with the send queue, or synchronously?
     ///
     /// Watching progress only works with the synchronous method, at the moment.
@@ -236,37 +238,6 @@ impl From<UploadSource> for AttachmentSource {
             UploadSource::File { filename } => Self::File(filename.into()),
             UploadSource::Data { bytes, filename } => Self::Data { bytes, filename },
         }
-    }
-}
-
-#[derive(uniffi::Record)]
-pub struct ReplyParameters {
-    /// The ID of the event to reply to.
-    event_id: String,
-    /// Whether to enforce a thread relation.
-    enforce_thread: bool,
-    /// If enforcing a threaded relation, whether the message is a reply on a
-    /// thread.
-    reply_within_thread: bool,
-}
-
-impl TryInto<Reply> for ReplyParameters {
-    type Error = RoomError;
-
-    fn try_into(self) -> Result<Reply, Self::Error> {
-        let event_id =
-            EventId::parse(&self.event_id).map_err(|_| RoomError::InvalidRepliedToEventId)?;
-        let enforce_thread = if self.enforce_thread {
-            EnforceThread::Threaded(if self.reply_within_thread {
-                ReplyWithinThread::Yes
-            } else {
-                ReplyWithinThread::No
-            })
-        } else {
-            EnforceThread::MaybeThreaded
-        };
-
-        Ok(Reply { event_id, enforce_thread })
     }
 }
 
@@ -529,9 +500,10 @@ impl Timeline {
     pub async fn send_reply(
         &self,
         msg: Arc<RoomMessageEventContentWithoutRelation>,
-        reply_params: ReplyParameters,
+        event_id: String,
     ) -> Result<(), ClientError> {
-        self.inner.send_reply((*msg).clone(), reply_params.try_into()?).await?;
+        let event_id = EventId::parse(&event_id).map_err(|_| RoomError::InvalidRepliedToEventId)?;
+        self.inner.send_reply((*msg).clone(), event_id).await?;
         Ok(())
     }
 
@@ -585,7 +557,7 @@ impl Timeline {
         description: Option<String>,
         zoom_level: Option<u8>,
         asset_type: Option<AssetType>,
-        reply_params: Option<ReplyParameters>,
+        replied_to_event_id: Option<String>,
     ) -> Result<(), ClientError> {
         let mut location_event_message_content =
             LocationMessageEventContent::new(body, geo_uri.clone());
@@ -604,8 +576,8 @@ impl Timeline {
             MessageType::Location(location_event_message_content),
         );
 
-        if let Some(reply_params) = reply_params {
-            self.send_reply(Arc::new(room_message_event_content), reply_params).await
+        if let Some(replied_to_event_id) = replied_to_event_id {
+            self.send_reply(Arc::new(room_message_event_content), replied_to_event_id).await
         } else {
             self.send(Arc::new(room_message_event_content)).await?;
             Ok(())
@@ -1394,6 +1366,7 @@ mod galleries {
     use matrix_sdk_common::executor::{AbortHandle, JoinHandle};
     use matrix_sdk_ui::timeline::GalleryConfig;
     use mime::Mime;
+    use ruma::EventId;
     use tokio::sync::Mutex;
     use tracing::error;
 
@@ -1401,7 +1374,7 @@ mod galleries {
         error::RoomError,
         ruma::{AudioInfo, FileInfo, FormattedBody, ImageInfo, Mentions, VideoInfo},
         runtime::get_runtime_handle,
-        timeline::{build_thumbnail_info, ReplyParameters, Timeline},
+        timeline::{build_thumbnail_info, Timeline},
     };
 
     #[derive(uniffi::Record)]
@@ -1412,8 +1385,8 @@ mod galleries {
         formatted_caption: Option<FormattedBody>,
         /// Optional intentional mentions to be sent with the gallery.
         mentions: Option<Mentions>,
-        /// Optional parameters for sending the media as (threaded) reply.
-        reply_params: Option<ReplyParameters>,
+        /// Optional Event ID to reply to.
+        in_reply_to: Option<String>,
     }
 
     #[derive(uniffi::Enum)]
@@ -1598,11 +1571,18 @@ mod galleries {
                 params.formatted_caption.map(Into::into),
             );
 
+            let in_reply_to = params
+                .in_reply_to
+                .as_ref()
+                .map(|event_id| EventId::parse(event_id))
+                .transpose()
+                .map_err(|_| RoomError::InvalidRepliedToEventId)?;
+
             let mut gallery_config = GalleryConfig::new()
                 .caption(params.caption)
                 .formatted_caption(formatted_caption)
                 .mentions(params.mentions.map(Into::into))
-                .reply(params.reply_params.map(|p| p.try_into()).transpose()?);
+                .in_reply_to(in_reply_to);
 
             for item_info in item_infos {
                 gallery_config = gallery_config.add_item(item_info.try_into()?);

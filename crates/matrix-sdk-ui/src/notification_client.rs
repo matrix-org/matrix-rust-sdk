@@ -266,8 +266,9 @@ impl NotificationClient {
 
                         sleep(Duration::from_millis(wait)).await;
 
-                        let new_event =
-                            room.decrypt_event(raw_event.cast_ref(), push_ctx.as_ref()).await?;
+                        let new_event = room
+                            .decrypt_event(raw_event.cast_ref_unchecked(), push_ctx.as_ref())
+                            .await?;
 
                         match new_event.kind {
                             matrix_sdk::deserialized_responses::TimelineEventKind::UnableToDecrypt {
@@ -308,7 +309,7 @@ impl NotificationClient {
 
         match encryption_sync {
             Ok(sync) => match sync.run_fixed_iterations(2, sync_permit_guard).await {
-                Ok(()) => match room.decrypt_event(raw_event.cast_ref(), push_ctx.as_ref()).await {
+                Ok(()) => match room.decrypt_event(raw_event.cast_ref_unchecked(), push_ctx.as_ref()).await {
                     Ok(new_event) => match new_event.kind {
                         matrix_sdk::deserialized_responses::TimelineEventKind::UnableToDecrypt {
                             utd_info, ..
@@ -747,10 +748,10 @@ impl NotificationClient {
             timeline_event = decrypted_event;
         }
 
-        if let Some(actions) = timeline_event.push_actions() {
-            if !actions.iter().any(|a| a.should_notify()) {
-                return Ok(NotificationStatus::EventFilteredOut);
-            }
+        if let Some(actions) = timeline_event.push_actions()
+            && !actions.iter().any(|a| a.should_notify())
+        {
+            return Ok(NotificationStatus::EventFilteredOut);
         }
 
         let push_actions = timeline_event.push_actions().map(ToOwned::to_owned);

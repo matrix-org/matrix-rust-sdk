@@ -349,7 +349,7 @@ impl Client {
         }
 
         for raw_event in events {
-            let event_type = raw_event.deserialize_as::<ExtractType<'_>>()?.event_type;
+            let event_type = raw_event.deserialize_as_unchecked::<ExtractType<'_>>()?.event_type;
             self.call_event_handlers(room, raw_event.json(), kind, &event_type, None, &[]).await;
         }
 
@@ -373,7 +373,7 @@ impl Client {
                 }
                 other => (&other.to_raw(), None),
             };
-            let event_type = raw_event.deserialize_as::<ExtractType<'_>>()?.event_type;
+            let event_type = raw_event.deserialize_as_unchecked::<ExtractType<'_>>()?.event_type;
             self.call_event_handlers(
                 None,
                 raw_event.json(),
@@ -405,7 +405,8 @@ impl Client {
 
         // Event handlers specifically for redacted OR unredacted state events
         for raw_event in state_events {
-            let StateEventDetails { event_type, unsigned } = raw_event.deserialize_as()?;
+            let StateEventDetails { event_type, unsigned } =
+                raw_event.deserialize_as_unchecked()?;
             let redacted = unsigned.and_then(|u| u.redacted_because).is_some();
             let handler_kind = HandlerKind::state_redacted(redacted);
 
@@ -431,7 +432,7 @@ impl Client {
 
         for item in timeline_events {
             let TimelineEventDetails { event_type, state_key, unsigned } =
-                item.raw().deserialize_as()?;
+                item.raw().deserialize_as_unchecked()?;
 
             let redacted = unsigned.and_then(|u| u.redacted_because).is_some();
             let (handler_kind_g, handler_kind_r) = match state_key {

@@ -103,7 +103,9 @@ use ruma::{
             },
             name::RoomNameEventContent,
             pinned_events::RoomPinnedEventsEventContent,
-            power_levels::{RoomPowerLevels, RoomPowerLevelsEventContent},
+            power_levels::{
+                RoomPowerLevels, RoomPowerLevelsEventContent, RoomPowerLevelsSource, UserPowerLevel,
+            },
             server_acl::RoomServerAclEventContent,
             topic::RoomTopicEventContent,
             ImageInfo, MediaSource, ThumbnailInfo,
@@ -117,6 +119,7 @@ use ruma::{
         RoomAccountDataEventType, StateEventContent, StateEventType, StaticEventContent,
         StaticStateEventContent, SyncStateEvent,
     },
+    int,
     push::{Action, PushConditionRoomCtx, Ruleset},
     serde::Raw,
     time::Instant,
@@ -637,7 +640,7 @@ impl Room {
             SyncMessageLikeEvent::Original(_),
         ))) = event.deserialize_as::<AnySyncTimelineEvent>()
         {
-            if let Ok(event) = self.decrypt_event(event.cast_ref(), push_ctx).await {
+            if let Ok(event) = self.decrypt_event(event.cast_ref_unchecked(), push_ctx).await {
                 return event;
             }
         }
@@ -817,9 +820,11 @@ impl Room {
                     "".to_owned(),
                 );
                 let response = match self.client.send(request).await {
-                    Ok(response) => {
-                        Some(response.content.deserialize_as::<RoomEncryptionEventContent>()?)
-                    }
+                    Ok(response) => Some(
+                        response
+                            .content
+                            .deserialize_as_unchecked::<RoomEncryptionEventContent>()?,
+                    ),
                     Err(err) if err.client_api_error_kind() == Some(&ErrorKind::NotFound) => None,
                     Err(err) => return Err(err.into()),
                 };
@@ -1254,7 +1259,7 @@ impl Room {
     where
         C: StaticEventContent + RoomAccountDataEventContent,
     {
-        Ok(self.account_data(C::TYPE.into()).await?.map(Raw::cast))
+        Ok(self.account_data(C::TYPE.into()).await?.map(Raw::cast_unchecked))
     }
 
     /// Check if all members of this room are verified and all their devices are
@@ -1322,7 +1327,7 @@ impl Room {
     /// use matrix_sdk::ruma::{
     ///     events::{
     ///         marked_unread::MarkedUnreadEventContent,
-    ///         AnyRoomAccountDataEventContent, EventContent,
+    ///         AnyRoomAccountDataEventContent, RoomAccountDataEventContent,
     ///     },
     ///     serde::Raw,
     /// };
@@ -2468,7 +2473,7 @@ impl Room {
             }
         }
 
-        self.send_state_event(RoomPowerLevelsEventContent::from(power_levels)).await
+        self.send_state_event(RoomPowerLevelsEventContent::try_from(power_levels)?).await
     }
 
     /// Applies a set of power level changes to this room.
@@ -2478,7 +2483,7 @@ impl Room {
     pub async fn apply_power_level_changes(&self, changes: RoomPowerLevelChanges) -> Result<()> {
         let mut power_levels = self.power_levels().await?;
         power_levels.apply(changes)?;
-        self.send_state_event(RoomPowerLevelsEventContent::from(power_levels)).await?;
+        self.send_state_event(RoomPowerLevelsEventContent::try_from(power_levels)?).await?;
         Ok(())
     }
 
@@ -2486,7 +2491,11 @@ impl Room {
     ///
     /// [spec]: https://spec.matrix.org/v1.9/client-server-api/#mroompower_levels
     pub async fn reset_power_levels(&self) -> Result<RoomPowerLevels> {
-        let default_power_levels = RoomPowerLevels::from(RoomPowerLevelsEventContent::new());
+        let creators = self.creators().unwrap_or_default();
+        let rules = self.clone_info().room_version_rules_or_default();
+
+        let default_power_levels =
+            RoomPowerLevels::new(RoomPowerLevelsSource::None, &rules.authorization, creators);
         let changes = RoomPowerLevelChanges::from(default_power_levels);
         self.apply_power_level_changes(changes).await?;
         Ok(self.power_levels().await?)
@@ -2505,9 +2514,9 @@ impl Room {
     ///
     /// This method checks the `RoomPowerLevels` events instead of loading the
     /// member list and looking for the member.
-    pub async fn get_user_power_level(&self, user_id: &UserId) -> Result<i64> {
+    pub async fn get_user_power_level(&self, user_id: &UserId) -> Result<UserPowerLevel> {
         let event = self.power_levels().await?;
-        Ok(event.for_user(user_id).into())
+        Ok(event.for_user(user_id))
     }
 
     /// Gets a map with the `UserId` of users with power levels other than `0`
@@ -2827,7 +2836,7 @@ impl Room {
         let max = members
             .iter()
             .max_by_key(|member| member.power_level())
-            .filter(|max| max.power_level() >= 50)
+            .filter(|max| max.power_level() >= int!(50))
             .map(|member| member.user_id().server_name());
 
         // Sort the servers by population.
@@ -2990,13 +2999,15 @@ impl Room {
 
         let power_levels = self.power_levels().await.ok().map(Into::into);
 
-        Ok(Some(PushConditionRoomCtx {
-            user_id: user_id.to_owned(),
-            room_id: room_id.to_owned(),
-            member_count: UInt::new(member_count).unwrap_or(UInt::MAX),
-            user_display_name,
-            power_levels,
-        }))
+        Ok(Some(assign!(
+            PushConditionRoomCtx::new(
+                room_id.to_owned(),
+                UInt::new(member_count).unwrap_or(UInt::MAX),
+                user_id.to_owned(),
+                user_display_name,
+            ),
+            { power_levels }
+        )))
     }
 
     /// Retrieves a [`PushContext`] that can be used to compute the push
@@ -3213,9 +3224,8 @@ impl Room {
     /// # Errors
     ///
     /// Returns an error if the room is not found or on rate limit
-    pub async fn report_room(&self, reason: Option<String>) -> Result<report_room::v3::Response> {
-        let mut request = report_room::v3::Request::new(self.inner.room_id().to_owned());
-        request.reason = reason;
+    pub async fn report_room(&self, reason: String) -> Result<report_room::v3::Response> {
+        let request = report_room::v3::Request::new(self.inner.room_id().to_owned(), reason);
 
         Ok(self.client.send(request).await?)
     }
@@ -3480,9 +3490,9 @@ impl Room {
             .await;
 
         match response {
-            Ok(response) => {
-                Ok(Some(response.content.deserialize_as::<RoomPinnedEventsEventContent>()?.pinned))
-            }
+            Ok(response) => Ok(Some(
+                response.content.deserialize_as_unchecked::<RoomPinnedEventsEventContent>()?.pinned,
+            )),
             Err(http_error) => match http_error.as_client_api_error() {
                 Some(error) if error.status_code == StatusCode::NOT_FOUND => Ok(None),
                 _ => Err(http_error.into()),

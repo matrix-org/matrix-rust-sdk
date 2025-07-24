@@ -20,24 +20,24 @@ use std::{
 
 use bitflags::bitflags;
 use ruma::{
+    MxcUri, OwnedUserId, UserId,
     events::{
+        MessageLikeEventType, StateEventType,
         ignored_user_list::IgnoredUserListEventContent,
         presence::PresenceEvent,
         room::{
             member::{MembershipState, RoomMemberEventContent},
-            power_levels::{PowerLevelAction, RoomPowerLevels},
+            power_levels::{PowerLevelAction, RoomPowerLevels, UserPowerLevel},
         },
-        MessageLikeEventType, StateEventType,
     },
-    MxcUri, OwnedUserId, UserId,
 };
 use tracing::debug;
 
 use super::Room;
 use crate::{
-    deserialized_responses::{DisplayName, MemberEvent},
-    store::{ambiguity_map::is_display_name_ambiguous, Result as StoreResult, StateStoreExt},
     MinimalRoomMemberEvent,
+    deserialized_responses::{DisplayName, MemberEvent},
+    store::{Result as StoreResult, StateStoreExt, ambiguity_map::is_display_name_ambiguous},
 };
 
 impl Room {
@@ -255,11 +255,7 @@ impl RoomMember {
     /// This returns either the display name or the local part of the user id if
     /// the member didn't set a display name.
     pub fn name(&self) -> &str {
-        if let Some(d) = self.display_name() {
-            d
-        } else {
-            self.user_id().localpart()
-        }
+        if let Some(d) = self.display_name() { d } else { self.user_id().localpart() }
     }
 
     /// Get the avatar url of the member, if there is one.
@@ -274,19 +270,27 @@ impl RoomMember {
     /// Get the normalized power level of this member.
     ///
     /// The normalized power level depends on the maximum power level that can
-    /// be found in a certain room, positive values are always in the range of
-    /// 0-100.
-    pub fn normalized_power_level(&self) -> i64 {
+    /// be found in a certain room, positive values that are not `Infinite` are
+    /// always in the range of 0-100.
+    pub fn normalized_power_level(&self) -> UserPowerLevel {
+        let UserPowerLevel::Int(power_level) = self.power_level() else {
+            return UserPowerLevel::Infinite;
+        };
+
+        let mut power_level = i64::from(power_level);
+
         if self.max_power_level > 0 {
-            (self.power_level() * 100) / self.max_power_level
-        } else {
-            self.power_level()
+            power_level = (power_level * 100) / self.max_power_level;
         }
+
+        UserPowerLevel::Int(
+            power_level.try_into().expect("normalized power level should fit in Int"),
+        )
     }
 
     /// Get the power level of this member.
-    pub fn power_level(&self) -> i64 {
-        self.power_levels.for_user(self.user_id()).into()
+    pub fn power_level(&self) -> UserPowerLevel {
+        self.power_levels.for_user(self.user_id())
     }
 
     /// Whether this user can ban other users based on the power levels.

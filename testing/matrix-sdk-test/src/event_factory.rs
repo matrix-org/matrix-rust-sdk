@@ -28,7 +28,7 @@ use ruma::{
     OwnedRoomId, OwnedTransactionId, OwnedUserId, OwnedVoipId, RoomId, RoomVersionId,
     TransactionId, UInt, UserId, VoipVersionId,
     events::{
-        AnyMessageLikeEvent, AnyStateEvent, AnySyncStateEvent, AnySyncTimelineEvent,
+        AnyStateEvent, AnySyncMessageLikeEvent, AnySyncStateEvent, AnySyncTimelineEvent,
         AnyTimelineEvent, BundledMessageLikeRelations, Mentions, RedactedMessageLikeEventContent,
         RedactedStateEventContent, StateEventContent, StaticEventContent,
         beacon::BeaconEventContent,
@@ -71,6 +71,7 @@ use ruma::{
         sticker::StickerEventContent,
         typing::TypingEventContent,
     },
+    room_version_rules::AuthorizationRules,
     serde::Raw,
     server_name,
 };
@@ -202,7 +203,7 @@ impl<E: StaticEventContent> EventBuilder<E> {
     /// this event.
     pub fn with_bundled_thread_summary(
         mut self,
-        latest_event: Raw<AnyMessageLikeEvent>,
+        latest_event: Raw<AnySyncMessageLikeEvent>,
         count: usize,
         current_user_participated: bool,
     ) -> Self {
@@ -238,7 +239,12 @@ impl<E: StaticEventContent> EventBuilder<E> {
         self.state_key = Some(state_key.into());
         self
     }
+}
 
+impl<E> EventBuilder<E>
+where
+    E: StaticEventContent + Serialize,
+{
     #[inline(always)]
     fn construct_json(self, requires_room: bool) -> serde_json::Value {
         // Use the `sender` preferably, or resort to the `redacted_because` sender if
@@ -307,7 +313,7 @@ impl<E: StaticEventContent> EventBuilder<E> {
     /// The generic argument `T` allows you to automatically cast the [`Raw`]
     /// event into any desired type.
     pub fn into_raw<T>(self) -> Raw<T> {
-        Raw::new(&self.construct_json(true)).unwrap().cast()
+        Raw::new(&self.construct_json(true)).unwrap().cast_unchecked()
     }
 
     pub fn into_raw_timeline(self) -> Raw<AnyTimelineEvent> {
@@ -315,7 +321,7 @@ impl<E: StaticEventContent> EventBuilder<E> {
     }
 
     pub fn into_raw_sync(self) -> Raw<AnySyncTimelineEvent> {
-        Raw::new(&self.construct_json(false)).unwrap().cast()
+        Raw::new(&self.construct_json(false)).unwrap().cast_unchecked()
     }
 
     pub fn into_event(self) -> TimelineEvent {
@@ -433,8 +439,8 @@ impl EventBuilder<UnstablePollStartEventContent> {
 
 impl EventBuilder<RoomCreateEventContent> {
     /// Define the predecessor fields.
-    pub fn predecessor(mut self, room_id: &RoomId, event_id: &EventId) -> Self {
-        self.content.predecessor = Some(PreviousRoom::new(room_id.to_owned(), event_id.to_owned()));
+    pub fn predecessor(mut self, room_id: &RoomId) -> Self {
+        self.content.predecessor = Some(PreviousRoom::new(room_id.to_owned()));
         self
     }
 
@@ -454,19 +460,28 @@ impl EventBuilder<StickerEventContent> {
     }
 }
 
-impl<E: StaticEventContent> From<EventBuilder<E>> for Raw<AnySyncTimelineEvent> {
+impl<E: StaticEventContent> From<EventBuilder<E>> for Raw<AnySyncTimelineEvent>
+where
+    E: Serialize,
+{
     fn from(val: EventBuilder<E>) -> Self {
         val.into_raw_sync()
     }
 }
 
-impl<E: StaticEventContent> From<EventBuilder<E>> for Raw<AnyTimelineEvent> {
+impl<E: StaticEventContent> From<EventBuilder<E>> for Raw<AnyTimelineEvent>
+where
+    E: Serialize,
+{
     fn from(val: EventBuilder<E>) -> Self {
         val.into_raw_timeline()
     }
 }
 
-impl<E: StaticEventContent> From<EventBuilder<E>> for TimelineEvent {
+impl<E: StaticEventContent> From<EventBuilder<E>> for TimelineEvent
+where
+    E: Serialize,
+{
     fn from(val: EventBuilder<E>) -> Self {
         val.into_event()
     }
@@ -474,13 +489,13 @@ impl<E: StaticEventContent> From<EventBuilder<E>> for TimelineEvent {
 
 impl<E: StaticEventContent + StateEventContent> From<EventBuilder<E>> for Raw<AnySyncStateEvent> {
     fn from(val: EventBuilder<E>) -> Self {
-        Raw::new(&val.construct_json(false)).unwrap().cast()
+        Raw::new(&val.construct_json(false)).unwrap().cast_unchecked()
     }
 }
 
 impl<E: StaticEventContent + StateEventContent> From<EventBuilder<E>> for Raw<AnyStateEvent> {
     fn from(val: EventBuilder<E>) -> Self {
-        Raw::new(&val.construct_json(true)).unwrap().cast()
+        Raw::new(&val.construct_json(true)).unwrap().cast_unchecked()
     }
 }
 
@@ -861,7 +876,7 @@ impl EventFactory {
         &self,
         map: &mut BTreeMap<OwnedUserId, Int>,
     ) -> EventBuilder<RoomPowerLevelsEventContent> {
-        let mut event = RoomPowerLevelsEventContent::new();
+        let mut event = RoomPowerLevelsEventContent::new(&AuthorizationRules::V1);
         event.users.append(map);
         self.event(event)
     }

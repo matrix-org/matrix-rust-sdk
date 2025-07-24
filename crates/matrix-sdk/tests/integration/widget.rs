@@ -619,7 +619,7 @@ async fn test_accept_encrypted_to_device_in_e2ee_room() {
         "call_id": "",
     }))
     .unwrap()
-    .cast();
+    .cast_unchecked();
 
     let event_synced_future =
         mock_server.mock_capture_put_to_device_then_sync_back(bob.user_id().unwrap(), &alice).await;

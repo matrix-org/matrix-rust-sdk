@@ -2,9 +2,12 @@
 //! use as a [crate::Room::latest_event].
 
 use matrix_sdk_common::deserialized_responses::TimelineEvent;
+use ruma::{MxcUri, OwnedEventId};
 #[cfg(feature = "e2e-encryption")]
 use ruma::{
+    UserId,
     events::{
+        AnySyncMessageLikeEvent, AnySyncStateEvent, AnySyncTimelineEvent,
         call::{invite::SyncCallInviteEvent, notify::SyncCallNotifyEvent},
         poll::unstable_start::SyncUnstablePollStartEvent,
         relation::RelationType,
@@ -14,11 +17,8 @@ use ruma::{
             power_levels::RoomPowerLevels,
         },
         sticker::SyncStickerEvent,
-        AnySyncMessageLikeEvent, AnySyncStateEvent, AnySyncTimelineEvent,
     },
-    UserId,
 };
-use ruma::{MxcUri, OwnedEventId};
 use serde::{Deserialize, Serialize};
 
 use crate::MinimalRoomMemberEvent;
@@ -125,21 +125,21 @@ pub fn is_suitable_for_latest_event<'a>(
         AnySyncTimelineEvent::State(state) => {
             // But we make an exception for knocked state events *if* the current user
             // can either accept or decline them
-            if let AnySyncStateEvent::RoomMember(member) = state {
-                if matches!(member.membership(), MembershipState::Knock) {
-                    let can_accept_or_decline_knocks = match power_levels_info {
-                        Some((own_user_id, room_power_levels)) => {
-                            room_power_levels.user_can_invite(own_user_id)
-                                || room_power_levels.user_can_kick(own_user_id)
-                        }
-                        _ => false,
-                    };
-
-                    // The current user can act on the knock changes, so they should be
-                    // displayed
-                    if can_accept_or_decline_knocks {
-                        return PossibleLatestEvent::YesKnockedStateEvent(member);
+            if let AnySyncStateEvent::RoomMember(member) = state
+                && matches!(member.membership(), MembershipState::Knock)
+            {
+                let can_accept_or_decline_knocks = match power_levels_info {
+                    Some((own_user_id, room_power_levels)) => {
+                        room_power_levels.user_can_invite(own_user_id)
+                            || room_power_levels.user_can_kick(own_user_id)
                     }
+                    _ => false,
+                };
+
+                // The current user can act on the knock changes, so they should be
+                // displayed
+                if can_accept_or_decline_knocks {
+                    return PossibleLatestEvent::YesKnockedStateEvent(member);
                 }
             }
             PossibleLatestEvent::NoUnsupportedEventType
@@ -311,13 +311,17 @@ mod tests {
     use ruma::serde::Raw;
     #[cfg(feature = "e2e-encryption")]
     use ruma::{
+        MilliSecondsSinceUnixEpoch, UInt, VoipVersionId,
         events::{
+            AnySyncMessageLikeEvent, AnySyncStateEvent, AnySyncTimelineEvent, EmptyStateKey,
+            Mentions, MessageLikeUnsigned, OriginalSyncMessageLikeEvent, OriginalSyncStateEvent,
+            RedactedSyncMessageLikeEvent, RedactedUnsigned, StateUnsigned, SyncMessageLikeEvent,
             call::{
+                SessionDescription,
                 invite::{CallInviteEventContent, SyncCallInviteEvent},
                 notify::{
                     ApplicationType, CallNotifyEventContent, NotifyType, SyncCallNotifyEvent,
                 },
-                SessionDescription,
             },
             poll::{
                 unstable_response::{
@@ -330,6 +334,7 @@ mod tests {
             },
             relation::Replacement,
             room::{
+                ImageInfo, MediaSource,
                 encrypted::{
                     EncryptedEventScheme, OlmV1Curve25519AesSha2Content, RoomEncryptedEventContent,
                     SyncRoomEncryptedEvent,
@@ -339,22 +344,16 @@ mod tests {
                     Relation, RoomMessageEventContent, SyncRoomMessageEvent,
                 },
                 topic::{RoomTopicEventContent, SyncRoomTopicEvent},
-                ImageInfo, MediaSource,
             },
             sticker::{StickerEventContent, SyncStickerEvent},
-            AnySyncMessageLikeEvent, AnySyncStateEvent, AnySyncTimelineEvent, EmptyStateKey,
-            Mentions, MessageLikeUnsigned, OriginalSyncMessageLikeEvent, OriginalSyncStateEvent,
-            RedactedSyncMessageLikeEvent, RedactedUnsigned, StateUnsigned, SyncMessageLikeEvent,
-            UnsignedRoomRedactionEvent,
         },
-        owned_event_id, owned_mxc_uri, owned_user_id, MilliSecondsSinceUnixEpoch, UInt,
-        VoipVersionId,
+        owned_event_id, owned_mxc_uri, owned_user_id,
     };
     use serde_json::json;
 
     use super::LatestEvent;
     #[cfg(feature = "e2e-encryption")]
-    use super::{is_suitable_for_latest_event, PossibleLatestEvent};
+    use super::{PossibleLatestEvent, is_suitable_for_latest_event};
 
     #[cfg(feature = "e2e-encryption")]
     #[test]
@@ -501,7 +500,7 @@ mod tests {
     #[test]
     fn test_redacted_messages_are_suitable() {
         // Ruma does not allow constructing UnsignedRoomRedactionEvent instances.
-        let room_redaction_event: UnsignedRoomRedactionEvent = serde_json::from_value(json!({
+        let room_redaction_event = serde_json::from_value(json!({
             "content": {},
             "event_id": "$redaction",
             "sender": "@x:y.za",

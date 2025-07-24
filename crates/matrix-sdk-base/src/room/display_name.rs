@@ -17,17 +17,17 @@ use std::fmt;
 use as_variant::as_variant;
 use regex::Regex;
 use ruma::{
-    events::{member_hints::MemberHintsEventContent, SyncStateEvent},
     OwnedMxcUri, OwnedUserId, UserId,
+    events::{SyncStateEvent, member_hints::MemberHintsEventContent},
 };
 use serde::{Deserialize, Serialize};
 use tracing::{debug, trace, warn};
 
 use super::{Room, RoomMemberships};
 use crate::{
+    RoomMember, RoomState,
     deserialized_responses::SyncOrStrippedState,
     store::{Result as StoreResult, StateStoreExt},
-    RoomMember, RoomState,
 };
 
 impl Room {
@@ -485,11 +485,7 @@ fn compute_display_name_from_heroes(
 
     // User is alone.
     if num_joined_invited <= 1 {
-        if names.is_empty() {
-            RoomDisplayName::Empty
-        } else {
-            RoomDisplayName::EmptyWas(names)
-        }
+        if names.is_empty() { RoomDisplayName::Empty } else { RoomDisplayName::EmptyWas(names) }
     } else {
         RoomDisplayName::Calculated(names)
     }
@@ -513,26 +509,27 @@ mod tests {
 
     use matrix_sdk_test::{async_test, event_factory::EventFactory};
     use ruma::{
+        UserId,
         api::client::sync::sync_events::v3::RoomSummary as RumaSummary,
         assign,
         events::{
+            StateEventType,
             room::{
                 canonical_alias::RoomCanonicalAliasEventContent,
                 member::{MembershipState, RoomMemberEventContent, StrippedRoomMemberEvent},
                 name::RoomNameEventContent,
             },
-            StateEventType,
         },
         room_alias_id, room_id,
         serde::Raw,
-        user_id, UserId,
+        user_id,
     };
     use serde_json::json;
 
-    use super::{compute_display_name_from_heroes, Room, RoomDisplayName};
+    use super::{Room, RoomDisplayName, compute_display_name_from_heroes};
     use crate::{
-        store::MemoryStore, MinimalStateEvent, OriginalMinimalStateEvent, RoomState, StateChanges,
-        StateStore,
+        MinimalStateEvent, OriginalMinimalStateEvent, RoomState, StateChanges, StateStore,
+        store::MemoryStore,
     };
 
     fn make_room_test_helper(room_type: RoomState) -> (Arc<MemoryStore>, Room) {
@@ -554,7 +551,7 @@ mod tests {
             "state_key": user_id,
         });
 
-        Raw::new(&ev_json).unwrap().cast()
+        Raw::new(&ev_json).unwrap().cast_unchecked()
     }
 
     fn make_canonical_alias_event() -> MinimalStateEvent<RoomCanonicalAliasEventContent> {

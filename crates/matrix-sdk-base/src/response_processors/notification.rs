@@ -15,9 +15,9 @@
 use std::collections::BTreeMap;
 
 use ruma::{
+    OwnedRoomId, RoomId,
     push::{Action, PushConditionRoomCtx, Ruleset},
     serde::Raw,
-    OwnedRoomId, RoomId,
 };
 
 use crate::{

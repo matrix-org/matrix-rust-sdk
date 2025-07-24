@@ -14,12 +14,12 @@
 
 use matrix_sdk_common::deserialized_responses::TimelineEvent;
 use matrix_sdk_crypto::RoomEventDecryptionResult;
-use ruma::{events::AnySyncTimelineEvent, serde::Raw, RoomId};
+use ruma::{RoomId, events::AnySyncTimelineEvent, serde::Raw};
 
-use super::{e2ee::E2EE, verification, Context};
+use super::{Context, e2ee::E2EE, verification};
 use crate::{
-    latest_event::{is_suitable_for_latest_event, LatestEvent, PossibleLatestEvent},
     Result, Room,
+    latest_event::{LatestEvent, PossibleLatestEvent, is_suitable_for_latest_event},
 };
 
 /// Decrypt any [`Room::latest_encrypted_events`] for a particular set of
@@ -111,7 +111,7 @@ async fn decrypt_sync_room_event(
     let event = match e2ee
         .olm_machine
         .expect("An `OlmMachine` is expected")
-        .try_decrypt_room_event(event.cast_ref(), room_id, e2ee.decryption_settings)
+        .try_decrypt_room_event(event.cast_ref_unchecked(), room_id, e2ee.decryption_settings)
         .await?
     {
         RoomEventDecryptionResult::Decrypted(decrypted) => {
@@ -137,11 +137,11 @@ async fn decrypt_sync_room_event(
 #[cfg(test)]
 mod tests {
     use matrix_sdk_test::{
-        async_test, event_factory::EventFactory, JoinedRoomBuilder, SyncResponseBuilder,
+        JoinedRoomBuilder, SyncResponseBuilder, async_test, event_factory::EventFactory,
     };
     use ruma::{event_id, events::room::member::MembershipState, room_id, user_id};
 
-    use super::{decrypt_from_rooms, Context, E2EE};
+    use super::{Context, E2EE, decrypt_from_rooms};
     use crate::{room::RoomInfoNotableUpdateReasons, test_utils::logged_in_base_client};
 
     #[async_test]
@@ -192,11 +192,13 @@ mod tests {
         assert!(room.latest_encrypted_events().is_empty());
         assert!(room.latest_event().is_none());
         assert!(context.state_changes.room_infos.is_empty());
-        assert!(!context
-            .room_info_notable_updates
-            .get(room_id)
-            .copied()
-            .unwrap_or_default()
-            .contains(RoomInfoNotableUpdateReasons::LATEST_EVENT));
+        assert!(
+            !context
+                .room_info_notable_updates
+                .get(room_id)
+                .copied()
+                .unwrap_or_default()
+                .contains(RoomInfoNotableUpdateReasons::LATEST_EVENT)
+        );
     }
 }

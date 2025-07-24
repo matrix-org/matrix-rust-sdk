@@ -16,16 +16,16 @@ use matrix_sdk_common::deserialized_responses::TimelineEvent;
 #[cfg(feature = "e2e-encryption")]
 use ruma::events::SyncMessageLikeEvent;
 use ruma::{
+    UInt, UserId, assign,
     events::{AnySyncMessageLikeEvent, AnySyncTimelineEvent},
     push::{Action, PushConditionRoomCtx},
-    UInt, UserId,
 };
 use tracing::{instrument, trace, warn};
 
+use super::{Context, notification};
 #[cfg(feature = "e2e-encryption")]
 use super::{e2ee, verification};
-use super::{notification, Context};
-use crate::{sync::Timeline, Result, Room, RoomInfo};
+use crate::{Result, Room, RoomInfo, sync::Timeline};
 
 /// Process a set of sync timeline event, and create a [`Timeline`].
 ///
@@ -65,16 +65,18 @@ pub async fn build<'notification, 'e2ee>(
                     AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::RoomRedaction(
                         redaction_event,
                     )) => {
-                        let room_version = room_info.room_version_or_default();
+                        let redaction_rules = room_info.room_version_rules_or_default().redaction;
 
-                        if let Some(redacts) = redaction_event.redacts(&room_version) {
-                            room_info
-                                .handle_redaction(redaction_event, timeline_event.raw().cast_ref());
+                        if let Some(redacts) = redaction_event.redacts(&redaction_rules) {
+                            room_info.handle_redaction(
+                                redaction_event,
+                                timeline_event.raw().cast_ref_unchecked(),
+                            );
 
                             context.state_changes.add_redaction(
                                 room_id,
                                 redacts,
-                                timeline_event.raw().clone().cast(),
+                                timeline_event.raw().clone().cast_unchecked(),
                             );
                         }
                     }
@@ -238,11 +240,13 @@ pub async fn get_push_room_context(
         room.power_levels().await.ok()
     };
 
-    Ok(Some(PushConditionRoomCtx {
-        user_id: user_id.to_owned(),
-        room_id: room_id.to_owned(),
-        member_count: UInt::new(member_count).unwrap_or(UInt::MAX),
-        user_display_name,
-        power_levels: power_levels.map(Into::into),
-    }))
+    Ok(Some(assign!(
+        PushConditionRoomCtx::new(
+            room_id.to_owned(),
+            UInt::new(member_count).unwrap_or(UInt::MAX),
+            user_id.to_owned(),
+            user_display_name
+        ),
+        { power_levels: power_levels.map(Into::into) }
+    )))
 }

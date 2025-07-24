@@ -19,7 +19,6 @@ use eyeball_im::VectorDiff;
 use futures_util::StreamExt as _;
 use matrix_sdk::{
     assert_let_timeout,
-    room::reply::{EnforceThread, Reply},
     test_utils::mocks::{MatrixMockServer, RoomRelationsResponseTemplate},
 };
 use matrix_sdk_test::{
@@ -32,10 +31,19 @@ use ruma::{
     api::client::receipt::create_receipt::v3::ReceiptType as SendReceiptType,
     event_id,
     events::{
+        AnySyncTimelineEvent,
+        poll::unstable_start::{
+            NewUnstablePollStartEventContent, UnstablePollAnswer, UnstablePollStartContentBlock,
+            UnstablePollStartEventContent,
+        },
         receipt::{ReceiptThread, ReceiptType},
-        room::message::{ReplyWithinThread, RoomMessageEventContentWithoutRelation},
+        room::{
+            ImageInfo,
+            message::{Relation, ReplacementMetadata, RoomMessageEventContent},
+        },
+        sticker::{StickerEventContent, StickerMediaSource},
     },
-    owned_event_id, room_id, user_id,
+    owned_event_id, owned_mxc_uri, room_id, user_id,
 };
 use stream_assert::assert_pending;
 use tokio::task::yield_now;
@@ -732,17 +740,12 @@ async fn test_thread_timeline_gets_local_echoes() {
     // update.
     let sent_event_id = event_id!("$sent_msg");
     server.mock_room_state_encryption().plain().mount().await;
-    server.mock_room_send().ok(sent_event_id).mock_once().mount().await;
-    timeline
-        .send_reply(
-            RoomMessageEventContentWithoutRelation::text_plain("hello to you too!"),
-            Reply {
-                event_id: threaded_event_id.to_owned(),
-                enforce_thread: EnforceThread::Threaded(ReplyWithinThread::No),
-            },
-        )
-        .await
-        .unwrap();
+
+    let (event_receiver, mock_builder) =
+        server.mock_room_send().ok_with_capture(sent_event_id, *ALICE);
+    mock_builder.mock_once().mount().await;
+
+    timeline.send(RoomMessageEventContent::text_plain("hello to you too!").into()).await.unwrap();
 
     // I get the local echo for the in-thread event.
     assert_let_timeout!(Some(timeline_updates) = stream.next());
@@ -753,6 +756,11 @@ async fn test_thread_timeline_gets_local_echoes() {
     assert!(event_item.is_local_echo());
     assert!(event_item.event_id().is_none());
 
+    // The thread information is properly filled.
+    let msglike = event_item.content().as_msglike().unwrap();
+    assert_eq!(msglike.thread_root.as_ref(), Some(&thread_root_event_id));
+    assert!(msglike.in_reply_to.is_none());
+
     // Then the local echo morphs into a sent local echo.
     assert_let_timeout!(Some(timeline_updates) = stream.next());
     assert_eq!(timeline_updates.len(), 1);
@@ -760,11 +768,28 @@ async fn test_thread_timeline_gets_local_echoes() {
     assert_let!(VectorDiff::Set { index: 2, value } = &timeline_updates[0]);
     let event_item = value.as_event().unwrap();
     assert_eq!(event_item.event_id(), Some(sent_event_id));
-    assert_eq!(event_item.event_id(), Some(sent_event_id));
     assert!(event_item.content().reactions().unwrap().is_empty());
 
     // Then nothing else.
     assert_pending!(stream);
+
+    // The raw event includes the correctly reply-to fallback.
+    {
+        let raw_event = event_receiver.await.unwrap();
+        let event = raw_event.deserialize().unwrap();
+        assert_let!(
+            AnySyncTimelineEvent::MessageLike(
+                ruma::events::AnySyncMessageLikeEvent::RoomMessage(event)
+            ) = event
+        );
+        let event = event.as_original().unwrap();
+        assert_let!(Some(Relation::Thread(thread)) = event.content.relates_to.clone());
+        assert_eq!(thread.event_id, thread_root_event_id);
+        assert!(thread.is_falling_back);
+        // The reply-to fallback is set to the latest in-thread event, not the thread
+        // root.
+        assert_eq!(thread.in_reply_to.unwrap().event_id, threaded_event_id);
+    }
 
     // If I send a reaction for the in-thread event, the timeline gets updated, even
     // though the reaction doesn't mention the thread directly.
@@ -786,6 +811,253 @@ async fn test_thread_timeline_gets_local_echoes() {
     let event_item = value.as_event().unwrap();
     assert_eq!(event_item.event_id().unwrap(), sent_event_id);
     assert!(event_item.content().reactions().unwrap().is_empty().not());
+
+    // Then we're done.
+    assert_pending!(stream);
+}
+
+#[async_test]
+async fn test_thread_timeline_can_send_edit() {
+    // If I send an edit to a threaded timeline, it just works (aka the system to
+    // set the threaded relationship doesn't kick in, since there's already a
+    // relationship).
+
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+
+    let room_id = room_id!("!a:b.c");
+    let thread_root_event_id = owned_event_id!("$root");
+    let threaded_event_id = event_id!("$threaded_event");
+
+    let room = server.sync_joined_room(&client, room_id).await;
+
+    let timeline = room
+        .timeline_builder()
+        .with_focus(TimelineFocus::Thread { root_event_id: thread_root_event_id.clone() })
+        .build()
+        .await
+        .unwrap();
+
+    let (initial_items, mut stream) = timeline.subscribe().await;
+
+    // At first, the timeline is empty.
+    assert!(initial_items.is_empty());
+    assert_pending!(stream);
+
+    // Start the timeline with an in-thread event.
+    let f = EventFactory::new();
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id).add_timeline_event(
+                f.text_msg("hello world")
+                    .sender(*ALICE)
+                    .event_id(threaded_event_id)
+                    .in_thread(&thread_root_event_id, threaded_event_id)
+                    .server_ts(MilliSecondsSinceUnixEpoch::now()),
+            ),
+        )
+        .await;
+
+    // Sanity check: I receive the event and the date divider.
+    assert_let_timeout!(Some(timeline_updates) = stream.next());
+    assert_eq!(timeline_updates.len(), 2);
+
+    // If I send an edit to an in-thread event, the timeline receives an update.
+    // Note: it's a bit far fetched to send an edit without using
+    // `Timeline::edit()`, but since it's possible…
+    let sent_event_id = event_id!("$sent_msg");
+    server.mock_room_state_encryption().plain().mount().await;
+
+    // No mock_once here: this endpoint may or may not be called, depending on
+    // timing of the end of the test.
+    server.mock_room_send().ok(sent_event_id).mount().await;
+
+    timeline
+        .send(
+            RoomMessageEventContent::text_plain("bonjour monde")
+                .make_replacement(ReplacementMetadata::new(threaded_event_id.to_owned(), None))
+                .into(),
+        )
+        .await
+        .unwrap();
+
+    // I get the local echo for the in-thread event.
+    assert_let_timeout!(Some(timeline_updates) = stream.next());
+    assert_eq!(timeline_updates.len(), 1);
+
+    assert_let!(VectorDiff::Set { index: 1, value } = &timeline_updates[0]);
+    let event_item = value.as_event().unwrap();
+
+    // The thread information is (still) present.
+    let msglike = event_item.content().as_msglike().unwrap();
+    assert_eq!(msglike.thread_root.as_ref(), Some(&thread_root_event_id));
+    assert!(msglike.in_reply_to.is_none());
+
+    // Text is eagerly updated.
+    assert_eq!(msglike.as_message().unwrap().body(), "bonjour monde");
+
+    // Then we're done.
+    assert_pending!(stream);
+}
+
+#[async_test]
+async fn test_send_sticker_thread() {
+    // If I send a sticker to a threaded timeline, it just works (aka the system to
+    // set the threaded relationship does kick in).
+
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+
+    let room_id = room_id!("!a:b.c");
+    let thread_root_event_id = owned_event_id!("$root");
+    let threaded_event_id = event_id!("$threaded_event");
+
+    let room = server.sync_joined_room(&client, room_id).await;
+
+    let timeline = room
+        .timeline_builder()
+        .with_focus(TimelineFocus::Thread { root_event_id: thread_root_event_id.clone() })
+        .build()
+        .await
+        .unwrap();
+
+    let (initial_items, mut stream) = timeline.subscribe().await;
+
+    // At first, the timeline is empty.
+    assert!(initial_items.is_empty());
+    assert_pending!(stream);
+
+    // Start the timeline with an in-thread event.
+    let f = EventFactory::new();
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id).add_timeline_event(
+                f.text_msg("hello world")
+                    .sender(*ALICE)
+                    .event_id(threaded_event_id)
+                    .in_thread(&thread_root_event_id, threaded_event_id)
+                    .server_ts(MilliSecondsSinceUnixEpoch::now()),
+            ),
+        )
+        .await;
+
+    // Sanity check: I receive the event and the date divider.
+    assert_let_timeout!(Some(timeline_updates) = stream.next());
+    assert_eq!(timeline_updates.len(), 2);
+
+    server.mock_room_state_encryption().plain().mount().await;
+
+    let sent_event_id = event_id!("$sent_msg");
+    server.mock_room_send().ok(sent_event_id).mount().await;
+
+    let media_src = owned_mxc_uri!("mxc://example.com/1");
+    timeline
+        .send(
+            StickerEventContent::new("sticker!".to_owned(), ImageInfo::new(), media_src.clone())
+                .into(),
+        )
+        .await
+        .unwrap();
+
+    // I get the local echo for the in-thread event.
+    assert_let_timeout!(Some(timeline_updates) = stream.next());
+    assert_eq!(timeline_updates.len(), 1);
+
+    assert_let!(VectorDiff::PushBack { value } = &timeline_updates[0]);
+    let event_item = value.as_event().unwrap();
+
+    // The content matches what we expect.
+    let sticker_item = event_item.content().as_sticker().unwrap();
+    let content = sticker_item.content();
+    assert_eq!(content.body, "sticker!");
+    assert_let!(StickerMediaSource::Plain(plain) = content.source.clone());
+    assert_eq!(plain, media_src);
+
+    // Then we're done.
+    assert_pending!(stream);
+}
+
+#[async_test]
+async fn test_send_poll_thread() {
+    // If I send a poll to a threaded timeline, it just works (aka the system to
+    // set the threaded relationship does kick in).
+
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+
+    let room_id = room_id!("!a:b.c");
+    let thread_root_event_id = owned_event_id!("$root");
+    let threaded_event_id = event_id!("$threaded_event");
+
+    let room = server.sync_joined_room(&client, room_id).await;
+
+    let timeline = room
+        .timeline_builder()
+        .with_focus(TimelineFocus::Thread { root_event_id: thread_root_event_id.clone() })
+        .build()
+        .await
+        .unwrap();
+
+    let (initial_items, mut stream) = timeline.subscribe().await;
+
+    // At first, the timeline is empty.
+    assert!(initial_items.is_empty());
+    assert_pending!(stream);
+
+    // Start the timeline with an in-thread event.
+    let f = EventFactory::new();
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id).add_timeline_event(
+                f.text_msg("hello world")
+                    .sender(*ALICE)
+                    .event_id(threaded_event_id)
+                    .in_thread(&thread_root_event_id, threaded_event_id)
+                    .server_ts(MilliSecondsSinceUnixEpoch::now()),
+            ),
+        )
+        .await;
+
+    // Sanity check: I receive the event and the date divider.
+    assert_let_timeout!(Some(timeline_updates) = stream.next());
+    assert_eq!(timeline_updates.len(), 2);
+
+    server.mock_room_state_encryption().plain().mount().await;
+
+    let sent_event_id = event_id!("$sent_msg");
+    server.mock_room_send().ok(sent_event_id).mount().await;
+
+    timeline
+        .send(
+            UnstablePollStartEventContent::New(NewUnstablePollStartEventContent::plain_text(
+                "let's vote",
+                UnstablePollStartContentBlock::new(
+                    "what day is it today?",
+                    vec![
+                        UnstablePollAnswer::new("0", "monday"),
+                        UnstablePollAnswer::new("1", "friday"),
+                    ]
+                    .try_into()
+                    .unwrap(),
+                ),
+            ))
+            .into(),
+        )
+        .await
+        .unwrap();
+
+    // I get the local echo for the in-thread event.
+    assert_let_timeout!(Some(timeline_updates) = stream.next());
+    assert_eq!(timeline_updates.len(), 1);
+
+    assert_let!(VectorDiff::PushBack { value } = &timeline_updates[0]);
+    let event_item = value.as_event().unwrap();
+
+    // The content is a poll.
+    assert!(event_item.content().is_poll());
 
     // Then we're done.
     assert_pending!(stream);

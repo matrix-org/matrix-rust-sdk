@@ -14,7 +14,7 @@
 
 use std::ops::Not;
 
-use ruma::{events::room::tombstone::RoomTombstoneEventContent, OwnedEventId, OwnedRoomId};
+use ruma::{OwnedRoomId, events::room::tombstone::RoomTombstoneEventContent};
 
 use super::Room;
 
@@ -67,12 +67,9 @@ impl Room {
     /// [`m.room.tombstone`]: https://spec.matrix.org/v1.14/client-server-api/#mroomtombstone
     /// [`m.room.create`]: https://spec.matrix.org/v1.14/client-server-api/#mroomcreate
     pub fn predecessor_room(&self) -> Option<PredecessorRoom> {
-        self.create_content().and_then(|content_event| content_event.predecessor).map(
-            |predecessor| PredecessorRoom {
-                room_id: predecessor.room_id,
-                last_event_id: predecessor.event_id,
-            },
-        )
+        self.create_content()
+            .and_then(|content_event| content_event.predecessor)
+            .map(|predecessor| PredecessorRoom { room_id: predecessor.room_id })
     }
 }
 
@@ -104,9 +101,6 @@ pub struct SuccessorRoom {
 pub struct PredecessorRoom {
     /// The ID of the old room.
     pub room_id: OwnedRoomId,
-
-    /// The event ID of the last known event in the predecesssor room.
-    pub last_event_id: OwnedEventId,
 }
 
 #[cfg(test)]
@@ -115,11 +109,11 @@ mod tests {
 
     use assert_matches::assert_matches;
     use matrix_sdk_test::{
-        async_test, event_factory::EventFactory, JoinedRoomBuilder, SyncResponseBuilder,
+        JoinedRoomBuilder, SyncResponseBuilder, async_test, event_factory::EventFactory,
     };
-    use ruma::{event_id, room_id, user_id, RoomVersionId};
+    use ruma::{RoomVersionId, room_id, user_id};
 
-    use crate::{test_utils::logged_in_base_client, RoomState};
+    use crate::{RoomState, test_utils::logged_in_base_client};
 
     #[async_test]
     async fn test_no_successor_room() {
@@ -232,7 +226,6 @@ mod tests {
         let sender = user_id!("@mnt_io:matrix.org");
         let room_id = room_id!("!r1");
         let predecessor_room_id = room_id!("!r0");
-        let predecessor_last_event_id = event_id!("$ev42");
         let room = client.get_or_create_room(room_id, RoomState::Joined);
 
         let mut sync_builder = SyncResponseBuilder::new();
@@ -241,7 +234,7 @@ mod tests {
                 JoinedRoomBuilder::new(room_id).add_timeline_event(
                     EventFactory::new()
                         .create(sender, RoomVersionId::V11)
-                        .predecessor(predecessor_room_id, predecessor_last_event_id)
+                        .predecessor(predecessor_room_id)
                         .into_raw_sync(),
                 ),
             )
@@ -252,7 +245,6 @@ mod tests {
         assert!(room.create_content().is_some());
         assert_matches!(room.predecessor_room(), Some(predecessor_room) => {
             assert_eq!(predecessor_room.room_id, predecessor_room_id);
-            assert_eq!(predecessor_room.last_event_id, predecessor_last_event_id);
         });
     }
 }

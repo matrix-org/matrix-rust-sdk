@@ -32,6 +32,7 @@ use std::{
 
 use eyeball_im::{Vector, VectorDiff};
 use futures_util::Stream;
+use matrix_sdk_common::ROOM_VERSION_RULES_FALLBACK;
 use once_cell::sync::OnceCell;
 
 #[cfg(any(test, feature = "testing"))]
@@ -45,31 +46,32 @@ use matrix_sdk_crypto::store::{DynCryptoStore, IntoCryptoStore};
 pub use matrix_sdk_store_encryption::Error as StoreEncryptionError;
 use observable_map::ObservableMap;
 use ruma::{
+    EventId, OwnedEventId, OwnedRoomId, OwnedUserId, RoomId, UserId,
     events::{
-        presence::PresenceEvent,
-        receipt::ReceiptEventContent,
-        room::{
-            member::{RoomMemberEventContent, StrippedRoomMemberEvent},
-            power_levels::{RoomPowerLevels, RoomPowerLevelsEventContent},
-            redaction::SyncRoomRedactionEvent,
-        },
         AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent, AnyStrippedStateEvent,
         AnySyncStateEvent, EmptyStateKey, GlobalAccountDataEventType, RedactContent,
         RedactedStateEventContent, RoomAccountDataEventType, StateEventType, StaticEventContent,
         StaticStateEventContent, StrippedStateEvent, SyncStateEvent,
+        presence::PresenceEvent,
+        receipt::ReceiptEventContent,
+        room::{
+            create::RoomCreateEventContent,
+            member::{RoomMemberEventContent, StrippedRoomMemberEvent},
+            power_levels::{RoomPowerLevels, RoomPowerLevelsEventContent},
+            redaction::SyncRoomRedactionEvent,
+        },
     },
     serde::Raw,
-    EventId, OwnedEventId, OwnedRoomId, OwnedUserId, RoomId, UserId,
 };
 use serde::de::DeserializeOwned;
-use tokio::sync::{broadcast, Mutex, RwLock};
+use tokio::sync::{Mutex, RwLock, broadcast};
 use tracing::warn;
 
 use crate::{
+    MinimalRoomMemberEvent, Room, RoomCreateWithCreatorEventContent, RoomStateFilter, SessionMeta,
     deserialized_responses::DisplayName,
     event_cache::store as event_cache_store,
     room::{RoomInfo, RoomInfoNotableUpdate, RoomState},
-    MinimalRoomMemberEvent, Room, RoomStateFilter, SessionMeta,
 };
 
 pub(crate) mod ambiguity_map;
@@ -312,7 +314,9 @@ impl BaseStateStore {
 
     /// Get a stream of all the rooms changes, in addition to the existing
     /// rooms.
-    pub fn rooms_stream(&self) -> (Vector<Room>, impl Stream<Item = Vec<VectorDiff<Room>>>) {
+    pub fn rooms_stream(
+        &self,
+    ) -> (Vector<Room>, impl Stream<Item = Vec<VectorDiff<Room>>> + use<>) {
         self.rooms.read().unwrap().stream()
     }
 
@@ -579,7 +583,11 @@ impl StateChanges {
         C::StateKey: Borrow<K>,
         K: AsRef<str> + ?Sized,
     {
-        self.state.get(room_id)?.get(&C::TYPE.into())?.get(state_key.as_ref()).map(Raw::cast_ref)
+        self.state
+            .get(room_id)?
+            .get(&C::TYPE.into())?
+            .get(state_key.as_ref())
+            .map(Raw::cast_ref_unchecked)
     }
 
     /// Get a specific stripped state event of statically-known type with the
@@ -599,7 +607,7 @@ impl StateChanges {
             .get(room_id)?
             .get(&C::TYPE.into())?
             .get(state_key.as_ref())
-            .map(Raw::cast_ref)
+            .map(Raw::cast_ref_unchecked)
     }
 
     /// Get a specific state event of statically-known type with the given state
@@ -614,7 +622,7 @@ impl StateChanges {
     where
         C: StaticEventContent + StaticStateEventContent + RedactContent,
         C::Redacted: RedactedStateEventContent,
-        C::PossiblyRedacted: DeserializeOwned,
+        C::PossiblyRedacted: StaticEventContent + DeserializeOwned,
         C::StateKey: Borrow<K>,
         K: AsRef<str> + ?Sized,
     {
@@ -635,16 +643,28 @@ impl StateChanges {
         self.any_state_static_for_key::<RoomMemberEventContent, _>(room_id, user_id)
     }
 
+    /// Get the create event for the given room from an event contained in these
+    /// `StateChanges`, if any.
+    pub(crate) fn create(&self, room_id: &RoomId) -> Option<RoomCreateWithCreatorEventContent> {
+        self.any_state_static_for_key::<RoomCreateEventContent, _>(room_id, &EmptyStateKey)
+            .map(|event| {
+                RoomCreateWithCreatorEventContent::from_event_content(event.content, event.sender)
+            })
+            // Fallback to the content in the room info.
+            .or_else(|| self.room_infos.get(room_id)?.create().cloned())
+    }
+
     /// Get the power levels for the given room from an event contained in these
     /// `StateChanges`, if any.
     pub(crate) fn power_levels(&self, room_id: &RoomId) -> Option<RoomPowerLevels> {
-        Some(
-            self.any_state_static_for_key::<RoomPowerLevelsEventContent, _>(
-                room_id,
-                &EmptyStateKey,
-            )?
-            .power_levels(),
-        )
+        let power_levels_content = self
+            .any_state_static_for_key::<RoomPowerLevelsEventContent, _>(room_id, &EmptyStateKey)?;
+
+        let create_content = self.create(room_id)?;
+        let rules = create_content.room_version.rules().unwrap_or(ROOM_VERSION_RULES_FALLBACK);
+        let creators = create_content.creators();
+
+        Some(power_levels_content.power_levels(&rules.authorization, creators))
     }
 }
 

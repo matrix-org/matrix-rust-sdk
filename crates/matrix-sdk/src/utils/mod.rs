@@ -126,7 +126,7 @@ impl IntoRawMessageLikeEventContent for JsonValue {
 
 impl IntoRawMessageLikeEventContent for &JsonValue {
     fn into_raw_message_like_event_content(self) -> Raw<AnyMessageLikeEventContent> {
-        Raw::new(self).expect("serde_json::Value never fails to serialize").cast()
+        Raw::new(self).expect("serde_json::Value never fails to serialize").cast_unchecked()
     }
 }
 
@@ -174,7 +174,7 @@ impl IntoRawStateEventContent for JsonValue {
 
 impl IntoRawStateEventContent for &JsonValue {
     fn into_raw_state_event_content(self) -> Raw<AnyStateEventContent> {
-        Raw::new(self).expect("serde_json::Value never fails to serialize").cast()
+        Raw::new(self).expect("serde_json::Value never fails to serialize").cast_unchecked()
     }
 }
 

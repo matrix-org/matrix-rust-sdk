@@ -21,23 +21,22 @@ use std::{
 use async_trait::async_trait;
 use matrix_sdk_common::{
     linked_chunk::{
-        relational::RelationalLinkedChunk, ChunkIdentifier, ChunkIdentifierGenerator,
-        ChunkMetadata, LinkedChunkId, OwnedLinkedChunkId, Position, RawChunk, Update,
+        ChunkIdentifier, ChunkIdentifierGenerator, ChunkMetadata, LinkedChunkId,
+        OwnedLinkedChunkId, Position, RawChunk, Update, relational::RelationalLinkedChunk,
     },
     ring_buffer::RingBuffer,
     store_locks::memory_store_helper::try_take_leased_lock,
 };
 use ruma::{
+    EventId, MxcUri, OwnedEventId, OwnedMxcUri, RoomId,
     events::relation::RelationType,
     time::{Instant, SystemTime},
-    EventId, MxcUri, OwnedEventId, OwnedMxcUri, RoomId,
 };
 use tracing::error;
 
 use super::{
-    compute_filters_string, extract_event_relation,
+    EventCacheStore, EventCacheStoreError, Result, compute_filters_string, extract_event_relation,
     media::{EventCacheStoreMedia, IgnoreMediaRetentionPolicy, MediaRetentionPolicy, MediaService},
-    EventCacheStore, EventCacheStoreError, Result,
 };
 use crate::{
     event_cache::{Event, Gap},

@@ -44,11 +44,11 @@ use matrix_sdk_common::ring_buffer::RingBuffer;
 pub use members::{RoomMember, RoomMembersUpdate, RoomMemberships};
 pub(crate) use room_info::SyncInfo;
 pub use room_info::{
-    apply_redaction, BaseRoomInfo, InviteAcceptanceDetails, RoomInfo, RoomInfoNotableUpdate,
-    RoomInfoNotableUpdateReasons,
+    BaseRoomInfo, InviteAcceptanceDetails, RoomInfo, RoomInfoNotableUpdate,
+    RoomInfoNotableUpdateReasons, apply_redaction,
 };
 use ruma::{
-    assign,
+    EventId, OwnedEventId, OwnedMxcUri, OwnedRoomAliasId, OwnedRoomId, OwnedUserId, RoomId, UserId,
     events::{
         direct::OwnedDirectUserIdentifier,
         receipt::{Receipt, ReceiptThread, ReceiptType},
@@ -57,12 +57,10 @@ use ruma::{
             guest_access::GuestAccess,
             history_visibility::HistoryVisibility,
             join_rules::JoinRule,
-            power_levels::{RoomPowerLevels, RoomPowerLevelsEventContent},
+            power_levels::{RoomPowerLevels, RoomPowerLevelsEventContent, RoomPowerLevelsSource},
         },
     },
-    int,
     room::RoomType,
-    EventId, OwnedEventId, OwnedMxcUri, OwnedRoomAliasId, OwnedRoomId, OwnedUserId, RoomId, UserId,
 };
 #[cfg(feature = "e2e-encryption")]
 use ruma::{events::AnySyncTimelineEvent, serde::Raw};
@@ -74,12 +72,12 @@ pub use tombstone::{PredecessorRoom, SuccessorRoom};
 use tracing::{info, instrument, warn};
 
 use crate::{
+    Error, MinimalStateEvent,
     deserialized_responses::MemberEvent,
     notification_settings::RoomNotificationMode,
     read_receipts::RoomReadReceipts,
     store::{DynStateStore, Result as StoreResult, StateStoreExt},
     sync::UnreadNotificationsCount,
-    Error, MinimalStateEvent,
 };
 
 /// The underlying room data structure collecting state for joined, left and
@@ -157,9 +155,9 @@ impl Room {
         &self.room_id
     }
 
-    /// Get a copy of the room creator.
-    pub fn creator(&self) -> Option<OwnedUserId> {
-        self.inner.read().creator().map(ToOwned::to_owned)
+    /// Get a copy of the room creators.
+    pub fn creators(&self) -> Option<Vec<OwnedUserId>> {
+        self.inner.read().creators()
     }
 
     /// Get our own user id.
@@ -364,13 +362,16 @@ impl Room {
 
     /// Get the current power levels of this room.
     pub async fn power_levels(&self) -> Result<RoomPowerLevels, Error> {
-        Ok(self
+        let power_levels_content = self
             .store
             .get_state_event_static::<RoomPowerLevelsEventContent>(self.room_id())
             .await?
             .ok_or(Error::InsufficientData)?
-            .deserialize()?
-            .power_levels())
+            .deserialize()?;
+        let creators = self.creators().ok_or(Error::InsufficientData)?;
+        let rules = self.inner.read().room_version_rules_or_default();
+
+        Ok(power_levels_content.power_levels(&rules.authorization, creators))
     }
 
     /// Get the current power levels of this room, or a sensible default if they
@@ -380,14 +381,13 @@ impl Room {
             return power_levels;
         }
 
-        // As a fallback, create the default power levels of a room, with the creator at
-        // level 100.
-        let creator = self.creator();
-        assign!(
-            RoomPowerLevelsEventContent::new(),
-            { users: creator.into_iter().map(|user_id| (user_id, int!(100))).collect() }
+        // As a fallback, create the default power levels of a room.
+        let rules = self.inner.read().room_version_rules_or_default();
+        RoomPowerLevels::new(
+            RoomPowerLevelsSource::None,
+            &rules.authorization,
+            self.creators().into_iter().flatten(),
         )
-        .into()
     }
 
     /// Get the `m.room.name` of this room.
@@ -490,7 +490,7 @@ impl Room {
 
     /// Get a `Stream` of loaded pinned events for this room.
     /// If no pinned events are found a single empty `Vec` will be returned.
-    pub fn pinned_event_ids_stream(&self) -> impl Stream<Item = Vec<OwnedEventId>> {
+    pub fn pinned_event_ids_stream(&self) -> impl Stream<Item = Vec<OwnedEventId>> + use<> {
         self.inner
             .subscribe()
             .map(|i| i.base_info.pinned_events.map(|c| c.pinned).unwrap_or_default())

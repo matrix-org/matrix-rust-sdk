@@ -17,7 +17,7 @@ mod homeserver_config;
 
 #[cfg(feature = "sqlite")]
 use std::path::Path;
-use std::{fmt, sync::Arc};
+use std::{collections::BTreeSet, fmt, sync::Arc};
 
 use homeserver_config::*;
 #[cfg(feature = "e2e-encryption")]
@@ -101,7 +101,7 @@ pub struct ClientBuilder {
     store_config: BuilderStoreConfig,
     request_config: RequestConfig,
     respect_login_well_known: bool,
-    server_versions: Option<Box<[MatrixVersion]>>,
+    server_versions: Option<BTreeSet<MatrixVersion>>,
     handle_refresh_tokens: bool,
     base_client: Option<BaseClient>,
     #[cfg(feature = "e2e-encryption")]

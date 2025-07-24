@@ -18,7 +18,7 @@ use as_variant::as_variant;
 use matrix_sdk::crypto::types::events::UtdCause;
 use matrix_sdk_base::latest_event::{PossibleLatestEvent, is_suitable_for_latest_event};
 use ruma::{
-    OwnedDeviceId, OwnedEventId, OwnedMxcUri, OwnedUserId, RoomVersionId, UserId,
+    OwnedDeviceId, OwnedEventId, OwnedMxcUri, OwnedUserId, UserId,
     events::{
         AnyFullStateEventContent, AnySyncTimelineEvent, FullStateEventContent, Mentions,
         MessageLikeEventType, StateEventType,
@@ -55,6 +55,7 @@ use ruma::{
         sticker::{StickerEventContent, SyncStickerEvent},
     },
     html::RemoveReplyFallback,
+    room_version_rules::RedactionRules,
 };
 use tracing::warn;
 
@@ -514,14 +515,14 @@ impl TimelineItemContent {
         }
     }
 
-    pub(in crate::timeline) fn redact(&self, room_version: &RoomVersionId) -> Self {
+    pub(in crate::timeline) fn redact(&self, rules: &RedactionRules) -> Self {
         match self {
             Self::MsgLike(_) | Self::CallInvite | Self::CallNotify => {
                 TimelineItemContent::MsgLike(MsgLikeContent::redacted())
             }
-            Self::MembershipChange(ev) => Self::MembershipChange(ev.redact(room_version)),
+            Self::MembershipChange(ev) => Self::MembershipChange(ev.redact(rules)),
             Self::ProfileChange(ev) => Self::ProfileChange(ev.redact()),
-            Self::OtherState(ev) => Self::OtherState(ev.redact(room_version)),
+            Self::OtherState(ev) => Self::OtherState(ev.redact(rules)),
             Self::FailedToParseMessageLike { .. } | Self::FailedToParseState { .. } => self.clone(),
         }
     }
@@ -723,10 +724,10 @@ impl RoomMembershipChange {
         self.change
     }
 
-    fn redact(&self, room_version: &RoomVersionId) -> Self {
+    fn redact(&self, rules: &RedactionRules) -> Self {
         Self {
             user_id: self.user_id.clone(),
-            content: FullStateEventContent::Redacted(self.content.clone().redact(room_version)),
+            content: FullStateEventContent::Redacted(self.content.clone().redact(rules)),
             change: self.change,
         }
     }
@@ -957,67 +958,67 @@ impl AnyOtherFullStateEventContent {
         }
     }
 
-    fn redact(&self, room_version: &RoomVersionId) -> Self {
+    fn redact(&self, rules: &RedactionRules) -> Self {
         match self {
-            Self::PolicyRuleRoom(c) => Self::PolicyRuleRoom(FullStateEventContent::Redacted(
-                c.clone().redact(room_version),
-            )),
-            Self::PolicyRuleServer(c) => Self::PolicyRuleServer(FullStateEventContent::Redacted(
-                c.clone().redact(room_version),
-            )),
-            Self::PolicyRuleUser(c) => Self::PolicyRuleUser(FullStateEventContent::Redacted(
-                c.clone().redact(room_version),
-            )),
+            Self::PolicyRuleRoom(c) => {
+                Self::PolicyRuleRoom(FullStateEventContent::Redacted(c.clone().redact(rules)))
+            }
+            Self::PolicyRuleServer(c) => {
+                Self::PolicyRuleServer(FullStateEventContent::Redacted(c.clone().redact(rules)))
+            }
+            Self::PolicyRuleUser(c) => {
+                Self::PolicyRuleUser(FullStateEventContent::Redacted(c.clone().redact(rules)))
+            }
             Self::RoomAliases(c) => {
-                Self::RoomAliases(FullStateEventContent::Redacted(c.clone().redact(room_version)))
+                Self::RoomAliases(FullStateEventContent::Redacted(c.clone().redact(rules)))
             }
             Self::RoomAvatar(c) => {
-                Self::RoomAvatar(FullStateEventContent::Redacted(c.clone().redact(room_version)))
+                Self::RoomAvatar(FullStateEventContent::Redacted(c.clone().redact(rules)))
             }
-            Self::RoomCanonicalAlias(c) => Self::RoomCanonicalAlias(
-                FullStateEventContent::Redacted(c.clone().redact(room_version)),
-            ),
+            Self::RoomCanonicalAlias(c) => {
+                Self::RoomCanonicalAlias(FullStateEventContent::Redacted(c.clone().redact(rules)))
+            }
             Self::RoomCreate(c) => {
-                Self::RoomCreate(FullStateEventContent::Redacted(c.clone().redact(room_version)))
+                Self::RoomCreate(FullStateEventContent::Redacted(c.clone().redact(rules)))
             }
-            Self::RoomEncryption(c) => Self::RoomEncryption(FullStateEventContent::Redacted(
-                c.clone().redact(room_version),
-            )),
-            Self::RoomGuestAccess(c) => Self::RoomGuestAccess(FullStateEventContent::Redacted(
-                c.clone().redact(room_version),
-            )),
+            Self::RoomEncryption(c) => {
+                Self::RoomEncryption(FullStateEventContent::Redacted(c.clone().redact(rules)))
+            }
+            Self::RoomGuestAccess(c) => {
+                Self::RoomGuestAccess(FullStateEventContent::Redacted(c.clone().redact(rules)))
+            }
             Self::RoomHistoryVisibility(c) => Self::RoomHistoryVisibility(
-                FullStateEventContent::Redacted(c.clone().redact(room_version)),
+                FullStateEventContent::Redacted(c.clone().redact(rules)),
             ),
             Self::RoomJoinRules(c) => {
-                Self::RoomJoinRules(FullStateEventContent::Redacted(c.clone().redact(room_version)))
+                Self::RoomJoinRules(FullStateEventContent::Redacted(c.clone().redact(rules)))
             }
             Self::RoomName(c) => {
-                Self::RoomName(FullStateEventContent::Redacted(c.clone().redact(room_version)))
+                Self::RoomName(FullStateEventContent::Redacted(c.clone().redact(rules)))
             }
-            Self::RoomPinnedEvents(c) => Self::RoomPinnedEvents(FullStateEventContent::Redacted(
-                c.clone().redact(room_version),
-            )),
-            Self::RoomPowerLevels(c) => Self::RoomPowerLevels(FullStateEventContent::Redacted(
-                c.clone().redact(room_version),
-            )),
+            Self::RoomPinnedEvents(c) => {
+                Self::RoomPinnedEvents(FullStateEventContent::Redacted(c.clone().redact(rules)))
+            }
+            Self::RoomPowerLevels(c) => {
+                Self::RoomPowerLevels(FullStateEventContent::Redacted(c.clone().redact(rules)))
+            }
             Self::RoomServerAcl(c) => {
-                Self::RoomServerAcl(FullStateEventContent::Redacted(c.clone().redact(room_version)))
+                Self::RoomServerAcl(FullStateEventContent::Redacted(c.clone().redact(rules)))
             }
-            Self::RoomThirdPartyInvite(c) => Self::RoomThirdPartyInvite(
-                FullStateEventContent::Redacted(c.clone().redact(room_version)),
-            ),
+            Self::RoomThirdPartyInvite(c) => {
+                Self::RoomThirdPartyInvite(FullStateEventContent::Redacted(c.clone().redact(rules)))
+            }
             Self::RoomTombstone(c) => {
-                Self::RoomTombstone(FullStateEventContent::Redacted(c.clone().redact(room_version)))
+                Self::RoomTombstone(FullStateEventContent::Redacted(c.clone().redact(rules)))
             }
             Self::RoomTopic(c) => {
-                Self::RoomTopic(FullStateEventContent::Redacted(c.clone().redact(room_version)))
+                Self::RoomTopic(FullStateEventContent::Redacted(c.clone().redact(rules)))
             }
             Self::SpaceChild(c) => {
-                Self::SpaceChild(FullStateEventContent::Redacted(c.clone().redact(room_version)))
+                Self::SpaceChild(FullStateEventContent::Redacted(c.clone().redact(rules)))
             }
             Self::SpaceParent(c) => {
-                Self::SpaceParent(FullStateEventContent::Redacted(c.clone().redact(room_version)))
+                Self::SpaceParent(FullStateEventContent::Redacted(c.clone().redact(rules)))
             }
             Self::_Custom { event_type } => Self::_Custom { event_type: event_type.clone() },
         }
@@ -1042,8 +1043,8 @@ impl OtherState {
         &self.content
     }
 
-    fn redact(&self, room_version: &RoomVersionId) -> Self {
-        Self { state_key: self.state_key.clone(), content: self.content.redact(room_version) }
+    fn redact(&self, rules: &RedactionRules) -> Self {
+        Self { state_key: self.state_key.clone(), content: self.content.redact(rules) }
     }
 }
 
@@ -1052,11 +1053,12 @@ mod tests {
     use assert_matches2::assert_let;
     use matrix_sdk_test::ALICE;
     use ruma::{
-        RoomVersionId, assign,
+        assign,
         events::{
             FullStateEventContent,
             room::member::{MembershipState, RoomMemberEventContent},
         },
+        room_version_rules::RedactionRules,
     };
 
     use super::{MembershipChange, RoomMembershipChange, TimelineItemContent};
@@ -1074,7 +1076,7 @@ mod tests {
             change: Some(MembershipChange::Banned),
         });
 
-        let redacted = content.redact(&RoomVersionId::V11);
+        let redacted = content.redact(&RedactionRules::V11);
         assert_let!(TimelineItemContent::MembershipChange(inner) = redacted);
         assert_eq!(inner.change, Some(MembershipChange::Banned));
         assert_let!(FullStateEventContent::Redacted(inner_content_redacted) = inner.content);

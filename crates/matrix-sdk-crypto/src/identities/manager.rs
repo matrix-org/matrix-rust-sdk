@@ -587,12 +587,12 @@ impl IdentityManager {
         master_key: &Raw<CrossSigningKey>,
         response: &KeysQueryResponse,
     ) -> Option<(MasterPubkey, SelfSigningPubkey)> {
-        match master_key.deserialize_as::<MasterPubkey>() {
+        match master_key.deserialize_as_unchecked::<MasterPubkey>() {
             Ok(master_key) => {
                 if let Some(self_signing) = response
                     .self_signing_keys
                     .get(master_key.user_id())
-                    .and_then(|k| k.deserialize_as::<SelfSigningPubkey>().ok())
+                    .and_then(|k| k.deserialize_as_unchecked::<SelfSigningPubkey>().ok())
                 {
                     Some((master_key, self_signing))
                 } else {
@@ -629,7 +629,7 @@ impl IdentityManager {
         let Some(user_signing) = response
             .user_signing_keys
             .get(self.user_id())
-            .and_then(|k| k.deserialize_as::<UserSigningPubkey>().ok())
+            .and_then(|k| k.deserialize_as_unchecked::<UserSigningPubkey>().ok())
         else {
             warn!(
                 "User identity for our own user didn't contain a user signing pubkey or the key \

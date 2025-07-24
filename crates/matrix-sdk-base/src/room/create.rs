@@ -12,15 +12,16 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use matrix_sdk_common::ROOM_VERSION_RULES_FALLBACK;
 use ruma::{
-    assign,
+    OwnedUserId, RoomVersionId, assign,
     events::{
+        EmptyStateKey, RedactContent, RedactedStateEventContent, StateEventType,
         macros::EventContent,
         room::create::{PreviousRoom, RoomCreateEventContent},
-        EmptyStateKey, RedactContent, RedactedStateEventContent,
     },
     room::RoomType,
-    OwnedUserId, RoomVersionId,
+    room_version_rules::RedactionRules,
 };
 use serde::{Deserialize, Serialize};
 
@@ -69,18 +70,38 @@ pub struct RoomCreateWithCreatorEventContent {
     /// This is currently only used for spaces.
     #[serde(skip_serializing_if = "Option::is_none", rename = "type")]
     pub room_type: Option<RoomType>,
+
+    /// Additional room creators, considered to have "infinite" power level, in
+    /// room versions 12 onwards.
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    pub additional_creators: Vec<OwnedUserId>,
 }
 
 impl RoomCreateWithCreatorEventContent {
     /// Constructs a `RoomCreateWithCreatorEventContent` with the given original
     /// content and sender.
     pub fn from_event_content(content: RoomCreateEventContent, sender: OwnedUserId) -> Self {
-        let RoomCreateEventContent { federate, room_version, predecessor, room_type, .. } = content;
-        Self { creator: sender, federate, room_version, predecessor, room_type }
+        let RoomCreateEventContent {
+            federate,
+            room_version,
+            predecessor,
+            room_type,
+            additional_creators,
+            ..
+        } = content;
+        Self {
+            creator: sender,
+            federate,
+            room_version,
+            predecessor,
+            room_type,
+            additional_creators,
+        }
     }
 
     fn into_event_content(self) -> (RoomCreateEventContent, OwnedUserId) {
-        let Self { creator, federate, room_version, predecessor, room_type } = self;
+        let Self { creator, federate, room_version, predecessor, room_type, additional_creators } =
+            self;
 
         #[allow(deprecated)]
         let content = assign!(RoomCreateEventContent::new_v11(), {
@@ -89,9 +110,24 @@ impl RoomCreateWithCreatorEventContent {
             room_version,
             predecessor,
             room_type,
+            additional_creators,
         });
 
         (content, creator)
+    }
+
+    /// Get the creators of the room from this content, according to the room
+    /// version.
+    pub(crate) fn creators(&self) -> Vec<OwnedUserId> {
+        let rules = self.room_version.rules().unwrap_or(ROOM_VERSION_RULES_FALLBACK);
+
+        if rules.authorization.explicitly_privilege_room_creators {
+            std::iter::once(self.creator.clone())
+                .chain(self.additional_creators.iter().cloned())
+                .collect()
+        } else {
+            vec![self.creator.clone()]
+        }
     }
 }
 
@@ -100,15 +136,19 @@ pub type RedactedRoomCreateWithCreatorEventContent = RoomCreateWithCreatorEventC
 
 impl RedactedStateEventContent for RedactedRoomCreateWithCreatorEventContent {
     type StateKey = EmptyStateKey;
+
+    fn event_type(&self) -> StateEventType {
+        StateEventType::RoomCreate
+    }
 }
 
 impl RedactContent for RoomCreateWithCreatorEventContent {
     type Redacted = RedactedRoomCreateWithCreatorEventContent;
 
-    fn redact(self, version: &RoomVersionId) -> Self::Redacted {
+    fn redact(self, rules: &RedactionRules) -> Self::Redacted {
         let (content, sender) = self.into_event_content();
         // Use Ruma's redaction algorithm.
-        let content = content.redact(version);
+        let content = content.redact(rules);
         Self::from_event_content(content, sender)
     }
 }

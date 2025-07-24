@@ -1,10 +1,9 @@
 use anyhow::Context as _;
 use matrix_sdk::{room_preview::RoomPreview as SdkRoomPreview, Client};
-use ruma::{room::RoomType as RumaRoomType, space::SpaceRoomJoinRule};
-use tracing::warn;
+use ruma::room::{JoinRuleSummary, RoomType as RumaRoomType};
 
 use crate::{
-    client::JoinRule,
+    client::{AllowRule, JoinRule},
     error::ClientError,
     room::{Membership, RoomHero},
     room_member::{RoomMember, RoomMemberWithSenderInfo},
@@ -22,9 +21,9 @@ pub struct RoomPreview {
 #[matrix_sdk_ffi_macros::export]
 impl RoomPreview {
     /// Returns the room info the preview contains.
-    pub fn info(&self) -> Result<RoomPreviewInfo, ClientError> {
+    pub fn info(&self) -> RoomPreviewInfo {
         let info = &self.inner;
-        Ok(RoomPreviewInfo {
+        RoomPreviewInfo {
             room_id: info.room_id.to_string(),
             canonical_alias: info.canonical_alias.as_ref().map(|alias| alias.to_string()),
             name: info.name.clone(),
@@ -35,18 +34,13 @@ impl RoomPreview {
             room_type: info.room_type.as_ref().into(),
             is_history_world_readable: info.is_world_readable,
             membership: info.state.map(|state| state.into()),
-            join_rule: info
-                .join_rule
-                .as_ref()
-                .map(TryInto::try_into)
-                .transpose()
-                .map_err(|_| anyhow::anyhow!("unhandled SpaceRoomJoinRule kind"))?,
+            join_rule: info.join_rule.as_ref().map(Into::into),
             is_direct: info.is_direct,
             heroes: info
                 .heroes
                 .as_ref()
                 .map(|heroes| heroes.iter().map(|h| h.to_owned().into()).collect()),
-        })
+        }
     }
 
     /// Leave the room if the room preview state is either joined, invited or
@@ -122,23 +116,29 @@ pub struct RoomPreviewInfo {
     pub heroes: Option<Vec<RoomHero>>,
 }
 
-impl TryFrom<&SpaceRoomJoinRule> for JoinRule {
-    type Error = ();
-
-    fn try_from(join_rule: &SpaceRoomJoinRule) -> Result<Self, ()> {
-        Ok(match join_rule {
-            SpaceRoomJoinRule::Invite => JoinRule::Invite,
-            SpaceRoomJoinRule::Knock => JoinRule::Knock,
-            SpaceRoomJoinRule::Private => JoinRule::Private,
-            SpaceRoomJoinRule::Restricted => JoinRule::Restricted { rules: Vec::new() },
-            SpaceRoomJoinRule::KnockRestricted => JoinRule::KnockRestricted { rules: Vec::new() },
-            SpaceRoomJoinRule::Public => JoinRule::Public,
-            SpaceRoomJoinRule::_Custom(_) => JoinRule::Custom { repr: join_rule.to_string() },
-            _ => {
-                warn!("unhandled SpaceRoomJoinRule: {join_rule}");
-                return Err(());
-            }
-        })
+impl From<&JoinRuleSummary> for JoinRule {
+    fn from(join_rule: &JoinRuleSummary) -> Self {
+        match join_rule {
+            JoinRuleSummary::Invite => JoinRule::Invite,
+            JoinRuleSummary::Knock => JoinRule::Knock,
+            JoinRuleSummary::Private => JoinRule::Private,
+            JoinRuleSummary::Restricted(summary) => JoinRule::Restricted {
+                rules: summary
+                    .allowed_room_ids
+                    .iter()
+                    .map(|room_id| AllowRule::RoomMembership { room_id: room_id.to_string() })
+                    .collect(),
+            },
+            JoinRuleSummary::KnockRestricted(summary) => JoinRule::KnockRestricted {
+                rules: summary
+                    .allowed_room_ids
+                    .iter()
+                    .map(|room_id| AllowRule::RoomMembership { room_id: room_id.to_string() })
+                    .collect(),
+            },
+            JoinRuleSummary::Public => JoinRule::Public,
+            _ => JoinRule::Custom { repr: join_rule.as_str().to_owned() },
+        }
     }
 }
 

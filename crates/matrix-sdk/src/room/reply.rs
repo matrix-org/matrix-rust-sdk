@@ -14,22 +14,20 @@
 
 //! Facilities to reply to existing events.
 
+use as_variant::as_variant;
 use ruma::{
     events::{
-        relation::Thread,
         room::{
             encrypted::Relation as EncryptedRelation,
             message::{
-                AddMentions, ForwardThread, OriginalRoomMessageEvent, Relation, ReplyWithinThread,
+                AddMentions, ForwardThread, ReplyMetadata, ReplyWithinThread,
                 RoomMessageEventContent, RoomMessageEventContentWithoutRelation,
             },
         },
-        AnySyncMessageLikeEvent, AnySyncTimelineEvent, SyncMessageLikeEvent,
+        AnySyncTimelineEvent,
     },
-    serde::Raw,
-    EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedUserId, RoomId, UserId,
+    OwnedEventId, UserId,
 };
-use serde::Deserialize;
 use thiserror::Error;
 use tracing::{error, instrument};
 
@@ -42,28 +40,6 @@ pub struct Reply {
     pub event_id: OwnedEventId,
     /// Whether to enforce a thread relation.
     pub enforce_thread: EnforceThread,
-}
-
-/// Content information needed to reply to an event.
-#[derive(Debug, Clone)]
-struct RepliedToInfo {
-    /// The event ID of the event to reply to.
-    event_id: OwnedEventId,
-    /// The sender of the event to reply to.
-    sender: OwnedUserId,
-    /// The timestamp of the event to reply to.
-    timestamp: MilliSecondsSinceUnixEpoch,
-    /// The content of the event to reply to.
-    content: ReplyContent,
-}
-
-/// The content of a reply.
-#[derive(Debug, Clone)]
-enum ReplyContent {
-    /// Content of a message event.
-    Message(Box<RoomMessageEventContent>),
-    /// Content of any other kind of event stored as raw JSON.
-    Raw(Raw<AnySyncTimelineEvent>),
 }
 
 /// Errors specific to unsupported replies.
@@ -81,6 +57,8 @@ pub enum ReplyError {
 }
 
 /// Whether or not to enforce a [`Relation::Thread`] when sending a reply.
+///
+/// [`Relation::Thread`]: ruma::events::room::message::Relation::Thread
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum EnforceThread {
     /// A thread relation is enforced. If the original message does not have a
@@ -114,18 +92,30 @@ impl Room {
         content: RoomMessageEventContentWithoutRelation,
         reply: Reply,
     ) -> Result<RoomMessageEventContent, ReplyError> {
-        make_reply_event(self, self.room_id(), self.own_user_id(), content, reply).await
+        make_reply_event(self, self.own_user_id(), content, reply).await
     }
 }
 
 async fn make_reply_event<S: EventSource>(
     source: S,
-    room_id: &RoomId,
     own_user_id: &UserId,
     content: RoomMessageEventContentWithoutRelation,
     reply: Reply,
 ) -> Result<RoomMessageEventContent, ReplyError> {
-    let replied_to_info = replied_to_info_from_event_id(source, &reply.event_id).await?;
+    let event =
+        source.get_event(&reply.event_id).await.map_err(|err| ReplyError::Fetch(Box::new(err)))?;
+
+    let raw_event = event.into_raw();
+    let event = raw_event.deserialize().map_err(|_| ReplyError::Deserialization)?;
+
+    let relation = as_variant!(&event, AnySyncTimelineEvent::MessageLike)
+        .ok_or(ReplyError::StateEvent)?
+        .original_content()
+        .and_then(|content| content.relation());
+    let thread =
+        relation.as_ref().and_then(|relation| as_variant!(relation, EncryptedRelation::Thread));
+
+    let reply_metadata = ReplyMetadata::new(event.event_id(), event.sender(), thread);
 
     // [The specification](https://spec.matrix.org/v1.10/client-server-api/#user-and-room-mentions) says:
     //
@@ -135,129 +125,21 @@ async fn make_reply_event<S: EventSource>(
     // If the replied to event has been written by the current user, let's toggle to
     // `AddMentions::No`.
     let mention_the_sender =
-        if own_user_id == replied_to_info.sender { AddMentions::No } else { AddMentions::Yes };
+        if own_user_id == event.sender() { AddMentions::No } else { AddMentions::Yes };
 
-    let content = match replied_to_info.content {
-        ReplyContent::Message(replied_to_content) => {
-            let event = OriginalRoomMessageEvent {
-                event_id: replied_to_info.event_id,
-                sender: replied_to_info.sender,
-                origin_server_ts: replied_to_info.timestamp,
-                room_id: room_id.to_owned(),
-                content: *replied_to_content,
-                unsigned: Default::default(),
-            };
-
-            match reply.enforce_thread {
-                EnforceThread::Threaded(is_reply) => {
-                    content.make_for_thread(&event, is_reply, mention_the_sender)
-                }
-                EnforceThread::MaybeThreaded => {
-                    content.make_reply_to(&event, ForwardThread::Yes, mention_the_sender)
-                }
-                EnforceThread::Unthreaded => {
-                    content.make_reply_to(&event, ForwardThread::No, mention_the_sender)
-                }
-            }
+    let content = match reply.enforce_thread {
+        EnforceThread::Threaded(is_reply) => {
+            content.make_for_thread(reply_metadata, is_reply, mention_the_sender)
         }
-
-        ReplyContent::Raw(raw_event) => {
-            match reply.enforce_thread {
-                EnforceThread::Threaded(is_reply) => {
-                    // Some of the code below technically belongs into ruma. However,
-                    // reply fallbacks have been removed in Matrix 1.13 which means
-                    // both match arms can use the successor of make_for_thread in
-                    // the next ruma release.
-                    #[derive(Deserialize)]
-                    struct ContentDeHelper {
-                        #[serde(rename = "m.relates_to")]
-                        relates_to: Option<EncryptedRelation>,
-                    }
-
-                    let previous_content =
-                        raw_event.get_field::<ContentDeHelper>("content").ok().flatten();
-
-                    let mut content = if is_reply == ReplyWithinThread::Yes {
-                        content.make_reply_to_raw(
-                            &raw_event,
-                            replied_to_info.event_id.to_owned(),
-                            room_id,
-                            ForwardThread::No,
-                            mention_the_sender,
-                        )
-                    } else {
-                        content.into()
-                    };
-
-                    let thread_root = if let Some(EncryptedRelation::Thread(thread)) =
-                        previous_content.as_ref().and_then(|c| c.relates_to.as_ref())
-                    {
-                        thread.event_id.to_owned()
-                    } else {
-                        replied_to_info.event_id.to_owned()
-                    };
-
-                    let thread = if is_reply == ReplyWithinThread::Yes {
-                        Thread::reply(thread_root, replied_to_info.event_id)
-                    } else {
-                        Thread::plain(thread_root, replied_to_info.event_id)
-                    };
-
-                    content.relates_to = Some(Relation::Thread(thread));
-                    content
-                }
-
-                EnforceThread::MaybeThreaded => content.make_reply_to_raw(
-                    &raw_event,
-                    replied_to_info.event_id,
-                    room_id,
-                    ForwardThread::Yes,
-                    mention_the_sender,
-                ),
-
-                EnforceThread::Unthreaded => content.make_reply_to_raw(
-                    &raw_event,
-                    replied_to_info.event_id,
-                    room_id,
-                    ForwardThread::No,
-                    mention_the_sender,
-                ),
-            }
+        EnforceThread::MaybeThreaded => {
+            content.make_reply_to(reply_metadata, ForwardThread::Yes, mention_the_sender)
+        }
+        EnforceThread::Unthreaded => {
+            content.make_reply_to(reply_metadata, ForwardThread::No, mention_the_sender)
         }
     };
 
     Ok(content)
-}
-
-async fn replied_to_info_from_event_id<S: EventSource>(
-    source: S,
-    event_id: &EventId,
-) -> Result<RepliedToInfo, ReplyError> {
-    let event = source.get_event(event_id).await.map_err(|err| ReplyError::Fetch(Box::new(err)))?;
-
-    let raw_event = event.into_raw();
-    let event = raw_event.deserialize().map_err(|_| ReplyError::Deserialization)?;
-
-    let reply_content = match &event {
-        AnySyncTimelineEvent::MessageLike(event) => {
-            if let AnySyncMessageLikeEvent::RoomMessage(SyncMessageLikeEvent::Original(
-                original_event,
-            )) = event
-            {
-                ReplyContent::Message(Box::new(original_event.content.clone()))
-            } else {
-                ReplyContent::Raw(raw_event)
-            }
-        }
-        AnySyncTimelineEvent::State(_) => return Err(ReplyError::StateEvent),
-    };
-
-    Ok(RepliedToInfo {
-        event_id: event_id.to_owned(),
-        sender: event.sender().to_owned(),
-        timestamp: event.origin_server_ts(),
-        content: reply_content,
-    })
 }
 
 #[cfg(test)]
@@ -273,7 +155,6 @@ mod tests {
             room::message::{Relation, ReplyWithinThread, RoomMessageEventContentWithoutRelation},
             AnySyncTimelineEvent,
         },
-        room_id,
         serde::Raw,
         user_id, EventId, OwnedEventId,
     };
@@ -308,13 +189,11 @@ mod tests {
             f.text_msg("hi").event_id(event_id).sender(own_user_id).into(),
         );
 
-        let room_id = room_id!("!galette:saucisse.bzh");
         let content = RoomMessageEventContentWithoutRelation::text_plain("the reply");
 
         assert_matches!(
             make_reply_event(
                 cache,
-                room_id,
                 own_user_id,
                 content,
                 Reply {
@@ -353,13 +232,11 @@ mod tests {
             ),
         );
 
-        let room_id = room_id!("!galette:saucisse.bzh");
         let content = RoomMessageEventContentWithoutRelation::text_plain("the reply");
 
         assert_matches!(
             make_reply_event(
                 cache,
-                room_id,
                 own_user_id,
                 content,
                 Reply { event_id: event_id.into(), enforce_thread: EnforceThread::Unthreaded },
@@ -381,13 +258,11 @@ mod tests {
             f.room_name("lobby").event_id(event_id).sender(own_user_id).into(),
         );
 
-        let room_id = room_id!("!galette:saucisse.bzh");
         let content = RoomMessageEventContentWithoutRelation::text_plain("the reply");
 
         assert_matches!(
             make_reply_event(
                 cache,
-                room_id,
                 own_user_id,
                 content,
                 Reply { event_id: event_id.into(), enforce_thread: EnforceThread::Unthreaded },
@@ -409,12 +284,10 @@ mod tests {
             f.text_msg("hi").event_id(event_id).sender(own_user_id).into(),
         );
 
-        let room_id = room_id!("!galette:saucisse.bzh");
         let content = RoomMessageEventContentWithoutRelation::text_plain("the reply");
 
         let reply_event = make_reply_event(
             cache,
-            room_id,
             own_user_id,
             content,
             Reply { event_id: event_id.into(), enforce_thread: EnforceThread::Unthreaded },
@@ -439,12 +312,10 @@ mod tests {
             f.text_msg("hi").event_id(event_id).sender(own_user_id).into(),
         );
 
-        let room_id = room_id!("!galette:saucisse.bzh");
         let content = RoomMessageEventContentWithoutRelation::text_plain("the reply");
 
         let reply_event = make_reply_event(
             cache,
-            room_id,
             own_user_id,
             content,
             Reply {
@@ -483,12 +354,10 @@ mod tests {
                 .into(),
         );
 
-        let room_id = room_id!("!galette:saucisse.bzh");
         let content = RoomMessageEventContentWithoutRelation::text_plain("the reply");
 
         let reply_event = make_reply_event(
             cache,
-            room_id,
             own_user_id,
             content,
             Reply {
@@ -527,12 +396,10 @@ mod tests {
                 .into(),
         );
 
-        let room_id = room_id!("!galette:saucisse.bzh");
         let content = RoomMessageEventContentWithoutRelation::text_plain("the reply");
 
         let reply_event = make_reply_event(
             cache,
-            room_id,
             own_user_id,
             content,
             Reply {
@@ -571,12 +438,10 @@ mod tests {
                 .into(),
         );
 
-        let room_id = room_id!("!galette:saucisse.bzh");
         let content = RoomMessageEventContentWithoutRelation::text_plain("the reply");
 
         let reply_event = make_reply_event(
             cache,
-            room_id,
             own_user_id,
             content,
             Reply { event_id: event_id.into(), enforce_thread: EnforceThread::MaybeThreaded },

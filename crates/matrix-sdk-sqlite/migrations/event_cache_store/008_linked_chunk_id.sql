@@ -41,7 +41,7 @@ CREATE TABLE "event_chunks" (
     -- Primary key is the event ID.
     PRIMARY KEY (event_id),
 
-    -- We need a uniqueness constraint over the linked chunk id, `chunk_id` and
+    -- We need a uniqueness constraint over the `linked_chunk_id`, `chunk_id` and
     -- `position` tuple because (i) they must be unique, (ii) it dramatically
     -- improves the performance.
     UNIQUE (linked_chunk_id, chunk_id, position),

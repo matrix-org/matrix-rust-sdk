@@ -21,33 +21,33 @@ use std::collections::BTreeSet;
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk_common::deserialized_responses::TimelineEvent;
 use ruma::{
+    JsOption, OwnedRoomId, RoomId, UserId,
     api::client::sync::sync_events::{
         v3::{InviteState, InvitedRoom, KnockState, KnockedRoom},
         v5 as http,
     },
     assign,
     events::{
-        room::member::{MembershipState, RoomMemberEventContent},
         AnyRoomAccountDataEvent, AnyStrippedStateEvent, AnySyncStateEvent,
+        room::member::{MembershipState, RoomMemberEventContent},
     },
     serde::Raw,
-    JsOption, OwnedRoomId, RoomId, UserId,
 };
 use tokio::sync::broadcast::Sender;
 
 #[cfg(feature = "e2e-encryption")]
 use super::super::e2ee;
 use super::{
-    super::{notification, state_events, timeline, Context},
+    super::{Context, notification, state_events, timeline},
     RoomCreationData,
 };
 #[cfg(feature = "e2e-encryption")]
 use crate::StateChanges;
 use crate::{
-    store::BaseStateStore,
-    sync::{InvitedRoomUpdate, JoinedRoomUpdate, KnockedRoomUpdate, LeftRoomUpdate},
     Result, Room, RoomHero, RoomInfo, RoomInfoNotableUpdate, RoomInfoNotableUpdateReasons,
     RoomState,
+    store::BaseStateStore,
+    sync::{InvitedRoomUpdate, JoinedRoomUpdate, KnockedRoomUpdate, LeftRoomUpdate},
 };
 
 /// Represent any kind of room updates.
@@ -241,10 +241,10 @@ fn membership(
         // We need to find the membership event since it could be for either an invited
         // or knocked room.
         let membership_event = state_events.1.iter().find_map(|event| {
-            if let AnyStrippedStateEvent::RoomMember(membership_event) = event {
-                if membership_event.state_key == user_id {
-                    return Some(membership_event.content.clone());
-                }
+            if let AnyStrippedStateEvent::RoomMember(membership_event) = event
+                && membership_event.state_key == user_id
+            {
+                return Some(membership_event.content.clone());
             }
             None
         });
@@ -432,7 +432,7 @@ pub(crate) async fn cache_latest_events(
 
     use crate::{
         deserialized_responses::DisplayName,
-        latest_event::{is_suitable_for_latest_event, LatestEvent, PossibleLatestEvent},
+        latest_event::{LatestEvent, PossibleLatestEvent, is_suitable_for_latest_event},
         store::ambiguity_map::is_display_name_ambiguous,
     };
 
@@ -497,17 +497,17 @@ pub(crate) async fn cache_latest_events(
                     }
 
                     // Otherwise, look up the sender's profile from the `Store`.
-                    if sender_profile.is_none() {
-                        if let Some(store) = store {
-                            sender_profile = store
-                                .get_profile(room.room_id(), timeline_event.sender())
-                                .await
-                                .ok()
-                                .flatten();
+                    if sender_profile.is_none()
+                        && let Some(store) = store
+                    {
+                        sender_profile = store
+                            .get_profile(room.room_id(), timeline_event.sender())
+                            .await
+                            .ok()
+                            .flatten();
 
-                            // TODO: need to update `sender_name_is_ambiguous`,
-                            // but how?
-                        }
+                        // TODO: need to update `sender_name_is_ambiguous`,
+                        // but how?
                     }
 
                     let latest_event = Box::new(LatestEvent::new_with_sender_details(

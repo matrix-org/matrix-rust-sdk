@@ -24,37 +24,37 @@ use async_trait::async_trait;
 use growable_bloom_filter::GrowableBloom;
 use matrix_sdk_common::AsyncTraitDeps;
 use ruma::{
+    EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedMxcUri, OwnedRoomId,
+    OwnedTransactionId, OwnedUserId, RoomId, TransactionId, UserId,
     api::{
+        SupportedVersions,
         client::discovery::discover_homeserver::{
             self, HomeserverInfo, IdentityServerInfo, RtcFocusInfo, TileServerInfo,
         },
-        SupportedVersions,
     },
     events::{
-        presence::PresenceEvent,
-        receipt::{Receipt, ReceiptThread, ReceiptType},
         AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent, EmptyStateKey, GlobalAccountDataEvent,
         GlobalAccountDataEventContent, GlobalAccountDataEventType, RedactContent,
         RedactedStateEventContent, RoomAccountDataEvent, RoomAccountDataEventContent,
         RoomAccountDataEventType, StateEventType, StaticEventContent, StaticStateEventContent,
+        presence::PresenceEvent,
+        receipt::{Receipt, ReceiptThread, ReceiptType},
     },
     serde::Raw,
     time::SystemTime,
-    EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedMxcUri, OwnedRoomId,
-    OwnedTransactionId, OwnedUserId, RoomId, TransactionId, UserId,
 };
 use serde::{Deserialize, Serialize};
 
 use super::{
-    send_queue::SentRequestKey, ChildTransactionId, DependentQueuedRequest,
-    DependentQueuedRequestKind, QueueWedgeError, QueuedRequest, QueuedRequestKind,
-    RoomLoadSettings, StateChanges, StoreError,
+    ChildTransactionId, DependentQueuedRequest, DependentQueuedRequestKind, QueueWedgeError,
+    QueuedRequest, QueuedRequestKind, RoomLoadSettings, StateChanges, StoreError,
+    send_queue::SentRequestKey,
 };
 use crate::{
+    MinimalRoomMemberEvent, RoomInfo, RoomMemberships,
     deserialized_responses::{
         DisplayName, RawAnySyncOrStrippedState, RawMemberEvent, RawSyncOrStrippedState,
     },
-    MinimalRoomMemberEvent, RoomInfo, RoomMemberships,
 };
 
 /// An abstract state store trait that can be used to implement different stores
@@ -878,7 +878,7 @@ pub trait StateStoreExt: StateStore {
     where
         C: StaticEventContent + GlobalAccountDataEventContent,
     {
-        Ok(self.get_account_data_event(C::TYPE.into()).await?.map(Raw::cast))
+        Ok(self.get_account_data_event(C::TYPE.into()).await?.map(Raw::cast_unchecked))
     }
 
     /// Get an event of a statically-known type from the room account data
@@ -895,7 +895,10 @@ pub trait StateStoreExt: StateStore {
     where
         C: StaticEventContent + RoomAccountDataEventContent,
     {
-        Ok(self.get_room_account_data_event(room_id, C::TYPE.into()).await?.map(Raw::cast))
+        Ok(self
+            .get_room_account_data_event(room_id, C::TYPE.into())
+            .await?
+            .map(Raw::cast_unchecked))
     }
 
     /// Get the `MemberEvent` for the given state key in the given room id.
@@ -1212,7 +1215,7 @@ impl StateStoreDataKey<'_> {
 
 #[cfg(test)]
 mod tests {
-    use super::{now_timestamp_ms, ServerInfo};
+    use super::{ServerInfo, now_timestamp_ms};
 
     #[test]
     fn test_stale_server_info() {

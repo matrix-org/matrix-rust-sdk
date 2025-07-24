@@ -15,12 +15,12 @@
 use std::collections::BTreeSet;
 
 use ruma::{
+    RoomId,
     events::{
-        room::{create::RoomCreateEventContent, tombstone::RoomTombstoneEventContent},
         AnySyncStateEvent, SyncStateEvent,
+        room::{create::RoomCreateEventContent, tombstone::RoomTombstoneEventContent},
     },
     serde::Raw,
-    RoomId,
 };
 use serde::Deserialize;
 use tracing::warn;
@@ -33,18 +33,18 @@ pub mod sync {
     use std::{collections::BTreeSet, iter};
 
     use ruma::{
-        events::{
-            room::member::{MembershipState, RoomMemberEventContent},
-            AnySyncTimelineEvent, SyncStateEvent,
-        },
         OwnedUserId, RoomId, UserId,
+        events::{
+            AnySyncTimelineEvent, SyncStateEvent,
+            room::member::{MembershipState, RoomMemberEventContent},
+        },
     };
     use tracing::{error, instrument};
 
     use super::{super::profiles, AnySyncStateEvent, Context, Raw};
     use crate::{
-        store::{ambiguity_map::AmbiguityCache, BaseStateStore, Result as StoreResult},
         RoomInfo,
+        store::{BaseStateStore, Result as StoreResult, ambiguity_map::AmbiguityCache},
     };
 
     /// Collect [`AnySyncStateEvent`] to [`AnySyncStateEvent`].
@@ -64,7 +64,7 @@ pub mod sync {
         super::collect(raw_events.iter().filter_map(|raw_event| {
             // Only state events have a `state_key` field.
             match raw_event.get_field::<&str>("state_key") {
-                Ok(Some(_)) => Some(raw_event.cast_ref()),
+                Ok(Some(_)) => Some(raw_event.cast_ref_unchecked()),
                 _ => None,
             }
         }))
@@ -410,10 +410,10 @@ pub fn is_tombstone_event_valid(
 #[cfg(test)]
 mod tests {
     use matrix_sdk_test::{
-        async_test, event_factory::EventFactory, JoinedRoomBuilder, StateTestEvent,
-        SyncResponseBuilder, DEFAULT_TEST_ROOM_ID,
+        DEFAULT_TEST_ROOM_ID, JoinedRoomBuilder, StateTestEvent, SyncResponseBuilder, async_test,
+        event_factory::EventFactory,
     };
-    use ruma::{event_id, room_id, user_id, RoomVersionId};
+    use ruma::{RoomVersionId, event_id, room_id, user_id};
 
     use crate::test_utils::logged_in_base_client;
 
@@ -558,7 +558,7 @@ mod tests {
                         // Predecessor of room 1 is room 0.
                         event_factory
                             .create(sender, RoomVersionId::try_from("42").unwrap())
-                            .predecessor(room_id_0, tombstone_event_id),
+                            .predecessor(room_id_0),
                     ),
                 )
                 .build_sync_response();
@@ -597,7 +597,7 @@ mod tests {
                         // Predecessor of room 2 is room 1.
                         event_factory
                             .create(sender, RoomVersionId::try_from("43").unwrap())
-                            .predecessor(room_id_1, tombstone_event_id),
+                            .predecessor(room_id_1),
                     ),
                 )
                 .build_sync_response();
@@ -666,7 +666,7 @@ mod tests {
                             // Predecessor of room 1 is room 0.
                             event_factory
                                 .create(sender, RoomVersionId::try_from("42").unwrap())
-                                .predecessor(room_id_0, event_id!("$ev0")),
+                                .predecessor(room_id_0),
                         )
                         .add_timeline_event(
                             // Successor of room 1 is room 2.
@@ -681,7 +681,7 @@ mod tests {
                         // Predecessor of room 2 is room 1.
                         event_factory
                             .create(sender, RoomVersionId::try_from("43").unwrap())
-                            .predecessor(room_id_1, event_id!("$ev1")),
+                            .predecessor(room_id_1),
                     ),
                 )
                 .build_sync_response();
@@ -792,7 +792,7 @@ mod tests {
                         // Predecessor of room 1 is room 0.
                         event_factory
                             .create(sender, RoomVersionId::try_from("42").unwrap())
-                            .predecessor(room_id_0, tombstone_event_id),
+                            .predecessor(room_id_0),
                     ),
                 )
                 .build_sync_response();
@@ -832,7 +832,7 @@ mod tests {
                             // Predecessor of room 2 is room 1.
                             event_factory
                                 .create(sender, RoomVersionId::try_from("43").unwrap())
-                                .predecessor(room_id_1, tombstone_event_id),
+                                .predecessor(room_id_1),
                         )
                         .add_timeline_event(
                             // Successor of room 2 is room 0.
@@ -900,7 +900,7 @@ mod tests {
                     JoinedRoomBuilder::new(room_id_0).add_timeline_event(
                         event_factory
                             .create(sender, RoomVersionId::try_from("42").unwrap())
-                            .predecessor(room_id_0, tombstone_event_id)
+                            .predecessor(room_id_0)
                             .event_id(tombstone_event_id),
                     ),
                 )
@@ -942,7 +942,7 @@ mod tests {
                             // Predecessor of room 0 is room 0
                             event_factory
                                 .create(sender, RoomVersionId::try_from("42").unwrap())
-                                .predecessor(room_id_0, tombstone_event_id),
+                                .predecessor(room_id_0),
                         ),
                 )
                 .build_sync_response();
@@ -982,7 +982,7 @@ mod tests {
                             // Predecessor of room 0 is room 2
                             event_factory
                                 .create(sender, RoomVersionId::try_from("42").unwrap())
-                                .predecessor(room_id_2, event_id!("$ev2")),
+                                .predecessor(room_id_2),
                         )
                         .add_timeline_event(
                             // Successor of room 0 is room 1
@@ -997,7 +997,7 @@ mod tests {
                             // Predecessor of room 1 is room 0
                             event_factory
                                 .create(sender, RoomVersionId::try_from("43").unwrap())
-                                .predecessor(room_id_0, event_id!("$ev0")),
+                                .predecessor(room_id_0),
                         )
                         .add_timeline_event(
                             // Successor of room 1 is room 2
@@ -1012,7 +1012,7 @@ mod tests {
                             // Predecessor of room 2 is room 1
                             event_factory
                                 .create(sender, RoomVersionId::try_from("44").unwrap())
-                                .predecessor(room_id_1, event_id!("$ev1")),
+                                .predecessor(room_id_1),
                         )
                         .add_timeline_event(
                             // Successor of room 2 is room 0
@@ -1080,6 +1080,7 @@ mod tests {
             .add_joined_room(
                 JoinedRoomBuilder::new(&DEFAULT_TEST_ROOM_ID)
                     .add_timeline_event(room_name)
+                    .add_state_event(StateTestEvent::Create)
                     .add_state_event(StateTestEvent::PowerLevels),
             )
             .build_sync_response();

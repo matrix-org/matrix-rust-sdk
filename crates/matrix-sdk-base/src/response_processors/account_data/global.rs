@@ -18,16 +18,16 @@ use std::{
 };
 
 use ruma::{
+    RoomId,
     events::{
-        direct::OwnedDirectUserIdentifier, AnyGlobalAccountDataEvent, GlobalAccountDataEventType,
+        AnyGlobalAccountDataEvent, GlobalAccountDataEventType, direct::OwnedDirectUserIdentifier,
     },
     serde::Raw,
-    RoomId,
 };
 use tracing::{debug, instrument, trace, warn};
 
 use super::super::Context;
-use crate::{store::BaseStateStore, RoomInfo, StateChanges};
+use crate::{RoomInfo, StateChanges, store::BaseStateStore};
 
 /// Create the [`Global`] account data processor.
 pub fn global(events: &[Raw<AnyGlobalAccountDataEvent>]) -> Global {
@@ -102,10 +102,10 @@ impl Global {
 
             // Update the direct targets of rooms if they changed.
             for (room_id, new_direct_targets) in new_dms {
-                if let Some(old_direct_targets) = old_dms.remove(&room_id) {
-                    if old_direct_targets == new_direct_targets {
-                        continue;
-                    }
+                if let Some(old_direct_targets) = old_dms.remove(&room_id)
+                    && old_direct_targets == new_direct_targets
+                {
+                    continue;
                 }
                 trace!(?room_id, targets = ?new_direct_targets, "Marking room as direct room");
                 map_info(room_id, state_changes, state_store, |info| {
