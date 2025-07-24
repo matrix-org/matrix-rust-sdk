@@ -10,6 +10,9 @@ publish = false
 [package.metadata.release]
 release = false
 
+[features]
+codspeed = []
+
 [dependencies]
 criterion = { version = "3.0.4", features = ["async", "async_tokio", "html_reports"], package = "codspeed-criterion-compat" }
 matrix-sdk = { workspace = true, features = ["native-tls", "e2e-encryption", "sqlite", "testing"] }
