@@ -128,6 +128,9 @@ pub trait EventCacheStore: AsyncTraitDeps {
     ) -> Result<Vec<(OwnedEventId, Position)>, Self::Error>;
 
     /// Find an event by its ID in a room.
+    ///
+    /// This method must return events saved either in any linked chunks, *or*
+    /// events saved "out-of-band" with the [`Self::save_event`] method.
     async fn find_event(
         &self,
         room_id: &RoomId,
@@ -147,6 +150,9 @@ pub trait EventCacheStore: AsyncTraitDeps {
     ///
     /// An additional filter can be provided to only retrieve related events for
     /// a certain relationship.
+    ///
+    /// This method must return events saved either in any linked chunks, *or*
+    /// events saved "out-of-band" with the [`Self::save_event`] method.
     async fn find_event_relations(
         &self,
         room_id: &RoomId,
