@@ -28,7 +28,7 @@ jobs:
           bins: cargo-codspeed
 
       - name: Build the benchmark target(s)
-        run: cargo codspeed build ${{ matrix.benchmarks }}
+        run: cargo codspeed build -p benchmarks ${{ matrix.benchmark }}
 
       - name: Run the benchmarks
         uses: CodSpeedHQ/action@0b6e7a3d96c9d2a6057e7bcea6b45aaf2f7ce60b
