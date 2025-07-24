@@ -21,8 +21,8 @@ use std::{
 use async_trait::async_trait;
 use matrix_sdk_common::{
     linked_chunk::{
-        ChunkIdentifier, ChunkIdentifierGenerator, ChunkMetadata, LinkedChunkId,
-        OwnedLinkedChunkId, Position, RawChunk, Update, relational::RelationalLinkedChunk,
+        ChunkIdentifier, ChunkIdentifierGenerator, ChunkMetadata, LinkedChunkId, Position,
+        RawChunk, Update, relational::RelationalLinkedChunk,
     },
     ring_buffer::RingBuffer,
     store_locks::memory_store_helper::try_take_leased_lock,
@@ -222,11 +222,9 @@ impl EventCacheStore for MemoryStore {
     ) -> Result<Option<Event>, Self::Error> {
         let inner = self.inner.read().unwrap();
 
-        let target_linked_chunk_id = OwnedLinkedChunkId::Room(room_id.to_owned());
-
         let event = inner
             .events
-            .items(&target_linked_chunk_id)
+            .items(room_id)
             .find_map(|(event, _pos)| (event.event_id()? == event_id).then_some(event.clone()));
 
         Ok(event)
@@ -240,13 +238,11 @@ impl EventCacheStore for MemoryStore {
     ) -> Result<Vec<(Event, Option<Position>)>, Self::Error> {
         let inner = self.inner.read().unwrap();
 
-        let target_linked_chunk_id = OwnedLinkedChunkId::Room(room_id.to_owned());
-
         let filters = compute_filters_string(filters);
 
         let related_events = inner
             .events
-            .items(&target_linked_chunk_id)
+            .items(room_id)
             .filter_map(|(event, pos)| {
                 // Must have a relation.
                 let (related_to, rel_type) = extract_event_relation(event.raw())?;
