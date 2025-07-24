@@ -56,6 +56,8 @@ All notable changes to this project will be documented in this file.
 
 ### Bug fixes
 
+- `Room.leave()` will now attempt to leave all reachable predecessors too. 
+  ([#5381](https://github.com/matrix-org/matrix-rust-sdk/pull/5381))
 - When joining a room via `Client::join_room_by_id()`, if the client has `enable_share_history_on_invite` enabled,
   we will correctly check for received room key bundles. Previously this was only done when calling `Room::join`.
   ([#5043](https://github.com/matrix-org/matrix-rust-sdk/pull/5043))
