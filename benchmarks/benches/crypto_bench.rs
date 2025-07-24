@@ -144,7 +144,7 @@ pub fn keys_claiming(c: &mut Criterion) {
                 let _ = runtime.enter();
                 drop(machine);
             },
-            BatchSize::SmallInput,
+            criterion::BatchSize::SmallInput,
         )
     });
 
