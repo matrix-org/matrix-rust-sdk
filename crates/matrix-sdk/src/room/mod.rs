@@ -415,17 +415,13 @@ impl Room {
             if let (Err(e), room) = result {
                 if room.room_id() == self.room_id() {
                     maybe_this_room_failed_with = Some(e);
-                    continue;
+                } else {
+                    warn!("Failure while attempting to leave predecessor room: {e:?}");
                 }
-                warn!("{e:?}");
             }
         }
 
-        if let Some(error) = maybe_this_room_failed_with {
-            return Err(error);
-        }
-
-        Ok(())
+        maybe_this_room_failed_with.map_or(Ok(()), Err)
     }
 
     /// Join this room.
