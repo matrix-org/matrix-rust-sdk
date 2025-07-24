@@ -118,18 +118,7 @@ pub fn create_timeline_with_initial_events(c: &mut Criterion) {
 }
 
 fn criterion() -> Criterion {
-    #[cfg(target_os = "linux")]
-    {
-        Criterion::default().with_profiler(pprof::criterion::PProfProfiler::new(
-            100,
-            pprof::criterion::Output::Flamegraph(None),
-        ))
-    }
-
-    #[cfg(not(target_os = "linux"))]
-    {
-        Criterion::default()
-    }
+    Criterion::default()
 }
 
 criterion_group! {

@@ -261,12 +261,6 @@ fn reading(c: &mut Criterion) {
 }
 
 fn criterion() -> Criterion {
-    #[cfg(target_os = "linux")]
-    let criterion = Criterion::default().with_profiler(pprof::criterion::PProfProfiler::new(
-        100,
-        pprof::criterion::Output::Flamegraph(None),
-    ));
-    #[cfg(not(target_os = "linux"))]
     let criterion = Criterion::default();
 
     criterion

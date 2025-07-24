@@ -209,18 +209,7 @@ pub fn load_pinned_events_benchmark(c: &mut Criterion) {
 }
 
 fn criterion() -> Criterion {
-    #[cfg(target_os = "linux")]
-    {
-        Criterion::default().with_profiler(pprof::criterion::PProfProfiler::new(
-            100,
-            pprof::criterion::Output::Flamegraph(None),
-        ))
-    }
-
-    #[cfg(not(target_os = "linux"))]
-    {
-        Criterion::default()
-    }
+    Criterion::default()
 }
 
 criterion_group! {

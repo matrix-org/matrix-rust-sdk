@@ -282,12 +282,6 @@ pub fn devices_missing_sessions_collecting(c: &mut Criterion) {
 }
 
 fn criterion() -> Criterion {
-    #[cfg(target_os = "linux")]
-    let criterion = Criterion::default().with_profiler(pprof::criterion::PProfProfiler::new(
-        100,
-        pprof::criterion::Output::Flamegraph(None),
-    ));
-    #[cfg(not(target_os = "linux"))]
     let criterion = Criterion::default();
 
     criterion
