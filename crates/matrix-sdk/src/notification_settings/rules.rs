@@ -330,8 +330,7 @@ pub(crate) mod tests {
     use crate::{
         error::NotificationSettingsError,
         notification_settings::{
-            rules::{self, Rules},
-            IsEncrypted, IsOneToOne, RoomNotificationMode,
+            command::Notify, rules::{self, Rules}, IsEncrypted, IsOneToOne, RoomNotificationMode
         },
     };
 
@@ -614,7 +613,7 @@ pub(crate) mod tests {
 
         // Build a `RuleCommands` inserting a rule
         let mut rules_commands = RuleCommands::new(rules.ruleset.clone());
-        rules_commands.insert_rule(RuleKind::Override, &room_id, false).unwrap();
+        rules_commands.insert_rule(RuleKind::Override, &room_id, Notify::None).unwrap();
 
         rules.apply(rules_commands);
 
