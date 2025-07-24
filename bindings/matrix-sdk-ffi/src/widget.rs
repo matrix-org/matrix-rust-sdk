@@ -197,6 +197,15 @@ pub fn get_element_call_required_permissions(
         .chain(read_send.clone())
         .collect(),
         send: vec![
+            // To notify other users that a call has started.
+            WidgetEventFilter::MessageLikeWithType {
+                event_type: "org.matrix.msc4075.rtc.notification".to_owned(),
+            },
+            // Also for call notifications, except this is the deprecated fallback type which
+            // Element Call still sends.
+            WidgetEventFilter::MessageLikeWithType {
+                event_type: MessageLikeEventType::CallNotify.to_string(),
+            },
             // To send the call participation state event (main MatrixRTC event).
             // This is required for legacy state events (using only one event for all devices with
             // a membership array). TODO: remove once legacy call member events are
