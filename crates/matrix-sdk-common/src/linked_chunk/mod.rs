@@ -106,27 +106,30 @@ use std::{
 
 pub use as_vector::*;
 pub use order_tracker::OrderTracker;
-use ruma::{OwnedRoomId, RoomId};
+use ruma::{EventId, OwnedEventId, OwnedRoomId, RoomId};
 pub use updates::*;
 
 /// An identifier for a linked chunk; borrowed variant.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum LinkedChunkId<'a> {
     Room(&'a RoomId),
-    // TODO(bnjbvr): Soon™.
-    // Thread(&'a RoomId, &'a EventId),
+    Thread(&'a RoomId, &'a EventId),
 }
 
 impl LinkedChunkId<'_> {
     pub fn storage_key(&self) -> impl '_ + AsRef<[u8]> {
         match self {
-            LinkedChunkId::Room(room_id) => room_id,
+            LinkedChunkId::Room(room_id) => room_id.to_string(),
+            LinkedChunkId::Thread(room_id, event_id) => format!("t:{room_id}:{event_id}"),
         }
     }
 
     pub fn to_owned(&self) -> OwnedLinkedChunkId {
         match self {
             LinkedChunkId::Room(room_id) => OwnedLinkedChunkId::Room((*room_id).to_owned()),
+            LinkedChunkId::Thread(room_id, event_id) => {
+                OwnedLinkedChunkId::Thread((*room_id).to_owned(), (*event_id).to_owned())
+            }
         }
     }
 }
@@ -135,6 +138,11 @@ impl PartialEq<&OwnedLinkedChunkId> for LinkedChunkId<'_> {
     fn eq(&self, other: &&OwnedLinkedChunkId) -> bool {
         match (self, other) {
             (LinkedChunkId::Room(a), OwnedLinkedChunkId::Room(b)) => *a == b,
+            (LinkedChunkId::Thread(r, ev), OwnedLinkedChunkId::Thread(r2, ev2)) => {
+                r == r2 && ev == ev2
+            }
+            (LinkedChunkId::Room(..), OwnedLinkedChunkId::Thread(..))
+            | (LinkedChunkId::Thread(..), OwnedLinkedChunkId::Room(..)) => false,
         }
     }
 }
@@ -149,14 +157,16 @@ impl PartialEq<LinkedChunkId<'_>> for OwnedLinkedChunkId {
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum OwnedLinkedChunkId {
     Room(OwnedRoomId),
-    // TODO(bnjbvr): Soon™.
-    // Thread(OwnedRoomId, OwnedEventId),
+    Thread(OwnedRoomId, OwnedEventId),
 }
 
 impl Display for OwnedLinkedChunkId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             OwnedLinkedChunkId::Room(room_id) => write!(f, "{room_id}"),
+            OwnedLinkedChunkId::Thread(room_id, thread_root) => {
+                write!(f, "{room_id}:thread:{thread_root}")
+            }
         }
     }
 }
@@ -166,12 +176,16 @@ impl OwnedLinkedChunkId {
     fn as_ref(&self) -> LinkedChunkId<'_> {
         match self {
             OwnedLinkedChunkId::Room(room_id) => LinkedChunkId::Room(room_id.as_ref()),
+            OwnedLinkedChunkId::Thread(room_id, event_id) => {
+                LinkedChunkId::Thread(room_id.as_ref(), event_id.as_ref())
+            }
         }
     }
 
     pub fn room_id(&self) -> &RoomId {
         match self {
             OwnedLinkedChunkId::Room(room_id) => room_id,
+            OwnedLinkedChunkId::Thread(room_id, ..) => room_id,
         }
     }
 }
