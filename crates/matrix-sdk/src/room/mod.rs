@@ -78,7 +78,7 @@ use ruma::{
         receipt::create_receipt,
         redact::redact_event,
         room::{get_room_event, report_content, report_room},
-        state::{get_state_events_for_key, send_state_event},
+        state::{get_state_event_for_key, send_state_event},
         tag::{create_tag, delete_tag},
         typing::create_typing_event::{self, v3::Typing},
     },
@@ -814,7 +814,7 @@ impl Room {
             .encryption_state_deduplicated_handler
             .run(self.room_id().to_owned(), async move {
                 // Request the event from the server.
-                let request = get_state_events_for_key::v3::Request::new(
+                let request = get_state_event_for_key::v3::Request::new(
                     self.room_id().to_owned(),
                     StateEventType::RoomEncryption,
                     "".to_owned(),
@@ -822,7 +822,7 @@ impl Room {
                 let response = match self.client.send(request).await {
                     Ok(response) => Some(
                         response
-                            .content
+                            .into_content()
                             .deserialize_as_unchecked::<RoomEncryptionEventContent>()?,
                     ),
                     Err(err) if err.client_api_error_kind() == Some(&ErrorKind::NotFound) => None,
@@ -3490,7 +3490,7 @@ impl Room {
     pub async fn load_pinned_events(&self) -> Result<Option<Vec<OwnedEventId>>> {
         let response = self
             .client
-            .send(get_state_events_for_key::v3::Request::new(
+            .send(get_state_event_for_key::v3::Request::new(
                 self.room_id().to_owned(),
                 StateEventType::RoomPinnedEvents,
                 "".to_owned(),
@@ -3499,7 +3499,10 @@ impl Room {
 
         match response {
             Ok(response) => Ok(Some(
-                response.content.deserialize_as_unchecked::<RoomPinnedEventsEventContent>()?.pinned,
+                response
+                    .into_content()
+                    .deserialize_as_unchecked::<RoomPinnedEventsEventContent>()?
+                    .pinned,
             )),
             Err(http_error) => match http_error.as_client_api_error() {
                 Some(error) if error.status_code == StatusCode::NOT_FOUND => Ok(None),
