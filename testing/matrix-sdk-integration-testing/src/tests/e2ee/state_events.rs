@@ -114,8 +114,17 @@ async fn test_e2ee_state_events() -> Result<()> {
         .await
         .expect("Bob should be able to accept the invitation from Alice");
 
+    // Sync the room, so the rename event arrives.
     let _ = bob.sync_once().instrument(bob_span.clone()).await?;
 
+    // Check it has been applied.
+    assert_eq!(
+        "Dog Photos",
+        bob_room.name().unwrap(),
+        "Bob's copy of the room name should have updated."
+    );
+
+    /// Let's also check we can inspect the payload manually.
     let rename_event = bob_room
         .event(&rename_event_id, None)
         .instrument(bob_span.clone())
