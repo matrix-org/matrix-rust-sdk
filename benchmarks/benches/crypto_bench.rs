@@ -285,23 +285,17 @@ pub fn devices_missing_sessions_collecting(c: &mut Criterion) {
     group.finish()
 }
 
-fn criterion() -> Criterion {
-    let criterion = Criterion::default();
-
-    criterion
-}
-
 #[cfg(not(feature = "codspeed"))]
 criterion_group! {
     name = benches;
-    config = criterion();
+    config = Criterion::default();
     targets = keys_query, keys_claiming, room_key_sharing, devices_missing_sessions_collecting,
 }
 
 #[cfg(feature = "codspeed")]
 criterion_group! {
     name = benches;
-    config = criterion();
+    config = Criterion::default();
     targets = keys_query, room_key_sharing, devices_missing_sessions_collecting,
 }
 

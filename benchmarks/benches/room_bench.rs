@@ -208,13 +208,9 @@ pub fn load_pinned_events_benchmark(c: &mut Criterion) {
     group.finish();
 }
 
-fn criterion() -> Criterion {
-    Criterion::default()
-}
-
 criterion_group! {
     name = room;
-    config = criterion();
+    config = Criterion::default();
     targets = receive_all_members_benchmark, load_pinned_events_benchmark,
 }
 criterion_main!(room);

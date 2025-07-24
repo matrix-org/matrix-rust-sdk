@@ -133,15 +133,9 @@ fn handle_room_updates(c: &mut Criterion) {
     group.finish()
 }
 
-fn criterion() -> Criterion {
-    let criterion = Criterion::default();
-
-    criterion
-}
-
 criterion_group! {
     name = event_cache;
-    config = criterion();
+    config = Criterion::default();
     targets = handle_room_updates,
 }
 

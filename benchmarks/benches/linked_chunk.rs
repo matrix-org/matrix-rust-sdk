@@ -260,15 +260,9 @@ fn reading(c: &mut Criterion) {
     group.finish()
 }
 
-fn criterion() -> Criterion {
-    let criterion = Criterion::default();
-
-    criterion
-}
-
 criterion_group! {
     name = event_cache;
-    config = criterion();
+    config = Criterion::default();
     targets = writing, reading,
 }
 

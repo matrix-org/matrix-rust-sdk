@@ -10,12 +10,6 @@ use matrix_sdk_sqlite::SqliteStateStore;
 use ruma::{RoomId, device_id, user_id};
 use tokio::runtime::Builder;
 
-fn criterion() -> Criterion {
-    let criterion = Criterion::default();
-
-    criterion
-}
-
 /// Number of joined rooms in the benchmark.
 const NUM_JOINED_ROOMS: usize = 10000;
 
@@ -117,7 +111,7 @@ pub fn restore_session(c: &mut Criterion) {
 
 criterion_group! {
     name = benches;
-    config = criterion();
+    config = Criterion::default();
     targets = restore_session
 }
 criterion_main!(benches);
