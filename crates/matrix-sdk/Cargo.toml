@@ -59,6 +59,9 @@ experimental-widgets = ["dep:uuid", "experimental-send-custom-to-device"]
 
 docsrs = ["e2e-encryption", "sqlite", "indexeddb", "sso-login", "qrcode"]
 
+# Add support for in-app only notifications
+unstable-msc3768 = ["matrix-sdk-base/unstable-msc3768"]
+
 # Add support for inline media galleries via msgtypes
 unstable-msc4274 = ["ruma/unstable-msc4274", "matrix-sdk-base/unstable-msc4274"]
 

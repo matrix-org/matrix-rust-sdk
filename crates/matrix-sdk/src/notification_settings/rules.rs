@@ -1,5 +1,6 @@
 //! Ruleset utility struct
 
+use cfg_if::cfg_if;
 use imbl::HashSet;
 use indexmap::IndexSet;
 use ruma::{
@@ -85,8 +86,16 @@ impl Rules {
 
         // Search for an enabled `Room` rule where `rule_id` is the `room_id`
         if let Some(rule) = self.ruleset.get(RuleKind::Room, room_id) {
-            // if this rule contains a `Notify` action
             if rule.triggers_notification() {
+                cfg_if! {
+                    if #[cfg(feature = "unstable-msc3768")] {
+                        if !rule.triggers_remote_notification() {
+                            // This rule contains a `NotifyInApp` action.
+                            return Some(RoomNotificationMode::MentionsAndKeywordsOnlyTheRestInApp);
+                        }
+                    }
+                }
+                // This rule contains a `Notify` action.
                 return Some(RoomNotificationMode::AllMessages);
             }
             return Some(RoomNotificationMode::MentionsAndKeywordsOnly);
@@ -112,18 +121,24 @@ impl Rules {
         let predefined_rule_id = get_predefined_underride_room_rule_id(is_encrypted, is_one_to_one);
         let rule_id = predefined_rule_id.as_str();
 
-        // If there is an `Underride` rule that should trigger a notification, the mode
-        // is `AllMessages`
-        if self
-            .ruleset
-            .get(RuleKind::Underride, rule_id)
-            .is_some_and(|r| r.enabled() && r.triggers_notification())
-        {
-            RoomNotificationMode::AllMessages
-        } else {
-            // Otherwise, the mode is `MentionsAndKeywordsOnly`
-            RoomNotificationMode::MentionsAndKeywordsOnly
+        if let Some(rule) = self.ruleset.get(RuleKind::Underride, rule_id).filter(|r| r.enabled()) {
+            if rule.triggers_notification() {
+                cfg_if! {
+                    if #[cfg(feature = "unstable-msc3768")] {
+                        if !rule.triggers_remote_notification() {
+                            // This rule contains a `NotifyInApp` action.
+                            return RoomNotificationMode::MentionsAndKeywordsOnlyTheRestInApp;
+                        }
+                    }
+                }
+                // If there is an `Underride` rule that should trigger a notification, the mode
+                // is `AllMessages`
+                return RoomNotificationMode::AllMessages;
+            }
         }
+
+        // Otherwise, the mode is `MentionsAndKeywordsOnly`
+        RoomNotificationMode::MentionsAndKeywordsOnly
     }
 
     /// Get all room IDs for which a user-defined rule exists.
@@ -330,6 +345,7 @@ pub(crate) mod tests {
     use crate::{
         error::NotificationSettingsError,
         notification_settings::{
+            command::Notify,
             rules::{self, Rules},
             IsEncrypted, IsOneToOne, RoomNotificationMode,
         },
@@ -614,7 +630,7 @@ pub(crate) mod tests {
 
         // Build a `RuleCommands` inserting a rule
         let mut rules_commands = RuleCommands::new(rules.ruleset.clone());
-        rules_commands.insert_rule(RuleKind::Override, &room_id, false).unwrap();
+        rules_commands.insert_rule(RuleKind::Override, &room_id, Notify::None).unwrap();
 
         rules.apply(rules_commands);
 

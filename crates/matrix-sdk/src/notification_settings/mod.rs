@@ -41,7 +41,7 @@ pub use matrix_sdk_base::notification_settings::RoomNotificationMode;
 
 use crate::{
     config::RequestConfig, error::NotificationSettingsError, event_handler::EventHandlerDropGuard,
-    Client, Result,
+    notification_settings::command::Notify, Client, Result,
 };
 
 /// Whether or not a room is encrypted
@@ -320,15 +320,20 @@ impl NotificationSettings {
         let (new_rule_kind, notify) = match mode {
             RoomNotificationMode::AllMessages => {
                 // insert a `Room` rule which notifies
-                (RuleKind::Room, true)
+                (RuleKind::Room, Notify::All)
             }
             RoomNotificationMode::MentionsAndKeywordsOnly => {
                 // insert a `Room` rule which doesn't notify
-                (RuleKind::Room, false)
+                (RuleKind::Room, Notify::None)
+            }
+            #[cfg(feature = "unstable-msc3768")]
+            RoomNotificationMode::MentionsAndKeywordsOnlyTheRestInApp => {
+                // insert a `Room` rule which notifies in-app only
+                (RuleKind::Room, Notify::InAppOnly)
             }
             RoomNotificationMode::Mute => {
                 // insert an `Override` rule which doesn't notify
-                (RuleKind::Override, false)
+                (RuleKind::Override, Notify::None)
             }
         };
 
@@ -923,6 +928,8 @@ mod tests {
         let new_modes = [
             RoomNotificationMode::AllMessages,
             RoomNotificationMode::MentionsAndKeywordsOnly,
+            #[cfg(feature = "unstable-msc3768")]
+            RoomNotificationMode::MentionsAndKeywordsOnlyTheRestInApp,
             RoomNotificationMode::Mute,
         ];
         for new_mode in new_modes {

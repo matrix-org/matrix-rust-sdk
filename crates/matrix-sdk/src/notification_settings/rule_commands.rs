@@ -7,7 +7,7 @@ use ruma::{
 };
 
 use super::command::Command;
-use crate::NotificationSettingsError;
+use crate::{notification_settings::command::Notify, NotificationSettingsError};
 
 /// A `RuleCommand` allows to generate a list of `Command` needed to modify a
 /// `Ruleset`
@@ -27,7 +27,7 @@ impl RuleCommands {
         &mut self,
         kind: RuleKind,
         room_id: &RoomId,
-        notify: bool,
+        notify: Notify,
     ) -> Result<(), NotificationSettingsError> {
         let command = match kind {
             RuleKind::Room => Command::SetRoomPushRule { room_id: room_id.to_owned(), notify },
@@ -210,7 +210,10 @@ mod tests {
     };
 
     use super::RuleCommands;
-    use crate::{error::NotificationSettingsError, notification_settings::command::Command};
+    use crate::{
+        error::NotificationSettingsError,
+        notification_settings::command::{Command, Notify},
+    };
 
     fn get_server_default_ruleset() -> Ruleset {
         let user_id = UserId::parse("@user:matrix.org").unwrap();
@@ -225,7 +228,7 @@ mod tests {
     async fn test_insert_rule_room() {
         let room_id = get_test_room_id();
         let mut rule_commands = RuleCommands::new(get_server_default_ruleset());
-        rule_commands.insert_rule(RuleKind::Room, &room_id, true).unwrap();
+        rule_commands.insert_rule(RuleKind::Room, &room_id, Notify::All).unwrap();
 
         // A rule must have been inserted in the ruleset.
         assert!(rule_commands.rules.get(RuleKind::Room, &room_id).is_some());
@@ -235,7 +238,7 @@ mod tests {
         assert_matches!(&rule_commands.commands[0],
             Command::SetRoomPushRule { room_id: command_room_id, notify } => {
                 assert_eq!(command_room_id, &room_id);
-                assert!(notify);
+                assert_eq!(&Notify::All, notify);
             }
         );
     }
@@ -244,7 +247,7 @@ mod tests {
     async fn test_insert_rule_override() {
         let room_id = get_test_room_id();
         let mut rule_commands = RuleCommands::new(get_server_default_ruleset());
-        rule_commands.insert_rule(RuleKind::Override, &room_id, true).unwrap();
+        rule_commands.insert_rule(RuleKind::Override, &room_id, Notify::All).unwrap();
 
         // A rule must have been inserted in the ruleset.
         assert!(rule_commands.rules.get(RuleKind::Override, &room_id).is_some());
@@ -255,7 +258,7 @@ mod tests {
             Command::SetOverridePushRule {room_id: command_room_id, rule_id, notify } => {
                 assert_eq!(command_room_id, &room_id);
                 assert_eq!(rule_id, room_id.as_str());
-                assert!(notify);
+                assert_eq!(&Notify::All, notify);
             }
         );
     }
@@ -266,17 +269,17 @@ mod tests {
         let mut rule_commands = RuleCommands::new(get_server_default_ruleset());
 
         assert_matches!(
-            rule_commands.insert_rule(RuleKind::Underride, &room_id, true),
+            rule_commands.insert_rule(RuleKind::Underride, &room_id, Notify::All),
             Err(NotificationSettingsError::InvalidParameter(_)) => {}
         );
 
         assert_matches!(
-            rule_commands.insert_rule(RuleKind::Content, &room_id, true),
+            rule_commands.insert_rule(RuleKind::Content, &room_id, Notify::All),
             Err(NotificationSettingsError::InvalidParameter(_)) => {}
         );
 
         assert_matches!(
-            rule_commands.insert_rule(RuleKind::Sender, &room_id, true),
+            rule_commands.insert_rule(RuleKind::Sender, &room_id, Notify::All),
             Err(NotificationSettingsError::InvalidParameter(_)) => {}
         );
     }

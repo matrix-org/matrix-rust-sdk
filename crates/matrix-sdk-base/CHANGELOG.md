@@ -18,6 +18,9 @@ All notable changes to this project will be documented in this file.
   `RoomInfo::invite_details` method returns both the timestamp and the
   inviter.
   ([#5390](https://github.com/matrix-org/matrix-rust-sdk/pull/5390))
+- Add `RoomNotificationMode::MentionsAndKeywordsOnlyTheRestInApp` behind a new
+  feature `unstable-msc3768`.
+  ([#5441](https://github.com/matrix-org/matrix-rust-sdk/pull/5441
 
 ### Refactor
 - [**breaking**] `RelationalLinkedChunk::items` now takes a `RoomId` instead of an

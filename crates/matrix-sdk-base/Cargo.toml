@@ -28,6 +28,7 @@ qrcode = ["matrix-sdk-crypto?/qrcode"]
 automatic-room-key-forwarding = ["matrix-sdk-crypto?/automatic-room-key-forwarding"]
 experimental-send-custom-to-device = ["matrix-sdk-crypto?/experimental-send-custom-to-device"]
 uniffi = ["dep:uniffi", "matrix-sdk-crypto?/uniffi", "matrix-sdk-common/uniffi"]
+unstable-msc3768 = ["ruma/unstable-msc3768"]
 
 # Private feature, see
 # https://github.com/matrix-org/matrix-rust-sdk/pull/3749#issuecomment-2312939823 for the gory
