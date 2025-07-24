@@ -379,6 +379,8 @@ impl Room {
     /// automatically.
     ///
     /// Only invited and joined rooms can be left.
+    /// Will return an error if the current room fails to leave but
+    /// will only warn if a predecessor fails to leave.
     pub async fn leave(&self) -> Result<()> {
         let mut rooms: Vec<Room> = vec![self.clone()];
         let mut current_room = self;
