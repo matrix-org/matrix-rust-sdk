@@ -578,7 +578,9 @@ impl StateChanges {
         state_key: &K,
     ) -> Option<&Raw<SyncStateEvent<C>>>
     where
-        C: StaticEventContent + StaticStateEventContent + RedactContent,
+        C: StaticEventContent<IsPrefix = ruma::events::False>
+            + StaticStateEventContent
+            + RedactContent,
         C::Redacted: RedactedStateEventContent,
         C::StateKey: Borrow<K>,
         K: AsRef<str> + ?Sized,
@@ -599,7 +601,7 @@ impl StateChanges {
         state_key: &K,
     ) -> Option<&Raw<StrippedStateEvent<C::PossiblyRedacted>>>
     where
-        C: StaticEventContent + StaticStateEventContent,
+        C: StaticEventContent<IsPrefix = ruma::events::False> + StaticStateEventContent,
         C::StateKey: Borrow<K>,
         K: AsRef<str> + ?Sized,
     {
@@ -620,7 +622,9 @@ impl StateChanges {
         state_key: &K,
     ) -> Option<StrippedStateEvent<C::PossiblyRedacted>>
     where
-        C: StaticEventContent + StaticStateEventContent + RedactContent,
+        C: StaticEventContent<IsPrefix = ruma::events::False>
+            + StaticStateEventContent
+            + RedactContent,
         C::Redacted: RedactedStateEventContent,
         C::PossiblyRedacted: StaticEventContent + DeserializeOwned,
         C::StateKey: Borrow<K>,

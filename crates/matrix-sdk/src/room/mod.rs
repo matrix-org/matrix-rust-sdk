@@ -1017,7 +1017,9 @@ impl Room {
     /// ```
     pub async fn get_state_events_static<C>(&self) -> Result<Vec<RawSyncOrStrippedState<C>>>
     where
-        C: StaticEventContent + StaticStateEventContent + RedactContent,
+        C: StaticEventContent<IsPrefix = ruma::events::False>
+            + StaticStateEventContent
+            + RedactContent,
         C::Redacted: RedactedStateEventContent,
     {
         Ok(self.client.state_store().get_state_events_static(self.room_id()).await?)
@@ -1061,7 +1063,9 @@ impl Room {
         state_keys: I,
     ) -> Result<Vec<RawSyncOrStrippedState<C>>>
     where
-        C: StaticEventContent + StaticStateEventContent + RedactContent,
+        C: StaticEventContent<IsPrefix = ruma::events::False>
+            + StaticStateEventContent
+            + RedactContent,
         C::StateKey: Borrow<K>,
         C::Redacted: RedactedStateEventContent,
         K: AsRef<str> + Sized + Sync + 'a,
@@ -1108,7 +1112,9 @@ impl Room {
     /// ```
     pub async fn get_state_event_static<C>(&self) -> Result<Option<RawSyncOrStrippedState<C>>>
     where
-        C: StaticEventContent + StaticStateEventContent<StateKey = EmptyStateKey> + RedactContent,
+        C: StaticEventContent<IsPrefix = ruma::events::False>
+            + StaticStateEventContent<StateKey = EmptyStateKey>
+            + RedactContent,
         C::Redacted: RedactedStateEventContent,
     {
         self.get_state_event_static_for_key(&EmptyStateKey).await
@@ -1138,7 +1144,9 @@ impl Room {
         state_key: &K,
     ) -> Result<Option<RawSyncOrStrippedState<C>>>
     where
-        C: StaticEventContent + StaticStateEventContent + RedactContent,
+        C: StaticEventContent<IsPrefix = ruma::events::False>
+            + StaticStateEventContent
+            + RedactContent,
         C::StateKey: Borrow<K>,
         C::Redacted: RedactedStateEventContent,
         K: AsRef<str> + ?Sized + Sync,
@@ -1257,7 +1265,7 @@ impl Room {
     /// ```
     pub async fn account_data_static<C>(&self) -> Result<Option<Raw<RoomAccountDataEvent<C>>>>
     where
-        C: StaticEventContent + RoomAccountDataEventContent,
+        C: StaticEventContent<IsPrefix = ruma::events::False> + RoomAccountDataEventContent,
     {
         Ok(self.account_data(C::TYPE.into()).await?.map(Raw::cast_unchecked))
     }
