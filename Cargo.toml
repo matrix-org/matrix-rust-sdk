@@ -181,7 +181,7 @@ lto = false
 debug = true
 
 [profile.bench]
-inherits = "dbg"
+inherits = "release"
 lto = false
 
 [patch.crates-io]
