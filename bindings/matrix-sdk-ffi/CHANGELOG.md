@@ -8,6 +8,10 @@ All notable changes to this project will be documented in this file.
 
 ### Features:
 
+- Add experimental support for
+  [MSC4306](https://github.com/matrix-org/matrix-spec-proposals/pull/4306), with the
+  `Room::fetch_thread_subscription()` and `Room::set_thread_subscription()` methods.
+  ([#5442](https://github.com/matrix-org/matrix-rust-sdk/pull/5442))
 - [**breaking**] [`GalleryUploadParameters::reply`] and [`UploadParameters::reply`] have been both
   replaced with a new optional `in_reply_to` field, that's a string which will be parsed into an
   `OwnedEventId` when sending the event. The thread relationship will be automatically filled in,
