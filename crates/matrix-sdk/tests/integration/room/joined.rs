@@ -231,7 +231,7 @@ async fn test_leave_room_also_leaves_predecessor() -> Result<(), anyhow::Error> 
                     JoinedRoomBuilder::new(room_b_id).add_state_event(
                         EventFactory::new()
                             .create(user, RoomVersionId::V2)
-                            .predecessor(room_a_id, create_room_a_event_id)
+                            .predecessor(room_a_id)
                             .room(room_b_id)
                             .sender(user)
                             .event_id(create_room_b_event_id),
@@ -307,7 +307,7 @@ async fn test_leave_predecessor_before_successor_no_error() -> Result<(), anyhow
                     JoinedRoomBuilder::new(room_b_id).add_state_event(
                         EventFactory::new()
                             .create(user, RoomVersionId::V2)
-                            .predecessor(room_a_id, create_room_a_event_id)
+                            .predecessor(room_a_id)
                             .room(room_b_id)
                             .sender(user)
                             .event_id(create_room_b_event_id),
@@ -351,7 +351,6 @@ async fn test_leave_room_with_fake_predecessor_no_error() -> Result<(), anyhow::
     let user = user_id!("@example:localhost");
     let room_id = room_id!("!room_id:localhost");
     let fake_room_id = room_id!("!fake_room_id:localhost");
-    let create_fake_room_event_id = event_id!("$create_fake_room_event_id:localhost");
     let create_room_event_id = event_id!("$create_room_event_id:localhost");
 
     server
@@ -361,7 +360,7 @@ async fn test_leave_room_with_fake_predecessor_no_error() -> Result<(), anyhow::
                 JoinedRoomBuilder::new(room_id).add_state_event(
                     EventFactory::new()
                         .create(user, RoomVersionId::V2)
-                        .predecessor(fake_room_id, create_fake_room_event_id)
+                        .predecessor(fake_room_id)
                         .room(room_id)
                         .sender(user)
                         .event_id(create_room_event_id),
