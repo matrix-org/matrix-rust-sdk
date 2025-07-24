@@ -19,10 +19,10 @@ use ruma::{
         self, presence::PresenceEvent, AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent,
         AnyStrippedStateEvent, AnySyncEphemeralRoomEvent, AnySyncMessageLikeEvent,
         AnySyncStateEvent, AnySyncTimelineEvent, AnyToDeviceEvent, EphemeralRoomEventContent,
-        GlobalAccountDataEventContent, MessageLikeEventContent, PossiblyRedactedStateEventContent,
-        RedactContent, RedactedMessageLikeEventContent, RedactedStateEventContent,
-        RoomAccountDataEventContent, StaticEventContent, StaticStateEventContent,
-        ToDeviceEventContent,
+        False, GlobalAccountDataEventContent, MessageLikeEventContent,
+        PossiblyRedactedStateEventContent, RedactContent, RedactedMessageLikeEventContent,
+        RedactedStateEventContent, RoomAccountDataEventContent, StaticEventContent,
+        StaticStateEventContent, ToDeviceEventContent,
     },
     serde::Raw,
 };
@@ -35,6 +35,7 @@ where
 {
     const KIND: HandlerKind = HandlerKind::GlobalAccountData;
     const TYPE: Option<&'static str> = Some(C::TYPE);
+    type IsPrefix = <C as StaticEventContent>::IsPrefix;
 }
 
 impl<C> SyncEvent for events::RoomAccountDataEvent<C>
@@ -43,6 +44,7 @@ where
 {
     const KIND: HandlerKind = HandlerKind::RoomAccountData;
     const TYPE: Option<&'static str> = Some(C::TYPE);
+    type IsPrefix = <C as StaticEventContent>::IsPrefix;
 }
 
 impl<C> SyncEvent for events::SyncEphemeralRoomEvent<C>
@@ -51,6 +53,7 @@ where
 {
     const KIND: HandlerKind = HandlerKind::EphemeralRoomData;
     const TYPE: Option<&'static str> = Some(C::TYPE);
+    type IsPrefix = <C as StaticEventContent>::IsPrefix;
 }
 
 impl<C> SyncEvent for events::SyncMessageLikeEvent<C>
@@ -60,6 +63,7 @@ where
 {
     const KIND: HandlerKind = HandlerKind::MessageLike;
     const TYPE: Option<&'static str> = Some(C::TYPE);
+    type IsPrefix = <C as StaticEventContent>::IsPrefix;
 }
 
 impl<C> SyncEvent for events::OriginalSyncMessageLikeEvent<C>
@@ -68,6 +72,7 @@ where
 {
     const KIND: HandlerKind = HandlerKind::OriginalMessageLike;
     const TYPE: Option<&'static str> = Some(C::TYPE);
+    type IsPrefix = <C as StaticEventContent>::IsPrefix;
 }
 
 impl<C> SyncEvent for events::RedactedSyncMessageLikeEvent<C>
@@ -76,24 +81,31 @@ where
 {
     const KIND: HandlerKind = HandlerKind::RedactedMessageLike;
     const TYPE: Option<&'static str> = Some(C::TYPE);
+    type IsPrefix = <C as StaticEventContent>::IsPrefix;
 }
 
 impl SyncEvent for events::room::redaction::SyncRoomRedactionEvent {
     const KIND: HandlerKind = HandlerKind::MessageLike;
     const TYPE: Option<&'static str> =
         Some(events::room::redaction::RoomRedactionEventContent::TYPE);
+    type IsPrefix =
+        <events::room::redaction::RoomRedactionEventContent as StaticEventContent>::IsPrefix;
 }
 
 impl SyncEvent for events::room::redaction::OriginalSyncRoomRedactionEvent {
     const KIND: HandlerKind = HandlerKind::OriginalMessageLike;
     const TYPE: Option<&'static str> =
         Some(events::room::redaction::RoomRedactionEventContent::TYPE);
+    type IsPrefix =
+        <events::room::redaction::RoomRedactionEventContent as StaticEventContent>::IsPrefix;
 }
 
 impl SyncEvent for events::room::redaction::RedactedSyncRoomRedactionEvent {
     const KIND: HandlerKind = HandlerKind::RedactedMessageLike;
     const TYPE: Option<&'static str> =
         Some(events::room::redaction::RoomRedactionEventContent::TYPE);
+    type IsPrefix =
+        <events::room::redaction::RoomRedactionEventContent as StaticEventContent>::IsPrefix;
 }
 
 impl<C> SyncEvent for events::SyncStateEvent<C>
@@ -103,6 +115,7 @@ where
 {
     const KIND: HandlerKind = HandlerKind::State;
     const TYPE: Option<&'static str> = Some(C::TYPE);
+    type IsPrefix = <C as StaticEventContent>::IsPrefix;
 }
 
 impl<C> SyncEvent for events::OriginalSyncStateEvent<C>
@@ -111,6 +124,7 @@ where
 {
     const KIND: HandlerKind = HandlerKind::OriginalState;
     const TYPE: Option<&'static str> = Some(C::TYPE);
+    type IsPrefix = <C as StaticEventContent>::IsPrefix;
 }
 
 impl<C> SyncEvent for events::RedactedSyncStateEvent<C>
@@ -119,6 +133,7 @@ where
 {
     const KIND: HandlerKind = HandlerKind::RedactedState;
     const TYPE: Option<&'static str> = Some(C::TYPE);
+    type IsPrefix = <C as StaticEventContent>::IsPrefix;
 }
 
 impl<C> SyncEvent for events::StrippedStateEvent<C>
@@ -127,6 +142,7 @@ where
 {
     const KIND: HandlerKind = HandlerKind::StrippedState;
     const TYPE: Option<&'static str> = Some(C::TYPE);
+    type IsPrefix = <C as StaticEventContent>::IsPrefix;
 }
 
 impl<C> SyncEvent for events::ToDeviceEvent<C>
@@ -135,54 +151,65 @@ where
 {
     const KIND: HandlerKind = HandlerKind::ToDevice;
     const TYPE: Option<&'static str> = Some(C::TYPE);
+    type IsPrefix = <C as StaticEventContent>::IsPrefix;
 }
 
 impl SyncEvent for PresenceEvent {
     const KIND: HandlerKind = HandlerKind::Presence;
     const TYPE: Option<&'static str> = None;
+    type IsPrefix = False;
 }
 
 impl SyncEvent for AnyGlobalAccountDataEvent {
     const KIND: HandlerKind = HandlerKind::GlobalAccountData;
     const TYPE: Option<&'static str> = None;
+    type IsPrefix = False;
 }
 
 impl SyncEvent for AnyRoomAccountDataEvent {
     const KIND: HandlerKind = HandlerKind::RoomAccountData;
     const TYPE: Option<&'static str> = None;
+    type IsPrefix = False;
 }
 
 impl SyncEvent for AnySyncEphemeralRoomEvent {
     const KIND: HandlerKind = HandlerKind::EphemeralRoomData;
     const TYPE: Option<&'static str> = None;
+    type IsPrefix = False;
 }
 
 impl SyncEvent for AnySyncTimelineEvent {
     const KIND: HandlerKind = HandlerKind::Timeline;
     const TYPE: Option<&'static str> = None;
+    type IsPrefix = False;
 }
 
 impl SyncEvent for AnySyncMessageLikeEvent {
     const KIND: HandlerKind = HandlerKind::MessageLike;
     const TYPE: Option<&'static str> = None;
+    type IsPrefix = False;
 }
 
 impl SyncEvent for AnySyncStateEvent {
     const KIND: HandlerKind = HandlerKind::State;
     const TYPE: Option<&'static str> = None;
+    type IsPrefix = False;
 }
 
 impl SyncEvent for AnyStrippedStateEvent {
     const KIND: HandlerKind = HandlerKind::StrippedState;
     const TYPE: Option<&'static str> = None;
+    type IsPrefix = False;
 }
 
 impl SyncEvent for AnyToDeviceEvent {
     const KIND: HandlerKind = HandlerKind::ToDevice;
     const TYPE: Option<&'static str> = None;
+    type IsPrefix = False;
 }
 
 impl<T: SyncEvent> SyncEvent for Raw<T> {
     const KIND: HandlerKind = T::KIND;
     const TYPE: Option<&'static str> = T::TYPE;
+    type IsPrefix = <T as SyncEvent>::IsPrefix;
 }
