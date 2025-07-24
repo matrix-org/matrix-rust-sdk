@@ -1,15 +1,15 @@
-use std::{ops::Deref, time::Duration};
+use std::ops::Deref;
 
 use anyhow::Result;
 use assert_matches2::assert_let;
 use assign::assign;
 use futures::{FutureExt, StreamExt, pin_mut};
 use matrix_sdk::{
-    deserialized_responses::TimelineEventKind,
+    assert_let_decrypted_state_event_content,
     encryption::EncryptionSettings,
     ruma::{
         api::client::room::create_room::v3::{Request as CreateRoomRequest, RoomPreset},
-        events::{AnyStateEvent, StateEvent},
+        events::AnyStateEventContent,
     },
 };
 use matrix_sdk_common::deserialized_responses::ProcessedToDeviceEvent;
@@ -20,7 +20,7 @@ use tracing::{Instrument, info};
 use crate::helpers::{SyncTokenAwareClient, TestClientBuilder};
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn test_e2e_location_sharing() -> Result<()> {
+async fn test_e2ee_state_events() -> Result<()> {
     let alice_span = tracing::info_span!("alice");
     let bob_span = tracing::info_span!("bob");
 
@@ -55,6 +55,7 @@ async fn test_e2e_location_sharing() -> Result<()> {
     // Alice creates a room ...
     let alice_room = alice
         .create_room(assign!(CreateRoomRequest::new(), {
+            name: Some("Cat Photos".to_owned()),
             preset: Some(RoomPreset::PublicChat),
         }))
         .await?;
@@ -62,11 +63,11 @@ async fn test_e2e_location_sharing() -> Result<()> {
 
     info!(room_id = ?alice_room.room_id(), "Alice has created and enabled encryption in the room");
 
-    // ... and shares her location
-    let event_id = alice_room
-        .start_live_location_share(86_400_000, None)
+    // ... and changes the room name
+    let rename_event_id = alice_room
+        .set_name("Dog Photos".to_owned())
         .await
-        .expect("We should be able to share location")
+        .expect("We should be able to rename the room")
         .event_id;
 
     let bundle_stream = bob
@@ -85,6 +86,7 @@ async fn test_e2e_location_sharing() -> Result<()> {
     let bob_response = bob.sync_once().instrument(bob_span.clone()).await?;
 
     // Bob should have received a to-device event with the payload
+    println!("{:#?}", bob_response.rooms.invited.iter().next().unwrap().1.invite_state);
     assert_eq!(bob_response.to_device.len(), 1);
     let to_device_event = &bob_response.to_device[0];
     assert_let!(ProcessedToDeviceEvent::Decrypted { raw, .. } = to_device_event);
@@ -112,29 +114,19 @@ async fn test_e2e_location_sharing() -> Result<()> {
         .await
         .expect("Bob should be able to accept the invitation from Alice");
 
-    let event = bob_room
-        .event(&event_id, None)
+    let _ = bob.sync_once().instrument(bob_span.clone()).await?;
+
+    let rename_event = bob_room
+        .event(&rename_event_id, None)
         .instrument(bob_span.clone())
         .await
-        .expect("Bob should be able to fetch the historic event");
+        .expect("Bob should be able to fetch the historic event.");
 
-    assert_let!(TimelineEventKind::Decrypted(decrypted_event) = event.kind);
+    assert_let_decrypted_state_event_content!(
+        AnyStateEventContent::RoomName(content) = rename_event
+    );
 
-    let deserialized_event = decrypted_event
-        .event
-        // TODO: Current casting work around.
-        .deserialize_as_unchecked::<AnyStateEvent>()
-        .expect("We should be able to deserialize the decrypted event");
-
-    assert_let!(AnyStateEvent::BeaconInfo(beacon_info) = deserialized_event);
-
-    let timeout = beacon_info
-        .as_original()
-        .expect("We should be able to access the original content")
-        .content
-        .timeout;
-
-    assert_eq!(timeout, Duration::from_secs(86_400));
+    assert_eq!("Dog Photos", content.name);
 
     Ok(())
 }

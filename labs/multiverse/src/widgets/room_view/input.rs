@@ -18,6 +18,7 @@ pub enum Command {
     Leave,
     Subscribe,
     Unsubscribe,
+    Rename { to: String },
 }
 
 pub enum MessageOrCommand {

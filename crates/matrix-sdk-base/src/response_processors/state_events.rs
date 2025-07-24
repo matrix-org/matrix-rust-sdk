@@ -25,13 +25,15 @@ use ruma::{
 use serde::Deserialize;
 use tracing::warn;
 
-use super::Context;
+use super::{e2ee, Context};
 use crate::store::BaseStateStore;
 
 /// Collect [`AnySyncStateEvent`].
 pub mod sync {
     use std::{collections::BTreeSet, iter};
 
+    #[cfg(feature = "e2e-encryption")]
+    use matrix_sdk_crypto::RoomEventDecryptionResult;
     use ruma::{
         OwnedUserId, RoomId, UserId,
         events::{
@@ -87,6 +89,7 @@ pub mod sync {
         ambiguity_cache: &mut AmbiguityCache,
         new_users: &mut U,
         state_store: &BaseStateStore,
+        #[cfg(feature = "e2e-encryption")] e2ee: super::e2ee::E2EE<'_>,
     ) -> StoreResult<()>
     where
         U: NewUsers,
@@ -145,6 +148,28 @@ pub mod sync {
                         // Do not add the event to `room_info`.
                         // Do not add the event to `context.state_changes.state`.
                         continue;
+                    }
+                }
+
+                #[cfg(feature = "e2e-encryption")]
+                AnySyncStateEvent::RoomEncrypted(_) => {
+                    if let Some(olm_machine) = e2ee.olm_machine {
+                        let decrypted_event = olm_machine
+                            .try_decrypt_room_event(
+                                raw_event.cast_ref_unchecked(),
+                                &room_info.room_id,
+                                e2ee.decryption_settings,
+                            )
+                            .await
+                            .unwrap();
+                        if let RoomEventDecryptionResult::Decrypted(room_event) = decrypted_event {
+                            room_info.handle_state_event(
+                                &room_event
+                                    .event
+                                    .deserialize_as_unchecked::<AnySyncStateEvent>()
+                                    .unwrap(),
+                            );
+                        }
                     }
                 }
 

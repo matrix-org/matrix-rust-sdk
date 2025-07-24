@@ -552,12 +552,24 @@ impl RoomView {
         }
     }
 
+    async fn rename_room(&mut self, to: String) {
+        self.call_with_room(async |room, status_handle| {
+            let _ = room.set_name(to).await.inspect_err(|e| {
+                status_handle.set_message(format!("Couldn't update room name {e:?}"))
+            });
+        })
+        .await;
+
+        self.input.clear();
+    }
+
     async fn handle_command(&mut self, command: input::Command) {
         match command {
             input::Command::Invite { user_id } => self.invite_member(&user_id).await,
             input::Command::Leave => self.leave_room().await,
             input::Command::Subscribe => self.subscribe_thread().await,
             input::Command::Unsubscribe => self.unsubscribe_thread().await,
+            input::Command::Rename { to } => self.rename_room(to).await,
         }
     }
 
