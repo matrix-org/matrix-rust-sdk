@@ -20,7 +20,7 @@ use std::{
     hash::Hash,
 };
 
-use ruma::{OwnedEventId, OwnedRoomId};
+use ruma::{OwnedEventId, OwnedRoomId, RoomId};
 
 use super::{ChunkContent, ChunkIdentifierGenerator, RawChunk};
 use crate::{
@@ -376,20 +376,22 @@ where
         })
     }
 
-    /// Return an iterator over all items of a given linked chunk, along with
-    /// their positions, if available.
+    /// Return an iterator over all items of all linked chunks of a room, along
+    /// with their positions, if available.
     ///
     /// The only items which will NOT have a position are those saved with
     /// [`Self::save_item`].
     ///
     /// This will include out-of-band items.
-    pub fn items(
-        &self,
-        target: &OwnedLinkedChunkId,
-    ) -> impl Iterator<Item = (&Item, Option<Position>)> {
+    pub fn items<'a>(
+        &'a self,
+        room_id: &'a RoomId,
+    ) -> impl Iterator<Item = (&'a Item, Option<Position>)> {
         self.items
-            .get(target)
-            .into_iter()
+            .iter()
+            .filter_map(move |(linked_chunk_id, items)| {
+                (linked_chunk_id.room_id() == room_id).then_some(items)
+            })
             .flat_map(|items| items.values().map(|(item, pos)| (item, *pos)))
     }
 
