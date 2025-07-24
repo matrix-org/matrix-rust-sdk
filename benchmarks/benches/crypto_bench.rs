@@ -137,8 +137,10 @@ pub fn keys_claiming(c: &mut Criterion) {
             move |(machine, runtime, txn_id)| {
                 runtime.block_on(async {
                     machine.mark_request_as_sent(txn_id, response).await.unwrap();
-                    drop(machine)
-                })
+                });
+
+                let _ = runtime.enter();
+                drop(machine);
             },
             BatchSize::SmallInput,
         )
