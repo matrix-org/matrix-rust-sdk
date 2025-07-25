@@ -1335,6 +1335,32 @@ impl MatrixMockServer {
             .and(query_param("animated", animated.to_string()));
         self.mock_endpoint(mock, AuthedMediaThumbnailEndpoint).expect_default_access_token()
     }
+
+    /// Create a prebuilt mock for the endpoint used to get a thread
+    /// subscription in a given room.
+    pub fn mock_get_thread_subscription(&self) -> MockEndpoint<'_, GetThreadSubscriptionEndpoint> {
+        let mock = Mock::given(method("GET"));
+        self.mock_endpoint(mock, GetThreadSubscriptionEndpoint::default())
+            .expect_default_access_token()
+    }
+
+    /// Create a prebuilt mock for the endpoint used to define a thread
+    /// subscription in a given room.
+    pub fn mock_put_thread_subscription(&self) -> MockEndpoint<'_, PutThreadSubscriptionEndpoint> {
+        let mock = Mock::given(method("PUT"));
+        self.mock_endpoint(mock, PutThreadSubscriptionEndpoint::default())
+            .expect_default_access_token()
+    }
+
+    /// Create a prebuilt mock for the endpoint used to delete a thread
+    /// subscription in a given room.
+    pub fn mock_delete_thread_subscription(
+        &self,
+    ) -> MockEndpoint<'_, DeleteThreadSubscriptionEndpoint> {
+        let mock = Mock::given(method("DELETE"));
+        self.mock_endpoint(mock, DeleteThreadSubscriptionEndpoint::default())
+            .expect_default_access_token()
+    }
 }
 
 /// Parameter to [`MatrixMockServer::sync_room`].
@@ -3751,5 +3777,123 @@ impl<'a> MockEndpoint<'a, JoinRoomEndpoint> {
         self.respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "room_id": room_id,
         })))
+    }
+}
+
+#[derive(Default)]
+struct ThreadSubscriptionMatchers {
+    /// Optional room id to match in the query.
+    room_id: Option<OwnedRoomId>,
+    /// Optional thread root event id to match in the query.
+    thread_root: Option<OwnedEventId>,
+}
+
+impl ThreadSubscriptionMatchers {
+    /// Match the request parameter against a specific room id.
+    fn match_room_id(mut self, room_id: OwnedRoomId) -> Self {
+        self.room_id = Some(room_id);
+        self
+    }
+
+    /// Match the request parameter against a specific thread root event id.
+    fn match_thread_id(mut self, thread_root: OwnedEventId) -> Self {
+        self.thread_root = Some(thread_root);
+        self
+    }
+
+    /// Compute the final URI for the thread subscription endpoint.
+    fn endpoint_regexp_uri(&self) -> String {
+        if self.room_id.is_some() || self.thread_root.is_some() {
+            format!(
+                "^/_matrix/client/unstable/io.element.msc4306/rooms/{}/thread/{}/subscription$",
+                self.room_id.as_deref().map(|s| s.as_str()).unwrap_or(".*"),
+                self.thread_root.as_deref().map(|s| s.as_str()).unwrap_or(".*").replace("$", "\\$")
+            )
+        } else {
+            "^/_matrix/client/unstable/io.element.msc4306/rooms/.*/thread/.*/subscription$"
+                .to_owned()
+        }
+    }
+}
+
+/// A prebuilt mock for `GET
+/// /client/*/rooms/{room_id}/threads/{thread_root}/subscription`
+#[derive(Default)]
+pub struct GetThreadSubscriptionEndpoint {
+    matchers: ThreadSubscriptionMatchers,
+}
+
+impl<'a> MockEndpoint<'a, GetThreadSubscriptionEndpoint> {
+    /// Returns a successful response for the given thread subscription.
+    pub fn ok(mut self, automatic: bool) -> MatrixMock<'a> {
+        self.mock = self.mock.and(path_regex(self.endpoint.matchers.endpoint_regexp_uri()));
+        self.respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "automatic": automatic
+        })))
+    }
+
+    /// Match the request parameter against a specific room id.
+    pub fn match_room_id(mut self, room_id: OwnedRoomId) -> Self {
+        self.endpoint.matchers = self.endpoint.matchers.match_room_id(room_id);
+        self
+    }
+    /// Match the request parameter against a specific thread root event id.
+    pub fn match_thread_id(mut self, thread_root: OwnedEventId) -> Self {
+        self.endpoint.matchers = self.endpoint.matchers.match_thread_id(thread_root);
+        self
+    }
+}
+
+/// A prebuilt mock for `PUT
+/// /client/*/rooms/{room_id}/threads/{thread_root}/subscription`
+#[derive(Default)]
+pub struct PutThreadSubscriptionEndpoint {
+    matchers: ThreadSubscriptionMatchers,
+}
+
+impl<'a> MockEndpoint<'a, PutThreadSubscriptionEndpoint> {
+    /// Returns a successful response for the given setting of thread
+    /// subscription.
+    pub fn ok(mut self) -> MatrixMock<'a> {
+        self.mock = self.mock.and(path_regex(self.endpoint.matchers.endpoint_regexp_uri()));
+        self.respond_with(ResponseTemplate::new(200))
+    }
+
+    /// Match the request parameter against a specific room id.
+    pub fn match_room_id(mut self, room_id: OwnedRoomId) -> Self {
+        self.endpoint.matchers = self.endpoint.matchers.match_room_id(room_id);
+        self
+    }
+    /// Match the request parameter against a specific thread root event id.
+    pub fn match_thread_id(mut self, thread_root: OwnedEventId) -> Self {
+        self.endpoint.matchers = self.endpoint.matchers.match_thread_id(thread_root);
+        self
+    }
+}
+
+/// A prebuilt mock for `DELETE
+/// /client/*/rooms/{room_id}/threads/{thread_root}/subscription`
+#[derive(Default)]
+pub struct DeleteThreadSubscriptionEndpoint {
+    matchers: ThreadSubscriptionMatchers,
+}
+
+impl<'a> MockEndpoint<'a, DeleteThreadSubscriptionEndpoint> {
+    /// Returns a successful response for the deletion of a given thread
+    /// subscription.
+    pub fn ok(mut self) -> MatrixMock<'a> {
+        self.mock = self.mock.and(path_regex(self.endpoint.matchers.endpoint_regexp_uri()));
+        self.respond_with(ResponseTemplate::new(200))
+    }
+
+    /// Match the request parameter against a specific room id.
+    pub fn match_room_id(mut self, room_id: OwnedRoomId) -> Self {
+        self.endpoint.matchers = self.endpoint.matchers.match_room_id(room_id);
+        self
+    }
+    /// Match the request parameter against a specific thread root event id.
+    pub fn match_thread_id(mut self, thread_root: OwnedEventId) -> Self {
+        self.endpoint.matchers = self.endpoint.matchers.match_thread_id(thread_root);
+        self
     }
 }
