@@ -344,7 +344,7 @@ impl RoomSendQueue {
 
             item_types.push(Room::make_gallery_item_type(
                 &content_type,
-                filename,
+                filename.clone(),
                 file_media_request.source.clone(),
                 item_info.caption,
                 item_info.formatted_caption,
@@ -356,6 +356,7 @@ impl RoomSendQueue {
                 content_type,
                 upload_file_txn: upload_file_txn.clone(),
                 file_media_request,
+                filename: Some(filename),
                 thumbnail: queue_thumbnail_info,
             });
 
@@ -609,6 +610,7 @@ impl QueueStorage {
         cache_key: MediaRequestParameters,
         event_txn: OwnedTransactionId,
         parent_is_thumbnail_upload: bool,
+        filename: Option<String>,
     ) -> Result<(), RoomSendQueueError> {
         // The previous file or thumbnail has been sent, now transform the dependent
         // file or thumbnail upload request into a ready one.
@@ -657,6 +659,7 @@ impl QueueStorage {
             related_to: event_txn,
             #[cfg(feature = "unstable-msc4274")]
             accumulated,
+            filename,
         };
 
         client

@@ -142,7 +142,7 @@ use as_variant::as_variant;
 use matrix_sdk_base::store::FinishGalleryItemInfo;
 use matrix_sdk_base::{
     event_cache::store::EventCacheStoreError,
-    media::MediaRequestParameters,
+    media::{MediaEventContent, MediaRequestParameters},
     store::{
         ChildTransactionId, DependentQueuedRequest, DependentQueuedRequestKind, DynStateStore,
         FinishUploadThumbnailInfo, QueueWedgeError, QueuedRequest, QueuedRequestKind,
@@ -158,7 +158,7 @@ use ruma::{
         reaction::ReactionEventContent,
         relation::Annotation,
         room::{
-            message::{FormattedBody, RoomMessageEventContent},
+            message::{FormattedBody, MessageType, RoomMessageEventContent},
             MediaSource,
         },
         AnyMessageLikeEventContent, Mentions, MessageLikeEventContent as _,
@@ -177,7 +177,7 @@ use crate::{
     config::RequestConfig,
     error::RetryKind,
     room::{edit::EditedContent, WeakRoom},
-    Client, Media, Room,
+    Client, Media, Room, SendMediaUploadRequest,
 };
 
 mod upload;
@@ -753,6 +753,7 @@ impl RoomSendQueue {
                 related_to: relates_to,
                 #[cfg(feature = "unstable-msc4274")]
                 accumulated,
+                filename,
             } => {
                 trace!(%relates_to, "uploading media related to event");
 
@@ -788,8 +789,13 @@ impl RoomSendQueue {
                         trace!("upload will be in clear text (room without encryption)");
                         let request_config = RequestConfig::short_retry()
                             .timeout(Media::reasonable_upload_timeout(&data));
-                        let res =
-                            room.client().media().upload(&mime, data, Some(request_config)).await?;
+
+                        let send_media_request = SendMediaUploadRequest::new(room.client(), data)
+                            .with_content_type(mime.essence_str())
+                            .with_request_config(Some(request_config))
+                            .with_filename(filename);
+
+                        let res = room.client().media().upload(send_media_request).await?;
                         MediaSource::Plain(res.content_uri)
                     };
 
@@ -797,8 +803,13 @@ impl RoomSendQueue {
                     let media_source = {
                         let request_config = RequestConfig::short_retry()
                             .timeout(Media::reasonable_upload_timeout(&data));
-                        let res =
-                            room.client().media().upload(&mime, data, Some(request_config)).await?;
+
+                        let send_media_request = SendMediaUploadRequest::new(room.client(), data)
+                            .with_content_type(mime.essence_str())
+                            .with_request_config(Some(request_config))
+                            .with_filename(filename);
+
+                        let res = room.client().media().upload(send_media_request).await?;
                         MediaSource::Plain(res.content_uri)
                     };
 
@@ -1279,10 +1290,19 @@ impl QueueStorage {
         let client = guard.client()?;
         let store = client.state_store();
 
+        let filename = match &event.msgtype {
+            MessageType::Image(msgtype) => msgtype.filename_or_body(),
+            MessageType::Audio(msgtype) => msgtype.filename_or_body(),
+            MessageType::Video(msgtype) => msgtype.filename_or_body(),
+            MessageType::File(msgtype) => msgtype.filename_or_body(),
+            _ => None,
+        };
+
         let thumbnail_info = self
             .push_thumbnail_and_media_uploads(
                 store,
                 &content_type,
+                filename,
                 send_event_txn.clone(),
                 created_at,
                 upload_file_txn.clone(),
@@ -1331,13 +1351,19 @@ impl QueueStorage {
             return Ok(());
         };
 
-        let GalleryItemQueueInfo { content_type, upload_file_txn, file_media_request, thumbnail } =
-            first;
+        let GalleryItemQueueInfo {
+            content_type,
+            upload_file_txn,
+            file_media_request,
+            filename,
+            thumbnail,
+        } = first;
 
         let thumbnail_info = self
             .push_thumbnail_and_media_uploads(
                 store,
                 content_type,
+                filename.clone(),
                 send_event_txn.clone(),
                 created_at,
                 upload_file_txn.clone(),
@@ -1356,6 +1382,7 @@ impl QueueStorage {
                 content_type,
                 upload_file_txn,
                 file_media_request,
+                filename,
                 thumbnail,
             } = item_queue_info;
 
@@ -1378,6 +1405,7 @@ impl QueueStorage {
                                 cache_key: thumbnail_media_request.clone(),
                                 related_to: send_event_txn.clone(),
                                 parent_is_thumbnail_upload: false,
+                                filename: filename.clone().map(|name| format!("thumbnail-{name}")),
                             },
                         )
                         .await?;
@@ -1401,6 +1429,7 @@ impl QueueStorage {
                         cache_key: file_media_request.clone(),
                         related_to: send_event_txn.clone(),
                         parent_is_thumbnail_upload: thumbnail.is_some(),
+                        filename: filename.clone(),
                     },
                 )
                 .await?;
@@ -1441,6 +1470,7 @@ impl QueueStorage {
         &self,
         store: &DynStateStore,
         content_type: &Mime,
+        filename: Option<String>,
         send_event_txn: OwnedTransactionId,
         created_at: MilliSecondsSinceUnixEpoch,
         upload_file_txn: OwnedTransactionId,
@@ -1463,6 +1493,7 @@ impl QueueStorage {
                         related_to: send_event_txn.clone(),
                         #[cfg(feature = "unstable-msc4274")]
                         accumulated: vec![],
+                        filename: filename.clone().map(|name| format!("thumbnail-{name}")),
                     },
                     Self::LOW_PRIORITY,
                 )
@@ -1481,6 +1512,7 @@ impl QueueStorage {
                         related_to: send_event_txn,
                         #[cfg(feature = "unstable-msc4274")]
                         parent_is_thumbnail_upload: true,
+                        filename,
                     },
                 )
                 .await?;
@@ -1500,6 +1532,7 @@ impl QueueStorage {
                         related_to: send_event_txn,
                         #[cfg(feature = "unstable-msc4274")]
                         accumulated: vec![],
+                        filename,
                     },
                     Self::LOW_PRIORITY,
                 )
@@ -1873,7 +1906,9 @@ impl QueueStorage {
                 related_to,
                 #[cfg(feature = "unstable-msc4274")]
                 parent_is_thumbnail_upload,
+                filename,
             } => {
+                warn!("Saving send queue request for filename {filename:?}");
                 let Some(parent_key) = parent_key else {
                     // Not finished yet, we should retry later => false.
                     return Ok(false);
@@ -1898,6 +1933,7 @@ impl QueueStorage {
                     cache_key,
                     related_to,
                     parent_is_thumbnail_upload,
+                    filename,
                 )
                 .await?;
             }
@@ -2039,6 +2075,7 @@ struct GalleryItemQueueInfo {
     content_type: Mime,
     upload_file_txn: OwnedTransactionId,
     file_media_request: MediaRequestParameters,
+    filename: Option<String>,
     thumbnail: Option<(FinishUploadThumbnailInfo, MediaRequestParameters, Mime)>,
 }
 

@@ -158,7 +158,8 @@ use crate::{
     },
     sync::RoomUpdate,
     utils::{IntoRawMessageLikeEventContent, IntoRawStateEventContent},
-    BaseRoom, Client, Error, HttpResult, Result, RoomState, TransmissionProgress,
+    BaseRoom, Client, Error, HttpResult, Result, RoomState, SendMediaUploadRequest,
+    TransmissionProgress,
 };
 #[cfg(feature = "e2e-encryption")]
 use crate::{crypto::types::events::CryptoContextInfo, encryption::backups::BackupState};
@@ -2318,6 +2319,7 @@ impl Room {
                     // TODO: get rid of this clone; wait for Ruma to use `Bytes` or something
                     // similar.
                     data.clone(),
+                    Some(filename.clone()),
                     thumbnail,
                     send_progress,
                 )
@@ -2328,7 +2330,13 @@ impl Room {
         let (media_source, thumbnail) = self
             .client
             .media()
-            .upload_plain_media_and_thumbnail(content_type, data.clone(), thumbnail, send_progress)
+            .upload_plain_media_and_thumbnail(
+                content_type,
+                data.clone(),
+                Some(filename.clone()),
+                thumbnail,
+                send_progress,
+            )
             .await?;
 
         if store_in_cache {
@@ -2589,7 +2597,10 @@ impl Room {
     ) -> Result<send_state_event::v3::Response> {
         self.ensure_room_joined()?;
 
-        let upload_response = self.client.media().upload(mime, data, None).await?;
+        let send_media_request = SendMediaUploadRequest::new(self.client.clone(), data)
+            .with_content_type(mime.essence_str().to_owned());
+
+        let upload_response = self.client.media().upload(send_media_request).await?;
         let mut info = info.unwrap_or_default();
         info.blurhash = upload_response.blurhash;
         info.mimetype = Some(mime.to_string());
