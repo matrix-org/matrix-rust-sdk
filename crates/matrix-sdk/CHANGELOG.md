@@ -25,6 +25,12 @@ All notable changes to this project will be documented in this file.
 
 ### Refactor
 
+- [**breaking**] Add an `IsPrefix = False` bound to the `account_data()` and
+  `fetch_account_data_static()` methods of `Account`. These methods only worked
+  for events where the full event type is statically-known, and this is now
+  enforced at compile-time. `account_data_raw()` and `fetch_account_data()`
+  respectively can be used instead for event types with a variable suffix.
+  ([#5444](https://github.com/matrix-org/matrix-rust-sdk/pull/5444))
 - [**breaking**] `RoomMemberRole::suggested_role_for_power_level()` and
   `RoomMemberRole::suggested_power_level()` now use `UserPowerLevel` to represent
   power levels instead of `i64` to differentiate the infinite power level of
@@ -42,9 +48,12 @@ All notable changes to this project will be documented in this file.
 
 ### Bugfix
 
+- The event handlers APIs now properly support events whose type is not fully
+  statically-known. Before, those events would never trigger an event handler.
+  ([#5444](https://github.com/matrix-org/matrix-rust-sdk/pull/5444))
 - All HTTP requests now have a default `read_timeout` of 60s, which means they'll disconnect if the connection stalls.
  `RequestConfig::timeout` is now optional and can be disabled on a per-request basis. This will be done for
- the requests used to download media, so they don't get cancelled after the default 30s timeout for no good reason. 
+ the requests used to download media, so they don't get cancelled after the default 30s timeout for no good reason.
  ([#5437](https://github.com/matrix-org/matrix-rust-sdk/pull/5437))
 
 ## [0.13.0] - 2025-07-10
@@ -56,7 +65,7 @@ All notable changes to this project will be documented in this file.
 
 ### Bug fixes
 
-- `Room.leave()` will now attempt to leave all reachable predecessors too. 
+- `Room.leave()` will now attempt to leave all reachable predecessors too.
   ([#5381](https://github.com/matrix-org/matrix-rust-sdk/pull/5381))
 - When joining a room via `Client::join_room_by_id()`, if the client has `enable_share_history_on_invite` enabled,
   we will correctly check for received room key bundles. Previously this was only done when calling `Room::join`.
