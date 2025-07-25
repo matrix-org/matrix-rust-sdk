@@ -516,22 +516,32 @@ async fn test_initial_public_unthreaded_receipt() {
 
     // Add initial unthreaded public receipt.
     let mut initial_user_receipts = ReadReceiptMap::new();
-    initial_user_receipts
+    let unthreaded_read_receipts = initial_user_receipts
         .entry(ReceiptType::Read)
         .or_default()
         .entry(ReceiptThread::Unthreaded)
-        .or_default()
-        .insert(
-            ALICE.to_owned(),
-            (event_id.clone(), Receipt::new(ruma::MilliSecondsSinceUnixEpoch(uint!(10)))),
-        );
+        .or_default();
+    unthreaded_read_receipts.insert(
+        ALICE.to_owned(),
+        (event_id.clone(), Receipt::new(ruma::MilliSecondsSinceUnixEpoch(uint!(10)))),
+    );
+    unthreaded_read_receipts.insert(
+        BOB.to_owned(),
+        (event_id.clone(), Receipt::new(ruma::MilliSecondsSinceUnixEpoch(uint!(10)))),
+    );
 
     let timeline = TestTimelineBuilder::new()
         .provider(TestRoomDataProvider::default().with_initial_user_receipts(initial_user_receipts))
         .settings(TimelineSettings { track_read_receipts: true, ..Default::default() })
         .build();
 
-    let (receipt_event_id, _) = timeline.controller.latest_user_read_receipt(*ALICE).await.unwrap();
+    timeline
+        .handle_live_event(timeline.factory.text_msg("A").sender(*ALICE).event_id(&event_id))
+        .await;
+
+    // The current user should not see their own read receipt.
+    assert!(timeline.controller.latest_user_read_receipt(*ALICE).await.is_none());
+    let (receipt_event_id, _) = timeline.controller.latest_user_read_receipt(*BOB).await.unwrap();
     assert_eq!(receipt_event_id, event_id);
 }
 
@@ -541,22 +551,32 @@ async fn test_initial_public_main_thread_receipt() {
 
     // Add initial public receipt on the main thread.
     let mut initial_user_receipts = ReadReceiptMap::new();
-    initial_user_receipts
+    let main_thread_receipts = initial_user_receipts
         .entry(ReceiptType::Read)
         .or_default()
         .entry(ReceiptThread::Main)
-        .or_default()
-        .insert(
-            ALICE.to_owned(),
-            (event_id.clone(), Receipt::new(ruma::MilliSecondsSinceUnixEpoch(uint!(10)))),
-        );
+        .or_default();
+    main_thread_receipts.insert(
+        ALICE.to_owned(),
+        (event_id.clone(), Receipt::new(ruma::MilliSecondsSinceUnixEpoch(uint!(10)))),
+    );
+    main_thread_receipts.insert(
+        BOB.to_owned(),
+        (event_id.clone(), Receipt::new(ruma::MilliSecondsSinceUnixEpoch(uint!(10)))),
+    );
 
     let timeline = TestTimelineBuilder::new()
         .provider(TestRoomDataProvider::default().with_initial_user_receipts(initial_user_receipts))
         .settings(TimelineSettings { track_read_receipts: true, ..Default::default() })
         .build();
 
-    let (receipt_event_id, _) = timeline.controller.latest_user_read_receipt(*ALICE).await.unwrap();
+    timeline
+        .handle_live_event(timeline.factory.text_msg("A").sender(*ALICE).event_id(&event_id))
+        .await;
+
+    // The current user should not see their own read receipt.
+    assert!(timeline.controller.latest_user_read_receipt(*ALICE).await.is_none());
+    let (receipt_event_id, _) = timeline.controller.latest_user_read_receipt(*BOB).await.unwrap();
     assert_eq!(receipt_event_id, event_id);
 }
 
@@ -567,15 +587,19 @@ async fn test_initial_public_unthreaded_receipt_main_threaded_timeline() {
     // Add an initial unthreaded public receipt and expect it to be considered on a
     // main threaded timeline.
     let mut initial_user_receipts = ReadReceiptMap::new();
-    initial_user_receipts
+    let unthreaded_receipts = initial_user_receipts
         .entry(ReceiptType::Read)
         .or_default()
         .entry(ReceiptThread::Unthreaded)
-        .or_default()
-        .insert(
-            ALICE.to_owned(),
-            (event_id.clone(), Receipt::new(ruma::MilliSecondsSinceUnixEpoch(uint!(10)))),
-        );
+        .or_default();
+    unthreaded_receipts.insert(
+        ALICE.to_owned(),
+        (event_id.clone(), Receipt::new(ruma::MilliSecondsSinceUnixEpoch(uint!(10)))),
+    );
+    unthreaded_receipts.insert(
+        BOB.to_owned(),
+        (event_id.clone(), Receipt::new(ruma::MilliSecondsSinceUnixEpoch(uint!(10)))),
+    );
 
     let timeline = TestTimelineBuilder::new()
         .focus(TimelineFocus::Live { hide_threaded_events: true })
@@ -583,7 +607,13 @@ async fn test_initial_public_unthreaded_receipt_main_threaded_timeline() {
         .settings(TimelineSettings { track_read_receipts: true, ..Default::default() })
         .build();
 
-    let (receipt_event_id, _) = timeline.controller.latest_user_read_receipt(*ALICE).await.unwrap();
+    timeline
+        .handle_live_event(timeline.factory.text_msg("A").sender(*ALICE).event_id(&event_id))
+        .await;
+
+    // The current user should not see their own read receipt.
+    assert!(timeline.controller.latest_user_read_receipt(*ALICE).await.is_none());
+    let (receipt_event_id, _) = timeline.controller.latest_user_read_receipt(*BOB).await.unwrap();
     assert_eq!(receipt_event_id, event_id);
 }
 
@@ -593,22 +623,32 @@ async fn test_initial_private_unthreaded_receipt() {
 
     // Add initial unthreaded private receipt.
     let mut initial_user_receipts = ReadReceiptMap::new();
-    initial_user_receipts
+    let unthreaded_receipts = initial_user_receipts
         .entry(ReceiptType::ReadPrivate)
         .or_default()
         .entry(ReceiptThread::Unthreaded)
-        .or_default()
-        .insert(
-            ALICE.to_owned(),
-            (event_id.clone(), Receipt::new(ruma::MilliSecondsSinceUnixEpoch(uint!(10)))),
-        );
+        .or_default();
+    unthreaded_receipts.insert(
+        ALICE.to_owned(),
+        (event_id.clone(), Receipt::new(ruma::MilliSecondsSinceUnixEpoch(uint!(10)))),
+    );
+    unthreaded_receipts.insert(
+        BOB.to_owned(),
+        (event_id.clone(), Receipt::new(ruma::MilliSecondsSinceUnixEpoch(uint!(10)))),
+    );
 
     let timeline = TestTimelineBuilder::new()
         .provider(TestRoomDataProvider::default().with_initial_user_receipts(initial_user_receipts))
         .settings(TimelineSettings { track_read_receipts: true, ..Default::default() })
         .build();
 
-    let (receipt_event_id, _) = timeline.controller.latest_user_read_receipt(*ALICE).await.unwrap();
+    timeline
+        .handle_live_event(timeline.factory.text_msg("A").sender(*ALICE).event_id(&event_id))
+        .await;
+
+    // The current user should not see their own read receipt.
+    assert!(timeline.controller.latest_user_read_receipt(*ALICE).await.is_none());
+    let (receipt_event_id, _) = timeline.controller.latest_user_read_receipt(*BOB).await.unwrap();
     assert_eq!(receipt_event_id, event_id);
 }
 
@@ -618,22 +658,32 @@ async fn test_initial_private_main_thread_receipt() {
 
     // Add initial private receipt on the main thread.
     let mut initial_user_receipts = ReadReceiptMap::new();
-    initial_user_receipts
+    let main_thread_receipts = initial_user_receipts
         .entry(ReceiptType::ReadPrivate)
         .or_default()
         .entry(ReceiptThread::Main)
-        .or_default()
-        .insert(
-            ALICE.to_owned(),
-            (event_id.clone(), Receipt::new(ruma::MilliSecondsSinceUnixEpoch(uint!(10)))),
-        );
+        .or_default();
+    main_thread_receipts.insert(
+        ALICE.to_owned(),
+        (event_id.clone(), Receipt::new(ruma::MilliSecondsSinceUnixEpoch(uint!(10)))),
+    );
+    main_thread_receipts.insert(
+        BOB.to_owned(),
+        (event_id.clone(), Receipt::new(ruma::MilliSecondsSinceUnixEpoch(uint!(10)))),
+    );
 
     let timeline = TestTimelineBuilder::new()
         .provider(TestRoomDataProvider::default().with_initial_user_receipts(initial_user_receipts))
         .settings(TimelineSettings { track_read_receipts: true, ..Default::default() })
         .build();
 
-    let (receipt_event_id, _) = timeline.controller.latest_user_read_receipt(*ALICE).await.unwrap();
+    timeline
+        .handle_live_event(timeline.factory.text_msg("A").sender(*ALICE).event_id(&event_id))
+        .await;
+
+    // The current user should not see their own read receipt.
+    assert!(timeline.controller.latest_user_read_receipt(*ALICE).await.is_none());
+    let (receipt_event_id, _) = timeline.controller.latest_user_read_receipt(*BOB).await.unwrap();
     assert_eq!(receipt_event_id, event_id);
 }
 
@@ -644,15 +694,19 @@ async fn test_initial_private_unthreaded_receipt_main_threaded_timeline() {
     // Add an initial unthreaded private receipt and expect it to be considered on a
     // main threaded timeline.
     let mut initial_user_receipts = ReadReceiptMap::new();
-    initial_user_receipts
+    let unthreaded_receipts = initial_user_receipts
         .entry(ReceiptType::ReadPrivate)
         .or_default()
         .entry(ReceiptThread::Unthreaded)
-        .or_default()
-        .insert(
-            ALICE.to_owned(),
-            (event_id.clone(), Receipt::new(ruma::MilliSecondsSinceUnixEpoch(uint!(10)))),
-        );
+        .or_default();
+    unthreaded_receipts.insert(
+        ALICE.to_owned(),
+        (event_id.clone(), Receipt::new(ruma::MilliSecondsSinceUnixEpoch(uint!(10)))),
+    );
+    unthreaded_receipts.insert(
+        BOB.to_owned(),
+        (event_id.clone(), Receipt::new(ruma::MilliSecondsSinceUnixEpoch(uint!(10)))),
+    );
 
     let timeline = TestTimelineBuilder::new()
         .focus(TimelineFocus::Live { hide_threaded_events: true })
@@ -660,7 +714,13 @@ async fn test_initial_private_unthreaded_receipt_main_threaded_timeline() {
         .settings(TimelineSettings { track_read_receipts: true, ..Default::default() })
         .build();
 
-    let (receipt_event_id, _) = timeline.controller.latest_user_read_receipt(*ALICE).await.unwrap();
+    timeline
+        .handle_live_event(timeline.factory.text_msg("A").sender(*ALICE).event_id(&event_id))
+        .await;
+
+    // The current user should not see their own read receipt.
+    assert!(timeline.controller.latest_user_read_receipt(*ALICE).await.is_none());
+    let (receipt_event_id, _) = timeline.controller.latest_user_read_receipt(*BOB).await.unwrap();
     assert_eq!(receipt_event_id, event_id);
 }
 
@@ -754,13 +814,10 @@ async fn test_implicit_read_receipt_before_explicit_read_receipt() {
         .settings(TimelineSettings { track_read_receipts: true, ..Default::default() })
         .build();
 
-    // Check that the receipts are at the correct place.
-    let (receipt_event_id, _) = timeline.controller.latest_user_read_receipt(*ALICE).await.unwrap();
-    assert_eq!(receipt_event_id, carol_event_id);
-    let (receipt_event_id, _) = timeline.controller.latest_user_read_receipt(*BOB).await.unwrap();
-    assert_eq!(receipt_event_id, carol_event_id);
-    let (receipt_event_id, _) = timeline.controller.latest_user_read_receipt(*CAROL).await.unwrap();
-    assert_eq!(receipt_event_id, carol_event_id);
+    // Receipts should be empty before any events.
+    assert!(timeline.controller.latest_user_read_receipt(*ALICE).await.is_none());
+    assert!(timeline.controller.latest_user_read_receipt(*BOB).await.is_none());
+    assert!(timeline.controller.latest_user_read_receipt(*CAROL).await.is_none());
 
     // Add the events.
     timeline
@@ -797,9 +854,9 @@ async fn test_implicit_read_receipt_before_explicit_read_receipt() {
         )
         .await;
 
-    // The receipts shouldn't have moved.
-    let (receipt_event_id, _) = timeline.controller.latest_user_read_receipt(*ALICE).await.unwrap();
-    assert_eq!(receipt_event_id, carol_event_id);
+    // The receipts shouldn't have moved. The current user should not see their
+    // own read receipt.
+    assert!(timeline.controller.latest_user_read_receipt(*ALICE).await.is_none());
     let (receipt_event_id, _) = timeline.controller.latest_user_read_receipt(*BOB).await.unwrap();
     assert_eq!(receipt_event_id, carol_event_id);
     let (receipt_event_id, _) = timeline.controller.latest_user_read_receipt(*CAROL).await.unwrap();
@@ -812,7 +869,7 @@ async fn test_threaded_latest_user_read_receipt() {
     let receipt_thread = ReceiptThread::Thread(thread_root.clone());
 
     let timeline = TestTimelineBuilder::new()
-        .focus(TimelineFocus::Thread { root_event_id: thread_root })
+        .focus(TimelineFocus::Thread { root_event_id: thread_root.clone() })
         .settings(TimelineSettings { track_read_receipts: true, ..Default::default() })
         .build();
 
@@ -824,44 +881,49 @@ async fn test_threaded_latest_user_read_receipt() {
     let f = &timeline.factory;
 
     timeline
-        .handle_live_event(f.text_msg("hi I'm Bob.").sender(*ALICE).event_id(event_id!("$1")))
-        .await;
-
-    timeline
-        .handle_live_event(f.text_msg("hi Alice, I'm Bob.").sender(*BOB).event_id(event_id!("$2")))
+        .handle_live_event(
+            f.text_msg("hi Alice, I'm Bob.")
+                .sender(*BOB)
+                .event_id(event_id!("$1"))
+                .in_thread(&thread_root, event_id!("$1")),
+        )
         .await;
 
     // Implicit receipts are taken into account.
     let (receipt_event_id, receipt) =
-        timeline.controller.latest_user_read_receipt(*ALICE).await.unwrap();
+        timeline.controller.latest_user_read_receipt(*BOB).await.unwrap();
     assert_eq!(receipt_event_id, event_id!("$1"));
     assert_eq!(receipt.thread, receipt_thread);
 
-    let (receipt_event_id, receipt) =
-        timeline.controller.latest_user_read_receipt(*BOB).await.unwrap();
-    assert_eq!(receipt_event_id, event_id!("$2"));
-    assert_eq!(receipt.thread, receipt_thread);
-
     timeline
-        .handle_live_event(f.text_msg("nice to meet you!").sender(*ALICE).event_id(event_id!("$3")))
+        .handle_live_event(
+            f.text_msg("hi Bob, I'm Alice.")
+                .sender(*ALICE)
+                .event_id(event_id!("$2"))
+                .in_thread(&thread_root, event_id!("$2")),
+        )
         .await;
 
-    // Alice's latest read receipt is updated.
-    let (receipt_event_id, receipt) =
-        timeline.controller.latest_user_read_receipt(*ALICE).await.unwrap();
-    assert_eq!(receipt_event_id, event_id!("$3"));
-    assert_eq!(receipt.thread, receipt_thread);
-
-    // But Bob's isn't.
+    // Bob's latest read receipt is still at the first event.
     let (receipt_event_id, receipt) =
         timeline.controller.latest_user_read_receipt(*BOB).await.unwrap();
-    assert_eq!(receipt_event_id, event_id!("$2"));
+    assert_eq!(receipt_event_id, event_id!("$1"));
     assert_eq!(receipt.thread, receipt_thread);
 
-    // Bob sees Alice's message.
+    // Bob doesn't see Alice's message yet but sends a new message.
+    timeline
+        .handle_live_event(
+            f.text_msg("nice to meet you, Alice!")
+                .sender(*BOB)
+                .event_id(event_id!("$3"))
+                .in_thread(&thread_root, event_id!("$3")),
+        )
+        .await;
+
+    // Bob sees Alice's message
     timeline
         .handle_read_receipts([(
-            owned_event_id!("$3"),
+            owned_event_id!("$2"),
             ReceiptType::Read,
             BOB.to_owned(),
             receipt_thread.clone(),
@@ -869,12 +931,10 @@ async fn test_threaded_latest_user_read_receipt() {
         .await;
 
     // Alice's latest read receipt is at the same position.
-    let (receipt_event_id, receipt) =
-        timeline.controller.latest_user_read_receipt(*ALICE).await.unwrap();
-    assert_eq!(receipt_event_id, event_id!("$3"));
-    assert_eq!(receipt.thread, receipt_thread);
+    assert!(timeline.controller.latest_user_read_receipt(*ALICE).await.is_none());
 
-    // But Bob's has moved!
+    // But Bob's has moved to the latest event as implicit read receipts are
+    // considered yet again.
     let (receipt_event_id, receipt) =
         timeline.controller.latest_user_read_receipt(*BOB).await.unwrap();
     assert_eq!(receipt_event_id, event_id!("$3"));

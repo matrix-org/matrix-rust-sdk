@@ -107,8 +107,7 @@ async fn test_read_receipts_updates() {
     let first_event = first_item.as_event().unwrap();
     assert!(first_event.read_receipts().is_empty());
 
-    let (own_receipt_event_id, _) = timeline.latest_user_read_receipt(own_user_id).await.unwrap();
-    assert_eq!(own_receipt_event_id, first_event.event_id().unwrap());
+    assert!(timeline.latest_user_read_receipt(own_user_id).await.is_none());
 
     assert_ready!(own_receipts_subscriber);
     assert_pending!(own_receipts_subscriber);
@@ -225,9 +224,7 @@ async fn test_read_receipts_updates() {
         )
         .await;
 
-    let (own_user_receipt_event_id, _) =
-        timeline.latest_user_read_receipt(own_user_id).await.unwrap();
-    assert_eq!(own_user_receipt_event_id, second_event_id);
+    assert!(timeline.latest_user_read_receipt(own_user_id).await.is_none());
 
     assert_ready!(own_receipts_subscriber);
     assert_pending!(own_receipts_subscriber);
@@ -297,20 +294,13 @@ async fn test_read_receipts_updates_on_filtered_events() {
     let event_a = item_a.as_event().unwrap();
     assert!(event_a.read_receipts().is_empty());
 
-    let (own_receipt_event_id, _) = timeline.latest_user_read_receipt(own_user_id).await.unwrap();
-    assert_eq!(own_receipt_event_id, event_a_id);
-    let own_receipt_timeline_event =
-        timeline.latest_user_read_receipt_timeline_event_id(own_user_id).await.unwrap();
-    assert_eq!(own_receipt_timeline_event, event_a_id);
+    assert!(timeline.latest_user_read_receipt(own_user_id).await.is_none());
 
     // Implicit read receipt of @bob:localhost.
     assert_let!(VectorDiff::Set { index: 0, value: item_a } = &timeline_updates[1]);
     let event_a = item_a.as_event().unwrap();
     assert_eq!(event_a.read_receipts().len(), 1);
 
-    // Real receipt is on event B.
-    let (bob_receipt_event_id, _) = timeline.latest_user_read_receipt(*BOB).await.unwrap();
-    assert_eq!(bob_receipt_event_id, event_b_id);
     // Visible receipt is on event A.
     let bob_receipt_timeline_event =
         timeline.latest_user_read_receipt_timeline_event_id(*BOB).await.unwrap();
@@ -342,9 +332,6 @@ async fn test_read_receipts_updates_on_filtered_events() {
         )
         .await;
 
-    // Real receipt changed to event B.
-    let (own_receipt_event_id, _) = timeline.latest_user_read_receipt(own_user_id).await.unwrap();
-    assert_eq!(own_receipt_event_id, event_b_id);
     // Visible receipt is still on event A.
     let own_receipt_timeline_event =
         timeline.latest_user_read_receipt_timeline_event_id(own_user_id).await.unwrap();
@@ -398,9 +385,6 @@ async fn test_read_receipts_updates_on_filtered_events() {
         .await;
 
     // Both real and visible receipts are now on event C.
-    let (own_user_receipt_event_id, _) =
-        timeline.latest_user_read_receipt(own_user_id).await.unwrap();
-    assert_eq!(own_user_receipt_event_id, event_c_id);
     let own_receipt_timeline_event =
         timeline.latest_user_read_receipt_timeline_event_id(own_user_id).await.unwrap();
     assert_eq!(own_receipt_timeline_event, event_c_id);
@@ -1380,6 +1364,9 @@ async fn test_latest_user_read_receipt() {
     assert!(items.is_empty());
 
     let own_user_id = client.user_id().unwrap();
+    // Current users don't see their own read receipts.
+    let other_user_id = user_id!("@bob:example.org");
+
     let user_receipt = timeline.latest_user_read_receipt(own_user_id).await;
     assert_matches!(user_receipt, None);
 
@@ -1394,21 +1381,27 @@ async fn test_latest_user_read_receipt() {
     server
         .sync_room(
             &client,
-            JoinedRoomBuilder::new(room_id).add_receipt(
-                f.read_receipts()
-                    .add_with_timestamp(
-                        event_a_id,
-                        own_user_id,
-                        EventReceiptType::ReadPrivate,
-                        ReceiptThread::Unthreaded,
-                        None,
-                    )
-                    .into_event(),
-            ),
+            JoinedRoomBuilder::new(room_id)
+                .add_receipt(
+                    f.read_receipts()
+                        .add_with_timestamp(
+                            event_a_id,
+                            other_user_id,
+                            EventReceiptType::ReadPrivate,
+                            ReceiptThread::Unthreaded,
+                            None,
+                        )
+                        .into_event(),
+                )
+                .add_timeline_event(f.text_msg("Event A").sender(own_user_id).event_id(event_a_id))
+                .add_timeline_event(f.text_msg("Event B").sender(own_user_id).event_id(event_b_id))
+                .add_timeline_event(f.text_msg("Event C").sender(own_user_id).event_id(event_c_id))
+                .add_timeline_event(f.text_msg("Event D").sender(own_user_id).event_id(event_d_id))
+                .add_timeline_event(f.text_msg("Event E").sender(own_user_id).event_id(event_e_id)),
         )
         .await;
 
-    let (user_receipt_id, _) = timeline.latest_user_read_receipt(own_user_id).await.unwrap();
+    let (user_receipt_id, _) = timeline.latest_user_read_receipt(other_user_id).await.unwrap();
     assert_eq!(user_receipt_id, event_a_id);
 
     // Private and public receipts without timestamp should return private
@@ -1420,7 +1413,7 @@ async fn test_latest_user_read_receipt() {
                 f.read_receipts()
                     .add_with_timestamp(
                         event_b_id,
-                        own_user_id,
+                        other_user_id,
                         EventReceiptType::Read,
                         ReceiptThread::Unthreaded,
                         None,
@@ -1430,8 +1423,8 @@ async fn test_latest_user_read_receipt() {
         )
         .await;
 
-    let (user_receipt_id, _) = timeline.latest_user_read_receipt(own_user_id).await.unwrap();
-    assert_eq!(user_receipt_id, event_a_id);
+    let (user_receipt_id, _) = timeline.latest_user_read_receipt(other_user_id).await.unwrap();
+    assert_eq!(user_receipt_id, event_b_id);
 
     // Public receipt with bigger timestamp.
     server
@@ -1441,14 +1434,14 @@ async fn test_latest_user_read_receipt() {
                 f.read_receipts()
                     .add_with_timestamp(
                         event_c_id,
-                        own_user_id,
-                        EventReceiptType::ReadPrivate,
+                        other_user_id,
+                        EventReceiptType::Read,
                         ReceiptThread::Unthreaded,
                         Some(MilliSecondsSinceUnixEpoch(uint!(1))),
                     )
                     .add_with_timestamp(
                         event_d_id,
-                        own_user_id,
+                        other_user_id,
                         EventReceiptType::Read,
                         ReceiptThread::Unthreaded,
                         Some(MilliSecondsSinceUnixEpoch(uint!(10))),
@@ -1458,7 +1451,7 @@ async fn test_latest_user_read_receipt() {
         )
         .await;
 
-    let (user_receipt_id, _) = timeline.latest_user_read_receipt(own_user_id).await.unwrap();
+    let (user_receipt_id, _) = timeline.latest_user_read_receipt(other_user_id).await.unwrap();
     assert_eq!(user_receipt_id, event_d_id);
 
     // Private receipt with bigger timestamp.
@@ -1469,7 +1462,7 @@ async fn test_latest_user_read_receipt() {
                 f.read_receipts()
                     .add_with_timestamp(
                         event_e_id,
-                        own_user_id,
+                        other_user_id,
                         EventReceiptType::ReadPrivate,
                         ReceiptThread::Unthreaded,
                         Some(MilliSecondsSinceUnixEpoch(uint!(100))),
@@ -1479,7 +1472,7 @@ async fn test_latest_user_read_receipt() {
         )
         .await;
 
-    let (user_receipt_id, _) = timeline.latest_user_read_receipt(own_user_id).await.unwrap();
+    let (user_receipt_id, _) = timeline.latest_user_read_receipt(other_user_id).await.unwrap();
     assert_eq!(user_receipt_id, event_e_id);
 }
 
