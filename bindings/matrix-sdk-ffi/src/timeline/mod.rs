@@ -1574,7 +1574,7 @@ mod galleries {
             let in_reply_to = params
                 .in_reply_to
                 .as_ref()
-                .map(|event_id| EventId::parse(event_id))
+                .map(EventId::parse)
                 .transpose()
                 .map_err(|_| RoomError::InvalidRepliedToEventId)?;
 
