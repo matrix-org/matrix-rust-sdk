@@ -515,8 +515,9 @@ impl<P: RoomDataProvider> TimelineStateTransaction<'_, P> {
                 }
 
                 for (user_id, receipt) in receipts {
-                    if own_receipt_thread == ReceiptThread::Unthreaded {
-                        // If the own receipt thread is unthreaded, we maintain maximal
+                    if matches!(own_receipt_thread, ReceiptThread::Unthreaded | ReceiptThread::Main)
+                    {
+                        // If the own receipt thread is unthreaded or main, we maintain maximal
                         // compatibility with clients using either unthreaded or main-thread read
                         // receipts by allowing both here.
                         if !matches!(

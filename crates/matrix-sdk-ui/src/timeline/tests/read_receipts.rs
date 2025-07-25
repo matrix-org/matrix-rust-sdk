@@ -826,3 +826,39 @@ async fn test_threaded_latest_user_read_receipt() {
     assert_eq!(receipt_event_id, event_id!("$3"));
     assert_eq!(receipt.thread, receipt_thread);
 }
+
+#[async_test]
+async fn test_unthreaded_client_updates_threaded_read_receipts() {
+    let timeline = TestTimelineBuilder::new()
+        .settings(TimelineSettings { track_read_receipts: true, ..Default::default() })
+        .focus(TimelineFocus::Live { hide_threaded_events: true })
+        .build();
+    let mut stream = timeline.subscribe().await;
+
+    let event_b = event_id!("$event_b");
+
+    // Alice sends 2 messages
+    let f = &timeline.factory;
+    timeline.handle_live_event(f.text_msg("A").sender(*ALICE)).await;
+    timeline.handle_live_event(f.text_msg("B").sender(*ALICE).event_id(event_b)).await;
+
+    assert_next_matches!(stream, VectorDiff::PushBack { .. });
+    assert_next_matches!(stream, VectorDiff::PushFront { .. });
+    assert_next_matches!(stream, VectorDiff::PushBack { .. });
+
+    // Bob reads the last one from an unthreaded client
+    timeline
+        .handle_read_receipts([(
+            event_b.to_owned(),
+            ReceiptType::Read,
+            BOB.to_owned(),
+            ReceiptThread::Unthreaded,
+        )])
+        .await;
+
+    // Alice's timeline gets updated
+    let item_b = assert_next_matches!(stream, VectorDiff::Set { index: 2, value } => value);
+    let event_b = item_b.as_event().unwrap();
+    assert_eq!(event_b.read_receipts().len(), 1);
+    assert!(event_b.read_receipts().get(*BOB).is_some());
+}
