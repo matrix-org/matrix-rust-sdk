@@ -564,7 +564,8 @@ async fn test_initial_public_main_thread_receipt() {
 async fn test_initial_public_unthreaded_receipt_main_threaded_timeline() {
     let event_id = owned_event_id!("$event_with_receipt");
 
-    // Add initial private receipt on the main thread.
+    // Add an initial unthreaded public receipt and expect it to be considered on a
+    // main threaded timeline.
     let mut initial_user_receipts = ReadReceiptMap::new();
     initial_user_receipts
         .entry(ReceiptType::Read)
@@ -578,32 +579,6 @@ async fn test_initial_public_unthreaded_receipt_main_threaded_timeline() {
 
     let timeline = TestTimelineBuilder::new()
         .focus(TimelineFocus::Live { hide_threaded_events: true })
-        .provider(TestRoomDataProvider::default().with_initial_user_receipts(initial_user_receipts))
-        .settings(TimelineSettings { track_read_receipts: true, ..Default::default() })
-        .build();
-
-    let (receipt_event_id, _) = timeline.controller.latest_user_read_receipt(*ALICE).await.unwrap();
-    assert_eq!(receipt_event_id, event_id);
-}
-
-#[async_test]
-async fn test_initial_public_unthreaded_receipt_other_threaded_timeline() {
-    let event_id = owned_event_id!("$event_with_receipt");
-
-    // Add initial private receipt on the main thread.
-    let mut initial_user_receipts = ReadReceiptMap::new();
-    initial_user_receipts
-        .entry(ReceiptType::Read)
-        .or_default()
-        .entry(ReceiptThread::Unthreaded)
-        .or_default()
-        .insert(
-            ALICE.to_owned(),
-            (event_id.clone(), Receipt::new(ruma::MilliSecondsSinceUnixEpoch(uint!(10)))),
-        );
-
-    let timeline = TestTimelineBuilder::new()
-        .focus(TimelineFocus::Thread { root_event_id: owned_event_id!("$some_thread_root") })
         .provider(TestRoomDataProvider::default().with_initial_user_receipts(initial_user_receipts))
         .settings(TimelineSettings { track_read_receipts: true, ..Default::default() })
         .build();
@@ -666,7 +641,8 @@ async fn test_initial_private_main_thread_receipt() {
 async fn test_initial_private_unthreaded_receipt_main_threaded_timeline() {
     let event_id = owned_event_id!("$event_with_receipt");
 
-    // Add initial private receipt on the main thread.
+    // Add an initial unthreaded private receipt and expect it to be considered on a
+    // main threaded timeline.
     let mut initial_user_receipts = ReadReceiptMap::new();
     initial_user_receipts
         .entry(ReceiptType::ReadPrivate)
@@ -680,32 +656,6 @@ async fn test_initial_private_unthreaded_receipt_main_threaded_timeline() {
 
     let timeline = TestTimelineBuilder::new()
         .focus(TimelineFocus::Live { hide_threaded_events: true })
-        .provider(TestRoomDataProvider::default().with_initial_user_receipts(initial_user_receipts))
-        .settings(TimelineSettings { track_read_receipts: true, ..Default::default() })
-        .build();
-
-    let (receipt_event_id, _) = timeline.controller.latest_user_read_receipt(*ALICE).await.unwrap();
-    assert_eq!(receipt_event_id, event_id);
-}
-
-#[async_test]
-async fn test_initial_private_unthreaded_receipt_other_threaded_timeline() {
-    let event_id = owned_event_id!("$event_with_receipt");
-
-    // Add initial private receipt on the main thread.
-    let mut initial_user_receipts = ReadReceiptMap::new();
-    initial_user_receipts
-        .entry(ReceiptType::ReadPrivate)
-        .or_default()
-        .entry(ReceiptThread::Unthreaded)
-        .or_default()
-        .insert(
-            ALICE.to_owned(),
-            (event_id.clone(), Receipt::new(ruma::MilliSecondsSinceUnixEpoch(uint!(10)))),
-        );
-
-    let timeline = TestTimelineBuilder::new()
-        .focus(TimelineFocus::Thread { root_event_id: owned_event_id!("$some_thread_root") })
         .provider(TestRoomDataProvider::default().with_initial_user_receipts(initial_user_receipts))
         .settings(TimelineSettings { track_read_receipts: true, ..Default::default() })
         .build();

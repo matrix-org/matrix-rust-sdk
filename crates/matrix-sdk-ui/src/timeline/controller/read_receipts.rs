@@ -721,20 +721,23 @@ impl<P: RoomDataProvider> TimelineState<P> {
             )
             .await;
 
-        // If the current client is thread aware, we maintain maximal
-        // compatibility with other clients using either unthreaded or
-        // main-thread read receipts by allowing both here and taking the most
-        // recent one.
-        let unthreaded_public_read_receipt = self
-            .meta
-            .user_receipt(
-                user_id,
-                ReceiptType::Read,
-                ReceiptThread::Unthreaded,
-                room_data_provider,
-                all_remote_events,
-            )
-            .await;
+        // If the current client is thread aware and the own receipt thread is main,
+        // we maintain maximal compatibility with other clients using either unthreaded
+        // or main-thread read receipts by allowing both here and taking the
+        // most recent one.
+        let unthreaded_public_read_receipt = if receipt_thread == ReceiptThread::Main {
+            self.meta
+                .user_receipt(
+                    user_id,
+                    ReceiptType::Read,
+                    ReceiptThread::Unthreaded,
+                    room_data_provider,
+                    all_remote_events,
+                )
+                .await
+        } else {
+            None
+        };
 
         let public_read_receipt = match self.meta.compare_optional_receipts(
             threaded_public_read_receipt.as_ref(),
@@ -757,20 +760,23 @@ impl<P: RoomDataProvider> TimelineState<P> {
             )
             .await;
 
-        // If the current client is thread aware, we maintain maximal
-        // compatibility with other clients using either unthreaded or
-        // main-thread read receipts by allowing both here and taking the most
-        // recent one.
-        let unthreaded_private_read_receipt = self
-            .meta
-            .user_receipt(
-                user_id,
-                ReceiptType::ReadPrivate,
-                ReceiptThread::Unthreaded,
-                room_data_provider,
-                all_remote_events,
-            )
-            .await;
+        // If the current client is thread aware and the own receipt thread is main,
+        // we maintain maximal compatibility with other clients using either unthreaded
+        //  or main-thread read receipts by allowing both here and taking the
+        // most recent one.
+        let unthreaded_private_read_receipt = if receipt_thread == ReceiptThread::Main {
+            self.meta
+                .user_receipt(
+                    user_id,
+                    ReceiptType::ReadPrivate,
+                    ReceiptThread::Unthreaded,
+                    room_data_provider,
+                    all_remote_events,
+                )
+                .await
+        } else {
+            None
+        };
 
         let private_read_receipt = match self.meta.compare_optional_receipts(
             threaded_private_read_receipt.as_ref(),
