@@ -60,7 +60,7 @@ use thiserror::Error;
 use tokio::sync::{Mutex, Notify, OwnedRwLockWriteGuard, RwLock};
 use tokio_stream::wrappers::errors::BroadcastStreamRecvError;
 use tracing::{error, info, instrument, trace, warn};
-use types::RoomKeyBundleInfo;
+use types::{RoomKeyBundleInfo, StoredRoomKeyBundleData};
 use vodozemac::{megolm::SessionOrdering, Curve25519PublicKey};
 
 use self::types::{
@@ -1341,14 +1341,11 @@ impl Store {
     ///
     /// while let Some(bundle_info) = bundle_stream.next().await {
     ///     // Try to find the bundle content in the store and if it's valid accept it.
-    ///     if let Some(bundle_content) = machine.store().get_received_room_key_bundle_data(&bundle_info.room_id, &bundle_info.sender).await? {
-    ///         let StoredRoomKeyBundleData { sender_user, sender_data, bundle_data, .. } = bundle_content;
+    ///     if let Some(bundle_data) = machine.store().get_received_room_key_bundle_data(&bundle_info.room_id, &bundle_info.sender).await? {
     ///         // Download the bundle now and import it.
     ///         let bundle: RoomKeyBundle = todo!("Download the bundle");
     ///         machine.store().receive_room_key_bundle(
-    ///             &bundle_info.room_id,
-    ///             &sender_user,
-    ///             &sender_data,
+    ///             &bundle_data,
     ///             bundle,
     ///             |_, _| {},
     ///         ).await?;
@@ -1611,66 +1608,86 @@ impl Store {
     ///
     /// # Arguments
     ///
+    /// * `bundle_info` - The [`StoredRoomKeyBundleData`] of the bundle that is
+    ///   being received.
     /// * `bundle` - The decrypted and deserialized bundle itself.
-    /// * `room_id` - The room that we expect this bundle to correspond to.
-    /// * `sender_user` - The user that sent us the to-device message pointing
-    ///   to this data.
-    /// * `sender_data` - Information on the sending device at the time we
-    ///   received that message.
     ///
     /// [MSC4268]: https://github.com/matrix-org/matrix-spec-proposals/pull/4268
-    #[instrument(skip(self, bundle, progress_listener), fields(bundle_size = bundle.room_keys.len()))]
+    #[instrument(skip(self, bundle, progress_listener), fields(bundle_size = bundle.room_keys.len(), sender_data))]
     pub async fn receive_room_key_bundle(
         &self,
-        room_id: &RoomId,
-        sender_user: &UserId,
-        sender_data: &SenderData,
+        bundle_info: &StoredRoomKeyBundleData,
         bundle: RoomKeyBundle,
         progress_listener: impl Fn(usize, usize),
     ) -> Result<(), CryptoStoreError> {
-        let (good, bad): (Vec<_>, Vec<_>) = bundle.room_keys.iter().partition_map(|key| {
-            if key.room_id != room_id {
-                trace!("Ignoring key for incorrect room {} in bundle", key.room_id);
-                Either::Right(key)
-            } else {
-                Either::Left(key)
+        let sender_data = if bundle_info.sender_data.should_recalculate() {
+            let device = self
+                .get_device_from_curve_key(&bundle_info.sender_user, bundle_info.sender_key)
+                .await?;
+
+            device
+                .as_ref()
+                .map(SenderData::from_device)
+                .unwrap_or_else(|| bundle_info.sender_data.clone())
+        } else {
+            bundle_info.sender_data.clone()
+        };
+
+        tracing::Span::current().record("sender_data", tracing::field::debug(&sender_data));
+
+        match sender_data {
+            SenderData::UnknownDevice { .. }
+            | SenderData::VerificationViolation(_)
+            | SenderData::DeviceInfo { .. } => {
+                warn!("Not accepting a historic room key bundle due to insufficient trust in the sender");
+                Ok(())
             }
-        });
+            SenderData::SenderUnverified(_) | SenderData::SenderVerified(_) => {
+                let (good, bad): (Vec<_>, Vec<_>) = bundle.room_keys.iter().partition_map(|key| {
+                    if key.room_id != bundle_info.bundle_data.room_id {
+                        trace!("Ignoring key for incorrect room {} in bundle", key.room_id);
+                        Either::Right(key)
+                    } else {
+                        Either::Left(key)
+                    }
+                });
 
-        match (bad.is_empty(), good.is_empty()) {
-            // Case 1: Completely empty bundle.
-            (true, true) => {
-                warn!("Received a completely empty room key bundle");
-            }
+                match (bad.is_empty(), good.is_empty()) {
+                    // Case 1: Completely empty bundle.
+                    (true, true) => {
+                        warn!("Received a completely empty room key bundle");
+                    }
 
-            // Case 2: A bundle for the wrong room.
-            (false, true) => {
-                let bad_keys: Vec<_> =
-                    bad.iter().map(|&key| (&key.room_id, &key.session_id)).collect();
+                    // Case 2: A bundle for the wrong room.
+                    (false, true) => {
+                        let bad_keys: Vec<_> =
+                            bad.iter().map(|&key| (&key.room_id, &key.session_id)).collect();
 
-                warn!(
+                        warn!(
                     ?bad_keys,
                     "Received a room key bundle for the wrong room, ignoring all room keys from the bundle"
                 );
-            }
+                    }
 
-            // Case 3: A bundle containing useful room keys.
-            (_, false) => {
-                // We have at least some good keys, if we also have some bad ones let's mention
-                // that here.
-                if !bad.is_empty() {
-                    warn!(
-                        bad_key_count = bad.len(),
-                        "The room key bundle contained some room keys \
+                    // Case 3: A bundle containing useful room keys.
+                    (_, false) => {
+                        // We have at least some good keys, if we also have some bad ones let's
+                        // mention that here.
+                        if !bad.is_empty() {
+                            warn!(
+                                bad_key_count = bad.len(),
+                                "The room key bundle contained some room keys \
                          that were meant for a different room"
-                    );
+                            );
+                        }
+
+                        self.import_sessions_impl(good, None, progress_listener).await?;
+                    }
                 }
 
-                self.import_sessions_impl(good, None, progress_listener).await?;
+                Ok(())
             }
         }
-
-        Ok(())
     }
 }
 
