@@ -515,8 +515,9 @@ impl<P: RoomDataProvider> TimelineStateTransaction<'_, P> {
                 }
 
                 for (user_id, receipt) in receipts {
-                    if own_receipt_thread == ReceiptThread::Unthreaded {
-                        // If the own receipt thread is unthreaded, we maintain maximal
+                    if matches!(own_receipt_thread, ReceiptThread::Unthreaded | ReceiptThread::Main)
+                    {
+                        // If the own receipt thread is unthreaded or main, we maintain maximal
                         // compatibility with clients using either unthreaded or main-thread read
                         // receipts by allowing both here.
                         if !matches!(
@@ -710,7 +711,7 @@ impl<P: RoomDataProvider> TimelineState<P> {
     ) -> Option<(OwnedEventId, Receipt)> {
         let all_remote_events = self.items.all_remote_events();
 
-        let public_read_receipt = self
+        let threaded_public_read_receipt = self
             .meta
             .user_receipt(
                 user_id,
@@ -721,16 +722,72 @@ impl<P: RoomDataProvider> TimelineState<P> {
             )
             .await;
 
-        let private_read_receipt = self
+        // If the current client is thread aware and the own receipt thread is main,
+        // we maintain maximal compatibility with other clients using either unthreaded
+        // or main-thread read receipts by allowing both here and taking the
+        // most recent one.
+        let unthreaded_public_read_receipt = if receipt_thread == ReceiptThread::Main {
+            self.meta
+                .user_receipt(
+                    user_id,
+                    ReceiptType::Read,
+                    ReceiptThread::Unthreaded,
+                    room_data_provider,
+                    all_remote_events,
+                )
+                .await
+        } else {
+            None
+        };
+
+        let public_read_receipt = match self.meta.compare_optional_receipts(
+            threaded_public_read_receipt.as_ref(),
+            unthreaded_public_read_receipt.as_ref(),
+            all_remote_events,
+        ) {
+            Ordering::Greater => threaded_public_read_receipt,
+            Ordering::Less => unthreaded_public_read_receipt,
+            _ => unreachable!(),
+        };
+
+        let threaded_private_read_receipt = self
             .meta
             .user_receipt(
                 user_id,
                 ReceiptType::ReadPrivate,
-                receipt_thread,
+                receipt_thread.clone(),
                 room_data_provider,
                 all_remote_events,
             )
             .await;
+
+        // If the current client is thread aware and the own receipt thread is main,
+        // we maintain maximal compatibility with other clients using either unthreaded
+        //  or main-thread read receipts by allowing both here and taking the
+        // most recent one.
+        let unthreaded_private_read_receipt = if receipt_thread == ReceiptThread::Main {
+            self.meta
+                .user_receipt(
+                    user_id,
+                    ReceiptType::ReadPrivate,
+                    ReceiptThread::Unthreaded,
+                    room_data_provider,
+                    all_remote_events,
+                )
+                .await
+        } else {
+            None
+        };
+
+        let private_read_receipt = match self.meta.compare_optional_receipts(
+            threaded_private_read_receipt.as_ref(),
+            unthreaded_private_read_receipt.as_ref(),
+            all_remote_events,
+        ) {
+            Ordering::Greater => threaded_private_read_receipt,
+            Ordering::Less => unthreaded_private_read_receipt,
+            _ => unreachable!(),
+        };
 
         // Let's assume that a private read receipt should be more recent than a public
         // read receipt (otherwise there's no point in the private read receipt),

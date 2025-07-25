@@ -1225,13 +1225,16 @@ impl<P: RoomDataProvider, D: Decryptor> TimelineController<P, D> {
         &self,
         user_id: &UserId,
     ) -> Option<(OwnedEventId, Receipt)> {
-        let receipt_thread = self.focus.receipt_thread();
-
-        self.state
-            .read()
-            .await
-            .latest_user_read_receipt(user_id, receipt_thread, &self.room_data_provider)
-            .await
+        self.items().await.iter().rev().find_map(|item| {
+            if let Some(event) = item.as_event()
+                && let Some(event_id) = event.event_id()
+                && let Some(receipt) = event.read_receipts().get(user_id)
+            {
+                Some((event_id.to_owned(), receipt.clone()))
+            } else {
+                None
+            }
+        })
     }
 
     /// Get the ID of the timeline event with the latest read receipt for the
