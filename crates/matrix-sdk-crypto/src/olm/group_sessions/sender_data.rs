@@ -161,6 +161,25 @@ pub enum SenderData {
 }
 
 impl SenderData {
+    /// Whether we should recalculate the Megolm sender's data, given the
+    /// current sender data. We only want to recalculate if it might
+    /// increase trust and allow us to decrypt messages that we
+    /// otherwise might refuse to decrypt.
+    ///
+    /// We recalculate for all states except:
+    ///
+    /// - SenderUnverified: the sender is trusted enough that we will decrypt
+    ///   their messages in all cases, or
+    /// - SenderVerified: the sender is the most trusted they can be.
+    pub fn should_recalculate(&self) -> bool {
+        matches!(
+            self,
+            SenderData::UnknownDevice { .. }
+                | SenderData::DeviceInfo { .. }
+                | SenderData::VerificationViolation { .. }
+        )
+    }
+
     /// Create a [`SenderData`] which contains no device info.
     pub fn unknown() -> Self {
         Self::UnknownDevice { legacy_session: false, owner_check_failed: false }
@@ -234,7 +253,7 @@ impl SenderData {
         let cross_signed = sender_device.is_cross_signed_by_owner();
 
         if cross_signed {
-            Self::from_cross_signed_device(sender_device)
+            SenderData::from_cross_signed_device(sender_device)
         } else {
             // We have device keys, but they are not signed by the sender
             SenderData::device_info(sender_device.as_device_keys().clone())
