@@ -14,10 +14,7 @@
 
 use std::iter;
 
-use matrix_sdk_base::{
-    crypto::store::types::StoredRoomKeyBundleData,
-    media::{MediaFormat, MediaRequestParameters},
-};
+use matrix_sdk_base::media::{MediaFormat, MediaRequestParameters};
 use ruma::{events::room::MediaSource, OwnedUserId, UserId};
 use tracing::{info, instrument, warn};
 
@@ -124,20 +121,20 @@ pub(crate) async fn maybe_accept_key_bundle(room: &Room, inviter: &UserId) -> Re
         return Ok(());
     };
 
-    let Some(StoredRoomKeyBundleData { sender_user, sender_data, bundle_data, .. }) =
+    let Some(bundle_info) =
         olm_machine.store().get_received_room_key_bundle_data(room.room_id(), inviter).await?
     else {
         // No bundle received (yet).
         return Ok(());
     };
 
-    tracing::Span::current().record("bundle_sender", sender_user.as_str());
+    tracing::Span::current().record("bundle_sender", bundle_info.sender_user.as_str());
 
     let bundle_content = client
         .media()
         .get_media_content(
             &MediaRequestParameters {
-                source: MediaSource::Encrypted(Box::new(bundle_data.file)),
+                source: MediaSource::Encrypted(Box::new(bundle_info.bundle_data.file.clone())),
                 format: MediaFormat::File,
             },
             false,
@@ -149,9 +146,7 @@ pub(crate) async fn maybe_accept_key_bundle(room: &Room, inviter: &UserId) -> Re
             olm_machine
                 .store()
                 .receive_room_key_bundle(
-                    room.room_id(),
-                    &sender_user,
-                    &sender_data,
+                    &bundle_info,
                     bundle,
                     // TODO: Use the progress listener and expose an argument for it.
                     |_, _| {},
