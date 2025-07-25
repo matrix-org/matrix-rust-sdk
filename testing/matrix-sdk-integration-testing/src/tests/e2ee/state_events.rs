@@ -86,7 +86,6 @@ async fn test_e2ee_state_events() -> Result<()> {
     let bob_response = bob.sync_once().instrument(bob_span.clone()).await?;
 
     // Bob should have received a to-device event with the payload
-    println!("{:#?}", bob_response.rooms.invited.iter().next().unwrap().1.invite_state);
     assert_eq!(bob_response.to_device.len(), 1);
     let to_device_event = &bob_response.to_device[0];
     assert_let!(ProcessedToDeviceEvent::Decrypted { raw, .. } = to_device_event);
@@ -124,7 +123,7 @@ async fn test_e2ee_state_events() -> Result<()> {
         "Bob's copy of the room name should have updated."
     );
 
-    /// Let's also check we can inspect the payload manually.
+    // Let's also check we can inspect the payload manually.
     let rename_event = bob_room
         .event(&rename_event_id, None)
         .instrument(bob_span.clone())
