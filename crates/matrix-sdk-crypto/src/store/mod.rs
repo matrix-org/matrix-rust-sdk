@@ -1342,7 +1342,7 @@ impl Store {
     /// while let Some(bundle_info) = bundle_stream.next().await {
     ///     // Try to find the bundle content in the store and if it's valid accept it.
     ///     if let Some(bundle_content) = machine.store().get_received_room_key_bundle_data(&bundle_info.room_id, &bundle_info.sender).await? {
-    ///         let StoredRoomKeyBundleData { sender_user, sender_data, bundle_data } = bundle_content;
+    ///         let StoredRoomKeyBundleData { sender_user, sender_data, bundle_data, .. } = bundle_content;
     ///         // Download the bundle now and import it.
     ///         let bundle: RoomKeyBundle = todo!("Download the bundle");
     ///         machine.store().receive_room_key_bundle(
