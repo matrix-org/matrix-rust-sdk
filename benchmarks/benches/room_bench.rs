@@ -208,24 +208,9 @@ pub fn load_pinned_events_benchmark(c: &mut Criterion) {
     group.finish();
 }
 
-fn criterion() -> Criterion {
-    #[cfg(target_os = "linux")]
-    {
-        Criterion::default().with_profiler(pprof::criterion::PProfProfiler::new(
-            100,
-            pprof::criterion::Output::Flamegraph(None),
-        ))
-    }
-
-    #[cfg(not(target_os = "linux"))]
-    {
-        Criterion::default()
-    }
-}
-
 criterion_group! {
     name = room;
-    config = criterion();
+    config = Criterion::default();
     targets = receive_all_members_benchmark, load_pinned_events_benchmark,
 }
 criterion_main!(room);
