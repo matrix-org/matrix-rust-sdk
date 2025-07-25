@@ -128,9 +128,6 @@ pub(crate) async fn maybe_accept_key_bundle(room: &Room, inviter: &UserId) -> Re
         olm_machine.store().get_received_room_key_bundle_data(room.room_id(), inviter).await?
     else {
         // No bundle received (yet).
-        // TODO: deal with the bundle arriving later (https://github.com/matrix-org/matrix-rust-sdk/issues/4926)
-        // We need to check for all them bundles in the store when we create the client
-        // object and we need to process them when they arrive.
         return Ok(());
     };
 
