@@ -40,8 +40,7 @@ mod rules;
 pub use matrix_sdk_base::notification_settings::RoomNotificationMode;
 
 use crate::{
-    config::RequestConfig, error::NotificationSettingsError, event_handler::EventHandlerDropGuard,
-    Client, Result,
+    config::RequestConfig, error::NotificationSettingsError, event_handler::EventHandlerDropGuard, notification_settings::command::Notify, Client, Result
 };
 
 /// Whether or not a room is encrypted
@@ -320,15 +319,15 @@ impl NotificationSettings {
         let (new_rule_kind, notify) = match mode {
             RoomNotificationMode::AllMessages => {
                 // insert a `Room` rule which notifies
-                (RuleKind::Room, true)
+                (RuleKind::Room, Notify::All)
             }
             RoomNotificationMode::MentionsAndKeywordsOnly => {
                 // insert a `Room` rule which doesn't notify
-                (RuleKind::Room, false)
+                (RuleKind::Room, Notify::None)
             }
             RoomNotificationMode::Mute => {
                 // insert an `Override` rule which doesn't notify
-                (RuleKind::Override, false)
+                (RuleKind::Override, Notify::None)
             }
         };
 

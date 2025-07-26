@@ -322,8 +322,12 @@ impl TryFrom<Tweak> for SdkTweak {
 #[derive(Clone, uniffi::Enum)]
 /// Enum representing the push notification actions for a rule.
 pub enum Action {
-    /// Causes matching events to generate a notification.
+    /// Causes matching events to generate a notification (both in-app and
+    /// remote / push).
     Notify,
+    /// Causes matching events to generate an in-app notification but no remote
+    /// / push notification.
+    NotifyInApp,
     /// Sets an entry in the 'tweaks' dictionary sent to the push gateway.
     SetTweak { value: Tweak },
 }
@@ -334,6 +338,7 @@ impl TryFrom<SdkAction> for Action {
     fn try_from(value: SdkAction) -> Result<Self, Self::Error> {
         Ok(match value {
             SdkAction::Notify => Self::Notify,
+            SdkAction::NotifyInApp => Self::NotifyInApp,
             SdkAction::SetTweak(tweak) => Self::SetTweak {
                 value: tweak.try_into().map_err(|e| format!("Failed to convert tweak: {e}"))?,
             },
@@ -348,6 +353,7 @@ impl TryFrom<Action> for SdkAction {
     fn try_from(value: Action) -> Result<Self, Self::Error> {
         Ok(match value {
             Action::Notify => Self::Notify,
+            Action::NotifyInApp => Self::NotifyInApp,
             Action::SetTweak { value } => Self::SetTweak(
                 value.try_into().map_err(|e| format!("Failed to convert tweak: {e}"))?,
             ),

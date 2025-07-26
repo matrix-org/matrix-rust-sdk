@@ -19,6 +19,9 @@ rustls-tls = ["matrix-sdk/rustls-tls"]
 js = ["matrix-sdk/js"]
 uniffi = ["dep:uniffi", "matrix-sdk/uniffi", "matrix-sdk-base/uniffi"]
 
+# Add support for in-app only notifications
+unstable-msc3768 = ["matrix-sdk/unstable-msc3768"]
+
 # Add support for encrypted extensible events.
 unstable-msc3956 = ["ruma/unstable-msc3956"]
 
@@ -58,6 +61,7 @@ tracing = { workspace = true, features = ["attributes"] }
 unicode-normalization.workspace = true
 uniffi = { workspace = true, optional = true }
 
+cfg-if = "1.0.0"
 emojis = "0.6.4"
 unicode-segmentation = "1.12.0"
 
