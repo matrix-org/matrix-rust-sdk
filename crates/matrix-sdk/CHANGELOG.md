@@ -45,6 +45,7 @@ All notable changes to this project will be documented in this file.
   ([#5337](https://github.com/matrix-org/matrix-rust-sdk/pull/5337))
 - [**breaking**] The MSRV has been bumped to Rust 1.88.
   ([#5431](https://github.com/matrix-org/matrix-rust-sdk/pull/5431))
+- [**breaking**] `Room::send_call_notification` and `Room::send_call_notification_if_needed` have been removed, since the event type they send is outdated, and `Client` is not actually supposed to be able to join MatrixRTC sessions (yet). In practice, users of these methods probably already rely on another MatrixRTC implementation to participate in sessions, and such an implementation should be capable of sending notifications itself.
 
 ### Bugfix
 
