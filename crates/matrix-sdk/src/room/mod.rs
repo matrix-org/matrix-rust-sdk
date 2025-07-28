@@ -34,6 +34,7 @@ use http::StatusCode;
 pub use identity_status_changes::IdentityStatusChanges;
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk_base::crypto::{IdentityStatusChange, RoomIdentityProvider, UserIdentity};
+pub use matrix_sdk_base::store::ThreadStatus;
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk_base::{crypto::RoomEventDecryptionResult, deserialized_responses::EncryptionInfo};
 use matrix_sdk_base::{
@@ -3657,10 +3658,21 @@ impl Room {
         self.client
             .send(subscribe_thread::unstable::Request::new(
                 self.room_id().to_owned(),
-                thread_root,
+                thread_root.clone(),
                 automatic,
             ))
             .await?;
+
+        // Immediately save the result into the database.
+        self.client
+            .state_store()
+            .upsert_thread_subscription(
+                self.room_id(),
+                &thread_root,
+                ThreadStatus::Subscribed { automatic },
+            )
+            .await?;
+
         Ok(())
     }
 
@@ -3679,9 +3691,16 @@ impl Room {
         self.client
             .send(unsubscribe_thread::unstable::Request::new(
                 self.room_id().to_owned(),
-                thread_root,
+                thread_root.clone(),
             ))
             .await?;
+
+        // Immediately save the result into the database.
+        self.client
+            .state_store()
+            .upsert_thread_subscription(self.room_id(), &thread_root, ThreadStatus::Unsubscribed)
+            .await?;
+
         Ok(())
     }
 
@@ -3695,8 +3714,8 @@ impl Room {
     ///
     /// # Returns
     ///
-    /// - An `Ok` result with `Some(ThreadSubscription)` if the subscription
-    ///   exists.
+    /// - An `Ok` result with `Some(ThreadStatus)` if we have some subscription
+    ///   information.
     /// - An `Ok` result with `None` if the subscription does not exist, or the
     ///   event couldn't be found, or the event isn't a thread.
     /// - An error if the request fails for any other reason, such as a network
@@ -3704,31 +3723,46 @@ impl Room {
     pub async fn fetch_thread_subscription(
         &self,
         thread_root: OwnedEventId,
-    ) -> Result<Option<ThreadSubscription>> {
+    ) -> Result<Option<ThreadStatus>> {
         let result = self
             .client
             .send(get_thread_subscription::unstable::Request::new(
                 self.room_id().to_owned(),
-                thread_root,
+                thread_root.clone(),
             ))
             .await;
 
         match result {
-            Ok(response) => Ok(Some(ThreadSubscription { automatic: response.automatic })),
+            Ok(response) => Ok(Some(ThreadStatus::Subscribed { automatic: response.automatic })),
             Err(http_error) => match http_error.as_client_api_error() {
-                Some(error) if error.status_code == StatusCode::NOT_FOUND => Ok(None),
+                Some(error) if error.status_code == StatusCode::NOT_FOUND => {
+                    // At this point the server returned no subscriptions, which can mean that the
+                    // endpoint doesn't exist (not enabled/implemented yet on the server), or that
+                    // the thread doesn't exist, or that the user has unsubscribed from it
+                    // previously.
+                    //
+                    // If we had any information about prior unsubscription, we can use it here to
+                    // return something slightly more precise than what the server returned.
+                    let stored_status = self
+                        .client
+                        .state_store()
+                        .load_thread_subscription(self.room_id(), &thread_root)
+                        .await?;
+
+                    if let Some(ThreadStatus::Unsubscribed) = stored_status {
+                        // The thread was unsubscribed from before, so maintain this information.
+                        Ok(Some(ThreadStatus::Unsubscribed))
+                    } else {
+                        // We either have stale information (the thread was marked as subscribed
+                        // to, but the server said it wasn't), or we didn't have any information.
+                        // Return unknown.
+                        Ok(None)
+                    }
+                }
                 _ => Err(http_error.into()),
             },
         }
     }
-}
-
-/// Status of a thread subscription.
-#[derive(Debug, Clone, Copy)]
-pub struct ThreadSubscription {
-    /// Whether the subscription was made automatically by a client, not by
-    /// manual user choice.
-    pub automatic: bool,
 }
 
 #[cfg(feature = "e2e-encryption")]
