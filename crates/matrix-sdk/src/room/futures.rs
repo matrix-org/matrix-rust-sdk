@@ -417,6 +417,7 @@ impl<'a> IntoFuture for SendStateEventRaw<'a> {
 
         let fut = async move {
             room.ensure_room_joined()?;
+            let mut state_key = state_key.to_owned();
 
             #[cfg(feature = "e2e-encryption")]
             if room.latest_encryption_state().await?.is_encrypted() {
@@ -451,9 +452,10 @@ impl<'a> IntoFuture for SendStateEventRaw<'a> {
                     let olm = olm.as_ref().expect("Olm machine wasn't started");
 
                     content = olm
-                        .encrypt_state_event_raw(room.room_id(), event_type, state_key, &content)
+                        .encrypt_state_event_raw(room.room_id(), event_type, &state_key, &content)
                         .await?
                         .cast_unchecked();
+                    state_key = format!("{event_type}:{state_key}");
                     event_type = "m.room.encrypted";
                 }
             } else {

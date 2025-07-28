@@ -31,7 +31,6 @@ use crate::store::BaseStateStore;
 /// Collect [`AnySyncStateEvent`].
 pub mod sync {
     use std::{collections::BTreeSet, iter};
-    use tracing::trace;
 
     #[cfg(feature = "e2e-encryption")]
     use matrix_sdk_crypto::RoomEventDecryptionResult;
