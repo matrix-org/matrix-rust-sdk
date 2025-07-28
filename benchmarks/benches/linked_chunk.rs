@@ -20,6 +20,11 @@ enum Operation {
     PushGapBack(Gap),
 }
 
+#[cfg(not(feature = "codspeed"))]
+const NUMBER_OF_EVENTS: &[u64] = &[10, 100, 1000, 10_000, 100_000];
+#[cfg(feature = "codspeed")]
+const NUMBER_OF_EVENTS: &[u64] = &[10, 100, 1000];
+
 fn writing(c: &mut Criterion) {
     // Create a new asynchronous runtime.
     let runtime = Builder::new_multi_thread()
@@ -35,7 +40,7 @@ fn writing(c: &mut Criterion) {
     let mut group = c.benchmark_group("writing");
     group.sample_size(10).measurement_time(Duration::from_secs(30));
 
-    for number_of_events in [10, 100, 1000, 10_000, 100_000] {
+    for &number_of_events in NUMBER_OF_EVENTS {
         let sqlite_temp_dir = tempdir().unwrap();
 
         // Declare new stores for this set of events.
@@ -152,7 +157,7 @@ fn reading(c: &mut Criterion) {
     let mut group = c.benchmark_group("reading");
     group.sample_size(10);
 
-    for num_events in [10, 100, 1000, 10_000, 100_000] {
+    for &num_events in NUMBER_OF_EVENTS {
         let sqlite_temp_dir = tempdir().unwrap();
 
         // Declare new stores for this set of events.
