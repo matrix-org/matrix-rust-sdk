@@ -13,7 +13,7 @@ use matrix_sdk_base::{
     store::{
         migration_helpers::RoomInfoV1, ChildTransactionId, DependentQueuedRequest,
         DependentQueuedRequestKind, QueueWedgeError, QueuedRequest, QueuedRequestKind,
-        RoomLoadSettings, SentRequestKey,
+        RoomLoadSettings, SentRequestKey, ThreadStatus,
     },
     MinimalRoomMemberEvent, RoomInfo, RoomMemberships, RoomState, StateChanges, StateStore,
     StateStoreDataKey, StateStoreDataValue, ROOM_VERSION_FALLBACK, ROOM_VERSION_RULES_FALLBACK,
@@ -62,6 +62,7 @@ mod keys {
     pub const DISPLAY_NAME: &str = "display_name";
     pub const SEND_QUEUE: &str = "send_queue_events";
     pub const DEPENDENTS_SEND_QUEUE: &str = "dependent_send_queue_events";
+    pub const THREAD_SUBSCRIPTIONS: &str = "thread_subscriptions";
 }
 
 /// The filename used for the SQLITE database file used by the state store.
@@ -72,7 +73,7 @@ pub const DATABASE_NAME: &str = "matrix-sdk-state.sqlite3";
 /// This is used to figure whether the SQLite database requires a migration.
 /// Every new SQL migration should imply a bump of this number, and changes in
 /// the [`SqliteStateStore::run_migrations`] function.
-const DATABASE_VERSION: u8 = 12;
+const DATABASE_VERSION: u8 = 13;
 
 /// An SQLite-based state store.
 #[derive(Clone)]
@@ -354,6 +355,17 @@ impl SqliteStateStore {
             // of the DB as we removed the media cache.
             conn.vacuum().await?;
             conn.set_kv("version", vec![12]).await?;
+        }
+
+        if from < 13 && to >= 13 {
+            conn.with_transaction(move |txn| {
+                // Run the migration.
+                txn.execute_batch(include_str!(
+                    "../migrations/state_store/011_thread_subscriptions.sql"
+                ))?;
+                txn.set_db_version(13)
+            })
+            .await?;
         }
 
         Ok(())
@@ -2073,6 +2085,55 @@ impl StateStore for SqliteStateStore {
         }
 
         Ok(dependent_events)
+    }
+
+    async fn upsert_thread_subscription(
+        &self,
+        room_id: &RoomId,
+        thread_id: &EventId,
+        status: ThreadStatus,
+    ) -> Result<(), Self::Error> {
+        let room_id = self.encode_key(keys::THREAD_SUBSCRIPTIONS, room_id);
+        let thread_id = self.encode_key(keys::THREAD_SUBSCRIPTIONS, thread_id);
+        let status = status.as_str();
+
+        self.acquire()
+            .await?
+            .with_transaction(move |txn| {
+                txn.prepare_cached(
+                    "INSERT OR REPLACE INTO thread_subscriptions (room_id, event_id, status)
+                         VALUES (?, ?, ?)",
+                )?
+                .execute((room_id, thread_id, status))
+            })
+            .await?;
+        Ok(())
+    }
+
+    async fn load_thread_subscription(
+        &self,
+        room_id: &RoomId,
+        thread_id: &EventId,
+    ) -> Result<Option<ThreadStatus>, Self::Error> {
+        let room_id = self.encode_key(keys::THREAD_SUBSCRIPTIONS, room_id);
+        let thread_id = self.encode_key(keys::THREAD_SUBSCRIPTIONS, thread_id);
+
+        Ok(self
+            .acquire()
+            .await?
+            .query_row(
+                "SELECT status FROM thread_subscriptions WHERE room_id = ? AND event_id = ?",
+                (room_id, thread_id),
+                |row| row.get::<_, String>(0),
+            )
+            .await
+            .optional()?
+            .map(|data| {
+                ThreadStatus::from_value(&data).ok_or_else(|| Error::InvalidData {
+                    details: format!("Invalid thread status: {data}"),
+                })
+            })
+            .transpose()?)
     }
 }
 
