@@ -685,12 +685,11 @@ impl NotificationClient {
                 continue;
             }
 
-            let status =
+            let notification_item =
                 match NotificationItem::new(&room, raw_event, push_actions.as_deref(), Vec::new())
                     .await
-                    .map(|event| NotificationStatus::Event(Box::new(event)))
                 {
-                    Ok(status) => status,
+                    Ok(item) => item,
                     Err(err) => {
                         // Could not build the notification item, return an error.
                         batch_result.insert(event_id, Err(err));
@@ -698,17 +697,11 @@ impl NotificationClient {
                     }
                 };
 
-            match status {
-                NotificationStatus::Event(event) => {
-                    if self.client.is_user_ignored(event.event.sender()).await {
-                        batch_result.insert(event_id, Ok(NotificationStatus::EventFilteredOut));
-                    } else {
-                        batch_result.insert(event_id, Ok(NotificationStatus::Event(event)));
-                    }
-                }
-                _ => {
-                    batch_result.insert(event_id, Ok(status));
-                }
+            if self.client.is_user_ignored(notification_item.event.sender()).await {
+                batch_result.insert(event_id, Ok(NotificationStatus::EventFilteredOut));
+            } else {
+                batch_result
+                    .insert(event_id, Ok(NotificationStatus::Event(Box::new(notification_item))));
             }
         }
 
