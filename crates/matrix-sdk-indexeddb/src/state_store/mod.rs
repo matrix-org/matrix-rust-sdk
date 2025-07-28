@@ -27,7 +27,7 @@ use matrix_sdk_base::{
     store::{
         ChildTransactionId, ComposerDraft, DependentQueuedRequest, DependentQueuedRequestKind,
         QueuedRequest, QueuedRequestKind, RoomLoadSettings, SentRequestKey,
-        SerializableEventContent, ServerInfo, StateChanges, StateStore, StoreError,
+        SerializableEventContent, ServerInfo, StateChanges, StateStore, StoreError, ThreadStatus,
     },
     MinimalRoomMemberEvent, RoomInfo, RoomMemberships, StateStoreDataKey, StateStoreDataValue,
     ROOM_VERSION_FALLBACK, ROOM_VERSION_RULES_FALLBACK,
@@ -115,6 +115,7 @@ mod keys {
     pub const ROOM_SEND_QUEUE: &str = "room_send_queue";
     /// Table used to save dependent send queue events.
     pub const DEPENDENT_SEND_QUEUE: &str = "room_dependent_send_queue";
+    pub const THREAD_SUBSCRIPTIONS: &str = "room_thread_subscriptions";
 
     pub const STRIPPED_ROOM_STATE: &str = "stripped_room_state";
     pub const STRIPPED_USER_IDS: &str = "stripped_user_ids";
@@ -140,6 +141,7 @@ mod keys {
         ROOM_USER_RECEIPTS,
         ROOM_EVENT_RECEIPTS,
         ROOM_SEND_QUEUE,
+        THREAD_SUBSCRIPTIONS,
         DEPENDENT_SEND_QUEUE,
         CUSTOM,
         KV,
@@ -1360,6 +1362,7 @@ impl_state_store!({
             keys::ROOM_USER_RECEIPTS,
             keys::STRIPPED_ROOM_STATE,
             keys::STRIPPED_USER_IDS,
+            keys::THREAD_SUBSCRIPTIONS,
         ];
 
         let all_stores = {
@@ -1781,6 +1784,58 @@ impl_state_store!({
             || Ok(Vec::new()),
             |val| self.deserialize_value::<Vec<DependentQueuedRequest>>(&val),
         )
+    }
+
+    async fn upsert_thread_subscription(
+        &self,
+        room: &RoomId,
+        thread_id: &EventId,
+        status: ThreadStatus,
+    ) -> Result<()> {
+        let encoded_key = self.encode_key(keys::THREAD_SUBSCRIPTIONS, (room, thread_id));
+
+        let tx = self.inner.transaction_on_one_with_mode(
+            keys::THREAD_SUBSCRIPTIONS,
+            IdbTransactionMode::Readwrite,
+        )?;
+        let obj = tx.object_store(keys::THREAD_SUBSCRIPTIONS)?;
+
+        let serialized_value = self.serialize_value(&status.as_str().to_owned());
+        obj.put_key_val(&encoded_key, &serialized_value?)?;
+
+        tx.await.into_result()?;
+
+        Ok(())
+    }
+
+    async fn load_thread_subscription(
+        &self,
+        room: &RoomId,
+        thread_id: &EventId,
+    ) -> Result<Option<ThreadStatus>> {
+        let encoded_key = self.encode_key(keys::THREAD_SUBSCRIPTIONS, (room, thread_id));
+
+        let js_value = self
+            .inner
+            .transaction_on_one_with_mode(keys::THREAD_SUBSCRIPTIONS, IdbTransactionMode::Readonly)?
+            .object_store(keys::THREAD_SUBSCRIPTIONS)?
+            .get(&encoded_key)?
+            .await?;
+
+        let Some(js_value) = js_value else {
+            // We didn't have a previous subscription for this thread.
+            return Ok(None);
+        };
+
+        let status_string: String = self.deserialize_value(&js_value)?;
+        let status =
+            ThreadStatus::from_value(&status_string).ok_or_else(|| StoreError::InvalidData {
+                details: format!(
+                    "invalid thread status for room {room} and thread {thread_id}: {status_string}"
+                ),
+            })?;
+
+        Ok(Some(status))
     }
 });
 
