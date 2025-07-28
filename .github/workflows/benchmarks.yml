@@ -16,6 +16,9 @@ jobs:
         benchmark:
           - crypto_bench
           - event_cache
+          - linked_chunk
+          - store_bench
+          - timeline
 
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
