@@ -42,7 +42,10 @@ jobs:
       # This CI workflow can run into space issue, so we're cleaning up some
       # space here.
       - name: Create some more space
-        run: rm -rf /opt/hostedtoolcache
+        run: |
+          cd /opt
+          find . -maxdepth 1 -mindepth 1 '!' -path ./containerd '!' -path ./actionarchivecache '!' -path ./runner '!' -path ./runner-cache -exec rm -rf '{}' ';'
+          rm -rf /opt/hostedtoolcache
 
       - name: Checkout repository
         uses: actions/checkout@v4
