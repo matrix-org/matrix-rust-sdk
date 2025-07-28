@@ -350,6 +350,13 @@ pub(crate) struct ClientInner {
     ///
     /// [`LatestEvent`]: crate::latest_event::LatestEvent
     latest_events: OnceCell<LatestEvents>,
+
+    /// Enable client-wide thread subscriptions support (MSC4306 / MSC4308).
+    ///
+    /// This may cause filtering out of thread subscriptions, and loading the
+    /// thread subscriptions via the sliding sync extension, when the room
+    /// list service is being used.
+    pub(crate) enable_thread_subscriptions: bool,
 }
 
 impl ClientInner {
@@ -374,6 +381,7 @@ impl ClientInner {
         #[cfg(feature = "e2e-encryption")] encryption_settings: EncryptionSettings,
         #[cfg(feature = "e2e-encryption")] enable_share_history_on_invite: bool,
         cross_process_store_locks_holder_name: String,
+        enable_thread_subscriptions: bool,
     ) -> Arc<Self> {
         let caches = ClientCaches {
             server_info: server_info.into(),
@@ -409,6 +417,7 @@ impl ClientInner {
             #[cfg(feature = "e2e-encryption")]
             enable_share_history_on_invite,
             server_max_upload_size: Mutex::new(OnceCell::new()),
+            enable_thread_subscriptions,
         };
 
         #[allow(clippy::let_and_return)]
@@ -2704,6 +2713,7 @@ impl Client {
                 #[cfg(feature = "e2e-encryption")]
                 self.inner.enable_share_history_on_invite,
                 cross_process_store_locks_holder_name,
+                self.inner.enable_thread_subscriptions,
             )
             .await,
         };
@@ -2799,6 +2809,16 @@ impl Client {
     #[cfg(feature = "e2e-encryption")]
     pub fn decryption_settings(&self) -> &DecryptionSettings {
         &self.base_client().decryption_settings
+    }
+
+    /// Whether the client is configured to take thread subscriptions (MSC4306
+    /// and MSC4308) into account.
+    ///
+    /// This may cause filtering out of thread subscriptions, and loading the
+    /// thread subscriptions via the sliding sync extension, when the room
+    /// list service is being used.
+    pub fn enabled_thread_subscriptions(&self) -> bool {
+        self.inner.enable_thread_subscriptions
     }
 }
 
