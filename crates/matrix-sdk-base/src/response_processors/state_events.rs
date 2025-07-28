@@ -166,7 +166,8 @@ pub mod sync {
                             room_info.handle_state_event(
                                 &room_event
                                     .event
-                                    // TODO: UNSAFE CAST - someone evil could encrypt something that isn't a state event.
+                                    // TODO: UNSAFE CAST - someone evil could encrypt something that
+                                    // isn't a state event.
                                     .deserialize_as_unchecked::<AnySyncStateEvent>()
                                     .unwrap(),
                             );

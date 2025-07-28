@@ -420,7 +420,7 @@ impl<'a> IntoFuture for SendStateEventRaw<'a> {
             let mut state_key = state_key.to_owned();
 
             #[cfg(feature = "e2e-encryption")]
-            if room.latest_encryption_state().await?.is_encrypted() {
+            if room.latest_encryption_state().await?.is_state_encrypted() {
                 if matches!(
                     event_type,
                     "m.room.create"

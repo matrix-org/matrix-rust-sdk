@@ -266,8 +266,8 @@ macro_rules! assert_decrypted_message_eq {
     }};
 }
 
-/// Given a [`TimelineEvent`], assert that the event was decrypted and that its content
-/// matches the given pattern.
+/// Given a [`TimelineEvent`], assert that the event is an encrypted state
+/// event, and that its content matches the given pattern via a let binding.
 #[macro_export]
 macro_rules! assert_let_decrypted_state_event_content {
     ($pat:pat = $event:expr, $($msg:tt)*) => {

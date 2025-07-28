@@ -192,6 +192,7 @@ pub async fn update_left_room(
         ambiguity_cache,
         &mut (),
         state_store,
+        #[cfg(feature = "e2e-encryption")]
         e2ee.clone(),
     )
     .await?;
@@ -206,6 +207,7 @@ pub async fn update_left_room(
         ambiguity_cache,
         &mut (),
         state_store,
+        #[cfg(feature = "e2e-encryption")]
         e2ee.clone(),
     )
     .await?;

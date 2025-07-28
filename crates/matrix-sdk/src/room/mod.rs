@@ -647,7 +647,8 @@ impl Room {
                 SyncStateEvent::Original(_)
             )))
         ) {
-            // Cast safety: The state key is not used during decryption, and the types overlap sufficiently.
+            // Cast safety: The state key is not used during decryption, and the types
+            // overlap sufficiently.
             if let Ok(event) = self.decrypt_event(event.cast_ref_unchecked(), push_ctx).await {
                 return event;
             }
@@ -811,7 +812,8 @@ impl Room {
     /// Request to update the encryption state for this room.
     ///
     /// It does nothing if the encryption state is already
-    /// [`EncryptionState::Encrypted`], [`EncryptionState::EncryptedState`], or [`EncryptionState::NotEncrypted`].
+    /// [`EncryptionState::Encrypted`], [`EncryptionState::StateEncrypted`], or
+    /// [`EncryptionState::NotEncrypted`].
     pub async fn request_encryption_state(&self) -> Result<()> {
         if !self.inner.encryption_state().is_unknown() {
             return Ok(());
