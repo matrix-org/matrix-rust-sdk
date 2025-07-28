@@ -20,6 +20,9 @@ All notable changes to this project will be documented in this file.
   ([#5390](https://github.com/matrix-org/matrix-rust-sdk/pull/5390))
 
 ### Refactor
+- [**breaking**] `RelationalLinkedChunk::items` now takes a `RoomId` instead of an
+  `&OwnedLinkedChunkId` parameter.
+  ([#5445](https://github.com/matrix-org/matrix-rust-sdk/pull/5445))
 - [**breaking**] Add an `IsPrefix = False` bound to the
   `get_state_event_static()`, `get_state_event_static_for_key()` and
   `get_state_events_static()`, `get_account_data_event_static()` and
