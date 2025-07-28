@@ -181,6 +181,10 @@ lto = false
 # Get symbol names for profiling purposes.
 debug = true
 
+[profile.bench]
+inherits = "release"
+lto = false
+
 [patch.crates-io]
 async-compat = { git = "https://github.com/element-hq/async-compat", rev = "5a27c8b290f1f1dcfc0c4ec22c464e38528aa591" }
 const_panic = { git = "https://github.com/jplatte/const_panic", rev = "9024a4cb3eac45c1d2d980f17aaee287b17be498" }
