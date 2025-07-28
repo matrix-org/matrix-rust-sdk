@@ -130,7 +130,7 @@ pub struct ClientBuilder {
     #[cfg(not(target_family = "wasm"))]
     additional_root_certificates: Vec<Vec<u8>>,
 
-    threads_enabled: bool,
+    threading_support: ThreadingSupport,
 }
 
 /// The timeout applies to each read operation, and resets after a successful
@@ -173,7 +173,7 @@ impl ClientBuilder {
             },
             enable_share_history_on_invite: false,
             request_config: Default::default(),
-            threads_enabled: false,
+            threading_support: ThreadingSupport::Disabled,
         })
     }
 
@@ -387,9 +387,20 @@ impl ClientBuilder {
         Arc::new(builder)
     }
 
-    pub fn threads_enabled(self: Arc<Self>, enabled: bool) -> Arc<Self> {
+    /// Whether the client should support threads client-side or not, and enable
+    /// experimental support for MSC4306 (threads subscriptions) or not.
+    pub fn threads_enabled(
+        self: Arc<Self>,
+        enabled: bool,
+        thread_subscriptions: bool,
+    ) -> Arc<Self> {
         let mut builder = unwrap_or_clone_arc(self);
-        builder.threads_enabled = enabled;
+        let support = if enabled {
+            ThreadingSupport::Enabled { with_subscriptions: thread_subscriptions }
+        } else {
+            ThreadingSupport::Disabled
+        };
+        builder.threading_support = support;
         Arc::new(builder)
     }
 
@@ -559,11 +570,7 @@ impl ClientBuilder {
             inner_builder = inner_builder.request_config(updated_config);
         }
 
-        inner_builder = inner_builder.with_threading_support(if builder.threads_enabled {
-            ThreadingSupport::Enabled
-        } else {
-            ThreadingSupport::Disabled
-        });
+        inner_builder = inner_builder.with_threading_support(builder.threading_support);
 
         let sdk_client = inner_builder.build().await?;
 
