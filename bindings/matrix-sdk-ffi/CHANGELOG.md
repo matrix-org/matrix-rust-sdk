@@ -8,8 +8,9 @@ All notable changes to this project will be documented in this file.
 
 ### Features:
 
+- Add `room_version` and `privileged_creators_role` to `RoomInfo` ([#5449](https://github.com/matrix-org/matrix-rust-sdk/pull/5449)).
 - The [`unstable-hydra`] feature has been enabled, which enables room v12 changes in the SDK.
-  [(#5450)](https://github.com/matrix-org/matrix-rust-sdk/pull/5450).
+  ([#5450](https://github.com/matrix-org/matrix-rust-sdk/pull/5450)).
 - Add experimental support for
   [MSC4306](https://github.com/matrix-org/matrix-spec-proposals/pull/4306), with the
   `Room::fetch_thread_subscription()` and `Room::set_thread_subscription()` methods.
