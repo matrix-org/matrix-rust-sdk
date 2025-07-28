@@ -439,6 +439,47 @@ pub enum RoomLoadSettings {
     One(OwnedRoomId),
 }
 
+/// Status of a thread subscription, as saved in the state store.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ThreadStatus {
+    /// The thread is subscribed to.
+    Subscribed {
+        /// Whether the subscription was made automatically by a client, not by
+        /// manual user choice.
+        automatic: bool,
+    },
+    /// The thread is unsubscribed to (it won't cause any notifications or
+    /// automatic subscription anymore).
+    Unsubscribed,
+}
+
+impl ThreadStatus {
+    /// Convert the current [`ThreadStatus`] into a string representation.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            ThreadStatus::Subscribed { automatic } => {
+                if *automatic {
+                    "automatic"
+                } else {
+                    "manual"
+                }
+            }
+            ThreadStatus::Unsubscribed => "unsubscribed",
+        }
+    }
+
+    /// Convert a string representation into a [`ThreadStatus`], if it is a
+    /// valid one, or `None` otherwise.
+    pub fn from_value(s: &str) -> Option<Self> {
+        match s {
+            "automatic" => Some(ThreadStatus::Subscribed { automatic: true }),
+            "manual" => Some(ThreadStatus::Subscribed { automatic: false }),
+            "unsubscribed" => Some(ThreadStatus::Unsubscribed),
+            _ => None,
+        }
+    }
+}
+
 /// Store state changes and pass them to the StateStore.
 #[derive(Clone, Debug, Default)]
 pub struct StateChanges {

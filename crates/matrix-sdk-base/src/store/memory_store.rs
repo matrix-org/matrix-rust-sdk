@@ -45,7 +45,7 @@ use super::{
 use crate::{
     MinimalRoomMemberEvent, RoomMemberships, StateStoreDataKey, StateStoreDataValue,
     deserialized_responses::{DisplayName, RawAnySyncOrStrippedState},
-    store::QueueWedgeError,
+    store::{QueueWedgeError, ThreadStatus},
 };
 
 #[derive(Debug, Default)]
@@ -75,7 +75,6 @@ struct MemoryStoreInner {
         OwnedRoomId,
         HashMap<(String, Option<String>), HashMap<OwnedUserId, (OwnedEventId, Receipt)>>,
     >,
-
     room_event_receipts: HashMap<
         OwnedRoomId,
         HashMap<(String, Option<String>), HashMap<OwnedEventId, HashMap<OwnedUserId, Receipt>>>,
@@ -84,6 +83,7 @@ struct MemoryStoreInner {
     send_queue_events: BTreeMap<OwnedRoomId, Vec<QueuedRequest>>,
     dependent_send_queue_events: BTreeMap<OwnedRoomId, Vec<DependentQueuedRequest>>,
     seen_knock_requests: BTreeMap<OwnedRoomId, BTreeMap<OwnedEventId, OwnedUserId>>,
+    thread_subscriptions: BTreeMap<OwnedRoomId, BTreeMap<OwnedEventId, ThreadStatus>>,
 }
 
 /// In-memory, non-persistent implementation of the `StateStore`.
@@ -938,10 +938,6 @@ impl StateStore for MemoryStore {
         }
     }
 
-    /// List all the dependent send queue events.
-    ///
-    /// This returns absolutely all the dependent send queue events, whether
-    /// they have an event id or not.
     async fn load_dependent_queued_requests(
         &self,
         room: &RoomId,
@@ -954,6 +950,35 @@ impl StateStore for MemoryStore {
             .get(room)
             .cloned()
             .unwrap_or_default())
+    }
+
+    async fn upsert_thread_subscription(
+        &self,
+        room: &RoomId,
+        thread_id: &EventId,
+        status: ThreadStatus,
+    ) -> Result<(), Self::Error> {
+        self.inner
+            .write()
+            .unwrap()
+            .thread_subscriptions
+            .entry(room.to_owned())
+            .or_default()
+            .insert(thread_id.to_owned(), status);
+        Ok(())
+    }
+
+    async fn load_thread_subscription(
+        &self,
+        room: &RoomId,
+        thread_id: &EventId,
+    ) -> Result<Option<ThreadStatus>, Self::Error> {
+        let inner = self.inner.read().unwrap();
+        Ok(inner
+            .thread_subscriptions
+            .get(room)
+            .and_then(|subscriptions| subscriptions.get(thread_id))
+            .copied())
     }
 }
 
