@@ -85,7 +85,15 @@ async fn test_thread_push_rule_is_triggered_for_subscribed_threads() {
     // call `Room::fetch_thread_subscription` for threads.
 
     let server = MatrixMockServer::new().await;
-    let client = server.client_builder().build().await;
+    let client = server
+        .client_builder()
+        .on_builder(|builder| {
+            builder.with_threading_support(matrix_sdk::ThreadingSupport::Enabled {
+                with_subscriptions: true,
+            })
+        })
+        .build()
+        .await;
 
     let room_id = room_id!("!test:example.org");
     let room = server.sync_joined_room(&client, room_id).await;

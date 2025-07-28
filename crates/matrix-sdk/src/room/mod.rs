@@ -3023,7 +3023,7 @@ impl Room {
         };
 
         let this = self.clone();
-        let ctx = assign!(PushConditionRoomCtx::new(
+        let mut ctx = assign!(PushConditionRoomCtx::new(
             room_id.to_owned(),
             UInt::new(member_count).unwrap_or(UInt::MAX),
             user_id.to_owned(),
@@ -3031,17 +3031,21 @@ impl Room {
         ),
         {
             power_levels,
-        })
-        .with_has_thread_subscription_fn(move |event_id: &EventId| {
-            let room = this.clone();
-            Box::pin(async move {
-                if let Ok(maybe_sub) = room.fetch_thread_subscription(event_id.to_owned()).await {
-                    maybe_sub.is_some()
-                } else {
-                    false
-                }
-            })
         });
+
+        if self.client.enabled_thread_subscriptions() {
+            ctx = ctx.with_has_thread_subscription_fn(move |event_id: &EventId| {
+                let room = this.clone();
+                Box::pin(async move {
+                    if let Ok(maybe_sub) = room.fetch_thread_subscription(event_id.to_owned()).await
+                    {
+                        maybe_sub.is_some()
+                    } else {
+                        false
+                    }
+                })
+            });
+        }
 
         Ok(Some(ctx))
     }
