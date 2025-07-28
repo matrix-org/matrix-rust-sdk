@@ -1766,6 +1766,13 @@ impl StateStore for SqliteStateStore {
                 this.encode_key(keys::DEPENDENTS_SEND_QUEUE, &room_id);
             txn.remove_room_dependent_send_queue(&dependent_send_queue_room_id)?;
 
+            let thread_subscriptions_room_id =
+                this.encode_key(keys::THREAD_SUBSCRIPTIONS, &room_id);
+            txn.execute(
+                "DELETE FROM thread_subscriptions WHERE room_id = ?",
+                (thread_subscriptions_room_id,),
+            )?;
+
             Ok(())
         })
         .await?;

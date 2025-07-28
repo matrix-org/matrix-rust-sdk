@@ -754,6 +754,7 @@ impl StateStore for MemoryStore {
         inner.room_event_receipts.remove(room_id);
         inner.send_queue_events.remove(room_id);
         inner.dependent_send_queue_events.remove(room_id);
+        inner.thread_subscriptions.remove(room_id);
 
         Ok(())
     }
