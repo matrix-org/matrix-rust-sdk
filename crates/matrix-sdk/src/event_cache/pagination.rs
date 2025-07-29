@@ -263,7 +263,7 @@ impl RoomPagination {
         batch_size: u16,
         prev_token: Option<String>,
     ) -> Result<Option<BackPaginationOutcome>> {
-        let (events, new_token) = {
+        let (push_context, events, new_token) = {
             let Some(room) = self.inner.weak_room.get() else {
                 // The client is shutting down, return an empty default response.
                 return Ok(Some(BackPaginationOutcome {
@@ -280,15 +280,18 @@ impl RoomPagination {
                 .await
                 .map_err(|err| EventCacheError::BackpaginationError(Box::new(err)))?;
 
-            (response.chunk, response.end)
+            let push_context =
+                RoomEventCacheInner::push_context_for_threads_subscriptions(&room).await;
+
+            (push_context, response.chunk, response.end)
         };
 
-        if let Some((outcome, timeline_event_diffs)) = self
+        if let Some((outcome, timeline_event_diffs, new_thread_subs)) = self
             .inner
             .state
             .write()
             .await
-            .handle_backpagination(events, new_token, prev_token)
+            .handle_backpagination(push_context, events, new_token, prev_token)
             .await?
         {
             if !timeline_event_diffs.is_empty() {
@@ -297,6 +300,8 @@ impl RoomPagination {
                     origin: EventsOrigin::Pagination,
                 });
             }
+
+            self.inner.subscribe_to_new_threads(new_thread_subs).await;
 
             Ok(Some(outcome))
         } else {

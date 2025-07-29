@@ -220,6 +220,10 @@ impl PushContext {
     pub async fn for_event<T>(&self, event: &Raw<T>) -> Vec<Action> {
         self.push_rules.get_actions(event, &self.push_condition_room_ctx).await.to_owned()
     }
+
+    pub(crate) fn push_condition_room_ctx_mut(&mut self) -> &mut PushConditionRoomCtx {
+        &mut self.push_condition_room_ctx
+    }
 }
 
 macro_rules! make_media_type {
@@ -3037,8 +3041,7 @@ impl Room {
             ctx = ctx.with_has_thread_subscription_fn(move |event_id: &EventId| {
                 let room = this.clone();
                 Box::pin(async move {
-                    if let Ok(maybe_sub) = room.fetch_thread_subscription(event_id.to_owned()).await
-                    {
+                    if let Ok(maybe_sub) = room.load_or_fetch_thread_subscription(event_id).await {
                         maybe_sub.is_some()
                     } else {
                         false
@@ -3820,6 +3823,19 @@ impl Room {
         }
 
         Ok(subscription)
+    }
+
+    /// Load the current thread subscription for the given thread root in this
+    /// room, from the database, or by fetching it from the server.
+    ///
+    /// The semantics are the same as for [`Self::fetch_thread_subscription`].
+    pub(crate) async fn load_or_fetch_thread_subscription(
+        &self,
+        thread_root: &EventId,
+    ) -> Result<Option<ThreadSubscription>> {
+        // At the moment (2025-08-07), always fetch from the server, since we're not
+        // maintaining thread subscriptions in sync.
+        self.fetch_thread_subscription(thread_root.to_owned()).await
     }
 }
 

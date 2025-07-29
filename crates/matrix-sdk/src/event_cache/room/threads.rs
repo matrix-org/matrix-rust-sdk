@@ -14,21 +14,26 @@
 
 //! Threads-related data structures.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use eyeball_im::VectorDiff;
 use matrix_sdk_base::{
     event_cache::{Event, Gap},
     linked_chunk::{ChunkContent, Position},
 };
-use ruma::OwnedEventId;
+use ruma::{events::AnySyncTimelineEvent, serde::Raw, OwnedEventId};
 use tokio::sync::broadcast::{Receiver, Sender};
 use tracing::trace;
 
-use crate::event_cache::{
-    deduplicator::DeduplicationOutcome,
-    room::{events::EventLinkedChunk, LoadMoreEventsBackwardsOutcome},
-    BackPaginationOutcome, EventsOrigin,
+use crate::{
+    event_cache::{
+        deduplicator::DeduplicationOutcome,
+        room::{
+            events::EventLinkedChunk, AutomaticThreadSubscriptions, LoadMoreEventsBackwardsOutcome,
+        },
+        BackPaginationOutcome, EventsOrigin,
+    },
+    room::PushContext,
 };
 
 /// An update coming from a thread event cache.
@@ -203,13 +208,17 @@ impl ThreadEventCache {
     /// [`Self::load_more_events_backwards`].
     ///
     /// Returns `None` if the gap couldn't be found anymore (meaning the
-    /// thread has been reset while the pagination was ongoing).
-    pub fn finish_network_pagination(
+    /// thread has been reset while the pagination was ongoing). Otherwise,
+    /// returns a backpagination outcome, along with a boolean indicating
+    /// whether the current thread should be automatically subscribed to,
+    /// according to the semantics of MSC4306.
+    pub async fn finish_network_pagination(
         &mut self,
+        push_context: Option<PushContext>,
         prev_token: Option<String>,
         new_token: Option<String>,
         events: Vec<Event>,
-    ) -> Option<BackPaginationOutcome> {
+    ) -> Option<(BackPaginationOutcome, AutomaticThreadSubscriptions)> {
         // TODO(bnjbvr): consider deduplicating this code (~same for room) at some
         // point.
         let prev_gap_id = if let Some(token) = prev_token {
@@ -258,11 +267,40 @@ impl ThreadEventCache {
                 .send(ThreadEventCacheUpdate { diffs: updates, origin: EventsOrigin::Pagination });
         }
 
-        Some(BackPaginationOutcome { reached_start, events })
+        let mut subscribe_to_event_id = None;
+
+        if let Some(push_context) = push_context {
+            for event in events.iter().rev() {
+                if should_subscribe_thread(&push_context, event.raw()).await {
+                    let Some(event_id) = event.event_id() else {
+                        continue;
+                    };
+                    subscribe_to_event_id = Some((self.thread_root.clone(), event_id));
+                    break;
+                }
+            }
+        }
+
+        let thread_subscriptions =
+            AutomaticThreadSubscriptions(BTreeMap::from_iter(subscribe_to_event_id));
+
+        Some((BackPaginationOutcome { reached_start, events }, thread_subscriptions))
     }
 
     /// Returns the latest event ID in this thread, if any.
     pub fn latest_event_id(&self) -> Option<OwnedEventId> {
         self.chunk.revents().next().and_then(|(_position, event)| event.event_id())
     }
+}
+
+/// Should we automatically subscribe to a thread, according to the semantics of
+/// MSC4306?
+///
+/// This doesn't check if the user was already subscribed to the thread, as this
+/// is left to the caller to handle.
+pub async fn should_subscribe_thread(
+    push_context: &PushContext,
+    event: &Raw<AnySyncTimelineEvent>,
+) -> bool {
+    push_context.for_event(event).await.into_iter().any(|action| action.should_notify())
 }
