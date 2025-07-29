@@ -489,22 +489,41 @@ fn split_devices_for_user_for_all_devices_strategy(
     device_owner_identity: &Option<UserIdentityData>,
 ) -> RecipientDevicesForUser {
     let (left, right) = user_devices.into_values().partition_map(|d| {
-        if d.is_blacklisted() {
-            Either::Right((d, WithheldCode::Blacklisted))
-        } else if d.is_dehydrated()
-            && should_withhold_to_dehydrated_device(
-                &d,
-                own_identity.as_ref(),
-                device_owner_identity.as_ref(),
-            )
-        {
-            Either::Right((d, WithheldCode::Unverified))
+        if let Some(withheld_code) = withheld_code_for_device_for_all_devices_strategy(
+            &d,
+            own_identity,
+            device_owner_identity,
+        ) {
+            Either::Right((d, withheld_code))
         } else {
             Either::Left(d)
         }
     });
 
     RecipientDevicesForUser { allowed_devices: left, denied_devices_with_code: right }
+}
+
+/// Determine whether we should withhold encrypted messages from the given
+/// device, for [`CollectStrategy::AllDevices`], and if so, what withheld code
+/// to send.
+fn withheld_code_for_device_for_all_devices_strategy(
+    device_data: &DeviceData,
+    own_identity: &Option<OwnUserIdentityData>,
+    device_owner_identity: &Option<UserIdentityData>,
+) -> Option<WithheldCode> {
+    if device_data.is_blacklisted() {
+        Some(WithheldCode::Blacklisted)
+    } else if device_data.is_dehydrated()
+        && should_withhold_to_dehydrated_device(
+            device_data,
+            own_identity.as_ref(),
+            device_owner_identity.as_ref(),
+        )
+    {
+        Some(WithheldCode::Unverified)
+    } else {
+        None
+    }
 }
 
 /// Helper for [`split_devices_for_user_for_all_devices_strategy`].
@@ -634,10 +653,15 @@ fn split_devices_for_user_for_identity_based_strategy(
                 Vec<DeviceData>,
                 Vec<(DeviceData, WithheldCode)>,
             ) = user_devices.into_values().partition_map(|d| {
-                if d.is_cross_signed_by_owner(device_owner_identity) {
-                    Either::Left(d)
+                if let Some(withheld_code) =
+                    withheld_code_for_device_with_owner_for_identity_based_strategy(
+                        &d,
+                        device_owner_identity,
+                    )
+                {
+                    Either::Right((d, withheld_code))
                 } else {
-                    Either::Right((d, WithheldCode::Unverified))
+                    Either::Left(d)
                 }
             });
             RecipientDevicesForUser {
@@ -645,6 +669,20 @@ fn split_devices_for_user_for_identity_based_strategy(
                 denied_devices_with_code: withheld_recipients,
             }
         }
+    }
+}
+
+/// Determine whether we should withhold encrypted messages from the given
+/// device, for [`CollectStrategy::IdentityBased`], and if so, what withheld
+/// code to send.
+fn withheld_code_for_device_with_owner_for_identity_based_strategy(
+    device_data: &DeviceData,
+    device_owner_identity: &UserIdentityData,
+) -> Option<WithheldCode> {
+    if device_data.is_cross_signed_by_owner(device_owner_identity) {
+        None
+    } else {
+        Some(WithheldCode::Unverified)
     }
 }
 
@@ -656,17 +694,36 @@ fn split_devices_for_user_for_only_trusted_devices(
     device_owner_identity: &Option<UserIdentityData>,
 ) -> RecipientDevicesForUser {
     let (left, right) = user_devices.into_values().partition_map(|d| {
-        match (
-            d.local_trust_state(),
-            d.is_cross_signing_trusted(own_identity, device_owner_identity),
+        if let Some(withheld_code) = withheld_code_for_device_for_only_trusted_devices_strategy(
+            &d,
+            own_identity,
+            device_owner_identity,
         ) {
-            (LocalTrust::BlackListed, _) => Either::Right((d, WithheldCode::Blacklisted)),
-            (LocalTrust::Ignored | LocalTrust::Verified, _) => Either::Left(d),
-            (LocalTrust::Unset, false) => Either::Right((d, WithheldCode::Unverified)),
-            (LocalTrust::Unset, true) => Either::Left(d),
+            Either::Right((d, withheld_code))
+        } else {
+            Either::Left(d)
         }
     });
     RecipientDevicesForUser { allowed_devices: left, denied_devices_with_code: right }
+}
+
+/// Determine whether we should withhold encrypted messages from the given
+/// device, for [`CollectStrategy::OnlyTrustedDevices`], and if so, what
+/// withheld code to send.
+fn withheld_code_for_device_for_only_trusted_devices_strategy(
+    device_data: &DeviceData,
+    own_identity: &Option<OwnUserIdentityData>,
+    device_owner_identity: &Option<UserIdentityData>,
+) -> Option<WithheldCode> {
+    match (
+        device_data.local_trust_state(),
+        device_data.is_cross_signing_trusted(own_identity, device_owner_identity),
+    ) {
+        (LocalTrust::BlackListed, _) => Some(WithheldCode::Blacklisted),
+        (LocalTrust::Ignored | LocalTrust::Verified, _) => None,
+        (LocalTrust::Unset, false) => Some(WithheldCode::Unverified),
+        (LocalTrust::Unset, true) => None,
+    }
 }
 
 fn is_unsigned_device_of_verified_user(
