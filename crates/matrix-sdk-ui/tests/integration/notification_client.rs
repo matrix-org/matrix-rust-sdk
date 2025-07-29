@@ -1,7 +1,6 @@
 use std::{
     collections::BTreeMap,
     sync::{Arc, Mutex},
-    time::Duration,
 };
 
 use assert_matches::assert_matches;
@@ -40,44 +39,30 @@ use crate::{
 
 #[async_test]
 async fn test_notification_client_with_context() {
-    let room_id = room_id!("!a98sd12bjh:example.org");
-    let (client, server) = logged_in_client_with_server().await;
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
 
-    let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
+    let sender = user_id!("@user:example.org");
+    let room_id = room_id!("!a98sd12bjh:example.org");
+    let f = EventFactory::new().room(room_id).sender(sender);
 
     let content = "Hello world!";
     let event_id = event_id!("$example_event_id");
-    let server_ts = 152049794;
-    let sender = user_id!("@user:example.org");
+    let event = f.text_msg(content).event_id(event_id).server_ts(152049794).into_event();
+
     let sender_display_name = "John Mastodon";
     let sender_avatar_url = mxc_uri!("mxc://example.org/avatar");
-    let event_factory = EventFactory::new().room(room_id).sender(sender);
-    let event_json =
-        event_factory.text_msg(content).event_id(event_id).server_ts(server_ts).into_raw_sync();
-
-    let sender_member_event = event_factory
+    let sender_member_event = f
         .member(sender)
         .membership(MembershipState::Join)
         .display_name(sender_display_name)
         .avatar_url(sender_avatar_url)
         .into_raw_timeline();
 
-    let mut sync_builder = SyncResponseBuilder::new();
-    sync_builder.add_joined_room(
-        JoinedRoomBuilder::new(room_id).add_timeline_event(
-            event_factory
-                .text_msg(content)
-                .event_id(event_id)
-                .server_ts(server_ts)
-                .sender(sender)
-                .into_raw_sync(),
-        ),
-    );
-
     // First, mock a sync that contains a text message.
-    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
-    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
-    server.reset().await;
+    server
+        .sync_room(&client, JoinedRoomBuilder::new(room_id).add_timeline_event(event.raw().clone()))
+        .await;
 
     // Then, try to simulate receiving a notification for that message.
     let dummy_sync_service = Arc::new(SyncService::builder(client.clone()).build().await.unwrap());
@@ -85,33 +70,26 @@ async fn test_notification_client_with_context() {
         NotificationProcessSetup::SingleProcess { sync_service: dummy_sync_service };
     let notification_client = NotificationClient::new(client, process_setup).await.unwrap();
 
-    {
-        // The notification client retrieves the event via `/rooms/*/context/`.
-        Mock::given(method("GET"))
-            .and(path(format!("/_matrix/client/r0/rooms/{room_id}/context/{event_id}")))
-            .and(header("authorization", "Bearer 1234"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-                "event": event_json,
-                "state": [sender_member_event]
-            })))
-            .mount(&server)
-            .await;
+    // The notification client retrieves the event via `/rooms/*/context/`.
+    server
+        .mock_room_event_context()
+        .ok(event, "", "", vec![sender_member_event.cast_unchecked()])
+        .mock_once()
+        .mount()
+        .await;
 
-        // The encryption state is also fetched to figure whether the room is encrypted
-        // or not.
-        mock_encryption_state(&server, false).await;
-    }
+    // The encryption state is also fetched to figure whether the room is encrypted
+    // or not.
+    server.mock_room_state_encryption().plain().mount().await;
 
     let item = notification_client.get_notification_with_context(room_id, event_id).await.unwrap();
-
-    server.reset().await;
 
     assert_let!(NotificationStatus::Event(item) = item);
 
     assert_matches!(item.event, NotificationEvent::Timeline(event) => {
         assert_eq!(event.event_type(), TimelineEventType::RoomMessage);
     });
-    assert_eq!(item.sender_display_name.as_deref(), Some("John Mastodon"));
+    assert_eq!(item.sender_display_name.as_deref(), Some(sender_display_name));
     assert_eq!(item.sender_avatar_url, Some(sender_avatar_url.to_string()));
 }
 
