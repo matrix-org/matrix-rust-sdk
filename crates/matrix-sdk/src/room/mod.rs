@@ -3000,11 +3000,24 @@ impl Room {
         self.inner.load_event_receipts(receipt_type, thread, event_id).await.map_err(Into::into)
     }
 
-    /// Get the push context for this room.
+    /// Get the push-condition context for this room.
     ///
     /// Returns `None` if some data couldn't be found. This should only happen
     /// in brand new rooms, while we process its state.
     pub async fn push_condition_room_ctx(&self) -> Result<Option<PushConditionRoomCtx>> {
+        self.push_condition_room_ctx_internal(self.client.enabled_thread_subscriptions()).await
+    }
+
+    /// Get the push-condition context for this room, with a choice to include
+    /// thread subscriptions or not, based on the extra
+    /// `with_threads_subscriptions` parameter.
+    ///
+    /// Returns `None` if some data couldn't be found. This should only happen
+    /// in brand new rooms, while we process its state.
+    pub(crate) async fn push_condition_room_ctx_internal(
+        &self,
+        with_threads_subscriptions: bool,
+    ) -> Result<Option<PushConditionRoomCtx>> {
         let room_id = self.room_id();
         let user_id = self.own_user_id();
         let room_info = self.clone_info();
@@ -3028,7 +3041,6 @@ impl Room {
             }
         };
 
-        let this = self.clone();
         let mut ctx = assign!(PushConditionRoomCtx::new(
             room_id.to_owned(),
             UInt::new(member_count).unwrap_or(UInt::MAX),
@@ -3039,12 +3051,12 @@ impl Room {
             power_levels,
         });
 
-        if self.client.enabled_thread_subscriptions() {
+        if with_threads_subscriptions {
+            let this = self.clone();
             ctx = ctx.with_has_thread_subscription_fn(move |event_id: &EventId| {
                 let room = this.clone();
                 Box::pin(async move {
-                    if let Ok(maybe_sub) = room.fetch_thread_subscription(event_id.to_owned()).await
-                    {
+                    if let Ok(maybe_sub) = room.load_or_fetch_thread_subscription(event_id).await {
                         maybe_sub.is_some()
                     } else {
                         false
@@ -3059,7 +3071,20 @@ impl Room {
     /// Retrieves a [`PushContext`] that can be used to compute the push
     /// actions for events.
     pub async fn push_context(&self) -> Result<Option<PushContext>> {
-        let Some(push_condition_room_ctx) = self.push_condition_room_ctx().await? else {
+        self.push_context_internal(self.client.enabled_thread_subscriptions()).await
+    }
+
+    /// Retrieves a [`PushContext`] that can be used to compute the push actions
+    /// for events, with a choice to include thread subscriptions or not,
+    /// based on the extra `with_threads_subscriptions` parameter.
+    #[instrument(skip(self))]
+    pub(crate) async fn push_context_internal(
+        &self,
+        with_threads_subscriptions: bool,
+    ) -> Result<Option<PushContext>> {
+        let Some(push_condition_room_ctx) =
+            self.push_condition_room_ctx_internal(with_threads_subscriptions).await?
+        else {
             debug!("Could not aggregate push context");
             return Ok(None);
         };
