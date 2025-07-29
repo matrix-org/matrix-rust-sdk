@@ -2485,15 +2485,16 @@ impl<'a> MockEndpoint<'a, RoomEventContextEndpoint> {
         self
     }
 
-    /// Returns an endpoint that emulates success
+    /// Returns an endpoint that emulates success.
     pub fn ok(
         self,
         event: TimelineEvent,
         start: impl Into<String>,
         end: impl Into<String>,
+        state_events: Vec<Raw<AnyStateEvent>>,
     ) -> MatrixMock<'a> {
         let event_path = if self.endpoint.match_event_id {
-            let event_id = event.kind.event_id().expect("an event id is required");
+            let event_id = event.event_id().expect("an event id is required");
             // The event id should begin with `$`, which would be taken as the end of the
             // regex so we need to escape it
             event_id.as_str().replace("$", "\\$")
@@ -2511,7 +2512,7 @@ impl<'a> MockEndpoint<'a, RoomEventContextEndpoint> {
                 "event": event.into_raw().json(),
                 "end": end.into(),
                 "start": start.into(),
-                "state": []
+                "state": state_events
             })));
         MatrixMock { server: self.server, mock }
     }
