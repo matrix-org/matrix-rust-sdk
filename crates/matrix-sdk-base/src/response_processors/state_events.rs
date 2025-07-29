@@ -41,7 +41,7 @@ pub mod sync {
             room::member::{MembershipState, RoomMemberEventContent},
         },
     };
-    use tracing::{error, instrument};
+    use tracing::{error, instrument, warn};
 
     use super::{super::profiles, AnySyncStateEvent, Context, Raw};
     use crate::{
@@ -152,7 +152,7 @@ pub mod sync {
                 }
 
                 #[cfg(feature = "e2e-encryption")]
-                AnySyncStateEvent::RoomEncrypted(_) => {
+                AnySyncStateEvent::RoomEncrypted(outer) => {
                     if let Some(olm_machine) = e2ee.olm_machine {
                         let decrypted_event = olm_machine
                             .try_decrypt_room_event(
@@ -163,14 +163,52 @@ pub mod sync {
                             .await
                             .unwrap();
                         if let RoomEventDecryptionResult::Decrypted(room_event) = decrypted_event {
-                            room_info.handle_state_event(
-                                &room_event
-                                    .event
-                                    // TODO: UNSAFE CAST - someone evil could encrypt something that
-                                    // isn't a state event.
-                                    .deserialize_as_unchecked::<AnySyncStateEvent>()
-                                    .unwrap(),
-                            );
+                            // Unpack event type and state key from outer.
+                            let (outer_event_type, outer_state_key) =
+                                match outer.state_key().split_once(":") {
+                                    None => {
+                                        warn!(
+                                            event_id = outer.event_id().as_str(),
+                                            state_key = event.state_key(),
+                                            "Malformed state key"
+                                        );
+                                        // Discard the event entirely.
+                                        continue;
+                                    }
+                                    Some(result) => result,
+                                };
+
+                            let inner = &room_event
+                                .event
+                                // TODO: UNSAFE CAST - someone evil could encrypt something that
+                                // isn't a state event.
+                                .deserialize_as_unchecked::<AnySyncStateEvent>()
+                                .unwrap();
+
+                            // Check event types match, discard if not.
+                            let inner_event_type = inner.event_type().to_string();
+                            if outer_event_type != inner_event_type {
+                                warn!(
+                                    event_id = outer.event_id().as_str(),
+                                    expected = outer_event_type,
+                                    found = inner_event_type,
+                                    "Mismatched event type"
+                                );
+                                continue;
+                            }
+
+                            // Check state keys match, discard if not.
+                            if outer_state_key != inner.state_key() {
+                                warn!(
+                                    event_id = outer.event_id().as_str(),
+                                    expected = outer_state_key,
+                                    found = inner.state_key(),
+                                    "Mismatched state key"
+                                );
+                                continue;
+                            }
+
+                            room_info.handle_state_event(inner);
                         }
                     }
                 }
