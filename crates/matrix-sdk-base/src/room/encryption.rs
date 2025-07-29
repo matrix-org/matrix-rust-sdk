@@ -33,7 +33,7 @@ impl Room {
 #[derive(Debug)]
 #[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
 pub enum EncryptionState {
-    /// The room is encrypted, not including state events.
+    /// The room is encrypted, excluding state events.
     Encrypted,
 
     /// The room is encrypted, including state events.
