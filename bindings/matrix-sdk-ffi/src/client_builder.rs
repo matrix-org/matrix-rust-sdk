@@ -130,7 +130,8 @@ pub struct ClientBuilder {
     #[cfg(not(target_family = "wasm"))]
     additional_root_certificates: Vec<Vec<u8>>,
 
-    threads_enabled: bool,
+    enabled_threads: bool,
+    enabled_thread_subscriptions: bool,
 }
 
 /// The timeout applies to each read operation, and resets after a successful
@@ -173,7 +174,8 @@ impl ClientBuilder {
             },
             enable_share_history_on_invite: false,
             request_config: Default::default(),
-            threads_enabled: false,
+            enabled_threads: false,
+            enabled_thread_subscriptions: false,
         })
     }
 
@@ -387,9 +389,16 @@ impl ClientBuilder {
         Arc::new(builder)
     }
 
-    pub fn threads_enabled(self: Arc<Self>, enabled: bool) -> Arc<Self> {
+    /// Whether the client should support threads client-side or not, and enable
+    /// experimental support for MSC4306 (threads subscriptions) or not.
+    pub fn threads_enabled(
+        self: Arc<Self>,
+        enabled: bool,
+        thread_subscriptions: bool,
+    ) -> Arc<Self> {
         let mut builder = unwrap_or_clone_arc(self);
-        builder.threads_enabled = enabled;
+        builder.enabled_threads = enabled;
+        builder.enabled_thread_subscriptions = thread_subscriptions;
         Arc::new(builder)
     }
 
@@ -518,7 +527,8 @@ impl ClientBuilder {
             .with_encryption_settings(builder.encryption_settings)
             .with_room_key_recipient_strategy(builder.room_key_recipient_strategy)
             .with_decryption_settings(builder.decryption_settings)
-            .with_enable_share_history_on_invite(builder.enable_share_history_on_invite);
+            .with_enable_share_history_on_invite(builder.enable_share_history_on_invite)
+            .enable_thread_subscriptions(builder.enabled_thread_subscriptions);
 
         match builder.sliding_sync_version_builder {
             SlidingSyncVersionBuilder::None => {
@@ -559,7 +569,7 @@ impl ClientBuilder {
             inner_builder = inner_builder.request_config(updated_config);
         }
 
-        inner_builder = inner_builder.with_threading_support(if builder.threads_enabled {
+        inner_builder = inner_builder.with_threading_support(if builder.enabled_threads {
             ThreadingSupport::Enabled
         } else {
             ThreadingSupport::Disabled
