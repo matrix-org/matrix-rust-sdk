@@ -280,6 +280,41 @@ impl PendingIndexeddbChanges {
     }
 }
 
+/// Transform an [`InboundGroupSession`] into a `JsValue` holding a
+/// [`InboundGroupSessionIndexedDbObject`], ready for storing.
+async fn serialize_inbound_group_session(
+    session: &InboundGroupSession,
+    serializer: &IndexeddbSerializer,
+) -> Result<JsValue> {
+    let obj = InboundGroupSessionIndexedDbObject::from_session(session, serializer).await?;
+    Ok(serde_wasm_bindgen::to_value(&obj)?)
+}
+
+/// Transform a JsValue holding a [`InboundGroupSessionIndexedDbObject`]
+/// back into a [`InboundGroupSession`].
+fn deserialize_inbound_group_session(
+    stored_value: JsValue,
+    serializer: &IndexeddbSerializer,
+) -> Result<InboundGroupSession> {
+    let idb_object: InboundGroupSessionIndexedDbObject =
+        serde_wasm_bindgen::from_value(stored_value)?;
+    let pickled_session: PickledInboundGroupSession =
+        serializer.maybe_decrypt_value(idb_object.pickled_session)?;
+    let session = InboundGroupSession::from_pickle(pickled_session)
+        .map_err(|e| IndexeddbCryptoStoreError::CryptoStoreError(e.into()))?;
+
+    // Although a "backed up" flag is stored inside `idb_object.pickled_session`, it
+    // is not maintained when backups are reset. Overwrite the flag with the
+    // needs_backup value from the IDB object.
+    if idb_object.needs_backup {
+        session.reset_backup_state();
+    } else {
+        session.mark_as_backed_up();
+    }
+
+    Ok(session)
+}
+
 impl IndexeddbCryptoStore {
     pub(crate) async fn open_with_store_cipher(
         prefix: &str,
@@ -425,9 +460,7 @@ impl IndexeddbCryptoStore {
         &self,
         session: &InboundGroupSession,
     ) -> Result<JsValue> {
-        let obj =
-            InboundGroupSessionIndexedDbObject::from_session(session, &self.serializer).await?;
-        Ok(serde_wasm_bindgen::to_value(&obj)?)
+        serialize_inbound_group_session(session, &self.serializer).await
     }
 
     /// Transform a JsValue holding a [`InboundGroupSessionIndexedDbObject`]
@@ -436,23 +469,7 @@ impl IndexeddbCryptoStore {
         &self,
         stored_value: JsValue,
     ) -> Result<InboundGroupSession> {
-        let idb_object: InboundGroupSessionIndexedDbObject =
-            serde_wasm_bindgen::from_value(stored_value)?;
-        let pickled_session: PickledInboundGroupSession =
-            self.serializer.maybe_decrypt_value(idb_object.pickled_session)?;
-        let session = InboundGroupSession::from_pickle(pickled_session)
-            .map_err(|e| IndexeddbCryptoStoreError::CryptoStoreError(e.into()))?;
-
-        // Although a "backed up" flag is stored inside `idb_object.pickled_session`, it
-        // is not maintained when backups are reset. Overwrite the flag with the
-        // needs_backup value from the IDB object.
-        if idb_object.needs_backup {
-            session.reset_backup_state();
-        } else {
-            session.mark_as_backed_up();
-        }
-
-        Ok(session)
+        deserialize_inbound_group_session(stored_value, &self.serializer)
     }
 
     /// Transform a [`GossipRequest`] into a `JsValue` holding a
