@@ -14,21 +14,26 @@
 
 //! Threads-related data structures.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use eyeball_im::VectorDiff;
 use matrix_sdk_base::{
     event_cache::{Event, Gap},
     linked_chunk::{ChunkContent, Position},
+    store::ThreadSubscription,
 };
 use ruma::OwnedEventId;
 use tokio::sync::broadcast::{Receiver, Sender};
-use tracing::trace;
+use tracing::{trace, warn};
 
-use crate::event_cache::{
-    deduplicator::DeduplicationOutcome,
-    room::{events::EventLinkedChunk, LoadMoreEventsBackwardsOutcome},
-    BackPaginationOutcome, EventsOrigin,
+use crate::{
+    event_cache::{
+        deduplicator::DeduplicationOutcome,
+        room::{events::EventLinkedChunk, LoadMoreEventsBackwardsOutcome},
+        BackPaginationOutcome, EventsOrigin,
+    },
+    room::PushContext,
+    Room,
 };
 
 /// An update coming from a thread event cache.
@@ -203,13 +208,17 @@ impl ThreadEventCache {
     /// [`Self::load_more_events_backwards`].
     ///
     /// Returns `None` if the gap couldn't be found anymore (meaning the
-    /// thread has been reset while the pagination was ongoing).
-    pub fn finish_network_pagination(
+    /// thread has been reset while the pagination was ongoing). Otherwise,
+    /// returns a backpagination outcome, along with a boolean indicating
+    /// whether the current thread should be automatically subscribed to,
+    /// according to the semantics of MSC4306.
+    pub async fn finish_network_pagination(
         &mut self,
+        push_context: ThreadPushContext,
         prev_token: Option<String>,
         new_token: Option<String>,
         events: Vec<Event>,
-    ) -> Option<BackPaginationOutcome> {
+    ) -> Option<(BackPaginationOutcome, AutomaticThreadSubscriptions)> {
         // TODO(bnjbvr): consider deduplicating this code (~same for room) at some
         // point.
         let prev_gap_id = if let Some(token) = prev_token {
@@ -258,11 +267,126 @@ impl ThreadEventCache {
                 .send(ThreadEventCacheUpdate { diffs: updates, origin: EventsOrigin::Pagination });
         }
 
-        Some(BackPaginationOutcome { reached_start, events })
+        let mut subscribe_to_event_id = None;
+
+        if let Some(subscribed_to_event_id) =
+            should_subscribe_thread(&push_context, events.iter()).await
+        {
+            subscribe_to_event_id = Some((self.thread_root.clone(), subscribed_to_event_id));
+        }
+
+        let thread_subscriptions =
+            AutomaticThreadSubscriptions(BTreeMap::from_iter(subscribe_to_event_id));
+
+        Some((BackPaginationOutcome { reached_start, events }, thread_subscriptions))
     }
 
     /// Returns the latest event ID in this thread, if any.
     pub fn latest_event_id(&self) -> Option<OwnedEventId> {
         self.chunk.revents().next().and_then(|(_position, event)| event.event_id())
+    }
+}
+
+/// Mapping from the thread root event id, to the latest event in thread
+/// that should cause a subscription.
+///
+/// Note: it's not necessarily the latest event in the thread, but the latest in
+/// the thread that matches a push condition rule.
+#[derive(Debug, Default)]
+pub struct AutomaticThreadSubscriptions(pub BTreeMap<OwnedEventId, OwnedEventId>);
+
+/// A thin wrapper over a specialized [`PushContext`] that is used for computing
+/// the threads subscriptions automatically.
+///
+/// This can be created only using the
+/// [`push_context_for_threads_subscriptions`] function, available in the same
+/// module.
+#[derive(Debug, Default)]
+pub struct ThreadPushContext(Option<PushContext>);
+
+/// Create a [`PushContext`] for thread subscriptions, if the client enabled
+/// support for those.
+pub async fn push_context_for_threads_subscriptions(room: &Room) -> ThreadPushContext {
+    if !room.client().enabled_thread_subscriptions() {
+        return ThreadPushContext(None);
+    }
+
+    // This `PushContext` is going to be used to compute whether an in-thread event
+    // would trigger a mention.
+    //
+    // Of course, we're not interested in an in-thread event causing a mention,
+    // because it's part of a thread we've subscribed to. So the
+    // `PushContext` must not include the check for thread subscriptions (otherwise
+    // it would be impossible to subscribe to new threads).
+
+    let with_thread_subscriptions = false;
+
+    let ctx = room
+        .push_context_internal(with_thread_subscriptions)
+        .await
+        .inspect_err(|err| {
+            warn!("Failed to get push context for threads: {err}");
+        })
+        .ok()
+        .flatten();
+
+    ThreadPushContext(ctx)
+}
+
+/// Given events in topological order (i.e. intuitively, from the oldest to the
+/// newest), return the latest event that should trigger a thread subscription,
+/// if any.
+pub async fn should_subscribe_thread(
+    push_context: &ThreadPushContext,
+    events: impl DoubleEndedIterator<Item = &Event>,
+) -> Option<OwnedEventId> {
+    let ctx = push_context.0.as_ref()?;
+
+    for ev in events.rev() {
+        if ctx.for_event(ev.raw()).await.into_iter().any(|action| action.should_notify()) {
+            let Some(event_id) = ev.event_id() else {
+                // If the event doesn't have an event ID, we can't subscribe to it.
+                continue;
+            };
+            return Some(event_id);
+        }
+    }
+
+    None
+}
+
+/// Optionally subscribe to new threads, if the client enabled automatic thread
+/// subscription support.
+pub async fn subscribe_to_new_threads(room: &Room, new_thread_subs: AutomaticThreadSubscriptions) {
+    // If there's no subscriptions, or the client hasn't enabled thread
+    // subscriptions, we don't have anything to do.
+    if new_thread_subs.0.is_empty() || !room.client.enabled_thread_subscriptions() {
+        return;
+    }
+
+    for (thread_root, subscribe_up_to_event_id) in new_thread_subs.0 {
+        let previous_status = match room.load_or_fetch_thread_subscription(&thread_root).await {
+            Ok(status) => status,
+            Err(err) => {
+                warn!(%thread_root, "couldn't fetch thread subscription: {err}");
+                continue;
+            }
+        };
+
+        match previous_status {
+            Some(ThreadSubscription { .. }) => {
+                // Already subscribed, nothing to do.
+                trace!(%thread_root, "already subscribed to thread");
+            }
+            None => {
+                // Send an automatic subscription!
+                let automatic = Some(subscribe_up_to_event_id);
+                if let Err(err) = room.subscribe_thread(thread_root.clone(), automatic).await {
+                    warn!(%thread_root, "couldn't subscribe to thread: {err}");
+                } else {
+                    trace!(%thread_root, "subscribed to thread");
+                }
+            }
+        }
     }
 }
