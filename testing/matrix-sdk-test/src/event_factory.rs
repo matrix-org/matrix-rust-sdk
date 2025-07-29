@@ -413,6 +413,12 @@ impl EventBuilder<RoomMessageEventContent> {
 
         self
     }
+
+    /// Add intentional mentions to a given event.
+    pub fn mentions(mut self, mentions: Mentions) -> Self {
+        self.content.mentions = Some(mentions);
+        self
+    }
 }
 
 impl EventBuilder<UnstablePollStartEventContent> {

@@ -1,4 +1,5 @@
-use matrix_sdk::test_utils::mocks::MatrixMockServer;
+use assert_matches2::assert_matches;
+use matrix_sdk::{room::ThreadStatus, test_utils::mocks::MatrixMockServer};
 use matrix_sdk_test::async_test;
 use ruma::{owned_event_id, room_id};
 
@@ -35,7 +36,7 @@ async fn test_subscribe_thread() {
 
     // I can get the subscription status for that same thread.
     let subscription = room.fetch_thread_subscription(root_id.clone()).await.unwrap().unwrap();
-    assert!(subscription.automatic);
+    assert_matches!(subscription, ThreadStatus::Subscribed { automatic: true });
 
     // If I try to get a subscription for a thread event that's unknown, I get no
     // `ThreadSubscription`, not an error.
@@ -53,5 +54,10 @@ async fn test_subscribe_thread() {
         .mount()
         .await;
 
-    room.unsubscribe_thread(root_id).await.unwrap();
+    room.unsubscribe_thread(root_id.clone()).await.unwrap();
+
+    // Now, if I retry to get the subscription status for this thread, it's
+    // unsubscribed.
+    let subscription = room.fetch_thread_subscription(root_id).await.unwrap();
+    assert_matches!(subscription, Some(ThreadStatus::Unsubscribed));
 }

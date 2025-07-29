@@ -56,9 +56,9 @@ impl<'a> Notification<'a> {
     /// Push a new [`sync::Notification`] in [`Self::notifications`] from
     /// `event` if and only if `predicate` returns `true` for at least one of
     /// the [`Action`]s associated to this event and this
-    /// `push_condition_room_ctx`. (based on `Self::push_rules`).
+    /// `push_condition_room_ctx`. (based on [`Self::push_rules`]).
     ///
-    /// This method returns the fetched [`Action`]s.
+    /// This method returns the computed [`Action`]s.
     pub fn push_notification_from_event_if<E, P>(
         &mut self,
         room_id: &RoomId,

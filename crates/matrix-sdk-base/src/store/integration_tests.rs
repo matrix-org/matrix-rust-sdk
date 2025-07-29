@@ -43,7 +43,10 @@ use super::{
 use crate::{
     RoomInfo, RoomMemberships, RoomState, StateChanges, StateStoreDataKey, StateStoreDataValue,
     deserialized_responses::MemberEvent,
-    store::{ChildTransactionId, QueueWedgeError, Result, SerializableEventContent, StateStoreExt},
+    store::{
+        ChildTransactionId, QueueWedgeError, Result, SerializableEventContent, StateStoreExt,
+        ThreadStatus,
+    },
 };
 
 /// `StateStore` integration tests.
@@ -98,6 +101,8 @@ pub trait StateStoreIntegrationTests {
     async fn test_server_info_saving(&self);
     /// Test fetching room infos based on [`RoomLoadSettings`].
     async fn test_get_room_infos(&self);
+    /// Test loading thread subscriptions.
+    async fn test_thread_subscriptions(&self);
 }
 
 impl StateStoreIntegrationTests for DynStateStore {
@@ -1767,6 +1772,53 @@ impl StateStoreIntegrationTests for DynStateStore {
             assert_eq!(all_rooms.len(), 0);
         }
     }
+
+    async fn test_thread_subscriptions(&self) {
+        let first_thread = event_id!("$t1");
+        let second_thread = event_id!("$t2");
+
+        // At first, there is no thread subscription.
+        let maybe_status = self.load_thread_subscription(room_id(), first_thread).await.unwrap();
+        assert!(maybe_status.is_none());
+
+        let maybe_status = self.load_thread_subscription(room_id(), second_thread).await.unwrap();
+        assert!(maybe_status.is_none());
+
+        // Setting the thread subscription works.
+        self.upsert_thread_subscription(
+            room_id(),
+            first_thread,
+            ThreadStatus::Subscribed { automatic: true },
+        )
+        .await
+        .unwrap();
+
+        self.upsert_thread_subscription(
+            room_id(),
+            second_thread,
+            ThreadStatus::Subscribed { automatic: false },
+        )
+        .await
+        .unwrap();
+
+        // Now, reading the thread subscription returns the expected status.
+        let maybe_status = self.load_thread_subscription(room_id(), first_thread).await.unwrap();
+        assert_eq!(maybe_status, Some(ThreadStatus::Subscribed { automatic: true }));
+        let maybe_status = self.load_thread_subscription(room_id(), second_thread).await.unwrap();
+        assert_eq!(maybe_status, Some(ThreadStatus::Subscribed { automatic: false }));
+
+        // We can override the thread subscription status.
+        self.upsert_thread_subscription(room_id(), first_thread, ThreadStatus::Unsubscribed)
+            .await
+            .unwrap();
+
+        // And it's correctly reflected.
+        let maybe_status = self.load_thread_subscription(room_id(), first_thread).await.unwrap();
+        assert_eq!(maybe_status, Some(ThreadStatus::Unsubscribed));
+        // And the second thread is still subscribed.
+        let maybe_status = self.load_thread_subscription(room_id(), second_thread).await.unwrap();
+        assert_eq!(maybe_status, Some(ThreadStatus::Subscribed { automatic: false }));
+    }
 }
 
 /// Macro building to allow your StateStore implementation to run the entire
@@ -1936,6 +1988,12 @@ macro_rules! statestore_integration_tests {
             async fn test_get_room_infos() {
                 let store = get_store().await.expect("creating store failed").into_state_store();
                 store.test_get_room_infos().await;
+            }
+
+            #[async_test]
+            async fn test_thread_subscriptions() {
+                let store = get_store().await.expect("creating store failed").into_state_store();
+                store.test_thread_subscriptions().await;
             }
         }
     };
