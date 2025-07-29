@@ -35,6 +35,9 @@ All notable changes to this project will be documented in this file.
   `RoomSettings`, `RoomKeyInfo`, and `RoomKeyWithheldInfo` types have been moved
   from the `store` module into a new `store/types` module.
   ([#5177](https://github.com/matrix-org/matrix-rust-sdk/pull/5177))
+- [**breaking**] The `Device::encrypt_event_raw` and (experimental)
+  `OlmMachine::encrypt_content_for_devices` have new `share_strategy` parameters
+  to ensure that the recipients are sufficiently trusted.
 
 ## [0.12.0] - 2025-06-10
 
