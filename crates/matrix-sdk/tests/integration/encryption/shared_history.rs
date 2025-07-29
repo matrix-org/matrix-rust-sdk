@@ -31,15 +31,21 @@ async fn test_shared_history_out_of_order() {
 
     let alice = matrix_mock_server
         .client_builder_for_crypto_end_to_end(alice_user_id, alice_device_id)
-        .enable_share_history_on_invite()
-        .with_encryption_settings(encryption_settings)
+        .on_builder(|builder| {
+            builder
+                .with_enable_share_history_on_invite(true)
+                .with_encryption_settings(encryption_settings)
+        })
         .build()
         .await;
 
     let bob = matrix_mock_server
         .client_builder_for_crypto_end_to_end(bob_user_id, bob_device_id)
-        .enable_share_history_on_invite()
-        .with_encryption_settings(encryption_settings)
+        .on_builder(|builder| {
+            builder
+                .with_enable_share_history_on_invite(true)
+                .with_encryption_settings(encryption_settings)
+        })
         .build()
         .await;
 

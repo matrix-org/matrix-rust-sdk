@@ -14,10 +14,7 @@
 
 //! Augmented [`ClientBuilder`] that can set up an already logged-in user.
 
-use matrix_sdk_base::{
-    store::{RoomLoadSettings, StoreConfig},
-    SessionMeta,
-};
+use matrix_sdk_base::{store::RoomLoadSettings, SessionMeta};
 use ruma::{api::MatrixVersion, owned_device_id, owned_user_id, OwnedDeviceId, OwnedUserId};
 
 use crate::{
@@ -39,7 +36,7 @@ impl MockClientBuilder {
     /// default).
     ///
     /// If no homeserver is provided, `http://localhost` is used as a homeserver.
-    pub(crate) fn new(homeserver: Option<&str>) -> Self {
+    pub fn new(homeserver: Option<&str>) -> Self {
         let homeserver = homeserver.unwrap_or("http://localhost");
 
         let default_builder = Client::builder()
@@ -60,23 +57,6 @@ impl MockClientBuilder {
     /// Don't cache server versions in the client.
     pub fn no_server_versions(mut self) -> Self {
         self.server_versions = ServerVersions::None;
-        self
-    }
-
-    /// Enable the share history on invite feature for the Client.
-    #[cfg(feature = "e2e-encryption")]
-    pub fn enable_share_history_on_invite(mut self) -> Self {
-        self.builder = self.builder.with_enable_share_history_on_invite(true);
-        self
-    }
-
-    /// Use the given encryption settings with the test client.
-    #[cfg(feature = "e2e-encryption")]
-    pub fn with_encryption_settings(
-        mut self,
-        settings: crate::encryption::EncryptionSettings,
-    ) -> Self {
-        self.builder = self.builder.with_encryption_settings(settings);
         self
     }
 
@@ -121,30 +101,25 @@ impl MockClientBuilder {
         self
     }
 
-    /// Override the default [`RequestConfig`] for the underlying
-    /// [`ClientBuilder`].
-    pub fn request_config(mut self, request_config: RequestConfig) -> Self {
-        self.builder = self.builder.request_config(request_config);
-        self
-    }
-
-    /// Provides another [`StoreConfig`] for the underlying [`ClientBuilder`].
-    pub fn store_config(mut self, store_config: StoreConfig) -> Self {
-        self.builder = self.builder.store_config(store_config);
-        self
-    }
-
-    /// Use an SQLite store at the given path for the underlying
-    /// [`ClientBuilder`].
-    #[cfg(feature = "sqlite")]
-    pub fn sqlite_store(mut self, path: impl AsRef<std::path::Path>) -> Self {
-        self.builder = self.builder.sqlite_store(path, None);
-        self
-    }
-
-    /// Handle refreshing access tokens automatically.
-    pub fn handle_refresh_tokens(mut self) -> Self {
-        self.builder = self.builder.handle_refresh_tokens();
+    /// Apply changes to the underlying [`ClientBuilder`].
+    ///
+    /// ```
+    /// # tokio_test::block_on(async {
+    /// use matrix_sdk::test_utils::client::MockClientBuilder;
+    ///
+    /// MockClientBuilder::new(None)
+    ///     .on_builder(|builder| {
+    ///         // Here it's possible to modify the underlying `ClientBuilder`.
+    ///         builder
+    ///             .handle_refresh_tokens()
+    ///             .cross_process_store_locks_holder_name("hodor".to_owned())
+    ///     })
+    ///     .build()
+    ///     .await;
+    /// # anyhow::Ok(()) });
+    /// ```
+    pub fn on_builder<F: FnOnce(ClientBuilder) -> ClientBuilder>(mut self, f: F) -> Self {
+        self.builder = f(self.builder);
         self
     }
 
@@ -157,6 +132,7 @@ impl MockClientBuilder {
         }
 
         let client = builder.build().await.expect("building client failed");
+
         self.auth_state.maybe_restore_client(&client).await;
 
         client
