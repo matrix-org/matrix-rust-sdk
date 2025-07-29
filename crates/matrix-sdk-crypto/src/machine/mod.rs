@@ -63,6 +63,8 @@ use vodozemac::{
     Curve25519PublicKey, Ed25519Signature,
 };
 
+#[cfg(feature = "experimental-send-custom-to-device")]
+use crate::session_manager::split_devices_for_share_strategy;
 use crate::{
     backups::{BackupMachine, MegolmV1BackupKey},
     dehydrated_devices::{DehydratedDevices, DehydrationError},
@@ -1159,15 +1161,17 @@ impl OlmMachine {
         devices: Vec<DeviceData>,
         event_type: &str,
         content: &Value,
+        share_strategy: CollectStrategy,
     ) -> OlmResult<(Vec<ToDeviceRequest>, Vec<(DeviceData, WithheldCode)>)> {
-        // TODO: Use a `CollectStrategy` arguments to filter our devices depending on
-        // safety settings (like not sending to insecure devices).
         let mut changes = Changes::default();
+
+        let (allowed_devices, mut blocked_devices) =
+            split_devices_for_share_strategy(&self.inner.store, devices, share_strategy).await?;
 
         let result = self
             .inner
             .group_session_manager
-            .encrypt_content_for_devices(devices, event_type, content.clone(), &mut changes)
+            .encrypt_content_for_devices(allowed_devices, event_type, content.clone(), &mut changes)
             .await;
 
         // Persist any changes we might have collected.
@@ -1182,7 +1186,10 @@ impl OlmMachine {
             );
         }
 
-        result
+        result.map(|(to_device_requests, mut withheld)| {
+            withheld.append(&mut blocked_devices);
+            (to_device_requests, withheld)
+        })
     }
     /// Collect the devices belonging to the given user, and send the details of
     /// a room key bundle to those devices.
