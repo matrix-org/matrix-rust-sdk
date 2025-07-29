@@ -3069,7 +3069,7 @@ pub(crate) mod tests {
         let server = MatrixMockServer::new().await;
         let client = server
             .client_builder()
-            .request_config(RequestConfig::new().retry_limit(3))
+            .on_builder(|builder| builder.request_config(RequestConfig::new().retry_limit(3)))
             .build()
             .await;
 
@@ -3087,7 +3087,9 @@ pub(crate) mod tests {
         let server = MatrixMockServer::new().await;
         let client = server
             .client_builder()
-            .request_config(RequestConfig::new().max_retry_time(retry_timeout))
+            .on_builder(|builder| {
+                builder.request_config(RequestConfig::new().max_retry_time(retry_timeout))
+            })
             .build()
             .await;
 
@@ -3101,8 +3103,11 @@ pub(crate) mod tests {
     #[async_test]
     async fn test_short_retry_initial_http_requests() {
         let server = MatrixMockServer::new().await;
-        let client =
-            server.client_builder().request_config(RequestConfig::short_retry()).build().await;
+        let client = server
+            .client_builder()
+            .on_builder(|builder| builder.request_config(RequestConfig::short_retry()))
+            .build()
+            .await;
 
         server.mock_login().error500().expect(3..).mount().await;
 
@@ -3318,10 +3323,12 @@ pub(crate) mod tests {
         let client = server
             .client_builder()
             .no_server_versions()
-            .store_config(
-                StoreConfig::new("cross-process-store-locks-holder-name".to_owned())
-                    .state_store(memory_store.clone()),
-            )
+            .on_builder(|builder| {
+                builder.store_config(
+                    StoreConfig::new("cross-process-store-locks-holder-name".to_owned())
+                        .state_store(memory_store.clone()),
+                )
+            })
             .build()
             .await;
 
@@ -3372,10 +3379,12 @@ pub(crate) mod tests {
         let client = server
             .client_builder()
             .no_server_versions()
-            .store_config(
-                StoreConfig::new("cross-process-store-locks-holder-name".to_owned())
-                    .state_store(memory_store.clone()),
-            )
+            .on_builder(|builder| {
+                builder.store_config(
+                    StoreConfig::new("cross-process-store-locks-holder-name".to_owned())
+                        .state_store(memory_store.clone()),
+                )
+            })
             .build()
             .await;
 
@@ -3390,10 +3399,12 @@ pub(crate) mod tests {
         let client = server
             .client_builder()
             .no_server_versions()
-            .store_config(
-                StoreConfig::new("cross-process-store-locks-holder-name".to_owned())
-                    .state_store(memory_store.clone()),
-            )
+            .on_builder(|builder| {
+                builder.store_config(
+                    StoreConfig::new("cross-process-store-locks-holder-name".to_owned())
+                        .state_store(memory_store.clone()),
+                )
+            })
             .build()
             .await;
 
@@ -3424,8 +3435,10 @@ pub(crate) mod tests {
     #[async_test]
     async fn test_no_network_doesnt_cause_infinite_retries() {
         // We want infinite retries for transient errors.
-        let client =
-            MockClientBuilder::new(None).request_config(RequestConfig::new()).build().await;
+        let client = MockClientBuilder::new(None)
+            .on_builder(|builder| builder.request_config(RequestConfig::new()))
+            .build()
+            .await;
 
         // We don't define a mock server on purpose here, so that the error is really a
         // network error.

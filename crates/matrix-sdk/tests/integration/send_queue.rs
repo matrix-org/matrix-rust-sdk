@@ -1637,10 +1637,12 @@ async fn test_reloading_rooms_with_unsent_events() {
 
     let client = mock
         .client_builder()
-        .store_config(
-            StoreConfig::new("cross-process-store-locks-holder-name".to_owned())
-                .state_store(store.clone()),
-        )
+        .on_builder(|builder| {
+            builder.store_config(
+                StoreConfig::new("cross-process-store-locks-holder-name".to_owned())
+                    .state_store(store.clone()),
+            )
+        })
         .build()
         .await;
 
@@ -1689,9 +1691,12 @@ async fn test_reloading_rooms_with_unsent_events() {
 
     let new_client = mock
         .client_builder()
-        .store_config(
-            StoreConfig::new("cross-process-store-locks-holder-name".to_owned()).state_store(store),
-        )
+        .on_builder(|builder| {
+            builder.store_config(
+                StoreConfig::new("cross-process-store-locks-holder-name".to_owned())
+                    .state_store(store),
+            )
+        })
         .build()
         .await;
 
