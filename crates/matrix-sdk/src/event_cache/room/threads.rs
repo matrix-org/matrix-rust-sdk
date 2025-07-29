@@ -21,7 +21,13 @@ use matrix_sdk_base::{
     event_cache::{Event, Gap},
     linked_chunk::{ChunkContent, Position},
 };
-use ruma::OwnedEventId;
+use ruma::{
+    events::{
+        room::message::OriginalSyncRoomMessageEvent, AnySyncTimelineEvent, MessageLikeEventType,
+    },
+    serde::Raw,
+    OwnedEventId, OwnedUserId, UserId,
+};
 use tokio::sync::broadcast::{Receiver, Sender};
 use tracing::trace;
 
@@ -203,13 +209,17 @@ impl ThreadEventCache {
     /// [`Self::load_more_events_backwards`].
     ///
     /// Returns `None` if the gap couldn't be found anymore (meaning the
-    /// thread has been reset while the pagination was ongoing).
+    /// thread has been reset while the pagination was ongoing). Otherwise,
+    /// returns a backpagination outcome, along with a boolean indicating
+    /// whether the current thread should be automatically subscribed to,
+    /// according to the semantics of MSC4306.
     pub fn finish_network_pagination(
         &mut self,
+        own_user_id: &UserId,
         prev_token: Option<String>,
         new_token: Option<String>,
         events: Vec<Event>,
-    ) -> Option<BackPaginationOutcome> {
+    ) -> Option<(BackPaginationOutcome, bool)> {
         // TODO(bnjbvr): consider deduplicating this code (~same for room) at some
         // point.
         let prev_gap_id = if let Some(token) = prev_token {
@@ -258,11 +268,46 @@ impl ThreadEventCache {
                 .send(ThreadEventCacheUpdate { diffs: updates, origin: EventsOrigin::Pagination });
         }
 
-        Some(BackPaginationOutcome { reached_start, events })
+        let auto_subscribe =
+            events.iter().any(|event| should_subscribe_thread(own_user_id, event.raw()));
+
+        Some((BackPaginationOutcome { reached_start, events }, auto_subscribe))
     }
 
     /// Returns the latest event ID in this thread, if any.
     pub fn latest_event_id(&self) -> Option<OwnedEventId> {
         self.chunk.revents().next().and_then(|(_position, event)| event.event_id())
     }
+}
+
+/// Should we automatically subscribe to a thread, according to the semantics of
+/// MSC4306?
+///
+/// This doesn't check against previous existing (un)subscriptions, so the
+/// caller should check for this before sending a request to subscribe to the
+/// thread on the server.
+pub fn should_subscribe_thread(
+    own_user_id: &UserId,
+    raw_event: &Raw<AnySyncTimelineEvent>,
+) -> bool {
+    // If we sent the event, automatically subscribe to the thread.
+    if let Some(sender) = raw_event.get_field::<OwnedUserId>("sender").ok().flatten() {
+        if sender == own_user_id {
+            return true;
+        }
+    }
+
+    if let Ok(Some(MessageLikeEventType::RoomMessage)) =
+        raw_event.get_field::<MessageLikeEventType>("type")
+    {
+        // If this was a room message event which mentioned me, automatically subscribe
+        // to the thread too.
+        if let Ok(ev) = raw_event.deserialize_as_unchecked::<OriginalSyncRoomMessageEvent>() {
+            return ev.content.mentions.is_some_and(|mentions| {
+                mentions.room || mentions.user_ids.iter().any(|user_id| user_id == own_user_id)
+            });
+        }
+    }
+
+    false
 }

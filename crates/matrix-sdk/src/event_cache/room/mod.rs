@@ -15,7 +15,7 @@
 //! All event cache types for a single room.
 
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, HashSet},
     fmt,
     ops::{Deref, DerefMut},
     sync::{
@@ -31,13 +31,14 @@ use matrix_sdk_base::{
     deserialized_responses::AmbiguityChange,
     event_cache::Event,
     linked_chunk::Position,
+    store::ThreadStatus,
     sync::{JoinedRoomUpdate, LeftRoomUpdate, Timeline},
 };
 use ruma::{
     api::Direction,
     events::{relation::RelationType, AnyRoomAccountDataEvent, AnySyncEphemeralRoomEvent},
     serde::Raw,
-    EventId, OwnedEventId, OwnedRoomId,
+    EventId, OwnedEventId, OwnedRoomId, OwnedUserId,
 };
 use tokio::sync::{
     broadcast::{Receiver, Sender},
@@ -58,7 +59,7 @@ use crate::{
 pub(super) mod events;
 mod threads;
 
-pub use threads::ThreadEventCacheUpdate;
+pub use threads::{should_subscribe_thread, ThreadEventCacheUpdate};
 
 /// A subset of an event cache, for a room.
 ///
@@ -163,6 +164,7 @@ impl RoomEventCache {
     /// Create a new [`RoomEventCache`] using the given room and store.
     pub(super) fn new(
         client: WeakClient,
+        own_user_id: OwnedUserId,
         state: RoomEventCacheState,
         pagination_status: SharedObservable<RoomPaginationStatus>,
         room_id: OwnedRoomId,
@@ -172,6 +174,7 @@ impl RoomEventCache {
         Self {
             inner: Arc::new(RoomEventCacheInner::new(
                 client,
+                own_user_id,
                 state,
                 pagination_status,
                 room_id,
@@ -278,12 +281,19 @@ impl RoomEventCache {
 
                     let mut state = self.inner.state.write().await;
 
-                    if let Some(outcome) = state.finish_thread_network_pagination(
-                        thread_root.clone(),
-                        prev_token,
-                        result.next_batch_token,
-                        result.chunk,
-                    ) {
+                    if let Some((outcome, should_subscribe)) = state
+                        .finish_thread_network_pagination(
+                            &self.inner.own_user_id,
+                            thread_root.clone(),
+                            prev_token,
+                            result.next_batch_token,
+                            result.chunk,
+                        )
+                    {
+                        if should_subscribe {
+                            self.inner.subscribe_to_new_threads(HashSet::from([thread_root])).await;
+                        }
+
                         return Ok(outcome.reached_start);
                     }
 
@@ -414,6 +424,9 @@ pub(super) struct RoomEventCacheInner {
 
     pub weak_room: WeakRoom,
 
+    /// The id of the current logged-in user.
+    pub own_user_id: OwnedUserId,
+
     /// Sender part for subscribers to this room.
     pub sender: Sender<RoomEventCacheUpdate>,
 
@@ -444,6 +457,7 @@ impl RoomEventCacheInner {
     /// to handle new timeline events.
     fn new(
         client: WeakClient,
+        own_user_id: OwnedUserId,
         state: RoomEventCacheState,
         pagination_status: SharedObservable<RoomPaginationStatus>,
         room_id: OwnedRoomId,
@@ -455,6 +469,7 @@ impl RoomEventCacheInner {
         Self {
             room_id: weak_room.room_id().to_owned(),
             weak_room,
+            own_user_id,
             state: RwLock::new(state),
             sender,
             pagination_batch_token_notifier: Default::default(),
@@ -523,6 +538,49 @@ impl RoomEventCacheInner {
         Ok(())
     }
 
+    /// Optionally subscribe to new threads, if the client is still alive and
+    /// enabled automatic thread subscription support.
+    pub(super) async fn subscribe_to_new_threads(&self, new_thread_subs: HashSet<OwnedEventId>) {
+        let Some(room) = self.weak_room.get() else {
+            warn!("couldn't subscribe to new threads, client is gone");
+            return;
+        };
+
+        if !room.client.enabled_thread_subscriptions() {
+            return;
+        }
+
+        for thread_root in new_thread_subs {
+            let previous_status = match room.fetch_thread_subscription(thread_root.clone()).await {
+                Ok(status) => status,
+                Err(err) => {
+                    warn!(%thread_root, "couldn't fetch thread subscription: {err}");
+                    continue;
+                }
+            };
+
+            match previous_status {
+                Some(ThreadStatus::Subscribed { .. }) => {
+                    // Already subscribed, nothing to do.
+                    trace!(%thread_root, "already subscribed to thread");
+                }
+                Some(ThreadStatus::Unsubscribed) => {
+                    // Unsubscribed: ignore any other pending subscriptions.
+                    trace!(%thread_root, "we don't re-subscribe to unsubscribed threads");
+                }
+                None => {
+                    // Send an automatic subscription!
+                    let automatic = true;
+                    if let Err(err) = room.subscribe_thread(thread_root.clone(), automatic).await {
+                        warn!(%thread_root, "couldn't subscribe to thread: {err}");
+                    } else {
+                        trace!(%thread_root, "subscribed to thread");
+                    }
+                }
+            }
+        }
+    }
+
     /// Handle a [`Timeline`], i.e. new events received by a sync for this
     /// room.
     async fn handle_timeline(
@@ -542,8 +600,10 @@ impl RoomEventCacheInner {
         // Add all the events to the backend.
         trace!("adding new events");
 
-        let (stored_prev_batch_token, timeline_event_diffs) =
-            self.state.write().await.handle_sync(timeline).await?;
+        let (stored_prev_batch_token, timeline_event_diffs, new_thread_subs) =
+            self.state.write().await.handle_sync(&self.own_user_id, timeline).await?;
+
+        self.subscribe_to_new_threads(new_thread_subs).await;
 
         // Now that all events have been added, we can trigger the
         // `pagination_token_notifier`.
@@ -637,7 +697,7 @@ mod private {
         },
         room_version_rules::RoomVersionRules,
         serde::Raw,
-        EventId, OwnedEventId, OwnedRoomId,
+        EventId, OwnedEventId, OwnedRoomId, UserId,
     };
     use tokio::sync::broadcast::Receiver;
     use tracing::{debug, error, instrument, trace, warn};
@@ -648,7 +708,8 @@ mod private {
         sort_positions_descending, EventLocation, LoadMoreEventsBackwardsOutcome,
     };
     use crate::event_cache::{
-        deduplicator::filter_duplicate_events, room::threads::ThreadEventCache,
+        deduplicator::filter_duplicate_events,
+        room::threads::{should_subscribe_thread, ThreadEventCache},
         BackPaginationOutcome, RoomPaginationStatus, ThreadEventCacheUpdate,
     };
 
@@ -1425,11 +1486,14 @@ mod private {
         /// linked chunk.
         ///
         /// Flushes updates to disk first.
+        ///
+        /// Returns new thread subscriptions, if any.
         async fn post_process_new_events(
             &mut self,
+            own_user_id: &UserId,
             events: Vec<Event>,
             is_sync: bool,
-        ) -> Result<(), EventCacheError> {
+        ) -> Result<HashSet<OwnedEventId>, EventCacheError> {
             // Update the store before doing the post-processing.
             self.propagate_changes().await?;
 
@@ -1453,9 +1517,10 @@ mod private {
                 }
             }
 
-            self.update_threads(new_events_by_thread, is_sync).await?;
+            let new_thread_subs =
+                self.update_threads(own_user_id, new_events_by_thread, is_sync).await?;
 
-            Ok(())
+            Ok(new_thread_subs)
         }
 
         fn get_or_reload_thread(&mut self, root_event_id: OwnedEventId) -> &mut ThreadEventCache {
@@ -1466,14 +1531,31 @@ mod private {
                 .or_insert_with(|| ThreadEventCache::new(root_event_id))
         }
 
+        /// Updates the threads' states according to new events:
+        ///
+        /// - updates the in-memory thread cache with new events,
+        /// - updates the thread summary in the thread root (in the main room's
+        ///   linked chunk),
+        /// - returns a list of threads to automatically subscribe to
         #[instrument(skip_all)]
         async fn update_threads(
             &mut self,
+            own_user_id: &UserId,
             new_events_by_thread: BTreeMap<OwnedEventId, Vec<Event>>,
             is_sync: bool,
-        ) -> Result<(), EventCacheError> {
+        ) -> Result<HashSet<OwnedEventId>, EventCacheError> {
+            let mut auto_subscribe_threads = HashSet::new();
+
             for (thread_root, new_events) in new_events_by_thread {
                 let thread_cache = self.get_or_reload_thread(thread_root.clone());
+
+                // Compute the needed thread subscriptions.
+                for ev in &new_events {
+                    if should_subscribe_thread(own_user_id, ev.raw()) {
+                        auto_subscribe_threads.insert(thread_root.clone());
+                        break;
+                    }
+                }
 
                 // If we're not in sync mode, we're receiving events from a room pagination: as
                 // we don't know where they should be put in a thread linked
@@ -1534,7 +1616,7 @@ mod private {
                 self.replace_event_at(location, target_event).await?;
             }
 
-            Ok(())
+            Ok(auto_subscribe_threads)
         }
 
         /// Replaces a single event, be it saved in memory or in the store.
@@ -1674,8 +1756,10 @@ mod private {
         #[must_use = "Propagate `VectorDiff` updates via `RoomEventCacheUpdate`"]
         pub async fn handle_sync(
             &mut self,
+            own_user_id: &UserId,
             mut timeline: Timeline,
-        ) -> Result<(bool, Vec<VectorDiff<Event>>), EventCacheError> {
+        ) -> Result<(bool, Vec<VectorDiff<Event>>, HashSet<OwnedEventId>), EventCacheError>
+        {
             let mut prev_batch = timeline.prev_batch.take();
 
             let DeduplicationOutcome {
@@ -1746,7 +1830,7 @@ mod private {
             if all_duplicates {
                 // No new events and no gap (per the previous check), thus no need to change the
                 // room state. We're done!
-                return Ok((false, Vec::new()));
+                return Ok((false, Vec::new(), Default::default()));
             }
 
             let has_new_gap = prev_batch.is_some();
@@ -1767,7 +1851,7 @@ mod private {
             self.room_linked_chunk
                 .push_live_events(prev_batch.map(|prev_token| Gap { prev_token }), &events);
 
-            self.post_process_new_events(events, true).await?;
+            let new_thread_subs = self.post_process_new_events(own_user_id, events, true).await?;
 
             if timeline.limited && has_new_gap {
                 // If there was a previous batch token for a limited timeline, unload the chunks
@@ -1781,7 +1865,7 @@ mod private {
 
             let timeline_event_diffs = self.room_linked_chunk.updates_as_vector_diffs();
 
-            Ok((has_new_gap, timeline_event_diffs))
+            Ok((has_new_gap, timeline_event_diffs, new_thread_subs))
         }
 
         /// Handle the result of a single back-pagination request.
@@ -1794,11 +1878,14 @@ mod private {
         #[must_use = "Propagate `VectorDiff` updates via `RoomEventCacheUpdate`"]
         pub async fn handle_backpagination(
             &mut self,
+            own_user_id: &UserId,
             events: Vec<Event>,
             mut new_token: Option<String>,
             prev_token: Option<String>,
-        ) -> Result<Option<(BackPaginationOutcome, Vec<VectorDiff<Event>>)>, EventCacheError>
-        {
+        ) -> Result<
+            Option<(BackPaginationOutcome, Vec<VectorDiff<Event>>, HashSet<OwnedEventId>)>,
+            EventCacheError,
+        > {
             // Check that the previous token still exists; otherwise it's a sign that the
             // room's timeline has been cleared.
             let prev_gap_id = if let Some(token) = prev_token {
@@ -1871,11 +1958,16 @@ mod private {
             );
 
             // Note: this flushes updates to the store.
-            self.post_process_new_events(topo_ordered_events, false).await?;
+            let new_thread_subs =
+                self.post_process_new_events(own_user_id, topo_ordered_events, false).await?;
 
             let event_diffs = self.room_linked_chunk.updates_as_vector_diffs();
 
-            Ok(Some((BackPaginationOutcome { events, reached_start }, event_diffs)))
+            Ok(Some((
+                BackPaginationOutcome { events, reached_start },
+                event_diffs,
+                new_thread_subs,
+            )))
         }
 
         /// Subscribe to thread for a given root event, and get a (maybe empty)
@@ -1892,12 +1984,18 @@ mod private {
         /// Will always start from the end, unless we previously paginated.
         pub fn finish_thread_network_pagination(
             &mut self,
+            own_user_id: &UserId,
             root: OwnedEventId,
             prev_token: Option<String>,
             new_token: Option<String>,
             events: Vec<Event>,
-        ) -> Option<BackPaginationOutcome> {
-            self.get_or_reload_thread(root).finish_network_pagination(prev_token, new_token, events)
+        ) -> Option<(BackPaginationOutcome, bool)> {
+            self.get_or_reload_thread(root).finish_network_pagination(
+                own_user_id,
+                prev_token,
+                new_token,
+                events,
+            )
         }
 
         pub fn load_more_thread_events_backwards(

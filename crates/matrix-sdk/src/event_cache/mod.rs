@@ -60,7 +60,9 @@ mod pagination;
 mod room;
 
 pub use pagination::{RoomPagination, RoomPaginationStatus};
-pub use room::{RoomEventCache, RoomEventCacheSubscriber, ThreadEventCacheUpdate};
+pub use room::{
+    should_subscribe_thread, RoomEventCache, RoomEventCacheSubscriber, ThreadEventCacheUpdate,
+};
 
 /// An error observed in the [`EventCache`].
 #[derive(thiserror::Error, Debug)]
@@ -101,6 +103,10 @@ pub enum EventCacheError {
     /// times where we try to use the client.
     #[error("The owning client of the event cache has been dropped.")]
     ClientDropped,
+
+    /// The current client isn't logged in.
+    #[error("The current client isn't logged in")]
+    UnknownUser,
 
     /// An error happening when interacting with the [`LinkedChunk`]'s lazy
     /// loader.
@@ -608,8 +614,10 @@ impl EventCacheInner {
                         "we must have called `EventCache::subscribe()` before calling here.",
                     );
 
+                let own_user_id = client.user_id().ok_or(EventCacheError::UnknownUser)?.to_owned();
                 let room_event_cache = RoomEventCache::new(
                     self.client.clone(),
+                    own_user_id,
                     room_state,
                     pagination_status,
                     room_id.to_owned(),

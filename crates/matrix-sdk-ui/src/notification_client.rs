@@ -22,6 +22,7 @@ use futures_util::{StreamExt as _, pin_mut};
 use matrix_sdk::{
     Client, ClientBuildError, SlidingSyncList, SlidingSyncMode,
     deserialized_responses::ThreadSummaryStatus,
+    event_cache::should_subscribe_thread,
     room::{Room, ThreadStatus},
     serde_helpers::{extract_bundled_thread_summary, extract_thread_root},
     sleep::sleep,
@@ -39,7 +40,7 @@ use ruma::{
         room::{
             join_rules::JoinRule,
             member::{MembershipState, StrippedRoomMemberEvent},
-            message::{OriginalSyncRoomMessageEvent, Relation, SyncRoomMessageEvent},
+            message::{Relation, SyncRoomMessageEvent},
         },
     },
     html::RemoveReplyFallback,
@@ -611,28 +612,6 @@ impl NotificationClient {
         get_notifications_result.remove(event_id).unwrap_or(Ok(NotificationStatus::EventNotFound))
     }
 
-    /// Should an event cause an automatic thread subscription?
-    ///
-    /// This ignores events sent by the user themselves, as they shouldn't
-    /// trigger a notification in general.
-    fn should_subscribe_thread(&self, event: &Raw<AnySyncTimelineEvent>) -> bool {
-        let inner = || {
-            // Current logic: the event is a message event with an intentional room or user
-            // mention.
-            // TODO: to be revised when
-            // https://github.com/matrix-org/matrix-spec-proposals/pull/4306#discussion_r2239139196
-            // is answered.
-            let own_user_id = self.client.user_id()?;
-            let room_message_event =
-                event.deserialize_as_unchecked::<OriginalSyncRoomMessageEvent>().ok()?;
-            room_message_event.content.mentions.map(|mentions| {
-                mentions.room || mentions.user_ids.iter().any(|mention| mention == own_user_id)
-            })
-        };
-
-        inner().unwrap_or(false)
-    }
-
     /// Given a (decrypted or not) event, figure out whether it should be
     /// filtered out for other client-side reasons (such as the sender being
     /// ignored, for instance).
@@ -676,12 +655,15 @@ impl NotificationClient {
                             // At this point, we should detect if the event would trigger a
                             // thread subscription, and have it generate a notification in this
                             // case.
-                            if !self.should_subscribe_thread(raw_event) {
-                                // The thread isn't subscribed to, and it wouldn't cause a thread
-                                // subscription: leave early.
-                                return Ok(None);
+                            if let Some(user_id) = self.client.user_id() {
+                                if !should_subscribe_thread(user_id, raw_event) {
+                                    // The thread isn't subscribed to, and it wouldn't cause a
+                                    // thread subscription:
+                                    // leave early.
+                                    return Ok(None);
+                                }
+                                trace!(%event_id, %thread_root, "keeping notification, because it would trigger an automatic thread subscription");
                             }
-                            trace!(%event_id, %thread_root, "keeping notification, because it would trigger an automatic thread subscription");
                         }
 
                         Ok(Some(ThreadStatus::Unsubscribed)) => {

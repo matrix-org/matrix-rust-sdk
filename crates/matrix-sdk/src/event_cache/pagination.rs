@@ -283,12 +283,12 @@ impl RoomPagination {
             (response.chunk, response.end)
         };
 
-        if let Some((outcome, timeline_event_diffs)) = self
+        if let Some((outcome, timeline_event_diffs, new_thread_subs)) = self
             .inner
             .state
             .write()
             .await
-            .handle_backpagination(events, new_token, prev_token)
+            .handle_backpagination(&self.inner.own_user_id, events, new_token, prev_token)
             .await?
         {
             if !timeline_event_diffs.is_empty() {
@@ -297,6 +297,8 @@ impl RoomPagination {
                     origin: EventsOrigin::Pagination,
                 });
             }
+
+            self.inner.subscribe_to_new_threads(new_thread_subs).await;
 
             Ok(Some(outcome))
         } else {
