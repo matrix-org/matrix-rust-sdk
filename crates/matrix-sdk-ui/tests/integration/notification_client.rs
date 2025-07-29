@@ -6,6 +6,7 @@ use std::{
 use assert_matches::assert_matches;
 use assert_matches2::assert_let;
 use matrix_sdk::{
+    ThreadingSupport,
     config::SyncSettings,
     test_utils::{logged_in_client_with_server, mocks::MatrixMockServer},
 };
@@ -95,7 +96,11 @@ async fn test_notification_client_with_context() {
 #[async_test]
 async fn test_subscribed_threads_get_notifications() {
     let server = MatrixMockServer::new().await;
-    let client = server.client_builder().enable_thread_subscriptions().build().await;
+    let client = server
+        .client_builder()
+        .threading_support(ThreadingSupport::Enabled { with_subscriptions: true })
+        .build()
+        .await;
 
     let sender = user_id!("@user:example.org");
     let room_id = room_id!("!a98sd12bjh:example.org");
@@ -174,7 +179,11 @@ async fn test_subscribed_threads_get_notifications() {
 #[async_test]
 async fn test_unknown_threads_get_notifications() {
     let server = MatrixMockServer::new().await;
-    let client = server.client_builder().enable_thread_subscriptions().build().await;
+    let client = server
+        .client_builder()
+        .threading_support(ThreadingSupport::Enabled { with_subscriptions: true })
+        .build()
+        .await;
 
     let sender = user_id!("@user:example.org");
     let room_id = room_id!("!a98sd12bjh:example.org");
@@ -281,7 +290,11 @@ async fn test_unknown_threads_get_notifications() {
 #[async_test]
 async fn test_unsubscribed_threads_dont_get_notifications() {
     let server = MatrixMockServer::new().await;
-    let client = server.client_builder().enable_thread_subscriptions().build().await;
+    let client = server
+        .client_builder()
+        .threading_support(ThreadingSupport::Enabled { with_subscriptions: true })
+        .build()
+        .await;
 
     let sender = user_id!("@user:example.org");
     let room_id = room_id!("!a98sd12bjh:example.org");

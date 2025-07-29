@@ -114,7 +114,6 @@ pub struct ClientBuilder {
     enable_share_history_on_invite: bool,
     cross_process_store_locks_holder_name: String,
     threading_support: ThreadingSupport,
-    enable_thread_subscriptions: bool,
 }
 
 impl ClientBuilder {
@@ -146,18 +145,7 @@ impl ClientBuilder {
             cross_process_store_locks_holder_name:
                 Self::DEFAULT_CROSS_PROCESS_STORE_LOCKS_HOLDER_NAME.to_owned(),
             threading_support: ThreadingSupport::Disabled,
-            enable_thread_subscriptions: false,
         }
-    }
-
-    /// Enable client-wide thread subscriptions support (MSC4306 / MSC4308).
-    ///
-    /// This may cause filtering out of thread subscriptions, and loading the
-    /// thread subscriptions via the sliding sync extension, when the room
-    /// list service is being used.
-    pub fn enable_thread_subscriptions(mut self, enable: bool) -> Self {
-        self.enable_thread_subscriptions = enable;
-        self
     }
 
     /// Set the homeserver URL to use.
@@ -619,7 +607,6 @@ impl ClientBuilder {
             #[cfg(feature = "e2e-encryption")]
             self.enable_share_history_on_invite,
             self.cross_process_store_locks_holder_name,
-            self.enable_thread_subscriptions,
         )
         .await;
 

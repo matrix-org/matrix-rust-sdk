@@ -16,7 +16,7 @@
 
 use matrix_sdk_base::{
     store::{RoomLoadSettings, StoreConfig},
-    SessionMeta,
+    SessionMeta, ThreadingSupport,
 };
 use ruma::{api::MatrixVersion, owned_device_id, owned_user_id, OwnedDeviceId, OwnedUserId};
 
@@ -64,8 +64,8 @@ impl MockClientBuilder {
     }
 
     /// Enable the thread subscriptions feature for the Client.
-    pub fn enable_thread_subscriptions(mut self) -> Self {
-        self.builder = self.builder.enable_thread_subscriptions(true);
+    pub fn threading_support(mut self, support: ThreadingSupport) -> Self {
+        self.builder = self.builder.with_threading_support(support);
         self
     }
 

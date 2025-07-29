@@ -130,8 +130,7 @@ pub struct ClientBuilder {
     #[cfg(not(target_family = "wasm"))]
     additional_root_certificates: Vec<Vec<u8>>,
 
-    enabled_threads: bool,
-    enabled_thread_subscriptions: bool,
+    threading_support: ThreadingSupport,
 }
 
 /// The timeout applies to each read operation, and resets after a successful
@@ -174,8 +173,7 @@ impl ClientBuilder {
             },
             enable_share_history_on_invite: false,
             request_config: Default::default(),
-            enabled_threads: false,
-            enabled_thread_subscriptions: false,
+            threading_support: ThreadingSupport::Disabled,
         })
     }
 
@@ -397,8 +395,12 @@ impl ClientBuilder {
         thread_subscriptions: bool,
     ) -> Arc<Self> {
         let mut builder = unwrap_or_clone_arc(self);
-        builder.enabled_threads = enabled;
-        builder.enabled_thread_subscriptions = thread_subscriptions;
+        let support = if enabled {
+            ThreadingSupport::Enabled { with_subscriptions: thread_subscriptions }
+        } else {
+            ThreadingSupport::Disabled
+        };
+        builder.threading_support = support;
         Arc::new(builder)
     }
 
@@ -527,8 +529,7 @@ impl ClientBuilder {
             .with_encryption_settings(builder.encryption_settings)
             .with_room_key_recipient_strategy(builder.room_key_recipient_strategy)
             .with_decryption_settings(builder.decryption_settings)
-            .with_enable_share_history_on_invite(builder.enable_share_history_on_invite)
-            .enable_thread_subscriptions(builder.enabled_thread_subscriptions);
+            .with_enable_share_history_on_invite(builder.enable_share_history_on_invite);
 
         match builder.sliding_sync_version_builder {
             SlidingSyncVersionBuilder::None => {
@@ -569,11 +570,7 @@ impl ClientBuilder {
             inner_builder = inner_builder.request_config(updated_config);
         }
 
-        inner_builder = inner_builder.with_threading_support(if builder.enabled_threads {
-            ThreadingSupport::Enabled
-        } else {
-            ThreadingSupport::Disabled
-        });
+        inner_builder = inner_builder.with_threading_support(builder.threading_support);
 
         let sdk_client = inner_builder.build().await?;
 
