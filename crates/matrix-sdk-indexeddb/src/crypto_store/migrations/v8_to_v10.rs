@@ -15,7 +15,7 @@
 //! Migration code that moves from inbound_group_sessions2 to
 //! inbound_group_sessions3, shrinking the values stored in each record.
 
-use indexed_db_futures::IdbQuerySource;
+use indexed_db_futures::{prelude::IdbObjectStore, IdbQuerySource};
 use matrix_sdk_crypto::olm::InboundGroupSession;
 use tracing::{debug, info};
 use web_sys::{DomException, IdbTransactionMode};
@@ -33,26 +33,26 @@ use crate::{
     IndexeddbCryptoStoreError,
 };
 
+pub(crate) fn index_add(object_store: &IdbObjectStore<'_>) -> Result<(), DomException> {
+    add_nonunique_index(object_store, keys::INBOUND_GROUP_SESSIONS_BACKUP_INDEX, "needs_backup")?;
+
+    // See https://github.com/element-hq/element-web/issues/26892#issuecomment-1906336076
+    // for the plan concerning this property and index. At time of writing, it is
+    // unused, and needs_backup is still used.
+    add_nonunique_index(
+        object_store,
+        keys::INBOUND_GROUP_SESSIONS_BACKED_UP_TO_INDEX,
+        "backed_up_to",
+    )?;
+
+    Ok(())
+}
+
 /// Perform the schema upgrade v8 to v9, creating `inbound_group_sessions3`.
 pub(crate) async fn schema_add(name: &str) -> Result<(), DomException> {
     do_schema_upgrade(name, 9, |db, _, _| {
         let object_store = db.create_object_store(keys::INBOUND_GROUP_SESSIONS_V3)?;
-
-        add_nonunique_index(
-            &object_store,
-            keys::INBOUND_GROUP_SESSIONS_BACKUP_INDEX,
-            "needs_backup",
-        )?;
-
-        // See https://github.com/element-hq/element-web/issues/26892#issuecomment-1906336076
-        // for the plan concerning this property and index. At time of writing, it is
-        // unused, and needs_backup is still used.
-        add_nonunique_index(
-            &object_store,
-            keys::INBOUND_GROUP_SESSIONS_BACKED_UP_TO_INDEX,
-            "backed_up_to",
-        )?;
-
+        index_add(&object_store)?;
         Ok(())
     })
     .await
