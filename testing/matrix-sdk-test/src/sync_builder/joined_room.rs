@@ -12,6 +12,7 @@ use serde_json::{Value as JsonValue, from_value as from_json_value};
 use super::RoomAccountDataTestEvent;
 use crate::{DEFAULT_TEST_ROOM_ID, event_factory::EventBuilder};
 
+#[derive(Debug, Clone)]
 pub struct JoinedRoomBuilder {
     pub(super) room_id: OwnedRoomId,
     pub(super) inner: JoinedRoom,

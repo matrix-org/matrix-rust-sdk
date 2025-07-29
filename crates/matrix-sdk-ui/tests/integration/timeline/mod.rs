@@ -60,6 +60,7 @@ mod profiles;
 mod queue;
 mod reactions;
 mod read_receipts;
+mod redecryption;
 mod replies;
 mod subscribe;
 mod thread;
