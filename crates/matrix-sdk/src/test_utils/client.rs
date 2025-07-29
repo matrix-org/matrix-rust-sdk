@@ -63,6 +63,12 @@ impl MockClientBuilder {
         self
     }
 
+    /// Enable the thread subscriptions feature for the Client.
+    pub fn enable_thread_subscriptions(mut self) -> Self {
+        self.builder = self.builder.enable_thread_subscriptions(true);
+        self
+    }
+
     /// Enable the share history on invite feature for the Client.
     #[cfg(feature = "e2e-encryption")]
     pub fn enable_share_history_on_invite(mut self) -> Self {
