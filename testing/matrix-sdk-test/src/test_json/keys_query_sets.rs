@@ -605,6 +605,14 @@ impl KeyDistributionTestData {
     pub fn good_id() -> &'static UserId {
         user_id!("@good:localhost")
     }
+
+    pub fn good_device_1_id() -> &'static DeviceId {
+        device_id!("JAXGBVZYLA")
+    }
+
+    pub fn good_device_2_id() -> &'static DeviceId {
+        device_id!("ZGLCFWEPCY")
+    }
 }
 
 /// A set of keys query to test identity changes,
