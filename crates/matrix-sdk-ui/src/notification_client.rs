@@ -606,6 +606,34 @@ impl NotificationClient {
         get_notifications_result.remove(event_id).unwrap_or(Ok(NotificationStatus::EventNotFound))
     }
 
+    /// Given a (decrypted or not) event, figure out whether it should be
+    /// filtered out for other client-side reasons (such as the sender being
+    /// ignored, for instance), and returns the corresponding
+    /// [`NotificationStatus`].
+    async fn compute_status(
+        &self,
+        room: &Room,
+        push_actions: Option<&[Action]>,
+        raw_event: RawNotificationEvent,
+        state_events: Vec<Raw<AnyStateEvent>>,
+    ) -> Result<NotificationStatus, Error> {
+        if let Some(actions) = push_actions
+            && !actions.iter().any(|a| a.should_notify())
+        {
+            // The event shouldn't notify: return early.
+            return Ok(NotificationStatus::EventFilteredOut);
+        }
+
+        let notification_item =
+            NotificationItem::new(room, raw_event, push_actions, state_events).await?;
+
+        if self.client.is_user_ignored(notification_item.event.sender()).await {
+            Ok(NotificationStatus::EventFilteredOut)
+        } else {
+            Ok(NotificationStatus::Event(Box::new(notification_item)))
+        }
+    }
+
     /// Get a list of full notifications, given a room id and event ids.
     ///
     /// This will run a small sliding sync to retrieve the content of the
@@ -674,34 +702,10 @@ impl NotificationClient {
                 }
             };
 
-            let should_notify = push_actions
-                .as_ref()
-                .is_some_and(|actions| actions.iter().any(|a| a.should_notify()));
+            let notification_status_result =
+                self.compute_status(&room, push_actions.as_deref(), raw_event, Vec::new()).await;
 
-            if !should_notify {
-                // The event has been filtered out by the user's push rules.
-                batch_result.insert(event_id, Ok(NotificationStatus::EventFilteredOut));
-                continue;
-            }
-
-            let notification_item =
-                match NotificationItem::new(&room, raw_event, push_actions.as_deref(), Vec::new())
-                    .await
-                {
-                    Ok(item) => item,
-                    Err(err) => {
-                        // Could not build the notification item, return an error.
-                        batch_result.insert(event_id, Err(err));
-                        continue;
-                    }
-                };
-
-            if self.client.is_user_ignored(notification_item.event.sender()).await {
-                batch_result.insert(event_id, Ok(NotificationStatus::EventFilteredOut));
-            } else {
-                batch_result
-                    .insert(event_id, Ok(NotificationStatus::Event(Box::new(notification_item))));
-            }
+            batch_result.insert(event_id, notification_status_result);
         }
 
         Ok(batch_result)
@@ -740,26 +744,15 @@ impl NotificationClient {
             timeline_event = decrypted_event;
         }
 
-        if let Some(actions) = timeline_event.push_actions()
-            && !actions.iter().any(|a| a.should_notify())
-        {
-            return Ok(NotificationStatus::EventFilteredOut);
-        }
-
         let push_actions = timeline_event.push_actions().map(ToOwned::to_owned);
-        let notification_item = NotificationItem::new(
+
+        self.compute_status(
             &room,
-            RawNotificationEvent::Timeline(timeline_event.into_raw()),
             push_actions.as_deref(),
+            RawNotificationEvent::Timeline(timeline_event.into_raw()),
             state_events,
         )
-        .await?;
-
-        if self.client.is_user_ignored(notification_item.event.sender()).await {
-            Ok(NotificationStatus::EventFilteredOut)
-        } else {
-            Ok(NotificationStatus::Event(Box::new(notification_item)))
-        }
+        .await
     }
 }
 
