@@ -178,12 +178,18 @@ pub mod sync {
                                     Some(result) => result,
                                 };
 
-                            let inner = &room_event
+                            let inner = match room_event
                                 .event
                                 // TODO: UNSAFE CAST - someone evil could encrypt something that
                                 // isn't a state event.
                                 .deserialize_as_unchecked::<AnySyncStateEvent>()
-                                .unwrap();
+                            {
+                                Ok(inner) => inner,
+                                Err(e) => {
+                                    warn!("Malformed event body: {e}");
+                                    continue;
+                                }
+                            };
 
                             // Check event types match, discard if not.
                             let inner_event_type = inner.event_type().to_string();
@@ -208,7 +214,7 @@ pub mod sync {
                                 continue;
                             }
 
-                            room_info.handle_state_event(inner);
+                            room_info.handle_state_event(&inner);
                         }
                     }
                 }
