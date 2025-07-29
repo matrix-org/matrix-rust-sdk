@@ -212,7 +212,7 @@ impl RoomReadReceipts {
         user_id: &UserId,
         threading_support: ThreadingSupport,
     ) {
-        if matches!(threading_support, ThreadingSupport::Enabled)
+        if matches!(threading_support, ThreadingSupport::Enabled { .. })
             && extract_thread_root(event.raw()).is_some()
         {
             return;
@@ -1621,23 +1621,23 @@ mod tests {
         receipts.process_event(
             &make_event(own_alice, event_id!("$some_thread_root")),
             own_alice,
-            ThreadingSupport::Enabled,
+            ThreadingSupport::Enabled { with_subscriptions: false },
         );
         receipts.process_event(
             &make_event(own_alice, event_id!("$some_other_thread_root")),
             own_alice,
-            ThreadingSupport::Enabled,
+            ThreadingSupport::Enabled { with_subscriptions: false },
         );
 
         receipts.process_event(
             &make_event(bob, event_id!("$some_thread_root")),
             own_alice,
-            ThreadingSupport::Enabled,
+            ThreadingSupport::Enabled { with_subscriptions: false },
         );
         receipts.process_event(
             &make_event(bob, event_id!("$some_other_thread_root")),
             own_alice,
-            ThreadingSupport::Enabled,
+            ThreadingSupport::Enabled { with_subscriptions: false },
         );
 
         assert_eq!(receipts.num_unread, 0);
@@ -1648,7 +1648,7 @@ mod tests {
         receipts.process_event(
             &EventFactory::new().text_msg("A").sender(bob).event_id(event_id!("$ida")).into_event(),
             own_alice,
-            ThreadingSupport::Enabled,
+            ThreadingSupport::Enabled { with_subscriptions: false },
         );
 
         assert_eq!(receipts.num_unread, 1);

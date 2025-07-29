@@ -151,9 +151,16 @@ impl fmt::Debug for BaseClient {
 /// explicitly opted into).
 #[derive(Clone, Copy, Debug)]
 pub enum ThreadingSupport {
-    /// Threading enabled
-    Enabled,
-    /// Threading disabled
+    /// Threading enabled.
+    Enabled {
+        /// Enable client-wide thread subscriptions support (MSC4306 / MSC4308).
+        ///
+        /// This may cause filtering out of thread subscriptions, and loading
+        /// the thread subscriptions via the sliding sync extension,
+        /// when the room list service is being used.
+        with_subscriptions: bool,
+    },
+    /// Threading disabled.
     Disabled,
 }
 

@@ -1,12 +1,12 @@
 use std::{
     collections::BTreeMap,
     sync::{Arc, Mutex},
-    time::Duration,
 };
 
 use assert_matches::assert_matches;
 use assert_matches2::assert_let;
 use matrix_sdk::{
+    ThreadingSupport,
     config::SyncSettings,
     test_utils::{logged_in_client_with_server, mocks::MatrixMockServer},
 };
@@ -23,8 +23,8 @@ use matrix_sdk_ui::{
 };
 use ruma::{
     event_id,
-    events::{TimelineEventType, room::member::MembershipState},
-    mxc_uri, room_id, user_id,
+    events::{Mentions, TimelineEventType, room::member::MembershipState},
+    mxc_uri, owned_user_id, room_id, user_id,
 };
 use serde_json::json;
 use wiremock::{
@@ -39,44 +39,30 @@ use crate::{
 
 #[async_test]
 async fn test_notification_client_with_context() {
-    let room_id = room_id!("!a98sd12bjh:example.org");
-    let (client, server) = logged_in_client_with_server().await;
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
 
-    let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
+    let sender = user_id!("@user:example.org");
+    let room_id = room_id!("!a98sd12bjh:example.org");
+    let f = EventFactory::new().room(room_id).sender(sender);
 
     let content = "Hello world!";
     let event_id = event_id!("$example_event_id");
-    let server_ts = 152049794;
-    let sender = user_id!("@user:example.org");
+    let event = f.text_msg(content).event_id(event_id).server_ts(152049794).into_event();
+
     let sender_display_name = "John Mastodon";
     let sender_avatar_url = mxc_uri!("mxc://example.org/avatar");
-    let event_factory = EventFactory::new().room(room_id).sender(sender);
-    let event_json =
-        event_factory.text_msg(content).event_id(event_id).server_ts(server_ts).into_raw_sync();
-
-    let sender_member_event = event_factory
+    let sender_member_event = f
         .member(sender)
         .membership(MembershipState::Join)
         .display_name(sender_display_name)
         .avatar_url(sender_avatar_url)
-        .into_raw_timeline();
-
-    let mut sync_builder = SyncResponseBuilder::new();
-    sync_builder.add_joined_room(
-        JoinedRoomBuilder::new(room_id).add_timeline_event(
-            event_factory
-                .text_msg(content)
-                .event_id(event_id)
-                .server_ts(server_ts)
-                .sender(sender)
-                .into_raw_sync(),
-        ),
-    );
+        .into_raw();
 
     // First, mock a sync that contains a text message.
-    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
-    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
-    server.reset().await;
+    server
+        .sync_room(&client, JoinedRoomBuilder::new(room_id).add_timeline_event(event.raw().clone()))
+        .await;
 
     // Then, try to simulate receiving a notification for that message.
     let dummy_sync_service = Arc::new(SyncService::builder(client.clone()).build().await.unwrap());
@@ -84,34 +70,342 @@ async fn test_notification_client_with_context() {
         NotificationProcessSetup::SingleProcess { sync_service: dummy_sync_service };
     let notification_client = NotificationClient::new(client, process_setup).await.unwrap();
 
-    {
-        // The notification client retrieves the event via `/rooms/*/context/`.
-        Mock::given(method("GET"))
-            .and(path(format!("/_matrix/client/r0/rooms/{room_id}/context/{event_id}")))
-            .and(header("authorization", "Bearer 1234"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-                "event": event_json,
-                "state": [sender_member_event]
-            })))
-            .mount(&server)
-            .await;
+    // The notification client retrieves the event via `/rooms/*/context/`.
+    server
+        .mock_room_event_context()
+        .ok(event, "", "", vec![sender_member_event])
+        .mock_once()
+        .mount()
+        .await;
 
-        // The encryption state is also fetched to figure whether the room is encrypted
-        // or not.
-        mock_encryption_state(&server, false).await;
-    }
+    // The encryption state is also fetched to figure whether the room is encrypted
+    // or not.
+    server.mock_room_state_encryption().plain().mount().await;
 
     let item = notification_client.get_notification_with_context(room_id, event_id).await.unwrap();
-
-    server.reset().await;
 
     assert_let!(NotificationStatus::Event(item) = item);
 
     assert_matches!(item.event, NotificationEvent::Timeline(event) => {
         assert_eq!(event.event_type(), TimelineEventType::RoomMessage);
     });
-    assert_eq!(item.sender_display_name.as_deref(), Some("John Mastodon"));
+    assert_eq!(item.sender_display_name.as_deref(), Some(sender_display_name));
     assert_eq!(item.sender_avatar_url, Some(sender_avatar_url.to_string()));
+}
+
+#[async_test]
+async fn test_subscribed_threads_get_notifications() {
+    let server = MatrixMockServer::new().await;
+    let client = server
+        .client_builder()
+        .threading_support(ThreadingSupport::Enabled { with_subscriptions: true })
+        .build()
+        .await;
+
+    let sender = user_id!("@user:example.org");
+    let room_id = room_id!("!a98sd12bjh:example.org");
+    let f = EventFactory::new().room(room_id).sender(sender);
+
+    // First, mock an empty sync so the room is known.
+    server.mock_room_state_encryption().plain().mount().await;
+    server.sync_joined_room(&client, room_id).await;
+
+    // Create a notification client.
+    let sync_service = Arc::new(SyncService::builder(client.clone()).build().await.unwrap());
+    let process_setup = NotificationProcessSetup::SingleProcess { sync_service };
+    let notification_client = NotificationClient::new(client, process_setup).await.unwrap();
+
+    // For a thread I'm subscribed to,
+    let thread_root = event_id!("$thread_root");
+    server
+        .mock_get_thread_subscription()
+        .match_thread_id(thread_root.to_owned())
+        .ok(false)
+        .expect(2)
+        .mount()
+        .await;
+
+    let sender_member_event =
+        f.member(sender).membership(MembershipState::Join).display_name("John Diaspora").into_raw();
+
+    // Considering an in-thread message,
+    let in_thread_event = {
+        let event_id = event_id!("$example_event_id");
+        let event = f
+            .text_msg("hello to you too!")
+            .event_id(event_id)
+            .server_ts(152049794)
+            .in_thread(thread_root, thread_root)
+            .into_event();
+
+        server
+            .mock_room_event_context()
+            .match_event_id()
+            .ok(event.clone(), "", "", vec![sender_member_event.clone()])
+            .mock_once()
+            .mount()
+            .await;
+
+        // Then I get a notification for this message.
+        let item =
+            notification_client.get_notification_with_context(room_id, event_id).await.unwrap();
+        assert_matches!(item, NotificationStatus::Event(..));
+
+        event
+    };
+
+    // Considering the thread root event,
+    let event = f
+        .text_msg("hello world")
+        .event_id(thread_root)
+        .server_ts(152049793)
+        .with_bundled_thread_summary(in_thread_event.raw().clone().cast_unchecked(), 1, false)
+        .into_event();
+
+    server
+        .mock_room_event_context()
+        .match_event_id()
+        .ok(event.clone(), "", "", vec![sender_member_event])
+        .mock_once()
+        .mount()
+        .await;
+
+    // Then I get a notification for the thread root as well.
+    let item =
+        notification_client.get_notification_with_context(room_id, thread_root).await.unwrap();
+    assert_matches!(item, NotificationStatus::Event(..));
+}
+
+#[async_test]
+async fn test_unknown_threads_get_notifications() {
+    let server = MatrixMockServer::new().await;
+    let client = server
+        .client_builder()
+        .threading_support(ThreadingSupport::Enabled { with_subscriptions: true })
+        .build()
+        .await;
+
+    let sender = user_id!("@user:example.org");
+    let room_id = room_id!("!a98sd12bjh:example.org");
+    let f = EventFactory::new().room(room_id).sender(sender);
+
+    // First, mock an empty sync so the room is known.
+    server.mock_room_state_encryption().plain().mount().await;
+    server.sync_joined_room(&client, room_id).await;
+
+    // Create a notification client.
+    let sync_service = Arc::new(SyncService::builder(client.clone()).build().await.unwrap());
+    let process_setup = NotificationProcessSetup::SingleProcess { sync_service };
+    let notification_client = NotificationClient::new(client.clone(), process_setup).await.unwrap();
+
+    // For a thread with an unknown subscription status (note: we're not mocking the
+    // get endpoint, since 404 is equivalent to no thread status),
+    let thread_root = event_id!("$thread_root");
+
+    let sender_member_event =
+        f.member(sender).membership(MembershipState::Join).display_name("John Diaspora").into_raw();
+
+    // Considering a random in-thread message,
+    let first_thread_response = event_id!("$thread_response1");
+    let in_thread_event = {
+        // Note: contains a mention, but not of me.
+        let event = f
+            .text_msg("hello to you too!")
+            .event_id(first_thread_response)
+            .server_ts(152049794)
+            .in_thread(thread_root, thread_root)
+            .mentions(Mentions::with_user_ids([owned_user_id!("@rando:example.org")]))
+            .into_event();
+
+        server
+            .mock_room_event_context()
+            .match_event_id()
+            .ok(event.clone(), "", "", vec![sender_member_event.clone()])
+            .mock_once()
+            .mount()
+            .await;
+
+        // Then I don't get a notification for it.
+        let item = notification_client
+            .get_notification_with_context(room_id, first_thread_response)
+            .await
+            .unwrap();
+        assert_matches!(item, NotificationStatus::EventFilteredOut);
+
+        event
+    };
+
+    // Considering the thread root event,
+    {
+        let event = f
+            .text_msg("hello world")
+            .event_id(thread_root)
+            .server_ts(152049793)
+            .with_bundled_thread_summary(in_thread_event.raw().clone().cast_unchecked(), 1, false)
+            .into_event();
+
+        server
+            .mock_room_event_context()
+            .match_event_id()
+            .ok(event.clone(), "", "", vec![sender_member_event.clone()])
+            .mock_once()
+            .mount()
+            .await;
+
+        // Then I don't get a notification for the thread root either.
+        let item =
+            notification_client.get_notification_with_context(room_id, thread_root).await.unwrap();
+        assert_matches!(item, NotificationStatus::EventFilteredOut);
+    }
+
+    // But if a new in-thread event mentions me, then I would get subscribed,
+    {
+        let thread_response2 = event_id!("$thread_response2");
+        // Note: event mentions me.
+        let event = f
+            .text_msg("hello world")
+            .event_id(thread_response2)
+            .server_ts(152049793)
+            .in_thread(thread_root, first_thread_response)
+            .mentions(Mentions::with_user_ids(vec![client.user_id().unwrap().to_owned()]))
+            .into_event();
+
+        server
+            .mock_room_event_context()
+            .match_event_id()
+            .ok(event.clone(), "", "", vec![sender_member_event])
+            .mock_once()
+            .mount()
+            .await;
+
+        // Then I do get a notification for the thread root either.
+        let item = notification_client
+            .get_notification_with_context(room_id, thread_response2)
+            .await
+            .unwrap();
+        assert_matches!(item, NotificationStatus::Event(..));
+    }
+}
+
+#[async_test]
+async fn test_unsubscribed_threads_dont_get_notifications() {
+    let server = MatrixMockServer::new().await;
+    let client = server
+        .client_builder()
+        .threading_support(ThreadingSupport::Enabled { with_subscriptions: true })
+        .build()
+        .await;
+
+    let sender = user_id!("@user:example.org");
+    let room_id = room_id!("!a98sd12bjh:example.org");
+    let f = EventFactory::new().room(room_id).sender(sender);
+
+    // First, mock an empty sync so the room is known.
+    server.mock_room_state_encryption().plain().mount().await;
+    let room = server.sync_joined_room(&client, room_id).await;
+
+    // Create a notification client.
+    let sync_service = Arc::new(SyncService::builder(client.clone()).build().await.unwrap());
+    let process_setup = NotificationProcessSetup::SingleProcess { sync_service };
+    let notification_client = NotificationClient::new(client.clone(), process_setup).await.unwrap();
+
+    // For a thread I've unsubscribed from,
+    let thread_root = event_id!("$thread_root");
+
+    server
+        .mock_delete_thread_subscription()
+        .match_thread_id(thread_root.to_owned())
+        .ok()
+        .mock_once()
+        .mount()
+        .await;
+    room.unsubscribe_thread(thread_root.to_owned()).await.unwrap();
+
+    let sender_member_event =
+        f.member(sender).membership(MembershipState::Join).display_name("John Diaspora").into_raw();
+
+    // Considering a random in-thread message,
+    let first_thread_response = event_id!("$thread_response1");
+    let in_thread_event = {
+        // Note: contains a mention, but not of me.
+        let event = f
+            .text_msg("hello to you too!")
+            .event_id(first_thread_response)
+            .server_ts(152049794)
+            .in_thread(thread_root, thread_root)
+            .mentions(Mentions::with_user_ids([owned_user_id!("@rando:example.org")]))
+            .into_event();
+
+        server
+            .mock_room_event_context()
+            .match_event_id()
+            .ok(event.clone(), "", "", vec![sender_member_event.clone()])
+            .mock_once()
+            .mount()
+            .await;
+
+        // Then I don't get a notification for it.
+        let item = notification_client
+            .get_notification_with_context(room_id, first_thread_response)
+            .await
+            .unwrap();
+        assert_matches!(item, NotificationStatus::EventFilteredOut);
+
+        event
+    };
+
+    // Considering the thread root event,
+    {
+        let event = f
+            .text_msg("hello world")
+            .event_id(thread_root)
+            .server_ts(152049793)
+            .with_bundled_thread_summary(in_thread_event.raw().clone().cast_unchecked(), 1, false)
+            .into_event();
+
+        server
+            .mock_room_event_context()
+            .match_event_id()
+            .ok(event.clone(), "", "", vec![sender_member_event.clone()])
+            .mock_once()
+            .mount()
+            .await;
+
+        // Then I don't get a notification for the thread root either.
+        let item =
+            notification_client.get_notification_with_context(room_id, thread_root).await.unwrap();
+        assert_matches!(item, NotificationStatus::EventFilteredOut);
+    }
+
+    // Even if a new in-thread event mentions me (and would cause an automated
+    // re-subscription), then I don't get a notification, because I've
+    // unsubscribed from the thread.
+    {
+        let thread_response2 = event_id!("$thread_response2");
+        // Note: event mentions me.
+        let event = f
+            .text_msg("hello world")
+            .event_id(thread_response2)
+            .server_ts(152049793)
+            .in_thread(thread_root, first_thread_response)
+            .mentions(Mentions::with_user_ids(vec![client.user_id().unwrap().to_owned()]))
+            .into_event();
+
+        server
+            .mock_room_event_context()
+            .match_event_id()
+            .ok(event.clone(), "", "", vec![sender_member_event])
+            .mock_once()
+            .mount()
+            .await;
+
+        // Then I do NOT get a notification for the thread root either.
+        let item = notification_client
+            .get_notification_with_context(room_id, thread_response2)
+            .await
+            .unwrap();
+        assert_matches!(item, NotificationStatus::EventFilteredOut);
+    }
 }
 
 #[async_test]
@@ -924,7 +1218,12 @@ async fn test_notification_client_context_filters_out_events_from_ignored_users(
         .into_event();
 
     // Mock the /context response
-    server.mock_room_event_context().ok(event, "start", "end").mock_once().mount().await;
+    server
+        .mock_room_event_context()
+        .ok(event, "start", "end", Vec::new())
+        .mock_once()
+        .mount()
+        .await;
 
     let dummy_sync_service = Arc::new(SyncService::builder(client.clone()).build().await.unwrap());
     let process_setup =
