@@ -23,7 +23,7 @@ use ruma::{
     EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, OwnedUserId, UserId,
     events::AnySyncTimelineEvent, push::Action, serde::Raw,
 };
-use tracing::{debug, instrument, warn};
+use tracing::{debug, instrument, trace, warn};
 
 use super::{
     super::{
@@ -684,7 +684,7 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
         .await;
 
         // Handle the event to create or update a timeline item.
-        if let Some(timeline_action) = timeline_action {
+        let item_added = if let Some(timeline_action) = timeline_action {
             let sender_profile = room_data_provider.profile_from_user_id(&sender).await;
 
             let ctx = TimelineEventContext {
@@ -715,9 +715,25 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
                 .handle_event(date_divider_adjuster, timeline_action)
                 .await
         } else {
-            // No item has been removed from the timeline.
+            // No item has been added to the timeline.
             false
+        };
+
+        let mut item_removed = false;
+
+        if !item_added {
+            trace!("No new item added");
+
+            if let TimelineItemPosition::UpdateAt { timeline_item_index } = position {
+                // If add was not called, that means the UTD event is one that
+                // wouldn't normally be visible. Remove it.
+                trace!("Removing UTD that was successfully retried");
+                self.items.remove(timeline_item_index);
+                item_removed = true;
+            }
         }
+
+        item_removed
     }
 
     /// Remove one timeline item by its `event_index`.
