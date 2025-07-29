@@ -20,7 +20,11 @@ use std::{
 
 use futures_util::{StreamExt as _, pin_mut};
 use matrix_sdk::{
-    Client, ClientBuildError, SlidingSyncList, SlidingSyncMode, room::Room, sleep::sleep,
+    Client, ClientBuildError, SlidingSyncList, SlidingSyncMode,
+    deserialized_responses::ThreadSummaryStatus,
+    room::{Room, ThreadStatus},
+    serde_helpers::{extract_bundled_thread_summary, extract_thread_root},
+    sleep::sleep,
 };
 use matrix_sdk_base::{RoomState, StoreError, deserialized_responses::TimelineEvent};
 use ruma::{
@@ -35,7 +39,7 @@ use ruma::{
         room::{
             join_rules::JoinRule,
             member::{MembershipState, StrippedRoomMemberEvent},
-            message::{Relation, SyncRoomMessageEvent},
+            message::{OriginalSyncRoomMessageEvent, Relation, SyncRoomMessageEvent},
         },
     },
     html::RemoveReplyFallback,
@@ -607,6 +611,109 @@ impl NotificationClient {
         get_notifications_result.remove(event_id).unwrap_or(Ok(NotificationStatus::EventNotFound))
     }
 
+    /// Should an event cause an automatic thread subscription?
+    ///
+    /// This ignores events sent by the user themselves, as they shouldn't
+    /// trigger a notification in general.
+    fn should_subscribe_thread(&self, event: &Raw<AnySyncTimelineEvent>) -> bool {
+        let inner = || {
+            // Current logic: the event is a message event with an intentional room or user
+            // mention.
+            // TODO: to be revised when
+            // https://github.com/matrix-org/matrix-spec-proposals/pull/4306#discussion_r2239139196
+            // is answered.
+            let own_user_id = self.client.user_id()?;
+            let room_message_event =
+                event.deserialize_as_unchecked::<OriginalSyncRoomMessageEvent>().ok()?;
+            room_message_event.content.mentions.map(|mentions| {
+                mentions.room || mentions.user_ids.iter().any(|mention| mention == own_user_id)
+            })
+        };
+
+        inner().unwrap_or(false)
+    }
+
+    /// Given a (decrypted or not) event, figure out whether it should be
+    /// filtered out for other client-side reasons (such as the sender being
+    /// ignored, for instance).
+    ///
+    /// Returns `Ok(None)` if the event should be filtered out, or an error if
+    /// the notification item couldn't be constructed.
+    async fn maybe_filter_out(
+        &self,
+        room: &Room,
+        push_actions: Option<&[Action]>,
+        event_id: OwnedEventId,
+        raw_event: RawNotificationEvent,
+        state_events: Vec<Raw<AnyStateEvent>>,
+    ) -> Result<Option<NotificationItem>, Error> {
+        // If the event was in a thread, and thread subscription support has been
+        // enabled, filter out events from threads that aren't subscribed to.
+        if self.client.enabled_thread_subscriptions() {
+            if let RawNotificationEvent::Timeline(raw_event) = &raw_event {
+                // Find if the event is a thread reply.
+                let mut thread_root = extract_thread_root(raw_event);
+
+                if thread_root.is_none() {
+                    // Check if the event itself is a thread root, by checking whether it has a
+                    // bundled summary; the event returned from a fresh sync or /context will
+                    // include this information.
+                    let (summary, _) = extract_bundled_thread_summary(raw_event);
+                    if let ThreadSummaryStatus::Some(_) = summary {
+                        thread_root = Some(event_id.clone());
+                    }
+                }
+
+                if let Some(thread_root) = thread_root {
+                    // TODO: ideally we'd load instead of fetching here, but we need MSC4308 for
+                    // maintaining the thread subscription state in the store.
+                    match room.fetch_thread_subscription(thread_root.clone()).await {
+                        Ok(Some(ThreadStatus::Subscribed { .. })) => {
+                            // The thread is subscribed to, so we can continue.
+                        }
+
+                        Ok(None) => {
+                            // At this point, we should detect if the event would trigger a
+                            // thread subscription, and have it generate a notification in this
+                            // case.
+                            if !self.should_subscribe_thread(raw_event) {
+                                // The thread isn't subscribed to, and it wouldn't cause a thread
+                                // subscription: leave early.
+                                return Ok(None);
+                            }
+                            trace!(%event_id, %thread_root, "keeping notification, because it would trigger an automatic thread subscription");
+                        }
+
+                        Ok(Some(ThreadStatus::Unsubscribed)) => {
+                            trace!(%event_id, %thread_root, "filtered out notification because thread is not subscribed to");
+                            return Ok(None);
+                        }
+
+                        Err(err) => {
+                            // Could not fetch the thread subscription, only log the error, and
+                            // continue.
+                            warn!(%thread_root, "couldn't fetch thread subscription: {err}");
+                        }
+                    }
+                }
+            }
+        } else if let Some(actions) = push_actions
+            && !actions.iter().any(|a| a.should_notify())
+        {
+            // The event shouldn't notify: return early.
+            return Ok(None);
+        }
+
+        let notification_item =
+            NotificationItem::new(&room, raw_event, push_actions, state_events).await?;
+
+        if self.client.is_user_ignored(notification_item.event.sender()).await {
+            Ok(None)
+        } else {
+            Ok(Some(notification_item))
+        }
+    }
+
     /// Get a list of full notifications, given a room id and event ids.
     ///
     /// This will run a small sliding sync to retrieve the content of the
@@ -675,33 +782,33 @@ impl NotificationClient {
                 }
             };
 
-            let should_notify = push_actions
-                .as_ref()
-                .is_some_and(|actions| actions.iter().any(|a| a.should_notify()));
+            match self
+                .maybe_filter_out(
+                    &room,
+                    push_actions.as_deref(),
+                    event_id.clone(),
+                    raw_event,
+                    Vec::new(),
+                )
+                .await
+            {
+                Ok(Some(notification_item)) => {
+                    // The event should notify, and we have a notification item.
+                    batch_result.insert(
+                        event_id,
+                        Ok(NotificationStatus::Event(Box::new(notification_item))),
+                    );
+                }
 
-            if !should_notify {
-                // The event has been filtered out by the user's push rules.
-                batch_result.insert(event_id, Ok(NotificationStatus::EventFilteredOut));
-                continue;
-            }
+                Ok(None) => {
+                    // The event has been filtered out.
+                    batch_result.insert(event_id, Ok(NotificationStatus::EventFilteredOut));
+                }
 
-            let notification_item =
-                match NotificationItem::new(&room, raw_event, push_actions.as_deref(), Vec::new())
-                    .await
-                {
-                    Ok(item) => item,
-                    Err(err) => {
-                        // Could not build the notification item, return an error.
-                        batch_result.insert(event_id, Err(err));
-                        continue;
-                    }
-                };
-
-            if self.client.is_user_ignored(notification_item.event.sender()).await {
-                batch_result.insert(event_id, Ok(NotificationStatus::EventFilteredOut));
-            } else {
-                batch_result
-                    .insert(event_id, Ok(NotificationStatus::Event(Box::new(notification_item))));
+                Err(err) => {
+                    // Could not build the notification item, return an error.
+                    batch_result.insert(event_id, Err(err));
+                }
             }
         }
 
@@ -741,25 +848,21 @@ impl NotificationClient {
             timeline_event = decrypted_event;
         }
 
-        if let Some(actions) = timeline_event.push_actions()
-            && !actions.iter().any(|a| a.should_notify())
-        {
-            return Ok(NotificationStatus::EventFilteredOut);
-        }
-
         let push_actions = timeline_event.push_actions().map(ToOwned::to_owned);
-        let notification_item = NotificationItem::new(
-            &room,
-            RawNotificationEvent::Timeline(timeline_event.into_raw()),
-            push_actions.as_deref(),
-            state_events,
-        )
-        .await?;
 
-        if self.client.is_user_ignored(notification_item.event.sender()).await {
-            Ok(NotificationStatus::EventFilteredOut)
-        } else {
+        if let Some(notification_item) = self
+            .maybe_filter_out(
+                &room,
+                push_actions.as_deref(),
+                event_id.to_owned(),
+                RawNotificationEvent::Timeline(timeline_event.into_raw()),
+                state_events,
+            )
+            .await?
+        {
             Ok(NotificationStatus::Event(Box::new(notification_item)))
+        } else {
+            Ok(NotificationStatus::EventFilteredOut)
         }
     }
 }
