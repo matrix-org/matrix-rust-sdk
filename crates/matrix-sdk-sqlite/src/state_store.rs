@@ -118,7 +118,7 @@ impl SqliteStateStore {
 
     /// Create an SQLite-based state store using the given SQLite database pool.
     /// The given passphrase will be used to encrypt private data.
-    async fn open_with_pool(
+    pub async fn open_with_pool(
         pool: SqlitePool,
         passphrase: Option<&str>,
     ) -> Result<Self, OpenStoreError> {
