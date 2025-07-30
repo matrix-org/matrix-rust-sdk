@@ -21,7 +21,7 @@ use crate::crypto_store::{keys, migrations::do_schema_upgrade, Result};
 /// Perform the schema upgrade v12 to v13, adding the
 /// `received_room_key_bundles` store.
 pub(crate) async fn schema_add(name: &str) -> Result<(), DomException> {
-    do_schema_upgrade(name, 13, |db, _, _| {
+    do_schema_upgrade(name, 13, |db, _| {
         db.create_object_store(keys::RECEIVED_ROOM_KEY_BUNDLES)?;
         Ok(())
     })

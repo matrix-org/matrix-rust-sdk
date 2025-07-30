@@ -50,7 +50,7 @@ pub(crate) fn index_add(object_store: &IdbObjectStore<'_>) -> Result<(), DomExce
 
 /// Perform the schema upgrade v8 to v9, creating `inbound_group_sessions3`.
 pub(crate) async fn schema_add(name: &str) -> Result<(), DomException> {
-    do_schema_upgrade(name, 9, |db, _, _| {
+    do_schema_upgrade(name, 9, |db, _| {
         let object_store = db.create_object_store(old_keys::INBOUND_GROUP_SESSIONS_V3)?;
         index_add(&object_store)?;
         Ok(())
@@ -128,7 +128,7 @@ pub(crate) async fn data_migrate(name: &str, serializer: &IndexeddbSerializer) -
 
 /// Perform the schema upgrade v8 to v10, deleting `inbound_group_sessions2`.
 pub(crate) async fn schema_delete(name: &str) -> Result<(), DomException> {
-    do_schema_upgrade(name, 10, |db, _, _| {
+    do_schema_upgrade(name, 10, |db, _| {
         db.delete_object_store(old_keys::INBOUND_GROUP_SESSIONS_V2)?;
         Ok(())
     })

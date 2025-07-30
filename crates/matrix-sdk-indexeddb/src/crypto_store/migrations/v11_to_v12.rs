@@ -18,5 +18,5 @@ use crate::crypto_store::{migrations::do_schema_upgrade, Result};
 
 /// Perform the schema upgrade v11 to v12, just bumping the schema version
 pub(crate) async fn schema_bump(name: &str) -> Result<(), DomException> {
-    do_schema_upgrade(name, 12, |_, _, _| Ok(())).await
+    do_schema_upgrade(name, 12, |_, _| Ok(())).await
 }
