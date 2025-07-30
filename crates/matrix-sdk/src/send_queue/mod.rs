@@ -813,7 +813,7 @@ impl RoomSendQueue {
         // If this is a file upload, get the size of any previously uploaded thumbnail
         // from the in-memory media sizes cache.
         let uploaded_thumbnail_bytes = if thumbnail_source.is_some() {
-            if let Some(sizes) = queue.store.lock().await.thumbnail_size_cache.get(related_to) {
+            if let Some(sizes) = queue.store.lock().await.thumbnail_file_sizes.get(related_to) {
                 sizes.get(index).copied().flatten().unwrap_or(0)
             } else {
                 0
@@ -989,30 +989,33 @@ impl RoomSendQueue {
                     #[cfg(feature = "e2e-encryption")]
                     let media_source = if room.latest_encryption_state().await?.is_encrypted() {
                         trace!("upload will be encrypted (encrypted room)");
-                        let mut cursor = std::io::Cursor::new(data);
+
+                        // TODO: clone the Client when creating `UploadEncryptedFile` to avoid the
+                        // borrow and the local variable here. See also issue 5465.
                         let client = room.client();
+
+                        let mut cursor = std::io::Cursor::new(data);
                         let mut req = client
                             .upload_encrypted_file(&mut cursor)
                             .with_request_config(RequestConfig::short_retry());
-
                         if let Some(progress) = progress {
                             req = req.with_send_progress_observable(progress);
                         }
-
                         let encrypted_file = req.await?;
+
                         MediaSource::Encrypted(Box::new(encrypted_file))
                     } else {
                         trace!("upload will be in clear text (room without encryption)");
+
                         let request_config = RequestConfig::short_retry()
                             .timeout(Media::reasonable_upload_timeout(&data));
                         let mut req =
                             room.client().media().upload(&mime, data, Some(request_config));
-
                         if let Some(progress) = progress {
                             req = req.with_send_progress_observable(progress);
                         }
-
                         let res = req.await?;
+
                         MediaSource::Plain(res.content_uri)
                     };
 
@@ -1022,11 +1025,9 @@ impl RoomSendQueue {
                             .timeout(Media::reasonable_upload_timeout(&data));
                         let mut req =
                             room.client().media().upload(&mime, data, Some(request_config));
-
                         if let Some(progress) = progress {
                             req = req.with_send_progress_observable(progress);
                         }
-
                         let res = req.await?;
                         MediaSource::Plain(res.content_uri)
                     };
@@ -1292,7 +1293,7 @@ struct StoreLock {
     /// For galleries, some gallery items might not have a thumbnail while
     /// others do. Since we access the thumbnails by their index within the
     /// gallery, the vector needs to hold optional usize's.
-    thumbnail_size_cache: Arc<Mutex<HashMap<OwnedTransactionId, Vec<Option<usize>>>>>,
+    thumbnail_file_sizes: Arc<Mutex<HashMap<OwnedTransactionId, Vec<Option<usize>>>>>,
 }
 
 impl StoreLock {
@@ -1301,7 +1302,7 @@ impl StoreLock {
         StoreLockGuard {
             client: self.client.clone(),
             being_sent: self.being_sent.clone().lock_owned().await,
-            thumbnail_size_cache: self.thumbnail_size_cache.clone().lock_owned().await,
+            thumbnail_file_sizes: self.thumbnail_file_sizes.clone().lock_owned().await,
         }
     }
 }
@@ -1316,9 +1317,13 @@ struct StoreLockGuard {
     /// associated data that can be useful to act upon it.
     being_sent: OwnedMutexGuard<Option<BeingSentInfo>>,
 
-    /// In-memory mapping of media transaction IDs to thumbnail sizes for the
-    /// purpose of progress reporting.
-    thumbnail_size_cache: OwnedMutexGuard<HashMap<OwnedTransactionId, Vec<Option<usize>>>>,
+    /// In-memory mapping of media event transaction IDs to thumbnail sizes for
+    /// the purpose of progress reporting.
+    ///
+    /// Because a gallery event may include more than a single media (and thus
+    /// thumbnails), the value is a vector. Since some gallery items might
+    /// not have a thumbnail, the size is optional; this is a sparse array.
+    thumbnail_file_sizes: OwnedMutexGuard<HashMap<OwnedTransactionId, Vec<Option<usize>>>>,
 }
 
 impl StoreLockGuard {
@@ -1352,7 +1357,7 @@ impl QueueStorage {
             store: StoreLock {
                 client,
                 being_sent: Default::default(),
-                thumbnail_size_cache: Default::default(),
+                thumbnail_file_sizes: Default::default(),
             },
         }
     }
@@ -1511,7 +1516,7 @@ impl QueueStorage {
             warn!(txn_id = %transaction_id, "request marked as sent was missing from storage");
         }
 
-        guard.thumbnail_size_cache.remove(transaction_id);
+        guard.thumbnail_file_sizes.remove(transaction_id);
 
         Ok(())
     }
@@ -1553,7 +1558,7 @@ impl QueueStorage {
             .remove_send_queue_request(&self.room_id, transaction_id)
             .await?;
 
-        guard.thumbnail_size_cache.remove(transaction_id);
+        guard.thumbnail_file_sizes.remove(transaction_id);
 
         Ok(removed)
     }
@@ -1617,7 +1622,8 @@ impl QueueStorage {
         let client = guard.client()?;
         let store = client.state_store();
 
-        let media_sizes = vec![thumbnail.as_ref().map(|t| t.file_size)];
+        // There's only a single media to be sent, so it has at most one thumbnail.
+        let thumbnail_file_sizes = vec![thumbnail.as_ref().map(|t| t.file_size)];
 
         let thumbnail_info = self
             .push_thumbnail_and_media_uploads(
@@ -1646,7 +1652,7 @@ impl QueueStorage {
             )
             .await?;
 
-        guard.thumbnail_size_cache.insert(send_event_txn, media_sizes);
+        guard.thumbnail_file_sizes.insert(send_event_txn, thumbnail_file_sizes);
 
         Ok(())
     }
@@ -1668,7 +1674,7 @@ impl QueueStorage {
         let store = client.state_store();
 
         let mut finish_item_infos = Vec::with_capacity(item_queue_infos.len());
-        let mut media_sizes = Vec::with_capacity(item_queue_infos.len());
+        let mut thumbnail_file_sizes = Vec::with_capacity(item_queue_infos.len());
 
         let Some((first, rest)) = item_queue_infos.split_first() else {
             return Ok(());
@@ -1691,7 +1697,7 @@ impl QueueStorage {
 
         finish_item_infos
             .push(FinishGalleryItemInfo { file_upload: upload_file_txn.clone(), thumbnail_info });
-        media_sizes.push(thumbnail.as_ref().map(|t| t.file_size));
+        thumbnail_file_sizes.push(thumbnail.as_ref().map(|t| t.file_size));
 
         let mut last_upload_file_txn = upload_file_txn.clone();
 
@@ -1756,7 +1762,7 @@ impl QueueStorage {
                 file_upload: upload_file_txn.clone(),
                 thumbnail_info: thumbnail_info.cloned(),
             });
-            media_sizes.push(thumbnail.as_ref().map(|t| t.file_size));
+            thumbnail_file_sizes.push(thumbnail.as_ref().map(|t| t.file_size));
 
             last_upload_file_txn = upload_file_txn.clone();
         }
@@ -1776,7 +1782,7 @@ impl QueueStorage {
             )
             .await?;
 
-        guard.thumbnail_size_cache.insert(send_event_txn, media_sizes);
+        guard.thumbnail_file_sizes.insert(send_event_txn, thumbnail_file_sizes);
 
         Ok(())
     }
