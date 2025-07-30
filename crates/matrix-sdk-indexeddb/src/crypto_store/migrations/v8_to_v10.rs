@@ -51,7 +51,7 @@ pub(crate) fn index_add(object_store: &IdbObjectStore<'_>) -> Result<(), DomExce
 /// Perform the schema upgrade v8 to v9, creating `inbound_group_sessions3`.
 pub(crate) async fn schema_add(name: &str) -> Result<(), DomException> {
     do_schema_upgrade(name, 9, |db, _, _| {
-        let object_store = db.create_object_store(keys::INBOUND_GROUP_SESSIONS_V3)?;
+        let object_store = db.create_object_store(old_keys::INBOUND_GROUP_SESSIONS_V3)?;
         index_add(&object_store)?;
         Ok(())
     })
@@ -63,12 +63,12 @@ pub(crate) async fn data_migrate(name: &str, serializer: &IndexeddbSerializer) -
     let db = MigrationDb::new(name, 10).await?;
 
     let txn = db.transaction_on_multi_with_mode(
-        &[old_keys::INBOUND_GROUP_SESSIONS_V2, keys::INBOUND_GROUP_SESSIONS_V3],
+        &[old_keys::INBOUND_GROUP_SESSIONS_V2, old_keys::INBOUND_GROUP_SESSIONS_V3],
         IdbTransactionMode::Readwrite,
     )?;
 
     let inbound_group_sessions2 = txn.object_store(old_keys::INBOUND_GROUP_SESSIONS_V2)?;
-    let inbound_group_sessions3 = txn.object_store(keys::INBOUND_GROUP_SESSIONS_V3)?;
+    let inbound_group_sessions3 = txn.object_store(old_keys::INBOUND_GROUP_SESSIONS_V3)?;
 
     let row_count = inbound_group_sessions2.count()?.await?;
     info!(row_count, "Shrinking inbound_group_session records");
@@ -94,7 +94,7 @@ pub(crate) async fn data_migrate(name: &str, serializer: &IndexeddbSerializer) -
 
             // Calculate its key in the new table
             let new_key = serializer.encode_key(
-                keys::INBOUND_GROUP_SESSIONS_V3,
+                old_keys::INBOUND_GROUP_SESSIONS_V3,
                 (&session.room_id, session.session_id()),
             );
 

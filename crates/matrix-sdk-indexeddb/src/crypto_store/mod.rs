@@ -63,7 +63,7 @@ mod keys {
 
     pub const SESSION: &str = "session";
 
-    pub const INBOUND_GROUP_SESSIONS_V3: &str = "inbound_group_sessions3";
+    pub const INBOUND_GROUP_SESSIONS_V4: &str = "inbound_group_sessions4";
     pub const INBOUND_GROUP_SESSIONS_BACKUP_INDEX: &str = "backup";
     pub const INBOUND_GROUP_SESSIONS_BACKED_UP_TO_INDEX: &str = "backed_up_to";
     pub const INBOUND_GROUP_SESSIONS_SENDER_KEY_INDEX: &str =
@@ -565,14 +565,14 @@ impl IndexeddbCryptoStore {
         }
 
         if !changes.inbound_group_sessions.is_empty() {
-            let mut sessions = indexeddb_changes.get(keys::INBOUND_GROUP_SESSIONS_V3);
+            let mut sessions = indexeddb_changes.get(keys::INBOUND_GROUP_SESSIONS_V4);
 
             for session in &changes.inbound_group_sessions {
                 let room_id = session.room_id();
                 let session_id = session.session_id();
                 let key = self
                     .serializer
-                    .encode_key(keys::INBOUND_GROUP_SESSIONS_V3, (room_id, session_id));
+                    .encode_key(keys::INBOUND_GROUP_SESSIONS_V4, (room_id, session_id));
                 let value = self.serialize_inbound_group_session(session).await?;
                 sessions.put(key, value);
             }
@@ -967,14 +967,14 @@ impl_crypto_store! {
         room_id: &RoomId,
         session_id: &str,
     ) -> Result<Option<InboundGroupSession>> {
-        let key = self.serializer.encode_key(keys::INBOUND_GROUP_SESSIONS_V3, (room_id, session_id));
+        let key = self.serializer.encode_key(keys::INBOUND_GROUP_SESSIONS_V4, (room_id, session_id));
         if let Some(value) = self
             .inner
             .transaction_on_one_with_mode(
-                keys::INBOUND_GROUP_SESSIONS_V3,
+                keys::INBOUND_GROUP_SESSIONS_V4,
                 IdbTransactionMode::Readonly,
             )?
-            .object_store(keys::INBOUND_GROUP_SESSIONS_V3)?
+            .object_store(keys::INBOUND_GROUP_SESSIONS_V4)?
             .get(&key)?
             .await?
         {
@@ -990,11 +990,11 @@ impl_crypto_store! {
         let transaction = self
             .inner
             .transaction_on_one_with_mode(
-                keys::INBOUND_GROUP_SESSIONS_V3,
+                keys::INBOUND_GROUP_SESSIONS_V4,
                 IdbTransactionMode::Readonly,
             )?;
 
-        let object_store = transaction.object_store(keys::INBOUND_GROUP_SESSIONS_V3)?;
+        let object_store = transaction.object_store(keys::INBOUND_GROUP_SESSIONS_V4)?;
 
         fetch_from_object_store_batched(
             object_store,
@@ -1010,10 +1010,10 @@ impl_crypto_store! {
         after_session_id: Option<String>,
         limit: usize,
     ) -> Result<Vec<InboundGroupSession>> {
-        let sender_key = self.serializer.encode_key(keys::INBOUND_GROUP_SESSIONS_V3, sender_key.to_base64());
+        let sender_key = self.serializer.encode_key(keys::INBOUND_GROUP_SESSIONS_V4, sender_key.to_base64());
 
         // The empty string is before all keys in Indexed DB - first batch starts there.
-        let after_session_id = after_session_id.map(|s| self.serializer.encode_key(keys::INBOUND_GROUP_SESSIONS_V3, s)).unwrap_or("".into());
+        let after_session_id = after_session_id.map(|s| self.serializer.encode_key(keys::INBOUND_GROUP_SESSIONS_V4, s)).unwrap_or("".into());
 
         let lower_bound: Array = [sender_key.clone(), (sender_data_type as u8).into(), after_session_id].iter().collect();
         let upper_bound: Array = [sender_key, ((sender_data_type as u8) + 1).into()].iter().collect();
@@ -1026,11 +1026,11 @@ impl_crypto_store! {
         let tx = self
             .inner
             .transaction_on_one_with_mode(
-                keys::INBOUND_GROUP_SESSIONS_V3,
+                keys::INBOUND_GROUP_SESSIONS_V4,
                 IdbTransactionMode::Readonly,
             )?;
 
-        let store = tx.object_store(keys::INBOUND_GROUP_SESSIONS_V3)?;
+        let store = tx.object_store(keys::INBOUND_GROUP_SESSIONS_V4)?;
         let idx = store.index(keys::INBOUND_GROUP_SESSIONS_SENDER_KEY_INDEX)?;
         let serialized_sessions = idx.get_all_with_key_and_limit_owned(key, limit as u32)?.await?;
 
@@ -1052,10 +1052,10 @@ impl_crypto_store! {
         let tx = self
             .inner
             .transaction_on_one_with_mode(
-                keys::INBOUND_GROUP_SESSIONS_V3,
+                keys::INBOUND_GROUP_SESSIONS_V4,
                 IdbTransactionMode::Readonly,
             )?;
-        let store = tx.object_store(keys::INBOUND_GROUP_SESSIONS_V3)?;
+        let store = tx.object_store(keys::INBOUND_GROUP_SESSIONS_V4)?;
         let all = store.count()?.await? as usize;
         let not_backed_up = store.index(keys::INBOUND_GROUP_SESSIONS_BACKUP_INDEX)?.count()?.await? as usize;
         tx.await.into_result()?;
@@ -1070,12 +1070,12 @@ impl_crypto_store! {
         let tx = self
             .inner
             .transaction_on_one_with_mode(
-                keys::INBOUND_GROUP_SESSIONS_V3,
+                keys::INBOUND_GROUP_SESSIONS_V4,
                 IdbTransactionMode::Readonly,
             )?;
 
 
-        let store = tx.object_store(keys::INBOUND_GROUP_SESSIONS_V3)?;
+        let store = tx.object_store(keys::INBOUND_GROUP_SESSIONS_V4)?;
         let idx = store.index(keys::INBOUND_GROUP_SESSIONS_BACKUP_INDEX)?;
 
         // XXX ideally we would use `get_all_with_key_and_limit`, but that doesn't appear to be
@@ -1116,14 +1116,14 @@ impl_crypto_store! {
         let tx = self
             .inner
             .transaction_on_one_with_mode(
-                keys::INBOUND_GROUP_SESSIONS_V3,
+                keys::INBOUND_GROUP_SESSIONS_V4,
                 IdbTransactionMode::Readwrite,
             )?;
 
-        let object_store = tx.object_store(keys::INBOUND_GROUP_SESSIONS_V3)?;
+        let object_store = tx.object_store(keys::INBOUND_GROUP_SESSIONS_V4)?;
 
         for (room_id, session_id) in room_and_session_ids {
-            let key = self.serializer.encode_key(keys::INBOUND_GROUP_SESSIONS_V3, (room_id, session_id));
+            let key = self.serializer.encode_key(keys::INBOUND_GROUP_SESSIONS_V4, (room_id, session_id));
             if let Some(idb_object_js) = object_store.get(&key)?.await? {
                 let mut idb_object: InboundGroupSessionIndexedDbObject = serde_wasm_bindgen::from_value(idb_object_js)?;
                 idb_object.needs_backup = false;
@@ -1140,11 +1140,11 @@ impl_crypto_store! {
         let tx = self
             .inner
             .transaction_on_one_with_mode(
-                keys::INBOUND_GROUP_SESSIONS_V3,
+                keys::INBOUND_GROUP_SESSIONS_V4,
                 IdbTransactionMode::Readwrite,
             )?;
 
-        if let Some(cursor) = tx.object_store(keys::INBOUND_GROUP_SESSIONS_V3)?.open_cursor()?.await? {
+        if let Some(cursor) = tx.object_store(keys::INBOUND_GROUP_SESSIONS_V4)?.open_cursor()?.await? {
             loop {
                 let mut idb_object: InboundGroupSessionIndexedDbObject = serde_wasm_bindgen::from_value(cursor.value())?;
                 if !idb_object.needs_backup {
@@ -1799,10 +1799,10 @@ impl InboundGroupSessionIndexedDbObject {
         serializer: &IndexeddbSerializer,
     ) -> Result<Self, CryptoStoreError> {
         let session_id =
-            serializer.encode_key_as_string(keys::INBOUND_GROUP_SESSIONS_V3, session.session_id());
+            serializer.encode_key_as_string(keys::INBOUND_GROUP_SESSIONS_V4, session.session_id());
 
         let sender_key = serializer.encode_key_as_string(
-            keys::INBOUND_GROUP_SESSIONS_V3,
+            keys::INBOUND_GROUP_SESSIONS_V4,
             session.sender_key().to_base64(),
         );
 

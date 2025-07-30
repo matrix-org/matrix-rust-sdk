@@ -25,6 +25,7 @@ mod v0_to_v5;
 mod v10_to_v11;
 mod v11_to_v12;
 mod v12_to_v13;
+mod v13_to_v15;
 mod v5_to_v7;
 mod v7;
 mod v7_to_v8;
@@ -163,6 +164,15 @@ pub async fn open_and_upgrade_db(
         v12_to_v13::schema_add(name).await?;
     }
 
+    if old_version < 14 {
+        v13_to_v15::schema_add(name).await?;
+    }
+
+    if old_version < 15 {
+        v13_to_v15::data_migrate(name, serializer).await?;
+        v13_to_v15::schema_delete(name).await?;
+    }
+
     // If you add more migrations here, you'll need to update
     // `tests::EXPECTED_SCHEMA_VERSION`.
 
@@ -267,7 +277,7 @@ mod tests {
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
     /// The schema version we expect after we open the store.
-    const EXPECTED_SCHEMA_VERSION: u32 = 13;
+    const EXPECTED_SCHEMA_VERSION: u32 = 15;
 
     /// Adjust this to test do a more comprehensive perf test
     const NUM_RECORDS_FOR_PERF: usize = 2_000;
@@ -488,25 +498,22 @@ mod tests {
     /// Test migrating `inbound_group_sessions` data from store v5 to latest,
     /// on a store with encryption disabled.
     #[async_test]
-    async fn test_v8_v10_v12_migration_unencrypted() {
-        test_v8_v10_v12_migration_with_cipher("test_v8_migration_unencrypted", None).await
+    async fn test_v8_v15_migration_unencrypted() {
+        test_v8_v15_migration_with_cipher("test_v8_migration_unencrypted", None).await
     }
 
     /// Test migrating `inbound_group_sessions` data from store v5 to store v8,
     /// on a store with encryption enabled.
     #[async_test]
-    async fn test_v8_v10_v12_migration_encrypted() {
+    async fn test_v8_v15_migration_encrypted() {
         let cipher = StoreCipher::new().unwrap();
-        test_v8_v10_v12_migration_with_cipher(
-            "test_v8_migration_encrypted",
-            Some(Arc::new(cipher)),
-        )
-        .await;
+        test_v8_v15_migration_with_cipher("test_v8_migration_encrypted", Some(Arc::new(cipher)))
+            .await;
     }
 
     /// Helper function for `test_v8_v10_v12_migration_{un,}encrypted`: test
     /// migrating `inbound_group_sessions` data from store v5 to store v12.
-    async fn test_v8_v10_v12_migration_with_cipher(
+    async fn test_v8_v15_migration_with_cipher(
         db_prefix: &str,
         store_cipher: Option<Arc<StoreCipher>>,
     ) {
@@ -549,27 +556,24 @@ mod tests {
         assert!(fetched_backed_up_session.backed_up());
         assert!(!fetched_not_backed_up_session.backed_up());
 
-        // For v10: they have the backed_up_to property and it is indexed
-        assert_matches_v10_schema(&db_name, &store, &fetched_backed_up_session).await;
-
-        // For v12: they have the session_id, sender_key and sender_data_type properties
+        // For v15: they have the backed_up_to property and it is indexed and
+        // they have the session_id, sender_key and sender_data_type properties
         // and they are indexed
-        assert_matches_v12_schema(&db_name, &store, &fetched_backed_up_session).await;
+        assert_matches_v15_schema(&db_name, &store, &fetched_backed_up_session).await;
     }
 
-    async fn assert_matches_v10_schema(
+    async fn assert_matches_v15_schema(
         db_name: &str,
         store: &IndexeddbCryptoStore,
-        fetched_backed_up_session: &InboundGroupSession,
+        session: &InboundGroupSession,
     ) {
         let db = IdbDatabase::open(&db_name).unwrap().await.unwrap();
-        assert!(db.version() >= 10.0);
-        let transaction = db.transaction_on_one("inbound_group_sessions3").unwrap();
-        let raw_store = transaction.object_store("inbound_group_sessions3").unwrap();
-        let key = store.serializer.encode_key(
-            keys::INBOUND_GROUP_SESSIONS_V3,
-            (fetched_backed_up_session.room_id(), fetched_backed_up_session.session_id()),
-        );
+        assert!(db.version() >= 15.0);
+        let transaction = db.transaction_on_one(keys::INBOUND_GROUP_SESSIONS_V4).unwrap();
+        let raw_store = transaction.object_store(keys::INBOUND_GROUP_SESSIONS_V4).unwrap();
+        let key = store
+            .serializer
+            .encode_key(keys::INBOUND_GROUP_SESSIONS_V4, (session.room_id(), session.session_id()));
         let idb_object: InboundGroupSessionIndexedDbObject =
             serde_wasm_bindgen::from_value(raw_store.get(&key).unwrap().await.unwrap().unwrap())
                 .unwrap();
@@ -577,37 +581,18 @@ mod tests {
         assert_eq!(idb_object.backed_up_to, -1);
         assert!(raw_store.index_names().find(|idx| idx == "backed_up_to").is_some());
 
-        db.close();
-    }
-
-    async fn assert_matches_v12_schema(
-        db_name: &str,
-        store: &IndexeddbCryptoStore,
-        session: &InboundGroupSession,
-    ) {
-        let db = IdbDatabase::open(&db_name).unwrap().await.unwrap();
-        assert!(db.version() >= 12.0);
-        let transaction = db.transaction_on_one("inbound_group_sessions3").unwrap();
-        let raw_store = transaction.object_store("inbound_group_sessions3").unwrap();
-        let key = store
-            .serializer
-            .encode_key(keys::INBOUND_GROUP_SESSIONS_V3, (session.room_id(), session.session_id()));
-        let idb_object: InboundGroupSessionIndexedDbObject =
-            serde_wasm_bindgen::from_value(raw_store.get(&key).unwrap().await.unwrap().unwrap())
-                .unwrap();
-
         assert_eq!(
             idb_object.session_id,
             Some(
                 store
                     .serializer
-                    .encode_key_as_string(keys::INBOUND_GROUP_SESSIONS_V3, session.session_id())
+                    .encode_key_as_string(keys::INBOUND_GROUP_SESSIONS_V4, session.session_id())
             )
         );
         assert_eq!(
             idb_object.sender_key,
             Some(store.serializer.encode_key_as_string(
-                keys::INBOUND_GROUP_SESSIONS_V3,
+                keys::INBOUND_GROUP_SESSIONS_V4,
                 session.sender_key().to_base64()
             ))
         );
