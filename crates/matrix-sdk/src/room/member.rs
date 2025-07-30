@@ -139,6 +139,33 @@ impl RoomMemberRole {
         }
     }
 
+    /// Creates a suggested role from the equivalent power level value.
+    /// Prefer this function if your client needs allows for a user to
+    /// be considered a creator without having an infinite power level.
+    pub fn suggested_role_for_power_level_value(value: i64) -> Self {
+        if value >= 150 {
+            Self::Creator
+        } else if value >= 100 {
+            Self::Administrator
+        } else if value >= 50 {
+            Self::Moderator
+        } else {
+            Self::User
+        }
+    }
+
+    /// Get the suggested power level value for this role.
+    /// Prefer this function if your client needs allows for a user to
+    /// be considered a creator without having an infinite power level.
+    pub fn suggested_power_level_value(&self) -> i64 {
+        match self {
+            Self::Creator => 150,
+            Self::Administrator => 100,
+            Self::Moderator => 50,
+            Self::User => 0,
+        }
+    }
+
     /// Get the suggested power level for this role.
     pub fn suggested_power_level(&self) -> UserPowerLevel {
         match self {

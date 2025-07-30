@@ -69,6 +69,14 @@ pub fn suggested_role_for_power_level(
     Ok(RoomMemberRole::suggested_role_for_power_level(power_level.try_into()?))
 }
 
+/// Get the suggested role for the given power level.
+///
+/// Use this if your client allows the creator role to be assigned
+#[matrix_sdk_ffi_macros::export]
+pub fn suggested_role_for_power_level_value(value: i64) -> RoomMemberRole {
+    RoomMemberRole::suggested_role_for_power_level_value(value)
+}
+
 /// Get the suggested power level for the given role.
 ///
 /// Returns an error if the value of the power level is unsupported.
@@ -76,6 +84,14 @@ pub fn suggested_role_for_power_level(
 pub fn suggested_power_level_for_role(role: RoomMemberRole) -> Result<PowerLevel, ClientError> {
     // It's not possible to expose methods on an Enum through Uniffi ☹️
     Ok(role.suggested_power_level().try_into()?)
+}
+
+/// Get the suggested power level value for the given role.
+///
+/// Use this if your client allows the creator role to be assigned
+#[matrix_sdk_ffi_macros::export]
+pub fn suggested_power_level_value_for_role(role: RoomMemberRole) -> i64 {
+    role.suggested_power_level_value()
 }
 
 /// Generates a `matrix.to` permalink to the given userID.
