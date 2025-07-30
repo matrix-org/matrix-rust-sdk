@@ -157,7 +157,7 @@ pub async fn open_and_upgrade_db(
     }
 
     if old_version < 12 {
-        v11_to_v12::schema_add(name).await?;
+        v11_to_v12::schema_bump(name).await?;
     }
 
     if old_version < 13 {

@@ -12,27 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use indexed_db_futures::IdbKeyPath;
 use web_sys::DomException;
 
-use crate::crypto_store::{
-    keys,
-    migrations::{do_schema_upgrade, old_keys},
-    Result,
-};
+use crate::crypto_store::{migrations::do_schema_upgrade, Result};
 
-/// Perform the schema upgrade v11 to v12, adding an index on
-/// `(curve_key, sender_data_type, session_id)` to `inbound_group_sessions3`.
-pub(crate) async fn schema_add(name: &str) -> Result<(), DomException> {
-    do_schema_upgrade(name, 12, |_, transaction, _| {
-        let object_store = transaction.object_store(old_keys::INBOUND_GROUP_SESSIONS_V3)?;
-
-        object_store.create_index(
-            keys::INBOUND_GROUP_SESSIONS_SENDER_KEY_INDEX,
-            &IdbKeyPath::str_sequence(&["sender_key", "sender_data_type", "session_id"]),
-        )?;
-
-        Ok(())
-    })
-    .await
+/// Perform the schema upgrade v11 to v12, just bumping the schema version
+pub(crate) async fn schema_bump(name: &str) -> Result<(), DomException> {
+    do_schema_upgrade(name, 12, |_, _, _| Ok(())).await
 }
