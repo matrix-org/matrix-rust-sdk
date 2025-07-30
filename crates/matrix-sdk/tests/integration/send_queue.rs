@@ -170,7 +170,6 @@ macro_rules! assert_update {
                 ..
             })) = timeout(Duration::from_secs(1), $watch.recv()).await
         );
-        assert_matches!($global_watch.recv().await, Ok(SendQueueUpdate { update: RoomSendQueueUpdate::MediaUpload { .. }, .. }));
 
         assert_eq!(related_to, $related_to);
         assert_let!(Some(MediaSource::Plain(mxc)) = file);
@@ -197,24 +196,23 @@ macro_rules! assert_update {
                     progress, ..
                 })) = timeout(Duration::from_secs(1), $watch.recv()).await
             );
-            assert_matches!($global_watch.recv().await, Ok(SendQueueUpdate { update: RoomSendQueueUpdate::MediaUpload { .. }, .. }));
 
-            assert_eq!(related_to, $related_to);
-            assert_eq!(index, $index);
+            assert_eq!(related_to, $related_to, "related transaction doesn't match");
+            assert_eq!(index, $index, "related index doesn't match");
 
             if let Some(progress_start) = $progress_start {
-                assert!(progress.current >= progress_start);
+                assert!(progress.current >= progress_start, "current progress is more than the progress start");
             }
-            assert!(progress.current <= $progress_end);
-            assert_eq!(progress.total, $progress_total);
+            assert!(progress.current <= $progress_end, "current progress is more than the progress end");
+            assert_eq!(progress.total, $progress_total, "total progress doesn't match");
             if let Some(prev_progress) = prev_progress {
-                assert!(progress.current >= prev_progress.current);
+                assert!(progress.current >= prev_progress.current, "progress is not increasing");
             }
             prev_progress = Some(progress);
 
             if let Some(MediaSource::Plain(mxc)) = file {
-                assert_eq!(progress.current, $progress_end);
-                assert_eq!(mxc, $mxc);
+                assert_eq!(progress.current, $progress_end, "final progress isn't the progress end");
+                assert_eq!(mxc, $mxc, "mxc URI doesn't match");
                 break;
             }
         }

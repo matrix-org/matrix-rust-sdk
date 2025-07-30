@@ -17,6 +17,7 @@ use std::{
     borrow::Cow,
     fmt::Debug,
     num::NonZeroUsize,
+    ops::Add,
     sync::{
         atomic::{AtomicU64, Ordering},
         Arc,
@@ -258,6 +259,14 @@ pub struct AbstractProgress {
     pub current: usize,
     /// How many units there are in total.
     pub total: usize,
+}
+
+impl Add for AbstractProgress {
+    type Output = Self;
+
+    fn add(self, other: Self) -> Self::Output {
+        Self { current: self.current + other.current, total: self.total + other.total }
+    }
 }
 
 async fn response_to_http_response(
