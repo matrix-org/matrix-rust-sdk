@@ -27,7 +27,10 @@ use std::{
 use matrix_sdk_common::{deserialized_responses::WithheldCode, locks::RwLock as StdRwLock};
 use ruma::{
     events::{
-        room::{encryption::RoomEncryptionEventContent, history_visibility::HistoryVisibility},
+        room::{
+            encrypted::unstable_state::StateRoomEncryptedEventContent,
+            encryption::RoomEncryptionEventContent, history_visibility::HistoryVisibility,
+        },
         AnyMessageLikeEventContent, AnyStateEventContent,
     },
     serde::Raw,
@@ -543,7 +546,7 @@ impl OutboundGroupSession {
         event_type: &str,
         state_key: &str,
         content: &Raw<AnyStateEventContent>,
-    ) -> Raw<RoomEncryptedEventContent> {
+    ) -> Raw<StateRoomEncryptedEventContent> {
         #[derive(Serialize)]
         struct Payload<'a> {
             #[serde(rename = "type")]
@@ -556,10 +559,6 @@ impl OutboundGroupSession {
         let payload = Payload { event_type, state_key, content, room_id: &self.room_id };
         let payload_json =
             serde_json::to_string(&payload).expect("payload serialization never fails");
-
-        let relates_to = content
-            .get_field::<serde_json::Value>("m.relates_to")
-            .expect("serde_json::Value deserialization with valid JSON input never fails");
 
         let ciphertext = self.encrypt_helper(payload_json).await;
         let scheme: RoomEventEncryptionScheme = match self.settings.algorithm {
@@ -580,9 +579,12 @@ impl OutboundGroupSession {
             ),
         };
 
-        let content = RoomEncryptedEventContent { scheme, relates_to, other: Default::default() };
+        let content =
+            RoomEncryptedEventContent { scheme, relates_to: None, other: Default::default() };
 
-        Raw::new(&content).expect("m.room.encrypted event content can always be serialized")
+        Raw::new(&content)
+            .expect("m.room.encrypted event content can always be serialized")
+            .cast_unchecked()
     }
 
     fn elapsed(&self) -> bool {

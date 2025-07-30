@@ -45,6 +45,7 @@ use ruma::{
     },
     assign,
     events::{
+        room::encrypted::unstable_state::StateRoomEncryptedEventContent,
         secret::request::SecretName, AnyMessageLikeEvent, AnyMessageLikeEventContent,
         AnyStateEventContent, AnyToDeviceEvent, MessageLikeEventContent, StateEventContent,
     },
@@ -1115,7 +1116,7 @@ impl OlmMachine {
         room_id: &RoomId,
         content: C,
         state_key: K,
-    ) -> MegolmResult<Raw<RoomEncryptedEventContent>>
+    ) -> MegolmResult<Raw<StateRoomEncryptedEventContent>>
     where
         C: StateEventContent,
         C::StateKey: Borrow<K>,
@@ -1147,7 +1148,7 @@ impl OlmMachine {
         event_type: &str,
         state_key: &str,
         content: &Raw<AnyStateEventContent>,
-    ) -> MegolmResult<Raw<RoomEncryptedEventContent>> {
+    ) -> MegolmResult<Raw<StateRoomEncryptedEventContent>> {
         self.inner
             .group_session_manager
             .encrypt_state(room_id, event_type, state_key, content)

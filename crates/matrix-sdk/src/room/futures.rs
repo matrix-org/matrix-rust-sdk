@@ -405,6 +405,41 @@ impl<'a> SendStateEventRaw<'a> {
         self.request_config = Some(request_config);
         self
     }
+
+    /// Returns `true` if the inner event should be encrypted.
+    async fn should_encrypt(room: &Room, event_type: &str) -> bool {
+        let olm = room.client.olm_machine().await;
+        let olm = olm.as_ref().expect("Olm machine was not started.");
+
+        // Lookup room settings and check encryptiong state.
+        let Ok(Some(settings)) = olm.room_settings(room.room_id()).await else {
+            trace!("Sending plaintext event as the room is NOT encrypted.");
+            return false;
+        };
+        if !settings.encrypt_state_events {
+            trace!("Sending plaintext event as the room does NOT support encrypted state events.");
+            return false;
+        }
+
+        // Check the event is not critical.
+        if matches!(
+            event_type,
+            "m.room.create"
+                | "m.room.member"
+                | "m.room.join_rules"
+                | "m.room.power_levels"
+                | "m.room.third_party_invite"
+                | "m.room.history_visibility"
+                | "m.room.guest_access"
+                | "m.room.encryption"
+                | "m.space.child"
+                | "m.space.parent"
+        ) {
+            return false;
+        }
+
+        true
+    }
 }
 
 impl<'a> IntoFuture for SendStateEventRaw<'a> {
@@ -420,47 +455,32 @@ impl<'a> IntoFuture for SendStateEventRaw<'a> {
             let mut state_key = state_key.to_owned();
 
             #[cfg(feature = "e2e-encryption")]
-            if room.latest_encryption_state().await?.is_state_encrypted() {
-                if matches!(
-                    event_type,
-                    "m.room.create"
-                        | "m.room.member"
-                        | "m.room.join_rules"
-                        | "m.room.power_levels"
-                        | "m.room.third_party_invite"
-                        | "m.room.history_visibility"
-                        | "m.room.guest_access"
-                        | "m.room.encryption"
-                        | "m.space.child"
-                        | "m.space.parent"
-                ) {
-                    trace!("Sending plaintext event because of the event type.");
-                } else {
-                    trace!(
-                        room_id = ?room.room_id(),
-                        "Sending encrypted event because the room is encrypted.",
-                    );
+            if Self::should_encrypt(room, event_type).await {
+                Span::current().record("is_room_encrypted", true);
+                trace!(
+                    room_id = ?room.room_id(),
+                    "Sending encrypted event because the room is encrypted.",
+                );
 
-                    if !room.are_members_synced() {
-                        room.sync_members().await?;
-                    }
-
-                    room.query_keys_for_untracked_or_dirty_users().await?;
-                    room.preshare_room_key().await?;
-
-                    let olm = room.client.olm_machine().await;
-                    let olm = olm.as_ref().expect("Olm machine wasn't started");
-
-                    content = olm
-                        .encrypt_state_event_raw(room.room_id(), event_type, &state_key, &content)
-                        .await?
-                        .cast_unchecked();
-                    state_key = format!("{event_type}:{state_key}");
-                    event_type = "m.room.encrypted";
+                if !room.are_members_synced() {
+                    room.sync_members().await?;
                 }
+
+                room.query_keys_for_untracked_or_dirty_users().await?;
+                room.preshare_room_key().await?;
+
+                let olm = room.client.olm_machine().await;
+                let olm = olm.as_ref().expect("Olm machine wasn't started");
+
+                content = olm
+                    .encrypt_state_event_raw(room.room_id(), event_type, &state_key, &content)
+                    .await?
+                    .cast_unchecked();
+
+                state_key = format!("{event_type}:{state_key}");
+                event_type = "m.room.encrypted";
             } else {
                 Span::current().record("is_room_encrypted", false);
-                trace!("Sending plaintext event because the room is NOT encrypted.");
             }
 
             let request = send_state_event::v3::Request::new_raw(

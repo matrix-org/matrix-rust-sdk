@@ -29,6 +29,7 @@ use matrix_sdk_common::{
 };
 use ruma::{
     events::{
+        room::encrypted::unstable_state::StateRoomEncryptedEventContent,
         AnyMessageLikeEventContent, AnyStateEventContent, AnyToDeviceEventContent,
         ToDeviceEventType,
     },
@@ -229,7 +230,7 @@ impl GroupSessionManager {
         event_type: &str,
         state_key: &str,
         content: &Raw<AnyStateEventContent>,
-    ) -> MegolmResult<Raw<RoomEncryptedEventContent>> {
+    ) -> MegolmResult<Raw<StateRoomEncryptedEventContent>> {
         let session =
             self.sessions.get_or_load(room_id).await.expect("Session wasn't created nor shared");
 
