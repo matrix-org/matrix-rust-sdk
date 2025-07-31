@@ -44,7 +44,7 @@ use crate::{
     live_location_share::{LastLocation, LiveLocationShare},
     room_member::{RoomMember, RoomMemberWithSenderInfo},
     room_preview::RoomPreview,
-    ruma::{ImageInfo, LocationContent, Mentions, NotifyType},
+    ruma::{ImageInfo, LocationContent},
     runtime::get_runtime_handle,
     timeline::{
         configuration::{TimelineConfiguration, TimelineFilter},
@@ -720,53 +720,6 @@ impl Room {
         Ok(self.inner.matrix_to_event_permalink(event_id).await?.to_string())
     }
 
-    /// This will only send a call notification event if appropriate.
-    ///
-    /// This function is supposed to be called whenever the user creates a room
-    /// call. It will send a `m.call.notify` event if:
-    ///  - there is not yet a running call.
-    ///
-    /// It will configure the notify type: ring or notify based on:
-    ///  - is this a DM room -> ring
-    ///  - is this a group with more than one other member -> notify
-    ///
-    /// Returns:
-    ///  - `Ok(true)` if the event was successfully sent.
-    ///  - `Ok(false)` if we didn't send it because it was unnecessary.
-    ///  - `Err(_)` if sending the event failed.
-    pub async fn send_call_notification_if_needed(&self) -> Result<bool, ClientError> {
-        Ok(self.inner.send_call_notification_if_needed().await?)
-    }
-
-    /// Send a call notification event in the current room.
-    ///
-    /// This is only supposed to be used in **custom** situations where the user
-    /// explicitly chooses to send a `m.call.notify` event to invite/notify
-    /// someone explicitly in unusual conditions. The default should be to
-    /// use `send_call_notification_if_necessary` just before a new room call is
-    /// created/joined.
-    ///
-    /// One example could be that the UI allows to start a call with a subset of
-    /// users of the room members first. And then later on the user can
-    /// invite more users to the call.
-    pub async fn send_call_notification(
-        &self,
-        call_id: String,
-        application: RtcApplicationType,
-        notify_type: NotifyType,
-        mentions: Mentions,
-    ) -> Result<(), ClientError> {
-        self.inner
-            .send_call_notification(
-                call_id,
-                application.into(),
-                notify_type.into(),
-                mentions.into(),
-            )
-            .await?;
-        Ok(())
-    }
-
     /// Returns whether the send queue for that particular room is enabled or
     /// not.
     pub fn is_send_queue_enabled(&self) -> bool {
@@ -1176,22 +1129,29 @@ impl Room {
     pub async fn fetch_thread_subscription(
         &self,
         thread_root_event_id: String,
-    ) -> Result<Option<ThreadSubscription>, ClientError> {
+    ) -> Result<Option<ThreadStatus>, ClientError> {
         let thread_root = EventId::parse(thread_root_event_id)?;
-        Ok(self
-            .inner
-            .fetch_thread_subscription(thread_root)
-            .await?
-            .map(|sub| ThreadSubscription { automatic: sub.automatic }))
+        Ok(self.inner.fetch_thread_subscription(thread_root).await?.map(|sub| match sub {
+            matrix_sdk::room::ThreadStatus::Subscribed { automatic } => {
+                ThreadStatus::Subscribed { automatic }
+            }
+            matrix_sdk::room::ThreadStatus::Unsubscribed => ThreadStatus::Unsubscribed,
+        }))
     }
 }
 
 /// Status of a thread subscription (MSC4306).
-#[derive(uniffi::Record)]
-pub struct ThreadSubscription {
-    /// Whether the thread subscription happened automatically (e.g. after a
-    /// mention) or if it was manually requested by the user.
-    automatic: bool,
+#[derive(uniffi::Enum)]
+pub enum ThreadStatus {
+    /// The thread is subscribed to.
+    Subscribed {
+        /// Whether the thread subscription happened automatically (e.g. after a
+        /// mention) or if it was manually requested by the user.
+        automatic: bool,
+    },
+
+    /// The thread is not subscribed to.
+    Unsubscribed,
 }
 
 /// A listener for receiving new live location shares in a room.

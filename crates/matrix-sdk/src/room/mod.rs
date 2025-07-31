@@ -34,6 +34,7 @@ use http::StatusCode;
 pub use identity_status_changes::IdentityStatusChanges;
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk_base::crypto::{IdentityStatusChange, RoomIdentityProvider, UserIdentity};
+pub use matrix_sdk_base::store::ThreadStatus;
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk_base::{crypto::RoomEventDecryptionResult, deserialized_responses::EncryptionInfo};
 use matrix_sdk_base::{
@@ -87,7 +88,6 @@ use ruma::{
     events::{
         beacon::BeaconEventContent,
         beacon_info::BeaconInfoEventContent,
-        call::notify::{ApplicationType, CallNotifyEventContent, NotifyType},
         direct::DirectEventContent,
         marked_unread::MarkedUnreadEventContent,
         receipt::{Receipt, ReceiptThread, ReceiptType},
@@ -3272,59 +3272,6 @@ impl Room {
         self.client.event_cache().for_room(self.room_id()).await
     }
 
-    /// This will only send a call notification event if appropriate.
-    ///
-    /// This function is supposed to be called whenever the user creates a room
-    /// call. It will send a `m.call.notify` event if:
-    ///  - there is not yet a running call.
-    ///
-    /// It will configure the notify type: ring or notify based on:
-    ///  - is this a DM room -> ring
-    ///  - is this a group with more than one other member -> notify
-    ///
-    /// Returns:
-    ///  - `Ok(true)` if the event was successfully sent.
-    ///  - `Ok(false)` if we didn't send it because it was unnecessary.
-    ///  - `Err(_)` if sending the event failed.
-    pub async fn send_call_notification_if_needed(&self) -> Result<bool> {
-        debug!("Sending call notification for room {} if needed", self.inner.room_id());
-
-        if self.has_active_room_call() {
-            warn!("Room {} has active room call, not sending a new notify event.", self.room_id());
-            return Ok(false);
-        }
-
-        let can_user_trigger_room_notification =
-            self.power_levels().await?.user_can_trigger_room_notification(self.own_user_id());
-
-        if !can_user_trigger_room_notification {
-            warn!(
-                "User can't send notifications to everyone in the room {}. \
-                Not sending a new notify event.",
-                self.room_id()
-            );
-            return Ok(false);
-        }
-
-        let notify_type = if self.is_direct().await.unwrap_or(false) {
-            NotifyType::Ring
-        } else {
-            NotifyType::Notify
-        };
-
-        debug!("Sending `m.call.notify` event with notify type: {notify_type:?}");
-
-        self.send_call_notification(
-            self.room_id().to_string().to_owned(),
-            ApplicationType::Call,
-            notify_type,
-            Mentions::with_room_mention(),
-        )
-        .await?;
-
-        Ok(true)
-    }
-
     /// Get the beacon information event in the room for the `user_id`.
     ///
     /// # Errors
@@ -3419,30 +3366,6 @@ impl Room {
         } else {
             Err(BeaconError::NotLive)
         }
-    }
-
-    /// Send a call notification event in the current room.
-    ///
-    /// This is only supposed to be used in **custom** situations where the user
-    /// explicitly chooses to send a `m.call.notify` event to invite/notify
-    /// someone explicitly in unusual conditions. The default should be to
-    /// use `send_call_notification_if_needed` just before a new room call is
-    /// created/joined.
-    ///
-    /// One example could be that the UI allows to start a call with a subset of
-    /// users of the room members first. And then later on the user can
-    /// invite more users to the call.
-    pub async fn send_call_notification(
-        &self,
-        call_id: String,
-        application: ApplicationType,
-        notify_type: NotifyType,
-        mentions: Mentions,
-    ) -> Result<()> {
-        let call_notify_event_content =
-            CallNotifyEventContent::new(call_id, application, notify_type, mentions);
-        self.send(call_notify_event_content).await?;
-        Ok(())
     }
 
     /// Store the given `ComposerDraft` in the state store using the current
@@ -3735,10 +3658,21 @@ impl Room {
         self.client
             .send(subscribe_thread::unstable::Request::new(
                 self.room_id().to_owned(),
-                thread_root,
+                thread_root.clone(),
                 automatic,
             ))
             .await?;
+
+        // Immediately save the result into the database.
+        self.client
+            .state_store()
+            .upsert_thread_subscription(
+                self.room_id(),
+                &thread_root,
+                ThreadStatus::Subscribed { automatic },
+            )
+            .await?;
+
         Ok(())
     }
 
@@ -3757,9 +3691,16 @@ impl Room {
         self.client
             .send(unsubscribe_thread::unstable::Request::new(
                 self.room_id().to_owned(),
-                thread_root,
+                thread_root.clone(),
             ))
             .await?;
+
+        // Immediately save the result into the database.
+        self.client
+            .state_store()
+            .upsert_thread_subscription(self.room_id(), &thread_root, ThreadStatus::Unsubscribed)
+            .await?;
+
         Ok(())
     }
 
@@ -3773,8 +3714,8 @@ impl Room {
     ///
     /// # Returns
     ///
-    /// - An `Ok` result with `Some(ThreadSubscription)` if the subscription
-    ///   exists.
+    /// - An `Ok` result with `Some(ThreadStatus)` if we have some subscription
+    ///   information.
     /// - An `Ok` result with `None` if the subscription does not exist, or the
     ///   event couldn't be found, or the event isn't a thread.
     /// - An error if the request fails for any other reason, such as a network
@@ -3782,31 +3723,46 @@ impl Room {
     pub async fn fetch_thread_subscription(
         &self,
         thread_root: OwnedEventId,
-    ) -> Result<Option<ThreadSubscription>> {
+    ) -> Result<Option<ThreadStatus>> {
         let result = self
             .client
             .send(get_thread_subscription::unstable::Request::new(
                 self.room_id().to_owned(),
-                thread_root,
+                thread_root.clone(),
             ))
             .await;
 
         match result {
-            Ok(response) => Ok(Some(ThreadSubscription { automatic: response.automatic })),
+            Ok(response) => Ok(Some(ThreadStatus::Subscribed { automatic: response.automatic })),
             Err(http_error) => match http_error.as_client_api_error() {
-                Some(error) if error.status_code == StatusCode::NOT_FOUND => Ok(None),
+                Some(error) if error.status_code == StatusCode::NOT_FOUND => {
+                    // At this point the server returned no subscriptions, which can mean that the
+                    // endpoint doesn't exist (not enabled/implemented yet on the server), or that
+                    // the thread doesn't exist, or that the user has unsubscribed from it
+                    // previously.
+                    //
+                    // If we had any information about prior unsubscription, we can use it here to
+                    // return something slightly more precise than what the server returned.
+                    let stored_status = self
+                        .client
+                        .state_store()
+                        .load_thread_subscription(self.room_id(), &thread_root)
+                        .await?;
+
+                    if let Some(ThreadStatus::Unsubscribed) = stored_status {
+                        // The thread was unsubscribed from before, so maintain this information.
+                        Ok(Some(ThreadStatus::Unsubscribed))
+                    } else {
+                        // We either have stale information (the thread was marked as subscribed
+                        // to, but the server said it wasn't), or we didn't have any information.
+                        // Return unknown.
+                        Ok(None)
+                    }
+                }
                 _ => Err(http_error.into()),
             },
         }
     }
-}
-
-/// Status of a thread subscription.
-#[derive(Debug, Clone, Copy)]
-pub struct ThreadSubscription {
-    /// Whether the subscription was made automatically by a client, not by
-    /// manual user choice.
-    pub automatic: bool,
 }
 
 #[cfg(feature = "e2e-encryption")]

@@ -269,7 +269,11 @@ mod tests {
         // Create a client that will use sqlite databases.
 
         let tmp_dir = tempfile::tempdir()?;
-        let client = MockClientBuilder::new(None).sqlite_store(&tmp_dir).unlogged().build().await;
+        let client = MockClientBuilder::new(None)
+            .on_builder(|builder| builder.sqlite_store(&tmp_dir, None))
+            .unlogged()
+            .build()
+            .await;
 
         let tokens = mock_session_tokens_with_refresh();
 
@@ -315,8 +319,12 @@ mod tests {
         server.mock_who_am_i().ok().expect(1).named("whoami").mount().await;
 
         let tmp_dir = tempfile::tempdir()?;
-        let client =
-            server.client_builder().sqlite_store(&tmp_dir).registered_with_oauth().build().await;
+        let client = server
+            .client_builder()
+            .on_builder(|builder| builder.sqlite_store(&tmp_dir, None))
+            .registered_with_oauth()
+            .build()
+            .await;
         let oauth = client.oauth();
 
         // Enable cross-process lock.
@@ -365,7 +373,12 @@ mod tests {
         oauth_server.mock_token().ok().expect(1).named("token").mount().await;
 
         let tmp_dir = tempfile::tempdir()?;
-        let client = server.client_builder().sqlite_store(&tmp_dir).unlogged().build().await;
+        let client = server
+            .client_builder()
+            .on_builder(|builder| builder.sqlite_store(&tmp_dir, None))
+            .unlogged()
+            .build()
+            .await;
         let oauth = client.oauth();
 
         let next_tokens = mock_session_tokens_with_refresh();
@@ -414,7 +427,12 @@ mod tests {
 
         // Create the first client.
         let tmp_dir = tempfile::tempdir()?;
-        let client = server.client_builder().sqlite_store(&tmp_dir).unlogged().build().await;
+        let client = server
+            .client_builder()
+            .on_builder(|builder| builder.sqlite_store(&tmp_dir, None))
+            .unlogged()
+            .build()
+            .await;
 
         let oauth = client.oauth();
         oauth.enable_cross_process_refresh_lock("client1".to_owned()).await?;
@@ -425,15 +443,24 @@ mod tests {
 
         // Create a second client, without restoring it, to test that a token update
         // before restoration doesn't cause new issues.
-        let unrestored_client =
-            server.client_builder().sqlite_store(&tmp_dir).unlogged().build().await;
+        let unrestored_client = server
+            .client_builder()
+            .on_builder(|builder| builder.sqlite_store(&tmp_dir, None))
+            .unlogged()
+            .build()
+            .await;
         let unrestored_oauth = unrestored_client.oauth();
         unrestored_oauth.enable_cross_process_refresh_lock("unrestored_client".to_owned()).await?;
 
         {
             // Create a third client that will run a refresh while the others two are doing
             // nothing.
-            let client3 = server.client_builder().sqlite_store(&tmp_dir).unlogged().build().await;
+            let client3 = server
+                .client_builder()
+                .on_builder(|builder| builder.sqlite_store(&tmp_dir, None))
+                .unlogged()
+                .build()
+                .await;
 
             let oauth3 = client3.oauth();
             oauth3.enable_cross_process_refresh_lock("client3".to_owned()).await?;
@@ -541,7 +568,12 @@ mod tests {
         oauth_server.mock_revocation().ok().expect(1).named("revocation").mount().await;
 
         let tmp_dir = tempfile::tempdir()?;
-        let client = server.client_builder().sqlite_store(&tmp_dir).unlogged().build().await;
+        let client = server
+            .client_builder()
+            .on_builder(|builder| builder.sqlite_store(&tmp_dir, None))
+            .unlogged()
+            .build()
+            .await;
         let oauth = client.oauth().insecure_rewrite_https_to_http();
 
         // Enable cross-process lock.

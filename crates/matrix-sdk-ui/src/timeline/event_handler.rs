@@ -473,7 +473,14 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
 
     /// Handle an event.
     ///
-    /// Returns the number of timeline updates that were made.
+    /// Returns if an item was added to the timeline due to the new timeline
+    /// action. Items might not be added to the timeline for various reasons,
+    /// some common ones are if the item:
+    ///     - Contains an unsupported event type.
+    ///     - Is an edit or a redaction.
+    ///     - Contains a local echo turning into a remote echo.
+    ///     - Contains a message that is already in the timeline but was now
+    ///       decrypted.
     ///
     /// `raw_event` is only needed to determine the cause of any UTDs,
     /// so if we know this is not a UTD it can be None.
@@ -482,7 +489,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
         mut self,
         date_divider_adjuster: &mut DateDividerAdjuster,
         timeline_action: TimelineAction,
-    ) -> RemovedItem {
+    ) -> bool {
         let span = tracing::Span::current();
 
         date_divider_adjuster.mark_used();
@@ -541,25 +548,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
             },
         }
 
-        let mut removed_item = false;
-
-        if !added_item {
-            trace!("No new item added");
-
-            if let Flow::Remote {
-                position: TimelineItemPosition::UpdateAt { timeline_item_index },
-                ..
-            } = self.ctx.flow
-            {
-                // If add was not called, that means the UTD event is one that
-                // wouldn't normally be visible. Remove it.
-                trace!("Removing UTD that was successfully retried");
-                self.items.remove(timeline_item_index);
-                removed_item = true;
-            }
-        }
-
-        removed_item
+        added_item
     }
 
     #[instrument(skip(self, edit_kind))]

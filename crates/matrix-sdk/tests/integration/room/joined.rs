@@ -20,8 +20,8 @@ use matrix_sdk_test::{
     event_factory::EventFactory,
     mocks::mock_encryption_state,
     test_json::{self, sync::CUSTOM_ROOM_POWER_LEVELS},
-    GlobalAccountDataTestEvent, InvitedRoomBuilder, JoinedRoomBuilder, RoomAccountDataTestEvent,
-    StateTestEvent, SyncResponseBuilder, DEFAULT_TEST_ROOM_ID,
+    InvitedRoomBuilder, JoinedRoomBuilder, RoomAccountDataTestEvent, SyncResponseBuilder,
+    DEFAULT_TEST_ROOM_ID,
 };
 use ruma::{
     api::client::{
@@ -30,25 +30,18 @@ use ruma::{
     },
     assign, event_id,
     events::{
-        call::{
-            member::{
-                ActiveFocus, ActiveLivekitFocus, Application, CallApplicationContent,
-                CallMemberEventContent, CallScope,
-            },
-            notify::{ApplicationType, CallNotifyEventContent, NotifyType},
-        },
         direct::DirectUserIdentifier,
         receipt::ReceiptThread,
         room::{
             member::MembershipState,
             message::{RoomMessageEventContent, RoomMessageEventContentWithoutRelation},
         },
-        Mentions, RoomAccountDataEventType, TimelineEventType,
+        RoomAccountDataEventType, TimelineEventType,
     },
-    int, mxc_uri, owned_device_id, owned_event_id, room_id, thirdparty, user_id, OwnedUserId,
-    RoomVersionId, TransactionId,
+    int, mxc_uri, owned_event_id, room_id, thirdparty, user_id, OwnedUserId, RoomVersionId,
+    TransactionId,
 };
-use serde_json::{from_value, json, Value};
+use serde_json::{from_value, json};
 use stream_assert::assert_pending;
 use tokio::time::sleep;
 use wiremock::{
@@ -1039,193 +1032,6 @@ async fn test_is_direct_invite_by_3pid() {
     let room = client.get_room(&DEFAULT_TEST_ROOM_ID).unwrap();
     assert!(room.is_direct().await.unwrap());
     assert!(room.direct_targets().contains(<&DirectUserIdentifier>::from("invited@localhost.com")));
-}
-
-#[async_test]
-async fn test_call_notifications_ring_for_dms() {
-    let (client, server) = logged_in_client_with_server().await;
-
-    let mut sync_builder = SyncResponseBuilder::new();
-    let room_builder = JoinedRoomBuilder::default()
-        .add_state_event(StateTestEvent::Create)
-        .add_state_event(StateTestEvent::PowerLevels);
-    sync_builder.add_joined_room(room_builder);
-    sync_builder.add_global_account_data_event(GlobalAccountDataTestEvent::Direct);
-
-    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
-    mock_encryption_state(&server, false).await;
-
-    let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
-    let _response = client.sync_once(sync_settings).await.unwrap();
-
-    let room = client.get_room(&DEFAULT_TEST_ROOM_ID).unwrap();
-    assert!(room.is_direct().await.unwrap());
-    assert!(!room.has_active_room_call());
-
-    Mock::given(method("PUT"))
-        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/send/.*"))
-        .and({
-            move |request: &wiremock::Request| {
-                let content: Value = request.body_json().expect("The body should be a JSON body");
-                assert_eq!(
-                    content,
-                    json!({
-                        "application": "m.call",
-                        "call_id": DEFAULT_TEST_ROOM_ID.to_string(),
-                        "m.mentions": {"room" :true},
-                        "notify_type": "ring"
-                    }),
-                );
-                true
-            }
-        })
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"event_id": "$event_id"})))
-        .expect(1)
-        .mount(&server)
-        .await;
-
-    let sent_event = room.send_call_notification_if_needed().await.unwrap();
-    assert!(sent_event);
-}
-
-#[async_test]
-async fn test_call_notifications_notify_for_rooms() {
-    let (client, server) = logged_in_client_with_server().await;
-
-    let mut sync_builder = SyncResponseBuilder::new();
-    let room_builder = JoinedRoomBuilder::default()
-        .add_state_event(StateTestEvent::Create)
-        .add_state_event(StateTestEvent::PowerLevels);
-    sync_builder.add_joined_room(room_builder);
-    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
-
-    mock_encryption_state(&server, false).await;
-
-    let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
-    let _response = client.sync_once(sync_settings).await.unwrap();
-
-    let room = client.get_room(&DEFAULT_TEST_ROOM_ID).unwrap();
-    assert!(!room.is_direct().await.unwrap());
-    assert!(!room.has_active_room_call());
-
-    Mock::given(method("PUT"))
-        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/send/.*"))
-        .and({
-            move |request: &wiremock::Request| {
-                let content: Value = request.body_json().expect("The body should be a JSON body");
-                assert_eq!(
-                    content,
-                    json!({
-                        "application": "m.call",
-                        "call_id": DEFAULT_TEST_ROOM_ID.to_string(),
-                        "m.mentions": {"room" :true},
-                        "notify_type": "notify"
-                    }),
-                );
-                true
-            }
-        })
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"event_id": "$event_id"})))
-        .expect(1)
-        .mount(&server)
-        .await;
-
-    let sent_event = room.send_call_notification_if_needed().await.unwrap();
-    assert!(sent_event);
-}
-
-#[async_test]
-async fn test_call_notifications_dont_notify_room_without_mention_powerlevel() {
-    let (client, server) = logged_in_client_with_server().await;
-
-    let mut sync_builder = SyncResponseBuilder::new();
-    let mut power_level_event: Value = StateTestEvent::PowerLevels.into();
-    // Allow noone to send room notify events.
-    *power_level_event.get_mut("content").unwrap().get_mut("notifications").unwrap() =
-        json!({"room": 101});
-
-    sync_builder.add_joined_room(
-        JoinedRoomBuilder::default()
-            .add_state_event(StateTestEvent::Create)
-            .add_state_event(StateTestEvent::Custom(power_level_event)),
-    );
-
-    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
-    mock_encryption_state(&server, false).await;
-
-    let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
-    let _response = client.sync_once(sync_settings).await.unwrap();
-
-    let room = client.get_room(&DEFAULT_TEST_ROOM_ID).unwrap();
-    assert!(!room.is_direct().await.unwrap());
-    assert!(!room.has_active_room_call());
-
-    Mock::given(method("PUT"))
-        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/send/.*"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"event_id": "$event_id"})))
-        // Expect no calls of the send because we dont have permission to notify.
-        .expect(0)
-        .mount(&server)
-        .await;
-
-    let sent_event = room.send_call_notification_if_needed().await.unwrap();
-    assert!(!sent_event);
-}
-
-#[async_test]
-async fn test_call_notifications_dont_notify_room_with_an_existing_call() {
-    let (client, server) = logged_in_client_with_server().await;
-
-    let mut sync_builder = SyncResponseBuilder::new();
-    let event_factory = EventFactory::new().room(&DEFAULT_TEST_ROOM_ID);
-    let call_notify_event = event_factory
-        .event(CallNotifyEventContent::new(
-            "call_id".to_owned(),
-            ApplicationType::Call,
-            NotifyType::Notify,
-            Mentions::new(),
-        ))
-        .sender(user_id!("@alice:example.org"))
-        .into_raw_sync();
-
-    let call_member_event = event_factory
-        .event(CallMemberEventContent::new(
-            Application::Call(CallApplicationContent::new("call_id".to_owned(), CallScope::Room)),
-            owned_device_id!("a-device-id"),
-            ActiveFocus::Livekit(ActiveLivekitFocus::new()),
-            Vec::new(),
-            None,
-        ))
-        .sender(user_id!("@alice:example.org"))
-        .state_key("_@alice:example.org_a-device-id")
-        .into_raw();
-
-    sync_builder.add_joined_room(
-        JoinedRoomBuilder::default()
-            .add_timeline_bulk([call_notify_event])
-            .add_state_bulk([call_member_event]),
-    );
-
-    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
-    mock_encryption_state(&server, false).await;
-
-    let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
-    let _response = client.sync_once(sync_settings).await.unwrap();
-
-    let room = client.get_room(&DEFAULT_TEST_ROOM_ID).unwrap();
-    assert!(room.has_active_room_call());
-    assert!(!room.is_direct().await.unwrap());
-
-    Mock::given(method("PUT"))
-        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/send/.*"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"event_id": "$event_id"})))
-        // Expect no calls of the send because we dont have permission to notify.
-        .expect(0)
-        .mount(&server)
-        .await;
-
-    let sent_event = room.send_call_notification_if_needed().await.unwrap();
-    assert!(!sent_event);
 }
 
 #[async_test]

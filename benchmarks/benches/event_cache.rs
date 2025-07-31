@@ -86,12 +86,14 @@ fn handle_room_updates(c: &mut Criterion) {
                                 // Setup code.
                                 let client = server
                                     .client_builder()
-                                    .store_config(
-                                        StoreConfig::new(
-                                            "cross-process-store-locks-holder-name".to_owned(),
+                                    .on_builder(|builder| {
+                                        builder.store_config(
+                                            StoreConfig::new(
+                                                "cross-process-store-locks-holder-name".to_owned(),
+                                            )
+                                            .event_cache_store(store.clone()),
                                         )
-                                        .event_cache_store(store.clone()),
-                                    )
+                                    })
                                     .build()
                                     .await;
 
