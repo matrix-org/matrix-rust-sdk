@@ -48,8 +48,6 @@ matrix_sdk_test::init_tracing_for_tests!();
 pub struct SqliteStoreConfig {
     /// Path to the database, without the file name.
     path: PathBuf,
-    /// Passphrase to open the store, if any.
-    passphrase: Option<String>,
     /// Key to open the store, if any
     key: Option<[u8; 32]>,
     /// The pool configuration for [`deadpool_sqlite`].
@@ -84,7 +82,6 @@ impl SqliteStoreConfig {
     {
         Self {
             path: path.as_ref().to_path_buf(),
-            passphrase: None,
             key: None,
             pool_config: PoolConfig::new(max(POOL_MINIMUM_SIZE, num_cpus::get_physical() * 4)),
             runtime_config: RuntimeConfig::default(),
@@ -119,12 +116,6 @@ impl SqliteStoreConfig {
         P: AsRef<Path>,
     {
         self.path = path.as_ref().to_path_buf();
-        self
-    }
-
-    /// Define the passphrase if the store is encoded.
-    pub fn passphrase(mut self, passphrase: Option<&str>) -> Self {
-        self.passphrase = passphrase.map(|passphrase| passphrase.to_owned());
         self
     }
 
