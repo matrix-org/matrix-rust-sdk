@@ -457,18 +457,18 @@ pub(crate) trait SqliteKeyValueStoreAsyncConnExt: SqliteAsyncConnExt {
     /// Get the [`StoreCipher`] of the database or create it.
     async fn get_or_create_store_cipher(
         &self,
-        passphrase: &str,
+        key: &[u8; 32],
     ) -> Result<StoreCipher, OpenStoreError> {
         let encrypted_cipher = self.get_kv("cipher").await.map_err(OpenStoreError::LoadCipher)?;
 
         let cipher = if let Some(encrypted) = encrypted_cipher {
-            StoreCipher::import(passphrase, &encrypted)?
+            StoreCipher::import_with_key(key, &encrypted)?
         } else {
             let cipher = StoreCipher::new()?;
-            #[cfg(not(test))]
-            let export = cipher.export(passphrase);
-            #[cfg(test)]
-            let export = cipher._insecure_export_fast_for_testing(passphrase);
+            //#[cfg(not(test))]
+            let export = cipher.export_with_key(key);
+            //#[cfg(test)]
+            //let export = cipher._insecure_export_fast_for_testing(passphrase);
             self.set_kv("cipher", export?).await.map_err(OpenStoreError::SaveCipher)?;
             cipher
         };
