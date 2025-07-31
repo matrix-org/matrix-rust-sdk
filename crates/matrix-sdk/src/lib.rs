@@ -74,7 +74,7 @@ pub use error::{
     Error, HttpError, HttpResult, NotificationSettingsError, RefreshTokenError, Result,
     RumaApiError,
 };
-pub use http_client::{AbstractProgress, TransmissionProgress};
+pub use http_client::TransmissionProgress;
 #[cfg(all(feature = "e2e-encryption", feature = "sqlite"))]
 pub use matrix_sdk_sqlite::SqliteCryptoStore;
 #[cfg(feature = "sqlite")]
