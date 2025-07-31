@@ -93,7 +93,7 @@ impl fmt::Debug for SqliteStateStore {
 
 impl SqliteStateStore {
     /// Open the SQLite-based state store at the given path using the given
-    /// passphrase to encrypt private data.
+    /// key to encrypt private data.
     pub async fn open(
         path: impl AsRef<Path>,
         key: Option<&[u8; 32]>,
@@ -103,7 +103,7 @@ impl SqliteStateStore {
 
     /// Open the SQLite-based state store with the config open config.
     pub async fn open_with_config(config: SqliteStoreConfig) -> Result<Self, OpenStoreError> {
-        let SqliteStoreConfig { path, passphrase, key, pool_config, runtime_config } = config;
+        let SqliteStoreConfig { path, key, pool_config, runtime_config } = config;
 
         fs::create_dir_all(&path).await.map_err(OpenStoreError::CreateDir)?;
 
@@ -119,7 +119,7 @@ impl SqliteStateStore {
     }
 
     /// Create an SQLite-based state store using the given SQLite database pool.
-    /// The given passphrase will be used to encrypt private data.
+    /// The given key will be used to encrypt private data.
     pub async fn open_with_pool(
         pool: SqlitePool,
         key: Option<&[u8; 32]>,

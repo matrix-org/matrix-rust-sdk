@@ -102,7 +102,7 @@ impl EncryptableStore for SqliteEventCacheStore {
 
 impl SqliteEventCacheStore {
     /// Open the SQLite-based event cache store at the given path using the
-    /// given passphrase to encrypt private data.
+    /// given key to encrypt private data.
     pub async fn open(
         path: impl AsRef<Path>,
         key: Option<&[u8; 32]>,
@@ -117,7 +117,7 @@ impl SqliteEventCacheStore {
 
         let _timer = timer!("open_with_config");
 
-        let SqliteStoreConfig { path, key, passphrase, pool_config, runtime_config } = config;
+        let SqliteStoreConfig { path, key, pool_config, runtime_config } = config;
 
         fs::create_dir_all(&path).await.map_err(OpenStoreError::CreateDir)?;
 
@@ -133,7 +133,7 @@ impl SqliteEventCacheStore {
     }
 
     /// Open an SQLite-based event cache store using the given SQLite database
-    /// pool. The given passphrase will be used to encrypt private data.
+    /// pool. The given key will be used to encrypt private data.
     async fn open_with_pool(
         pool: SqlitePool,
         key: Option<&[u8; 32]>,
