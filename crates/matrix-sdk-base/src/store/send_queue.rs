@@ -109,6 +109,9 @@ pub enum QueuedRequestKind {
         #[cfg(feature = "unstable-msc4274")]
         #[serde(default)]
         accumulated: Vec<AccumulatedSentMediaInfo>,
+
+        /// The name of the file to upload, if known or public.
+        filename: Option<String>,
     },
 }
 
@@ -241,6 +244,9 @@ pub enum DependentQueuedRequestKind {
         #[cfg(feature = "unstable-msc4274")]
         #[serde(default = "default_parent_is_thumbnail_upload")]
         parent_is_thumbnail_upload: bool,
+
+        /// The name of the file to upload, if known.
+        filename: Option<String>,
     },
 
     /// Finish an upload by updating references to the media cache and sending

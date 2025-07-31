@@ -2620,7 +2620,8 @@ impl<'a> MockEndpoint<'a, UploadEndpoint> {
     /// # Examples
     ///
     /// ```no_run
-    /// # tokio_test::block_on(async {
+    /// # use matrix_sdk::SendMediaUploadRequest;
+    /// tokio_test::block_on(async {
     /// use matrix_sdk::{
     ///     ruma::{event_id, mxc_uri, room_id},
     ///     test_utils::mocks::MatrixMockServer,
@@ -2632,7 +2633,10 @@ impl<'a> MockEndpoint<'a, UploadEndpoint> {
     /// let (receiver, upload_mock) = server.mock_upload().ok_with_capture(mxid);
     /// let client = server.client_builder().build().await;
     ///
-    /// client.media().upload(&mime::TEXT_PLAIN, vec![1, 2, 3, 4, 5], None).await?;
+    /// let send_media_request = SendMediaUploadRequest::new(client.clone(), vec![1, 2, 3, 4, 5])
+    ///     .with_content_type(mime::TEXT_PLAIN.essence_str());
+    ///
+    /// client.media().upload(send_media_request).await?;
     ///
     /// let uploaded = receiver.await?;
     ///
@@ -2661,6 +2665,13 @@ impl<'a> MockEndpoint<'a, UploadEndpoint> {
     /// Returns a upload endpoint that emulates success, i.e. the media has been
     /// uploaded to the media server and can be accessed using the given
     /// event has been sent with the given [`MxcUri`].
+    /// Expect the filename query param to match the provided value.
+    pub fn expect_filename(self, filename: &str) -> Self {
+        Self { mock: self.mock.and(query_param("filename", filename)), ..self }
+    }
+
+    /// Returns a redact endpoint that emulates success, i.e. the redaction
+    /// event has been sent with the given event id.
     pub fn ok(self, mxc_id: &MxcUri) -> MatrixMock<'a> {
         self.respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "content_uri": mxc_id
