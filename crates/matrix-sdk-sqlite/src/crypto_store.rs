@@ -84,7 +84,7 @@ impl EncryptableStore for SqliteCryptoStore {
 
 impl SqliteCryptoStore {
     /// Open the SQLite-based crypto store at the given path using the given
-    /// passphrase to encrypt private data.
+    /// key to encrypt private data.
     pub async fn open(
         path: impl AsRef<Path>,
         key: Option<&[u8; 32]>,
@@ -94,7 +94,7 @@ impl SqliteCryptoStore {
 
     /// Open the SQLite-based crypto store with the config open config.
     pub async fn open_with_config(config: SqliteStoreConfig) -> Result<Self, OpenStoreError> {
-        let SqliteStoreConfig { path, _passphrase, key, pool_config, runtime_config } = config;
+        let SqliteStoreConfig { path, key, pool_config, runtime_config } = config;
 
         fs::create_dir_all(&path).await.map_err(OpenStoreError::CreateDir)?;
 
@@ -110,7 +110,7 @@ impl SqliteCryptoStore {
     }
 
     /// Create an SQLite-based crypto store using the given SQLite database
-    /// pool. The given passphrase will be used to encrypt private data.
+    /// pool. The given key will be used to encrypt private data.
     async fn open_with_pool(
         pool: SqlitePool,
         key: Option<&[u8; 32]>,
@@ -1534,12 +1534,11 @@ mod tests {
         tmpdir
     }
 
-    async fn get_test_db(data_path: &str, passphrase: Option<&str>) -> TestDb {
+    async fn get_test_db(data_path: &str, key: Option<&[u8; 32]>) -> TestDb {
         let tmpdir = copy_db(data_path);
 
-        let database = SqliteCryptoStore::open(tmpdir.path(), passphrase)
-            .await
-            .expect("Can't open the test store");
+        let database =
+            SqliteCryptoStore::open(tmpdir.path(), key).await.expect("Can't open the test store");
 
         TestDb { _dir: tmpdir, database }
     }
@@ -1892,20 +1891,16 @@ mod tests {
         assert!(backup_keys.decryption_key.is_some());
     }
 
-    async fn get_store(
-        name: &str,
-        passphrase: Option<&str>,
-        clear_data: bool,
-    ) -> SqliteCryptoStore {
+    async fn get_store(name: &str, key: Option<&[u8; 32]>, clear_data: bool) -> SqliteCryptoStore {
         let tmpdir_path = TMP_DIR.path().join(name);
 
         if clear_data {
             let _ = fs::remove_dir_all(&tmpdir_path).await;
         }
 
-        SqliteCryptoStore::open(tmpdir_path.to_str().unwrap(), passphrase)
+        SqliteCryptoStore::open(tmpdir_path.to_str().unwrap(), key)
             .await
-            .expect("Can't create a passphrase protected store")
+            .expect("Can't create a key protected store")
     }
 
     cryptostore_integration_tests!();
@@ -1923,21 +1918,20 @@ mod encrypted_tests {
 
     static TMP_DIR: Lazy<TempDir> = Lazy::new(|| tempdir().unwrap());
 
-    async fn get_store(
-        name: &str,
-        passphrase: Option<&str>,
-        clear_data: bool,
-    ) -> SqliteCryptoStore {
+    async fn get_store(name: &str, key: Option<&[u8; 32]>, clear_data: bool) -> SqliteCryptoStore {
         let tmpdir_path = TMP_DIR.path().join(name);
-        let pass = passphrase.unwrap_or("default_test_password");
+        let pass = key.unwrap_or(&[
+            74, 156, 222, 8, 61, 113, 145, 197, 29, 84, 179, 240, 6, 38, 126, 253, 92, 203, 173,
+            47, 134, 13, 251, 100, 196, 42, 109, 159, 221, 73, 10, 187,
+        ]);
 
         if clear_data {
             let _ = fs::remove_dir_all(&tmpdir_path).await;
         }
 
-        SqliteCryptoStore::open(tmpdir_path.to_str().unwrap(), Some(pass))
+        SqliteCryptoStore::open(tmpdir_path.to_str().unwrap(), Some(key))
             .await
-            .expect("Can't create a passphrase protected store")
+            .expect("Can't create a key protected store")
     }
 
     cryptostore_integration_tests!();
