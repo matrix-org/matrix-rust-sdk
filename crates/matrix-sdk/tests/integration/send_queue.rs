@@ -10,11 +10,11 @@ use matrix_sdk::{
     media::{MediaFormat, MediaRequestParameters, MediaThumbnailSettings},
     room::reply::Reply,
     send_queue::{
-        LocalEcho, LocalEchoContent, RoomSendQueue, RoomSendQueueError, RoomSendQueueStorageError,
-        RoomSendQueueUpdate, SendHandle, SendQueueUpdate,
+        AbstractProgress, LocalEcho, LocalEchoContent, RoomSendQueue, RoomSendQueueError,
+        RoomSendQueueStorageError, RoomSendQueueUpdate, SendHandle, SendQueueUpdate,
     },
     test_utils::mocks::{MatrixMock, MatrixMockServer},
-    AbstractProgress, Client, MemoryStore,
+    Client, MemoryStore,
 };
 use matrix_sdk_test::{
     async_test, event_factory::EventFactory, InvitedRoomBuilder, KnockedRoomBuilder,

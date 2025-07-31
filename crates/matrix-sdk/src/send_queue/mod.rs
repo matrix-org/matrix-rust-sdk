@@ -180,11 +180,13 @@ use crate::{
     config::RequestConfig,
     error::RetryKind,
     room::{edit::EditedContent, WeakRoom},
-    AbstractProgress, Client, Media, Room, TransmissionProgress,
+    Client, Media, Room, TransmissionProgress,
 };
 
 mod progress;
 mod upload;
+
+pub use progress::AbstractProgress;
 
 /// A client-wide send queue, for all the rooms known by a client.
 pub struct SendQueue {

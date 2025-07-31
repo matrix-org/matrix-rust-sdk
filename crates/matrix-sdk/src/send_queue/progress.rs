@@ -14,6 +14,8 @@
 
 //! Progress facilities for the media upload system.
 
+use std::ops::Add;
+
 use eyeball::SharedObservable;
 #[cfg(feature = "unstable-msc4274")]
 use matrix_sdk_base::store::AccumulatedSentMediaInfo;
@@ -25,8 +27,32 @@ use tracing::warn;
 
 use crate::{
     send_queue::{QueueStorage, RoomSendQueue, RoomSendQueueStorageError, RoomSendQueueUpdate},
-    AbstractProgress, Room, TransmissionProgress,
+    Room, TransmissionProgress,
 };
+
+/// Progress of an operation in abstract units.
+///
+/// Contrary to [`TransmissionProgress`], this allows tracking the progress
+/// of sending or receiving a payload in estimated pseudo units representing a
+/// percentage. This is helpful in cases where the exact progress in bytes isn't
+/// known, for instance, because encryption (which changes the size) happens on
+/// the fly.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct AbstractProgress {
+    /// How many units were already transferred.
+    pub current: usize,
+    /// How many units there are in total.
+    pub total: usize,
+}
+
+// AbstractProgress can be added together, which adds their components.
+impl Add for AbstractProgress {
+    type Output = Self;
+
+    fn add(self, other: Self) -> Self::Output {
+        Self { current: self.current + other.current, total: self.total + other.total }
+    }
+}
 
 /// Information needed to compute the progress of uploading a media and its
 /// associated thumbnail.
