@@ -101,6 +101,7 @@ All notable changes to this project will be documented in this file.
 - [**breaking**]: The experimental `Encryption::encrypt_and_send_raw_to_device`
   function now takes a `share_strategy` parameter, and will not send to devices
   that do not satisfy the given share strategy.
+  ([#5457](https://github.com/matrix-org/matrix-rust-sdk/pull/5457/))
 
 ### Refactor
 
