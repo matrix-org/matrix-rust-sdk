@@ -735,10 +735,10 @@ impl<P: RoomDataProvider> TimelineState<P> {
         // Let's assume that a private read receipt should be more recent than a public
         // read receipt (otherwise there's no point in the private read receipt),
         // and use it as the default.
-        match self.meta.compare_optional_receipts(
+        match TimelineMetadata::compare_optional_receipts(
             public_read_receipt.as_ref(),
             private_read_receipt.as_ref(),
-            self.items.all_remote_events(),
+            all_remote_events,
         ) {
             Ordering::Greater => public_read_receipt,
             Ordering::Less => private_read_receipt,
@@ -761,7 +761,7 @@ impl<P: RoomDataProvider> TimelineState<P> {
         // Let's assume that a private read receipt should be more recent than a public
         // read receipt, otherwise there's no point in the private read receipt,
         // and use it as default.
-        let (latest_receipt_id, _) = match self.meta.compare_optional_receipts(
+        let (latest_receipt_id, _) = match TimelineMetadata::compare_optional_receipts(
             public_read_receipt,
             private_read_receipt,
             self.items.all_remote_events(),
@@ -819,7 +819,7 @@ impl TimelineMetadata {
 
             // Let's use the unthreaded read receipt as default, since it's the one we
             // should be using.
-            match self.compare_optional_receipts(
+            match Self::compare_optional_receipts(
                 main_thread_read_receipt.as_ref(),
                 unthreaded_read_receipt.as_ref(),
                 all_remote_events,
@@ -845,7 +845,6 @@ impl TimelineMetadata {
     /// not possible to know which one is the more recent, defaults to
     /// `Ordering::Less`, making the right-hand side the default.
     fn compare_optional_receipts(
-        &self,
         lhs: Option<&(OwnedEventId, Receipt)>,
         rhs_or_default: Option<&(OwnedEventId, Receipt)>,
         all_remote_events: &AllRemoteEvents,
@@ -860,7 +859,7 @@ impl TimelineMetadata {
 
         // Compare by position in the timeline.
         if let Some(relative_pos) =
-            self.compare_events_positions(lhs_event_id, rhs_event_id, all_remote_events)
+            Self::compare_events_positions(lhs_event_id, rhs_event_id, all_remote_events)
         {
             if relative_pos == RelativePosition::Before {
                 return Ordering::Greater;
