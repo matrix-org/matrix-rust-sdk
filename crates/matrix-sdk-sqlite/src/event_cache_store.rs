@@ -105,9 +105,9 @@ impl SqliteEventCacheStore {
     /// given passphrase to encrypt private data.
     pub async fn open(
         path: impl AsRef<Path>,
-        passphrase: Option<&str>,
+        key: Option<&[u8; 32]>,
     ) -> Result<Self, OpenStoreError> {
-        Self::open_with_config(SqliteStoreConfig::new(path).passphrase(passphrase)).await
+        Self::open_with_config(SqliteStoreConfig::new(path).key(key)).await
     }
 
     /// Open the SQLite-based event cache store with the config open config.
@@ -117,7 +117,7 @@ impl SqliteEventCacheStore {
 
         let _timer = timer!("open_with_config");
 
-        let SqliteStoreConfig { path, passphrase, pool_config, runtime_config } = config;
+        let SqliteStoreConfig { path, key, passphrase, pool_config, runtime_config } = config;
 
         fs::create_dir_all(&path).await.map_err(OpenStoreError::CreateDir)?;
 
@@ -126,7 +126,7 @@ impl SqliteEventCacheStore {
 
         let pool = config.create_pool(Runtime::Tokio1)?;
 
-        let this = Self::open_with_pool(pool, passphrase.as_deref()).await?;
+        let this = Self::open_with_pool(pool, key.as_ref()).await?;
         this.write().await?.apply_runtime_config(runtime_config).await?;
 
         Ok(this)
@@ -136,15 +136,15 @@ impl SqliteEventCacheStore {
     /// pool. The given passphrase will be used to encrypt private data.
     async fn open_with_pool(
         pool: SqlitePool,
-        passphrase: Option<&str>,
+        key: Option<&[u8; 32]>,
     ) -> Result<Self, OpenStoreError> {
         let conn = pool.get().await?;
 
         let version = conn.db_version().await?;
         run_migrations(&conn, version).await?;
 
-        let store_cipher = match passphrase {
-            Some(p) => Some(Arc::new(conn.get_or_create_store_cipher(p).await?)),
+        let store_cipher = match key {
+            Some(k) => Some(Arc::new(conn.get_or_create_store_cipher(k).await?)),
             None => None,
         };
 
@@ -2407,7 +2407,10 @@ mod encrypted_tests {
 
         Ok(SqliteEventCacheStore::open(
             tmpdir_path.to_str().unwrap(),
-            Some("default_test_password"),
+            Some(&[
+                42, 199, 108, 12, 87, 250, 163, 31, 221, 60, 5, 144, 89, 237, 118, 201, 33, 176,
+                248, 73, 154, 8, 130, 190, 57, 110, 226, 3, 99, 45, 164, 209,
+            ]),
         )
         .await
         .unwrap())
