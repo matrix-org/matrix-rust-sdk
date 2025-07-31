@@ -45,13 +45,11 @@ pub fn restore_session(c: &mut Criterion) {
     let mut group = c.benchmark_group("Client reload");
     group.throughput(Throughput::Elements(100));
 
-    const NAME: &str = "restore a session";
-
     // Memory
     let mem_store = Arc::new(MemoryStore::new());
     runtime.block_on(mem_store.save_changes(&changes)).expect("initial filling of mem failed");
 
-    group.bench_with_input(BenchmarkId::new("memory store", NAME), &mem_store, |b, store| {
+    group.bench_with_input("Restore session [memory store]", &mem_store, |b, store| {
         b.to_async(&runtime).iter(|| async {
             let client = Client::builder()
                 .homeserver_url("https://matrix.example.com")
@@ -79,7 +77,7 @@ pub fn restore_session(c: &mut Criterion) {
             .expect("initial filling of sqlite failed");
 
         group.bench_with_input(
-            BenchmarkId::new(format!("sqlite store {encrypted_suffix}"), NAME),
+            BenchmarkId::new("Restore session [SQLite]", encrypted_suffix),
             &sqlite_store,
             |b, store| {
                 b.to_async(&runtime).iter(|| async {

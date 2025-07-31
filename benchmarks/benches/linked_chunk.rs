@@ -37,7 +37,7 @@ fn writing(c: &mut Criterion) {
     let linked_chunk_id = LinkedChunkId::Room(room_id);
     let event_factory = EventFactory::new().room(room_id).sender(&ALICE);
 
-    let mut group = c.benchmark_group("writing");
+    let mut group = c.benchmark_group("Linked chunk writing");
     group.sample_size(10).measurement_time(Duration::from_secs(30));
 
     for &number_of_events in NUMBER_OF_EVENTS {
@@ -101,7 +101,7 @@ fn writing(c: &mut Criterion) {
 
             // Get a bencher.
             group.bench_with_input(
-                BenchmarkId::new(store_name, number_of_events),
+                BenchmarkId::new(format!("Linked chunk writing [{store_name}]"), number_of_events),
                 &operations,
                 |bencher, operations| {
                     // Bench the routine.
@@ -154,7 +154,7 @@ fn reading(c: &mut Criterion) {
     let linked_chunk_id = LinkedChunkId::Room(room_id);
     let event_factory = EventFactory::new().room(room_id).sender(&ALICE);
 
-    let mut group = c.benchmark_group("reading");
+    let mut group = c.benchmark_group("Linked chunk reading");
     group.sample_size(10);
 
     for &num_events in NUMBER_OF_EVENTS {
@@ -215,7 +215,7 @@ fn reading(c: &mut Criterion) {
 
             // Bench the lazy loader.
             group.bench_function(
-                BenchmarkId::new(format!("lazy_loader/{store_name}"), num_events),
+                BenchmarkId::new(format!("Linked chunk lazy loader[{store_name}]"), num_events),
                 |bencher| {
                     // Bench the routine.
                     bencher.to_async(&runtime).iter(|| async {
@@ -243,7 +243,7 @@ fn reading(c: &mut Criterion) {
 
             // Bench the metadata loader.
             group.bench_function(
-                BenchmarkId::new(format!("metadata/{store_name}"), num_events),
+                BenchmarkId::new(format!("Linked chunk metadata loader[{store_name}]"), num_events),
                 |bencher| {
                     // Bench the routine.
                     bencher.to_async(&runtime).iter(|| async {
