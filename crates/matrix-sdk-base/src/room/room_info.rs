@@ -619,10 +619,18 @@ impl RoomInfo {
     pub fn encryption_state(&self) -> EncryptionState {
         if !self.encryption_state_synced {
             EncryptionState::Unknown
-        } else if self.base_info.encryption.is_some() {
-            EncryptionState::Encrypted
         } else {
-            EncryptionState::NotEncrypted
+            self.base_info
+                .encryption
+                .as_ref()
+                .map(|state| {
+                    if state.encrypt_state_events {
+                        EncryptionState::StateEncrypted
+                    } else {
+                        EncryptionState::Encrypted
+                    }
+                })
+                .unwrap_or(EncryptionState::NotEncrypted)
         }
     }
 

@@ -408,15 +408,7 @@ impl<'a> SendStateEventRaw<'a> {
 
     /// Returns `true` if the inner event should be encrypted.
     async fn should_encrypt(room: &Room, event_type: &str) -> bool {
-        let olm = room.client.olm_machine().await;
-        let olm = olm.as_ref().expect("Olm machine was not started.");
-
-        // Lookup room settings and check encryptiong state.
-        let Ok(Some(settings)) = olm.room_settings(room.room_id()).await else {
-            trace!("Sending plaintext event as the room is NOT encrypted.");
-            return false;
-        };
-        if !settings.encrypt_state_events {
+        if !room.encryption_state().is_state_encrypted() {
             trace!("Sending plaintext event as the room does NOT support encrypted state events.");
             return false;
         }

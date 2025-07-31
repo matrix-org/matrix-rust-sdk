@@ -25,7 +25,7 @@ use ruma::{
 use serde::Deserialize;
 use tracing::warn;
 
-use super::{e2ee, Context};
+use super::{Context, e2ee};
 use crate::store::BaseStateStore;
 
 /// Collect [`AnySyncStateEvent`].
