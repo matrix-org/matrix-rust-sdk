@@ -35,8 +35,13 @@ pub struct UploadEncryptedFile<'a, R: ?Sized> {
 }
 
 impl<'a, R: ?Sized> UploadEncryptedFile<'a, R> {
-    pub(crate) fn new(client:& Client, reader: &'a mut R) -> Self {
-        Self { client: client.clone(), reader, send_progress: Default::default(), request_config: None }
+    pub(crate) fn new(client: &Client, reader: &'a mut R) -> Self {
+        Self {
+            client: client.clone(),
+            reader,
+            send_progress: Default::default(),
+            request_config: None,
+        }
     }
 
     /// Replace the default `SharedObservable` used for tracking upload
