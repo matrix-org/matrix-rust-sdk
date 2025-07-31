@@ -17,7 +17,7 @@ const NUM_JOINED_ROOMS: usize = 10000;
 const NUM_STRIPPED_JOINED_ROOMS: usize = 10000;
 
 pub fn restore_session(c: &mut Criterion) {
-    let runtime = Builder::new_multi_thread().build().expect("Can't create runtime");
+    let runtime = Builder::new_multi_thread().enable_time().build().expect("Can't create runtime");
 
     // Create a fake list of changes, and a session to recover from.
     let mut changes = StateChanges::default();
