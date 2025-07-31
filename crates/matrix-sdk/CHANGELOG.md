@@ -1,10 +1,11 @@
 # Changelog
-
+<t_k€>ku
 All notable changes to this project will be documented in this file.
 
 <!-- next-header -->
 
 ## [Unreleased] - ReleaseDate
+- [**breaking**] Change the upload_encrypted_file and make it clone the client instead of owning it. 
 
 ### Features
 
