@@ -12,6 +12,9 @@ No notable changes in this release.
 
 ## [0.13.0] - 2025-07-10
 
+### Refactor
+- Change the logic for opening a store so as to use a `key` instead of a `passphrase`
+
 ### Security Fixes
 
 - Fix SQL injection vulnerability in `find_event_relations()`.
