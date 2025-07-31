@@ -85,7 +85,7 @@ pub fn receive_all_members_benchmark(c: &mut Criterion) {
     group.throughput(Throughput::Elements(count as u64));
     group.sample_size(50);
 
-    group.bench_function(BenchmarkId::new("receive_members", name), |b| {
+    group.bench_function(BenchmarkId::new("Handle /members request [SQLite]", name), |b| {
         b.to_async(&runtime).iter(|| async {
             base_client.receive_all_members(&room_id, &request, &response).await.unwrap();
         });
@@ -165,11 +165,11 @@ pub fn load_pinned_events_benchmark(c: &mut Criterion) {
 
     let count = PINNED_EVENTS_COUNT;
     let name = format!("{count} pinned events");
-    let mut group = c.benchmark_group("Test");
+    let mut group = c.benchmark_group("Load pinned events");
     group.throughput(Throughput::Elements(count as u64));
     group.sample_size(10);
 
-    group.bench_function(BenchmarkId::new("load_pinned_events", name), |b| {
+    group.bench_function(BenchmarkId::new("Load pinned events [memory]", name), |b| {
         b.to_async(&runtime).iter(|| async {
             let pinned_event_ids = room.pinned_event_ids().unwrap_or_default();
             assert!(!pinned_event_ids.is_empty());

@@ -24,7 +24,7 @@ fn handle_room_updates(c: &mut Criterion) {
         .build()
         .expect("Failed to create an asynchronous runtime");
 
-    let mut group = c.benchmark_group("reading");
+    let mut group = c.benchmark_group("Event cache room updates");
     group.sample_size(10);
 
     const NUM_EVENTS: usize = 1000;
@@ -50,9 +50,9 @@ fn handle_room_updates(c: &mut Criterion) {
         // Declare new stores for this set of events.
         let sqlite_temp_dir = tempdir().unwrap();
         let stores = vec![
-            ("memory store", MemoryStore::default().into_event_cache_store()),
+            ("memory", MemoryStore::default().into_event_cache_store()),
             (
-                "sqlite store",
+                "SQLite",
                 runtime.block_on(async {
                     SqliteEventCacheStore::open(sqlite_temp_dir.path().join("bench"), None)
                         .await
@@ -70,7 +70,10 @@ fn handle_room_updates(c: &mut Criterion) {
 
             // Bench the handling of room updates.
             group.bench_function(
-                BenchmarkId::new(format!("handle_room_updates/{store_name}"), num_rooms),
+                BenchmarkId::new(
+                    format!("Event cache room updates[{store_name}]"),
+                    format!("room count: {num_rooms}"),
+                ),
                 |bencher| {
                     // Ideally we'd use `iter_with_setup` here, but it doesn't allow an async setup
                     // (which we need to setup the client), see also

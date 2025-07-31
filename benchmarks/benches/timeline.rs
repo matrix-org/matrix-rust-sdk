@@ -94,12 +94,12 @@ pub fn create_timeline_with_initial_events(c: &mut Criterion) {
         room
     });
 
-    let mut group = c.benchmark_group("Test");
+    let mut group = c.benchmark_group("Create a timeline");
     group.throughput(Throughput::Elements(NUM_EVENTS as _));
     group.sample_size(10);
 
     group.bench_function(
-        BenchmarkId::new("create_timeline_with_initial_events", format!("{NUM_EVENTS} events")),
+        BenchmarkId::new("Create a timeline with initial events", format!("{NUM_EVENTS} events")),
         |b| {
             b.to_async(&runtime).iter(|| async {
                 let timeline = TimelineBuilder::new(&room)
