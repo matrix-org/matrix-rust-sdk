@@ -59,10 +59,14 @@ pub fn keys_query(c: &mut Criterion) {
 
     // Benchmark memory store.
 
-    group.bench_with_input(BenchmarkId::new("memory store", &name), &response, |b, response| {
-        b.to_async(&runtime)
-            .iter(|| async { machine.mark_request_as_sent(&txn_id, response).await.unwrap() })
-    });
+    group.bench_with_input(
+        BenchmarkId::new("Device keys query [memory]", &name),
+        &response,
+        |b, response| {
+            b.to_async(&runtime)
+                .iter(|| async { machine.mark_request_as_sent(&txn_id, response).await.unwrap() })
+        },
+    );
 
     // Benchmark sqlite store.
 
@@ -72,10 +76,14 @@ pub fn keys_query(c: &mut Criterion) {
         .block_on(OlmMachine::with_store(alice_id(), alice_device_id(), store, None))
         .unwrap();
 
-    group.bench_with_input(BenchmarkId::new("sqlite store", &name), &response, |b, response| {
-        b.to_async(&runtime)
-            .iter(|| async { machine.mark_request_as_sent(&txn_id, response).await.unwrap() })
-    });
+    group.bench_with_input(
+        BenchmarkId::new("Device keys query [SQLite]", &name),
+        &response,
+        |b, response| {
+            b.to_async(&runtime)
+                .iter(|| async { machine.mark_request_as_sent(&txn_id, response).await.unwrap() })
+        },
+    );
 
     {
         let _guard = runtime.enter();
@@ -102,51 +110,65 @@ pub fn keys_claiming(c: &mut Criterion) {
 
     let name = format!("{count} one-time keys");
 
-    group.bench_with_input(BenchmarkId::new("memory store", &name), &response, |b, response| {
-        b.iter_batched(
-            || {
-                let machine = runtime.block_on(OlmMachine::new(alice_id(), alice_device_id()));
-                runtime
-                    .block_on(machine.mark_request_as_sent(&txn_id, &keys_query_response))
-                    .unwrap();
-                (machine, &runtime, &txn_id)
-            },
-            move |(machine, runtime, txn_id)| {
-                runtime.block_on(async {
-                    machine.mark_request_as_sent(txn_id, response).await.unwrap();
+    group.bench_with_input(
+        BenchmarkId::new("One-time keys claiming [memory]", &name),
+        &response,
+        |b, response| {
+            b.iter_batched(
+                || {
+                    let machine = runtime.block_on(OlmMachine::new(alice_id(), alice_device_id()));
+                    runtime
+                        .block_on(machine.mark_request_as_sent(&txn_id, &keys_query_response))
+                        .unwrap();
+                    (machine, &runtime, &txn_id)
+                },
+                move |(machine, runtime, txn_id)| {
+                    runtime.block_on(async {
+                        machine.mark_request_as_sent(txn_id, response).await.unwrap();
+                        drop(machine);
+                    })
+                },
+                criterion::BatchSize::SmallInput,
+            )
+        },
+    );
+
+    group.bench_with_input(
+        BenchmarkId::new("One-time keys claiming [SQLite]", &name),
+        &response,
+        |b, response| {
+            b.iter_batched(
+                || {
+                    let dir = tempfile::tempdir().unwrap();
+                    let store = Arc::new(
+                        runtime.block_on(SqliteCryptoStore::open(dir.path(), None)).unwrap(),
+                    );
+
+                    let machine = runtime
+                        .block_on(OlmMachine::with_store(
+                            alice_id(),
+                            alice_device_id(),
+                            store,
+                            None,
+                        ))
+                        .unwrap();
+                    runtime
+                        .block_on(machine.mark_request_as_sent(&txn_id, &keys_query_response))
+                        .unwrap();
+                    (machine, &runtime, &txn_id)
+                },
+                move |(machine, runtime, txn_id)| {
+                    runtime.block_on(async {
+                        machine.mark_request_as_sent(txn_id, response).await.unwrap();
+                    });
+
+                    let _ = runtime.enter();
                     drop(machine);
-                })
-            },
-            criterion::BatchSize::SmallInput,
-        )
-    });
-
-    group.bench_with_input(BenchmarkId::new("sqlite store", &name), &response, |b, response| {
-        b.iter_batched(
-            || {
-                let dir = tempfile::tempdir().unwrap();
-                let store =
-                    Arc::new(runtime.block_on(SqliteCryptoStore::open(dir.path(), None)).unwrap());
-
-                let machine = runtime
-                    .block_on(OlmMachine::with_store(alice_id(), alice_device_id(), store, None))
-                    .unwrap();
-                runtime
-                    .block_on(machine.mark_request_as_sent(&txn_id, &keys_query_response))
-                    .unwrap();
-                (machine, &runtime, &txn_id)
-            },
-            move |(machine, runtime, txn_id)| {
-                runtime.block_on(async {
-                    machine.mark_request_as_sent(txn_id, response).await.unwrap();
-                });
-
-                let _ = runtime.enter();
-                drop(machine);
-            },
-            criterion::BatchSize::SmallInput,
-        )
-    });
+                },
+                criterion::BatchSize::SmallInput,
+            )
+        },
+    );
 
     group.finish()
 }
@@ -174,7 +196,7 @@ pub fn room_key_sharing(c: &mut Criterion) {
 
     // Benchmark memory store.
 
-    group.bench_function(BenchmarkId::new("memory store", &name), |b| {
+    group.bench_function(BenchmarkId::new("Room key sharing [memory]", &name), |b| {
         b.to_async(&runtime).iter(|| async {
             let requests = machine
                 .share_room_key(
@@ -206,7 +228,7 @@ pub fn room_key_sharing(c: &mut Criterion) {
     runtime.block_on(machine.mark_request_as_sent(&txn_id, &keys_query_response)).unwrap();
     runtime.block_on(machine.mark_request_as_sent(&txn_id, &response)).unwrap();
 
-    group.bench_function(BenchmarkId::new("sqlite store", &name), |b| {
+    group.bench_function(BenchmarkId::new("Room key sharing [SQLite]", &name), |b| {
         b.to_async(&runtime).iter(|| async {
             let requests = machine
                 .share_room_key(
@@ -254,7 +276,7 @@ pub fn devices_missing_sessions_collecting(c: &mut Criterion) {
 
     // Benchmark memory store.
 
-    group.bench_function(BenchmarkId::new("memory store", &name), |b| {
+    group.bench_function(BenchmarkId::new("Devices collecting [memory]", &name), |b| {
         b.to_async(&runtime).iter_with_large_drop(|| async {
             machine.get_missing_sessions(users.iter().map(Deref::deref)).await.unwrap()
         })
@@ -271,7 +293,7 @@ pub fn devices_missing_sessions_collecting(c: &mut Criterion) {
 
     runtime.block_on(machine.mark_request_as_sent(&txn_id, &response)).unwrap();
 
-    group.bench_function(BenchmarkId::new("sqlite store", &name), |b| {
+    group.bench_function(BenchmarkId::new("Devices collecting [SQLite]", &name), |b| {
         b.to_async(&runtime).iter(|| async {
             machine.get_missing_sessions(users.iter().map(Deref::deref)).await.unwrap()
         })
