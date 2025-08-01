@@ -50,7 +50,7 @@ pub use self::{
         PollResult, PollState, RoomMembershipChange, RoomPinnedEventsChange, Sticker,
         ThreadSummary, TimelineItemContent,
     },
-    local::EventSendState,
+    local::{EventSendProgress, EventSendState},
 };
 pub(super) use self::{
     content::{
