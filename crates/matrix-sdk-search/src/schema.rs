@@ -1,16 +1,15 @@
 #![forbid(missing_docs)]
 
 use ruma::{
-    events::{
-        room::message::MessageType, AnyMessageLikeEvent, MessageLikeEvent, MessageLikeEventContent,
-        RedactContent, RedactedMessageLikeEventContent,
-    },
     MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedUserId,
+    events::{
+        AnyMessageLikeEvent, MessageLikeEvent, MessageLikeEventContent, RedactContent,
+        RedactedMessageLikeEventContent, room::message::MessageType,
+    },
 };
 use tantivy::{
-    doc,
-    schema::{Field, Schema, INDEXED, STORED, STRING, TEXT},
-    DateOptions, DateTime, DateTimePrecision, TantivyDocument,
+    DateOptions, DateTime, DateTimePrecision, TantivyDocument, doc,
+    schema::{Field, INDEXED, STORED, STRING, Schema, TEXT},
 };
 
 use crate::error::{IndexError, IndexSchemaError};

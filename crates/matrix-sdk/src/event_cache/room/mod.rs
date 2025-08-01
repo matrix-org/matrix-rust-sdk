@@ -29,18 +29,19 @@ use eyeball::SharedObservable;
 use eyeball_im::VectorDiff;
 #[cfg(feature = "search")]
 use futures_util::StreamExt;
+#[cfg(feature = "search")]
+use matrix_sdk_base::deserialized_responses::{TimelineEvent, TimelineEventKind};
 use matrix_sdk_base::{
-    deserialized_responses::{AmbiguityChange, TimelineEvent, TimelineEventKind},
+    deserialized_responses::AmbiguityChange,
     event_cache::Event,
     linked_chunk::Position,
     sync::{JoinedRoomUpdate, LeftRoomUpdate, Timeline},
 };
+#[cfg(feature = "search")]
+use ruma::events::{AnyMessageLikeEvent, AnySyncTimelineEvent};
 use ruma::{
     api::Direction,
-    events::{
-        relation::RelationType, AnyMessageLikeEvent, AnyRoomAccountDataEvent,
-        AnySyncEphemeralRoomEvent, AnySyncTimelineEvent,
-    },
+    events::{relation::RelationType, AnyRoomAccountDataEvent, AnySyncEphemeralRoomEvent},
     serde::Raw,
     EventId, OwnedEventId, OwnedRoomId,
 };

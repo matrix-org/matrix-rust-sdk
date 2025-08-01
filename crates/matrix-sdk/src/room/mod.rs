@@ -58,6 +58,8 @@ use mime::Mime;
 use reply::Reply;
 #[cfg(feature = "unstable-msc4274")]
 use ruma::events::room::message::GalleryItemType;
+#[cfg(feature = "search")]
+use ruma::events::AnyMessageLikeEvent;
 #[cfg(feature = "e2e-encryption")]
 use ruma::events::{
     room::encrypted::OriginalSyncRoomEncryptedEvent, AnySyncMessageLikeEvent, AnySyncTimelineEvent,
@@ -114,11 +116,11 @@ use ruma::{
         space::{child::SpaceChildEventContent, parent::SpaceParentEventContent},
         tag::{TagInfo, TagName},
         typing::SyncTypingEvent,
-        AnyMessageLikeEvent, AnyRoomAccountDataEvent, AnyRoomAccountDataEventContent,
-        AnyTimelineEvent, EmptyStateKey, Mentions, MessageLikeEventContent, OriginalSyncStateEvent,
-        RedactContent, RedactedStateEventContent, RoomAccountDataEvent,
-        RoomAccountDataEventContent, RoomAccountDataEventType, StateEventContent, StateEventType,
-        StaticEventContent, StaticStateEventContent, SyncStateEvent,
+        AnyRoomAccountDataEvent, AnyRoomAccountDataEventContent, AnyTimelineEvent, EmptyStateKey,
+        Mentions, MessageLikeEventContent, OriginalSyncStateEvent, RedactContent,
+        RedactedStateEventContent, RoomAccountDataEvent, RoomAccountDataEventContent,
+        RoomAccountDataEventType, StateEventContent, StateEventType, StaticEventContent,
+        StaticStateEventContent, SyncStateEvent,
     },
     int,
     push::{Action, PushConditionRoomCtx, Ruleset},
@@ -3640,7 +3642,8 @@ impl Room {
     #[cfg(feature = "search")]
     pub async fn index_event(&self, event: AnyMessageLikeEvent) -> Result<()> {
         self.client.index_event(event, self.room_id()).await
-      
+    }
+
     /// Subscribe to a given thread in this room.
     ///
     /// This will subscribe the user to the thread, so that they will receive

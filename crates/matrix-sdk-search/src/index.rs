@@ -2,15 +2,15 @@
 
 use std::{fmt, path::Path};
 
-use ruma::{events::AnyMessageLikeEvent, OwnedRoomId, RoomId};
+use ruma::{OwnedRoomId, RoomId, events::AnyMessageLikeEvent};
 use tantivy::{
-    collector::TopDocs, directory::MmapDirectory, query::QueryParser, schema::OwnedValue, Index,
-    IndexReader, TantivyDocument,
+    Index, IndexReader, TantivyDocument, collector::TopDocs, directory::MmapDirectory,
+    query::QueryParser, schema::OwnedValue,
 };
 
 use crate::{
-    error::IndexError, schema::RoomMessageSchema, util::TANTIVY_INDEX_MEMORY_BUDGET,
-    writer::SearchIndexWriter, OpStamp,
+    OpStamp, error::IndexError, schema::RoomMessageSchema, util::TANTIVY_INDEX_MEMORY_BUDGET,
+    writer::SearchIndexWriter,
 };
 
 /// A struct that holds all data pertaining to a particular room's
@@ -51,7 +51,7 @@ impl RoomIndex {
         })
     }
 
-    /// Create new [`RoomIndex`] which stores the index in <path>/<room_id>
+    /// Create new [`RoomIndex`] which stores the index in path/room_id
     pub fn new(path: &Path, room_id: &RoomId) -> Result<RoomIndex, IndexError> {
         let path = path.join(room_id.as_str());
         let schema = RoomMessageSchema::new();
@@ -67,8 +67,8 @@ impl RoomIndex {
         RoomIndex::new_with(index, schema, room_id)
     }
 
-    /// Open index at <path>/<room_id> if it exists else
-    /// create new [`RoomIndex`] which stores the index in <path>/<room_id>
+    /// Open index at path/room_id if it exists else
+    /// create new [`RoomIndex`] which stores the index in path/room_id
     pub fn open_or_create(path: &Path, room_id: &RoomId) -> Result<RoomIndex, IndexError> {
         let path = path.join(room_id.as_str());
         let mmap_dir = MmapDirectory::open(path)?;
@@ -77,7 +77,7 @@ impl RoomIndex {
         RoomIndex::new_with(index, schema, room_id)
     }
 
-    /// Open index at <path>/<room_id>. Fails if it doesn't exist.
+    /// Open index at path/room_id. Fails if it doesn't exist.
     pub fn open(path: &Path, room_id: &RoomId) -> Result<RoomIndex, IndexError> {
         let path = path.join(room_id.as_str());
         let index_path = MmapDirectory::open(path)?;
@@ -140,7 +140,7 @@ mod tests {
 
     use ruma::{
         event_id,
-        events::{message::MessageEventContent, AnyMessageLikeEvent},
+        events::{AnyMessageLikeEvent, message::MessageEventContent},
         room_id,
     };
 

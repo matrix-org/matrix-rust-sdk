@@ -19,7 +19,9 @@ mod homeserver_config;
 use std::collections::HashMap;
 #[cfg(feature = "sqlite")]
 use std::path::Path;
-use std::{collections::BTreeSet, fmt, path::PathBuf, sync::Arc};
+#[cfg(any(feature = "search", feature = "sqlite"))]
+use std::path::PathBuf;
+use std::{collections::BTreeSet, fmt, sync::Arc};
 
 use homeserver_config::*;
 #[cfg(feature = "e2e-encryption")]
@@ -29,9 +31,11 @@ use matrix_sdk_base::{store::StoreConfig, BaseClient, ThreadingSupport};
 use matrix_sdk_search::index::RoomIndex;
 #[cfg(feature = "sqlite")]
 use matrix_sdk_sqlite::SqliteStoreConfig;
+#[cfg(feature = "search")]
+use ruma::OwnedRoomId;
 use ruma::{
     api::{error::FromHttpResponseError, MatrixVersion, SupportedVersions},
-    OwnedRoomId, OwnedServerName, ServerName,
+    OwnedServerName, ServerName,
 };
 use thiserror::Error;
 use tokio::sync::{broadcast, Mutex, OnceCell};

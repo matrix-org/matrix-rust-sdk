@@ -1,13 +1,16 @@
 #![forbid(missing_docs)]
 
+#[cfg(doc)]
+use ruma::events::message::MessageEventContent;
 use ruma::{
+    EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedRoomId, OwnedUserId, RoomId, UInt,
+    UserId,
     events::{
-        room::message::{MessageType, RoomMessageEventContent, TextMessageEventContent},
         AnyMessageLikeEvent, MessageLikeEvent, MessageLikeEventContent, MessageLikeUnsigned,
         OriginalMessageLikeEvent, RedactContent, RedactedMessageLikeEventContent,
+        room::message::{MessageType, RoomMessageEventContent, TextMessageEventContent},
     },
-    owned_event_id, owned_room_id, owned_user_id, EventId, MilliSecondsSinceUnixEpoch,
-    OwnedEventId, OwnedRoomId, OwnedUserId, RoomId, UInt, UserId,
+    owned_event_id, owned_room_id, owned_user_id,
 };
 
 /// Builder for [`AnyMessageLikeEvent`] in the old m.room.message format.
@@ -17,7 +20,7 @@ use ruma::{
 /// use matrix_sdk_search::testing::event_builder::NewEventBuilder;
 /// use ruma::{
 ///     event_id,
-///     events::{message::MessageEventContent, AnyMessageLikeEvent},
+///     events::{AnyMessageLikeEvent, message::MessageEventContent},
 /// };
 ///
 /// fn test_make_old_event() {
@@ -41,10 +44,10 @@ pub struct OldEventBuilder {
 impl Default for OldEventBuilder {
     fn default() -> Self {
         Self {
-            room_id: owned_room_id!("!defualt_room_id:localhost"),
+            room_id: owned_room_id!("!default_room_id:localhost"),
             unsigned: MessageLikeUnsigned::new(),
             event_id: owned_event_id!("$default_event_id:localhost"),
-            sender: owned_user_id!("@defualt_user_id:localhost"),
+            sender: owned_user_id!("@default_user_id:localhost"),
             origin_server_ts: MilliSecondsSinceUnixEpoch(UInt::new_saturating(12345678)),
             content: Some(RoomMessageEventContent::new(MessageType::Text(
                 TextMessageEventContent::plain("default message"),
@@ -59,10 +62,10 @@ impl OldEventBuilder {
     /// the build method is called.
     pub fn new() -> Self {
         Self {
-            room_id: owned_room_id!("!defualt_room_id:localhost"),
+            room_id: owned_room_id!("!default_room_id:localhost"),
             unsigned: MessageLikeUnsigned::new(),
             event_id: owned_event_id!("$default_event_id:localhost"),
-            sender: owned_user_id!("@defualt_user_id:localhost"),
+            sender: owned_user_id!("@default_user_id:localhost"),
             origin_server_ts: MilliSecondsSinceUnixEpoch(UInt::new_saturating(12345678)),
             content: None,
         }
@@ -126,7 +129,7 @@ impl OldEventBuilder {
 /// use matrix_sdk_search::testing::event_builder::NewEventBuilder;
 /// use ruma::{
 ///     event_id,
-///     events::{message::MessageEventContent, AnyMessageLikeEvent},
+///     events::{AnyMessageLikeEvent, message::MessageEventContent},
 /// };
 ///
 /// fn test_make_new_event() {
@@ -169,10 +172,10 @@ where
     /// the build method is called.
     pub fn new() -> Self {
         Self {
-            room_id: owned_room_id!("!defualt_room_id:localhost"),
+            room_id: owned_room_id!("!default_room_id:localhost"),
             unsigned: MessageLikeUnsigned::new(),
             event_id: owned_event_id!("$default_event_id:localhost"),
-            sender: owned_user_id!("@defualt_user_id:localhost"),
+            sender: owned_user_id!("@default_user_id:localhost"),
             origin_server_ts: MilliSecondsSinceUnixEpoch(UInt::new_saturating(12345678)),
             content: None,
         }

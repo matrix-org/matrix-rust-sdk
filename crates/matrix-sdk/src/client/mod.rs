@@ -42,6 +42,8 @@ use matrix_sdk_base::{
 use matrix_sdk_common::ttl_cache::TtlCache;
 #[cfg(feature = "search")]
 use matrix_sdk_search::index::RoomIndex;
+#[cfg(feature = "search")]
+use ruma::events::AnyMessageLikeEvent;
 #[cfg(feature = "e2e-encryption")]
 use ruma::events::{room::encryption::RoomEncryptionEventContent, InitialStateEvent};
 use ruma::{
@@ -70,7 +72,6 @@ use ruma::{
         FeatureFlag, MatrixVersion, OutgoingRequest, SupportedVersions,
     },
     assign,
-    events::AnyMessageLikeEvent,
     push::Ruleset,
     time::Instant,
     DeviceId, OwnedDeviceId, OwnedEventId, OwnedRoomId, OwnedRoomOrAliasId, OwnedServerName,

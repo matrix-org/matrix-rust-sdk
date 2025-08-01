@@ -5,9 +5,9 @@ use std::time::Instant;
 use tantivy::{IndexWriter, TantivyDocument, TantivyError};
 
 use crate::{
+    OpStamp,
     error::{IndexError, IndexWriteError},
     util::{MAX_COMMIT_TIME, MIN_COMMIT_SIZE},
-    OpStamp,
 };
 
 pub(crate) struct SearchIndexWriter {

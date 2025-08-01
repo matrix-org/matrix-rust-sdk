@@ -15,12 +15,12 @@
 use std::collections::BTreeSet;
 
 use ruma::{
+    RoomId,
     events::{
-        room::{create::RoomCreateEventContent, tombstone::RoomTombstoneEventContent},
         AnySyncStateEvent, SyncStateEvent,
+        room::{create::RoomCreateEventContent, tombstone::RoomTombstoneEventContent},
     },
     serde::Raw,
-    RoomId,
 };
 use serde::Deserialize;
 use tracing::warn;
@@ -33,18 +33,18 @@ pub mod sync {
     use std::{collections::BTreeSet, iter};
 
     use ruma::{
-        events::{
-            room::member::{MembershipState, RoomMemberEventContent},
-            AnySyncTimelineEvent, SyncStateEvent,
-        },
         OwnedUserId, RoomId, UserId,
+        events::{
+            AnySyncTimelineEvent, SyncStateEvent,
+            room::member::{MembershipState, RoomMemberEventContent},
+        },
     };
     use tracing::{error, instrument};
 
     use super::{super::profiles, AnySyncStateEvent, Context, Raw};
     use crate::{
-        store::{ambiguity_map::AmbiguityCache, BaseStateStore, Result as StoreResult},
         RoomInfo,
+        store::{BaseStateStore, Result as StoreResult, ambiguity_map::AmbiguityCache},
     };
 
     /// Collect [`AnySyncStateEvent`] to [`AnySyncStateEvent`].
@@ -421,10 +421,10 @@ pub fn is_tombstone_event_valid(
 #[cfg(test)]
 mod tests {
     use matrix_sdk_test::{
-        async_test, event_factory::EventFactory, JoinedRoomBuilder, StateTestEvent,
-        SyncResponseBuilder, DEFAULT_TEST_ROOM_ID,
+        DEFAULT_TEST_ROOM_ID, JoinedRoomBuilder, StateTestEvent, SyncResponseBuilder, async_test,
+        event_factory::EventFactory,
     };
-    use ruma::{event_id, room_id, user_id, RoomVersionId};
+    use ruma::{RoomVersionId, event_id, room_id, user_id};
 
     use crate::test_utils::logged_in_base_client;
 
