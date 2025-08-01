@@ -10,7 +10,11 @@ use matrix_sdk::{
     locks::Mutex,
     ruma::{
         OwnedEventId, OwnedRoomId, RoomId, UserId,
-        api::client::receipt::create_receipt::v3::ReceiptType,
+        api::client::{
+            receipt::create_receipt::v3::ReceiptType,
+            room::create_room::v3::Request as CreateRoomRequest,
+        },
+        assign,
         events::room::message::RoomMessageEventContent,
     },
     store::ThreadStatus,
@@ -447,6 +451,27 @@ impl RoomView {
         }
     }
 
+    async fn create_room(&mut self, name: String, encrypted: bool, state_encrypted: bool) {
+        // Create a room in the internal store
+        let room = self
+            .client
+            .create_room(assign!(CreateRoomRequest::new(), {
+                name: Some(name),
+                invite: vec![],
+                is_direct: false,
+            }))
+            .await
+            .unwrap();
+
+        // Enable encryption
+        if encrypted && !state_encrypted {
+            room.enable_encryption().await.unwrap();
+        }
+        if state_encrypted {
+            room.enable_encryption_with_state().await.unwrap();
+        }
+    }
+
     async fn invite_member(&mut self, user_id: &str) {
         self.call_with_room(async move |room, status_handle| {
             let user_id = match UserId::parse_with_server_name(
@@ -552,12 +577,27 @@ impl RoomView {
         }
     }
 
+    async fn rename_room(&mut self, to: String) {
+        self.call_with_room(async |room, status_handle| {
+            let _ = room.set_name(to).await.inspect_err(|e| {
+                status_handle.set_message(format!("Couldn't update room name {e:?}"))
+            });
+        })
+        .await;
+
+        self.input.clear();
+    }
+
     async fn handle_command(&mut self, command: input::Command) {
         match command {
+            input::Command::Create { name, encrypted, state_encrypted } => {
+                self.create_room(name, encrypted, state_encrypted).await
+            }
             input::Command::Invite { user_id } => self.invite_member(&user_id).await,
             input::Command::Leave => self.leave_room().await,
             input::Command::Subscribe => self.subscribe_thread().await,
             input::Command::Unsubscribe => self.unsubscribe_thread().await,
+            input::Command::Rename { to } => self.rename_room(to).await,
         }
     }
 

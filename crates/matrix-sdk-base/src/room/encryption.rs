@@ -33,8 +33,11 @@ impl Room {
 #[derive(Debug)]
 #[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
 pub enum EncryptionState {
-    /// The room is encrypted.
+    /// The room is encrypted, excluding state events.
     Encrypted,
+
+    /// The room is encrypted, including state events.
+    StateEncrypted,
 
     /// The room is not encrypted.
     NotEncrypted,
@@ -45,9 +48,16 @@ pub enum EncryptionState {
 }
 
 impl EncryptionState {
-    /// Check whether `EncryptionState` is [`Encrypted`][Self::Encrypted].
+    /// Check whether `EncryptionState` is [`Encrypted`][Self::Encrypted] or
+    /// [`StateEncrypted`][Self::StateEncrypted].
     pub fn is_encrypted(&self) -> bool {
-        matches!(self, Self::Encrypted)
+        matches!(self, Self::Encrypted | Self::StateEncrypted)
+    }
+
+    /// Check whether `EncryptionState` is
+    /// [`StateEncrypted`][Self::StateEncrypted].
+    pub fn is_state_encrypted(&self) -> bool {
+        matches!(self, Self::StateEncrypted)
     }
 
     /// Check whether `EncryptionState` is [`Unknown`][Self::Unknown].
@@ -150,10 +160,12 @@ mod tests {
     fn test_encryption_state() {
         assert!(EncryptionState::Unknown.is_unknown());
         assert!(EncryptionState::Encrypted.is_unknown().not());
+        assert!(EncryptionState::StateEncrypted.is_unknown().not());
         assert!(EncryptionState::NotEncrypted.is_unknown().not());
 
         assert!(EncryptionState::Unknown.is_encrypted().not());
         assert!(EncryptionState::Encrypted.is_encrypted());
+        assert!(EncryptionState::StateEncrypted.is_encrypted());
         assert!(EncryptionState::NotEncrypted.is_encrypted().not());
     }
 }

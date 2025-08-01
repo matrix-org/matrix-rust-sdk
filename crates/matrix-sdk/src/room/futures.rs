@@ -16,7 +16,7 @@
 
 #![deny(unreachable_pub)]
 
-use std::future::IntoFuture;
+use std::{borrow::Borrow, future::IntoFuture};
 
 use eyeball::SharedObservable;
 use matrix_sdk_common::boxed_into_future;
@@ -24,9 +24,12 @@ use mime::Mime;
 #[cfg(doc)]
 use ruma::events::{MessageLikeUnsigned, SyncMessageLikeEvent};
 use ruma::{
-    api::client::message::send_message_event,
+    api::client::{message::send_message_event, state::send_state_event},
     assign,
-    events::{AnyMessageLikeEventContent, MessageLikeEventContent},
+    events::{
+        AnyMessageLikeEventContent, AnyStateEventContent, MessageLikeEventContent,
+        StateEventContent,
+    },
     serde::Raw,
     OwnedTransactionId, TransactionId,
 };
@@ -34,7 +37,9 @@ use tracing::{info, trace, Instrument, Span};
 
 use super::Room;
 use crate::{
-    attachment::AttachmentConfig, config::RequestConfig, utils::IntoRawMessageLikeEventContent,
+    attachment::AttachmentConfig,
+    config::RequestConfig,
+    utils::{IntoRawMessageLikeEventContent, IntoRawStateEventContent},
     Result, TransmissionProgress,
 };
 
@@ -314,6 +319,175 @@ impl<'a> IntoFuture for SendAttachment<'a> {
                 store_in_cache,
             )
             .await
+        };
+
+        Box::pin(fut.instrument(tracing_span))
+    }
+}
+
+/// Future returned by [`Room::send_state_event`].
+#[allow(missing_debug_implementations)]
+pub struct SendStateEvent<'a> {
+    room: &'a Room,
+    event_type: String,
+    state_key: String,
+    content: serde_json::Result<serde_json::Value>,
+    request_config: Option<RequestConfig>,
+}
+
+impl<'a> SendStateEvent<'a> {
+    pub(crate) fn new<C, K>(room: &'a Room, state_key: &K, content: C) -> Self
+    where
+        C: StateEventContent,
+        C::StateKey: Borrow<K>,
+        K: AsRef<str> + ?Sized,
+    {
+        let event_type = content.event_type().to_string();
+        let state_key = state_key.as_ref().to_owned();
+        let content = serde_json::to_value(&content);
+        Self { room, event_type, state_key, content, request_config: None }
+    }
+
+    /// Assign a given [`RequestConfig`] to configure how this request should
+    /// behave with respect to the network.
+    pub fn with_request_config(mut self, request_config: RequestConfig) -> Self {
+        self.request_config = Some(request_config);
+        self
+    }
+}
+
+impl<'a> IntoFuture for SendStateEvent<'a> {
+    type Output = Result<send_state_event::v3::Response>;
+    boxed_into_future!(extra_bounds: 'a);
+
+    fn into_future(self) -> Self::IntoFuture {
+        let Self { room, state_key, event_type, content, request_config } = self;
+        Box::pin(async move {
+            let content = content?;
+            assign!(room.send_state_event_raw(&event_type, &state_key, content), { request_config })
+                .await
+        })
+    }
+}
+
+/// Future returned by [`Room::send_state_event_raw`].
+#[allow(missing_debug_implementations)]
+pub struct SendStateEventRaw<'a> {
+    room: &'a Room,
+    event_type: &'a str,
+    state_key: &'a str,
+    content: Raw<AnyStateEventContent>,
+    tracing_span: Span,
+    request_config: Option<RequestConfig>,
+}
+
+impl<'a> SendStateEventRaw<'a> {
+    pub(crate) fn new(
+        room: &'a Room,
+        event_type: &'a str,
+        state_key: &'a str,
+        content: impl IntoRawStateEventContent,
+    ) -> Self {
+        let content = content.into_raw_state_event_content();
+        Self {
+            room,
+            event_type,
+            state_key,
+            content,
+            tracing_span: Span::current(),
+            request_config: None,
+        }
+    }
+
+    /// Assign a given [`RequestConfig`] to configure how this request should
+    /// behave with respect to the network.
+    pub fn with_request_config(mut self, request_config: RequestConfig) -> Self {
+        self.request_config = Some(request_config);
+        self
+    }
+
+    /// Returns `true` if the inner event should be encrypted.
+    async fn should_encrypt(room: &Room, event_type: &str) -> bool {
+        if !room.encryption_state().is_state_encrypted() {
+            trace!("Sending plaintext event as the room does NOT support encrypted state events.");
+            return false;
+        }
+
+        // Check the event is not critical.
+        if matches!(
+            event_type,
+            "m.room.create"
+                | "m.room.member"
+                | "m.room.join_rules"
+                | "m.room.power_levels"
+                | "m.room.third_party_invite"
+                | "m.room.history_visibility"
+                | "m.room.guest_access"
+                | "m.room.encryption"
+                | "m.space.child"
+                | "m.space.parent"
+        ) {
+            return false;
+        }
+
+        true
+    }
+}
+
+impl<'a> IntoFuture for SendStateEventRaw<'a> {
+    type Output = Result<send_state_event::v3::Response>;
+    boxed_into_future!(extra_bounds: 'a);
+
+    fn into_future(self) -> Self::IntoFuture {
+        let Self { room, mut event_type, state_key, mut content, tracing_span, request_config } =
+            self;
+
+        let fut = async move {
+            room.ensure_room_joined()?;
+            let mut state_key = state_key.to_owned();
+
+            #[cfg(feature = "e2e-encryption")]
+            if Self::should_encrypt(room, event_type).await {
+                Span::current().record("is_room_encrypted", true);
+                trace!(
+                    room_id = ?room.room_id(),
+                    "Sending encrypted event because the room is encrypted.",
+                );
+
+                if !room.are_members_synced() {
+                    room.sync_members().await?;
+                }
+
+                room.query_keys_for_untracked_or_dirty_users().await?;
+                room.preshare_room_key().await?;
+
+                let olm = room.client.olm_machine().await;
+                let olm = olm.as_ref().expect("Olm machine wasn't started");
+
+                content = olm
+                    .encrypt_state_event_raw(room.room_id(), event_type, &state_key, &content)
+                    .await?
+                    .cast_unchecked();
+
+                state_key = format!("{event_type}:{state_key}");
+                event_type = "m.room.encrypted";
+            } else {
+                Span::current().record("is_room_encrypted", false);
+            }
+
+            let request = send_state_event::v3::Request::new_raw(
+                room.room_id().to_owned(),
+                event_type.into(),
+                state_key.to_owned(),
+                content,
+            );
+
+            let response = room.client.send(request).with_request_config(request_config).await?;
+
+            Span::current().record("event_id", tracing::field::debug(&response.event_id));
+            info!("Sent event in room");
+
+            Ok(response)
         };
 
         Box::pin(fut.instrument(tracing_span))

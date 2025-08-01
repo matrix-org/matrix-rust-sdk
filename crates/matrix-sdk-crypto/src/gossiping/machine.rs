@@ -1366,6 +1366,7 @@ mod tests {
             event_id: event_id!("$143273582443PhrSn:example.org").to_owned(),
             content,
             origin_server_ts: ruma::MilliSecondsSinceUnixEpoch::now(),
+            state_key: None,
             unsigned: Default::default(),
             other: Default::default(),
         }

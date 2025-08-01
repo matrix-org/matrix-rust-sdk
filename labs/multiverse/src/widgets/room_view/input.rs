@@ -14,10 +14,22 @@ struct Cli {
 
 #[derive(Debug, Subcommand)]
 pub enum Command {
-    Invite { user_id: String },
+    Create {
+        name: String,
+        #[clap(long)]
+        encrypted: bool,
+        #[clap(long)]
+        state_encrypted: bool,
+    },
+    Invite {
+        user_id: String,
+    },
     Leave,
     Subscribe,
     Unsubscribe,
+    Rename {
+        to: String,
+    },
 }
 
 pub enum MessageOrCommand {

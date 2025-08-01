@@ -36,7 +36,7 @@ use ruma::{
             member::MembershipState,
             message::{RoomMessageEventContent, RoomMessageEventContentWithoutRelation},
         },
-        RoomAccountDataEventType, TimelineEventType,
+        Mentions, RoomAccountDataEventType, StateEventType, TimelineEventType,
     },
     int, mxc_uri, owned_event_id, room_id, thirdparty, user_id, OwnedUserId, RoomVersionId,
     TransactionId,
@@ -687,22 +687,20 @@ async fn test_typing_notice() {
 async fn test_room_state_event_send() {
     use ruma::events::room::member::{MembershipState, RoomMemberEventContent};
 
-    let (client, server) = logged_in_client_with_server().await;
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
 
-    Mock::given(method("PUT"))
-        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/state/.*"))
-        .and(header("authorization", "Bearer 1234"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(&*test_json::EVENT_ID))
-        .mount(&server)
+    server
+        .mock_room_send_state()
+        .for_type(StateEventType::RoomMember)
+        .for_key(user_id!("@foo:bar.com").to_string())
+        .ok(event_id!("$h29iv0s8:example.com"))
+        .mount()
         .await;
 
-    mock_sync(&server, &*test_json::SYNC, None).await;
+    server.mock_room_state_encryption().plain().mount().await;
 
-    let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
-
-    let _response = client.sync_once(sync_settings).await.unwrap();
-
-    let room = client.get_room(&DEFAULT_TEST_ROOM_ID).unwrap();
+    let room = server.sync_joined_room(&client, &DEFAULT_TEST_ROOM_ID).await;
 
     let avatar_url = mxc_uri!("mxc://example.org/avA7ar");
     let member_event = assign!(RoomMemberEventContent::new(MembershipState::Join), {
@@ -792,6 +790,8 @@ async fn test_fetch_members_deduplication() {
 async fn test_set_name() {
     let server = MatrixMockServer::new().await;
     let client = server.client_builder().build().await;
+
+    server.mock_room_state_encryption().plain().mount().await;
 
     let room = server.sync_joined_room(&client, &DEFAULT_TEST_ROOM_ID).await;
 
@@ -969,16 +969,22 @@ async fn test_get_users_with_power_levels_is_empty_if_power_level_info_is_not_av
 
 #[async_test]
 async fn test_reset_power_levels() {
-    let (client, server) = logged_in_client_with_server().await;
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().logged_in_with_oauth().build().await;
 
-    mock_sync(&server, &*CUSTOM_ROOM_POWER_LEVELS, None).await;
+    server.mock_room_state_encryption().plain().mount().await;
+    server
+        .mock_sync()
+        .respond_with(ResponseTemplate::new(200).set_body_json(&*CUSTOM_ROOM_POWER_LEVELS))
+        .mount()
+        .await;
 
     let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
     let _response = client.sync_once(sync_settings).await.unwrap();
     let room = client.get_room(&DEFAULT_TEST_ROOM_ID).unwrap();
 
     Mock::given(method("PUT"))
-        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/state/m.room.power_levels/$"))
+        .and(path_regex(r"^/_matrix/client/v3/rooms/.*/state/m.room.power_levels/$"))
         .and(header("authorization", "Bearer 1234"))
         .and(body_partial_json(json!({
             "events": {
@@ -993,7 +999,7 @@ async fn test_reset_power_levels() {
         })))
         .respond_with(ResponseTemplate::new(200).set_body_json(&*test_json::EVENT_ID))
         .expect(1)
-        .mount(&server)
+        .mount(server.server())
         .await;
 
     let initial_power_levels = room.power_levels().await.unwrap();

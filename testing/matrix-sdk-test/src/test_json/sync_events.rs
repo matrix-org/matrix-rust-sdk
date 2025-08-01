@@ -118,6 +118,7 @@ pub static JOIN_RULES: Lazy<JsonValue> = Lazy::new(|| {
 pub static ENCRYPTION_CONTENT: Lazy<JsonValue> = Lazy::new(|| {
     json!({
         "algorithm": "m.megolm.v1.aes-sha2",
+        "encrypt_state_events": false,
         "rotation_period_ms": 604800000,
         "rotation_period_msgs": 100
     })
