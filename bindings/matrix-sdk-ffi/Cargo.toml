@@ -38,7 +38,6 @@ sentry = ["dep:sentry", "dep:sentry-tracing"]
 
 [dependencies]
 anyhow.workspace = true
-as_variant.workspace = true
 extension-trait = "1.0.1"
 eyeball-im.workspace = true
 futures-util.workspace = true
