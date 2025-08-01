@@ -77,6 +77,10 @@ pub enum OlmError {
     #[error("encryption failed due to an error collecting the recipient devices: {0}")]
     SessionRecipientCollectionError(SessionRecipientCollectionError),
 
+    /// Encrypted content is withheld from this device
+    #[error("encryption content is withheld from this: {0}")]
+    Withheld(WithheldCode),
+
     /// Refused to decrypt because the sender was not verified or did not meet
     /// the required VerificationLevel.
     #[error(

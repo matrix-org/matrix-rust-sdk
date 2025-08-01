@@ -43,6 +43,7 @@ use crate::{
     olm::{
         InboundGroupSession, OutboundGroupSession, Session, ShareInfo, SignedJsonObject, VerifyJson,
     },
+    session_manager::{withheld_code_for_device_for_share_strategy, CollectStrategy},
     store::{
         caches::SequenceNumber,
         types::{Changes, DeviceChanges},
@@ -462,6 +463,8 @@ impl Device {
     /// * `event_type` - The type of the event to be sent.
     /// * `content` - The content of the event to be sent. This should be a type
     ///   that implements the `Serialize` trait.
+    /// * `share_strategy` - The share strategy to use to determine whether we
+    ///   should encrypt to the device.
     ///
     /// # Returns
     ///
@@ -472,7 +475,19 @@ impl Device {
         &self,
         event_type: &str,
         content: &Value,
+        share_strategy: CollectStrategy,
     ) -> OlmResult<Raw<ToDeviceEncryptedEventContent>> {
+        if let Some(withheld_code) = withheld_code_for_device_for_share_strategy(
+            &self.inner,
+            share_strategy,
+            &self.own_identity,
+            &self.device_owner_identity,
+        )
+        .await?
+        {
+            return Err(OlmError::Withheld(withheld_code));
+        }
+
         let (used_session, raw_encrypted) = self.encrypt(event_type, content).await?;
 
         // Persist the used session

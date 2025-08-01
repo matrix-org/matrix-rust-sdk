@@ -18,7 +18,8 @@ use matrix_sdk_crypto::{
     olm::ExportedRoomKey,
     store::types::{BackupDecryptionKey, Changes},
     types::requests::ToDeviceRequest,
-    DecryptionSettings, LocalTrust, OlmMachine as InnerMachine, UserIdentity as SdkUserIdentity,
+    CollectStrategy, DecryptionSettings, LocalTrust, OlmMachine as InnerMachine,
+    UserIdentity as SdkUserIdentity,
 };
 use ruma::{
     api::{
@@ -832,6 +833,7 @@ impl OlmMachine {
         device_id: String,
         event_type: String,
         content: String,
+        share_strategy: CollectStrategy,
     ) -> Result<Option<Request>, CryptoStoreError> {
         let user_id = parse_user_id(&user_id)?;
         let device_id = device_id.as_str().into();
@@ -840,8 +842,11 @@ impl OlmMachine {
         let device = self.runtime.block_on(self.inner.get_device(&user_id, device_id, None))?;
 
         if let Some(device) = device {
-            let encrypted_content =
-                self.runtime.block_on(device.encrypt_event_raw(&event_type, &content))?;
+            let encrypted_content = self.runtime.block_on(device.encrypt_event_raw(
+                &event_type,
+                &content,
+                share_strategy,
+            ))?;
 
             let request = ToDeviceRequest::new(
                 user_id.as_ref(),

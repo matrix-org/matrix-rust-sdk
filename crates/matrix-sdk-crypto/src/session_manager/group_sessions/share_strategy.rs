@@ -455,6 +455,266 @@ fn is_session_overshared_for_user(
     should_rotate
 }
 
+#[cfg(feature = "experimental-send-custom-to-device")]
+/// Partition the devices based on the given collect strategy
+pub(crate) async fn split_devices_for_share_strategy(
+    store: &Store,
+    devices: Vec<DeviceData>,
+    share_strategy: CollectStrategy,
+) -> OlmResult<(Vec<DeviceData>, Vec<(DeviceData, WithheldCode)>)> {
+    let own_identity = store.get_user_identity(store.user_id()).await?.and_then(|i| i.into_own());
+
+    let mut verified_users_with_new_identities: BTreeSet<OwnedUserId> = Default::default();
+
+    let mut allowed_devices: Vec<DeviceData> = Default::default();
+    let mut blocked_devices: Vec<(DeviceData, WithheldCode)> = Default::default();
+
+    let mut user_identities_cache: BTreeMap<OwnedUserId, Option<UserIdentityData>> =
+        Default::default();
+    let mut get_user_identity = async move |user_id| -> OlmResult<_> {
+        match user_identities_cache.get(user_id) {
+            Some(user_identity) => Ok(user_identity.clone()),
+            None => {
+                let user_identity = store.get_user_identity(user_id).await?;
+                user_identities_cache.insert(user_id.to_owned(), user_identity.clone());
+                Ok(user_identity)
+            }
+        }
+    };
+
+    match share_strategy {
+        CollectStrategy::AllDevices => {
+            for device in devices.iter() {
+                let user_id = device.user_id();
+                let device_owner_identity = get_user_identity(user_id).await?;
+
+                if let Some(withheld_code) = withheld_code_for_device_for_all_devices_strategy(
+                    device,
+                    &own_identity,
+                    &device_owner_identity,
+                ) {
+                    blocked_devices.push((device.clone(), withheld_code));
+                } else {
+                    allowed_devices.push(device.clone());
+                }
+            }
+        }
+
+        CollectStrategy::ErrorOnVerifiedUserProblem => {
+            // We throw an error if any user has a verification violation.  So
+            // we loop through all the devices given, and check if the
+            // associated user has a verification violation.  If so, we add the
+            // device to `unsigned_devices_of_verified_users`, which will be
+            // returned with the error.
+            let mut unsigned_devices_of_verified_users: BTreeMap<OwnedUserId, Vec<OwnedDeviceId>> =
+                Default::default();
+            let mut add_device_to_unsigned_devices_map = |user_id: &UserId, device: &DeviceData| {
+                let device_id = device.device_id().to_owned();
+                if let Some(devices) = unsigned_devices_of_verified_users.get_mut(user_id) {
+                    devices.push(device_id);
+                } else {
+                    unsigned_devices_of_verified_users.insert(user_id.to_owned(), vec![device_id]);
+                }
+            };
+
+            for device in devices.iter() {
+                let user_id = device.user_id();
+                let device_owner_identity = get_user_identity(user_id).await?;
+
+                if has_identity_verification_violation(
+                    own_identity.as_ref(),
+                    device_owner_identity.as_ref(),
+                ) {
+                    verified_users_with_new_identities.insert(user_id.to_owned());
+                } else {
+                    match handle_device_for_user_for_error_on_verified_user_problem_strategy(
+                        device,
+                        own_identity.as_ref(),
+                        device_owner_identity.as_ref(),
+                    ) {
+                        ErrorOnVerifiedUserProblemDeviceDecision::Ok => {
+                            allowed_devices.push(device.clone())
+                        }
+                        ErrorOnVerifiedUserProblemDeviceDecision::Withhold(code) => {
+                            blocked_devices.push((device.clone(), code))
+                        }
+                        ErrorOnVerifiedUserProblemDeviceDecision::UnsignedOfVerified => {
+                            add_device_to_unsigned_devices_map(user_id, device);
+                        }
+                    }
+                }
+            }
+
+            if !unsigned_devices_of_verified_users.is_empty() {
+                return Err(OlmError::SessionRecipientCollectionError(
+                    SessionRecipientCollectionError::VerifiedUserHasUnsignedDevice(
+                        unsigned_devices_of_verified_users,
+                    ),
+                ));
+            }
+        }
+
+        CollectStrategy::IdentityBasedStrategy => {
+            // We require our own cross-signing to be properly set up for the
+            // identity-based strategy, so return an error if it isn't.
+            match &own_identity {
+                None => {
+                    return Err(OlmError::SessionRecipientCollectionError(
+                        SessionRecipientCollectionError::CrossSigningNotSetup,
+                    ));
+                }
+                Some(identity) if !identity.is_verified() => {
+                    return Err(OlmError::SessionRecipientCollectionError(
+                        SessionRecipientCollectionError::SendingFromUnverifiedDevice,
+                    ));
+                }
+                Some(_) => (),
+            }
+
+            for device in devices.iter() {
+                let user_id = device.user_id();
+                let device_owner_identity = get_user_identity(user_id).await?;
+
+                if has_identity_verification_violation(
+                    own_identity.as_ref(),
+                    device_owner_identity.as_ref(),
+                ) {
+                    verified_users_with_new_identities.insert(user_id.to_owned());
+                } else if let Some(device_owner_identity) = device_owner_identity {
+                    if let Some(withheld_code) =
+                        withheld_code_for_device_with_owner_for_identity_based_strategy(
+                            device,
+                            &device_owner_identity,
+                        )
+                    {
+                        blocked_devices.push((device.clone(), withheld_code));
+                    } else {
+                        allowed_devices.push(device.clone());
+                    }
+                } else {
+                    panic!("Should have verification violation if device_owner_identity is None")
+                }
+            }
+        }
+
+        CollectStrategy::OnlyTrustedDevices => {
+            for device in devices.iter() {
+                let user_id = device.user_id();
+                let device_owner_identity = get_user_identity(user_id).await?;
+
+                if let Some(withheld_code) =
+                    withheld_code_for_device_for_only_trusted_devices_strategy(
+                        device,
+                        &own_identity,
+                        &device_owner_identity,
+                    )
+                {
+                    blocked_devices.push((device.clone(), withheld_code));
+                } else {
+                    allowed_devices.push(device.clone());
+                }
+            }
+        }
+    }
+
+    if !verified_users_with_new_identities.is_empty() {
+        return Err(OlmError::SessionRecipientCollectionError(
+            SessionRecipientCollectionError::VerifiedUserChangedIdentity(
+                verified_users_with_new_identities.into_iter().collect(),
+            ),
+        ));
+    }
+
+    Ok((allowed_devices, blocked_devices))
+}
+
+pub(crate) async fn withheld_code_for_device_for_share_strategy(
+    device: &DeviceData,
+    share_strategy: CollectStrategy,
+    own_identity: &Option<OwnUserIdentityData>,
+    device_owner_identity: &Option<UserIdentityData>,
+) -> OlmResult<Option<WithheldCode>> {
+    match share_strategy {
+        CollectStrategy::AllDevices => Ok(withheld_code_for_device_for_all_devices_strategy(
+            device,
+            own_identity,
+            device_owner_identity,
+        )),
+        CollectStrategy::ErrorOnVerifiedUserProblem => {
+            if has_identity_verification_violation(
+                own_identity.as_ref(),
+                device_owner_identity.as_ref(),
+            ) {
+                return Err(OlmError::SessionRecipientCollectionError(
+                    SessionRecipientCollectionError::VerifiedUserChangedIdentity(vec![device
+                        .user_id()
+                        .to_owned()]),
+                ));
+            }
+            match handle_device_for_user_for_error_on_verified_user_problem_strategy(
+                device,
+                own_identity.as_ref(),
+                device_owner_identity.as_ref(),
+            ) {
+                ErrorOnVerifiedUserProblemDeviceDecision::Ok => Ok(None),
+                ErrorOnVerifiedUserProblemDeviceDecision::Withhold(code) => Ok(Some(code)),
+                ErrorOnVerifiedUserProblemDeviceDecision::UnsignedOfVerified => {
+                    Err(OlmError::SessionRecipientCollectionError(
+                        SessionRecipientCollectionError::VerifiedUserHasUnsignedDevice(
+                            BTreeMap::from([(
+                                device.user_id().to_owned(),
+                                vec![device.device_id().to_owned()],
+                            )]),
+                        ),
+                    ))
+                }
+            }
+        }
+        CollectStrategy::IdentityBasedStrategy => {
+            // We require our own cross-signing to be properly set up for the
+            // identity-based strategy, so return false if it isn't.
+            match &own_identity {
+                None => {
+                    return Err(OlmError::SessionRecipientCollectionError(
+                        SessionRecipientCollectionError::CrossSigningNotSetup,
+                    ));
+                }
+                Some(identity) if !identity.is_verified() => {
+                    return Err(OlmError::SessionRecipientCollectionError(
+                        SessionRecipientCollectionError::SendingFromUnverifiedDevice,
+                    ));
+                }
+                Some(_) => (),
+            }
+
+            if has_identity_verification_violation(
+                own_identity.as_ref(),
+                device_owner_identity.as_ref(),
+            ) {
+                Err(OlmError::SessionRecipientCollectionError(
+                    SessionRecipientCollectionError::VerifiedUserChangedIdentity(vec![device
+                        .user_id()
+                        .to_owned()]),
+                ))
+            } else if let Some(device_owner_identity) = device_owner_identity {
+                Ok(withheld_code_for_device_with_owner_for_identity_based_strategy(
+                    device,
+                    device_owner_identity,
+                ))
+            } else {
+                panic!("Should have verification violation if device_owner_identity is None")
+            }
+        }
+        CollectStrategy::OnlyTrustedDevices => {
+            Ok(withheld_code_for_device_for_only_trusted_devices_strategy(
+                device,
+                own_identity,
+                device_owner_identity,
+            ))
+        }
+    }
+}
+
 /// Result type for [`split_devices_for_user_for_all_devices_strategy`],
 /// [`split_devices_for_user_for_error_on_verified_user_problem_strategy`],
 /// [`split_devices_for_user_for_identity_based_strategy`],
@@ -489,22 +749,41 @@ fn split_devices_for_user_for_all_devices_strategy(
     device_owner_identity: &Option<UserIdentityData>,
 ) -> RecipientDevicesForUser {
     let (left, right) = user_devices.into_values().partition_map(|d| {
-        if d.is_blacklisted() {
-            Either::Right((d, WithheldCode::Blacklisted))
-        } else if d.is_dehydrated()
-            && should_withhold_to_dehydrated_device(
-                &d,
-                own_identity.as_ref(),
-                device_owner_identity.as_ref(),
-            )
-        {
-            Either::Right((d, WithheldCode::Unverified))
+        if let Some(withheld_code) = withheld_code_for_device_for_all_devices_strategy(
+            &d,
+            own_identity,
+            device_owner_identity,
+        ) {
+            Either::Right((d, withheld_code))
         } else {
             Either::Left(d)
         }
     });
 
     RecipientDevicesForUser { allowed_devices: left, denied_devices_with_code: right }
+}
+
+/// Determine whether we should withhold encrypted messages from the given
+/// device, for [`CollectStrategy::AllDevices`], and if so, what withheld code
+/// to send.
+fn withheld_code_for_device_for_all_devices_strategy(
+    device_data: &DeviceData,
+    own_identity: &Option<OwnUserIdentityData>,
+    device_owner_identity: &Option<UserIdentityData>,
+) -> Option<WithheldCode> {
+    if device_data.is_blacklisted() {
+        Some(WithheldCode::Blacklisted)
+    } else if device_data.is_dehydrated()
+        && should_withhold_to_dehydrated_device(
+            device_data,
+            own_identity.as_ref(),
+            device_owner_identity.as_ref(),
+        )
+    {
+        Some(WithheldCode::Unverified)
+    } else {
+        None
+    }
 }
 
 /// Helper for [`split_devices_for_user_for_all_devices_strategy`].
@@ -634,10 +913,15 @@ fn split_devices_for_user_for_identity_based_strategy(
                 Vec<DeviceData>,
                 Vec<(DeviceData, WithheldCode)>,
             ) = user_devices.into_values().partition_map(|d| {
-                if d.is_cross_signed_by_owner(device_owner_identity) {
-                    Either::Left(d)
+                if let Some(withheld_code) =
+                    withheld_code_for_device_with_owner_for_identity_based_strategy(
+                        &d,
+                        device_owner_identity,
+                    )
+                {
+                    Either::Right((d, withheld_code))
                 } else {
-                    Either::Right((d, WithheldCode::Unverified))
+                    Either::Left(d)
                 }
             });
             RecipientDevicesForUser {
@@ -645,6 +929,20 @@ fn split_devices_for_user_for_identity_based_strategy(
                 denied_devices_with_code: withheld_recipients,
             }
         }
+    }
+}
+
+/// Determine whether we should withhold encrypted messages from the given
+/// device, for [`CollectStrategy::IdentityBased`], and if so, what withheld
+/// code to send.
+fn withheld_code_for_device_with_owner_for_identity_based_strategy(
+    device_data: &DeviceData,
+    device_owner_identity: &UserIdentityData,
+) -> Option<WithheldCode> {
+    if device_data.is_cross_signed_by_owner(device_owner_identity) {
+        None
+    } else {
+        Some(WithheldCode::Unverified)
     }
 }
 
@@ -656,17 +954,36 @@ fn split_devices_for_user_for_only_trusted_devices(
     device_owner_identity: &Option<UserIdentityData>,
 ) -> RecipientDevicesForUser {
     let (left, right) = user_devices.into_values().partition_map(|d| {
-        match (
-            d.local_trust_state(),
-            d.is_cross_signing_trusted(own_identity, device_owner_identity),
+        if let Some(withheld_code) = withheld_code_for_device_for_only_trusted_devices_strategy(
+            &d,
+            own_identity,
+            device_owner_identity,
         ) {
-            (LocalTrust::BlackListed, _) => Either::Right((d, WithheldCode::Blacklisted)),
-            (LocalTrust::Ignored | LocalTrust::Verified, _) => Either::Left(d),
-            (LocalTrust::Unset, false) => Either::Right((d, WithheldCode::Unverified)),
-            (LocalTrust::Unset, true) => Either::Left(d),
+            Either::Right((d, withheld_code))
+        } else {
+            Either::Left(d)
         }
     });
     RecipientDevicesForUser { allowed_devices: left, denied_devices_with_code: right }
+}
+
+/// Determine whether we should withhold encrypted messages from the given
+/// device, for [`CollectStrategy::OnlyTrustedDevices`], and if so, what
+/// withheld code to send.
+fn withheld_code_for_device_for_only_trusted_devices_strategy(
+    device_data: &DeviceData,
+    own_identity: &Option<OwnUserIdentityData>,
+    device_owner_identity: &Option<UserIdentityData>,
+) -> Option<WithheldCode> {
+    match (
+        device_data.local_trust_state(),
+        device_data.is_cross_signing_trusted(own_identity, device_owner_identity),
+    ) {
+        (LocalTrust::BlackListed, _) => Some(WithheldCode::Blacklisted),
+        (LocalTrust::Ignored | LocalTrust::Verified, _) => None,
+        (LocalTrust::Unset, false) => Some(WithheldCode::Unverified),
+        (LocalTrust::Unset, true) => None,
+    }
 }
 
 fn is_unsigned_device_of_verified_user(
@@ -710,7 +1027,7 @@ fn is_user_verified(
 
 #[cfg(test)]
 mod tests {
-    use std::{collections::BTreeMap, iter, sync::Arc};
+    use std::{collections::BTreeMap, iter, ops::Deref, sync::Arc};
 
     use assert_matches::assert_matches;
     use assert_matches2::assert_let;
@@ -726,20 +1043,25 @@ mod tests {
     use ruma::{
         device_id,
         events::{dummy::ToDeviceDummyEventContent, room::history_visibility::HistoryVisibility},
-        room_id, TransactionId,
+        room_id, DeviceId, TransactionId, UserId,
     };
     use serde_json::json;
 
+    #[cfg(feature = "experimental-send-custom-to-device")]
+    use super::split_devices_for_share_strategy;
     use crate::{
         error::SessionRecipientCollectionError,
         olm::{OutboundGroupSession, ShareInfo},
         session_manager::{
-            group_sessions::share_strategy::collect_session_recipients, CollectStrategy,
+            group_sessions::share_strategy::{
+                collect_session_recipients, withheld_code_for_device_for_share_strategy,
+            },
+            CollectStrategy,
         },
         store::caches::SequenceNumber,
         testing::simulate_key_query_response_for_verification,
         types::requests::ToDeviceRequest,
-        CrossSigningKeyExport, EncryptionSettings, LocalTrust, OlmError, OlmMachine,
+        CrossSigningKeyExport, DeviceData, EncryptionSettings, LocalTrust, OlmError, OlmMachine,
     };
 
     /// Returns an `OlmMachine` set up for the test user in
@@ -764,6 +1086,38 @@ mod tests {
             .unwrap();
 
         machine
+    }
+
+    /// Get the `DeviceData` struct for the given user's device.
+    async fn get_device_data(
+        machine: &OlmMachine,
+        user_id: &UserId,
+        device_id: &DeviceId,
+    ) -> DeviceData {
+        machine.get_device(user_id, device_id, None).await.unwrap().unwrap().deref().clone()
+    }
+
+    async fn get_own_identity_data(
+        machine: &OlmMachine,
+        user_id: &UserId,
+    ) -> Option<crate::OwnUserIdentityData> {
+        machine
+            .get_identity(user_id, None)
+            .await
+            .unwrap()
+            .and_then(|i| i.own())
+            .map(|i| i.deref().clone())
+    }
+
+    async fn get_user_identity_data(
+        machine: &OlmMachine,
+        user_id: &UserId,
+    ) -> Option<crate::UserIdentityData> {
+        use crate::{identities::user::UserIdentityData, UserIdentity};
+        machine.get_identity(user_id, None).await.unwrap().map(|i| match i {
+            UserIdentity::Own(i) => UserIdentityData::Own(i.deref().clone()),
+            UserIdentity::Other(i) => UserIdentityData::Other(i.deref().clone()),
+        })
     }
 
     /// Import device data for `@dan`, `@dave`, and `@good`, as referenced in
@@ -874,6 +1228,49 @@ mod tests {
         assert_eq!(dan_devices_shared.len(), 2);
         assert_eq!(dave_devices_shared.len(), 1);
         assert_eq!(good_devices_shared.len(), 2);
+
+        #[cfg(feature = "experimental-send-custom-to-device")]
+        {
+            // construct the list of all devices from the result of
+            // collect_session_recipients, because that gives us the devices as
+            // `DeviceData`
+            let mut all_devices = dan_devices_shared.clone();
+            all_devices.append(&mut dave_devices_shared.clone());
+            all_devices.append(&mut good_devices_shared.clone());
+
+            let (shared_devices, withheld_devices) = split_devices_for_share_strategy(
+                machine.store(),
+                all_devices,
+                CollectStrategy::AllDevices,
+            )
+            .await
+            .unwrap();
+
+            assert_eq!(shared_devices.len(), 5);
+            assert_eq!(withheld_devices.len(), 0);
+        }
+
+        let own_identity_data =
+            get_own_identity_data(&machine, KeyDistributionTestData::me_id()).await;
+        let dan_identity_data =
+            get_user_identity_data(&machine, KeyDistributionTestData::dan_id()).await;
+
+        assert_eq!(
+            withheld_code_for_device_for_share_strategy(
+                &get_device_data(
+                    &machine,
+                    KeyDistributionTestData::dan_id(),
+                    KeyDistributionTestData::dan_signed_device_id()
+                )
+                .await,
+                CollectStrategy::AllDevices,
+                &own_identity_data,
+                &dan_identity_data,
+            )
+            .await
+            .unwrap(),
+            None,
+        );
     }
 
     #[async_test]
@@ -938,6 +1335,124 @@ mod tests {
             .expect("This daves's device should receive a withheld code");
 
         assert_eq!(code, &WithheldCode::Unverified);
+
+        #[cfg(feature = "experimental-send-custom-to-device")]
+        {
+            let all_devices: Vec<DeviceData> = vec![
+                get_device_data(
+                    &machine,
+                    KeyDistributionTestData::dan_id(),
+                    KeyDistributionTestData::dan_unsigned_device_id(),
+                )
+                .await,
+                get_device_data(
+                    &machine,
+                    KeyDistributionTestData::dan_id(),
+                    KeyDistributionTestData::dan_signed_device_id(),
+                )
+                .await,
+                get_device_data(
+                    &machine,
+                    KeyDistributionTestData::dave_id(),
+                    KeyDistributionTestData::dave_device_id(),
+                )
+                .await,
+                get_device_data(
+                    &machine,
+                    KeyDistributionTestData::good_id(),
+                    KeyDistributionTestData::good_device_1_id(),
+                )
+                .await,
+                get_device_data(
+                    &machine,
+                    KeyDistributionTestData::good_id(),
+                    KeyDistributionTestData::good_device_2_id(),
+                )
+                .await,
+            ];
+
+            let (shared_devices, withheld_devices) = split_devices_for_share_strategy(
+                machine.store(),
+                all_devices,
+                CollectStrategy::OnlyTrustedDevices,
+            )
+            .await
+            .unwrap();
+
+            assert_eq!(shared_devices.len(), 1);
+            assert_eq!(
+                shared_devices[0].device_id().as_str(),
+                KeyDistributionTestData::dan_signed_device_id()
+            );
+
+            assert_eq!(withheld_devices.len(), 4);
+            assert_eq!(
+                withheld_devices[0].0.device_id().as_str(),
+                KeyDistributionTestData::dan_unsigned_device_id()
+            );
+            assert_eq!(withheld_devices[0].1, WithheldCode::Unverified);
+            assert_eq!(
+                withheld_devices[1].0.device_id().as_str(),
+                KeyDistributionTestData::dave_device_id()
+            );
+            assert_eq!(withheld_devices[1].1, WithheldCode::Unverified);
+        }
+
+        let own_identity_data =
+            get_own_identity_data(&machine, KeyDistributionTestData::me_id()).await;
+        let dan_identity_data =
+            get_user_identity_data(&machine, KeyDistributionTestData::dan_id()).await;
+        let dave_identity_data =
+            get_user_identity_data(&machine, KeyDistributionTestData::dave_id()).await;
+
+        assert_eq!(
+            withheld_code_for_device_for_share_strategy(
+                &get_device_data(
+                    &machine,
+                    KeyDistributionTestData::dan_id(),
+                    KeyDistributionTestData::dan_signed_device_id()
+                )
+                .await,
+                CollectStrategy::OnlyTrustedDevices,
+                &own_identity_data,
+                &dan_identity_data,
+            )
+            .await
+            .unwrap(),
+            None,
+        );
+        assert_eq!(
+            withheld_code_for_device_for_share_strategy(
+                &get_device_data(
+                    &machine,
+                    KeyDistributionTestData::dan_id(),
+                    KeyDistributionTestData::dan_unsigned_device_id()
+                )
+                .await,
+                CollectStrategy::OnlyTrustedDevices,
+                &own_identity_data,
+                &dan_identity_data,
+            )
+            .await
+            .unwrap(),
+            Some(WithheldCode::Unverified),
+        );
+        assert_eq!(
+            withheld_code_for_device_for_share_strategy(
+                &get_device_data(
+                    &machine,
+                    KeyDistributionTestData::dave_id(),
+                    KeyDistributionTestData::dave_device_id()
+                )
+                .await,
+                CollectStrategy::OnlyTrustedDevices,
+                &own_identity_data,
+                &dave_identity_data,
+            )
+            .await
+            .unwrap(),
+            Some(WithheldCode::Unverified),
+        );
     }
 
     /// Test that [`collect_session_recipients`] returns an error if there are
@@ -994,6 +1509,77 @@ mod tests {
                 ),
             ])
         );
+
+        #[cfg(feature = "experimental-send-custom-to-device")]
+        {
+            let all_devices = vec![
+                get_device_data(&machine, DataSet::bob_id(), DataSet::bob_device_1_id()).await,
+                get_device_data(&machine, DataSet::bob_id(), DataSet::bob_device_2_id()).await,
+                get_device_data(&machine, DataSet::carol_id(), DataSet::carol_signed_device_id())
+                    .await,
+                get_device_data(&machine, DataSet::carol_id(), DataSet::carol_unsigned_device_id())
+                    .await,
+            ];
+
+            let split_result = split_devices_for_share_strategy(
+                machine.store(),
+                all_devices,
+                CollectStrategy::ErrorOnVerifiedUserProblem,
+            )
+            .await;
+
+            assert_let!(
+                Err(OlmError::SessionRecipientCollectionError(
+                    SessionRecipientCollectionError::VerifiedUserHasUnsignedDevice(
+                        unverified_devices
+                    )
+                )) = split_result
+            );
+
+            // Check the list of devices in the error.
+            assert_eq!(
+                unverified_devices,
+                BTreeMap::from([
+                    (DataSet::bob_id().to_owned(), vec![DataSet::bob_device_2_id().to_owned()]),
+                    (
+                        DataSet::carol_id().to_owned(),
+                        vec![DataSet::carol_unsigned_device_id().to_owned()]
+                    ),
+                ])
+            );
+        }
+
+        let own_identity_data = get_own_identity_data(&machine, DataSet::own_id()).await;
+        let carol_identity_data = get_user_identity_data(&machine, DataSet::carol_id()).await;
+
+        assert_eq!(
+            withheld_code_for_device_for_share_strategy(
+                &get_device_data(&machine, DataSet::carol_id(), DataSet::carol_signed_device_id())
+                    .await,
+                CollectStrategy::ErrorOnVerifiedUserProblem,
+                &own_identity_data,
+                &carol_identity_data,
+            )
+            .await
+            .unwrap(),
+            None,
+        );
+        assert_let!(
+            Err(OlmError::SessionRecipientCollectionError(
+                SessionRecipientCollectionError::VerifiedUserHasUnsignedDevice(_)
+            )) = withheld_code_for_device_for_share_strategy(
+                &get_device_data(
+                    &machine,
+                    DataSet::carol_id(),
+                    DataSet::carol_unsigned_device_id()
+                )
+                .await,
+                CollectStrategy::ErrorOnVerifiedUserProblem,
+                &own_identity_data,
+                &carol_identity_data,
+            )
+            .await
+        );
     }
 
     /// Test that we can resolve errors from
@@ -1030,6 +1616,40 @@ mod tests {
 
         assert_eq!(2, share_result.devices.get(DataSet::bob_id()).unwrap().len());
         assert_eq!(0, share_result.withheld_devices.len());
+
+        #[cfg(feature = "experimental-send-custom-to-device")]
+        {
+            let all_devices = vec![
+                get_device_data(&machine, DataSet::bob_id(), DataSet::bob_device_1_id()).await,
+                get_device_data(&machine, DataSet::bob_id(), DataSet::bob_device_2_id()).await,
+            ];
+
+            let (shared_devices, withheld_devices) = split_devices_for_share_strategy(
+                machine.store(),
+                all_devices,
+                CollectStrategy::ErrorOnVerifiedUserProblem,
+            )
+            .await
+            .unwrap();
+
+            assert_eq!(shared_devices.len(), 2);
+            assert_eq!(withheld_devices.len(), 0);
+        }
+
+        let own_identity_data = get_own_identity_data(&machine, DataSet::own_id()).await;
+        let bob_identity_data = get_user_identity_data(&machine, DataSet::bob_id()).await;
+
+        assert_eq!(
+            withheld_code_for_device_for_share_strategy(
+                &get_device_data(&machine, DataSet::bob_id(), DataSet::bob_device_2_id()).await,
+                CollectStrategy::ErrorOnVerifiedUserProblem,
+                &own_identity_data,
+                &bob_identity_data,
+            )
+            .await
+            .unwrap(),
+            None,
+        );
     }
 
     /// Test that we can resolve errors from
@@ -1073,6 +1693,41 @@ mod tests {
         assert_eq!(
             withheld_list,
             vec![(DataSet::bob_device_2_id().to_owned(), WithheldCode::Blacklisted)]
+        );
+
+        let bob_device_2 =
+            get_device_data(&machine, DataSet::bob_id(), DataSet::bob_device_2_id()).await;
+        #[cfg(feature = "experimental-send-custom-to-device")]
+        {
+            let bob_device_1 =
+                get_device_data(&machine, DataSet::bob_id(), DataSet::bob_device_1_id()).await;
+            let all_devices = vec![bob_device_1.clone(), bob_device_2.clone()];
+
+            let (shared_devices, withheld_devices) = split_devices_for_share_strategy(
+                machine.store(),
+                all_devices,
+                CollectStrategy::ErrorOnVerifiedUserProblem,
+            )
+            .await
+            .unwrap();
+
+            assert_eq!(shared_devices, vec![bob_device_1.clone()]);
+            assert_eq!(withheld_devices, vec![(bob_device_2.clone(), WithheldCode::Blacklisted)]);
+        }
+
+        let own_identity_data = get_own_identity_data(&machine, DataSet::own_id()).await;
+        let bob_identity_data = get_user_identity_data(&machine, DataSet::bob_id()).await;
+
+        assert_eq!(
+            withheld_code_for_device_for_share_strategy(
+                &bob_device_2,
+                CollectStrategy::ErrorOnVerifiedUserProblem,
+                &own_identity_data,
+                &bob_identity_data,
+            )
+            .await
+            .unwrap(),
+            Some(WithheldCode::Blacklisted),
         );
     }
 
@@ -1119,6 +1774,55 @@ mod tests {
                 DataSet::own_id().to_owned(),
                 vec![DataSet::own_unsigned_device_id()]
             ),])
+        );
+
+        #[cfg(feature = "experimental-send-custom-to-device")]
+        {
+            let all_devices = vec![
+                get_device_data(&machine, DataSet::own_id(), &DataSet::own_signed_device_id())
+                    .await,
+                get_device_data(&machine, DataSet::own_id(), &DataSet::own_unsigned_device_id())
+                    .await,
+            ];
+
+            let split_result = split_devices_for_share_strategy(
+                machine.store(),
+                all_devices,
+                CollectStrategy::ErrorOnVerifiedUserProblem,
+            )
+            .await;
+            assert_let!(
+                Err(OlmError::SessionRecipientCollectionError(
+                    SessionRecipientCollectionError::VerifiedUserHasUnsignedDevice(
+                        unverified_devices
+                    )
+                )) = split_result
+            );
+
+            // Check the list of devices in the error.
+            assert_eq!(
+                unverified_devices,
+                BTreeMap::from([(
+                    DataSet::own_id().to_owned(),
+                    vec![DataSet::own_unsigned_device_id()]
+                ),])
+            );
+        }
+
+        let own_identity_data = get_own_identity_data(&machine, DataSet::own_id()).await;
+        let own_user_identity_data = get_user_identity_data(&machine, DataSet::own_id()).await;
+
+        assert_let!(
+            Err(OlmError::SessionRecipientCollectionError(
+                SessionRecipientCollectionError::VerifiedUserHasUnsignedDevice(_)
+            )) = withheld_code_for_device_for_share_strategy(
+                &get_device_data(&machine, DataSet::own_id(), &DataSet::own_unsigned_device_id())
+                    .await,
+                CollectStrategy::ErrorOnVerifiedUserProblem,
+                &own_identity_data,
+                &own_user_identity_data,
+            )
+            .await
         );
     }
 
@@ -1170,6 +1874,40 @@ mod tests {
         )
         .await
         .unwrap();
+
+        #[cfg(feature = "experimental-send-custom-to-device")]
+        {
+            let all_devices = vec![
+                get_device_data(&machine, DataSet::bob_id(), DataSet::bob_device_1_id()).await,
+                get_device_data(&machine, DataSet::bob_id(), DataSet::bob_device_2_id()).await,
+            ];
+
+            let (shared_devices, withheld_devices) = split_devices_for_share_strategy(
+                machine.store(),
+                all_devices,
+                CollectStrategy::ErrorOnVerifiedUserProblem,
+            )
+            .await
+            .unwrap();
+
+            assert_eq!(shared_devices.len(), 2);
+            assert_eq!(withheld_devices.len(), 0);
+        }
+
+        let own_identity_data = get_own_identity_data(&machine, DataSet::own_id()).await;
+        let bob_identity_data = get_user_identity_data(&machine, DataSet::bob_id()).await;
+
+        assert_eq!(
+            withheld_code_for_device_for_share_strategy(
+                &get_device_data(&machine, DataSet::bob_id(), DataSet::bob_device_2_id()).await,
+                CollectStrategy::ErrorOnVerifiedUserProblem,
+                &own_identity_data,
+                &bob_identity_data,
+            )
+            .await
+            .unwrap(),
+            None,
+        );
     }
 
     /// Test that an unsigned device of a signed user doesn't cause an
@@ -1217,6 +1955,40 @@ mod tests {
         )
         .await
         .unwrap();
+
+        #[cfg(feature = "experimental-send-custom-to-device")]
+        {
+            let all_devices = vec![
+                get_device_data(&machine, DataSet::bob_id(), DataSet::bob_device_1_id()).await,
+                get_device_data(&machine, DataSet::bob_id(), DataSet::bob_device_2_id()).await,
+            ];
+
+            let (shared_devices, withheld_devices) = split_devices_for_share_strategy(
+                machine.store(),
+                all_devices,
+                CollectStrategy::ErrorOnVerifiedUserProblem,
+            )
+            .await
+            .unwrap();
+
+            assert_eq!(shared_devices.len(), 2);
+            assert_eq!(withheld_devices.len(), 0);
+        }
+
+        let own_identity_data = get_own_identity_data(&machine, DataSet::own_id()).await;
+        let bob_identity_data = get_user_identity_data(&machine, DataSet::bob_id()).await;
+
+        assert_eq!(
+            withheld_code_for_device_for_share_strategy(
+                &get_device_data(&machine, DataSet::bob_id(), DataSet::bob_device_2_id()).await,
+                CollectStrategy::ErrorOnVerifiedUserProblem,
+                &own_identity_data,
+                &bob_identity_data,
+            )
+            .await
+            .unwrap(),
+            None,
+        );
     }
 
     /// Test that a verified user changing their identity causes an error in
@@ -1256,6 +2028,42 @@ mod tests {
         );
         assert_eq!(violating_users, vec![DataSet::bob_id()]);
 
+        #[cfg(feature = "experimental-send-custom-to-device")]
+        {
+            let all_devices = vec![
+                get_device_data(&machine, DataSet::bob_id(), DataSet::bob_device_1_id()).await,
+                get_device_data(&machine, DataSet::bob_id(), DataSet::bob_device_2_id()).await,
+            ];
+
+            let split_result = split_devices_for_share_strategy(
+                machine.store(),
+                all_devices,
+                CollectStrategy::ErrorOnVerifiedUserProblem,
+            )
+            .await;
+            assert_let!(
+                Err(OlmError::SessionRecipientCollectionError(
+                    SessionRecipientCollectionError::VerifiedUserChangedIdentity(violating_users)
+                )) = split_result
+            );
+            assert_eq!(violating_users, vec![DataSet::bob_id()]);
+        }
+
+        let own_identity_data = get_own_identity_data(&machine, DataSet::own_id()).await;
+        let bob_identity_data = get_user_identity_data(&machine, DataSet::bob_id()).await;
+
+        assert_let!(
+            Err(OlmError::SessionRecipientCollectionError(
+                SessionRecipientCollectionError::VerifiedUserChangedIdentity(_)
+            )) = withheld_code_for_device_for_share_strategy(
+                &get_device_data(&machine, DataSet::bob_id(), DataSet::bob_device_1_id()).await,
+                CollectStrategy::ErrorOnVerifiedUserProblem,
+                &own_identity_data,
+                &bob_identity_data,
+            )
+            .await
+        );
+
         // Resolve by calling withdraw_verification
         bob_identity.withdraw_verification().await.unwrap();
 
@@ -1267,6 +2075,37 @@ mod tests {
         )
         .await
         .unwrap();
+
+        #[cfg(feature = "experimental-send-custom-to-device")]
+        {
+            let all_devices = vec![
+                get_device_data(&machine, DataSet::bob_id(), DataSet::bob_device_1_id()).await,
+                get_device_data(&machine, DataSet::bob_id(), DataSet::bob_device_2_id()).await,
+            ];
+
+            split_devices_for_share_strategy(
+                machine.store(),
+                all_devices,
+                CollectStrategy::ErrorOnVerifiedUserProblem,
+            )
+            .await
+            .unwrap();
+        }
+
+        let own_identity_data = get_own_identity_data(&machine, DataSet::own_id()).await;
+        let bob_identity_data = get_user_identity_data(&machine, DataSet::bob_id()).await;
+
+        assert_eq!(
+            withheld_code_for_device_for_share_strategy(
+                &get_device_data(&machine, DataSet::bob_id(), DataSet::bob_device_1_id()).await,
+                CollectStrategy::ErrorOnVerifiedUserProblem,
+                &own_identity_data,
+                &bob_identity_data,
+            )
+            .await
+            .unwrap(),
+            None,
+        );
     }
 
     /// Test that our own identity being changed causes an error in
@@ -1306,6 +2145,41 @@ mod tests {
         );
         assert_eq!(violating_users, vec![DataSet::own_id()]);
 
+        #[cfg(feature = "experimental-send-custom-to-device")]
+        {
+            let all_devices: Vec<DeviceData> =
+                vec![get_device_data(&machine, DataSet::own_id(), machine.device_id()).await];
+
+            let split_result = split_devices_for_share_strategy(
+                machine.store(),
+                all_devices,
+                CollectStrategy::ErrorOnVerifiedUserProblem,
+            )
+            .await;
+
+            assert_let!(
+                Err(OlmError::SessionRecipientCollectionError(
+                    SessionRecipientCollectionError::VerifiedUserChangedIdentity(violating_users)
+                )) = split_result
+            );
+            assert_eq!(violating_users, vec![DataSet::own_id()]);
+        }
+
+        let own_identity_data = get_own_identity_data(&machine, DataSet::own_id()).await;
+        let own_user_identity_data = get_user_identity_data(&machine, DataSet::own_id()).await;
+
+        assert_let!(
+            Err(OlmError::SessionRecipientCollectionError(
+                SessionRecipientCollectionError::VerifiedUserChangedIdentity(_)
+            )) = withheld_code_for_device_for_share_strategy(
+                &get_device_data(&machine, DataSet::own_id(), machine.device_id()).await,
+                CollectStrategy::ErrorOnVerifiedUserProblem,
+                &own_identity_data,
+                &own_user_identity_data,
+            )
+            .await
+        );
+
         // Resolve by calling withdraw_verification
         own_identity.withdraw_verification().await.unwrap();
 
@@ -1314,6 +2188,32 @@ mod tests {
             iter::once(DataSet::own_id()),
             &encryption_settings,
             &group_session,
+        )
+        .await
+        .unwrap();
+
+        #[cfg(feature = "experimental-send-custom-to-device")]
+        {
+            let all_devices: Vec<DeviceData> =
+                vec![get_device_data(&machine, DataSet::own_id(), machine.device_id()).await];
+
+            split_devices_for_share_strategy(
+                machine.store(),
+                all_devices,
+                CollectStrategy::ErrorOnVerifiedUserProblem,
+            )
+            .await
+            .unwrap();
+        }
+
+        let own_identity_data = get_own_identity_data(&machine, DataSet::own_id()).await;
+        let own_user_identity_data = get_user_identity_data(&machine, DataSet::own_id()).await;
+
+        withheld_code_for_device_for_share_strategy(
+            &get_device_data(&machine, DataSet::own_id(), machine.device_id()).await,
+            CollectStrategy::ErrorOnVerifiedUserProblem,
+            &own_identity_data,
+            &own_user_identity_data,
         )
         .await
         .unwrap();

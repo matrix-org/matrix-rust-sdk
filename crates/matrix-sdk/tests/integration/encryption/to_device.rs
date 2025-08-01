@@ -5,6 +5,7 @@ use std::{future, sync::Arc};
 use assert_matches::assert_matches;
 use assert_matches2::assert_let;
 use matrix_sdk::test_utils::mocks::MatrixMockServer;
+use matrix_sdk_base::crypto::CollectStrategy;
 use matrix_sdk_common::{
     deserialized_responses::{AlgorithmInfo, EncryptionInfo},
     locks::Mutex,
@@ -63,7 +64,12 @@ async fn test_encrypt_and_send_to_device() {
 
     alice
         .encryption()
-        .encrypt_and_send_raw_to_device(vec![&alice_bob_device], "call.keys", content_raw)
+        .encrypt_and_send_raw_to_device(
+            vec![&alice_bob_device],
+            "call.keys",
+            content_raw,
+            CollectStrategy::AllDevices,
+        )
         .await
         .unwrap();
 }
@@ -115,7 +121,12 @@ async fn test_encrypt_and_send_to_device_report_failures_server() {
 
     let result = alice
         .encryption()
-        .encrypt_and_send_raw_to_device(vec![&alice_bob_device], "call.keys", content_raw)
+        .encrypt_and_send_raw_to_device(
+            vec![&alice_bob_device],
+            "call.keys",
+            content_raw,
+            CollectStrategy::AllDevices,
+        )
         .await
         .unwrap();
 
@@ -165,7 +176,12 @@ async fn test_to_device_event_handler_olm_encryption_info() {
 
     alice
         .encryption()
-        .encrypt_and_send_raw_to_device(vec![&alice_bob_device], "call.keys", content_raw)
+        .encrypt_and_send_raw_to_device(
+            vec![&alice_bob_device],
+            "call.keys",
+            content_raw,
+            CollectStrategy::AllDevices,
+        )
         .await
         .unwrap();
 
@@ -247,7 +263,12 @@ async fn test_encrypt_and_send_to_device_report_failures_encryption_error() {
 
     let result = alice
         .encryption()
-        .encrypt_and_send_raw_to_device(vec![&alice_bob_device], "call.keys", content_raw)
+        .encrypt_and_send_raw_to_device(
+            vec![&alice_bob_device],
+            "call.keys",
+            content_raw,
+            CollectStrategy::AllDevices,
+        )
         .await
         .unwrap();
 

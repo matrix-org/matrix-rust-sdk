@@ -39,6 +39,7 @@ use tokio::sync::Mutex;
 use crate::{
     machine::tests,
     olm::PrivateCrossSigningIdentity,
+    session_manager::CollectStrategy,
     store::{types::Changes, CryptoStoreWrapper, MemoryStore},
     types::{
         events::ToDeviceEvent,
@@ -194,7 +195,7 @@ pub async fn send_and_receive_encrypted_to_device_test_helper(
         sender.get_device(recipient.user_id(), recipient.device_id(), None).await.unwrap().unwrap();
 
     let raw_encrypted = device
-        .encrypt_event_raw(event_type, content)
+        .encrypt_event_raw(event_type, content, CollectStrategy::AllDevices)
         .await
         .expect("Should have encrypted the content");
 

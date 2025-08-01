@@ -34,6 +34,7 @@ use crate::{
         tests::{self, decryption_verification_state::mark_alice_identity_as_verified_test_helper},
     },
     olm::SenderData,
+    session_manager::CollectStrategy,
     types::{
         events::{
             room::encrypted::ToDeviceEncryptedEventContent, EventType as _, ToDeviceCustomEvent,
@@ -443,7 +444,7 @@ async fn test_processed_to_device_variants() {
 
     let device = alice.get_device(bob.user_id(), bob.device_id(), None).await.unwrap().unwrap();
     let raw_encrypted = device
-        .encrypt_event_raw(custom_event_type, &custom_content)
+        .encrypt_event_raw(custom_event_type, &custom_content, CollectStrategy::AllDevices)
         .await
         .expect("Should have encryted the content");
 
@@ -600,7 +601,7 @@ async fn test_send_encrypted_to_device_no_session() {
         .await
         .unwrap()
         .unwrap()
-        .encrypt_event_raw(custom_event_type, &custom_content)
+        .encrypt_event_raw(custom_event_type, &custom_content, CollectStrategy::AllDevices)
         .await;
 
     assert_matches!(encryption_result, Err(OlmError::MissingSession));
@@ -699,4 +700,51 @@ async fn make_alice_unverified(alice: &OlmMachine, bob: &OlmMachine) {
     let kq_response = ruma_response_from_json(&json);
     alice.receive_keys_query_response(&TransactionId::new(), &kq_response).await.unwrap();
     bob.receive_keys_query_response(&TransactionId::new(), &kq_response).await.unwrap();
+}
+
+#[async_test]
+/// Test that when we get an error when we try to encrypt to a device that
+/// doesn't satisfy the share strategy.
+async fn test_share_strategy_prevents_encryption() {
+    use matrix_sdk_common::deserialized_responses::WithheldCode;
+    use matrix_sdk_test::test_json::keys_query_sets::KeyDistributionTestData as DataSet;
+    use ruma::TransactionId;
+
+    use crate::CrossSigningKeyExport;
+
+    // Create the local user (`@me`), and import the public identity keys
+    let machine = OlmMachine::new(DataSet::me_id(), DataSet::me_device_id()).await;
+    let keys_query = DataSet::me_keys_query_response();
+    machine.mark_request_as_sent(&TransactionId::new(), &keys_query).await.unwrap();
+
+    // Also import the private cross signing keys
+    machine
+        .import_cross_signing_keys(CrossSigningKeyExport {
+            master_key: DataSet::MASTER_KEY_PRIVATE_EXPORT.to_owned().into(),
+            self_signing_key: DataSet::SELF_SIGNING_KEY_PRIVATE_EXPORT.to_owned().into(),
+            user_signing_key: DataSet::USER_SIGNING_KEY_PRIVATE_EXPORT.to_owned().into(),
+        })
+        .await
+        .unwrap();
+
+    let keys_query = DataSet::dan_keys_query_response();
+    let txn_id = TransactionId::new();
+    machine.mark_request_as_sent(&txn_id, &keys_query).await.unwrap();
+
+    let custom_event_type = "m.new_device";
+
+    let custom_content = json!({
+            "device_id": "XYZABCDE",
+            "rooms": ["!726s6s6q:example.com"]
+    });
+
+    let encryption_result = machine
+        .get_device(DataSet::dan_id(), DataSet::dan_unsigned_device_id(), None)
+        .await
+        .unwrap()
+        .unwrap()
+        .encrypt_event_raw(custom_event_type, &custom_content, CollectStrategy::OnlyTrustedDevices)
+        .await;
+
+    assert_matches!(encryption_result, Err(OlmError::Withheld(WithheldCode::Unverified)));
 }

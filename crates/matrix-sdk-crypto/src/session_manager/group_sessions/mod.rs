@@ -35,8 +35,12 @@ use ruma::{
     UserId,
 };
 use serde::Serialize;
-pub(crate) use share_strategy::CollectRecipientsResult;
+#[cfg(feature = "experimental-send-custom-to-device")]
+pub(crate) use share_strategy::split_devices_for_share_strategy;
 pub use share_strategy::CollectStrategy;
+pub(crate) use share_strategy::{
+    withheld_code_for_device_for_share_strategy, CollectRecipientsResult,
+};
 use tracing::{debug, error, info, instrument, trace, warn, Instrument};
 
 use crate::{

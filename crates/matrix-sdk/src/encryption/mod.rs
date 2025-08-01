@@ -32,6 +32,8 @@ use futures_util::{
     future::try_join,
     stream::{self, StreamExt},
 };
+#[cfg(feature = "experimental-send-custom-to-device")]
+use matrix_sdk_base::crypto::CollectStrategy;
 use matrix_sdk_base::crypto::{
     store::types::{RoomKeyBundleInfo, RoomKeyInfo},
     types::requests::{
@@ -1808,6 +1810,7 @@ impl Encryption {
         recipient_devices: Vec<&Device>,
         event_type: &str,
         content: Raw<AnyToDeviceEventContent>,
+        share_strategy: CollectStrategy,
     ) -> Result<Vec<(OwnedUserId, OwnedDeviceId)>> {
         let users = recipient_devices.iter().map(|device| device.user_id());
 
@@ -1826,6 +1829,7 @@ impl Encryption {
                 &content
                     .deserialize_as::<serde_json::Value>()
                     .expect("Deserialize as Value will always work"),
+                share_strategy,
             )
             .await?;
 
