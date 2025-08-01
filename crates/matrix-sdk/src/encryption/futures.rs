@@ -28,15 +28,20 @@ use crate::{config::RequestConfig, Client, Media, Result, TransmissionProgress};
 /// Future returned by [`Client::upload_encrypted_file`].
 #[allow(missing_debug_implementations)]
 pub struct UploadEncryptedFile<'a, R: ?Sized> {
-    client: &'a Client,
+    client: Client,
     reader: &'a mut R,
     send_progress: SharedObservable<TransmissionProgress>,
     request_config: Option<RequestConfig>,
 }
 
 impl<'a, R: ?Sized> UploadEncryptedFile<'a, R> {
-    pub(crate) fn new(client: &'a Client, reader: &'a mut R) -> Self {
-        Self { client, reader, send_progress: Default::default(), request_config: None }
+    pub(crate) fn new(client: &Client, reader: &'a mut R) -> Self {
+        Self {
+            client: client.clone(),
+            reader,
+            send_progress: Default::default(),
+            request_config: None,
+        }
     }
 
     /// Replace the default `SharedObservable` used for tracking upload
