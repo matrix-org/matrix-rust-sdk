@@ -23,6 +23,7 @@ use matrix_sdk_common::deserialized_responses::TimelineEvent;
 use ruma::{
     JsOption, OwnedRoomId, RoomId, UserId,
     api::client::sync::sync_events::{
+        StrippedState,
         v3::{InviteState, InvitedRoom, KnockState, KnockedRoom},
         v5 as http,
     },
@@ -225,7 +226,7 @@ pub async fn update_any_room(
 fn membership(
     context: &mut Context,
     state_events: &[AnySyncStateEvent],
-    invite_state_events: &Option<(Vec<Raw<AnyStrippedStateEvent>>, Vec<AnyStrippedStateEvent>)>,
+    invite_state_events: &Option<(Vec<Raw<StrippedState>>, Vec<AnyStrippedStateEvent>)>,
     store: &BaseStateStore,
     user_id: &UserId,
     room_id: &RoomId,
