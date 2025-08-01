@@ -1,5 +1,7 @@
 use std::collections::BTreeSet;
 
+#[cfg(feature = "search")]
+use futures_util::StreamExt;
 use matrix_sdk_base::{sync::SyncResponse, RequestedRequiredStates};
 use matrix_sdk_common::deserialized_responses::ProcessedToDeviceEvent;
 use ruma::api::{client::sync::sync_events::v5 as http, FeatureFlag, SupportedVersions};
@@ -198,6 +200,23 @@ impl SlidingSyncResponseProcessor {
         handle_receipts_extension(&self.client, response, &mut sync_response).await?;
 
         update_in_memory_caches(&self.client, &sync_response).await?;
+
+        #[cfg(feature = "search")]
+        {
+            let futures: Vec<_> = sync_response
+                .rooms
+                .joined
+                .keys()
+                .map(|room_id| self.client.add_index(room_id))
+                .collect();
+            let batch_size = 5;
+            let mut buffer = futures_util::stream::iter(futures).buffer_unordered(batch_size);
+            while let Some(result) = buffer.next().await {
+                if let Err(e) = result {
+                    error!("error occurred while adding index for joined room: {e:?}");
+                }
+            }
+        }
 
         self.response = Some(sync_response);
 

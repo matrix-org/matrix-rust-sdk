@@ -28,6 +28,8 @@ use matrix_sdk_base::{
     event_cache::store::EventCacheStoreError, Error as SdkBaseError, QueueWedgeError, RoomState,
     StoreError,
 };
+#[cfg(feature = "search")]
+use matrix_sdk_search::error::IndexError;
 use reqwest::Error as ReqwestError;
 use ruma::{
     api::{
@@ -419,6 +421,11 @@ pub enum Error {
     /// An error happened while attempting to change power levels.
     #[error("power levels error: {0}")]
     PowerLevels(#[from] PowerLevelsError),
+
+    /// A search index error happened.
+    #[cfg(feature = "search")]
+    #[error(transparent)]
+    Index(#[from] IndexError),
 }
 
 #[rustfmt::skip] // stop rustfmt breaking the `<code>` in docs across multiple lines

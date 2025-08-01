@@ -27,15 +27,20 @@ use std::{
 use events::sort_positions_descending;
 use eyeball::SharedObservable;
 use eyeball_im::VectorDiff;
+#[cfg(feature = "search")]
+use futures_util::StreamExt;
 use matrix_sdk_base::{
-    deserialized_responses::AmbiguityChange,
+    deserialized_responses::{AmbiguityChange, TimelineEvent, TimelineEventKind},
     event_cache::Event,
     linked_chunk::Position,
     sync::{JoinedRoomUpdate, LeftRoomUpdate, Timeline},
 };
 use ruma::{
     api::Direction,
-    events::{relation::RelationType, AnyRoomAccountDataEvent, AnySyncEphemeralRoomEvent},
+    events::{
+        relation::RelationType, AnyMessageLikeEvent, AnyRoomAccountDataEvent,
+        AnySyncEphemeralRoomEvent, AnySyncTimelineEvent,
+    },
     serde::Raw,
     EventId, OwnedEventId, OwnedRoomId,
 };
@@ -523,6 +528,45 @@ impl RoomEventCacheInner {
         Ok(())
     }
 
+    #[cfg(feature = "search")]
+    fn parse_timeline_event(&self, event: &TimelineEvent) -> Option<AnyMessageLikeEvent> {
+        let maybe_try_event = match &event.kind {
+            TimelineEventKind::Decrypted(d) => Some(d.event.deserialize()),
+            TimelineEventKind::PlainText { event } => match event.deserialize() {
+                Ok(event_obj) => match event_obj {
+                    AnySyncTimelineEvent::MessageLike(sync_event) => {
+                        Some(Ok(sync_event.into_full_event(self.room_id.clone())))
+                    }
+                    AnySyncTimelineEvent::State(_) => None,
+                },
+                Err(e) => Some(Err(e)),
+            },
+
+            TimelineEventKind::UnableToDecrypt { event: _, utd_info: _ } => None,
+        };
+
+        match maybe_try_event {
+            Some(Ok(event)) => Some(event),
+            Some(Err(e)) => {
+                warn!("failed to index event: {e:?}");
+                None
+            }
+            None => None,
+        }
+    }
+
+    #[cfg(feature = "search")]
+    async fn index_timeline_event(&self, event: &TimelineEvent) -> Result<()> {
+        if let Some(message_event) = self.parse_timeline_event(event) {
+            if let Some(room) = self.weak_room.get() {
+                return room.index_event(message_event).await.map_err(EventCacheError::from);
+            } else {
+                return Err(EventCacheError::RoomNotFound { room_id: self.room_id.to_owned() });
+            }
+        }
+        Ok(())
+    }
+
     /// Handle a [`Timeline`], i.e. new events received by a sync for this
     /// room.
     async fn handle_timeline(
@@ -549,6 +593,37 @@ impl RoomEventCacheInner {
         // `pagination_token_notifier`.
         if stored_prev_batch_token {
             self.pagination_batch_token_notifier.notify_one();
+        }
+
+        // We can also add the event to the index.
+        #[cfg(feature = "search")]
+        for diff in timeline_event_diffs.iter() {
+            match diff {
+                VectorDiff::Append { values } => {
+                    let batch_size = 5;
+                    let futures: Vec<_> =
+                        values.iter().map(|event| self.index_timeline_event(event)).collect();
+                    let mut buffer =
+                        futures_util::stream::iter(futures).buffer_unordered(batch_size);
+
+                    while let Some(result) = buffer.next().await {
+                        if let Err(e) = result {
+                            warn!("error while trying to index event: {e:?}");
+                        }
+                    }
+                }
+                VectorDiff::Insert { index: _, value } => {
+                    if let Err(e) = self.index_timeline_event(value).await {
+                        warn!("error while trying to index event: {e:?}");
+                    }
+                }
+                VectorDiff::Remove { index: _ } => {}
+                VectorDiff::Clear => {}
+                _ => {
+                    warn!("vector diff case shouldn't happen");
+                    continue;
+                }
+            }
         }
 
         let mut update_has_been_sent = false;

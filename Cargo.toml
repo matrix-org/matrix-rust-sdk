@@ -116,6 +116,7 @@ matrix-sdk-sqlite = { path = "crates/matrix-sdk-sqlite", version = "0.13.0", def
 matrix-sdk-store-encryption = { path = "crates/matrix-sdk-store-encryption", version = "0.13.0" }
 matrix-sdk-test = { path = "testing/matrix-sdk-test", version = "0.13.0" }
 matrix-sdk-ui = { path = "crates/matrix-sdk-ui", version = "0.13.0", default-features = false }
+matrix-sdk-search = { path = "crates/matrix-sdk-search", version = "0.1.0" }
 
 [workspace.lints.rust]
 rust_2018_idioms = "warn"

@@ -113,11 +113,11 @@ use ruma::{
         space::{child::SpaceChildEventContent, parent::SpaceParentEventContent},
         tag::{TagInfo, TagName},
         typing::SyncTypingEvent,
-        AnyRoomAccountDataEvent, AnyRoomAccountDataEventContent, AnyTimelineEvent, EmptyStateKey,
-        Mentions, MessageLikeEventContent, OriginalSyncStateEvent, RedactContent,
-        RedactedStateEventContent, RoomAccountDataEvent, RoomAccountDataEventContent,
-        RoomAccountDataEventType, StateEventContent, StateEventType, StaticEventContent,
-        StaticStateEventContent, SyncStateEvent,
+        AnyMessageLikeEvent, AnyRoomAccountDataEvent, AnyRoomAccountDataEventContent,
+        AnyTimelineEvent, EmptyStateKey, Mentions, MessageLikeEventContent, OriginalSyncStateEvent,
+        RedactContent, RedactedStateEventContent, RoomAccountDataEvent,
+        RoomAccountDataEventContent, RoomAccountDataEventType, StateEventContent, StateEventType,
+        StaticEventContent, StaticStateEventContent, SyncStateEvent,
     },
     int,
     push::{Action, PushConditionRoomCtx, Ruleset},
@@ -3699,6 +3699,12 @@ impl Room {
         opts: RelationsOptions,
     ) -> Result<Relations> {
         opts.send(self, event_id).await
+    }
+
+    /// Add an [`AnyMessageLikeEvent`] to this room's [`RoomIndex`]
+    #[cfg(feature = "search")]
+    pub async fn index_event(&self, event: AnyMessageLikeEvent) -> Result<()> {
+        self.client.index_event(event, self.room_id()).await
     }
 }
 
