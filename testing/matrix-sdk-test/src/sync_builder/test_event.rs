@@ -1,7 +1,8 @@
 use ruma::{
+    api::client::sync::sync_events::StrippedState,
     events::{
-        AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent, AnyStrippedStateEvent,
-        AnySyncStateEvent, presence::PresenceEvent,
+        AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent, AnySyncStateEvent,
+        presence::PresenceEvent,
     },
     serde::Raw,
 };
@@ -89,7 +90,7 @@ impl From<StrippedStateTestEvent> for JsonValue {
     }
 }
 
-impl From<StrippedStateTestEvent> for Raw<AnyStrippedStateEvent> {
+impl From<StrippedStateTestEvent> for Raw<StrippedState> {
     fn from(val: StrippedStateTestEvent) -> Self {
         from_json_value(val.into()).unwrap()
     }

@@ -1,6 +1,7 @@
 use ruma::{
-    OwnedRoomId, RoomId, api::client::sync::sync_events::v3::InvitedRoom,
-    events::AnyStrippedStateEvent, serde::Raw,
+    OwnedRoomId, RoomId,
+    api::client::sync::sync_events::{StrippedState, v3::InvitedRoom},
+    serde::Raw,
 };
 
 use crate::DEFAULT_TEST_ROOM_ID;
@@ -25,7 +26,7 @@ impl InvitedRoomBuilder {
     }
 
     /// Add an event to the state.
-    pub fn add_state_event(mut self, event: impl Into<Raw<AnyStrippedStateEvent>>) -> Self {
+    pub fn add_state_event(mut self, event: impl Into<Raw<StrippedState>>) -> Self {
         self.inner.invite_state.events.push(event.into());
         self
     }
@@ -33,7 +34,7 @@ impl InvitedRoomBuilder {
     /// Add events to the state in bulk.
     pub fn add_state_bulk<I>(mut self, events: I) -> Self
     where
-        I: IntoIterator<Item = Raw<AnyStrippedStateEvent>>,
+        I: IntoIterator<Item = Raw<StrippedState>>,
     {
         self.inner.invite_state.events.extend(events);
         self

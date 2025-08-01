@@ -70,7 +70,7 @@ async fn test_notification() -> Result<()> {
     };
 
     if let Some(event_id) = invited_room.invite_state.events.iter().find_map(|event| {
-        let Ok(AnyStrippedStateEvent::RoomMember(room_member_ev)) = event.deserialize() else {
+        let Ok(AnyStrippedStateEvent::RoomMember(room_member_ev)) = event.deserialize_as() else {
             return None;
         };
 

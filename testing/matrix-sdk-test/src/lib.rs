@@ -66,7 +66,7 @@ macro_rules! stripped_state_event {
     ($( $tt:tt )*) => {
         ::ruma::serde::Raw::new(&::serde_json::json!( $($tt)* ))
             .unwrap()
-            .cast_unchecked::<::ruma::events::AnyStrippedStateEvent>()
+            .cast_unchecked::<::ruma::api::client::sync::sync_events::StrippedState>()
     }
 }
 
