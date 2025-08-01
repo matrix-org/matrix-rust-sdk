@@ -55,6 +55,7 @@ use crate::{
     deserialized_responses::{
         DisplayName, RawAnySyncOrStrippedState, RawMemberEvent, RawSyncOrStrippedState,
     },
+    store::ThreadStatus,
 };
 
 /// An abstract state store trait that can be used to implement different stores
@@ -478,6 +479,27 @@ pub trait StateStore: AsyncTraitDeps {
         &self,
         room: &RoomId,
     ) -> Result<Vec<DependentQueuedRequest>, Self::Error>;
+
+    /// Insert or update a thread subscription for a given room and thread.
+    ///
+    /// Note: there's no way to remove a thread subscription, because it's
+    /// either subscribed to, or unsubscribed to, after it's been saved for
+    /// the first time.
+    async fn upsert_thread_subscription(
+        &self,
+        room: &RoomId,
+        thread_id: &EventId,
+        status: ThreadStatus,
+    ) -> Result<(), Self::Error>;
+
+    /// Loads the current thread subscription for a given room and thread.
+    ///
+    /// Returns `None` if there was no entry for the given room/thread pair.
+    async fn load_thread_subscription(
+        &self,
+        room: &RoomId,
+        thread_id: &EventId,
+    ) -> Result<Option<ThreadStatus>, Self::Error>;
 }
 
 #[repr(transparent)]
@@ -772,6 +794,23 @@ impl<T: StateStore> StateStore for EraseStateStoreError<T> {
             .await
             .map_err(Into::into)
     }
+
+    async fn upsert_thread_subscription(
+        &self,
+        room: &RoomId,
+        thread_id: &EventId,
+        status: ThreadStatus,
+    ) -> Result<(), Self::Error> {
+        self.0.upsert_thread_subscription(room, thread_id, status).await.map_err(Into::into)
+    }
+
+    async fn load_thread_subscription(
+        &self,
+        room: &RoomId,
+        thread_id: &EventId,
+    ) -> Result<Option<ThreadStatus>, Self::Error> {
+        self.0.load_thread_subscription(room, thread_id).await.map_err(Into::into)
+    }
 }
 
 /// Convenience functionality for state stores.
@@ -788,7 +827,9 @@ pub trait StateStoreExt: StateStore {
         room_id: &RoomId,
     ) -> Result<Option<RawSyncOrStrippedState<C>>, Self::Error>
     where
-        C: StaticEventContent + StaticStateEventContent<StateKey = EmptyStateKey> + RedactContent,
+        C: StaticEventContent<IsPrefix = ruma::events::False>
+            + StaticStateEventContent<StateKey = EmptyStateKey>
+            + RedactContent,
         C::Redacted: RedactedStateEventContent,
     {
         Ok(self.get_state_event(room_id, C::TYPE.into(), "").await?.map(|raw| raw.cast()))
@@ -805,7 +846,9 @@ pub trait StateStoreExt: StateStore {
         state_key: &K,
     ) -> Result<Option<RawSyncOrStrippedState<C>>, Self::Error>
     where
-        C: StaticEventContent + StaticStateEventContent + RedactContent,
+        C: StaticEventContent<IsPrefix = ruma::events::False>
+            + StaticStateEventContent
+            + RedactContent,
         C::StateKey: Borrow<K>,
         C::Redacted: RedactedStateEventContent,
         K: AsRef<str> + ?Sized + Sync,
@@ -826,7 +869,9 @@ pub trait StateStoreExt: StateStore {
         room_id: &RoomId,
     ) -> Result<Vec<RawSyncOrStrippedState<C>>, Self::Error>
     where
-        C: StaticEventContent + StaticStateEventContent + RedactContent,
+        C: StaticEventContent<IsPrefix = ruma::events::False>
+            + StaticStateEventContent
+            + RedactContent,
         C::Redacted: RedactedStateEventContent,
     {
         // FIXME: Could be more efficient, if we had streaming store accessor functions
@@ -852,7 +897,9 @@ pub trait StateStoreExt: StateStore {
         state_keys: I,
     ) -> Result<Vec<RawSyncOrStrippedState<C>>, Self::Error>
     where
-        C: StaticEventContent + StaticStateEventContent + RedactContent,
+        C: StaticEventContent<IsPrefix = ruma::events::False>
+            + StaticStateEventContent
+            + RedactContent,
         C::StateKey: Borrow<K>,
         C::Redacted: RedactedStateEventContent,
         K: AsRef<str> + Sized + Sync + 'a,
@@ -876,7 +923,7 @@ pub trait StateStoreExt: StateStore {
         &self,
     ) -> Result<Option<Raw<GlobalAccountDataEvent<C>>>, Self::Error>
     where
-        C: StaticEventContent + GlobalAccountDataEventContent,
+        C: StaticEventContent<IsPrefix = ruma::events::False> + GlobalAccountDataEventContent,
     {
         Ok(self.get_account_data_event(C::TYPE.into()).await?.map(Raw::cast_unchecked))
     }
@@ -893,7 +940,7 @@ pub trait StateStoreExt: StateStore {
         room_id: &RoomId,
     ) -> Result<Option<Raw<RoomAccountDataEvent<C>>>, Self::Error>
     where
-        C: StaticEventContent + RoomAccountDataEventContent,
+        C: StaticEventContent<IsPrefix = ruma::events::False> + RoomAccountDataEventContent,
     {
         Ok(self
             .get_room_account_data_event(room_id, C::TYPE.into())

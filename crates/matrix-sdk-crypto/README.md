@@ -17,11 +17,10 @@ The state machine works in a push/pull manner:
 ```rust,no_run
 use std::collections::BTreeMap;
 
-use matrix_sdk_crypto::{EncryptionSyncChanges, OlmMachine, OlmError};
-use ruma::{
-    api::client::sync::sync_events::{v3::ToDevice, DeviceLists},
-    device_id, user_id,
+use matrix_sdk_crypto::{
+    DecryptionSettings, EncryptionSyncChanges, OlmError, OlmMachine, TrustRequirement,
 };
+use ruma::{api::client::sync::sync_events::DeviceLists, device_id, user_id};
 
 #[tokio::main]
 async fn main() -> Result<(), OlmError> {
@@ -33,19 +32,27 @@ async fn main() -> Result<(), OlmError> {
     let unused_fallback_keys = Some(Vec::new());
     let next_batch_token = "T0K3N".to_owned();
 
+    let decryption_settings =
+        DecryptionSettings { sender_device_trust_requirement: TrustRequirement::Untrusted };
+
     // Push changes that the server sent to us in a sync response.
-    let decrypted_to_device = machine.receive_sync_changes(EncryptionSyncChanges {
-        to_device_events: vec![],
-        changed_devices: &changed_devices,
-        one_time_keys_counts: &one_time_key_counts,
-        unused_fallback_keys: unused_fallback_keys.as_deref(),
-        next_batch_token: Some(next_batch_token),
-    }).await?;
+    let decrypted_to_device = machine
+        .receive_sync_changes(
+            EncryptionSyncChanges {
+                to_device_events: vec![],
+                changed_devices: &changed_devices,
+                one_time_keys_counts: &one_time_key_counts,
+                unused_fallback_keys: unused_fallback_keys.as_deref(),
+                next_batch_token: Some(next_batch_token),
+            },
+            &decryption_settings,
+        )
+        .await?;
 
     // Pull requests that we need to send out.
     let outgoing_requests = machine.outgoing_requests().await?;
 
-    // Send the requests here out and call machine.mark_request_as_sent().
+    // Send the requests out here and call machine.mark_request_as_sent().
 
     Ok(())
 }

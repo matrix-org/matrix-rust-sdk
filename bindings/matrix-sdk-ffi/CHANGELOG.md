@@ -8,6 +8,13 @@ All notable changes to this project will be documented in this file.
 
 ### Features:
 
+- Add `room_version` and `privileged_creators_role` to `RoomInfo` ([#5449](https://github.com/matrix-org/matrix-rust-sdk/pull/5449)).
+- The [`unstable-hydra`] feature has been enabled, which enables room v12 changes in the SDK.
+  ([#5450](https://github.com/matrix-org/matrix-rust-sdk/pull/5450)).
+- Add experimental support for
+  [MSC4306](https://github.com/matrix-org/matrix-spec-proposals/pull/4306), with the
+  `Room::fetch_thread_subscription()` and `Room::set_thread_subscription()` methods.
+  ([#5442](https://github.com/matrix-org/matrix-rust-sdk/pull/5442))
 - [**breaking**] [`GalleryUploadParameters::reply`] and [`UploadParameters::reply`] have been both
   replaced with a new optional `in_reply_to` field, that's a string which will be parsed into an
   `OwnedEventId` when sending the event. The thread relationship will be automatically filled in,
@@ -57,6 +64,7 @@ All notable changes to this project will be documented in this file.
   calling `Client::login_with_qr_code`. ([#5388](https://github.com/matrix-org/matrix-rust-sdk/pull/5388))
 - The MSRV has been bumped to Rust 1.88.
   ([#5431](https://github.com/matrix-org/matrix-rust-sdk/pull/5431))
+- `Room::send_call_notification` and `Room::send_call_notification_if_needed` have been removed, since the event type they send is outdated, and `Client` is not actually supposed to be able to join MatrixRTC sessions (yet). In practice, users of these methods probably already rely on another MatrixRTC implementation to participate in sessions, and such an implementation should be capable of sending notifications itself.
 
 ## [0.13.0] - 2025-07-10
 

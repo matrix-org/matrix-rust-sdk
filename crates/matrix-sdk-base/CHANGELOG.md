@@ -20,6 +20,24 @@ All notable changes to this project will be documented in this file.
   ([#5390](https://github.com/matrix-org/matrix-rust-sdk/pull/5390))
 
 ### Refactor
+- [**breaking**] The `Stripped` variants of `RawAnySyncOrStrippedTimelineEvent`,
+  `RawAnySyncOrStrippedState` and `AnySyncOrStrippedState` use `StrippedState`
+  instead of `AnyStrippedStateEvent`.
+  ([#5473](https://github.com/matrix-org/matrix-rust-sdk/pull/5473))
+- [**breaking**] The `stripped_state` field of `StateChanges` uses
+  `StrippedState` instead of `AnyStrippedStateEvent`.
+  ([#5473](https://github.com/matrix-org/matrix-rust-sdk/pull/5473))
+- [**breaking**] `RelationalLinkedChunk::items` now takes a `RoomId` instead of an
+  `&OwnedLinkedChunkId` parameter.
+  ([#5445](https://github.com/matrix-org/matrix-rust-sdk/pull/5445))
+- [**breaking**] Add an `IsPrefix = False` bound to the
+  `get_state_event_static()`, `get_state_event_static_for_key()` and
+  `get_state_events_static()`, `get_account_data_event_static()` and
+  `get_room_account_data_event_static` methods of `StateStoreExt`. These methods
+  only worked for events where the full event type is statically-known, and this
+  is now enforced at compile-time. The matching non-`static` methods of
+  `StateStore` can be used instead for event types with a variable suffix.
+  ([#5444](https://github.com/matrix-org/matrix-rust-sdk/pull/5444))
 - [**breaking**] `SyncOrStrippedState<RoomPowerLevelsEventContent>::power_levels()`
   takes `AuthorizationRules` and a list of creators, because creators can have
   infinite power levels, as introduced in room version 12.

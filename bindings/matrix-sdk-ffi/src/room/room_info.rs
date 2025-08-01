@@ -74,6 +74,11 @@ pub struct RoomInfo {
     ///
     /// Can be missing if the room power levels event is missing from the store.
     power_levels: Option<Arc<RoomPowerLevels>>,
+    /// This room's version.
+    room_version: Option<String>,
+    /// Whether creators are privileged over every other user (have infinite
+    /// power level).
+    privileged_creators_role: bool,
 }
 
 impl RoomInfo {
@@ -152,6 +157,12 @@ impl RoomInfo {
             join_rule,
             history_visibility: room.history_visibility_or_default().try_into()?,
             power_levels: power_levels.map(Arc::new),
+            room_version: room.version().map(|version| version.to_string()),
+            privileged_creators_role: room
+                .version()
+                .and_then(|version| version.rules())
+                .map(|rules| rules.authorization.explicitly_privilege_room_creators)
+                .unwrap_or_default(),
         })
     }
 }

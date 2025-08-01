@@ -9,9 +9,11 @@ use matrix_sdk::{
     Client, Room, RoomState,
     locks::Mutex,
     ruma::{
-        OwnedRoomId, RoomId, UserId, api::client::receipt::create_receipt::v3::ReceiptType,
+        OwnedEventId, OwnedRoomId, RoomId, UserId,
+        api::client::receipt::create_receipt::v3::ReceiptType,
         events::room::message::RoomMessageEventContent,
     },
+    store::ThreadStatus,
 };
 use matrix_sdk_ui::{
     Timeline,
@@ -52,6 +54,7 @@ enum TimelineKind {
 
     Thread {
         room: OwnedRoomId,
+        thread_root: OwnedEventId,
         /// The threaded-focused timeline for this thread.
         timeline: Arc<OnceCell<Arc<Timeline>>>,
         /// Items in the thread timeline (to avoid recomputing them every single
@@ -145,10 +148,11 @@ impl RoomView {
         let i = items.clone();
         let t = thread_timeline.clone();
         let root = root_event_id;
+        let cloned_root = root.clone();
         let r = room.clone();
         let task = spawn(async move {
             let timeline = TimelineBuilder::new(&r)
-                .with_focus(TimelineFocus::Thread { root_event_id: root.clone() })
+                .with_focus(TimelineFocus::Thread { root_event_id: cloned_root })
                 .track_read_marker_and_receipts()
                 .build()
                 .await
@@ -171,6 +175,7 @@ impl RoomView {
         self.timeline_list.unselect();
 
         self.kind = TimelineKind::Thread {
+            thread_root: root,
             room: room.room_id().to_owned(),
             timeline: thread_timeline,
             items,
@@ -223,6 +228,12 @@ impl RoomView {
                             if matches!(self.kind, TimelineKind::Thread { .. }) =>
                         {
                             self.switch_to_room_timeline(None);
+                        }
+
+                        // Pressing 'Alt+s' on a threaded timeline will print the current
+                        // subscription status.
+                        (KeyModifiers::ALT, Char('s')) => {
+                            self.print_thread_subscription_status().await;
                         }
 
                         (KeyModifiers::CONTROL, Char('l')) => {
@@ -477,10 +488,76 @@ impl RoomView {
         self.input.clear();
     }
 
+    async fn subscribe_thread(&mut self) {
+        if let TimelineKind::Thread { thread_root, .. } = &self.kind {
+            self.call_with_room(async |room, status_handle| {
+                if let Err(err) = room.subscribe_thread(thread_root.clone(), false).await {
+                    status_handle.set_message(format!("error when subscribing to a thread: {err}"));
+                } else {
+                    status_handle.set_message("Subscribed to thread!".to_owned());
+                }
+            })
+            .await;
+
+            self.input.clear();
+        }
+    }
+
+    async fn unsubscribe_thread(&mut self) {
+        if let TimelineKind::Thread { thread_root, .. } = &self.kind {
+            self.call_with_room(async |room, status_handle| {
+                if let Err(err) = room.unsubscribe_thread(thread_root.clone()).await {
+                    status_handle
+                        .set_message(format!("error when unsubscribing to a thread: {err}"));
+                } else {
+                    status_handle.set_message("Unsubscribed from thread!".to_owned());
+                }
+            })
+            .await;
+
+            self.input.clear();
+        }
+    }
+
+    async fn print_thread_subscription_status(&mut self) {
+        if let TimelineKind::Thread { thread_root, .. } = &self.kind {
+            self.call_with_room(async |room, status_handle| {
+                match room.fetch_thread_subscription(thread_root.clone()).await {
+                    Ok(Some(subscription)) => {
+                        status_handle.set_message(format!(
+                            "Thread subscription status: {}",
+                            match subscription {
+                                ThreadStatus::Subscribed { automatic } => {
+                                    if automatic {
+                                        "subscribed (automatic)"
+                                    } else {
+                                        "subscribed (manual)"
+                                    }
+                                }
+                                ThreadStatus::Unsubscribed => "unsubscribed",
+                            }
+                        ));
+                    }
+                    Ok(None) => {
+                        status_handle
+                            .set_message("Thread is not subscribed or does not exist".to_owned());
+                    }
+                    Err(err) => {
+                        status_handle
+                            .set_message(format!("Error getting thread subscription: {err}"));
+                    }
+                }
+            })
+            .await;
+        }
+    }
+
     async fn handle_command(&mut self, command: input::Command) {
         match command {
             input::Command::Invite { user_id } => self.invite_member(&user_id).await,
             input::Command::Leave => self.leave_room().await,
+            input::Command::Subscribe => self.subscribe_thread().await,
+            input::Command::Unsubscribe => self.unsubscribe_thread().await,
         }
     }
 

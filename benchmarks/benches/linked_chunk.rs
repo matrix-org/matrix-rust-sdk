@@ -20,6 +20,11 @@ enum Operation {
     PushGapBack(Gap),
 }
 
+#[cfg(not(feature = "codspeed"))]
+const NUMBER_OF_EVENTS: &[u64] = &[10, 100, 1000, 10_000, 100_000];
+#[cfg(feature = "codspeed")]
+const NUMBER_OF_EVENTS: &[u64] = &[10, 100, 1000];
+
 fn writing(c: &mut Criterion) {
     // Create a new asynchronous runtime.
     let runtime = Builder::new_multi_thread()
@@ -32,10 +37,10 @@ fn writing(c: &mut Criterion) {
     let linked_chunk_id = LinkedChunkId::Room(room_id);
     let event_factory = EventFactory::new().room(room_id).sender(&ALICE);
 
-    let mut group = c.benchmark_group("writing");
+    let mut group = c.benchmark_group("Linked chunk writing");
     group.sample_size(10).measurement_time(Duration::from_secs(30));
 
-    for number_of_events in [10, 100, 1000, 10_000, 100_000] {
+    for &number_of_events in NUMBER_OF_EVENTS {
         let sqlite_temp_dir = tempdir().unwrap();
 
         // Declare new stores for this set of events.
@@ -96,7 +101,7 @@ fn writing(c: &mut Criterion) {
 
             // Get a bencher.
             group.bench_with_input(
-                BenchmarkId::new(store_name, number_of_events),
+                BenchmarkId::new(format!("Linked chunk writing [{store_name}]"), number_of_events),
                 &operations,
                 |bencher, operations| {
                     // Bench the routine.
@@ -149,10 +154,10 @@ fn reading(c: &mut Criterion) {
     let linked_chunk_id = LinkedChunkId::Room(room_id);
     let event_factory = EventFactory::new().room(room_id).sender(&ALICE);
 
-    let mut group = c.benchmark_group("reading");
+    let mut group = c.benchmark_group("Linked chunk reading");
     group.sample_size(10);
 
-    for num_events in [10, 100, 1000, 10_000, 100_000] {
+    for &num_events in NUMBER_OF_EVENTS {
         let sqlite_temp_dir = tempdir().unwrap();
 
         // Declare new stores for this set of events.
@@ -210,7 +215,7 @@ fn reading(c: &mut Criterion) {
 
             // Bench the lazy loader.
             group.bench_function(
-                BenchmarkId::new(format!("lazy_loader/{store_name}"), num_events),
+                BenchmarkId::new(format!("Linked chunk lazy loader[{store_name}]"), num_events),
                 |bencher| {
                     // Bench the routine.
                     bencher.to_async(&runtime).iter(|| async {
@@ -238,7 +243,7 @@ fn reading(c: &mut Criterion) {
 
             // Bench the metadata loader.
             group.bench_function(
-                BenchmarkId::new(format!("metadata/{store_name}"), num_events),
+                BenchmarkId::new(format!("Linked chunk metadata loader[{store_name}]"), num_events),
                 |bencher| {
                     // Bench the routine.
                     bencher.to_async(&runtime).iter(|| async {
@@ -260,21 +265,9 @@ fn reading(c: &mut Criterion) {
     group.finish()
 }
 
-fn criterion() -> Criterion {
-    #[cfg(target_os = "linux")]
-    let criterion = Criterion::default().with_profiler(pprof::criterion::PProfProfiler::new(
-        100,
-        pprof::criterion::Output::Flamegraph(None),
-    ));
-    #[cfg(not(target_os = "linux"))]
-    let criterion = Criterion::default();
-
-    criterion
-}
-
 criterion_group! {
     name = event_cache;
-    config = criterion();
+    config = Criterion::default();
     targets = writing, reading,
 }
 

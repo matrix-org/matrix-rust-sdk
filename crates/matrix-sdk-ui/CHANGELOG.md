@@ -37,6 +37,11 @@ All notable changes to this project will be documented in this file.
 - [**breaking**] The MSRV has been bumped to Rust 1.88.
   ([#5431](https://github.com/matrix-org/matrix-rust-sdk/pull/5431))
 
+### Bug Fixes
+
+- Correctly remove unable-to-decrypt items that have been decrypted but contain
+  unsupported event types.
+  ([#5463](https://github.com/matrix-org/matrix-rust-sdk/pull/5463))
 
 ## [0.13.0] - 2025-07-10
 

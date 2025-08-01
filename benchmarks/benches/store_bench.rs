@@ -10,19 +10,6 @@ use matrix_sdk_sqlite::SqliteStateStore;
 use ruma::{RoomId, device_id, user_id};
 use tokio::runtime::Builder;
 
-fn criterion() -> Criterion {
-    #[cfg(target_os = "linux")]
-    let criterion = Criterion::default().with_profiler(pprof::criterion::PProfProfiler::new(
-        100,
-        pprof::criterion::Output::Flamegraph(None),
-    ));
-
-    #[cfg(not(target_os = "linux"))]
-    let criterion = Criterion::default();
-
-    criterion
-}
-
 /// Number of joined rooms in the benchmark.
 const NUM_JOINED_ROOMS: usize = 10000;
 
@@ -30,7 +17,7 @@ const NUM_JOINED_ROOMS: usize = 10000;
 const NUM_STRIPPED_JOINED_ROOMS: usize = 10000;
 
 pub fn restore_session(c: &mut Criterion) {
-    let runtime = Builder::new_multi_thread().build().expect("Can't create runtime");
+    let runtime = Builder::new_multi_thread().enable_time().build().expect("Can't create runtime");
 
     // Create a fake list of changes, and a session to recover from.
     let mut changes = StateChanges::default();
@@ -58,13 +45,11 @@ pub fn restore_session(c: &mut Criterion) {
     let mut group = c.benchmark_group("Client reload");
     group.throughput(Throughput::Elements(100));
 
-    const NAME: &str = "restore a session";
-
     // Memory
     let mem_store = Arc::new(MemoryStore::new());
     runtime.block_on(mem_store.save_changes(&changes)).expect("initial filling of mem failed");
 
-    group.bench_with_input(BenchmarkId::new("memory store", NAME), &mem_store, |b, store| {
+    group.bench_with_input("Restore session [memory store]", &mem_store, |b, store| {
         b.to_async(&runtime).iter(|| async {
             let client = Client::builder()
                 .homeserver_url("https://matrix.example.com")
@@ -92,7 +77,7 @@ pub fn restore_session(c: &mut Criterion) {
             .expect("initial filling of sqlite failed");
 
         group.bench_with_input(
-            BenchmarkId::new(format!("sqlite store {encrypted_suffix}"), NAME),
+            BenchmarkId::new("Restore session [SQLite]", encrypted_suffix),
             &sqlite_store,
             |b, store| {
                 b.to_async(&runtime).iter(|| async {
@@ -124,7 +109,7 @@ pub fn restore_session(c: &mut Criterion) {
 
 criterion_group! {
     name = benches;
-    config = criterion();
+    config = Criterion::default();
     targets = restore_session
 }
 criterion_main!(benches);

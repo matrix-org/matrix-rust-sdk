@@ -75,6 +75,8 @@ struct ElementCallParams {
     sentry_environment: Option<String>,
     hide_screensharing: bool,
     controlled_media_devices: bool,
+    /// Supported since Element Call v0.14.0.
+    send_notification_type: Option<NotificationType>,
 }
 
 /// Defines if a call is encrypted and which encryption system should be used.
@@ -121,6 +123,16 @@ pub enum HeaderStyle {
     AppBar,
     /// No Header (useful for webapps).
     None,
+}
+
+/// Types of call notifications.
+#[derive(Debug, PartialEq, Serialize, uniffi::Enum, Clone)]
+#[serde(rename_all = "snake_case")]
+pub enum NotificationType {
+    /// The receiving client should display a visual notification.
+    Notification,
+    /// The receiving client should ring with an audible sound.
+    Ring,
 }
 
 /// Properties to create a new virtual Element Call widget.
@@ -223,6 +235,9 @@ pub struct VirtualElementCallWidgetOptions {
     ///  - `false`: the webview shows a a list of devices injected by the
     ///    client. (used on ios & android)
     pub controlled_media_devices: bool,
+    /// Whether and what type of notification Element Call should send, when
+    /// starting a call.
+    pub send_notification_type: Option<NotificationType>,
 }
 
 impl WidgetSettings {
@@ -285,6 +300,7 @@ impl WidgetSettings {
             rageshake_submit_url: props.rageshake_submit_url,
             hide_screensharing: props.hide_screensharing,
             controlled_media_devices: props.controlled_media_devices,
+            send_notification_type: props.send_notification_type,
         };
 
         let query =

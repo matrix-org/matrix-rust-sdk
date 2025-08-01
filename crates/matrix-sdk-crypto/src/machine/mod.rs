@@ -24,8 +24,9 @@ use matrix_sdk_common::deserialized_responses::WithheldCode;
 use matrix_sdk_common::{
     deserialized_responses::{
         AlgorithmInfo, DecryptedRoomEvent, DeviceLinkProblem, EncryptionInfo,
-        ProcessedToDeviceEvent, UnableToDecryptInfo, UnableToDecryptReason,
-        UnsignedDecryptionResult, UnsignedEventLocation, VerificationLevel, VerificationState,
+        ProcessedToDeviceEvent, ToDeviceUnableToDecryptInfo, ToDeviceUnableToDecryptReason,
+        UnableToDecryptInfo, UnableToDecryptReason, UnsignedDecryptionResult,
+        UnsignedEventLocation, VerificationLevel, VerificationState,
     },
     locks::RwLock as StdRwLock,
     BoxFuture,
@@ -842,8 +843,16 @@ impl OlmMachine {
 
     /// Decrypt and handle a to-device event.
     ///
-    /// If decryption (or checking the sender device) fails, returns
+    /// If decryption (or checking the sender device) fails, returns an
     /// `Err(DecryptToDeviceError::OlmError)`.
+    ///
+    /// If we are in strict "exclude insecure devices" mode and the sender
+    /// device is not verified, and the decrypted event type is not on the
+    /// allow list, returns `Err(DecryptToDeviceError::UnverifiedSender)`
+    ///
+    /// (The allow list of types that are processed even if the sender is
+    /// unverified is: `m.room_key`, `m.room_key.withheld`,
+    /// `m.room_key_request`, `m.secret.request` and `m.key.verification.*`.)
     ///
     /// If the sender device is dehydrated, does no handling and immediately
     /// returns `Err(DecryptToDeviceError::FromDehydratedDevice)`.
@@ -859,32 +868,22 @@ impl OlmMachine {
         transaction: &mut StoreTransaction,
         event: &EncryptedToDeviceEvent,
         changes: &mut Changes,
+        decryption_settings: &DecryptionSettings,
     ) -> Result<OlmDecryptionInfo, DecryptToDeviceError> {
         // Decrypt the event
-        let mut decrypted =
-            transaction.account().await?.decrypt_to_device_event(&self.inner.store, event).await?;
+        let mut decrypted = transaction
+            .account()
+            .await?
+            .decrypt_to_device_event(&self.inner.store, event, decryption_settings)
+            .await?;
 
-        let from_dehydrated_device =
-            self.to_device_event_is_from_dehydrated_device(&decrypted, &event.sender).await?;
+        // Return early if the sending device is a dehydrated device
+        self.check_to_device_event_is_not_from_dehydrated_device(&decrypted, &event.sender).await?;
 
-        // Check whether this event is from a dehydrated device - if so, return Ok(None)
-        // to skip it because we don't expect ever to receive an event from a
-        // dehydrated device.
-        if from_dehydrated_device {
-            // Device is dehydrated: ignore this event
-            warn!(
-                sender = ?event.sender,
-                session = ?decrypted.session,
-                "Received a to-device event from a dehydrated device. This is unexpected: ignoring event"
-            );
-            Err(DecryptToDeviceError::FromDehydratedDevice)
-        } else {
-            // Device is not dehydrated: handle it as normal e.g. create a Megolm session
-            self.handle_decrypted_to_device_event(transaction.cache(), &mut decrypted, changes)
-                .await?;
+        // Device is not dehydrated: handle it as normal e.g. create a Megolm session
+        self.handle_decrypted_to_device_event(transaction.cache(), &mut decrypted, changes).await?;
 
-            Ok(decrypted)
-        }
+        Ok(decrypted)
     }
 
     #[instrument(
@@ -1334,7 +1333,10 @@ impl OlmMachine {
 
         match event {
             // These are handled here because we accept them either plaintext or
-            // encrypted
+            // encrypted.
+            //
+            // Note: this list should match the allowed types in
+            // check_to_device_is_from_verified_device_or_allowed_type
             RoomKeyRequest(e) => self.inner.key_request_machine.receive_incoming_key_request(e),
             SecretRequest(e) => self.inner.key_request_machine.receive_incoming_secret_request(e),
             RoomKeyWithheld(e) => self.add_withheld_info(changes, e),
@@ -1398,6 +1400,7 @@ impl OlmMachine {
         transaction: &mut StoreTransaction,
         changes: &mut Changes,
         raw_event: Raw<AnyToDeviceEvent>,
+        decryption_settings: &DecryptionSettings,
     ) -> Option<ProcessedToDeviceEvent> {
         Self::record_message_id(&raw_event);
 
@@ -1414,7 +1417,14 @@ impl OlmMachine {
 
         match event {
             ToDeviceEvents::RoomEncrypted(e) => {
-                self.receive_encrypted_to_device_event(transaction, changes, raw_event, e).await
+                self.receive_encrypted_to_device_event(
+                    transaction,
+                    changes,
+                    raw_event,
+                    e,
+                    decryption_settings,
+                )
+                .await
             }
             e => {
                 self.handle_to_device_event(changes, &e).await;
@@ -1428,18 +1438,34 @@ impl OlmMachine {
     ///
     /// Return the same event, decrypted if possible.
     ///
-    /// If we can identify that this to-device event came from a dehydrated
-    /// device, this method does not process it, and returns `None`.
+    /// If we are in strict "exclude insecure devices" mode and the sender
+    /// device is not verified, and the decrypted event type is not on the
+    /// allow list, or if this event comes from a dehydrated device, this method
+    /// does not process it, and returns `None`.
+    ///
+    /// (The allow list of types that are processed even if the sender is
+    /// unverified is: `m.room_key`, `m.room_key.withheld`,
+    /// `m.room_key_request`, `m.secret.request` and `m.key.verification.*`.)
     async fn receive_encrypted_to_device_event(
         &self,
         transaction: &mut StoreTransaction,
         changes: &mut Changes,
         mut raw_event: Raw<AnyToDeviceEvent>,
         e: ToDeviceEvent<ToDeviceEncryptedEventContent>,
+        decryption_settings: &DecryptionSettings,
     ) -> Option<ProcessedToDeviceEvent> {
-        let decrypted = match self.decrypt_to_device_event(transaction, &e, changes).await {
+        let decrypted = match self
+            .decrypt_to_device_event(transaction, &e, changes, decryption_settings)
+            .await
+        {
             Ok(decrypted) => decrypted,
             Err(DecryptToDeviceError::OlmError(err)) => {
+                let reason = if let OlmError::UnverifiedSenderDevice = &err {
+                    ToDeviceUnableToDecryptReason::UnverifiedSenderDevice
+                } else {
+                    ToDeviceUnableToDecryptReason::DecryptionFailure
+                };
+
                 if let OlmError::SessionWedged(sender, curve_key) = err {
                     if let Err(e) =
                         self.inner.session_manager.mark_device_as_wedged(&sender, curve_key).await
@@ -1451,7 +1477,10 @@ impl OlmMachine {
                     }
                 }
 
-                return Some(ProcessedToDeviceEvent::UnableToDecrypt(raw_event));
+                return Some(ProcessedToDeviceEvent::UnableToDecrypt {
+                    encrypted_event: raw_event,
+                    utd_info: ToDeviceUnableToDecryptInfo { reason },
+                });
             }
             Err(DecryptToDeviceError::FromDehydratedDevice) => return None,
         };
@@ -1489,6 +1518,25 @@ impl OlmMachine {
             raw: raw_event,
             encryption_info: decrypted.result.encryption_info,
         })
+    }
+
+    /// Return an error if the supplied to-device event was sent from a
+    /// dehydrated device.
+    async fn check_to_device_event_is_not_from_dehydrated_device(
+        &self,
+        decrypted: &OlmDecryptionInfo,
+        sender_user_id: &UserId,
+    ) -> Result<(), DecryptToDeviceError> {
+        if self.to_device_event_is_from_dehydrated_device(decrypted, sender_user_id).await? {
+            warn!(
+                sender = ?sender_user_id,
+                session = ?decrypted.session,
+                "Received a to-device event from a dehydrated device. This is unexpected: ignoring event"
+            );
+            Err(DecryptToDeviceError::FromDehydratedDevice)
+        } else {
+            Ok(())
+        }
     }
 
     /// Decide whether a decrypted to-device event was sent from a dehydrated
@@ -1546,11 +1594,13 @@ impl OlmMachine {
     pub async fn receive_sync_changes(
         &self,
         sync_changes: EncryptionSyncChanges<'_>,
+        decryption_settings: &DecryptionSettings,
     ) -> OlmResult<(Vec<ProcessedToDeviceEvent>, Vec<RoomKeyInfo>)> {
         let mut store_transaction = self.inner.store.transaction().await;
 
-        let (events, changes) =
-            self.preprocess_sync_changes(&mut store_transaction, sync_changes).await?;
+        let (events, changes) = self
+            .preprocess_sync_changes(&mut store_transaction, sync_changes, decryption_settings)
+            .await?;
 
         // Technically save_changes also does the same work, so if it's slow we could
         // refactor this to do it only once.
@@ -1571,10 +1621,20 @@ impl OlmMachine {
     /// If any of the to-device events in the supplied changes were sent from
     /// dehydrated devices, these are not processed, and are omitted from
     /// the returned list, as per MSC3814.
+    ///
+    /// If we are in strict "exclude insecure devices" mode and the sender
+    /// device of any event is not verified, and the decrypted event type is not
+    /// on the allow list, these events are not processed and are omitted from
+    /// the returned list.
+    ///
+    /// (The allow list of types that are processed even if the sender is
+    /// unverified is: `m.room_key`, `m.room_key.withheld`,
+    /// `m.room_key_request`, `m.secret.request` and `m.key.verification.*`.)
     pub(crate) async fn preprocess_sync_changes(
         &self,
         transaction: &mut StoreTransaction,
         sync_changes: EncryptionSyncChanges<'_>,
+        decryption_settings: &DecryptionSettings,
     ) -> OlmResult<(Vec<ProcessedToDeviceEvent>, Changes)> {
         // Remove verification objects that have expired or are done.
         let mut events: Vec<ProcessedToDeviceEvent> = self
@@ -1612,8 +1672,13 @@ impl OlmMachine {
         }
 
         for raw_event in sync_changes.to_device_events {
-            let processed_event =
-                Box::pin(self.receive_to_device_event(transaction, &mut changes, raw_event)).await;
+            let processed_event = Box::pin(self.receive_to_device_event(
+                transaction,
+                &mut changes,
+                raw_event,
+                decryption_settings,
+            ))
+            .await;
 
             if let Some(processed_event) = processed_event {
                 events.push(processed_event);
@@ -2931,9 +2996,15 @@ fn megolm_error_to_utd_info(
     Ok(UnableToDecryptInfo { session_id, reason })
 }
 
-/// An error that can occur during [`OlmMachine::decrypt_to_device_event`] -
-/// either because decryption failed, or because the sender device was a
-/// dehydrated device, which should never send any to-device messages.
+/// An error that can occur during [`OlmMachine::decrypt_to_device_event`]:
+///
+/// * because decryption failed, or
+///
+/// * because the sender device was not verified when we are in strict "exclude
+///   insecure devices" mode, or
+///
+/// * because the sender device was a dehydrated device, which should never send
+///   any to-device messages.
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum DecryptToDeviceError {
     #[error("An Olm error occurred meaning we failed to decrypt the event")]

@@ -1362,7 +1362,11 @@ async fn test_apply_redaction_when_redaction_comes_later() {
     let store_config = StoreConfig::new("hodlor".to_owned())
         .state_store(state_memory_store)
         .event_cache_store(event_cache_store);
-    let client = server.client_builder().store_config(store_config.clone()).build().await;
+    let client = server
+        .client_builder()
+        .on_builder(|builder| builder.store_config(store_config.clone()))
+        .build()
+        .await;
 
     let event_cache = client.event_cache();
 
@@ -1437,7 +1441,11 @@ async fn test_apply_redaction_when_redaction_comes_later() {
     // already redacted.
     drop(client);
 
-    let client = server.client_builder().store_config(store_config).build().await;
+    let client = server
+        .client_builder()
+        .on_builder(|builder| builder.store_config(store_config))
+        .build()
+        .await;
     client.event_cache().subscribe().unwrap();
     let room = client.get_room(room_id).unwrap();
     let (cache, _drop_handles) = room.event_cache().await.unwrap();
@@ -2366,9 +2374,11 @@ async fn test_clear_all_rooms() {
     let server = MatrixMockServer::new().await;
     let client = server
         .client_builder()
-        .store_config(
-            StoreConfig::new("hodlor".to_owned()).event_cache_store(event_cache_store.clone()),
-        )
+        .on_builder(|builder| {
+            builder.store_config(
+                StoreConfig::new("hodlor".to_owned()).event_cache_store(event_cache_store.clone()),
+            )
+        })
         .build()
         .await;
 
@@ -2450,13 +2460,21 @@ async fn test_sync_while_back_paginate() {
     {
         // First, initialize the sync so the client is aware of the room, in the state
         // store.
-        let client = server.client_builder().store_config(store_config.clone()).build().await;
+        let client = server
+            .client_builder()
+            .on_builder(|builder| builder.store_config(store_config.clone()))
+            .build()
+            .await;
         server.sync_joined_room(&client, room_id).await;
     }
 
     // Then, use a new client that will restore the state from the state store, and
     // with an empty event cache store.
-    let client = server.client_builder().store_config(store_config).build().await;
+    let client = server
+        .client_builder()
+        .on_builder(|builder| builder.store_config(store_config))
+        .build()
+        .await;
     let room = client.get_room(room_id).unwrap();
 
     client.event_cache().subscribe().unwrap();
@@ -2558,9 +2576,11 @@ async fn test_relations_ordering() {
 
     let client = server
         .client_builder()
-        .store_config(
-            StoreConfig::new("hodlor".to_owned()).event_cache_store(event_cache_store.clone()),
-        )
+        .on_builder(|builder| {
+            builder.store_config(
+                StoreConfig::new("hodlor".to_owned()).event_cache_store(event_cache_store.clone()),
+            )
+        })
         .build()
         .await;
 

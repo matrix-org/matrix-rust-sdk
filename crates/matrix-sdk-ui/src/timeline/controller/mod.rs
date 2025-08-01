@@ -1366,7 +1366,7 @@ impl<P: RoomDataProvider, D: Decryptor> TimelineController<P, D> {
                     .await;
             }
 
-            RoomSendQueueUpdate::UploadedMedia { related_to, .. } => {
+            RoomSendQueueUpdate::MediaUpload { related_to, .. } => {
                 // TODO(bnjbvr): Do something else?
                 info!(txn_id = %related_to, "some media for a media event has been uploaded");
             }
@@ -1530,7 +1530,7 @@ impl TimelineController {
                     .await
                 {
                     trace!(%old_pub_read, "found a previous public receipt");
-                    if let Some(relative_pos) = state.meta.compare_events_positions(
+                    if let Some(relative_pos) = TimelineMetadata::compare_events_positions(
                         &old_pub_read,
                         event_id,
                         state.items.all_remote_events(),
@@ -1550,7 +1550,7 @@ impl TimelineController {
                     state.latest_user_read_receipt(own_user_id, receipt_thread.clone(), room).await
                 {
                     trace!(%old_priv_read, "found a previous private receipt");
-                    if let Some(relative_pos) = state.meta.compare_events_positions(
+                    if let Some(relative_pos) = TimelineMetadata::compare_events_positions(
                         &old_priv_read,
                         event_id,
                         state.items.all_remote_events(),
@@ -1565,7 +1565,7 @@ impl TimelineController {
 
             SendReceiptType::FullyRead => {
                 if let Some(prev_event_id) = self.room_data_provider.load_fully_read_marker().await
-                    && let Some(relative_pos) = state.meta.compare_events_positions(
+                    && let Some(relative_pos) = TimelineMetadata::compare_events_positions(
                         &prev_event_id,
                         event_id,
                         state.items.all_remote_events(),

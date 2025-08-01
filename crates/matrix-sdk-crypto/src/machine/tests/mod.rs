@@ -284,15 +284,22 @@ fn test_one_time_key_signing() {
 async fn test_keys_for_upload() {
     let machine = OlmMachine::new(user_id(), alice_device_id()).await;
 
+    let decryption_settings =
+        DecryptionSettings { sender_device_trust_requirement: TrustRequirement::Untrusted };
+
     let key_counts = BTreeMap::from([(OneTimeKeyAlgorithm::SignedCurve25519, 49u8.into())]);
+
     machine
-        .receive_sync_changes(EncryptionSyncChanges {
-            to_device_events: Vec::new(),
-            changed_devices: &Default::default(),
-            one_time_keys_counts: &key_counts,
-            unused_fallback_keys: None,
-            next_batch_token: None,
-        })
+        .receive_sync_changes(
+            EncryptionSyncChanges {
+                to_device_events: Vec::new(),
+                changed_devices: &Default::default(),
+                one_time_keys_counts: &key_counts,
+                unused_fallback_keys: None,
+                next_batch_token: None,
+            },
+            &decryption_settings,
+        )
         .await
         .expect("We should be able to update our one-time key counts");
 
@@ -506,14 +513,20 @@ async fn send_room_key_to_device(
     );
     let event = json_convert(&event).unwrap();
 
+    let decryption_settings =
+        DecryptionSettings { sender_device_trust_requirement: TrustRequirement::Untrusted };
+
     receiver
-        .receive_sync_changes(EncryptionSyncChanges {
-            to_device_events: vec![event],
-            changed_devices: &Default::default(),
-            one_time_keys_counts: &Default::default(),
-            unused_fallback_keys: None,
-            next_batch_token: None,
-        })
+        .receive_sync_changes(
+            EncryptionSyncChanges {
+                to_device_events: vec![event],
+                changed_devices: &Default::default(),
+                one_time_keys_counts: &Default::default(),
+                unused_fallback_keys: None,
+                next_batch_token: None,
+            },
+            &decryption_settings,
+        )
         .await
 }
 
@@ -631,10 +644,20 @@ async fn test_megolm_encryption() {
 
     let mut room_keys_received_stream = Box::pin(bob.store().room_keys_received_stream());
 
+    let decryption_settings =
+        DecryptionSettings { sender_device_trust_requirement: TrustRequirement::Untrusted };
+
     let group_session = bob
         .store()
         .with_transaction(|mut tr| async {
-            let res = bob.decrypt_to_device_event(&mut tr, &event, &mut Changes::default()).await?;
+            let res = bob
+                .decrypt_to_device_event(
+                    &mut tr,
+                    &event,
+                    &mut Changes::default(),
+                    &decryption_settings,
+                )
+                .await?;
             Ok((tr, res))
         })
         .await
@@ -742,13 +765,19 @@ async fn test_withheld_unverified() {
 
     let event = json_convert(&event).unwrap();
 
-    bob.receive_sync_changes(EncryptionSyncChanges {
-        to_device_events: vec![event],
-        changed_devices: &Default::default(),
-        one_time_keys_counts: &Default::default(),
-        unused_fallback_keys: None,
-        next_batch_token: None,
-    })
+    let decryption_settings =
+        DecryptionSettings { sender_device_trust_requirement: TrustRequirement::Untrusted };
+
+    bob.receive_sync_changes(
+        EncryptionSyncChanges {
+            to_device_events: vec![event],
+            changed_devices: &Default::default(),
+            one_time_keys_counts: &Default::default(),
+            unused_fallback_keys: None,
+            next_batch_token: None,
+        },
+        &decryption_settings,
+    )
     .await
     .unwrap();
 
@@ -1002,10 +1031,20 @@ async fn test_query_ratcheted_key() {
         to_device_requests_to_content(to_device_requests),
     );
 
+    let decryption_settings =
+        DecryptionSettings { sender_device_trust_requirement: TrustRequirement::Untrusted };
+
     let group_session = bob
         .store()
         .with_transaction(|mut tr| async {
-            let res = bob.decrypt_to_device_event(&mut tr, &event, &mut Changes::default()).await?;
+            let res = bob
+                .decrypt_to_device_event(
+                    &mut tr,
+                    &event,
+                    &mut Changes::default(),
+                    &decryption_settings,
+                )
+                .await?;
             Ok((tr, res))
         })
         .await
@@ -1054,14 +1093,20 @@ async fn test_room_key_over_megolm() {
     let changed_devices = DeviceLists::new();
     let key_counts: BTreeMap<_, _> = Default::default();
 
+    let decryption_settings =
+        DecryptionSettings { sender_device_trust_requirement: TrustRequirement::Untrusted };
+
     let _ = bob
-        .receive_sync_changes(EncryptionSyncChanges {
-            to_device_events: vec![event],
-            changed_devices: &changed_devices,
-            one_time_keys_counts: &key_counts,
-            unused_fallback_keys: None,
-            next_batch_token: None,
-        })
+        .receive_sync_changes(
+            EncryptionSyncChanges {
+                to_device_events: vec![event],
+                changed_devices: &changed_devices,
+                one_time_keys_counts: &key_counts,
+                unused_fallback_keys: None,
+                next_batch_token: None,
+            },
+            &decryption_settings,
+        )
         .await
         .unwrap();
 
@@ -1086,10 +1131,20 @@ async fn test_room_key_over_megolm() {
 
     let event: EncryptedToDeviceEvent = serde_json::from_value(event).unwrap();
 
+    let decryption_settings =
+        DecryptionSettings { sender_device_trust_requirement: TrustRequirement::Untrusted };
+
     let decrypt_result = bob
         .store()
         .with_transaction(|mut tr| async {
-            let res = bob.decrypt_to_device_event(&mut tr, &event, &mut Changes::default()).await?;
+            let res = bob
+                .decrypt_to_device_event(
+                    &mut tr,
+                    &event,
+                    &mut Changes::default(),
+                    &decryption_settings,
+                )
+                .await?;
             Ok((tr, res))
         })
         .await;
@@ -1098,13 +1153,19 @@ async fn test_room_key_over_megolm() {
 
     let event: Raw<AnyToDeviceEvent> = json_convert(&event).unwrap();
 
-    bob.receive_sync_changes(EncryptionSyncChanges {
-        to_device_events: vec![event],
-        changed_devices: &changed_devices,
-        one_time_keys_counts: &key_counts,
-        unused_fallback_keys: None,
-        next_batch_token: None,
-    })
+    let decryption_settings =
+        DecryptionSettings { sender_device_trust_requirement: TrustRequirement::Untrusted };
+
+    bob.receive_sync_changes(
+        EncryptionSyncChanges {
+            to_device_events: vec![event],
+            changed_devices: &changed_devices,
+            one_time_keys_counts: &key_counts,
+            unused_fallback_keys: None,
+            next_batch_token: None,
+        },
+        &decryption_settings,
+    )
     .await
     .unwrap();
 
@@ -1385,12 +1446,20 @@ async fn test_unsigned_decryption() {
         to_device_requests_to_content(to_device_requests),
     );
 
+    let decryption_settings =
+        DecryptionSettings { sender_device_trust_requirement: TrustRequirement::Untrusted };
+
     // Save the first room key.
     let group_session = bob
         .store()
         .with_transaction(|mut tr| async {
             let res = bob
-                .decrypt_to_device_event(&mut tr, &first_room_key_event, &mut Changes::default())
+                .decrypt_to_device_event(
+                    &mut tr,
+                    &first_room_key_event,
+                    &mut Changes::default(),
+                    &decryption_settings,
+                )
                 .await?;
             Ok((tr, res))
         })
@@ -1490,12 +1559,20 @@ async fn test_unsigned_decryption() {
         })
     );
 
+    let decryption_settings =
+        DecryptionSettings { sender_device_trust_requirement: TrustRequirement::Untrusted };
+
     // Give Bob the second room key.
     let group_session = bob
         .store()
         .with_transaction(|mut tr| async {
             let res = bob
-                .decrypt_to_device_event(&mut tr, &second_room_key_event, &mut Changes::default())
+                .decrypt_to_device_event(
+                    &mut tr,
+                    &second_room_key_event,
+                    &mut Changes::default(),
+                    &decryption_settings,
+                )
                 .await?;
             Ok((tr, res))
         })
@@ -1599,12 +1676,20 @@ async fn test_unsigned_decryption() {
         })
     );
 
+    let decryption_settings =
+        DecryptionSettings { sender_device_trust_requirement: TrustRequirement::Untrusted };
+
     // Give Bob the third room key.
     let group_session = bob
         .store()
         .with_transaction(|mut tr| async {
             let res = bob
-                .decrypt_to_device_event(&mut tr, &third_room_key_event, &mut Changes::default())
+                .decrypt_to_device_event(
+                    &mut tr,
+                    &third_room_key_event,
+                    &mut Changes::default(),
+                    &decryption_settings,
+                )
                 .await?;
             Ok((tr, res))
         })

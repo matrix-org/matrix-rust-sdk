@@ -18,7 +18,9 @@ use std::{
 };
 
 use assert_matches2::assert_let;
-use matrix_sdk_common::deserialized_responses::ProcessedToDeviceEvent;
+use matrix_sdk_common::deserialized_responses::{
+    ProcessedToDeviceEvent, ToDeviceUnableToDecryptReason,
+};
 use matrix_sdk_test::async_test;
 use ruma::{
     device_id,
@@ -34,13 +36,12 @@ use crate::{
             create_session, get_machine_pair, get_machine_pair_with_session,
             get_machine_pair_with_setup_sessions_test_helper,
         },
-        tests,
-        tests::megolm_sender_data::receive_to_device_event,
+        tests::{self, megolm_sender_data::receive_to_device_event},
     },
     olm::utility::SignJson,
     store::types::Changes,
     types::{events::ToDeviceEvent, DeviceKeys},
-    DeviceData, OlmMachine,
+    DecryptionSettings, DeviceData, OlmMachine, TrustRequirement,
 };
 
 #[async_test]
@@ -212,11 +213,21 @@ async fn olm_encryption_test_helper(use_fallback_key: bool) {
             .expect("We should be able to deserialize the encrypted content"),
     );
 
+    let decryption_settings =
+        DecryptionSettings { sender_device_trust_requirement: TrustRequirement::Untrusted };
+
     // Decrypting the first time should succeed.
     let decrypted = bob
         .store()
         .with_transaction(|mut tr| async {
-            let res = bob.decrypt_to_device_event(&mut tr, &event, &mut Changes::default()).await?;
+            let res = bob
+                .decrypt_to_device_event(
+                    &mut tr,
+                    &event,
+                    &mut Changes::default(),
+                    &decryption_settings,
+                )
+                .await?;
             Ok((tr, res))
         })
         .await
@@ -232,7 +243,14 @@ async fn olm_encryption_test_helper(use_fallback_key: bool) {
     // Replaying the event should now result in a decryption failure.
     bob.store()
         .with_transaction(|mut tr| async {
-            let res = bob.decrypt_to_device_event(&mut tr, &event, &mut Changes::default()).await?;
+            let res = bob
+                .decrypt_to_device_event(
+                    &mut tr,
+                    &event,
+                    &mut Changes::default(),
+                    &decryption_settings,
+                )
+                .await?;
             Ok((tr, res))
         })
         .await
@@ -292,12 +310,17 @@ async fn test_decrypt_to_device_message_with_unsigned_sender_keys() {
         alice_session.build_encrypted_event(ciphertext, None).await.unwrap(),
     );
 
+    let decryption_settings =
+        DecryptionSettings { sender_device_trust_requirement: TrustRequirement::Untrusted };
+
     // Bob receives the to-device message
-    let (to_device_events, _) = receive_to_device_event(&bob, &event).await;
+    let (to_device_events, _) = receive_to_device_event(&bob, &event, &decryption_settings).await;
 
     let event = to_device_events.first().expect("Bob did not get a to-device event").clone();
 
     // The to-device event should remain encrypted.
-    assert_let!(ProcessedToDeviceEvent::UnableToDecrypt(event) = event);
-    assert_eq!(event.get_field("type").unwrap(), Some("m.room.encrypted"));
+    assert_let!(ProcessedToDeviceEvent::UnableToDecrypt { encrypted_event, utd_info } = event);
+    assert_eq!(encrypted_event.get_field("type").unwrap(), Some("m.room.encrypted"));
+
+    assert_eq!(utd_info.reason, ToDeviceUnableToDecryptReason::DecryptionFailure);
 }

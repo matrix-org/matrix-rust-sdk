@@ -60,7 +60,8 @@ use crate::{
         CryptoStoreWrapper, MemoryStore, Store,
     },
     verification::VerificationMachine,
-    Account, CryptoStoreError, EncryptionSyncChanges, OlmError, OlmMachine, SignatureError,
+    Account, CryptoStoreError, DecryptionSettings, EncryptionSyncChanges, OlmError, OlmMachine,
+    SignatureError,
 };
 
 /// Error type for device dehydration issues.
@@ -215,7 +216,9 @@ impl RehydratedDevice {
     ///
     /// ```no_run
     /// # use anyhow::Result;
-    /// # use matrix_sdk_crypto::{ OlmMachine, store::types::DehydratedDeviceKey };
+    /// # use matrix_sdk_crypto::{
+    ///     DecryptionSettings, OlmMachine, TrustRequirement, store::types::DehydratedDeviceKey
+    /// };
     /// # use ruma::{api::client::dehydrated_device, DeviceId};
     /// # async fn example() -> Result<()> {
     /// # let machine: OlmMachine = unimplemented!();
@@ -245,6 +248,9 @@ impl RehydratedDevice {
     ///
     /// let mut since_token = None;
     /// let mut imported_room_keys = 0;
+    /// let decryption_settings = DecryptionSettings {
+    ///     sender_device_trust_requirement: TrustRequirement::Untrusted
+    /// };
     ///
     /// loop {
     ///     let response =
@@ -255,7 +261,7 @@ impl RehydratedDevice {
     ///     }
     ///
     ///     since_token = response.next_batch.as_deref();
-    ///     imported_room_keys += rehydrated.receive_events(response.events).await?.len();
+    ///     imported_room_keys += rehydrated.receive_events(response.events, &decryption_settings).await?.len();
     /// }
     ///
     /// println!("Successfully imported {imported_room_keys} from the dehydrated device.");
@@ -273,6 +279,7 @@ impl RehydratedDevice {
     pub async fn receive_events(
         &self,
         events: Vec<Raw<AnyToDeviceEvent>>,
+        decryption_settings: &DecryptionSettings,
     ) -> Result<Vec<RoomKeyInfo>, OlmError> {
         trace!("Receiving events for a rehydrated Device");
 
@@ -290,7 +297,7 @@ impl RehydratedDevice {
 
         let (_, changes) = self
             .rehydrated
-            .preprocess_sync_changes(&mut rehydrated_transaction, sync_changes)
+            .preprocess_sync_changes(&mut rehydrated_transaction, sync_changes, decryption_settings)
             .await?;
 
         // Now take the room keys and persist them in our original `OlmMachine`.
@@ -423,7 +430,7 @@ mod tests {
         store::types::DehydratedDeviceKey,
         types::{events::ToDeviceEvent, DeviceKeys as DeviceKeysType},
         utilities::json_convert,
-        EncryptionSettings, OlmMachine,
+        DecryptionSettings, EncryptionSettings, OlmMachine, TrustRequirement,
     };
 
     fn pickle_key() -> DehydratedDeviceKey {
@@ -568,9 +575,12 @@ mod tests {
         assert_eq!(rehydrated.rehydrated.device_id(), request.device_id);
         assert_eq!(rehydrated.original.device_id(), alice.device_id());
 
+        let decryption_settings =
+            DecryptionSettings { sender_device_trust_requirement: TrustRequirement::Untrusted };
+
         // Push the to-device event containing the room key into the rehydrated device.
         let ret = rehydrated
-            .receive_events(vec![event])
+            .receive_events(vec![event], &decryption_settings)
             .await
             .expect("We should be able to push to-device events into the rehydrated device");
 
@@ -680,9 +690,12 @@ mod tests {
         assert_eq!(rehydrated.rehydrated.device_id(), &device_id);
         assert_eq!(rehydrated.original.device_id(), alice.device_id());
 
+        let decryption_settings =
+            DecryptionSettings { sender_device_trust_requirement: TrustRequirement::Untrusted };
+
         // Push the to-device event containing the room key into the rehydrated device.
         let ret = rehydrated
-            .receive_events(vec![event])
+            .receive_events(vec![event], &decryption_settings)
             .await
             .expect("We should be able to push to-device events into the rehydrated device");
 

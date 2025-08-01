@@ -21,8 +21,9 @@ use once_cell::sync::Lazy;
 use regex::Regex;
 use ruma::{
     EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedRoomId, OwnedUserId, UInt, UserId,
+    api::client::sync::sync_events::StrippedState,
     events::{
-        AnyStrippedStateEvent, AnySyncStateEvent, AnySyncTimelineEvent, EventContentFromType,
+        AnySyncStateEvent, AnySyncTimelineEvent, EventContentFromType,
         PossiblyRedactedStateEventContent, RedactContent, RedactedStateEventContent,
         StateEventContent, StaticStateEventContent, StrippedStateEvent, SyncStateEvent,
         room::{
@@ -261,7 +262,7 @@ pub enum RawAnySyncOrStrippedTimelineEvent {
     /// An event from a room in joined or left state.
     Sync(Raw<AnySyncTimelineEvent>),
     /// An event from a room in invited state.
-    Stripped(Raw<AnyStrippedStateEvent>),
+    Stripped(Raw<StrippedState>),
 }
 
 impl From<Raw<AnySyncTimelineEvent>> for RawAnySyncOrStrippedTimelineEvent {
@@ -270,8 +271,8 @@ impl From<Raw<AnySyncTimelineEvent>> for RawAnySyncOrStrippedTimelineEvent {
     }
 }
 
-impl From<Raw<AnyStrippedStateEvent>> for RawAnySyncOrStrippedTimelineEvent {
-    fn from(event: Raw<AnyStrippedStateEvent>) -> Self {
+impl From<Raw<StrippedState>> for RawAnySyncOrStrippedTimelineEvent {
+    fn from(event: Raw<StrippedState>) -> Self {
         Self::Stripped(event)
     }
 }
@@ -283,7 +284,7 @@ pub enum RawAnySyncOrStrippedState {
     /// An event from a room in joined or left state.
     Sync(Raw<AnySyncStateEvent>),
     /// An event from a room in invited state.
-    Stripped(Raw<AnyStrippedStateEvent>),
+    Stripped(Raw<StrippedState>),
 }
 
 impl RawAnySyncOrStrippedState {
@@ -323,7 +324,7 @@ pub enum AnySyncOrStrippedState {
     ///
     /// The value is `Box`ed because it is quite large. Let's keep the size of
     /// `Self` as small as possible.
-    Stripped(Box<AnyStrippedStateEvent>),
+    Stripped(Box<StrippedState>),
 }
 
 impl AnySyncOrStrippedState {
@@ -338,7 +339,7 @@ impl AnySyncOrStrippedState {
 
     /// If this is an `AnyStrippedStateEvent`, return a reference to the inner
     /// event.
-    pub fn as_stripped(&self) -> Option<&AnyStrippedStateEvent> {
+    pub fn as_stripped(&self) -> Option<&StrippedState> {
         match self {
             Self::Sync(_) => None,
             Self::Stripped(ev) => Some(ev),

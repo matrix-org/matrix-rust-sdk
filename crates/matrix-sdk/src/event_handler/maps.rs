@@ -19,14 +19,19 @@ use std::{
 
 use ruma::{OwnedRoomId, RoomId};
 
-use super::{EventHandlerFn, EventHandlerHandle, EventHandlerWrapper, HandlerKind};
+use super::{
+    EventHandlerFn, EventHandlerHandle, EventHandlerWrapper, HandlerKind, StaticEventTypePart,
+};
 
 #[derive(Default)]
 pub(super) struct EventHandlerMaps {
     by_kind: BTreeMap<HandlerKind, Vec<EventHandlerWrapper>>,
     by_kind_type: BTreeMap<KindTypeWrap, Vec<EventHandlerWrapper>>,
+    by_kind_type_prefix: BTreeMap<HandlerKind, BTreeMap<&'static str, Vec<EventHandlerWrapper>>>,
     by_kind_roomid: BTreeMap<KindRoomId, Vec<EventHandlerWrapper>>,
     by_kind_type_roomid: BTreeMap<KindTypeRoomIdWrap, Vec<EventHandlerWrapper>>,
+    by_kind_type_prefix_roomid:
+        BTreeMap<KindRoomId, BTreeMap<&'static str, Vec<EventHandlerWrapper>>>,
 }
 
 impl EventHandlerMaps {
@@ -40,12 +45,27 @@ impl EventHandlerMaps {
             Key::KindType(key) => {
                 self.by_kind_type.entry(key).or_default().push(wrapper);
             }
+            Key::KindTypePrefix(outer_key, inner_key) => {
+                self.by_kind_type_prefix
+                    .entry(outer_key)
+                    .or_default()
+                    .entry(inner_key)
+                    .or_default()
+                    .push(wrapper);
+            }
             Key::KindRoomId(key) => {
                 self.by_kind_roomid.entry(key).or_default().push(wrapper);
             }
             Key::KindTypeRoomId(key) => {
                 self.by_kind_type_roomid.entry(key).or_default().push(wrapper)
             }
+            Key::KindTypePrefixRoomId(outer_key, inner_key) => self
+                .by_kind_type_prefix_roomid
+                .entry(outer_key)
+                .or_default()
+                .entry(inner_key)
+                .or_default()
+                .push(wrapper),
         }
     }
 
@@ -61,7 +81,16 @@ impl EventHandlerMaps {
         let kind_type_kv = self
             .by_kind_type
             .get_key_value(&KindType { ev_kind, ev_type })
-            .map(|(key, handlers)| (Some(key.0.ev_type), handlers));
+            .map(|(key, handlers)| (Some(StaticEventTypePart::Full(key.0.ev_type)), handlers));
+        let kind_type_prefix_kv = self
+            .by_kind_type_prefix
+            .get_key_value(&ev_kind)
+            .and_then(|(_, inner_map)| {
+                inner_map.iter().find(|(ev_type_prefix, _)| ev_type.starts_with(**ev_type_prefix))
+            })
+            .map(|(ev_type_prefix, handlers)| {
+                (Some(StaticEventTypePart::Prefix(ev_type_prefix)), handlers)
+            });
         let maybe_roomid_kvs = room_id
             .map(|r_id| {
                 let room_id = r_id.to_owned();
@@ -74,15 +103,33 @@ impl EventHandlerMaps {
                 let kind_type_roomid_kv = self
                     .by_kind_type_roomid
                     .get_key_value(&KindTypeRoomId { ev_kind, ev_type, room_id })
-                    .map(|(key, handlers)| (Some(key.0.ev_type), handlers));
+                    .map(|(key, handlers)| {
+                        (Some(StaticEventTypePart::Full(key.0.ev_type)), handlers)
+                    });
 
-                [kind_roomid_kv, kind_type_roomid_kv]
+                let room_id = r_id.to_owned();
+                let kind_type_prefix_roomid_kv = self
+                    .by_kind_type_prefix_roomid
+                    .get_key_value(&KindRoomId { ev_kind, room_id })
+                    .and_then(|(_, inner_map)| {
+                        inner_map
+                            .iter()
+                            .find(|(ev_type_prefix, _)| ev_type.starts_with(**ev_type_prefix))
+                    })
+                    .map(|(ev_type_prefix, handlers)| {
+                        (Some(StaticEventTypePart::Prefix(ev_type_prefix)), handlers)
+                    });
+
+                [kind_roomid_kv, kind_type_roomid_kv, kind_type_prefix_roomid_kv]
             })
             .into_iter()
             .flatten();
 
-        [kind_kv, kind_type_kv].into_iter().chain(maybe_roomid_kvs).flatten().flat_map(
-            move |(ev_type, handlers)| {
+        [kind_kv, kind_type_kv, kind_type_prefix_kv]
+            .into_iter()
+            .chain(maybe_roomid_kvs)
+            .flatten()
+            .flat_map(move |(ev_type, handlers)| {
                 handlers.iter().map(move |wrap| {
                     let handle = EventHandlerHandle {
                         ev_kind,
@@ -93,8 +140,7 @@ impl EventHandlerMaps {
 
                     (handle, &*wrap.handler_fn)
                 })
-            },
-        )
+            })
     }
 
     pub fn remove(&mut self, handle: EventHandlerHandle) {
@@ -113,6 +159,21 @@ impl EventHandlerMaps {
                 }
             }
         }
+        fn remove_nested_entry<K1: Ord, K2: Ord>(
+            map: &mut BTreeMap<K1, BTreeMap<K2, Vec<EventHandlerWrapper>>>,
+            outer_key: K1,
+            inner_key: K2,
+            handler_id: u64,
+        ) {
+            if let btree_map::Entry::Occupied(mut o) = map.entry(outer_key) {
+                let v = o.get_mut();
+                remove_entry(v, inner_key, handler_id);
+
+                if v.is_empty() {
+                    o.remove();
+                }
+            }
+        }
 
         let handler_id = handle.handler_id;
         match Key::new(handle) {
@@ -122,11 +183,27 @@ impl EventHandlerMaps {
             Key::KindType(key) => {
                 remove_entry(&mut self.by_kind_type, key, handler_id);
             }
+            Key::KindTypePrefix(outer_key, inner_key) => {
+                remove_nested_entry(
+                    &mut self.by_kind_type_prefix,
+                    outer_key,
+                    inner_key,
+                    handler_id,
+                );
+            }
             Key::KindRoomId(key) => {
                 remove_entry(&mut self.by_kind_roomid, key, handler_id);
             }
             Key::KindTypeRoomId(key) => {
                 remove_entry(&mut self.by_kind_type_roomid, key, handler_id);
+            }
+            Key::KindTypePrefixRoomId(outer_key, inner_key) => {
+                remove_nested_entry(
+                    &mut self.by_kind_type_prefix_roomid,
+                    outer_key,
+                    inner_key,
+                    handler_id,
+                );
             }
         }
     }
@@ -140,8 +217,10 @@ impl EventHandlerMaps {
 enum Key {
     Kind(HandlerKind),
     KindType(KindTypeWrap),
+    KindTypePrefix(HandlerKind, &'static str),
     KindRoomId(KindRoomId),
     KindTypeRoomId(KindTypeRoomIdWrap),
+    KindTypePrefixRoomId(KindRoomId, &'static str),
 }
 
 impl Key {
@@ -149,12 +228,27 @@ impl Key {
         let EventHandlerHandle { ev_kind, ev_type, room_id, .. } = handle;
         match (ev_type, room_id) {
             (None, None) => Key::Kind(ev_kind),
-            (Some(ev_type), None) => Key::KindType(KindTypeWrap(KindType { ev_kind, ev_type })),
+            (Some(ev_type), None) => match ev_type {
+                StaticEventTypePart::Full(ev_type) => {
+                    Key::KindType(KindTypeWrap(KindType { ev_kind, ev_type }))
+                }
+                StaticEventTypePart::Prefix(ev_type_prefix) => {
+                    Key::KindTypePrefix(ev_kind, ev_type_prefix)
+                }
+            },
             (None, Some(room_id)) => Key::KindRoomId(KindRoomId { ev_kind, room_id }),
-            (Some(ev_type), Some(room_id)) => {
-                let inner = KindTypeRoomId { ev_kind, ev_type, room_id };
-                Key::KindTypeRoomId(KindTypeRoomIdWrap(inner))
-            }
+            (Some(ev_type), Some(room_id)) => match ev_type {
+                StaticEventTypePart::Full(ev_type) => {
+                    Key::KindTypeRoomId(KindTypeRoomIdWrap(KindTypeRoomId {
+                        ev_kind,
+                        ev_type,
+                        room_id,
+                    }))
+                }
+                StaticEventTypePart::Prefix(ev_type_prefix) => {
+                    Key::KindTypePrefixRoomId(KindRoomId { ev_kind, room_id }, ev_type_prefix)
+                }
+            },
         }
     }
 }

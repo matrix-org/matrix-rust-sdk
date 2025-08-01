@@ -48,7 +48,8 @@ pub use room_info::{
     RoomInfoNotableUpdateReasons, apply_redaction,
 };
 use ruma::{
-    EventId, OwnedEventId, OwnedMxcUri, OwnedRoomAliasId, OwnedRoomId, OwnedUserId, RoomId, UserId,
+    EventId, OwnedEventId, OwnedMxcUri, OwnedRoomAliasId, OwnedRoomId, OwnedUserId, RoomId,
+    RoomVersionId, UserId,
     events::{
         direct::OwnedDirectUserIdentifier,
         receipt::{Receipt, ReceiptThread, ReceiptType},
@@ -468,6 +469,11 @@ impl Room {
     /// unread
     pub fn is_marked_unread(&self) -> bool {
         self.inner.read().base_info.is_marked_unread
+    }
+
+    /// Returns the [`RoomVersionId`] of the room, if known.
+    pub fn version(&self) -> Option<RoomVersionId> {
+        self.inner.read().room_version().cloned()
     }
 
     /// Returns the recency stamp of the room.

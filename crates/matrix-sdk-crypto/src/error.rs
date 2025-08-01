@@ -76,6 +76,14 @@ pub enum OlmError {
     /// Encryption failed due to an error collecting the recipient devices.
     #[error("encryption failed due to an error collecting the recipient devices: {0}")]
     SessionRecipientCollectionError(SessionRecipientCollectionError),
+
+    /// Refused to decrypt because the sender was not verified or did not meet
+    /// the required VerificationLevel.
+    #[error(
+        "refusing to decrypt the event because the sender device was not \
+        verified and 'exclude insecure devices' is enabled."
+    )]
+    UnverifiedSenderDevice,
 }
 
 /// Error representing a failure during a group encryption operation.

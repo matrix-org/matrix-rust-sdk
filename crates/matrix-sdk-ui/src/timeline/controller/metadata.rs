@@ -172,7 +172,6 @@ impl TimelineMetadata {
     ///
     /// Returns `None` if none of the two events could be found in the timeline.
     pub(in crate::timeline) fn compare_events_positions(
-        &self,
         event_a: &EventId,
         event_b: &EventId,
         all_remote_events: &AllRemoteEvents,

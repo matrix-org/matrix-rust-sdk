@@ -46,7 +46,7 @@ use super::{
 };
 use crate::IndexeddbStateStoreError;
 
-const CURRENT_DB_VERSION: u32 = 12;
+const CURRENT_DB_VERSION: u32 = 13;
 const CURRENT_META_DB_VERSION: u32 = 2;
 
 /// Sometimes Migrations can't proceed without having to drop existing
@@ -236,6 +236,9 @@ pub async fn upgrade_inner_db(
             }
             if old_version < 12 {
                 db = migrate_to_v12(db).await?;
+            }
+            if old_version < 13 {
+                db = migrate_to_v13(db).await?;
             }
         }
 
@@ -791,6 +794,16 @@ async fn migrate_to_v12(db: IdbDatabase) -> Result<IdbDatabase> {
 
     // Update the version of the database.
     Ok(IdbDatabase::open_u32(&name, 12)?.await?)
+}
+
+/// Add the thread subscriptions table.
+async fn migrate_to_v13(db: IdbDatabase) -> Result<IdbDatabase> {
+    let migration = OngoingMigration {
+        drop_stores: [].into(),
+        create_stores: [keys::THREAD_SUBSCRIPTIONS].into_iter().collect(),
+        data: Default::default(),
+    };
+    apply_migration(db, 13, migration).await
 }
 
 #[cfg(all(test, target_family = "wasm"))]

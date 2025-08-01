@@ -15,10 +15,14 @@
 use assert_matches2::{assert_let, assert_matches};
 use insta::assert_json_snapshot;
 use matrix_sdk_common::deserialized_responses::{
-    AlgorithmInfo, ProcessedToDeviceEvent, VerificationLevel, VerificationState,
+    AlgorithmInfo, ProcessedToDeviceEvent, ToDeviceUnableToDecryptReason, VerificationLevel,
+    VerificationState,
 };
-use matrix_sdk_test::async_test;
-use ruma::{events::AnyToDeviceEvent, serde::Raw, to_device::DeviceIdOrAllDevices};
+use matrix_sdk_test::{async_test, ruma_response_from_json};
+use ruma::{
+    events::AnyToDeviceEvent, room_id, serde::Raw, to_device::DeviceIdOrAllDevices, RoomId,
+    TransactionId,
+};
 use serde_json::{json, value::to_raw_value, Value};
 
 use crate::{
@@ -27,16 +31,20 @@ use crate::{
             build_session_for_pair, get_machine_pair, get_machine_pair_with_session,
             get_prepared_machine_test_helper, send_and_receive_encrypted_to_device_test_helper,
         },
-        tests,
-        tests::decryption_verification_state::mark_alice_identity_as_verified_test_helper,
+        tests::{self, decryption_verification_state::mark_alice_identity_as_verified_test_helper},
     },
+    olm::SenderData,
     types::{
-        events::{ToDeviceCustomEvent, ToDeviceEvent},
+        events::{
+            room::encrypted::ToDeviceEncryptedEventContent, EventType as _, ToDeviceCustomEvent,
+            ToDeviceEvent,
+        },
         requests::ToDeviceRequest,
     },
     utilities::json_convert,
     verification::tests::bob_id,
-    DeviceData, EncryptionSyncChanges, LocalTrust, OlmError, OlmMachine,
+    CrossSigningBootstrapRequests, DecryptionSettings, DeviceData, EncryptionSettings,
+    EncryptionSyncChanges, LocalTrust, OlmError, OlmMachine, Session, TrustRequirement,
 };
 
 #[async_test]
@@ -51,49 +59,17 @@ async fn test_send_encrypted_to_device() {
             "rooms": ["!726s6s6q:example.com"]
     });
 
-    let device = alice.get_device(bob.user_id(), bob.device_id(), None).await.unwrap().unwrap();
-    let raw_encrypted = device
-        .encrypt_event_raw(custom_event_type, &custom_content)
-        .await
-        .expect("Should have encrypted the content");
+    let decryption_settings =
+        DecryptionSettings { sender_device_trust_requirement: TrustRequirement::Untrusted };
 
-    let request = ToDeviceRequest::new(
-        bob.user_id(),
-        DeviceIdOrAllDevices::DeviceId(tests::bob_device_id().to_owned()),
-        "m.room.encrypted",
-        raw_encrypted.cast(),
-    );
-
-    assert_eq!("m.room.encrypted", request.event_type.to_string());
-
-    let messages = &request.messages;
-    assert_eq!(1, messages.len());
-    assert!(messages.get(bob.user_id()).is_some());
-    let target_devices = messages.get(bob.user_id()).unwrap();
-    assert_eq!(1, target_devices.len());
-    assert!(target_devices
-        .get(&DeviceIdOrAllDevices::DeviceId(tests::bob_device_id().to_owned()))
-        .is_some());
-
-    let event = ToDeviceEvent::new(
-        alice.user_id().to_owned(),
-        tests::to_device_requests_to_content(vec![request.clone().into()]),
-    );
-
-    let event = json_convert(&event).unwrap();
-
-    let sync_changes = EncryptionSyncChanges {
-        to_device_events: vec![event],
-        changed_devices: &Default::default(),
-        one_time_keys_counts: &Default::default(),
-        unused_fallback_keys: None,
-        next_batch_token: None,
-    };
-
-    let (decrypted, _) = bob.receive_sync_changes(sync_changes).await.unwrap();
-
-    assert_eq!(1, decrypted.len());
-    let processed_event = &decrypted[0];
+    let processed_event = send_and_receive_encrypted_to_device_test_helper(
+        &alice,
+        &bob,
+        custom_event_type,
+        &custom_content,
+        &decryption_settings,
+    )
+    .await;
 
     assert_let!(ProcessedToDeviceEvent::Decrypted { raw, encryption_info } = processed_event);
 
@@ -101,7 +77,7 @@ async fn test_send_encrypted_to_device() {
 
     assert_eq!(decrypted_event.event_type().to_string(), custom_event_type.to_owned());
 
-    let decrypted_value = to_raw_value(&decrypted[0].to_raw()).unwrap();
+    let decrypted_value = to_raw_value(&raw).unwrap();
     let decrypted_value = serde_json::to_value(decrypted_value).unwrap();
 
     assert_eq!(
@@ -140,7 +116,7 @@ async fn test_send_encrypted_to_device() {
 async fn test_receive_custom_encrypted_to_device_fails_if_device_unknown() {
     // When decrypting a custom to device, we expect the recipient to know the
     // sending device. If the device is not known decryption will fail (see
-    // `EventError(MissingSigningKey)`). The only exception is room keys were
+    // `EventError(MissingSigningKey)`). The only exception is room keys where
     // this check can be delayed. This is a reason why there is no test for
     // verification_state `DeviceLinkProblem::MissingDevice`
 
@@ -160,40 +136,120 @@ async fn test_receive_custom_encrypted_to_device_fails_if_device_unknown() {
             "rooms": ["!726s6s6q:example.com"]
     });
 
-    let device = alice.get_device(bob.user_id(), bob.device_id(), None).await.unwrap().unwrap();
-    let raw_encrypted = device
-        .encrypt_event_raw(custom_event_type, &custom_content)
-        .await
-        .expect("Should have encrypted the content");
+    let decryption_settings =
+        DecryptionSettings { sender_device_trust_requirement: TrustRequirement::Untrusted };
 
-    let request = ToDeviceRequest::new(
-        bob.user_id(),
-        DeviceIdOrAllDevices::DeviceId(tests::bob_device_id().to_owned()),
-        "m.room.encrypted",
-        raw_encrypted.cast(),
-    );
+    let processed_event = send_and_receive_encrypted_to_device_test_helper(
+        &alice,
+        &bob,
+        custom_event_type,
+        &custom_content,
+        &decryption_settings,
+    )
+    .await;
 
-    let event = ToDeviceEvent::new(
-        alice.user_id().to_owned(),
-        tests::to_device_requests_to_content(vec![request.clone().into()]),
-    );
+    assert_let!(ProcessedToDeviceEvent::UnableToDecrypt { utd_info, .. } = processed_event);
+    assert_eq!(utd_info.reason, ToDeviceUnableToDecryptReason::DecryptionFailure);
+}
 
-    let event = json_convert(&event).unwrap();
-
-    let sync_changes = EncryptionSyncChanges {
-        to_device_events: vec![event],
-        changed_devices: &Default::default(),
-        one_time_keys_counts: &Default::default(),
-        unused_fallback_keys: None,
-        next_batch_token: None,
+#[async_test]
+async fn test_excluding_insecure_means_custom_to_device_events_from_unverified_devices_are_utd() {
+    // Given we are in "exclude insecure devices" mode
+    let decryption_settings = DecryptionSettings {
+        sender_device_trust_requirement: TrustRequirement::CrossSignedOrLegacy,
     };
 
-    let (decrypted, _) = bob.receive_sync_changes(sync_changes).await.unwrap();
+    // Bob is the receiver
+    let (bob, otk) = get_prepared_machine_test_helper(bob_id(), false).await;
 
-    assert_eq!(1, decrypted.len());
-    let processed_event = &decrypted[0];
+    // Alice is the sender
+    let alice = OlmMachine::new(tests::alice_id(), tests::alice_device_id()).await;
 
-    assert_let!(ProcessedToDeviceEvent::UnableToDecrypt(_) = processed_event);
+    let bob_device = DeviceData::from_machine_test_helper(&bob).await.unwrap();
+    alice.store().save_device_data(&[bob_device]).await.unwrap();
+
+    let (alice, bob) = build_session_for_pair(alice, bob, otk).await;
+
+    // And the receiving device does not consider the sending device verified
+    make_alice_unverified(&alice, &bob).await;
+
+    assert!(!bob
+        .get_device(alice.user_id(), alice.device_id(), None)
+        .await
+        .unwrap()
+        .unwrap()
+        .is_verified());
+
+    // When we send a custom event
+    let custom_event_type = "m.new_device";
+
+    let custom_content = json!({
+            "device_id": "XYZABCDE",
+            "rooms": ["!726s6s6q:example.com"]
+    });
+
+    let processed_event = send_and_receive_encrypted_to_device_test_helper(
+        &alice,
+        &bob,
+        custom_event_type,
+        &custom_content,
+        &decryption_settings,
+    )
+    .await;
+
+    // Then it was not processed because the sending device was not verified
+    assert_let!(ProcessedToDeviceEvent::UnableToDecrypt { utd_info, .. } = processed_event);
+
+    // And the info provided in the UnableToDecrypt matches what we supplied
+    assert_eq!(utd_info.reason, ToDeviceUnableToDecryptReason::UnverifiedSenderDevice);
+}
+
+#[async_test]
+async fn test_excluding_insecure_does_not_prevent_key_events_being_processed() {
+    // Given we are in "exclude insecure devices" mode
+    let decryption_settings = DecryptionSettings {
+        sender_device_trust_requirement: TrustRequirement::CrossSignedOrLegacy,
+    };
+
+    // Bob is the receiver
+    let (bob, otk) = get_prepared_machine_test_helper(bob_id(), false).await;
+
+    // Alice is the sender
+    let alice = OlmMachine::new(tests::alice_id(), tests::alice_device_id()).await;
+
+    let bob_device = DeviceData::from_machine_test_helper(&bob).await.unwrap();
+    alice.store().save_device_data(&[bob_device]).await.unwrap();
+
+    let (alice, bob) = build_session_for_pair(alice, bob, otk).await;
+
+    // And the receiving device does not consider the sending device verified
+    make_alice_unverified(&alice, &bob).await;
+
+    assert!(!bob
+        .get_device(alice.user_id(), alice.device_id(), None)
+        .await
+        .unwrap()
+        .unwrap()
+        .is_verified());
+
+    // When we send a room key event
+    let key_event =
+        create_and_share_session_without_sender_data(&alice, &bob, room_id!("!23:s.co")).await;
+
+    let key_event_content = serde_json::to_value(&key_event.content).unwrap();
+
+    let processed_event = send_and_receive_encrypted_to_device_test_helper(
+        &alice,
+        &bob,
+        "m.room_key",
+        &key_event_content,
+        &decryption_settings,
+    )
+    .await;
+
+    // Then it was processed because even though the sending device was not
+    // verified, room key events are allowed through.
+    assert_matches!(processed_event, ProcessedToDeviceEvent::Decrypted { .. });
 }
 
 #[async_test]
@@ -214,11 +270,15 @@ async fn test_send_olm_encryption_info_unverified_identity() {
             "rooms": ["!726s6s6q:example.com"]
     });
 
+    let decryption_settings =
+        DecryptionSettings { sender_device_trust_requirement: TrustRequirement::Untrusted };
+
     let processed_event = send_and_receive_encrypted_to_device_test_helper(
         &alice,
         &bob,
         custom_event_type,
-        custom_content,
+        &custom_content,
+        &decryption_settings,
     )
     .await;
 
@@ -254,11 +314,15 @@ async fn test_send_olm_encryption_info_verified_identity() {
             "rooms": ["!726s6s6q:example.com"]
     });
 
+    let decryption_settings =
+        DecryptionSettings { sender_device_trust_requirement: TrustRequirement::Untrusted };
+
     let processed_event = send_and_receive_encrypted_to_device_test_helper(
         &alice,
         &bob,
         custom_event_type,
-        custom_content,
+        &custom_content,
+        &decryption_settings,
     )
     .await;
 
@@ -290,11 +354,15 @@ async fn test_send_olm_encryption_info_verified_locally() {
         .await
         .unwrap();
 
+    let decryption_settings =
+        DecryptionSettings { sender_device_trust_requirement: TrustRequirement::Untrusted };
+
     let processed_event = send_and_receive_encrypted_to_device_test_helper(
         &alice,
         &bob,
         custom_event_type,
-        custom_content,
+        &custom_content,
+        &decryption_settings,
     )
     .await;
 
@@ -332,11 +400,15 @@ async fn test_send_olm_encryption_info_verification_violation() {
             "rooms": ["!726s6s6q:example.com"]
     });
 
+    let decryption_settings =
+        DecryptionSettings { sender_device_trust_requirement: TrustRequirement::Untrusted };
+
     let processed_event = send_and_receive_encrypted_to_device_test_helper(
         &alice,
         &bob,
         custom_event_type,
-        custom_content,
+        &custom_content,
+        &decryption_settings,
     )
     .await;
 
@@ -453,7 +525,11 @@ async fn test_processed_to_device_variants() {
         next_batch_token: None,
     };
 
-    let (processed, _) = bob.receive_sync_changes(sync_changes).await.unwrap();
+    let decryption_settings =
+        DecryptionSettings { sender_device_trust_requirement: TrustRequirement::Untrusted };
+
+    let (processed, _) =
+        bob.receive_sync_changes(sync_changes, &decryption_settings).await.unwrap();
 
     assert_eq!(4, processed.len());
 
@@ -494,7 +570,8 @@ async fn test_processed_to_device_variants() {
     });
 
     let processed_event = &processed[3];
-    assert_matches!(processed_event, ProcessedToDeviceEvent::UnableToDecrypt(_));
+    assert_matches!(processed_event, ProcessedToDeviceEvent::UnableToDecrypt { utd_info, .. });
+    assert_eq!(utd_info.reason, ToDeviceUnableToDecryptReason::DecryptionFailure);
 
     insta::with_settings!({ prepend_module_to_snapshot => false }, {
         assert_json_snapshot!(
@@ -527,4 +604,99 @@ async fn test_send_encrypted_to_device_no_session() {
         .await;
 
     assert_matches!(encryption_result, Err(OlmError::MissingSession));
+}
+
+/// Create a new [`OutboundGroupSession`], and build a to-device event to share
+/// it with another [`OlmMachine`], *without* sending the MSC4147 sender data.
+///
+/// # Arguments
+///
+/// * `alice` - sending device.
+/// * `bob` - receiving device.
+/// * `room_id` - room to create a session for.
+async fn create_and_share_session_without_sender_data(
+    alice: &OlmMachine,
+    bob: &OlmMachine,
+    room_id: &RoomId,
+) -> ToDeviceEvent<ToDeviceEncryptedEventContent> {
+    let (outbound_session, _) = alice
+        .inner
+        .group_session_manager
+        .get_or_create_outbound_session(
+            room_id,
+            EncryptionSettings::default(),
+            SenderData::unknown(),
+        )
+        .await
+        .unwrap();
+
+    // In future, we might want to save the session to the store, to better match
+    // the behaviour of the real implementation. See
+    // `GroupSessionManager::share_room_key` for inspiration on how to do that.
+
+    let olm_sessions = alice
+        .store()
+        .get_sessions(&bob.identity_keys().curve25519.to_base64())
+        .await
+        .unwrap()
+        .unwrap();
+    let mut olm_session: Session = olm_sessions.lock().await[0].clone();
+
+    let room_key_content = outbound_session.as_content().await;
+    let plaintext = serde_json::to_string(&json!({
+        "sender": alice.user_id(),
+        "sender_device": alice.device_id(),
+        "keys": { "ed25519": alice.identity_keys().ed25519.to_base64() },
+        // We deliberately do *not* include:
+        // "org.matrix.msc4147.device_keys": alice_device_keys,
+        "recipient": bob.user_id(),
+        "recipient_keys": { "ed25519": bob.identity_keys().ed25519.to_base64() },
+        "type": room_key_content.event_type(),
+        "content": room_key_content,
+    }))
+    .unwrap();
+
+    let ciphertext = olm_session.encrypt_helper(&plaintext).await;
+    ToDeviceEvent::new(
+        alice.user_id().to_owned(),
+        olm_session.build_encrypted_event(ciphertext, None).await.unwrap(),
+    )
+}
+
+/// Simulate uploading keys for alice that mean bob thinks alice's device
+/// exists, but is unverified.
+async fn make_alice_unverified(alice: &OlmMachine, bob: &OlmMachine) {
+    let CrossSigningBootstrapRequests { upload_signing_keys_req: upload_signing, .. } =
+        alice.bootstrap_cross_signing(false).await.expect("Expect Alice x-signing key request");
+
+    let device_keys = alice
+        .get_device(alice.user_id(), alice.device_id(), None)
+        .await
+        .unwrap()
+        .unwrap()
+        .as_device_keys()
+        .to_owned();
+
+    let updated_keys_with_x_signing = json!({ device_keys.device_id.to_string(): device_keys });
+
+    let json = json!({
+        "device_keys": {
+            alice.user_id() : updated_keys_with_x_signing
+        },
+        "failures": {},
+        "master_keys": {
+            alice.user_id() : upload_signing.master_key.unwrap(),
+        },
+        "user_signing_keys": {
+            alice.user_id() : upload_signing.user_signing_key.unwrap(),
+        },
+        "self_signing_keys": {
+            alice.user_id() : upload_signing.self_signing_key.unwrap(),
+        },
+      }
+    );
+
+    let kq_response = ruma_response_from_json(&json);
+    alice.receive_keys_query_response(&TransactionId::new(), &kq_response).await.unwrap();
+    bob.receive_keys_query_response(&TransactionId::new(), &kq_response).await.unwrap();
 }

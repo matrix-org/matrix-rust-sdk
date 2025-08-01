@@ -10,8 +10,8 @@ use matrix_sdk::{
     media::{MediaFormat, MediaRequestParameters, MediaThumbnailSettings},
     room::reply::Reply,
     send_queue::{
-        LocalEcho, LocalEchoContent, RoomSendQueue, RoomSendQueueError, RoomSendQueueStorageError,
-        RoomSendQueueUpdate, SendHandle, SendQueueUpdate,
+        AbstractProgress, LocalEcho, LocalEchoContent, RoomSendQueue, RoomSendQueueError,
+        RoomSendQueueStorageError, RoomSendQueueUpdate, SendHandle, SendQueueUpdate,
     },
     test_utils::mocks::{MatrixMock, MatrixMockServer},
     Client, MemoryStore,
@@ -162,19 +162,60 @@ macro_rules! assert_update {
     }};
 
     // Check the next stream event is a notification about an uploaded media.
-    // Returns a tuple of (transaction_id, send_handle).
     (($global_watch:ident, $watch:ident) => uploaded { related_to = $related_to:expr, mxc = $mxc:expr }) => {{
         assert_let!(
-            Ok(Ok(RoomSendQueueUpdate::UploadedMedia {
+            Ok(Ok(RoomSendQueueUpdate::MediaUpload {
                 related_to,
                 file,
+                ..
             })) = timeout(Duration::from_secs(1), $watch.recv()).await
         );
-        assert_matches!($global_watch.recv().await, Ok(SendQueueUpdate { update: RoomSendQueueUpdate::UploadedMedia { .. }, .. }));
 
         assert_eq!(related_to, $related_to);
-        assert_let!(MediaSource::Plain(mxc) = file);
+        assert_let!(Some(MediaSource::Plain(mxc)) = file);
         assert_eq!(mxc, $mxc);
+    }};
+
+    // Check the next stream events communicate upload progress and finally the uploaded media.
+    (($global_watch:ident, $watch:ident) => uploaded_with_progress {
+        related_to = $related_to:expr,
+        mxc = $mxc:expr,
+        index = $index:expr,
+        progress_start = $progress_start:expr,
+        progress_end = $progress_end:expr,
+        progress_total = $progress_total:expr
+    }) => {{
+        let mut prev_progress: Option<AbstractProgress> = None;
+
+         loop {
+            assert_let!(
+                Ok(Ok(RoomSendQueueUpdate::MediaUpload {
+                    related_to,
+                    file,
+                    index,
+                    progress, ..
+                })) = timeout(Duration::from_secs(1), $watch.recv()).await
+            );
+
+            assert_eq!(related_to, $related_to, "related transaction doesn't match");
+            assert_eq!(index, $index, "related index doesn't match");
+
+            if let Some(progress_start) = $progress_start {
+                assert!(progress.current >= progress_start, "current progress is more than the progress start");
+            }
+            assert!(progress.current <= $progress_end, "current progress is more than the progress end");
+            assert_eq!(progress.total, $progress_total, "total progress doesn't match");
+            if let Some(prev_progress) = prev_progress {
+                assert!(progress.current >= prev_progress.current, "progress is not increasing");
+            }
+            prev_progress = Some(progress);
+
+            if let Some(MediaSource::Plain(mxc)) = file {
+                assert_eq!(progress.current, $progress_end, "final progress isn't the progress end");
+                assert_eq!(mxc, $mxc, "mxc URI doesn't match");
+                break;
+            }
+        }
     }};
 
     // Check the next stream event is a local echo for a reaction with the content $key which
@@ -1637,10 +1678,12 @@ async fn test_reloading_rooms_with_unsent_events() {
 
     let client = mock
         .client_builder()
-        .store_config(
-            StoreConfig::new("cross-process-store-locks-holder-name".to_owned())
-                .state_store(store.clone()),
-        )
+        .on_builder(|builder| {
+            builder.store_config(
+                StoreConfig::new("cross-process-store-locks-holder-name".to_owned())
+                    .state_store(store.clone()),
+            )
+        })
         .build()
         .await;
 
@@ -1689,9 +1732,12 @@ async fn test_reloading_rooms_with_unsent_events() {
 
     let new_client = mock
         .client_builder()
-        .store_config(
-            StoreConfig::new("cross-process-store-locks-holder-name".to_owned()).state_store(store),
-        )
+        .on_builder(|builder| {
+            builder.store_config(
+                StoreConfig::new("cross-process-store-locks-holder-name".to_owned())
+                    .state_store(store),
+            )
+        })
         .build()
         .await;
 
@@ -1838,6 +1884,7 @@ async fn test_media_uploads() {
     // Mark the room as joined.
     let room_id = room_id!("!a:b.c");
     let client = mock.client_builder().build().await;
+    client.send_queue().enable_upload_progress(true);
     let room = mock.sync_joined_room(&client, room_id).await;
 
     let q = room.send_queue();
@@ -1868,6 +1915,9 @@ async fn test_media_uploads() {
         is_animated: Some(false),
         ..Default::default()
     });
+
+    let size_data = data.len();
+    let size_thumbnail = thumbnail.data.len();
 
     let transaction_id = TransactionId::new();
     let mentions = Mentions::with_user_ids([owned_user_id!("@ivan:sdk.rs")]);
@@ -2028,14 +2078,22 @@ async fn test_media_uploads() {
     assert!(watch.is_empty());
     drop(block_upload);
 
-    assert_update!((global_watch, watch) => uploaded {
+    assert_update!((global_watch, watch) => uploaded_with_progress {
         related_to = transaction_id,
-        mxc = mxc_uri!("mxc://sdk.rs/thumbnail")
+        mxc = mxc_uri!("mxc://sdk.rs/thumbnail"),
+        index = 0,
+        progress_start = None,
+        progress_end = size_thumbnail,
+        progress_total = size_data + size_thumbnail
     });
 
-    assert_update!((global_watch, watch) => uploaded {
+    assert_update!((global_watch, watch) => uploaded_with_progress {
         related_to = transaction_id,
-        mxc = mxc_uri!("mxc://sdk.rs/media")
+        mxc = mxc_uri!("mxc://sdk.rs/media"),
+        index = 0,
+        progress_start = Some(size_thumbnail),
+        progress_end = size_data + size_thumbnail,
+        progress_total = size_data + size_thumbnail
     });
 
     let edit_msg = assert_update!((global_watch, watch) => edit local echo {

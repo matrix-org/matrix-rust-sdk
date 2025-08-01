@@ -63,8 +63,13 @@ impl BaseClient {
         let mut context = processors::Context::default();
 
         let processors::e2ee::to_device::Output { processed_to_device_events, room_key_updates } =
-            processors::e2ee::to_device::from_msc4186(to_device, e2ee, olm_machine.as_ref())
-                .await?;
+            processors::e2ee::to_device::from_msc4186(
+                to_device,
+                e2ee,
+                olm_machine.as_ref(),
+                &self.decryption_settings,
+            )
+            .await?;
 
         processors::latest_event::decrypt_from_rooms(
             &mut context,

@@ -722,7 +722,7 @@ impl Account {
     /// ```
     pub async fn account_data<C>(&self) -> Result<Option<Raw<C>>>
     where
-        C: GlobalAccountDataEventContent + StaticEventContent,
+        C: GlobalAccountDataEventContent + StaticEventContent<IsPrefix = ruma::events::False>,
     {
         get_raw_content(self.client.state_store().get_account_data_event_static::<C>().await?)
     }
@@ -785,7 +785,7 @@ impl Account {
     /// Fetch an account data event of statically-known type from the server.
     pub async fn fetch_account_data_static<C>(&self) -> Result<Option<Raw<C>>>
     where
-        C: GlobalAccountDataEventContent + StaticEventContent,
+        C: GlobalAccountDataEventContent + StaticEventContent<IsPrefix = ruma::events::False>,
     {
         Ok(self.fetch_account_data(C::TYPE.into()).await?.map(Raw::cast_unchecked))
     }

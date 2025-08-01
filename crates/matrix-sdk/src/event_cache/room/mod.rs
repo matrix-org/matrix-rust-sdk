@@ -2296,9 +2296,12 @@ mod timed_tests {
         let event_cache_store = Arc::new(MemoryStore::new());
 
         let client = MockClientBuilder::new(None)
-            .store_config(
-                StoreConfig::new("hodlor".to_owned()).event_cache_store(event_cache_store.clone()),
-            )
+            .on_builder(|builder| {
+                builder.store_config(
+                    StoreConfig::new("hodlor".to_owned())
+                        .event_cache_store(event_cache_store.clone()),
+                )
+            })
             .build()
             .await;
 
@@ -2370,9 +2373,12 @@ mod timed_tests {
         let event_cache_store = Arc::new(MemoryStore::new());
 
         let client = MockClientBuilder::new(None)
-            .store_config(
-                StoreConfig::new("hodlor".to_owned()).event_cache_store(event_cache_store.clone()),
-            )
+            .on_builder(|builder| {
+                builder.store_config(
+                    StoreConfig::new("hodlor".to_owned())
+                        .event_cache_store(event_cache_store.clone()),
+                )
+            })
             .build()
             .await;
 
@@ -2509,9 +2515,12 @@ mod timed_tests {
             .unwrap();
 
         let client = MockClientBuilder::new(None)
-            .store_config(
-                StoreConfig::new("hodlor".to_owned()).event_cache_store(event_cache_store.clone()),
-            )
+            .on_builder(|builder| {
+                builder.store_config(
+                    StoreConfig::new("hodlor".to_owned())
+                        .event_cache_store(event_cache_store.clone()),
+                )
+            })
             .build()
             .await;
 
@@ -2660,9 +2669,12 @@ mod timed_tests {
             .unwrap();
 
         let client = MockClientBuilder::new(None)
-            .store_config(
-                StoreConfig::new("hodlor".to_owned()).event_cache_store(event_cache_store.clone()),
-            )
+            .on_builder(|builder| {
+                builder.store_config(
+                    StoreConfig::new("hodlor".to_owned())
+                        .event_cache_store(event_cache_store.clone()),
+                )
+            })
             .build()
             .await;
 
@@ -2781,9 +2793,12 @@ mod timed_tests {
             .unwrap();
 
         let client = MockClientBuilder::new(None)
-            .store_config(
-                StoreConfig::new("holder".to_owned()).event_cache_store(event_cache_store.clone()),
-            )
+            .on_builder(|builder| {
+                builder.store_config(
+                    StoreConfig::new("holder".to_owned())
+                        .event_cache_store(event_cache_store.clone()),
+                )
+            })
             .build()
             .await;
 
