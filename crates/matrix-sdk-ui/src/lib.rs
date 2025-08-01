@@ -21,6 +21,7 @@ use ruma::html::HtmlSanitizerMode;
 pub mod encryption_sync_service;
 pub mod notification_client;
 pub mod room_list_service;
+pub mod spaces;
 pub mod sync_service;
 pub mod timeline;
 pub mod unable_to_decrypt_hook;
