@@ -145,7 +145,7 @@ async fn test_send_attachment_from_file() {
     }
 
     // The media upload finishes.
-    {
+    let (final_index, final_progress) = {
         assert_let_timeout!(
             Duration::from_secs(3),
             Some(VectorDiff::Set { index: 1, value: item }) = timeline_stream.next()
@@ -164,7 +164,9 @@ async fn test_send_attachment_from_file() {
         assert_let!(MessageType::File(file) = msg.msgtype());
         assert_let!(MediaSource::Plain(uri) = &file.source);
         assert!(uri.to_string().contains("localhost"));
-    }
+
+        (*index, *progress)
+    };
 
     // Eventually, the media is updated with the final MXC IDs…
     {
@@ -173,7 +175,14 @@ async fn test_send_attachment_from_file() {
             Some(VectorDiff::Set { index: 1, value: item }) = timeline_stream.next()
         );
         assert_let!(Some(msg) = item.content().as_message());
-        assert_matches!(item.send_state(), Some(EventSendState::NotSentYet { progress: None }));
+        assert_let!(
+            Some(EventSendState::NotSentYet {
+                progress: Some(EventSendProgress::MediaUpload { index, progress })
+            }) = item.send_state()
+        );
+        assert_eq!(*index, final_index);
+        assert_eq!(progress.current, final_progress.current);
+        assert_eq!(progress.total, final_progress.total);
         assert_eq!(get_filename_and_caption(msg.msgtype()), ("test.bin", Some("caption")));
 
         // The URI now refers to the final MXC URI.
@@ -284,35 +293,31 @@ async fn test_send_attachment_from_bytes() {
 
             assert_let!(Some(EventSendState::NotSentYet { progress }) = item.send_state());
 
-            match progress {
-                Some(EventSendProgress::MediaUpload { index, progress }) => {
-                    // We're only uploading a single file.
-                    assert_eq!(*index, 0);
+            assert_let!(Some(EventSendProgress::MediaUpload { index, progress }) = progress);
 
-                    // The progress is reported in units of the unencrypted file size.
-                    assert!(progress.current <= progress.total);
-                    assert_eq!(progress.total, size);
+            // We're only uploading a single file.
+            assert_eq!(*index, 0);
 
-                    // The progress only increases.
-                    if let Some(prev_progress) = prev_progress {
-                        assert!(progress.current >= prev_progress.current);
-                    }
-                    prev_progress = Some(*progress);
+            // The progress is reported in units of the unencrypted file size.
+            assert!(progress.current <= progress.total);
+            assert_eq!(progress.total, size);
 
-                    // The URI still refers to the local cache.
-                    assert_let!(MessageType::File(file) = msg.msgtype());
-                    assert_let!(MediaSource::Plain(uri) = &file.source);
-                    assert!(uri.to_string().contains("localhost"));
-                }
-                None => {
-                    // The upload finished and the URI now refers to the final MXC URI.
-                    assert_let!(MessageType::File(file) = msg.msgtype());
-                    assert_let!(MediaSource::Plain(uri) = &file.source);
-                    assert_eq!(uri.to_string(), "mxc://sdk.rs/media");
-
-                    break;
-                }
+            // The progress only increases.
+            if let Some(prev_progress) = prev_progress {
+                assert!(progress.current >= prev_progress.current);
             }
+            prev_progress = Some(*progress);
+
+            assert_let!(MessageType::File(file) = msg.msgtype());
+            assert_let!(MediaSource::Plain(uri) = &file.source);
+
+            // Check if the upload finished and the URI now refers to the final MXC URI.
+            if progress.current == progress.total && *uri == "mxc://sdk.rs/media" {
+                break;
+            }
+
+            // Otherwise, the URI still refers to the local cache.
+            assert!(uri.to_string().contains("localhost"));
         }
     }
 
@@ -422,7 +427,7 @@ async fn test_send_gallery_from_bytes() {
     }
 
     // The media upload finishes.
-    {
+    let (final_index, final_progress) = {
         assert_let_timeout!(
             Duration::from_secs(3),
             Some(VectorDiff::Set { index: 1, value: item }) = timeline_stream.next()
@@ -453,7 +458,9 @@ async fn test_send_gallery_from_bytes() {
         // The URI still refers to the local cache.
         assert_let!(MediaSource::Plain(uri) = &file.source);
         assert!(uri.to_string().contains("localhost"));
-    }
+
+        (*index, progress.clone())
+    };
 
     // Eventually, the media is updated with the final MXC IDs…
     {
@@ -462,7 +469,14 @@ async fn test_send_gallery_from_bytes() {
             Some(VectorDiff::Set { index: 1, value: item }) = timeline_stream.next()
         );
         assert_let!(Some(msg) = item.content().as_message());
-        assert_matches!(item.send_state(), Some(EventSendState::NotSentYet { progress: None }));
+        assert_let!(
+            Some(EventSendState::NotSentYet {
+                progress: Some(EventSendProgress::MediaUpload { index, progress })
+            }) = item.send_state()
+        );
+        assert_eq!(*index, final_index);
+        assert_eq!(progress.current, final_progress.current);
+        assert_eq!(progress.total, final_progress.total);
 
         // Message is gallery of expected length
         assert_let!(MessageType::Gallery(content) = msg.msgtype());

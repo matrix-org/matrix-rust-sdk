@@ -1072,7 +1072,11 @@ impl<P: RoomDataProvider, D: Decryptor> TimelineController<P, D> {
                 warn!("We looked for a local item, but it transitioned as remote??");
                 return false;
             };
-            prev_local_item.with_send_state(EventSendState::NotSentYet { progress: None })
+            // If the local echo had an upload progress, retain it.
+            let progress = as_variant!(&prev_local_item.send_state,
+                EventSendState::NotSentYet { progress } => progress.clone())
+            .flatten();
+            prev_local_item.with_send_state(EventSendState::NotSentYet { progress })
         };
 
         // Replace the local-related state (kind) and the content state.
