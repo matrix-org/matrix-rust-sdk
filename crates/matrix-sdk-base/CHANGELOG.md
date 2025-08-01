@@ -20,6 +20,13 @@ All notable changes to this project will be documented in this file.
   ([#5390](https://github.com/matrix-org/matrix-rust-sdk/pull/5390))
 
 ### Refactor
+- [**breaking**] The `Stripped` variants of `RawAnySyncOrStrippedTimelineEvent`,
+  `RawAnySyncOrStrippedState` and `AnySyncOrStrippedState` use `StrippedState`
+  instead of `AnyStrippedStateEvent`.
+  ([#5473](https://github.com/matrix-org/matrix-rust-sdk/pull/5473))
+- [**breaking**] The `stripped_state` field of `StateChanges` uses
+  `StrippedState` instead of `AnyStrippedStateEvent`.
+  ([#5473](https://github.com/matrix-org/matrix-rust-sdk/pull/5473))
 - [**breaking**] `RelationalLinkedChunk::items` now takes a `RoomId` instead of an
   `&OwnedLinkedChunkId` parameter.
   ([#5445](https://github.com/matrix-org/matrix-rust-sdk/pull/5445))
