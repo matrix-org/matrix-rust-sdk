@@ -3135,7 +3135,6 @@ name = "matrix-sdk-ffi"
 version = "0.13.0"
 dependencies = [
  "anyhow",
- "as_variant",
  "async-compat",
  "console_error_panic_hook",
  "extension-trait",

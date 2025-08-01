@@ -32,6 +32,9 @@ All notable changes to this project will be documented in this file.
 
 ### Breaking changes:
 
+- `TimelineDiff` is now exported as a true `uniffi::Enum` instead of the weird `uniffi::Object` hybrid. This matches
+  both `RoomDirectorySearchEntryUpdate` and `RoomListEntriesUpdate` and can be used in the same way.
+  ([#5474](https://github.com/matrix-org/matrix-rust-sdk/pull/5474))
 - The `creator` field of `RoomInfo` has been renamed to `creators` and can now contain a list of
   user IDs, to reflect that a room can now have several creators, as introduced in room version 12.
   ([#5436](https://github.com/matrix-org/matrix-rust-sdk/pull/5436))

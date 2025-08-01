@@ -15,7 +15,6 @@
 use std::{collections::HashMap, fmt::Write as _, fs, panic, sync::Arc};
 
 use anyhow::{Context, Result};
-use as_variant::as_variant;
 use eyeball_im::VectorDiff;
 use futures_util::pin_mut;
 use matrix_sdk::{
@@ -64,7 +63,6 @@ use crate::{
     client::ProgressWatcher,
     error::{ClientError, RoomError},
     event::EventOrTransactionId,
-    helpers::unwrap_or_clone_arc,
     ruma::{
         AssetType, AudioInfo, FileInfo, FormattedBody, ImageInfo, Mentions, PollKind,
         ThumbnailInfo, VideoInfo,
@@ -252,17 +250,14 @@ impl Timeline {
         // handled by the caller. See #3535 for details.
 
         // First, pass all the items as a reset update.
-        listener.on_update(vec![Arc::new(TimelineDiff::new(VectorDiff::Reset {
-            values: timeline_items,
-        }))]);
+        listener.on_update(vec![TimelineDiff::new(VectorDiff::Reset { values: timeline_items })]);
 
         Arc::new(TaskHandle::new(get_runtime_handle().spawn(async move {
             pin_mut!(timeline_stream);
 
             // Then forward new items.
             while let Some(diffs) = timeline_stream.next().await {
-                listener
-                    .on_update(diffs.into_iter().map(|d| Arc::new(TimelineDiff::new(d))).collect());
+                listener.on_update(diffs.into_iter().map(TimelineDiff::new).collect());
             }
         })))
     }
@@ -790,7 +785,7 @@ pub enum FocusEventError {
 
 #[matrix_sdk_ffi_macros::export(callback_interface)]
 pub trait TimelineListener: SyncOutsideWasm + SendOutsideWasm {
-    fn on_update(&self, diff: Vec<Arc<TimelineDiff>>);
+    fn on_update(&self, diff: Vec<TimelineDiff>);
 }
 
 #[matrix_sdk_ffi_macros::export(callback_interface)]
@@ -798,7 +793,7 @@ pub trait PaginationStatusListener: SyncOutsideWasm + SendOutsideWasm {
     fn on_update(&self, status: RoomPaginationStatus);
 }
 
-#[derive(Clone, uniffi::Object)]
+#[derive(Clone, uniffi::Enum)]
 pub enum TimelineDiff {
     Append { values: Vec<Arc<TimelineItem>> },
     Clear,
@@ -806,10 +801,10 @@ pub enum TimelineDiff {
     PushBack { value: Arc<TimelineItem> },
     PopFront,
     PopBack,
-    Insert { index: usize, value: Arc<TimelineItem> },
-    Set { index: usize, value: Arc<TimelineItem> },
-    Remove { index: usize },
-    Truncate { length: usize },
+    Insert { index: u32, value: Arc<TimelineItem> },
+    Set { index: u32, value: Arc<TimelineItem> },
+    Remove { index: u32 },
+    Truncate { length: u32 },
     Reset { values: Vec<Arc<TimelineItem>> },
 }
 
@@ -820,14 +815,18 @@ impl TimelineDiff {
                 Self::Append { values: values.into_iter().map(TimelineItem::from_arc).collect() }
             }
             VectorDiff::Clear => Self::Clear,
-            VectorDiff::Insert { index, value } => {
-                Self::Insert { index, value: TimelineItem::from_arc(value) }
+            VectorDiff::Insert { index, value } => Self::Insert {
+                index: u32::try_from(index).unwrap(),
+                value: TimelineItem::from_arc(value),
+            },
+            VectorDiff::Set { index, value } => Self::Set {
+                index: u32::try_from(index).unwrap(),
+                value: TimelineItem::from_arc(value),
+            },
+            VectorDiff::Truncate { length } => {
+                Self::Truncate { length: u32::try_from(length).unwrap() }
             }
-            VectorDiff::Set { index, value } => {
-                Self::Set { index, value: TimelineItem::from_arc(value) }
-            }
-            VectorDiff::Truncate { length } => Self::Truncate { length },
-            VectorDiff::Remove { index } => Self::Remove { index },
+            VectorDiff::Remove { index } => Self::Remove { index: u32::try_from(index).unwrap() },
             VectorDiff::PushBack { value } => {
                 Self::PushBack { value: TimelineItem::from_arc(value) }
             }
@@ -840,67 +839,6 @@ impl TimelineDiff {
                 Self::Reset { values: values.into_iter().map(TimelineItem::from_arc).collect() }
             }
         }
-    }
-}
-
-#[matrix_sdk_ffi_macros::export]
-impl TimelineDiff {
-    pub fn change(&self) -> TimelineChange {
-        match self {
-            Self::Append { .. } => TimelineChange::Append,
-            Self::Insert { .. } => TimelineChange::Insert,
-            Self::Set { .. } => TimelineChange::Set,
-            Self::Remove { .. } => TimelineChange::Remove,
-            Self::PushBack { .. } => TimelineChange::PushBack,
-            Self::PushFront { .. } => TimelineChange::PushFront,
-            Self::PopBack => TimelineChange::PopBack,
-            Self::PopFront => TimelineChange::PopFront,
-            Self::Clear => TimelineChange::Clear,
-            Self::Truncate { .. } => TimelineChange::Truncate,
-            Self::Reset { .. } => TimelineChange::Reset,
-        }
-    }
-
-    pub fn append(self: Arc<Self>) -> Option<Vec<Arc<TimelineItem>>> {
-        let this = unwrap_or_clone_arc(self);
-        as_variant!(this, Self::Append { values } => values)
-    }
-
-    pub fn insert(self: Arc<Self>) -> Option<InsertData> {
-        let this = unwrap_or_clone_arc(self);
-        as_variant!(this, Self::Insert { index, value } => {
-            InsertData { index: index.try_into().unwrap(), item: value }
-        })
-    }
-
-    pub fn set(self: Arc<Self>) -> Option<SetData> {
-        let this = unwrap_or_clone_arc(self);
-        as_variant!(this, Self::Set { index, value } => {
-            SetData { index: index.try_into().unwrap(), item: value }
-        })
-    }
-
-    pub fn remove(&self) -> Option<u32> {
-        as_variant!(self, Self::Remove { index } => (*index).try_into().unwrap())
-    }
-
-    pub fn push_back(self: Arc<Self>) -> Option<Arc<TimelineItem>> {
-        let this = unwrap_or_clone_arc(self);
-        as_variant!(this, Self::PushBack { value } => value)
-    }
-
-    pub fn push_front(self: Arc<Self>) -> Option<Arc<TimelineItem>> {
-        let this = unwrap_or_clone_arc(self);
-        as_variant!(this, Self::PushFront { value } => value)
-    }
-
-    pub fn reset(self: Arc<Self>) -> Option<Vec<Arc<TimelineItem>>> {
-        let this = unwrap_or_clone_arc(self);
-        as_variant!(this, Self::Reset { values } => values)
-    }
-
-    pub fn truncate(&self) -> Option<u32> {
-        as_variant!(self, Self::Truncate { length } => (*length).try_into().unwrap())
     }
 }
 
