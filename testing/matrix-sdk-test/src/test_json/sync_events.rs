@@ -57,6 +57,25 @@ pub static CREATE: Lazy<JsonValue> = Lazy::new(|| {
     })
 });
 
+pub static CREATE_SPACE: Lazy<JsonValue> = Lazy::new(|| {
+    json!({
+        "content": {
+            "creator": "@example:localhost",
+            "m.federate": true,
+            "room_version": "1",
+            "type": "m.space",
+        },
+        "event_id": "$151957878228ekrDs:localhost",
+        "origin_server_ts": 15195787,
+        "sender": "@example:localhost",
+        "state_key": "",
+        "type": "m.room.create",
+        "unsigned": {
+            "age": 139298
+        }
+    })
+});
+
 pub static DIRECT: Lazy<JsonValue> = Lazy::new(|| {
     json!({
         "content": {
@@ -724,5 +743,45 @@ pub static IGNORED_USER_LIST: Lazy<JsonValue> = Lazy::new(|| {
             },
         },
         "type": "m.ignored_user_list",
+    })
+});
+
+pub static SPACE_CHILD: Lazy<JsonValue> = Lazy::new(|| {
+    json!({
+        "content": {
+            "via": [
+              "example.org",
+              "other.example.org"
+            ]
+          },
+          "event_id": "$space_child_event_id:example.org",
+          "room_id": "!parent_room_id:example.org",
+          "state_key": "!child_room_id:example.org",
+          "origin_server_ts": 151957879,
+          "sender": "@example:example.org",
+          "type": "m.space.child",
+          "unsigned": {
+            "age": 1234,
+          }
+    })
+});
+
+pub static SPACE_PARENT: Lazy<JsonValue> = Lazy::new(|| {
+    json!({
+        "content": {
+            "via": [
+              "example.org",
+              "other.example.org"
+            ]
+          },
+          "event_id": "$space_parent_event_id:example.org",
+          "room_id": "!child_room_id:example.org",
+          "state_key": "!parent_room_id:example.org",
+          "origin_server_ts": 151957879,
+          "sender": "@example:example.org",
+          "type": "m.space.parent",
+          "unsigned": {
+            "age": 1234,
+          }
     })
 });
