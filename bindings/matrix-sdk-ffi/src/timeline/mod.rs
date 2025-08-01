@@ -62,7 +62,7 @@ use uuid::Uuid;
 use self::content::TimelineItemContent;
 pub use self::msg_like::MessageContent;
 use crate::{
-    client::{AbstractProgress, ProgressWatcher},
+    client::ProgressWatcher,
     error::{ClientError, RoomError},
     event::EventOrTransactionId,
     helpers::unwrap_or_clone_arc,
@@ -264,6 +264,30 @@ impl From<SdkEventSendProgress> for EventSendProgress {
             SdkEventSendProgress::MediaUpload { index, progress } => {
                 Self::MediaUpload { index, progress: progress.into() }
             }
+        }
+    }
+}
+
+/// Progress of an operation in abstract units.
+///
+/// Contrary to [`TransmissionProgress`], this allows tracking the progress
+/// of sending or receiving a payload in estimated pseudo units representing a
+/// percentage. This is helpful in cases where the exact progress in bytes isn't
+/// known, for instance, because encryption (which changes the size) happens on
+/// the fly.
+#[derive(Clone, Copy, uniffi::Record)]
+pub struct AbstractProgress {
+    /// How many units were already transferred.
+    pub current: u64,
+    /// How many units there are in total.
+    pub total: u64,
+}
+
+impl From<matrix_sdk::send_queue::AbstractProgress> for AbstractProgress {
+    fn from(value: matrix_sdk::send_queue::AbstractProgress) -> Self {
+        Self {
+            current: value.current.try_into().unwrap_or(u64::MAX),
+            total: value.total.try_into().unwrap_or(u64::MAX),
         }
     }
 }
