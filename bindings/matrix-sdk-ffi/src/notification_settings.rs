@@ -322,8 +322,13 @@ impl TryFrom<Tweak> for SdkTweak {
 #[derive(Clone, uniffi::Enum)]
 /// Enum representing the push notification actions for a rule.
 pub enum Action {
-    /// Causes matching events to generate a notification.
+    /// Causes matching events to generate a notification (both in-app and
+    /// remote / push).
     Notify,
+    /// Causes matching events to generate an in-app notification but no remote
+    /// / push notification.
+    #[cfg(feature = "unstable-msc3768")]
+    NotifyInApp,
     /// Sets an entry in the 'tweaks' dictionary sent to the push gateway.
     SetTweak { value: Tweak },
 }
@@ -334,6 +339,8 @@ impl TryFrom<SdkAction> for Action {
     fn try_from(value: SdkAction) -> Result<Self, Self::Error> {
         Ok(match value {
             SdkAction::Notify => Self::Notify,
+            #[cfg(feature = "unstable-msc3768")]
+            SdkAction::NotifyInApp => Self::NotifyInApp,
             SdkAction::SetTweak(tweak) => Self::SetTweak {
                 value: tweak.try_into().map_err(|e| format!("Failed to convert tweak: {e}"))?,
             },
@@ -348,6 +355,8 @@ impl TryFrom<Action> for SdkAction {
     fn try_from(value: Action) -> Result<Self, Self::Error> {
         Ok(match value {
             Action::Notify => Self::Notify,
+            #[cfg(feature = "unstable-msc3768")]
+            Action::NotifyInApp => Self::NotifyInApp,
             Action::SetTweak { value } => Self::SetTweak(
                 value.try_into().map_err(|e| format!("Failed to convert tweak: {e}"))?,
             ),
@@ -358,10 +367,14 @@ impl TryFrom<Action> for SdkAction {
 /// Enum representing the push notification modes for a room.
 #[derive(Clone, uniffi::Enum)]
 pub enum RoomNotificationMode {
-    /// Receive notifications for all messages.
+    /// Receive remote and in-app notifications for all messages.
     AllMessages,
-    /// Receive notifications for mentions and keywords only.
+    /// Receive remote and in-app notifications for mentions and keywords only.
     MentionsAndKeywordsOnly,
+    /// Receive remote and in-app notifications for mentions and keywords and
+    /// in-app notifications only for other room messages.
+    #[cfg(feature = "unstable-msc3768")]
+    MentionsAndKeywordsOnlyTheRestInApp,
     /// Do not receive any notifications.
     Mute,
 }
@@ -371,6 +384,10 @@ impl From<SdkRoomNotificationMode> for RoomNotificationMode {
         match value {
             SdkRoomNotificationMode::AllMessages => Self::AllMessages,
             SdkRoomNotificationMode::MentionsAndKeywordsOnly => Self::MentionsAndKeywordsOnly,
+            #[cfg(feature = "unstable-msc3768")]
+            SdkRoomNotificationMode::MentionsAndKeywordsOnlyTheRestInApp => {
+                Self::MentionsAndKeywordsOnlyTheRestInApp
+            }
             SdkRoomNotificationMode::Mute => Self::Mute,
         }
     }
@@ -381,6 +398,10 @@ impl From<RoomNotificationMode> for SdkRoomNotificationMode {
         match value {
             RoomNotificationMode::AllMessages => Self::AllMessages,
             RoomNotificationMode::MentionsAndKeywordsOnly => Self::MentionsAndKeywordsOnly,
+            #[cfg(feature = "unstable-msc3768")]
+            RoomNotificationMode::MentionsAndKeywordsOnlyTheRestInApp => {
+                Self::MentionsAndKeywordsOnlyTheRestInApp
+            }
             RoomNotificationMode::Mute => Self::Mute,
         }
     }

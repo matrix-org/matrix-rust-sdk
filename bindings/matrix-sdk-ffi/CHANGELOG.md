@@ -29,6 +29,9 @@ All notable changes to this project will be documented in this file.
   This is primarily for Element X to give a dedicated error message in case
   it connects a homeserver with only this method available.
   ([#5222](https://github.com/matrix-org/matrix-rust-sdk/pull/5222))
+- Add `Action::NotifyInApp` and `RoomNotificationMode::MentionsAndKeywordsOnlyTheRestInApp` behind
+  a new feature `unstable-msc3768`.
+  ([#5441](https://github.com/matrix-org/matrix-rust-sdk/pull/5441))
 
 ### Breaking changes:
 

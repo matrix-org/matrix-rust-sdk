@@ -26,6 +26,7 @@ crate-type = [
 [features]
 default = ["bundled-sqlite", "unstable-msc4274"]
 bundled-sqlite = ["matrix-sdk/bundled-sqlite"]
+unstable-msc3768 = ["matrix-sdk-ui/unstable-msc3768"]
 unstable-msc4274 = ["matrix-sdk-ui/unstable-msc4274"]
 # Required when targeting a Javascript environment, like Wasm in a browser.
 js = ["matrix-sdk-ui/js"]

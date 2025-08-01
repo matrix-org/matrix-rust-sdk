@@ -14,9 +14,9 @@ use crate::NotificationSettingsError;
 #[derive(Clone, Debug)]
 pub(crate) enum Command {
     /// Set a new `Room` push rule
-    SetRoomPushRule { room_id: OwnedRoomId, notify: bool },
+    SetRoomPushRule { room_id: OwnedRoomId, notify: Notify },
     /// Set a new `Override` push rule matching a `RoomId`
-    SetOverridePushRule { rule_id: String, room_id: OwnedRoomId, notify: bool },
+    SetOverridePushRule { rule_id: String, room_id: OwnedRoomId, notify: Notify },
     /// Set a new push rule for a keyword.
     SetKeywordPushRule { keyword: String },
     /// Set whether a push rule is enabled
@@ -29,21 +29,13 @@ pub(crate) enum Command {
     SetCustomPushRule { rule: NewPushRule },
 }
 
-fn get_notify_actions(notify: bool) -> Vec<Action> {
-    if notify {
-        vec![Action::Notify, Action::SetTweak(Tweak::Sound("default".into()))]
-    } else {
-        vec![]
-    }
-}
-
 impl Command {
     /// Tries to create a push rule corresponding to this command
     pub(crate) fn to_push_rule(&self) -> Result<NewPushRule, NotificationSettingsError> {
         match self {
             Self::SetRoomPushRule { room_id, notify } => {
                 // `Room` push rule for this `room_id`
-                let new_rule = NewSimplePushRule::new(room_id.clone(), get_notify_actions(*notify));
+                let new_rule = NewSimplePushRule::new(room_id.clone(), notify.get_actions());
                 Ok(NewPushRule::Room(new_rule))
             }
 
@@ -55,7 +47,7 @@ impl Command {
                         key: "room_id".to_owned(),
                         pattern: room_id.to_string(),
                     }],
-                    get_notify_actions(*notify),
+                    notify.get_actions(),
                 );
                 Ok(NewPushRule::Override(new_rule))
             }
@@ -65,7 +57,7 @@ impl Command {
                 let new_rule = NewPatternedPushRule::new(
                     keyword.clone(),
                     keyword.clone(),
-                    get_notify_actions(true),
+                    Notify::All.get_actions(),
                 );
                 Ok(NewPushRule::Content(new_rule))
             }
@@ -77,6 +69,31 @@ impl Command {
             )),
 
             Self::SetCustomPushRule { rule } => Ok(rule.clone()),
+        }
+    }
+}
+
+/// Enum describing if and how to deliver a notification.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) enum Notify {
+    /// Generate a notification both in-app and remote / push.
+    All,
+
+    /// Only generate an in-app notification but no remote / push notification.
+    #[cfg(feature = "unstable-msc3768")]
+    InAppOnly,
+
+    /// Don't notify at all.
+    None,
+}
+
+impl Notify {
+    fn get_actions(&self) -> Vec<Action> {
+        match self {
+            Self::All => vec![Action::Notify, Action::SetTweak(Tweak::Sound("default".into()))],
+            #[cfg(feature = "unstable-msc3768")]
+            Self::InAppOnly => vec![Action::NotifyInApp],
+            Self::None => vec![],
         }
     }
 }

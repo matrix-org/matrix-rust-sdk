@@ -19,10 +19,14 @@ use serde::{Deserialize, Serialize};
 /// Enum representing the push notification modes for a room.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
 pub enum RoomNotificationMode {
-    /// Receive notifications for all messages.
+    /// Receive remote and in-app notifications for all messages.
     AllMessages,
-    /// Receive notifications for mentions and keywords only.
+    /// Receive remote and in-app notifications for mentions and keywords only.
     MentionsAndKeywordsOnly,
+    /// Receive remote and in-app notifications for mentions and keywords and
+    /// in-app notifications only for other room messages.
+    #[cfg(feature = "unstable-msc3768")]
+    MentionsAndKeywordsOnlyTheRestInApp,
     /// Do not receive any notifications.
     Mute,
 }

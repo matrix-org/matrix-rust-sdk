@@ -3353,6 +3353,7 @@ dependencies = [
  "async-stream",
  "async_cell",
  "bitflags",
+ "cfg-if",
  "chrono",
  "emojis",
  "eyeball",
