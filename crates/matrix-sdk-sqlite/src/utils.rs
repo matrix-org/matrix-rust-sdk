@@ -468,13 +468,13 @@ pub(crate) trait SqliteKeyValueStoreAsyncConnExt: SqliteAsyncConnExt {
             }
         } else {
             let cipher = StoreCipher::new()?;
-            #[cfg(not(test))]
+            //#[cfg(not(test))]
             let export = match secret {
                 Secret::PassPhrase(passphrase) => cipher.export(&passphrase),
                 Secret::Key(key) => cipher.export_with_key(&key),
             };
-            #[cfg(test)]
-            let export = cipher._insecure_export_fast_for_testing(passphrase);
+            //#[cfg(test)]
+            //let export = cipher._insecure_export_fast_for_testing(passphrase);
             self.set_kv("cipher", export?).await.map_err(OpenStoreError::SaveCipher)?;
             cipher
         };
