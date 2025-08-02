@@ -126,7 +126,7 @@ impl RoomIndex {
                 match f {
                     OwnedValue::Str(s) => ret.push(s.to_string()),
                     _ => println!("how"),
-                };
+                }
             }
         }
 
@@ -211,8 +211,7 @@ mod tests {
 
         let result = result.unwrap();
         let result: HashSet<_> = result.iter().collect();
-        let true_value =
-            vec!["$event_id_1:localhost".to_string(), "$event_id_3:localhost".to_string()];
+        let true_value = ["$event_id_1:localhost".to_owned(), "$event_id_3:localhost".to_owned()];
         let true_value: HashSet<_> = true_value.iter().collect();
 
         assert_eq!(result, true_value, "search result not correct: {result:?}");

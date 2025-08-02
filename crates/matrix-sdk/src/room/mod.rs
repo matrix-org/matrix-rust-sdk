@@ -54,6 +54,9 @@ use matrix_sdk_common::{
     executor::{spawn, JoinHandle},
     timeout::timeout,
 };
+#[cfg(feature = "search")]
+#[cfg(doc)]
+use matrix_sdk_search::index::RoomIndex;
 use mime::Mime;
 use reply::Reply;
 #[cfg(feature = "unstable-msc4274")]

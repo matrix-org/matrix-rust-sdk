@@ -1,12 +1,18 @@
 [package]
 authors = ["Shrey Patel <shreyrg14@gmail.com>"]
 description = "The search component to build a Matrix client library."
-name = "matrix-sdk-search"
-version = "0.1.0"
 edition = "2024"
-license = "Apache-2.0"
 homepage = "https://github.com/matrix-org/matrix-rust-sdk"
+license = "Apache-2.0"
+name = "matrix-sdk-search"
+readme = "README.md"
 repository = "https://github.com/matrix-org/matrix-rust-sdk"
+rust-version.workspace = true
+version = "0.1.0"
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs", "--generate-link-to-definition"]
 
 [dependencies]
 tantivy = "0.22"
@@ -16,8 +22,8 @@ ruma = { workspace = true , features = [
     "rand",
     "unstable-msc1767"
 ] }
-thiserror = "2.0.11"
+thiserror.workspace = true
 
-[package.metadata.docs.rs]
-all-features = true
-rustdoc-args = ["--cfg", "docsrs", "--generate-link-to-definition"]
+[lints]
+workspace = true
+

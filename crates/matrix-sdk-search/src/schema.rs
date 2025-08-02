@@ -114,7 +114,7 @@ impl RoomMessageSchema {
 
             // new m.message behaviour
             AnyMessageLikeEvent::Message(event) => self.parse_event(event, |content| {
-                content.text.find_plain().ok_or(IndexError::EmptyMessage).map(|v| v.to_string())
+                content.text.find_plain().ok_or(IndexError::EmptyMessage).map(|v| v.to_owned())
             }),
 
             _ => Err(IndexError::MessageTypeNotSupported),

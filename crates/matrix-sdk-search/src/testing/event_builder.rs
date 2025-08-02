@@ -17,10 +17,10 @@ use ruma::{
 /// Intended for use in testing.
 /// Example:
 /// ```
-/// use matrix_sdk_search::testing::event_builder::NewEventBuilder;
+/// use matrix_sdk_search::testing::event_builder::OldEventBuilder;
 /// use ruma::{
 ///     event_id,
-///     events::{AnyMessageLikeEvent, message::MessageEventContent},
+///     events::room::message{MessageType, TextMessageEventContent},
 /// };
 ///
 /// fn test_make_old_event() {
