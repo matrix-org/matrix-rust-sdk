@@ -46,7 +46,7 @@ use crate::{
         repeat_vars, EncryptableStore, Key, SqliteAsyncConnExt, SqliteKeyValueStoreAsyncConnExt,
         SqliteKeyValueStoreConnExt,
     },
-    OpenStoreError, SqliteStoreConfig,
+    OpenStoreError, Secret, SqliteStoreConfig,
 };
 
 mod keys {
@@ -90,9 +90,18 @@ impl fmt::Debug for SqliteStateStore {
 }
 
 impl SqliteStateStore {
+    /// Open the SQLite-based event cache store at the given path using the
+    /// given passphrase to encrypt private data
+    pub async fn open(
+        path: impl AsRef<Path>,
+        passphrase: Option<&str>,
+    ) -> Result<Self, OpenStoreError> {
+        Self::open_with_config(SqliteStoreConfig::new(path).passphrase(passphrase)).await
+    }
+
     /// Open the SQLite-based state store at the given path using the given
     /// key to encrypt private data.
-    pub async fn open(
+    pub async fn open_with_key(
         path: impl AsRef<Path>,
         key: Option<&[u8; 32]>,
     ) -> Result<Self, OpenStoreError> {
@@ -101,7 +110,7 @@ impl SqliteStateStore {
 
     /// Open the SQLite-based state store with the config open config.
     pub async fn open_with_config(config: SqliteStoreConfig) -> Result<Self, OpenStoreError> {
-        let SqliteStoreConfig { path, key, pool_config, runtime_config } = config;
+        let SqliteStoreConfig { path, pool_config, runtime_config, secret } = config;
 
         fs::create_dir_all(&path).await.map_err(OpenStoreError::CreateDir)?;
 
@@ -110,7 +119,7 @@ impl SqliteStateStore {
 
         let pool = config.create_pool(Runtime::Tokio1)?;
 
-        let this = Self::open_with_pool(pool, key.as_ref()).await?;
+        let this = Self::open_with_pool(pool, secret).await?;
         this.pool.get().await?.apply_runtime_config(runtime_config).await?;
 
         Ok(this)
@@ -120,7 +129,7 @@ impl SqliteStateStore {
     /// The given key will be used to encrypt private data.
     pub async fn open_with_pool(
         pool: SqlitePool,
-        key: Option<&[u8; 32]>,
+        secret: Option<Secret>,
     ) -> Result<Self, OpenStoreError> {
         let conn = pool.get().await?;
 
@@ -131,8 +140,8 @@ impl SqliteStateStore {
             version = 1;
         }
 
-        let store_cipher = match key {
-            Some(k) => Some(Arc::new(conn.get_or_create_store_cipher(k).await?)),
+        let store_cipher = match secret {
+            Some(s) => Some(Arc::new(conn.get_or_create_store_cipher(s).await?)),
             None => None,
         };
         let this = Self { store_cipher, pool };
@@ -2224,11 +2233,7 @@ mod encrypted_tests {
         tracing::info!("using store @ {}", tmpdir_path.to_str().unwrap());
 
         Ok(SqliteStateStore::open(
-            tmpdir_path.to_str().unwrap(),
-            Some(&[
-                201, 17, 66, 135, 59, 240, 28, 102, 88, 219, 3, 147, 125, 34, 76, 250, 190, 12,
-                224, 97, 49, 164, 143, 254, 61, 85, 202, 16, 111, 0, 178, 73,
-            ]),
+            tmpdir_path.to_str().unwrap(), Some("default_test_password")
         )
         .await
         .unwrap())
@@ -2323,15 +2328,12 @@ mod migration_tests {
     use crate::{
         error::{Error, Result},
         utils::{EncryptableStore as _, SqliteAsyncConnExt, SqliteKeyValueStoreAsyncConnExt},
-        OpenStoreError,
+        OpenStoreError, Secret,
     };
 
     static TMP_DIR: Lazy<TempDir> = Lazy::new(|| tempdir().unwrap());
     static NUM: AtomicU32 = AtomicU32::new(0);
-    const SECRET: &[u8; 32] = &[
-        119, 34, 208, 91, 14, 160, 239, 67, 198, 122, 9, 53, 211, 80, 103, 251, 61, 199, 26, 142,
-        193, 240, 77, 36, 5, 187, 164, 112, 218, 38, 150, 249,
-    ];
+    const SECRET: &str = "secret";
 
     fn new_path() -> PathBuf {
         let name = NUM.fetch_add(1, SeqCst).to_string();
@@ -2349,7 +2351,7 @@ mod migration_tests {
 
         init(&conn).await?;
 
-        let store_cipher = Some(Arc::new(conn.get_or_create_store_cipher(SECRET).await.unwrap()));
+        let store_cipher = Some(Arc::new(conn.get_or_create_store_cipher(Secret::PassPhrase(SECRET.to_owned())).await.unwrap()));
         let this = SqliteStateStore { store_cipher, pool };
         this.run_migrations(&conn, 1, Some(version)).await?;
 
