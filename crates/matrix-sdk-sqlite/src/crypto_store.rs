@@ -1543,11 +1543,12 @@ mod tests {
         tmpdir
     }
 
-    async fn get_test_db(data_path: &str, key: Option<&[u8; 32]>) -> TestDb {
+    async fn get_test_db(data_path: &str, passphrase: Option<&str>) -> TestDb {
         let tmpdir = copy_db(data_path);
 
-        let database =
-            SqliteCryptoStore::open(tmpdir.path(), key).await.expect("Can't open the test store");
+        let database = SqliteCryptoStore::open(tmpdir.path(), passphrase)
+            .await
+            .expect("Can't open the test store");
 
         TestDb { _dir: tmpdir, database }
     }
@@ -1943,7 +1944,7 @@ mod encrypted_tests {
             let _ = fs::remove_dir_all(&tmpdir_path).await;
         }
 
-        SqliteCryptoStore::open(tmpdir_path.to_str().unwrap(), Some(passphrase))
+        SqliteCryptoStore::open(tmpdir_path.to_str().unwrap(), Some(pass))
             .await
             .expect("Can't create a key protected store")
     }
