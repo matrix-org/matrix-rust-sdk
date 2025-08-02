@@ -20,7 +20,10 @@ use ruma::{
 /// use matrix_sdk_search::testing::event_builder::OldEventBuilder;
 /// use ruma::{
 ///     event_id,
-///     events::room::message{MessageType, TextMessageEventContent},
+///     events::{
+///         AnyMessageLikeEvent,
+///         room::message::{MessageType, TextMessageEventContent},
+///     },
 /// };
 ///
 /// fn test_make_old_event() {
