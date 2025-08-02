@@ -2281,11 +2281,9 @@ mod encrypted_tests {
 
         tracing::info!("using store @ {}", tmpdir_path.to_str().unwrap());
 
-        Ok(SqliteStateStore::open(
-            tmpdir_path.to_str().unwrap(), Some("default_test_password")
-        )
-        .await
-        .unwrap())
+        Ok(SqliteStateStore::open(tmpdir_path.to_str().unwrap(), Some("default_test_password"))
+            .await
+            .unwrap())
     }
 
     #[async_test]
@@ -2400,7 +2398,9 @@ mod migration_tests {
 
         init(&conn).await?;
 
-        let store_cipher = Some(Arc::new(conn.get_or_create_store_cipher(Secret::PassPhrase(SECRET.to_owned())).await.unwrap()));
+        let store_cipher = Some(Arc::new(
+            conn.get_or_create_store_cipher(Secret::PassPhrase(SECRET.to_owned())).await.unwrap(),
+        ));
         let this = SqliteStateStore { store_cipher, pool };
         this.run_migrations(&conn, 1, Some(version)).await?;
 
