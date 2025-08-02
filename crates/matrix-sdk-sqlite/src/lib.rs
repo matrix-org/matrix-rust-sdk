@@ -1,4 +1,3 @@
-// Copyright 2022 The Matrix.org Foundation C.I.C.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -47,13 +46,19 @@ pub use self::state_store::{SqliteStateStore, DATABASE_NAME as STATE_STORE_DATAB
 #[cfg(test)]
 matrix_sdk_test_utils::init_tracing_for_tests!();
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum Secret {
+    Key([u8; 32]),
+    PassPhrase(String),
+}
+
 /// A configuration structure used for opening a store.
 #[derive(Clone)]
 pub struct SqliteStoreConfig {
     /// Path to the database, without the file name.
     path: PathBuf,
-    /// Key to open the store, if any
-    key: Option<[u8; 32]>,
+    /// Secret to open the store, if any
+    secret: Option<Secret>,
     /// The pool configuration for [`deadpool_sqlite`].
     pool_config: PoolConfig,
     /// The runtime configuration to apply when opening an SQLite connection.
@@ -86,9 +91,9 @@ impl SqliteStoreConfig {
     {
         Self {
             path: path.as_ref().to_path_buf(),
-            key: None,
             pool_config: PoolConfig::new(max(POOL_MINIMUM_SIZE, num_cpus::get_physical() * 4)),
             runtime_config: RuntimeConfig::default(),
+            secret: None,
         }
     }
 
@@ -123,9 +128,20 @@ impl SqliteStoreConfig {
         self
     }
 
+    /// Define the passphrase if the store is encoded.
+    pub fn passphrase(mut self, passphrase: Option<&str>) -> Self {
+        self.secret = if let Some(passphrase) = passphrase {
+            Some(Secret::PassPhrase(passphrase.to_owned()))
+        } else {
+            None
+        };
+        self
+    }
+
     /// Define the key if the store is encoded.
     pub fn key(mut self, key: Option<&[u8; 32]>) -> Self {
-        self.key = key.map(|key| key.to_owned());
+        self.secret =
+            if let Some(key) = key { Some(Secret::Key(key.map(|key| key))) } else { None };
         self
     }
 
@@ -229,7 +245,7 @@ mod tests {
         path::{Path, PathBuf},
     };
 
-    use super::{SqliteStoreConfig, POOL_MINIMUM_SIZE};
+    use super::{Secret, SqliteStoreConfig, POOL_MINIMUM_SIZE};
 
     #[test]
     fn test_new() {
@@ -265,14 +281,14 @@ mod tests {
 
         assert_eq!(store_config.path, PathBuf::from("foo"));
         assert_eq!(
-            store_config.key,
-            Some(
+            store_config.secret,
+            Some(Secret::Key(
                 [
                     143, 27, 202, 78, 96, 55, 13, 149, 247, 8, 33, 120, 204, 92, 171, 66, 19, 238,
                     61, 107, 132, 211, 40, 244, 71, 190, 99, 14, 173, 225, 6, 156,
                 ]
                 .to_owned()
-            )
+            ))
         );
         assert_eq!(store_config.pool_config.max_size, 42);
         assert!(store_config.runtime_config.optimize.not());

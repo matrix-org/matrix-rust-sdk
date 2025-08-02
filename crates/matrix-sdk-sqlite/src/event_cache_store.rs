@@ -32,7 +32,9 @@ use matrix_sdk_base::{
 };
 use matrix_sdk_store_encryption::StoreCipher;
 use ruma::{
-    events::relation::RelationType, EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, RoomId,
+    events::{relation::RelationType, secret_storage::key::PassPhrase},
+    time::SystemTime,
+    EventId, MilliSecondsSinceUnixEpoch, MxcUri, OwnedEventId, RoomId,
 };
 use rusqlite::{params_from_iter, OptionalExtension, ToSql, Transaction, TransactionBehavior};
 use tokio::{
@@ -47,7 +49,7 @@ use crate::{
         repeat_vars, EncryptableStore, Key, SqliteAsyncConnExt, SqliteKeyValueStoreAsyncConnExt,
         SqliteKeyValueStoreConnExt, SqliteTransactionExt,
     },
-    OpenStoreError, SqliteStoreConfig,
+    OpenStoreError, Secret, SqliteStoreConfig,
 };
 
 mod keys {
@@ -102,8 +104,17 @@ impl EncryptableStore for SqliteEventCacheStore {
 
 impl SqliteEventCacheStore {
     /// Open the SQLite-based event cache store at the given path using the
-    /// given key to encrypt private data.
+    /// given passphrase to encrypt private data.
     pub async fn open(
+        path: impl AsRef<Path>,
+        passphrase: Option<&str>,
+    ) -> Result<Self, OpenStoreError> {
+        Self::open_with_config(SqliteStoreConfig::new(path).passphrase(passphrase)).await
+    }
+
+    /// Open the SQLite-based event cache store at the given path using the
+    /// given key to encrypt private data.
+    pub async fn open_with_key(
         path: impl AsRef<Path>,
         key: Option<&[u8; 32]>,
     ) -> Result<Self, OpenStoreError> {
@@ -117,7 +128,7 @@ impl SqliteEventCacheStore {
 
         let _timer = timer!("open_with_config");
 
-        let SqliteStoreConfig { path, key, pool_config, runtime_config } = config;
+        let SqliteStoreConfig { path, pool_config, runtime_config, secret } = config;
 
         fs::create_dir_all(&path).await.map_err(OpenStoreError::CreateDir)?;
 
@@ -126,7 +137,7 @@ impl SqliteEventCacheStore {
 
         let pool = config.create_pool(Runtime::Tokio1)?;
 
-        let this = Self::open_with_pool(pool, key.as_ref()).await?;
+        let this = Self::open_with_pool(pool, secret).await?;
         this.write().await?.apply_runtime_config(runtime_config).await?;
 
         Ok(this)
@@ -136,15 +147,15 @@ impl SqliteEventCacheStore {
     /// pool. The given key will be used to encrypt private data.
     async fn open_with_pool(
         pool: SqlitePool,
-        key: Option<&[u8; 32]>,
+        secret: Option<Secret>,
     ) -> Result<Self, OpenStoreError> {
         let conn = pool.get().await?;
 
         let version = conn.db_version().await?;
         run_migrations(&conn, version).await?;
 
-        let store_cipher = match key {
-            Some(k) => Some(Arc::new(conn.get_or_create_store_cipher(k).await?)),
+        let store_cipher = match secret {
+            Some(s) => Some(Arc::new(conn.get_or_create_store_cipher(s).await?)),
             None => None,
         };
 
@@ -2443,10 +2454,7 @@ mod encrypted_tests {
 
         Ok(SqliteEventCacheStore::open(
             tmpdir_path.to_str().unwrap(),
-            Some(&[
-                42, 199, 108, 12, 87, 250, 163, 31, 221, 60, 5, 144, 89, 237, 118, 201, 33, 176,
-                248, 73, 154, 8, 130, 190, 57, 110, 226, 3, 99, 45, 164, 209,
-            ]),
+            Some("default_test_password"),
         )
         .await
         .unwrap())

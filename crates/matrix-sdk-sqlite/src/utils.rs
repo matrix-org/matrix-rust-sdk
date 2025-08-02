@@ -24,14 +24,17 @@ use async_trait::async_trait;
 use deadpool_sqlite::Object as SqliteAsyncConn;
 use itertools::Itertools;
 use matrix_sdk_store_encryption::StoreCipher;
-use ruma::{serde::Raw, time::SystemTime, OwnedEventId, OwnedRoomId};
+use ruma::{
+    events::secret_storage::key::PassPhrase, serde::Raw, time::SystemTime, OwnedEventId,
+    OwnedRoomId,
+};
 use rusqlite::{limits::Limit, OptionalExtension, Params, Row, Statement, Transaction};
 use serde::{de::DeserializeOwned, Serialize};
 use tracing::{error, warn};
 
 use crate::{
     error::{Error, Result},
-    OpenStoreError, RuntimeConfig,
+    OpenStoreError, RuntimeConfig, Secret,
 };
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -393,7 +396,7 @@ impl SqliteKeyValueStoreConnExt for rusqlite::Connection {
 ///
 /// ```sql
 /// CREATE TABLE "kv" (
-///     "key" TEXT PRIMARY KEY NOT NULL,
+///     "key" TEXT PRIMARY KEY NOT NULL,d
 ///     "value" BLOB NOT NULL
 /// );
 /// ```
@@ -457,16 +460,22 @@ pub(crate) trait SqliteKeyValueStoreAsyncConnExt: SqliteAsyncConnExt {
     /// Get the [`StoreCipher`] of the database or create it.
     async fn get_or_create_store_cipher(
         &self,
-        key: &[u8; 32],
+        secret: Secret,
     ) -> Result<StoreCipher, OpenStoreError> {
         let encrypted_cipher = self.get_kv("cipher").await.map_err(OpenStoreError::LoadCipher)?;
 
         let cipher = if let Some(encrypted) = encrypted_cipher {
-            StoreCipher::import_with_key(key, &encrypted)?
+            match secret {
+                Secret::PassPhrase(passphrase) => StoreCipher::import(&passphrase, &encrypted)?,
+                Secret::Key(key) => StoreCipher::import_with_key(&key, &encrypted)?,
+            }
         } else {
             let cipher = StoreCipher::new()?;
             //#[cfg(not(test))]
-            let export = cipher.export_with_key(key);
+            let export = match secret {
+                Secret::PassPhrase(passphrase) => cipher.export(&passphrase),
+                Secret::Key(key) => cipher.export_with_key(&key),
+            };
             //#[cfg(test)]
             //let export = cipher._insecure_export_fast_for_testing(passphrase);
             self.set_kv("cipher", export?).await.map_err(OpenStoreError::SaveCipher)?;
