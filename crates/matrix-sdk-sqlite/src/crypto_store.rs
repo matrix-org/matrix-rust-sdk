@@ -52,7 +52,7 @@ use crate::{
         repeat_vars, EncryptableStore, Key, SqliteAsyncConnExt, SqliteKeyValueStoreAsyncConnExt,
         SqliteKeyValueStoreConnExt,
     },
-    OpenStoreError, SqliteStoreConfig,
+    OpenStoreError, Secret, SqliteStoreConfig,
 };
 
 /// The database name.
@@ -83,9 +83,18 @@ impl EncryptableStore for SqliteCryptoStore {
 }
 
 impl SqliteCryptoStore {
+    /// Open the SQLite-based event cache store at the given path using the
+    /// given passphrase to encrypt private data
+    pub async fn open(
+        path: impl AsRef<Path>,
+        passphrase: Option<&str>,
+    ) -> Result<Self, OpenStoreError> {
+        Self::open_with_config(SqliteStoreConfig::new(path).passphrase(passphrase)).await
+    }
+
     /// Open the SQLite-based crypto store at the given path using the given
     /// key to encrypt private data.
-    pub async fn open(
+    pub async fn open_with_key(
         path: impl AsRef<Path>,
         key: Option<&[u8; 32]>,
     ) -> Result<Self, OpenStoreError> {
@@ -94,7 +103,7 @@ impl SqliteCryptoStore {
 
     /// Open the SQLite-based crypto store with the config open config.
     pub async fn open_with_config(config: SqliteStoreConfig) -> Result<Self, OpenStoreError> {
-        let SqliteStoreConfig { path, key, pool_config, runtime_config } = config;
+        let SqliteStoreConfig { path, pool_config, runtime_config, secret } = config;
 
         fs::create_dir_all(&path).await.map_err(OpenStoreError::CreateDir)?;
 
@@ -103,7 +112,7 @@ impl SqliteCryptoStore {
 
         let pool = config.create_pool(Runtime::Tokio1)?;
 
-        let this = Self::open_with_pool(pool, key.as_deref()).await?;
+        let this = Self::open_with_pool(pool, secret).await?;
         this.pool.get().await?.apply_runtime_config(runtime_config).await?;
 
         Ok(this)
@@ -113,7 +122,7 @@ impl SqliteCryptoStore {
     /// pool. The given key will be used to encrypt private data.
     async fn open_with_pool(
         pool: SqlitePool,
-        key: Option<&[u8; 32]>,
+        secret: Option<Secret>,
     ) -> Result<Self, OpenStoreError> {
         let conn = pool.get().await?;
 
@@ -121,8 +130,8 @@ impl SqliteCryptoStore {
         debug!("Opened sqlite store with version {}", version);
         run_migrations(&conn, version).await?;
 
-        let store_cipher = match key {
-            Some(k) => Some(Arc::new(conn.get_or_create_store_cipher(k).await?)),
+        let store_cipher = match secret {
+            Some(s) => Some(Arc::new(conn.get_or_create_store_cipher(s).await?)),
             None => None,
         };
 
@@ -1891,14 +1900,14 @@ mod tests {
         assert!(backup_keys.decryption_key.is_some());
     }
 
-    async fn get_store(name: &str, key: Option<&[u8; 32]>, clear_data: bool) -> SqliteCryptoStore {
+    async fn get_store(name: &str, passphrase: Option<&str>, clear_data: bool) -> SqliteCryptoStore {
         let tmpdir_path = TMP_DIR.path().join(name);
 
         if clear_data {
             let _ = fs::remove_dir_all(&tmpdir_path).await;
         }
 
-        SqliteCryptoStore::open(tmpdir_path.to_str().unwrap(), key)
+        SqliteCryptoStore::open(tmpdir_path.to_str().unwrap(), passphrase)
             .await
             .expect("Can't create a key protected store")
     }
@@ -1918,18 +1927,15 @@ mod encrypted_tests {
 
     static TMP_DIR: Lazy<TempDir> = Lazy::new(|| tempdir().unwrap());
 
-    async fn get_store(name: &str, key: Option<&[u8; 32]>, clear_data: bool) -> SqliteCryptoStore {
+    async fn get_store(name: &str, passphrase: Option<&str>, clear_data: bool) -> SqliteCryptoStore {
         let tmpdir_path = TMP_DIR.path().join(name);
-        let pass = key.unwrap_or(&[
-            74, 156, 222, 8, 61, 113, 145, 197, 29, 84, 179, 240, 6, 38, 126, 253, 92, 203, 173,
-            47, 134, 13, 251, 100, 196, 42, 109, 159, 221, 73, 10, 187,
-        ]);
+        let pass = passphrase.unwrap_or(&"default_test_password");
 
         if clear_data {
             let _ = fs::remove_dir_all(&tmpdir_path).await;
         }
 
-        SqliteCryptoStore::open(tmpdir_path.to_str().unwrap(), Some(key))
+        SqliteCryptoStore::open(tmpdir_path.to_str().unwrap(), Some(passphrase))
             .await
             .expect("Can't create a key protected store")
     }
