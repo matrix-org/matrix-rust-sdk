@@ -1938,7 +1938,7 @@ mod encrypted_tests {
         clear_data: bool,
     ) -> SqliteCryptoStore {
         let tmpdir_path = TMP_DIR.path().join(name);
-        let pass = passphrase.unwrap_or(&"default_test_password");
+        let pass = passphrase.unwrap_or("default_test_password");
 
         if clear_data {
             let _ = fs::remove_dir_all(&tmpdir_path).await;

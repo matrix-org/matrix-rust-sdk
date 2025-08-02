@@ -130,18 +130,13 @@ impl SqliteStoreConfig {
 
     /// Define the passphrase if the store is encoded.
     pub fn passphrase(mut self, passphrase: Option<&str>) -> Self {
-        self.secret = if let Some(passphrase) = passphrase {
-            Some(Secret::PassPhrase(passphrase.to_owned()))
-        } else {
-            None
-        };
+        self.secret = passphrase.map(|passphrase| Secret::PassPhrase(passphrase.to_owned()));
         self
     }
 
     /// Define the key if the store is encoded.
     pub fn key(mut self, key: Option<&[u8; 32]>) -> Self {
-        self.secret =
-            if let Some(key) = key { Some(Secret::Key(key.map(|key| key))) } else { None };
+        self.secret = key.map(|key| Secret::Key(*key));
         self
     }
 
