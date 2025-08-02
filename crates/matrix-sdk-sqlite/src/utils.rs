@@ -24,10 +24,7 @@ use async_trait::async_trait;
 use deadpool_sqlite::Object as SqliteAsyncConn;
 use itertools::Itertools;
 use matrix_sdk_store_encryption::StoreCipher;
-use ruma::{
-    events::secret_storage::key::PassPhrase, serde::Raw, time::SystemTime, OwnedEventId,
-    OwnedRoomId,
-};
+use ruma::{serde::Raw, time::SystemTime, OwnedEventId, OwnedRoomId};
 use rusqlite::{limits::Limit, OptionalExtension, Params, Row, Statement, Transaction};
 use serde::{de::DeserializeOwned, Serialize};
 use tracing::{error, warn};
