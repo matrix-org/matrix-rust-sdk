@@ -1900,7 +1900,11 @@ mod tests {
         assert!(backup_keys.decryption_key.is_some());
     }
 
-    async fn get_store(name: &str, passphrase: Option<&str>, clear_data: bool) -> SqliteCryptoStore {
+    async fn get_store(
+        name: &str,
+        passphrase: Option<&str>,
+        clear_data: bool,
+    ) -> SqliteCryptoStore {
         let tmpdir_path = TMP_DIR.path().join(name);
 
         if clear_data {
@@ -1927,7 +1931,11 @@ mod encrypted_tests {
 
     static TMP_DIR: Lazy<TempDir> = Lazy::new(|| tempdir().unwrap());
 
-    async fn get_store(name: &str, passphrase: Option<&str>, clear_data: bool) -> SqliteCryptoStore {
+    async fn get_store(
+        name: &str,
+        passphrase: Option<&str>,
+        clear_data: bool,
+    ) -> SqliteCryptoStore {
         let tmpdir_path = TMP_DIR.path().join(name);
         let pass = passphrase.unwrap_or(&"default_test_password");
 
