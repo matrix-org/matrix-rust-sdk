@@ -53,7 +53,7 @@ use tokio::sync::{
 };
 use tracing::{debug, error, info, info_span, instrument, trace, warn, Instrument as _, Span};
 
-use crate::{client::WeakClient, Client};
+use crate::{client::WeakClient, error, Client};
 
 mod deduplicator;
 mod pagination;
@@ -116,6 +116,10 @@ pub enum EventCacheError {
         /// A string containing details about the error.
         details: String,
     },
+
+    /// An error occurred higher up in the SDK.
+    #[error(transparent)]
+    SdkError(#[from] error::Error),
 }
 
 /// A result using the [`EventCacheError`].
