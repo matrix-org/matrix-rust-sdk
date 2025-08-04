@@ -1,5 +1,4 @@
 use ruma::{
-    OwnedRoomId,
     api::client::sync::sync_events::StrippedState,
     events::{
         AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent, AnySyncStateEvent,
@@ -16,7 +15,6 @@ pub enum StateTestEvent {
     Alias,
     Aliases,
     Create,
-    CreateSpace,
     Encryption,
     HistoryVisibility,
     JoinRules,
@@ -33,8 +31,6 @@ pub enum StateTestEvent {
     RoomName,
     RoomPinnedEvents,
     RoomTopic,
-    SpaceChild { parent: OwnedRoomId, child: OwnedRoomId },
-    SpaceParent { parent: OwnedRoomId, child: OwnedRoomId },
     Custom(JsonValue),
 }
 
@@ -44,7 +40,6 @@ impl From<StateTestEvent> for JsonValue {
             StateTestEvent::Alias => test_json::sync_events::ALIAS.to_owned(),
             StateTestEvent::Aliases => test_json::sync_events::ALIASES.to_owned(),
             StateTestEvent::Create => test_json::sync_events::CREATE.to_owned(),
-            StateTestEvent::CreateSpace => test_json::sync_events::CREATE_SPACE.to_owned(),
             StateTestEvent::Encryption => test_json::sync_events::ENCRYPTION.to_owned(),
             StateTestEvent::HistoryVisibility => {
                 test_json::sync_events::HISTORY_VISIBILITY.to_owned()
@@ -67,18 +62,6 @@ impl From<StateTestEvent> for JsonValue {
             StateTestEvent::RoomName => test_json::sync_events::NAME.to_owned(),
             StateTestEvent::RoomPinnedEvents => test_json::sync_events::PINNED_EVENTS.to_owned(),
             StateTestEvent::RoomTopic => test_json::sync_events::TOPIC.to_owned(),
-            StateTestEvent::SpaceChild { parent, child } => {
-                let mut json = test_json::sync_events::SPACE_CHILD.to_owned();
-                json["room_id"] = JsonValue::String(parent.to_string());
-                json["state_key"] = JsonValue::String(child.to_string());
-                json
-            }
-            StateTestEvent::SpaceParent { parent, child } => {
-                let mut json = test_json::sync_events::SPACE_PARENT.to_owned();
-                json["state_key"] = JsonValue::String(parent.to_string());
-                json["room_id"] = JsonValue::String(child.to_string());
-                json
-            }
             StateTestEvent::Custom(json) => json,
         }
     }

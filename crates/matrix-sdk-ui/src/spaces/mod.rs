@@ -56,17 +56,21 @@ mod tests {
     use super::*;
     use assert_matches2::assert_let;
     use matrix_sdk::{room::ParentSpace, test_utils::mocks::MatrixMockServer};
-    use matrix_sdk_test::{JoinedRoomBuilder, StateTestEvent, async_test};
-    use ruma::room_id;
+    use matrix_sdk_test::{JoinedRoomBuilder, async_test, event_factory::EventFactory};
+    use ruma::{RoomVersionId, room::RoomType, room_id};
     use tokio_stream::StreamExt;
 
     #[async_test]
-    async fn test_joined_spaces() {
+    async fn test_spaces_hierarchy() {
         let server = MatrixMockServer::new().await;
         let client = server.client_builder().build().await;
-        let space_discovery_service = SpaceService::new(client.clone());
+        let user_id = client.user_id().unwrap();
+        let space_service = SpaceService::new(client.clone());
+        let factory = EventFactory::new();
 
         server.mock_room_state_encryption().plain().mount().await;
+
+        // Given one parent space with 2 children spaces
 
         let parent_space_id = room_id!("!3:example.org");
         let child_space_id_1 = room_id!("!1:example.org");
@@ -76,11 +80,16 @@ mod tests {
             .sync_room(
                 &client,
                 JoinedRoomBuilder::new(child_space_id_1)
-                    .add_state_event(StateTestEvent::CreateSpace)
-                    .add_state_event(StateTestEvent::SpaceParent {
-                        parent: parent_space_id.to_owned(),
-                        child: child_space_id_1.to_owned(),
-                    }),
+                    .add_state_event(factory.create(
+                        user_id,
+                        RoomVersionId::V1,
+                        Some(RoomType::Space),
+                    ))
+                    .add_state_event(
+                        factory
+                            .space_parent(parent_space_id.to_owned(), child_space_id_1.to_owned())
+                            .sender(user_id),
+                    ),
             )
             .await;
 
@@ -88,36 +97,50 @@ mod tests {
             .sync_room(
                 &client,
                 JoinedRoomBuilder::new(child_space_id_2)
-                    .add_state_event(StateTestEvent::CreateSpace)
-                    .add_state_event(StateTestEvent::SpaceParent {
-                        parent: parent_space_id.to_owned(),
-                        child: child_space_id_2.to_owned(),
-                    }),
+                    .add_state_event(factory.create(
+                        user_id,
+                        RoomVersionId::V1,
+                        Some(RoomType::Space),
+                    ))
+                    .add_state_event(
+                        factory
+                            .space_parent(parent_space_id.to_owned(), child_space_id_2.to_owned())
+                            .sender(user_id),
+                    ),
             )
             .await;
         server
             .sync_room(
                 &client,
                 JoinedRoomBuilder::new(parent_space_id)
-                    .add_state_event(StateTestEvent::CreateSpace)
-                    .add_state_event(StateTestEvent::SpaceChild {
-                        parent: parent_space_id.to_owned(),
-                        child: child_space_id_1.to_owned(),
-                    })
-                    .add_state_event(StateTestEvent::SpaceChild {
-                        parent: parent_space_id.to_owned(),
-                        child: child_space_id_2.to_owned(),
-                    }),
+                    .add_state_event(factory.create(
+                        user_id,
+                        RoomVersionId::V1,
+                        Some(RoomType::Space),
+                    ))
+                    .add_state_event(
+                        factory
+                            .space_child(parent_space_id.to_owned(), child_space_id_1.to_owned())
+                            .sender(user_id),
+                    )
+                    .add_state_event(
+                        factory
+                            .space_child(parent_space_id.to_owned(), child_space_id_2.to_owned())
+                            .sender(user_id),
+                    ),
             )
             .await;
 
+        // All joined
         assert_eq!(
-            space_discovery_service.joined_spaces(),
+            space_service.joined_spaces(),
             vec![child_space_id_1, child_space_id_2, parent_space_id]
         );
 
         let parent_space = client.get_room(parent_space_id).unwrap();
         assert!(parent_space.is_space());
+
+        // Then the parent space and the two child spaces are linked
 
         let spaces: Vec<ParentSpace> = client
             .get_room(child_space_id_1)
