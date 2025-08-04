@@ -25,6 +25,7 @@ pub struct SyncSettings {
     // Filter is pretty big at 1000 bytes, box it to reduce stack size
     pub(crate) filter: Option<Box<sync_events::v3::Filter>>,
     pub(crate) timeout: Option<Duration>,
+    pub(crate) ignore_timeout_on_first_sync: bool,
     pub(crate) token: Option<String>,
     pub(crate) full_state: bool,
     pub(crate) set_presence: PresenceState,
@@ -39,10 +40,18 @@ impl Default for SyncSettings {
 #[cfg(not(tarpaulin_include))]
 impl fmt::Debug for SyncSettings {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let Self { filter, timeout, token: _, full_state, set_presence } = self;
+        let Self {
+            filter,
+            timeout,
+            ignore_timeout_on_first_sync,
+            token: _,
+            full_state,
+            set_presence,
+        } = self;
         f.debug_struct("SyncSettings")
             .maybe_field("filter", filter)
             .maybe_field("timeout", timeout)
+            .field("ignore_timeout_on_first_sync", ignore_timeout_on_first_sync)
             .field("full_state", full_state)
             .field("set_presence", set_presence)
             .finish()
@@ -56,6 +65,7 @@ impl SyncSettings {
         Self {
             filter: None,
             timeout: Some(DEFAULT_SYNC_TIMEOUT),
+            ignore_timeout_on_first_sync: false,
             token: None,
             full_state: false,
             set_presence: PresenceState::Online,
@@ -82,6 +92,33 @@ impl SyncSettings {
     #[must_use]
     pub fn timeout(mut self, timeout: Duration) -> Self {
         self.timeout = Some(timeout);
+        self
+    }
+
+    /// Whether to ignore the `timeout` the first time that the `/sync` endpoint
+    /// is called.
+    ///
+    /// If there is no new data to show, the server will wait until the end of
+    /// `timeout` before returning a response. It can be an undesirable
+    /// behavior when starting a client and informing the user that we are
+    /// "catching up" while waiting for the first response.
+    ///
+    /// By not setting a `timeout` on the first request to `/sync`, the
+    /// homeserver should reply immediately, whether the response is empty or
+    /// not.
+    ///
+    /// Note that this setting is ignored when calling [`Client::sync_once()`],
+    /// because there is no loop happening.
+    ///
+    /// # Arguments
+    ///
+    /// * `ignore` - Whether to ignore the `timeout` the first time that the
+    ///   `/sync` endpoint is called.
+    ///
+    /// [`Client::sync_once()`]: crate::Client::sync_once
+    #[must_use]
+    pub fn ignore_timeout_on_first_sync(mut self, ignore: bool) -> Self {
+        self.ignore_timeout_on_first_sync = ignore;
         self
     }
 
