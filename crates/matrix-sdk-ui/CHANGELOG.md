@@ -8,7 +8,7 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 - [**breaking**] Space rooms are now being retrieved through sliding sync and the newly introduced 
-  `NonSpace` filter should be used to exclude them from any room list.
+  [`room_list_service::filters::new_filter_non_space`] filter should be used to exclude them from any room list.
   ([5479](https://github.com/matrix-org/matrix-rust-sdk/pull/5479))
 - [**breaking**] [`Timeline::send_gallery()`] now automatically fills in the thread relationship,
   based on the timeline focus. As a result, the `GalleryConfig::reply()` builder method has been
