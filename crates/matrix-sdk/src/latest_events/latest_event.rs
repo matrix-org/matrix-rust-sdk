@@ -31,7 +31,7 @@ use ruma::{
 };
 use tracing::warn;
 
-use crate::{event_cache::RoomEventCache, room::WeakRoom};
+use crate::{event_cache::RoomEventCache, room::WeakRoom, send_queue::RoomSendQueueUpdate};
 
 /// The latest event of a room or a thread.
 ///
@@ -83,6 +83,12 @@ impl LatestEvent {
         .await;
 
         self.value.set(new_value).await;
+    }
+
+    /// Update the inner latest event value, based on the send queue
+    /// (specifically with a [`RoomSendQueueUpdate`]).
+    pub async fn update_with_send_queue(&mut self, send_queue_update: &RoomSendQueueUpdate) {
+        todo!()
     }
 }
 
