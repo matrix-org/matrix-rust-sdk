@@ -535,6 +535,16 @@ impl RoomLatestEvents {
             latest_event.update_with_event_cache(&self.room_event_cache, &power_levels).await;
         }
     }
+
+    /// Update the latest events for the room and its threads, based on the
+    /// send queue update.
+    async fn update_with_send_queue(&mut self, send_queue_update: &RoomSendQueueUpdate) {
+        self.for_the_room.update_with_send_queue(send_queue_update).await;
+
+        for latest_event in self.per_thread.values_mut() {
+            latest_event.update_with_send_queue(send_queue_update).await;
+        }
+    }
 }
 
 /// The task responsible to listen to the [`EventCache`] and the [`SendQueue`].
@@ -692,9 +702,15 @@ async fn compute_latest_events(
             }
 
             LatestEventQueueUpdate::SendQueue { room_id, update } => {
-                // let mut rooms = registered_rooms.rooms.write().await;
+                let mut rooms = registered_rooms.rooms.write().await;
 
-                todo!()
+                if let Some(room_latest_events) = rooms.get_mut(room_id) {
+                    room_latest_events.update_with_send_queue(update).await;
+                } else {
+                    error!(?room_id, "Failed to find the room");
+
+                    continue;
+                }
             }
         }
     }
