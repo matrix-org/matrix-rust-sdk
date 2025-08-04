@@ -6,12 +6,7 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased] - ReleaseDate
 
-## [0.13.0] - 2025-07-10
-
 ### Features
-
-- [**breaking**] Add a new `VerificationLevel::MismatchedSender` to indicate that the sender of an event appears to have been tampered with.
-  ([#5219](https://github.com/matrix-org/matrix-rust-sdk/pull/5219))
 
 - [**breaking**]: When in "exclude insecure devices" mode, refuse to decrypt
   incoming to-device messages from unverified devices, except for some
@@ -25,6 +20,17 @@ All notable changes to this project will be documented in this file.
   Affected methods are `OlmMachine::receive_sync_changes`,
   `RehydratedDevice::receive_events`, and several internal methods.
   ([#5319](https://github.com/matrix-org/matrix-rust-sdk/pull/5319)
+- [**breaking**] The `Device::encrypt_event_raw` and (experimental)
+  `OlmMachine::encrypt_content_for_devices` have new `share_strategy` parameters
+  to ensure that the recipients are sufficiently trusted.
+  ([#5457](https://github.com/matrix-org/matrix-rust-sdk/pull/5457/))
+
+## [0.13.0] - 2025-07-10
+
+### Features
+
+- [**breaking**] Add a new `VerificationLevel::MismatchedSender` to indicate that the sender of an event appears to have been tampered with.
+  ([#5219](https://github.com/matrix-org/matrix-rust-sdk/pull/5219))
 
 ### Refactor
 

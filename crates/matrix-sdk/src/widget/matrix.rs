@@ -18,7 +18,10 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use as_variant::as_variant;
-use matrix_sdk_base::deserialized_responses::{EncryptionInfo, RawAnySyncOrStrippedState};
+use matrix_sdk_base::{
+    crypto::CollectStrategy,
+    deserialized_responses::{EncryptionInfo, RawAnySyncOrStrippedState},
+};
 use ruma::{
     api::client::{
         account::request_openid_token::v3::{Request as OpenIdRequest, Response as OpenIdResponse},
@@ -494,6 +497,7 @@ impl MatrixDriver {
                     recipient_devices.iter().collect(),
                     &event_type.to_string(),
                     Raw::from_json_string(content.to_owned())?,
+                    CollectStrategy::AllDevices,
                 )
                 .await?;
 

@@ -95,6 +95,13 @@ All notable changes to this project will be documented in this file.
 - [**breaking**] `RoomEventCacheGenericUpdate` gains a new `Clear` variant, and sees
   its `TimelineUpdated` variant being renamed to `UpdateTimeline`.
   ([#5363](https://github.com/matrix-org/matrix-rust-sdk/pull/5363/))
+- [**breaking**]: The element call widget URL configuration struct uses the new `header` url parameter
+  instead of the now deprecated `hideHeader` parameter. This is only compatible
+  with EC v0.13.0 or newer.
+- [**breaking**]: The experimental `Encryption::encrypt_and_send_raw_to_device`
+  function now takes a `share_strategy` parameter, and will not send to devices
+  that do not satisfy the given share strategy.
+  ([#5457](https://github.com/matrix-org/matrix-rust-sdk/pull/5457/))
 
 ### Refactor
 
