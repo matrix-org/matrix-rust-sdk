@@ -233,7 +233,6 @@ async fn test_notification_client_sliding_sync() {
                     ],
                     "filters": {
                         "is_invite": true,
-                        "not_room_types": ["m.space"],
                     },
                     "timeline_limit": 8,
                 }
@@ -726,7 +725,6 @@ async fn test_notification_client_mixed() {
                     ],
                     "filters": {
                         "is_invite": true,
-                        "not_room_types": ["m.space"],
                     },
                     "timeline_limit": 8,
                 }
