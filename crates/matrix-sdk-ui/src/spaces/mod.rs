@@ -20,6 +20,10 @@ use matrix_sdk::{Client, Error};
 use ruma::OwnedRoomId;
 use ruma::api::client::space::get_hierarchy;
 
+pub use crate::spaces::room::SpaceServiceRoom;
+
+pub mod room;
+
 pub struct SpaceService {
     client: Client,
 }
@@ -29,25 +33,29 @@ impl SpaceService {
         Self { client }
     }
 
-    pub fn joined_spaces(&self) -> Vec<OwnedRoomId> {
+    pub fn joined_spaces(&self) -> Vec<SpaceServiceRoom> {
         self.client
             .joined_rooms()
             .into_iter()
-            .filter_map(|room| if room.is_space() { Some(room.room_id().to_owned()) } else { None })
-            .collect()
+            .filter_map(|room| if room.is_space() { Some(room) } else { None })
+            .map(|room| SpaceServiceRoom::new_from_known(room))
+            .collect::<Vec<_>>()
     }
 
     pub async fn top_level_children_for(
         &self,
         space_id: OwnedRoomId,
-    ) -> Result<Vec<OwnedRoomId>, Error> {
+    ) -> Result<Vec<SpaceServiceRoom>, Error> {
         let request = get_hierarchy::v1::Request::new(space_id.clone());
 
         let result = self.client.send(request).await?;
 
-        println!("Top level children for space {}: {:?}", space_id, result.rooms);
-
-        Ok(vec![])
+        Ok(result
+            .rooms
+            .iter()
+            .map(|room| (&room.summary, self.client.get_room(&room.summary.room_id)))
+            .map(|(summary, room)| SpaceServiceRoom::new_from_summary(summary, room))
+            .collect::<Vec<_>>())
     }
 }
 
@@ -121,7 +129,7 @@ mod tests {
 
         // All joined
         assert_eq!(
-            space_service.joined_spaces(),
+            space_service.joined_spaces().iter().map(|s| s.room_id.to_owned()).collect::<Vec<_>>(),
             vec![child_space_id_1, child_space_id_2, parent_space_id]
         );
 
