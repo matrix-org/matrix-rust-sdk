@@ -537,14 +537,11 @@ async fn listen_to_event_cache_and_send_queue_updates_task(
 
     // Initialise the list of rooms that are listened.
     //
-    // Technically, we can use `rooms` to get this information, but it would involve
-    // a read-lock. In order to reduce the pressure on this lock, we use
-    // this intermediate structure.
-    let mut listened_rooms = {
-        let rooms = registered_rooms.rooms.read().await;
-
-        HashSet::from_iter(rooms.keys().cloned())
-    };
+    // Technically, we can use `registered_rooms.rooms` every time to get this
+    // information, but it would involve a read-lock. In order to reduce the
+    // pressure on this lock, we use this intermediate structure.
+    let mut listened_rooms =
+        HashSet::from_iter(registered_rooms.rooms.read().await.keys().cloned());
 
     loop {
         if listen_to_event_cache_and_send_queue_updates(
