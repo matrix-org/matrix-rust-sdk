@@ -40,6 +40,7 @@ use ruma::{
         RoomAccountDataEventType, StateEventType,
     },
     media::Method,
+    push::RuleKind,
     serde::Raw,
     time::Duration,
     DeviceId, EventId, MilliSecondsSinceUnixEpoch, MxcUri, OwnedDeviceId, OwnedEventId,
@@ -1361,6 +1362,19 @@ impl MatrixMockServer {
         self.mock_endpoint(mock, DeleteThreadSubscriptionEndpoint::default())
             .expect_default_access_token()
     }
+
+    /// Create a prebuilt mock for the endpoint used to enable a push rule.
+    pub fn mock_enable_push_rule(
+        &self,
+        kind: RuleKind,
+        rule_id: impl AsRef<str>,
+    ) -> MockEndpoint<'_, EnablePushRuleEndpoint> {
+        let rule_id = rule_id.as_ref();
+        let mock = Mock::given(method("PUT")).and(path_regex(format!(
+            "^/_matrix/client/v3/pushrules/global/{kind}/{rule_id}/enabled",
+        )));
+        self.mock_endpoint(mock, EnablePushRuleEndpoint).expect_default_access_token()
+    }
 }
 
 /// Parameter to [`MatrixMockServer::sync_room`].
@@ -1623,6 +1637,12 @@ impl<'a, T> MockEndpoint<'a, T> {
     /// ok response.
     fn ok_with_event_id(self, event_id: OwnedEventId) -> MatrixMock<'a> {
         self.respond_with(ResponseTemplate::new(200).set_body_json(json!({ "event_id": event_id })))
+    }
+
+    /// Internal helper to return a 200 OK response with an empty JSON object in
+    /// the body.
+    fn ok_empty_json(self) -> MatrixMock<'a> {
+        self.respond_with(ResponseTemplate::new(200).set_body_json(json!({})))
     }
 
     /// Returns an endpoint that emulates a permanent failure error (e.g. event
@@ -3895,5 +3915,16 @@ impl<'a> MockEndpoint<'a, DeleteThreadSubscriptionEndpoint> {
     pub fn match_thread_id(mut self, thread_root: OwnedEventId) -> Self {
         self.endpoint.matchers = self.endpoint.matchers.match_thread_id(thread_root);
         self
+    }
+}
+
+/// A prebuilt mock for `PUT
+/// /_matrix/client/v3/pushrules/global/{kind}/{ruleId}/enabled`.
+pub struct EnablePushRuleEndpoint;
+
+impl<'a> MockEndpoint<'a, EnablePushRuleEndpoint> {
+    /// Returns a successful empty JSON response.
+    pub fn ok(self) -> MatrixMock<'a> {
+        self.ok_empty_json()
     }
 }

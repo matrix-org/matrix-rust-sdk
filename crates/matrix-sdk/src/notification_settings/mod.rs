@@ -585,8 +585,8 @@ mod tests {
     };
     use ruma::{
         push::{
-            Action, AnyPushRuleRef, NewPatternedPushRule, NewPushRule, PredefinedOverrideRuleId,
-            PredefinedUnderrideRuleId, RuleKind,
+            Action, AnyPushRuleRef, NewPatternedPushRule, NewPushRule, PredefinedContentRuleId,
+            PredefinedOverrideRuleId, PredefinedUnderrideRuleId, RuleKind,
         },
         OwnedRoomId, RoomId,
     };
@@ -604,7 +604,7 @@ mod tests {
         notification_settings::{
             IsEncrypted, IsOneToOne, NotificationSettings, RoomNotificationMode,
         },
-        test_utils::logged_in_client,
+        test_utils::{logged_in_client, mocks::MatrixMockServer},
         Client,
     };
 
@@ -1681,5 +1681,70 @@ mod tests {
             .await;
 
         assert_matches!(result, Err(NotificationSettingsError::InvalidParameter(_)));
+    }
+
+    #[async_test]
+    #[allow(deprecated)]
+    async fn test_enable_mention_ignore_missing_legacy_push_rules() {
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+        let mut ruleset = get_server_default_ruleset();
+
+        // Make sure that the legacy mention push rules are missing.
+        if let Some(idx) = ruleset
+            .override_
+            .iter()
+            .position(|rule| rule.rule_id == PredefinedOverrideRuleId::ContainsDisplayName.as_ref())
+        {
+            ruleset.override_.shift_remove_index(idx);
+        }
+        if let Some(idx) = ruleset
+            .override_
+            .iter()
+            .position(|rule| rule.rule_id == PredefinedOverrideRuleId::RoomNotif.as_ref())
+        {
+            ruleset.override_.shift_remove_index(idx);
+        }
+        if let Some(idx) = ruleset
+            .content
+            .iter()
+            .position(|rule| rule.rule_id == PredefinedContentRuleId::ContainsUserName.as_ref())
+        {
+            ruleset.content.shift_remove_index(idx);
+        }
+
+        let settings = NotificationSettings::new(client, ruleset);
+
+        server
+            .mock_enable_push_rule(RuleKind::Override, PredefinedOverrideRuleId::IsUserMention)
+            .ok()
+            .mock_once()
+            .named("is_user_mention")
+            .mount()
+            .await;
+        settings
+            .set_push_rule_enabled(
+                RuleKind::Override,
+                PredefinedOverrideRuleId::IsUserMention,
+                false,
+            )
+            .await
+            .unwrap();
+
+        server
+            .mock_enable_push_rule(RuleKind::Override, PredefinedOverrideRuleId::IsRoomMention)
+            .ok()
+            .mock_once()
+            .named("is_room_mention")
+            .mount()
+            .await;
+        settings
+            .set_push_rule_enabled(
+                RuleKind::Override,
+                PredefinedOverrideRuleId::IsRoomMention,
+                false,
+            )
+            .await
+            .unwrap();
     }
 }
