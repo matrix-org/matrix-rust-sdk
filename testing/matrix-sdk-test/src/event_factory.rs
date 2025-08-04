@@ -69,9 +69,11 @@ use ruma::{
             tombstone::RoomTombstoneEventContent,
             topic::RoomTopicEventContent,
         },
+        space::{child::SpaceChildEventContent, parent::SpaceParentEventContent},
         sticker::StickerEventContent,
         typing::TypingEventContent,
     },
+    room::RoomType,
     room_version_rules::AuthorizationRules,
     serde::Raw,
     server_name,
@@ -871,9 +873,11 @@ impl EventFactory {
         &self,
         creator_user_id: &UserId,
         room_version: RoomVersionId,
+        room_type: Option<RoomType>,
     ) -> EventBuilder<RoomCreateEventContent> {
         let mut event = self.event(RoomCreateEventContent::new_v1(creator_user_id.to_owned()));
         event.content.room_version = room_version;
+        event.content.room_type = room_type;
 
         if self.sender.is_some() {
             event.sender = self.sender.clone();
@@ -985,6 +989,30 @@ impl EventFactory {
         mentions: Mentions,
     ) -> EventBuilder<CallNotifyEventContent> {
         self.event(CallNotifyEventContent::new(call_id, application, notify_type, mentions))
+    }
+
+    /// Create a new `m.space.child` state event.
+    pub fn space_child(
+        &self,
+        parent: OwnedRoomId,
+        child: OwnedRoomId,
+    ) -> EventBuilder<SpaceChildEventContent> {
+        let mut event = self.event(SpaceChildEventContent::new(vec![]));
+        event.room = Some(parent);
+        event.state_key = Some(child.to_string());
+        event
+    }
+
+    /// Create a new `m.space.parent` state event.
+    pub fn space_parent(
+        &self,
+        parent: OwnedRoomId,
+        child: OwnedRoomId,
+    ) -> EventBuilder<SpaceParentEventContent> {
+        let mut event = self.event(SpaceParentEventContent::new(vec![]));
+        event.state_key = Some(parent.to_string());
+        event.room = Some(child);
+        event
     }
 
     /// Set the next server timestamp.
