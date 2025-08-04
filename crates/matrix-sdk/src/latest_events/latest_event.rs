@@ -67,8 +67,9 @@ impl LatestEvent {
         self.value.subscribe().await
     }
 
-    /// Update the inner latest event value.
-    pub async fn update(
+    /// Update the inner latest event value, based on the event cache
+    /// (specifically with a [`RoomEventCache`]).
+    pub async fn update_with_event_cache(
         &mut self,
         room_event_cache: &RoomEventCache,
         power_levels: &Option<(&UserId, RoomPowerLevels)>,
