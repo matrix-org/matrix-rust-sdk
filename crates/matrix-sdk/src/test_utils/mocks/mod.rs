@@ -3879,6 +3879,17 @@ impl<'a> MockEndpoint<'a, PutThreadSubscriptionEndpoint> {
         self.respond_with(ResponseTemplate::new(200))
     }
 
+    /// Returns that the server skipped an automated thread subscription,
+    /// because the user unsubscribed to the thread after the event id passed in
+    /// the automatic subscription.
+    pub fn conflicting_unsubscription(mut self) -> MatrixMock<'a> {
+        self.mock = self.mock.and(path_regex(self.endpoint.matchers.endpoint_regexp_uri()));
+        self.respond_with(ResponseTemplate::new(409).set_body_json(json!({
+            "errcode": "IO.ELEMENT.MSC4306.M_CONFLICTING_UNSUBSCRIPTION",
+            "error": "the user unsubscribed after the subscription event id"
+        })))
+    }
+
     /// Match the request parameter against a specific room id.
     pub fn match_room_id(mut self, room_id: OwnedRoomId) -> Self {
         self.endpoint.matchers = self.endpoint.matchers.match_room_id(room_id);
