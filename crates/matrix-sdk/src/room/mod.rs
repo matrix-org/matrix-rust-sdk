@@ -3655,35 +3655,63 @@ impl Room {
     ///
     /// - `thread_root`: The ID of the thread root event to subscribe to.
     /// - `automatic`: Whether the subscription was made automatically by a
-    ///   client, not by manual user choice. If there was a previous automatic
-    ///   subscription, and that's set to `true` (i.e. we're now subscribing
-    ///   manually), the subscription will be overridden to a manual one
-    ///   instead.
+    ///   client, not by manual user choice. If set, must include the latest
+    ///   event ID that's known in the thread and that is causing the automatic
+    ///   subscription. If unset (i.e. we're now subscribing manually) and there
+    ///   was a previous automatic subscription, the subscription will be
+    ///   overridden to a manual one instead.
     ///
     /// # Returns
     ///
     /// - A 404 error if the event isn't known, or isn't a thread root.
-    /// - An `Ok` result if the subscription was successful.
-    pub async fn subscribe_thread(&self, thread_root: OwnedEventId, automatic: bool) -> Result<()> {
-        self.client
+    /// - An `Ok` result if the subscription was successful, or if the server
+    ///   skipped an automatic subscription (as the user unsubscribed from the
+    ///   thread after the event causing the automatic subscription).
+    pub async fn subscribe_thread(
+        &self,
+        thread_root: OwnedEventId,
+        automatic: Option<OwnedEventId>,
+    ) -> Result<()> {
+        let is_automatic = automatic.is_some();
+
+        match self
+            .client
             .send(subscribe_thread::unstable::Request::new(
                 self.room_id().to_owned(),
                 thread_root.clone(),
                 automatic,
             ))
-            .await?;
+            .await
+        {
+            Ok(_response) => {
+                trace!("Server acknowledged the thread subscription; saving in db");
+                // Immediately save the result into the database.
+                self.client
+                    .state_store()
+                    .upsert_thread_subscription(
+                        self.room_id(),
+                        &thread_root,
+                        ThreadStatus::Subscribed { automatic: is_automatic },
+                    )
+                    .await?;
 
-        // Immediately save the result into the database.
-        self.client
-            .state_store()
-            .upsert_thread_subscription(
-                self.room_id(),
-                &thread_root,
-                ThreadStatus::Subscribed { automatic },
-            )
-            .await?;
+                Ok(())
+            }
 
-        Ok(())
+            Err(err) => {
+                if let Some(ErrorKind::ConflictingUnsubscription) = err.client_api_error_kind() {
+                    // In this case: the server indicates that the user unsubscribed *after* the
+                    // event ID we've used in an automatic subscription; don't
+                    // save the subscription state in the database, as the
+                    // previous one should be more correct.
+                    trace!("Thread subscription skipped: {err}");
+                    Ok(())
+                } else {
+                    // Forward the error to the caller.
+                    Err(err.into())
+                }
+            }
+        }
     }
 
     /// Unsubscribe from a given thread in this room.

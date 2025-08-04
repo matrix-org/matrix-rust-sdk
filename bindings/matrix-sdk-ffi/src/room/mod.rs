@@ -1112,7 +1112,7 @@ impl Room {
         let thread_root = EventId::parse(thread_root_event_id)?;
         if subscribed {
             // This is a manual subscription.
-            let automatic = false;
+            let automatic = None;
             self.inner.subscribe_thread(thread_root, automatic).await?;
         } else {
             self.inner.unsubscribe_thread(thread_root).await?;
