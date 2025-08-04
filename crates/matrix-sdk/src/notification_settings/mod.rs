@@ -1698,6 +1698,7 @@ mod tests {
         {
             ruleset.override_.shift_remove_index(idx);
         }
+
         if let Some(idx) = ruleset
             .override_
             .iter()
@@ -1705,6 +1706,7 @@ mod tests {
         {
             ruleset.override_.shift_remove_index(idx);
         }
+
         if let Some(idx) = ruleset
             .content
             .iter()
@@ -1712,6 +1714,16 @@ mod tests {
         {
             ruleset.content.shift_remove_index(idx);
         }
+
+        assert_matches!(
+            ruleset.iter().find(|rule| {
+                rule.rule_id() == PredefinedOverrideRuleId::ContainsDisplayName.as_ref()
+                    || rule.rule_id() == PredefinedOverrideRuleId::RoomNotif.as_ref()
+                    || rule.rule_id() == PredefinedContentRuleId::ContainsUserName.as_ref()
+            }),
+            None,
+            "ruleset must not have legacy mention push rules"
+        );
 
         let settings = NotificationSettings::new(client, ruleset);
 
