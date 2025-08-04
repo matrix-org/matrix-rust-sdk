@@ -27,7 +27,6 @@ use ruma::{
     EventId, OwnedEventId, OwnedRoomId, RoomId, UserId,
     api::client::sync::sync_events::v5 as http,
     assign,
-    directory::RoomTypeFilter,
     events::{
         AnyFullStateEventContent, AnyMessageLikeEventContent, AnyStateEvent,
         AnySyncMessageLikeEvent, AnySyncTimelineEvent, FullStateEventContent, StateEventType,
@@ -496,7 +495,6 @@ impl NotificationClient {
             .required_state(required_state.clone())
             .filters(Some(assign!(http::request::ListFilters::default(), {
                 is_invite: Some(true),
-                not_room_types: vec![RoomTypeFilter::Space],
             })));
 
         let sync = self
