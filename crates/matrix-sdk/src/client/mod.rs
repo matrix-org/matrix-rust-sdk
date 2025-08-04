@@ -2532,30 +2532,21 @@ impl Client {
     #[instrument(skip(self, callback))]
     pub async fn sync_with_result_callback<C>(
         &self,
-        mut sync_settings: crate::config::SyncSettings,
+        sync_settings: crate::config::SyncSettings,
         callback: impl Fn(Result<SyncResponse, Error>) -> C,
     ) -> Result<(), Error>
     where
         C: Future<Output = Result<LoopCtrl, Error>>,
     {
-        let mut last_sync_time: Option<Instant> = None;
+        let mut sync_stream = Box::pin(self.sync_stream(sync_settings).await);
 
-        if sync_settings.token.is_none() {
-            sync_settings.token = self.sync_token().await;
-        }
-
-        loop {
-            trace!("Syncing");
-            let result = self.sync_loop_helper(&mut sync_settings).await;
-
+        while let Some(result) = sync_stream.next().await {
             trace!("Running callback");
             if callback(result).await? == LoopCtrl::Break {
                 trace!("Callback told us to stop");
                 break;
             }
             trace!("Done running callback");
-
-            Client::delay_sync(&mut last_sync_time).await
         }
 
         Ok(())
@@ -2618,6 +2609,7 @@ impl Client {
 
         async_stream::stream! {
             loop {
+                trace!("Syncing");
                 yield self.sync_loop_helper(&mut sync_settings).instrument(parent_span.clone()).await;
 
                 Client::delay_sync(&mut last_sync_time).await
