@@ -2607,14 +2607,17 @@ impl Client {
 
         let parent_span = Span::current();
 
-        async_stream::stream! {
+        async_stream::stream!({
             loop {
                 trace!("Syncing");
-                yield self.sync_loop_helper(&mut sync_settings).instrument(parent_span.clone()).await;
+                yield self
+                    .sync_loop_helper(&mut sync_settings)
+                    .instrument(parent_span.clone())
+                    .await;
 
                 Client::delay_sync(&mut last_sync_time).await
             }
-        }
+        })
     }
 
     /// Get the current, if any, sync token of the client.
