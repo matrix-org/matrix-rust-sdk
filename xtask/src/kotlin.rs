@@ -164,7 +164,7 @@ fn build_for_android_target(
     let sh = sh();
     cmd!(
         sh,
-        "cargo ndk --target {target} -o {dest_dir} build --profile {profile} -p {package_name} --features {features}"
+        "cargo ndk --target {target} -o {dest_dir} build --profile {profile} --package {package_name} --features {features}"
     )
     .run()?;
 
