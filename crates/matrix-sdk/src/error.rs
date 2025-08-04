@@ -710,6 +710,13 @@ pub enum NotificationSettingsError {
     UnableToSavePushRules,
 }
 
+impl NotificationSettingsError {
+    /// Whether this error is the [`RuleNotFound`](Self::RuleNotFound) variant.
+    pub fn is_rule_not_found(&self) -> bool {
+        matches!(self, Self::RuleNotFound(_))
+    }
+}
+
 impl From<InsertPushRuleError> for NotificationSettingsError {
     fn from(_: InsertPushRuleError) -> Self {
         Self::UnableToAddPushRule
