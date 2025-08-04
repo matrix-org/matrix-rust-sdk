@@ -510,8 +510,9 @@ impl RoomLatestEvents {
         self.per_thread.get(thread_id)
     }
 
-    /// Update the latest events for the room and its threads.
-    async fn update(&mut self) {
+    /// Update the latest events for the room and its threads, based on the
+    /// event cache data.
+    async fn update_with_event_cache(&mut self) {
         // Get the power levels of the user for the current room if the `WeakRoom` is
         // still valid.
         //
@@ -528,10 +529,10 @@ impl RoomLatestEvents {
             None => None,
         };
 
-        self.for_the_room.update(&self.room_event_cache, &power_levels).await;
+        self.for_the_room.update_with_event_cache(&self.room_event_cache, &power_levels).await;
 
         for latest_event in self.per_thread.values_mut() {
-            latest_event.update(&self.room_event_cache, &power_levels).await;
+            latest_event.update_with_event_cache(&self.room_event_cache, &power_levels).await;
         }
     }
 }
@@ -682,7 +683,7 @@ async fn compute_latest_events(
                 let mut rooms = registered_rooms.rooms.write().await;
 
                 if let Some(room_latest_events) = rooms.get_mut(room_id) {
-                    room_latest_events.update().await;
+                    room_latest_events.update_with_event_cache().await;
                 } else {
                     error!(?room_id, "Failed to find the room");
 
