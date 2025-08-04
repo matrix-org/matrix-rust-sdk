@@ -72,10 +72,12 @@ use ruma::{
             tombstone::RoomTombstoneEventContent,
             topic::RoomTopicEventContent,
         },
+        space::{child::SpaceChildEventContent, parent::SpaceParentEventContent},
         sticker::StickerEventContent,
         typing::TypingEventContent,
     },
     push::Ruleset,
+    room::RoomType,
     room_version_rules::AuthorizationRules,
     serde::Raw,
     server_name,
@@ -460,6 +462,12 @@ impl EventBuilder<RoomCreateEventContent> {
     /// Erase the predecessor if any.
     pub fn no_predecessor(mut self) -> Self {
         self.content.predecessor = None;
+        self
+    }
+
+    /// Sets the `m.room.create` `type` field to `m.space`.
+    pub fn with_space_type(mut self) -> Self {
+        self.content.room_type = Some(RoomType::Space);
         self
     }
 }
@@ -1022,6 +1030,30 @@ impl EventFactory {
         let mut builder = self.event(PushRulesEventContent::new(rules));
         builder.is_global = true;
         builder
+    }
+
+    /// Create a new `m.space.child` state event.
+    pub fn space_child(
+        &self,
+        parent: OwnedRoomId,
+        child: OwnedRoomId,
+    ) -> EventBuilder<SpaceChildEventContent> {
+        let mut event = self.event(SpaceChildEventContent::new(vec![]));
+        event.room = Some(parent);
+        event.state_key = Some(child.to_string());
+        event
+    }
+
+    /// Create a new `m.space.parent` state event.
+    pub fn space_parent(
+        &self,
+        parent: OwnedRoomId,
+        child: OwnedRoomId,
+    ) -> EventBuilder<SpaceParentEventContent> {
+        let mut event = self.event(SpaceParentEventContent::new(vec![]));
+        event.state_key = Some(parent.to_string());
+        event.room = Some(child);
+        event
     }
 
     /// Set the next server timestamp.
