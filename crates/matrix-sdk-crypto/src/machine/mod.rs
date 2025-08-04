@@ -987,7 +987,7 @@ impl OlmMachine {
         changes.received_room_key_bundles.push(StoredRoomKeyBundleData {
             sender_user: event.sender.clone(),
             sender_data: SenderData::from_device(&sender_device),
-            sender_key: sender_key,
+            sender_key,
             bundle_data: event.content.clone(),
         });
         Ok(())
