@@ -25,7 +25,9 @@ use serde_json::Value;
 use vodozemac::Curve25519PublicKey;
 
 use super::{EventType, ToDeviceEvent};
-use crate::types::{deserialize_curve_key, serialize_curve_key, EventEncryptionAlgorithm};
+use crate::types::{
+    deserialize_curve_key_option, serialize_curve_key_option, EventEncryptionAlgorithm,
+};
 
 /// The `m.room_key_request` to-device event.
 pub type RoomKeyRequestEvent = ToDeviceEvent<RoomKeyRequestContent>;
@@ -209,8 +211,13 @@ pub struct MegolmV1AesSha2Content {
     pub room_id: OwnedRoomId,
 
     /// The Curve25519 key of the device which initiated the session originally.
-    #[serde(deserialize_with = "deserialize_curve_key", serialize_with = "serialize_curve_key")]
-    pub sender_key: Curve25519PublicKey,
+    #[serde(
+        default,
+        deserialize_with = "deserialize_curve_key_option",
+        serialize_with = "serialize_curve_key_option",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub sender_key: Option<Curve25519PublicKey>,
 
     /// The ID of the session that the key is for.
     pub session_id: String,
@@ -377,6 +384,35 @@ mod tests {
             Action::Request(RequestedKeyInfo::MegolmV2AesSha2(_))
         );
 
+        let serialized = serde_json::to_value(event)?;
+        assert_eq!(json, serialized);
+
+        Ok(())
+    }
+
+    #[test]
+    fn deserialization_missing_sender_key() -> Result<(), serde_json::Error> {
+        let json = json!({
+            "sender": "@alice:example.org",
+            "content": {
+                "action": "request",
+                "body": {
+                    "algorithm": "m.megolm.v1.aes-sha2",
+                    "room_id": "!Cuyf34gef24t:localhost",
+                    "session_id": "X3lUlvLELLYxeTx4yOVu6UDpasGEVO0Jbu+QFnm0cKQ"
+                },
+                "request_id": "1495474790150.19",
+                "requesting_device_id": "RJYKSTBOIE"
+            },
+            "type": "m.room_key_request"
+        });
+
+        let event: RoomKeyRequestEvent = serde_json::from_value(json.clone())?;
+
+        assert_matches!(
+            event.content.action,
+            Action::Request(RequestedKeyInfo::MegolmV1AesSha2(_))
+        );
         let serialized = serde_json::to_value(event)?;
         assert_eq!(json, serialized);
 

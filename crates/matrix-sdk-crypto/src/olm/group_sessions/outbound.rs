@@ -499,9 +499,9 @@ impl OutboundGroupSession {
         let scheme: RoomEventEncryptionScheme = match self.settings.algorithm {
             EventEncryptionAlgorithm::MegolmV1AesSha2 => MegolmV1AesSha2Content {
                 ciphertext,
-                sender_key: self.account_identity_keys.curve25519,
+                sender_key: Some(self.account_identity_keys.curve25519),
                 session_id: self.session_id().to_owned(),
-                device_id: (*self.device_id).to_owned(),
+                device_id: Some(self.device_id.clone()),
             }
             .into(),
             #[cfg(feature = "experimental-algorithms")]

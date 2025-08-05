@@ -949,7 +949,7 @@ macro_rules! cryptostore_integration_tests {
                 let id = TransactionId::new();
                 let info: SecretInfo = MegolmV1AesSha2Content {
                     room_id: room_id!("!test:localhost").to_owned(),
-                    sender_key,
+                    sender_key: Some(sender_key),
                     session_id: "test_session_id".to_owned(),
                 }
                 .into();
@@ -1010,7 +1010,7 @@ macro_rules! cryptostore_integration_tests {
                 let id = TransactionId::new();
                 let info: SecretInfo = MegolmV1AesSha2Content {
                     room_id: room_id!("!test:localhost").to_owned(),
-                    sender_key: account.identity_keys().curve25519,
+                    sender_key: Some(account.identity_keys().curve25519),
                     session_id: "test_session_id".to_owned(),
                 }
                 .into();

@@ -519,6 +519,27 @@ where
     keys.serialize(s)
 }
 
+pub(crate) fn deserialize_curve_key_option<'de, D>(
+    de: D,
+) -> Result<Option<Curve25519PublicKey>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let key: Option<String> = Deserialize::deserialize(de)?;
+    key.map(|k| Curve25519PublicKey::from_base64(&k)).transpose().map_err(serde::de::Error::custom)
+}
+
+pub(crate) fn serialize_curve_key_option<S>(
+    key: &Option<Curve25519PublicKey>,
+    s: S,
+) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    let key = key.as_ref().map(|k| k.to_base64());
+    key.serialize(s)
+}
+
 /// Trait to express the various room key export formats we have in a unified
 /// manner.
 pub trait RoomKeyExport {
