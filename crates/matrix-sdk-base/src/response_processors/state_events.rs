@@ -45,29 +45,31 @@ pub mod sync {
     use crate::{
         RoomInfo,
         store::{BaseStateStore, Result as StoreResult, ambiguity_map::AmbiguityCache},
+        sync::State,
     };
 
-    /// Collect [`AnySyncStateEvent`] to [`AnySyncStateEvent`].
-    pub fn collect(
-        raw_events: &[Raw<AnySyncStateEvent>],
-    ) -> (Vec<Raw<AnySyncStateEvent>>, Vec<AnySyncStateEvent>) {
-        super::collect(raw_events)
-    }
-
-    /// Collect [`AnySyncTimelineEvent`] to [`AnySyncStateEvent`].
-    ///
-    /// A [`AnySyncTimelineEvent`] can represent either message-like events or
-    /// state events. The message-like events are filtered out.
-    pub fn collect_from_timeline(
-        raw_events: &[Raw<AnySyncTimelineEvent>],
-    ) -> (Vec<Raw<AnySyncStateEvent>>, Vec<AnySyncStateEvent>) {
-        super::collect(raw_events.iter().filter_map(|raw_event| {
-            // Only state events have a `state_key` field.
-            match raw_event.get_field::<&str>("state_key") {
-                Ok(Some(_)) => Some(raw_event.cast_ref_unchecked()),
-                _ => None,
+    impl State {
+        /// Collect all the state changes to update the local state, from this
+        /// [`State`] and from the given timeline, if necessary.
+        ///
+        /// The events that fail to deserialize are logged and filtered out.
+        pub(crate) fn collect(
+            &self,
+            timeline: &[Raw<AnySyncTimelineEvent>],
+        ) -> (Vec<Raw<AnySyncStateEvent>>, Vec<AnySyncStateEvent>) {
+            match self {
+                Self::Before(events) => {
+                    super::collect(events.iter().chain(timeline.iter().filter_map(|raw_event| {
+                        // Only state events have a `state_key` field.
+                        match raw_event.get_field::<&str>("state_key") {
+                            Ok(Some(_)) => Some(raw_event.cast_ref_unchecked()),
+                            _ => None,
+                        }
+                    })))
+                }
+                Self::After(events) => super::collect(events),
             }
-        }))
+        }
     }
 
     /// Dispatch the sync state events.

@@ -21,6 +21,7 @@ use as_variant::as_variant;
 use matrix_sdk_base::{
     crypto::CollectStrategy,
     deserialized_responses::{EncryptionInfo, RawAnySyncOrStrippedState},
+    sync::State,
 };
 use ruma::{
     api::client::{
@@ -534,9 +535,13 @@ impl StateUpdateReceiver {
         loop {
             match self.room_updates.recv().await? {
                 RoomUpdate::Joined { room, updates } => {
-                    if !updates.state.is_empty() {
-                        return Ok(updates
-                            .state
+                    let state_events = match updates.state {
+                        State::Before(events) => events,
+                        State::After(events) => events,
+                    };
+
+                    if !state_events.is_empty() {
+                        return Ok(state_events
                             .into_iter()
                             .map(|ev| attach_room_id_state(&ev, room.room_id()))
                             .collect());

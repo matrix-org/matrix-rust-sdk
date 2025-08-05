@@ -7,7 +7,7 @@ use matrix_sdk::{
     authentication::oauth::{error::OAuthTokenRevocationError, OAuthError},
     config::{RequestConfig, StoreConfig, SyncSettings},
     store::RoomLoadSettings,
-    sync::RoomUpdate,
+    sync::{RoomUpdate, State},
     test_utils::{
         client::mock_matrix_session, mocks::MatrixMockServer, no_retry_test_client_with_server,
     },
@@ -329,7 +329,8 @@ async fn test_room_update_channel() {
 
     assert_eq!(updates.account_data.len(), 1);
     assert_eq!(updates.ephemeral.len(), 1);
-    assert_eq!(updates.state.len(), 9);
+    assert_matches!(updates.state, State::Before(state_events));
+    assert_eq!(state_events.len(), 9);
 
     assert!(updates.timeline.limited);
     assert_eq!(updates.timeline.events.len(), 1);
@@ -359,7 +360,8 @@ async fn test_subscribe_all_room_updates() {
         let (room_id, update) = left.iter().next().unwrap();
 
         assert_eq!(room_id, *MIXED_LEFT_ROOM_ID);
-        assert!(update.state.is_empty());
+        assert_matches!(&update.state, State::Before(state_events));
+        assert!(state_events.is_empty());
         assert_eq!(update.timeline.events.len(), 1);
         assert!(update.account_data.is_empty());
     }
@@ -374,7 +376,8 @@ async fn test_subscribe_all_room_updates() {
 
         assert_eq!(update.account_data.len(), 1);
         assert_eq!(update.ephemeral.len(), 1);
-        assert_eq!(update.state.len(), 1);
+        assert_matches!(&update.state, State::Before(state_events));
+        assert_eq!(state_events.len(), 1);
 
         assert!(update.timeline.limited);
         assert_eq!(update.timeline.events.len(), 1);
