@@ -62,20 +62,75 @@ const INDEXED_KEY_LOWER_CHARACTER: char = '\u{0000}';
 /// [1]: https://en.wikipedia.org/wiki/Plane_(Unicode)#Basic_Multilingual_Plane
 const INDEXED_KEY_UPPER_CHARACTER: char = '\u{FFFF}';
 
+/// A [`ChunkIdentifier`] constructed with `0`.
+///
+/// This value is useful for constructing a key range over all keys which
+/// contain [`ChunkIdentifier`]s when used in conjunction with
+/// [`INDEXED_KEY_UPPER_CHUNK_IDENTIFIER`].
+static INDEXED_KEY_LOWER_CHUNK_IDENTIFIER: LazyLock<ChunkIdentifier> =
+    LazyLock::new(|| ChunkIdentifier::new(0));
+
+/// A [`ChunkIdentifier`] constructed with [`js_sys::Number::MAX_SAFE_INTEGER`].
+///
+/// This value is useful for constructing a key range over all keys which
+/// contain [`ChunkIdentifier`]s when used in conjunction with
+/// [`INDEXED_KEY_LOWER_CHUNK_IDENTIFIER`].
+static INDEXED_KEY_UPPER_CHUNK_IDENTIFIER: LazyLock<ChunkIdentifier> =
+    LazyLock::new(|| ChunkIdentifier::new(js_sys::Number::MAX_SAFE_INTEGER as u64));
+
 /// An [`OwnedEventId`] constructed with [`INDEXED_KEY_LOWER_CHARACTER`].
 ///
-/// This value is useful for constructing a key range over all [`Event`]s when
-/// used in conjunction with [`INDEXED_KEY_UPPER_EVENT_ID`].
+/// This value is useful for constructing a key range over all keys which
+/// contain [`EventId`]s when used in conjunction with
+/// [`INDEXED_KEY_UPPER_EVENT_ID`].
 static INDEXED_KEY_LOWER_EVENT_ID: LazyLock<OwnedEventId> = LazyLock::new(|| {
     OwnedEventId::try_from(format!("${INDEXED_KEY_LOWER_CHARACTER}")).expect("valid event id")
 });
 
 /// An [`OwnedEventId`] constructed with [`INDEXED_KEY_UPPER_CHARACTER`].
 ///
-/// This value is useful for constructing a key range over all [`Event`]s when
-/// used in conjunction with [`INDEXED_KEY_LOWER_EVENT_ID`].
+/// This value is useful for constructing a key range over all keys which
+/// contain [`EventId`]s when used in conjunction with
+/// [`INDEXED_KEY_LOWER_EVENT_ID`].
 static INDEXED_KEY_UPPER_EVENT_ID: LazyLock<OwnedEventId> = LazyLock::new(|| {
     OwnedEventId::try_from(format!("${INDEXED_KEY_UPPER_CHARACTER}")).expect("valid event id")
+});
+
+/// The lowest possible index that can be used to reference an [`Event`] inside
+/// a [`Chunk`] - i.e., `0`.
+///
+/// This value is useful for constructing a key range over all keys which
+/// contain [`Position`]s when used in conjunction with
+/// [`INDEXED_KEY_UPPER_EVENT_INDEX`].
+const INDEXED_KEY_LOWER_EVENT_INDEX: usize = 0;
+
+/// The highest possible index that can be used to reference an [`Event`] inside
+/// a [`Chunk`] - i.e., [`js_sys::Number::MAX_SAFE_INTEGER`].
+///
+/// This value is useful for constructing a key range over all keys which
+/// contain [`Position`]s when used in conjunction with
+/// [`INDEXED_KEY_LOWER_EVENT_INDEX`].
+const INDEXED_KEY_UPPER_EVENT_INDEX: usize = js_sys::Number::MAX_SAFE_INTEGER as usize;
+
+/// The lowest possible [`Position`] that can be used to reference an [`Event`].
+///
+/// This value is useful for constructing a key range over all keys which
+/// contain [`Position`]s when used in conjunction with
+/// [`INDEXED_KEY_UPPER_EVENT_INDEX`].
+static INDEXED_KEY_LOWER_EVENT_POSITION: LazyLock<Position> = LazyLock::new(|| Position {
+    chunk_identifier: INDEXED_KEY_LOWER_CHUNK_IDENTIFIER.index(),
+    index: INDEXED_KEY_LOWER_EVENT_INDEX,
+});
+
+/// The highest possible [`Position`] that can be used to reference an
+/// [`Event`].
+///
+/// This value is useful for constructing a key range over all keys which
+/// contain [`Position`]s when used in conjunction with
+/// [`INDEXED_KEY_LOWER_EVENT_INDEX`].
+static INDEXED_KEY_UPPER_EVENT_POSITION: LazyLock<Position> = LazyLock::new(|| Position {
+    chunk_identifier: INDEXED_KEY_UPPER_CHUNK_IDENTIFIER.index(),
+    index: INDEXED_KEY_UPPER_EVENT_INDEX,
 });
 
 /// Representation of a range of keys of type `K`. This is loosely
@@ -221,11 +276,11 @@ impl IndexedKey<Chunk> for IndexedChunkIdKey {
 
 impl IndexedKeyComponentBounds<Chunk> for IndexedChunkIdKey {
     fn lower_key_components() -> Self::KeyComponents<'static> {
-        ChunkIdentifier::new(0)
+        *INDEXED_KEY_LOWER_CHUNK_IDENTIFIER
     }
 
     fn upper_key_components() -> Self::KeyComponents<'static> {
-        ChunkIdentifier::new(js_sys::Number::MAX_SAFE_INTEGER as u64)
+        *INDEXED_KEY_UPPER_CHUNK_IDENTIFIER
     }
 }
 
@@ -292,7 +347,7 @@ impl IndexedKeyComponentBounds<Chunk> for IndexedNextChunkIdKey {
     }
 
     fn upper_key_components() -> Self::KeyComponents<'static> {
-        Some(ChunkIdentifier::new(js_sys::Number::MAX_SAFE_INTEGER as u64))
+        Some(*INDEXED_KEY_UPPER_CHUNK_IDENTIFIER)
     }
 }
 
@@ -411,14 +466,11 @@ impl IndexedKey<Event> for IndexedEventPositionKey {
 
 impl IndexedKeyComponentBounds<Event> for IndexedEventPositionKey {
     fn lower_key_components() -> Self::KeyComponents<'static> {
-        Position { chunk_identifier: 0, index: 0 }
+        *INDEXED_KEY_LOWER_EVENT_POSITION
     }
 
     fn upper_key_components() -> Self::KeyComponents<'static> {
-        Position {
-            chunk_identifier: js_sys::Number::MAX_SAFE_INTEGER as u64,
-            index: js_sys::Number::MAX_SAFE_INTEGER as usize,
-        }
+        *INDEXED_KEY_UPPER_EVENT_POSITION
     }
 }
 
