@@ -34,10 +34,10 @@ pub fn from_last_chunk<const CAP: usize, Item, Gap>(
     // Check consistency before creating the `LinkedChunk`.
     {
         // The number of items is not too large.
-        if let ChunkContent::Items(items) = &chunk.content {
-            if items.len() > CAP {
-                return Err(LazyLoaderError::ChunkTooLarge { id: chunk.identifier });
-            }
+        if let ChunkContent::Items(items) = &chunk.content
+            && items.len() > CAP
+        {
+            return Err(LazyLoaderError::ChunkTooLarge { id: chunk.identifier });
         }
 
         // Chunk has no next chunk.
@@ -80,20 +80,20 @@ where
     // Check `LinkedChunk` is going to be consistent after the insertion.
     {
         // The number of items is not too large.
-        if let ChunkContent::Items(items) = &new_first_chunk.content {
-            if items.len() > CAP {
-                return Err(LazyLoaderError::ChunkTooLarge { id: new_first_chunk.identifier });
-            }
+        if let ChunkContent::Items(items) = &new_first_chunk.content
+            && items.len() > CAP
+        {
+            return Err(LazyLoaderError::ChunkTooLarge { id: new_first_chunk.identifier });
         }
 
         // New chunk doesn't create a cycle.
-        if let Some(previous_chunk) = new_first_chunk.previous {
-            if linked_chunk.chunks().any(|chunk| chunk.identifier() == previous_chunk) {
-                return Err(LazyLoaderError::Cycle {
-                    new_chunk: new_first_chunk.identifier,
-                    with_chunk: previous_chunk,
-                });
-            }
+        if let Some(previous_chunk) = new_first_chunk.previous
+            && linked_chunk.chunks().any(|chunk| chunk.identifier() == previous_chunk)
+        {
+            return Err(LazyLoaderError::Cycle {
+                new_chunk: new_first_chunk.identifier,
+                with_chunk: previous_chunk,
+            });
         }
 
         let first_chunk = linked_chunk.links.first_chunk();
@@ -233,10 +233,10 @@ where
 
     // Check consistency before replacing the `LinkedChunk`.
     // The number of items is not too large.
-    if let ChunkContent::Items(items) = &chunk.content {
-        if items.len() > CAP {
-            return Err(LazyLoaderError::ChunkTooLarge { id: chunk.identifier });
-        }
+    if let ChunkContent::Items(items) = &chunk.content
+        && items.len() > CAP
+    {
+        return Err(LazyLoaderError::ChunkTooLarge { id: chunk.identifier });
     }
 
     // Chunk has no next chunk.

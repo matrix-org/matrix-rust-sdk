@@ -59,9 +59,7 @@ where
         Q: Hash + Eq + ?Sized,
     {
         let cache = &self.items;
-        let contains = if let Some(item) = cache.get(key) { !item.expired() } else { false };
-
-        contains
+        if let Some(item) = cache.get(key) { !item.expired() } else { false }
     }
 
     /// Add a single item to the cache.

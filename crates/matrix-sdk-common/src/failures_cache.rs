@@ -102,10 +102,7 @@ where
         Q: Hash + Eq + ?Sized,
     {
         let lock = self.inner.items.read();
-
-        let contains = if let Some(item) = lock.get(key) { !item.expired() } else { false };
-
-        contains
+        if let Some(item) = lock.get(key) { !item.expired() } else { false }
     }
 
     /// Get the failure count for a given key.
