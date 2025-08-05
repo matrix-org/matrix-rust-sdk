@@ -128,3 +128,52 @@ pub trait IndexedKeyComponentBounds<T: Indexed>: IndexedKeyBounds<T> {
     /// Constructs the upper bound of the key components.
     fn upper_key_components() -> Self::KeyComponents<'static>;
 }
+
+/// A trait for constructing the bounds of an [`IndexedKey`] given a prefix `P`
+/// of that key.
+///
+/// The key bounds should be constructed by keeping the prefix constant while
+/// the remaining components of the key are set to their lower and upper limits.
+///
+/// This is useful when constructing prefixed range queries in IndexedDB.
+///
+/// Note that the [`IndexedPrefixKeyComponentBounds`] helps to specify the upper
+/// and lower bounds of the components that are used to create the final key,
+/// while the `IndexedPrefixKeyBounds` are the upper and lower bounds of the
+/// final key itself.
+///
+/// For details on the differences between key bounds and key component bounds,
+/// see the documentation on [`IndexedKeyBounds`].
+pub trait IndexedPrefixKeyBounds<T: Indexed, P>: IndexedKey<T> {
+    /// Constructs the lower bound of the key while maintaining a constant
+    /// prefix.
+    fn lower_key_with_prefix(prefix: P, serializer: &IndexeddbSerializer) -> Self;
+
+    /// Constructs the upper bound of the key while maintaining a constant
+    /// prefix.
+    fn upper_key_with_prefix(prefix: P, serializer: &IndexeddbSerializer) -> Self;
+}
+
+/// A trait for constructing the bounds of the components of an [`IndexedKey`]
+/// given a prefix `P` of that key.
+///
+/// The key component bounds should be constructed by keeping the prefix
+/// constant while the remaining components of the key are set to their lower
+/// and upper limits.
+///
+/// This is useful when constructing range queries in IndexedDB.
+///
+/// Note that this trait should not be implemented for key components that are
+/// going to be encrypted as ordering properties will not be preserved.
+///
+/// One may be interested to read the documentation of [`IndexedKeyBounds`] to
+/// get a better overview of how these two interact.
+pub trait IndexedPrefixKeyComponentBounds<'a, T: Indexed, P: 'a>: IndexedKey<T> {
+    /// Constructs the lower bound of the key components while maintaining a
+    /// constant prefix.
+    fn lower_key_components_with_prefix(prefix: P) -> Self::KeyComponents<'a>;
+
+    /// Constructs the upper bound of the key components while maintaining a
+    /// constant prefix.
+    fn upper_key_components_with_prefix(prefix: P) -> Self::KeyComponents<'a>;
+}
