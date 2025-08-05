@@ -27,7 +27,8 @@ use matrix_sdk_base::{
     store::{
         ChildTransactionId, ComposerDraft, DependentQueuedRequest, DependentQueuedRequestKind,
         QueuedRequest, QueuedRequestKind, RoomLoadSettings, SentRequestKey,
-        SerializableEventContent, ServerInfo, StateChanges, StateStore, StoreError, ThreadStatus,
+        SerializableEventContent, ServerInfo, StateChanges, StateStore, StoreError,
+        ThreadSubscription,
     },
     MinimalRoomMemberEvent, RoomInfo, RoomMemberships, StateStoreDataKey, StateStoreDataValue,
     ROOM_VERSION_FALLBACK, ROOM_VERSION_RULES_FALLBACK,
@@ -1790,7 +1791,7 @@ impl_state_store!({
         &self,
         room: &RoomId,
         thread_id: &EventId,
-        status: ThreadStatus,
+        subscription: ThreadSubscription,
     ) -> Result<()> {
         let encoded_key = self.encode_key(keys::THREAD_SUBSCRIPTIONS, (room, thread_id));
 
@@ -1800,7 +1801,7 @@ impl_state_store!({
         )?;
         let obj = tx.object_store(keys::THREAD_SUBSCRIPTIONS)?;
 
-        let serialized_value = self.serialize_value(&status.as_str().to_owned());
+        let serialized_value = self.serialize_value(&subscription.as_str().to_owned());
         obj.put_key_val(&encoded_key, &serialized_value?)?;
 
         tx.await.into_result()?;
@@ -1812,7 +1813,7 @@ impl_state_store!({
         &self,
         room: &RoomId,
         thread_id: &EventId,
-    ) -> Result<Option<ThreadStatus>> {
+    ) -> Result<Option<ThreadSubscription>> {
         let encoded_key = self.encode_key(keys::THREAD_SUBSCRIPTIONS, (room, thread_id));
 
         let js_value = self
@@ -1828,12 +1829,13 @@ impl_state_store!({
         };
 
         let status_string: String = self.deserialize_value(&js_value)?;
-        let status =
-            ThreadStatus::from_value(&status_string).ok_or_else(|| StoreError::InvalidData {
+        let status = ThreadSubscription::from_value(&status_string).ok_or_else(|| {
+            StoreError::InvalidData {
                 details: format!(
                     "invalid thread status for room {room} and thread {thread_id}: {status_string}"
                 ),
-            })?;
+            }
+        })?;
 
         Ok(Some(status))
     }

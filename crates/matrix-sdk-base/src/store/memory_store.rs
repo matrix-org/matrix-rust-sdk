@@ -46,7 +46,7 @@ use super::{
 use crate::{
     MinimalRoomMemberEvent, RoomMemberships, StateStoreDataKey, StateStoreDataValue,
     deserialized_responses::{DisplayName, RawAnySyncOrStrippedState},
-    store::{QueueWedgeError, ThreadStatus},
+    store::{QueueWedgeError, ThreadSubscription},
 };
 
 #[derive(Debug, Default)]
@@ -84,7 +84,7 @@ struct MemoryStoreInner {
     send_queue_events: BTreeMap<OwnedRoomId, Vec<QueuedRequest>>,
     dependent_send_queue_events: BTreeMap<OwnedRoomId, Vec<DependentQueuedRequest>>,
     seen_knock_requests: BTreeMap<OwnedRoomId, BTreeMap<OwnedEventId, OwnedUserId>>,
-    thread_subscriptions: BTreeMap<OwnedRoomId, BTreeMap<OwnedEventId, ThreadStatus>>,
+    thread_subscriptions: BTreeMap<OwnedRoomId, BTreeMap<OwnedEventId, ThreadSubscription>>,
 }
 
 /// In-memory, non-persistent implementation of the `StateStore`.
@@ -958,7 +958,7 @@ impl StateStore for MemoryStore {
         &self,
         room: &RoomId,
         thread_id: &EventId,
-        status: ThreadStatus,
+        subscription: ThreadSubscription,
     ) -> Result<(), Self::Error> {
         self.inner
             .write()
@@ -966,7 +966,7 @@ impl StateStore for MemoryStore {
             .thread_subscriptions
             .entry(room.to_owned())
             .or_default()
-            .insert(thread_id.to_owned(), status);
+            .insert(thread_id.to_owned(), subscription);
         Ok(())
     }
 
@@ -974,7 +974,7 @@ impl StateStore for MemoryStore {
         &self,
         room: &RoomId,
         thread_id: &EventId,
-    ) -> Result<Option<ThreadStatus>, Self::Error> {
+    ) -> Result<Option<ThreadSubscription>, Self::Error> {
         let inner = self.inner.read().unwrap();
         Ok(inner
             .thread_subscriptions

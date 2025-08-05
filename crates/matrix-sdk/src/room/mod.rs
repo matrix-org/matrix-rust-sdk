@@ -34,7 +34,7 @@ use http::StatusCode;
 pub use identity_status_changes::IdentityStatusChanges;
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk_base::crypto::{IdentityStatusChange, RoomIdentityProvider, UserIdentity};
-pub use matrix_sdk_base::store::ThreadStatus;
+pub use matrix_sdk_base::store::ThreadSubscription;
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk_base::{crypto::RoomEventDecryptionResult, deserialized_responses::EncryptionInfo};
 use matrix_sdk_base::{
@@ -3700,7 +3700,7 @@ impl Room {
                     .upsert_thread_subscription(
                         self.room_id(),
                         &thread_root,
-                        ThreadStatus::Subscribed { automatic: is_automatic },
+                        ThreadSubscription { automatic: is_automatic },
                     )
                     .await?;
 
@@ -3761,8 +3761,8 @@ impl Room {
     ///
     /// # Returns
     ///
-    /// - An `Ok` result with `Some(ThreadStatus)` if we have some subscription
-    ///   information.
+    /// - An `Ok` result with `Some(ThreadSubscription)` if we have some
+    ///   subscription information.
     /// - An `Ok` result with `None` if the subscription does not exist, or the
     ///   event couldn't be found, or the event isn't a thread.
     /// - An error if the request fails for any other reason, such as a network
@@ -3771,7 +3771,7 @@ impl Room {
     pub async fn fetch_thread_subscription(
         &self,
         thread_root: OwnedEventId,
-    ) -> Result<Option<ThreadStatus>> {
+    ) -> Result<Option<ThreadSubscription>> {
         let result = self
             .client
             .send(get_thread_subscription::unstable::Request::new(
@@ -3780,8 +3780,8 @@ impl Room {
             ))
             .await;
 
-        let sub = match result {
-            Ok(response) => Some(ThreadStatus::Subscribed { automatic: response.automatic }),
+        let subscription = match result {
+            Ok(response) => Some(ThreadSubscription { automatic: response.automatic }),
             Err(http_error) => match http_error.as_client_api_error() {
                 Some(error) if error.status_code == StatusCode::NOT_FOUND => None,
                 _ => return Err(http_error.into()),
@@ -3789,7 +3789,7 @@ impl Room {
         };
 
         // Keep the database in sync.
-        if let Some(sub) = &sub {
+        if let Some(sub) = &subscription {
             self.client
                 .state_store()
                 .upsert_thread_subscription(self.room_id(), &thread_root, *sub)
@@ -3802,7 +3802,7 @@ impl Room {
                 .await?;
         }
 
-        Ok(sub)
+        Ok(subscription)
     }
 }
 

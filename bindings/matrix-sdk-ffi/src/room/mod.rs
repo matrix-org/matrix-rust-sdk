@@ -1129,25 +1129,22 @@ impl Room {
     pub async fn fetch_thread_subscription(
         &self,
         thread_root_event_id: String,
-    ) -> Result<Option<ThreadStatus>, ClientError> {
+    ) -> Result<Option<ThreadSubscription>, ClientError> {
         let thread_root = EventId::parse(thread_root_event_id)?;
-        Ok(self.inner.fetch_thread_subscription(thread_root).await?.map(|sub| match sub {
-            matrix_sdk::room::ThreadStatus::Subscribed { automatic } => {
-                ThreadStatus::Subscribed { automatic }
-            }
-        }))
+        Ok(self
+            .inner
+            .fetch_thread_subscription(thread_root)
+            .await?
+            .map(|sub| ThreadSubscription { automatic: sub.automatic }))
     }
 }
 
-/// Status of a thread subscription (MSC4306).
-#[derive(uniffi::Enum)]
-pub enum ThreadStatus {
-    /// The thread is subscribed to.
-    Subscribed {
-        /// Whether the thread subscription happened automatically (e.g. after a
-        /// mention) or if it was manually requested by the user.
-        automatic: bool,
-    },
+/// A thread subscription (MSC4306).
+#[derive(uniffi::Record)]
+pub struct ThreadSubscription {
+    /// Whether the thread subscription happened automatically (e.g. after a
+    /// mention) or if it was manually requested by the user.
+    automatic: bool,
 }
 
 /// A listener for receiving new live location shares in a room.
