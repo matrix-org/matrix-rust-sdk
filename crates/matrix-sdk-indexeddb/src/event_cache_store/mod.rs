@@ -447,7 +447,7 @@ impl_event_cache_store! {
         let mut duplicated = Vec::new();
         for event_id in events {
             if let Some(types::Event::InBand(event)) =
-                transaction.get_event_by_id(room_id, event_id.clone()).await?
+                transaction.get_event_by_id(room_id, &event_id).await?
             {
                 duplicated.push((event_id, event.position.into()));
             }
@@ -466,7 +466,7 @@ impl_event_cache_store! {
         let transaction =
             self.transaction(&[keys::EVENTS], IdbTransactionMode::Readonly)?;
         transaction
-            .get_event_by_id(room_id, event_id.to_owned())
+            .get_event_by_id(room_id, event_id)
             .await
             .map(|ok| ok.map(Into::into))
             .map_err(Into::into)
@@ -522,7 +522,7 @@ impl_event_cache_store! {
         };
         let transaction =
             self.transaction(&[keys::EVENTS], IdbTransactionMode::Readwrite)?;
-        let event = match transaction.get_event_by_id(room_id, event_id).await? {
+        let event = match transaction.get_event_by_id(room_id, &event_id).await? {
             Some(mut inner) => inner.with_content(event),
             None => types::Event::OutOfBand(OutOfBandEvent { content: event, position: () }),
         };

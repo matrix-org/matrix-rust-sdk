@@ -27,6 +27,8 @@
 //! These types mimic the structure of the object stores and indices created in
 //! [`crate::event_cache_store::migrations`].
 
+use std::sync::LazyLock;
+
 use matrix_sdk_base::linked_chunk::ChunkIdentifier;
 use matrix_sdk_crypto::CryptoStoreError;
 use ruma::{events::relation::RelationType, EventId, OwnedEventId, RoomId};
@@ -59,6 +61,22 @@ const INDEXED_KEY_LOWER_CHARACTER: char = '\u{0000}';
 ///
 /// [1]: https://en.wikipedia.org/wiki/Plane_(Unicode)#Basic_Multilingual_Plane
 const INDEXED_KEY_UPPER_CHARACTER: char = '\u{FFFF}';
+
+/// An [`OwnedEventId`] constructed with [`INDEXED_KEY_LOWER_CHARACTER`].
+///
+/// This value is useful for constructing a key range over all [`Event`]s when
+/// used in conjunction with [`INDEXED_KEY_UPPER_EVENT_ID`].
+static INDEXED_KEY_LOWER_EVENT_ID: LazyLock<OwnedEventId> = LazyLock::new(|| {
+    OwnedEventId::try_from(format!("${INDEXED_KEY_LOWER_CHARACTER}")).expect("valid event id")
+});
+
+/// An [`OwnedEventId`] constructed with [`INDEXED_KEY_UPPER_CHARACTER`].
+///
+/// This value is useful for constructing a key range over all [`Event`]s when
+/// used in conjunction with [`INDEXED_KEY_LOWER_EVENT_ID`].
+static INDEXED_KEY_UPPER_EVENT_ID: LazyLock<OwnedEventId> = LazyLock::new(|| {
+    OwnedEventId::try_from(format!("${INDEXED_KEY_UPPER_CHARACTER}")).expect("valid event id")
+});
 
 /// Representation of a range of keys of type `K`. This is loosely
 /// correlated with [IDBKeyRange][1], with a few differences.
@@ -315,7 +333,7 @@ impl Indexed for Event {
         serializer: &IndexeddbSerializer,
     ) -> Result<Self::IndexedType, Self::Error> {
         let event_id = self.event_id().ok_or(Self::Error::NoEventId)?;
-        let id = IndexedEventIdKey::encode(room_id, event_id, serializer);
+        let id = IndexedEventIdKey::encode(room_id, &event_id, serializer);
         let position = self
             .position()
             .map(|position| IndexedEventPositionKey::encode(room_id, position, serializer));
@@ -348,9 +366,9 @@ impl Indexed for Event {
 pub struct IndexedEventIdKey(IndexedRoomId, IndexedEventId);
 
 impl IndexedKey<Event> for IndexedEventIdKey {
-    type KeyComponents<'a> = OwnedEventId;
+    type KeyComponents<'a> = &'a EventId;
 
-    fn encode(room_id: &RoomId, event_id: OwnedEventId, serializer: &IndexeddbSerializer) -> Self {
+    fn encode(room_id: &RoomId, event_id: &EventId, serializer: &IndexeddbSerializer) -> Self {
         let room_id = serializer.encode_key_as_string(keys::ROOMS, room_id);
         let event_id = serializer.encode_key_as_string(keys::EVENTS, event_id);
         Self(room_id, event_id)
@@ -359,11 +377,11 @@ impl IndexedKey<Event> for IndexedEventIdKey {
 
 impl IndexedKeyComponentBounds<Event> for IndexedEventIdKey {
     fn lower_key_components() -> Self::KeyComponents<'static> {
-        OwnedEventId::try_from(format!("${INDEXED_KEY_LOWER_CHARACTER}")).expect("valid event id")
+        &*INDEXED_KEY_LOWER_EVENT_ID
     }
 
     fn upper_key_components() -> Self::KeyComponents<'static> {
-        OwnedEventId::try_from(format!("${INDEXED_KEY_UPPER_CHARACTER}")).expect("valid event id")
+        &*INDEXED_KEY_UPPER_EVENT_ID
     }
 }
 
