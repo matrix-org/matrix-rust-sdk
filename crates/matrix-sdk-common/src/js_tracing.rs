@@ -23,11 +23,11 @@ use std::{
     sync::atomic::{AtomicU32, Ordering},
 };
 
-use tracing::{field::Field, level_filters::LevelFilter, Event, Level, Metadata};
+use tracing::{Event, Level, Metadata, field::Field, level_filters::LevelFilter};
 use tracing_subscriber::{
     fmt::{
-        format::{DefaultFields, Writer},
         FmtContext, FormatEvent, FormatFields, FormattedFields, MakeWriter, Subscriber,
+        format::{DefaultFields, Writer},
     },
     registry::LookupSpan,
 };

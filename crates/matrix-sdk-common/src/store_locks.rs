@@ -41,8 +41,8 @@ use std::{
     error::Error,
     future::Future,
     sync::{
-        atomic::{self, AtomicU32},
         Arc,
+        atomic::{self, AtomicU32},
     },
     time::Duration,
 };
@@ -51,9 +51,9 @@ use tokio::sync::Mutex;
 use tracing::{debug, error, instrument, trace};
 
 use crate::{
-    executor::{spawn, JoinHandle},
-    sleep::sleep,
     SendOutsideWasm,
+    executor::{JoinHandle, spawn},
+    sleep::sleep,
 };
 
 /// Backing store for a cross-process lock.
@@ -356,7 +356,7 @@ pub enum LockStoreError {
 mod tests {
     use std::{
         collections::HashMap,
-        sync::{atomic, Arc, RwLock},
+        sync::{Arc, RwLock, atomic},
         time::Instant,
     };
 
@@ -364,12 +364,12 @@ mod tests {
     use matrix_sdk_test_macros::async_test;
     use tokio::{
         spawn,
-        time::{sleep, Duration},
+        time::{Duration, sleep},
     };
 
     use super::{
-        memory_store_helper::try_take_leased_lock, BackingStore, CrossProcessStoreLock,
-        CrossProcessStoreLockGuard, LockStoreError, EXTEND_LEASE_EVERY_MS,
+        BackingStore, CrossProcessStoreLock, CrossProcessStoreLockGuard, EXTEND_LEASE_EVERY_MS,
+        LockStoreError, memory_store_helper::try_take_leased_lock,
     };
 
     #[derive(Clone, Default)]
@@ -516,7 +516,7 @@ mod tests {
 /// Some code that is shared by almost all `MemoryStore` implementations out
 /// there.
 pub mod memory_store_helper {
-    use std::collections::{hash_map::Entry, HashMap};
+    use std::collections::{HashMap, hash_map::Entry};
 
     use ruma::time::{Duration, Instant};
 

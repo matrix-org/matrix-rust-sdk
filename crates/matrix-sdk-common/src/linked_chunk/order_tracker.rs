@@ -17,8 +17,8 @@ use std::sync::{Arc, RwLock};
 use eyeball_im::VectorDiff;
 
 use super::{
-    updates::{ReaderToken, Update, UpdatesInner},
     Position,
+    updates::{ReaderToken, Update, UpdatesInner},
 };
 use crate::linked_chunk::{ChunkMetadata, UpdateToVectorDiff};
 
@@ -168,8 +168,8 @@ mod tests {
     use matrix_sdk_test_macros::async_test;
 
     use crate::linked_chunk::{
-        lazy_loader::from_last_chunk, ChunkContent, ChunkIdentifier, ChunkIdentifierGenerator,
-        ChunkMetadata, LinkedChunk, OrderTracker, Position, RawChunk, Update,
+        ChunkContent, ChunkIdentifier, ChunkIdentifierGenerator, ChunkMetadata, LinkedChunk,
+        OrderTracker, Position, RawChunk, Update, lazy_loader::from_last_chunk,
     };
 
     #[async_test]
