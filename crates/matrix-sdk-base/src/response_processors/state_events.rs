@@ -434,15 +434,15 @@ pub fn is_tombstone_event_valid(
 mod tests {
     use assert_matches2::assert_matches;
     use matrix_sdk_test::{
-        DEFAULT_TEST_ROOM_ID, JoinedRoomBuilder, StateTestEvent, SyncResponseBuilder, async_test,
-        event_factory::EventFactory,
+        DEFAULT_TEST_ROOM_ID, JoinedRoomBuilder, StateTestEvent, SyncResponseBuilder, TestResult,
+        async_test, event_factory::EventFactory,
     };
     use ruma::{RoomVersionId, event_id, room_id, user_id};
 
     use crate::test_utils::logged_in_base_client;
 
     #[async_test]
-    async fn test_not_possible_to_overwrite_m_room_create() {
+    async fn test_not_possible_to_overwrite_m_room_create() -> TestResult {
         let sender = user_id!("@mnt_io:matrix.org");
         let event_factory = EventFactory::new().sender(sender);
         let mut response_builder = SyncResponseBuilder::new();
@@ -460,14 +460,14 @@ mod tests {
                 .add_joined_room(
                     JoinedRoomBuilder::new(room_id_0)
                         .add_timeline_event(
-                            event_factory.create(sender, RoomVersionId::try_from("42").unwrap()),
+                            event_factory.create(sender, RoomVersionId::try_from("42")?),
                         )
                         .add_timeline_event(
-                            event_factory.create(sender, RoomVersionId::try_from("43").unwrap()),
+                            event_factory.create(sender, RoomVersionId::try_from("43")?),
                         ),
                 )
                 .add_joined_room(JoinedRoomBuilder::new(room_id_1).add_timeline_event(
-                    event_factory.create(sender, RoomVersionId::try_from("44").unwrap()),
+                    event_factory.create(sender, RoomVersionId::try_from("44")?),
                 ))
                 .add_joined_room(JoinedRoomBuilder::new(room_id_2))
                 .build_sync_response();
@@ -495,13 +495,13 @@ mod tests {
         {
             let response = response_builder
                 .add_joined_room(JoinedRoomBuilder::new(room_id_0).add_timeline_event(
-                    event_factory.create(sender, RoomVersionId::try_from("45").unwrap()),
+                    event_factory.create(sender, RoomVersionId::try_from("45")?),
                 ))
                 .add_joined_room(JoinedRoomBuilder::new(room_id_1).add_timeline_event(
-                    event_factory.create(sender, RoomVersionId::try_from("46").unwrap()),
+                    event_factory.create(sender, RoomVersionId::try_from("46")?),
                 ))
                 .add_joined_room(JoinedRoomBuilder::new(room_id_2).add_timeline_event(
-                    event_factory.create(sender, RoomVersionId::try_from("47").unwrap()),
+                    event_factory.create(sender, RoomVersionId::try_from("47")?),
                 ))
                 .build_sync_response();
 
@@ -525,6 +525,8 @@ mod tests {
                 "47"
             );
         }
+
+        Ok(())
     }
 
     #[async_test]
@@ -542,7 +544,7 @@ mod tests {
     }
 
     #[async_test]
-    async fn test_check_room_upgrades_no_error() {
+    async fn test_check_room_upgrades_no_error() -> TestResult {
         let sender = user_id!("@mnt_io:matrix.org");
         let event_factory = EventFactory::new().sender(sender);
         let mut response_builder = SyncResponseBuilder::new();
@@ -557,7 +559,7 @@ mod tests {
             let response = response_builder
                 .add_joined_room(JoinedRoomBuilder::new(room_id_0).add_timeline_event(
                     // Room 0 has no predecessor.
-                    event_factory.create(sender, RoomVersionId::try_from("41").unwrap()),
+                    event_factory.create(sender, RoomVersionId::try_from("41")?),
                 ))
                 .build_sync_response();
 
@@ -581,7 +583,7 @@ mod tests {
                     JoinedRoomBuilder::new(room_id_1).add_timeline_event(
                         // Predecessor of room 1 is room 0.
                         event_factory
-                            .create(sender, RoomVersionId::try_from("42").unwrap())
+                            .create(sender, RoomVersionId::try_from("42")?)
                             .predecessor(room_id_0),
                     ),
                 )
@@ -620,7 +622,7 @@ mod tests {
                     JoinedRoomBuilder::new(room_id_2).add_timeline_event(
                         // Predecessor of room 2 is room 1.
                         event_factory
-                            .create(sender, RoomVersionId::try_from("43").unwrap())
+                            .create(sender, RoomVersionId::try_from("43")?)
                             .predecessor(room_id_1),
                     ),
                 )
@@ -650,10 +652,12 @@ mod tests {
             );
             assert!(room_2.successor_room().is_none(), "room 2 must not have a successor");
         }
+
+        Ok(())
     }
 
     #[async_test]
-    async fn test_check_room_upgrades_no_loop_within_misordered_rooms() {
+    async fn test_check_room_upgrades_no_loop_within_misordered_rooms() -> TestResult {
         let sender = user_id!("@mnt_io:matrix.org");
         let event_factory = EventFactory::new().sender(sender);
         let mut response_builder = SyncResponseBuilder::new();
@@ -674,7 +678,7 @@ mod tests {
                     JoinedRoomBuilder::new(room_id_0)
                         .add_timeline_event(
                             // No predecessor for room 0.
-                            event_factory.create(sender, RoomVersionId::try_from("41").unwrap()),
+                            event_factory.create(sender, RoomVersionId::try_from("41")?),
                         )
                         .add_timeline_event(
                             // Successor of room 0 is room 1.
@@ -689,7 +693,7 @@ mod tests {
                         .add_timeline_event(
                             // Predecessor of room 1 is room 0.
                             event_factory
-                                .create(sender, RoomVersionId::try_from("42").unwrap())
+                                .create(sender, RoomVersionId::try_from("42")?)
                                 .predecessor(room_id_0),
                         )
                         .add_timeline_event(
@@ -704,7 +708,7 @@ mod tests {
                     JoinedRoomBuilder::new(room_id_2).add_timeline_event(
                         // Predecessor of room 2 is room 1.
                         event_factory
-                            .create(sender, RoomVersionId::try_from("43").unwrap())
+                            .create(sender, RoomVersionId::try_from("43")?)
                             .predecessor(room_id_1),
                     ),
                 )
@@ -755,10 +759,12 @@ mod tests {
             );
             assert!(room_2.successor_room().is_none(), "room 2 must not have a successor");
         }
+
+        Ok(())
     }
 
     #[async_test]
-    async fn test_check_room_upgrades_shortest_invalid_successor() {
+    async fn test_check_room_upgrades_shortest_invalid_successor() -> TestResult {
         let sender = user_id!("@mnt_io:matrix.org");
         let event_factory = EventFactory::new().sender(sender);
         let mut response_builder = SyncResponseBuilder::new();
@@ -790,10 +796,12 @@ mod tests {
             assert!(room_0.predecessor_room().is_none(), "room 0 must not have a predecessor");
             assert!(room_0.successor_room().is_none(), "room 0 must not have a successor");
         }
+
+        Ok(())
     }
 
     #[async_test]
-    async fn test_check_room_upgrades_invalid_successor() {
+    async fn test_check_room_upgrades_invalid_successor() -> TestResult {
         let sender = user_id!("@mnt_io:matrix.org");
         let event_factory = EventFactory::new().sender(sender);
         let mut response_builder = SyncResponseBuilder::new();
@@ -815,7 +823,7 @@ mod tests {
                     JoinedRoomBuilder::new(room_id_1).add_timeline_event(
                         // Predecessor of room 1 is room 0.
                         event_factory
-                            .create(sender, RoomVersionId::try_from("42").unwrap())
+                            .create(sender, RoomVersionId::try_from("42")?)
                             .predecessor(room_id_0),
                     ),
                 )
@@ -855,7 +863,7 @@ mod tests {
                         .add_timeline_event(
                             // Predecessor of room 2 is room 1.
                             event_factory
-                                .create(sender, RoomVersionId::try_from("43").unwrap())
+                                .create(sender, RoomVersionId::try_from("43")?)
                                 .predecessor(room_id_1),
                         )
                         .add_timeline_event(
@@ -903,10 +911,12 @@ mod tests {
             // this state event is missing because it creates a loop
             assert!(room_2.successor_room().is_none(), "room 2 must not have a successor",);
         }
+
+        Ok(())
     }
 
     #[async_test]
-    async fn test_check_room_upgrades_shortest_invalid_predecessor() {
+    async fn test_check_room_upgrades_shortest_invalid_predecessor() -> TestResult {
         let sender = user_id!("@mnt_io:matrix.org");
         let event_factory = EventFactory::new().sender(sender);
         let mut response_builder = SyncResponseBuilder::new();
@@ -923,7 +933,7 @@ mod tests {
                     // No successor.
                     JoinedRoomBuilder::new(room_id_0).add_timeline_event(
                         event_factory
-                            .create(sender, RoomVersionId::try_from("42").unwrap())
+                            .create(sender, RoomVersionId::try_from("42")?)
                             .predecessor(room_id_0)
                             .event_id(tombstone_event_id),
                     ),
@@ -940,10 +950,12 @@ mod tests {
             assert!(room_0.successor_room().is_none(), "room 0 must not have a successor");
             assert_matches!(room_0.create_content(), Some(_), "room 0 must have a create content");
         }
+
+        Ok(())
     }
 
     #[async_test]
-    async fn test_check_room_upgrades_shortest_loop() {
+    async fn test_check_room_upgrades_shortest_loop() -> TestResult {
         let sender = user_id!("@mnt_io:matrix.org");
         let event_factory = EventFactory::new().sender(sender);
         let mut response_builder = SyncResponseBuilder::new();
@@ -966,7 +978,7 @@ mod tests {
                         .add_timeline_event(
                             // Predecessor of room 0 is room 0
                             event_factory
-                                .create(sender, RoomVersionId::try_from("42").unwrap())
+                                .create(sender, RoomVersionId::try_from("42")?)
                                 .predecessor(room_id_0),
                         ),
                 )
@@ -982,10 +994,12 @@ mod tests {
             assert!(room_0.successor_room().is_none(), "room 0 must not have a successor");
             assert_matches!(room_0.create_content(), Some(_), "room 0 must have a create content");
         }
+
+        Ok(())
     }
 
     #[async_test]
-    async fn test_check_room_upgrades_loop() {
+    async fn test_check_room_upgrades_loop() -> TestResult {
         let sender = user_id!("@mnt_io:matrix.org");
         let event_factory = EventFactory::new().sender(sender);
         let mut response_builder = SyncResponseBuilder::new();
@@ -1007,7 +1021,7 @@ mod tests {
                         .add_timeline_event(
                             // Predecessor of room 0 is room 2
                             event_factory
-                                .create(sender, RoomVersionId::try_from("42").unwrap())
+                                .create(sender, RoomVersionId::try_from("42")?)
                                 .predecessor(room_id_2),
                         )
                         .add_timeline_event(
@@ -1022,7 +1036,7 @@ mod tests {
                         .add_timeline_event(
                             // Predecessor of room 1 is room 0
                             event_factory
-                                .create(sender, RoomVersionId::try_from("43").unwrap())
+                                .create(sender, RoomVersionId::try_from("43")?)
                                 .predecessor(room_id_0),
                         )
                         .add_timeline_event(
@@ -1037,7 +1051,7 @@ mod tests {
                         .add_timeline_event(
                             // Predecessor of room 2 is room 1
                             event_factory
-                                .create(sender, RoomVersionId::try_from("44").unwrap())
+                                .create(sender, RoomVersionId::try_from("44")?)
                                 .predecessor(room_id_1),
                         )
                         .add_timeline_event(
@@ -1087,10 +1101,12 @@ mod tests {
             assert!(room_2.successor_room().is_none(), "room 2 must not have a successor",);
             assert_matches!(room_2.create_content(), Some(_), "room 2 must have a create content");
         }
+
+        Ok(())
     }
 
     #[async_test]
-    async fn test_state_events_after_sync() {
+    async fn test_state_events_after_sync() -> TestResult {
         // Given a room
         let user_id = user_id!("@u:u.to");
 
@@ -1111,7 +1127,7 @@ mod tests {
                     .add_state_event(StateTestEvent::PowerLevels),
             )
             .build_sync_response();
-        client.receive_sync_response(response).await.unwrap();
+        client.receive_sync_response(response).await?;
 
         let room = client.get_room(&DEFAULT_TEST_ROOM_ID).expect("Just-created room not found!");
 
@@ -1120,5 +1136,7 @@ mod tests {
 
         // ensure that we have the topic
         assert_eq!(room.topic().unwrap(), "this is the test topic in the timeline");
+
+        Ok(())
     }
 }

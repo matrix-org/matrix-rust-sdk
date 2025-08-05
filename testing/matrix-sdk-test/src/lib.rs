@@ -1,3 +1,5 @@
+use std::fmt;
+
 use http::Response;
 pub use matrix_sdk_test_macros::async_test;
 use once_cell::sync::Lazy;
@@ -177,3 +179,19 @@ pub fn ruma_response_to_json<ResponseType: OutgoingResponse>(
     let json_bytes = http_response.into_body();
     serde_json::from_slice(&json_bytes).expect("Can't parse the response JSON")
 }
+
+#[derive(Debug)] // required to be able to return TestResult from #[test] fns
+pub enum TestError {}
+
+// If this was just `T: Debug`, it would conflict with
+// the `impl From<T> for T` in `std`.
+//
+// Adding a dummy `Display` bound works around this.
+impl<T: fmt::Display + fmt::Debug> From<T> for TestError {
+    #[track_caller]
+    fn from(value: T) -> Self {
+        panic!("error: {value:?}")
+    }
+}
+
+pub type TestResult = Result<(), TestError>;

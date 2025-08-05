@@ -38,7 +38,7 @@ use matrix_sdk::{
 };
 use matrix_sdk_base::crypto::olm::OutboundGroupSession;
 use matrix_sdk_common::timeout::timeout;
-use matrix_sdk_test::{async_test, JoinedRoomBuilder, SyncResponseBuilder};
+use matrix_sdk_test::{async_test, JoinedRoomBuilder, SyncResponseBuilder, TestResult};
 use ruma::{
     api::client::room::create_room::v3::Request as CreateRoomRequest,
     assign, device_id, event_id,
@@ -111,7 +111,7 @@ async fn mount_and_assert_called_once(
 }
 
 #[async_test]
-async fn test_create() {
+async fn test_create() -> TestResult {
     let session = matrix_session_example();
 
     let (client, server) = no_retry_test_client_with_server().await;
@@ -121,7 +121,7 @@ async fn test_create() {
         "Backups can't be enabled before we logged in"
     );
 
-    client.restore_session(session).await.unwrap();
+    client.restore_session(session).await?;
 
     mount_and_assert_called_once(
         &server,
@@ -176,16 +176,17 @@ async fn test_create() {
         "Backups should be enabled after the create call"
     );
 
-    task.await.unwrap();
-
+    task.await?;
     server.verify().await;
+
+    Ok(())
 }
 
 #[async_test]
-async fn test_creation_failure() {
+async fn test_creation_failure() -> TestResult {
     let session = matrix_session_example();
     let (client, server) = no_retry_test_client_with_server().await;
-    client.restore_session(session).await.unwrap();
+    client.restore_session(session).await?;
 
     mount_and_assert_called_once(
         &server,
@@ -252,16 +253,17 @@ async fn test_creation_failure() {
         "Backups should not be enabled since the creation step failed"
     );
 
-    task.await.unwrap();
-
+    task.await?;
     server.verify().await;
+
+    Ok(())
 }
 
 #[async_test]
-async fn test_disabling() {
+async fn test_disabling() -> TestResult {
     let session = matrix_session_example();
     let (client, server) = no_retry_test_client_with_server().await;
-    client.restore_session(session).await.unwrap();
+    client.restore_session(session).await?;
 
     mount_and_assert_called_once(
         &server,
@@ -334,16 +336,17 @@ async fn test_disabling() {
         "Backups should be in the unknown state."
     );
 
-    task.await.unwrap();
-
+    task.await?;
     server.verify().await;
+
+    Ok(())
 }
 
 #[async_test]
-async fn test_disable_if_only_enabled_remotely() {
+async fn test_disable_if_only_enabled_remotely() -> TestResult {
     let session = matrix_session_example();
     let (client, server) = no_retry_test_client_with_server().await;
-    client.restore_session(session).await.unwrap();
+    client.restore_session(session).await?;
 
     assert_eq!(
         client.encryption().backups().state(),
@@ -363,22 +366,22 @@ async fn test_disable_if_only_enabled_remotely() {
     );
 
     server.verify().await;
+    Ok(())
 }
 
 #[async_test]
 #[cfg(feature = "sqlite")]
-async fn test_backup_resumption() {
+async fn test_backup_resumption() -> TestResult {
     use tempfile::tempdir;
 
-    let dir = tempdir().unwrap();
+    let dir = tempdir()?;
 
     let (builder, server) = test_client_builder_with_server().await;
     let client = builder
         .request_config(RequestConfig::new().disable_retry())
         .sqlite_store(dir.path(), None)
         .build()
-        .await
-        .unwrap();
+        .await?;
 
     let session = matrix_session_example();
 
@@ -390,7 +393,7 @@ async fn test_backup_resumption() {
         .mount(&server)
         .await;
 
-    client.restore_session(session.to_owned()).await.unwrap();
+    client.restore_session(session.to_owned()).await?;
 
     client.encryption().backups().create().await.expect("We should be able to create a new backup");
 
@@ -407,14 +410,15 @@ async fn test_backup_resumption() {
         .request_config(RequestConfig::new().disable_retry())
         .sqlite_store(dir.path(), None)
         .build()
-        .await
-        .unwrap();
+        .await?;
 
-    client.restore_session(session).await.unwrap();
+    client.restore_session(session).await?;
     client.encryption().wait_for_e2ee_initialization_tasks().await;
 
     assert_eq!(client.encryption().backups().state(), BackupState::Enabled);
     assert!(client.encryption().backups().are_enabled().await);
+
+    Ok(())
 }
 
 async fn setup_backups(client: &Client, server: &wiremock::MockServer) {
@@ -456,10 +460,10 @@ async fn setup_backups(client: &Client, server: &wiremock::MockServer) {
 }
 
 #[async_test]
-async fn test_steady_state_waiting() {
+async fn test_steady_state_waiting() -> TestResult {
     let session = matrix_session_example();
     let (client, server) = no_retry_test_client_with_server().await;
-    client.restore_session(session).await.unwrap();
+    client.restore_session(session).await?;
 
     setup_backups(&client, &server).await;
 
@@ -514,9 +518,10 @@ async fn test_steady_state_waiting() {
         assert_eq!(counter, 3, "We should have gone through 3 states, counter: {counter}");
     });
 
-    task.await.unwrap();
-
+    task.await?;
     server.verify().await;
+
+    Ok(())
 }
 
 async fn setup_create_room_and_send_message_mocks(server: &wiremock::MockServer) {
@@ -635,10 +640,10 @@ async fn setup_create_room_and_send_message_mocks(server: &wiremock::MockServer)
 /// outbound room key is created. But it would work for a key received via a to
 /// device event as well.
 #[async_test]
-async fn test_incremental_upload_of_keys() -> Result<()> {
+async fn test_incremental_upload_of_keys() -> TestResult {
     let session = matrix_session_example();
     let (client, server) = no_retry_test_client_with_server().await;
-    client.restore_session(session).await.unwrap();
+    client.restore_session(session).await?;
 
     let backups = client.encryption().backups();
 
@@ -702,7 +707,7 @@ async fn test_incremental_upload_of_keys() -> Result<()> {
 }
 
 #[async_test]
-async fn test_incremental_upload_of_keys_sliding_sync() -> Result<()> {
+async fn test_incremental_upload_of_keys_sliding_sync() -> TestResult {
     use tokio::task::spawn_blocking;
 
     let session = matrix_session_example();
@@ -711,10 +716,9 @@ async fn test_incremental_upload_of_keys_sliding_sync() -> Result<()> {
         .homeserver_url(server.uri())
         .server_versions([ruma::api::MatrixVersion::V1_0]);
 
-    let client =
-        builder.request_config(RequestConfig::new().disable_retry()).build().await.unwrap();
+    let client = builder.request_config(RequestConfig::new().disable_retry()).build().await?;
 
-    client.restore_session(session).await.unwrap();
+    client.restore_session(session).await?;
 
     let backups = client.encryption().backups();
 
@@ -819,10 +823,10 @@ async fn test_incremental_upload_of_keys_sliding_sync() -> Result<()> {
 }
 
 #[async_test]
-async fn test_steady_state_waiting_errors() {
+async fn test_steady_state_waiting_errors() -> TestResult {
     let session = matrix_session_example();
     let (client, server) = no_retry_test_client_with_server().await;
-    client.restore_session(session).await.unwrap();
+    client.restore_session(session).await?;
 
     let result = client.encryption().backups().wait_for_steady_state().await;
 
@@ -892,11 +896,12 @@ async fn test_steady_state_waiting_errors() {
         "The steady state method should tell us that the backup is deleted"
     );
 
-    task.await.unwrap();
+    task.await?;
+    Ok(())
 }
 
 #[async_test]
-async fn test_enable_from_secret_storage() {
+async fn test_enable_from_secret_storage() -> TestResult {
     const SECRET_STORE_KEY: &str = "mypassphrase";
     const KEY_ID: &str = "yJWwBm2Ts8jHygTBslKpABFyykavhhfA";
 
@@ -914,10 +919,9 @@ async fn test_enable_from_secret_storage() {
         .request_config(RequestConfig::new().disable_retry())
         .with_encryption_settings(encryption_settings)
         .build()
-        .await
-        .unwrap();
+        .await?;
 
-    client.restore_session(session).await.unwrap();
+    client.restore_session(session).await?;
 
     mock_secret_store_with_backup_key(user_id, KEY_ID, &server).await;
 
@@ -1033,10 +1037,12 @@ async fn test_enable_from_secret_storage() {
         BackupState::Enabled,
         "Importing the secrets again should leave the backups in the enabled state."
     );
+
+    Ok(())
 }
 
 #[async_test]
-async fn test_enable_from_secret_storage_no_existing_backup() {
+async fn test_enable_from_secret_storage_no_existing_backup() -> TestResult {
     let session = matrix_session_example2();
     let (builder, server) = test_client_builder_with_server().await;
     let encryption_settings = EncryptionSettings {
@@ -1047,10 +1053,9 @@ async fn test_enable_from_secret_storage_no_existing_backup() {
         .request_config(RequestConfig::new().disable_retry())
         .with_encryption_settings(encryption_settings)
         .build()
-        .await
-        .unwrap();
+        .await?;
 
-    client.restore_session(session).await.unwrap();
+    client.restore_session(session).await?;
 
     let store = init_secret_store(&client, &server).await;
     store.import_secrets().await.expect_err(
@@ -1069,12 +1074,14 @@ async fn test_enable_from_secret_storage_no_existing_backup() {
         .mount(&server)
         .await;
 
-    store.import_secrets().await.unwrap();
+    store.import_secrets().await?;
     assert_eq!(client.encryption().backups().state(), BackupState::Unknown);
+
+    Ok(())
 }
 
 #[async_test]
-async fn test_enable_from_secret_storage_mismatched_key() {
+async fn test_enable_from_secret_storage_mismatched_key() -> TestResult {
     let session = matrix_session_example2();
     let (builder, server) = test_client_builder_with_server().await;
     let encryption_settings = EncryptionSettings {
@@ -1085,10 +1092,9 @@ async fn test_enable_from_secret_storage_mismatched_key() {
         .request_config(RequestConfig::new().disable_retry())
         .with_encryption_settings(encryption_settings)
         .build()
-        .await
-        .unwrap();
+        .await?;
 
-    client.restore_session(session).await.unwrap();
+    client.restore_session(session).await?;
 
     let store = init_secret_store(&client, &server).await;
 
@@ -1111,23 +1117,24 @@ async fn test_enable_from_secret_storage_mismatched_key() {
         .mount(&server)
         .await;
 
-    store.import_secrets().await.unwrap();
+    store.import_secrets().await?;
     assert_eq!(
         client.encryption().backups().state(),
         BackupState::Unknown,
         "The backup should go into the disabled state if we the current backup isn't using the \
          backup recovery key we received from secret storage"
     );
+
+    Ok(())
 }
 
 #[async_test]
-async fn test_enable_from_secret_storage_manual_download() {
+async fn test_enable_from_secret_storage_manual_download() -> TestResult {
     let session = matrix_session_example2();
     let (builder, server) = test_client_builder_with_server().await;
-    let client =
-        builder.request_config(RequestConfig::new().disable_retry()).build().await.unwrap();
+    let client = builder.request_config(RequestConfig::new().disable_retry()).build().await?;
 
-    client.restore_session(session).await.unwrap();
+    client.restore_session(session).await?;
 
     let store = init_secret_store(&client, &server).await;
 
@@ -1142,12 +1149,14 @@ async fn test_enable_from_secret_storage_manual_download() {
         .mount(&server)
         .await;
 
-    store.import_secrets().await.unwrap();
+    store.import_secrets().await?;
     assert_eq!(client.encryption().backups().state(), BackupState::Unknown);
+
+    Ok(())
 }
 
 #[async_test]
-async fn test_enable_from_secret_storage_and_manual_download() {
+async fn test_enable_from_secret_storage_and_manual_download() -> TestResult {
     let room_id = room_id!("!DovneieKSTkdHKpIXy:morpheus.localhost");
 
     let session = matrix_session_example2();
@@ -1160,10 +1169,9 @@ async fn test_enable_from_secret_storage_and_manual_download() {
         .request_config(RequestConfig::new().disable_retry())
         .with_encryption_settings(encryption_settings)
         .build()
-        .await
-        .unwrap();
+        .await?;
 
-    client.restore_session(session).await.unwrap();
+    client.restore_session(session).await?;
 
     init_client_secret_storage_and_backup(&client, &server).await;
 
@@ -1261,10 +1269,11 @@ async fn test_enable_from_secret_storage_and_manual_download() {
     }
 
     server.verify().await;
+    Ok(())
 }
 
 #[async_test]
-async fn test_enable_from_secret_storage_and_download_after_utd() {
+async fn test_enable_from_secret_storage_and_download_after_utd() -> TestResult {
     let room_id = room_id!("!DovneieKSTkdHKpIXy:morpheus.localhost");
     let event_id = event_id!("$JbFHtZpEJiH8uaajZjPLz0QUZc1xtBR9rPGBOjF6WFM");
 
@@ -1278,10 +1287,9 @@ async fn test_enable_from_secret_storage_and_download_after_utd() {
         .request_config(RequestConfig::new().disable_retry())
         .with_encryption_settings(encryption_settings)
         .build()
-        .await
-        .unwrap();
+        .await?;
 
-    client.restore_session(session).await.unwrap();
+    client.restore_session(session).await?;
 
     let sync = SyncResponseBuilder::new()
         .add_joined_room(JoinedRoomBuilder::new(room_id))
@@ -1370,12 +1378,14 @@ async fn test_enable_from_secret_storage_and_download_after_utd() {
     assert_eq!(event.content.body(), "tt");
 
     server.verify().await;
+    Ok(())
 }
 
 /// Even if we have a key to the session, we should still attempt a backup
 /// download if the UTD message has a lower megolm ratchet index than we have.
 #[async_test]
-async fn test_enable_from_secret_storage_and_download_after_utd_from_old_message_index() {
+async fn test_enable_from_secret_storage_and_download_after_utd_from_old_message_index(
+) -> TestResult {
     let room_id = room_id!("!DovneieKSTkdHKpIXy:morpheus.localhost");
     let event_id = event_id!("$JbFHtZpEJiH8uaajZjPLz0QUZc1xtBR9rPGBOjF6WFM");
 
@@ -1389,10 +1399,9 @@ async fn test_enable_from_secret_storage_and_download_after_utd_from_old_message
         .request_config(RequestConfig::new().disable_retry())
         .with_encryption_settings(encryption_settings)
         .build()
-        .await
-        .unwrap();
+        .await?;
 
-    client.restore_session(session).await.unwrap();
+    client.restore_session(session).await?;
 
     let sync = SyncResponseBuilder::new()
         .add_joined_room(JoinedRoomBuilder::new(room_id))
@@ -1413,8 +1422,7 @@ async fn test_enable_from_secret_storage_and_download_after_utd_from_old_message
         Arc::new(sender_identity_keys),
         room_id,
         matrix_sdk::crypto::EncryptionSettings::default(),
-    )
-    .unwrap();
+    )?;
 
     // Export the `OutboundGroupSession` to an `InboundGroupSession`, and export it
     // to the backup. We do this now, at ratchet index 0.
@@ -1423,18 +1431,16 @@ async fn test_enable_from_secret_storage_and_download_after_utd_from_old_message
         room_id,
         &outbound_group_session,
     )
-    .await
-    .unwrap();
+    .await?;
     mock_download_session_from_key_backup(room_id, inbound_group_session, &server).await;
 
     // Encrypt an event and prepare for the client to download it.
     let event_body = json!({"body":"tt","msgtype":"m.text"});
     let encrypted_event_content = serde_json::to_value(
         outbound_group_session
-            .encrypt("m.room.message", &serde_json::from_value(event_body).unwrap())
+            .encrypt("m.room.message", &serde_json::from_value(event_body)?)
             .await,
-    )
-    .unwrap();
+    )?;
     mock_get_event(room_id, event_id, encrypted_event_content, &server).await;
 
     // Now, import the megolm session into the client's store, at ratchet index 1.
@@ -1444,8 +1450,7 @@ async fn test_enable_from_secret_storage_and_download_after_utd_from_old_message
             room_id,
             &outbound_group_session,
         )
-        .await
-        .unwrap();
+        .await?;
         // sanity-check that we got the session at index 1.
         assert_eq!(inbound_group_session.first_known_index(), 1);
 
@@ -1496,6 +1501,8 @@ async fn test_enable_from_secret_storage_and_download_after_utd_from_old_message
     assert_eq!(event.content.body(), "tt");
 
     server.verify().await;
+
+    Ok(())
 }
 
 /// Set up secret storage, and allow the client to import the backup
