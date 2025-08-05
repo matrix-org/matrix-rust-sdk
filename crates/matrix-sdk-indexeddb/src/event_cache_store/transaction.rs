@@ -17,7 +17,7 @@ use matrix_sdk_base::{
     event_cache::{store::EventCacheStoreError, Event as RawEvent, Gap as RawGap},
     linked_chunk::{ChunkContent, ChunkIdentifier, RawChunk},
 };
-use ruma::{events::relation::RelationType, OwnedEventId, RoomId};
+use ruma::{events::relation::RelationType, EventId, OwnedEventId, RoomId};
 use serde::{
     de::{DeserializeOwned, Error},
     Serialize,
@@ -571,7 +571,7 @@ impl<'a> IndexeddbEventCacheStoreTransaction<'a> {
     pub async fn get_event_by_id(
         &self,
         room_id: &RoomId,
-        event_id: OwnedEventId,
+        event_id: &EventId,
     ) -> Result<Option<Event>, IndexeddbEventCacheStoreTransactionError> {
         let key = self.serializer.encode_key(room_id, event_id);
         self.get_item_by_key::<Event, IndexedEventIdKey>(room_id, key).await
