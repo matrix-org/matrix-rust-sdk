@@ -1837,6 +1837,21 @@ impl_state_store!({
 
         Ok(Some(status))
     }
+
+    async fn remove_thread_subscription(&self, room: &RoomId, thread_id: &EventId) -> Result<()> {
+        let encoded_key = self.encode_key(keys::THREAD_SUBSCRIPTIONS, (room, thread_id));
+
+        self.inner
+            .transaction_on_one_with_mode(
+                keys::THREAD_SUBSCRIPTIONS,
+                IdbTransactionMode::Readwrite,
+            )?
+            .object_store(keys::THREAD_SUBSCRIPTIONS)?
+            .delete(&encoded_key)?
+            .await?;
+
+        Ok(())
+    }
 });
 
 /// A room member.

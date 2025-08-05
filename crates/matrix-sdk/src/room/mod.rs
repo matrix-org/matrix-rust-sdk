@@ -3675,6 +3675,7 @@ impl Room {
     /// - An `Ok` result if the subscription was successful, or if the server
     ///   skipped an automatic subscription (as the user unsubscribed from the
     ///   thread after the event causing the automatic subscription).
+    #[instrument(skip(self), fields(room_id = %self.room_id()))]
     pub async fn subscribe_thread(
         &self,
         thread_root: OwnedEventId,
@@ -3733,6 +3734,7 @@ impl Room {
     /// - An `Ok` result if the unsubscription was successful, or the thread was
     ///   already unsubscribed.
     /// - A 404 error if the event isn't known, or isn't a thread root.
+    #[instrument(skip(self), fields(room_id = %self.room_id()))]
     pub async fn unsubscribe_thread(&self, thread_root: OwnedEventId) -> Result<()> {
         self.client
             .send(unsubscribe_thread::unstable::Request::new(
@@ -3741,11 +3743,10 @@ impl Room {
             ))
             .await?;
 
+        trace!("Server acknowledged the thread subscription removal; removed it from db too");
+
         // Immediately save the result into the database.
-        self.client
-            .state_store()
-            .upsert_thread_subscription(self.room_id(), &thread_root, ThreadStatus::Unsubscribed)
-            .await?;
+        self.client.state_store().remove_thread_subscription(self.room_id(), &thread_root).await?;
 
         Ok(())
     }
@@ -3766,6 +3767,7 @@ impl Room {
     ///   event couldn't be found, or the event isn't a thread.
     /// - An error if the request fails for any other reason, such as a network
     ///   error.
+    #[instrument(skip(self), fields(room_id = %self.room_id()))]
     pub async fn fetch_thread_subscription(
         &self,
         thread_root: OwnedEventId,
@@ -3778,36 +3780,29 @@ impl Room {
             ))
             .await;
 
-        match result {
-            Ok(response) => Ok(Some(ThreadStatus::Subscribed { automatic: response.automatic })),
+        let sub = match result {
+            Ok(response) => Some(ThreadStatus::Subscribed { automatic: response.automatic }),
             Err(http_error) => match http_error.as_client_api_error() {
-                Some(error) if error.status_code == StatusCode::NOT_FOUND => {
-                    // At this point the server returned no subscriptions, which can mean that the
-                    // endpoint doesn't exist (not enabled/implemented yet on the server), or that
-                    // the thread doesn't exist, or that the user has unsubscribed from it
-                    // previously.
-                    //
-                    // If we had any information about prior unsubscription, we can use it here to
-                    // return something slightly more precise than what the server returned.
-                    let stored_status = self
-                        .client
-                        .state_store()
-                        .load_thread_subscription(self.room_id(), &thread_root)
-                        .await?;
-
-                    if let Some(ThreadStatus::Unsubscribed) = stored_status {
-                        // The thread was unsubscribed from before, so maintain this information.
-                        Ok(Some(ThreadStatus::Unsubscribed))
-                    } else {
-                        // We either have stale information (the thread was marked as subscribed
-                        // to, but the server said it wasn't), or we didn't have any information.
-                        // Return unknown.
-                        Ok(None)
-                    }
-                }
-                _ => Err(http_error.into()),
+                Some(error) if error.status_code == StatusCode::NOT_FOUND => None,
+                _ => return Err(http_error.into()),
             },
+        };
+
+        // Keep the database in sync.
+        if let Some(sub) = &sub {
+            self.client
+                .state_store()
+                .upsert_thread_subscription(self.room_id(), &thread_root, *sub)
+                .await?;
+        } else {
+            // If the subscription was not found, remove it from the database.
+            self.client
+                .state_store()
+                .remove_thread_subscription(self.room_id(), &thread_root)
+                .await?;
         }
+
+        Ok(sub)
     }
 }
 

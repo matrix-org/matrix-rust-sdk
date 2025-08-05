@@ -2142,6 +2142,25 @@ impl StateStore for SqliteStateStore {
             })
             .transpose()?)
     }
+
+    async fn remove_thread_subscription(
+        &self,
+        room_id: &RoomId,
+        thread_id: &EventId,
+    ) -> Result<(), Self::Error> {
+        let room_id = self.encode_key(keys::THREAD_SUBSCRIPTIONS, room_id);
+        let thread_id = self.encode_key(keys::THREAD_SUBSCRIPTIONS, thread_id);
+
+        self.acquire()
+            .await?
+            .execute(
+                "DELETE FROM thread_subscriptions WHERE room_id = ? AND event_id = ?",
+                (room_id, thread_id),
+            )
+            .await?;
+
+        Ok(())
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

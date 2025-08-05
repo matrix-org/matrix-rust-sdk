@@ -462,9 +462,6 @@ pub enum ThreadStatus {
         /// manual user choice.
         automatic: bool,
     },
-    /// The thread is unsubscribed to (it won't cause any notifications or
-    /// automatic subscription anymore).
-    Unsubscribed,
 }
 
 impl ThreadStatus {
@@ -478,7 +475,6 @@ impl ThreadStatus {
                     "manual"
                 }
             }
-            ThreadStatus::Unsubscribed => "unsubscribed",
         }
     }
 
@@ -488,7 +484,6 @@ impl ThreadStatus {
         match s {
             "automatic" => Some(ThreadStatus::Subscribed { automatic: true }),
             "manual" => Some(ThreadStatus::Subscribed { automatic: false }),
-            "unsubscribed" => Some(ThreadStatus::Unsubscribed),
             _ => None,
         }
     }

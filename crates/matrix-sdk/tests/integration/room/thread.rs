@@ -56,10 +56,10 @@ async fn test_subscribe_thread() {
 
     room.unsubscribe_thread(root_id.clone()).await.unwrap();
 
-    // Now, if I retry to get the subscription status for this thread, it's
-    // unsubscribed.
+    // Now, if I retry to get the subscription status for this thread, it doesn't
+    // exist anymore.
     let subscription = room.fetch_thread_subscription(root_id.clone()).await.unwrap();
-    assert_matches!(subscription, Some(ThreadStatus::Unsubscribed));
+    assert_matches!(subscription, None);
 
     // Subscribing automatically to the thread may also return a `M_SKIPPED` error
     // that should be non-fatal.
@@ -76,5 +76,5 @@ async fn test_subscribe_thread() {
 
     // And in this case, the thread is still unsubscribed.
     let subscription = room.fetch_thread_subscription(root_id).await.unwrap();
-    assert_matches!(subscription, Some(ThreadStatus::Unsubscribed));
+    assert_matches!(subscription, None);
 }
