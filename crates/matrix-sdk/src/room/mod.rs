@@ -3006,7 +3006,13 @@ impl Room {
             return Ok(None);
         };
 
-        let power_levels = self.power_levels().await.ok().map(Into::into);
+        let power_levels = match self.power_levels().await {
+            Ok(power_levels) => Some(power_levels.into()),
+            Err(error) => {
+                error!("Could not compute power levels for push conditions: {error}");
+                None
+            }
+        };
 
         Ok(Some(assign!(
             PushConditionRoomCtx::new(
