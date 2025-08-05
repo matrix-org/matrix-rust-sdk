@@ -534,7 +534,6 @@ impl RoomView {
                                         "subscribed (manual)"
                                     }
                                 }
-                                ThreadStatus::Unsubscribed => "unsubscribed",
                             }
                         ));
                     }

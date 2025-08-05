@@ -982,6 +982,27 @@ impl StateStore for MemoryStore {
             .and_then(|subscriptions| subscriptions.get(thread_id))
             .copied())
     }
+
+    async fn remove_thread_subscription(
+        &self,
+        room: &RoomId,
+        thread_id: &EventId,
+    ) -> Result<(), Self::Error> {
+        let mut inner = self.inner.write().unwrap();
+
+        let Some(room_subs) = inner.thread_subscriptions.get_mut(room) else {
+            return Ok(());
+        };
+
+        room_subs.remove(thread_id);
+
+        if room_subs.is_empty() {
+            // If there are no more subscriptions for this room, remove the room entry.
+            inner.thread_subscriptions.remove(room);
+        }
+
+        Ok(())
+    }
 }
 
 #[cfg(test)]

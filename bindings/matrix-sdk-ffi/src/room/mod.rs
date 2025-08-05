@@ -1093,8 +1093,8 @@ impl Room {
         Ok(Arc::new(RoomPreview::new(AsyncRuntimeDropped::new(client), room_preview)))
     }
 
-    /// Toggle a MSC4306 subscription to a thread in this room, based on the
-    /// thread root event id.
+    /// Set a MSC4306 subscription to a thread in this room, based on the thread
+    /// root event id.
     ///
     /// If `subscribed` is `true`, it will subscribe to the thread, with a
     /// precision that the subscription was manually requested by the user
@@ -1135,7 +1135,6 @@ impl Room {
             matrix_sdk::room::ThreadStatus::Subscribed { automatic } => {
                 ThreadStatus::Subscribed { automatic }
             }
-            matrix_sdk::room::ThreadStatus::Unsubscribed => ThreadStatus::Unsubscribed,
         }))
     }
 }
@@ -1149,9 +1148,6 @@ pub enum ThreadStatus {
         /// mention) or if it was manually requested by the user.
         automatic: bool,
     },
-
-    /// The thread is not subscribed to.
-    Unsubscribed,
 }
 
 /// A listener for receiving new live location shares in a room.

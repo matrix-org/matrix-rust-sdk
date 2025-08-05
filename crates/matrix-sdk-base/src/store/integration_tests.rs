@@ -1810,16 +1810,33 @@ impl StateStoreIntegrationTests for DynStateStore {
         assert_eq!(maybe_status, Some(ThreadStatus::Subscribed { automatic: false }));
 
         // We can override the thread subscription status.
-        self.upsert_thread_subscription(room_id(), first_thread, ThreadStatus::Unsubscribed)
-            .await
-            .unwrap();
+        self.upsert_thread_subscription(
+            room_id(),
+            first_thread,
+            ThreadStatus::Subscribed { automatic: false },
+        )
+        .await
+        .unwrap();
 
         // And it's correctly reflected.
         let maybe_status = self.load_thread_subscription(room_id(), first_thread).await.unwrap();
-        assert_eq!(maybe_status, Some(ThreadStatus::Unsubscribed));
+        assert_eq!(maybe_status, Some(ThreadStatus::Subscribed { automatic: false }));
         // And the second thread is still subscribed.
         let maybe_status = self.load_thread_subscription(room_id(), second_thread).await.unwrap();
         assert_eq!(maybe_status, Some(ThreadStatus::Subscribed { automatic: false }));
+
+        // We can remove a thread subscription.
+        self.remove_thread_subscription(room_id(), second_thread).await.unwrap();
+
+        // And it's correctly reflected.
+        let maybe_status = self.load_thread_subscription(room_id(), second_thread).await.unwrap();
+        assert_eq!(maybe_status, None);
+        // And the first thread is still subscribed.
+        let maybe_status = self.load_thread_subscription(room_id(), first_thread).await.unwrap();
+        assert_eq!(maybe_status, Some(ThreadStatus::Subscribed { automatic: false }));
+
+        // Removing a thread subscription for an unknown thread is a no-op.
+        self.remove_thread_subscription(room_id(), second_thread).await.unwrap();
     }
 }
 
