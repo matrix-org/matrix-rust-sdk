@@ -41,8 +41,10 @@ use ruma::{
     event_id,
     events::{
         direct::{DirectEventContent, OwnedDirectUserIdentifier},
+        room::{history_visibility::HistoryVisibility, member::MembershipState},
         AnyInitialStateEvent,
     },
+    room::JoinRule,
     room_id,
     serde::Raw,
     user_id, OwnedUserId,
@@ -1439,4 +1441,52 @@ async fn test_logout() {
     // testing the OAuth branch inside `Client::logout()`.
     assert_matches!(res, Err(Error::OAuth(oauth_error)));
     assert_matches!(*oauth_error, OAuthError::Logout(OAuthTokenRevocationError::Url(_)));
+}
+
+#[async_test]
+async fn test_room_sync_state_after() {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+
+    let mut rx = client.subscribe_to_room_updates(&DEFAULT_TEST_ROOM_ID);
+
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(&DEFAULT_TEST_ROOM_ID)
+                .use_state_after()
+                .add_state_bulk([
+                    Raw::new(&*test_json::sync_events::CREATE).unwrap().cast_unchecked(),
+                    Raw::new(&*test_json::sync_events::POWER_LEVELS).unwrap().cast_unchecked(),
+                    Raw::new(&*test_json::sync_events::HISTORY_VISIBILITY)
+                        .unwrap()
+                        .cast_unchecked(),
+                    Raw::new(&*test_json::sync_events::JOIN_RULES).unwrap().cast_unchecked(),
+                    Raw::new(&*test_json::sync_events::MEMBER_LEAVE).unwrap().cast_unchecked(),
+                ])
+                .add_timeline_bulk([
+                    Raw::new(&*test_json::sync_events::MEMBER_ADDITIONAL).unwrap().cast_unchecked(),
+                    Raw::new(&*test_json::sync_events::NAME).unwrap().cast_unchecked(),
+                ]),
+        )
+        .await;
+
+    let update = rx.recv().now_or_never().unwrap().unwrap();
+    assert_let!(RoomUpdate::Joined { updates, .. } = update);
+
+    // We received the `state_after`.
+    assert_matches!(updates.state, State::After(state_events));
+    assert_eq!(state_events.len(), 5);
+    assert_eq!(updates.timeline.events.len(), 2);
+
+    // Only the state events in `state_after` were used.
+    let room = client.get_room(&DEFAULT_TEST_ROOM_ID).unwrap();
+
+    assert!(room.create_content().is_some());
+    assert_eq!(room.history_visibility().unwrap(), HistoryVisibility::WorldReadable);
+    assert_eq!(room.join_rule().unwrap(), JoinRule::Public);
+    assert!(room.name().is_none());
+
+    let member = room.get_member_no_sync(user_id!("@invited:localhost")).await.unwrap().unwrap();
+    assert_eq!(*member.membership(), MembershipState::Leave);
 }
