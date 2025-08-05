@@ -129,12 +129,14 @@ pub async fn build<'notification, 'e2ee>(
                 }
 
                 if let Some(push_condition_room_ctx) = &push_condition_room_ctx {
-                    let actions = notification.push_notification_from_event_if(
-                        room_id,
-                        push_condition_room_ctx,
-                        timeline_event.raw(),
-                        Action::should_notify,
-                    );
+                    let actions = notification
+                        .push_notification_from_event_if(
+                            room_id,
+                            push_condition_room_ctx,
+                            timeline_event.raw(),
+                            Action::should_notify,
+                        )
+                        .await;
 
                     timeline_event.set_push_actions(actions.to_owned());
                 }

@@ -217,8 +217,8 @@ impl PushContext {
     }
 
     /// Compute the push rules for a given event.
-    pub fn for_event<T>(&self, event: &Raw<T>) -> Vec<Action> {
-        self.push_rules.get_actions(event, &self.push_condition_room_ctx).to_owned()
+    pub async fn for_event<T>(&self, event: &Raw<T>) -> Vec<Action> {
+        self.push_rules.get_actions(event, &self.push_condition_room_ctx).await.to_owned()
     }
 }
 
@@ -648,7 +648,7 @@ impl Room {
 
         let mut event = TimelineEvent::from_plaintext(event.cast());
         if let Some(push_ctx) = push_ctx {
-            event.set_push_actions(push_ctx.for_event(event.raw()));
+            event.set_push_actions(push_ctx.for_event(event.raw()).await);
         }
 
         event
@@ -1553,7 +1553,11 @@ impl Room {
             .await?
         {
             RoomEventDecryptionResult::Decrypted(decrypted) => {
-                let push_actions = push_ctx.map(|push_ctx| push_ctx.for_event(&decrypted.event));
+                let push_actions = if let Some(push_ctx) = push_ctx {
+                    Some(push_ctx.for_event(&decrypted.event).await)
+                } else {
+                    None
+                };
                 Ok(TimelineEvent::from_decrypted(decrypted, push_actions))
             }
             RoomEventDecryptionResult::UnableToDecrypt(utd_info) => {
@@ -3045,7 +3049,11 @@ impl Room {
     /// Note that it is possible that no push action is returned because the
     /// current room state does not have all the required state events.
     pub async fn event_push_actions<T>(&self, event: &Raw<T>) -> Result<Option<Vec<Action>>> {
-        Ok(self.push_context().await?.map(|ctx| ctx.for_event(event)))
+        if let Some(ctx) = self.push_context().await? {
+            Ok(Some(ctx.for_event(event).await))
+        } else {
+            Ok(None)
+        }
     }
 
     /// The membership details of the (latest) invite for the logged-in user in

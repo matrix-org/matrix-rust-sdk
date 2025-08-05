@@ -279,12 +279,14 @@ pub mod stripped {
 
             // Check every event again for notification.
             for event in state_events.values().flat_map(|map| map.values()) {
-                notification.push_notification_from_event_if(
-                    room_id,
-                    &push_condition_room_ctx,
-                    event,
-                    Action::should_notify,
-                );
+                notification
+                    .push_notification_from_event_if(
+                        room_id,
+                        &push_condition_room_ctx,
+                        event,
+                        Action::should_notify,
+                    )
+                    .await;
             }
         }
 
