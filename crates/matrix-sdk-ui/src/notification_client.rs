@@ -487,6 +487,7 @@ impl NotificationClient {
             (StateEventType::RoomPowerLevels, "".to_owned()),
             (StateEventType::RoomJoinRules, "".to_owned()),
             (StateEventType::CallMember, "*".to_owned()),
+            (StateEventType::RoomCreate, "".to_owned()),
         ];
 
         let invites = SlidingSyncList::builder("invites")
