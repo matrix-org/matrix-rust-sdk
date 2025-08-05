@@ -3009,7 +3009,11 @@ impl Room {
         let power_levels = match self.power_levels().await {
             Ok(power_levels) => Some(power_levels.into()),
             Err(error) => {
-                error!("Could not compute power levels for push conditions: {error}");
+                if matches!(room_info.state(), RoomState::Joined) {
+                    // It's normal to not have the power levels in a non-joined room, so don't log
+                    // the error if the room is not joined
+                    error!("Could not compute power levels for push conditions: {error}");
+                }
                 None
             }
         };
