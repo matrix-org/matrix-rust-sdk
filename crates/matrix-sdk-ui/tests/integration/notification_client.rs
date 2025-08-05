@@ -22,7 +22,7 @@ use matrix_sdk_ui::{
     sync_service::SyncService,
 };
 use ruma::{
-    event_id,
+    RoomVersionId, event_id,
     events::{TimelineEventType, room::member::MembershipState},
     mxc_uri, room_id, user_id,
 };
@@ -128,6 +128,8 @@ async fn test_notification_client_sliding_sync() {
 
     let event_factory = EventFactory::new().room(room_id);
 
+    let room_create_event = event_factory.create(sender, RoomVersionId::V1).into_raw_sync();
+
     let sender_member_event = event_factory
         .member(sender)
         .display_name(sender_display_name)
@@ -173,6 +175,9 @@ async fn test_notification_client_sliding_sync() {
                         "initial": true,
 
                         "required_state": [
+                            // The room creation event.
+                            room_create_event,
+
                             // Sender's member information.
                             sender_member_event,
 
@@ -230,6 +235,7 @@ async fn test_notification_client_sliding_sync() {
                         ["m.room.power_levels", ""],
                         ["m.room.join_rules", ""],
                         ["org.matrix.msc3401.call.member", "*"],
+                        ["m.room.create", ""],
                     ],
                     "filters": {
                         "is_invite": true,
@@ -248,6 +254,7 @@ async fn test_notification_client_sliding_sync() {
                         ["m.room.power_levels", ""],
                         ["m.room.join_rules", ""],
                         ["org.matrix.msc3401.call.member", "*"],
+                        ["m.room.create", ""],
                     ],
                     "timeline_limit": 16,
                 },
