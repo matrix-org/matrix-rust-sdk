@@ -17,6 +17,7 @@ use std::{collections::BTreeMap, fmt, sync::Arc};
 #[cfg(doc)]
 use ruma::events::AnyTimelineEvent;
 use ruma::{
+    DeviceKeyAlgorithm, OwnedDeviceId, OwnedEventId, OwnedUserId,
     events::{
         AnyMessageLikeEvent, AnySyncMessageLikeEvent, AnySyncTimelineEvent, AnyToDeviceEvent,
         MessageLikeEventType,
@@ -26,7 +27,6 @@ use ruma::{
         AsRefStr, AsStrAsRefStr, DebugAsRefStr, DeserializeFromCowStr, FromString, JsonObject, Raw,
         SerializeAsRefStr,
     },
-    DeviceKeyAlgorithm, OwnedDeviceId, OwnedEventId, OwnedUserId,
 };
 use serde::{Deserialize, Serialize};
 use tracing::warn;
@@ -1266,8 +1266,8 @@ mod tests {
     use assert_matches2::assert_let;
     use insta::{assert_json_snapshot, with_settings};
     use ruma::{
-        device_id, event_id, events::room::message::RoomMessageEventContent, serde::Raw, user_id,
-        DeviceKeyAlgorithm,
+        DeviceKeyAlgorithm, device_id, event_id, events::room::message::RoomMessageEventContent,
+        serde::Raw, user_id,
     };
     use serde::Deserialize;
     use serde_json::json;

@@ -22,8 +22,8 @@ use std::{
 use eyeball_im::VectorDiff;
 
 use super::{
-    updates::{ReaderToken, Update, UpdatesInner},
     ChunkContent, ChunkIdentifier, Iter, Position,
+    updates::{ReaderToken, Update, UpdatesInner},
 };
 use crate::linked_chunk::ChunkMetadata;
 
@@ -509,7 +509,7 @@ mod tests {
     use std::fmt::Debug;
 
     use assert_matches::assert_matches;
-    use imbl::{vector, Vector};
+    use imbl::{Vector, vector};
 
     use super::{
         super::{Chunk, ChunkIdentifierGenerator, LinkedChunk, Update},

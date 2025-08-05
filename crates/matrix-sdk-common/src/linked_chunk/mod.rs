@@ -1786,7 +1786,7 @@ pub struct ChunkMetadata {
 mod tests {
     use std::{
         ops::Not,
-        sync::{atomic::Ordering, Arc},
+        sync::{Arc, atomic::Ordering},
     };
 
     use assert_matches::assert_matches;
