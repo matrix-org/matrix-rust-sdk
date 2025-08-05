@@ -340,7 +340,7 @@ impl Indexed for Event {
         let relation = self.relation().map(|(related_event, relation_type)| {
             IndexedEventRelationKey::encode(
                 room_id,
-                (related_event, RelationType::from(relation_type)),
+                (&related_event, &RelationType::from(relation_type)),
                 serializer,
             )
         });
@@ -441,7 +441,7 @@ impl IndexedEventRelationKey {
     /// events which are related to the given event.
     pub fn with_related_event_id(
         &self,
-        related_event_id: &OwnedEventId,
+        related_event_id: &EventId,
         serializer: &IndexeddbSerializer,
     ) -> Self {
         let room_id = self.0.clone();
@@ -455,11 +455,11 @@ impl IndexedEventRelationKey {
 impl IndexedKey<Event> for IndexedEventRelationKey {
     const INDEX: Option<&'static str> = Some(keys::EVENTS_RELATION);
 
-    type KeyComponents<'a> = (OwnedEventId, RelationType);
+    type KeyComponents<'a> = (&'a EventId, &'a RelationType);
 
     fn encode(
         room_id: &RoomId,
-        (related_event_id, relation_type): (OwnedEventId, RelationType),
+        (related_event_id, relation_type): (&EventId, &RelationType),
         serializer: &IndexeddbSerializer,
     ) -> Self {
         let room_id = serializer.encode_key_as_string(keys::ROOMS, room_id);
