@@ -25,6 +25,14 @@ All notable changes to this project will be documented in this file.
   to ensure that the recipients are sufficiently trusted.
   ([#5457](https://github.com/matrix-org/matrix-rust-sdk/pull/5457/))
 
+### Refactor
+
+- [**breaking**] The `sender_key` and `device_id` fields of
+  `encrypted::MegolmV1AesSha2Content` and
+  `room_key_request::MegolmV1AesSha2Content` are now optional. The have been
+  deprecated in Matrix 1.3 and are no longer required.
+  ([#5489](https://github.com/matrix-org/matrix-rust-sdk/pull/5489))
+
 ## [0.13.0] - 2025-07-10
 
 ### Features
@@ -50,7 +58,7 @@ All notable changes to this project will be documented in this file.
   Format changed from `Decrypted(Raw<AnyToDeviceEvent>)` to `Decrypted { raw: Raw<AnyToDeviceEvent>, encryption_info: EncryptionInfo) }`
   ([#5074](https://github.com/matrix-org/matrix-rust-sdk/pull/5074))
 
-- [**breaking**] Move `session_id` from `EncryptionInfo` to `AlgorithmInfo` as it is megolm specific. 
+- [**breaking**] Move `session_id` from `EncryptionInfo` to `AlgorithmInfo` as it is megolm specific.
   Use `EncryptionInfo::session_id()` helper for quick access.
   ([#4981](https://github.com/matrix-org/matrix-rust-sdk/pull/4981))
 
@@ -74,7 +82,7 @@ All notable changes to this project will be documented in this file.
   cases can cause room key oversharing.
   ([#4975](https://github.com/matrix-org/matrix-rust-sdk/pull/4975))
 
-- [**breaking**] `OlmMachine.receive_sync_changes` returns now a list of `ProcessedToDeviceEvent` 
+- [**breaking**] `OlmMachine.receive_sync_changes` returns now a list of `ProcessedToDeviceEvent`
   instead of a list of `Raw<AnyToDeviceEvent>`. With variants like `Decrypted`|`UnableToDecrypt`|`PlainText`|`NotProcessed`.
   This allows for example to make the difference between an event sent in clear and an event successfully decrypted.
   For quick compatibility a helper `ProcessedToDeviceEvent::to_raw` allows to map back to the previous behaviour.
@@ -126,7 +134,7 @@ All notable changes to this project will be documented in this file.
 
 - Room keys are not shared with unsigned dehydrated devices.
   ([#4551](https://github.com/matrix-org/matrix-rust-sdk/pull/4551))
-  
+
 ## [0.9.0] - 2024-12-18
 
 ### Features
