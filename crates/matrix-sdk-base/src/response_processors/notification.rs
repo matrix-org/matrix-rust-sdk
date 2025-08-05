@@ -59,7 +59,7 @@ impl<'a> Notification<'a> {
     /// `push_condition_room_ctx`. (based on `Self::push_rules`).
     ///
     /// This method returns the fetched [`Action`]s.
-    pub fn push_notification_from_event_if<E, P>(
+    pub async fn push_notification_from_event_if<E, P>(
         &mut self,
         room_id: &RoomId,
         push_condition_room_ctx: &PushConditionRoomCtx,
@@ -70,7 +70,7 @@ impl<'a> Notification<'a> {
         Raw<E>: Into<RawAnySyncOrStrippedTimelineEvent>,
         P: Fn(&Action) -> bool,
     {
-        let actions = self.push_rules.get_actions(event, push_condition_room_ctx);
+        let actions = self.push_rules.get_actions(event, push_condition_room_ctx).await;
 
         if actions.iter().any(predicate) {
             self.push_notification(room_id, actions.to_owned(), event.clone().into());

@@ -343,7 +343,11 @@ impl Decryptor for (matrix_sdk_base::crypto::OlmMachine, ruma::OwnedRoomId) {
             .await?
         {
             RoomEventDecryptionResult::Decrypted(decrypted) => {
-                let push_actions = push_ctx.map(|push_ctx| push_ctx.for_event(&decrypted.event));
+                let push_actions = if let Some(push_ctx) = push_ctx {
+                    Some(push_ctx.for_event(&decrypted.event).await)
+                } else {
+                    None
+                };
                 Ok(TimelineEvent::from_decrypted(decrypted, push_actions))
             }
             RoomEventDecryptionResult::UnableToDecrypt(utd_info) => {
