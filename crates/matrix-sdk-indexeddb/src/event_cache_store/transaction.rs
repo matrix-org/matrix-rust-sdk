@@ -632,7 +632,7 @@ impl<'a> IndexeddbEventCacheStoreTransaction<'a> {
     pub async fn get_events_by_relation(
         &self,
         room_id: &RoomId,
-        range: impl Into<IndexedKeyRange<(OwnedEventId, RelationType)>>,
+        range: impl Into<IndexedKeyRange<(&EventId, &RelationType)>>,
     ) -> Result<Vec<Event>, IndexeddbEventCacheStoreTransactionError> {
         let range = range.into().encoded(room_id, self.serializer.inner());
         self.get_items_by_key::<Event, IndexedEventRelationKey>(room_id, range).await
@@ -643,12 +643,12 @@ impl<'a> IndexeddbEventCacheStoreTransaction<'a> {
     pub async fn get_events_by_related_event(
         &self,
         room_id: &RoomId,
-        related_event_id: OwnedEventId,
+        related_event_id: &EventId,
     ) -> Result<Vec<Event>, IndexeddbEventCacheStoreTransactionError> {
         let lower = IndexedEventRelationKey::lower_key(room_id, self.serializer.inner())
-            .with_related_event_id(&related_event_id, self.serializer.inner());
+            .with_related_event_id(related_event_id, self.serializer.inner());
         let upper = IndexedEventRelationKey::upper_key(room_id, self.serializer.inner())
-            .with_related_event_id(&related_event_id, self.serializer.inner());
+            .with_related_event_id(related_event_id, self.serializer.inner());
         let range = IndexedKeyRange::Bound(lower, upper);
         self.get_items_by_key::<Event, IndexedEventRelationKey>(room_id, range).await
     }

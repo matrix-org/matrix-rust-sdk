@@ -488,7 +488,7 @@ impl_event_cache_store! {
         match filters {
             Some(relation_types) if !relation_types.is_empty() => {
                 for relation_type in relation_types {
-                    let relation = (event_id.to_owned(), relation_type.clone());
+                    let relation = (event_id, relation_type);
                     let events = transaction.get_events_by_relation(room_id, relation).await?;
                     for event in events {
                         let position = event.position().map(Into::into);
@@ -498,7 +498,7 @@ impl_event_cache_store! {
             }
             _ => {
                 for event in
-                    transaction.get_events_by_related_event(room_id, event_id.to_owned()).await?
+                    transaction.get_events_by_related_event(room_id, event_id).await?
                 {
                     let position = event.position().map(Into::into);
                     related_events.push((event.into(), position));
