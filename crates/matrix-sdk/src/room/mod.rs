@@ -3022,15 +3022,28 @@ impl Room {
             }
         };
 
-        Ok(Some(assign!(
-            PushConditionRoomCtx::new(
-                room_id.to_owned(),
-                UInt::new(member_count).unwrap_or(UInt::MAX),
-                user_id.to_owned(),
-                user_display_name,
-            ),
-            { power_levels }
-        )))
+        let this = self.clone();
+        let ctx = assign!(PushConditionRoomCtx::new(
+            room_id.to_owned(),
+            UInt::new(member_count).unwrap_or(UInt::MAX),
+            user_id.to_owned(),
+            user_display_name,
+        ),
+        {
+            power_levels,
+        })
+        .with_has_thread_subscription_fn(move |event_id: &EventId| {
+            let room = this.clone();
+            Box::pin(async move {
+                if let Ok(maybe_sub) = room.fetch_thread_subscription(event_id.to_owned()).await {
+                    maybe_sub.is_some()
+                } else {
+                    false
+                }
+            })
+        });
+
+        Ok(Some(ctx))
     }
 
     /// Retrieves a [`PushContext`] that can be used to compute the push

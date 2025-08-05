@@ -1,7 +1,7 @@
 use assert_matches2::assert_matches;
 use matrix_sdk::{room::ThreadSubscription, test_utils::mocks::MatrixMockServer};
-use matrix_sdk_test::async_test;
-use ruma::{owned_event_id, room_id};
+use matrix_sdk_test::{async_test, event_factory::EventFactory, JoinedRoomBuilder, ALICE};
+use ruma::{event_id, owned_event_id, room_id};
 
 #[async_test]
 async fn test_subscribe_thread() {
@@ -77,4 +77,65 @@ async fn test_subscribe_thread() {
     // And in this case, the thread is still unsubscribed.
     let subscription = room.fetch_thread_subscription(root_id).await.unwrap();
     assert_matches!(subscription, None);
+}
+
+#[async_test]
+async fn test_thread_push_rule_is_triggered_for_subscribed_threads() {
+    // This test checks that the evaluation of push rules for threads will correctly
+    // call `Room::fetch_thread_subscription` for threads.
+
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+
+    let room_id = room_id!("!test:example.org");
+    let room = server.sync_joined_room(&client, room_id).await;
+
+    let thread_root_id = owned_event_id!("$root");
+    let f = EventFactory::new().room(room_id).sender(*ALICE);
+
+    // Make it so that the client has a member event for the current user.
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id).add_state_event(f.member(client.user_id().unwrap())),
+        )
+        .await;
+
+    // Sanity check: we can get a push context.
+    let push_context = room
+        .push_context()
+        .await
+        .expect("getting a push context works")
+        .expect("the push context should exist");
+
+    // Mock the thread subscriptions endpoint so the user is subscribed to the
+    // thread.
+    server
+        .mock_get_thread_subscription()
+        .match_room_id(room_id.to_owned())
+        .match_thread_id(thread_root_id.clone())
+        .ok(true)
+        .mock_once()
+        .mount()
+        .await;
+
+    // Given an event in the thread I'm subscribed to, the push rule evaluation will
+    // trigger the thread subscription endpoint,
+    let event =
+        f.text_msg("hello to you too!").in_thread(&thread_root_id, &thread_root_id).into_raw_sync();
+
+    // And the event will trigger a notification.
+    let actions = push_context.for_event(&event).await;
+    assert!(actions.iter().any(|action| action.should_notify()));
+
+    // But for a thread that I haven't subscribed to (i.e. the endpoint returns 404,
+    // because it's not set up), no actions are returned.
+    let another_thread_root_id = event_id!("$another_root");
+    let event = f
+        .text_msg("bonjour à vous également !")
+        .in_thread(another_thread_root_id, another_thread_root_id)
+        .into_raw_sync();
+
+    let actions = push_context.for_event(&event).await;
+    assert!(actions.is_empty());
 }
