@@ -335,10 +335,10 @@ impl fmt::Debug for State {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Before(events) => {
-                f.debug_tuple("Before").field(&DebugListOfRawEvents(&events)).finish()
+                f.debug_tuple("Before").field(&DebugListOfRawEvents(events)).finish()
             }
             Self::After(events) => {
-                f.debug_tuple("After").field(&DebugListOfRawEvents(&events)).finish()
+                f.debug_tuple("After").field(&DebugListOfRawEvents(events)).finish()
             }
         }
     }
