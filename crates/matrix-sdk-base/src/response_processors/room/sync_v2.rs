@@ -16,9 +16,10 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use ruma::{
     OwnedRoomId, OwnedUserId, RoomId,
-    api::client::sync::sync_events::v3::{InvitedRoom, JoinedRoom, KnockedRoom, LeftRoom},
+    api::client::sync::sync_events::v3::{InvitedRoom, JoinedRoom, KnockedRoom, LeftRoom, State},
 };
 use tokio::sync::broadcast::Sender;
+use tracing::error;
 
 #[cfg(feature = "e2e-encryption")]
 use super::super::e2ee;
@@ -61,38 +62,47 @@ pub async fn update_joined_room(
     room_info.mark_state_fully_synced();
     room_info.handle_encryption_state(requested_required_states.for_room(room_id));
 
-    let (raw_state_events, state_events) = state_events::sync::collect(&joined_room.state.events);
-
     let mut new_user_ids = BTreeSet::new();
 
-    state_events::sync::dispatch(
-        context,
-        (&raw_state_events, &state_events),
-        &mut room_info,
-        ambiguity_cache,
-        &mut new_user_ids,
-        state_store,
-    )
-    .await?;
+    let state = match joined_room.state {
+        State::Before(state) => {
+            let (raw_state_events, state_events) = state_events::sync::collect(&state.events);
+            state_events::sync::dispatch(
+                context,
+                (&raw_state_events, &state_events),
+                &mut room_info,
+                ambiguity_cache,
+                &mut new_user_ids,
+                state_store,
+            )
+            .await?;
+
+            let (raw_state_events_from_timeline, state_events_from_timeline) =
+                state_events::sync::collect_from_timeline(&joined_room.timeline.events);
+            state_events::sync::dispatch(
+                context,
+                (&raw_state_events_from_timeline, &state_events_from_timeline),
+                &mut room_info,
+                ambiguity_cache,
+                &mut new_user_ids,
+                state_store,
+            )
+            .await?;
+
+            state
+        }
+        // We shouldn't receive other variants because they are opt-in.
+        state => {
+            error!("Unsupported State variant received for joined room: {state:?}");
+            Default::default()
+        }
+    };
 
     ephemeral_events::dispatch(context, &joined_room.ephemeral.events, room_id);
 
     if joined_room.timeline.limited {
         room_info.mark_members_missing();
     }
-
-    let (raw_state_events_from_timeline, state_events_from_timeline) =
-        state_events::sync::collect_from_timeline(&joined_room.timeline.events);
-
-    state_events::sync::dispatch(
-        context,
-        (&raw_state_events_from_timeline, &state_events_from_timeline),
-        &mut room_info,
-        ambiguity_cache,
-        &mut new_user_ids,
-        state_store,
-    )
-    .await?;
 
     #[cfg(feature = "e2e-encryption")]
     let olm_machine = e2ee.olm_machine;
@@ -145,7 +155,7 @@ pub async fn update_joined_room(
 
     Ok(JoinedRoomUpdate::new(
         timeline,
-        joined_room.state.events,
+        state.events,
         joined_room.account_data.events,
         joined_room.ephemeral.events,
         notification_count,
@@ -179,30 +189,39 @@ pub async fn update_left_room(
     room_info.mark_state_partially_synced();
     room_info.handle_encryption_state(requested_required_states.for_room(room_id));
 
-    let (raw_state_events, state_events) = state_events::sync::collect(&left_room.state.events);
+    let state = match left_room.state {
+        State::Before(state) => {
+            let (raw_state_events, state_events) = state_events::sync::collect(&state.events);
+            state_events::sync::dispatch(
+                context,
+                (&raw_state_events, &state_events),
+                &mut room_info,
+                ambiguity_cache,
+                &mut (),
+                state_store,
+            )
+            .await?;
 
-    state_events::sync::dispatch(
-        context,
-        (&raw_state_events, &state_events),
-        &mut room_info,
-        ambiguity_cache,
-        &mut (),
-        state_store,
-    )
-    .await?;
+            let (raw_state_events_from_timeline, state_events_from_timeline) =
+                state_events::sync::collect_from_timeline(&left_room.timeline.events);
+            state_events::sync::dispatch(
+                context,
+                (&raw_state_events_from_timeline, &state_events_from_timeline),
+                &mut room_info,
+                ambiguity_cache,
+                &mut (),
+                state_store,
+            )
+            .await?;
 
-    let (raw_state_events_from_timeline, state_events_from_timeline) =
-        state_events::sync::collect_from_timeline(&left_room.timeline.events);
-
-    state_events::sync::dispatch(
-        context,
-        (&raw_state_events_from_timeline, &state_events_from_timeline),
-        &mut room_info,
-        ambiguity_cache,
-        &mut (),
-        state_store,
-    )
-    .await?;
+            state
+        }
+        // We shouldn't receive other variants because they are opt-in.
+        state => {
+            error!("Unsupported State variant received for left room: {state:?}");
+            Default::default()
+        }
+    };
 
     let timeline = timeline::build(
         context,
@@ -224,7 +243,7 @@ pub async fn update_left_room(
 
     Ok(LeftRoomUpdate::new(
         timeline,
-        left_room.state.events,
+        state.events,
         left_room.account_data.events,
         ambiguity_changes,
     ))

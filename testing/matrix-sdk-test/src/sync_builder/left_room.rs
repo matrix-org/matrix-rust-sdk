@@ -5,7 +5,7 @@ use ruma::{
     serde::Raw,
 };
 
-use super::{RoomAccountDataTestEvent, StateTestEvent};
+use super::{RoomAccountDataTestEvent, StateMutExt, StateTestEvent};
 use crate::DEFAULT_TEST_ROOM_ID;
 
 pub struct LeftRoomBuilder {
@@ -71,7 +71,7 @@ impl LeftRoomBuilder {
 
     /// Add an event to the state.
     pub fn add_state_event(mut self, event: StateTestEvent) -> Self {
-        self.inner.state.events.push(event.into());
+        self.inner.state.events_mut().push(event.into());
         self
     }
 
@@ -80,7 +80,7 @@ impl LeftRoomBuilder {
     where
         I: IntoIterator<Item = Raw<AnySyncStateEvent>>,
     {
-        self.inner.state.events.extend(events);
+        self.inner.state.events_mut().extend(events);
         self
     }
 

@@ -59,7 +59,7 @@ proptest = { version = "1.6.0", default-features = false, features = ["std"] }
 rand = "0.8.5"
 reqwest = { version = "0.12.12", default-features = false }
 rmp-serde = "1.3.0"
-ruma = { git = "https://github.com/ruma/ruma", rev = "bbbe39b5b02f2211fdc5e11383c4b66116f19625", features = [
+ruma = { git = "https://github.com/ruma/ruma", rev = "a626e6b8521bcaa01bf8b7c4161b26b361b72aff", features = [
     "client-api-c",
     "compat-upload-signatures",
     "compat-arbitrary-length-ids",
@@ -78,7 +78,7 @@ ruma = { git = "https://github.com/ruma/ruma", rev = "bbbe39b5b02f2211fdc5e11383
     "unstable-msc4286",
     "unstable-msc4306"
 ] }
-ruma-common = { git = "https://github.com/ruma/ruma", rev = "bbbe39b5b02f2211fdc5e11383c4b66116f19625" }
+ruma-common = { git = "https://github.com/ruma/ruma", rev = "a626e6b8521bcaa01bf8b7c4161b26b361b72aff" }
 sentry = "0.36.0"
 sentry-tracing = "0.36.0"
 serde = { version = "1.0.217", features = ["rc"] }
