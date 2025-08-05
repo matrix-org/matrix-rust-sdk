@@ -4083,6 +4083,8 @@ pub struct RoomMemberWithSenderInfo {
 
 #[cfg(all(test, not(target_family = "wasm")))]
 mod tests {
+    use std::collections::BTreeMap;
+
     use matrix_sdk_base::{store::ComposerDraftType, ComposerDraft};
     use matrix_sdk_test::{
         async_test, event_factory::EventFactory, test_json, JoinedRoomBuilder, StateTestEvent,
@@ -4091,7 +4093,7 @@ mod tests {
     use ruma::{
         event_id,
         events::{relation::RelationType, room::member::MembershipState},
-        int, owned_event_id, room_id, user_id,
+        int, owned_event_id, room_id, user_id, RoomVersionId,
     };
     use wiremock::{
         matchers::{header, method, path_regex},
@@ -4643,5 +4645,69 @@ mod tests {
         assert!(result.prev_batch_token.is_none());
         assert!(result.next_batch_token.is_none());
         assert!(result.recursion_depth.is_none());
+    }
+
+    #[async_test]
+    async fn test_power_levels_computation() {
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+
+        let room_id = room_id!("!a:b.c");
+        let sender_id = client.user_id().expect("No session id");
+        let f = EventFactory::new().room(room_id).sender(sender_id);
+        let mut user_map = BTreeMap::from([(sender_id.into(), 50.into())]);
+
+        // Computing the power levels will need these 3 state events:
+        let room_create_event = f.create(sender_id, RoomVersionId::V1).state_key("").into_raw();
+        let power_levels_event = f.power_levels(&mut user_map).state_key("").into_raw();
+        let room_member_event = f.member(sender_id).into_raw();
+
+        // With only the room member event
+        let room = server
+            .sync_room(
+                &client,
+                JoinedRoomBuilder::new(room_id).add_state_bulk([room_member_event.clone()]),
+            )
+            .await;
+        let ctx = room
+            .push_condition_room_ctx()
+            .await
+            .expect("Failed to get push condition context")
+            .expect("Could not get push condition context");
+
+        // The internal power levels couldn't be computed
+        assert!(ctx.power_levels.is_none());
+
+        // Adding the room creation event
+        let room = server
+            .sync_room(
+                &client,
+                JoinedRoomBuilder::new(room_id).add_state_bulk([room_create_event.clone()]),
+            )
+            .await;
+        let ctx = room
+            .push_condition_room_ctx()
+            .await
+            .expect("Failed to get push condition context")
+            .expect("Could not get push condition context");
+
+        // The internal power levels still couldn't be computed
+        assert!(ctx.power_levels.is_none());
+
+        // With the room member, room creation and the power levels events
+        let room = server
+            .sync_room(
+                &client,
+                JoinedRoomBuilder::new(room_id).add_state_bulk([power_levels_event]),
+            )
+            .await;
+        let ctx = room
+            .push_condition_room_ctx()
+            .await
+            .expect("Failed to get push condition context")
+            .expect("Could not get push condition context");
+
+        // The internal power levels can finally be computed
+        assert!(ctx.power_levels.is_some());
     }
 }
