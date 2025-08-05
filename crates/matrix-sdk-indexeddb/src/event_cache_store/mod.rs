@@ -195,7 +195,7 @@ impl_event_cache_store! {
                 }
                 Update::RemoveChunk(chunk_id) => {
                     trace!("Removing chunk {chunk_id:?}");
-                    transaction.delete_chunk_by_id(room_id, &chunk_id).await?;
+                    transaction.delete_chunk_by_id(room_id, chunk_id).await?;
                 }
                 Update::PushItems { at, items } => {
                     let chunk_identifier = at.chunk_identifier().index();
@@ -239,7 +239,7 @@ impl_event_cache_store! {
 
                     trace!(%room_id, "removing item @ {chunk_id}:{index}");
 
-                    transaction.delete_event_by_position(room_id, &at.into()).await?;
+                    transaction.delete_event_by_position(room_id, at.into()).await?;
                 }
                 Update::DetachLastItems { at } => {
                     let chunk_id = at.chunk_identifier().index();
@@ -247,7 +247,7 @@ impl_event_cache_store! {
 
                     trace!(%room_id, "detaching last items @ {chunk_id}:{index}");
 
-                    transaction.delete_events_by_chunk_from_index(room_id, &at.into()).await?;
+                    transaction.delete_events_by_chunk_from_index(room_id, at.into()).await?;
                 }
                 Update::StartReattachItems | Update::EndReattachItems => {
                     // Nothing? See sqlite implementation
@@ -283,7 +283,7 @@ impl_event_cache_store! {
         let chunks = transaction.get_chunks_in_room(room_id).await?;
         for chunk in chunks {
             if let Some(raw_chunk) = transaction
-                .load_chunk_by_id(room_id, &ChunkIdentifier::new(chunk.identifier))
+                .load_chunk_by_id(room_id, ChunkIdentifier::new(chunk.identifier))
                 .await?
             {
                 raw_chunks.push(raw_chunk);
@@ -321,7 +321,7 @@ impl_event_cache_store! {
         let chunks = transaction.get_chunks_in_room(room_id).await?;
         for chunk in chunks {
             let chunk_id = ChunkIdentifier::new(chunk.identifier);
-            let num_items = transaction.get_events_count_by_chunk(room_id, &chunk_id).await?;
+            let num_items = transaction.get_events_count_by_chunk(room_id, chunk_id).await?;
             raw_chunks.push(ChunkMetadata {
                 num_items,
                 previous: chunk.previous.map(ChunkIdentifier::new),
@@ -355,7 +355,7 @@ impl_event_cache_store! {
         // Now that we know we have some chunks in the room, we query IndexedDB
         // for the last chunk in the room by getting the chunk which does not
         // have a next chunk.
-        match transaction.get_chunk_by_next_chunk_id(room_id, &None).await {
+        match transaction.get_chunk_by_next_chunk_id(room_id, None).await {
             Err(IndexeddbEventCacheStoreTransactionError::ItemIsNotUnique) => {
                 // If there are multiple chunks that do not have a next chunk, that
                 // means we have more than one last chunk, which means that we have
@@ -375,7 +375,7 @@ impl_event_cache_store! {
             Ok(Some(last_chunk)) => {
                 let last_chunk_identifier = ChunkIdentifier::new(last_chunk.identifier);
                 let last_raw_chunk = transaction
-                    .load_chunk_by_id(room_id, &last_chunk_identifier)
+                    .load_chunk_by_id(room_id, last_chunk_identifier)
                     .await?
                     .ok_or(IndexeddbEventCacheStoreError::UnableToLoadChunk)?;
                 let max_chunk_id = transaction
@@ -404,10 +404,10 @@ impl_event_cache_store! {
             &[keys::LINKED_CHUNKS, keys::EVENTS, keys::GAPS],
             IdbTransactionMode::Readonly,
         )?;
-        if let Some(chunk) = transaction.get_chunk_by_id(room_id, &before_chunk_identifier).await? {
+        if let Some(chunk) = transaction.get_chunk_by_id(room_id, before_chunk_identifier).await? {
             if let Some(previous_identifier) = chunk.previous {
                 let previous_identifier = ChunkIdentifier::new(previous_identifier);
-                return Ok(transaction.load_chunk_by_id(room_id, &previous_identifier).await?);
+                return Ok(transaction.load_chunk_by_id(room_id, previous_identifier).await?);
             }
         }
         Ok(None)
@@ -447,7 +447,7 @@ impl_event_cache_store! {
         let mut duplicated = Vec::new();
         for event_id in events {
             if let Some(types::Event::InBand(event)) =
-                transaction.get_event_by_id(room_id, &event_id).await?
+                transaction.get_event_by_id(room_id, event_id.clone()).await?
             {
                 duplicated.push((event_id, event.position.into()));
             }
@@ -466,7 +466,7 @@ impl_event_cache_store! {
         let transaction =
             self.transaction(&[keys::EVENTS], IdbTransactionMode::Readonly)?;
         transaction
-            .get_event_by_id(room_id, &event_id.to_owned())
+            .get_event_by_id(room_id, event_id.to_owned())
             .await
             .map(|ok| ok.map(Into::into))
             .map_err(Into::into)
@@ -489,7 +489,7 @@ impl_event_cache_store! {
             Some(relation_types) if !relation_types.is_empty() => {
                 for relation_type in relation_types {
                     let relation = (event_id.to_owned(), relation_type.clone());
-                    let events = transaction.get_events_by_relation(room_id, &relation).await?;
+                    let events = transaction.get_events_by_relation(room_id, relation).await?;
                     for event in events {
                         let position = event.position().map(Into::into);
                         related_events.push((event.into(), position));
@@ -498,7 +498,7 @@ impl_event_cache_store! {
             }
             _ => {
                 for event in
-                    transaction.get_events_by_related_event(room_id, &event_id.to_owned()).await?
+                    transaction.get_events_by_related_event(room_id, event_id.to_owned()).await?
                 {
                     let position = event.position().map(Into::into);
                     related_events.push((event.into(), position));
@@ -522,7 +522,7 @@ impl_event_cache_store! {
         };
         let transaction =
             self.transaction(&[keys::EVENTS], IdbTransactionMode::Readwrite)?;
-        let event = match transaction.get_event_by_id(room_id, &event_id).await? {
+        let event = match transaction.get_event_by_id(room_id, event_id).await? {
             Some(mut inner) => inner.with_content(event),
             None => types::Event::OutOfBand(OutOfBandEvent { content: event, position: () }),
         };

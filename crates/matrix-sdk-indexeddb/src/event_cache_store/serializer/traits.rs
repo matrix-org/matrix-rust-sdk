@@ -54,7 +54,7 @@ pub trait IndexedKey<T: Indexed> {
     const INDEX: Option<&'static str> = None;
 
     /// Any extra data used to construct the key.
-    type KeyComponents;
+    type KeyComponents<'a>;
 
     /// Encodes the key components into a type that can be used as a key in
     /// IndexedDB.
@@ -65,7 +65,7 @@ pub trait IndexedKey<T: Indexed> {
     /// encrypted before storage.
     fn encode(
         room_id: &RoomId,
-        components: &Self::KeyComponents,
+        components: Self::KeyComponents<'_>,
         serializer: &IndexeddbSerializer,
     ) -> Self;
 }
@@ -104,12 +104,12 @@ where
 {
     /// Constructs the lower bound of the key.
     fn lower_key(room_id: &RoomId, serializer: &IndexeddbSerializer) -> Self {
-        <Self as IndexedKey<T>>::encode(room_id, &Self::lower_key_components(), serializer)
+        <Self as IndexedKey<T>>::encode(room_id, Self::lower_key_components(), serializer)
     }
 
     /// Constructs the upper bound of the key.
     fn upper_key(room_id: &RoomId, serializer: &IndexeddbSerializer) -> Self {
-        <Self as IndexedKey<T>>::encode(room_id, &Self::upper_key_components(), serializer)
+        <Self as IndexedKey<T>>::encode(room_id, Self::upper_key_components(), serializer)
     }
 }
 
@@ -123,8 +123,8 @@ where
 /// get a better overview of how these two interact.
 pub trait IndexedKeyComponentBounds<T: Indexed>: IndexedKeyBounds<T> {
     /// Constructs the lower bound of the key components.
-    fn lower_key_components() -> Self::KeyComponents;
+    fn lower_key_components() -> Self::KeyComponents<'static>;
 
     /// Constructs the upper bound of the key components.
-    fn upper_key_components() -> Self::KeyComponents;
+    fn upper_key_components() -> Self::KeyComponents<'static>;
 }
