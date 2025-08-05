@@ -369,7 +369,7 @@ where
     pub fn unordered_linked_chunk_items<'a>(
         &'a self,
         target: &OwnedLinkedChunkId,
-    ) -> impl 'a + Iterator<Item = (&'a Item, Position)> {
+    ) -> impl Iterator<Item = (&'a Item, Position)> + use<'a, ItemId, Item, Gap> {
         self.items.get(target).into_iter().flat_map(|items| {
             // Only keep items which have a position.
             items.values().filter_map(|(item, pos)| pos.map(|pos| (item, pos)))

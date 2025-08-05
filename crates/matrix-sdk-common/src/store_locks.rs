@@ -309,7 +309,7 @@ impl<S: BackingStore + Clone + SendOutsideWasm + 'static> CrossProcessStoreLock<
             let mut backoff = self.backoff.lock().await;
 
             let wait = match &mut *backoff {
-                WaitingTime::Some(ref mut val) => {
+                WaitingTime::Some(val) => {
                     let wait = *val;
                     *val = val.saturating_mul(2);
                     if *val >= max_backoff {
