@@ -602,14 +602,14 @@ pub enum EncryptedMessage {
     /// Metadata about an event using the `m.megolm.v1.aes-sha2` algorithm.
     MegolmV1AesSha2 {
         /// The Curve25519 key of the sender.
-        #[deprecated = "this field still needs to be sent but should not be used when received"]
+        #[deprecated = "this field should still be sent but should not be used when received"]
         #[doc(hidden)] // Included for Debug formatting only
-        sender_key: String,
+        sender_key: Option<String>,
 
         /// The ID of the sending device.
-        #[deprecated = "this field still needs to be sent but should not be used when received"]
+        #[deprecated = "this field should still be sent but should not be used when received"]
         #[doc(hidden)] // Included for Debug formatting only
-        device_id: OwnedDeviceId,
+        device_id: Option<OwnedDeviceId>,
 
         /// The ID of the session used to encrypt the message.
         session_id: String,

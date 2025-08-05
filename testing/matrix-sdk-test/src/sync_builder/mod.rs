@@ -6,10 +6,12 @@ use ruma::{
     api::{
         IncomingResponse,
         client::sync::sync_events::v3::{
-            InvitedRoom, JoinedRoom, KnockedRoom, LeftRoom, Response as SyncResponse,
+            InvitedRoom, JoinedRoom, KnockedRoom, LeftRoom, Response as SyncResponse, State,
         },
     },
-    events::{AnyGlobalAccountDataEvent, AnyToDeviceEvent, presence::PresenceEvent},
+    events::{
+        AnyGlobalAccountDataEvent, AnySyncStateEvent, AnyToDeviceEvent, presence::PresenceEvent,
+    },
     serde::Raw,
 };
 use serde_json::{Value as JsonValue, from_value as from_json_value, json};
@@ -245,5 +247,20 @@ impl SyncResponseBuilder {
         self.left_rooms.clear();
         self.knocked_rooms.clear();
         self.presence.clear();
+    }
+}
+
+/// Helper trait to mutate the data in [`State`].
+trait StateMutExt {
+    fn events_mut(&mut self) -> &mut Vec<Raw<AnySyncStateEvent>>;
+}
+
+impl StateMutExt for State {
+    fn events_mut(&mut self) -> &mut Vec<Raw<AnySyncStateEvent>> {
+        match self {
+            Self::Before(state) => &mut state.events,
+            // We don't allow to construct another variant.
+            _ => unreachable!(),
+        }
     }
 }
