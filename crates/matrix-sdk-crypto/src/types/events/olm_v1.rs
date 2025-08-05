@@ -59,7 +59,7 @@ impl DecryptedForwardedRoomKeyEvent {
             ForwardedRoomKeyContent::MegolmV1AesSha2(c) => Some(
                 room_key_request::MegolmV1AesSha2Content {
                     room_id: c.room_id.to_owned(),
-                    sender_key: c.claimed_sender_key,
+                    sender_key: Some(c.claimed_sender_key),
                     session_id: c.session_id.to_owned(),
                 }
                 .into(),

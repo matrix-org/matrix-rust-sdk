@@ -23,12 +23,12 @@ use vodozemac::{megolm::MegolmMessage, olm::OlmMessage, Curve25519PublicKey};
 
 use super::Event;
 use crate::types::{
-    deserialize_curve_key,
+    deserialize_curve_key, deserialize_curve_key_option,
     events::{
         room_key_request::{self, SupportedKeyInfo},
         EventType, ToDeviceEvent,
     },
-    serialize_curve_key, EventEncryptionAlgorithm,
+    serialize_curve_key, serialize_curve_key_option, EventEncryptionAlgorithm,
 };
 
 /// An m.room.encrypted room event.
@@ -309,11 +309,17 @@ pub struct MegolmV1AesSha2Content {
     pub ciphertext: MegolmMessage,
 
     /// The Curve25519 key of the sender.
-    #[serde(deserialize_with = "deserialize_curve_key", serialize_with = "serialize_curve_key")]
-    pub sender_key: Curve25519PublicKey,
+    #[serde(
+        default,
+        deserialize_with = "deserialize_curve_key_option",
+        serialize_with = "serialize_curve_key_option",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub sender_key: Option<Curve25519PublicKey>,
 
     /// The ID of the sending device.
-    pub device_id: OwnedDeviceId,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub device_id: Option<OwnedDeviceId>,
 
     /// The ID of the session used to encrypt the message.
     pub session_id: String,
@@ -523,6 +529,39 @@ pub(crate) mod tests {
         );
         assert!(content.message_id.is_none());
 
+        let serialized = serde_json::to_value(event)?;
+        assert_eq!(json, serialized);
+
+        Ok(())
+    }
+
+    #[test]
+    fn deserialization_missing_sender_key_device_id() -> Result<(), serde_json::Error> {
+        let json = json!({
+            "sender": "@alice:example.org",
+            "event_id": "$Nhl3rsgHMjk-DjMJANawr9HHAhLg4GcoTYrSiYYGqEE",
+            "content": {
+                "m.custom": "something custom",
+                "algorithm": "m.megolm.v1.aes-sha2",
+                "session_id": "ZFD6+OmV7fVCsJ7Gap8UnORH8EnmiAkes8FAvQuCw/I",
+                "ciphertext":
+                    "AwgAEiBQs2LgBD2CcB+RLH2bsgp9VadFUJhBXOtCmcJuttBDOeDNjL21d9\
+                     z0AcVSfQFAh9huh4or7sWuNrHcvu9/sMbweTgc0UtdA5xFLheubHouXy4a\
+                     ewze+ShndWAaTbjWJMLsPSQDUMQHBA",
+                "m.relates_to": {
+                    "rel_type": "m.reference",
+                    "event_id": "$WUreEJERkFzO8i2dk6CmTex01cP1dZ4GWKhKCwkWHrQ"
+                },
+            },
+            "type": "m.room.encrypted",
+            "origin_server_ts": 1632491098485u64,
+            "m.custom.top": "something custom in the top",
+        });
+
+        let event: EncryptedEvent = serde_json::from_value(json.clone())?;
+
+        assert_matches!(event.content.scheme, RoomEventEncryptionScheme::MegolmV1AesSha2(_));
+        assert!(event.content.relates_to.is_some());
         let serialized = serde_json::to_value(event)?;
         assert_eq!(json, serialized);
 
