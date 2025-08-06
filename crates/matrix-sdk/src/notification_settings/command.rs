@@ -74,7 +74,7 @@ impl Command {
 }
 
 /// Enum describing if and how to deliver a notification.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum Notify {
     /// Generate a notification both in-app and remote / push.
     All,
