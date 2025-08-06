@@ -862,7 +862,8 @@ impl RoomSendQueue {
                         trace!("upload will be encrypted (encrypted room)");
 
                         let mut cursor = std::io::Cursor::new(data);
-                        let mut req = room.client
+                        let mut req = room
+                            .client
                             .upload_encrypted_file(&mut cursor)
                             .with_request_config(RequestConfig::short_retry());
                         if let Some(progress) = progress {
