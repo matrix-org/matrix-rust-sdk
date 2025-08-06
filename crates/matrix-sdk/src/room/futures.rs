@@ -16,6 +16,8 @@
 
 #![deny(unreachable_pub)]
 
+#[cfg(feature = "experimental-encrypted-state-events")]
+use std::borrow::Borrow;
 use std::future::IntoFuture;
 
 use eyeball::SharedObservable;
@@ -31,7 +33,10 @@ use ruma::{
     OwnedTransactionId, TransactionId,
 };
 #[cfg(feature = "experimental-encrypted-state-events")]
-use ruma::{api::client::state::send_state_event, events::AnyStateEventContent};
+use ruma::{
+    api::client::state::send_state_event,
+    events::{AnyStateEventContent, StateEventContent},
+};
 use tracing::{info, trace, Instrument, Span};
 
 use super::Room;
@@ -465,5 +470,53 @@ impl<'a> IntoFuture for SendRawStateEvent<'a> {
         };
 
         Box::pin(fut.instrument(tracing_span))
+    }
+}
+
+/// Future returned by `Room::send_state_event`.
+#[allow(missing_debug_implementations)]
+#[cfg(feature = "experimental-encrypted-state-events")]
+pub struct SendStateEvent<'a> {
+    room: &'a Room,
+    event_type: String,
+    state_key: String,
+    content: serde_json::Result<serde_json::Value>,
+    request_config: Option<RequestConfig>,
+}
+
+#[cfg(feature = "experimental-encrypted-state-events")]
+impl<'a> SendStateEvent<'a> {
+    pub(crate) fn new<C, K>(room: &'a Room, state_key: &K, content: C) -> Self
+    where
+        C: StateEventContent,
+        C::StateKey: Borrow<K>,
+        K: AsRef<str> + ?Sized,
+    {
+        let event_type = content.event_type().to_string();
+        let state_key = state_key.as_ref().to_owned();
+        let content = serde_json::to_value(&content);
+        Self { room, event_type, state_key, content, request_config: None }
+    }
+
+    /// Assign a given [`RequestConfig`] to configure how this request should
+    /// behave with respect to the network.
+    pub fn with_request_config(mut self, request_config: RequestConfig) -> Self {
+        self.request_config = Some(request_config);
+        self
+    }
+}
+
+#[cfg(feature = "experimental-encrypted-state-events")]
+impl<'a> IntoFuture for SendStateEvent<'a> {
+    type Output = Result<send_state_event::v3::Response>;
+    boxed_into_future!(extra_bounds: 'a);
+
+    fn into_future(self) -> Self::IntoFuture {
+        let Self { room, state_key, event_type, content, request_config } = self;
+        Box::pin(async move {
+            let content = content?;
+            assign!(room.send_state_event_raw(&event_type, &state_key, content), { request_config })
+                .await
+        })
     }
 }
