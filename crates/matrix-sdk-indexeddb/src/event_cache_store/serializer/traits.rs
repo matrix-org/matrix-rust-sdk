@@ -35,7 +35,6 @@ pub trait Indexed: Sized {
     /// Converts the high-level type into an indexed type.
     fn to_indexed(
         &self,
-        room_id: &RoomId,
         serializer: &IndexeddbSerializer,
     ) -> Result<Self::IndexedType, Self::Error>;
 

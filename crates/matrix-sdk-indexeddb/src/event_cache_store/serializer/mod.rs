@@ -163,9 +163,8 @@ impl IndexeddbEventCacheStoreSerializer {
         T: Indexed,
         T::IndexedType: Serialize,
     {
-        let indexed = t
-            .to_indexed(room_id, &self.inner)
-            .map_err(IndexeddbEventCacheStoreSerializerError::Indexing)?;
+        let indexed =
+            t.to_indexed(&self.inner).map_err(IndexeddbEventCacheStoreSerializerError::Indexing)?;
         serde_wasm_bindgen::to_value(&indexed).map_err(Into::into)
     }
 
