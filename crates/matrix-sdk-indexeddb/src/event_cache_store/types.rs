@@ -16,13 +16,15 @@ use matrix_sdk_base::{
     deserialized_responses::TimelineEvent, event_cache::store::extract_event_relation,
     linked_chunk::ChunkIdentifier,
 };
-use ruma::OwnedEventId;
+use ruma::{OwnedEventId, OwnedRoomId, RoomId};
 use serde::{Deserialize, Serialize};
 
 /// Representation of a [`Chunk`](matrix_sdk_base::linked_chunk::Chunk)
 /// which can be stored in IndexedDB.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Chunk {
+    /// The room in which the chunk exists.
+    pub room_id: OwnedRoomId,
     /// The identifier of the chunk - i.e.,
     /// [`ChunkIdentifier`](matrix_sdk_base::linked_chunk::ChunkIdentifier).
     pub identifier: u64,
