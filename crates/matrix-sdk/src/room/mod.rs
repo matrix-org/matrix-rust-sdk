@@ -147,7 +147,7 @@ pub use self::{
 #[cfg(doc)]
 use crate::event_cache::EventCache;
 #[cfg(feature = "experimental-encrypted-state-events")]
-use crate::room::futures::SendRawStateEvent;
+use crate::room::futures::{SendRawStateEvent, SendStateEvent};
 use crate::{
     attachment::{AttachmentConfig, AttachmentInfo},
     client::WeakClient,
@@ -2734,12 +2734,72 @@ impl Room {
     /// joined_room.send_state_event(content).await?;
     /// # anyhow::Ok(()) };
     /// ```
+    #[cfg(not(feature = "experimental-encrypted-state-events"))]
     #[instrument(skip_all)]
     pub async fn send_state_event(
         &self,
         content: impl StateEventContent<StateKey = EmptyStateKey>,
     ) -> Result<send_state_event::v3::Response> {
         self.send_state_event_for_key(&EmptyStateKey, content).await
+    }
+
+    /// Send a state event with an empty state key to the homeserver.
+    ///
+    /// For state events with a non-empty state key, see
+    /// [`send_state_event_for_key`][Self::send_state_event_for_key].
+    ///
+    /// If the experimental state event encryption feature is enabled, this
+    /// method will transparently encrypt the event if this room is
+    /// encrypted (except if the event type is considered critical for the room
+    /// to function, as outlined in [MSC3414][msc3414]).
+    ///
+    /// Returns the parsed response from the server.
+    ///
+    /// # Arguments
+    ///
+    /// * `content` - The content of the state event.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # use serde::{Deserialize, Serialize};
+    /// # async {
+    /// # let joined_room: matrix_sdk::Room = todo!();
+    /// use matrix_sdk::ruma::{
+    ///     events::{
+    ///         macros::EventContent, room::encryption::RoomEncryptionEventContent,
+    ///         EmptyStateKey,
+    ///     },
+    ///     EventEncryptionAlgorithm,
+    /// };
+    ///
+    /// let encryption_event_content = RoomEncryptionEventContent::new(
+    ///     EventEncryptionAlgorithm::MegolmV1AesSha2,
+    /// );
+    /// joined_room.send_state_event(encryption_event_content).await?;
+    ///
+    /// // Custom event:
+    /// #[derive(Clone, Debug, Deserialize, Serialize, EventContent)]
+    /// #[ruma_event(
+    ///     type = "org.matrix.msc_9000.xxx",
+    ///     kind = State,
+    ///     state_key_type = EmptyStateKey,
+    /// )]
+    /// struct XxxStateEventContent {/* fields... */}
+    ///
+    /// let content: XxxStateEventContent = todo!();
+    /// joined_room.send_state_event(content).await?;
+    /// # anyhow::Ok(()) };
+    /// ```
+    ///
+    /// [msc3414]: https://github.com/matrix-org/matrix-spec-proposals/blob/travis/msc/encrypted-state/proposals/3414-encrypted-state.md
+    #[cfg(feature = "experimental-encrypted-state-events")]
+    #[instrument(skip_all)]
+    pub fn send_state_event<'a>(
+        &'a self,
+        content: impl StateEventContent<StateKey = EmptyStateKey>,
+    ) -> SendStateEvent<'a> {
+        self.send_state_event_for_key(&EmptyStateKey, content)
     }
 
     /// Send a state event to the homeserver.
@@ -2782,6 +2842,7 @@ impl Room {
     /// joined_room.send_state_event_for_key("foo", content).await?;
     /// # anyhow::Ok(()) };
     /// ```
+    #[cfg(not(feature = "experimental-encrypted-state-events"))]
     pub async fn send_state_event_for_key<C, K>(
         &self,
         state_key: &K,
@@ -2797,6 +2858,68 @@ impl Room {
             send_state_event::v3::Request::new(self.room_id().to_owned(), state_key, &content)?;
         let response = self.client.send(request).await?;
         Ok(response)
+    }
+
+    /// Send a state event to the homeserver. If state encryption is enabled in
+    /// this room, the event will be encrypted.
+    ///
+    /// If the experimental state event encryption feature is enabled, this
+    /// method will transparently encrypt the event if this room is
+    /// encrypted (except if the event type is considered critical for the room
+    /// to function, as outlined in [MSC3414][msc3414]).
+    ///
+    /// Returns the parsed response from the server.
+    ///
+    /// # Arguments
+    ///
+    /// * `content` - The content of the state event.
+    ///
+    /// * `state_key` - A unique key which defines the overwriting semantics for
+    ///   this piece of room state.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # use serde::{Deserialize, Serialize};
+    /// # async {
+    /// # let joined_room: matrix_sdk::Room = todo!();
+    /// use matrix_sdk::ruma::{
+    ///     events::{
+    ///         macros::EventContent,
+    ///         room::member::{RoomMemberEventContent, MembershipState},
+    ///     },
+    ///     mxc_uri,
+    /// };
+    ///
+    /// let avatar_url = mxc_uri!("mxc://example.org/avatar").to_owned();
+    /// let mut content = RoomMemberEventContent::new(MembershipState::Join);
+    /// content.avatar_url = Some(avatar_url);
+    ///
+    /// joined_room.send_state_event_for_key(ruma::user_id!("@foo:bar.com"), content).await?;
+    ///
+    /// // Custom event:
+    /// #[derive(Clone, Debug, Deserialize, Serialize, EventContent)]
+    /// #[ruma_event(type = "org.matrix.msc_9000.xxx", kind = State, state_key_type = String)]
+    /// struct XxxStateEventContent { /* fields... */ }
+    ///
+    /// let content: XxxStateEventContent = todo!();
+    /// joined_room.send_state_event_for_key("foo", content).await?;
+    /// # anyhow::Ok(()) };
+    /// ```
+    ///
+    /// [msc3414]: https://github.com/matrix-org/matrix-spec-proposals/blob/travis/msc/encrypted-state/proposals/3414-encrypted-state.md
+    #[cfg(feature = "experimental-encrypted-state-events")]
+    pub fn send_state_event_for_key<'a, C, K>(
+        &'a self,
+        state_key: &K,
+        content: C,
+    ) -> SendStateEvent<'a>
+    where
+        C: StateEventContent,
+        C::StateKey: Borrow<K>,
+        K: AsRef<str> + ?Sized,
+    {
+        SendStateEvent::new(self, state_key, content)
     }
 
     /// Send a raw room state event to the homeserver.
