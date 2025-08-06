@@ -16,7 +16,7 @@
 
 #![deny(unreachable_pub)]
 
-use std::future::IntoFuture;
+use std::{borrow::Borrow, future::IntoFuture};
 
 use eyeball::SharedObservable;
 use matrix_sdk_common::boxed_into_future;
@@ -26,7 +26,10 @@ use ruma::events::{MessageLikeUnsigned, SyncMessageLikeEvent};
 use ruma::{
     api::client::{message::send_message_event, state::send_state_event},
     assign,
-    events::{AnyMessageLikeEventContent, AnyStateEventContent, MessageLikeEventContent},
+    events::{
+        AnyMessageLikeEventContent, AnyStateEventContent, MessageLikeEventContent,
+        StateEventContent,
+    },
     serde::Raw,
     OwnedTransactionId, TransactionId,
 };
@@ -319,6 +322,37 @@ impl<'a> IntoFuture for SendAttachment<'a> {
         };
 
         Box::pin(fut.instrument(tracing_span))
+    }
+}
+
+/// TODO: Future returned by `Room::send_state_event`.
+#[allow(missing_debug_implementations)]
+pub struct SendStateEvent<'a> {
+    room: &'a Room,
+    event_type: String,
+    state_key: String,
+    content: serde_json::Result<serde_json::Value>,
+    request_config: Option<RequestConfig>,
+}
+
+impl<'a> SendStateEvent<'a> {
+    pub(crate) fn new<C, K>(room: &'a Room, state_key: &K, content: C) -> Self
+    where
+        C: StateEventContent,
+        C::StateKey: Borrow<K>,
+        K: AsRef<str> + ?Sized,
+    {
+        let event_type = content.event_type().to_string();
+        let state_key = state_key.as_ref().to_owned();
+        let content = serde_json::to_value(&content);
+        Self { room, event_type, state_key, content, request_config: None }
+    }
+
+    /// Assign a given [`RequestConfig`] to configure how this request should
+    /// behave with respect to the network.
+    pub fn with_request_config(mut self, request_config: RequestConfig) -> Self {
+        self.request_config = Some(request_config);
+        self
     }
 }
 
