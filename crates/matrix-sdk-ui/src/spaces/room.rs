@@ -13,12 +13,13 @@
 // limitations under the License.
 
 use matrix_sdk::{Room, RoomHero, RoomState};
-use ruma::events::room::guest_access::GuestAccess;
-use ruma::events::room::history_visibility::HistoryVisibility;
-use ruma::room::{JoinRuleSummary, RoomSummary, RoomType};
-use ruma::{OwnedMxcUri, OwnedRoomAliasId, OwnedRoomId};
+use ruma::{
+    OwnedMxcUri, OwnedRoomAliasId, OwnedRoomId,
+    events::room::{guest_access::GuestAccess, history_visibility::HistoryVisibility},
+    room::{JoinRuleSummary, RoomSummary, RoomType},
+};
 
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct SpaceServiceRoom {
     pub room_id: OwnedRoomId,
     pub canonical_alias: Option<OwnedRoomAliasId>,
