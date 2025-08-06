@@ -32,6 +32,8 @@ use futures_util::{
 use http::StatusCode;
 #[cfg(feature = "e2e-encryption")]
 pub use identity_status_changes::IdentityStatusChanges;
+#[cfg(feature = "experimental-encrypted-state-events")]
+use matrix_sdk_base::crypto::types::events::room::encrypted::EncryptedEvent;
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk_base::crypto::{IdentityStatusChange, RoomIdentityProvider, UserIdentity};
 pub use matrix_sdk_base::store::ThreadSubscription;
@@ -63,6 +65,8 @@ use reply::Reply;
 use ruma::events::room::message::GalleryItemType;
 #[cfg(any(feature = "experimental-search", feature = "e2e-encryption"))]
 use ruma::events::AnySyncMessageLikeEvent;
+#[cfg(feature = "experimental-encrypted-state-events")]
+use ruma::events::AnySyncStateEvent;
 #[cfg(feature = "e2e-encryption")]
 use ruma::events::{
     room::encrypted::OriginalSyncRoomEncryptedEvent, AnySyncTimelineEvent, SyncMessageLikeEvent,
@@ -130,6 +134,11 @@ use ruma::{
     time::Instant,
     EventId, Int, MatrixToUri, MatrixUri, MxcUri, OwnedEventId, OwnedRoomId, OwnedServerName,
     OwnedTransactionId, OwnedUserId, RoomId, TransactionId, UInt, UserId,
+};
+#[cfg(feature = "experimental-encrypted-state-events")]
+use ruma::{
+    events::room::encrypted::unstable_state::OriginalSyncStateRoomEncryptedEvent,
+    serde::JsonCastable,
 };
 use serde::de::DeserializeOwned;
 use thiserror::Error;
@@ -636,20 +645,74 @@ impl Room {
     /// decrypted if needs be.
     ///
     /// Only logs from the crypto crate will indicate a failure to decrypt.
+    #[cfg(not(feature = "experimental-encrypted-state-events"))]
     #[allow(clippy::unused_async)] // Used only in e2e-encryption.
     async fn try_decrypt_event(
         &self,
         event: Raw<AnyTimelineEvent>,
         push_ctx: Option<&PushContext>,
     ) -> TimelineEvent {
+        // If we have either an encrypted message-like or state event, try to decrypt.
         #[cfg(feature = "e2e-encryption")]
         if let Ok(AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::RoomEncrypted(
             SyncMessageLikeEvent::Original(_),
         ))) = event.deserialize_as::<AnySyncTimelineEvent>()
         {
+            // Cast safety: The state key is not used during decryption, and the types
+            // overlap sufficiently.
             if let Ok(event) = self.decrypt_event(event.cast_ref_unchecked(), push_ctx).await {
                 return event;
             }
+        }
+
+        let mut event = TimelineEvent::from_plaintext(event.cast());
+        if let Some(push_ctx) = push_ctx {
+            event.set_push_actions(push_ctx.for_event(event.raw()).await);
+        }
+
+        event
+    }
+
+    /// Returns a wrapping `TimelineEvent` for the input `AnyTimelineEvent`,
+    /// decrypted if needs be.
+    ///
+    /// Only logs from the crypto crate will indicate a failure to decrypt.
+    #[cfg(feature = "experimental-encrypted-state-events")]
+    #[allow(clippy::unused_async)] // Used only in e2e-encryption.
+    async fn try_decrypt_event(
+        &self,
+        event: Raw<AnyTimelineEvent>,
+        push_ctx: Option<&PushContext>,
+    ) -> TimelineEvent {
+        // If we have either an encrypted message-like or state event, try to decrypt.
+        match event.deserialize_as::<AnySyncTimelineEvent>() {
+            Ok(AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::RoomEncrypted(
+                SyncMessageLikeEvent::Original(_),
+            ))) => {
+                if let Ok(event) = self
+                    .decrypt_event(
+                        event.cast_ref_unchecked::<OriginalSyncRoomEncryptedEvent>(),
+                        push_ctx,
+                    )
+                    .await
+                {
+                    return event;
+                }
+            }
+            Ok(AnySyncTimelineEvent::State(AnySyncStateEvent::RoomEncrypted(
+                SyncStateEvent::Original(_),
+            ))) => {
+                if let Ok(event) = self
+                    .decrypt_event(
+                        event.cast_ref_unchecked::<OriginalSyncStateRoomEncryptedEvent>(),
+                        push_ctx,
+                    )
+                    .await
+                {
+                    return event;
+                }
+            }
+            _ => {}
         }
 
         let mut event = TimelineEvent::from_plaintext(event.cast());
@@ -1542,6 +1605,7 @@ impl Room {
     /// Returns the decrypted event. In the case of a decryption error, returns
     /// a `TimelineEvent` representing the decryption error.
     #[cfg(feature = "e2e-encryption")]
+    #[cfg(not(feature = "experimental-encrypted-state-events"))]
     pub async fn decrypt_event(
         &self,
         event: &Raw<OriginalSyncRoomEncryptedEvent>,
@@ -1572,6 +1636,50 @@ impl Room {
                     .backups()
                     .maybe_download_room_key(self.room_id().to_owned(), event.clone());
                 Ok(TimelineEvent::from_utd(event.clone().cast(), utd_info))
+            }
+        }
+    }
+
+    /// Tries to decrypt a room event.
+    ///
+    /// # Arguments
+    /// * `event` - The room event to be decrypted.
+    ///
+    /// Returns the decrypted event. In the case of a decryption error, returns
+    /// a `TimelineEvent` representing the decryption error.
+    #[cfg(feature = "experimental-encrypted-state-events")]
+    pub async fn decrypt_event<T: JsonCastable<EncryptedEvent>>(
+        &self,
+        event: &Raw<T>,
+        push_ctx: Option<&PushContext>,
+    ) -> Result<TimelineEvent> {
+        let machine = self.client.olm_machine().await;
+        let machine = machine.as_ref().ok_or(Error::NoOlmMachine)?;
+
+        match machine
+            .try_decrypt_room_event(
+                event.cast_ref(),
+                self.inner.room_id(),
+                self.client.decryption_settings(),
+            )
+            .await?
+        {
+            RoomEventDecryptionResult::Decrypted(decrypted) => {
+                let push_actions = if let Some(push_ctx) = push_ctx {
+                    Some(push_ctx.for_event(&decrypted.event).await)
+                } else {
+                    None
+                };
+                Ok(TimelineEvent::from_decrypted(decrypted, push_actions))
+            }
+            RoomEventDecryptionResult::UnableToDecrypt(utd_info) => {
+                self.client
+                    .encryption()
+                    .backups()
+                    .maybe_download_room_key(self.room_id().to_owned(), event.clone());
+                // Cast safety: Anything that can be cast to EncryptedEvent must be a timeline
+                // event.
+                Ok(TimelineEvent::from_utd(event.clone().cast_unchecked(), utd_info))
             }
         }
     }
