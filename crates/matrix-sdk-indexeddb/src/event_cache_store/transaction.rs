@@ -651,10 +651,8 @@ impl<'a> IndexeddbEventCacheStoreTransaction<'a> {
         room_id: &RoomId,
         related_event_id: &EventId,
     ) -> Result<Vec<Event>, IndexeddbEventCacheStoreTransactionError> {
-        let prefix = (room_id, related_event_id);
-        let lower = IndexedEventRelationKey::lower_key_with_prefix(prefix, self.serializer.inner());
-        let upper = IndexedEventRelationKey::upper_key_with_prefix(prefix, self.serializer.inner());
-        let range = IndexedKeyRange::Bound(lower, upper);
+        let range =
+            IndexedKeyRange::all_with_prefix((room_id, related_event_id), self.serializer.inner());
         self.get_items_by_key::<Event, IndexedEventRelationKey>(range).await
     }
 
