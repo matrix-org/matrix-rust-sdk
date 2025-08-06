@@ -1356,7 +1356,7 @@ async fn test_wait_on_key_query_doesnt_block_store() {
 async fn test_fix_incorrect_usage_of_backup_key_causing_decryption_errors() {
     let store = MemoryStore::new();
 
-    let backup_decryption_key = BackupDecryptionKey::new().unwrap();
+    let backup_decryption_key = BackupDecryptionKey::new();
 
     store
         .save_changes(Changes {

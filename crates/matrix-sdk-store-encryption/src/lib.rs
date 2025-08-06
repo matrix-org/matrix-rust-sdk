@@ -16,7 +16,7 @@
 #![doc = include_str!("../README.md")]
 #![warn(missing_debug_implementations, missing_docs)]
 
-use std::ops::DerefMut;
+use std::ops::{Deref, DerefMut};
 
 use base64::{
     Engine, alphabet,
@@ -29,7 +29,7 @@ use chacha20poly1305::{
 };
 use hmac::Hmac;
 use pbkdf2::pbkdf2;
-use rand::{Error as RandomError, Fill, thread_rng};
+use rand::{Fill, rng};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use sha2::Sha256;
 use zeroize::{Zeroize, ZeroizeOnDrop};
@@ -61,10 +61,6 @@ pub enum Error {
     /// Error encrypting or decrypting a value.
     #[error("Error encrypting or decrypting a value: `{0}`")]
     Encryption(#[from] EncryptionError),
-
-    /// Could not generate enough randomness for a cryptographic operation: {0}
-    #[error("Could not generate enough randomness for a cryptographic operation: `{0}`")]
-    Random(#[from] RandomError),
 
     /// Unsupported ciphertext version.
     #[error("Unsupported ciphertext version, expected `{0}`, got `{1}`")]
@@ -188,17 +184,17 @@ impl StoreCipher {
         key: &[u8; 32],
         kdf_info: KdfInfo,
     ) -> Result<EncryptedStoreCipher, Error> {
-        let key = ChachaKey::from_slice(key.as_ref());
+        let key: &ChachaKey = key.into();
         let cipher = XChaCha20Poly1305::new(key);
 
-        let nonce = Keys::get_nonce()?;
+        let nonce = Keys::get_nonce();
 
         let mut keys = [0u8; 64];
 
         keys[0..32].copy_from_slice(self.inner.encryption_key.as_ref());
         keys[32..64].copy_from_slice(self.inner.mac_key_seed.as_ref());
 
-        let ciphertext = cipher.encrypt(XNonce::from_slice(&nonce), keys.as_ref())?;
+        let ciphertext = cipher.encrypt(&nonce.into(), keys.as_ref())?;
 
         keys.zeroize();
 
@@ -214,10 +210,10 @@ impl StoreCipher {
     }
 
     fn export_kdf(&self, passphrase: &str, kdf_rounds: u32) -> Result<Vec<u8>, Error> {
-        let mut rng = thread_rng();
+        let mut rng = rng();
 
         let mut salt = [0u8; KDF_SALT_SIZE];
-        salt.try_fill(&mut rng)?;
+        salt.fill(&mut rng);
 
         let key = StoreCipher::expand_key(passphrase, &salt, kdf_rounds);
 
@@ -233,8 +229,8 @@ impl StoreCipher {
         let mut decrypted = match encrypted.ciphertext_info {
             CipherTextInfo::ChaCha20Poly1305 { nonce, ciphertext } => {
                 let cipher = XChaCha20Poly1305::new(key);
-                let nonce = XNonce::from_slice(&nonce);
-                cipher.decrypt(nonce, ciphertext.as_ref())?
+                let nonce: XNonce = nonce.into();
+                cipher.decrypt(&nonce, ciphertext.as_ref())?
             }
         };
 
@@ -303,7 +299,7 @@ impl StoreCipher {
             }
         };
 
-        let key = ChachaKey::from_slice(key.as_ref());
+        let key: &ChachaKey = key.as_ref().into();
 
         Self::import_helper(key, encrypted)
     }
@@ -342,7 +338,7 @@ impl StoreCipher {
             return Err(Error::KdfMismatch);
         }
 
-        let key = ChachaKey::from_slice(key.as_ref());
+        let key: &ChachaKey = key.into();
 
         Self::import_helper(key, encrypted)
     }
@@ -453,10 +449,10 @@ impl StoreCipher {
     /// # anyhow::Ok(()) };
     /// ```
     pub fn encrypt_value_data(&self, mut data: Vec<u8>) -> Result<EncryptedValue, Error> {
-        let nonce = Keys::get_nonce()?;
+        let nonce = Keys::get_nonce();
         let cipher = XChaCha20Poly1305::new(self.inner.encryption_key());
 
-        let ciphertext = cipher.encrypt(XNonce::from_slice(&nonce), data.as_ref())?;
+        let ciphertext = cipher.encrypt(&nonce.into(), data.as_ref())?;
 
         data.zeroize();
         Ok(EncryptedValue { version: VERSION, ciphertext, nonce })
@@ -605,7 +601,7 @@ impl StoreCipher {
         }
 
         let cipher = XChaCha20Poly1305::new(self.inner.encryption_key());
-        let nonce = XNonce::from_slice(&value.nonce);
+        let nonce: &XNonce = &value.nonce.into();
         Ok(cipher.decrypt(nonce, value.ciphertext.as_ref())?)
     }
 
@@ -735,16 +731,16 @@ impl Keys {
         let mut encryption_key = Box::new([0u8; 32]);
         let mut mac_key_seed = Box::new([0u8; 32]);
 
-        let mut rng = thread_rng();
+        let mut rng = rng();
 
-        encryption_key.try_fill(&mut rng)?;
-        mac_key_seed.try_fill(&mut rng)?;
+        encryption_key.fill(&mut rng);
+        mac_key_seed.fill(&mut rng);
 
         Ok(Self { encryption_key, mac_key_seed })
     }
 
     fn encryption_key(&self) -> &ChachaKey {
-        ChachaKey::from_slice(self.encryption_key.as_slice())
+        self.encryption_key.deref().into()
     }
 
     fn mac_key_seed(&self) -> &MacKeySeed {
@@ -762,13 +758,13 @@ impl Keys {
         key
     }
 
-    fn get_nonce() -> Result<[u8; XNONCE_SIZE], RandomError> {
+    fn get_nonce() -> [u8; XNONCE_SIZE] {
         let mut nonce = [0u8; XNONCE_SIZE];
-        let mut rng = thread_rng();
+        let mut rng = rng();
 
-        nonce.try_fill(&mut rng)?;
+        nonce.fill(&mut rng);
 
-        Ok(nonce)
+        nonce
     }
 }
 
