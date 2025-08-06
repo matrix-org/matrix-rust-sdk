@@ -238,7 +238,7 @@ mod tests {
         assert_matches!(&rule_commands.commands[0],
             Command::SetRoomPushRule { room_id: command_room_id, notify } => {
                 assert_eq!(command_room_id, &room_id);
-                assert_eq!(&Notify::All, notify);
+                assert_eq!(*notify, Notify::All);
             }
         );
     }
@@ -258,7 +258,7 @@ mod tests {
             Command::SetOverridePushRule {room_id: command_room_id, rule_id, notify } => {
                 assert_eq!(command_room_id, &room_id);
                 assert_eq!(rule_id, room_id.as_str());
-                assert_eq!(&Notify::All, notify);
+                assert_eq!(*notify, Notify::All);
             }
         );
     }
