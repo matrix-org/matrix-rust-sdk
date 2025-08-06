@@ -86,10 +86,10 @@ pub trait IndexedKey<T: Indexed> {
 /// the proper bound.
 pub trait IndexedKeyBounds<T: Indexed>: IndexedKey<T> {
     /// Constructs the lower bound of the key.
-    fn lower_key(room_id: &RoomId, serializer: &IndexeddbSerializer) -> Self;
+    fn lower_key(serializer: &IndexeddbSerializer) -> Self;
 
     /// Constructs the upper bound of the key.
-    fn upper_key(room_id: &RoomId, serializer: &IndexeddbSerializer) -> Self;
+    fn upper_key(serializer: &IndexeddbSerializer) -> Self;
 }
 
 impl<T, K> IndexedKeyBounds<T> for K
@@ -98,12 +98,12 @@ where
     K: IndexedKeyComponentBounds<T> + Sized,
 {
     /// Constructs the lower bound of the key.
-    fn lower_key(room_id: &RoomId, serializer: &IndexeddbSerializer) -> Self {
+    fn lower_key(serializer: &IndexeddbSerializer) -> Self {
         <Self as IndexedKey<T>>::encode(Self::lower_key_components(), serializer)
     }
 
     /// Constructs the upper bound of the key.
-    fn upper_key(room_id: &RoomId, serializer: &IndexeddbSerializer) -> Self {
+    fn upper_key(serializer: &IndexeddbSerializer) -> Self {
         <Self as IndexedKey<T>>::encode(Self::upper_key_components(), serializer)
     }
 }
