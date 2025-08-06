@@ -106,18 +106,13 @@ impl IndexeddbEventCacheStoreSerializer {
     ) -> Result<IdbKeyRange, serde_wasm_bindgen::Error>
     where
         T: Indexed,
-        K: IndexedKeyBounds<T> + Serialize,
+        K: Serialize,
     {
         use serde_wasm_bindgen::to_value;
         Ok(match range.into() {
             IndexedKeyRange::Only(key) => IdbKeyRange::only(&to_value(&key)?)?,
             IndexedKeyRange::Bound(lower, upper) => {
                 IdbKeyRange::bound(&to_value(&lower)?, &to_value(&upper)?)?
-            }
-            IndexedKeyRange::All => {
-                let lower = to_value(&K::lower_key(room_id, &self.inner))?;
-                let upper = to_value(&K::upper_key(room_id, &self.inner))?;
-                IdbKeyRange::bound(&lower, &upper).expect("construct key range")
             }
         })
     }
@@ -133,7 +128,7 @@ impl IndexeddbEventCacheStoreSerializer {
     ) -> Result<IdbKeyRange, serde_wasm_bindgen::Error>
     where
         T: Indexed,
-        K: IndexedKeyComponentBounds<T> + Serialize,
+        K: IndexedKey<T> + Serialize,
     {
         let range = match range.into() {
             IndexedKeyRange::Only(components) => {
@@ -142,11 +137,6 @@ impl IndexeddbEventCacheStoreSerializer {
             IndexedKeyRange::Bound(lower, upper) => {
                 let lower = K::encode(room_id, lower, &self.inner);
                 let upper = K::encode(room_id, upper, &self.inner);
-                IndexedKeyRange::Bound(lower, upper)
-            }
-            IndexedKeyRange::All => {
-                let lower = K::lower_key(room_id, &self.inner);
-                let upper = K::upper_key(room_id, &self.inner);
                 IndexedKeyRange::Bound(lower, upper)
             }
         };
