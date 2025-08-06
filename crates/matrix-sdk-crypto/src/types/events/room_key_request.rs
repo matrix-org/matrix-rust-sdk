@@ -25,9 +25,7 @@ use serde_json::Value;
 use vodozemac::Curve25519PublicKey;
 
 use super::{EventType, ToDeviceEvent};
-use crate::types::{
-    deserialize_curve_key_option, serialize_curve_key_option, EventEncryptionAlgorithm,
-};
+use crate::types::{serde_curve_key_option, EventEncryptionAlgorithm};
 
 /// The `m.room_key_request` to-device event.
 pub type RoomKeyRequestEvent = ToDeviceEvent<RoomKeyRequestContent>;
@@ -211,12 +209,7 @@ pub struct MegolmV1AesSha2Content {
     pub room_id: OwnedRoomId,
 
     /// The Curve25519 key of the device which initiated the session originally.
-    #[serde(
-        default,
-        deserialize_with = "deserialize_curve_key_option",
-        serialize_with = "serialize_curve_key_option",
-        skip_serializing_if = "Option::is_none"
-    )]
+    #[serde(default, with = "serde_curve_key_option", skip_serializing_if = "Option::is_none")]
     pub sender_key: Option<Curve25519PublicKey>,
 
     /// The ID of the session that the key is for.
