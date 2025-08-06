@@ -146,6 +146,8 @@ pub use self::{
 };
 #[cfg(doc)]
 use crate::event_cache::EventCache;
+#[cfg(feature = "experimental-encrypted-state-events")]
+use crate::room::futures::SendRawStateEvent;
 use crate::{
     attachment::{AttachmentConfig, AttachmentInfo},
     client::WeakClient,
@@ -2831,6 +2833,7 @@ impl Room {
     /// }
     /// # anyhow::Ok(()) };
     /// ```
+    #[cfg(not(feature = "experimental-encrypted-state-events"))]
     #[instrument(skip_all)]
     pub async fn send_state_event_raw(
         &self,
@@ -2848,6 +2851,58 @@ impl Room {
         );
 
         Ok(self.client.send(request).await?)
+    }
+
+    /// Send a raw room state event to the homeserver.
+    ///
+    /// If the experimental state event encryption feature is enabled, this
+    /// method will transparently encrypt the event if this room is
+    /// encrypted (except if the event type is considered critical for the room
+    /// to function, as outlined in [MSC3414][msc3414]).
+    ///
+    /// Returns the parsed response from the server.
+    ///
+    /// # Arguments
+    ///
+    /// * `event_type` - The type of the event that we're sending out.
+    ///
+    /// * `state_key` - A unique key which defines the overwriting semantics for
+    /// this piece of room state. This value is often a zero-length string.
+    ///
+    /// * `content` - The content of the event as a raw JSON value. The argument
+    ///   type can be `serde_json::Value`, but also other raw JSON types; for
+    ///   the full list check the documentation of [`IntoRawStateEventContent`].
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use serde_json::json;
+    ///
+    /// # async {
+    /// # let homeserver = url::Url::parse("http://localhost:8080")?;
+    /// # let mut client = matrix_sdk::Client::new(homeserver).await?;
+    /// # let room_id = matrix_sdk::ruma::room_id!("!test:localhost");
+    ///
+    /// if let Some(room) = client.get_room(&room_id) {
+    ///     room.send_state_event_raw("m.room.member", "", json!({
+    ///         "avatar_url": "mxc://example.org/SEsfnsuifSDFSSEF",
+    ///         "displayname": "Alice Margatroid",
+    ///         "membership": "join",
+    ///     })).await?;
+    /// }
+    /// # anyhow::Ok(()) };
+    /// ```
+    ///
+    /// [msc3414]: https://github.com/matrix-org/matrix-spec-proposals/blob/travis/msc/encrypted-state/proposals/3414-encrypted-state.md
+    #[cfg(feature = "experimental-encrypted-state-events")]
+    #[instrument(skip_all)]
+    pub fn send_state_event_raw<'a>(
+        &'a self,
+        event_type: &'a str,
+        state_key: &'a str,
+        content: impl IntoRawStateEventContent,
+    ) -> SendRawStateEvent<'a> {
+        SendRawStateEvent::new(self, event_type, state_key, content)
     }
 
     /// Strips all information out of an event of the room.

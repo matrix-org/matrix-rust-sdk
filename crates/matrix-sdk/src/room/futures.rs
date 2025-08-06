@@ -331,7 +331,7 @@ impl<'a> IntoFuture for SendAttachment<'a> {
     }
 }
 
-/// Future returned by `Room::send_state_event_raw`.
+/// Future returned by [`Room::send_state_event_raw`].
 #[cfg(feature = "experimental-encrypted-state-events")]
 #[allow(missing_debug_implementations)]
 pub struct SendRawStateEvent<'a> {
