@@ -623,7 +623,7 @@ mod tests {
 
     fn local_event() -> Arc<TimelineItem> {
         let event_kind = EventTimelineItemKind::Local(LocalEventTimelineItem {
-            send_state: EventSendState::NotSentYet,
+            send_state: EventSendState::NotSentYet { progress: None },
             transaction_id: OwnedTransactionId::from("trans"),
             send_handle: None,
         });

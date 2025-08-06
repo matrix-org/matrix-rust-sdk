@@ -15,7 +15,10 @@
 use std::sync::Arc;
 
 use as_variant::as_variant;
-use matrix_sdk::{Error, send_queue::SendHandle};
+use matrix_sdk::{
+    Error,
+    send_queue::{AbstractProgress, SendHandle},
+};
 use ruma::{EventId, OwnedEventId, OwnedTransactionId};
 
 use super::TimelineEventItemId;
@@ -65,7 +68,10 @@ impl LocalEventTimelineItem {
 #[derive(Clone, Debug)]
 pub enum EventSendState {
     /// The local event has not been sent yet.
-    NotSentYet,
+    NotSentYet {
+        /// The progress of the sending operation, if any is available.
+        progress: Option<EventSendProgress>,
+    },
     /// The local event has been sent to the server, but unsuccessfully: The
     /// sending has failed.
     SendingFailed {
@@ -82,5 +88,23 @@ pub enum EventSendState {
     Sent {
         /// The event ID assigned by the server.
         event_id: OwnedEventId,
+    },
+}
+
+/// This type represents the "send progress" of a local event timeline item.
+#[derive(Clone, Debug)]
+pub enum EventSendProgress {
+    /// A media (consisting of a file and possibly a thumbnail) is being
+    /// uploaded.
+    MediaUpload {
+        /// The index of the media within the transaction. A file and its
+        /// thumbnail share the same index. Will always be 0 for non-gallery
+        /// media uploads.
+        index: u64,
+
+        /// The combined upload progress across the file and, if existing, its
+        /// thumbnail. For gallery uploads, the progress is reported per indexed
+        /// gallery item.
+        progress: AbstractProgress,
     },
 }
