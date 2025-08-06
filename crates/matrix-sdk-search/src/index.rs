@@ -1,15 +1,46 @@
-#![forbid(missing_docs)]
+// Copyright 2024 The Matrix.org Foundation C.I.C.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 
-use std::{fmt, path::Path};
+//! The event cache is an abstraction layer, sitting between the Rust SDK and a
+//! final client, that acts as a global observer of all the rooms, gathering and
+//! inferring some extra useful information about each room. In particular, this
+//! doesn't require subscribing to a specific room to get access to this
+//! information.
+//!
+//! It's intended to be fast, robust and easy to maintain, having learned from
+//! previous endeavours at implementing middle to high level features elsewhere
+//! in the SDK, notably in the UI's Timeline object.
+//!
+//! See the [github issue](https://github.com/matrix-org/matrix-rust-sdk/issues/3058) for more
+//! details about the historical reasons that led us to start writing this.
 
-use ruma::{OwnedRoomId, RoomId, events::AnyMessageLikeEvent};
+use std::{fmt, fs, path::Path, sync::Arc};
+
+use ruma::{OwnedEventId, OwnedRoomId, RoomId, events::AnyMessageLikeEvent};
 use tantivy::{
-    Index, IndexReader, TantivyDocument, collector::TopDocs, directory::MmapDirectory,
-    query::QueryParser, schema::OwnedValue,
+    Index, IndexReader, TantivyDocument,
+    collector::TopDocs,
+    directory::{MmapDirectory, error::OpenDirectoryError},
+    query::QueryParser,
+    schema::Value,
 };
+use tracing::error;
 
 use crate::{
-    OpStamp, error::IndexError, schema::RoomMessageSchema, util::TANTIVY_INDEX_MEMORY_BUDGET,
+    OpStamp, TANTIVY_INDEX_MEMORY_BUDGET,
+    error::IndexError,
+    schema::{MatrixSearchIndexSchema, RoomMessageSchema},
     writer::SearchIndexWriter,
 };
 
@@ -55,6 +86,7 @@ impl RoomIndex {
     pub fn new(path: &Path, room_id: &RoomId) -> Result<RoomIndex, IndexError> {
         let path = path.join(room_id.as_str());
         let schema = RoomMessageSchema::new();
+        fs::create_dir(path.clone())?;
         let index = Index::create_in_dir(path, schema.as_tantivy_schema())?;
         RoomIndex::new_with(index, schema, room_id)
     }
@@ -71,7 +103,19 @@ impl RoomIndex {
     /// create new [`RoomIndex`] which stores the index in path/room_id
     pub fn open_or_create(path: &Path, room_id: &RoomId) -> Result<RoomIndex, IndexError> {
         let path = path.join(room_id.as_str());
-        let mmap_dir = MmapDirectory::open(path)?;
+        let mmap_dir = match MmapDirectory::open(path) {
+            Ok(dir) => Ok(dir),
+            Err(err) => match err {
+                OpenDirectoryError::DoesNotExist(path) => {
+                    fs::create_dir(path.clone()).map_err(|err| OpenDirectoryError::IoError {
+                        io_error: Arc::new(err),
+                        directory_path: path.to_path_buf(),
+                    })?;
+                    MmapDirectory::open(path)
+                }
+                _ => Err(err),
+            },
+        }?;
         let schema = RoomMessageSchema::new();
         let index = Index::open_or_create(mmap_dir, schema.as_tantivy_schema())?;
         RoomIndex::new_with(index, schema, room_id)
@@ -87,23 +131,16 @@ impl RoomIndex {
     }
 
     /// Add [`AnyMessageLikeEvent`] to [`RoomIndex`]
-    pub fn add_event(&mut self, event: AnyMessageLikeEvent) -> Result<OpStamp, IndexError> {
+    pub fn add_event(&mut self, event: AnyMessageLikeEvent) -> Result<(), IndexError> {
         let doc = self.schema.make_doc(event)?;
-        self.writer.add_document(doc)?;
-        let last_commit_opstamp = self.writer.commit()?;
-
-        Ok(last_commit_opstamp)
+        self.writer.add_document(doc)?; // TODO: This is blocking. Handle it.
+        Ok(())
     }
 
-    /// Forces [`RoomIndex`] to commit changes.
-    /// Nominally [`RoomIndex`] stores up changes and batch commits.
-    /// However, for some circumstances (such as testing), it may be
-    /// beneficial to know a commit occurred before moving on.
-    pub fn force_commit(&mut self) -> Result<OpStamp, IndexError> {
-        let opstamp = self.writer.force_commit()?;
-        self.reader.reload()?;
-
-        Ok(opstamp)
+    /// Commit added events to [`RoomIndex`]
+    pub fn commit(&mut self) -> Result<OpStamp, IndexError> {
+        let last_commit_opstamp = self.writer.commit()?; // TODO: This is blocking. Handle it.
+        Ok(last_commit_opstamp)
     }
 
     /// Search the [`RoomIndex`] for some query. Returns a list of
@@ -112,21 +149,22 @@ impl RoomIndex {
         &self,
         query: &str,
         max_number_of_results: usize,
-    ) -> Result<Vec<String>, IndexError> {
+    ) -> Result<Vec<OwnedEventId>, IndexError> {
         let query = self.query_parser.parse_query(query)?;
         let searcher = self.reader.searcher();
 
         let results = searcher.search(&query, &TopDocs::with_limit(max_number_of_results))?;
-        let mut ret: Vec<String> = Vec::new();
+        let mut ret: Vec<OwnedEventId> = Vec::new();
         let pk = self.schema.primary_key();
 
         for (_score, doc_address) in results {
             let retrieved_doc: TantivyDocument = searcher.doc(doc_address)?;
-            for f in retrieved_doc.get_all(pk) {
-                match f {
-                    OwnedValue::Str(s) => ret.push(s.to_string()),
-                    _ => println!("how"),
-                }
+            match retrieved_doc.get_first(pk).and_then(|maybe_value| maybe_value.as_str()) {
+                Some(value) => match OwnedEventId::try_from(value) {
+                    Ok(event_id) => ret.push(event_id),
+                    Err(err) => error!("error while parsing event_id from search result: {err:?}"),
+                },
+                _ => error!("unexpected value type while searching documents"),
             }
         }
 
@@ -138,80 +176,75 @@ impl RoomIndex {
 mod tests {
     use std::{collections::HashSet, error::Error};
 
-    use ruma::{
-        event_id,
-        events::{AnyMessageLikeEvent, message::MessageEventContent},
-        room_id,
-    };
+    use matrix_sdk_test::event_factory::EventFactory;
+    use ruma::{event_id, owned_event_id, room_id, user_id};
 
-    use crate::{index::RoomIndex, testing::event_builder::NewEventBuilder};
+    use crate::index::RoomIndex;
 
     #[test]
     fn test_make_index_in_ram() {
         let room_id = room_id!("!room_id:localhost");
         let index = RoomIndex::new_in_ram(room_id);
 
-        assert!(index.is_ok(), "failed to make index in ram: {:?}", index.unwrap_err());
+        index.expect("failed to make index in ram: {index:?}");
     }
 
     #[test]
     fn test_add_event() {
         let room_id = room_id!("!room_id:localhost");
-        let index = RoomIndex::new_in_ram(room_id);
+        let mut index =
+            RoomIndex::new_in_ram(room_id).expect("failed to make index in ram: {index:?}");
 
-        assert!(index.is_ok(), "failed to make index in ram: {:?}", index.unwrap_err());
-
-        let mut index = index.unwrap();
-
-        let event = NewEventBuilder::new()
-            .content(MessageEventContent::plain("event message"))
+        let event = EventFactory::new()
+            .text_msg("event message")
             .event_id(event_id!("$event_id:localhost"))
-            .build_as(AnyMessageLikeEvent::Message);
+            .room(room_id)
+            .sender(user_id!("@user_id:localhost"))
+            .into_any_message_like_event();
 
-        let res = index.add_event(event);
-
-        assert!(res.is_ok(), "failed to add event: {:?}", res.unwrap_err());
+        index.add_event(event).expect("failed to add event: {res:?}");
     }
 
     #[test]
     fn test_search_populated_index() -> Result<(), Box<dyn Error>> {
         let room_id = room_id!("!room_id:localhost");
-        let index = RoomIndex::new_in_ram(room_id);
-
-        assert!(index.is_ok(), "failed to make index in ram: {:?}", index.unwrap_err());
-
-        let mut index = index.unwrap();
+        let mut index =
+            RoomIndex::new_in_ram(room_id).expect("failed to make index in ram: {index:?}");
 
         index.add_event(
-            NewEventBuilder::new()
-                .content(MessageEventContent::plain("This is a sentence"))
+            EventFactory::new()
+                .text_msg("This is a sentence")
                 .event_id(event_id!("$event_id_1:localhost"))
-                .build_as(AnyMessageLikeEvent::Message),
+                .room(room_id)
+                .sender(user_id!("@user_id:localhost"))
+                .into_any_message_like_event(),
         )?;
 
         index.add_event(
-            NewEventBuilder::new()
-                .content(MessageEventContent::plain("All new words"))
+            EventFactory::new()
+                .text_msg("All new words")
                 .event_id(event_id!("$event_id_2:localhost"))
-                .build_as(AnyMessageLikeEvent::Message),
+                .room(room_id)
+                .sender(user_id!("@user_id:localhost"))
+                .into_any_message_like_event(),
         )?;
 
         index.add_event(
-            NewEventBuilder::new()
-                .content(MessageEventContent::plain("A similar sentence"))
+            EventFactory::new()
+                .text_msg("A similar sentence")
                 .event_id(event_id!("$event_id_3:localhost"))
-                .build_as(AnyMessageLikeEvent::Message),
+                .room(room_id)
+                .sender(user_id!("@user_id:localhost"))
+                .into_any_message_like_event(),
         )?;
 
-        index.force_commit()?;
+        index.commit()?;
 
-        let result = index.search("sentence", 10);
+        let result = index.search("sentence", 10).expect("search failed with: {result:?}");
 
-        assert!(result.is_ok(), "search failed with: {:?}", result.unwrap_err());
-
-        let result = result.unwrap();
         let result: HashSet<_> = result.iter().collect();
-        let true_value = ["$event_id_1:localhost".to_owned(), "$event_id_3:localhost".to_owned()];
+        let true_value =
+            [owned_event_id!("$event_id_1:localhost"), owned_event_id!("$event_id_3:localhost")];
         let true_value: HashSet<_> = true_value.iter().collect();
 
         assert_eq!(result, true_value, "search result not correct: {result:?}");
@@ -222,19 +255,12 @@ mod tests {
     #[test]
     fn test_search_empty_index() -> Result<(), Box<dyn Error>> {
         let room_id = room_id!("!room_id:localhost");
-        let index = RoomIndex::new_in_ram(room_id);
+        let mut index =
+            RoomIndex::new_in_ram(room_id).expect("failed to make index in ram: {index:?}");
 
-        assert!(index.is_ok(), "failed to make index in ram: {:?}", index.unwrap_err());
+        index.commit()?;
 
-        let mut index = index.unwrap();
-
-        index.force_commit()?;
-
-        let result = index.search("sentence", 10);
-
-        assert!(result.is_ok(), "search failed with: {:?}", result.unwrap_err());
-
-        let result = result.unwrap();
+        let result = index.search("sentence", 10).expect("search failed with: {result:?}");
 
         assert!(result.is_empty(), "search result not empty: {result:?}");
 
