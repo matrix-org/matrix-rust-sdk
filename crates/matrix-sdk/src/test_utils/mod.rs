@@ -266,6 +266,35 @@ macro_rules! assert_decrypted_message_eq {
     }};
 }
 
+/// Given a [`TimelineEvent`], assert that the event is a decrypted state
+/// event, and that its content matches the given pattern via a let binding.
+#[macro_export]
+macro_rules! assert_let_decrypted_state_event_content {
+    ($pat:pat = $event:expr, $($msg:tt)*) => {
+        assert_matches2::assert_let!(
+            $crate::deserialized_responses::TimelineEventKind::Decrypted(decrypted_event) =
+                $event.kind,
+            "Event was not decrypted"
+        );
+
+        let deserialized_event = decrypted_event
+            .event
+            .deserialize_as_unchecked::<$crate::ruma::events::AnyStateEvent>()
+            .expect("We should be able to deserialize the decrypted event");
+
+        let content =
+            deserialized_event.original_content().expect("The event should not have been redacted");
+
+        assert_matches2::assert_let!($pat = content);
+    };
+    ($pat:pat = $event:expr) => {
+        assert_let_decrypted_state_event_content!(
+            $pat = $event,
+            "The decrypted event did not match to the expected value"
+        );
+    };
+}
+
 #[doc(hidden)]
 #[macro_export]
 macro_rules! assert_next_eq_with_timeout_impl {
