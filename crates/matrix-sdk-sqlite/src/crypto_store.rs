@@ -1870,7 +1870,7 @@ mod tests {
 
         SqliteCryptoStore::open(tmpdir_path.to_str().unwrap(), passphrase)
             .await
-            .expect("Can't create a key protected store")
+            .expect("Can't create a encrypted protected store")
     }
 
     cryptostore_integration_tests!();
@@ -1902,7 +1902,7 @@ mod encrypted_tests {
 
         SqliteCryptoStore::open(tmpdir_path.to_str().unwrap(), Some(pass))
             .await
-            .expect("Can't create a key protected store")
+            .expect("Can't create a encrypted protected store")
     }
 
     cryptostore_integration_tests!();
