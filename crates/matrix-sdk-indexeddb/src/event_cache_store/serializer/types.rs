@@ -165,11 +165,7 @@ pub enum IndexedKeyRange<K> {
 impl<'a, C: 'a> IndexedKeyRange<C> {
     /// Encodes a range of key components of type `K::KeyComponents`
     /// into a range of keys of type `K`.
-    pub fn encoded<T, K>(
-        self,
-        room_id: &RoomId,
-        serializer: &IndexeddbSerializer,
-    ) -> IndexedKeyRange<K>
+    pub fn encoded<T, K>(self, serializer: &IndexeddbSerializer) -> IndexedKeyRange<K>
     where
         T: Indexed,
         K: IndexedKey<T, KeyComponents<'a> = C>,
@@ -194,12 +190,12 @@ impl<K> IndexedKeyRange<K> {
         }
     }
 
-    pub fn all<T>(room_id: &RoomId, serializer: &IndexeddbSerializer) -> IndexedKeyRange<K>
+    pub fn all<T>(serializer: &IndexeddbSerializer) -> IndexedKeyRange<K>
     where
         T: Indexed,
         K: IndexedKeyBounds<T>,
     {
-        IndexedKeyRange::Bound(K::lower_key(room_id, serializer), K::upper_key(room_id, serializer))
+        IndexedKeyRange::Bound(K::lower_key(serializer), K::upper_key(serializer))
     }
 
     pub fn all_with_prefix<T, P>(prefix: P, serializer: &IndexeddbSerializer) -> IndexedKeyRange<K>

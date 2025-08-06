@@ -160,7 +160,6 @@ impl_event_cache_store! {
                     trace!(%room_id, "Inserting new chunk (prev={previous:?}, new={new:?}, next={next:?})");
                     transaction
                         .add_chunk(
-                            room_id,
                             &types::Chunk {
                                 room_id: room_id.to_owned(),
                                 identifier: new.index(),
@@ -175,7 +174,6 @@ impl_event_cache_store! {
                     trace!(%room_id, "Inserting new gap (prev={previous:?}, new={new:?}, next={next:?})");
                     transaction
                         .add_item(
-                            room_id,
                             &types::Gap {
                                 room_id: room_id.to_owned(),
                                 chunk_identifier: new.index(),
@@ -185,7 +183,6 @@ impl_event_cache_store! {
                         .await?;
                     transaction
                         .add_chunk(
-                            room_id,
                             &types::Chunk {
                                 room_id: room_id.to_owned(),
                                 identifier: new.index(),
@@ -207,8 +204,7 @@ impl_event_cache_store! {
 
                     for (i, item) in items.into_iter().enumerate() {
                         transaction
-                            .put_item(
-                                room_id,
+                            .put_event(
                                 &types::Event::InBand(InBandEvent {
                                     room_id: room_id.to_owned(),
                                     content: item,
@@ -229,7 +225,6 @@ impl_event_cache_store! {
 
                     transaction
                         .put_event(
-                            room_id,
                             &types::Event::InBand(InBandEvent {
                                 room_id: room_id.to_owned(),
                                 content: item,
@@ -531,7 +526,7 @@ impl_event_cache_store! {
             Some(mut inner) => inner.with_content(event),
             None => types::Event::OutOfBand(OutOfBandEvent { room_id: room_id.to_owned(), content: event, position: () }),
         };
-        transaction.put_event(room_id, &event).await?;
+        transaction.put_event(&event).await?;
         transaction.commit().await?;
         Ok(())
     }

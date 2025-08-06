@@ -71,7 +71,7 @@ impl IndexeddbEventCacheStoreSerializer {
     ///
     /// Note that the particular key which is encoded is defined by the type
     /// `K`.
-    pub fn encode_key<T, K>(&self, _: &RoomId, components: K::KeyComponents<'_>) -> K
+    pub fn encode_key<T, K>(&self, components: K::KeyComponents<'_>) -> K
     where
         T: Indexed,
         K: IndexedKey<T>,
@@ -85,14 +85,13 @@ impl IndexeddbEventCacheStoreSerializer {
     /// `K`.
     pub fn encode_key_as_value<T, K>(
         &self,
-        room_id: &RoomId,
         components: K::KeyComponents<'_>,
     ) -> Result<JsValue, serde_wasm_bindgen::Error>
     where
         T: Indexed,
         K: IndexedKey<T> + Serialize,
     {
-        serde_wasm_bindgen::to_value(&self.encode_key::<T, K>(room_id, components))
+        serde_wasm_bindgen::to_value(&self.encode_key::<T, K>(components))
     }
 
     /// Encodes a key component range for an [`Indexed`] type.
@@ -101,7 +100,6 @@ impl IndexeddbEventCacheStoreSerializer {
     /// `K`.
     pub fn encode_key_range<T, K>(
         &self,
-        room_id: &RoomId,
         range: impl Into<IndexedKeyRange<K>>,
     ) -> Result<IdbKeyRange, serde_wasm_bindgen::Error>
     where
@@ -123,7 +121,6 @@ impl IndexeddbEventCacheStoreSerializer {
     /// `K`.
     pub fn encode_key_component_range<'a, T, K>(
         &self,
-        room_id: &RoomId,
         range: impl Into<IndexedKeyRange<K::KeyComponents<'a>>>,
     ) -> Result<IdbKeyRange, serde_wasm_bindgen::Error>
     where
@@ -140,13 +137,12 @@ impl IndexeddbEventCacheStoreSerializer {
                 IndexedKeyRange::Bound(lower, upper)
             }
         };
-        self.encode_key_range::<T, K>(room_id, range)
+        self.encode_key_range::<T, K>(range)
     }
 
     /// Serializes an [`Indexed`] type into a [`JsValue`]
     pub fn serialize<T>(
         &self,
-        room_id: &RoomId,
         t: &T,
     ) -> Result<JsValue, IndexeddbEventCacheStoreSerializerError<T::Error>>
     where
