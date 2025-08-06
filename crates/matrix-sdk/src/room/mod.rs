@@ -153,7 +153,7 @@ use crate::{
     media::{MediaFormat, MediaRequestParameters},
     notification_settings::{IsEncrypted, IsOneToOne, RoomNotificationMode},
     room::{
-        futures::SendStateEventRaw,
+        futures::{SendStateEvent, SendStateEventRaw},
         knock_requests::{KnockRequest, KnockRequestMemberInfo},
         power_levels::{RoomPowerLevelChanges, RoomPowerLevelsExt},
         privacy_settings::RoomPrivacySettings,
@@ -2647,11 +2647,11 @@ impl Room {
     /// # anyhow::Ok(()) };
     /// ```
     #[instrument(skip_all)]
-    pub async fn send_state_event(
-        &self,
+    pub fn send_state_event<'a>(
+        &'a self,
         content: impl StateEventContent<StateKey = EmptyStateKey>,
-    ) -> Result<send_state_event::v3::Response> {
-        self.send_state_event_for_key(&EmptyStateKey, content).await
+    ) -> SendStateEvent<'a> {
+        self.send_state_event_for_key(&EmptyStateKey, content)
     }
 
     /// Send a state event to the homeserver.
@@ -2694,21 +2694,17 @@ impl Room {
     /// joined_room.send_state_event_for_key("foo", content).await?;
     /// # anyhow::Ok(()) };
     /// ```
-    pub async fn send_state_event_for_key<C, K>(
-        &self,
+    pub fn send_state_event_for_key<'a, C, K>(
+        &'a self,
         state_key: &K,
         content: C,
-    ) -> Result<send_state_event::v3::Response>
+    ) -> SendStateEvent<'a>
     where
         C: StateEventContent,
         C::StateKey: Borrow<K>,
         K: AsRef<str> + ?Sized,
     {
-        self.ensure_room_joined()?;
-        let request =
-            send_state_event::v3::Request::new(self.room_id().to_owned(), state_key, &content)?;
-        let response = self.client.send(request).await?;
-        Ok(response)
+        SendStateEvent::new(self, state_key, content)
     }
 
     /// Send a raw room state event to the homeserver.
