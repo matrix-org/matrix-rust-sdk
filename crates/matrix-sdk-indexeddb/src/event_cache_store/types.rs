@@ -181,6 +181,8 @@ impl From<matrix_sdk_base::linked_chunk::Position> for Position {
 /// which can be stored in IndexedDB.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Gap {
+    /// The room in which the gap exists.
+    pub room_id: OwnedRoomId,
     /// The identifier of the chunk containing this gap.
     pub chunk_identifier: u64,
     /// The token to use in the query, extracted from a previous "from" /

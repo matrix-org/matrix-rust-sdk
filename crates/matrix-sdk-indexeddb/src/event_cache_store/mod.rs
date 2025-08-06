@@ -177,6 +177,7 @@ impl_event_cache_store! {
                         .add_item(
                             room_id,
                             &types::Gap {
+                                room_id: room_id.to_owned(),
                                 chunk_identifier: new.index(),
                                 prev_token: gap.prev_token,
                             },
