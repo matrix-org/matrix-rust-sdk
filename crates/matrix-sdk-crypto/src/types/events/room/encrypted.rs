@@ -23,12 +23,12 @@ use vodozemac::{megolm::MegolmMessage, olm::OlmMessage, Curve25519PublicKey};
 
 use super::Event;
 use crate::types::{
-    deserialize_curve_key, deserialize_curve_key_option,
+    deserialize_curve_key,
     events::{
         room_key_request::{self, SupportedKeyInfo},
         EventType, ToDeviceEvent,
     },
-    serialize_curve_key, serialize_curve_key_option, EventEncryptionAlgorithm,
+    serde_curve_key_option, serialize_curve_key, EventEncryptionAlgorithm,
 };
 
 /// An m.room.encrypted room event.
@@ -309,12 +309,7 @@ pub struct MegolmV1AesSha2Content {
     pub ciphertext: MegolmMessage,
 
     /// The Curve25519 key of the sender.
-    #[serde(
-        default,
-        deserialize_with = "deserialize_curve_key_option",
-        serialize_with = "serialize_curve_key_option",
-        skip_serializing_if = "Option::is_none"
-    )]
+    #[serde(default, with = "serde_curve_key_option", skip_serializing_if = "Option::is_none")]
     pub sender_key: Option<Curve25519PublicKey>,
 
     /// The ID of the sending device.
