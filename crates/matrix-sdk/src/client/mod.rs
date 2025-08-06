@@ -2310,6 +2310,7 @@ impl Client {
             full_state: sync_settings.full_state,
             set_presence: sync_settings.set_presence,
             timeout: sync_settings.timeout,
+            use_state_after: true,
         });
         let mut request_config = self.request_config();
         if let Some(timeout) = sync_settings.timeout {

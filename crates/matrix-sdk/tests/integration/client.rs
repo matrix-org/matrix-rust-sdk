@@ -7,7 +7,7 @@ use matrix_sdk::{
     authentication::oauth::{error::OAuthTokenRevocationError, OAuthError},
     config::{RequestConfig, StoreConfig, SyncSettings},
     store::RoomLoadSettings,
-    sync::RoomUpdate,
+    sync::{RoomUpdate, State},
     test_utils::{
         client::mock_matrix_session, mocks::MatrixMockServer, no_retry_test_client_with_server,
     },
@@ -41,8 +41,10 @@ use ruma::{
     event_id,
     events::{
         direct::{DirectEventContent, OwnedDirectUserIdentifier},
+        room::{history_visibility::HistoryVisibility, member::MembershipState},
         AnyInitialStateEvent,
     },
+    room::JoinRule,
     room_id,
     serde::Raw,
     user_id, OwnedUserId,
@@ -329,7 +331,8 @@ async fn test_room_update_channel() {
 
     assert_eq!(updates.account_data.len(), 1);
     assert_eq!(updates.ephemeral.len(), 1);
-    assert_eq!(updates.state.len(), 9);
+    assert_matches!(updates.state, State::Before(state_events));
+    assert_eq!(state_events.len(), 9);
 
     assert!(updates.timeline.limited);
     assert_eq!(updates.timeline.events.len(), 1);
@@ -359,7 +362,8 @@ async fn test_subscribe_all_room_updates() {
         let (room_id, update) = left.iter().next().unwrap();
 
         assert_eq!(room_id, *MIXED_LEFT_ROOM_ID);
-        assert!(update.state.is_empty());
+        assert_matches!(&update.state, State::Before(state_events));
+        assert!(state_events.is_empty());
         assert_eq!(update.timeline.events.len(), 1);
         assert!(update.account_data.is_empty());
     }
@@ -374,7 +378,8 @@ async fn test_subscribe_all_room_updates() {
 
         assert_eq!(update.account_data.len(), 1);
         assert_eq!(update.ephemeral.len(), 1);
-        assert_eq!(update.state.len(), 1);
+        assert_matches!(&update.state, State::Before(state_events));
+        assert_eq!(state_events.len(), 1);
 
         assert!(update.timeline.limited);
         assert_eq!(update.timeline.events.len(), 1);
@@ -1436,4 +1441,52 @@ async fn test_logout() {
     // testing the OAuth branch inside `Client::logout()`.
     assert_matches!(res, Err(Error::OAuth(oauth_error)));
     assert_matches!(*oauth_error, OAuthError::Logout(OAuthTokenRevocationError::Url(_)));
+}
+
+#[async_test]
+async fn test_room_sync_state_after() {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+
+    let mut rx = client.subscribe_to_room_updates(&DEFAULT_TEST_ROOM_ID);
+
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(&DEFAULT_TEST_ROOM_ID)
+                .use_state_after()
+                .add_state_bulk([
+                    Raw::new(&*test_json::sync_events::CREATE).unwrap().cast_unchecked(),
+                    Raw::new(&*test_json::sync_events::POWER_LEVELS).unwrap().cast_unchecked(),
+                    Raw::new(&*test_json::sync_events::HISTORY_VISIBILITY)
+                        .unwrap()
+                        .cast_unchecked(),
+                    Raw::new(&*test_json::sync_events::JOIN_RULES).unwrap().cast_unchecked(),
+                    Raw::new(&*test_json::sync_events::MEMBER_LEAVE).unwrap().cast_unchecked(),
+                ])
+                .add_timeline_bulk([
+                    Raw::new(&*test_json::sync_events::MEMBER_ADDITIONAL).unwrap().cast_unchecked(),
+                    Raw::new(&*test_json::sync_events::NAME).unwrap().cast_unchecked(),
+                ]),
+        )
+        .await;
+
+    let update = rx.recv().now_or_never().unwrap().unwrap();
+    assert_let!(RoomUpdate::Joined { updates, .. } = update);
+
+    // We received the `state_after`.
+    assert_matches!(updates.state, State::After(state_events));
+    assert_eq!(state_events.len(), 5);
+    assert_eq!(updates.timeline.events.len(), 2);
+
+    // Only the state events in `state_after` were used.
+    let room = client.get_room(&DEFAULT_TEST_ROOM_ID).unwrap();
+
+    assert!(room.create_content().is_some());
+    assert_eq!(room.history_visibility().unwrap(), HistoryVisibility::WorldReadable);
+    assert_eq!(room.join_rule().unwrap(), JoinRule::Public);
+    assert!(room.name().is_none());
+
+    let member = room.get_member_no_sync(user_id!("@invited:localhost")).await.unwrap().unwrap();
+    assert_eq!(*member.membership(), MembershipState::Leave);
 }

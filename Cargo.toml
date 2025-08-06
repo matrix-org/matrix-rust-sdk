@@ -74,6 +74,7 @@ ruma = { git = "https://github.com/ruma/ruma", rev = "a626e6b8521bcaa01bf8b7c416
     "unstable-msc4140",
     "unstable-msc4143",
     "unstable-msc4171",
+    "unstable-msc4222",
     "unstable-msc4278",
     "unstable-msc4286",
     "unstable-msc4306"

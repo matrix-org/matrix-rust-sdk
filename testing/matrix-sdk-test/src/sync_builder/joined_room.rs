@@ -74,6 +74,12 @@ impl JoinedRoomBuilder {
         self
     }
 
+    /// Add state events to the `state_after` field rather than `state`.
+    pub fn use_state_after(mut self) -> Self {
+        self.inner.state.use_state_after();
+        self
+    }
+
     /// Add an event to the state.
     pub fn add_state_event(mut self, event: impl Into<Raw<AnySyncStateEvent>>) -> Self {
         self.inner.state.events_mut().push(event.into());
