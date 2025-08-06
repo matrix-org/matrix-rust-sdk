@@ -24,7 +24,7 @@ use mime::Mime;
 #[cfg(doc)]
 use ruma::events::{MessageLikeUnsigned, SyncMessageLikeEvent};
 use ruma::{
-    api::client::message::send_message_event,
+    api::client::{message::send_message_event, state::send_state_event},
     assign,
     events::{AnyMessageLikeEventContent, AnyStateEventContent, MessageLikeEventContent},
     serde::Raw,
@@ -399,5 +399,76 @@ impl<'a> SendStateEventRaw<'a> {
         }
 
         true
+    }
+}
+
+impl<'a> IntoFuture for SendStateEventRaw<'a> {
+    type Output = Result<send_state_event::v3::Response>;
+    boxed_into_future!(extra_bounds: 'a);
+
+    fn into_future(self) -> Self::IntoFuture {
+        #[cfg(feature = "e2e-encryption")]
+        let Self { room, mut event_type, state_key, mut content, tracing_span, request_config } =
+            self;
+
+        // This is here purely to satisfy the linter on non-encrypting targets.
+        #[cfg(not(feature = "e2e-encryption"))]
+        let Self { room, event_type, state_key, content, tracing_span, request_config } = self;
+
+        let fut = async move {
+            room.ensure_room_joined()?;
+
+            #[cfg(feature = "e2e-encryption")]
+            let mut state_key = state_key.to_owned();
+            #[cfg(not(feature = "e2e-encryption"))]
+            let state_key = state_key.to_owned();
+
+            #[cfg(feature = "e2e-encryption")]
+            if Self::should_encrypt(room, event_type) {
+                use tracing::debug;
+
+                Span::current().record("is_room_encrypted", true);
+                debug!(
+                    room_id = ?room.room_id(),
+                    "Sending encrypted event because the room is encrypted.",
+                );
+
+                if !room.are_members_synced() {
+                    room.sync_members().await?;
+                }
+
+                room.query_keys_for_untracked_or_dirty_users().await?;
+                room.preshare_room_key().await?;
+
+                let olm = room.client.olm_machine().await;
+                let olm = olm.as_ref().expect("Olm machine wasn't started");
+
+                content = olm
+                    .encrypt_state_event_raw(room.room_id(), event_type, &state_key, &content)
+                    .await?
+                    .cast_unchecked();
+
+                state_key = format!("{event_type}:{state_key}");
+                event_type = "m.room.encrypted";
+            } else {
+                Span::current().record("is_room_encrypted", false);
+            }
+
+            let request = send_state_event::v3::Request::new_raw(
+                room.room_id().to_owned(),
+                event_type.into(),
+                state_key.to_owned(),
+                content,
+            );
+
+            let response = room.client.send(request).with_request_config(request_config).await?;
+
+            Span::current().record("event_id", tracing::field::debug(&response.event_id));
+            info!("Sent event in room");
+
+            Ok(response)
+        };
+
+        Box::pin(fut.instrument(tracing_span))
     }
 }
