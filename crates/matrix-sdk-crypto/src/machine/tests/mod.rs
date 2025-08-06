@@ -26,6 +26,11 @@ use matrix_sdk_common::{
     executor::spawn,
 };
 use matrix_sdk_test::{async_test, message_like_event_content, ruma_response_from_json, test_json};
+#[cfg(feature = "experimental-encrypted-state-events")]
+use ruma::events::{
+    room::topic::{OriginalRoomTopicEvent, RoomTopicEventContent},
+    StateEvent,
+};
 use ruma::{
     api::client::{
         keys::{get_keys, upload_keys},
@@ -724,6 +729,84 @@ async fn test_megolm_encryption() {
     // inbound_group_session_stream.
     if let Some(igs) = room_keys_received_stream.next().now_or_never() {
         panic!("Session stream unexpectedly returned update: {igs:?}");
+    }
+}
+
+#[cfg(feature = "experimental-encrypted-state-events")]
+#[async_test]
+async fn test_megolm_state_encryption() {
+    use ruma::events::{AnyStateEvent, EmptyStateKey};
+
+    let (alice, bob) =
+        get_machine_pair_with_setup_sessions_test_helper(alice_id(), user_id(), false).await;
+    let room_id = room_id!("!test:example.org");
+
+    let to_device_requests = alice
+        .share_room_key(room_id, iter::once(bob.user_id()), EncryptionSettings::default())
+        .await
+        .unwrap();
+
+    let event = ToDeviceEvent::new(
+        alice.user_id().to_owned(),
+        to_device_requests_to_content(to_device_requests),
+    );
+
+    let decryption_settings =
+        DecryptionSettings { sender_device_trust_requirement: TrustRequirement::Untrusted };
+
+    let group_session = bob
+        .store()
+        .with_transaction(|mut tr| async {
+            let res = bob
+                .decrypt_to_device_event(
+                    &mut tr,
+                    &event,
+                    &mut Changes::default(),
+                    &decryption_settings,
+                )
+                .await?;
+            Ok((tr, res))
+        })
+        .await
+        .unwrap()
+        .inbound_group_session
+        .unwrap();
+    let sessions = std::slice::from_ref(&group_session);
+    bob.store().save_inbound_group_sessions(sessions).await.unwrap();
+
+    let plaintext = "It is a secret to everybody";
+
+    let content = RoomTopicEventContent::new(plaintext.to_owned());
+
+    let encrypted_content =
+        alice.encrypt_state_event(room_id, content, EmptyStateKey).await.unwrap();
+
+    let event = json!({
+        "event_id": "$xxxxx:example.org",
+        "origin_server_ts": MilliSecondsSinceUnixEpoch::now(),
+        "sender": alice.user_id(),
+        "type": "m.room.encrypted",
+        "content": encrypted_content,
+    });
+
+    let event = json_convert(&event).unwrap();
+
+    let decryption_settings =
+        DecryptionSettings { sender_device_trust_requirement: TrustRequirement::Untrusted };
+
+    let decryption_result =
+        bob.try_decrypt_room_event(&event, room_id, &decryption_settings).await.unwrap();
+    assert_let!(RoomEventDecryptionResult::Decrypted(decrypted_event) = decryption_result);
+    let decrypted_event = decrypted_event.event.deserialize().unwrap();
+
+    if let AnyTimelineEvent::State(AnyStateEvent::RoomTopic(StateEvent::Original(
+        OriginalRoomTopicEvent { sender, content, .. },
+    ))) = decrypted_event
+    {
+        assert_eq!(&sender, alice.user_id());
+        assert_eq!(&content.topic, plaintext);
+    } else {
+        panic!("Decrypted room event has the wrong type");
     }
 }
 
