@@ -162,6 +162,7 @@ impl_event_cache_store! {
                         .add_chunk(
                             room_id,
                             &types::Chunk {
+                                room_id: room_id.to_owned(),
                                 identifier: new.index(),
                                 previous: previous.map(|i| i.index()),
                                 next: next.map(|i| i.index()),
@@ -185,6 +186,7 @@ impl_event_cache_store! {
                         .add_chunk(
                             room_id,
                             &types::Chunk {
+                                room_id: room_id.to_owned(),
                                 identifier: new.index(),
                                 previous: previous.map(|i| i.index()),
                                 next: next.map(|i| i.index()),
