@@ -93,7 +93,7 @@ impl Notify {
             Self::All => vec![Action::Notify, Action::SetTweak(Tweak::Sound("default".into()))],
             #[cfg(feature = "unstable-msc3768")]
             Self::InAppOnly => vec![Action::NotifyInApp],
-            Self::None => Vec::new()
+            Self::None => Vec::new(),
         }
     }
 }
