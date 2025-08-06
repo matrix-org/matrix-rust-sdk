@@ -71,6 +71,14 @@ impl From<Event> for TimelineEvent {
 }
 
 impl Event {
+    /// The [`RoomId`] of the room in which the underlying event exists.
+    pub fn room_id(&self) -> &RoomId {
+        match self {
+            Event::InBand(e) => &e.room_id,
+            Event::OutOfBand(e) => &e.room_id,
+        }
+    }
+
     /// The [`OwnedEventId`] of the underlying event.
     pub fn event_id(&self) -> Option<OwnedEventId> {
         match self {
@@ -116,6 +124,8 @@ impl Event {
 /// in-band or out-of-band.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct GenericEvent<P> {
+    /// The room in which the event exists.
+    pub room_id: OwnedRoomId,
     /// The full content of the event.
     pub content: TimelineEvent,
     /// The position of the event, if it is in a chunk.
