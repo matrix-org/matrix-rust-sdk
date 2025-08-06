@@ -14,15 +14,15 @@
 
 //! High level interfaces for working with Spaces
 //!
-//! See [`SpaceDiscoveryService`] for details.
+//! See [`SpaceService`] for details.
 
-use matrix_sdk::{Client, Error};
+use matrix_sdk::Client;
 use ruma::OwnedRoomId;
-use ruma::api::client::space::get_hierarchy;
 
-pub use crate::spaces::room::SpaceServiceRoom;
+pub use crate::spaces::{room::SpaceServiceRoom, room_list::SpaceServiceRoomList};
 
 pub mod room;
+pub mod room_list;
 
 pub struct SpaceService {
     client: Client,
@@ -38,35 +38,24 @@ impl SpaceService {
             .joined_rooms()
             .into_iter()
             .filter_map(|room| if room.is_space() { Some(room) } else { None })
-            .map(|room| SpaceServiceRoom::new_from_known(room))
+            .map(SpaceServiceRoom::new_from_known)
             .collect::<Vec<_>>()
     }
 
-    pub async fn top_level_children_for(
-        &self,
-        space_id: OwnedRoomId,
-    ) -> Result<Vec<SpaceServiceRoom>, Error> {
-        let request = get_hierarchy::v1::Request::new(space_id.clone());
-
-        let result = self.client.send(request).await?;
-
-        Ok(result
-            .rooms
-            .iter()
-            .map(|room| (&room.summary, self.client.get_room(&room.summary.room_id)))
-            .map(|(summary, room)| SpaceServiceRoom::new_from_summary(summary, room))
-            .collect::<Vec<_>>())
+    pub fn space_room_list(&self, space_id: OwnedRoomId) -> SpaceServiceRoomList {
+        SpaceServiceRoomList::new(self.client.clone(), space_id)
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use assert_matches2::assert_let;
     use matrix_sdk::{room::ParentSpace, test_utils::mocks::MatrixMockServer};
     use matrix_sdk_test::{JoinedRoomBuilder, async_test, event_factory::EventFactory};
     use ruma::{RoomVersionId, room_id};
     use tokio_stream::StreamExt;
+
+    use super::*;
 
     #[async_test]
     async fn test_spaces_hierarchy() {
@@ -80,9 +69,9 @@ mod tests {
 
         // Given one parent space with 2 children spaces
 
-        let parent_space_id = room_id!("!3:example.org");
-        let child_space_id_1 = room_id!("!1:example.org");
-        let child_space_id_2 = room_id!("!2:example.org");
+        let parent_space_id = room_id!("!parent_space:example.org");
+        let child_space_id_1 = room_id!("!child_space_1:example.org");
+        let child_space_id_2 = room_id!("!child_space_2:example.org");
 
         server
             .sync_room(

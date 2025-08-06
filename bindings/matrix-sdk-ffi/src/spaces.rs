@@ -12,8 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::{fmt::Debug, sync::Arc};
+
+use futures_util::{pin_mut, StreamExt};
+use matrix_sdk_common::{SendOutsideWasm, SyncOutsideWasm};
 use matrix_sdk_ui::spaces::{
+    room_list::SpaceServiceRoomListPaginationState as UISpaceServiceRoomListPaginationState,
     SpaceService as UISpaceService, SpaceServiceRoom as UISpaceServiceRoom,
+    SpaceServiceRoomList as UISpaceServiceRoomList,
 };
 use ruma::RoomId;
 
@@ -22,6 +28,8 @@ use crate::{
     error::ClientError,
     room::{Membership, RoomHero},
     room_preview::RoomType,
+    runtime::get_runtime_handle,
+    TaskHandle,
 };
 
 #[derive(uniffi::Object)]
@@ -30,7 +38,6 @@ pub struct SpaceService {
 }
 
 impl SpaceService {
-    /// Create a new instance of `SpaceService`.
     pub fn new(inner: UISpaceService) -> Self {
         Self { inner }
     }
@@ -38,20 +45,97 @@ impl SpaceService {
 
 #[matrix_sdk_ffi_macros::export]
 impl SpaceService {
-    /// Get the list of joined spaces.
     pub fn joined_spaces(&self) -> Vec<SpaceServiceRoom> {
         self.inner.joined_spaces().into_iter().map(Into::into).collect()
     }
 
-    /// Get the top-level children for a given space.
-    pub async fn top_level_children_for(
+    pub fn top_level_children_for(
         &self,
         space_id: String,
-    ) -> Result<Vec<SpaceServiceRoom>, ClientError> {
+    ) -> Result<SpaceServiceRoomList, ClientError> {
         let space_id = RoomId::parse(space_id)?;
-        let children = self.inner.top_level_children_for(space_id).await?;
-        Ok(children.into_iter().map(Into::into).collect())
+        Ok(SpaceServiceRoomList::new(self.inner.space_room_list(space_id)))
     }
+}
+
+#[derive(uniffi::Object)]
+pub struct SpaceServiceRoomList {
+    inner: UISpaceServiceRoomList,
+}
+
+impl SpaceServiceRoomList {
+    pub fn new(inner: UISpaceServiceRoomList) -> Self {
+        Self { inner }
+    }
+}
+
+#[matrix_sdk_ffi_macros::export]
+impl SpaceServiceRoomList {
+    pub fn pagination_state(&self) -> SpaceServiceRoomListPaginationState {
+        self.inner.pagination_state().into()
+    }
+
+    pub fn subscribe_to_pagination_state_updates(
+        &self,
+        listener: Box<dyn SpaceServiceRoomListPaginationStateListener>,
+    ) {
+        let pagination_state = self.inner.subscribe_to_pagination_state_updates();
+
+        Arc::new(TaskHandle::new(get_runtime_handle().spawn(async move {
+            pin_mut!(pagination_state);
+
+            while let Some(state) = pagination_state.next().await {
+                listener.on_update(state.into());
+            }
+        })));
+    }
+
+    pub fn rooms(&self) -> Vec<SpaceServiceRoom> {
+        self.inner.rooms().into_iter().map(Into::into).collect()
+    }
+
+    pub fn subscribe_to_room_update(&self, listener: Box<dyn SpaceServiceRoomListEntriesListener>) {
+        let entries_stream = self.inner.subscribe_to_room_updates();
+
+        Arc::new(TaskHandle::new(get_runtime_handle().spawn(async move {
+            pin_mut!(entries_stream);
+
+            while let Some(rooms) = entries_stream.next().await {
+                listener.on_update(rooms.into_iter().map(Into::into).collect());
+            }
+        })));
+    }
+}
+
+#[derive(uniffi::Enum)]
+pub enum SpaceServiceRoomListPaginationState {
+    Idle { end_reached: bool },
+    Loading,
+}
+
+impl From<UISpaceServiceRoomListPaginationState> for SpaceServiceRoomListPaginationState {
+    fn from(state: UISpaceServiceRoomListPaginationState) -> Self {
+        match state {
+            UISpaceServiceRoomListPaginationState::Idle { end_reached } => {
+                SpaceServiceRoomListPaginationState::Idle { end_reached }
+            }
+            UISpaceServiceRoomListPaginationState::Loading => {
+                SpaceServiceRoomListPaginationState::Loading
+            }
+        }
+    }
+}
+
+#[matrix_sdk_ffi_macros::export(callback_interface)]
+pub trait SpaceServiceRoomListPaginationStateListener:
+    SendOutsideWasm + SyncOutsideWasm + Debug
+{
+    fn on_update(&self, pagination_state: SpaceServiceRoomListPaginationState);
+}
+
+#[matrix_sdk_ffi_macros::export(callback_interface)]
+pub trait SpaceServiceRoomListEntriesListener: SendOutsideWasm + SyncOutsideWasm + Debug {
+    fn on_update(&self, rooms: Vec<SpaceServiceRoom>);
 }
 
 #[derive(uniffi::Record)]
