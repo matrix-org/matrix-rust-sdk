@@ -1955,6 +1955,49 @@ impl Room {
         Ok(())
     }
 
+    /// Enable End-to-end encryption in this room, with experimental encrypted
+    /// state events.
+    #[instrument(skip_all)]
+    pub async fn enable_encryption_with_state(&self) -> Result<()> {
+        use ruma::{
+            events::room::encryption::RoomEncryptionEventContent, EventEncryptionAlgorithm,
+        };
+        const SYNC_WAIT_TIME: Duration = Duration::from_secs(3);
+
+        if !self.latest_encryption_state().await?.is_encrypted() {
+            let content =
+                RoomEncryptionEventContent::new(EventEncryptionAlgorithm::MegolmV1AesSha2)
+                    .with_encrypted_state();
+            self.send_state_event(content).await?;
+
+            // TODO do we want to return an error here if we time out? This
+            // could be quite useful if someone wants to enable encryption and
+            // send a message right after it's enabled.
+            _ = timeout(self.client.inner.sync_beat.listen(), SYNC_WAIT_TIME).await;
+
+            // If after waiting for a sync, we don't have the encryption state we expect,
+            // assume the local encryption state is incorrect; this will cause
+            // the SDK to re-request it later for confirmation, instead of
+            // assuming it's sync'd and correct (and not encrypted).
+            let _sync_lock = self.client.base_client().sync_lock().lock().await;
+            if !self.inner.encryption_state().is_state_encrypted() {
+                debug!("still not marked as encrypted, marking encryption state as missing");
+
+                let mut room_info = self.clone_info();
+                room_info.mark_encryption_state_missing();
+                let mut changes = StateChanges::default();
+                changes.add_room(room_info.clone());
+
+                self.client.state_store().save_changes(&changes).await?;
+                self.set_room_info(room_info, RoomInfoNotableUpdateReasons::empty());
+            } else {
+                debug!("room successfully marked as encrypted");
+            }
+        }
+
+        Ok(())
+    }
+
     /// Share a room key with users in the given room.
     ///
     /// This will create Olm sessions with all the users/device pairs in the
