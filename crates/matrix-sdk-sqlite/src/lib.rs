@@ -26,9 +26,7 @@ mod media_store;
 mod state_store;
 mod utils;
 use std::{
-    cmp::max,
-    fmt,
-    path::{Path, PathBuf},
+    cmp::max, fmt, ops::Deref, path::{Path, PathBuf}
 };
 
 use deadpool_sqlite::PoolConfig;
@@ -47,25 +45,25 @@ pub use self::state_store::{SqliteStateStore, DATABASE_NAME as STATE_STORE_DATAB
 matrix_sdk_test_utils::init_tracing_for_tests!();
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub enum Secret {
-    Key([u8; 32]),
-    PassPhrase(String),
+pub enum Secret<'b> {
+    Key(&'b [u8; 32]),
+    PassPhrase(&'b str),
 }
 
 /// A configuration structure used for opening a store.
 #[derive(Clone)]
-pub struct SqliteStoreConfig {
+pub struct SqliteStoreConfig<'b> {
     /// Path to the database, without the file name.
     path: PathBuf,
     /// Secret to open the store, if any
-    secret: Option<Secret>,
+    secret: Option<Secret<'b>>,
     /// The pool configuration for [`deadpool_sqlite`].
     pool_config: PoolConfig,
     /// The runtime configuration to apply when opening an SQLite connection.
     runtime_config: RuntimeConfig,
 }
 
-impl fmt::Debug for SqliteStoreConfig {
+impl fmt::Debug for SqliteStoreConfig<'_> {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
             .debug_struct("SqliteStoreConfig")
@@ -82,7 +80,7 @@ impl fmt::Debug for SqliteStoreConfig {
 /// connection for read operations.
 const POOL_MINIMUM_SIZE: usize = 2;
 
-impl SqliteStoreConfig {
+impl<'b> SqliteStoreConfig<'b> {
     /// Create a new [`SqliteStoreConfig`] with a path representing the
     /// directory containing the store database.
     pub fn new<P>(path: P) -> Self
@@ -129,14 +127,14 @@ impl SqliteStoreConfig {
     }
 
     /// Define the passphrase if the store is encoded.
-    pub fn passphrase(mut self, passphrase: Option<&str>) -> Self {
-        self.secret = passphrase.map(|passphrase| Secret::PassPhrase(passphrase.to_owned()));
+    pub fn passphrase(mut self, passphrase: Option<&'b str>) -> Self {
+        self.secret = passphrase.map(|passphrase| Secret::PassPhrase(passphrase));
         self
     }
 
     /// Define the key if the store is encoded.
-    pub fn key(mut self, key: Option<&[u8; 32]>) -> Self {
-        self.secret = key.map(|key| Secret::Key(*key));
+    pub fn key(mut self, key: Option<&'b [u8; 32]>) -> Self {
+        self.secret = key.map(|key| Secret::Key(key));
         self
     }
 
@@ -278,7 +276,7 @@ mod tests {
         assert_eq!(
             store_config.secret,
             Some(Secret::Key(
-                [
+                &[
                     143, 27, 202, 78, 96, 55, 13, 149, 247, 8, 33, 120, 204, 92, 171, 66, 19, 238,
                     61, 107, 132, 211, 40, 244, 71, 190, 99, 14, 173, 225, 6, 156,
                 ]
