@@ -111,7 +111,7 @@ impl<'a> IndexeddbEventCacheStoreTransaction<'a> {
         T: Indexed,
         T::IndexedType: DeserializeOwned,
         T::Error: AsyncErrorDeps,
-        K: IndexedKeyBounds<T> + Serialize,
+        K: IndexedKey<T> + Serialize,
     {
         let range = self.serializer.encode_key_range::<T, K>(room_id, range)?;
         let object_store = self.transaction.object_store(T::OBJECT_STORE)?;
@@ -141,7 +141,7 @@ impl<'a> IndexeddbEventCacheStoreTransaction<'a> {
         T: Indexed + 'b,
         T::IndexedType: DeserializeOwned,
         T::Error: AsyncErrorDeps,
-        K: IndexedKeyComponentBounds<T> + Serialize + 'b,
+        K: IndexedKey<T> + Serialize + 'b,
     {
         let range: IndexedKeyRange<K> = range.into().encoded(room_id, self.serializer.inner());
         self.get_items_by_key::<T, K>(room_id, range).await
@@ -158,7 +158,11 @@ impl<'a> IndexeddbEventCacheStoreTransaction<'a> {
         T::Error: AsyncErrorDeps,
         K: IndexedKeyBounds<T> + Serialize,
     {
-        self.get_items_by_key::<T, K>(room_id, IndexedKeyRange::All).await
+        self.get_items_by_key::<T, K>(
+            room_id,
+            IndexedKeyRange::all(room_id, self.serializer.inner()),
+        )
+        .await
     }
 
     /// Query IndexedDB for items that match the given key in the given room. If
@@ -172,7 +176,7 @@ impl<'a> IndexeddbEventCacheStoreTransaction<'a> {
         T: Indexed,
         T::IndexedType: DeserializeOwned,
         T::Error: AsyncErrorDeps,
-        K: IndexedKeyBounds<T> + Serialize,
+        K: IndexedKey<T> + Serialize,
     {
         let mut items = self.get_items_by_key::<T, K>(room_id, key).await?;
         if items.len() > 1 {
@@ -192,7 +196,7 @@ impl<'a> IndexeddbEventCacheStoreTransaction<'a> {
         T: Indexed + 'b,
         T::IndexedType: DeserializeOwned,
         T::Error: AsyncErrorDeps,
-        K: IndexedKeyComponentBounds<T> + Serialize + 'b,
+        K: IndexedKey<T> + Serialize + 'b,
     {
         let mut items = self.get_items_by_key_components::<T, K>(room_id, components).await?;
         if items.len() > 1 {
@@ -212,7 +216,7 @@ impl<'a> IndexeddbEventCacheStoreTransaction<'a> {
         T: Indexed,
         T::IndexedType: DeserializeOwned,
         T::Error: AsyncErrorDeps,
-        K: IndexedKeyBounds<T> + Serialize,
+        K: IndexedKey<T> + Serialize,
     {
         let range = self.serializer.encode_key_range::<T, K>(room_id, range)?;
         let object_store = self.transaction.object_store(T::OBJECT_STORE)?;
@@ -235,7 +239,7 @@ impl<'a> IndexeddbEventCacheStoreTransaction<'a> {
         T: Indexed + 'b,
         T::IndexedType: DeserializeOwned,
         T::Error: AsyncErrorDeps,
-        K: IndexedKeyBounds<T> + Serialize + 'b,
+        K: IndexedKey<T> + Serialize + 'b,
     {
         let range: IndexedKeyRange<K> = range.into().encoded(room_id, self.serializer.inner());
         self.get_items_count_by_key::<T, K>(room_id, range).await
@@ -252,7 +256,11 @@ impl<'a> IndexeddbEventCacheStoreTransaction<'a> {
         T::Error: AsyncErrorDeps,
         K: IndexedKeyBounds<T> + Serialize,
     {
-        self.get_items_count_by_key::<T, K>(room_id, IndexedKeyRange::All).await
+        self.get_items_count_by_key::<T, K>(
+            room_id,
+            IndexedKeyRange::all(room_id, self.serializer.inner()),
+        )
+        .await
     }
 
     /// Query IndexedDB for the item with the maximum key in the given room.
@@ -264,9 +272,12 @@ impl<'a> IndexeddbEventCacheStoreTransaction<'a> {
         T: Indexed,
         T::IndexedType: DeserializeOwned,
         T::Error: AsyncErrorDeps,
-        K: IndexedKey<T> + IndexedKeyBounds<T> + Serialize,
+        K: IndexedKeyBounds<T> + Serialize,
     {
-        let range = self.serializer.encode_key_range::<T, K>(room_id, IndexedKeyRange::All)?;
+        let range = self.serializer.encode_key_range::<T, K>(
+            room_id,
+            IndexedKeyRange::all(room_id, self.serializer.inner()),
+        )?;
         let direction = IdbCursorDirection::Prev;
         let object_store = self.transaction.object_store(T::OBJECT_STORE)?;
         if let Some(index) = K::INDEX {
@@ -339,7 +350,7 @@ impl<'a> IndexeddbEventCacheStoreTransaction<'a> {
     ) -> Result<(), IndexeddbEventCacheStoreTransactionError>
     where
         T: Indexed,
-        K: IndexedKeyBounds<T> + Serialize,
+        K: IndexedKey<T> + Serialize,
     {
         let range = self.serializer.encode_key_range::<T, K>(room_id, range)?;
         let object_store = self.transaction.object_store(T::OBJECT_STORE)?;
@@ -366,7 +377,7 @@ impl<'a> IndexeddbEventCacheStoreTransaction<'a> {
     ) -> Result<(), IndexeddbEventCacheStoreTransactionError>
     where
         T: Indexed + 'b,
-        K: IndexedKeyBounds<T> + Serialize + 'b,
+        K: IndexedKey<T> + Serialize + 'b,
     {
         let range: IndexedKeyRange<K> = range.into().encoded(room_id, self.serializer.inner());
         self.delete_items_by_key::<T, K>(room_id, range).await
@@ -381,7 +392,11 @@ impl<'a> IndexeddbEventCacheStoreTransaction<'a> {
         T: Indexed,
         K: IndexedKeyBounds<T> + Serialize,
     {
-        self.delete_items_by_key::<T, K>(room_id, IndexedKeyRange::All).await
+        self.delete_items_by_key::<T, K>(
+            room_id,
+            IndexedKeyRange::all(room_id, self.serializer.inner()),
+        )
+        .await
     }
 
     /// Delete item that matches the given key components in the given room from
@@ -393,7 +408,7 @@ impl<'a> IndexeddbEventCacheStoreTransaction<'a> {
     ) -> Result<(), IndexeddbEventCacheStoreTransactionError>
     where
         T: Indexed + 'b,
-        K: IndexedKeyBounds<T> + Serialize + 'b,
+        K: IndexedKey<T> + Serialize + 'b,
     {
         self.delete_items_by_key_components::<T, K>(room_id, key).await
     }

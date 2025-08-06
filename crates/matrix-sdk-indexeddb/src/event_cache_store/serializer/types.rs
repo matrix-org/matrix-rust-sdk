@@ -136,12 +136,9 @@ static INDEXED_KEY_UPPER_EVENT_POSITION: LazyLock<Position> = LazyLock::new(|| P
 /// Representation of a range of keys of type `K`. This is loosely
 /// correlated with [IDBKeyRange][1], with a few differences.
 ///
-/// Firstly, this enum only provides a single way to express a bounded range
+/// Namely, this enum only provides a single way to express a bounded range
 /// which is always inclusive on both bounds. While all ranges can still be
 /// represented, [`IDBKeyRange`][1] provides more flexibility in this regard.
-///
-/// Secondly, this enum provides a way to express the range of all keys
-/// of type `K`.
 ///
 /// [1]: https://developer.mozilla.org/en-US/docs/Web/API/IDBKeyRange
 #[derive(Debug, Copy, Clone)]
@@ -160,8 +157,6 @@ pub enum IndexedKeyRange<K> {
     ///
     /// [1]: https://developer.mozilla.org/en-US/docs/Web/API/IDBKeyRange/bound
     Bound(K, K),
-    /// Represents an inclusive range of all keys of type `K`.
-    All,
 }
 
 impl<'a, C: 'a> IndexedKeyRange<C> {
@@ -184,8 +179,17 @@ impl<'a, C: 'a> IndexedKeyRange<C> {
                 K::encode(room_id, lower, serializer),
                 K::encode(room_id, upper, serializer),
             ),
-            Self::All => IndexedKeyRange::All,
         }
+    }
+}
+
+impl<K> IndexedKeyRange<K> {
+    pub fn all<T>(room_id: &RoomId, serializer: &IndexeddbSerializer) -> IndexedKeyRange<K>
+    where
+        T: Indexed,
+        K: IndexedKeyBounds<T>,
+    {
+        IndexedKeyRange::Bound(K::lower_key(room_id, serializer), K::upper_key(room_id, serializer))
     }
 }
 
