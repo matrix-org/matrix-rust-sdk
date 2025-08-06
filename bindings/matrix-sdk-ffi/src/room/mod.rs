@@ -1093,8 +1093,8 @@ impl Room {
         Ok(Arc::new(RoomPreview::new(AsyncRuntimeDropped::new(client), room_preview)))
     }
 
-    /// Toggle a MSC4306 subscription to a thread in this room, based on the
-    /// thread root event id.
+    /// Set a MSC4306 subscription to a thread in this room, based on the thread
+    /// root event id.
     ///
     /// If `subscribed` is `true`, it will subscribe to the thread, with a
     /// precision that the subscription was manually requested by the user
@@ -1112,7 +1112,7 @@ impl Room {
         let thread_root = EventId::parse(thread_root_event_id)?;
         if subscribed {
             // This is a manual subscription.
-            let automatic = false;
+            let automatic = None;
             self.inner.subscribe_thread(thread_root, automatic).await?;
         } else {
             self.inner.unsubscribe_thread(thread_root).await?;
@@ -1129,29 +1129,22 @@ impl Room {
     pub async fn fetch_thread_subscription(
         &self,
         thread_root_event_id: String,
-    ) -> Result<Option<ThreadStatus>, ClientError> {
+    ) -> Result<Option<ThreadSubscription>, ClientError> {
         let thread_root = EventId::parse(thread_root_event_id)?;
-        Ok(self.inner.fetch_thread_subscription(thread_root).await?.map(|sub| match sub {
-            matrix_sdk::room::ThreadStatus::Subscribed { automatic } => {
-                ThreadStatus::Subscribed { automatic }
-            }
-            matrix_sdk::room::ThreadStatus::Unsubscribed => ThreadStatus::Unsubscribed,
-        }))
+        Ok(self
+            .inner
+            .fetch_thread_subscription(thread_root)
+            .await?
+            .map(|sub| ThreadSubscription { automatic: sub.automatic }))
     }
 }
 
-/// Status of a thread subscription (MSC4306).
-#[derive(uniffi::Enum)]
-pub enum ThreadStatus {
-    /// The thread is subscribed to.
-    Subscribed {
-        /// Whether the thread subscription happened automatically (e.g. after a
-        /// mention) or if it was manually requested by the user.
-        automatic: bool,
-    },
-
-    /// The thread is not subscribed to.
-    Unsubscribed,
+/// A thread subscription (MSC4306).
+#[derive(uniffi::Record)]
+pub struct ThreadSubscription {
+    /// Whether the thread subscription happened automatically (e.g. after a
+    /// mention) or if it was manually requested by the user.
+    automatic: bool,
 }
 
 /// A listener for receiving new live location shares in a room.

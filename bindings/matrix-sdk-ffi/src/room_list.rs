@@ -16,7 +16,7 @@ use matrix_sdk_ui::{
     room_list_service::filters::{
         new_filter_all, new_filter_any, new_filter_category, new_filter_deduplicate_versions,
         new_filter_favourite, new_filter_fuzzy_match_room_name, new_filter_invite,
-        new_filter_joined, new_filter_non_left, new_filter_none,
+        new_filter_joined, new_filter_non_left, new_filter_non_space, new_filter_none,
         new_filter_normalized_match_room_name, new_filter_unread, BoxedFilterFn, RoomCategory,
     },
     unable_to_decrypt_hook::UtdHookManager,
@@ -454,7 +454,10 @@ impl RoomListDynamicEntriesController {
 pub enum RoomListEntriesDynamicFilterKind {
     All { filters: Vec<RoomListEntriesDynamicFilterKind> },
     Any { filters: Vec<RoomListEntriesDynamicFilterKind> },
+    NonSpace,
     NonLeft,
+    // Not { filter: RoomListEntriesDynamicFilterKind } - requires recursive enum
+    // support in uniffi https://github.com/mozilla/uniffi-rs/issues/396
     Joined,
     Unread,
     Favourite,
@@ -493,6 +496,7 @@ impl From<RoomListEntriesDynamicFilterKind> for BoxedFilterFn {
                 filters.into_iter().map(|filter| BoxedFilterFn::from(filter)).collect(),
             )),
             Kind::NonLeft => Box::new(new_filter_non_left()),
+            Kind::NonSpace => Box::new(new_filter_non_space()),
             Kind::Joined => Box::new(new_filter_joined()),
             Kind::Unread => Box::new(new_filter_unread()),
             Kind::Favourite => Box::new(new_filter_favourite()),

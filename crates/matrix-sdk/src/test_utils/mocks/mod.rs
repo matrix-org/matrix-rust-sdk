@@ -40,6 +40,7 @@ use ruma::{
         RoomAccountDataEventType, StateEventType,
     },
     media::Method,
+    push::RuleKind,
     serde::Raw,
     time::Duration,
     DeviceId, EventId, MilliSecondsSinceUnixEpoch, MxcUri, OwnedDeviceId, OwnedEventId,
@@ -1363,6 +1364,19 @@ impl MatrixMockServer {
         self.mock_endpoint(mock, DeleteThreadSubscriptionEndpoint::default())
             .expect_default_access_token()
     }
+
+    /// Create a prebuilt mock for the endpoint used to enable a push rule.
+    pub fn mock_enable_push_rule(
+        &self,
+        kind: RuleKind,
+        rule_id: impl AsRef<str>,
+    ) -> MockEndpoint<'_, EnablePushRuleEndpoint> {
+        let rule_id = rule_id.as_ref();
+        let mock = Mock::given(method("PUT")).and(path_regex(format!(
+            "^/_matrix/client/v3/pushrules/global/{kind}/{rule_id}/enabled",
+        )));
+        self.mock_endpoint(mock, EnablePushRuleEndpoint).expect_default_access_token()
+    }
 }
 
 /// Parameter to [`MatrixMockServer::sync_room`].
@@ -1625,6 +1639,12 @@ impl<'a, T> MockEndpoint<'a, T> {
     /// ok response.
     fn ok_with_event_id(self, event_id: OwnedEventId) -> MatrixMock<'a> {
         self.respond_with(ResponseTemplate::new(200).set_body_json(json!({ "event_id": event_id })))
+    }
+
+    /// Internal helper to return a 200 OK response with an empty JSON object in
+    /// the body.
+    fn ok_empty_json(self) -> MatrixMock<'a> {
+        self.respond_with(ResponseTemplate::new(200).set_body_json(json!({})))
     }
 
     /// Returns an endpoint that emulates a permanent failure error (e.g. event
@@ -2500,15 +2520,16 @@ impl<'a> MockEndpoint<'a, RoomEventContextEndpoint> {
         self
     }
 
-    /// Returns an endpoint that emulates success
+    /// Returns an endpoint that emulates success.
     pub fn ok(
         self,
         event: TimelineEvent,
         start: impl Into<String>,
         end: impl Into<String>,
+        state_events: Vec<Raw<AnyStateEvent>>,
     ) -> MatrixMock<'a> {
         let event_path = if self.endpoint.match_event_id {
-            let event_id = event.kind.event_id().expect("an event id is required");
+            let event_id = event.event_id().expect("an event id is required");
             // The event id should begin with `$`, which would be taken as the end of the
             // regex so we need to escape it
             event_id.as_str().replace("$", "\\$")
@@ -2526,7 +2547,7 @@ impl<'a> MockEndpoint<'a, RoomEventContextEndpoint> {
                 "event": event.into_raw().json(),
                 "end": end.into(),
                 "start": start.into(),
-                "state": []
+                "state": state_events
             })));
         MatrixMock { server: self.server, mock }
     }
@@ -3874,6 +3895,17 @@ impl<'a> MockEndpoint<'a, PutThreadSubscriptionEndpoint> {
         self.respond_with(ResponseTemplate::new(200))
     }
 
+    /// Returns that the server skipped an automated thread subscription,
+    /// because the user unsubscribed to the thread after the event id passed in
+    /// the automatic subscription.
+    pub fn conflicting_unsubscription(mut self) -> MatrixMock<'a> {
+        self.mock = self.mock.and(path_regex(self.endpoint.matchers.endpoint_regexp_uri()));
+        self.respond_with(ResponseTemplate::new(409).set_body_json(json!({
+            "errcode": "IO.ELEMENT.MSC4306.M_CONFLICTING_UNSUBSCRIPTION",
+            "error": "the user unsubscribed after the subscription event id"
+        })))
+    }
+
     /// Match the request parameter against a specific room id.
     pub fn match_room_id(mut self, room_id: OwnedRoomId) -> Self {
         self.endpoint.matchers = self.endpoint.matchers.match_room_id(room_id);
@@ -3910,5 +3942,16 @@ impl<'a> MockEndpoint<'a, DeleteThreadSubscriptionEndpoint> {
     pub fn match_thread_id(mut self, thread_root: OwnedEventId) -> Self {
         self.endpoint.matchers = self.endpoint.matchers.match_thread_id(thread_root);
         self
+    }
+}
+
+/// A prebuilt mock for `PUT
+/// /_matrix/client/v3/pushrules/global/{kind}/{ruleId}/enabled`.
+pub struct EnablePushRuleEndpoint;
+
+impl<'a> MockEndpoint<'a, EnablePushRuleEndpoint> {
+    /// Returns a successful empty JSON response.
+    pub fn ok(self) -> MatrixMock<'a> {
+        self.ok_empty_json()
     }
 }

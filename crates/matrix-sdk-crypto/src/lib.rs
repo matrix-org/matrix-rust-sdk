@@ -777,7 +777,7 @@ pub enum RoomEventDecryptionResult {
 /// # use matrix_sdk_crypto::{
 /// #     DecryptionSettings, EncryptionSyncChanges, OlmMachine, TrustRequirement
 /// # };
-/// # use ruma::api::client::sync::sync_events::v3::{Response, JoinedRoom};
+/// # use ruma::api::client::sync::sync_events::v3::{Response, State, JoinedRoom};
 /// # use ruma::{OwnedUserId, serde::Raw, events::AnySyncStateEvent};
 /// # #[tokio::main]
 /// # async fn main() -> Result<()> {
@@ -833,10 +833,12 @@ pub enum RoomEventDecryptionResult {
 ///     for (_, room) in &response.rooms.join {
 ///         // For simplicity reasons we're only looking at the state field of a joined room, but
 ///         // the events in the timeline are important as well.
-///         for event in &room.state.events {
-///             if is_member_event_of_a_joined_user(event) && is_room_encrypted(room) {
-///                 let user_id = get_user_id(event);
-///                 users.push(user_id);
+///         if let State::Before(state) = &room.state {
+///            for event in &state.events {
+///                 if is_member_event_of_a_joined_user(event) && is_room_encrypted(room) {
+///                     let user_id = get_user_id(event);
+///                     users.push(user_id);
+///                 }
 ///             }
 ///         }
 ///     }

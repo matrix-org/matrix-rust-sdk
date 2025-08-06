@@ -55,7 +55,7 @@ use crate::{
     deserialized_responses::{
         DisplayName, RawAnySyncOrStrippedState, RawMemberEvent, RawSyncOrStrippedState,
     },
-    store::ThreadStatus,
+    store::ThreadSubscription,
 };
 
 /// An abstract state store trait that can be used to implement different stores
@@ -481,15 +481,20 @@ pub trait StateStore: AsyncTraitDeps {
     ) -> Result<Vec<DependentQueuedRequest>, Self::Error>;
 
     /// Insert or update a thread subscription for a given room and thread.
-    ///
-    /// Note: there's no way to remove a thread subscription, because it's
-    /// either subscribed to, or unsubscribed to, after it's been saved for
-    /// the first time.
     async fn upsert_thread_subscription(
         &self,
         room: &RoomId,
         thread_id: &EventId,
-        status: ThreadStatus,
+        subscription: ThreadSubscription,
+    ) -> Result<(), Self::Error>;
+
+    /// Remove a previous thread subscription for a given room and thread.
+    ///
+    /// Note: removing an unknown thread subscription is a no-op.
+    async fn remove_thread_subscription(
+        &self,
+        room: &RoomId,
+        thread_id: &EventId,
     ) -> Result<(), Self::Error>;
 
     /// Loads the current thread subscription for a given room and thread.
@@ -499,7 +504,7 @@ pub trait StateStore: AsyncTraitDeps {
         &self,
         room: &RoomId,
         thread_id: &EventId,
-    ) -> Result<Option<ThreadStatus>, Self::Error>;
+    ) -> Result<Option<ThreadSubscription>, Self::Error>;
 }
 
 #[repr(transparent)]
@@ -799,17 +804,25 @@ impl<T: StateStore> StateStore for EraseStateStoreError<T> {
         &self,
         room: &RoomId,
         thread_id: &EventId,
-        status: ThreadStatus,
+        subscription: ThreadSubscription,
     ) -> Result<(), Self::Error> {
-        self.0.upsert_thread_subscription(room, thread_id, status).await.map_err(Into::into)
+        self.0.upsert_thread_subscription(room, thread_id, subscription).await.map_err(Into::into)
     }
 
     async fn load_thread_subscription(
         &self,
         room: &RoomId,
         thread_id: &EventId,
-    ) -> Result<Option<ThreadStatus>, Self::Error> {
+    ) -> Result<Option<ThreadSubscription>, Self::Error> {
         self.0.load_thread_subscription(room, thread_id).await.map_err(Into::into)
+    }
+
+    async fn remove_thread_subscription(
+        &self,
+        room: &RoomId,
+        thread_id: &EventId,
+    ) -> Result<(), Self::Error> {
+        self.0.remove_thread_subscription(room, thread_id).await.map_err(Into::into)
     }
 }
 

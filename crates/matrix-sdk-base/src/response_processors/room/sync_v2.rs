@@ -16,9 +16,12 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use ruma::{
     OwnedRoomId, OwnedUserId, RoomId,
-    api::client::sync::sync_events::v3::{InvitedRoom, JoinedRoom, KnockedRoom, LeftRoom},
+    api::client::sync::sync_events::v3::{
+        InvitedRoom, JoinedRoom, KnockedRoom, LeftRoom, State as RumaState,
+    },
 };
 use tokio::sync::broadcast::Sender;
+use tracing::error;
 
 #[cfg(feature = "e2e-encryption")]
 use super::super::e2ee;
@@ -28,7 +31,7 @@ use super::{
 };
 use crate::{
     Result, RoomInfoNotableUpdate, RoomState,
-    sync::{InvitedRoomUpdate, JoinedRoomUpdate, KnockedRoomUpdate, LeftRoomUpdate},
+    sync::{InvitedRoomUpdate, JoinedRoomUpdate, KnockedRoomUpdate, LeftRoomUpdate, State},
 };
 
 /// Process updates of a joined room.
@@ -61,9 +64,10 @@ pub async fn update_joined_room(
     room_info.mark_state_fully_synced();
     room_info.handle_encryption_state(requested_required_states.for_room(room_id));
 
-    let (raw_state_events, state_events) = state_events::sync::collect(&joined_room.state.events);
-
     let mut new_user_ids = BTreeSet::new();
+
+    let state = State::from_sync_v2(joined_room.state);
+    let (raw_state_events, state_events) = state.collect(&joined_room.timeline.events);
 
     state_events::sync::dispatch(
         context,
@@ -80,19 +84,6 @@ pub async fn update_joined_room(
     if joined_room.timeline.limited {
         room_info.mark_members_missing();
     }
-
-    let (raw_state_events_from_timeline, state_events_from_timeline) =
-        state_events::sync::collect_from_timeline(&joined_room.timeline.events);
-
-    state_events::sync::dispatch(
-        context,
-        (&raw_state_events_from_timeline, &state_events_from_timeline),
-        &mut room_info,
-        ambiguity_cache,
-        &mut new_user_ids,
-        state_store,
-    )
-    .await?;
 
     #[cfg(feature = "e2e-encryption")]
     let olm_machine = e2ee.olm_machine;
@@ -145,7 +136,7 @@ pub async fn update_joined_room(
 
     Ok(JoinedRoomUpdate::new(
         timeline,
-        joined_room.state.events,
+        state,
         joined_room.account_data.events,
         joined_room.ephemeral.events,
         notification_count,
@@ -179,24 +170,12 @@ pub async fn update_left_room(
     room_info.mark_state_partially_synced();
     room_info.handle_encryption_state(requested_required_states.for_room(room_id));
 
-    let (raw_state_events, state_events) = state_events::sync::collect(&left_room.state.events);
+    let state = State::from_sync_v2(left_room.state);
+    let (raw_state_events, state_events) = state.collect(&left_room.timeline.events);
 
     state_events::sync::dispatch(
         context,
         (&raw_state_events, &state_events),
-        &mut room_info,
-        ambiguity_cache,
-        &mut (),
-        state_store,
-    )
-    .await?;
-
-    let (raw_state_events_from_timeline, state_events_from_timeline) =
-        state_events::sync::collect_from_timeline(&left_room.timeline.events);
-
-    state_events::sync::dispatch(
-        context,
-        (&raw_state_events_from_timeline, &state_events_from_timeline),
         &mut room_info,
         ambiguity_cache,
         &mut (),
@@ -222,12 +201,7 @@ pub async fn update_left_room(
 
     let ambiguity_changes = ambiguity_cache.changes.remove(room_id).unwrap_or_default();
 
-    Ok(LeftRoomUpdate::new(
-        timeline,
-        left_room.state.events,
-        left_room.account_data.events,
-        ambiguity_changes,
-    ))
+    Ok(LeftRoomUpdate::new(timeline, state, left_room.account_data.events, ambiguity_changes))
 }
 
 /// Process updates of an invited room.
@@ -300,4 +274,20 @@ pub async fn update_knocked_room(
     context.state_changes.add_room(room_info);
 
     Ok(knocked_room)
+}
+
+impl State {
+    /// Construct a [`State`] from the state changes for a joined or left room
+    /// from a response of the sync v2 endpoint.
+    fn from_sync_v2(state: RumaState) -> Self {
+        match state {
+            RumaState::Before(state) => Self::Before(state.events),
+            RumaState::After(state) => Self::After(state.events),
+            // We shouldn't receive other variants because they are opt-in.
+            state => {
+                error!("Unsupported State variant received for joined room: {state:?}");
+                Self::default()
+            }
+        }
+    }
 }

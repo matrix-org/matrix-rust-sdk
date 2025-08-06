@@ -7,6 +7,10 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased] - ReleaseDate
 
 ### Features
+- [**breaking**] The `state` field of `JoinedRoomUpdate` and `LeftRoomUpdate`
+  now uses the `State` enum, depending on whether the state changes were
+  received in the `state` field or the `state_after` field.
+  ([#5488](https://github.com/matrix-org/matrix-rust-sdk/pull/5488))
 - [**breaking**] `RoomCreateWithCreatorEventContent` has a new field
   `additional_creators` that allows to specify additional room creators beside
   the user sending the `m.room.create` event, introduced with room version 12.

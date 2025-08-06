@@ -9,7 +9,7 @@ use ruma::{
 };
 use serde_json::{Value as JsonValue, from_value as from_json_value};
 
-use super::RoomAccountDataTestEvent;
+use super::{RoomAccountDataTestEvent, StateMutExt};
 use crate::{DEFAULT_TEST_ROOM_ID, event_factory::EventBuilder};
 
 #[derive(Debug, Clone)]
@@ -74,9 +74,15 @@ impl JoinedRoomBuilder {
         self
     }
 
+    /// Add state events to the `state_after` field rather than `state`.
+    pub fn use_state_after(mut self) -> Self {
+        self.inner.state.use_state_after();
+        self
+    }
+
     /// Add an event to the state.
     pub fn add_state_event(mut self, event: impl Into<Raw<AnySyncStateEvent>>) -> Self {
-        self.inner.state.events.push(event.into());
+        self.inner.state.events_mut().push(event.into());
         self
     }
 
@@ -85,7 +91,7 @@ impl JoinedRoomBuilder {
     where
         I: IntoIterator<Item = Raw<AnySyncStateEvent>>,
     {
-        self.inner.state.events.extend(events);
+        self.inner.state.events_mut().extend(events);
         self
     }
 

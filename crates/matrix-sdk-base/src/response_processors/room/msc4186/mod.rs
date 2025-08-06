@@ -48,7 +48,7 @@ use crate::{
     Result, Room, RoomHero, RoomInfo, RoomInfoNotableUpdate, RoomInfoNotableUpdateReasons,
     RoomState,
     store::BaseStateStore,
-    sync::{InvitedRoomUpdate, JoinedRoomUpdate, KnockedRoomUpdate, LeftRoomUpdate},
+    sync::{InvitedRoomUpdate, JoinedRoomUpdate, KnockedRoomUpdate, LeftRoomUpdate, State},
 };
 
 /// Represent any kind of room updates.
@@ -80,8 +80,8 @@ pub async fn update_any_room(
     // Don't read state events from the `timeline` field, because they might be
     // incomplete or staled already. We must only read state events from
     // `required_state`.
-    let (raw_state_events, state_events) =
-        state_events::sync::collect(&room_response.required_state);
+    let state = State::from_msc4186(room_response.required_state.clone());
+    let (raw_state_events, state_events) = state.collect(&[]);
 
     let state_store = notification.state_store;
 
@@ -190,7 +190,7 @@ pub async fn update_any_room(
                 room_info,
                 RoomUpdateKind::Joined(JoinedRoomUpdate::new(
                     timeline,
-                    raw_state_events,
+                    state,
                     room_account_data.cloned().unwrap_or_default(),
                     ephemeral,
                     notification_count,
@@ -203,7 +203,7 @@ pub async fn update_any_room(
             room_info,
             RoomUpdateKind::Left(LeftRoomUpdate::new(
                 timeline,
-                raw_state_events,
+                state,
                 room_account_data.cloned().unwrap_or_default(),
                 ambiguity_changes,
             )),
@@ -551,4 +551,12 @@ pub(crate) async fn cache_latest_events(
     // Push the encrypted events we found into the Room, in reverse order, so
     // the latest is last
     room.latest_encrypted_events.write().unwrap().extend(encrypted_events.into_iter().rev());
+}
+
+impl State {
+    /// Construct a [`State`] from the state changes for a joined or left room
+    /// from a response of the Simplified Sliding Sync endpoint.
+    fn from_msc4186(events: Vec<Raw<AnySyncStateEvent>>) -> Self {
+        Self::After(events)
+    }
 }

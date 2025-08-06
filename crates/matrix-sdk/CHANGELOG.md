@@ -12,6 +12,10 @@ All notable changes to this project will be documented in this file.
   first response when using one of the `sync`, `sync_with_callback`, `sync_with_result_callback`
   or `sync_stream` methods on `Client`, if the response is empty.
   ([#5481](https://github.com/matrix-org/matrix-rust-sdk/pull/5481))
+- The methods to use the `/v3/sync` endpoint set the `use_state_after` field,
+  which means that, if the server supports it, the response will contain the
+  state changes between the last sync and the end of the timeline.
+  ([#5488](https://github.com/matrix-org/matrix-rust-sdk/pull/5488))
 - Add experimental support for
   [MSC4306](https://github.com/matrix-org/matrix-spec-proposals/pull/4306), with the
   `Room::fetch_thread_subscription()`, `Room::subscribe_thread()` and `Room::unsubscribe_thread()`

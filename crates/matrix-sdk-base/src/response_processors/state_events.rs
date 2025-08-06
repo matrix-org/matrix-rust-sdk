@@ -45,29 +45,31 @@ pub mod sync {
     use crate::{
         RoomInfo,
         store::{BaseStateStore, Result as StoreResult, ambiguity_map::AmbiguityCache},
+        sync::State,
     };
 
-    /// Collect [`AnySyncStateEvent`] to [`AnySyncStateEvent`].
-    pub fn collect(
-        raw_events: &[Raw<AnySyncStateEvent>],
-    ) -> (Vec<Raw<AnySyncStateEvent>>, Vec<AnySyncStateEvent>) {
-        super::collect(raw_events)
-    }
-
-    /// Collect [`AnySyncTimelineEvent`] to [`AnySyncStateEvent`].
-    ///
-    /// A [`AnySyncTimelineEvent`] can represent either message-like events or
-    /// state events. The message-like events are filtered out.
-    pub fn collect_from_timeline(
-        raw_events: &[Raw<AnySyncTimelineEvent>],
-    ) -> (Vec<Raw<AnySyncStateEvent>>, Vec<AnySyncStateEvent>) {
-        super::collect(raw_events.iter().filter_map(|raw_event| {
-            // Only state events have a `state_key` field.
-            match raw_event.get_field::<&str>("state_key") {
-                Ok(Some(_)) => Some(raw_event.cast_ref_unchecked()),
-                _ => None,
+    impl State {
+        /// Collect all the state changes to update the local state, from this
+        /// [`State`] and from the given timeline, if necessary.
+        ///
+        /// The events that fail to deserialize are logged and filtered out.
+        pub(crate) fn collect(
+            &self,
+            timeline: &[Raw<AnySyncTimelineEvent>],
+        ) -> (Vec<Raw<AnySyncStateEvent>>, Vec<AnySyncStateEvent>) {
+            match self {
+                Self::Before(events) => {
+                    super::collect(events.iter().chain(timeline.iter().filter_map(|raw_event| {
+                        // Only state events have a `state_key` field.
+                        match raw_event.get_field::<&str>("state_key") {
+                            Ok(Some(_)) => Some(raw_event.cast_ref_unchecked()),
+                            _ => None,
+                        }
+                    })))
+                }
+                Self::After(events) => super::collect(events),
             }
-        }))
+        }
     }
 
     /// Dispatch the sync state events.
@@ -279,12 +281,14 @@ pub mod stripped {
 
             // Check every event again for notification.
             for event in state_events.values().flat_map(|map| map.values()) {
-                notification.push_notification_from_event_if(
-                    room_id,
-                    &push_condition_room_ctx,
-                    event,
-                    Action::should_notify,
-                );
+                notification
+                    .push_notification_from_event_if(
+                        room_id,
+                        &push_condition_room_ctx,
+                        event,
+                        Action::should_notify,
+                    )
+                    .await;
             }
         }
 

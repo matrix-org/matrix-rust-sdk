@@ -34,7 +34,7 @@ use http::StatusCode;
 pub use identity_status_changes::IdentityStatusChanges;
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk_base::crypto::{IdentityStatusChange, RoomIdentityProvider, UserIdentity};
-pub use matrix_sdk_base::store::ThreadStatus;
+pub use matrix_sdk_base::store::ThreadSubscription;
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk_base::{crypto::RoomEventDecryptionResult, deserialized_responses::EncryptionInfo};
 use matrix_sdk_base::{
@@ -217,8 +217,8 @@ impl PushContext {
     }
 
     /// Compute the push rules for a given event.
-    pub fn for_event<T>(&self, event: &Raw<T>) -> Vec<Action> {
-        self.push_rules.get_actions(event, &self.push_condition_room_ctx).to_owned()
+    pub async fn for_event<T>(&self, event: &Raw<T>) -> Vec<Action> {
+        self.push_rules.get_actions(event, &self.push_condition_room_ctx).await.to_owned()
     }
 }
 
@@ -648,7 +648,7 @@ impl Room {
 
         let mut event = TimelineEvent::from_plaintext(event.cast());
         if let Some(push_ctx) = push_ctx {
-            event.set_push_actions(push_ctx.for_event(event.raw()));
+            event.set_push_actions(push_ctx.for_event(event.raw()).await);
         }
 
         event
@@ -1553,7 +1553,11 @@ impl Room {
             .await?
         {
             RoomEventDecryptionResult::Decrypted(decrypted) => {
-                let push_actions = push_ctx.map(|push_ctx| push_ctx.for_event(&decrypted.event));
+                let push_actions = if let Some(push_ctx) = push_ctx {
+                    Some(push_ctx.for_event(&decrypted.event).await)
+                } else {
+                    None
+                };
                 Ok(TimelineEvent::from_decrypted(decrypted, push_actions))
             }
             RoomEventDecryptionResult::UnableToDecrypt(utd_info) => {
@@ -3006,17 +3010,44 @@ impl Room {
             return Ok(None);
         };
 
-        let power_levels = self.power_levels().await.ok().map(Into::into);
+        let power_levels = match self.power_levels().await {
+            Ok(power_levels) => Some(power_levels.into()),
+            Err(error) => {
+                if matches!(room_info.state(), RoomState::Joined) {
+                    // It's normal to not have the power levels in a non-joined room, so don't log
+                    // the error if the room is not joined
+                    error!("Could not compute power levels for push conditions: {error}");
+                }
+                None
+            }
+        };
 
-        Ok(Some(assign!(
-            PushConditionRoomCtx::new(
-                room_id.to_owned(),
-                UInt::new(member_count).unwrap_or(UInt::MAX),
-                user_id.to_owned(),
-                user_display_name,
-            ),
-            { power_levels }
-        )))
+        let this = self.clone();
+        let mut ctx = assign!(PushConditionRoomCtx::new(
+            room_id.to_owned(),
+            UInt::new(member_count).unwrap_or(UInt::MAX),
+            user_id.to_owned(),
+            user_display_name,
+        ),
+        {
+            power_levels,
+        });
+
+        if self.client.enabled_thread_subscriptions() {
+            ctx = ctx.with_has_thread_subscription_fn(move |event_id: &EventId| {
+                let room = this.clone();
+                Box::pin(async move {
+                    if let Ok(maybe_sub) = room.fetch_thread_subscription(event_id.to_owned()).await
+                    {
+                        maybe_sub.is_some()
+                    } else {
+                        false
+                    }
+                })
+            });
+        }
+
+        Ok(Some(ctx))
     }
 
     /// Retrieves a [`PushContext`] that can be used to compute the push
@@ -3035,7 +3066,11 @@ impl Room {
     /// Note that it is possible that no push action is returned because the
     /// current room state does not have all the required state events.
     pub async fn event_push_actions<T>(&self, event: &Raw<T>) -> Result<Option<Vec<Action>>> {
-        Ok(self.push_context().await?.map(|ctx| ctx.for_event(event)))
+        if let Some(ctx) = self.push_context().await? {
+            Ok(Some(ctx.for_event(event).await))
+        } else {
+            Ok(None)
+        }
     }
 
     /// The membership details of the (latest) invite for the logged-in user in
@@ -3645,35 +3680,64 @@ impl Room {
     ///
     /// - `thread_root`: The ID of the thread root event to subscribe to.
     /// - `automatic`: Whether the subscription was made automatically by a
-    ///   client, not by manual user choice. If there was a previous automatic
-    ///   subscription, and that's set to `true` (i.e. we're now subscribing
-    ///   manually), the subscription will be overridden to a manual one
-    ///   instead.
+    ///   client, not by manual user choice. If set, must include the latest
+    ///   event ID that's known in the thread and that is causing the automatic
+    ///   subscription. If unset (i.e. we're now subscribing manually) and there
+    ///   was a previous automatic subscription, the subscription will be
+    ///   overridden to a manual one instead.
     ///
     /// # Returns
     ///
     /// - A 404 error if the event isn't known, or isn't a thread root.
-    /// - An `Ok` result if the subscription was successful.
-    pub async fn subscribe_thread(&self, thread_root: OwnedEventId, automatic: bool) -> Result<()> {
-        self.client
+    /// - An `Ok` result if the subscription was successful, or if the server
+    ///   skipped an automatic subscription (as the user unsubscribed from the
+    ///   thread after the event causing the automatic subscription).
+    #[instrument(skip(self), fields(room_id = %self.room_id()))]
+    pub async fn subscribe_thread(
+        &self,
+        thread_root: OwnedEventId,
+        automatic: Option<OwnedEventId>,
+    ) -> Result<()> {
+        let is_automatic = automatic.is_some();
+
+        match self
+            .client
             .send(subscribe_thread::unstable::Request::new(
                 self.room_id().to_owned(),
                 thread_root.clone(),
                 automatic,
             ))
-            .await?;
+            .await
+        {
+            Ok(_response) => {
+                trace!("Server acknowledged the thread subscription; saving in db");
+                // Immediately save the result into the database.
+                self.client
+                    .state_store()
+                    .upsert_thread_subscription(
+                        self.room_id(),
+                        &thread_root,
+                        ThreadSubscription { automatic: is_automatic },
+                    )
+                    .await?;
 
-        // Immediately save the result into the database.
-        self.client
-            .state_store()
-            .upsert_thread_subscription(
-                self.room_id(),
-                &thread_root,
-                ThreadStatus::Subscribed { automatic },
-            )
-            .await?;
+                Ok(())
+            }
 
-        Ok(())
+            Err(err) => {
+                if let Some(ErrorKind::ConflictingUnsubscription) = err.client_api_error_kind() {
+                    // In this case: the server indicates that the user unsubscribed *after* the
+                    // event ID we've used in an automatic subscription; don't
+                    // save the subscription state in the database, as the
+                    // previous one should be more correct.
+                    trace!("Thread subscription skipped: {err}");
+                    Ok(())
+                } else {
+                    // Forward the error to the caller.
+                    Err(err.into())
+                }
+            }
+        }
     }
 
     /// Unsubscribe from a given thread in this room.
@@ -3687,6 +3751,7 @@ impl Room {
     /// - An `Ok` result if the unsubscription was successful, or the thread was
     ///   already unsubscribed.
     /// - A 404 error if the event isn't known, or isn't a thread root.
+    #[instrument(skip(self), fields(room_id = %self.room_id()))]
     pub async fn unsubscribe_thread(&self, thread_root: OwnedEventId) -> Result<()> {
         self.client
             .send(unsubscribe_thread::unstable::Request::new(
@@ -3695,11 +3760,10 @@ impl Room {
             ))
             .await?;
 
+        trace!("Server acknowledged the thread subscription removal; removed it from db too");
+
         // Immediately save the result into the database.
-        self.client
-            .state_store()
-            .upsert_thread_subscription(self.room_id(), &thread_root, ThreadStatus::Unsubscribed)
-            .await?;
+        self.client.state_store().remove_thread_subscription(self.room_id(), &thread_root).await?;
 
         Ok(())
     }
@@ -3714,16 +3778,17 @@ impl Room {
     ///
     /// # Returns
     ///
-    /// - An `Ok` result with `Some(ThreadStatus)` if we have some subscription
-    ///   information.
+    /// - An `Ok` result with `Some(ThreadSubscription)` if we have some
+    ///   subscription information.
     /// - An `Ok` result with `None` if the subscription does not exist, or the
     ///   event couldn't be found, or the event isn't a thread.
     /// - An error if the request fails for any other reason, such as a network
     ///   error.
+    #[instrument(skip(self), fields(room_id = %self.room_id()))]
     pub async fn fetch_thread_subscription(
         &self,
         thread_root: OwnedEventId,
-    ) -> Result<Option<ThreadStatus>> {
+    ) -> Result<Option<ThreadSubscription>> {
         let result = self
             .client
             .send(get_thread_subscription::unstable::Request::new(
@@ -3732,36 +3797,29 @@ impl Room {
             ))
             .await;
 
-        match result {
-            Ok(response) => Ok(Some(ThreadStatus::Subscribed { automatic: response.automatic })),
+        let subscription = match result {
+            Ok(response) => Some(ThreadSubscription { automatic: response.automatic }),
             Err(http_error) => match http_error.as_client_api_error() {
-                Some(error) if error.status_code == StatusCode::NOT_FOUND => {
-                    // At this point the server returned no subscriptions, which can mean that the
-                    // endpoint doesn't exist (not enabled/implemented yet on the server), or that
-                    // the thread doesn't exist, or that the user has unsubscribed from it
-                    // previously.
-                    //
-                    // If we had any information about prior unsubscription, we can use it here to
-                    // return something slightly more precise than what the server returned.
-                    let stored_status = self
-                        .client
-                        .state_store()
-                        .load_thread_subscription(self.room_id(), &thread_root)
-                        .await?;
-
-                    if let Some(ThreadStatus::Unsubscribed) = stored_status {
-                        // The thread was unsubscribed from before, so maintain this information.
-                        Ok(Some(ThreadStatus::Unsubscribed))
-                    } else {
-                        // We either have stale information (the thread was marked as subscribed
-                        // to, but the server said it wasn't), or we didn't have any information.
-                        // Return unknown.
-                        Ok(None)
-                    }
-                }
-                _ => Err(http_error.into()),
+                Some(error) if error.status_code == StatusCode::NOT_FOUND => None,
+                _ => return Err(http_error.into()),
             },
+        };
+
+        // Keep the database in sync.
+        if let Some(sub) = &subscription {
+            self.client
+                .state_store()
+                .upsert_thread_subscription(self.room_id(), &thread_root, *sub)
+                .await?;
+        } else {
+            // If the subscription was not found, remove it from the database.
+            self.client
+                .state_store()
+                .remove_thread_subscription(self.room_id(), &thread_root)
+                .await?;
         }
+
+        Ok(subscription)
     }
 }
 
@@ -4077,6 +4135,8 @@ pub struct RoomMemberWithSenderInfo {
 
 #[cfg(all(test, not(target_family = "wasm")))]
 mod tests {
+    use std::collections::BTreeMap;
+
     use matrix_sdk_base::{store::ComposerDraftType, ComposerDraft};
     use matrix_sdk_test::{
         async_test, event_factory::EventFactory, test_json, JoinedRoomBuilder, StateTestEvent,
@@ -4085,7 +4145,7 @@ mod tests {
     use ruma::{
         event_id,
         events::{relation::RelationType, room::member::MembershipState},
-        int, owned_event_id, room_id, user_id,
+        int, owned_event_id, room_id, user_id, RoomVersionId,
     };
     use wiremock::{
         matchers::{header, method, path_regex},
@@ -4637,5 +4697,69 @@ mod tests {
         assert!(result.prev_batch_token.is_none());
         assert!(result.next_batch_token.is_none());
         assert!(result.recursion_depth.is_none());
+    }
+
+    #[async_test]
+    async fn test_power_levels_computation() {
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+
+        let room_id = room_id!("!a:b.c");
+        let sender_id = client.user_id().expect("No session id");
+        let f = EventFactory::new().room(room_id).sender(sender_id);
+        let mut user_map = BTreeMap::from([(sender_id.into(), 50.into())]);
+
+        // Computing the power levels will need these 3 state events:
+        let room_create_event = f.create(sender_id, RoomVersionId::V1).state_key("").into_raw();
+        let power_levels_event = f.power_levels(&mut user_map).state_key("").into_raw();
+        let room_member_event = f.member(sender_id).into_raw();
+
+        // With only the room member event
+        let room = server
+            .sync_room(
+                &client,
+                JoinedRoomBuilder::new(room_id).add_state_bulk([room_member_event.clone()]),
+            )
+            .await;
+        let ctx = room
+            .push_condition_room_ctx()
+            .await
+            .expect("Failed to get push condition context")
+            .expect("Could not get push condition context");
+
+        // The internal power levels couldn't be computed
+        assert!(ctx.power_levels.is_none());
+
+        // Adding the room creation event
+        let room = server
+            .sync_room(
+                &client,
+                JoinedRoomBuilder::new(room_id).add_state_bulk([room_create_event.clone()]),
+            )
+            .await;
+        let ctx = room
+            .push_condition_room_ctx()
+            .await
+            .expect("Failed to get push condition context")
+            .expect("Could not get push condition context");
+
+        // The internal power levels still couldn't be computed
+        assert!(ctx.power_levels.is_none());
+
+        // With the room member, room creation and the power levels events
+        let room = server
+            .sync_room(
+                &client,
+                JoinedRoomBuilder::new(room_id).add_state_bulk([power_levels_event]),
+            )
+            .await;
+        let ctx = room
+            .push_condition_room_ctx()
+            .await
+            .expect("Failed to get push condition context")
+            .expect("Could not get push condition context");
+
+        // The internal power levels can finally be computed
+        assert!(ctx.power_levels.is_some());
     }
 }

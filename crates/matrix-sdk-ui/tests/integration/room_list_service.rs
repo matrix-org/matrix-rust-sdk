@@ -370,9 +370,7 @@ async fn test_sync_all_states() -> Result<(), Error> {
                         ["m.room.history_visibility", ""],
                         ["io.element.functional_members", ""],
                     ],
-                    "filters": {
-                        "not_room_types": ["m.space"],
-                    },
+                    "filters": {},
                     "timeline_limit": 1,
                 },
             },

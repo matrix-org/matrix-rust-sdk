@@ -13,7 +13,6 @@ use matrix_sdk::{
         api::client::receipt::create_receipt::v3::ReceiptType,
         events::room::message::RoomMessageEventContent,
     },
-    store::ThreadStatus,
 };
 use matrix_sdk_ui::{
     Timeline,
@@ -491,7 +490,7 @@ impl RoomView {
     async fn subscribe_thread(&mut self) {
         if let TimelineKind::Thread { thread_root, .. } = &self.kind {
             self.call_with_room(async |room, status_handle| {
-                if let Err(err) = room.subscribe_thread(thread_root.clone(), false).await {
+                if let Err(err) = room.subscribe_thread(thread_root.clone(), None).await {
                     status_handle.set_message(format!("error when subscribing to a thread: {err}"));
                 } else {
                     status_handle.set_message("Subscribed to thread!".to_owned());
@@ -526,15 +525,10 @@ impl RoomView {
                     Ok(Some(subscription)) => {
                         status_handle.set_message(format!(
                             "Thread subscription status: {}",
-                            match subscription {
-                                ThreadStatus::Subscribed { automatic } => {
-                                    if automatic {
-                                        "subscribed (automatic)"
-                                    } else {
-                                        "subscribed (manual)"
-                                    }
-                                }
-                                ThreadStatus::Unsubscribed => "unsubscribed",
+                            if subscription.automatic {
+                                "subscribed (automatic)"
+                            } else {
+                                "subscribed (manual)"
                             }
                         ));
                     }

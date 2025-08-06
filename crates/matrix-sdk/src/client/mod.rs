@@ -35,7 +35,7 @@ use matrix_sdk_base::{
     store::{DynStateStore, RoomLoadSettings, ServerInfo, WellKnownResponse},
     sync::{Notification, RoomUpdates},
     BaseClient, RoomInfoNotableUpdate, RoomState, RoomStateFilter, SendOutsideWasm, SessionMeta,
-    StateStoreDataKey, StateStoreDataValue, SyncOutsideWasm,
+    StateStoreDataKey, StateStoreDataValue, SyncOutsideWasm, ThreadingSupport,
 };
 use matrix_sdk_common::ttl_cache::TtlCache;
 #[cfg(feature = "e2e-encryption")]
@@ -2310,6 +2310,7 @@ impl Client {
             full_state: sync_settings.full_state,
             set_presence: sync_settings.set_presence,
             timeout: sync_settings.timeout,
+            use_state_after: true,
         });
         let mut request_config = self.request_config();
         if let Some(timeout) = sync_settings.timeout {
@@ -2807,6 +2808,19 @@ impl Client {
     #[cfg(feature = "e2e-encryption")]
     pub fn decryption_settings(&self) -> &DecryptionSettings {
         &self.base_client().decryption_settings
+    }
+
+    /// Whether the client is configured to take thread subscriptions (MSC4306
+    /// and MSC4308) into account.
+    ///
+    /// This may cause filtering out of thread subscriptions, and loading the
+    /// thread subscriptions via the sliding sync extension, when the room
+    /// list service is being used.
+    pub fn enabled_thread_subscriptions(&self) -> bool {
+        match self.base_client().threading_support {
+            ThreadingSupport::Enabled { with_subscriptions } => with_subscriptions,
+            ThreadingSupport::Disabled => false,
+        }
     }
 }
 
