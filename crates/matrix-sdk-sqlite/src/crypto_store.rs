@@ -83,7 +83,7 @@ impl EncryptableStore for SqliteCryptoStore {
 }
 
 impl SqliteCryptoStore {
-    /// Open the SQLite-based event cache store at the given path using the
+    /// Open the SQLite-based crypto store at the given path using the
     /// given passphrase to encrypt private data
     pub async fn open(
         path: impl AsRef<Path>,
