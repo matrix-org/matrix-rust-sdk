@@ -393,7 +393,7 @@ impl SqliteKeyValueStoreConnExt for rusqlite::Connection {
 ///
 /// ```sql
 /// CREATE TABLE "kv" (
-///     "key" TEXT PRIMARY KEY NOT NULL,d
+///     "key" TEXT PRIMARY KEY NOT NULL,
 ///     "value" BLOB NOT NULL
 /// );
 /// ```
