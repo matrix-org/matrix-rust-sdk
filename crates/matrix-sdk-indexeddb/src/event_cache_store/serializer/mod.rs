@@ -71,12 +71,12 @@ impl IndexeddbEventCacheStoreSerializer {
     ///
     /// Note that the particular key which is encoded is defined by the type
     /// `K`.
-    pub fn encode_key<T, K>(&self, room_id: &RoomId, components: K::KeyComponents<'_>) -> K
+    pub fn encode_key<T, K>(&self, _: &RoomId, components: K::KeyComponents<'_>) -> K
     where
         T: Indexed,
         K: IndexedKey<T>,
     {
-        K::encode(room_id, components, &self.inner)
+        K::encode(components, &self.inner)
     }
 
     /// Encodes a key for a [`Indexed`] type as a [`JsValue`].
@@ -132,11 +132,11 @@ impl IndexeddbEventCacheStoreSerializer {
     {
         let range = match range.into() {
             IndexedKeyRange::Only(components) => {
-                IndexedKeyRange::Only(K::encode(room_id, components, &self.inner))
+                IndexedKeyRange::Only(K::encode(components, &self.inner))
             }
             IndexedKeyRange::Bound(lower, upper) => {
-                let lower = K::encode(room_id, lower, &self.inner);
-                let upper = K::encode(room_id, upper, &self.inner);
+                let lower = K::encode(lower, &self.inner);
+                let upper = K::encode(upper, &self.inner);
                 IndexedKeyRange::Bound(lower, upper)
             }
         };
