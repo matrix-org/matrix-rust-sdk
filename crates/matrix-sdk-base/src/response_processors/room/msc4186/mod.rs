@@ -118,6 +118,8 @@ pub async fn update_any_room(
         ambiguity_cache,
         &mut new_user_ids,
         state_store,
+        #[cfg(feature = "e2e-encryption")]
+        e2ee.clone(),
     )
     .await?;
 
