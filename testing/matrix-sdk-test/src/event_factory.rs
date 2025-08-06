@@ -371,6 +371,12 @@ impl EventBuilder<RoomMessageEventContent> {
         self
     }
 
+    /// Adds the given mentions to the current event.
+    pub fn mentions(mut self, mentions: Mentions) -> Self {
+        self.content.mentions = Some(mentions);
+        self
+    }
+
     /// Adds a replacement relation to the current event, with the new content
     /// passed.
     pub fn edit(
