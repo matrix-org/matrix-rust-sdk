@@ -153,6 +153,7 @@ use crate::{
     media::{MediaFormat, MediaRequestParameters},
     notification_settings::{IsEncrypted, IsOneToOne, RoomNotificationMode},
     room::{
+        futures::SendStateEventRaw,
         knock_requests::{KnockRequest, KnockRequestMemberInfo},
         power_levels::{RoomPowerLevelChanges, RoomPowerLevelsExt},
         privacy_settings::RoomPrivacySettings,
@@ -2745,22 +2746,13 @@ impl Room {
     /// # anyhow::Ok(()) };
     /// ```
     #[instrument(skip_all)]
-    pub async fn send_state_event_raw(
-        &self,
-        event_type: &str,
-        state_key: &str,
+    pub fn send_state_event_raw<'a>(
+        &'a self,
+        event_type: &'a str,
+        state_key: &'a str,
         content: impl IntoRawStateEventContent,
-    ) -> Result<send_state_event::v3::Response> {
-        self.ensure_room_joined()?;
-
-        let request = send_state_event::v3::Request::new_raw(
-            self.room_id().to_owned(),
-            event_type.into(),
-            state_key.to_owned(),
-            content.into_raw_state_event_content(),
-        );
-
-        Ok(self.client.send(request).await?)
+    ) -> SendStateEventRaw<'a> {
+        SendStateEventRaw::new(self, event_type, state_key, content)
     }
 
     /// Strips all information out of an event of the room.

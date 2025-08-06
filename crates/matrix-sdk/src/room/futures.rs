@@ -322,7 +322,7 @@ impl<'a> IntoFuture for SendAttachment<'a> {
     }
 }
 
-/// TODO: Future returned by `Room::send_state_event_raw`.
+/// Future returned by [`Room::send_state_event_raw`].
 #[allow(missing_debug_implementations)]
 pub struct SendStateEventRaw<'a> {
     room: &'a Room,
