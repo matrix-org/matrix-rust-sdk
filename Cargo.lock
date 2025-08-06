@@ -3090,7 +3090,6 @@ dependencies = [
  "matrix-sdk-common",
  "matrix-sdk-ffi-macros",
  "matrix-sdk-indexeddb",
- "matrix-sdk-search",
  "matrix-sdk-sqlite",
  "matrix-sdk-test",
  "mime",

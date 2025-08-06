@@ -14,8 +14,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#[cfg(feature = "search")]
-use std::collections::HashMap;
 use std::{
     collections::{btree_map, BTreeMap, BTreeSet},
     fmt::{self, Debug},
@@ -40,10 +38,6 @@ use matrix_sdk_base::{
     StateStoreDataKey, StateStoreDataValue, SyncOutsideWasm,
 };
 use matrix_sdk_common::ttl_cache::TtlCache;
-#[cfg(feature = "search")]
-use matrix_sdk_search::index::RoomIndex;
-#[cfg(feature = "search")]
-use ruma::events::AnyMessageLikeEvent;
 #[cfg(feature = "e2e-encryption")]
 use ruma::events::{room::encryption::RoomEncryptionEventContent, InitialStateEvent};
 use ruma::{
@@ -83,8 +77,6 @@ use tracing::{debug, error, instrument, trace, warn, Instrument, Span};
 use url::Url;
 
 use self::futures::SendRequest;
-#[cfg(feature = "search")]
-use crate::client::builder::IndexBaseDir;
 use crate::{
     authentication::{
         matrix::MatrixAuth, oauth::OAuth, AuthCtx, AuthData, ReloadSessionCallback,
@@ -358,14 +350,6 @@ pub(crate) struct ClientInner {
     ///
     /// [`LatestEvent`]: crate::latest_event::LatestEvent
     latest_events: OnceCell<LatestEvents>,
-
-    /// HashMap that links each joined room to its RoomIndex
-    #[cfg(feature = "search")]
-    room_indexes: Arc<Mutex<HashMap<OwnedRoomId, RoomIndex>>>,
-
-    /// Base directory that stores the directories for each RoomIndex
-    #[cfg(feature = "search")]
-    index_base_dir: IndexBaseDir,
 }
 
 impl ClientInner {
@@ -390,8 +374,6 @@ impl ClientInner {
         #[cfg(feature = "e2e-encryption")] encryption_settings: EncryptionSettings,
         #[cfg(feature = "e2e-encryption")] enable_share_history_on_invite: bool,
         cross_process_store_locks_holder_name: String,
-        #[cfg(feature = "search")] room_indexes: Arc<Mutex<HashMap<OwnedRoomId, RoomIndex>>>,
-        #[cfg(feature = "search")] index_base_dir: IndexBaseDir,
     ) -> Arc<Self> {
         let caches = ClientCaches {
             server_info: server_info.into(),
@@ -427,10 +409,6 @@ impl ClientInner {
             #[cfg(feature = "e2e-encryption")]
             enable_share_history_on_invite,
             server_max_upload_size: Mutex::new(OnceCell::new()),
-            #[cfg(feature = "search")]
-            room_indexes,
-            #[cfg(feature = "search")]
-            index_base_dir,
         };
 
         #[allow(clippy::let_and_return)]
@@ -2726,10 +2704,6 @@ impl Client {
                 #[cfg(feature = "e2e-encryption")]
                 self.inner.enable_share_history_on_invite,
                 cross_process_store_locks_holder_name,
-                #[cfg(feature = "search")]
-                self.inner.room_indexes.clone(),
-                #[cfg(feature = "search")]
-                self.inner.index_base_dir.clone(),
             )
             .await,
         };
@@ -2825,44 +2799,6 @@ impl Client {
     #[cfg(feature = "e2e-encryption")]
     pub fn decryption_settings(&self) -> &DecryptionSettings {
         &self.base_client().decryption_settings
-    }
-
-    /// Add [`AnyMessageLikeEvent`] to [`RoomIndex`] of given [`RoomId`]
-    #[cfg(feature = "search")]
-    pub async fn index_event(&self, event: AnyMessageLikeEvent, room_id: &RoomId) -> Result<()> {
-        let mut hash_map = self.inner.room_indexes.lock().await;
-        if let Some(index) = hash_map.get_mut(room_id) {
-            let res = index.add_event(event).map(|_| ());
-            drop(hash_map);
-            Ok(res?)
-        } else {
-            if !hash_map.contains_key(room_id) {
-                let index = match &self.inner.index_base_dir {
-                    IndexBaseDir::Directory(path) => RoomIndex::new(path, room_id)?,
-                    IndexBaseDir::Ram => RoomIndex::new_in_ram(room_id)?,
-                };
-                hash_map.insert(room_id.to_owned(), index);
-            }
-            let index = hash_map.get_mut(room_id).expect("key just added");
-            let res = index.add_event(event).map(|_| ());
-            drop(hash_map);
-            Ok(res?)
-        }
-    }
-
-    /// Add [`RoomIndex`] for given [`RoomId`] to room_indexes
-    #[cfg(feature = "search")]
-    pub async fn add_index(&self, room_id: &RoomId) -> Result<()> {
-        let mut hash_map = self.inner.room_indexes.lock().await;
-        if !hash_map.contains_key(room_id) {
-            let index = match &self.inner.index_base_dir {
-                IndexBaseDir::Directory(path) => RoomIndex::new(path, room_id)?,
-                IndexBaseDir::Ram => RoomIndex::new_in_ram(room_id)?,
-            };
-            hash_map.insert(room_id.to_owned(), index);
-        }
-        drop(hash_map);
-        Ok(())
     }
 }
 

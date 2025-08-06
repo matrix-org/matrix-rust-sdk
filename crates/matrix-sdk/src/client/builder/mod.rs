@@ -15,24 +15,16 @@
 
 mod homeserver_config;
 
-#[cfg(feature = "search")]
-use std::collections::HashMap;
 #[cfg(feature = "sqlite")]
 use std::path::Path;
-#[cfg(any(feature = "search", feature = "sqlite"))]
-use std::path::PathBuf;
 use std::{collections::BTreeSet, fmt, sync::Arc};
 
 use homeserver_config::*;
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk_base::crypto::DecryptionSettings;
 use matrix_sdk_base::{store::StoreConfig, BaseClient, ThreadingSupport};
-#[cfg(feature = "search")]
-use matrix_sdk_search::index::RoomIndex;
 #[cfg(feature = "sqlite")]
 use matrix_sdk_sqlite::SqliteStoreConfig;
-#[cfg(feature = "search")]
-use ruma::OwnedRoomId;
 use ruma::{
     api::{error::FromHttpResponseError, MatrixVersion, SupportedVersions},
     OwnedServerName, ServerName,
@@ -122,8 +114,6 @@ pub struct ClientBuilder {
     enable_share_history_on_invite: bool,
     cross_process_store_locks_holder_name: String,
     threading_support: ThreadingSupport,
-    #[cfg(feature = "search")]
-    index_base_dir: IndexBaseDir,
 }
 
 impl ClientBuilder {
@@ -155,8 +145,6 @@ impl ClientBuilder {
             cross_process_store_locks_holder_name:
                 Self::DEFAULT_CROSS_PROCESS_STORE_LOCKS_HOLDER_NAME.to_owned(),
             threading_support: ThreadingSupport::Disabled,
-            #[cfg(feature = "search")]
-            index_base_dir: IndexBaseDir::Ram,
         }
     }
 
@@ -501,13 +489,6 @@ impl ClientBuilder {
         self
     }
 
-    /// The base directory in which each room's index directory will be stored.
-    #[cfg(feature = "search")]
-    pub fn index_base_directory(mut self, path: IndexBaseDir) -> Self {
-        self.index_base_dir = path;
-        self
-    }
-
     /// Create a [`Client`] with the options set on this builder.
     ///
     /// # Errors
@@ -609,10 +590,6 @@ impl ClientBuilder {
         let event_cache = OnceCell::new();
         let latest_events = OnceCell::new();
 
-        #[cfg(feature = "search")]
-        let room_indexes: Arc<Mutex<HashMap<OwnedRoomId, RoomIndex>>> =
-            Arc::new(Mutex::new(HashMap::new()));
-
         let inner = ClientInner::new(
             auth_ctx,
             server,
@@ -630,10 +607,6 @@ impl ClientBuilder {
             #[cfg(feature = "e2e-encryption")]
             self.enable_share_history_on_invite,
             self.cross_process_store_locks_holder_name,
-            #[cfg(feature = "search")]
-            room_indexes,
-            #[cfg(feature = "search")]
-            self.index_base_dir,
         )
         .await;
 
@@ -744,14 +717,6 @@ async fn build_indexeddb_store_config(
     panic!("the IndexedDB is only available on the 'wasm32' arch")
 }
 
-#[cfg(feature = "search")]
-#[allow(dead_code)]
-#[derive(Clone, Debug)]
-pub enum IndexBaseDir {
-    Directory(PathBuf),
-    Ram,
-}
-
 #[derive(Clone, Debug)]
 enum HttpConfig {
     #[cfg(not(target_family = "wasm"))]
@@ -790,7 +755,7 @@ enum BuilderStoreConfig {
     #[cfg(feature = "sqlite")]
     Sqlite {
         config: SqliteStoreConfig,
-        cache_path: Option<PathBuf>,
+        cache_path: Option<std::path::PathBuf>,
     },
     #[cfg(feature = "indexeddb")]
     IndexedDb {
@@ -858,11 +823,6 @@ pub enum ClientBuildError {
     #[cfg(feature = "sqlite")]
     #[error(transparent)]
     SqliteStore(#[from] matrix_sdk_sqlite::OpenStoreError),
-
-    /// No index base directory was configured
-    #[cfg(feature = "search")]
-    #[error("no index base directory was configured")]
-    MissingIndexBaseDirectory,
 }
 
 // The http mocking library is not supported for wasm32

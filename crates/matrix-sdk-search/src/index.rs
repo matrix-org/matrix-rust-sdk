@@ -143,6 +143,22 @@ impl RoomIndex {
         Ok(last_commit_opstamp)
     }
 
+    /// Commit added events to [`RoomIndex`] and
+    /// update searchers so that they reflect the state of the last
+    /// `.commit()`.
+    ///
+    /// Every commit should be rapidly reflected on your `IndexReader` and you
+    /// should not need to call `reload()` at all.
+    ///
+    /// This automatic reload can take 10s of milliseconds to kick in however,
+    /// and in unit tests it can be nice to deterministically force the
+    /// reload of searchers.
+    pub fn commit_and_reload(&mut self) -> Result<OpStamp, IndexError> {
+        let last_commit_opstamp = self.writer.commit()?; // TODO: This is blocking. Handle it.
+        self.reader.reload()?;
+        Ok(last_commit_opstamp)
+    }
+
     /// Search the [`RoomIndex`] for some query. Returns a list of
     /// results with a maximum given length.
     pub fn search(
@@ -238,11 +254,11 @@ mod tests {
                 .into_any_message_like_event(),
         )?;
 
-        index.commit()?;
+        index.commit_and_reload()?;
 
         let result = index.search("sentence", 10).expect("search failed with: {result:?}");
-
         let result: HashSet<_> = result.iter().collect();
+
         let true_value =
             [owned_event_id!("$event_id_1:localhost"), owned_event_id!("$event_id_3:localhost")];
         let true_value: HashSet<_> = true_value.iter().collect();
@@ -258,7 +274,7 @@ mod tests {
         let mut index =
             RoomIndex::new_in_ram(room_id).expect("failed to make index in ram: {index:?}");
 
-        index.commit()?;
+        index.commit_and_reload()?;
 
         let result = index.search("sentence", 10).expect("search failed with: {result:?}");
 
