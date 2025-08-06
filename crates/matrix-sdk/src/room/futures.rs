@@ -356,6 +356,20 @@ impl<'a> SendStateEvent<'a> {
     }
 }
 
+impl<'a> IntoFuture for SendStateEvent<'a> {
+    type Output = Result<send_state_event::v3::Response>;
+    boxed_into_future!(extra_bounds: 'a);
+
+    fn into_future(self) -> Self::IntoFuture {
+        let Self { room, state_key, event_type, content, request_config } = self;
+        Box::pin(async move {
+            let content = content?;
+            assign!(room.send_state_event_raw(&event_type, &state_key, content), { request_config })
+                .await
+        })
+    }
+}
+
 /// Future returned by [`Room::send_state_event_raw`].
 #[allow(missing_debug_implementations)]
 pub struct SendStateEventRaw<'a> {
