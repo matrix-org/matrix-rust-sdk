@@ -59,7 +59,7 @@ pub use error::LatestEventsError;
 use eyeball::{AsyncLock, Subscriber};
 use futures_util::{select_biased, FutureExt};
 use latest_event::LatestEvent;
-pub use latest_event::LatestEventValue;
+pub use latest_event::{LatestEventKind, LatestEventValue};
 use matrix_sdk_common::executor::{spawn, AbortOnDrop, JoinHandleExt as _};
 use ruma::{EventId, OwnedEventId, OwnedRoomId, RoomId};
 use tokio::sync::{broadcast, mpsc, RwLock, RwLockReadGuard, RwLockWriteGuard};
@@ -536,10 +536,30 @@ impl RoomLatestEvents {
     /// Update the latest events for the room and its threads, based on the
     /// send queue update.
     async fn update_with_send_queue(&mut self, send_queue_update: &RoomSendQueueUpdate) {
-        self.for_the_room.update_with_send_queue(send_queue_update).await;
+        // Get the power levels of the user for the current room if the `WeakRoom` is
+        // still valid.
+        //
+        // Get it once for all the updates of all the latest events for this room (be
+        // the room and its threads).
+        let room = self.weak_room.get();
+        let power_levels = match &room {
+            Some(room) => {
+                let power_levels = room.power_levels().await.ok();
+
+                Some(room.own_user_id()).zip(power_levels)
+            }
+
+            None => None,
+        };
+
+        self.for_the_room
+            .update_with_send_queue(send_queue_update, &self.room_event_cache, &power_levels)
+            .await;
 
         for latest_event in self.per_thread.values_mut() {
-            latest_event.update_with_send_queue(send_queue_update).await;
+            latest_event
+                .update_with_send_queue(send_queue_update, &self.room_event_cache, &power_levels)
+                .await;
         }
     }
 }
@@ -725,8 +745,9 @@ mod tests {
     use stream_assert::assert_pending;
 
     use super::{
-        broadcast, listen_to_event_cache_and_send_queue_updates, mpsc, HashSet, LatestEventValue,
-        RoomEventCacheGenericUpdate, RoomRegistration, RoomSendQueueUpdate, SendQueueUpdate,
+        broadcast, listen_to_event_cache_and_send_queue_updates, mpsc, HashSet, LatestEventKind,
+        LatestEventValue, RoomEventCacheGenericUpdate, RoomRegistration, RoomSendQueueUpdate,
+        SendQueueUpdate,
     };
     use crate::test_utils::mocks::MatrixMockServer;
 
@@ -1246,8 +1267,8 @@ mod tests {
         // latest event!
         assert_matches!(
             latest_event_stream.get().await,
-            LatestEventValue::RoomMessage(event) => {
-                assert_eq!(event.event_id(), event_id_1);
+            LatestEventValue::Remote(LatestEventKind::RoomMessage(message_content)) => {
+                assert_eq!(message_content.msgtype.body(), "world");
             }
         );
 
@@ -1259,10 +1280,7 @@ mod tests {
             .sync_room(
                 &client,
                 JoinedRoomBuilder::new(&room_id).add_timeline_event(
-                    event_factory
-                        .text_msg("venez découvrir cette nouvelle raclette !")
-                        .event_id(event_id_2)
-                        .into_raw(),
+                    event_factory.text_msg("raclette !").event_id(event_id_2).into_raw(),
                 ),
             )
             .await;
@@ -1272,8 +1290,8 @@ mod tests {
         // `compute_latest_events` which has updated the latest event value.
         assert_matches!(
             latest_event_stream.next().await,
-            Some(LatestEventValue::RoomMessage(event)) => {
-                assert_eq!(event.event_id(), event_id_2);
+            Some(LatestEventValue::Remote(LatestEventKind::RoomMessage(message_content))) => {
+                assert_eq!(message_content.msgtype.body(), "raclette !");
             }
         );
     }
