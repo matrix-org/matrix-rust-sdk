@@ -8,6 +8,10 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
+- Add `ignore_timeout_on_first_sync` to the `SyncSettings`, which should allow to have a quicker
+  first response when using one of the `sync`, `sync_with_callback`, `sync_with_result_callback`
+  or `sync_stream` methods on `Client`, if the response is empty.
+  ([#5481](https://github.com/matrix-org/matrix-rust-sdk/pull/5481))
 - The methods to use the `/v3/sync` endpoint set the `use_state_after` field,
   which means that, if the server supports it, the response will contain the
   state changes between the last sync and the end of the timeline.

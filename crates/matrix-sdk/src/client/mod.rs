@@ -2533,30 +2533,21 @@ impl Client {
     #[instrument(skip(self, callback))]
     pub async fn sync_with_result_callback<C>(
         &self,
-        mut sync_settings: crate::config::SyncSettings,
+        sync_settings: crate::config::SyncSettings,
         callback: impl Fn(Result<SyncResponse, Error>) -> C,
     ) -> Result<(), Error>
     where
         C: Future<Output = Result<LoopCtrl, Error>>,
     {
-        let mut last_sync_time: Option<Instant> = None;
+        let mut sync_stream = Box::pin(self.sync_stream(sync_settings).await);
 
-        if sync_settings.token.is_none() {
-            sync_settings.token = self.sync_token().await;
-        }
-
-        loop {
-            trace!("Syncing");
-            let result = self.sync_loop_helper(&mut sync_settings).await;
-
+        while let Some(result) = sync_stream.next().await {
             trace!("Running callback");
             if callback(result).await? == LoopCtrl::Break {
                 trace!("Callback told us to stop");
                 break;
             }
             trace!("Done running callback");
-
-            Client::delay_sync(&mut last_sync_time).await
         }
 
         Ok(())
@@ -2609,6 +2600,8 @@ impl Client {
         &self,
         mut sync_settings: crate::config::SyncSettings,
     ) -> impl Stream<Item = Result<SyncResponse>> + '_ {
+        let mut is_first_sync = true;
+        let mut timeout = None;
         let mut last_sync_time: Option<Instant> = None;
 
         if sync_settings.token.is_none() {
@@ -2617,13 +2610,28 @@ impl Client {
 
         let parent_span = Span::current();
 
-        async_stream::stream! {
+        async_stream::stream!({
             loop {
-                yield self.sync_loop_helper(&mut sync_settings).instrument(parent_span.clone()).await;
+                trace!("Syncing");
+
+                if sync_settings.ignore_timeout_on_first_sync {
+                    if is_first_sync {
+                        timeout = sync_settings.timeout.take();
+                    } else if sync_settings.timeout.is_none() && timeout.is_some() {
+                        sync_settings.timeout = timeout.take();
+                    }
+
+                    is_first_sync = false;
+                }
+
+                yield self
+                    .sync_loop_helper(&mut sync_settings)
+                    .instrument(parent_span.clone())
+                    .await;
 
                 Client::delay_sync(&mut last_sync_time).await
             }
-        }
+        })
     }
 
     /// Get the current, if any, sync token of the client.
@@ -2932,7 +2940,7 @@ pub(crate) mod tests {
     use assert_matches::assert_matches;
     use assert_matches2::assert_let;
     use eyeball::SharedObservable;
-    use futures_util::{pin_mut, FutureExt};
+    use futures_util::{pin_mut, FutureExt, StreamExt};
     use js_int::{uint, UInt};
     use matrix_sdk_base::{
         store::{MemoryStore, StoreConfig},
@@ -2970,8 +2978,9 @@ pub(crate) mod tests {
 
     use super::Client;
     use crate::{
+        assert_let_timeout,
         client::{futures::SendMediaUploadRequest, WeakClient},
-        config::RequestConfig,
+        config::{RequestConfig, SyncSettings},
         futures::SendRequest,
         media::MediaError,
         test_utils::{client::MockClientBuilder, mocks::MatrixMockServer},
@@ -3830,5 +3839,54 @@ pub(crate) mod tests {
         assert_let!(Some(Error::Media(MediaError::MediaTooLargeToUpload { max, current })) = error);
         assert_eq!(max, uint!(1));
         assert_eq!(current, UInt::new_wrapping(data.len() as u64));
+    }
+
+    #[async_test]
+    async fn test_dont_ignore_timeout_on_first_sync() {
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+
+        server
+            .mock_sync()
+            .timeout(Some(Duration::from_secs(30)))
+            .ok(|_| {})
+            .mock_once()
+            .named("sync_with_timeout")
+            .mount()
+            .await;
+
+        // Call the endpoint once to check the timeout.
+        let mut stream = Box::pin(client.sync_stream(SyncSettings::new()).await);
+        assert_let_timeout!(Some(Ok(_)) = stream.next());
+    }
+
+    #[async_test]
+    async fn test_ignore_timeout_on_first_sync() {
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+
+        server
+            .mock_sync()
+            .timeout(None)
+            .ok(|_| {})
+            .mock_once()
+            .named("sync_no_timeout")
+            .mount()
+            .await;
+        server
+            .mock_sync()
+            .timeout(Some(Duration::from_secs(30)))
+            .ok(|_| {})
+            .mock_once()
+            .named("sync_with_timeout")
+            .mount()
+            .await;
+
+        // Call each version of the endpoint once to check the timeouts.
+        let mut stream = Box::pin(
+            client.sync_stream(SyncSettings::new().ignore_timeout_on_first_sync(true)).await,
+        );
+        assert_let_timeout!(Some(Ok(_)) = stream.next());
+        assert_let_timeout!(Some(Ok(_)) = stream.next());
     }
 }

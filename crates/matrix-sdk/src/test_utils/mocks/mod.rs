@@ -50,7 +50,10 @@ use serde::Deserialize;
 use serde_json::{from_value, json, Value};
 use tokio::sync::oneshot::{self, Receiver};
 use wiremock::{
-    matchers::{body_json, body_partial_json, header, method, path, path_regex, query_param},
+    matchers::{
+        body_json, body_partial_json, header, method, path, path_regex, query_param,
+        query_param_is_missing,
+    },
     Mock, MockBuilder, MockGuard, MockServer, Request, Respond, ResponseTemplate, Times,
 };
 
@@ -342,7 +345,6 @@ impl MatrixMockServer {
             mock,
             SyncEndpoint { sync_response_builder: self.sync_response_builder.clone() },
         )
-        .expect_default_access_token()
     }
 
     /// Creates a prebuilt mock for joining a room.
@@ -2314,7 +2316,30 @@ pub struct SyncEndpoint {
     sync_response_builder: Arc<Mutex<SyncResponseBuilder>>,
 }
 
-impl MockEndpoint<'_, SyncEndpoint> {
+impl<'a> MockEndpoint<'a, SyncEndpoint> {
+    /// Expect the given timeout, or lack thereof, in the request.
+    pub fn timeout(mut self, timeout: Option<Duration>) -> Self {
+        if let Some(timeout) = timeout {
+            self.mock = self.mock.and(query_param("timeout", timeout.as_millis().to_string()));
+        } else {
+            self.mock = self.mock.and(query_param_is_missing("timeout"));
+        }
+
+        self
+    }
+
+    /// Mocks the sync endpoint, using the given function to generate the
+    /// response.
+    pub fn ok<F: FnOnce(&mut SyncResponseBuilder)>(self, func: F) -> MatrixMock<'a> {
+        let json_response = {
+            let mut builder = self.endpoint.sync_response_builder.lock().unwrap();
+            func(&mut builder);
+            builder.build_json_sync_response()
+        };
+
+        self.respond_with(ResponseTemplate::new(200).set_body_json(json_response))
+    }
+
     /// Temporarily mocks the sync with the given endpoint and runs a client
     /// sync with it.
     ///
@@ -2346,17 +2371,7 @@ impl MockEndpoint<'_, SyncEndpoint> {
     /// # anyhow::Ok(()) });
     /// ```
     pub async fn ok_and_run<F: FnOnce(&mut SyncResponseBuilder)>(self, client: &Client, func: F) {
-        let json_response = {
-            let mut builder = self.endpoint.sync_response_builder.lock().unwrap();
-            func(&mut builder);
-            builder.build_json_sync_response()
-        };
-
-        let _scope = self
-            .mock
-            .respond_with(ResponseTemplate::new(200).set_body_json(json_response))
-            .mount_as_scoped(self.server)
-            .await;
+        let _scope = self.ok(func).mount_as_scoped().await;
 
         let _response = client.sync_once(Default::default()).await.unwrap();
     }
