@@ -209,6 +209,7 @@ impl_event_cache_store! {
                             .put_item(
                                 room_id,
                                 &types::Event::InBand(InBandEvent {
+                                    room_id: room_id.to_owned(),
                                     content: item,
                                     position: types::Position {
                                         chunk_identifier,
@@ -229,6 +230,7 @@ impl_event_cache_store! {
                         .put_event(
                             room_id,
                             &types::Event::InBand(InBandEvent {
+                                room_id: room_id.to_owned(),
                                 content: item,
                                 position: at.into(),
                             }),
@@ -526,7 +528,7 @@ impl_event_cache_store! {
             self.transaction(&[keys::EVENTS], IdbTransactionMode::Readwrite)?;
         let event = match transaction.get_event_by_id(room_id, &event_id).await? {
             Some(mut inner) => inner.with_content(event),
-            None => types::Event::OutOfBand(OutOfBandEvent { content: event, position: () }),
+            None => types::Event::OutOfBand(OutOfBandEvent { room_id: room_id.to_owned(), content: event, position: () }),
         };
         transaction.put_event(room_id, &event).await?;
         transaction.commit().await?;
