@@ -179,10 +179,16 @@ pub struct JoinedRoomUpdate {
     pub unread_notifications: UnreadNotificationsCount,
     /// The timeline of messages and state changes in the room.
     pub timeline: Timeline,
-    /// Updates to the state, between the time indicated by the `since`
-    /// parameter, and the start or the end of the `timeline` (or all state up
-    /// to the start or the end of the `timeline`, if `since` is not given,
-    /// or `full_state` is true).
+    /// Updates to the state.
+    ///
+    /// If `since` is missing or `full_state` is true, the start point of the
+    /// update is the beginning of the timeline. Otherwise, the start point
+    /// is the time specified in `since`.
+    ///
+    /// If `state_after` was used, the end point of the update is the end of the
+    /// `timeline`. Otherwise, the end point of these updates is the start of
+    /// the `timeline`, and to calculate room state we must scan the `timeline`
+    /// for state events as well as using this information in this property.
     pub state: State,
     /// The private data that this user has attached to this room.
     pub account_data: Vec<Raw<AnyRoomAccountDataEvent>>,
@@ -248,10 +254,16 @@ pub struct LeftRoomUpdate {
     /// The timeline of messages and state changes in the room up to the point
     /// when the user left.
     pub timeline: Timeline,
-    /// Updates to the state, between the time indicated by the `since`
-    /// parameter, and the start or the end of the `timeline` (or all state up
-    /// to the start or the end of the `timeline`, if `since` is not given, or
-    /// `full_state` is true).
+    /// Updates to the state.
+    ///
+    /// If `since` is missing or `full_state` is true, the start point of the
+    /// update is the beginning of the timeline. Otherwise, the start point
+    /// is the time specified in `since`.
+    ///
+    /// If `state_after` was used, the end point of the update is the end of the
+    /// `timeline`. Otherwise, the end point of these updates is the start of
+    /// the `timeline`, and to calculate room state we must scan the `timeline`
+    /// for state events as well as using this information in this property.
     pub state: State,
     /// The private data that this user has attached to this room.
     pub account_data: Vec<Raw<AnyRoomAccountDataEvent>>,
