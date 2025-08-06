@@ -26,7 +26,7 @@ use ruma::events::{MessageLikeUnsigned, SyncMessageLikeEvent};
 use ruma::{
     api::client::message::send_message_event,
     assign,
-    events::{AnyMessageLikeEventContent, MessageLikeEventContent},
+    events::{AnyMessageLikeEventContent, AnyStateEventContent, MessageLikeEventContent},
     serde::Raw,
     OwnedTransactionId, TransactionId,
 };
@@ -34,7 +34,9 @@ use tracing::{info, trace, Instrument, Span};
 
 use super::Room;
 use crate::{
-    attachment::AttachmentConfig, config::RequestConfig, utils::IntoRawMessageLikeEventContent,
+    attachment::AttachmentConfig,
+    config::RequestConfig,
+    utils::{IntoRawMessageLikeEventContent, IntoRawStateEventContent},
     Result, TransmissionProgress,
 };
 
@@ -317,5 +319,85 @@ impl<'a> IntoFuture for SendAttachment<'a> {
         };
 
         Box::pin(fut.instrument(tracing_span))
+    }
+}
+
+/// TODO: Future returned by `Room::send_state_event_raw`.
+#[allow(missing_debug_implementations)]
+pub struct SendStateEventRaw<'a> {
+    room: &'a Room,
+    event_type: &'a str,
+    state_key: &'a str,
+    content: Raw<AnyStateEventContent>,
+    tracing_span: Span,
+    request_config: Option<RequestConfig>,
+}
+
+impl<'a> SendStateEventRaw<'a> {
+    pub(crate) fn new(
+        room: &'a Room,
+        event_type: &'a str,
+        state_key: &'a str,
+        content: impl IntoRawStateEventContent,
+    ) -> Self {
+        let content = content.into_raw_state_event_content();
+        Self {
+            room,
+            event_type,
+            state_key,
+            content,
+            tracing_span: Span::current(),
+            request_config: None,
+        }
+    }
+
+    /// Assign a given [`RequestConfig`] to configure how this request should
+    /// behave with respect to the network.
+    pub fn with_request_config(mut self, request_config: RequestConfig) -> Self {
+        self.request_config = Some(request_config);
+        self
+    }
+
+    /// Determines whether the inner state event should be encrypted before
+    /// sending.
+    ///
+    /// This method checks two conditions:
+    /// 1. Whether the room supports encrypted state events, by inspecting the
+    ///    room's encryption state.
+    /// 2. Whether the event type is considered "critical" or excluded from
+    ///    encryption under MSC3414.
+    ///
+    /// # Returns
+    ///
+    /// Returns `true` if the event should be encrypted, otherwise returns
+    /// `false`.
+    #[cfg(feature = "e2e-encryption")]
+    fn should_encrypt(room: &Room, event_type: &str) -> bool {
+        use tracing::debug;
+
+        if !room.encryption_state().is_state_encrypted() {
+            debug!("Sending plaintext event as the room does NOT support encrypted state events.");
+            return false;
+        }
+
+        // Check the event is not critical.
+        if matches!(
+            event_type,
+            "m.room.create"
+                | "m.room.member"
+                | "m.room.join_rules"
+                | "m.room.power_levels"
+                | "m.room.third_party_invite"
+                | "m.room.history_visibility"
+                | "m.room.guest_access"
+                | "m.room.encryption"
+                | "m.space.child"
+                | "m.space.parent"
+        ) {
+            debug!("Sending plaintext event as its type is excluded from encryption.");
+            return false;
+        }
+
+        true
     }
 }
