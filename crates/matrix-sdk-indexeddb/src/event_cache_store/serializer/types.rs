@@ -224,17 +224,16 @@ impl Indexed for Chunk {
 
     fn to_indexed(
         &self,
-        room_id: &RoomId,
         serializer: &IndexeddbSerializer,
     ) -> Result<Self::IndexedType, Self::Error> {
         Ok(IndexedChunk {
             id: <IndexedChunkIdKey as IndexedKey<Chunk>>::encode(
-                room_id,
+                &self.room_id,
                 ChunkIdentifier::new(self.identifier),
                 serializer,
             ),
             next: IndexedNextChunkIdKey::encode(
-                room_id,
+                &self.room_id,
                 self.next.map(ChunkIdentifier::new),
                 serializer,
             ),
@@ -384,17 +383,16 @@ impl Indexed for Event {
 
     fn to_indexed(
         &self,
-        room_id: &RoomId,
         serializer: &IndexeddbSerializer,
     ) -> Result<Self::IndexedType, Self::Error> {
         let event_id = self.event_id().ok_or(Self::Error::NoEventId)?;
-        let id = IndexedEventIdKey::encode(room_id, &event_id, serializer);
+        let id = IndexedEventIdKey::encode(self.room_id(), &event_id, serializer);
         let position = self
             .position()
-            .map(|position| IndexedEventPositionKey::encode(room_id, position, serializer));
+            .map(|position| IndexedEventPositionKey::encode(self.room_id(), position, serializer));
         let relation = self.relation().map(|(related_event, relation_type)| {
             IndexedEventRelationKey::encode(
-                room_id,
+                self.room_id(),
                 (&related_event, &RelationType::from(relation_type)),
                 serializer,
             )
@@ -564,12 +562,11 @@ impl Indexed for Gap {
 
     fn to_indexed(
         &self,
-        room_id: &RoomId,
         serializer: &IndexeddbSerializer,
     ) -> Result<Self::IndexedType, Self::Error> {
         Ok(IndexedGap {
             id: <IndexedGapIdKey as IndexedKey<Gap>>::encode(
-                room_id,
+                &self.room_id,
                 ChunkIdentifier::new(self.chunk_identifier),
                 serializer,
             ),
