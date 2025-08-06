@@ -101,8 +101,7 @@ where
         T: Borrow<Q>,
         Q: Hash + Eq + ?Sized,
     {
-        let lock = self.inner.items.read();
-        if let Some(item) = lock.get(key) { !item.expired() } else { false }
+        self.inner.items.read().get(key).is_some_and(|item| !item.expired())
     }
 
     /// Get the failure count for a given key.
@@ -120,8 +119,7 @@ where
         T: Borrow<Q>,
         Q: Hash + Eq + ?Sized,
     {
-        let lock = self.inner.items.read();
-        lock.get(key).map(|i| i.failure_count)
+        self.inner.items.read().get(key).map(|i| i.failure_count)
     }
 
     /// This will calculate a duration that determines how long an item is
@@ -187,8 +185,7 @@ where
     /// for immediate retry.
     #[doc(hidden)]
     pub fn expire(&self, item: &T) {
-        let mut lock = self.inner.items.write();
-        lock.get_mut(item).map(FailuresItem::expire);
+        self.inner.items.write().get_mut(item).map(FailuresItem::expire);
     }
 }
 
