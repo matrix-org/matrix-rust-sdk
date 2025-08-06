@@ -1,6 +1,5 @@
 //! Ruleset utility struct
 
-use cfg_if::cfg_if;
 use imbl::HashSet;
 use indexmap::IndexSet;
 use ruma::{
@@ -87,14 +86,12 @@ impl Rules {
         // Search for an enabled `Room` rule where `rule_id` is the `room_id`
         if let Some(rule) = self.ruleset.get(RuleKind::Room, room_id) {
             if rule.triggers_notification() {
-                cfg_if! {
-                    if #[cfg(feature = "unstable-msc3768")] {
-                        if !rule.triggers_remote_notification() {
-                            // This rule contains a `NotifyInApp` action.
-                            return Some(RoomNotificationMode::MentionsAndKeywordsOnlyTheRestInApp);
-                        }
-                    }
+                #[cfg(feature = "unstable-msc3768")]
+                if !rule.triggers_remote_notification() {
+                    // This rule contains a `NotifyInApp` action.
+                    return Some(RoomNotificationMode::MentionsAndKeywordsOnlyTheRestInApp);
                 }
+
                 // This rule contains a `Notify` action.
                 return Some(RoomNotificationMode::AllMessages);
             }
@@ -123,13 +120,10 @@ impl Rules {
 
         if let Some(rule) = self.ruleset.get(RuleKind::Underride, rule_id).filter(|r| r.enabled()) {
             if rule.triggers_notification() {
-                cfg_if! {
-                    if #[cfg(feature = "unstable-msc3768")] {
-                        if !rule.triggers_remote_notification() {
-                            // This rule contains a `NotifyInApp` action.
-                            return RoomNotificationMode::MentionsAndKeywordsOnlyTheRestInApp;
-                        }
-                    }
+                #[cfg(feature = "unstable-msc3768")]
+                if !rule.triggers_remote_notification() {
+                    // This rule contains a `NotifyInApp` action.
+                    return RoomNotificationMode::MentionsAndKeywordsOnlyTheRestInApp;
                 }
                 // If there is an `Underride` rule that should trigger a notification, the mode
                 // is `AllMessages`
