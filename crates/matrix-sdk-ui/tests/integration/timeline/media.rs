@@ -21,7 +21,9 @@ use futures_util::StreamExt;
 #[cfg(feature = "unstable-msc4274")]
 use matrix_sdk::attachment::{AttachmentInfo, BaseFileInfo};
 use matrix_sdk::{assert_let_timeout, test_utils::mocks::MatrixMockServer};
-use matrix_sdk_test::{ALICE, JoinedRoomBuilder, async_test, event_factory::EventFactory};
+use matrix_sdk_test::{
+    ALICE, JoinedRoomBuilder, TestResult, async_test, event_factory::EventFactory,
+};
 use matrix_sdk_ui::timeline::{
     AttachmentConfig, AttachmentSource, EventSendState, RoomExt, TimelineFocus,
 };
@@ -41,12 +43,12 @@ use stream_assert::assert_pending;
 use tempfile::TempDir;
 use wiremock::ResponseTemplate;
 
-fn create_temporary_file(filename: &str) -> (TempDir, PathBuf) {
-    let tmp_dir = TempDir::new().unwrap();
+fn create_temporary_file(filename: &str) -> anyhow::Result<(TempDir, PathBuf)> {
+    let tmp_dir = TempDir::new()?;
     let file_path = tmp_dir.path().join(filename);
-    let mut file = File::create(&file_path).unwrap();
-    file.write_all(b"hello world").unwrap();
-    (tmp_dir, file_path)
+    let mut file = File::create(&file_path)?;
+    file.write_all(b"hello world")?;
+    Ok((tmp_dir, file_path))
 }
 
 fn get_filename_and_caption(msg: &MessageType) -> (&str, Option<&str>) {
@@ -60,7 +62,7 @@ fn get_filename_and_caption(msg: &MessageType) -> (&str, Option<&str>) {
 }
 
 #[async_test]
-async fn test_send_attachment_from_file() {
+async fn test_send_attachment_from_file() -> TestResult {
     let mock = MatrixMockServer::new().await;
     let client = mock.client_builder().build().await;
 
@@ -69,7 +71,7 @@ async fn test_send_attachment_from_file() {
 
     let room_id = room_id!("!a98sd12bjh:example.org");
     let room = mock.sync_joined_room(&client, room_id).await;
-    let timeline = room.timeline().await.unwrap();
+    let timeline = room.timeline().await?;
 
     let (items, mut timeline_stream) =
         timeline.subscribe_filter_map(|item| item.as_event().cloned()).await;
@@ -94,7 +96,7 @@ async fn test_send_attachment_from_file() {
     assert_pending!(timeline_stream);
 
     // Store a file in a temporary directory.
-    let (_tmp_dir, file_path) = create_temporary_file("test.bin");
+    let (_tmp_dir, file_path) = create_temporary_file("test.bin")?;
 
     // Set up mocks for the file upload.
     mock.mock_upload()
@@ -114,14 +116,9 @@ async fn test_send_attachment_from_file() {
         .timeline_builder()
         .with_focus(TimelineFocus::Thread { root_event_id: event_id.to_owned() })
         .build()
-        .await
-        .unwrap();
+        .await?;
     let config = AttachmentConfig { caption: Some("caption".to_owned()), ..Default::default() };
-    thread_timeline
-        .send_attachment(&file_path, mime::TEXT_PLAIN, config)
-        .use_send_queue()
-        .await
-        .unwrap();
+    thread_timeline.send_attachment(&file_path, mime::TEXT_PLAIN, config).use_send_queue().await?;
 
     {
         assert_let_timeout!(Some(VectorDiff::PushBack { value: item }) = timeline_stream.next());
@@ -170,10 +167,11 @@ async fn test_send_attachment_from_file() {
 
     // That's all, folks!
     assert_pending!(timeline_stream);
+    Ok(())
 }
 
 #[async_test]
-async fn test_send_attachment_from_bytes() {
+async fn test_send_attachment_from_bytes() -> TestResult {
     let mock = MatrixMockServer::new().await;
     let client = mock.client_builder().build().await;
 
@@ -182,7 +180,7 @@ async fn test_send_attachment_from_bytes() {
 
     let room_id = room_id!("!a98sd12bjh:example.org");
     let room = mock.sync_joined_room(&client, room_id).await;
-    let timeline = room.timeline().await.unwrap();
+    let timeline = room.timeline().await?;
 
     let (items, mut timeline_stream) =
         timeline.subscribe_filter_map(|item| item.as_event().cloned()).await;
@@ -224,7 +222,7 @@ async fn test_send_attachment_from_bytes() {
 
     // Queue sending of an attachment.
     let config = AttachmentConfig { caption: Some("caption".to_owned()), ..Default::default() };
-    timeline.send_attachment(source, mime::TEXT_PLAIN, config).use_send_queue().await.unwrap();
+    timeline.send_attachment(source, mime::TEXT_PLAIN, config).use_send_queue().await?;
 
     {
         assert_let_timeout!(Some(VectorDiff::PushBack { value: item }) = timeline_stream.next());
@@ -269,11 +267,12 @@ async fn test_send_attachment_from_bytes() {
 
     // That's all, folks!
     assert_pending!(timeline_stream);
+    Ok(())
 }
 
 #[cfg(feature = "unstable-msc4274")]
 #[async_test]
-async fn test_send_gallery_from_bytes() {
+async fn test_send_gallery_from_bytes() -> TestResult {
     let mock = MatrixMockServer::new().await;
     let client = mock.client_builder().build().await;
 
@@ -282,7 +281,7 @@ async fn test_send_gallery_from_bytes() {
 
     let room_id = room_id!("!a98sd12bjh:example.org");
     let room = mock.sync_joined_room(&client, room_id).await;
-    let timeline = room.timeline().await.unwrap();
+    let timeline = room.timeline().await?;
 
     let (items, mut timeline_stream) =
         timeline.subscribe_filter_map(|item| item.as_event().cloned()).await;
@@ -338,7 +337,7 @@ async fn test_send_gallery_from_bytes() {
             formatted_caption: None,
             thumbnail: None,
         });
-    timeline.send_gallery(gallery).await.unwrap();
+    timeline.send_gallery(gallery).await?;
 
     {
         assert_let_timeout!(Some(VectorDiff::PushBack { value: item }) = timeline_stream.next());
@@ -397,10 +396,11 @@ async fn test_send_gallery_from_bytes() {
 
     // That's all, folks!
     assert_pending!(timeline_stream);
+    Ok(())
 }
 
 #[async_test]
-async fn test_react_to_local_media() {
+async fn test_react_to_local_media() -> TestResult {
     let mock = MatrixMockServer::new().await;
     let client = mock.client_builder().build().await;
 
@@ -411,7 +411,7 @@ async fn test_react_to_local_media() {
 
     let room_id = room_id!("!a98sd12bjh:example.org");
     let room = mock.sync_joined_room(&client, room_id).await;
-    let timeline = room.timeline().await.unwrap();
+    let timeline = room.timeline().await?;
 
     let (items, mut timeline_stream) =
         timeline.subscribe_filter_map(|item| item.as_event().cloned()).await;
@@ -420,11 +420,11 @@ async fn test_react_to_local_media() {
     assert_pending!(timeline_stream);
 
     // Store a file in a temporary directory.
-    let (_tmp_dir, file_path) = create_temporary_file("test.bin");
+    let (_tmp_dir, file_path) = create_temporary_file("test.bin")?;
 
     // Queue sending of an attachment (no captions).
     let config = AttachmentConfig::default();
-    timeline.send_attachment(&file_path, mime::TEXT_PLAIN, config).use_send_queue().await.unwrap();
+    timeline.send_attachment(&file_path, mime::TEXT_PLAIN, config).use_send_queue().await?;
 
     let item_id = {
         assert_let_timeout!(Some(VectorDiff::PushBack { value: item }) = timeline_stream.next());
@@ -438,7 +438,7 @@ async fn test_react_to_local_media() {
     };
 
     // Add a reaction to the file media event.
-    timeline.toggle_reaction(&item_id, "🤪").await.unwrap();
+    timeline.toggle_reaction(&item_id, "🤪").await?;
 
     assert_let_timeout!(Some(VectorDiff::Set { index: 0, value: item }) = timeline_stream.next());
     assert_let!(Some(msg) = item.content().as_message());
@@ -451,4 +451,5 @@ async fn test_react_to_local_media() {
 
     // That's all, folks!
     assert_pending!(timeline_stream);
+    Ok(())
 }
