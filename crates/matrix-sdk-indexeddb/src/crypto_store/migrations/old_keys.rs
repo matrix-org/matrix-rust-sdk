@@ -24,5 +24,7 @@ pub const INBOUND_GROUP_SESSIONS_V1: &str = "inbound_group_sessions";
 /// Also lacked the `backed_up_to` property+index.
 pub const INBOUND_GROUP_SESSIONS_V2: &str = "inbound_group_sessions2";
 
+pub const INBOUND_GROUP_SESSIONS_V3: &str = "inbound_group_sessions3";
+
 /// An old name for [`BACKUP_VERSION_V1`].
 pub const BACKUP_KEY_V1: &str = "backup_key_v1";
