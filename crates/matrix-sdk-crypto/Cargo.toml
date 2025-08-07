@@ -18,6 +18,11 @@ rustdoc-args = ["--cfg", "docsrs", "--generate-link-to-definition"]
 default = []
 automatic-room-key-forwarding = []
 experimental-send-custom-to-device = []
+
+# Enable experimental support for encrypting state events; see
+# https://github.com/matrix-org/matrix-rust-sdk/issues/5397.
+experimental-encrypted-state-events = []
+
 js = ["ruma/js", "vodozemac/js", "matrix-sdk-common/js"]
 qrcode = ["dep:matrix-sdk-qrcode"]
 experimental-algorithms = []

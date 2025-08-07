@@ -7,6 +7,8 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased] - ReleaseDate
 
 ### Features
+
+- Add `RoomSettings::encrypt_state_events` flag. ([#5511](https://github.com/matrix-org/matrix-rust-sdk/pull/5511))
 - Make sure to accept historic room key bundles only if the sender is trusted
   enough.
   ([#5510](https://github.com/matrix-org/matrix-rust-sdk/pull/5510))
