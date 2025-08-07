@@ -122,7 +122,7 @@ impl SqliteEventCacheStore {
 
     /// Open the SQLite-based event cache store with the config open config.
     #[instrument(skip(config), fields(path = ?config.path))]
-    pub async fn open_with_config(config: SqliteStoreConfig<'_>) -> Result<Self, OpenStoreError> {
+    pub async fn open_with_config(config: SqliteStoreConfig) -> Result<Self, OpenStoreError> {
         debug!(?config);
 
         let _timer = timer!("open_with_config");
@@ -146,7 +146,7 @@ impl SqliteEventCacheStore {
     /// pool. The given key will be used to encrypt private data.
     async fn open_with_pool(
         pool: SqlitePool,
-        secret: Option<Secret<'_>>,
+        secret: Option<Secret>,
     ) -> Result<Self, OpenStoreError> {
         let conn = pool.get().await?;
 

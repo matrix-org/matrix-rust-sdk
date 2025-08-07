@@ -111,7 +111,7 @@ impl SqliteStateStore {
     }
 
     /// Open the SQLite-based state store with the config open config.
-    pub async fn open_with_config(config: SqliteStoreConfig<'_>) -> Result<Self, OpenStoreError> {
+    pub async fn open_with_config(config: SqliteStoreConfig) -> Result<Self, OpenStoreError> {
         let SqliteStoreConfig { path, pool_config, runtime_config, secret } = config;
 
         fs::create_dir_all(&path).await.map_err(OpenStoreError::CreateDir)?;
@@ -131,7 +131,7 @@ impl SqliteStateStore {
     /// The given key will be used to encrypt private data.
     pub async fn open_with_pool(
         pool: SqlitePool,
-        secret: Option<Secret<'_>>,
+        secret: Option<Secret>,
     ) -> Result<Self, OpenStoreError> {
         let conn = pool.get().await?;
 
@@ -2399,7 +2399,7 @@ mod migration_tests {
         init(&conn).await?;
 
         let store_cipher = Some(Arc::new(
-            conn.get_or_create_store_cipher(Secret::PassPhrase(SECRET)).await.unwrap(),
+            conn.get_or_create_store_cipher(Secret::PassPhrase(SECRET.to_owned())).await.unwrap(),
         ));
         let this = SqliteStateStore { store_cipher, pool };
         this.run_migrations(&conn, 1, Some(version)).await?;
