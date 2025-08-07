@@ -464,7 +464,7 @@ pub(crate) trait SqliteKeyValueStoreAsyncConnExt: SqliteAsyncConnExt {
 
         let cipher = if let Some(encrypted) = encrypted_cipher {
             match secret {
-                Secret::PassPhrase(ref passphrase) => StoreCipher::import(&passphrase, &encrypted)?,
+                Secret::PassPhrase(ref passphrase) => StoreCipher::import(passphrase, &encrypted)?,
                 Secret::Key(key) => StoreCipher::import_with_key(&key, &encrypted)?,
             }
         } else {
