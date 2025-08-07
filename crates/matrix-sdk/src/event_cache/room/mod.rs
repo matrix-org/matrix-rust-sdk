@@ -720,7 +720,7 @@ mod private {
                             "error when loading a linked chunk's metadata from the store: {err}"
                         );
 
-                        // Clear storage for this room.
+                        // Try to clear storage for this room.
                         store_lock
                             .handle_linked_chunk_updates(linked_chunk_id, vec![Update::Clear])
                             .await?;
@@ -730,15 +730,28 @@ mod private {
                     }
                 };
 
-            let linked_chunk = store_lock
+            let linked_chunk = match store_lock
                 .load_last_chunk(linked_chunk_id)
                 .await
                 .map_err(EventCacheError::from)
                 .and_then(|(last_chunk, chunk_identifier_generator)| {
                     lazy_loader::from_last_chunk(last_chunk, chunk_identifier_generator)
                         .map_err(EventCacheError::from)
-                })
-                .expect("fully loading the linked chunk just worked, so loading it partially should also work");
+                }) {
+                Ok(linked_chunk) => linked_chunk,
+                Err(err) => {
+                    error!(
+                        "error when loading a linked chunk's latest chunk from the store: {err}"
+                    );
+
+                    // Try to clear storage for this room.
+                    store_lock
+                        .handle_linked_chunk_updates(linked_chunk_id, vec![Update::Clear])
+                        .await?;
+
+                    None
+                }
+            };
 
             let room_linked_chunk = EventLinkedChunk::with_initial_linked_chunk(
                 linked_chunk,
