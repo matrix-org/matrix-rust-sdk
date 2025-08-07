@@ -32,6 +32,7 @@ use std::{
 };
 
 use deadpool_sqlite::PoolConfig;
+use zeroize::Zeroize;
 
 #[cfg(feature = "crypto-store")]
 pub use self::crypto_store::SqliteCryptoStore;
@@ -46,9 +47,11 @@ pub use self::state_store::{SqliteStateStore, DATABASE_NAME as STATE_STORE_DATAB
 #[cfg(test)]
 matrix_sdk_test_utils::init_tracing_for_tests!();
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, Zeroize)]
 pub enum Secret {
+    #[zeroize]
     Key([u8; 32]),
+    #[zeroize]
     PassPhrase(String),
 }
 

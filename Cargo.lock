@@ -3505,6 +3505,7 @@ dependencies = [
  "tokio",
  "tracing",
  "vodozemac",
+ "zeroize",
 ]
 
 [[package]]
