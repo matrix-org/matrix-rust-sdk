@@ -193,7 +193,7 @@ mod tests {
     use std::{collections::HashSet, error::Error};
 
     use matrix_sdk_test::event_factory::EventFactory;
-    use ruma::{event_id, owned_event_id, room_id, user_id};
+    use ruma::{event_id, room_id, user_id};
 
     use crate::index::RoomIndex;
 
@@ -227,10 +227,14 @@ mod tests {
         let mut index =
             RoomIndex::new_in_ram(room_id).expect("failed to make index in ram: {index:?}");
 
+        let event_id_1 = event_id!("$event_id_1:localhost");
+        let event_id_2 = event_id!("$event_id_2:localhost");
+        let event_id_3 = event_id!("$event_id_3:localhost");
+
         index.add_event(
             EventFactory::new()
                 .text_msg("This is a sentence")
-                .event_id(event_id!("$event_id_1:localhost"))
+                .event_id(event_id_1)
                 .room(room_id)
                 .sender(user_id!("@user_id:localhost"))
                 .into_any_message_like_event(),
@@ -239,7 +243,7 @@ mod tests {
         index.add_event(
             EventFactory::new()
                 .text_msg("All new words")
-                .event_id(event_id!("$event_id_2:localhost"))
+                .event_id(event_id_2)
                 .room(room_id)
                 .sender(user_id!("@user_id:localhost"))
                 .into_any_message_like_event(),
@@ -248,7 +252,7 @@ mod tests {
         index.add_event(
             EventFactory::new()
                 .text_msg("A similar sentence")
-                .event_id(event_id!("$event_id_3:localhost"))
+                .event_id(event_id_3)
                 .room(room_id)
                 .sender(user_id!("@user_id:localhost"))
                 .into_any_message_like_event(),
@@ -259,8 +263,7 @@ mod tests {
         let result = index.search("sentence", 10).expect("search failed with: {result:?}");
         let result: HashSet<_> = result.iter().collect();
 
-        let true_value =
-            [owned_event_id!("$event_id_1:localhost"), owned_event_id!("$event_id_3:localhost")];
+        let true_value = [event_id_1.to_owned(), event_id_3.to_owned()];
         let true_value: HashSet<_> = true_value.iter().collect();
 
         assert_eq!(result, true_value, "search result not correct: {result:?}");

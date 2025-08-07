@@ -54,10 +54,17 @@ use matrix_sdk_common::{
     executor::{spawn, JoinHandle},
     timeout::timeout,
 };
+#[cfg(feature = "experimental-search")]
+use matrix_sdk_search::error::IndexError;
+#[cfg(feature = "experimental-search")]
+#[cfg(doc)]
+use matrix_sdk_search::index::RoomIndex;
 use mime::Mime;
 use reply::Reply;
 #[cfg(feature = "unstable-msc4274")]
 use ruma::events::room::message::GalleryItemType;
+#[cfg(feature = "experimental-search")]
+use ruma::events::AnyMessageLikeEvent;
 #[cfg(feature = "e2e-encryption")]
 use ruma::events::{
     room::encrypted::OriginalSyncRoomEncryptedEvent, AnySyncMessageLikeEvent, AnySyncTimelineEvent,
@@ -3669,6 +3676,23 @@ impl Room {
         opts: RelationsOptions,
     ) -> Result<Relations> {
         opts.send(self, event_id).await
+    }
+
+    /// Add an [`AnyMessageLikeEvent`] to this room's [`RoomIndex`]
+    #[cfg(feature = "experimental-search")]
+    pub(crate) async fn index_event(&self, event: AnyMessageLikeEvent) -> Result<(), IndexError> {
+        self.client.index_event(event, self.room_id()).await
+    }
+
+    /// Search this room's [`RoomIndex`] for query and return at most
+    /// max_number_of_results results.
+    #[cfg(feature = "experimental-search")]
+    pub async fn search_index(
+        &self,
+        query: &str,
+        max_number_of_results: usize,
+    ) -> Option<Vec<OwnedEventId>> {
+        self.client.search_index(query, max_number_of_results, self.room_id()).await
     }
 
     /// Subscribe to a given thread in this room.
