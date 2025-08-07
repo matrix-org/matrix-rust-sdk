@@ -25,8 +25,12 @@ js = [
     "matrix-sdk-store-encryption/js",
 ]
 qrcode = ["matrix-sdk-crypto?/qrcode"]
-automatic-room-key-forwarding = ["matrix-sdk-crypto?/automatic-room-key-forwarding"]
-experimental-send-custom-to-device = ["matrix-sdk-crypto?/experimental-send-custom-to-device"]
+automatic-room-key-forwarding = [
+    "matrix-sdk-crypto?/automatic-room-key-forwarding",
+]
+experimental-send-custom-to-device = [
+    "matrix-sdk-crypto?/experimental-send-custom-to-device",
+]
 uniffi = ["dep:uniffi", "matrix-sdk-crypto?/uniffi", "matrix-sdk-common/uniffi"]
 
 # Private feature, see
@@ -101,6 +105,7 @@ tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
 
 [target.'cfg(target_family = "wasm")'.dev-dependencies]
 wasm-bindgen-test.workspace = true
+gloo-timers = { workspace = true, features = ["futures"] }
 
 [lints]
 workspace = true

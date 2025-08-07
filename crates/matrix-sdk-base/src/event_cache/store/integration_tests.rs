@@ -1432,11 +1432,14 @@ macro_rules! event_cache_store_integration_tests {
 #[macro_export]
 macro_rules! event_cache_store_integration_tests_time {
     () => {
-        #[cfg(not(target_family = "wasm"))]
         mod event_cache_store_integration_tests_time {
             use std::time::Duration;
 
+            #[cfg(all(target_family = "wasm", target_os = "unknown"))]
+            use gloo_timers::future::sleep;
             use matrix_sdk_test::async_test;
+            #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
+            use tokio::time::sleep;
             use $crate::event_cache::store::IntoEventCacheStore;
 
             use super::get_event_cache_store;
@@ -1465,26 +1468,26 @@ macro_rules! event_cache_store_integration_tests_time {
                 assert!(!acquired5);
 
                 // That's a nice test we got here, go take a little nap.
-                tokio::time::sleep(Duration::from_millis(50)).await;
+                sleep(Duration::from_millis(50)).await;
 
                 // Still too early.
                 let acquired55 = store.try_take_leased_lock(300, "key", "bob").await.unwrap();
                 assert!(!acquired55);
 
                 // Ok you can take another nap then.
-                tokio::time::sleep(Duration::from_millis(250)).await;
+                sleep(Duration::from_millis(250)).await;
 
                 // At some point, we do get the lock.
                 let acquired6 = store.try_take_leased_lock(0, "key", "bob").await.unwrap();
                 assert!(acquired6);
 
-                tokio::time::sleep(Duration::from_millis(1)).await;
+                sleep(Duration::from_millis(1)).await;
 
                 // The other gets it almost immediately too.
                 let acquired7 = store.try_take_leased_lock(0, "key", "alice").await.unwrap();
                 assert!(acquired7);
 
-                tokio::time::sleep(Duration::from_millis(1)).await;
+                sleep(Duration::from_millis(1)).await;
 
                 // But when we take a longer lease...
                 let acquired8 = store.try_take_leased_lock(300, "key", "bob").await.unwrap();
