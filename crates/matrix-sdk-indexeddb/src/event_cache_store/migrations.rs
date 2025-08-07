@@ -109,6 +109,8 @@ pub mod v1 {
 
     pub mod keys {
         pub const CORE: &str = "core";
+        pub const LEASES: &str = "leases";
+        pub const LEASES_KEY_PATH: &str = "id";
         pub const ROOMS: &str = "rooms";
         pub const LINKED_CHUNKS: &str = "linked_chunks";
         pub const LINKED_CHUNKS_KEY_PATH: &str = "id";
@@ -129,16 +131,24 @@ pub mod v1 {
     /// Create all object stores and indices for v1 database
     pub fn create_object_stores(db: &IdbDatabase) -> Result<(), DomException> {
         create_core_object_store(db)?;
+        create_lease_object_store(db)?;
         create_linked_chunks_object_store(db)?;
         create_events_object_store(db)?;
         create_gaps_object_store(db)?;
         Ok(())
     }
 
-    /// Create an object store for tracking miscellaneous information, e.g.,
-    /// leases locks
+    /// Create an object store for tracking miscellaneous information
     fn create_core_object_store(db: &IdbDatabase) -> Result<(), DomException> {
         let _ = db.create_object_store(keys::CORE)?;
+        Ok(())
+    }
+
+    /// Create an object store tracking leases on time-based locks
+    fn create_lease_object_store(db: &IdbDatabase) -> Result<(), DomException> {
+        let mut object_store_params = IdbObjectStoreParameters::new();
+        object_store_params.key_path(Some(&keys::LEASES_KEY_PATH.into()));
+        let _ = db.create_object_store_with_params(keys::LEASES, &object_store_params)?;
         Ok(())
     }
 
