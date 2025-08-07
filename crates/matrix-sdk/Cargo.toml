@@ -68,14 +68,14 @@ anymap2 = "0.13.0"
 aquamarine.workspace = true
 as_variant.workspace = true
 assert_matches2 = { workspace = true, optional = true }
-async-channel = "2.3.1"
+async-channel = "2.5.0"
 async-stream.workspace = true
 async-trait.workspace = true
-axum = { version = "0.8.1", optional = true }
-bytes = "1.9.0"
+axum = { version = "0.8.4", optional = true }
+bytes = "1.10.1"
 bytesize = "2.0.1"
-cfg-if = "1.0.0"
-event-listener = "5.4.0"
+cfg-if = "1.0.1"
+event-listener = "5.4.1"
 eyeball.workspace = true
 eyeball-im.workspace = true
 eyre = { version = "0.6.12", optional = true }
@@ -93,7 +93,7 @@ matrix-sdk-indexeddb = { workspace = true, optional = true }
 matrix-sdk-sqlite = { workspace = true, optional = true }
 matrix-sdk-test = { workspace = true, optional = true }
 mime.workspace = true
-mime2ext = "0.1.53"
+mime2ext = "0.1.54"
 oauth2.workspace = true
 once_cell.workspace = true
 percent-encoding = "2.3.1"
@@ -117,7 +117,7 @@ sha2.workspace = true
 tempfile.workspace = true
 thiserror.workspace = true
 tokio-stream = { workspace = true, features = ["sync"] }
-tokio-util = "0.7.13"
+tokio-util = "0.7.16"
 tower = { version = "0.5.2", features = ["util"], optional = true }
 tracing = { workspace = true, features = ["attributes"] }
 uniffi = { workspace = true, optional = true }
@@ -128,7 +128,7 @@ vodozemac.workspace = true
 zeroize.workspace = true
 
 [target.'cfg(not(target_family = "wasm"))'.dependencies]
-backon = "1.5.0"
+backon = "1.5.2"
 # only activate reqwest's stream feature on non-wasm, the wasm part seems to not
 # support *sending* streams, which makes it useless for us.
 reqwest = { workspace = true, features = ["stream", "gzip", "http2"] }

@@ -55,7 +55,7 @@ matrix-sdk = { workspace = true, features = [
 matrix-sdk-common.workspace = true
 matrix-sdk-ffi-macros.workspace = true
 matrix-sdk-ui = { workspace = true, features = ["uniffi"] }
-mime = "0.3.16"
+mime = "0.3.17"
 once_cell.workspace = true
 ruma = { workspace = true, features = ["html", "unstable-msc3488", "compat-unset-avatar", "unstable-msc3245-v1-compat", "unstable-msc4278", "unstable-hydra"] }
 serde.workspace = true
@@ -71,7 +71,7 @@ sentry = { version = "0.36.0", optional = true, default-features = false, featur
 sentry-tracing = { version = "0.36.0", optional = true }
 thiserror.workspace = true
 tracing.workspace = true
-tracing-appender = { version = "0.2.2" }
+tracing-appender = { version = "0.2.3" }
 tracing-core.workspace = true
 tracing-subscriber = { workspace = true, features = ["env-filter"] }
 url.workspace = true
@@ -90,7 +90,7 @@ tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
 uniffi = { workspace = true, features = ["tokio"] }
 
 [target.'cfg(target_os = "android")'.dependencies]
-paranoid-android = "0.2.1"
+paranoid-android = "0.2.2"
 
 [build-dependencies]
 uniffi = { workspace = true, features = ["build"] }

@@ -242,6 +242,12 @@ pub struct BackupDecryptionKey {
     pub(crate) inner: Box<[u8; BackupDecryptionKey::KEY_SIZE]>,
 }
 
+impl Default for BackupDecryptionKey {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl BackupDecryptionKey {
     /// The number of bytes the decryption key will hold.
     pub const KEY_SIZE: usize = 32;
@@ -277,6 +283,12 @@ impl std::fmt::Debug for BackupDecryptionKey {
 #[serde(transparent)]
 pub struct DehydratedDeviceKey {
     pub(crate) inner: Box<[u8; DehydratedDeviceKey::KEY_SIZE]>,
+}
+
+impl Default for DehydratedDeviceKey {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl DehydratedDeviceKey {

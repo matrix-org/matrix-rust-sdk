@@ -39,7 +39,7 @@ use matrix_sdk::{
     utils::local_server::{LocalServerBuilder, LocalServerRedirectHandle, QueryString},
 };
 use matrix_sdk_ui::sync_service::SyncService;
-use rand::{Rng, distributions::Alphanumeric, thread_rng};
+use rand::{Rng, distr::Alphanumeric, rng};
 use serde::{Deserialize, Serialize};
 use tokio::{fs, io::AsyncBufReadExt as _};
 use url::Url;
@@ -577,7 +577,7 @@ async fn build_client(data_dir: &Path) -> anyhow::Result<(Client, ClientSession)
     let db_path = data_dir.join("db");
 
     // Generate a random passphrase.
-    let mut rng = thread_rng();
+    let mut rng = rng();
     let passphrase: String =
         (&mut rng).sample_iter(Alphanumeric).take(32).map(char::from).collect();
 

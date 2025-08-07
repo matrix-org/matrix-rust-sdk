@@ -56,7 +56,7 @@ workspace = true
 features = ["crypto-store"]
 
 [dependencies.tokio]
-version = "1.43.1"
+version = "1.47.1"
 default-features = false
 features = ["rt-multi-thread"]
 
