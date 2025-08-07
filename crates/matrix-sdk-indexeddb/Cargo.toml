@@ -51,6 +51,7 @@ getrandom = { workspace = true, features = ["js"] }
 [dev-dependencies]
 assert_matches.workspace = true
 assert_matches2.workspace = true
+gloo-timers = { workspace = true, features = ["futures"] }
 matrix-sdk-base = { workspace = true, features = ["testing"] }
 matrix-sdk-common = { workspace = true, features = ["js"] }
 matrix-sdk-crypto = { workspace = true, features = ["js", "testing"] }
