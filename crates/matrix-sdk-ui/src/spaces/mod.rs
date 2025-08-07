@@ -21,6 +21,7 @@ use futures_util::pin_mut;
 use matrix_sdk::Client;
 use ruma::OwnedRoomId;
 use tokio::task::JoinHandle;
+use tokio_stream::StreamExt;
 use tracing::error;
 
 pub use crate::spaces::{room::SpaceServiceRoom, room_list::SpaceServiceRoomList};
@@ -43,10 +44,10 @@ impl Drop for SpaceService {
 }
 
 impl SpaceService {
-    pub fn new(client: Client) -> Self {
+    pub async fn new(client: Client) -> Self {
         let joined_spaces = SharedObservable::new(Vec::new());
 
-        joined_spaces.set(Self::joined_spaces_for(&client));
+        joined_spaces.set(Self::joined_spaces_for(&client).await);
 
         let client_clone = client.clone();
         let joined_spaces_clone = joined_spaces.clone();
@@ -58,7 +59,7 @@ impl SpaceService {
             loop {
                 match all_room_updates_receiver.recv().await {
                     Ok(_) => {
-                        let new_spaces = Self::joined_spaces_for(&client_clone);
+                        let new_spaces = Self::joined_spaces_for(&client_clone).await;
                         if new_spaces != joined_spaces_clone.get() {
                             joined_spaces_clone.set(new_spaces);
                         }
@@ -85,13 +86,29 @@ impl SpaceService {
         SpaceServiceRoomList::new(self.client.clone(), space_id)
     }
 
-    fn joined_spaces_for(client: &Client) -> Vec<SpaceServiceRoom> {
-        client
+    async fn joined_spaces_for(client: &Client) -> Vec<SpaceServiceRoom> {
+        let joined_spaces = client
             .joined_rooms()
             .into_iter()
             .filter_map(|room| if room.is_space() { Some(room) } else { None })
-            .map(SpaceServiceRoom::new_from_known)
-            .collect::<Vec<_>>()
+            .collect::<Vec<_>>();
+
+        let top_level_spaces: Vec<SpaceServiceRoom> = tokio_stream::iter(joined_spaces)
+            .then(|room| async move {
+                let ok = if let Ok(parents) = room.parent_spaces().await {
+                    pin_mut!(parents);
+                    parents.any(|p| p.is_ok()).await == false
+                } else {
+                    false
+                };
+                (room, ok)
+            })
+            .filter(|(_, ok)| *ok)
+            .map(|(x, _)| SpaceServiceRoom::new_from_known(x))
+            .collect()
+            .await;
+
+        top_level_spaces
     }
 }
 
@@ -116,7 +133,7 @@ mod tests {
         let server = MatrixMockServer::new().await;
         let client = server.client_builder().build().await;
         let user_id = client.user_id().unwrap();
-        let space_service = SpaceService::new(client.clone());
+        let space_service = SpaceService::new(client.clone()).await;
         let factory = EventFactory::new();
 
         server.mock_room_state_encryption().plain().mount().await;
@@ -170,10 +187,10 @@ mod tests {
             )
             .await;
 
-        // All joined
+        // Only the parent space is returned
         assert_eq!(
             space_service.joined_spaces().iter().map(|s| s.room_id.to_owned()).collect::<Vec<_>>(),
-            vec![child_space_id_1, child_space_id_2, parent_space_id]
+            vec![parent_space_id]
         );
 
         let parent_space = client.get_room(parent_space_id).unwrap();
@@ -232,7 +249,7 @@ mod tests {
         // Build the `SpaceService` and expect the room to show up with no updates
         // pending
 
-        let space_service = SpaceService::new(client.clone());
+        let space_service = SpaceService::new(client.clone()).await;
 
         let joined_spaces_subscriber = space_service.subscribe_to_joined_spaces();
         pin_mut!(joined_spaces_subscriber);
