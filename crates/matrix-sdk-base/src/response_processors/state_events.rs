@@ -277,13 +277,10 @@ pub mod stripped {
         if let Some(push_condition_room_ctx) =
             timeline::get_push_room_context(context, room, room_info).await?
         {
-            let room_id = room.room_id();
-
             // Check every event again for notification.
             for event in state_events.values().flat_map(|map| map.values()) {
                 notification
                     .push_notification_from_event_if(
-                        room_id,
                         &push_condition_room_ctx,
                         event,
                         Action::should_notify,
