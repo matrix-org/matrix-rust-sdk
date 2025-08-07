@@ -23,6 +23,7 @@ async fn test_stores_and_returns_room_settings() {
 
     let settings = RoomSettings {
         algorithm: EventEncryptionAlgorithm::MegolmV1AesSha2,
+        encrypt_state_events: false,
         only_allow_trusted_devices: true,
         session_rotation_period: Some(Duration::from_secs(10)),
         session_rotation_period_messages: Some(1234),

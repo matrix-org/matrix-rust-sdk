@@ -411,6 +411,9 @@ pub struct RoomSettings {
     /// The encryption algorithm that should be used in the room.
     pub algorithm: EventEncryptionAlgorithm,
 
+    /// Whether state event encryption is enabled.
+    pub encrypt_state_events: bool,
+
     /// Should untrusted devices receive the room key, or should they be
     /// excluded from the conversation.
     pub only_allow_trusted_devices: bool,
@@ -428,6 +431,7 @@ impl Default for RoomSettings {
     fn default() -> Self {
         Self {
             algorithm: EventEncryptionAlgorithm::MegolmV1AesSha2,
+            encrypt_state_events: false,
             only_allow_trusted_devices: false,
             session_rotation_period: None,
             session_rotation_period_messages: None,
