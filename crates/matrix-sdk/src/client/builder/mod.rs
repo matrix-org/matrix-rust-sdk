@@ -252,7 +252,7 @@ impl ClientBuilder {
     #[cfg(feature = "sqlite")]
     pub fn sqlite_store_with_config_and_cache_path(
         mut self,
-        config: SqliteStoreConfig<'_>,
+        config: SqliteStoreConfig,
         cache_path: Option<impl AsRef<Path>>,
     ) -> Self {
         self.store_config = BuilderStoreConfig::Sqlite {
@@ -751,10 +751,10 @@ impl Default for HttpConfig {
 }
 
 #[derive(Clone)]
-enum BuilderStoreConfig<'_> {
+enum BuilderStoreConfig {
     #[cfg(feature = "sqlite")]
     Sqlite {
-        config: SqliteStoreConfig<'_>,
+        config: SqliteStoreConfig,
         cache_path: Option<std::path::PathBuf>,
     },
     #[cfg(feature = "indexeddb")]
