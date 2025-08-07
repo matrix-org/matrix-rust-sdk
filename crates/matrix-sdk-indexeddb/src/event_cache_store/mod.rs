@@ -671,7 +671,10 @@ impl_event_cache_store! {
 
 #[cfg(test)]
 mod tests {
-    use matrix_sdk_base::event_cache::store::{EventCacheStore, EventCacheStoreError};
+    use matrix_sdk_base::{
+        event_cache::store::{EventCacheStore, EventCacheStoreError},
+        event_cache_store_integration_tests_time,
+    };
     use matrix_sdk_test::async_test;
     use uuid::Uuid;
 
@@ -695,6 +698,9 @@ mod tests {
 
         #[cfg(target_family = "wasm")]
         indexeddb_event_cache_store_integration_tests!();
+
+        #[cfg(target_family = "wasm")]
+        event_cache_store_integration_tests_time!();
     }
 
     mod encrypted {
@@ -712,5 +718,8 @@ mod tests {
 
         #[cfg(target_family = "wasm")]
         indexeddb_event_cache_store_integration_tests!();
+
+        #[cfg(target_family = "wasm")]
+        event_cache_store_integration_tests_time!();
     }
 }
