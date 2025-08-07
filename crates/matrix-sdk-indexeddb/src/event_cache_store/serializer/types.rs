@@ -42,7 +42,7 @@ use crate::{
             Indexed, IndexedKey, IndexedKeyBounds, IndexedKeyComponentBounds,
             IndexedPrefixKeyBounds, IndexedPrefixKeyComponentBounds,
         },
-        types::{Chunk, Event, Gap, Position},
+        types::{Chunk, Event, Gap, Lease, Position},
     },
     serializer::{IndexeddbSerializer, MaybeEncrypted},
 };
@@ -64,6 +64,14 @@ const INDEXED_KEY_LOWER_CHARACTER: char = '\u{0000}';
 ///
 /// [1]: https://en.wikipedia.org/wiki/Plane_(Unicode)#Basic_Multilingual_Plane
 const INDEXED_KEY_UPPER_CHARACTER: char = '\u{FFFF}';
+
+/// Identical to [`INDEXED_KEY_LOWER_CHARACTER`] but represented as a [`String`]
+static INDEXED_KEY_LOWER_STRING: LazyLock<String> =
+    LazyLock::new(|| String::from(INDEXED_KEY_LOWER_CHARACTER));
+
+/// Identical to [`INDEXED_KEY_UPPER_CHARACTER`] but represented as a [`String`]
+static INDEXED_KEY_UPPER_STRING: LazyLock<String> =
+    LazyLock::new(|| String::from(INDEXED_KEY_UPPER_CHARACTER));
 
 /// A [`ChunkIdentifier`] constructed with `0`.
 ///
@@ -222,6 +230,70 @@ impl<K> From<K> for IndexedKeyRange<K> {
         Self::Only(value)
     }
 }
+
+/// Represents the [`LEASES`][1] object store.
+///
+/// [1]: crate::event_cache_store::migrations::v1::create_lease_object_store
+#[derive(Debug, Serialize, Deserialize)]
+pub struct IndexedLease {
+    /// The primary key of the object store.
+    pub id: IndexedLeaseIdKey,
+    /// The (possibly encrypted) content - i.e., a [`Lease`].
+    pub content: IndexedLeaseContent,
+}
+
+impl Indexed for Lease {
+    type IndexedType = IndexedLease;
+
+    const OBJECT_STORE: &'static str = keys::LEASES;
+
+    type Error = CryptoStoreError;
+
+    fn to_indexed(
+        &self,
+        serializer: &IndexeddbSerializer,
+    ) -> Result<Self::IndexedType, Self::Error> {
+        Ok(IndexedLease {
+            id: IndexedLeaseIdKey::encode(&self.key, serializer),
+            content: serializer.maybe_encrypt_value(self)?,
+        })
+    }
+
+    fn from_indexed(
+        indexed: Self::IndexedType,
+        serializer: &IndexeddbSerializer,
+    ) -> Result<Self, Self::Error> {
+        serializer.maybe_decrypt_value(indexed.content)
+    }
+}
+
+/// The value associated with the [primary key](IndexedLease::id) of the
+/// [`LEASES`][1] object store, which is constructed from the value in
+/// [`Lease::key`]. This value may or may not be hashed depending on the
+/// provided [`IndexeddbSerializer`].
+///
+/// [1]: crate::event_cache_store::migrations::v1::create_linked_chunks_object_store
+pub type IndexedLeaseIdKey = String;
+
+impl IndexedKey<Lease> for IndexedLeaseIdKey {
+    type KeyComponents<'a> = &'a str;
+
+    fn encode(components: Self::KeyComponents<'_>, serializer: &IndexeddbSerializer) -> Self {
+        serializer.encode_key_as_string(keys::LEASES, components)
+    }
+}
+
+impl IndexedKeyComponentBounds<Lease> for IndexedLeaseIdKey {
+    fn lower_key_components() -> Self::KeyComponents<'static> {
+        INDEXED_KEY_LOWER_STRING.as_str()
+    }
+
+    fn upper_key_components() -> Self::KeyComponents<'static> {
+        INDEXED_KEY_UPPER_STRING.as_str()
+    }
+}
+
+pub type IndexedLeaseContent = MaybeEncrypted;
 
 /// Represents the [`LINKED_CHUNKS`][1] object store.
 ///
