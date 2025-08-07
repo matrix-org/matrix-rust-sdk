@@ -102,7 +102,7 @@ impl SqliteCryptoStore {
     }
 
     /// Open the SQLite-based crypto store with the config open config.
-    pub async fn open_with_config(config: SqliteStoreConfig<'_>) -> Result<Self, OpenStoreError> {
+    pub async fn open_with_config(config: SqliteStoreConfig) -> Result<Self, OpenStoreError> {
         let SqliteStoreConfig { path, pool_config, runtime_config, secret } = config;
 
         fs::create_dir_all(&path).await.map_err(OpenStoreError::CreateDir)?;
@@ -122,7 +122,7 @@ impl SqliteCryptoStore {
     /// pool. The given key will be used to encrypt private data.
     async fn open_with_pool(
         pool: SqlitePool,
-        secret: Option<Secret<'_>>,
+        secret: Option<Secret>,
     ) -> Result<Self, OpenStoreError> {
         let conn = pool.get().await?;
 
