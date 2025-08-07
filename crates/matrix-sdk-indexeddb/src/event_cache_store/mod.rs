@@ -14,6 +14,8 @@
 
 #![allow(unused)]
 
+use std::time::Duration;
+
 use indexed_db_futures::IdbDatabase;
 use matrix_sdk_base::{
     event_cache::{
@@ -30,15 +32,18 @@ use matrix_sdk_base::{
     media::MediaRequestParameters,
     timer,
 };
-use ruma::{events::relation::RelationType, EventId, MxcUri, OwnedEventId, RoomId};
+use ruma::{
+    events::relation::RelationType, EventId, MilliSecondsSinceUnixEpoch, MxcUri, OwnedEventId,
+    RoomId,
+};
 use tracing::{error, instrument, trace};
 use web_sys::IdbTransactionMode;
 
 use crate::event_cache_store::{
     migrations::current::keys,
-    serializer::IndexeddbEventCacheStoreSerializer,
+    serializer::{traits::Indexed, IndexeddbEventCacheStoreSerializer},
     transaction::{IndexeddbEventCacheStoreTransaction, IndexeddbEventCacheStoreTransactionError},
-    types::{ChunkType, InBandEvent, OutOfBandEvent},
+    types::{ChunkType, InBandEvent, Lease, OutOfBandEvent},
 };
 
 mod builder;
@@ -132,10 +137,27 @@ impl_event_cache_store! {
         holder: &str,
     ) -> Result<bool, IndexeddbEventCacheStoreError> {
         let _timer = timer!("method");
-        self.memory_store
-            .try_take_leased_lock(lease_duration_ms, key, holder)
-            .await
-            .map_err(IndexeddbEventCacheStoreError::MemoryStore)
+
+        let now = Duration::from_millis(MilliSecondsSinceUnixEpoch::now().get().into());
+
+        let transaction =
+            self.transaction(&[Lease::OBJECT_STORE], IdbTransactionMode::Readwrite)?;
+
+        if let Some(lease) = transaction.get_lease_by_id(key).await? {
+            if lease.holder != holder && !lease.has_expired(now) {
+                return Ok(false);
+            }
+        }
+
+        transaction
+            .put_lease(&Lease {
+                key: key.to_owned(),
+                holder: holder.to_owned(),
+                expiration: now + Duration::from_millis(lease_duration_ms.into()),
+            })
+            .await?;
+
+        Ok(true)
     }
 
     #[instrument(skip(self, updates))]

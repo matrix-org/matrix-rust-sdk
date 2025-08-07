@@ -32,7 +32,7 @@ pub struct Lease {
 
 impl Lease {
     /// Determines whether the lease is expired at a given time `t`
-    pub fn expired_at(&self, t: Duration) -> bool {
+    pub fn has_expired(&self, t: Duration) -> bool {
         self.expiration < t
     }
 }

@@ -34,11 +34,11 @@ use crate::event_cache_store::{
         },
         types::{
             IndexedChunkIdKey, IndexedEventIdKey, IndexedEventPositionKey, IndexedEventRelationKey,
-            IndexedGapIdKey, IndexedKeyRange, IndexedNextChunkIdKey,
+            IndexedGapIdKey, IndexedKeyRange, IndexedLeaseIdKey, IndexedNextChunkIdKey,
         },
         IndexeddbEventCacheStoreSerializer,
     },
-    types::{Chunk, ChunkType, Event, Gap, Position},
+    types::{Chunk, ChunkType, Event, Gap, Lease, Position},
 };
 
 #[derive(Debug, Error)]
@@ -408,6 +408,24 @@ impl<'a> IndexeddbEventCacheStoreTransaction<'a> {
         T: Indexed,
     {
         self.transaction.object_store(T::OBJECT_STORE)?.clear()?.await.map_err(Into::into)
+    }
+
+    /// Query IndexedDB for the lease that matches the given key `id`. If more
+    /// than one lease is found, an error is returned.
+    pub async fn get_lease_by_id(
+        &self,
+        id: &str,
+    ) -> Result<Option<Lease>, IndexeddbEventCacheStoreTransactionError> {
+        self.get_item_by_key_components::<Lease, IndexedLeaseIdKey>(id).await
+    }
+
+    /// Puts a lease into IndexedDB. If an event with the same key already
+    /// exists, it will be overwritten.
+    pub async fn put_lease(
+        &self,
+        lease: &Lease,
+    ) -> Result<(), IndexeddbEventCacheStoreTransactionError> {
+        self.put_item(lease).await
     }
 
     /// Query IndexedDB for chunks that match the given chunk identifier in the
