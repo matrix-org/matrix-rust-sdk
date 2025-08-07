@@ -148,7 +148,7 @@ mod tests {
     async fn test_room_list_pagination() {
         let server = MatrixMockServer::new().await;
         let client = server.client_builder().build().await;
-        let space_service = SpaceService::new(client.clone());
+        let space_service = SpaceService::new(client.clone()).await;
 
         server.mock_room_state_encryption().plain().mount().await;
 
