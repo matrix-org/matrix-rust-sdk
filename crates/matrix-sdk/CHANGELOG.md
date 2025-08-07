@@ -38,6 +38,7 @@ All notable changes to this project will be documented in this file.
 
 ### Refactor
 
+- [**breaking**] Change the upload_encrypted_file and make it clone the client instead of owning it. The lifetime of the `UploadEncryptedFile` request returned by `Client::upload_encrypted_file()` only depends on the request lifetime now.
 - [**breaking**] Add an `IsPrefix = False` bound to the `account_data()` and
   `fetch_account_data_static()` methods of `Account`. These methods only worked
   for events where the full event type is statically-known, and this is now
