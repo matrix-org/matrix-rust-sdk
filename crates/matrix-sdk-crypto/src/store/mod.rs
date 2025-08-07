@@ -1856,8 +1856,7 @@ mod tests {
 
     #[async_test]
     async fn test_create_dehydrated_device_key() {
-        let pickle_key = DehydratedDeviceKey::new()
-            .expect("Should be able to create a random dehydrated device key");
+        let pickle_key = DehydratedDeviceKey::new();
 
         let to_vec = pickle_key.inner.to_vec();
         let pickle_key_from_slice = DehydratedDeviceKey::from_slice(to_vec.as_slice())

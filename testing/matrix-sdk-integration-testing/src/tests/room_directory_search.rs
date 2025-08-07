@@ -23,7 +23,7 @@ use matrix_sdk::{
     room_directory_search::RoomDirectorySearch,
     ruma::api::client::room::{Visibility, create_room::v3::Request as CreateRoomRequest},
 };
-use rand::{Rng, thread_rng};
+use rand::{Rng, rng};
 use stream_assert::assert_pending;
 use tokio::time::sleep;
 use tracing::warn;
@@ -72,9 +72,5 @@ async fn test_room_directory_search_filter() -> Result<()> {
 }
 
 fn random_string(length: usize) -> String {
-    thread_rng()
-        .sample_iter(&rand::distributions::Alphanumeric)
-        .take(length)
-        .map(char::from)
-        .collect()
+    rng().sample_iter(&rand::distr::Alphanumeric).take(length).map(char::from).collect()
 }

@@ -60,7 +60,7 @@ wasm-bindgen-test.workspace = true
 
 [target.'cfg(target_family = "wasm")'.dev-dependencies]
 # Enable the JS feature for getrandom.
-getrandom = { workspace = true, default-features = false, features = ["js"] }
+getrandom = { workspace = true, default-features = false, features = ["wasm_js"] }
 js-sys.workspace = true
 
 [lints]

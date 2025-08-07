@@ -24,7 +24,7 @@ matrix-sdk-ui.workspace = true
 ruma.workspace = true
 serde.workspace = true
 serde_json.workspace = true
-tempfile = "3.3.0"
+tempfile = "3.20.0"
 tokio = { workspace = true, default-features = false, features = ["rt-multi-thread"] }
 wiremock.workspace = true
 
