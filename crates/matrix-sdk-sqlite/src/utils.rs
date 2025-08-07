@@ -457,7 +457,7 @@ pub(crate) trait SqliteKeyValueStoreAsyncConnExt: SqliteAsyncConnExt {
     /// Get the [`StoreCipher`] of the database or create it.
     async fn get_or_create_store_cipher(
         &self,
-        secret: Secret<'async_trait>,
+        secret: Secret,
     ) -> Result<StoreCipher, OpenStoreError> {
         let encrypted_cipher = self.get_kv("cipher").await.map_err(OpenStoreError::LoadCipher)?;
 
