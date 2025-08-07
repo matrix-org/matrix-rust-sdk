@@ -85,11 +85,22 @@ impl Rules {
 
         // Search for an enabled `Room` rule where `rule_id` is the `room_id`
         if let Some(rule) = self.ruleset.get(RuleKind::Room, room_id) {
-            // if this rule contains a `Notify` action
             if rule.triggers_notification() {
+                #[cfg(feature = "unstable-msc3768")]
+                if !rule.triggers_remote_notification() {
+                    // This rule contains a `NotifyInApp` action.
+                    return Some(RoomNotificationMode::MentionsAndKeywordsOnly {
+                        notify_in_app: true,
+                    });
+                }
+
+                // This rule contains a `Notify` action.
                 return Some(RoomNotificationMode::AllMessages);
             }
-            return Some(RoomNotificationMode::MentionsAndKeywordsOnly);
+            return Some(RoomNotificationMode::MentionsAndKeywordsOnly {
+                #[cfg(feature = "unstable-msc3768")]
+                notify_in_app: false,
+            });
         }
 
         // There is no custom rule matching this `room_id`
@@ -112,17 +123,23 @@ impl Rules {
         let predefined_rule_id = get_predefined_underride_room_rule_id(is_encrypted, is_one_to_one);
         let rule_id = predefined_rule_id.as_str();
 
-        // If there is an `Underride` rule that should trigger a notification, the mode
-        // is `AllMessages`
-        if self
-            .ruleset
-            .get(RuleKind::Underride, rule_id)
-            .is_some_and(|r| r.enabled() && r.triggers_notification())
-        {
-            RoomNotificationMode::AllMessages
-        } else {
-            // Otherwise, the mode is `MentionsAndKeywordsOnly`
-            RoomNotificationMode::MentionsAndKeywordsOnly
+        if let Some(rule) = self.ruleset.get(RuleKind::Underride, rule_id).filter(|r| r.enabled()) {
+            if rule.triggers_notification() {
+                #[cfg(feature = "unstable-msc3768")]
+                if !rule.triggers_remote_notification() {
+                    // This rule contains a `NotifyInApp` action.
+                    return RoomNotificationMode::MentionsAndKeywordsOnly { notify_in_app: true };
+                }
+                // If there is an `Underride` rule that should trigger a notification, the mode
+                // is `AllMessages`
+                return RoomNotificationMode::AllMessages;
+            }
+        }
+
+        // Otherwise, the mode is `MentionsAndKeywordsOnly`
+        RoomNotificationMode::MentionsAndKeywordsOnly {
+            #[cfg(feature = "unstable-msc3768")]
+            notify_in_app: false,
         }
     }
 
@@ -330,6 +347,7 @@ pub(crate) mod tests {
     use crate::{
         error::NotificationSettingsError,
         notification_settings::{
+            command::Notify,
             rules::{self, Rules},
             IsEncrypted, IsOneToOne, RoomNotificationMode,
         },
@@ -397,7 +415,10 @@ pub(crate) mod tests {
         let rules = Rules::new(ruleset);
         assert_eq!(
             rules.get_user_defined_room_notification_mode(&room_id),
-            Some(RoomNotificationMode::MentionsAndKeywordsOnly)
+            Some(RoomNotificationMode::MentionsAndKeywordsOnly {
+                #[cfg(feature = "unstable-msc3768")]
+                notify_in_app: false
+            })
         );
 
         // Initialize with a `Room` rule that doesn't notify
@@ -467,7 +488,13 @@ pub(crate) mod tests {
         let rules = Rules::new(ruleset);
         let mode = rules.get_default_room_notification_mode(IsEncrypted::No, IsOneToOne::Yes);
         // Then the mode should be `MentionsAndKeywordsOnly`
-        assert_eq!(mode, RoomNotificationMode::MentionsAndKeywordsOnly);
+        assert_eq!(
+            mode,
+            RoomNotificationMode::MentionsAndKeywordsOnly {
+                #[cfg(feature = "unstable-msc3768")]
+                notify_in_app: false
+            }
+        );
     }
 
     #[async_test]
@@ -614,7 +641,7 @@ pub(crate) mod tests {
 
         // Build a `RuleCommands` inserting a rule
         let mut rules_commands = RuleCommands::new(rules.ruleset.clone());
-        rules_commands.insert_rule(RuleKind::Override, &room_id, false).unwrap();
+        rules_commands.insert_rule(RuleKind::Override, &room_id, Notify::None).unwrap();
 
         rules.apply(rules_commands);
 

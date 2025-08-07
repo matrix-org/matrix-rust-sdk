@@ -18,6 +18,7 @@ use std::{
     time::Duration,
 };
 
+use cfg_if::cfg_if;
 use futures_util::{StreamExt as _, pin_mut};
 use matrix_sdk::{
     Client, ClientBuildError, SlidingSyncList, SlidingSyncMode, room::Room, sleep::sleep,
@@ -676,7 +677,7 @@ impl NotificationClient {
 
             let should_notify = push_actions
                 .as_ref()
-                .is_some_and(|actions| actions.iter().any(|a| a.should_notify()));
+                .is_some_and(|actions| actions.iter().any(should_action_notify_remote));
 
             if !should_notify {
                 // The event has been filtered out by the user's push rules.
@@ -748,7 +749,7 @@ impl NotificationClient {
         }
 
         if let Some(actions) = timeline_event.push_actions()
-            && !actions.iter().any(|a| a.should_notify())
+            && !actions.iter().any(should_action_notify_remote)
         {
             return Ok(NotificationStatus::EventFilteredOut);
         }
@@ -766,6 +767,17 @@ impl NotificationClient {
             Ok(NotificationStatus::EventFilteredOut)
         } else {
             Ok(NotificationStatus::Event(Box::new(notification_item)))
+        }
+    }
+}
+
+fn should_action_notify_remote(action: &Action) -> bool {
+    cfg_if! {
+        if #[cfg(feature = "unstable-msc3768")] {
+            action.should_notify_remote()
+        } else {
+            // Before MSC3768 only combined remote/local notifications existed
+            action.should_notify()
         }
     }
 }

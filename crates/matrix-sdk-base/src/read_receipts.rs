@@ -787,6 +787,17 @@ mod tests {
         assert_eq!(receipts.num_mentions, 1);
         assert_eq!(receipts.num_notifications, 1);
 
+        // NotifyInApp is treated like Notify
+        #[cfg(feature = "unstable-msc3768")]
+        {
+            let event = make_event(user_id!("@bob:example.org"), vec![Action::NotifyInApp]);
+            let mut receipts = RoomReadReceipts::default();
+            receipts.process_event(&event, user_id, ThreadingSupport::Disabled);
+            assert_eq!(receipts.num_unread, 1);
+            assert_eq!(receipts.num_mentions, 0);
+            assert_eq!(receipts.num_notifications, 1);
+        }
+
         // Technically this `push_actions` set would be a bug somewhere else, but let's
         // make sure to resist against it.
         let event = make_event(user_id!("@bob:example.org"), vec![Action::Notify, Action::Notify]);

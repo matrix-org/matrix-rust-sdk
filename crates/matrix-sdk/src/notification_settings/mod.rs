@@ -41,7 +41,7 @@ pub use matrix_sdk_base::notification_settings::RoomNotificationMode;
 
 use crate::{
     config::RequestConfig, error::NotificationSettingsError, event_handler::EventHandlerDropGuard,
-    Client, Result,
+    notification_settings::command::Notify, Client, Result,
 };
 
 /// Whether or not a room is encrypted
@@ -320,15 +320,23 @@ impl NotificationSettings {
         let (new_rule_kind, notify) = match mode {
             RoomNotificationMode::AllMessages => {
                 // insert a `Room` rule which notifies
-                (RuleKind::Room, true)
+                (RuleKind::Room, Notify::All)
             }
-            RoomNotificationMode::MentionsAndKeywordsOnly => {
+            RoomNotificationMode::MentionsAndKeywordsOnly {
+                #[cfg(feature = "unstable-msc3768")]
+                    notify_in_app: false,
+            } => {
                 // insert a `Room` rule which doesn't notify
-                (RuleKind::Room, false)
+                (RuleKind::Room, Notify::None)
+            }
+            #[cfg(feature = "unstable-msc3768")]
+            RoomNotificationMode::MentionsAndKeywordsOnly { notify_in_app: true } => {
+                // insert a `Room` rule which notifies in-app only
+                (RuleKind::Room, Notify::InAppOnly)
             }
             RoomNotificationMode::Mute => {
                 // insert an `Override` rule which doesn't notify
-                (RuleKind::Override, false)
+                (RuleKind::Override, Notify::None)
             }
         };
 
@@ -717,7 +725,10 @@ mod tests {
         let settings = from_insert_rules(&client, vec![(RuleKind::Room, &room_id, false)]);
         assert_eq!(
             settings.get_user_defined_room_notification_mode(&room_id).await.unwrap(),
-            RoomNotificationMode::MentionsAndKeywordsOnly
+            RoomNotificationMode::MentionsAndKeywordsOnly {
+                #[cfg(feature = "unstable-msc3768")]
+                notify_in_app: false
+            }
         );
     }
 
@@ -773,7 +784,10 @@ mod tests {
         let settings = NotificationSettings::new(client.to_owned(), ruleset.to_owned());
         assert_eq!(
             settings.get_default_room_notification_mode(IsEncrypted::No, IsOneToOne::Yes).await,
-            RoomNotificationMode::MentionsAndKeywordsOnly
+            RoomNotificationMode::MentionsAndKeywordsOnly {
+                #[cfg(feature = "unstable-msc3768")]
+                notify_in_app: false
+            }
         );
 
         // The default mode must be `MentionsAndKeywords` if the corresponding Underride
@@ -783,7 +797,10 @@ mod tests {
         let settings = NotificationSettings::new(client, ruleset);
         assert_eq!(
             settings.get_default_room_notification_mode(IsEncrypted::No, IsOneToOne::Yes).await,
-            RoomNotificationMode::MentionsAndKeywordsOnly
+            RoomNotificationMode::MentionsAndKeywordsOnly {
+                #[cfg(feature = "unstable-msc3768")]
+                notify_in_app: false
+            }
         );
 
         Ok(())
@@ -928,7 +945,12 @@ mod tests {
 
         let new_modes = [
             RoomNotificationMode::AllMessages,
-            RoomNotificationMode::MentionsAndKeywordsOnly,
+            RoomNotificationMode::MentionsAndKeywordsOnly {
+                #[cfg(feature = "unstable-msc3768")]
+                notify_in_app: false,
+            },
+            #[cfg(feature = "unstable-msc3768")]
+            RoomNotificationMode::MentionsAndKeywordsOnly { notify_in_app: true },
             RoomNotificationMode::Mute,
         ];
         for new_mode in new_modes {
@@ -1108,7 +1130,10 @@ mod tests {
         let settings = from_insert_rules(&client, vec![(RuleKind::Room, &room_id, false)]);
         assert_eq!(
             settings.get_user_defined_room_notification_mode(&room_id).await.unwrap(),
-            RoomNotificationMode::MentionsAndKeywordsOnly
+            RoomNotificationMode::MentionsAndKeywordsOnly {
+                #[cfg(feature = "unstable-msc3768")]
+                notify_in_app: false
+            }
         );
 
         // Unmute the room
@@ -1117,7 +1142,10 @@ mod tests {
         // The ruleset must not be modified
         assert_eq!(
             settings.get_user_defined_room_notification_mode(&room_id).await.unwrap(),
-            RoomNotificationMode::MentionsAndKeywordsOnly
+            RoomNotificationMode::MentionsAndKeywordsOnly {
+                #[cfg(feature = "unstable-msc3768")]
+                notify_in_app: false
+            }
         );
 
         let room_rules = get_custom_rules_for_room(&settings, &room_id).await;
@@ -1216,7 +1244,10 @@ mod tests {
             .set_default_room_notification_mode(
                 IsEncrypted::No,
                 IsOneToOne::No,
-                RoomNotificationMode::MentionsAndKeywordsOnly,
+                RoomNotificationMode::MentionsAndKeywordsOnly {
+                    #[cfg(feature = "unstable-msc3768")]
+                    notify_in_app: false,
+                },
             )
             .await?;
 
@@ -1237,7 +1268,10 @@ mod tests {
         // reflect the change.
         assert_matches!(
             settings.get_default_room_notification_mode(IsEncrypted::No, IsOneToOne::No).await,
-            RoomNotificationMode::MentionsAndKeywordsOnly
+            RoomNotificationMode::MentionsAndKeywordsOnly {
+                #[cfg(feature = "unstable-msc3768")]
+                notify_in_app: false
+            }
         );
 
         Ok(())
@@ -1274,7 +1308,10 @@ mod tests {
             .set_default_room_notification_mode(
                 IsEncrypted::No,
                 IsOneToOne::Yes,
-                RoomNotificationMode::MentionsAndKeywordsOnly,
+                RoomNotificationMode::MentionsAndKeywordsOnly {
+                    #[cfg(feature = "unstable-msc3768")]
+                    notify_in_app: false,
+                },
             )
             .await?;
 
@@ -1295,7 +1332,10 @@ mod tests {
         // reflect the change.
         assert_matches!(
             settings.get_default_room_notification_mode(IsEncrypted::No, IsOneToOne::Yes).await,
-            RoomNotificationMode::MentionsAndKeywordsOnly
+            RoomNotificationMode::MentionsAndKeywordsOnly {
+                #[cfg(feature = "unstable-msc3768")]
+                notify_in_app: false
+            }
         );
 
         Ok(())
@@ -1606,7 +1646,10 @@ mod tests {
             .set_default_room_notification_mode(
                 IsEncrypted::No,
                 IsOneToOne::No,
-                RoomNotificationMode::MentionsAndKeywordsOnly,
+                RoomNotificationMode::MentionsAndKeywordsOnly {
+                    #[cfg(feature = "unstable-msc3768")]
+                    notify_in_app: false,
+                },
             )
             .await?;
 
@@ -1614,7 +1657,10 @@ mod tests {
         // reflect the change.
         assert_matches!(
             settings.get_default_room_notification_mode(IsEncrypted::No, IsOneToOne::No).await,
-            RoomNotificationMode::MentionsAndKeywordsOnly
+            RoomNotificationMode::MentionsAndKeywordsOnly {
+                #[cfg(feature = "unstable-msc3768")]
+                notify_in_app: false
+            }
         );
         Ok(())
     }
