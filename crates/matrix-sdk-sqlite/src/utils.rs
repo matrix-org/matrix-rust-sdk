@@ -28,6 +28,7 @@ use ruma::{serde::Raw, time::SystemTime, OwnedEventId, OwnedRoomId};
 use rusqlite::{limits::Limit, OptionalExtension, Params, Row, Statement, Transaction};
 use serde::{de::DeserializeOwned, Serialize};
 use tracing::{error, warn};
+use zeroize::Zeroize;
 
 use crate::{
     error::{Error, Result},
@@ -457,31 +458,31 @@ pub(crate) trait SqliteKeyValueStoreAsyncConnExt: SqliteAsyncConnExt {
     /// Get the [`StoreCipher`] of the database or create it.
     async fn get_or_create_store_cipher(
         &self,
-        secret: Secret,
+        mut secret: Secret,
     ) -> Result<StoreCipher, OpenStoreError> {
         let encrypted_cipher = self.get_kv("cipher").await.map_err(OpenStoreError::LoadCipher)?;
 
         let cipher = if let Some(encrypted) = encrypted_cipher {
             match secret {
-                Secret::PassPhrase(passphrase) => StoreCipher::import(passphrase, &encrypted)?,
-                Secret::Key(key) => StoreCipher::import_with_key(key, &encrypted)?,
+                Secret::PassPhrase(ref passphrase) => StoreCipher::import(&passphrase, &encrypted)?,
+                Secret::Key(key) => StoreCipher::import_with_key(&key, &encrypted)?,
             }
         } else {
             let cipher = StoreCipher::new()?;
             let export = match secret {
-                Secret::PassPhrase(passphrase) => {
+                Secret::PassPhrase(ref passphrase) => {
                     if cfg!(not(test)) {
                         cipher.export(passphrase)
                     } else {
                         cipher._insecure_export_fast_for_testing(passphrase)
                     }
                 }
-                Secret::Key(key) => cipher.export_with_key(key),
+                Secret::Key(key) => cipher.export_with_key(&key),
             };
             self.set_kv("cipher", export?).await.map_err(OpenStoreError::SaveCipher)?;
             cipher
         };
-
+        secret.zeroize();
         Ok(cipher)
     }
 }
