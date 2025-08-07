@@ -464,7 +464,7 @@ impl BaseClient {
     /// let room = client.room_joined(&room_id, maybe_inviter).await?;
     ///
     /// assert_eq!(room.state(), RoomState::Joined);
-    /// # anyhow::Ok(()) };
+    /// # matrix_sdk_test::TestResult::Ok(()) };
     /// ```
     pub async fn room_joined(
         &self,
