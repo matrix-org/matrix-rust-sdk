@@ -29,7 +29,7 @@ unstable-msc4274 = ["matrix-sdk/unstable-msc4274"]
 as_variant.workspace = true
 async-rx.workspace = true
 async-stream.workspace = true
-async_cell = "0.2.2"
+async_cell = "0.2.3"
 bitflags.workspace = true
 chrono.workspace = true
 eyeball.workspace = true
@@ -58,7 +58,7 @@ tracing = { workspace = true, features = ["attributes"] }
 unicode-normalization.workspace = true
 uniffi = { workspace = true, optional = true }
 
-emojis = "0.6.4"
+emojis = "0.7.1"
 unicode-segmentation = "1.12.0"
 
 [dev-dependencies]
