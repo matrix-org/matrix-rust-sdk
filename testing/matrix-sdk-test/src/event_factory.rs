@@ -28,8 +28,8 @@ use ruma::{
     OwnedRoomId, OwnedTransactionId, OwnedUserId, OwnedVoipId, RoomId, RoomVersionId,
     TransactionId, UInt, UserId, VoipVersionId,
     events::{
-        AnyStateEvent, AnySyncMessageLikeEvent, AnySyncStateEvent, AnySyncTimelineEvent,
-        AnyTimelineEvent, BundledMessageLikeRelations, False, Mentions,
+        AnyMessageLikeEvent, AnyStateEvent, AnySyncMessageLikeEvent, AnySyncStateEvent,
+        AnySyncTimelineEvent, AnyTimelineEvent, BundledMessageLikeRelations, False, Mentions,
         RedactedMessageLikeEventContent, RedactedStateEventContent, StateEventContent,
         StaticEventContent,
         beacon::BeaconEventContent,
@@ -319,6 +319,10 @@ where
 
     pub fn into_raw_timeline(self) -> Raw<AnyTimelineEvent> {
         self.into_raw()
+    }
+
+    pub fn into_any_message_like_event(self) -> AnyMessageLikeEvent {
+        self.into_raw().deserialize().expect("expected message like event")
     }
 
     pub fn into_raw_sync(self) -> Raw<AnySyncTimelineEvent> {

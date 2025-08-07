@@ -160,7 +160,7 @@ pub mod sync {
         Ok(())
     }
 
-    /// Dispatch a [`RoomMemberEventContent>`] state event.
+    /// Dispatch a [`RoomMemberEventContent`] state event.
     async fn dispatch_room_member<U>(
         context: &mut Context,
         room_id: &RoomId,
