@@ -16,8 +16,12 @@
 //!
 //! See [`SpaceService`] for details.
 
+use eyeball::{SharedObservable, Subscriber};
+use futures_util::pin_mut;
 use matrix_sdk::Client;
 use ruma::OwnedRoomId;
+use tokio::task::JoinHandle;
+use tracing::error;
 
 pub use crate::spaces::{room::SpaceServiceRoom, room_list::SpaceServiceRoomList};
 
@@ -26,24 +30,68 @@ pub mod room_list;
 
 pub struct SpaceService {
     client: Client,
+
+    joined_spaces: SharedObservable<Vec<SpaceServiceRoom>>,
+
+    room_update_handle: JoinHandle<()>,
+}
+
+impl Drop for SpaceService {
+    fn drop(&mut self) {
+        self.room_update_handle.abort();
+    }
 }
 
 impl SpaceService {
     pub fn new(client: Client) -> Self {
-        Self { client }
+        let joined_spaces = SharedObservable::new(Vec::new());
+
+        joined_spaces.set(Self::joined_spaces_for(&client));
+
+        let client_clone = client.clone();
+        let joined_spaces_clone = joined_spaces.clone();
+        let all_room_updates_receiver = client.subscribe_to_all_room_updates();
+
+        let handle = tokio::spawn(async move {
+            pin_mut!(all_room_updates_receiver);
+
+            loop {
+                match all_room_updates_receiver.recv().await {
+                    Ok(_) => {
+                        let new_spaces = Self::joined_spaces_for(&client_clone);
+                        if new_spaces != joined_spaces_clone.get() {
+                            joined_spaces_clone.set(new_spaces);
+                        }
+                    }
+                    Err(err) => {
+                        error!("error when listening to room updates: {err}");
+                    }
+                }
+            }
+        });
+
+        Self { client, joined_spaces, room_update_handle: handle }
+    }
+
+    pub fn subscribe_to_joined_spaces(&self) -> Subscriber<Vec<SpaceServiceRoom>> {
+        self.joined_spaces.subscribe()
     }
 
     pub fn joined_spaces(&self) -> Vec<SpaceServiceRoom> {
-        self.client
+        self.joined_spaces.get()
+    }
+
+    pub fn space_room_list(&self, space_id: OwnedRoomId) -> SpaceServiceRoomList {
+        SpaceServiceRoomList::new(self.client.clone(), space_id)
+    }
+
+    fn joined_spaces_for(client: &Client) -> Vec<SpaceServiceRoom> {
+        client
             .joined_rooms()
             .into_iter()
             .filter_map(|room| if room.is_space() { Some(room) } else { None })
             .map(SpaceServiceRoom::new_from_known)
             .collect::<Vec<_>>()
-    }
-
-    pub fn space_room_list(&self, space_id: OwnedRoomId) -> SpaceServiceRoomList {
-        SpaceServiceRoomList::new(self.client.clone(), space_id)
     }
 }
 
@@ -51,11 +99,17 @@ impl SpaceService {
 mod tests {
     use assert_matches2::assert_let;
     use matrix_sdk::{room::ParentSpace, test_utils::mocks::MatrixMockServer};
-    use matrix_sdk_test::{JoinedRoomBuilder, async_test, event_factory::EventFactory};
+    use matrix_sdk_test::{
+        JoinedRoomBuilder, LeftRoomBuilder, async_test, event_factory::EventFactory,
+    };
     use ruma::{RoomVersionId, room_id};
     use tokio_stream::StreamExt;
 
     use super::*;
+
+    use futures_util::pin_mut;
+
+    use stream_assert::{assert_next_eq, assert_pending};
 
     #[async_test]
     async fn test_spaces_hierarchy() {
@@ -125,7 +179,7 @@ mod tests {
         let parent_space = client.get_room(parent_space_id).unwrap();
         assert!(parent_space.is_space());
 
-        // Then the parent space and the two child spaces are linked
+        // And the parent space and the two child spaces are linked
 
         let spaces: Vec<ParentSpace> = client
             .get_room(child_space_id_1)
@@ -152,5 +206,93 @@ mod tests {
 
         assert_let!(ParentSpace::Reciprocal(parent) = spaces.last().unwrap());
         assert_eq!(parent.room_id(), parent_space.room_id());
+    }
+
+    #[async_test]
+    async fn test_joined_spaces_updates() {
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+        let user_id = client.user_id().unwrap();
+        let factory = EventFactory::new();
+
+        server.mock_room_state_encryption().plain().mount().await;
+
+        let first_space_id = room_id!("!first_space:example.org");
+        let second_space_id = room_id!("!second_space:example.org");
+
+        // Join the first space
+        server
+            .sync_room(
+                &client,
+                JoinedRoomBuilder::new(first_space_id)
+                    .add_state_event(factory.create(user_id, RoomVersionId::V1).with_space_type()),
+            )
+            .await;
+
+        // Build the `SpaceService` and expect the room to show up with no updates
+        // pending
+
+        let space_service = SpaceService::new(client.clone());
+
+        let joined_spaces_subscriber = space_service.subscribe_to_joined_spaces();
+        pin_mut!(joined_spaces_subscriber);
+        assert_pending!(joined_spaces_subscriber);
+
+        assert_eq!(
+            space_service.joined_spaces(),
+            vec![SpaceServiceRoom::new_from_known(client.get_room(first_space_id).unwrap())]
+        );
+
+        // Join the second space
+
+        server
+            .sync_room(
+                &client,
+                JoinedRoomBuilder::new(second_space_id)
+                    .add_state_event(factory.create(user_id, RoomVersionId::V1).with_space_type()),
+            )
+            .await;
+
+        // And expect the list to update
+        assert_eq!(
+            space_service.joined_spaces(),
+            vec![
+                SpaceServiceRoom::new_from_known(client.get_room(first_space_id).unwrap()),
+                SpaceServiceRoom::new_from_known(client.get_room(second_space_id).unwrap())
+            ]
+        );
+
+        // The subscriber yields new results when a space is joined
+        assert_next_eq!(
+            joined_spaces_subscriber,
+            vec![
+                SpaceServiceRoom::new_from_known(client.get_room(first_space_id).unwrap()),
+                SpaceServiceRoom::new_from_known(client.get_room(second_space_id).unwrap())
+            ]
+        );
+
+        server.sync_room(&client, LeftRoomBuilder::new(second_space_id)).await;
+
+        // and when one is left
+        assert_next_eq!(
+            joined_spaces_subscriber,
+            vec![SpaceServiceRoom::new_from_known(client.get_room(first_space_id).unwrap())]
+        );
+
+        // but it doesn't when a non-space room gets joined
+        server
+            .sync_room(
+                &client,
+                JoinedRoomBuilder::new(room_id!("!room:example.org"))
+                    .add_state_event(factory.create(user_id, RoomVersionId::V1)),
+            )
+            .await;
+
+        // and the subscriber doesn't yield any updates
+        assert_pending!(joined_spaces_subscriber);
+        assert_eq!(
+            space_service.joined_spaces(),
+            vec![SpaceServiceRoom::new_from_known(client.get_room(first_space_id).unwrap())]
+        );
     }
 }

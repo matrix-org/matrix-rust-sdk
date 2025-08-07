@@ -1259,7 +1259,11 @@ impl Client {
         SyncServiceBuilder::new((*self.inner).clone(), self.utd_hook_manager.get().cloned())
     }
 
-    pub fn spaces_service(&self) -> Arc<SpaceService> {
+    pub async fn spaces_service(&self) -> Arc<SpaceService> {
+        // This method doesn't need to be async but if its not the FFI layer panics
+        // with "there is no no reactor running, must be called from the context
+        // of a Tokio 1.x runtime" error because the undelying constructor spawns
+        // an async task.
         let inner = UISpaceService::new((*self.inner).clone());
         Arc::new(SpaceService::new(inner))
     }
