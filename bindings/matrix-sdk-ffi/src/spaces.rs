@@ -57,9 +57,9 @@ impl SpaceService {
     pub async fn space_room_list(
         &self,
         space_id: String,
-    ) -> Result<SpaceServiceRoomList, ClientError> {
+    ) -> Result<Arc<SpaceServiceRoomList>, ClientError> {
         let space_id = RoomId::parse(space_id)?;
-        Ok(SpaceServiceRoomList::new(self.inner.space_room_list(space_id)))
+        Ok(Arc::new(SpaceServiceRoomList::new(self.inner.space_room_list(space_id))))
     }
 }
 
