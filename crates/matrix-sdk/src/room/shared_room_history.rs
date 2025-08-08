@@ -130,6 +130,15 @@ pub(crate) async fn maybe_accept_key_bundle(room: &Room, inviter: &UserId) -> Re
 
     tracing::Span::current().record("bundle_sender", bundle_info.sender_user.as_str());
 
+    // Ensure that we get a fresh list of devices for the inviter, in case we need
+    // to recalculate the `SenderData`.
+    let (req_id, request) =
+        olm_machine.query_keys_for_users(iter::once(bundle_info.sender_user.as_ref()));
+
+    if !request.device_keys.is_empty() {
+        room.client.keys_query(&req_id, request.device_keys).await?;
+    }
+
     let bundle_content = client
         .media()
         .get_media_content(
