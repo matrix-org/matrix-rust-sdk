@@ -17,8 +17,8 @@ use std::sync::Mutex;
 use eyeball::{SharedObservable, Subscriber};
 use futures_util::pin_mut;
 use matrix_sdk::{Client, Error, paginators::PaginationToken};
+use matrix_sdk_common::executor::JoinHandle;
 use ruma::{OwnedRoomId, api::client::space::get_hierarchy};
-use tokio::task::JoinHandle;
 use tracing::error;
 
 use crate::spaces::SpaceServiceRoom;

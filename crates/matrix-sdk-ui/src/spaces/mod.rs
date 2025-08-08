@@ -19,8 +19,8 @@
 use eyeball::{SharedObservable, Subscriber};
 use futures_util::pin_mut;
 use matrix_sdk::Client;
+use matrix_sdk_common::executor::JoinHandle;
 use ruma::OwnedRoomId;
-use tokio::task::JoinHandle;
 use tokio_stream::StreamExt;
 use tracing::error;
 
