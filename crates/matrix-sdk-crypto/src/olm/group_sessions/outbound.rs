@@ -491,35 +491,12 @@ impl OutboundGroupSession {
         }
 
         let payload = Payload { event_type, content, room_id: &self.room_id };
-        let payload_json =
-            serde_json::to_string(&payload).expect("payload serialization never fails");
 
         let relates_to = content
             .get_field::<serde_json::Value>("m.relates_to")
             .expect("serde_json::Value deserialization with valid JSON input never fails");
 
-        let ciphertext = self.encrypt_helper(payload_json).await;
-        let scheme: RoomEventEncryptionScheme = match self.settings.algorithm {
-            EventEncryptionAlgorithm::MegolmV1AesSha2 => MegolmV1AesSha2Content {
-                ciphertext,
-                sender_key: Some(self.account_identity_keys.curve25519),
-                session_id: self.session_id().to_owned(),
-                device_id: Some(self.device_id.clone()),
-            }
-            .into(),
-            #[cfg(feature = "experimental-algorithms")]
-            EventEncryptionAlgorithm::MegolmV2AesSha2 => {
-                MegolmV2AesSha2Content { ciphertext, session_id: self.session_id().to_owned() }
-                    .into()
-            }
-            _ => unreachable!(
-                "An outbound group session is always using one of the supported algorithms"
-            ),
-        };
-
-        let content = RoomEncryptedEventContent { scheme, relates_to, other: Default::default() };
-
-        Raw::new(&content).expect("m.room.encrypted event content can always be serialized")
+        self.encrypt_inner(&payload, relates_to).await
     }
 
     /// Encrypt a room state event for the given room.
@@ -557,10 +534,32 @@ impl OutboundGroupSession {
         }
 
         let payload = Payload { event_type, state_key, content, room_id: &self.room_id };
-        let payload_json =
-            serde_json::to_string(&payload).expect("payload serialization never fails");
+        self.encrypt_inner(&payload, None).await.cast_unchecked()
+    }
 
-        let ciphertext = self.encrypt_helper(payload_json).await;
+    /// Encrypt an arbitrary event for the given room.
+    ///
+    /// Beware that a room key needs to be shared before this method
+    /// can be called using the `share_room_key()` method.
+    ///
+    /// # Arguments
+    ///
+    /// * `payload` - The plaintext content of the event that should be
+    ///   encrypted in raw JSON form.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the content can't be serialized.
+    async fn encrypt_inner<T: Serialize>(
+        &self,
+        payload: &T,
+        relates_to: Option<serde_json::Value>,
+    ) -> Raw<RoomEncryptedEventContent> {
+        let ciphertext = self
+            .encrypt_helper(
+                serde_json::to_string(payload).expect("payload serialization never fails"),
+            )
+            .await;
         let scheme: RoomEventEncryptionScheme = match self.settings.algorithm {
             EventEncryptionAlgorithm::MegolmV1AesSha2 => MegolmV1AesSha2Content {
                 ciphertext,
@@ -578,13 +577,8 @@ impl OutboundGroupSession {
                 "An outbound group session is always using one of the supported algorithms"
             ),
         };
-
-        let content =
-            RoomEncryptedEventContent { scheme, relates_to: None, other: Default::default() };
-
-        Raw::new(&content)
-            .expect("m.room.encrypted event content can always be serialized")
-            .cast_unchecked()
+        let content = RoomEncryptedEventContent { scheme, relates_to, other: Default::default() };
+        Raw::new(&content).expect("m.room.encrypted event content can always be serialized")
     }
 
     fn elapsed(&self) -> bool {
