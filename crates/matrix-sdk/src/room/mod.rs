@@ -1924,48 +1924,28 @@ impl Room {
     /// ```
     #[instrument(skip_all)]
     pub async fn enable_encryption(&self) -> Result<()> {
-        use ruma::{
-            events::room::encryption::RoomEncryptionEventContent, EventEncryptionAlgorithm,
-        };
-        const SYNC_WAIT_TIME: Duration = Duration::from_secs(3);
-
-        if !self.latest_encryption_state().await?.is_encrypted() {
-            let content =
-                RoomEncryptionEventContent::new(EventEncryptionAlgorithm::MegolmV1AesSha2);
-            self.send_state_event(content).await?;
-
-            // TODO do we want to return an error here if we time out? This
-            // could be quite useful if someone wants to enable encryption and
-            // send a message right after it's enabled.
-            _ = timeout(self.client.inner.sync_beat.listen(), SYNC_WAIT_TIME).await;
-
-            // If after waiting for a sync, we don't have the encryption state we expect,
-            // assume the local encryption state is incorrect; this will cause
-            // the SDK to re-request it later for confirmation, instead of
-            // assuming it's sync'd and correct (and not encrypted).
-            let _sync_lock = self.client.base_client().sync_lock().lock().await;
-            if !self.inner.encryption_state().is_encrypted() {
-                debug!("still not marked as encrypted, marking encryption state as missing");
-
-                let mut room_info = self.clone_info();
-                room_info.mark_encryption_state_missing();
-                let mut changes = StateChanges::default();
-                changes.add_room(room_info.clone());
-
-                self.client.state_store().save_changes(&changes).await?;
-                self.set_room_info(room_info, RoomInfoNotableUpdateReasons::empty());
-            } else {
-                debug!("room successfully marked as encrypted");
-            }
-        }
-
-        Ok(())
+        self.enable_encryption_inner(false).await
     }
 
     /// Enable End-to-end encryption in this room, with experimental encrypted
     /// state events.
+    ///
+    /// This method will be a noop if encryption is already enabled, otherwise
+    /// sends a `m.room.encryption` state event to the room. This might fail if
+    /// you don't have the appropriate power level to enable end-to-end
+    /// encryption.
+    ///
+    /// A sync needs to be received to update the local room state. This method
+    /// will wait for a sync to be received, this might time out if no
+    /// sync loop is running or if the server is slow.
     #[instrument(skip_all)]
     pub async fn enable_encryption_with_state(&self) -> Result<()> {
+        self.enable_encryption_inner(true).await
+    }
+
+    /// Helper function for enabling encryption, optionally with support for
+    /// encrypted state events.
+    async fn enable_encryption_inner(&self, state_events: bool) -> Result<()> {
         use ruma::{
             events::room::encryption::RoomEncryptionEventContent, EventEncryptionAlgorithm,
         };
@@ -1975,6 +1955,9 @@ impl Room {
             let content =
                 RoomEncryptionEventContent::new(EventEncryptionAlgorithm::MegolmV1AesSha2)
                     .with_encrypted_state();
+
+            let content = if state_events { content.with_encrypted_state() } else { content };
+
             self.send_state_event(content).await?;
 
             // TODO do we want to return an error here if we time out? This
