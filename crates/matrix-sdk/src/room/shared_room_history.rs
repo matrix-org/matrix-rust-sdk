@@ -124,7 +124,7 @@ pub(crate) async fn maybe_accept_key_bundle(room: &Room, inviter: &UserId) -> Re
         return Ok(());
     };
 
-    let Some(StoredRoomKeyBundleData { sender_user, sender_data, bundle_data }) =
+    let Some(StoredRoomKeyBundleData { sender_user, sender_data, bundle_data, .. }) =
         olm_machine.store().get_received_room_key_bundle_data(room.room_id(), inviter).await?
     else {
         // No bundle received (yet).

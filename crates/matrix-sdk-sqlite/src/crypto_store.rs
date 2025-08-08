@@ -167,7 +167,7 @@ impl SqliteCryptoStore {
     }
 }
 
-const DATABASE_VERSION: u8 = 10;
+const DATABASE_VERSION: u8 = 11;
 
 /// key for the dehydrated device pickle key in the key/value table.
 const DEHYDRATED_DEVICE_PICKLE_KEY: &str = "dehydrated_device_pickle_key";
@@ -269,6 +269,16 @@ async fn run_migrations(conn: &SqliteAsyncConn, version: u8) -> Result<()> {
                 "../migrations/crypto_store/010_received_room_key_bundles.sql"
             ))?;
             txn.set_db_version(10)
+        })
+        .await?;
+    }
+
+    if version < 11 {
+        conn.with_transaction(|txn| {
+            txn.execute_batch(include_str!(
+                "../migrations/crypto_store/011_received_room_key_bundles_with_curve_key.sql"
+            ))?;
+            txn.set_db_version(11)
         })
         .await?;
     }
