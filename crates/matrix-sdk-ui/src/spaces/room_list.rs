@@ -17,8 +17,8 @@ use std::sync::Mutex;
 use eyeball::{SharedObservable, Subscriber};
 use futures_util::pin_mut;
 use matrix_sdk::{Client, Error, paginators::PaginationToken};
+use matrix_sdk_common::executor::{JoinHandle, spawn};
 use ruma::{OwnedRoomId, api::client::space::get_hierarchy};
-use tokio::task::JoinHandle;
 use tracing::error;
 
 use crate::spaces::SpaceServiceRoom;
@@ -56,7 +56,7 @@ impl SpaceServiceRoomList {
         let rooms_clone = rooms.clone();
         let all_room_updates_receiver = client.subscribe_to_all_room_updates();
 
-        let handle = tokio::spawn(async move {
+        let handle = spawn(async move {
             pin_mut!(all_room_updates_receiver);
 
             loop {

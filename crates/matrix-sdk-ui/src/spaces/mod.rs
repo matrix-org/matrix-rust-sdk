@@ -19,8 +19,8 @@
 use eyeball::{SharedObservable, Subscriber};
 use futures_util::pin_mut;
 use matrix_sdk::Client;
+use matrix_sdk_common::executor::{JoinHandle, spawn};
 use ruma::OwnedRoomId;
-use tokio::task::JoinHandle;
 use tokio_stream::StreamExt;
 use tracing::error;
 
@@ -53,7 +53,7 @@ impl SpaceService {
         let joined_spaces_clone = joined_spaces.clone();
         let all_room_updates_receiver = client.subscribe_to_all_room_updates();
 
-        let handle = tokio::spawn(async move {
+        let handle = spawn(async move {
             pin_mut!(all_room_updates_receiver);
 
             loop {
