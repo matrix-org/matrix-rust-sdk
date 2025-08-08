@@ -59,6 +59,7 @@ mod favourite;
 mod fuzzy_match_room_name;
 mod invite;
 mod joined;
+mod low_priority;
 mod non_left;
 mod non_space;
 mod none;
@@ -74,6 +75,7 @@ pub use favourite::new_filter as new_filter_favourite;
 pub use fuzzy_match_room_name::new_filter as new_filter_fuzzy_match_room_name;
 pub use invite::new_filter as new_filter_invite;
 pub use joined::new_filter as new_filter_joined;
+pub use low_priority::new_filter as new_filter_low_priority;
 #[cfg(test)]
 use matrix_sdk::Client;
 use matrix_sdk::Room;
