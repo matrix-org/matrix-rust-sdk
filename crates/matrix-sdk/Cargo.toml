@@ -92,9 +92,9 @@ matrix-sdk-base.workspace = true
 matrix-sdk-common.workspace = true
 matrix-sdk-ffi-macros = { workspace = true, optional = true }
 matrix-sdk-indexeddb = { workspace = true, optional = true }
+matrix-sdk-search = { workspace = true, optional = true }
 matrix-sdk-sqlite = { workspace = true, optional = true }
 matrix-sdk-test = { workspace = true, optional = true }
-matrix-sdk-search = { workspace = true, optional = true }
 mime.workspace = true
 mime2ext = "0.1.53"
 oauth2.workspace = true

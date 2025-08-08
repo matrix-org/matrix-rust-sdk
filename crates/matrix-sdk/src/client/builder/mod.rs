@@ -27,12 +27,8 @@ use homeserver_config::*;
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk_base::crypto::DecryptionSettings;
 use matrix_sdk_base::{store::StoreConfig, BaseClient, ThreadingSupport};
-#[cfg(feature = "experimental-search")]
-use matrix_sdk_search::index::RoomIndex;
 #[cfg(feature = "sqlite")]
 use matrix_sdk_sqlite::SqliteStoreConfig;
-#[cfg(feature = "experimental-search")]
-use ruma::OwnedRoomId;
 use ruma::{
     api::{error::FromHttpResponseError, MatrixVersion, SupportedVersions},
     OwnedServerName, ServerName,
@@ -42,6 +38,10 @@ use tokio::sync::{broadcast, Mutex, OnceCell};
 use tracing::{debug, field::debug, instrument, Span};
 
 use super::{Client, ClientInner};
+#[cfg(feature = "experimental-search")]
+use crate::client::search::SearchIndex;
+#[cfg(feature = "experimental-search")]
+use crate::client::search::SearchIndexStoreKind;
 #[cfg(feature = "e2e-encryption")]
 use crate::crypto::{CollectStrategy, TrustRequirement};
 #[cfg(feature = "e2e-encryption")]
@@ -123,7 +123,7 @@ pub struct ClientBuilder {
     cross_process_store_locks_holder_name: String,
     threading_support: ThreadingSupport,
     #[cfg(feature = "experimental-search")]
-    index_base_dir: IndexBaseDir,
+    search_index_store_kind: SearchIndexStoreKind,
 }
 
 impl ClientBuilder {
@@ -156,7 +156,7 @@ impl ClientBuilder {
                 Self::DEFAULT_CROSS_PROCESS_STORE_LOCKS_HOLDER_NAME.to_owned(),
             threading_support: ThreadingSupport::Disabled,
             #[cfg(feature = "experimental-search")]
-            index_base_dir: IndexBaseDir::Ram,
+            search_index_store_kind: SearchIndexStoreKind::InMemory,
         }
     }
 
@@ -503,8 +503,8 @@ impl ClientBuilder {
 
     /// The base directory in which each room's index directory will be stored.
     #[cfg(feature = "experimental-search")]
-    pub fn index_base_directory(mut self, path: IndexBaseDir) -> Self {
-        self.index_base_dir = path;
+    pub fn search_index_store(mut self, kind: SearchIndexStoreKind) -> Self {
+        self.search_index_store_kind = kind;
         self
     }
 
@@ -610,8 +610,8 @@ impl ClientBuilder {
         let latest_events = OnceCell::new();
 
         #[cfg(feature = "experimental-search")]
-        let room_indexes: Arc<Mutex<HashMap<OwnedRoomId, RoomIndex>>> =
-            Arc::new(Mutex::new(HashMap::new()));
+        let search_index =
+            SearchIndex::new(Arc::new(Mutex::new(HashMap::new())), self.search_index_store_kind);
 
         let inner = ClientInner::new(
             auth_ctx,
@@ -631,9 +631,7 @@ impl ClientBuilder {
             self.enable_share_history_on_invite,
             self.cross_process_store_locks_holder_name,
             #[cfg(feature = "experimental-search")]
-            room_indexes,
-            #[cfg(feature = "experimental-search")]
-            self.index_base_dir,
+            search_index,
         )
         .await;
 
@@ -742,14 +740,6 @@ async fn build_indexeddb_store_config(
     _event_cache_store_lock_holder_name: &str,
 ) -> Result<StoreConfig, ClientBuildError> {
     panic!("the IndexedDB is only available on the 'wasm32' arch")
-}
-
-#[cfg(feature = "experimental-search")]
-#[allow(dead_code)]
-#[derive(Clone, Debug)]
-pub enum IndexBaseDir {
-    Directory(PathBuf),
-    Ram,
 }
 
 #[derive(Clone, Debug)]

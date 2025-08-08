@@ -14,8 +14,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#[cfg(feature = "experimental-search")]
-use std::collections::HashMap;
 use std::{
     collections::{btree_map, BTreeMap, BTreeSet},
     fmt::{self, Debug},
@@ -40,12 +38,6 @@ use matrix_sdk_base::{
     StateStoreDataKey, StateStoreDataValue, SyncOutsideWasm, ThreadingSupport,
 };
 use matrix_sdk_common::ttl_cache::TtlCache;
-#[cfg(feature = "experimental-search")]
-use matrix_sdk_search::error::IndexError;
-#[cfg(feature = "experimental-search")]
-use matrix_sdk_search::index::RoomIndex;
-#[cfg(feature = "experimental-search")]
-use ruma::events::AnyMessageLikeEvent;
 #[cfg(feature = "e2e-encryption")]
 use ruma::events::{room::encryption::RoomEncryptionEventContent, InitialStateEvent};
 use ruma::{
@@ -80,15 +72,11 @@ use ruma::{
     RoomAliasId, RoomId, RoomOrAliasId, ServerName, UInt, UserId,
 };
 use serde::de::DeserializeOwned;
-#[cfg(feature = "experimental-search")]
-use tokio::sync::MutexGuard;
 use tokio::sync::{broadcast, Mutex, OnceCell, RwLock, RwLockReadGuard};
 use tracing::{debug, error, instrument, trace, warn, Instrument, Span};
 use url::Url;
 
 use self::futures::SendRequest;
-#[cfg(feature = "experimental-search")]
-use crate::client::builder::IndexBaseDir;
 use crate::{
     authentication::{
         matrix::MatrixAuth, oauth::OAuth, AuthCtx, AuthData, ReloadSessionCallback,
@@ -123,8 +111,12 @@ use crate::{
 mod builder;
 pub(crate) mod caches;
 pub(crate) mod futures;
+#[cfg(feature = "experimental-search")]
+pub(crate) mod search;
 
 pub use self::builder::{sanitize_server_name, ClientBuildError, ClientBuilder};
+#[cfg(feature = "experimental-search")]
+use crate::client::search::SearchIndex;
 
 #[cfg(not(target_family = "wasm"))]
 type NotificationHandlerFut = Pin<Box<dyn Future<Output = ()> + Send>>;
@@ -363,13 +355,9 @@ pub(crate) struct ClientInner {
     /// [`LatestEvent`]: crate::latest_event::LatestEvent
     latest_events: OnceCell<LatestEvents>,
 
-    /// HashMap that links each joined room to its RoomIndex
     #[cfg(feature = "experimental-search")]
-    room_indexes: Arc<Mutex<HashMap<OwnedRoomId, RoomIndex>>>,
-
-    /// Base directory that stores the directories for each RoomIndex
-    #[cfg(feature = "experimental-search")]
-    index_base_dir: IndexBaseDir,
+    /// Handler for [`RoomIndex`]'s of each room
+    search_index: SearchIndex,
 }
 
 impl ClientInner {
@@ -394,10 +382,7 @@ impl ClientInner {
         #[cfg(feature = "e2e-encryption")] encryption_settings: EncryptionSettings,
         #[cfg(feature = "e2e-encryption")] enable_share_history_on_invite: bool,
         cross_process_store_locks_holder_name: String,
-        #[cfg(feature = "experimental-search")] room_indexes: Arc<
-            Mutex<HashMap<OwnedRoomId, RoomIndex>>,
-        >,
-        #[cfg(feature = "experimental-search")] index_base_dir: IndexBaseDir,
+        #[cfg(feature = "experimental-search")] search_index_handler: SearchIndex,
     ) -> Arc<Self> {
         let caches = ClientCaches {
             server_info: server_info.into(),
@@ -434,9 +419,7 @@ impl ClientInner {
             enable_share_history_on_invite,
             server_max_upload_size: Mutex::new(OnceCell::new()),
             #[cfg(feature = "experimental-search")]
-            room_indexes,
-            #[cfg(feature = "experimental-search")]
-            index_base_dir,
+            search_index: search_index_handler,
         };
 
         #[allow(clippy::let_and_return)]
@@ -2742,9 +2725,7 @@ impl Client {
                 self.inner.enable_share_history_on_invite,
                 cross_process_store_locks_holder_name,
                 #[cfg(feature = "experimental-search")]
-                self.inner.room_indexes.clone(),
-                #[cfg(feature = "experimental-search")]
-                self.inner.index_base_dir.clone(),
+                self.inner.search_index.clone(),
             )
             .await,
         };
@@ -2842,83 +2823,9 @@ impl Client {
         &self.base_client().decryption_settings
     }
 
-    /// Add [`AnyMessageLikeEvent`] to [`RoomIndex`] of given [`RoomId`]
     #[cfg(feature = "experimental-search")]
-    pub async fn index_event(
-        &self,
-        event: AnyMessageLikeEvent,
-        room_id: &RoomId,
-    ) -> Result<(), IndexError> {
-        let mut hash_map = self.inner.room_indexes.lock().await;
-
-        let result = if let Some(index) = hash_map.get_mut(room_id) {
-            index.add_event(event)
-        } else {
-            self.add_index_impl(room_id, &mut hash_map)?;
-            let index = hash_map.get_mut(room_id).expect("key just added");
-            index.add_event(event)
-        };
-
-        match result {
-            Ok(_) => {}
-            Err(IndexError::CannotIndexRedactedMessage)
-            | Err(IndexError::EmptyMessage)
-            | Err(IndexError::MessageTypeNotSupported) => {
-                debug!("failed to parse event for indexing: {result:?}")
-            }
-            Err(IndexError::TantivyError(err)) => {
-                error!("failed to add/commit event to index: {err:?}")
-            }
-            Err(_) => error!("unexpected error during indexing: {result:?}"),
-        };
-        Ok(())
-    }
-
-    /// Add [`RoomIndex`] for given [`RoomId`] to room_indexes
-    #[cfg(feature = "experimental-search")]
-    pub async fn add_index(&self, room_id: &RoomId) -> Result<(), IndexError> {
-        let mut hash_map = self.inner.room_indexes.lock().await;
-        self.add_index_impl(room_id, &mut hash_map)?;
-        Ok(())
-    }
-
-    #[cfg(feature = "experimental-search")]
-    fn add_index_impl(
-        &self,
-        room_id: &RoomId,
-        hash_map: &mut MutexGuard<'_, HashMap<OwnedRoomId, RoomIndex>>,
-    ) -> Result<(), IndexError> {
-        if !hash_map.contains_key(room_id) {
-            let index = match &self.inner.index_base_dir {
-                IndexBaseDir::Directory(path) => RoomIndex::open_or_create(path, room_id)?,
-                IndexBaseDir::Ram => RoomIndex::new_in_ram(room_id)?,
-            };
-            hash_map.insert(room_id.to_owned(), index);
-        }
-        Ok(())
-    }
-
-    /// Search a [`Room`]'s index for the query and return at most
-    /// max_number_of_results results.
-    #[cfg(feature = "experimental-search")]
-    pub async fn search_index(
-        &self,
-        query: &str,
-        max_number_of_results: usize,
-        room_id: &RoomId,
-    ) -> Option<Vec<OwnedEventId>> {
-        let hash_map = self.inner.room_indexes.lock().await;
-        if let Some(index) = hash_map.get(room_id) {
-            index
-                .search(query, max_number_of_results)
-                .inspect_err(|err| {
-                    error!("error occurred while searching index: {err:?}");
-                })
-                .ok()
-        } else {
-            warn!("Tried to search in a room with no index");
-            None
-        }
+    pub(crate) fn search_index(&self) -> &SearchIndex {
+        &self.inner.search_index
     }
 
     /// Whether the client is configured to take thread subscriptions (MSC4306
