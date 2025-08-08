@@ -3695,6 +3695,18 @@ impl Room {
         self.client.search_index(query, max_number_of_results, self.room_id()).await
     }
 
+    /// Commit a [`Room`]'s [`RoomIndex`]
+    #[cfg(feature = "experimental-search")]
+    pub async fn commit(&self) {
+        self.client.commit(self.room_id()).await;
+    }
+
+    /// Commit a [`Room`]'s [`RoomIndex`] and reload searchers
+    #[cfg(feature = "experimental-search")]
+    pub async fn commit_and_reload(&self) {
+        self.client.commit_and_reload(self.room_id()).await;
+    }
+
     /// Subscribe to a given thread in this room.
     ///
     /// This will subscribe the user to the thread, so that they will receive

@@ -740,6 +740,40 @@ async fn test_room_message_send() {
     assert_eq!(event_id!("$h29iv0s8:example.com"), response.event_id)
 }
 
+#[cfg(feature = "experimental-search")]
+#[async_test]
+async fn test_sending_message_indexes_message() {
+    let mock_server = MatrixMockServer::new().await;
+    let client = mock_server.client_builder().build().await;
+
+    client.event_cache().subscribe().unwrap();
+
+    let room_id = room_id!("!room_id:localhost");
+    let event_id = event_id!("$event_id:localost");
+    let user_id = user_id!("@user_id:localost");
+
+    let event_factory = EventFactory::new();
+    mock_server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id).add_timeline_bulk(vec![event_factory
+                .text_msg("this is a sentence")
+                .event_id(event_id)
+                .sender(user_id)
+                .into_raw_sync()]),
+        )
+        .await;
+
+    let room = client.get_room(room_id).unwrap();
+
+    room.commit_and_reload().await;
+
+    let response = room.search_index("this", 5).await.expect("search should have 1 result");
+
+    assert!(!response.is_empty(), "no results found {response:?}");
+    assert_eq!(response[0], event_id, "event id doesn't match: {response:?}");
+}
+
 #[async_test]
 async fn test_room_redact() {
     let server = MatrixMockServer::new().await;

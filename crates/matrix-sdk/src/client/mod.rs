@@ -2921,6 +2921,28 @@ impl Client {
         }
     }
 
+    /// Commit a [`Room`]'s [`RoomIndex`]
+    #[cfg(feature = "experimental-search")]
+    pub async fn commit(&self, room_id: &RoomId) {
+        let mut hash_map = self.inner.room_indexes.lock().await;
+        if let Some(index) = hash_map.get_mut(room_id) {
+            let _ = index.commit().inspect_err(|err| {
+                error!("error occured while committing: {err:?}");
+            });
+        }
+    }
+
+    /// Commit a [`Room`]'s [`RoomIndex`] and reload searchers
+    #[cfg(feature = "experimental-search")]
+    pub async fn commit_and_reload(&self, room_id: &RoomId) {
+        let mut hash_map = self.inner.room_indexes.lock().await;
+        if let Some(index) = hash_map.get_mut(room_id) {
+            let _ = index.commit_and_reload().inspect_err(|err| {
+                error!("error occured while committing: {err:?}");
+            });
+        }
+    }
+
     /// Whether the client is configured to take thread subscriptions (MSC4306
     /// and MSC4308) into account.
     ///
