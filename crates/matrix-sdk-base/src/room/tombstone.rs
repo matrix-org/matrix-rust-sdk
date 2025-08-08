@@ -206,7 +206,7 @@ mod tests {
             .add_joined_room(
                 JoinedRoomBuilder::new(room_id).add_timeline_event(
                     EventFactory::new()
-                        .create(sender, RoomVersionId::V11)
+                        .create(sender, RoomVersionId::V11, None)
                         // No `predecessor` field!
                         .no_predecessor()
                         .into_raw_sync(),
@@ -233,7 +233,7 @@ mod tests {
             .add_joined_room(
                 JoinedRoomBuilder::new(room_id).add_timeline_event(
                     EventFactory::new()
-                        .create(sender, RoomVersionId::V11)
+                        .create(sender, RoomVersionId::V11, None)
                         .predecessor(predecessor_room_id)
                         .into_raw_sync(),
                 ),

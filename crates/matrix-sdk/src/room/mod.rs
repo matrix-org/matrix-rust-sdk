@@ -4710,7 +4710,8 @@ mod tests {
         let mut user_map = BTreeMap::from([(sender_id.into(), 50.into())]);
 
         // Computing the power levels will need these 3 state events:
-        let room_create_event = f.create(sender_id, RoomVersionId::V1).state_key("").into_raw();
+        let room_create_event =
+            f.create(sender_id, RoomVersionId::V1, None).state_key("").into_raw();
         let power_levels_event = f.power_levels(&mut user_map).state_key("").into_raw();
         let room_member_event = f.member(sender_id).into_raw();
 
