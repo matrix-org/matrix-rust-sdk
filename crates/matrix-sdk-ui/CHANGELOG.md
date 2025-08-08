@@ -7,6 +7,12 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased] - ReleaseDate
 
 ### Features
+- Add `new_filter_low_priority` and `new_filter_non_low_priority` filters to the room list filtering system,
+  allowing clients to filter rooms based on their low priority status. The filters use the `Room::is_low_priority()` 
+  method which checks for the `m.lowpriority` room tag.
+  ([#5508](https://github.com/matrix-org/matrix-rust-sdk/pull/5508))
+- [**breaking**] Refactor the `non_space` filter into a `space` filter, favouring its use in combination with the
+  `not` filter. ([#5508](https://github.com/matrix-org/matrix-rust-sdk/pull/5508))
 - [**breaking**] Space rooms are now being retrieved through sliding sync and the newly introduced 
   [`room_list_service::filters::new_filter_non_space`] filter should be used to exclude them from any room list.
   ([5479](https://github.com/matrix-org/matrix-rust-sdk/pull/5479))

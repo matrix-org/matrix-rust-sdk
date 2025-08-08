@@ -8,6 +8,10 @@ All notable changes to this project will be documented in this file.
 
 ### Features:
 
+- Add `LowPriority` and `NonLowPriority` variants to `RoomListEntriesDynamicFilterKind` for filtering 
+  rooms based on their low priority status. These filters allow clients to show only low priority rooms 
+  or exclude low priority rooms from the room list.
+  ([#5508](https://github.com/matrix-org/matrix-rust-sdk/pull/5508))
 - Add `room_version` and `privileged_creators_role` to `RoomInfo` ([#5449](https://github.com/matrix-org/matrix-rust-sdk/pull/5449)).
 - The [`unstable-hydra`] feature has been enabled, which enables room v12 changes in the SDK.
   ([#5450](https://github.com/matrix-org/matrix-rust-sdk/pull/5450)).
