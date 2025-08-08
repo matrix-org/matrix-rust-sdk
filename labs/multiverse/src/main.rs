@@ -21,6 +21,7 @@ use imbl::Vector;
 use layout::Flex;
 use matrix_sdk::{
     AuthSession, Client, SqliteCryptoStore, SqliteEventCacheStore, SqliteStateStore,
+    ThreadingSupport,
     authentication::matrix::MatrixSession,
     config::StoreConfig,
     encryption::{BackupDownloadStrategy, EncryptionSettings},
@@ -554,7 +555,8 @@ async fn configure_client(cli: Cli) -> Result<Client> {
             backup_download_strategy: BackupDownloadStrategy::AfterDecryptionFailure,
             auto_enable_backups: true,
         })
-        .with_enable_share_history_on_invite(true);
+        .with_enable_share_history_on_invite(true)
+        .with_threading_support(ThreadingSupport::Enabled { with_subscriptions: true });
 
     if let Some(proxy_url) = proxy {
         client_builder = client_builder.proxy(proxy_url).disable_ssl_verification();
