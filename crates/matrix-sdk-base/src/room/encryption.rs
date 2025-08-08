@@ -36,6 +36,10 @@ pub enum EncryptionState {
     /// The room is encrypted.
     Encrypted,
 
+    /// The room is encrypted, additionally requiring state events to be
+    /// encrypted.
+    StateEncrypted,
+
     /// The room is not encrypted.
     NotEncrypted,
 
@@ -45,9 +49,16 @@ pub enum EncryptionState {
 }
 
 impl EncryptionState {
-    /// Check whether `EncryptionState` is [`Encrypted`][Self::Encrypted].
+    /// Check whether `EncryptionState` is [`Encrypted`][Self::Encrypted] or
+    /// [`StateEncrypted`][Self::StateEncrypted].
     pub fn is_encrypted(&self) -> bool {
-        matches!(self, Self::Encrypted)
+        matches!(self, Self::Encrypted | Self::StateEncrypted)
+    }
+
+    /// Check whether `EncryptionState` is
+    /// [`StateEncrypted`][Self::StateEncrypted].
+    pub fn is_state_encrypted(&self) -> bool {
+        matches!(self, Self::StateEncrypted)
     }
 
     /// Check whether `EncryptionState` is [`Unknown`][Self::Unknown].

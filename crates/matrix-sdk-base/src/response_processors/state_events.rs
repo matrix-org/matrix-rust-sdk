@@ -26,6 +26,8 @@ use serde::Deserialize;
 use tracing::warn;
 
 use super::Context;
+#[cfg(feature = "e2e-encryption")]
+use super::e2ee;
 use crate::store::BaseStateStore;
 
 /// Collect [`AnySyncStateEvent`].
@@ -89,6 +91,7 @@ pub mod sync {
         ambiguity_cache: &mut AmbiguityCache,
         new_users: &mut U,
         state_store: &BaseStateStore,
+        #[cfg(feature = "e2e-encryption")] e2ee: super::e2ee::E2EE<'_>,
     ) -> StoreResult<()>
     where
         U: NewUsers,
@@ -140,6 +143,80 @@ pub mod sync {
                         // Do not add the event to `context.state_changes.state`.
                         continue;
                     }
+                }
+
+                #[cfg(feature = "e2e-encryption")]
+                AnySyncStateEvent::RoomEncrypted(outer) => {
+                    use matrix_sdk_crypto::RoomEventDecryptionResult;
+                    use tracing::{debug, warn};
+
+                    debug!(event_id = ?outer.event_id(), "Received encrypted state event, attempting decryption...");
+
+                    let Some(olm_machine) = e2ee.olm_machine else {
+                        panic!();
+                    };
+
+                    let decrypted_event = olm_machine
+                        .try_decrypt_room_event(
+                            raw_event.cast_ref_unchecked(),
+                            &room_info.room_id,
+                            e2ee.decryption_settings,
+                        )
+                        .await
+                        .expect("OlmMachine was not started");
+
+                    // Skip state events that failed to decrypt.
+                    let RoomEventDecryptionResult::Decrypted(room_event) = decrypted_event else {
+                        warn!(event_id = ?outer.event_id(), "Failed to decrypt state event");
+                        continue;
+                    };
+
+                    // Unpack event type and state key from outer, or discard if this fails.
+                    let Some((outer_event_type, outer_state_key)) =
+                        outer.state_key().split_once(":")
+                    else {
+                        warn!(
+                            event_id = outer.event_id().as_str(),
+                            state_key = event.state_key(),
+                            "Malformed state key"
+                        );
+                        continue;
+                    };
+
+                    let inner =
+                        match room_event.event.deserialize_as_unchecked::<AnySyncStateEvent>() {
+                            Ok(inner) => inner,
+                            Err(e) => {
+                                warn!("Malformed event body: {e}");
+                                continue;
+                            }
+                        };
+
+                    // Check event types match, discard if not.
+                    let inner_event_type = inner.event_type().to_string();
+                    if outer_event_type != inner_event_type {
+                        warn!(
+                            event_id = outer.event_id().as_str(),
+                            expected = outer_event_type,
+                            found = inner_event_type,
+                            "Mismatched event type"
+                        );
+                        continue;
+                    }
+
+                    // Check state keys match, discard if not.
+                    if outer_state_key != inner.state_key() {
+                        warn!(
+                            event_id = outer.event_id().as_str(),
+                            expected = outer_state_key,
+                            found = inner.state_key(),
+                            "Mismatched state key"
+                        );
+                        continue;
+                    }
+
+                    debug!(event_id = ?outer.event_id(), "Decrypted state event successfully.");
+                    room_info.handle_state_event(&inner);
                 }
 
                 _ => {

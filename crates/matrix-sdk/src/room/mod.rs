@@ -60,8 +60,8 @@ use reply::Reply;
 use ruma::events::room::message::GalleryItemType;
 #[cfg(feature = "e2e-encryption")]
 use ruma::events::{
-    room::encrypted::OriginalSyncRoomEncryptedEvent, AnySyncMessageLikeEvent, AnySyncTimelineEvent,
-    SyncMessageLikeEvent,
+    room::encrypted::OriginalSyncRoomEncryptedEvent, AnySyncMessageLikeEvent, AnySyncStateEvent,
+    AnySyncTimelineEvent, SyncMessageLikeEvent,
 };
 use ruma::{
     api::client::{
@@ -153,6 +153,7 @@ use crate::{
     media::{MediaFormat, MediaRequestParameters},
     notification_settings::{IsEncrypted, IsOneToOne, RoomNotificationMode},
     room::{
+        futures::{SendStateEvent, SendStateEventRaw},
         knock_requests::{KnockRequest, KnockRequestMemberInfo},
         power_levels::{RoomPowerLevelChanges, RoomPowerLevelsExt},
         privacy_settings::RoomPrivacySettings,
@@ -636,11 +637,18 @@ impl Room {
         event: Raw<AnyTimelineEvent>,
         push_ctx: Option<&PushContext>,
     ) -> TimelineEvent {
+        // If we have either an encrypted message-like or state event, try to decrypt.
         #[cfg(feature = "e2e-encryption")]
-        if let Ok(AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::RoomEncrypted(
-            SyncMessageLikeEvent::Original(_),
-        ))) = event.deserialize_as::<AnySyncTimelineEvent>()
-        {
+        if matches!(
+            event.deserialize_as::<AnySyncTimelineEvent>(),
+            Ok(AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::RoomEncrypted(
+                SyncMessageLikeEvent::Original(_),
+            )) | AnySyncTimelineEvent::State(AnySyncStateEvent::RoomEncrypted(
+                SyncStateEvent::Original(_)
+            )))
+        ) {
+            // Cast safety: The state key is not used during decryption, and the types
+            // overlap sufficiently.
             if let Ok(event) = self.decrypt_event(event.cast_ref_unchecked(), push_ctx).await {
                 return event;
             }
@@ -1916,6 +1924,28 @@ impl Room {
     /// ```
     #[instrument(skip_all)]
     pub async fn enable_encryption(&self) -> Result<()> {
+        self.enable_encryption_inner(false).await
+    }
+
+    /// Enable End-to-end encryption in this room, with experimental encrypted
+    /// state events.
+    ///
+    /// This method will be a noop if encryption is already enabled, otherwise
+    /// sends a `m.room.encryption` state event to the room. This might fail if
+    /// you don't have the appropriate power level to enable end-to-end
+    /// encryption.
+    ///
+    /// A sync needs to be received to update the local room state. This method
+    /// will wait for a sync to be received, this might time out if no
+    /// sync loop is running or if the server is slow.
+    #[instrument(skip_all)]
+    pub async fn enable_encryption_with_state(&self) -> Result<()> {
+        self.enable_encryption_inner(true).await
+    }
+
+    /// Helper function for enabling encryption, optionally with support for
+    /// encrypted state events.
+    async fn enable_encryption_inner(&self, state_events: bool) -> Result<()> {
         use ruma::{
             events::room::encryption::RoomEncryptionEventContent, EventEncryptionAlgorithm,
         };
@@ -1923,7 +1953,11 @@ impl Room {
 
         if !self.latest_encryption_state().await?.is_encrypted() {
             let content =
-                RoomEncryptionEventContent::new(EventEncryptionAlgorithm::MegolmV1AesSha2);
+                RoomEncryptionEventContent::new(EventEncryptionAlgorithm::MegolmV1AesSha2)
+                    .with_encrypted_state();
+
+            let content = if state_events { content.with_encrypted_state() } else { content };
+
             self.send_state_event(content).await?;
 
             // TODO do we want to return an error here if we time out? This
@@ -1936,7 +1970,7 @@ impl Room {
             // the SDK to re-request it later for confirmation, instead of
             // assuming it's sync'd and correct (and not encrypted).
             let _sync_lock = self.client.base_client().sync_lock().lock().await;
-            if !self.inner.encryption_state().is_encrypted() {
+            if !self.inner.encryption_state().is_state_encrypted() {
                 debug!("still not marked as encrypted, marking encryption state as missing");
 
                 let mut room_info = self.clone_info();
@@ -2646,11 +2680,11 @@ impl Room {
     /// # anyhow::Ok(()) };
     /// ```
     #[instrument(skip_all)]
-    pub async fn send_state_event(
-        &self,
+    pub fn send_state_event<'a>(
+        &'a self,
         content: impl StateEventContent<StateKey = EmptyStateKey>,
-    ) -> Result<send_state_event::v3::Response> {
-        self.send_state_event_for_key(&EmptyStateKey, content).await
+    ) -> SendStateEvent<'a> {
+        self.send_state_event_for_key(&EmptyStateKey, content)
     }
 
     /// Send a state event to the homeserver.
@@ -2693,21 +2727,17 @@ impl Room {
     /// joined_room.send_state_event_for_key("foo", content).await?;
     /// # anyhow::Ok(()) };
     /// ```
-    pub async fn send_state_event_for_key<C, K>(
-        &self,
+    pub fn send_state_event_for_key<'a, C, K>(
+        &'a self,
         state_key: &K,
         content: C,
-    ) -> Result<send_state_event::v3::Response>
+    ) -> SendStateEvent<'a>
     where
         C: StateEventContent,
         C::StateKey: Borrow<K>,
         K: AsRef<str> + ?Sized,
     {
-        self.ensure_room_joined()?;
-        let request =
-            send_state_event::v3::Request::new(self.room_id().to_owned(), state_key, &content)?;
-        let response = self.client.send(request).await?;
-        Ok(response)
+        SendStateEvent::new(self, state_key, content)
     }
 
     /// Send a raw room state event to the homeserver.
@@ -2745,22 +2775,13 @@ impl Room {
     /// # anyhow::Ok(()) };
     /// ```
     #[instrument(skip_all)]
-    pub async fn send_state_event_raw(
-        &self,
-        event_type: &str,
-        state_key: &str,
+    pub fn send_state_event_raw<'a>(
+        &'a self,
+        event_type: &'a str,
+        state_key: &'a str,
         content: impl IntoRawStateEventContent,
-    ) -> Result<send_state_event::v3::Response> {
-        self.ensure_room_joined()?;
-
-        let request = send_state_event::v3::Request::new_raw(
-            self.room_id().to_owned(),
-            event_type.into(),
-            state_key.to_owned(),
-            content.into_raw_state_event_content(),
-        );
-
-        Ok(self.client.send(request).await?)
+    ) -> SendStateEventRaw<'a> {
+        SendStateEventRaw::new(self, event_type, state_key, content)
     }
 
     /// Strips all information out of an event of the room.
