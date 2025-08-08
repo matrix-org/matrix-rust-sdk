@@ -49,7 +49,12 @@ impl SpaceService {
         self.inner.joined_spaces().into_iter().map(Into::into).collect()
     }
 
-    pub fn top_level_children_for(
+    #[allow(clippy::unused_async)]
+    // This method doesn't need to be async but if its not the FFI layer panics
+    // with "there is no no reactor running, must be called from the context
+    // of a Tokio 1.x runtime" error because the underlying constructor spawns
+    // an async task.
+    pub async fn space_room_list(
         &self,
         space_id: String,
     ) -> Result<SpaceServiceRoomList, ClientError> {

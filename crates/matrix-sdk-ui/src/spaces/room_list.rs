@@ -15,8 +15,11 @@
 use std::sync::Mutex;
 
 use eyeball::{SharedObservable, Subscriber};
+use futures_util::pin_mut;
 use matrix_sdk::{Client, Error, paginators::PaginationToken};
 use ruma::{OwnedRoomId, api::client::space::get_hierarchy};
+use tokio::task::JoinHandle;
+use tracing::error;
 
 use crate::spaces::SpaceServiceRoom;
 
@@ -36,10 +39,51 @@ pub struct SpaceServiceRoomList {
     pagination_state: SharedObservable<SpaceServiceRoomListPaginationState>,
 
     rooms: SharedObservable<Vec<SpaceServiceRoom>>,
+
+    room_update_handle: JoinHandle<()>,
 }
 
+impl Drop for SpaceServiceRoomList {
+    fn drop(&mut self) {
+        self.room_update_handle.abort();
+    }
+}
 impl SpaceServiceRoomList {
     pub fn new(client: Client, parent_space_id: OwnedRoomId) -> Self {
+        let rooms = SharedObservable::new(Vec::<SpaceServiceRoom>::new());
+
+        let client_clone = client.clone();
+        let rooms_clone = rooms.clone();
+        let all_room_updates_receiver = client.subscribe_to_all_room_updates();
+
+        let handle = tokio::spawn(async move {
+            pin_mut!(all_room_updates_receiver);
+
+            loop {
+                match all_room_updates_receiver.recv().await {
+                    Ok(updates) => {
+                        let mut new_rooms = rooms_clone.get();
+
+                        updates.iter_all_room_ids().for_each(|updated_room_id| {
+                            if let Some(room) =
+                                new_rooms.iter_mut().find(|room| &room.room_id == updated_room_id)
+                                && let Some(update_room) = client_clone.get_room(updated_room_id)
+                            {
+                                *room = SpaceServiceRoom::new_from_known(update_room);
+                            }
+                        });
+
+                        if new_rooms != rooms_clone.get() {
+                            rooms_clone.set(new_rooms);
+                        }
+                    }
+                    Err(err) => {
+                        error!("error when listening to room updates: {err}");
+                    }
+                }
+            }
+        });
+
         Self {
             client,
             parent_space_id,
@@ -47,7 +91,8 @@ impl SpaceServiceRoomList {
             pagination_state: SharedObservable::new(SpaceServiceRoomListPaginationState::Idle {
                 end_reached: false,
             }),
-            rooms: SharedObservable::new(Vec::new()),
+            rooms,
+            room_update_handle: handle,
         }
     }
 
@@ -132,13 +177,13 @@ impl SpaceServiceRoomList {
 mod tests {
     use assert_matches2::assert_matches;
     use futures_util::pin_mut;
-    use matrix_sdk::test_utils::mocks::MatrixMockServer;
-    use matrix_sdk_test::async_test;
+    use matrix_sdk::{RoomState, test_utils::mocks::MatrixMockServer};
+    use matrix_sdk_test::{JoinedRoomBuilder, LeftRoomBuilder, async_test};
     use ruma::{
         room::{JoinRuleSummary, RoomSummary},
         room_id, uint,
     };
-    use stream_assert::{assert_next_eq, assert_next_matches, assert_pending};
+    use stream_assert::{assert_next_eq, assert_next_matches, assert_pending, assert_ready};
 
     use crate::spaces::{
         SpaceService, SpaceServiceRoom, room_list::SpaceServiceRoomListPaginationState,
@@ -219,5 +264,59 @@ mod tests {
                 ),
             ]
         );
+    }
+
+    #[async_test]
+    async fn test_room_state_updates() {
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+        let space_service = SpaceService::new(client.clone()).await;
+
+        let parent_space_id = room_id!("!parent_space:example.org");
+        let child_room_id_1 = room_id!("!1:example.org");
+        let child_room_id_2 = room_id!("!2:example.org");
+
+        server
+            .mock_get_hierarchy()
+            .ok_with_room_ids(vec![child_room_id_1, child_room_id_2])
+            .mount()
+            .await;
+
+        let room_list = space_service.space_room_list(parent_space_id.to_owned());
+
+        room_list.paginate().await.unwrap();
+
+        // This space contains 2 rooms
+        assert_eq!(room_list.rooms().first().unwrap().room_id, child_room_id_1);
+        assert_eq!(room_list.rooms().last().unwrap().room_id, child_room_id_2);
+
+        // and we don't know about either of them
+        assert_eq!(room_list.rooms().first().unwrap().state, None);
+        assert_eq!(room_list.rooms().last().unwrap().state, None);
+
+        let rooms_subscriber = room_list.subscribe_to_room_updates();
+        pin_mut!(rooms_subscriber);
+        assert_pending!(rooms_subscriber);
+
+        // Joining one of them though
+        server.sync_room(&client, JoinedRoomBuilder::new(child_room_id_1)).await;
+
+        // Results in an update being pushed through
+        assert_ready!(rooms_subscriber);
+        assert_eq!(room_list.rooms().first().unwrap().state, Some(RoomState::Joined));
+        assert_eq!(room_list.rooms().last().unwrap().state, None);
+
+        // Same for the second one
+        server.sync_room(&client, JoinedRoomBuilder::new(child_room_id_2)).await;
+        assert_ready!(rooms_subscriber);
+        assert_eq!(room_list.rooms().first().unwrap().state, Some(RoomState::Joined));
+        assert_eq!(room_list.rooms().last().unwrap().state, Some(RoomState::Joined));
+
+        // And when leaving them
+        server.sync_room(&client, LeftRoomBuilder::new(child_room_id_1)).await;
+        server.sync_room(&client, LeftRoomBuilder::new(child_room_id_2)).await;
+        assert_ready!(rooms_subscriber);
+        assert_eq!(room_list.rooms().first().unwrap().state, Some(RoomState::Left));
+        assert_eq!(room_list.rooms().last().unwrap().state, Some(RoomState::Left));
     }
 }
