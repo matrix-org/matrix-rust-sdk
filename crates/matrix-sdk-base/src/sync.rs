@@ -90,7 +90,7 @@ impl RoomUpdates {
     /// Iterate over all room IDs, from [`RoomUpdates::left`],
     /// [`RoomUpdates::joined`], [`RoomUpdates::invited`] and
     /// [`RoomUpdates::knocked`].
-    pub(crate) fn iter_all_room_ids(&self) -> impl Iterator<Item = &OwnedRoomId> {
+    pub fn iter_all_room_ids(&self) -> impl Iterator<Item = &OwnedRoomId> {
         self.left
             .keys()
             .chain(self.joined.keys())

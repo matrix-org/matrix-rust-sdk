@@ -97,7 +97,7 @@ impl SpaceService {
             .then(|room| async move {
                 let ok = if let Ok(parents) = room.parent_spaces().await {
                     pin_mut!(parents);
-                    parents.any(|p| p.is_ok()).await == false
+                    !parents.any(|p| p.is_ok()).await
                 } else {
                     false
                 };
@@ -115,18 +115,15 @@ impl SpaceService {
 #[cfg(test)]
 mod tests {
     use assert_matches2::assert_let;
+    use futures_util::{StreamExt, pin_mut};
     use matrix_sdk::{room::ParentSpace, test_utils::mocks::MatrixMockServer};
     use matrix_sdk_test::{
         JoinedRoomBuilder, LeftRoomBuilder, async_test, event_factory::EventFactory,
     };
     use ruma::{RoomVersionId, room_id};
-    use tokio_stream::StreamExt;
+    use stream_assert::{assert_next_eq, assert_pending};
 
     use super::*;
-
-    use futures_util::pin_mut;
-
-    use stream_assert::{assert_next_eq, assert_pending};
 
     #[async_test]
     async fn test_spaces_hierarchy() {
