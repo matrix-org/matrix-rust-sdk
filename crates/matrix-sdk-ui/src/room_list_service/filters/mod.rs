@@ -61,6 +61,7 @@ mod invite;
 mod joined;
 mod low_priority;
 mod non_left;
+mod non_low_priority;
 mod non_space;
 mod none;
 mod normalized_match_room_name;
@@ -82,6 +83,7 @@ use matrix_sdk::Room;
 #[cfg(test)]
 use matrix_sdk_test::{JoinedRoomBuilder, SyncResponseBuilder};
 pub use non_left::new_filter as new_filter_non_left;
+pub use non_low_priority::new_filter as new_filter_non_low_priority;
 pub use non_space::new_filter as new_filter_non_space;
 pub use none::new_filter as new_filter_none;
 pub use normalized_match_room_name::new_filter as new_filter_normalized_match_room_name;
