@@ -78,7 +78,7 @@ impl RoomIndex {
     pub fn new(path: &Path, room_id: &RoomId) -> Result<RoomIndex, IndexError> {
         let path = path.join(room_id.as_str());
         let schema = RoomMessageSchema::new();
-        fs::create_dir(path.clone())?;
+        fs::create_dir_all(path.clone())?;
         let index = Index::create_in_dir(path, schema.as_tantivy_schema())?;
         RoomIndex::new_with(index, schema, room_id)
     }
@@ -99,9 +99,11 @@ impl RoomIndex {
             Ok(dir) => Ok(dir),
             Err(err) => match err {
                 OpenDirectoryError::DoesNotExist(path) => {
-                    fs::create_dir(path.clone()).map_err(|err| OpenDirectoryError::IoError {
-                        io_error: Arc::new(err),
-                        directory_path: path.to_path_buf(),
+                    fs::create_dir_all(path.clone()).map_err(|err| {
+                        OpenDirectoryError::IoError {
+                            io_error: Arc::new(err),
+                            directory_path: path.to_path_buf(),
+                        }
                     })?;
                     MmapDirectory::open(path)
                 }
