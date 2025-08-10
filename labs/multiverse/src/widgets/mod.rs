@@ -7,6 +7,7 @@ pub mod popup_input;
 pub mod recovery;
 pub mod room_list;
 pub mod room_view;
+pub mod search;
 pub mod settings;
 pub mod status;
 
