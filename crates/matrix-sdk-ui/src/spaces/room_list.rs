@@ -18,7 +18,7 @@ use eyeball::{SharedObservable, Subscriber};
 use futures_util::pin_mut;
 use matrix_sdk::{Client, Error, paginators::PaginationToken};
 use matrix_sdk_common::executor::{JoinHandle, spawn};
-use ruma::{OwnedRoomId, api::client::space::get_hierarchy};
+use ruma::{OwnedRoomId, api::client::space::get_hierarchy, uint};
 use tracing::error;
 
 use crate::spaces::SpaceServiceRoom;
@@ -131,6 +131,7 @@ impl SpaceServiceRoomList {
         self.pagination_state.set(SpaceServiceRoomListPaginationState::Loading);
 
         let mut request = get_hierarchy::v1::Request::new(self.parent_space_id.clone());
+        request.max_depth = Some(uint!(1)); // We only want the immediate children of the space
 
         if let PaginationToken::HasMore(ref token) = *self.token.lock().unwrap() {
             request.from = Some(token.clone());
