@@ -45,7 +45,7 @@ use ruma::{
     assign,
     events::{
         secret::request::SecretName, AnyMessageLikeEvent, AnyMessageLikeEventContent,
-        AnyToDeviceEvent, MessageLikeEventContent,
+        AnyTimelineEvent, AnyToDeviceEvent, MessageLikeEventContent,
     },
     serde::{JsonObject, Raw},
     DeviceId, MilliSecondsSinceUnixEpoch, OneTimeKeyAlgorithm, OwnedDeviceId, OwnedDeviceKeyId,
@@ -2197,7 +2197,7 @@ impl OlmMachine {
                 .await;
         }
 
-        let event = serde_json::from_value::<Raw<AnyMessageLikeEvent>>(decrypted_event.into())?;
+        let event = serde_json::from_value::<Raw<AnyTimelineEvent>>(decrypted_event.into())?;
 
         Ok(DecryptedRoomEvent { event, encryption_info, unsigned_encryption_info })
     }
