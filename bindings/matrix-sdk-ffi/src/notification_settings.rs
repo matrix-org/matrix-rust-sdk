@@ -326,7 +326,7 @@ pub enum Action {
     /// remote / push).
     Notify,
     /// Causes matching events to generate an in-app notification but no remote
-    /// / push notification.
+    /// (push) notification.
     #[cfg(feature = "unstable-msc3768")]
     NotifyInApp,
     /// Sets an entry in the 'tweaks' dictionary sent to the push gateway.
