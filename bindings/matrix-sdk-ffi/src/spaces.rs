@@ -45,11 +45,16 @@ impl SpaceService {
 
 #[matrix_sdk_ffi_macros::export]
 impl SpaceService {
-    pub fn joined_spaces(&self) -> Vec<SpaceServiceRoom> {
-        self.inner.joined_spaces().into_iter().map(Into::into).collect()
+    pub async fn joined_spaces(&self) -> Vec<SpaceServiceRoom> {
+        self.inner.joined_spaces().await.into_iter().map(Into::into).collect()
     }
 
-    pub fn subscribe_to_joined_spaces(
+    #[allow(clippy::unused_async)]
+    // This method doesn't need to be async but if its not the FFI layer panics
+    // with "there is no no reactor running, must be called from the context
+    // of a Tokio 1.x runtime" error because the underlying method spawns an
+    // async task.
+    pub async fn subscribe_to_joined_spaces(
         &self,
         listener: Box<dyn SpaceServiceJoinedSpacesListener>,
     ) -> Arc<TaskHandle> {

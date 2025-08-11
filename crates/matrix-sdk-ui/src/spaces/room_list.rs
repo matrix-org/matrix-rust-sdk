@@ -206,7 +206,7 @@ mod tests {
     async fn test_room_list_pagination() {
         let server = MatrixMockServer::new().await;
         let client = server.client_builder().build().await;
-        let space_service = SpaceService::new(client.clone()).await;
+        let space_service = SpaceService::new(client.clone());
 
         server.mock_room_state_encryption().plain().mount().await;
 
@@ -288,7 +288,7 @@ mod tests {
     async fn test_room_state_updates() {
         let server = MatrixMockServer::new().await;
         let client = server.client_builder().build().await;
-        let space_service = SpaceService::new(client.clone()).await;
+        let space_service = SpaceService::new(client.clone());
 
         let parent_space_id = room_id!("!parent_space:example.org");
         let child_room_id_1 = room_id!("!1:example.org");
