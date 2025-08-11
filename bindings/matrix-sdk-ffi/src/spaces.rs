@@ -49,7 +49,10 @@ impl SpaceService {
         self.inner.joined_spaces().into_iter().map(Into::into).collect()
     }
 
-    pub fn subscribe_to_joined_spaces(&self, listener: Box<dyn SpaceServiceJoinedSpacesListener>) {
+    pub fn subscribe_to_joined_spaces(
+        &self,
+        listener: Box<dyn SpaceServiceJoinedSpacesListener>,
+    ) -> Arc<TaskHandle> {
         let entries_stream = self.inner.subscribe_to_joined_spaces();
 
         Arc::new(TaskHandle::new(get_runtime_handle().spawn(async move {
@@ -58,7 +61,7 @@ impl SpaceService {
             while let Some(rooms) = entries_stream.next().await {
                 listener.on_update(rooms.into_iter().map(Into::into).collect());
             }
-        })));
+        })))
     }
 
     #[allow(clippy::unused_async)]
@@ -95,7 +98,7 @@ impl SpaceServiceRoomList {
     pub fn subscribe_to_pagination_state_updates(
         &self,
         listener: Box<dyn SpaceServiceRoomListPaginationStateListener>,
-    ) {
+    ) -> Arc<TaskHandle> {
         let pagination_state = self.inner.subscribe_to_pagination_state_updates();
 
         Arc::new(TaskHandle::new(get_runtime_handle().spawn(async move {
@@ -104,14 +107,17 @@ impl SpaceServiceRoomList {
             while let Some(state) = pagination_state.next().await {
                 listener.on_update(state.into());
             }
-        })));
+        })))
     }
 
     pub fn rooms(&self) -> Vec<SpaceServiceRoom> {
         self.inner.rooms().into_iter().map(Into::into).collect()
     }
 
-    pub fn subscribe_to_room_update(&self, listener: Box<dyn SpaceServiceRoomListEntriesListener>) {
+    pub fn subscribe_to_room_update(
+        &self,
+        listener: Box<dyn SpaceServiceRoomListEntriesListener>,
+    ) -> Arc<TaskHandle> {
         let entries_stream = self.inner.subscribe_to_room_updates();
 
         Arc::new(TaskHandle::new(get_runtime_handle().spawn(async move {
@@ -120,7 +126,7 @@ impl SpaceServiceRoomList {
             while let Some(rooms) = entries_stream.next().await {
                 listener.on_update(rooms.into_iter().map(Into::into).collect());
             }
-        })));
+        })))
     }
 
     pub async fn paginate(&self) -> Result<(), ClientError> {
