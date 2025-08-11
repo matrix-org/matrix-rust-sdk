@@ -14,12 +14,10 @@
 
 use std::{collections::BTreeMap, fmt, sync::Arc};
 
-#[cfg(doc)]
-use ruma::events::AnyTimelineEvent;
 use ruma::{
     DeviceKeyAlgorithm, OwnedDeviceId, OwnedEventId, OwnedUserId,
     events::{
-        AnyMessageLikeEvent, AnySyncMessageLikeEvent, AnySyncTimelineEvent, AnyToDeviceEvent,
+        AnySyncMessageLikeEvent, AnySyncTimelineEvent, AnyTimelineEvent, AnyToDeviceEvent,
         MessageLikeEventType,
     },
     push::Action,
@@ -651,7 +649,7 @@ impl TimelineEvent {
     }
 
     /// Replace the raw event included in this item by another one.
-    pub fn replace_raw(&mut self, replacement: Raw<AnyMessageLikeEvent>) {
+    pub fn replace_raw(&mut self, replacement: Raw<AnyTimelineEvent>) {
         match &mut self.kind {
             TimelineEventKind::Decrypted(decrypted) => decrypted.event = replacement,
             TimelineEventKind::UnableToDecrypt { event, .. }
@@ -843,7 +841,7 @@ pub struct DecryptedRoomEvent {
     /// encrypted payload *always contains* a room id, by the [spec].
     ///
     /// [spec]: https://spec.matrix.org/v1.12/client-server-api/#mmegolmv1aes-sha2
-    pub event: Raw<AnyMessageLikeEvent>,
+    pub event: Raw<AnyTimelineEvent>,
 
     /// The encryption info about the event.
     pub encryption_info: Arc<EncryptionInfo>,
