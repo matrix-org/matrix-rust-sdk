@@ -3916,6 +3916,13 @@ impl<'a> MockEndpoint<'a, PutThreadSubscriptionEndpoint> {
         self.endpoint.matchers = self.endpoint.matchers.match_thread_id(thread_root);
         self
     }
+    /// Match the request body's `automatic` field against a specific event id.
+    pub fn match_automatic_event_id(mut self, up_to_event_id: &EventId) -> Self {
+        self.mock = self.mock.and(body_json(json!({
+            "automatic": up_to_event_id
+        })));
+        self
+    }
 }
 
 /// A prebuilt mock for `DELETE

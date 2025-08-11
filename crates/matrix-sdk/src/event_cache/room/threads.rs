@@ -340,6 +340,8 @@ pub async fn should_subscribe_thread(
     push_context: &ThreadPushContext,
     events: impl DoubleEndedIterator<Item = &Event>,
 ) -> Option<OwnedEventId> {
+    // Note: the push context will be none if the client didn't enable support for
+    // thread subscriptions.
     let ctx = push_context.0.as_ref()?;
 
     for ev in events.rev() {
