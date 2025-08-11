@@ -2927,7 +2927,7 @@ impl Client {
         let mut hash_map = self.inner.room_indexes.lock().await;
         if let Some(index) = hash_map.get_mut(room_id) {
             let _ = index.commit().inspect_err(|err| {
-                error!("error occured while committing: {err:?}");
+                error!("error occurred while committing: {err:?}");
             });
         }
     }
@@ -2938,7 +2938,7 @@ impl Client {
         let mut hash_map = self.inner.room_indexes.lock().await;
         if let Some(index) = hash_map.get_mut(room_id) {
             let _ = index.commit_and_reload().inspect_err(|err| {
-                error!("error occured while committing: {err:?}");
+                error!("error occurred while committing: {err:?}");
             });
         }
     }
