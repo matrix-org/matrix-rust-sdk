@@ -3681,7 +3681,7 @@ impl Room {
     /// Add an [`AnyMessageLikeEvent`] to this room's [`RoomIndex`]
     #[cfg(feature = "experimental-search")]
     pub(crate) async fn index_event(&self, event: AnyMessageLikeEvent) -> Result<(), IndexError> {
-        self.client.index_event(event, self.room_id()).await
+        self.client.search_index().lock().await.index_event(event, self.room_id())
     }
 
     /// Search this room's [`RoomIndex`] for query and return at most
@@ -3692,19 +3692,19 @@ impl Room {
         query: &str,
         max_number_of_results: usize,
     ) -> Option<Vec<OwnedEventId>> {
-        self.client.search_index(query, max_number_of_results, self.room_id()).await
-    }
+        self.commit_and_reload().await;
 
-    /// Commit a [`Room`]'s [`RoomIndex`]
-    #[cfg(feature = "experimental-search")]
-    pub async fn commit(&self) {
-        self.client.commit(self.room_id()).await;
+        self.client.search_index().lock().await.search_index(
+            query,
+            max_number_of_results,
+            self.room_id(),
+        )
     }
 
     /// Commit a [`Room`]'s [`RoomIndex`] and reload searchers
     #[cfg(feature = "experimental-search")]
-    pub async fn commit_and_reload(&self) {
-        self.client.commit_and_reload(self.room_id()).await;
+    pub(crate) async fn commit_and_reload(&self) {
+        self.client.search_index().lock().await.commit_and_reload(self.room_id());
     }
 
     /// Subscribe to a given thread in this room.

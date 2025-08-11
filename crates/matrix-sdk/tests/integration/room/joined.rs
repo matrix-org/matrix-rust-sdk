@@ -766,8 +766,6 @@ async fn test_sending_message_indexes_message() {
 
     let room = client.get_room(room_id).unwrap();
 
-    room.commit_and_reload().await;
-
     let response = room.search_index("this", 5).await.expect("search should have 1 result");
 
     assert!(!response.is_empty(), "no results found {response:?}");

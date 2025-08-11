@@ -27,18 +27,12 @@ use std::{
 use events::sort_positions_descending;
 use eyeball::SharedObservable;
 use eyeball_im::VectorDiff;
-#[cfg(feature = "experimental-search")]
-use futures_util::StreamExt;
-#[cfg(feature = "experimental-search")]
-use matrix_sdk_base::deserialized_responses::{TimelineEvent, TimelineEventKind};
 use matrix_sdk_base::{
     deserialized_responses::AmbiguityChange,
     event_cache::Event,
     linked_chunk::Position,
     sync::{JoinedRoomUpdate, LeftRoomUpdate, Timeline},
 };
-#[cfg(feature = "experimental-search")]
-use ruma::events::{AnyMessageLikeEvent, AnySyncTimelineEvent};
 use ruma::{
     api::Direction,
     events::{relation::RelationType, AnyRoomAccountDataEvent, AnySyncEphemeralRoomEvent},
@@ -529,49 +523,6 @@ impl RoomEventCacheInner {
         Ok(())
     }
 
-    #[cfg(feature = "experimental-search")]
-    fn parse_timeline_event(&self, event: &TimelineEvent) -> Option<AnyMessageLikeEvent> {
-        let maybe_try_event = match &event.kind {
-            TimelineEventKind::Decrypted(d) => Some(d.event.deserialize()),
-            TimelineEventKind::PlainText { event } => match event.deserialize() {
-                Ok(event_obj) => match event_obj {
-                    AnySyncTimelineEvent::MessageLike(sync_event) => {
-                        Some(Ok(sync_event.into_full_event(self.room_id.clone())))
-                    }
-                    AnySyncTimelineEvent::State(_) => None,
-                },
-                Err(e) => Some(Err(e)),
-            },
-
-            TimelineEventKind::UnableToDecrypt { event: _, utd_info: _ } => None,
-        };
-
-        match maybe_try_event {
-            Some(Ok(event)) => match event {
-                // TODO: Handle room redaction.
-                AnyMessageLikeEvent::RoomRedaction(_) | _ => Some(event),
-            },
-            Some(Err(e)) => {
-                warn!("failed to index event: {e:?}");
-                None
-            }
-            None => None,
-        }
-    }
-
-    #[cfg(feature = "experimental-search")]
-    async fn index_timeline_event(&self, event: &TimelineEvent) -> Result<()> {
-        if let Some(message_event) = self.parse_timeline_event(event) {
-            if let Some(room) = self.weak_room.get() {
-                room.index_event(message_event).await.map_err(EventCacheError::from)
-            } else {
-                Err(EventCacheError::RoomNotFound { room_id: self.room_id.to_owned() })
-            }
-        } else {
-            Ok(())
-        }
-    }
-
     /// Handle a [`Timeline`], i.e. new events received by a sync for this
     /// room.
     async fn handle_timeline(
@@ -591,44 +542,21 @@ impl RoomEventCacheInner {
         // Add all the events to the backend.
         trace!("adding new events");
 
-        let (stored_prev_batch_token, timeline_event_diffs) =
-            self.state.write().await.handle_sync(timeline).await?;
+        let (stored_prev_batch_token, timeline_event_diffs) = self
+            .state
+            .write()
+            .await
+            .handle_sync(
+                timeline,
+                #[cfg(feature = "experimental-search")]
+                &self.weak_room.get().expect("Should be able to get room"),
+            )
+            .await?;
 
         // Now that all events have been added, we can trigger the
         // `pagination_token_notifier`.
         if stored_prev_batch_token {
             self.pagination_batch_token_notifier.notify_one();
-        }
-
-        // We can also add the event to the index.
-        #[cfg(feature = "experimental-search")]
-        for diff in timeline_event_diffs.iter() {
-            match diff {
-                VectorDiff::Append { values } => {
-                    let batch_size = 5;
-                    let futures: Vec<_> =
-                        values.iter().map(|event| self.index_timeline_event(event)).collect();
-                    let mut buffer =
-                        futures_util::stream::iter(futures).buffer_unordered(batch_size);
-
-                    while let Some(result) = buffer.next().await {
-                        if let Err(e) = result {
-                            warn!("error while trying to index event: {e:?}");
-                        }
-                    }
-                }
-                VectorDiff::Insert { index: _, value } => {
-                    if let Err(e) = self.index_timeline_event(value).await {
-                        warn!("error while trying to index event: {e:?}");
-                    }
-                }
-                VectorDiff::Remove { index: _ } => {}
-                VectorDiff::Clear => {}
-                _ => {
-                    warn!("vector diff case shouldn't happen");
-                    continue;
-                }
-            }
         }
 
         let mut update_has_been_sent = false;
@@ -695,6 +623,8 @@ mod private {
 
     use eyeball::SharedObservable;
     use eyeball_im::VectorDiff;
+    #[cfg(feature = "experimental-search")]
+    use matrix_sdk_base::deserialized_responses::TimelineEvent;
     use matrix_sdk_base::{
         apply_redaction,
         deserialized_responses::{ThreadSummary, ThreadSummaryStatus, TimelineEventKind},
@@ -710,6 +640,8 @@ mod private {
         sync::Timeline,
     };
     use matrix_sdk_common::executor::spawn;
+    #[cfg(feature = "experimental-search")]
+    use ruma::events::AnyMessageLikeEvent;
     use ruma::{
         events::{
             relation::RelationType, room::redaction::SyncRoomRedactionEvent, AnySyncTimelineEvent,
@@ -731,6 +663,8 @@ mod private {
         deduplicator::filter_duplicate_events, room::threads::ThreadEventCache,
         BackPaginationOutcome, RoomPaginationStatus, ThreadEventCacheUpdate,
     };
+    #[cfg(feature = "experimental-search")]
+    use crate::Room;
 
     /// State for a single room's event cache.
     ///
@@ -1514,6 +1448,49 @@ mod private {
             Ok(Some((target, related)))
         }
 
+        #[cfg(feature = "experimental-search")]
+        fn parse_timeline_event(&self, event: &TimelineEvent) -> Option<AnyMessageLikeEvent> {
+            let maybe_try_event = match &event.kind {
+                TimelineEventKind::Decrypted(d) => Some(d.event.deserialize()),
+                TimelineEventKind::PlainText { event } => match event.deserialize() {
+                    Ok(event_obj) => match event_obj {
+                        AnySyncTimelineEvent::MessageLike(sync_event) => {
+                            Some(Ok(sync_event.into_full_event(self.room.clone())))
+                        }
+                        AnySyncTimelineEvent::State(_) => None,
+                    },
+                    Err(e) => Some(Err(e)),
+                },
+
+                TimelineEventKind::UnableToDecrypt { event: _, utd_info: _ } => None,
+            };
+
+            match maybe_try_event {
+                Some(Ok(event)) => match event {
+                    // TODO: Handle room redaction.
+                    AnyMessageLikeEvent::RoomRedaction(_) | _ => Some(event),
+                },
+                Some(Err(e)) => {
+                    warn!("failed to index event: {e:?}");
+                    None
+                }
+                None => None,
+            }
+        }
+
+        #[cfg(feature = "experimental-search")]
+        async fn index_timeline_event(
+            &self,
+            event: &TimelineEvent,
+            room: &Room,
+        ) -> Result<(), EventCacheError> {
+            if let Some(message_event) = self.parse_timeline_event(event) {
+                room.index_event(message_event).await.map_err(EventCacheError::from)
+            } else {
+                Ok(())
+            }
+        }
+
         /// Post-process new events, after they have been added to the in-memory
         /// linked chunk.
         ///
@@ -1522,6 +1499,7 @@ mod private {
             &mut self,
             events: Vec<Event>,
             is_sync: bool,
+            #[cfg(feature = "experimental-search")] room: &Room,
         ) -> Result<(), EventCacheError> {
             // Update the store before doing the post-processing.
             self.propagate_changes().await?;
@@ -1529,7 +1507,13 @@ mod private {
             let mut new_events_by_thread: BTreeMap<_, Vec<_>> = BTreeMap::new();
 
             for event in events {
-                self.maybe_apply_new_redaction(&event).await?;
+                self.maybe_apply_new_redaction(&event).await?; // TODO: Handle redaction for search index
+
+                // We can also add the event to the index.
+                #[cfg(feature = "experimental-search")]
+                if let Err(err) = self.index_timeline_event(&event, room).await {
+                    warn!("error while trying to index event: {err:?}");
+                }
 
                 if let Some(thread_root) = extract_thread_root(event.raw()) {
                     new_events_by_thread.entry(thread_root).or_default().push(event.clone());
@@ -1768,6 +1752,7 @@ mod private {
         pub async fn handle_sync(
             &mut self,
             mut timeline: Timeline,
+            #[cfg(feature = "experimental-search")] room: &Room,
         ) -> Result<(bool, Vec<VectorDiff<Event>>), EventCacheError> {
             let mut prev_batch = timeline.prev_batch.take();
 
@@ -1860,7 +1845,13 @@ mod private {
             self.room_linked_chunk
                 .push_live_events(prev_batch.map(|prev_token| Gap { prev_token }), &events);
 
-            self.post_process_new_events(events, true).await?;
+            self.post_process_new_events(
+                events,
+                true,
+                #[cfg(feature = "experimental-search")]
+                room,
+            )
+            .await?;
 
             if timeline.limited && has_new_gap {
                 // If there was a previous batch token for a limited timeline, unload the chunks
@@ -1890,6 +1881,7 @@ mod private {
             events: Vec<Event>,
             mut new_token: Option<String>,
             prev_token: Option<String>,
+            #[cfg(feature = "experimental-search")] room: &Room,
         ) -> Result<Option<(BackPaginationOutcome, Vec<VectorDiff<Event>>)>, EventCacheError>
         {
             // Check that the previous token still exists; otherwise it's a sign that the
@@ -1964,7 +1956,13 @@ mod private {
             );
 
             // Note: this flushes updates to the store.
-            self.post_process_new_events(topo_ordered_events, false).await?;
+            self.post_process_new_events(
+                topo_ordered_events,
+                false,
+                #[cfg(feature = "experimental-search")]
+                room,
+            )
+            .await?;
 
             let event_diffs = self.room_linked_chunk.updates_as_vector_diffs();
 
