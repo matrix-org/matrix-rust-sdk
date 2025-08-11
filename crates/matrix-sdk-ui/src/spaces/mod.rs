@@ -18,7 +18,7 @@
 
 use eyeball::{SharedObservable, Subscriber};
 use futures_util::pin_mut;
-use matrix_sdk::{Client, deserialized_responses::SyncOrStrippedState};
+use matrix_sdk::{Client, deserialized_responses::SyncOrStrippedState, locks::Mutex};
 use matrix_sdk_common::executor::{JoinHandle, spawn};
 use ruma::{
     OwnedRoomId,
@@ -41,52 +41,62 @@ pub struct SpaceService {
 
     joined_spaces: SharedObservable<Vec<SpaceServiceRoom>>,
 
-    room_update_handle: JoinHandle<()>,
+    room_update_handle: Mutex<Option<JoinHandle<()>>>,
 }
 
 impl Drop for SpaceService {
     fn drop(&mut self) {
-        self.room_update_handle.abort();
+        if let Some(handle) = &*self.room_update_handle.lock() {
+            handle.abort();
+        }
     }
 }
 
 impl SpaceService {
-    pub async fn new(client: Client) -> Self {
-        let joined_spaces = SharedObservable::new(Vec::new());
-
-        joined_spaces.set(Self::joined_spaces_for(&client).await);
-
-        let client_clone = client.clone();
-        let joined_spaces_clone = joined_spaces.clone();
-        let all_room_updates_receiver = client.subscribe_to_all_room_updates();
-
-        let handle = spawn(async move {
-            pin_mut!(all_room_updates_receiver);
-
-            loop {
-                match all_room_updates_receiver.recv().await {
-                    Ok(_) => {
-                        let new_spaces = Self::joined_spaces_for(&client_clone).await;
-                        if new_spaces != joined_spaces_clone.get() {
-                            joined_spaces_clone.set(new_spaces);
-                        }
-                    }
-                    Err(err) => {
-                        error!("error when listening to room updates: {err}");
-                    }
-                }
-            }
-        });
-
-        Self { client, joined_spaces, room_update_handle: handle }
+    pub fn new(client: Client) -> Self {
+        Self {
+            client,
+            joined_spaces: SharedObservable::new(Vec::new()),
+            room_update_handle: Mutex::new(None),
+        }
     }
 
     pub fn subscribe_to_joined_spaces(&self) -> Subscriber<Vec<SpaceServiceRoom>> {
+        if self.room_update_handle.lock().is_none() {
+            let client_clone = self.client.clone();
+            let joined_spaces_clone = self.joined_spaces.clone();
+            let all_room_updates_receiver = self.client.subscribe_to_all_room_updates();
+
+            *self.room_update_handle.lock() = Some(spawn(async move {
+                pin_mut!(all_room_updates_receiver);
+
+                loop {
+                    match all_room_updates_receiver.recv().await {
+                        Ok(_) => {
+                            let new_spaces = Self::joined_spaces_for(&client_clone).await;
+                            if new_spaces != joined_spaces_clone.get() {
+                                joined_spaces_clone.set(new_spaces);
+                            }
+                        }
+                        Err(err) => {
+                            error!("error when listening to room updates: {err}");
+                        }
+                    }
+                }
+            }));
+        }
+
         self.joined_spaces.subscribe()
     }
 
-    pub fn joined_spaces(&self) -> Vec<SpaceServiceRoom> {
-        self.joined_spaces.get()
+    pub async fn joined_spaces(&self) -> Vec<SpaceServiceRoom> {
+        let spaces = Self::joined_spaces_for(&self.client).await;
+
+        if spaces != self.joined_spaces.get() {
+            self.joined_spaces.set(spaces.clone());
+        }
+
+        spaces
     }
 
     pub fn space_room_list(&self, space_id: OwnedRoomId) -> SpaceServiceRoomList {
@@ -180,7 +190,7 @@ mod tests {
         let server = MatrixMockServer::new().await;
         let client = server.client_builder().build().await;
         let user_id = client.user_id().unwrap();
-        let space_service = SpaceService::new(client.clone()).await;
+        let space_service = SpaceService::new(client.clone());
         let factory = EventFactory::new();
 
         server.mock_room_state_encryption().plain().mount().await;
@@ -236,13 +246,23 @@ mod tests {
 
         // Only the parent space is returned
         assert_eq!(
-            space_service.joined_spaces().iter().map(|s| s.room_id.to_owned()).collect::<Vec<_>>(),
+            space_service
+                .joined_spaces()
+                .await
+                .iter()
+                .map(|s| s.room_id.to_owned())
+                .collect::<Vec<_>>(),
             vec![parent_space_id]
         );
 
         // and it has 2 children
         assert_eq!(
-            space_service.joined_spaces().iter().map(|s| s.children_count).collect::<Vec<_>>(),
+            space_service
+                .joined_spaces()
+                .await
+                .iter()
+                .map(|s| s.children_count)
+                .collect::<Vec<_>>(),
             vec![2]
         );
 
@@ -302,14 +322,14 @@ mod tests {
         // Build the `SpaceService` and expect the room to show up with no updates
         // pending
 
-        let space_service = SpaceService::new(client.clone()).await;
+        let space_service = SpaceService::new(client.clone());
 
         let joined_spaces_subscriber = space_service.subscribe_to_joined_spaces();
         pin_mut!(joined_spaces_subscriber);
         assert_pending!(joined_spaces_subscriber);
 
         assert_eq!(
-            space_service.joined_spaces(),
+            space_service.joined_spaces().await,
             vec![SpaceServiceRoom::new_from_known(client.get_room(first_space_id).unwrap(), 0)]
         );
 
@@ -333,7 +353,7 @@ mod tests {
 
         // And expect the list to update
         assert_eq!(
-            space_service.joined_spaces(),
+            space_service.joined_spaces().await,
             vec![
                 SpaceServiceRoom::new_from_known(client.get_room(first_space_id).unwrap(), 0),
                 SpaceServiceRoom::new_from_known(client.get_room(second_space_id).unwrap(), 1)
@@ -369,7 +389,7 @@ mod tests {
         // and the subscriber doesn't yield any updates
         assert_pending!(joined_spaces_subscriber);
         assert_eq!(
-            space_service.joined_spaces(),
+            space_service.joined_spaces().await,
             vec![SpaceServiceRoom::new_from_known(client.get_room(first_space_id).unwrap(), 0)]
         );
     }

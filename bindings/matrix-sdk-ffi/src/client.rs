@@ -1259,8 +1259,8 @@ impl Client {
         SyncServiceBuilder::new((*self.inner).clone(), self.utd_hook_manager.get().cloned())
     }
 
-    pub async fn spaces_service(&self) -> Arc<SpaceService> {
-        let inner = UISpaceService::new((*self.inner).clone()).await;
+    pub fn spaces_service(&self) -> Arc<SpaceService> {
+        let inner = UISpaceService::new((*self.inner).clone());
         Arc::new(SpaceService::new(inner))
     }
 
