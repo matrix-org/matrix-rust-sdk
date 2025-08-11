@@ -1273,7 +1273,7 @@ mod tests {
         assert_matches!(
             latest_event_stream.get().await,
             LatestEventValue::Remote(LatestEventKind::RoomMessage(message_content)) => {
-                assert_eq!(message_content.msgtype.body(), "world");
+                assert_eq!(message_content.body(), "world");
             }
         );
 
@@ -1296,7 +1296,7 @@ mod tests {
         assert_matches!(
             latest_event_stream.next().await,
             Some(LatestEventValue::Remote(LatestEventKind::RoomMessage(message_content))) => {
-                assert_eq!(message_content.msgtype.body(), "raclette !");
+                assert_eq!(message_content.body(), "raclette !");
             }
         );
     }
