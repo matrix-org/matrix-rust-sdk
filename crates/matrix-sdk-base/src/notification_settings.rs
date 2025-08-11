@@ -26,7 +26,7 @@ pub enum RoomNotificationMode {
     /// Receive remote and in-app notifications for mentions and keywords and
     /// in-app notifications only for other room messages.
     #[cfg(feature = "unstable-msc3768")]
-    MentionsAndKeywordsOnlyTheRestInApp,
+    PushMentionsAndKeywordsOnly,
     /// Do not receive any notifications.
     Mute,
 }

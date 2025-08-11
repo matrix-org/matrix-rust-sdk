@@ -89,7 +89,7 @@ impl Rules {
                 #[cfg(feature = "unstable-msc3768")]
                 if !rule.triggers_remote_notification() {
                     // This rule contains a `NotifyInApp` action.
-                    return Some(RoomNotificationMode::MentionsAndKeywordsOnlyTheRestInApp);
+                    return Some(RoomNotificationMode::PushMentionsAndKeywordsOnly);
                 }
 
                 // This rule contains a `Notify` action.
@@ -123,7 +123,7 @@ impl Rules {
                 #[cfg(feature = "unstable-msc3768")]
                 if !rule.triggers_remote_notification() {
                     // This rule contains a `NotifyInApp` action.
-                    return RoomNotificationMode::MentionsAndKeywordsOnlyTheRestInApp;
+                    return RoomNotificationMode::PushMentionsAndKeywordsOnly;
                 }
                 // If there is an `Underride` rule that should trigger a notification, the mode
                 // is `AllMessages`

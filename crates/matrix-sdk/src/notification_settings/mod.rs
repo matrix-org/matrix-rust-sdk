@@ -327,7 +327,7 @@ impl NotificationSettings {
                 (RuleKind::Room, Notify::None)
             }
             #[cfg(feature = "unstable-msc3768")]
-            RoomNotificationMode::MentionsAndKeywordsOnlyTheRestInApp => {
+            RoomNotificationMode::PushMentionsAndKeywordsOnly => {
                 // insert a `Room` rule which notifies in-app only
                 (RuleKind::Room, Notify::InAppOnly)
             }
@@ -929,7 +929,7 @@ mod tests {
             RoomNotificationMode::AllMessages,
             RoomNotificationMode::MentionsAndKeywordsOnly,
             #[cfg(feature = "unstable-msc3768")]
-            RoomNotificationMode::MentionsAndKeywordsOnlyTheRestInApp,
+            RoomNotificationMode::PushMentionsAndKeywordsOnly,
             RoomNotificationMode::Mute,
         ];
         for new_mode in new_modes {

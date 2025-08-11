@@ -374,7 +374,7 @@ pub enum RoomNotificationMode {
     /// Receive remote and in-app notifications for mentions and keywords and
     /// in-app notifications only for other room messages.
     #[cfg(feature = "unstable-msc3768")]
-    MentionsAndKeywordsOnlyTheRestInApp,
+    PushMentionsAndKeywordsOnly,
     /// Do not receive any notifications.
     Mute,
 }
@@ -385,8 +385,8 @@ impl From<SdkRoomNotificationMode> for RoomNotificationMode {
             SdkRoomNotificationMode::AllMessages => Self::AllMessages,
             SdkRoomNotificationMode::MentionsAndKeywordsOnly => Self::MentionsAndKeywordsOnly,
             #[cfg(feature = "unstable-msc3768")]
-            SdkRoomNotificationMode::MentionsAndKeywordsOnlyTheRestInApp => {
-                Self::MentionsAndKeywordsOnlyTheRestInApp
+            SdkRoomNotificationMode::PushMentionsAndKeywordsOnly => {
+                Self::PushMentionsAndKeywordsOnly
             }
             SdkRoomNotificationMode::Mute => Self::Mute,
         }
@@ -399,9 +399,7 @@ impl From<RoomNotificationMode> for SdkRoomNotificationMode {
             RoomNotificationMode::AllMessages => Self::AllMessages,
             RoomNotificationMode::MentionsAndKeywordsOnly => Self::MentionsAndKeywordsOnly,
             #[cfg(feature = "unstable-msc3768")]
-            RoomNotificationMode::MentionsAndKeywordsOnlyTheRestInApp => {
-                Self::MentionsAndKeywordsOnlyTheRestInApp
-            }
+            RoomNotificationMode::PushMentionsAndKeywordsOnly => Self::PushMentionsAndKeywordsOnly,
             RoomNotificationMode::Mute => Self::Mute,
         }
     }
