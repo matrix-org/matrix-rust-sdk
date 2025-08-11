@@ -59,7 +59,7 @@ pub use error::LatestEventsError;
 use eyeball::{AsyncLock, Subscriber};
 use futures_util::FutureExt;
 use latest_event::LatestEvent;
-pub use latest_event::LatestEventValue;
+pub use latest_event::{LatestEventKind, LatestEventValue};
 use matrix_sdk_common::executor::{spawn, AbortOnDrop, JoinHandleExt as _};
 use ruma::{EventId, OwnedEventId, OwnedRoomId, RoomId};
 use tokio::{
@@ -730,8 +730,9 @@ mod tests {
     use stream_assert::assert_pending;
 
     use super::{
-        broadcast, listen_to_event_cache_and_send_queue_updates, mpsc, HashSet, LatestEventValue,
-        RoomEventCacheGenericUpdate, RoomRegistration, RoomSendQueueUpdate, SendQueueUpdate,
+        broadcast, listen_to_event_cache_and_send_queue_updates, mpsc, HashSet, LatestEventKind,
+        LatestEventValue, RoomEventCacheGenericUpdate, RoomRegistration, RoomSendQueueUpdate,
+        SendQueueUpdate,
     };
     use crate::test_utils::mocks::MatrixMockServer;
 
@@ -1251,8 +1252,8 @@ mod tests {
         // latest event!
         assert_matches!(
             latest_event_stream.get().await,
-            LatestEventValue::RoomMessage(event) => {
-                assert_eq!(event.event_id(), event_id_1);
+            LatestEventValue::Remote(LatestEventKind::RoomMessage(message_content)) => {
+                assert_eq!(message_content.msgtype.body(), "world");
             }
         );
 
@@ -1264,10 +1265,7 @@ mod tests {
             .sync_room(
                 &client,
                 JoinedRoomBuilder::new(&room_id).add_timeline_event(
-                    event_factory
-                        .text_msg("venez découvrir cette nouvelle raclette !")
-                        .event_id(event_id_2)
-                        .into_raw(),
+                    event_factory.text_msg("raclette !").event_id(event_id_2).into_raw(),
                 ),
             )
             .await;
@@ -1277,8 +1275,8 @@ mod tests {
         // `compute_latest_events` which has updated the latest event value.
         assert_matches!(
             latest_event_stream.next().await,
-            Some(LatestEventValue::RoomMessage(event)) => {
-                assert_eq!(event.event_id(), event_id_2);
+            Some(LatestEventValue::Remote(LatestEventKind::RoomMessage(message_content))) => {
+                assert_eq!(message_content.msgtype.body(), "raclette !");
             }
         );
     }
