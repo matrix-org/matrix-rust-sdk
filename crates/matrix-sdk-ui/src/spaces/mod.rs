@@ -18,14 +18,21 @@
 
 use eyeball::{SharedObservable, Subscriber};
 use futures_util::pin_mut;
-use matrix_sdk::Client;
+use matrix_sdk::{Client, deserialized_responses::SyncOrStrippedState};
 use matrix_sdk_common::executor::{JoinHandle, spawn};
-use ruma::OwnedRoomId;
-use tokio_stream::StreamExt;
+use ruma::{
+    OwnedRoomId,
+    events::{
+        SyncStateEvent,
+        space::{child::SpaceChildEventContent, parent::SpaceParentEventContent},
+    },
+};
 use tracing::error;
 
+use crate::spaces::graph::SpaceServiceGraph;
 pub use crate::spaces::{room::SpaceServiceRoom, room_list::SpaceServiceRoomList};
 
+pub mod graph;
 pub mod room;
 pub mod room_list;
 
@@ -90,25 +97,63 @@ impl SpaceService {
         let joined_spaces = client
             .joined_rooms()
             .into_iter()
-            .filter_map(|room| if room.is_space() { Some(room) } else { None })
+            .filter_map(|room| room.is_space().then_some(room))
             .collect::<Vec<_>>();
 
-        let top_level_spaces: Vec<SpaceServiceRoom> = tokio_stream::iter(joined_spaces)
-            .then(|room| async move {
-                let ok = if let Ok(parents) = room.parent_spaces().await {
-                    pin_mut!(parents);
-                    !parents.any(|p| p.is_ok()).await
-                } else {
-                    false
-                };
-                (room, ok)
-            })
-            .filter(|(_, ok)| *ok)
-            .map(|(x, _)| SpaceServiceRoom::new_from_known(x))
-            .collect()
-            .await;
+        let mut graph = SpaceServiceGraph::new();
 
-        top_level_spaces
+        for space in joined_spaces.iter() {
+            graph.add_node(space.room_id().to_owned());
+
+            if let Ok(parents) = space.get_state_events_static::<SpaceParentEventContent>().await {
+                parents.into_iter()
+                .flat_map(|parent_event| match parent_event.deserialize() {
+                    Ok(SyncOrStrippedState::Sync(SyncStateEvent::Original(e))) => {
+                        Some(e.state_key)
+                    }
+                    Ok(SyncOrStrippedState::Sync(SyncStateEvent::Redacted(_))) => None,
+                    Ok(SyncOrStrippedState::Stripped(e)) => Some(e.state_key),
+                    Err(e) => {
+                        error!(room_id = ?space.room_id(), "Could not deserialize m.space.parent: {e}");
+                        None
+                    }
+                }).for_each(|parent| graph.add_edge(parent, space.room_id().to_owned()));
+            } else {
+                error!(room_id = ?space.room_id(), "Could not get m.space.parent events");
+            }
+
+            if let Ok(children) = space.get_state_events_static::<SpaceChildEventContent>().await {
+                children.into_iter()
+                .flat_map(|child_event| match child_event.deserialize() {
+                    Ok(SyncOrStrippedState::Sync(SyncStateEvent::Original(e))) => {
+                        Some(e.state_key)
+                    }
+                    Ok(SyncOrStrippedState::Sync(SyncStateEvent::Redacted(_))) => None,
+                    Ok(SyncOrStrippedState::Stripped(e)) => Some(e.state_key),
+                    Err(e) => {
+                        error!(room_id = ?space.room_id(), "Could not deserialize m.space.child: {e}");
+                        None
+                    }
+                }).for_each(|child| graph.add_edge(space.room_id().to_owned(), child));
+            } else {
+                error!(room_id = ?space.room_id(), "Could not get m.space.child events");
+            }
+        }
+
+        graph.remove_cycles();
+
+        let root_notes = graph.root_nodes();
+
+        joined_spaces
+            .iter()
+            .flat_map(|room| {
+                if root_notes.contains(&&room.room_id().to_owned()) {
+                    Some(SpaceServiceRoom::new_from_known(room.clone()))
+                } else {
+                    None
+                }
+            })
+            .collect()
     }
 }
 
