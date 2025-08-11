@@ -539,10 +539,30 @@ impl RoomLatestEvents {
     /// Update the latest events for the room and its threads, based on the
     /// send queue update.
     async fn update_with_send_queue(&mut self, send_queue_update: &RoomSendQueueUpdate) {
-        self.for_the_room.update_with_send_queue(send_queue_update).await;
+        // Get the power levels of the user for the current room if the `WeakRoom` is
+        // still valid.
+        //
+        // Get it once for all the updates of all the latest events for this room (be
+        // the room and its threads).
+        let room = self.weak_room.get();
+        let power_levels = match &room {
+            Some(room) => {
+                let power_levels = room.power_levels().await.ok();
+
+                Some(room.own_user_id()).zip(power_levels)
+            }
+
+            None => None,
+        };
+
+        self.for_the_room
+            .update_with_send_queue(send_queue_update, &self.room_event_cache, &power_levels)
+            .await;
 
         for latest_event in self.per_thread.values_mut() {
-            latest_event.update_with_send_queue(send_queue_update).await;
+            latest_event
+                .update_with_send_queue(send_queue_update, &self.room_event_cache, &power_levels)
+                .await;
         }
     }
 }
