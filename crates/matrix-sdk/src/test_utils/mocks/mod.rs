@@ -4243,6 +4243,36 @@ impl<'a> MockEndpoint<'a, GetHierarchyEndpoint> {
         })))
     }
 
+    /// Returns a successful response containing the given room IDs and children
+    /// states
+    pub fn ok_with_room_ids_and_children_state(
+        self,
+        room_ids: Vec<&RoomId>,
+        children_state: Vec<&RoomId>,
+    ) -> MatrixMock<'a> {
+        let children_state = children_state
+            .into_iter()
+            .map(|id| json!({ "type": "m.space.child", "state_key": id }))
+            .collect::<Vec<_>>();
+
+        let rooms = room_ids
+            .iter()
+            .map(|id| {
+                json!({
+                  "room_id": id,
+                  "num_joined_members": 1,
+                  "world_readable": false,
+                  "guest_can_join": false,
+                  "children_state": children_state
+                })
+            })
+            .collect::<Vec<_>>();
+
+        self.respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "rooms": rooms,
+        })))
+    }
+
     /// Returns a successful response with an empty list of rooms.
     pub fn ok(self) -> MatrixMock<'a> {
         self.respond_with(ResponseTemplate::new(200).set_body_json(json!({

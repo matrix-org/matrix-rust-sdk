@@ -32,12 +32,17 @@ pub struct SpaceServiceRoom {
     pub world_readable: Option<bool>,
     pub guest_can_join: bool,
 
+    pub children_count: u64,
     pub state: Option<RoomState>,
     pub heroes: Option<Vec<RoomHero>>,
 }
 
 impl SpaceServiceRoom {
-    pub fn new_from_summary(summary: &RoomSummary, known_room: Option<Room>) -> Self {
+    pub fn new_from_summary(
+        summary: &RoomSummary,
+        known_room: Option<Room>,
+        children_count: u64,
+    ) -> Self {
         Self {
             room_id: summary.room_id.clone(),
             canonical_alias: summary.canonical_alias.clone(),
@@ -49,12 +54,13 @@ impl SpaceServiceRoom {
             join_rule: Some(summary.join_rule.clone()),
             world_readable: Some(summary.world_readable),
             guest_can_join: summary.guest_can_join,
+            children_count,
             state: known_room.as_ref().map(|r| r.state()),
             heroes: known_room.map(|r| r.heroes()),
         }
     }
 
-    pub fn new_from_known(known_room: Room) -> Self {
+    pub fn new_from_known(known_room: Room, children_count: u64) -> Self {
         let room_info = known_room.clone_info();
 
         Self {
@@ -70,6 +76,7 @@ impl SpaceServiceRoom {
                 .history_visibility()
                 .map(|vis| *vis == HistoryVisibility::WorldReadable),
             guest_can_join: known_room.guest_access() == GuestAccess::CanJoin,
+            children_count,
             state: Some(known_room.state()),
             heroes: Some(room_info.heroes().to_vec()),
         }

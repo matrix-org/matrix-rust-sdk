@@ -49,6 +49,10 @@ impl SpaceServiceGraph {
         self.nodes.values().filter(|node| node.parents.is_empty()).map(|node| &node.id).collect()
     }
 
+    pub fn children_of(&self, node_id: &OwnedRoomId) -> Vec<&OwnedRoomId> {
+        self.nodes.get(node_id).map_or(vec![], |node| node.children.iter().collect())
+    }
+
     pub fn add_node(&mut self, node_id: OwnedRoomId) {
         self.nodes.entry(node_id.clone()).or_insert(SpaceServiceGraphNode::new(node_id));
     }
@@ -133,6 +137,8 @@ mod tests {
 
         assert!(graph.nodes[&b].parents.contains(&a));
         assert!(graph.nodes[&c].parents.contains(&a));
+
+        assert_eq!(graph.children_of(&a), vec![&b, &c]);
     }
 
     #[test]
