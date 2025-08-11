@@ -6,6 +6,10 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased] - ReleaseDate
 
+### Features
+
+- [**breaking**] Use `Raw<AnyTimelineEvent>` in place of `Raw<AnyMessageLikeEvent>` inside `DecryptedRoomEvent` ([#5512](https://github.com/matrix-org/matrix-rust-sdk/pull/5512/files)).
+
 ## [0.13.0] - 2025-07-10
 
 ### Features
