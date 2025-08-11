@@ -22,12 +22,11 @@ pub enum RoomNotificationMode {
     /// Receive remote and in-app notifications for all messages.
     AllMessages,
     /// Receive remote and in-app notifications for mentions and keywords only.
-    MentionsAndKeywordsOnly {
-        /// If true, receive in-app-only notifications (no pushes) for other
-        /// room messages. Otherwise, mute all other room messages.
-        #[cfg(feature = "unstable-msc3768")]
-        notify_in_app: bool,
-    },
+    MentionsAndKeywordsOnly,
+    /// Receive remote and in-app notifications for mentions and keywords and
+    /// in-app notifications only for other room messages.
+    #[cfg(feature = "unstable-msc3768")]
+    MentionsAndKeywordsOnlyTheRestInApp,
     /// Do not receive any notifications.
     Mute,
 }

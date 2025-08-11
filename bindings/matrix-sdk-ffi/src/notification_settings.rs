@@ -370,12 +370,11 @@ pub enum RoomNotificationMode {
     /// Receive remote and in-app notifications for all messages.
     AllMessages,
     /// Receive remote and in-app notifications for mentions and keywords only.
-    MentionsAndKeywordsOnly {
-        /// If true, receive in-app-only notifications (no pushes) for other
-        /// room messages. Otherwise, mute all other room messages.
-        #[cfg(feature = "unstable-msc3768")]
-        notify_in_app: bool,
-    },
+    MentionsAndKeywordsOnly,
+    /// Receive remote and in-app notifications for mentions and keywords and
+    /// in-app notifications only for other room messages.
+    #[cfg(feature = "unstable-msc3768")]
+    MentionsAndKeywordsOnlyTheRestInApp,
     /// Do not receive any notifications.
     Mute,
 }
@@ -384,13 +383,11 @@ impl From<SdkRoomNotificationMode> for RoomNotificationMode {
     fn from(value: SdkRoomNotificationMode) -> Self {
         match value {
             SdkRoomNotificationMode::AllMessages => Self::AllMessages,
-            SdkRoomNotificationMode::MentionsAndKeywordsOnly {
-                #[cfg(feature = "unstable-msc3768")]
-                notify_in_app,
-            } => Self::MentionsAndKeywordsOnly {
-                #[cfg(feature = "unstable-msc3768")]
-                notify_in_app,
-            },
+            SdkRoomNotificationMode::MentionsAndKeywordsOnly => Self::MentionsAndKeywordsOnly,
+            #[cfg(feature = "unstable-msc3768")]
+            SdkRoomNotificationMode::MentionsAndKeywordsOnlyTheRestInApp => {
+                Self::MentionsAndKeywordsOnlyTheRestInApp
+            }
             SdkRoomNotificationMode::Mute => Self::Mute,
         }
     }
@@ -400,13 +397,11 @@ impl From<RoomNotificationMode> for SdkRoomNotificationMode {
     fn from(value: RoomNotificationMode) -> Self {
         match value {
             RoomNotificationMode::AllMessages => Self::AllMessages,
-            RoomNotificationMode::MentionsAndKeywordsOnly {
-                #[cfg(feature = "unstable-msc3768")]
-                notify_in_app,
-            } => Self::MentionsAndKeywordsOnly {
-                #[cfg(feature = "unstable-msc3768")]
-                notify_in_app,
-            },
+            RoomNotificationMode::MentionsAndKeywordsOnly => Self::MentionsAndKeywordsOnly,
+            #[cfg(feature = "unstable-msc3768")]
+            RoomNotificationMode::MentionsAndKeywordsOnlyTheRestInApp => {
+                Self::MentionsAndKeywordsOnlyTheRestInApp
+            }
             RoomNotificationMode::Mute => Self::Mute,
         }
     }

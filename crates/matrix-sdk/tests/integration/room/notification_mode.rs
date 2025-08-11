@@ -65,13 +65,7 @@ async fn test_get_notification_mode() {
     assert_eq!(room.state(), RoomState::Joined);
     // getting the mode should return the default one
     let mode = room.notification_mode().await;
-    assert_matches!(
-        mode,
-        Some(RoomNotificationMode::MentionsAndKeywordsOnly {
-            #[cfg(feature = "unstable-msc3768")]
-            notify_in_app: false
-        })
-    );
+    assert_matches!(mode, Some(RoomNotificationMode::MentionsAndKeywordsOnly));
 
     // getting the user-defined mode must return None
     let mode = room.user_defined_notification_mode().await;

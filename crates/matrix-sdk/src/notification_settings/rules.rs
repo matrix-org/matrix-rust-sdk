@@ -89,18 +89,13 @@ impl Rules {
                 #[cfg(feature = "unstable-msc3768")]
                 if !rule.triggers_remote_notification() {
                     // This rule contains a `NotifyInApp` action.
-                    return Some(RoomNotificationMode::MentionsAndKeywordsOnly {
-                        notify_in_app: true,
-                    });
+                    return Some(RoomNotificationMode::MentionsAndKeywordsOnlyTheRestInApp);
                 }
 
                 // This rule contains a `Notify` action.
                 return Some(RoomNotificationMode::AllMessages);
             }
-            return Some(RoomNotificationMode::MentionsAndKeywordsOnly {
-                #[cfg(feature = "unstable-msc3768")]
-                notify_in_app: false,
-            });
+            return Some(RoomNotificationMode::MentionsAndKeywordsOnly);
         }
 
         // There is no custom rule matching this `room_id`
@@ -128,7 +123,7 @@ impl Rules {
                 #[cfg(feature = "unstable-msc3768")]
                 if !rule.triggers_remote_notification() {
                     // This rule contains a `NotifyInApp` action.
-                    return RoomNotificationMode::MentionsAndKeywordsOnly { notify_in_app: true };
+                    return RoomNotificationMode::MentionsAndKeywordsOnlyTheRestInApp;
                 }
                 // If there is an `Underride` rule that should trigger a notification, the mode
                 // is `AllMessages`
@@ -137,10 +132,7 @@ impl Rules {
         }
 
         // Otherwise, the mode is `MentionsAndKeywordsOnly`
-        RoomNotificationMode::MentionsAndKeywordsOnly {
-            #[cfg(feature = "unstable-msc3768")]
-            notify_in_app: false,
-        }
+        RoomNotificationMode::MentionsAndKeywordsOnly
     }
 
     /// Get all room IDs for which a user-defined rule exists.
@@ -415,10 +407,7 @@ pub(crate) mod tests {
         let rules = Rules::new(ruleset);
         assert_eq!(
             rules.get_user_defined_room_notification_mode(&room_id),
-            Some(RoomNotificationMode::MentionsAndKeywordsOnly {
-                #[cfg(feature = "unstable-msc3768")]
-                notify_in_app: false
-            })
+            Some(RoomNotificationMode::MentionsAndKeywordsOnly)
         );
 
         // Initialize with a `Room` rule that doesn't notify
@@ -488,13 +477,7 @@ pub(crate) mod tests {
         let rules = Rules::new(ruleset);
         let mode = rules.get_default_room_notification_mode(IsEncrypted::No, IsOneToOne::Yes);
         // Then the mode should be `MentionsAndKeywordsOnly`
-        assert_eq!(
-            mode,
-            RoomNotificationMode::MentionsAndKeywordsOnly {
-                #[cfg(feature = "unstable-msc3768")]
-                notify_in_app: false
-            }
-        );
+        assert_eq!(mode, RoomNotificationMode::MentionsAndKeywordsOnly);
     }
 
     #[async_test]

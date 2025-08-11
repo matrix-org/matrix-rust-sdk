@@ -480,10 +480,7 @@ mod tests {
         // The room has an updated cached user-defined notification mode.
         assert_eq!(
             room.cached_user_defined_notification_mode(),
-            Some(RoomNotificationMode::MentionsAndKeywordsOnly {
-                #[cfg(feature = "unstable-msc3768")]
-                notify_in_app: false
-            }),
+            Some(RoomNotificationMode::MentionsAndKeywordsOnly),
         );
 
         Ok(())

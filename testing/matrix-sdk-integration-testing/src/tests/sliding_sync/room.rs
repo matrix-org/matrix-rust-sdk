@@ -603,7 +603,7 @@ async fn test_room_notification_count() -> Result<()> {
     settings
         .set_room_notification_mode(
             alice_room.room_id(),
-            matrix_sdk::notification_settings::RoomNotificationMode::MentionsAndKeywordsOnly {},
+            matrix_sdk::notification_settings::RoomNotificationMode::MentionsAndKeywordsOnly,
         )
         .await?;
     warn!("Done!");
