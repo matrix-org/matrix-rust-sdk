@@ -1275,7 +1275,7 @@ impl Room {
         // Implements this algorithm:
         // https://spec.matrix.org/v1.8/client-server-api/#mspaceparent-relationships
 
-        // Get all m.room.parent events for this room
+        // Get all m.space.parent events for this room
         Ok(self
             .get_state_events_static::<SpaceParentEventContent>()
             .await?
@@ -1288,7 +1288,7 @@ impl Room {
                 Ok(SyncOrStrippedState::Sync(SyncStateEvent::Redacted(_))) => None,
                 Ok(SyncOrStrippedState::Stripped(e)) => Some((e.state_key.to_owned(), e.sender)),
                 Err(e) => {
-                    info!(room_id = ?self.room_id(), "Could not deserialize m.room.parent: {e}");
+                    info!(room_id = ?self.room_id(), "Could not deserialize m.space.parent: {e}");
                     None
                 }
             })
@@ -1299,7 +1299,7 @@ impl Room {
                     // TODO: try peeking into the room
                     return Ok(ParentSpace::Unverifiable(state_key));
                 };
-                // Get the m.room.child state of the parent with this room's id
+                // Get the m.space.child state of the parent with this room's id
                 // as state key.
                 if let Some(child_event) = parent_room
                     .get_state_event_static_for_key::<SpaceChildEventContent, _>(self.room_id())
@@ -1307,7 +1307,7 @@ impl Room {
                 {
                     match child_event.deserialize() {
                         Ok(SyncOrStrippedState::Sync(SyncStateEvent::Original(_))) => {
-                            // There is a valid m.room.child in the parent pointing to
+                            // There is a valid m.space.child in the parent pointing to
                             // this room
                             return Ok(ParentSpace::Reciprocal(parent_room));
                         }
@@ -1316,7 +1316,7 @@ impl Room {
                         Err(e) => {
                             info!(
                                 room_id = ?self.room_id(), parent_room_id = ?state_key,
-                                "Could not deserialize m.room.child: {e}"
+                                "Could not deserialize m.space.child: {e}"
                             );
                         }
                     }
@@ -1326,7 +1326,7 @@ impl Room {
                     // relationship: https://spec.matrix.org/v1.8/client-server-api/#mspacechild
                 }
 
-                // No reciprocal m.room.child found, let's check if the sender has the
+                // No reciprocal m.space.child found, let's check if the sender has the
                 // power to set it
                 let Some(member) = parent_room.get_member(&sender).await? else {
                     // Sender is not even in the parent room
@@ -4449,7 +4449,7 @@ pub enum ParentSpace {
     Reciprocal(Room),
     /// The room recognizes the given room as its parent, but the parent does
     /// not recognizes it as its child. However, the author of the
-    /// `m.room.parent` event in the room has a sufficient power level in the
+    /// `m.space.parent` event in the room has a sufficient power level in the
     /// parent to create the child event.
     WithPowerlevel(Room),
     /// The room recognizes the given room as its parent, but the parent does
