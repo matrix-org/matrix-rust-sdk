@@ -147,8 +147,13 @@ impl SpaceService {
         joined_spaces
             .iter()
             .flat_map(|room| {
-                if root_notes.contains(&&room.room_id().to_owned()) {
-                    Some(SpaceServiceRoom::new_from_known(room.clone()))
+                let room_id = room.room_id().to_owned();
+
+                if root_notes.contains(&&room_id) {
+                    Some(SpaceServiceRoom::new_from_known(
+                        room.clone(),
+                        graph.children_of(&room_id).len() as u64,
+                    ))
                 } else {
                     None
                 }
@@ -165,7 +170,7 @@ mod tests {
     use matrix_sdk_test::{
         JoinedRoomBuilder, LeftRoomBuilder, async_test, event_factory::EventFactory,
     };
-    use ruma::{RoomVersionId, room::RoomType, room_id};
+    use ruma::{RoomVersionId, owned_room_id, room::RoomType, room_id};
     use stream_assert::{assert_next_eq, assert_pending};
     use tokio_stream::StreamExt;
 
@@ -248,6 +253,12 @@ mod tests {
             vec![parent_space_id]
         );
 
+        // and it has 2 children
+        assert_eq!(
+            space_service.joined_spaces().iter().map(|s| s.children_count).collect::<Vec<_>>(),
+            vec![2]
+        );
+
         let parent_space = client.get_room(parent_space_id).unwrap();
         assert!(parent_space.is_space());
 
@@ -315,7 +326,7 @@ mod tests {
 
         assert_eq!(
             space_service.joined_spaces(),
-            vec![SpaceServiceRoom::new_from_known(client.get_room(first_space_id).unwrap())]
+            vec![SpaceServiceRoom::new_from_known(client.get_room(first_space_id).unwrap(), 0)]
         );
 
         // Join the second space
@@ -323,11 +334,20 @@ mod tests {
         server
             .sync_room(
                 &client,
-                JoinedRoomBuilder::new(second_space_id).add_state_event(factory.create(
-                    user_id,
-                    RoomVersionId::V1,
-                    Some(RoomType::Space),
-                )),
+                JoinedRoomBuilder::new(second_space_id)
+                    .add_state_event(factory.create(
+                        user_id,
+                        RoomVersionId::V1,
+                        Some(RoomType::Space),
+                    ))
+                    .add_state_event(
+                        factory
+                            .space_child(
+                                second_space_id.to_owned(),
+                                owned_room_id!("!child:example.org"),
+                            )
+                            .sender(user_id),
+                    ),
             )
             .await;
 
@@ -335,8 +355,8 @@ mod tests {
         assert_eq!(
             space_service.joined_spaces(),
             vec![
-                SpaceServiceRoom::new_from_known(client.get_room(first_space_id).unwrap()),
-                SpaceServiceRoom::new_from_known(client.get_room(second_space_id).unwrap())
+                SpaceServiceRoom::new_from_known(client.get_room(first_space_id).unwrap(), 0),
+                SpaceServiceRoom::new_from_known(client.get_room(second_space_id).unwrap(), 1)
             ]
         );
 
@@ -344,8 +364,8 @@ mod tests {
         assert_next_eq!(
             joined_spaces_subscriber,
             vec![
-                SpaceServiceRoom::new_from_known(client.get_room(first_space_id).unwrap()),
-                SpaceServiceRoom::new_from_known(client.get_room(second_space_id).unwrap())
+                SpaceServiceRoom::new_from_known(client.get_room(first_space_id).unwrap(), 0),
+                SpaceServiceRoom::new_from_known(client.get_room(second_space_id).unwrap(), 1)
             ]
         );
 
@@ -354,7 +374,7 @@ mod tests {
         // and when one is left
         assert_next_eq!(
             joined_spaces_subscriber,
-            vec![SpaceServiceRoom::new_from_known(client.get_room(first_space_id).unwrap())]
+            vec![SpaceServiceRoom::new_from_known(client.get_room(first_space_id).unwrap(), 0)]
         );
 
         // but it doesn't when a non-space room gets joined
@@ -370,7 +390,7 @@ mod tests {
         assert_pending!(joined_spaces_subscriber);
         assert_eq!(
             space_service.joined_spaces(),
-            vec![SpaceServiceRoom::new_from_known(client.get_room(first_space_id).unwrap())]
+            vec![SpaceServiceRoom::new_from_known(client.get_room(first_space_id).unwrap(), 0)]
         );
     }
 }

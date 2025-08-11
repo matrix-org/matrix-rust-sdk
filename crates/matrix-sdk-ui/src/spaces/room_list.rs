@@ -69,7 +69,10 @@ impl SpaceServiceRoomList {
                                 new_rooms.iter_mut().find(|room| &room.room_id == updated_room_id)
                                 && let Some(update_room) = client_clone.get_room(updated_room_id)
                             {
-                                *room = SpaceServiceRoom::new_from_known(update_room);
+                                *room = SpaceServiceRoom::new_from_known(
+                                    update_room,
+                                    room.children_count,
+                                );
                             }
                         });
 
@@ -151,8 +154,16 @@ impl SpaceServiceRoomList {
                     result
                         .rooms
                         .iter()
-                        .map(|room| (&room.summary, self.client.get_room(&room.summary.room_id)))
-                        .map(|(summary, room)| SpaceServiceRoom::new_from_summary(summary, room))
+                        .map(|room| {
+                            (
+                                &room.summary,
+                                self.client.get_room(&room.summary.room_id),
+                                room.children_state.len(),
+                            )
+                        })
+                        .map(|(summary, room, children_count)| {
+                            SpaceServiceRoom::new_from_summary(summary, room, children_count as u64)
+                        })
                         .collect::<Vec<_>>(),
                 );
 
@@ -226,7 +237,10 @@ mod tests {
         // Paginating the room list
         server
             .mock_get_hierarchy()
-            .ok_with_room_ids(vec![child_space_id_1, child_space_id_2])
+            .ok_with_room_ids_and_children_state(
+                vec![child_space_id_1, child_space_id_2],
+                vec![room_id!("!child:example.org")],
+            )
             .mount()
             .await;
 
@@ -251,6 +265,7 @@ mod tests {
                         false,
                     ),
                     None,
+                    1
                 ),
                 SpaceServiceRoom::new_from_summary(
                     &RoomSummary::new(
@@ -261,6 +276,7 @@ mod tests {
                         false,
                     ),
                     None,
+                    1
                 ),
             ]
         );

@@ -183,6 +183,7 @@ pub struct SpaceServiceRoom {
     pub world_readable: Option<bool>,
     pub guest_can_join: bool,
 
+    pub children_count: u64,
     pub state: Option<Membership>,
     pub heroes: Option<Vec<RoomHero>>,
 }
@@ -200,6 +201,7 @@ impl From<UISpaceServiceRoom> for SpaceServiceRoom {
             join_rule: room.join_rule.map(Into::into),
             world_readable: room.world_readable,
             guest_can_join: room.guest_can_join,
+            children_count: room.children_count,
             state: room.state.map(Into::into),
             heroes: room.heroes.map(|heroes| heroes.into_iter().map(Into::into).collect()),
         }
