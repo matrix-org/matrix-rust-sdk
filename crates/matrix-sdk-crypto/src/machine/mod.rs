@@ -967,6 +967,7 @@ impl OlmMachine {
     #[instrument()]
     async fn receive_room_key_bundle_data(
         &self,
+        sender_key: Curve25519PublicKey,
         event: &DecryptedRoomKeyBundleEvent,
         changes: &mut Changes,
     ) -> OlmResult<()> {
@@ -975,8 +976,8 @@ impl OlmMachine {
             return Ok(());
         };
 
-        // We already checked that `sender_device_keys` matches the actual sender of the
-        // message when we decrypted the message, which included doing
+        // NOTE: We already checked that `sender_device_keys` matches the actual sender
+        // of the message when we decrypted the message, which included doing
         // `DeviceData::try_from` on it, so it can't fail.
 
         let sender_device_data =
@@ -986,6 +987,7 @@ impl OlmMachine {
         changes.received_room_key_bundles.push(StoredRoomKeyBundleData {
             sender_user: event.sender.clone(),
             sender_data: SenderData::from_device(&sender_device),
+            sender_key,
             bundle_data: event.content.clone(),
         });
         Ok(())
@@ -1287,7 +1289,7 @@ impl OlmMachine {
             }
             AnyDecryptedOlmEvent::RoomKeyBundle(e) => {
                 debug!("Received a room key bundle event {:?}", e);
-                self.receive_room_key_bundle_data(e, changes).await?;
+                self.receive_room_key_bundle_data(decrypted.result.sender_key, e, changes).await?;
             }
             AnyDecryptedOlmEvent::Custom(_) => {
                 warn!("Received an unexpected encrypted to-device event");
@@ -1788,26 +1790,7 @@ impl OlmMachine {
         session: &InboundGroupSession,
         sender: &UserId,
     ) -> MegolmResult<SenderData> {
-        /// Whether we should recalculate the Megolm sender's data, given the
-        /// current sender data. We only want to recalculate if it might
-        /// increase trust and allow us to decrypt messages that we
-        /// otherwise might refuse to decrypt.
-        ///
-        /// We recalculate for all states except:
-        ///
-        /// - SenderUnverified: the sender is trusted enough that we will
-        ///   decrypt their messages in all cases, or
-        /// - SenderVerified: the sender is the most trusted they can be.
-        fn should_recalculate_sender_data(sender_data: &SenderData) -> bool {
-            matches!(
-                sender_data,
-                SenderData::UnknownDevice { .. }
-                    | SenderData::DeviceInfo { .. }
-                    | SenderData::VerificationViolation { .. }
-            )
-        }
-
-        let sender_data = if should_recalculate_sender_data(&session.sender_data) {
+        let sender_data = if session.sender_data.should_recalculate() {
             // The session is not sure of the sender yet. Try to find a matching device
             // belonging to the claimed sender of the recently-received event.
             //

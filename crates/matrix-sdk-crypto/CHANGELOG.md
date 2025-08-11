@@ -7,7 +7,9 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased] - ReleaseDate
 
 ### Features
-
+- Make sure to accept historic room key bundles only if the sender is trusted
+  enough.
+  ([#5510](https://github.com/matrix-org/matrix-rust-sdk/pull/5510))
 - [**breaking**]: When in "exclude insecure devices" mode, refuse to decrypt
   incoming to-device messages from unverified devices, except for some
   exceptions for certain event types. To support this, a new variant has been
@@ -19,7 +21,7 @@ All notable changes to this project will be documented in this file.
   `DecryptionSettings { sender_device_trust_requirement: TrustRequirement::Untrusted }`.
   Affected methods are `OlmMachine::receive_sync_changes`,
   `RehydratedDevice::receive_events`, and several internal methods.
-  ([#5319](https://github.com/matrix-org/matrix-rust-sdk/pull/5319)
+  ([#5319](https://github.com/matrix-org/matrix-rust-sdk/pull/5319))
 - [**breaking**] The `Device::encrypt_event_raw` and (experimental)
   `OlmMachine::encrypt_content_for_devices` have new `share_strategy` parameters
   to ensure that the recipients are sufficiently trusted.

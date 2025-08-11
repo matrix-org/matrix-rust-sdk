@@ -44,6 +44,7 @@ use matrix_sdk_base::crypto::{
 use matrix_sdk_common::{executor::spawn, locks::Mutex as StdMutex};
 use ruma::{
     api::client::{
+        error::ErrorBody,
         keys::{
             get_keys, upload_keys, upload_signatures::v3::Request as UploadSignaturesRequest,
             upload_signing_keys::v3::Request as UploadSigningKeysRequest,
@@ -85,7 +86,7 @@ use crate::{
     client::{ClientInner, WeakClient},
     error::HttpResult,
     store_locks::CrossProcessStoreLockGuard,
-    Client, Error, HttpError, Result, Room, TransmissionProgress,
+    Client, Error, HttpError, Result, Room, RumaApiError, TransmissionProgress,
 };
 
 pub mod backups;
@@ -622,7 +623,26 @@ impl Client {
                 self.keys_query(r.request_id(), request.device_keys.clone()).await?;
             }
             AnyOutgoingRequest::KeysUpload(request) => {
-                self.keys_upload(r.request_id(), request).await?;
+                self.keys_upload(r.request_id(), request).await.inspect_err(|e| {
+                    match e.as_ruma_api_error() {
+                        Some(RumaApiError::ClientApi(e)) if e.status_code == 400 => {
+                            if let ErrorBody::Standard { message, .. } = &e.body {
+                                // This is one of the nastiest errors we can have. The server
+                                // telling us that we already have a one-time key uploaded means
+                                // that we forgot about some of our one-time keys. This will lead to
+                                // UTDs.
+                                if message.starts_with("One time key") {
+                                    tracing::error!(
+                                        sentry = true,
+                                        error_message = message,
+                                        "Duplicate one-time keys have been uploaded"
+                                    );
+                                }
+                            }
+                        }
+                        _ => {}
+                    }
+                })?;
             }
             AnyOutgoingRequest::ToDeviceRequest(request) => {
                 let response = self.send_to_device(request).await?;

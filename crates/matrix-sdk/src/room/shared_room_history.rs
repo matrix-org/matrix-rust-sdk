@@ -14,10 +14,7 @@
 
 use std::iter;
 
-use matrix_sdk_base::{
-    crypto::store::types::StoredRoomKeyBundleData,
-    media::{MediaFormat, MediaRequestParameters},
-};
+use matrix_sdk_base::media::{MediaFormat, MediaRequestParameters};
 use ruma::{events::room::MediaSource, OwnedUserId, UserId};
 use tracing::{info, instrument, warn};
 
@@ -124,23 +121,29 @@ pub(crate) async fn maybe_accept_key_bundle(room: &Room, inviter: &UserId) -> Re
         return Ok(());
     };
 
-    let Some(StoredRoomKeyBundleData { sender_user, sender_data, bundle_data }) =
+    let Some(bundle_info) =
         olm_machine.store().get_received_room_key_bundle_data(room.room_id(), inviter).await?
     else {
         // No bundle received (yet).
-        // TODO: deal with the bundle arriving later (https://github.com/matrix-org/matrix-rust-sdk/issues/4926)
-        // We need to check for all them bundles in the store when we create the client
-        // object and we need to process them when they arrive.
         return Ok(());
     };
 
-    tracing::Span::current().record("bundle_sender", sender_user.as_str());
+    tracing::Span::current().record("bundle_sender", bundle_info.sender_user.as_str());
+
+    // Ensure that we get a fresh list of devices for the inviter, in case we need
+    // to recalculate the `SenderData`.
+    let (req_id, request) =
+        olm_machine.query_keys_for_users(iter::once(bundle_info.sender_user.as_ref()));
+
+    if !request.device_keys.is_empty() {
+        room.client.keys_query(&req_id, request.device_keys).await?;
+    }
 
     let bundle_content = client
         .media()
         .get_media_content(
             &MediaRequestParameters {
-                source: MediaSource::Encrypted(Box::new(bundle_data.file)),
+                source: MediaSource::Encrypted(Box::new(bundle_info.bundle_data.file.clone())),
                 format: MediaFormat::File,
             },
             false,
@@ -152,9 +155,7 @@ pub(crate) async fn maybe_accept_key_bundle(room: &Room, inviter: &UserId) -> Re
             olm_machine
                 .store()
                 .receive_room_key_bundle(
-                    room.room_id(),
-                    &sender_user,
-                    &sender_data,
+                    &bundle_info,
                     bundle,
                     // TODO: Use the progress listener and expose an argument for it.
                     |_, _| {},

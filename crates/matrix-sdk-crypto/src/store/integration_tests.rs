@@ -1304,6 +1304,7 @@ macro_rules! cryptostore_integration_tests {
 
                     StoredRoomKeyBundleData {
                         sender_user: sender_user.to_owned(),
+                        sender_key: Curve25519PublicKey::from_bytes([0u8; 32]),
                         sender_data: SenderData::unknown(),
                         bundle_data: RoomKeyBundleContent {
                             room_id: room_id!("!room:example.org").to_owned(),

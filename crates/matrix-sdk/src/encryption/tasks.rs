@@ -479,6 +479,7 @@ mod test {
     };
     use ruma::{event_id, room_id, user_id};
     use serde_json::json;
+    use vodozemac::Curve25519PublicKey;
     use wiremock::MockServer;
 
     use super::*;
@@ -584,6 +585,7 @@ mod test {
 
         let bundle_info = RoomKeyBundleInfo {
             sender: bob_user_id.to_owned(),
+            sender_key: Curve25519PublicKey::from_bytes([0u8; 32]),
             room_id: joined_room_id.to_owned(),
         };
 
