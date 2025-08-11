@@ -49,6 +49,18 @@ impl SpaceService {
         self.inner.joined_spaces().into_iter().map(Into::into).collect()
     }
 
+    pub fn subscribe_to_joined_spaces(&self, listener: Box<dyn SpaceServiceJoinedSpacesListener>) {
+        let entries_stream = self.inner.subscribe_to_joined_spaces();
+
+        Arc::new(TaskHandle::new(get_runtime_handle().spawn(async move {
+            pin_mut!(entries_stream);
+
+            while let Some(rooms) = entries_stream.next().await {
+                listener.on_update(rooms.into_iter().map(Into::into).collect());
+            }
+        })));
+    }
+
     #[allow(clippy::unused_async)]
     // This method doesn't need to be async but if its not the FFI layer panics
     // with "there is no no reactor running, must be called from the context
@@ -110,6 +122,10 @@ impl SpaceServiceRoomList {
             }
         })));
     }
+
+    pub async fn paginate(&self) -> Result<(), ClientError> {
+        self.inner.paginate().await.map_err(ClientError::from)
+    }
 }
 
 #[derive(uniffi::Enum)]
@@ -140,6 +156,11 @@ pub trait SpaceServiceRoomListPaginationStateListener:
 
 #[matrix_sdk_ffi_macros::export(callback_interface)]
 pub trait SpaceServiceRoomListEntriesListener: SendOutsideWasm + SyncOutsideWasm + Debug {
+    fn on_update(&self, rooms: Vec<SpaceServiceRoom>);
+}
+
+#[matrix_sdk_ffi_macros::export(callback_interface)]
+pub trait SpaceServiceJoinedSpacesListener: SendOutsideWasm + SyncOutsideWasm + Debug {
     fn on_update(&self, rooms: Vec<SpaceServiceRoom>);
 }
 
