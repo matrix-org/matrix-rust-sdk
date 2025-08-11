@@ -155,15 +155,16 @@ impl SpaceServiceRoomList {
                     result
                         .rooms
                         .iter()
-                        .map(|room| {
-                            (
-                                &room.summary,
-                                self.client.get_room(&room.summary.room_id),
-                                room.children_state.len(),
-                            )
-                        })
-                        .map(|(summary, room, children_count)| {
-                            SpaceServiceRoom::new_from_summary(summary, room, children_count as u64)
+                        .flat_map(|room| {
+                            if room.summary.room_id == self.parent_space_id {
+                                None
+                            } else {
+                                Some(SpaceServiceRoom::new_from_summary(
+                                    &room.summary,
+                                    self.client.get_room(&room.summary.room_id),
+                                    room.children_state.len() as u64,
+                                ))
+                            }
                         })
                         .collect::<Vec<_>>(),
                 );
