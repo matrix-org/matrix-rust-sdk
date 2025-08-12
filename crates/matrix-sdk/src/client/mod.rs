@@ -45,6 +45,7 @@ use ruma::{
         client::{
             account::whoami,
             alias::{create_alias, delete_alias, get_alias},
+            authenticated_media,
             device::{delete_devices, get_devices, update_device},
             directory::{get_public_rooms, get_public_rooms_filtered},
             discovery::{
@@ -55,6 +56,7 @@ use ruma::{
             error::ErrorKind,
             filter::{create_filter::v3::Request as FilterUploadRequest, FilterDefinition},
             knock::knock_room,
+            media,
             membership::{join_room_by_id, join_room_by_id_or_alias},
             room::create_room,
             session::login::v3::DiscoveryInfo,
@@ -2792,12 +2794,22 @@ impl Client {
             return Ok(data.to_owned());
         }
 
-        let response = self
-            .send(ruma::api::client::authenticated_media::get_media_config::v1::Request::default())
-            .await?;
+        // Use the authenticated endpoint when the server supports it.
+        let supported_versions = self.supported_versions().await?;
+        let use_auth =
+            authenticated_media::get_media_config::v1::Request::is_supported(&supported_versions);
 
-        match max_upload_size_lock.set(response.upload_size) {
-            Ok(_) => Ok(response.upload_size),
+        let upload_size = if use_auth {
+            self.send(authenticated_media::get_media_config::v1::Request::default())
+                .await?
+                .upload_size
+        } else {
+            #[allow(deprecated)]
+            self.send(media::get_media_config::v3::Request::default()).await?.upload_size
+        };
+
+        match max_upload_size_lock.set(upload_size) {
+            Ok(_) => Ok(upload_size),
             Err(error) => {
                 Err(Error::Media(MediaError::FetchMaxUploadSizeFailed(error.to_string())))
             }
@@ -3803,13 +3815,64 @@ pub(crate) mod tests {
     }
 
     #[async_test]
-    async fn test_load_or_fetch_max_upload_size() {
+    async fn test_load_or_fetch_max_upload_size_with_auth_matrix_version() {
+        // The default Matrix version we use is 1.11 or higher, so authenticated media
+        // is supported.
         let server = MatrixMockServer::new().await;
         let client = server.client_builder().build().await;
 
         assert!(!client.inner.server_max_upload_size.lock().await.initialized());
 
         server.mock_authenticated_media_config().ok(uint!(2)).mock_once().mount().await;
+        client.load_or_fetch_max_upload_size().await.unwrap();
+
+        assert_eq!(*client.inner.server_max_upload_size.lock().await.get().unwrap(), uint!(2));
+    }
+
+    #[async_test]
+    async fn test_load_or_fetch_max_upload_size_with_auth_stable_feature() {
+        // The server must advertise support for the stable feature for authenticated
+        // media support, so we mock the `GET /versions` response.
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().no_server_versions().build().await;
+
+        server
+            .mock_versions()
+            .ok_custom(
+                &["v1.7", "v1.8", "v1.9", "v1.10"],
+                &[("org.matrix.msc3916.stable", true)].into(),
+            )
+            .named("versions")
+            .expect(1)
+            .mount()
+            .await;
+
+        assert!(!client.inner.server_max_upload_size.lock().await.initialized());
+
+        server.mock_authenticated_media_config().ok(uint!(2)).mock_once().mount().await;
+        client.load_or_fetch_max_upload_size().await.unwrap();
+
+        assert_eq!(*client.inner.server_max_upload_size.lock().await.get().unwrap(), uint!(2));
+    }
+
+    #[async_test]
+    async fn test_load_or_fetch_max_upload_size_no_auth() {
+        // The server must not support Matrix 1.11 or higher for unauthenticated
+        // media requests, so we mock the `GET /versions` response.
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().no_server_versions().build().await;
+
+        server
+            .mock_versions()
+            .ok_custom(&["v1.1"], &Default::default())
+            .named("versions")
+            .expect(1)
+            .mount()
+            .await;
+
+        assert!(!client.inner.server_max_upload_size.lock().await.initialized());
+
+        server.mock_media_config().ok(uint!(2)).mock_once().mount().await;
         client.load_or_fetch_max_upload_size().await.unwrap();
 
         assert_eq!(*client.inner.server_max_upload_size.lock().await.get().unwrap(), uint!(2));
