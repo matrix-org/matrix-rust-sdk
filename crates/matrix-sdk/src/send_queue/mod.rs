@@ -143,10 +143,11 @@ use matrix_sdk_base::store::FinishGalleryItemInfo;
 use matrix_sdk_base::{
     event_cache::store::EventCacheStoreError,
     media::MediaRequestParameters,
+    serde_helpers::extract_thread_root_from_content,
     store::{
         ChildTransactionId, DependentQueuedRequest, DependentQueuedRequestKind, DynStateStore,
         FinishUploadThumbnailInfo, QueueWedgeError, QueuedRequest, QueuedRequestKind,
-        SentMediaInfo, SentRequestKey, SerializableEventContent,
+        SentMediaInfo, SentRequestKey, SerializableEventContent, ThreadSubscription,
     },
     store_locks::LockStoreError,
     RoomState, StoreError,
@@ -819,11 +820,34 @@ impl RoomSendQueue {
             QueuedRequestKind::Event { content } => {
                 let (event, event_type) = content.raw();
 
+                let thread_root = room
+                    .client()
+                    .enabled_thread_subscriptions()
+                    .then(|| extract_thread_root_from_content(event))
+                    .flatten();
+
                 let res = room
                     .send_raw(event_type, event)
                     .with_transaction_id(&request.transaction_id)
                     .with_request_config(RequestConfig::short_retry())
                     .await?;
+
+                if let Some(thread_root) = thread_root {
+                    // Subscribe to the thread root, if it's not subscribed to in a manual way.
+                    match room.load_or_fetch_thread_subscription(&thread_root).await {
+                        Err(err) => {
+                            warn!(txn_id = %request.transaction_id, thread_root = %thread_root, "unable to load thread subscription: {err}");
+                        }
+                        Ok(Some(ThreadSubscription { automatic: true, .. })) | Ok(None) => {
+                            if let Err(err) = room.subscribe_thread(thread_root, None).await {
+                                warn!("unable to subscribe to thread: {err}");
+                            }
+                        }
+                        _ => {
+                            // Already manually subscribed to the thread.
+                        }
+                    }
+                }
 
                 trace!(txn_id = %request.transaction_id, event_id = %res.event_id, "event successfully sent");
                 Ok(Some(SentRequestKey::Event(res.event_id)))

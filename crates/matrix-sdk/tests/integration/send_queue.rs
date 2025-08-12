@@ -14,7 +14,7 @@ use matrix_sdk::{
         RoomSendQueueStorageError, RoomSendQueueUpdate, SendHandle, SendQueueUpdate,
     },
     test_utils::mocks::{MatrixMock, MatrixMockServer},
-    Client, MemoryStore,
+    Client, MemoryStore, ThreadingSupport,
 };
 use matrix_sdk_test::{
     async_test, event_factory::EventFactory, InvitedRoomBuilder, KnockedRoomBuilder,
@@ -29,6 +29,7 @@ use ruma::{
             NewUnstablePollStartEventContent, UnstablePollAnswer, UnstablePollAnswers,
             UnstablePollStartContentBlock, UnstablePollStartEventContent,
         },
+        relation::Thread,
         room::{
             message::{
                 ImageMessageEventContent, MessageType, Relation, ReplyWithinThread,
@@ -3711,4 +3712,114 @@ async fn test_update_caption_while_sending_media_event() {
 
     // That's all, folks!
     assert!(watch.is_empty());
+}
+
+#[async_test]
+async fn test_sending_reply_in_thread_auto_subscribe() {
+    let server = MatrixMockServer::new().await;
+
+    // Assuming a client that's interested in thread subscriptions,
+    let client = server
+        .client_builder()
+        .on_builder(|builder| {
+            builder.with_threading_support(ThreadingSupport::Enabled { with_subscriptions: true })
+        })
+        .build()
+        .await;
+
+    client.event_cache().subscribe().unwrap();
+
+    let room_id = room_id!("!a:b.c");
+    let room = server.sync_joined_room(&client, room_id).await;
+
+    server.mock_room_state_encryption().plain().mount().await;
+
+    // When I send a message to a thread,
+    let thread_root = event_id!("$thread");
+
+    let mut content = RoomMessageEventContent::text_plain("hello world");
+    content.relates_to =
+        Some(Relation::Thread(Thread::plain(thread_root.to_owned(), thread_root.to_owned())));
+
+    server.mock_room_send().ok(event_id!("$reply")).mock_once().mount().await;
+
+    server
+        .mock_put_thread_subscription()
+        .match_room_id(room_id.to_owned())
+        .match_thread_id(thread_root.to_owned())
+        .ok()
+        .mock_once()
+        .mount()
+        .await;
+
+    let (_, mut stream) = room.send_queue().subscribe().await.unwrap();
+    room.send_queue().send(content.into()).await.unwrap();
+
+    // Let the send queue process the event.
+    assert_let!(RoomSendQueueUpdate::NewLocalEvent(..) = stream.recv().await.unwrap());
+    assert_let!(RoomSendQueueUpdate::SentEvent { .. } = stream.recv().await.unwrap());
+
+    // Check the endpoints have been correctly called.
+    server.server().reset().await;
+
+    // Now, if I send a message in a thread I've already subscribed to, in automatic
+    // mode, this promotes the subscription to manual.
+
+    // Subscribed, automatically.
+    server
+        .mock_get_thread_subscription()
+        .match_room_id(room_id.to_owned())
+        .match_thread_id(thread_root.to_owned())
+        .ok(true)
+        .mount()
+        .await;
+
+    // I'll get one subscription.
+    server
+        .mock_put_thread_subscription()
+        .match_room_id(room_id.to_owned())
+        .match_thread_id(thread_root.to_owned())
+        .ok()
+        .mock_once()
+        .mount()
+        .await;
+
+    server.mock_room_send().ok(event_id!("$reply")).mock_once().mount().await;
+
+    let mut content = RoomMessageEventContent::text_plain("hello world");
+    content.relates_to =
+        Some(Relation::Thread(Thread::plain(thread_root.to_owned(), thread_root.to_owned())));
+    room.send_queue().send(content.into()).await.unwrap();
+
+    // Let the send queue process the event.
+    assert_let!(RoomSendQueueUpdate::NewLocalEvent(..) = stream.recv().await.unwrap());
+    assert_let!(RoomSendQueueUpdate::SentEvent { .. } = stream.recv().await.unwrap());
+
+    // Check the endpoints have been correctly called.
+    server.server().reset().await;
+
+    // Subscribed, but manually.
+    server
+        .mock_get_thread_subscription()
+        .match_room_id(room_id.to_owned())
+        .match_thread_id(thread_root.to_owned())
+        .ok(false)
+        .mount()
+        .await;
+
+    // I'll get zero subscription.
+    server.mock_put_thread_subscription().ok().expect(0).mount().await;
+
+    server.mock_room_send().ok(event_id!("$reply")).mock_once().mount().await;
+
+    let mut content = RoomMessageEventContent::text_plain("hello world");
+    content.relates_to =
+        Some(Relation::Thread(Thread::plain(thread_root.to_owned(), thread_root.to_owned())));
+    room.send_queue().send(content.into()).await.unwrap();
+
+    // Let the send queue process the event.
+    assert_let!(RoomSendQueueUpdate::NewLocalEvent(..) = stream.recv().await.unwrap());
+    assert_let!(RoomSendQueueUpdate::SentEvent { .. } = stream.recv().await.unwrap());
+
+    sleep(Duration::from_millis(100)).await;
 }
