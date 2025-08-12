@@ -1,8 +1,15 @@
 [package]
+edition = "2024"
+homepage = "https://github.com/matrix-org/matrix-rust-sdk"
+keywords = ["matrix", "chat", "messaging", "ruma"]
+license = "Apache-2.0"
 name = "matrix-sdk-test-utils"
 version = "0.1.0"
 edition = "2024"
 rust-version.workspace = true
+
+[package.metadata.release]
+release = true
 
 [target.'cfg(not(target_family = "wasm"))'.dependencies]
 ctor = "0.2.9"
