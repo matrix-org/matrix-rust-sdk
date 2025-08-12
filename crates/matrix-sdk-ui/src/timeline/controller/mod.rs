@@ -21,9 +21,8 @@ use eyeball_im_util::vector::{FilterMap, VectorObserverExt};
 use futures_core::Stream;
 use imbl::Vector;
 #[cfg(test)]
-use matrix_sdk::crypto::OlmMachine;
+use matrix_sdk::Result;
 use matrix_sdk::{
-    Result, Room,
     deserialized_responses::TimelineEvent,
     event_cache::{RoomEventCache, RoomPaginationStatus},
     paginators::{PaginationResult, Paginator},
@@ -31,6 +30,8 @@ use matrix_sdk::{
         LocalEcho, LocalEchoContent, RoomSendQueueUpdate, SendHandle, SendReactionHandle,
     },
 };
+#[cfg(test)]
+use ruma::events::receipt::ReceiptEventContent;
 use ruma::{
     EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, TransactionId, UserId,
     api::client::receipt::create_receipt::v3::ReceiptType as SendReceiptType,
@@ -46,8 +47,6 @@ use ruma::{
     room_version_rules::RoomVersionRules,
     serde::Raw,
 };
-#[cfg(test)]
-use ruma::{OwnedRoomId, RoomId, events::receipt::ReceiptEventContent};
 use tokio::sync::{RwLock, RwLockWriteGuard};
 use tracing::{debug, error, field::debug, info, instrument, trace, warn};
 
@@ -68,11 +67,11 @@ use super::{
     event_item::{ReactionStatus, RemoteEventOrigin},
     item::TimelineUniqueId,
     subscriber::TimelineSubscriber,
-    traits::{Decryptor, RoomDataProvider},
+    traits::RoomDataProvider,
 };
 use crate::{
     timeline::{
-        MsgLikeContent, MsgLikeKind, TimelineEventFilterFn,
+        MsgLikeContent, MsgLikeKind, Room, TimelineEventFilterFn,
         algorithms::rfind_event_by_item_id,
         date_dividers::DateDividerAdjuster,
         event_item::TimelineItemHandle,
@@ -152,7 +151,7 @@ impl<P: RoomDataProvider> TimelineFocusKind<P> {
 }
 
 #[derive(Clone, Debug)]
-pub(super) struct TimelineController<P: RoomDataProvider = Room, D: Decryptor = Room> {
+pub(super) struct TimelineController<P: RoomDataProvider = Room> {
     /// Inner mutable state.
     state: Arc<RwLock<TimelineState<P>>>,
 
@@ -161,7 +160,8 @@ pub(super) struct TimelineController<P: RoomDataProvider = Room, D: Decryptor = 
 
     /// A [`RoomDataProvider`] implementation, providing data.
     ///
-    /// Useful for testing only; in the real world, it's just a [`Room`].
+    /// The type is a `RoomDataProvider` to allow testing. In the real world,
+    /// this would normally be a [`Room`].
     pub(crate) room_data_provider: P,
 
     /// Settings applied to this timeline.
@@ -169,7 +169,7 @@ pub(super) struct TimelineController<P: RoomDataProvider = Room, D: Decryptor = 
 
     /// Long-running task used to retry decryption of timeline items without
     /// blocking main processing.
-    decryption_retry_task: DecryptionRetryTask<P, D>,
+    decryption_retry_task: DecryptionRetryTask<P, P>,
 }
 
 #[derive(Clone)]
@@ -290,7 +290,7 @@ pub fn default_event_filter(event: &AnySyncTimelineEvent, rules: &RoomVersionRul
     }
 }
 
-impl<P: RoomDataProvider, D: Decryptor> TimelineController<P, D> {
+impl<P: RoomDataProvider> TimelineController<P> {
     pub(super) fn new(
         room_data_provider: P,
         focus: TimelineFocus,
@@ -1103,12 +1103,10 @@ impl<P: RoomDataProvider, D: Decryptor> TimelineController<P, D> {
         true
     }
 
-    async fn retry_event_decryption_inner(
-        &self,
-        decryptor: D,
-        session_ids: Option<BTreeSet<String>>,
-    ) {
-        self.decryption_retry_task.decrypt(decryptor, session_ids, self.settings.clone()).await;
+    pub(crate) async fn retry_event_decryption_inner(&self, session_ids: Option<BTreeSet<String>>) {
+        self.decryption_retry_task
+            .decrypt(self.room_data_provider.clone(), session_ids, self.settings.clone())
+            .await;
     }
 
     pub(super) async fn set_sender_profiles_pending(&self) {
@@ -1250,7 +1248,7 @@ impl<P: RoomDataProvider, D: Decryptor> TimelineController<P, D> {
     /// Subscribe to changes in the read receipts of our own user.
     pub async fn subscribe_own_user_read_receipts_changed(
         &self,
-    ) -> impl Stream<Item = ()> + use<P, D> {
+    ) -> impl Stream<Item = ()> + use<P> {
         self.state.read().await.meta.read_receipts.subscribe_own_user_read_receipts_changed()
     }
 
@@ -1604,7 +1602,7 @@ impl TimelineController {
 
     #[instrument(skip(self), fields(room_id = ?self.room().room_id()))]
     pub(super) async fn retry_event_decryption(&self, session_ids: Option<BTreeSet<String>>) {
-        self.retry_event_decryption_inner(self.room().clone(), session_ids).await
+        self.retry_event_decryption_inner(session_ids).await
     }
 
     /// Combine the global (event cache) pagination status with the local state
@@ -1635,18 +1633,6 @@ impl TimelineController {
 
         // You're perfect, just the way you are.
         status
-    }
-}
-
-#[cfg(test)]
-impl<P: RoomDataProvider> TimelineController<P, (OlmMachine, OwnedRoomId)> {
-    pub(super) async fn retry_event_decryption_test(
-        &self,
-        room_id: &RoomId,
-        olm_machine: OlmMachine,
-        session_ids: Option<BTreeSet<String>>,
-    ) {
-        self.retry_event_decryption_inner((olm_machine, room_id.to_owned()), session_ids).await
     }
 }
 

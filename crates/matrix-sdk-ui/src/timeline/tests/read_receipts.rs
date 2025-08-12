@@ -32,8 +32,9 @@ use stream_assert::{assert_next_matches, assert_pending};
 
 use super::{ReadReceiptMap, TestRoomDataProvider};
 use crate::timeline::{
-    MsgLikeContent, MsgLikeKind, TimelineFocus, controller::TimelineSettings,
-    tests::TestTimelineBuilder,
+    MsgLikeContent, MsgLikeKind, TimelineFocus,
+    controller::TimelineSettings,
+    tests::{TestDecryptor, TestTimelineBuilder},
 };
 
 fn filter_notice(ev: &AnySyncTimelineEvent, _rules: &RoomVersionRules) -> bool {
@@ -412,12 +413,19 @@ async fn test_read_receipts_updates_on_message_decryption() {
         HztoSJUr/2Y\n\
         -----END MEGOLM SESSION DATA-----";
 
+    let own_user_id = user_id!("@example:morheus.localhost");
+    let olm_machine = OlmMachine::new(own_user_id, "SomeDeviceId".into()).await;
+
     let timeline = TestTimelineBuilder::new()
         .settings(TimelineSettings {
             track_read_receipts: true,
             event_filter: Arc::new(filter_text_msg),
             ..Default::default()
         })
+        .provider(TestRoomDataProvider::default().with_decryptor(TestDecryptor::new(
+            room_id!("!DovneieKSTkdHKpIXy:morpheus.localhost"),
+            &olm_machine,
+        )))
         .build();
     let mut stream = timeline.subscribe().await;
 
@@ -480,19 +488,13 @@ async fn test_read_receipts_updates_on_message_decryption() {
     assert!(encrypted_event.read_receipts().get(*BOB).is_some());
 
     // Decrypt encrypted message.
-    let own_user_id = user_id!("@example:morheus.localhost");
     let exported_keys = decrypt_room_key_export(Cursor::new(SESSION_KEY), "1234").unwrap();
 
-    let olm_machine = OlmMachine::new(own_user_id, "SomeDeviceId".into()).await;
     olm_machine.store().import_exported_room_keys(exported_keys, |_, _| {}).await.unwrap();
 
     timeline
         .controller
-        .retry_event_decryption_test(
-            room_id!("!DovneieKSTkdHKpIXy:morpheus.localhost"),
-            olm_machine,
-            Some(iter::once(SESSION_ID.to_owned()).collect()),
-        )
+        .retry_event_decryption_test(Some(iter::once(SESSION_ID.to_owned()).collect()))
         .await;
 
     // The first event now has both receipts.
