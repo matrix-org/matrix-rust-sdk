@@ -1,6 +1,6 @@
 [package]
 name = "matrix-sdk-test-utils"
-version = "0.13.0"
+version = "0.1.0"
 edition = "2024"
 rust-version.workspace = true
 
