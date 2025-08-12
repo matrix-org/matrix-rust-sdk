@@ -800,6 +800,7 @@ async fn test_megolm_state_encryption() {
         "origin_server_ts": MilliSecondsSinceUnixEpoch::now(),
         "sender": alice.user_id(),
         "type": "m.room.encrypted",
+        "state_key": "m.room.topic:",
         "content": encrypted_content,
     });
 

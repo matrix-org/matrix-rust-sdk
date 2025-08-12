@@ -998,6 +998,11 @@ pub enum UnableToDecryptReason {
     /// cross-signing identity did not satisfy the requested
     /// `TrustRequirement`.
     SenderIdentityNotTrusted(VerificationLevel),
+
+    /// The outer state key could not be verified against the inner encrypted
+    /// state key and type.
+    #[cfg(feature = "experimental-encrypted-state-events")]
+    StateKeyVerificationFailed,
 }
 
 impl UnableToDecryptReason {

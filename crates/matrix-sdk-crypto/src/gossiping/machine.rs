@@ -1364,6 +1364,8 @@ mod tests {
         EncryptedEvent {
             sender: sender.to_owned(),
             event_id: event_id!("$143273582443PhrSn:example.org").to_owned(),
+            #[cfg(feature = "experimental-encrypted-state-events")]
+            state_key: None,
             content,
             origin_server_ts: ruma::MilliSecondsSinceUnixEpoch::now(),
             unsigned: Default::default(),
