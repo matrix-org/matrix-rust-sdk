@@ -455,7 +455,7 @@ impl Media {
                 } else {
                     #[allow(deprecated)]
                     let request = media::get_content::v3::Request::from_url(&file.url)?;
-                    self.client.send(request).await?.file
+                    self.client.send(request).with_request_config(request_config).await?.file
                 };
 
                 #[cfg(feature = "e2e-encryption")]
@@ -505,7 +505,7 @@ impl Media {
                             request
                         };
 
-                        self.client.send(request).await?.file
+                        self.client.send(request).with_request_config(request_config).await?.file
                     }
                 } else if use_auth {
                     let request = authenticated_media::get_content::v1::Request::from_uri(uri)?;
@@ -513,7 +513,7 @@ impl Media {
                 } else {
                     #[allow(deprecated)]
                     let request = media::get_content::v3::Request::from_url(uri)?;
-                    self.client.send(request).await?.file
+                    self.client.send(request).with_request_config(request_config).await?.file
                 }
             }
         };
