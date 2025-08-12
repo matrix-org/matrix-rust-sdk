@@ -1231,7 +1231,7 @@ impl MatrixMockServer {
         &self,
     ) -> MockEndpoint<'_, AuthenticatedMediaConfigEndpoint> {
         let mock = Mock::given(method("GET")).and(path("/_matrix/client/v1/media/config"));
-        self.mock_endpoint(mock, AuthenticatedMediaConfigEndpoint).expect_default_access_token()
+        self.mock_endpoint(mock, AuthenticatedMediaConfigEndpoint)
     }
 
     /// Create a prebuilt mock for the endpoint used to get the media config of
@@ -1556,6 +1556,15 @@ impl<'a, T> MockEndpoint<'a, T> {
     /// Expect authentication with the given access token on this endpoint.
     pub fn expect_access_token(mut self, access_token: &'static str) -> Self {
         self.expected_access_token = ExpectedAccessToken::Custom(access_token);
+        self
+    }
+
+    /// Don't expect authentication with an access token on this endpoint.
+    ///
+    /// This should be used to override the default behavior of the endpoint,
+    /// when the access token is unknown for example.
+    pub fn do_not_expect_access_token(mut self) -> Self {
+        self.expected_access_token = ExpectedAccessToken::None;
         self
     }
 
@@ -3763,13 +3772,6 @@ impl<'a> MockEndpoint<'a, MediaDownloadEndpoint> {
         self.respond_with(ResponseTemplate::new(200).set_body_string("Hello, World!"))
     }
 
-    /// Returns a successful response with the given bytes.
-    pub fn ok_bytes(self, bytes: Vec<u8>) -> MatrixMock<'a> {
-        self.respond_with(
-            ResponseTemplate::new(200).set_body_raw(bytes, "application/octet-stream"),
-        )
-    }
-
     /// Returns a successful response with a fake image content.
     pub fn ok_image(self) -> MatrixMock<'a> {
         self.respond_with(
@@ -3797,6 +3799,13 @@ impl<'a> MockEndpoint<'a, AuthedMediaDownloadEndpoint> {
     /// Returns a successful response with a plain text content.
     pub fn ok_plain_text(self) -> MatrixMock<'a> {
         self.respond_with(ResponseTemplate::new(200).set_body_string("Hello, World!"))
+    }
+
+    /// Returns a successful response with the given bytes.
+    pub fn ok_bytes(self, bytes: Vec<u8>) -> MatrixMock<'a> {
+        self.respond_with(
+            ResponseTemplate::new(200).set_body_raw(bytes, "application/octet-stream"),
+        )
     }
 
     /// Returns a successful response with a fake image content.
