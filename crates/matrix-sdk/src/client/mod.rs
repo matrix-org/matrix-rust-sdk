@@ -62,6 +62,7 @@ use ruma::{
             uiaa,
             user_directory::search_users,
         },
+        federation::discovery::get_server_version,
         error::FromHttpResponseError,
         FeatureFlag, MatrixVersion, OutgoingRequest, SupportedVersions,
     },
@@ -149,6 +150,15 @@ pub enum SessionChange {
     },
     /// The session's tokens have been refreshed.
     TokensRefreshed,
+}
+
+/// Information about the server version obtained from the federation API.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ServerVersionInfo {
+    /// The server name.
+    pub server_name: OwnedServerName,
+    /// The server version.
+    pub version: String,
 }
 
 /// An async/await enabled Matrix client.
@@ -519,6 +529,40 @@ impl Client {
     pub async fn get_capabilities(&self) -> HttpResult<Capabilities> {
         let res = self.send(get_capabilities::v3::Request::new()).await?;
         Ok(res.capabilities)
+    }
+
+    /// Get the server version information from the federation API.
+    ///
+    /// This method calls the `/_matrix/federation/v1/version` endpoint to get
+    /// both the server name and version.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # use matrix_sdk::Client;
+    /// # use url::Url;
+    /// # async {
+    /// # let homeserver = Url::parse("http://example.com")?;
+    /// let client = Client::new(homeserver).await?;
+    ///
+    /// let server_info = client.server_version().await?;
+    /// println!("Server: {}, Version: {}", server_info.server_name, server_info.version);
+    /// # anyhow::Ok(()) };
+    /// ```
+    pub async fn server_version(&self) -> HttpResult<ServerVersionInfo> {
+        let res = self.send(get_server_version::v1::Request::new()).await?;
+        
+        // Extract server info, using defaults if fields are missing
+        let server = res.server.unwrap_or_default();
+        let server_name_str = server.name.unwrap_or_else(|| "unknown".to_string());
+        let version = server.version.unwrap_or_else(|| "unknown".to_string());
+        
+        // Try to parse the server name, fallback to a safe default if parsing fails
+        let server_name = server_name_str
+            .try_into()
+            .unwrap_or_else(|_| "unknown.server".try_into().unwrap());
+        
+        Ok(ServerVersionInfo { server_name, version })
     }
 
     /// Get a copy of the default request config.

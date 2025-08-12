@@ -4651,6 +4651,7 @@ dependencies = [
  "ruma-events",
  "ruma-federation-api",
  "ruma-html",
+ "ruma-signatures",
  "web-time",
 ]
 
@@ -4744,7 +4745,9 @@ dependencies = [
  "headers",
  "http",
  "http-auth",
+ "httparse",
  "js_int",
+ "memchr",
  "mime",
  "ruma-common",
  "ruma-events",
@@ -4787,6 +4790,21 @@ dependencies = [
  "serde",
  "syn",
  "toml 0.8.15",
+]
+
+[[package]]
+name = "ruma-signatures"
+version = "0.17.1"
+source = "git+https://github.com/ruma/ruma?rev=e73f302e4df7f5f0511fca1aa43853d4cf8416c8#e73f302e4df7f5f0511fca1aa43853d4cf8416c8"
+dependencies = [
+ "base64",
+ "ed25519-dalek",
+ "pkcs8",
+ "rand",
+ "ruma-common",
+ "serde_json",
+ "sha2",
+ "thiserror 2.0.11",
 ]
 
 [[package]]
