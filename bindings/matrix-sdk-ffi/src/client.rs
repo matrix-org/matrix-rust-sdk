@@ -1608,6 +1608,15 @@ impl Client {
         Ok(self.inner.server_versions().await?.contains(&ruma::api::MatrixVersion::V1_13))
     }
 
+    /// Get the server version information from the federation API.
+    ///
+    /// This method calls the `/_matrix/federation/v1/version` endpoint to get
+    /// both the server name and version.
+    pub async fn server_version(&self) -> Result<ServerVersionInfo, ClientError> {
+        let server_info = self.inner.server_version().await?;
+        Ok(server_info.into())
+    }
+
     /// Checks if the server supports the LiveKit RTC focus for placing calls.
     pub async fn is_livekit_rtc_supported(&self) -> Result<bool, ClientError> {
         Ok(self
@@ -1794,6 +1803,23 @@ impl From<search_users::v3::Response> for SearchUsersResults {
     fn from(value: search_users::v3::Response) -> Self {
         let results: Vec<UserProfile> = value.results.iter().map(UserProfile::from).collect();
         SearchUsersResults { results, limited: value.limited }
+    }
+}
+
+#[derive(uniffi::Record)]
+pub struct ServerVersionInfo {
+    /// The server name.
+    pub server_name: String,
+    /// The server version.
+    pub version: String,
+}
+
+impl From<matrix_sdk::ServerVersionInfo> for ServerVersionInfo {
+    fn from(value: matrix_sdk::ServerVersionInfo) -> Self {
+        Self {
+            server_name: value.server_name.to_string(),
+            version: value.version,
+        }
     }
 }
 
