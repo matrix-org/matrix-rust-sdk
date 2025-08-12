@@ -25,26 +25,26 @@
 //! See the [github issue](https://github.com/matrix-org/matrix-rust-sdk/issues/3058) for more
 //! details about the historical reasons that led us to start writing this.
 
-use ruma::{
-    MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedUserId,
-    events::{
-        AnyMessageLikeEvent, MessageLikeEvent, MessageLikeEventContent, RedactContent,
-        RedactedMessageLikeEventContent, room::message::MessageType,
-    },
+use ruma::events::{
+    AnyMessageLikeEvent, MessageLikeEvent, MessageLikeEventContent, RedactContent,
+    RedactedMessageLikeEventContent, room::message::MessageType,
 };
 use tantivy::{
     DateTime, TantivyDocument, doc,
     schema::{DateOptions, DateTimePrecision, Field, INDEXED, STORED, STRING, Schema, TEXT},
 };
 
-use crate::error::{IndexError, IndexSchemaError};
+use crate::{
+    error::{IndexError, IndexSchemaError},
+    index::RoomIndexOperation,
+};
 
 pub(crate) trait MatrixSearchIndexSchema {
     fn new() -> Self;
     fn default_search_fields(&self) -> Vec<Field>;
     fn primary_key(&self) -> Field;
     fn as_tantivy_schema(&self) -> Schema;
-    fn make_doc(&self, event: AnyMessageLikeEvent) -> Result<TantivyDocument, IndexError>;
+    fn handle_event(&self, event: AnyMessageLikeEvent) -> Result<RoomIndexOperation, IndexError>;
 }
 
 #[derive(Debug, Clone)]
@@ -58,47 +58,29 @@ pub(crate) struct RoomMessageSchema {
 }
 
 impl RoomMessageSchema {
-    fn parse_event<C: MessageLikeEventContent + RedactContent, F>(
+    /// Given an [`AnyMessageLikeEvent`] and a function to convert the content
+    /// into a String to be indexed, return a [`TantivyDocument`] to index.
+    fn make_doc<C: MessageLikeEventContent + RedactContent, F>(
         &self,
         event: MessageLikeEvent<C>,
-        get_body: F,
-    ) -> Result<(OwnedEventId, String, MilliSecondsSinceUnixEpoch, OwnedUserId), IndexError>
+        get_body_from_content: F,
+    ) -> Result<TantivyDocument, IndexError>
     where
         <C as RedactContent>::Redacted: RedactedMessageLikeEventContent,
         F: FnOnce(&C) -> Result<String, IndexError>,
     {
         let unredacted = event.as_original().ok_or(IndexError::CannotIndexRedactedMessage)?;
 
-        let body = get_body(&unredacted.content)?;
+        let body = get_body_from_content(&unredacted.content)?;
 
-        Ok((
-            unredacted.event_id.clone(),
-            body,
-            unredacted.origin_server_ts,
-            unredacted.sender.clone(),
+        Ok(doc!(
+            self.event_id_field => unredacted.event_id.to_string(),
+            self.body_field => body,
+            self.date_field =>
+                DateTime::from_timestamp_millis(
+                    unredacted.origin_server_ts.get().into()),
+            self.sender_field => unredacted.sender.to_string(),
         ))
-    }
-
-    fn parse_any_event(
-        &self,
-        event: AnyMessageLikeEvent,
-    ) -> Result<(OwnedEventId, String, MilliSecondsSinceUnixEpoch, OwnedUserId), IndexError> {
-        match event {
-            // old m.room.message behaviour
-            AnyMessageLikeEvent::RoomMessage(event) => {
-                self.parse_event(event, |content| match &content.msgtype {
-                    MessageType::Text(content) => Ok(content.body.clone()),
-                    _ => Err(IndexError::MessageTypeNotSupported),
-                })
-            }
-
-            // new m.message behaviour
-            AnyMessageLikeEvent::Message(event) => self.parse_event(event, |content| {
-                content.text.find_plain().ok_or(IndexError::EmptyMessage).map(|v| v.to_owned())
-            }),
-
-            _ => Err(IndexError::MessageTypeNotSupported),
-        }
     }
 }
 
@@ -140,17 +122,25 @@ impl MatrixSearchIndexSchema for RoomMessageSchema {
         self.inner.clone()
     }
 
-    fn make_doc(&self, event: AnyMessageLikeEvent) -> Result<TantivyDocument, IndexError> {
-        let (event_id, body, timestamp, sender) = self.parse_any_event(event)?;
+    fn handle_event(&self, event: AnyMessageLikeEvent) -> Result<RoomIndexOperation, IndexError> {
+        match event {
+            // old m.room.message behaviour
+            AnyMessageLikeEvent::RoomMessage(event) => self
+                .make_doc(event, |content| match &content.msgtype {
+                    MessageType::Text(content) => Ok(content.body.clone()),
+                    _ => Err(IndexError::MessageTypeNotSupported),
+                })
+                .map(RoomIndexOperation::Add),
 
-        Ok(doc!(
-            self.event_id_field => event_id.to_string(),
-            self.body_field => body,
-            self.date_field =>
-                DateTime::from_timestamp_millis(
-                    timestamp.get().into()),
-            self.sender_field => sender.to_string(),
-        ))
+            // new m.message behaviour
+            AnyMessageLikeEvent::Message(event) => self
+                .make_doc(event, |content| {
+                    content.text.find_plain().ok_or(IndexError::EmptyMessage).map(|v| v.to_owned())
+                })
+                .map(RoomIndexOperation::Add),
+
+            _ => Err(IndexError::MessageTypeNotSupported),
+        }
     }
 }
 

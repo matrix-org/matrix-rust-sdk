@@ -768,7 +768,7 @@ async fn test_sending_message_indexes_message() {
 
     let response = room.search_index("this", 5).await.expect("search should have 1 result");
 
-    assert!(!response.is_empty(), "no results found {response:?}");
+    assert_eq!(response.len(), 1, "unexpected numbers of responses: {response:?}");
     assert_eq!(response[0], event_id, "event id doesn't match: {response:?}");
 }
 

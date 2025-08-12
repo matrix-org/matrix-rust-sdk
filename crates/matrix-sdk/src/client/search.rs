@@ -1,4 +1,4 @@
-// Copyright 2024 The Matrix.org Foundation C.I.C.
+// Copyright 2025 The Matrix.org Foundation C.I.C.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -30,7 +30,7 @@ use std::{collections::hash_map::HashMap, path::PathBuf, sync::Arc};
 use matrix_sdk_search::{error::IndexError, index::RoomIndex};
 use ruma::{events::AnyMessageLikeEvent, OwnedEventId, OwnedRoomId, RoomId};
 use tokio::sync::{Mutex, MutexGuard};
-use tracing::{debug, error, warn};
+use tracing::{debug, error};
 
 /// Type of location to store [`RoomIndex`]
 #[derive(Clone, Debug)]
@@ -85,8 +85,9 @@ impl SearchIndexGuard<'_> {
         Ok(index)
     }
 
-    /// Add [`AnyMessageLikeEvent`] to [`RoomIndex`] of given [`RoomId`]
-    pub(crate) fn index_event(
+    /// Handle an [`AnyMessageLikeEvent`] in the [`RoomIndex`] of a given
+    /// [`RoomId`]
+    pub(crate) fn handle_event(
         &mut self,
         event: AnyMessageLikeEvent,
         room_id: &RoomId,
@@ -97,7 +98,7 @@ impl SearchIndexGuard<'_> {
         }
 
         let index = self.index_map.get_mut(room_id).expect("index should exist");
-        let result = index.add_event(event);
+        let result = index.handle_event(event);
 
         match result {
             Ok(_) => {}
@@ -107,7 +108,7 @@ impl SearchIndexGuard<'_> {
                 debug!("failed to parse event for indexing: {result:?}")
             }
             Err(IndexError::TantivyError(err)) => {
-                error!("failed to add/commit event to index: {err:?}")
+                error!("failed to handle event in index: {err:?}")
             }
             Err(_) => error!("unexpected error during indexing: {result:?}"),
         }
@@ -130,7 +131,7 @@ impl SearchIndexGuard<'_> {
                 })
                 .ok()
         } else {
-            warn!("Tried to search in a room with no index");
+            debug!("Tried to search in a room with no index");
             None
         }
     }

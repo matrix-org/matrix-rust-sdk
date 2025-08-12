@@ -542,6 +542,12 @@ impl RoomEventCacheInner {
         // Add all the events to the backend.
         trace!("adding new events");
 
+        #[cfg(feature = "experimental-search")]
+        let Some(room) = self.weak_room.get() else {
+            warn!("Couldn't get room while handling timeline");
+            return Err(EventCacheError::RoomNotFound { room_id: self.room_id.clone() });
+        };
+
         let (stored_prev_batch_token, timeline_event_diffs) = self
             .state
             .write()
@@ -549,7 +555,7 @@ impl RoomEventCacheInner {
             .handle_sync(
                 timeline,
                 #[cfg(feature = "experimental-search")]
-                &self.weak_room.get().expect("Should be able to get room"),
+                &room,
             )
             .await?;
 
@@ -1466,10 +1472,7 @@ mod private {
             };
 
             match maybe_try_event {
-                Some(Ok(event)) => match event {
-                    // TODO: Handle room redaction.
-                    AnyMessageLikeEvent::RoomRedaction(_) | _ => Some(event),
-                },
+                Some(Ok(event)) => Some(event),
                 Some(Err(e)) => {
                     warn!("failed to index event: {e:?}");
                     None
@@ -1479,13 +1482,13 @@ mod private {
         }
 
         #[cfg(feature = "experimental-search")]
-        async fn index_timeline_event(
+        async fn index_handle_timeline_event(
             &self,
             event: &TimelineEvent,
             room: &Room,
         ) -> Result<(), EventCacheError> {
             if let Some(message_event) = self.parse_timeline_event(event) {
-                room.index_event(message_event).await.map_err(EventCacheError::from)
+                room.index_handle_event(message_event).await.map_err(EventCacheError::from)
             } else {
                 Ok(())
             }
@@ -1511,7 +1514,7 @@ mod private {
 
                 // We can also add the event to the index.
                 #[cfg(feature = "experimental-search")]
-                if let Err(err) = self.index_timeline_event(&event, room).await {
+                if let Err(err) = self.index_handle_timeline_event(&event, room).await {
                     warn!("error while trying to index event: {err:?}");
                 }
 

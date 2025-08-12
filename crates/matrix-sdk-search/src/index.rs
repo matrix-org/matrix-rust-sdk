@@ -44,6 +44,11 @@ use crate::{
     writer::SearchIndexWriter,
 };
 
+/// A struct to represent the operations on a [`RoomIndex`]
+pub(crate) enum RoomIndexOperation {
+    Add(TantivyDocument),
+}
+
 /// A struct that holds all data pertaining to a particular room's
 /// message index.
 pub struct RoomIndex {
@@ -130,10 +135,11 @@ impl RoomIndex {
         RoomIndex::new_with(index, schema, room_id)
     }
 
-    /// Add [`AnyMessageLikeEvent`] to [`RoomIndex`]
-    pub fn add_event(&mut self, event: AnyMessageLikeEvent) -> Result<(), IndexError> {
-        let doc = self.schema.make_doc(event)?;
-        self.writer.add_document(doc)?; // TODO: This is blocking. Handle it.
+    /// Handle [`AnyMessageLikeEvent`]
+    pub fn handle_event(&mut self, event: AnyMessageLikeEvent) -> Result<(), IndexError> {
+        match self.schema.handle_event(event)? {
+            RoomIndexOperation::Add(document) => self.writer.add_document(document)?,
+        };
         Ok(())
     }
 
@@ -206,7 +212,7 @@ mod tests {
     }
 
     #[test]
-    fn test_add_event() {
+    fn test_handle_event() {
         let room_id = room_id!("!room_id:localhost");
         let mut index =
             RoomIndex::new_in_ram(room_id).expect("failed to make index in ram: {index:?}");
@@ -218,7 +224,7 @@ mod tests {
             .sender(user_id!("@user_id:localhost"))
             .into_any_message_like_event();
 
-        index.add_event(event).expect("failed to add event: {res:?}");
+        index.handle_event(event).expect("failed to add event: {res:?}");
     }
 
     #[test]
@@ -231,7 +237,7 @@ mod tests {
         let event_id_2 = event_id!("$event_id_2:localhost");
         let event_id_3 = event_id!("$event_id_3:localhost");
 
-        index.add_event(
+        index.handle_event(
             EventFactory::new()
                 .text_msg("This is a sentence")
                 .event_id(event_id_1)
@@ -240,7 +246,7 @@ mod tests {
                 .into_any_message_like_event(),
         )?;
 
-        index.add_event(
+        index.handle_event(
             EventFactory::new()
                 .text_msg("All new words")
                 .event_id(event_id_2)
@@ -249,7 +255,7 @@ mod tests {
                 .into_any_message_like_event(),
         )?;
 
-        index.add_event(
+        index.handle_event(
             EventFactory::new()
                 .text_msg("A similar sentence")
                 .event_id(event_id_3)

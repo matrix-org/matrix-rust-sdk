@@ -3678,10 +3678,13 @@ impl Room {
         opts.send(self, event_id).await
     }
 
-    /// Add an [`AnyMessageLikeEvent`] to this room's [`RoomIndex`]
+    /// Handle an [`AnyMessageLikeEvent`] in this room's [`RoomIndex`]
     #[cfg(feature = "experimental-search")]
-    pub(crate) async fn index_event(&self, event: AnyMessageLikeEvent) -> Result<(), IndexError> {
-        self.client.search_index().lock().await.index_event(event, self.room_id())
+    pub(crate) async fn index_handle_event(
+        &self,
+        event: AnyMessageLikeEvent,
+    ) -> Result<(), IndexError> {
+        self.client.search_index().lock().await.handle_event(event, self.room_id())
     }
 
     /// Search this room's [`RoomIndex`] for query and return at most

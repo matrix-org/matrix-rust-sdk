@@ -503,8 +503,8 @@ impl ClientBuilder {
 
     /// The base directory in which each room's index directory will be stored.
     #[cfg(feature = "experimental-search")]
-    pub fn index_base_directory(mut self, path: SearchIndexStoreKind) -> Self {
-        self.search_index_store_kind = path;
+    pub fn search_index_store(mut self, kind: SearchIndexStoreKind) -> Self {
+        self.search_index_store_kind = kind;
         self
     }
 
@@ -610,10 +610,8 @@ impl ClientBuilder {
         let latest_events = OnceCell::new();
 
         #[cfg(feature = "experimental-search")]
-        let room_indexes = Arc::new(Mutex::new(HashMap::new()));
-
-        #[cfg(feature = "experimental-search")]
-        let search_index = SearchIndex::new(room_indexes, self.search_index_store_kind);
+        let search_index =
+            SearchIndex::new(Arc::new(Mutex::new(HashMap::new())), self.search_index_store_kind);
 
         let inner = ClientInner::new(
             auth_ctx,
