@@ -72,7 +72,7 @@ async fn test_shared_history_out_of_order() {
     let (event_receiver, mock) =
         matrix_mock_server.mock_room_send().ok_with_capture(event_id, alice_user_id);
 
-    mock.mock_once().mount().await;
+    mock.mock_once().named("send").mount().await;
 
     matrix_mock_server
         .mock_get_members()
@@ -87,7 +87,13 @@ async fn test_shared_history_out_of_order() {
         .expect("We should be able to send an initial message")
         .event_id;
 
-    matrix_mock_server.mock_authenticated_media_config().ok_default().mock_once().mount().await;
+    matrix_mock_server
+        .mock_authenticated_media_config()
+        .ok_default()
+        .mock_once()
+        .named("media_config")
+        .mount()
+        .await;
 
     let (receiver, upload_mock) = matrix_mock_server.mock_upload().ok_with_capture(mxid);
     upload_mock.mock_once().mount().await;
@@ -118,7 +124,7 @@ async fn test_shared_history_out_of_order() {
 
     let bob_room = bob.get_room(room_id).expect("Bob should have access to the invited room");
 
-    matrix_mock_server.mock_room_join(room_id).ok().mock_once().mount().await;
+    matrix_mock_server.mock_room_join(room_id).ok().mock_once().named("join").mount().await;
     bob_room.join().await.expect("Bob should be able to join the room");
 
     let details = bob_room
@@ -132,7 +138,14 @@ async fn test_shared_history_out_of_order() {
     );
 
     let bundle_info = bundle_info.await;
-    matrix_mock_server.mock_media_download().ok_bytes(bundle).mock_once().mount().await;
+    matrix_mock_server
+        .mock_authed_media_download()
+        .do_not_expect_access_token()
+        .ok_bytes(bundle)
+        .mock_once()
+        .named("media_download")
+        .mount()
+        .await;
 
     let mut room_key_stream = bob
         .encryption()
