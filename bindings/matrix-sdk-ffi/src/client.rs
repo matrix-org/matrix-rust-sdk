@@ -1817,7 +1817,7 @@ pub struct ServerVersionInfo {
 impl From<matrix_sdk::ServerVersionInfo> for ServerVersionInfo {
     fn from(value: matrix_sdk::ServerVersionInfo) -> Self {
         Self {
-            server_name: value.server_name.to_string(),
+            server_name: value.server_name,
             version: value.version,
         }
     }

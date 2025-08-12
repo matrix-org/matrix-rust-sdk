@@ -1514,7 +1514,7 @@ async fn test_server_version() {
 
     let server_info = client.server_version().await.unwrap();
     
-    assert_eq!(server_info.server_name.as_str(), "Synapse");
+    assert_eq!(server_info.server_name, "Synapse");
     assert_eq!(server_info.version, "1.70.0");
 }
 
@@ -1537,6 +1537,6 @@ async fn test_server_version_with_missing_fields() {
     let server_info = client.server_version().await.unwrap();
     
     // Should use defaults for missing fields
-    assert_eq!(server_info.server_name.as_str(), "unknown");
+    assert_eq!(server_info.server_name, "unknown");
     assert_eq!(server_info.version, "unknown");
 }

@@ -156,7 +156,7 @@ pub enum SessionChange {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ServerVersionInfo {
     /// The server name.
-    pub server_name: OwnedServerName,
+    pub server_name: String,
     /// The server version.
     pub version: String,
 }
@@ -557,12 +557,7 @@ impl Client {
         let server_name_str = server.name.unwrap_or_else(|| "unknown".to_string());
         let version = server.version.unwrap_or_else(|| "unknown".to_string());
         
-        // Try to parse the server name, fallback to a safe default if parsing fails
-        let server_name = server_name_str
-            .try_into()
-            .unwrap_or_else(|_| "unknown.server".try_into().unwrap());
-        
-        Ok(ServerVersionInfo { server_name, version })
+        Ok(ServerVersionInfo { server_name: server_name_str, version })
     }
 
     /// Get a copy of the default request config.
