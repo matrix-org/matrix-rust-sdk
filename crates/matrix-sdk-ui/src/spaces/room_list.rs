@@ -21,36 +21,37 @@ use matrix_sdk_common::executor::{JoinHandle, spawn};
 use ruma::{OwnedRoomId, api::client::space::get_hierarchy, uint};
 use tracing::error;
 
-use crate::spaces::SpaceServiceRoom;
+use crate::spaces::SpaceRoom;
 
+#[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub enum SpaceServiceRoomListPaginationState {
+pub enum SpaceRoomListPaginationState {
     Idle { end_reached: bool },
     Loading,
 }
 
-pub struct SpaceServiceRoomList {
+pub struct SpaceRoomList {
     client: Client,
 
     parent_space_id: OwnedRoomId,
 
     token: Mutex<PaginationToken>,
 
-    pagination_state: SharedObservable<SpaceServiceRoomListPaginationState>,
+    pagination_state: SharedObservable<SpaceRoomListPaginationState>,
 
-    rooms: SharedObservable<Vec<SpaceServiceRoom>>,
+    rooms: SharedObservable<Vec<SpaceRoom>>,
 
     room_update_handle: JoinHandle<()>,
 }
 
-impl Drop for SpaceServiceRoomList {
+impl Drop for SpaceRoomList {
     fn drop(&mut self) {
         self.room_update_handle.abort();
     }
 }
-impl SpaceServiceRoomList {
+impl SpaceRoomList {
     pub fn new(client: Client, parent_space_id: OwnedRoomId) -> Self {
-        let rooms = SharedObservable::new(Vec::<SpaceServiceRoom>::new());
+        let rooms = SharedObservable::new(Vec::<SpaceRoom>::new());
 
         let client_clone = client.clone();
         let rooms_clone = rooms.clone();
@@ -69,10 +70,7 @@ impl SpaceServiceRoomList {
                                 new_rooms.iter_mut().find(|room| &room.room_id == updated_room_id)
                                 && let Some(update_room) = client_clone.get_room(updated_room_id)
                             {
-                                *room = SpaceServiceRoom::new_from_known(
-                                    update_room,
-                                    room.children_count,
-                                );
+                                *room = SpaceRoom::new_from_known(update_room, room.children_count);
                             }
                         });
 
@@ -91,7 +89,7 @@ impl SpaceServiceRoomList {
             client,
             parent_space_id,
             token: Mutex::new(None.into()),
-            pagination_state: SharedObservable::new(SpaceServiceRoomListPaginationState::Idle {
+            pagination_state: SharedObservable::new(SpaceRoomListPaginationState::Idle {
                 end_reached: false,
             }),
             rooms,
@@ -99,36 +97,36 @@ impl SpaceServiceRoomList {
         }
     }
 
-    pub fn pagination_state(&self) -> SpaceServiceRoomListPaginationState {
+    pub fn pagination_state(&self) -> SpaceRoomListPaginationState {
         self.pagination_state.get()
     }
 
     pub fn subscribe_to_pagination_state_updates(
         &self,
-    ) -> Subscriber<SpaceServiceRoomListPaginationState> {
+    ) -> Subscriber<SpaceRoomListPaginationState> {
         self.pagination_state.subscribe()
     }
 
-    pub fn rooms(&self) -> Vec<SpaceServiceRoom> {
+    pub fn rooms(&self) -> Vec<SpaceRoom> {
         self.rooms.get()
     }
 
-    pub fn subscribe_to_room_updates(&self) -> Subscriber<Vec<SpaceServiceRoom>> {
+    pub fn subscribe_to_room_updates(&self) -> Subscriber<Vec<SpaceRoom>> {
         self.rooms.subscribe()
     }
 
     pub async fn paginate(&self) -> Result<(), Error> {
         match *self.pagination_state.read() {
-            SpaceServiceRoomListPaginationState::Idle { end_reached } if end_reached => {
+            SpaceRoomListPaginationState::Idle { end_reached } if end_reached => {
                 return Ok(());
             }
-            SpaceServiceRoomListPaginationState::Loading => {
+            SpaceRoomListPaginationState::Loading => {
                 return Ok(());
             }
             _ => {}
         }
 
-        self.pagination_state.set(SpaceServiceRoomListPaginationState::Loading);
+        self.pagination_state.set(SpaceRoomListPaginationState::Loading);
 
         let mut request = get_hierarchy::v1::Request::new(self.parent_space_id.clone());
         request.max_depth = Some(uint!(1)); // We only want the immediate children of the space
@@ -159,7 +157,7 @@ impl SpaceServiceRoomList {
                             if room.summary.room_id == self.parent_space_id {
                                 None
                             } else {
-                                Some(SpaceServiceRoom::new_from_summary(
+                                Some(SpaceRoom::new_from_summary(
                                     &room.summary,
                                     self.client.get_room(&room.summary.room_id),
                                     room.children_state.len() as u64,
@@ -171,7 +169,7 @@ impl SpaceServiceRoomList {
 
                 self.rooms.set(current_rooms.clone());
 
-                self.pagination_state.set(SpaceServiceRoomListPaginationState::Idle {
+                self.pagination_state.set(SpaceRoomListPaginationState::Idle {
                     end_reached: result.next_batch.is_none(),
                 });
 
@@ -179,7 +177,7 @@ impl SpaceServiceRoomList {
             }
             Err(err) => {
                 self.pagination_state
-                    .set(SpaceServiceRoomListPaginationState::Idle { end_reached: false });
+                    .set(SpaceRoomListPaginationState::Idle { end_reached: false });
                 Err(err.into())
             }
         }
@@ -198,9 +196,7 @@ mod tests {
     };
     use stream_assert::{assert_next_eq, assert_next_matches, assert_pending, assert_ready};
 
-    use crate::spaces::{
-        SpaceService, SpaceServiceRoom, room_list::SpaceServiceRoomListPaginationState,
-    };
+    use crate::spaces::{SpaceRoom, SpaceService, room_list::SpaceRoomListPaginationState};
 
     #[async_test]
     async fn test_room_list_pagination() {
@@ -217,7 +213,7 @@ mod tests {
         // Start off idle
         assert_matches!(
             room_list.pagination_state(),
-            SpaceServiceRoomListPaginationState::Idle { end_reached: false }
+            SpaceRoomListPaginationState::Idle { end_reached: false }
         );
 
         // without any rooms
@@ -251,14 +247,14 @@ mod tests {
         // informs that the pagination reached the end
         assert_next_matches!(
             pagination_state_subscriber,
-            SpaceServiceRoomListPaginationState::Idle { end_reached: true }
+            SpaceRoomListPaginationState::Idle { end_reached: true }
         );
 
         // yields results
         assert_next_eq!(
             rooms_subscriber,
             vec![
-                SpaceServiceRoom::new_from_summary(
+                SpaceRoom::new_from_summary(
                     &RoomSummary::new(
                         child_space_id_1.to_owned(),
                         JoinRuleSummary::Public,
@@ -269,7 +265,7 @@ mod tests {
                     None,
                     1
                 ),
-                SpaceServiceRoom::new_from_summary(
+                SpaceRoom::new_from_summary(
                     &RoomSummary::new(
                         child_space_id_2.to_owned(),
                         JoinRuleSummary::Public,

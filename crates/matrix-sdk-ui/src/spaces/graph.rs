@@ -17,30 +17,30 @@ use std::collections::{BTreeMap, BTreeSet};
 use ruma::OwnedRoomId;
 
 #[derive(Debug)]
-struct SpaceServiceGraphNode {
+struct SpaceGraphNode {
     id: OwnedRoomId,
     parents: BTreeSet<OwnedRoomId>,
     children: BTreeSet<OwnedRoomId>,
 }
 
-impl SpaceServiceGraphNode {
+impl SpaceGraphNode {
     fn new(id: OwnedRoomId) -> Self {
         Self { id, parents: BTreeSet::new(), children: BTreeSet::new() }
     }
 }
 
 #[derive(Debug)]
-pub struct SpaceServiceGraph {
-    nodes: BTreeMap<OwnedRoomId, SpaceServiceGraphNode>,
+pub struct SpaceGraph {
+    nodes: BTreeMap<OwnedRoomId, SpaceGraphNode>,
 }
 
-impl Default for SpaceServiceGraph {
+impl Default for SpaceGraph {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl SpaceServiceGraph {
+impl SpaceGraph {
     pub fn new() -> Self {
         Self { nodes: BTreeMap::new() }
     }
@@ -54,15 +54,13 @@ impl SpaceServiceGraph {
     }
 
     pub fn add_node(&mut self, node_id: OwnedRoomId) {
-        self.nodes.entry(node_id.clone()).or_insert(SpaceServiceGraphNode::new(node_id));
+        self.nodes.entry(node_id.clone()).or_insert(SpaceGraphNode::new(node_id));
     }
 
     pub fn add_edge(&mut self, parent_id: OwnedRoomId, child_id: OwnedRoomId) {
-        self.nodes
-            .entry(parent_id.clone())
-            .or_insert(SpaceServiceGraphNode::new(parent_id.clone()));
+        self.nodes.entry(parent_id.clone()).or_insert(SpaceGraphNode::new(parent_id.clone()));
 
-        self.nodes.entry(child_id.clone()).or_insert(SpaceServiceGraphNode::new(child_id.clone()));
+        self.nodes.entry(child_id.clone()).or_insert(SpaceGraphNode::new(child_id.clone()));
 
         self.nodes.get_mut(&parent_id).unwrap().children.insert(child_id.clone());
         self.nodes.get_mut(&child_id).unwrap().parents.insert(parent_id);
@@ -124,7 +122,7 @@ mod tests {
 
     #[test]
     fn test_add_edge_and_root_nodes() {
-        let mut graph = SpaceServiceGraph::new();
+        let mut graph = SpaceGraph::new();
 
         let a = room_id!("!a:example.org").to_owned();
         let b = room_id!("!b:example.org").to_owned();
@@ -143,7 +141,7 @@ mod tests {
 
     #[test]
     fn test_remove_cycles() {
-        let mut graph = SpaceServiceGraph::new();
+        let mut graph = SpaceGraph::new();
 
         let a = room_id!("!a:example.org").to_owned();
         let b = room_id!("!b:example.org").to_owned();
@@ -163,7 +161,7 @@ mod tests {
 
     #[test]
     fn test_disconnected_graph_roots() {
-        let mut graph = SpaceServiceGraph::new();
+        let mut graph = SpaceGraph::new();
 
         let a = room_id!("!a:example.org").to_owned();
         let b = room_id!("!b:example.org").to_owned();
@@ -182,7 +180,7 @@ mod tests {
 
     #[test]
     fn test_multiple_parents() {
-        let mut graph = SpaceServiceGraph::new();
+        let mut graph = SpaceGraph::new();
 
         let a = room_id!("!a:example.org").to_owned();
         let b = room_id!("!b:example.org").to_owned();

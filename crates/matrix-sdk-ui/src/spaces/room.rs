@@ -20,7 +20,7 @@ use ruma::{
 };
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct SpaceServiceRoom {
+pub struct SpaceRoom {
     pub room_id: OwnedRoomId,
     pub canonical_alias: Option<OwnedRoomAliasId>,
     pub name: Option<String>,
@@ -37,7 +37,7 @@ pub struct SpaceServiceRoom {
     pub heroes: Option<Vec<RoomHero>>,
 }
 
-impl SpaceServiceRoom {
+impl SpaceRoom {
     pub fn new_from_summary(
         summary: &RoomSummary,
         known_room: Option<Room>,
