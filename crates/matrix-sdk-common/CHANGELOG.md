@@ -8,7 +8,12 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
-- [**breaking**] Use `Raw<AnyTimelineEvent>` in place of `Raw<AnyMessageLikeEvent>` inside `DecryptedRoomEvent` ([#5512](https://github.com/matrix-org/matrix-rust-sdk/pull/5512/files)).
+- [**breaking**] Use `Raw<AnyTimelineEvent>` in place of `Raw<AnyMessageLikeEvent>`
+  in `DecryptedRoomEvent::event`.
+  ([#5512](https://github.com/matrix-org/matrix-rust-sdk/pull/5512/files)).
+  Affects the following functions:
+  - `OlmMachine::decrypt_room_event` - existing matches on the result's event field
+     should be updated to `AnyTimelineEvent::MessageLike(AnyMessageLikeEvent::...)`
 
 ## [0.13.0] - 2025-07-10
 

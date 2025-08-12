@@ -837,7 +837,8 @@ impl fmt::Debug for TimelineEventKind {
 pub struct DecryptedRoomEvent {
     /// The decrypted event.
     ///
-    /// Note: it's not an error that this contains an `AnyMessageLikeEvent`: an
+    /// Note: it's not an error that this contains an [`AnyTimelineEvent`]
+    /// (as opposed to an [`AnySyncTimelineEvent`]): an
     /// encrypted payload *always contains* a room id, by the [spec].
     ///
     /// [spec]: https://spec.matrix.org/v1.12/client-server-api/#mmegolmv1aes-sha2
