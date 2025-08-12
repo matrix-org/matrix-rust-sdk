@@ -1,0 +1,12 @@
+[package]
+name = "matrix-sdk-test-utils"
+version = "0.13.0"
+edition = "2024"
+rust-version.workspace = true
+
+[target.'cfg(not(target_family = "wasm"))'.dependencies]
+ctor = "0.2.9"
+tracing-subscriber = { workspace = true, features = ["env-filter"] }
+
+[lints]
+workspace = true

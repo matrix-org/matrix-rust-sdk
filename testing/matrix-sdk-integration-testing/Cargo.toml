@@ -25,6 +25,7 @@ matrix-sdk = { workspace = true, default-features = true, features = ["testing",
 matrix-sdk-base = { workspace = true, default-features = true, features = ["testing", "qrcode"] }
 matrix-sdk-common.workspace = true
 matrix-sdk-test.workspace = true
+matrix-sdk-test-utils.workspace = true
 matrix-sdk-ui = { workspace = true, default-features = true }
 once_cell.workspace = true
 rand.workspace = true

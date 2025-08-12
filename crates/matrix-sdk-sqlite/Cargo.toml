@@ -46,6 +46,7 @@ matrix-sdk-base = { workspace = true, features = ["testing"] }
 matrix-sdk-common.workspace = true
 matrix-sdk-crypto = { workspace = true, features = ["testing"] }
 matrix-sdk-test.workspace = true
+matrix-sdk-test-utils.workspace = true
 once_cell.workspace = true
 similar-asserts.workspace = true
 tempfile.workspace = true

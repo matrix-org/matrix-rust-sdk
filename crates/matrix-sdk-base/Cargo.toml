@@ -93,6 +93,7 @@ assign = "1.1.1"
 futures-executor.workspace = true
 http.workspace = true
 matrix-sdk-test.workspace = true
+matrix-sdk-test-utils.workspace = true
 similar-asserts.workspace = true
 stream_assert.workspace = true
 

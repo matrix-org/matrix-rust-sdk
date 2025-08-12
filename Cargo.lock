@@ -3092,6 +3092,7 @@ dependencies = [
  "matrix-sdk-indexeddb",
  "matrix-sdk-sqlite",
  "matrix-sdk-test",
+ "matrix-sdk-test-utils",
  "mime",
  "mime2ext",
  "oauth2",
@@ -3150,6 +3151,7 @@ dependencies = [
  "matrix-sdk-crypto",
  "matrix-sdk-store-encryption",
  "matrix-sdk-test",
+ "matrix-sdk-test-utils",
  "once_cell",
  "regex",
  "ruma",
@@ -3225,6 +3227,7 @@ dependencies = [
  "matrix-sdk-common",
  "matrix-sdk-qrcode",
  "matrix-sdk-test",
+ "matrix-sdk-test-utils",
  "pbkdf2",
  "proptest",
  "rand",
@@ -3381,6 +3384,7 @@ dependencies = [
  "matrix-sdk-base",
  "matrix-sdk-common",
  "matrix-sdk-test",
+ "matrix-sdk-test-utils",
  "matrix-sdk-ui",
  "once_cell",
  "rand",
@@ -3432,6 +3436,7 @@ dependencies = [
  "matrix-sdk-crypto",
  "matrix-sdk-store-encryption",
  "matrix-sdk-test",
+ "matrix-sdk-test-utils",
  "num_cpus",
  "once_cell",
  "rmp-serde",
@@ -3499,6 +3504,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "matrix-sdk-test-utils"
+version = "0.13.0"
+dependencies = [
+ "ctor",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "matrix-sdk-ui"
 version = "0.13.0"
 dependencies = [
@@ -3527,6 +3540,7 @@ dependencies = [
  "matrix-sdk-base",
  "matrix-sdk-common",
  "matrix-sdk-test",
+ "matrix-sdk-test-utils",
  "mime",
  "once_cell",
  "pin-project-lite",

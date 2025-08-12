@@ -150,6 +150,7 @@ futures-executor.workspace = true
 insta.workspace = true
 matrix-sdk-base = { workspace = true, features = ["testing"] }
 matrix-sdk-test.workspace = true
+matrix-sdk-test-utils.workspace = true
 serde_urlencoded = "0.7.1"
 similar-asserts.workspace = true
 stream_assert.workspace = true

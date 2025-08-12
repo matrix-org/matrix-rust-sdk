@@ -69,7 +69,7 @@ pub use utils::{
 };
 
 #[cfg(test)]
-matrix_sdk_test::init_tracing_for_tests!();
+matrix_sdk_test_utils::init_tracing_for_tests!();
 
 /// The Matrix user session info.
 #[derive(Clone, Debug, Eq, Hash, PartialEq, Serialize, Deserialize)]
