@@ -7,6 +7,10 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased] - ReleaseDate
 
 ### Features
+
+- Add `EncryptionState::StateEncrypted` to represent rooms supporting encrypted
+  state events. Feature-gated behind `experimental-encrypted-state-events`.
+  ([#5523](https://github.com/matrix-org/matrix-rust-sdk/pull/5523))
 - [**breaking**] The `state` field of `JoinedRoomUpdate` and `LeftRoomUpdate`
   now uses the `State` enum, depending on whether the state changes were
   received in the `state` field or the `state_after` field.
