@@ -33,8 +33,11 @@ impl Room {
 #[derive(Debug)]
 #[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
 pub enum EncryptionState {
-    /// The room is encrypted.
-    Encrypted,
+    /// The room is encrypted, possibly including state events.
+    Encrypted {
+        /// Determines whether experimental state encryption is enabled.
+        encrypt_state_events: bool,
+    },
 
     /// The room is not encrypted.
     NotEncrypted,
@@ -47,7 +50,13 @@ pub enum EncryptionState {
 impl EncryptionState {
     /// Check whether `EncryptionState` is [`Encrypted`][Self::Encrypted].
     pub fn is_encrypted(&self) -> bool {
-        matches!(self, Self::Encrypted)
+        matches!(self, Self::Encrypted { .. })
+    }
+
+    /// Check whether `EncryptionState` is [`Encrypted`][Self::Encrypted] with
+    /// state encryption enabled.
+    pub fn is_state_encrypted(&self) -> bool {
+        matches!(self, Self::Encrypted { encrypt_state_events: true })
     }
 
     /// Check whether `EncryptionState` is [`Unknown`][Self::Unknown].
@@ -129,7 +138,7 @@ mod tests {
         ));
         receive_state_events(&room, vec![&encryption_event]);
 
-        assert_matches!(room.encryption_state(), EncryptionState::Encrypted);
+        assert_matches!(room.encryption_state(), EncryptionState::Encrypted { .. });
     }
 
     #[test]
@@ -149,11 +158,20 @@ mod tests {
     #[test]
     fn test_encryption_state() {
         assert!(EncryptionState::Unknown.is_unknown());
-        assert!(EncryptionState::Encrypted.is_unknown().not());
+        assert!(EncryptionState::Encrypted { encrypt_state_events: false }.is_unknown().not());
+        assert!(EncryptionState::Encrypted { encrypt_state_events: true }.is_unknown().not());
         assert!(EncryptionState::NotEncrypted.is_unknown().not());
 
         assert!(EncryptionState::Unknown.is_encrypted().not());
-        assert!(EncryptionState::Encrypted.is_encrypted());
+        assert!(EncryptionState::Encrypted { encrypt_state_events: false }.is_encrypted());
+        assert!(EncryptionState::Encrypted { encrypt_state_events: true }.is_encrypted());
         assert!(EncryptionState::NotEncrypted.is_encrypted().not());
+
+        assert!(EncryptionState::Unknown.is_state_encrypted().not());
+        assert!(
+            EncryptionState::Encrypted { encrypt_state_events: false }.is_state_encrypted().not()
+        );
+        assert!(EncryptionState::Encrypted { encrypt_state_events: true }.is_state_encrypted());
+        assert!(EncryptionState::NotEncrypted.is_state_encrypted().not());
     }
 }
