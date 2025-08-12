@@ -29,8 +29,8 @@ use ruma::{
 };
 use tracing::error;
 
-use crate::spaces::graph::SpaceServiceGraph;
-pub use crate::spaces::{room::SpaceServiceRoom, room_list::SpaceServiceRoomList};
+use crate::spaces::graph::SpaceGraph;
+pub use crate::spaces::{room::SpaceRoom, room_list::SpaceRoomList};
 
 pub mod graph;
 pub mod room;
@@ -39,7 +39,7 @@ pub mod room_list;
 pub struct SpaceService {
     client: Client,
 
-    joined_spaces: SharedObservable<Vec<SpaceServiceRoom>>,
+    joined_spaces: SharedObservable<Vec<SpaceRoom>>,
 
     room_update_handle: Mutex<Option<JoinHandle<()>>>,
 }
@@ -61,7 +61,7 @@ impl SpaceService {
         }
     }
 
-    pub fn subscribe_to_joined_spaces(&self) -> Subscriber<Vec<SpaceServiceRoom>> {
+    pub fn subscribe_to_joined_spaces(&self) -> Subscriber<Vec<SpaceRoom>> {
         if self.room_update_handle.lock().is_none() {
             let client_clone = self.client.clone();
             let joined_spaces_clone = self.joined_spaces.clone();
@@ -89,7 +89,7 @@ impl SpaceService {
         self.joined_spaces.subscribe()
     }
 
-    pub async fn joined_spaces(&self) -> Vec<SpaceServiceRoom> {
+    pub async fn joined_spaces(&self) -> Vec<SpaceRoom> {
         let spaces = Self::joined_spaces_for(&self.client).await;
 
         if spaces != self.joined_spaces.get() {
@@ -99,18 +99,18 @@ impl SpaceService {
         spaces
     }
 
-    pub fn space_room_list(&self, space_id: OwnedRoomId) -> SpaceServiceRoomList {
-        SpaceServiceRoomList::new(self.client.clone(), space_id)
+    pub fn space_room_list(&self, space_id: OwnedRoomId) -> SpaceRoomList {
+        SpaceRoomList::new(self.client.clone(), space_id)
     }
 
-    async fn joined_spaces_for(client: &Client) -> Vec<SpaceServiceRoom> {
+    async fn joined_spaces_for(client: &Client) -> Vec<SpaceRoom> {
         let joined_spaces = client
             .joined_rooms()
             .into_iter()
             .filter_map(|room| room.is_space().then_some(room))
             .collect::<Vec<_>>();
 
-        let mut graph = SpaceServiceGraph::new();
+        let mut graph = SpaceGraph::new();
 
         for space in joined_spaces.iter() {
             graph.add_node(space.room_id().to_owned());
@@ -160,7 +160,7 @@ impl SpaceService {
                 let room_id = room.room_id().to_owned();
 
                 if root_notes.contains(&&room_id) {
-                    Some(SpaceServiceRoom::new_from_known(
+                    Some(SpaceRoom::new_from_known(
                         room.clone(),
                         graph.children_of(&room_id).len() as u64,
                     ))
@@ -330,7 +330,7 @@ mod tests {
 
         assert_eq!(
             space_service.joined_spaces().await,
-            vec![SpaceServiceRoom::new_from_known(client.get_room(first_space_id).unwrap(), 0)]
+            vec![SpaceRoom::new_from_known(client.get_room(first_space_id).unwrap(), 0)]
         );
 
         // Join the second space
@@ -355,8 +355,8 @@ mod tests {
         assert_eq!(
             space_service.joined_spaces().await,
             vec![
-                SpaceServiceRoom::new_from_known(client.get_room(first_space_id).unwrap(), 0),
-                SpaceServiceRoom::new_from_known(client.get_room(second_space_id).unwrap(), 1)
+                SpaceRoom::new_from_known(client.get_room(first_space_id).unwrap(), 0),
+                SpaceRoom::new_from_known(client.get_room(second_space_id).unwrap(), 1)
             ]
         );
 
@@ -364,8 +364,8 @@ mod tests {
         assert_next_eq!(
             joined_spaces_subscriber,
             vec![
-                SpaceServiceRoom::new_from_known(client.get_room(first_space_id).unwrap(), 0),
-                SpaceServiceRoom::new_from_known(client.get_room(second_space_id).unwrap(), 1)
+                SpaceRoom::new_from_known(client.get_room(first_space_id).unwrap(), 0),
+                SpaceRoom::new_from_known(client.get_room(second_space_id).unwrap(), 1)
             ]
         );
 
@@ -374,7 +374,7 @@ mod tests {
         // and when one is left
         assert_next_eq!(
             joined_spaces_subscriber,
-            vec![SpaceServiceRoom::new_from_known(client.get_room(first_space_id).unwrap(), 0)]
+            vec![SpaceRoom::new_from_known(client.get_room(first_space_id).unwrap(), 0)]
         );
 
         // but it doesn't when a non-space room gets joined
@@ -390,7 +390,7 @@ mod tests {
         assert_pending!(joined_spaces_subscriber);
         assert_eq!(
             space_service.joined_spaces().await,
-            vec![SpaceServiceRoom::new_from_known(client.get_room(first_space_id).unwrap(), 0)]
+            vec![SpaceRoom::new_from_known(client.get_room(first_space_id).unwrap(), 0)]
         );
     }
 }
