@@ -1494,22 +1494,15 @@ async fn test_room_sync_state_after() {
 #[async_test]
 async fn test_server_version() {
     use matrix_sdk::test_utils::mocks::MatrixMockServer;
-    use serde_json::json;
-    use wiremock::{matchers::{method, path}, Mock, ResponseTemplate};
 
     let server = MatrixMockServer::new().await;
     let client = server.client_builder().build().await;
 
     // Mock the federation version endpoint
-    Mock::given(method("GET"))
-        .and(path("/_matrix/federation/v1/version"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-            "server": {
-                "name": "Synapse",
-                "version": "1.70.0"
-            }
-        })))
-        .mount(server.server())
+    server
+        .mock_federation_version()
+        .ok("Synapse", "1.70.0")
+        .mount()
         .await;
 
     let server_info = client.server_version().await.unwrap();
@@ -1521,17 +1514,15 @@ async fn test_server_version() {
 #[async_test]
 async fn test_server_version_with_missing_fields() {
     use matrix_sdk::test_utils::mocks::MatrixMockServer;
-    use serde_json::json;
-    use wiremock::{matchers::{method, path}, Mock, ResponseTemplate};
 
     let server = MatrixMockServer::new().await;
     let client = server.client_builder().build().await;
 
     // Mock the federation version endpoint with missing fields
-    Mock::given(method("GET"))
-        .and(path("/_matrix/federation/v1/version"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({})))
-        .mount(server.server())
+    server
+        .mock_federation_version()
+        .ok_empty()
+        .mount()
         .await;
 
     let server_info = client.server_version().await.unwrap();
