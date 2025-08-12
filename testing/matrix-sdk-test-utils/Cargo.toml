@@ -1,5 +1,4 @@
 [package]
-edition = "2024"
 homepage = "https://github.com/matrix-org/matrix-rust-sdk"
 keywords = ["matrix", "chat", "messaging", "ruma"]
 license = "Apache-2.0"
