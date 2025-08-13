@@ -31,7 +31,7 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: nightly-2025-06-27
+          toolchain: nightly-2025-08-08
 
       - name: Install Node.js
         uses: actions/setup-node@v4
