@@ -19,14 +19,17 @@ use ruma::{api::client::sync::sync_events, presence::PresenceState};
 
 const DEFAULT_SYNC_TIMEOUT: Duration = Duration::from_secs(30);
 
-/// Token to use in [`SyncSettings`]
+/// Token to be used in the next sync request.
 #[derive(Clone, Default, Debug)]
 pub enum SyncToken {
-    /// Provide a specific token
+    /// Provide a specific token.
     Specific(String),
-    /// Provide no token
+    /// Enforce no tokens at all.
     NoToken,
-    /// Use previous token
+    /// Use a previous token if the client saw one in the past, and none
+    /// otherwise.
+    ///
+    /// This is the default value.
     #[default]
     ReusePrevious,
 }
