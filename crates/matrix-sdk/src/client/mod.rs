@@ -555,8 +555,8 @@ impl Client {
         
         // Extract server info, using defaults if fields are missing.
         let server = res.server.unwrap_or_default();
-        let server_name_str = server.name.unwrap_or_else(|| "unknown".to_string());
-        let version = server.version.unwrap_or_else(|| "unknown".to_string());
+        let server_name_str = server.name.unwrap_or_else(|| "unknown".to_owned());
+        let version = server.version.unwrap_or_else(|| "unknown".to_owned());
         
         Ok(ServerVendorInfo { server_name: server_name_str, version })
     }
