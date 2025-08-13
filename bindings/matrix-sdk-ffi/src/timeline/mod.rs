@@ -101,8 +101,10 @@ impl Timeline {
         thumbnail: Option<Thumbnail>,
     ) -> Result<Arc<SendAttachmentJoinHandle>, RoomError> {
         let mime_str = mime_type.as_ref().ok_or(RoomError::InvalidAttachmentMimeType)?;
+
         let mime_type =
             mime_str.parse::<Mime>().map_err(|_| RoomError::InvalidAttachmentMimeType)?;
+
         let in_reply_to_event_id = params
             .in_reply_to
             .map(EventId::parse)
@@ -125,15 +127,11 @@ impl Timeline {
         };
 
         let handle = SendAttachmentJoinHandle::new(get_runtime_handle().spawn(async move {
-            let mut request =
-                self.inner.send_attachment(params.source, mime_type, attachment_config);
-
-            if params.use_send_queue {
-                request = request.use_send_queue();
-            }
-
-            request.await.map_err(|_| RoomError::FailedSendingAttachment)?;
-            Ok(())
+            self.inner
+                .send_attachment(params.source, mime_type, attachment_config)
+                .use_send_queue()
+                .await
+                .map_err(|_| RoomError::FailedSendingAttachment)
         }));
 
         Ok(handle)
@@ -197,10 +195,6 @@ pub struct UploadParameters {
     mentions: Option<Mentions>,
     /// Optional Event ID to reply to.
     in_reply_to: Option<String>,
-    /// Should the media be sent with the send queue, or synchronously?
-    ///
-    /// Watching progress only works with the synchronous method, at the moment.
-    use_send_queue: bool,
 }
 
 /// A source for uploading a file
