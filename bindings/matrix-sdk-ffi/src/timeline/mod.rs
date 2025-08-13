@@ -215,7 +215,7 @@ pub struct UploadParameters {
 }
 
 /// A source for uploading a file
-#[derive(uniffi::Enum)]
+#[derive(Clone, uniffi::Enum)]
 pub enum UploadSource {
     /// Upload source is a file on disk
     File {
@@ -1336,7 +1336,7 @@ mod galleries {
         error::RoomError,
         ruma::{AudioInfo, FileInfo, FormattedBody, ImageInfo, Mentions, VideoInfo},
         runtime::get_runtime_handle,
-        timeline::{build_thumbnail_info, Timeline},
+        timeline::{build_thumbnail_info, Timeline, UploadSource},
     };
 
     #[derive(uniffi::Record)]
@@ -1355,26 +1355,26 @@ mod galleries {
     pub enum GalleryItemInfo {
         Audio {
             audio_info: AudioInfo,
-            filename: String,
+            source: UploadSource,
             caption: Option<String>,
             formatted_caption: Option<FormattedBody>,
         },
         File {
             file_info: FileInfo,
-            filename: String,
+            source: UploadSource,
             caption: Option<String>,
             formatted_caption: Option<FormattedBody>,
         },
         Image {
             image_info: ImageInfo,
-            filename: String,
+            source: UploadSource,
             caption: Option<String>,
             formatted_caption: Option<FormattedBody>,
             thumbnail_path: Option<String>,
         },
         Video {
             video_info: VideoInfo,
-            filename: String,
+            source: UploadSource,
             caption: Option<String>,
             formatted_caption: Option<FormattedBody>,
             thumbnail_path: Option<String>,
@@ -1391,12 +1391,12 @@ mod galleries {
             }
         }
 
-        fn filename(&self) -> &String {
+        fn source(&self) -> &UploadSource {
             match self {
-                GalleryItemInfo::Audio { filename, .. } => filename,
-                GalleryItemInfo::File { filename, .. } => filename,
-                GalleryItemInfo::Image { filename, .. } => filename,
-                GalleryItemInfo::Video { filename, .. } => filename,
+                GalleryItemInfo::File { source, .. } => source,
+                GalleryItemInfo::Audio { source, .. } => source,
+                GalleryItemInfo::Image { source, .. } => source,
+                GalleryItemInfo::Video { source, .. } => source,
             }
         }
 
@@ -1462,7 +1462,7 @@ mod galleries {
             let mime_type =
                 mime_str.parse::<Mime>().map_err(|_| RoomError::InvalidAttachmentMimeType)?;
             Ok(matrix_sdk_ui::timeline::GalleryItemInfo {
-                source: self.filename().into(),
+                source: self.source().clone().into(),
                 content_type: mime_type,
                 attachment_info: self.attachment_info()?,
                 caption: self.caption().clone(),
