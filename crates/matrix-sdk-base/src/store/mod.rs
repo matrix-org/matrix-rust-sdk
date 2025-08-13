@@ -47,12 +47,11 @@ pub use matrix_sdk_store_encryption::Error as StoreEncryptionError;
 use observable_map::ObservableMap;
 use ruma::{
     EventId, OwnedEventId, OwnedRoomId, OwnedUserId, RoomId, UserId,
-    api::client::sync::sync_events::StrippedState,
     events::{
-        AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent, AnySyncStateEvent, EmptyStateKey,
-        GlobalAccountDataEventType, RedactContent, RedactedStateEventContent,
-        RoomAccountDataEventType, StateEventType, StaticEventContent, StaticStateEventContent,
-        StrippedStateEvent, SyncStateEvent,
+        AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent, AnyStrippedStateEvent,
+        AnySyncStateEvent, EmptyStateKey, GlobalAccountDataEventType, RedactContent,
+        RedactedStateEventContent, RoomAccountDataEventType, StateEventType, StaticEventContent,
+        StaticStateEventContent, StrippedStateEvent, SyncStateEvent,
         presence::PresenceEvent,
         receipt::ReceiptEventContent,
         room::{
@@ -517,8 +516,10 @@ pub struct StateChanges {
 
     /// A mapping of `RoomId` to a map of event type to a map of state key to
     /// `StrippedState`.
-    pub stripped_state:
-        BTreeMap<OwnedRoomId, BTreeMap<StateEventType, BTreeMap<String, Raw<StrippedState>>>>,
+    pub stripped_state: BTreeMap<
+        OwnedRoomId,
+        BTreeMap<StateEventType, BTreeMap<String, Raw<AnyStrippedStateEvent>>>,
+    >,
 
     /// A map from room id to a map of a display name and a set of user ids that
     /// share that display name in the given room.

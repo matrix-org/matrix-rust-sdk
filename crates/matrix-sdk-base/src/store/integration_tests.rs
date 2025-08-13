@@ -10,16 +10,13 @@ use ruma::{
     EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedUserId, RoomId, TransactionId, UserId,
     api::{
         FeatureFlag, MatrixVersion,
-        client::{
-            discovery::discover_homeserver::{HomeserverInfo, RtcFocusInfo},
-            sync::sync_events::StrippedState,
-        },
+        client::discovery::discover_homeserver::{HomeserverInfo, RtcFocusInfo},
     },
     event_id,
     events::{
         AnyGlobalAccountDataEvent, AnyMessageLikeEventContent, AnyRoomAccountDataEvent,
-        AnySyncStateEvent, GlobalAccountDataEventType, RoomAccountDataEventType, StateEventType,
-        SyncStateEvent,
+        AnyStrippedStateEvent, AnySyncStateEvent, GlobalAccountDataEventType,
+        RoomAccountDataEventType, StateEventType, SyncStateEvent,
         presence::PresenceEvent,
         receipt::{ReceiptThread, ReceiptType},
         room::{
@@ -193,8 +190,8 @@ impl StateStoreIntegrationTests for DynStateStore {
 
         let stripped_name_json: &JsonValue = &test_json::NAME_STRIPPED;
         let stripped_name_raw =
-            serde_json::from_value::<Raw<StrippedState>>(stripped_name_json.clone())?;
-        let stripped_name_event = stripped_name_raw.deserialize_as()?;
+            serde_json::from_value::<Raw<AnyStrippedStateEvent>>(stripped_name_json.clone())?;
+        let stripped_name_event = stripped_name_raw.deserialize()?;
         stripped_room.handle_stripped_state_event(&stripped_name_event);
         changes.stripped_state.insert(
             stripped_room_id.to_owned(),
