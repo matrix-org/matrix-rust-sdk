@@ -3183,6 +3183,7 @@ dependencies = [
  "insta",
  "js-sys",
  "matrix-sdk-test-macros",
+ "matrix-sdk-test-utils",
  "proptest",
  "ruma",
  "serde",
