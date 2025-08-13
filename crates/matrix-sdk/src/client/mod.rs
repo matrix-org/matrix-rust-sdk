@@ -62,8 +62,8 @@ use ruma::{
             uiaa,
             user_directory::search_users,
         },
-        federation::discovery::get_server_version,
         error::FromHttpResponseError,
+        federation::discovery::get_server_version,
         FeatureFlag, MatrixVersion, OutgoingRequest, SupportedVersions,
     },
     assign,
@@ -547,17 +547,20 @@ impl Client {
     /// let client = Client::new(homeserver).await?;
     ///
     /// let server_info = client.server_vendor_info().await?;
-    /// println!("Server: {}, Version: {}", server_info.server_name, server_info.version);
+    /// println!(
+    ///     "Server: {}, Version: {}",
+    ///     server_info.server_name, server_info.version
+    /// );
     /// # anyhow::Ok(()) };
     /// ```
     pub async fn server_vendor_info(&self) -> HttpResult<ServerVendorInfo> {
         let res = self.send(get_server_version::v1::Request::new()).await?;
-        
+
         // Extract server info, using defaults if fields are missing.
         let server = res.server.unwrap_or_default();
         let server_name_str = server.name.unwrap_or_else(|| "unknown".to_owned());
         let version = server.version.unwrap_or_else(|| "unknown".to_owned());
-        
+
         Ok(ServerVendorInfo { server_name: server_name_str, version })
     }
 
