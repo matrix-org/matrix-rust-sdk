@@ -3740,6 +3740,26 @@ impl Room {
         }
     }
 
+    /// Subscribe to a thread if needed, based on a current subscription to it.
+    ///
+    /// This is like [`Self::subscribe_thread`], but it first checks if the user
+    /// has already subscribed to a thread, so as to minimize sending
+    /// unnecessary subscriptions which would be ignored by the server.
+    pub async fn subscribe_thread_if_needed(
+        &self,
+        thread_root: &EventId,
+        automatic: Option<OwnedEventId>,
+    ) -> Result<()> {
+        if let Some(prev_sub) = self.load_or_fetch_thread_subscription(thread_root).await? {
+            // If we have a previous subscription, we should only send the new one if it's
+            // manual and the previous one was automatic.
+            if !prev_sub.automatic || automatic.is_some() {
+                return Ok(());
+            }
+        }
+        self.subscribe_thread(thread_root.to_owned(), automatic).await
+    }
+
     /// Unsubscribe from a given thread in this room.
     ///
     /// # Arguments
@@ -3820,6 +3840,20 @@ impl Room {
         }
 
         Ok(subscription)
+    }
+
+    /// Return the current thread subscription for the given thread root in this
+    /// room, by getting it from storage if possible, or fetching it from
+    /// network otherwise.
+    ///
+    /// See also [`Self::fetch_thread_subscription`] for the exact semantics of
+    /// this method.
+    pub async fn load_or_fetch_thread_subscription(
+        &self,
+        thread_root: &EventId,
+    ) -> Result<Option<ThreadSubscription>> {
+        // A bit of a lie at the moment, since thread subscriptions are not sync'd yet.
+        self.fetch_thread_subscription(thread_root.to_owned()).await
     }
 }
 
