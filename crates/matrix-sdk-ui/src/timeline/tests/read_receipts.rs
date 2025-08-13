@@ -845,6 +845,7 @@ async fn test_unthreaded_client_updates_threaded_read_receipts() {
     assert_next_matches!(stream, VectorDiff::PushBack { .. });
     assert_next_matches!(stream, VectorDiff::PushFront { .. });
     assert_next_matches!(stream, VectorDiff::PushBack { .. });
+    assert_pending!(stream);
 
     // Bob reads the last one from an unthreaded client
     timeline
@@ -859,6 +860,38 @@ async fn test_unthreaded_client_updates_threaded_read_receipts() {
     // Alice's timeline gets updated
     let item_b = assert_next_matches!(stream, VectorDiff::Set { index: 2, value } => value);
     let event_b = item_b.as_event().unwrap();
+    assert_eq!(event_b.read_receipts().len(), 1);
+    assert!(event_b.read_receipts().get(*BOB).is_some());
+    assert_pending!(stream);
+
+    // Then Alice sends a message in a thread
+    let event_c = event_id!("$event_c");
+    let thread_event_id = event_id!("$thread");
+
+    timeline
+        .handle_live_event(
+            f.text_msg("C")
+                .sender(*ALICE)
+                .event_id(event_c)
+                .in_thread(thread_event_id, event_id!("$latest")),
+        )
+        .await;
+
+    // Alice is using a threaded client so the main timeline shouldn't change
+    assert_pending!(stream);
+
+    // Bob reads the threaded message
+    timeline
+        .handle_read_receipts([(
+            event_c.to_owned(),
+            ReceiptType::Read,
+            BOB.to_owned(),
+            ReceiptThread::Thread(thread_event_id.to_owned()),
+        )])
+        .await;
+
+    // The main timeline read receipts are still correct
+    let event_b = timeline.controller.items().await[2].as_event().unwrap().to_owned();
     assert_eq!(event_b.read_receipts().len(), 1);
     assert!(event_b.read_receipts().get(*BOB).is_some());
 }
