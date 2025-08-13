@@ -2610,10 +2610,6 @@ impl Client {
         let mut timeout = None;
         let mut last_sync_time: Option<Instant> = None;
 
-        if let SyncToken::NoToken = sync_settings.token {
-            sync_settings.token = SyncToken::from_optional_token(self.sync_token().await);
-        }
-
         let parent_span = Span::current();
 
         async_stream::stream!({
