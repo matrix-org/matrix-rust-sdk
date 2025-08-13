@@ -39,7 +39,7 @@ use matrix_sdk::{
     },
     sliding_sync::Version as SdkSlidingSyncVersion,
     store::RoomLoadSettings as SdkRoomLoadSettings,
-    AuthApi, AuthSession, Client as MatrixClient, SessionChange, SessionTokens,
+    Account, AuthApi, AuthSession, Client as MatrixClient, SessionChange, SessionTokens,
     STATE_STORE_DATABASE_NAME,
 };
 use matrix_sdk_common::{stream::StreamExt, SendOutsideWasm, SyncOutsideWasm};
@@ -53,7 +53,12 @@ use matrix_sdk_ui::{
 use mime::Mime;
 use oauth2::Scope;
 use ruma::{
-    api::client::{alias::get_alias, error::ErrorKind, uiaa::UserIdentifier},
+    api::client::{
+        alias::get_alias,
+        error::ErrorKind,
+        profile::{AvatarUrl, DisplayName},
+        uiaa::UserIdentifier,
+    },
     events::{
         direct::DirectEventContent,
         fully_read::FullyReadEventContent,
@@ -1233,15 +1238,8 @@ impl Client {
     }
 
     pub async fn get_profile(&self, user_id: String) -> Result<UserProfile, ClientError> {
-        let owned_user_id = UserId::parse(user_id.clone())?;
-
-        let response = self.inner.account().fetch_user_profile_of(&owned_user_id).await?;
-
-        Ok(UserProfile {
-            user_id,
-            display_name: response.displayname.clone(),
-            avatar_url: response.avatar_url.as_ref().map(|url| url.to_string()),
-        })
+        let user_id = <&UserId>::try_from(user_id.as_str())?;
+        UserProfile::fetch(&self.inner.account(), user_id).await
     }
 
     pub async fn notification_client(
@@ -1802,6 +1800,18 @@ pub struct UserProfile {
     pub user_id: String,
     pub display_name: Option<String>,
     pub avatar_url: Option<String>,
+}
+
+impl UserProfile {
+    /// Fetch the profile for the given user ID, using the given [`Account`]
+    /// API.
+    pub(crate) async fn fetch(account: &Account, user_id: &UserId) -> Result<Self, ClientError> {
+        let response = account.fetch_user_profile_of(user_id).await?;
+        let display_name = response.get_static::<DisplayName>()?;
+        let avatar_url = response.get_static::<AvatarUrl>()?.map(|url| url.to_string());
+
+        Ok(UserProfile { user_id: user_id.to_string(), display_name, avatar_url })
+    }
 }
 
 impl From<&search_users::v3::User> for UserProfile {
