@@ -152,9 +152,10 @@ pub enum SessionChange {
     TokensRefreshed,
 }
 
-/// Information about the server version obtained from the federation API.
+/// Information about the server vendor obtained from the federation API.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ServerVersionInfo {
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+pub struct ServerVendorInfo {
     /// The server name.
     pub server_name: String,
     /// The server version.
@@ -531,7 +532,7 @@ impl Client {
         Ok(res.capabilities)
     }
 
-    /// Get the server version information from the federation API.
+    /// Get the server vendor information from the federation API.
     ///
     /// This method calls the `/_matrix/federation/v1/version` endpoint to get
     /// both the server name and version.
@@ -545,11 +546,11 @@ impl Client {
     /// # let homeserver = Url::parse("http://example.com")?;
     /// let client = Client::new(homeserver).await?;
     ///
-    /// let server_info = client.server_version().await?;
+    /// let server_info = client.server_vendor_info().await?;
     /// println!("Server: {}, Version: {}", server_info.server_name, server_info.version);
     /// # anyhow::Ok(()) };
     /// ```
-    pub async fn server_version(&self) -> HttpResult<ServerVersionInfo> {
+    pub async fn server_vendor_info(&self) -> HttpResult<ServerVendorInfo> {
         let res = self.send(get_server_version::v1::Request::new()).await?;
         
         // Extract server info, using defaults if fields are missing
@@ -557,7 +558,7 @@ impl Client {
         let server_name_str = server.name.unwrap_or_else(|| "unknown".to_string());
         let version = server.version.unwrap_or_else(|| "unknown".to_string());
         
-        Ok(ServerVersionInfo { server_name: server_name_str, version })
+        Ok(ServerVendorInfo { server_name: server_name_str, version })
     }
 
     /// Get a copy of the default request config.

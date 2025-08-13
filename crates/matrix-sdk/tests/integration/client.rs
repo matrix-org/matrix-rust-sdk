@@ -1492,7 +1492,7 @@ async fn test_room_sync_state_after() {
 }
 
 #[async_test]
-async fn test_server_version() {
+async fn test_server_vendor_info() {
     use matrix_sdk::test_utils::mocks::MatrixMockServer;
 
     let server = MatrixMockServer::new().await;
@@ -1505,14 +1505,14 @@ async fn test_server_version() {
         .mount()
         .await;
 
-    let server_info = client.server_version().await.unwrap();
+    let server_info = client.server_vendor_info().await.unwrap();
     
     assert_eq!(server_info.server_name, "Synapse");
     assert_eq!(server_info.version, "1.70.0");
 }
 
 #[async_test]
-async fn test_server_version_with_missing_fields() {
+async fn test_server_vendor_info_with_missing_fields() {
     use matrix_sdk::test_utils::mocks::MatrixMockServer;
 
     let server = MatrixMockServer::new().await;
@@ -1525,7 +1525,7 @@ async fn test_server_version_with_missing_fields() {
         .mount()
         .await;
 
-    let server_info = client.server_version().await.unwrap();
+    let server_info = client.server_vendor_info().await.unwrap();
     
     // Should use defaults for missing fields
     assert_eq!(server_info.server_name, "unknown");

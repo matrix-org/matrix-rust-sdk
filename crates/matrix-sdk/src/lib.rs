@@ -68,7 +68,7 @@ pub mod widget;
 pub use account::Account;
 pub use authentication::{AuthApi, AuthSession, SessionTokens};
 pub use client::{
-    sanitize_server_name, Client, ClientBuildError, ClientBuilder, LoopCtrl, ServerVersionInfo,
+    sanitize_server_name, Client, ClientBuildError, ClientBuilder, LoopCtrl, ServerVendorInfo,
     SessionChange,
 };
 pub use error::{

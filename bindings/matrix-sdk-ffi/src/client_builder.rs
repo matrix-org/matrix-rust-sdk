@@ -575,14 +575,14 @@ impl ClientBuilder {
         let sdk_client = inner_builder.build().await?;
 
         // Log server version information at info level
-        if let Ok(server_info) = sdk_client.server_version().await {
+        if let Ok(server_info) = sdk_client.server_vendor_info().await {
             tracing::info!(
                 server_name = %server_info.server_name,
                 version = %server_info.version,
                 "Connected to Matrix server"
             );
         } else {
-            tracing::debug!("Could not retrieve server version information");
+            tracing::warn!("Could not retrieve server version information");
         }
 
         Ok(Arc::new(
