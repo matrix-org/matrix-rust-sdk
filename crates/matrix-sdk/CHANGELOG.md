@@ -20,7 +20,7 @@ All notable changes to this project will be documented in this file.
   [MSC4306](https://github.com/matrix-org/matrix-spec-proposals/pull/4306), with the
   `Room::fetch_thread_subscription()`, `Room::subscribe_thread()` and `Room::unsubscribe_thread()`
   methods.
-  ([#5442](https://github.com/matrix-org/matrix-rust-sdk/pull/5442))
+  ([#5439](https://github.com/matrix-org/matrix-rust-sdk/pull/5439))
 - [**breaking**] `RoomMemberRole` has a new `Creator` variant, that
   differentiates room creators with infinite power levels, as introduced in room
   version 12.
