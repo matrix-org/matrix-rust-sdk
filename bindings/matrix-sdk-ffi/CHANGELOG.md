@@ -83,6 +83,8 @@ All notable changes to this project will be documented in this file.
 - The `GalleryItemInfo` variants now take an `UploadSource` rather than a `String` path to enable uploading
   from bytes directly.
   ([#5529](https://github.com/matrix-org/matrix-rust-sdk/pull/5529))
+- Media and gallery uploads now use `UploadSource` to specify the thumbnail.
+  ([#5530](https://github.com/matrix-org/matrix-rust-sdk/pull/5530))
 
 ## [0.13.0] - 2025-07-10
 

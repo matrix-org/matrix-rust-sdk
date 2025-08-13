@@ -139,15 +139,19 @@ impl Timeline {
 }
 
 fn build_thumbnail_info(
-    thumbnail_path: Option<String>,
+    thumbnail_source: Option<UploadSource>,
     thumbnail_info: Option<ThumbnailInfo>,
 ) -> Result<Option<Thumbnail>, RoomError> {
-    match (thumbnail_path, thumbnail_info) {
+    match (thumbnail_source, thumbnail_info) {
         (None, None) => Ok(None),
 
-        (Some(thumbnail_path), Some(thumbnail_info)) => {
-            let thumbnail_data =
-                fs::read(thumbnail_path).map_err(|_| RoomError::InvalidThumbnailData)?;
+        (Some(thumbnail_source), Some(thumbnail_info)) => {
+            let thumbnail_data = match thumbnail_source {
+                UploadSource::File { filename } => {
+                    fs::read(filename).map_err(|_| RoomError::InvalidThumbnailData)?
+                }
+                UploadSource::Data { bytes, .. } => bytes,
+            };
 
             let height = thumbnail_info
                 .height
@@ -177,7 +181,7 @@ fn build_thumbnail_info(
         }
 
         _ => {
-            warn!("Ignoring thumbnail because either the thumbnail path or info isn't defined");
+            warn!("Ignoring thumbnail because either the thumbnail source or info isn't defined");
             Ok(None)
         }
     }
@@ -380,26 +384,26 @@ impl Timeline {
     pub fn send_image(
         self: Arc<Self>,
         params: UploadParameters,
-        thumbnail_path: Option<String>,
+        thumbnail_source: Option<UploadSource>,
         image_info: ImageInfo,
     ) -> Result<Arc<SendAttachmentJoinHandle>, RoomError> {
         let attachment_info = AttachmentInfo::Image(
             BaseImageInfo::try_from(&image_info).map_err(|_| RoomError::InvalidAttachmentData)?,
         );
-        let thumbnail = build_thumbnail_info(thumbnail_path, image_info.thumbnail_info)?;
+        let thumbnail = build_thumbnail_info(thumbnail_source, image_info.thumbnail_info)?;
         self.send_attachment(params, attachment_info, image_info.mimetype, thumbnail)
     }
 
     pub fn send_video(
         self: Arc<Self>,
         params: UploadParameters,
-        thumbnail_path: Option<String>,
+        thumbnail_source: Option<UploadSource>,
         video_info: VideoInfo,
     ) -> Result<Arc<SendAttachmentJoinHandle>, RoomError> {
         let attachment_info = AttachmentInfo::Video(
             BaseVideoInfo::try_from(&video_info).map_err(|_| RoomError::InvalidAttachmentData)?,
         );
-        let thumbnail = build_thumbnail_info(thumbnail_path, video_info.thumbnail_info)?;
+        let thumbnail = build_thumbnail_info(thumbnail_source, video_info.thumbnail_info)?;
         self.send_attachment(params, attachment_info, video_info.mimetype, thumbnail)
     }
 
@@ -1336,14 +1340,14 @@ mod galleries {
             source: UploadSource,
             caption: Option<String>,
             formatted_caption: Option<FormattedBody>,
-            thumbnail_path: Option<String>,
+            thumbnail_source: Option<UploadSource>,
         },
         Video {
             video_info: VideoInfo,
             source: UploadSource,
             caption: Option<String>,
             formatted_caption: Option<FormattedBody>,
-            thumbnail_path: Option<String>,
+            thumbnail_source: Option<UploadSource>,
         },
     }
 
@@ -1408,11 +1412,17 @@ mod galleries {
         fn thumbnail(&self) -> Result<Option<Thumbnail>, RoomError> {
             match self {
                 GalleryItemInfo::Audio { .. } | GalleryItemInfo::File { .. } => Ok(None),
-                GalleryItemInfo::Image { image_info, thumbnail_path, .. } => {
-                    build_thumbnail_info(thumbnail_path.clone(), image_info.thumbnail_info.clone())
+                GalleryItemInfo::Image { image_info, thumbnail_source, .. } => {
+                    build_thumbnail_info(
+                        thumbnail_source.as_ref().cloned(),
+                        image_info.thumbnail_info.clone(),
+                    )
                 }
-                GalleryItemInfo::Video { video_info, thumbnail_path, .. } => {
-                    build_thumbnail_info(thumbnail_path.clone(), video_info.thumbnail_info.clone())
+                GalleryItemInfo::Video { video_info, thumbnail_source, .. } => {
+                    build_thumbnail_info(
+                        thumbnail_source.as_ref().cloned(),
+                        video_info.thumbnail_info.clone(),
+                    )
                 }
             }
         }
