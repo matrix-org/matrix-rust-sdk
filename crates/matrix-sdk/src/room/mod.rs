@@ -3690,23 +3690,19 @@ impl Room {
     /// Search this room's [`RoomIndex`] for query and return at most
     /// max_number_of_results results.
     #[cfg(feature = "experimental-search")]
-    pub async fn search_index(
+    pub async fn search(
         &self,
         query: &str,
         max_number_of_results: usize,
     ) -> Option<Vec<OwnedEventId>> {
-        self.commit_and_reload().await;
+        self.commit_and_reload_search_index().await;
 
-        self.client.search_index().lock().await.search_index(
-            query,
-            max_number_of_results,
-            self.room_id(),
-        )
+        self.client.search_index().lock().await.search(query, max_number_of_results, self.room_id())
     }
 
     /// Commit a [`Room`]'s [`RoomIndex`] and reload searchers
     #[cfg(feature = "experimental-search")]
-    pub(crate) async fn commit_and_reload(&self) {
+    pub(crate) async fn commit_and_reload_search_index(&self) {
         self.client.search_index().lock().await.commit_and_reload(self.room_id());
     }
 

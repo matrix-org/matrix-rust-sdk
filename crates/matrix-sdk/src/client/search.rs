@@ -117,7 +117,7 @@ impl SearchIndexGuard<'_> {
 
     /// Search a [`Room`]'s index for the query and return at most
     /// max_number_of_results results.
-    pub(crate) fn search_index(
+    pub(crate) fn search(
         &self,
         query: &str,
         max_number_of_results: usize,

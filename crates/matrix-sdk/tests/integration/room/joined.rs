@@ -753,7 +753,7 @@ async fn test_sending_message_indexes_message() {
     let user_id = user_id!("@user_id:localost");
 
     let event_factory = EventFactory::new();
-    mock_server
+    let room = mock_server
         .sync_room(
             &client,
             JoinedRoomBuilder::new(room_id).add_timeline_bulk(vec![event_factory
@@ -764,9 +764,7 @@ async fn test_sending_message_indexes_message() {
         )
         .await;
 
-    let room = client.get_room(room_id).unwrap();
-
-    let response = room.search_index("this", 5).await.expect("search should have 1 result");
+    let response = room.search("this", 5).await.expect("search should have 1 result");
 
     assert_eq!(response.len(), 1, "unexpected numbers of responses: {response:?}");
     assert_eq!(response[0], event_id, "event id doesn't match: {response:?}");

@@ -545,7 +545,7 @@ impl RoomEventCacheInner {
         #[cfg(feature = "experimental-search")]
         let Some(room) = self.weak_room.get() else {
             warn!("Couldn't get room while handling timeline");
-            return Err(EventCacheError::RoomNotFound { room_id: self.room_id.clone() });
+            return Ok(());
         };
 
         let (stored_prev_batch_token, timeline_event_diffs) = self
@@ -1474,7 +1474,7 @@ mod private {
             match maybe_try_event {
                 Some(Ok(event)) => Some(event),
                 Some(Err(e)) => {
-                    warn!("failed to index event: {e:?}");
+                    warn!("failed to parse event: {e:?}");
                     None
                 }
                 None => None,

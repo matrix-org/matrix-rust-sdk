@@ -124,7 +124,7 @@ impl MatrixSearchIndexSchema for RoomMessageSchema {
 
     fn handle_event(&self, event: AnyMessageLikeEvent) -> Result<RoomIndexOperation, IndexError> {
         match event {
-            // old m.room.message behaviour
+            // m.room.message behaviour
             AnyMessageLikeEvent::RoomMessage(event) => self
                 .make_doc(event, |content| match &content.msgtype {
                     MessageType::Text(content) => Ok(content.body.clone()),
@@ -132,7 +132,7 @@ impl MatrixSearchIndexSchema for RoomMessageSchema {
                 })
                 .map(RoomIndexOperation::Add),
 
-            // new m.message behaviour
+            // new MSC-1767 m.message behaviour
             AnyMessageLikeEvent::Message(event) => self
                 .make_doc(event, |content| {
                     content.text.find_plain().ok_or(IndexError::EmptyMessage).map(|v| v.to_owned())
