@@ -535,7 +535,7 @@ impl Client {
     /// Get the server vendor information from the federation API.
     ///
     /// This method calls the `/_matrix/federation/v1/version` endpoint to get
-    /// both the server name and version.
+    /// both the server's software name and version.
     ///
     /// # Examples
     ///
@@ -553,7 +553,7 @@ impl Client {
     pub async fn server_vendor_info(&self) -> HttpResult<ServerVendorInfo> {
         let res = self.send(get_server_version::v1::Request::new()).await?;
         
-        // Extract server info, using defaults if fields are missing
+        // Extract server info, using defaults if fields are missing.
         let server = res.server.unwrap_or_default();
         let server_name_str = server.name.unwrap_or_else(|| "unknown".to_string());
         let version = server.version.unwrap_or_else(|| "unknown".to_string());

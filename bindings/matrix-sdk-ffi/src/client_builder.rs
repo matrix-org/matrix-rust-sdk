@@ -574,7 +574,7 @@ impl ClientBuilder {
 
         let sdk_client = inner_builder.build().await?;
 
-        // Log server version information at info level
+        // Log server version information at info level.
         if let Ok(server_info) = sdk_client.server_vendor_info().await {
             tracing::info!(
                 server_name = %server_info.server_name,
