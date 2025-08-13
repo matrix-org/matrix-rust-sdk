@@ -2,7 +2,10 @@ use std::{env, process::exit};
 
 use matrix_sdk::{
     Client, Result as MatrixResult,
-    ruma::{OwnedMxcUri, UserId, api::client::profile},
+    ruma::{
+        OwnedMxcUri, UserId,
+        api::client::profile::{self, AvatarUrl, DisplayName},
+    },
 };
 use url::Url;
 
@@ -27,7 +30,10 @@ async fn get_profile(client: Client, mxid: &UserId) -> MatrixResult<UserProfile>
     // Use the response and construct a UserProfile struct.
     // See https://docs.rs/ruma-client-api/0.9.0/ruma_client_api/r0/profile/get_profile/struct.Response.html
     // for details on the Response for this Request
-    let user_profile = UserProfile { avatar_url: resp.avatar_url, displayname: resp.displayname };
+    let user_profile = UserProfile {
+        avatar_url: resp.get_static::<AvatarUrl>()?,
+        displayname: resp.get_static::<DisplayName>()?,
+    };
     Ok(user_profile)
 }
 
