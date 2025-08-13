@@ -887,33 +887,6 @@ impl TimelineDiff {
     }
 }
 
-#[derive(uniffi::Record)]
-pub struct InsertData {
-    pub index: u32,
-    pub item: Arc<TimelineItem>,
-}
-
-#[derive(uniffi::Record)]
-pub struct SetData {
-    pub index: u32,
-    pub item: Arc<TimelineItem>,
-}
-
-#[derive(Clone, Copy, uniffi::Enum)]
-pub enum TimelineChange {
-    Append,
-    Clear,
-    Insert,
-    Set,
-    Remove,
-    PushBack,
-    PushFront,
-    PopBack,
-    PopFront,
-    Truncate,
-    Reset,
-}
-
 #[derive(Clone, uniffi::Record)]
 pub struct TimelineUniqueId {
     id: String,
