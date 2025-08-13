@@ -745,15 +745,6 @@ impl OutboundGroupSession {
     }
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct OutboundGroupSessionPickle(String);
-
-impl From<String> for OutboundGroupSessionPickle {
-    fn from(p: String) -> Self {
-        Self(p)
-    }
-}
-
 #[cfg(not(tarpaulin_include))]
 impl fmt::Debug for OutboundGroupSession {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
