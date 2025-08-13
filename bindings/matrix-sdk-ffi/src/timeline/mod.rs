@@ -61,7 +61,6 @@ use uuid::Uuid;
 use self::content::TimelineItemContent;
 pub use self::msg_like::MessageContent;
 use crate::{
-    client::ProgressWatcher,
     error::{ClientError, RoomError},
     event::EventOrTransactionId,
     ruma::{
@@ -99,7 +98,6 @@ impl Timeline {
         params: UploadParameters,
         attachment_info: AttachmentInfo,
         mime_type: Option<String>,
-        progress_watcher: Option<Box<dyn ProgressWatcher>>,
         thumbnail: Option<Thumbnail>,
     ) -> Result<Arc<SendAttachmentJoinHandle>, RoomError> {
         let mime_str = mime_type.as_ref().ok_or(RoomError::InvalidAttachmentMimeType)?;
@@ -132,15 +130,6 @@ impl Timeline {
 
             if params.use_send_queue {
                 request = request.use_send_queue();
-            }
-
-            if let Some(progress_watcher) = progress_watcher {
-                let mut subscriber = request.subscribe_to_send_progress();
-                get_runtime_handle().spawn(async move {
-                    while let Some(progress) = subscriber.next().await {
-                        progress_watcher.transmission_progress(progress.into());
-                    }
-                });
             }
 
             request.await.map_err(|_| RoomError::FailedSendingAttachment)?;
@@ -399,19 +388,12 @@ impl Timeline {
         params: UploadParameters,
         thumbnail_path: Option<String>,
         image_info: ImageInfo,
-        progress_watcher: Option<Box<dyn ProgressWatcher>>,
     ) -> Result<Arc<SendAttachmentJoinHandle>, RoomError> {
         let attachment_info = AttachmentInfo::Image(
             BaseImageInfo::try_from(&image_info).map_err(|_| RoomError::InvalidAttachmentData)?,
         );
         let thumbnail = build_thumbnail_info(thumbnail_path, image_info.thumbnail_info)?;
-        self.send_attachment(
-            params,
-            attachment_info,
-            image_info.mimetype,
-            progress_watcher,
-            thumbnail,
-        )
+        self.send_attachment(params, attachment_info, image_info.mimetype, thumbnail)
     }
 
     pub fn send_video(
@@ -419,31 +401,23 @@ impl Timeline {
         params: UploadParameters,
         thumbnail_path: Option<String>,
         video_info: VideoInfo,
-        progress_watcher: Option<Box<dyn ProgressWatcher>>,
     ) -> Result<Arc<SendAttachmentJoinHandle>, RoomError> {
         let attachment_info = AttachmentInfo::Video(
             BaseVideoInfo::try_from(&video_info).map_err(|_| RoomError::InvalidAttachmentData)?,
         );
         let thumbnail = build_thumbnail_info(thumbnail_path, video_info.thumbnail_info)?;
-        self.send_attachment(
-            params,
-            attachment_info,
-            video_info.mimetype,
-            progress_watcher,
-            thumbnail,
-        )
+        self.send_attachment(params, attachment_info, video_info.mimetype, thumbnail)
     }
 
     pub fn send_audio(
         self: Arc<Self>,
         params: UploadParameters,
         audio_info: AudioInfo,
-        progress_watcher: Option<Box<dyn ProgressWatcher>>,
     ) -> Result<Arc<SendAttachmentJoinHandle>, RoomError> {
         let attachment_info = AttachmentInfo::Audio(
             BaseAudioInfo::try_from(&audio_info).map_err(|_| RoomError::InvalidAttachmentData)?,
         );
-        self.send_attachment(params, attachment_info, audio_info.mimetype, progress_watcher, None)
+        self.send_attachment(params, attachment_info, audio_info.mimetype, None)
     }
 
     pub fn send_voice_message(
@@ -451,26 +425,24 @@ impl Timeline {
         params: UploadParameters,
         audio_info: AudioInfo,
         waveform: Vec<u16>,
-        progress_watcher: Option<Box<dyn ProgressWatcher>>,
     ) -> Result<Arc<SendAttachmentJoinHandle>, RoomError> {
         let attachment_info = AttachmentInfo::Voice {
             audio_info: BaseAudioInfo::try_from(&audio_info)
                 .map_err(|_| RoomError::InvalidAttachmentData)?,
             waveform: Some(waveform),
         };
-        self.send_attachment(params, attachment_info, audio_info.mimetype, progress_watcher, None)
+        self.send_attachment(params, attachment_info, audio_info.mimetype, None)
     }
 
     pub fn send_file(
         self: Arc<Self>,
         params: UploadParameters,
         file_info: FileInfo,
-        progress_watcher: Option<Box<dyn ProgressWatcher>>,
     ) -> Result<Arc<SendAttachmentJoinHandle>, RoomError> {
         let attachment_info = AttachmentInfo::File(
             BaseFileInfo::try_from(&file_info).map_err(|_| RoomError::InvalidAttachmentData)?,
         );
-        self.send_attachment(params, attachment_info, file_info.mimetype, progress_watcher, None)
+        self.send_attachment(params, attachment_info, file_info.mimetype, None)
     }
 
     pub async fn create_poll(

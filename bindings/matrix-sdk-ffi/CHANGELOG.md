@@ -36,6 +36,10 @@ All notable changes to this project will be documented in this file.
 
 ### Breaking changes:
 
+- Support for the legacy media upload progress has been disabled. Media upload progress is
+  available through the send queue, and can be enabled thanks to
+  `Client::enable_send_queue_upload_progress()`.
+  ([#5525](https://github.com/matrix-org/matrix-rust-sdk/pull/5525))
 - `TimelineDiff` is now exported as a true `uniffi::Enum` instead of the weird `uniffi::Object` hybrid. This matches
   both `RoomDirectorySearchEntryUpdate` and `RoomListEntriesUpdate` and can be used in the same way.
   ([#5474](https://github.com/matrix-org/matrix-rust-sdk/pull/5474))
