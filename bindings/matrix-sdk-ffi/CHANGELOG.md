@@ -36,6 +36,10 @@ All notable changes to this project will be documented in this file.
 
 ### Breaking changes:
 
+- The timeline will now always use the send queue to upload medias, so the
+  `UploadParameters::use_send_queue` bool has been removed. Make sure to listen to the send queue's
+  error updates, and to handle send queue restarts.
+  ([#5525](https://github.com/matrix-org/matrix-rust-sdk/pull/5525))
 - Support for the legacy media upload progress has been disabled. Media upload progress is
   available through the send queue, and can be enabled thanks to
   `Client::enable_send_queue_upload_progress()`.
