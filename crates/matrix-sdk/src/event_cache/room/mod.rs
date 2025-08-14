@@ -431,7 +431,7 @@ pub(super) struct RoomEventCacheInner {
     /// more details.
     auto_shrink_sender: mpsc::Sender<AutoShrinkChannelPayload>,
 
-    /// A clone of [`EventCacheInner::room_event_cache_generic_update_sender`].
+    /// A clone of [`EventCacheInner::generic_update_sender`].
     ///
     /// Whilst `EventCacheInner` handles the generic updates from the sync, or
     /// the storage, it doesn't handle the update from pagination. Having a
