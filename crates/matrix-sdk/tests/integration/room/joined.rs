@@ -1084,7 +1084,7 @@ async fn test_enable_encryption_doesnt_stay_unknown() {
     assert_matches!(room.encryption_state(), EncryptionState::Unknown);
 
     assert!(room.latest_encryption_state().await.unwrap().is_encrypted());
-    assert_matches!(room.encryption_state(), EncryptionState::Encrypted);
+    assert_matches!(room.encryption_state(), EncryptionState::Encrypted { .. });
 }
 
 #[async_test]

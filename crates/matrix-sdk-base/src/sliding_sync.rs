@@ -2437,11 +2437,11 @@ mod tests {
         // They are both encrypted, yepee.
         assert_matches!(
             client.get_room(room_id_0).unwrap().encryption_state(),
-            EncryptionState::Encrypted
+            EncryptionState::Encrypted { .. }
         );
         assert_matches!(
             client.get_room(room_id_1).unwrap().encryption_state(),
-            EncryptionState::Encrypted
+            EncryptionState::Encrypted { .. }
         );
         // This one is not encrypted because it has received nothing.
         assert_matches!(
@@ -2492,7 +2492,7 @@ mod tests {
         // is encrypted.
         assert_matches!(
             client.get_room(room_id_0).unwrap().encryption_state(),
-            EncryptionState::Encrypted
+            EncryptionState::Encrypted { .. }
         );
         // Unknown, because the absence of `m.room.encryption` when not requested
         // means we don't know what the state is.
