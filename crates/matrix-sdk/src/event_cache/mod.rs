@@ -386,10 +386,8 @@ impl EventCache {
     /// [`RoomEventCacheSubscriber`] type triggers side-effects.
     ///
     /// If one wants to get a high-overview, generic, updates for rooms, and
-    /// without side-effects, this method is recommended. For example, it
-    /// doesn't provide a list of new events, but rather a
-    /// [`RoomEventCacheGenericUpdate::UpdateTimeline`] update. Also, dropping
-    /// the receiver of this channel will not trigger any side-effect.
+    /// without side-effects, this method is recommended. Also, dropping the
+    /// receiver of this channel will not trigger any side-effect.
     pub fn subscribe_to_room_generic_updates(&self) -> Receiver<RoomEventCacheGenericUpdate> {
         self.inner.room_event_cache_generic_update_sender.subscribe()
     }
@@ -506,7 +504,7 @@ impl EventCacheInner {
             let _ = room
                 .inner
                 .generic_update_sender
-                .send(RoomEventCacheGenericUpdate::Clear { room_id: room.inner.room_id.clone() });
+                .send(RoomEventCacheGenericUpdate { room_id: room.inner.room_id.clone() });
 
             Ok::<_, EventCacheError>(())
         }))
@@ -622,9 +620,9 @@ impl EventCacheInner {
                 // If at least one event has been loaded, it means there is a timeline. Let's
                 // emit a generic update.
                 if timeline_is_not_empty {
-                    let _ = self.room_event_cache_generic_update_sender.send(
-                        RoomEventCacheGenericUpdate::UpdateTimeline { room_id: room_id.to_owned() },
-                    );
+                    let _ = self
+                        .room_event_cache_generic_update_sender
+                        .send(RoomEventCacheGenericUpdate { room_id: room_id.to_owned() });
                 }
 
                 Ok(room_event_cache)
@@ -648,35 +646,15 @@ pub struct BackPaginationOutcome {
     pub events: Vec<TimelineEvent>,
 }
 
-/// Represents an update of a room. It hides the details of
+/// Represents a timeline update of a room. It hides the details of
 /// [`RoomEventCacheUpdate`] by being more generic.
 ///
 /// This is used by [`EventCache::subscribe_to_room_generic_updates`]. Please
 /// read it to learn more about the motivation behind this type.
 #[derive(Clone, Debug)]
-pub enum RoomEventCacheGenericUpdate {
-    /// The timeline has been updated, i.e. an event has been added, redacted,
-    /// removed, or reloaded.
-    UpdateTimeline {
-        /// The room ID owning the timeline.
-        room_id: OwnedRoomId,
-    },
-
-    /// The room has been cleared, all events have been deleted.
-    Clear {
-        /// The ID of the room that has been cleared.
-        room_id: OwnedRoomId,
-    },
-}
-
-impl RoomEventCacheGenericUpdate {
-    /// Get the room ID that has triggered this generic update.
-    pub fn room_id(&self) -> &RoomId {
-        match self {
-            Self::UpdateTimeline { room_id } => room_id,
-            Self::Clear { room_id } => room_id,
-        }
-    }
+pub struct RoomEventCacheGenericUpdate {
+    /// The room ID owning the timeline.
+    pub room_id: OwnedRoomId,
 }
 
 /// An update related to events happened in a room.
@@ -942,7 +920,7 @@ mod tests {
 
             assert_matches!(
                 generic_stream.recv().await,
-                Ok(RoomEventCacheGenericUpdate::UpdateTimeline { room_id }) => {
+                Ok(RoomEventCacheGenericUpdate { room_id }) => {
                     assert_eq!(room_id, room_id_0);
                 }
             );
@@ -1030,7 +1008,7 @@ mod tests {
 
         assert_matches!(
             generic_stream.recv().await,
-            Ok(RoomEventCacheGenericUpdate::UpdateTimeline { room_id: expected_room_id }) => {
+            Ok(RoomEventCacheGenericUpdate { room_id: expected_room_id }) => {
                 assert_eq!(room_id, expected_room_id);
             }
         );
@@ -1044,7 +1022,7 @@ mod tests {
         assert!(pagination_outcome.reached_start.not());
         assert_matches!(
             generic_stream.recv().await,
-            Ok(RoomEventCacheGenericUpdate::UpdateTimeline { room_id: expected_room_id }) => {
+            Ok(RoomEventCacheGenericUpdate { room_id: expected_room_id }) => {
                 assert_eq!(room_id, expected_room_id);
             }
         );

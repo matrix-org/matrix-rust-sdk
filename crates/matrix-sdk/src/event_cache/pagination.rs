@@ -154,15 +154,6 @@ impl RoomPagination {
                 status_observable
                     .set(RoomPaginationStatus::Idle { hit_timeline_start: outcome.reached_start });
 
-                // Send a room event cache generic update.
-                if !outcome.events.is_empty() {
-                    let _ = self.inner.generic_update_sender.send(
-                        RoomEventCacheGenericUpdate::UpdateTimeline {
-                            room_id: self.inner.room_id.clone(),
-                        },
-                    );
-                }
-
                 Ok(Some(outcome))
             }
 
@@ -238,6 +229,12 @@ impl RoomPagination {
                             self.inner.sender.send(RoomEventCacheUpdate::UpdateTimelineEvents {
                                 diffs: timeline_event_diffs,
                                 origin: EventsOrigin::Cache,
+                            });
+
+                        // Send a room event cache generic update.
+                        let _ =
+                            self.inner.generic_update_sender.send(RoomEventCacheGenericUpdate {
+                                room_id: self.inner.room_id.clone(),
                             });
                     }
 
