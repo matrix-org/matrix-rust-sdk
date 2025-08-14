@@ -16,8 +16,11 @@
 //!
 //! See [`SpaceService`] for details.
 
-use eyeball::{SharedObservable, Subscriber};
+use std::sync::Arc;
+
+use eyeball_im::{ObservableVector, VectorSubscriberBatchedStream};
 use futures_util::pin_mut;
+use imbl::Vector;
 use matrix_sdk::{Client, deserialized_responses::SyncOrStrippedState, locks::Mutex};
 use matrix_sdk_common::executor::{JoinHandle, spawn};
 use ruma::{
@@ -39,7 +42,7 @@ pub mod room_list;
 pub struct SpaceService {
     client: Client,
 
-    joined_spaces: SharedObservable<Vec<SpaceRoom>>,
+    joined_spaces: Arc<Mutex<ObservableVector<SpaceRoom>>>,
 
     room_update_handle: Mutex<Option<JoinHandle<()>>>,
 }
@@ -56,15 +59,17 @@ impl SpaceService {
     pub fn new(client: Client) -> Self {
         Self {
             client,
-            joined_spaces: SharedObservable::new(Vec::new()),
+            joined_spaces: Arc::new(Mutex::new(ObservableVector::new())),
             room_update_handle: Mutex::new(None),
         }
     }
 
-    pub fn subscribe_to_joined_spaces(&self) -> Subscriber<Vec<SpaceRoom>> {
+    pub fn subscribe_to_joined_spaces(
+        &self,
+    ) -> (Vector<SpaceRoom>, VectorSubscriberBatchedStream<SpaceRoom>) {
         if self.room_update_handle.lock().is_none() {
-            let client_clone = self.client.clone();
-            let joined_spaces_clone = self.joined_spaces.clone();
+            let client = self.client.clone();
+            let joined_spaces = Arc::clone(&self.joined_spaces);
             let all_room_updates_receiver = self.client.subscribe_to_all_room_updates();
 
             *self.room_update_handle.lock() = Some(spawn(async move {
@@ -73,10 +78,8 @@ impl SpaceService {
                 loop {
                     match all_room_updates_receiver.recv().await {
                         Ok(_) => {
-                            let new_spaces = Self::joined_spaces_for(&client_clone).await;
-                            if new_spaces != joined_spaces_clone.get() {
-                                joined_spaces_clone.set(new_spaces);
-                            }
+                            let new_spaces = Vector::from(Self::joined_spaces_for(&client).await);
+                            Self::update_joined_spaces_if_needed(new_spaces, &joined_spaces);
                         }
                         Err(err) => {
                             error!("error when listening to room updates: {err}");
@@ -86,21 +89,31 @@ impl SpaceService {
             }));
         }
 
-        self.joined_spaces.subscribe()
+        self.joined_spaces.lock().subscribe().into_values_and_batched_stream()
     }
 
     pub async fn joined_spaces(&self) -> Vec<SpaceRoom> {
         let spaces = Self::joined_spaces_for(&self.client).await;
 
-        if spaces != self.joined_spaces.get() {
-            self.joined_spaces.set(spaces.clone());
-        }
+        Self::update_joined_spaces_if_needed(Vector::from(spaces.clone()), &self.joined_spaces);
 
         spaces
     }
 
     pub fn space_room_list(&self, space_id: OwnedRoomId) -> SpaceRoomList {
         SpaceRoomList::new(self.client.clone(), space_id)
+    }
+
+    fn update_joined_spaces_if_needed(
+        new_spaces: Vector<SpaceRoom>,
+        joined_spaces: &Arc<Mutex<ObservableVector<SpaceRoom>>>,
+    ) {
+        let old_spaces = joined_spaces.lock().clone();
+
+        if new_spaces != old_spaces {
+            joined_spaces.lock().clear();
+            joined_spaces.lock().append(new_spaces);
+        }
     }
 
     async fn joined_spaces_for(client: &Client) -> Vec<SpaceRoom> {
@@ -175,6 +188,7 @@ impl SpaceService {
 #[cfg(test)]
 mod tests {
     use assert_matches2::assert_let;
+    use eyeball_im::VectorDiff;
     use futures_util::{StreamExt, pin_mut};
     use matrix_sdk::{room::ParentSpace, test_utils::mocks::MatrixMockServer};
     use matrix_sdk_test::{
@@ -324,13 +338,24 @@ mod tests {
 
         let space_service = SpaceService::new(client.clone());
 
-        let joined_spaces_subscriber = space_service.subscribe_to_joined_spaces();
+        let (_, joined_spaces_subscriber) = space_service.subscribe_to_joined_spaces();
         pin_mut!(joined_spaces_subscriber);
         assert_pending!(joined_spaces_subscriber);
 
         assert_eq!(
             space_service.joined_spaces().await,
             vec![SpaceRoom::new_from_known(client.get_room(first_space_id).unwrap(), 0)]
+        );
+
+        assert_next_eq!(
+            joined_spaces_subscriber,
+            vec![VectorDiff::Append {
+                values: vec![SpaceRoom::new_from_known(
+                    client.get_room(first_space_id).unwrap(),
+                    0
+                )]
+                .into()
+            }]
         );
 
         // Join the second space
@@ -360,12 +385,17 @@ mod tests {
             ]
         );
 
-        // The subscriber yields new results when a space is joined
         assert_next_eq!(
             joined_spaces_subscriber,
             vec![
-                SpaceRoom::new_from_known(client.get_room(first_space_id).unwrap(), 0),
-                SpaceRoom::new_from_known(client.get_room(second_space_id).unwrap(), 1)
+                VectorDiff::Clear,
+                VectorDiff::Append {
+                    values: vec![
+                        SpaceRoom::new_from_known(client.get_room(first_space_id).unwrap(), 0),
+                        SpaceRoom::new_from_known(client.get_room(second_space_id).unwrap(), 1)
+                    ]
+                    .into()
+                },
             ]
         );
 
@@ -374,7 +404,16 @@ mod tests {
         // and when one is left
         assert_next_eq!(
             joined_spaces_subscriber,
-            vec![SpaceRoom::new_from_known(client.get_room(first_space_id).unwrap(), 0)]
+            vec![
+                VectorDiff::Clear,
+                VectorDiff::Append {
+                    values: vec![SpaceRoom::new_from_known(
+                        client.get_room(first_space_id).unwrap(),
+                        0
+                    )]
+                    .into()
+                },
+            ]
         );
 
         // but it doesn't when a non-space room gets joined

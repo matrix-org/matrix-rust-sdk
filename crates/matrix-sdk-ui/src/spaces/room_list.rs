@@ -12,11 +12,14 @@
 // See the License for that specific language governing permissions and
 // limitations under the License.
 
-use std::sync::Mutex;
+use std::sync::Arc;
 
 use eyeball::{SharedObservable, Subscriber};
+use eyeball_im::{ObservableVector, VectorSubscriberBatchedStream};
 use futures_util::pin_mut;
-use matrix_sdk::{Client, Error, paginators::PaginationToken};
+use imbl::Vector;
+use itertools::Itertools;
+use matrix_sdk::{Client, Error, locks::Mutex, paginators::PaginationToken};
 use matrix_sdk_common::executor::{JoinHandle, spawn};
 use ruma::{OwnedRoomId, api::client::space::get_hierarchy, uint};
 use tracing::error;
@@ -39,7 +42,7 @@ pub struct SpaceRoomList {
 
     pagination_state: SharedObservable<SpaceRoomListPaginationState>,
 
-    rooms: SharedObservable<Vec<SpaceRoom>>,
+    rooms: Arc<Mutex<ObservableVector<SpaceRoom>>>,
 
     room_update_handle: JoinHandle<()>,
 }
@@ -51,7 +54,7 @@ impl Drop for SpaceRoomList {
 }
 impl SpaceRoomList {
     pub fn new(client: Client, parent_space_id: OwnedRoomId) -> Self {
-        let rooms = SharedObservable::new(Vec::<SpaceRoom>::new());
+        let rooms = Arc::new(Mutex::new(ObservableVector::<SpaceRoom>::new()));
 
         let client_clone = client.clone();
         let rooms_clone = rooms.clone();
@@ -63,20 +66,21 @@ impl SpaceRoomList {
             loop {
                 match all_room_updates_receiver.recv().await {
                     Ok(updates) => {
-                        let mut new_rooms = rooms_clone.get();
+                        let mut mutable_rooms = rooms_clone.lock();
 
                         updates.iter_all_room_ids().for_each(|updated_room_id| {
-                            if let Some(room) =
-                                new_rooms.iter_mut().find(|room| &room.room_id == updated_room_id)
+                            if let Some((position, room)) = mutable_rooms
+                                .clone()
+                                .iter()
+                                .find_position(|room| &room.room_id == updated_room_id)
                                 && let Some(update_room) = client_clone.get_room(updated_room_id)
                             {
-                                *room = SpaceRoom::new_from_known(update_room, room.children_count);
+                                mutable_rooms.set(
+                                    position,
+                                    SpaceRoom::new_from_known(update_room, room.children_count),
+                                );
                             }
-                        });
-
-                        if new_rooms != rooms_clone.get() {
-                            rooms_clone.set(new_rooms);
-                        }
+                        })
                     }
                     Err(err) => {
                         error!("error when listening to room updates: {err}");
@@ -108,11 +112,13 @@ impl SpaceRoomList {
     }
 
     pub fn rooms(&self) -> Vec<SpaceRoom> {
-        self.rooms.get()
+        self.rooms.lock().iter().cloned().collect_vec()
     }
 
-    pub fn subscribe_to_room_updates(&self) -> Subscriber<Vec<SpaceRoom>> {
-        self.rooms.subscribe()
+    pub fn subscribe_to_room_updates(
+        &self,
+    ) -> (Vector<SpaceRoom>, VectorSubscriberBatchedStream<SpaceRoom>) {
+        self.rooms.lock().subscribe().into_values_and_batched_stream()
     }
 
     pub async fn paginate(&self) -> Result<(), Error> {
@@ -131,43 +137,34 @@ impl SpaceRoomList {
         let mut request = get_hierarchy::v1::Request::new(self.parent_space_id.clone());
         request.max_depth = Some(uint!(1)); // We only want the immediate children of the space
 
-        if let PaginationToken::HasMore(ref token) = *self.token.lock().unwrap() {
+        if let PaginationToken::HasMore(ref token) = *self.token.lock() {
             request.from = Some(token.clone());
         }
 
         match self.client.send(request).await {
             Ok(result) => {
-                let mut token = self.token.lock().unwrap();
+                let mut token = self.token.lock();
                 *token = match &result.next_batch {
                     Some(val) => PaginationToken::HasMore(val.clone()),
                     None => PaginationToken::HitEnd,
                 };
 
-                let mut current_rooms = Vec::new();
-
-                (self.rooms.read()).iter().for_each(|room| {
-                    current_rooms.push(room.clone());
-                });
-
-                current_rooms.extend(
-                    result
-                        .rooms
-                        .iter()
-                        .flat_map(|room| {
-                            if room.summary.room_id == self.parent_space_id {
-                                None
-                            } else {
-                                Some(SpaceRoom::new_from_summary(
-                                    &room.summary,
-                                    self.client.get_room(&room.summary.room_id),
-                                    room.children_state.len() as u64,
-                                ))
-                            }
-                        })
-                        .collect::<Vec<_>>(),
-                );
-
-                self.rooms.set(current_rooms.clone());
+                let mut rooms = self.rooms.lock();
+                result
+                    .rooms
+                    .iter()
+                    .flat_map(|room| {
+                        if room.summary.room_id == self.parent_space_id {
+                            None
+                        } else {
+                            Some(SpaceRoom::new_from_summary(
+                                &room.summary,
+                                self.client.get_room(&room.summary.room_id),
+                                room.children_state.len() as u64,
+                            ))
+                        }
+                    })
+                    .for_each(|room| rooms.push_back(room));
 
                 self.pagination_state.set(SpaceRoomListPaginationState::Idle {
                     end_reached: result.next_batch.is_none(),
@@ -187,6 +184,7 @@ impl SpaceRoomList {
 #[cfg(test)]
 mod tests {
     use assert_matches2::assert_matches;
+    use eyeball_im::VectorDiff;
     use futures_util::pin_mut;
     use matrix_sdk::{RoomState, test_utils::mocks::MatrixMockServer};
     use matrix_sdk_test::{JoinedRoomBuilder, LeftRoomBuilder, async_test};
@@ -225,7 +223,7 @@ mod tests {
         pin_mut!(pagination_state_subscriber);
         assert_pending!(pagination_state_subscriber);
 
-        let rooms_subscriber = room_list.subscribe_to_room_updates();
+        let (_, rooms_subscriber) = room_list.subscribe_to_room_updates();
         pin_mut!(rooms_subscriber);
         assert_pending!(rooms_subscriber);
 
@@ -250,32 +248,36 @@ mod tests {
             SpaceRoomListPaginationState::Idle { end_reached: true }
         );
 
-        // yields results
+        // and yields results
         assert_next_eq!(
             rooms_subscriber,
             vec![
-                SpaceRoom::new_from_summary(
-                    &RoomSummary::new(
-                        child_space_id_1.to_owned(),
-                        JoinRuleSummary::Public,
-                        false,
-                        uint!(1),
-                        false,
+                VectorDiff::PushBack {
+                    value: SpaceRoom::new_from_summary(
+                        &RoomSummary::new(
+                            child_space_id_1.to_owned(),
+                            JoinRuleSummary::Public,
+                            false,
+                            uint!(1),
+                            false,
+                        ),
+                        None,
+                        1
+                    )
+                },
+                VectorDiff::PushBack {
+                    value: SpaceRoom::new_from_summary(
+                        &RoomSummary::new(
+                            child_space_id_2.to_owned(),
+                            JoinRuleSummary::Public,
+                            false,
+                            uint!(1),
+                            false,
+                        ),
+                        None,
+                        1
                     ),
-                    None,
-                    1
-                ),
-                SpaceRoom::new_from_summary(
-                    &RoomSummary::new(
-                        child_space_id_2.to_owned(),
-                        JoinRuleSummary::Public,
-                        false,
-                        uint!(1),
-                        false,
-                    ),
-                    None,
-                    1
-                ),
+                }
             ]
         );
     }
@@ -308,7 +310,7 @@ mod tests {
         assert_eq!(room_list.rooms().first().unwrap().state, None);
         assert_eq!(room_list.rooms().last().unwrap().state, None);
 
-        let rooms_subscriber = room_list.subscribe_to_room_updates();
+        let (_, rooms_subscriber) = room_list.subscribe_to_room_updates();
         pin_mut!(rooms_subscriber);
         assert_pending!(rooms_subscriber);
 

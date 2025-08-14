@@ -14,6 +14,7 @@
 
 use std::{fmt::Debug, sync::Arc};
 
+use eyeball_im::VectorDiff;
 use futures_util::{pin_mut, StreamExt};
 use matrix_sdk_common::{SendOutsideWasm, SyncOutsideWasm};
 use matrix_sdk_ui::spaces::{
@@ -57,17 +58,18 @@ impl SpaceService {
         &self,
         listener: Box<dyn SpaceServiceJoinedSpacesListener>,
     ) -> Arc<TaskHandle> {
-        let entries_stream = self.inner.subscribe_to_joined_spaces();
+        let (initial_values, mut stream) = self.inner.subscribe_to_joined_spaces();
+
+        listener.on_update(vec![SpaceListUpdate::Reset {
+            values: initial_values.into_iter().map(Into::into).collect(),
+        }]);
 
         Arc::new(TaskHandle::new(get_runtime_handle().spawn(async move {
-            pin_mut!(entries_stream);
-
-            while let Some(rooms) = entries_stream.next().await {
-                listener.on_update(rooms.into_iter().map(Into::into).collect());
+            while let Some(diffs) = stream.next().await {
+                listener.on_update(diffs.into_iter().map(Into::into).collect());
             }
         })))
     }
-
     #[allow(clippy::unused_async)]
     // This method doesn't need to be async but if its not the FFI layer panics
     // with "there is no no reactor running, must be called from the context
@@ -122,13 +124,15 @@ impl SpaceRoomList {
         &self,
         listener: Box<dyn SpaceRoomListEntriesListener>,
     ) -> Arc<TaskHandle> {
-        let entries_stream = self.inner.subscribe_to_room_updates();
+        let (initial_values, mut stream) = self.inner.subscribe_to_room_updates();
+
+        listener.on_update(vec![SpaceListUpdate::Reset {
+            values: initial_values.into_iter().map(Into::into).collect(),
+        }]);
 
         Arc::new(TaskHandle::new(get_runtime_handle().spawn(async move {
-            pin_mut!(entries_stream);
-
-            while let Some(rooms) = entries_stream.next().await {
-                listener.on_update(rooms.into_iter().map(Into::into).collect());
+            while let Some(diffs) = stream.next().await {
+                listener.on_update(diffs.into_iter().map(Into::into).collect());
             }
         })))
     }
@@ -145,12 +149,12 @@ pub trait SpaceRoomListPaginationStateListener: SendOutsideWasm + SyncOutsideWas
 
 #[matrix_sdk_ffi_macros::export(callback_interface)]
 pub trait SpaceRoomListEntriesListener: SendOutsideWasm + SyncOutsideWasm + Debug {
-    fn on_update(&self, rooms: Vec<SpaceRoom>);
+    fn on_update(&self, rooms: Vec<SpaceListUpdate>);
 }
 
 #[matrix_sdk_ffi_macros::export(callback_interface)]
 pub trait SpaceServiceJoinedSpacesListener: SendOutsideWasm + SyncOutsideWasm + Debug {
-    fn on_update(&self, rooms: Vec<SpaceRoom>);
+    fn on_update(&self, room_updates: Vec<SpaceListUpdate>);
 }
 
 #[derive(uniffi::Record)]
@@ -187,6 +191,47 @@ impl From<UISpaceRoom> for SpaceRoom {
             children_count: room.children_count,
             state: room.state.map(Into::into),
             heroes: room.heroes.map(|heroes| heroes.into_iter().map(Into::into).collect()),
+        }
+    }
+}
+
+#[derive(uniffi::Enum)]
+pub enum SpaceListUpdate {
+    Append { values: Vec<SpaceRoom> },
+    Clear,
+    PushFront { value: SpaceRoom },
+    PushBack { value: SpaceRoom },
+    PopFront,
+    PopBack,
+    Insert { index: u32, value: SpaceRoom },
+    Set { index: u32, value: SpaceRoom },
+    Remove { index: u32 },
+    Truncate { length: u32 },
+    Reset { values: Vec<SpaceRoom> },
+}
+
+impl From<VectorDiff<UISpaceRoom>> for SpaceListUpdate {
+    fn from(diff: VectorDiff<UISpaceRoom>) -> Self {
+        match diff {
+            VectorDiff::Append { values } => {
+                Self::Append { values: values.into_iter().map(|v| v.into()).collect() }
+            }
+            VectorDiff::Clear => Self::Clear,
+            VectorDiff::PushFront { value } => Self::PushFront { value: value.into() },
+            VectorDiff::PushBack { value } => Self::PushBack { value: value.into() },
+            VectorDiff::PopFront => Self::PopFront,
+            VectorDiff::PopBack => Self::PopBack,
+            VectorDiff::Insert { index, value } => {
+                Self::Insert { index: index as u32, value: value.into() }
+            }
+            VectorDiff::Set { index, value } => {
+                Self::Set { index: index as u32, value: value.into() }
+            }
+            VectorDiff::Remove { index } => Self::Remove { index: index as u32 },
+            VectorDiff::Truncate { length } => Self::Truncate { length: length as u32 },
+            VectorDiff::Reset { values } => {
+                Self::Reset { values: values.into_iter().map(|v| v.into()).collect() }
+            }
         }
     }
 }
