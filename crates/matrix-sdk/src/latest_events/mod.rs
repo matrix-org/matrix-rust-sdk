@@ -592,10 +592,10 @@ async fn listen_to_event_cache_and_send_queue_updates(
 
         room_event_cache_generic_update = event_cache_generic_updates_subscriber.recv().fuse() => {
             if let Ok(room_event_cache_generic_update) = room_event_cache_generic_update {
-                let room_id = room_event_cache_generic_update.room_id();
+                let room_id = room_event_cache_generic_update.room_id;
 
-                if listened_rooms.contains(room_id) {
-                    let _ = latest_event_queue_sender.send(room_id.to_owned());
+                if listened_rooms.contains(&room_id) {
+                    let _ = latest_event_queue_sender.send(room_id);
                 }
             } else {
                 error!("`event_cache_generic_updates` channel has been closed");
@@ -929,7 +929,7 @@ mod tests {
         // New event cache update, but the `LatestEvents` isn't listening to it.
         {
             room_event_cache_generic_update_sender
-                .send(RoomEventCacheGenericUpdate::UpdateTimeline { room_id: room_id.clone() })
+                .send(RoomEventCacheGenericUpdate { room_id: room_id.clone() })
                 .unwrap();
 
             // Run the task.
@@ -952,7 +952,7 @@ mod tests {
         {
             room_registration_sender.send(RoomRegistration::Add(room_id.clone())).await.unwrap();
             room_event_cache_generic_update_sender
-                .send(RoomEventCacheGenericUpdate::UpdateTimeline { room_id: room_id.clone() })
+                .send(RoomEventCacheGenericUpdate { room_id: room_id.clone() })
                 .unwrap();
 
             // Run the task to handle the `RoomRegistration` and the
