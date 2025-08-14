@@ -1618,6 +1618,14 @@ impl Client {
             .any(|focus| matches!(focus, RtcFocusInfo::LiveKit(_))))
     }
 
+    /// Get server vendor information from the federation API.
+    ///
+    /// This method retrieves information about the server's name and version
+    /// by calling the `/_matrix/federation/v1/version` endpoint.
+    pub async fn server_vendor_info(&self) -> Result<matrix_sdk::ServerVendorInfo, ClientError> {
+        Ok(self.inner.server_vendor_info().await?)
+    }
+
     /// Subscribe to changes in the media preview configuration.
     pub async fn subscribe_to_media_preview_config(
         &self,

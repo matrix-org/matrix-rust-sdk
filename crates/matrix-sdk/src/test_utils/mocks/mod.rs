@@ -1384,6 +1384,12 @@ impl MatrixMockServer {
         )));
         self.mock_endpoint(mock, EnablePushRuleEndpoint).expect_default_access_token()
     }
+
+    /// Create a prebuilt mock for the federation version endpoint.
+    pub fn mock_federation_version(&self) -> MockEndpoint<'_, FederationVersionEndpoint> {
+        let mock = Mock::given(method("GET")).and(path("/_matrix/federation/v1/version"));
+        self.mock_endpoint(mock, FederationVersionEndpoint)
+    }
 }
 
 /// Parameter to [`MatrixMockServer::sync_room`].
@@ -3981,5 +3987,27 @@ impl<'a> MockEndpoint<'a, EnablePushRuleEndpoint> {
     /// Returns a successful empty JSON response.
     pub fn ok(self) -> MatrixMock<'a> {
         self.ok_empty_json()
+    }
+}
+
+/// A prebuilt mock for the federation version endpoint.
+pub struct FederationVersionEndpoint;
+
+impl<'a> MockEndpoint<'a, FederationVersionEndpoint> {
+    /// Returns a successful response with the given server name and version.
+    pub fn ok(self, server_name: &str, version: &str) -> MatrixMock<'a> {
+        let response_body = json!({
+            "server": {
+                "name": server_name,
+                "version": version
+            }
+        });
+        self.respond_with(ResponseTemplate::new(200).set_body_json(response_body))
+    }
+
+    /// Returns a successful response with empty/missing server information.
+    pub fn ok_empty(self) -> MatrixMock<'a> {
+        let response_body = json!({});
+        self.respond_with(ResponseTemplate::new(200).set_body_json(response_body))
     }
 }

@@ -1490,3 +1490,36 @@ async fn test_room_sync_state_after() {
     let member = room.get_member_no_sync(user_id!("@invited:localhost")).await.unwrap().unwrap();
     assert_eq!(*member.membership(), MembershipState::Leave);
 }
+
+#[async_test]
+async fn test_server_vendor_info() {
+    use matrix_sdk::test_utils::mocks::MatrixMockServer;
+
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+
+    // Mock the federation version endpoint
+    server.mock_federation_version().ok("Synapse", "1.70.0").mount().await;
+
+    let server_info = client.server_vendor_info().await.unwrap();
+
+    assert_eq!(server_info.server_name, "Synapse");
+    assert_eq!(server_info.version, "1.70.0");
+}
+
+#[async_test]
+async fn test_server_vendor_info_with_missing_fields() {
+    use matrix_sdk::test_utils::mocks::MatrixMockServer;
+
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+
+    // Mock the federation version endpoint with missing fields
+    server.mock_federation_version().ok_empty().mount().await;
+
+    let server_info = client.server_vendor_info().await.unwrap();
+
+    // Should use defaults for missing fields
+    assert_eq!(server_info.server_name, "unknown");
+    assert_eq!(server_info.version, "unknown");
+}

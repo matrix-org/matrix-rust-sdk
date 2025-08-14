@@ -65,6 +65,7 @@ use ruma::{
             user_directory::search_users,
         },
         error::FromHttpResponseError,
+        federation::discovery::get_server_version,
         FeatureFlag, MatrixVersion, OutgoingRequest, SupportedVersions,
     },
     assign,
@@ -151,6 +152,16 @@ pub enum SessionChange {
     },
     /// The session's tokens have been refreshed.
     TokensRefreshed,
+}
+
+/// Information about the server vendor obtained from the federation API.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+pub struct ServerVendorInfo {
+    /// The server name.
+    pub server_name: String,
+    /// The server version.
+    pub version: String,
 }
 
 /// An async/await enabled Matrix client.
@@ -521,6 +532,38 @@ impl Client {
     pub async fn get_capabilities(&self) -> HttpResult<Capabilities> {
         let res = self.send(get_capabilities::v3::Request::new()).await?;
         Ok(res.capabilities)
+    }
+
+    /// Get the server vendor information from the federation API.
+    ///
+    /// This method calls the `/_matrix/federation/v1/version` endpoint to get
+    /// both the server's software name and version.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # use matrix_sdk::Client;
+    /// # use url::Url;
+    /// # async {
+    /// # let homeserver = Url::parse("http://example.com")?;
+    /// let client = Client::new(homeserver).await?;
+    ///
+    /// let server_info = client.server_vendor_info().await?;
+    /// println!(
+    ///     "Server: {}, Version: {}",
+    ///     server_info.server_name, server_info.version
+    /// );
+    /// # anyhow::Ok(()) };
+    /// ```
+    pub async fn server_vendor_info(&self) -> HttpResult<ServerVendorInfo> {
+        let res = self.send(get_server_version::v1::Request::new()).await?;
+
+        // Extract server info, using defaults if fields are missing.
+        let server = res.server.unwrap_or_default();
+        let server_name_str = server.name.unwrap_or_else(|| "unknown".to_owned());
+        let version = server.version.unwrap_or_else(|| "unknown".to_owned());
+
+        Ok(ServerVendorInfo { server_name: server_name_str, version })
     }
 
     /// Get a copy of the default request config.

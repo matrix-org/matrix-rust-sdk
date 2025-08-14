@@ -101,6 +101,7 @@ pin-project-lite.workspace = true
 rand = { workspace = true, optional = true }
 ruma = { workspace = true, features = [
     "rand",
+    "federation-api-c",
     "unstable-msc2448",
     "unstable-msc4191",
     "unstable-msc3930",
