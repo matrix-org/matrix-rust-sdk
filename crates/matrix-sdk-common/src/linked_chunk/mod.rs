@@ -116,6 +116,17 @@ pub enum LinkedChunkId<'a> {
     Thread(&'a RoomId, &'a EventId),
 }
 
+impl Display for LinkedChunkId<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Room(room_id) => write!(f, "{room_id}"),
+            Self::Thread(room_id, thread_root) => {
+                write!(f, "{room_id}:thread:{thread_root}")
+            }
+        }
+    }
+}
+
 impl LinkedChunkId<'_> {
     pub fn storage_key(&self) -> impl '_ + AsRef<[u8]> {
         match self {
@@ -168,12 +179,7 @@ pub enum OwnedLinkedChunkId {
 
 impl Display for OwnedLinkedChunkId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            OwnedLinkedChunkId::Room(room_id) => write!(f, "{room_id}"),
-            OwnedLinkedChunkId::Thread(room_id, thread_root) => {
-                write!(f, "{room_id}:thread:{thread_root}")
-            }
-        }
+        self.as_ref().fmt(f)
     }
 }
 
