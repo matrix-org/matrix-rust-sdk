@@ -44,7 +44,7 @@ use matrix_sdk_base::{
     },
     executor::AbortOnDrop,
     linked_chunk::{self, lazy_loader::LazyLoaderError, OwnedLinkedChunkId},
-    store::SerializableEventContent,
+    serde_helpers::extract_thread_root_from_content,
     store_locks::LockStoreError,
     sync::RoomUpdates,
     timer,
@@ -52,9 +52,8 @@ use matrix_sdk_base::{
 use matrix_sdk_common::executor::{spawn, JoinHandle};
 use room::RoomEventCacheState;
 use ruma::{
-    events::{room::encrypted, AnySyncEphemeralRoomEvent},
-    serde::Raw,
-    OwnedEventId, OwnedRoomId, OwnedTransactionId, RoomId,
+    events::AnySyncEphemeralRoomEvent, serde::Raw, OwnedEventId, OwnedRoomId, OwnedTransactionId,
+    RoomId,
 };
 use tokio::{
     select,
@@ -533,25 +532,13 @@ impl EventCache {
             return true;
         };
 
-        let extract_thread_root = |serialized_event: SerializableEventContent| {
-            match serialized_event.deserialize() {
-                Ok(content) => {
-                    if let Some(encrypted::Relation::Thread(thread)) = content.relation() {
-                        return Some(thread.event_id);
-                    }
-                }
-                Err(err) => {
-                    warn!("error when deserializing content of a local echo: {err}");
-                }
-            }
-            None
-        };
-
         let (thread_root, subscribe_up_to) = match up.update {
             RoomSendQueueUpdate::NewLocalEvent(local_echo) => {
                 match local_echo.content {
                     LocalEchoContent::Event { serialized_event, .. } => {
-                        if let Some(thread_root) = extract_thread_root(serialized_event) {
+                        if let Some(thread_root) =
+                            extract_thread_root_from_content(serialized_event.into_raw().0)
+                        {
                             events_being_sent.insert(local_echo.transaction_id, thread_root);
                         }
                     }
@@ -569,7 +556,9 @@ impl EventCache {
             }
 
             RoomSendQueueUpdate::ReplacedLocalEvent { transaction_id, new_content } => {
-                if let Some(thread_root) = extract_thread_root(new_content) {
+                if let Some(thread_root) =
+                    extract_thread_root_from_content(new_content.into_raw().0)
+                {
                     events_being_sent.insert(transaction_id, thread_root);
                 } else {
                     // It could be that the event isn't part of a thread anymore; handle that by

@@ -5,6 +5,7 @@ use assert_matches2::{assert_let, assert_matches};
 #[cfg(feature = "unstable-msc4274")]
 use matrix_sdk::attachment::{GalleryConfig, GalleryItemInfo};
 use matrix_sdk::{
+    assert_let_timeout,
     attachment::{AttachmentConfig, AttachmentInfo, BaseImageInfo, Thumbnail},
     config::StoreConfig,
     media::{MediaFormat, MediaRequestParameters, MediaThumbnailSettings},
@@ -3729,6 +3730,8 @@ async fn test_sending_reply_in_thread_auto_subscribe() {
 
     client.event_cache().subscribe().unwrap();
 
+    let mut thread_subscriber_updates = client.event_cache().subscribe_thread_subscriber_updates();
+
     let room_id = room_id!("!a:b.c");
     let room = server.sync_joined_room(&client, room_id).await;
 
@@ -3793,8 +3796,9 @@ async fn test_sending_reply_in_thread_auto_subscribe() {
     room.send_queue().send(content.into()).await.unwrap();
 
     // Let the send queue process the event.
-    assert_let!(RoomSendQueueUpdate::NewLocalEvent(..) = stream.recv().await.unwrap());
-    assert_let!(RoomSendQueueUpdate::SentEvent { .. } = stream.recv().await.unwrap());
+    assert_let_timeout!(Ok(RoomSendQueueUpdate::NewLocalEvent(..)) = stream.recv());
+    assert_let_timeout!(Ok(RoomSendQueueUpdate::SentEvent { .. }) = stream.recv());
+    assert_let_timeout!(Ok(()) = thread_subscriber_updates.recv());
 
     // Check the endpoints have been correctly called.
     server.server().reset().await;
@@ -3819,8 +3823,9 @@ async fn test_sending_reply_in_thread_auto_subscribe() {
     room.send_queue().send(content.into()).await.unwrap();
 
     // Let the send queue process the event.
-    assert_let!(RoomSendQueueUpdate::NewLocalEvent(..) = stream.recv().await.unwrap());
-    assert_let!(RoomSendQueueUpdate::SentEvent { .. } = stream.recv().await.unwrap());
+    assert_let_timeout!(Ok(RoomSendQueueUpdate::NewLocalEvent(..)) = stream.recv());
+    assert_let_timeout!(Ok(RoomSendQueueUpdate::SentEvent { .. }) = stream.recv());
+    assert_let_timeout!(Ok(()) = thread_subscriber_updates.recv());
 
     sleep(Duration::from_millis(100)).await;
 }
