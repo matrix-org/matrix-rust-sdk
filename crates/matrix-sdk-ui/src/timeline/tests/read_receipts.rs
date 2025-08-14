@@ -894,4 +894,6 @@ async fn test_unthreaded_client_updates_threaded_read_receipts() {
     let event_b = timeline.controller.items().await[2].as_event().unwrap().to_owned();
     assert_eq!(event_b.read_receipts().len(), 1);
     assert!(event_b.read_receipts().get(*BOB).is_some());
+
+    assert_pending!(stream);
 }
