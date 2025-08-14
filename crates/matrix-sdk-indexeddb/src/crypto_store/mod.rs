@@ -967,6 +967,31 @@ impl_crypto_store! {
         }
     }
 
+    async fn get_inbound_group_session_by_room_id(
+        &self,
+        room_id: &RoomId,
+    ) -> Result<Vec<InboundGroupSession>> {
+        let range = self.serializer.encode_to_range(keys::INBOUND_GROUP_SESSIONS_V3, room_id)?;
+        Ok(self
+            .inner
+            .transaction_on_one_with_mode(
+                keys::INBOUND_GROUP_SESSIONS_V3,
+                IdbTransactionMode::Readonly,
+            )?
+            .object_store(keys::INBOUND_GROUP_SESSIONS_V3)?
+            .get_all_with_key(&range)?
+            .await?
+            .into_iter()
+            .filter_map(|v| match self.deserialize_inbound_group_session(v) {
+                Ok(session) => Some(session),
+                Err(e) => {
+                    warn!("Failed to deserialize inbound group session: {e}");
+                    None
+                }
+            })
+            .collect::<Vec<InboundGroupSession>>())
+    }
+
     async fn get_inbound_group_sessions(&self) -> Result<Vec<InboundGroupSession>> {
         const INBOUND_GROUP_SESSIONS_BATCH_SIZE: usize = 1000;
 
