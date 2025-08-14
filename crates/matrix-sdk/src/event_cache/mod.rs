@@ -38,8 +38,11 @@ use eyeball_im::VectorDiff;
 use futures_util::future::{join_all, try_join_all};
 use matrix_sdk_base::{
     deserialized_responses::{AmbiguityChange, TimelineEvent},
-    event_cache::store::{EventCacheStoreError, EventCacheStoreLock},
-    linked_chunk::lazy_loader::LazyLoaderError,
+    event_cache::{
+        store::{EventCacheStoreError, EventCacheStoreLock},
+        Gap,
+    },
+    linked_chunk::{self, lazy_loader::LazyLoaderError, OwnedLinkedChunkId},
     store_locks::LockStoreError,
     sync::RoomUpdates,
     timer,
@@ -168,6 +171,7 @@ impl EventCache {
     /// Create a new [`EventCache`] for the given client.
     pub(crate) fn new(client: WeakClient, event_cache_store: EventCacheStoreLock) -> Self {
         let (generic_update_sender, _) = channel(32);
+        let (linked_chunk_update_sender, _) = channel(32);
 
         Self {
             inner: Arc::new(EventCacheInner {
@@ -178,6 +182,7 @@ impl EventCache {
                 drop_handles: Default::default(),
                 auto_shrink_sender: Default::default(),
                 generic_update_sender,
+                linked_chunk_update_sender,
             }),
         }
     }
@@ -428,6 +433,14 @@ struct EventCacheInner {
     /// See doc comment of [`RoomEventCacheGenericUpdate`] and
     /// [`EventCache::subscribe_to_room_generic_updates`].
     generic_update_sender: Sender<RoomEventCacheGenericUpdate>,
+
+    /// A sender for a persisted linked chunk update.
+    ///
+    /// This is used to notify that some linked chunk has persisted some updates
+    /// to a store, and can be used by observers to look for new events.
+    ///
+    /// See doc comment of [`RoomEventCacheLinkedChunkUpdate`].
+    linked_chunk_update_sender: Sender<RoomEventCacheLinkedChunkUpdate>,
 }
 
 type AutoShrinkChannelPayload = OwnedRoomId;
@@ -591,6 +604,7 @@ impl EventCacheInner {
                 let room_state = RoomEventCacheState::new(
                     room_id.to_owned(),
                     room_version_rules,
+                    self.linked_chunk_update_sender.clone(),
                     self.store.clone(),
                     pagination_status.clone(),
                 )
@@ -655,6 +669,42 @@ pub struct BackPaginationOutcome {
 pub struct RoomEventCacheGenericUpdate {
     /// The room ID owning the timeline.
     pub room_id: OwnedRoomId,
+}
+
+/// An update being triggered when events change in the persisted event cache
+/// for any room.
+#[derive(Clone, Debug)]
+struct RoomEventCacheLinkedChunkUpdate {
+    /// The linked chunk affected by the update.
+    linked_chunk: OwnedLinkedChunkId,
+
+    /// A vector of all the updates that happened during this update.
+    updates: Vec<linked_chunk::Update<TimelineEvent, Gap>>,
+}
+
+impl RoomEventCacheLinkedChunkUpdate {
+    /// Return all the new events propagated by this update, in topological
+    /// order.
+    pub fn events(self) -> Vec<TimelineEvent> {
+        self.updates
+            .into_iter()
+            .flat_map(|update| match update {
+                linked_chunk::Update::PushItems { items, .. } => items,
+                linked_chunk::Update::ReplaceItem { item, .. } => vec![item],
+                linked_chunk::Update::RemoveItem { .. }
+                | linked_chunk::Update::DetachLastItems { .. }
+                | linked_chunk::Update::StartReattachItems
+                | linked_chunk::Update::EndReattachItems
+                | linked_chunk::Update::NewItemsChunk { .. }
+                | linked_chunk::Update::NewGapChunk { .. }
+                | linked_chunk::Update::RemoveChunk(..)
+                | linked_chunk::Update::Clear => {
+                    // All these updates don't contain any new event.
+                    vec![]
+                }
+            })
+            .collect()
+    }
 }
 
 /// An update related to events happened in a room.
