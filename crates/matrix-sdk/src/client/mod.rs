@@ -3033,7 +3033,6 @@ pub(crate) mod tests {
 
     use super::Client;
     use crate::{
-        assert_let_timeout,
         client::{futures::SendMediaUploadRequest, WeakClient},
         config::{RequestConfig, SyncSettings},
         futures::SendRequest,
@@ -3963,7 +3962,12 @@ pub(crate) mod tests {
 
         // Call the endpoint once to check the timeout.
         let mut stream = Box::pin(client.sync_stream(SyncSettings::new()).await);
-        assert_let_timeout!(Some(Ok(_)) = stream.next());
+
+        timeout(Duration::from_secs(1), async {
+            stream.next().await.unwrap().unwrap();
+        })
+        .await
+        .unwrap();
     }
 
     #[async_test]
@@ -3992,7 +3996,12 @@ pub(crate) mod tests {
         let mut stream = Box::pin(
             client.sync_stream(SyncSettings::new().ignore_timeout_on_first_sync(true)).await,
         );
-        assert_let_timeout!(Some(Ok(_)) = stream.next());
-        assert_let_timeout!(Some(Ok(_)) = stream.next());
+
+        timeout(Duration::from_secs(1), async {
+            stream.next().await.unwrap().unwrap();
+            stream.next().await.unwrap().unwrap();
+        })
+        .await
+        .unwrap();
     }
 }
