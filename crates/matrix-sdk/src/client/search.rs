@@ -12,23 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! The event cache is an abstraction layer, sitting between the Rust SDK and a
-//! final client, that acts as a global observer of all the rooms, gathering and
-//! inferring some extra useful information about each room. In particular, this
-//! doesn't require subscribing to a specific room to get access to this
-//! information.
-//!
-//! It's intended to be fast, robust and easy to maintain, having learned from
-//! previous endeavours at implementing middle to high level features elsewhere
-//! in the SDK, notably in the UI's Timeline object.
-//!
-//! See the [github issue](https://github.com/matrix-org/matrix-rust-sdk/issues/3058) for more
-//! details about the historical reasons that led us to start writing this.
-
 use std::{collections::hash_map::HashMap, path::PathBuf, sync::Arc};
 
 use matrix_sdk_search::{error::IndexError, index::RoomIndex};
-use ruma::{events::AnyMessageLikeEvent, OwnedEventId, OwnedRoomId, RoomId};
+use ruma::{events::AnySyncMessageLikeEvent, OwnedEventId, OwnedRoomId, RoomId};
 use tokio::sync::{Mutex, MutexGuard};
 use tracing::{debug, error};
 
@@ -85,14 +72,14 @@ impl SearchIndexGuard<'_> {
         Ok(index)
     }
 
-    /// Handle an [`AnyMessageLikeEvent`] in the [`RoomIndex`] of a given
+    /// Handle an [`AnySyncMessageLikeEvent`] in the [`RoomIndex`] of a given
     /// [`RoomId`]
     ///
     /// This which will add/remove/edit an event in the index based on the
     /// event type.
     pub(crate) fn handle_event(
         &mut self,
-        event: AnyMessageLikeEvent,
+        event: AnySyncMessageLikeEvent,
         room_id: &RoomId,
     ) -> Result<(), IndexError> {
         if !self.index_map.contains_key(room_id) {

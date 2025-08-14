@@ -43,7 +43,7 @@ use tokio::sync::{
     broadcast::{Receiver, Sender},
     mpsc, Notify, RwLock,
 };
-use tracing::{instrument, trace, warn};
+use tracing::{debug, instrument, trace, warn};
 
 use super::{
     AutoShrinkChannelPayload, EventsOrigin, Result, RoomEventCacheGenericUpdate,
@@ -544,7 +544,7 @@ impl RoomEventCacheInner {
 
         #[cfg(feature = "experimental-search")]
         let Some(room) = self.weak_room.get() else {
-            warn!("Couldn't get room while handling timeline");
+            debug!("Couldn't get room while handling timeline");
             return Ok(());
         };
 
@@ -647,7 +647,7 @@ mod private {
     };
     use matrix_sdk_common::executor::spawn;
     #[cfg(feature = "experimental-search")]
-    use ruma::events::AnyMessageLikeEvent;
+    use ruma::events::{AnyMessageLikeEvent, AnySyncMessageLikeEvent};
     use ruma::{
         events::{
             relation::RelationType, room::redaction::SyncRoomRedactionEvent, AnySyncTimelineEvent,
@@ -1455,14 +1455,14 @@ mod private {
         }
 
         #[cfg(feature = "experimental-search")]
-        fn parse_timeline_event(&self, event: &TimelineEvent) -> Option<AnyMessageLikeEvent> {
+        fn parse_timeline_event(&self, event: &TimelineEvent) -> Option<AnySyncMessageLikeEvent> {
             let maybe_try_event = match &event.kind {
-                TimelineEventKind::Decrypted(d) => Some(d.event.deserialize()),
+                TimelineEventKind::Decrypted(d) => {
+                    Some(d.event.deserialize().map(AnyMessageLikeEvent::into))
+                }
                 TimelineEventKind::PlainText { event } => match event.deserialize() {
                     Ok(event_obj) => match event_obj {
-                        AnySyncTimelineEvent::MessageLike(sync_event) => {
-                            Some(Ok(sync_event.into_full_event(self.room.clone())))
-                        }
+                        AnySyncTimelineEvent::MessageLike(sync_event) => Some(Ok(sync_event)),
                         AnySyncTimelineEvent::State(_) => None,
                     },
                     Err(e) => Some(Err(e)),
@@ -1668,9 +1668,9 @@ mod private {
 
             // It is a `m.room.redaction`! We can deserialize it entirely.
 
-            let Ok(AnySyncTimelineEvent::MessageLike(
-                ruma::events::AnySyncMessageLikeEvent::RoomRedaction(redaction),
-            )) = raw_event.deserialize()
+            let Ok(AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::RoomRedaction(
+                redaction,
+            ))) = raw_event.deserialize()
             else {
                 return Ok(());
             };

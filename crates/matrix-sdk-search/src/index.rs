@@ -12,22 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! The event cache is an abstraction layer, sitting between the Rust SDK and a
-//! final client, that acts as a global observer of all the rooms, gathering and
-//! inferring some extra useful information about each room. In particular, this
-//! doesn't require subscribing to a specific room to get access to this
-//! information.
-//!
-//! It's intended to be fast, robust and easy to maintain, having learned from
-//! previous endeavours at implementing middle to high level features elsewhere
-//! in the SDK, notably in the UI's Timeline object.
-//!
-//! See the [github issue](https://github.com/matrix-org/matrix-rust-sdk/issues/3058) for more
-//! details about the historical reasons that led us to start writing this.
-
 use std::{fmt, fs, path::Path, sync::Arc};
 
-use ruma::{OwnedEventId, OwnedRoomId, RoomId, events::AnyMessageLikeEvent};
+use ruma::{OwnedEventId, OwnedRoomId, RoomId, events::AnySyncMessageLikeEvent};
 use tantivy::{
     Index, IndexReader, TantivyDocument,
     collector::TopDocs,
@@ -135,8 +122,8 @@ impl RoomIndex {
         RoomIndex::new_with(index, schema, room_id)
     }
 
-    /// Handle [`AnyMessageLikeEvent`]
-    pub fn handle_event(&mut self, event: AnyMessageLikeEvent) -> Result<(), IndexError> {
+    /// Handle [`AnySyncMessageLikeEvent`]
+    pub fn handle_event(&mut self, event: AnySyncMessageLikeEvent) -> Result<(), IndexError> {
         match self.schema.handle_event(event)? {
             RoomIndexOperation::Add(document) => self.writer.add_document(document)?,
         };
@@ -222,7 +209,7 @@ mod tests {
             .event_id(event_id!("$event_id:localhost"))
             .room(room_id)
             .sender(user_id!("@user_id:localhost"))
-            .into_any_message_like_event();
+            .into_any_sync_message_like_event();
 
         index.handle_event(event).expect("failed to add event: {res:?}");
     }
@@ -243,7 +230,7 @@ mod tests {
                 .event_id(event_id_1)
                 .room(room_id)
                 .sender(user_id!("@user_id:localhost"))
-                .into_any_message_like_event(),
+                .into_any_sync_message_like_event(),
         )?;
 
         index.handle_event(
@@ -252,7 +239,7 @@ mod tests {
                 .event_id(event_id_2)
                 .room(room_id)
                 .sender(user_id!("@user_id:localhost"))
-                .into_any_message_like_event(),
+                .into_any_sync_message_like_event(),
         )?;
 
         index.handle_event(
@@ -261,7 +248,7 @@ mod tests {
                 .event_id(event_id_3)
                 .room(room_id)
                 .sender(user_id!("@user_id:localhost"))
-                .into_any_message_like_event(),
+                .into_any_sync_message_like_event(),
         )?;
 
         index.commit_and_reload()?;

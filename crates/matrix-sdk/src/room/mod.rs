@@ -64,11 +64,10 @@ use reply::Reply;
 #[cfg(feature = "unstable-msc4274")]
 use ruma::events::room::message::GalleryItemType;
 #[cfg(feature = "experimental-search")]
-use ruma::events::AnyMessageLikeEvent;
+use ruma::events::AnySyncMessageLikeEvent;
 #[cfg(feature = "e2e-encryption")]
 use ruma::events::{
-    room::encrypted::OriginalSyncRoomEncryptedEvent, AnySyncMessageLikeEvent, AnySyncTimelineEvent,
-    SyncMessageLikeEvent,
+    room::encrypted::OriginalSyncRoomEncryptedEvent, AnySyncTimelineEvent, SyncMessageLikeEvent,
 };
 use ruma::{
     api::client::{
@@ -3678,12 +3677,15 @@ impl Room {
         opts.send(self, event_id).await
     }
 
-    /// Handle an [`AnyMessageLikeEvent`] in this room's [`RoomIndex`].
+    /// Handle an [`AnySyncMessageLikeEvent`] in this room's [`RoomIndex`].
     ///
     /// This which will add/remove/edit an event in the index based on the
     /// event type.
     #[cfg(feature = "experimental-search")]
-    pub(crate) async fn index_event(&self, event: AnyMessageLikeEvent) -> Result<(), IndexError> {
+    pub(crate) async fn index_event(
+        &self,
+        event: AnySyncMessageLikeEvent,
+    ) -> Result<(), IndexError> {
         self.client.search_index().lock().await.handle_event(event, self.room_id())
     }
 

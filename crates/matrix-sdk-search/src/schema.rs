@@ -12,22 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! The event cache is an abstraction layer, sitting between the Rust SDK and a
-//! final client, that acts as a global observer of all the rooms, gathering and
-//! inferring some extra useful information about each room. In particular, this
-//! doesn't require subscribing to a specific room to get access to this
-//! information.
-//!
-//! It's intended to be fast, robust and easy to maintain, having learned from
-//! previous endeavours at implementing middle to high level features elsewhere
-//! in the SDK, notably in the UI's Timeline object.
-//!
-//! See the [github issue](https://github.com/matrix-org/matrix-rust-sdk/issues/3058) for more
-//! details about the historical reasons that led us to start writing this.
-
 use ruma::events::{
-    AnyMessageLikeEvent, MessageLikeEvent, MessageLikeEventContent, RedactContent,
-    RedactedMessageLikeEventContent, room::message::MessageType,
+    AnySyncMessageLikeEvent, MessageLikeEventContent, RedactContent,
+    RedactedMessageLikeEventContent, SyncMessageLikeEvent, room::message::MessageType,
 };
 use tantivy::{
     DateTime, TantivyDocument, doc,
@@ -44,7 +31,10 @@ pub(crate) trait MatrixSearchIndexSchema {
     fn default_search_fields(&self) -> Vec<Field>;
     fn primary_key(&self) -> Field;
     fn as_tantivy_schema(&self) -> Schema;
-    fn handle_event(&self, event: AnyMessageLikeEvent) -> Result<RoomIndexOperation, IndexError>;
+    fn handle_event(
+        &self,
+        event: AnySyncMessageLikeEvent,
+    ) -> Result<RoomIndexOperation, IndexError>;
 }
 
 #[derive(Debug, Clone)]
@@ -58,11 +48,12 @@ pub(crate) struct RoomMessageSchema {
 }
 
 impl RoomMessageSchema {
-    /// Given an [`AnyMessageLikeEvent`] and a function to convert the content
-    /// into a String to be indexed, return a [`TantivyDocument`] to index.
+    /// Given an [`AnySyncMessageLikeEvent`] and a function to convert the
+    /// content into a String to be indexed, return a [`TantivyDocument`] to
+    /// index.
     fn make_doc<C: MessageLikeEventContent + RedactContent, F>(
         &self,
-        event: MessageLikeEvent<C>,
+        event: SyncMessageLikeEvent<C>,
         get_body_from_content: F,
     ) -> Result<TantivyDocument, IndexError>
     where
@@ -122,10 +113,13 @@ impl MatrixSearchIndexSchema for RoomMessageSchema {
         self.inner.clone()
     }
 
-    fn handle_event(&self, event: AnyMessageLikeEvent) -> Result<RoomIndexOperation, IndexError> {
+    fn handle_event(
+        &self,
+        event: AnySyncMessageLikeEvent,
+    ) -> Result<RoomIndexOperation, IndexError> {
         match event {
             // m.room.message behaviour
-            AnyMessageLikeEvent::RoomMessage(event) => self
+            AnySyncMessageLikeEvent::RoomMessage(event) => self
                 .make_doc(event, |content| match &content.msgtype {
                     MessageType::Text(content) => Ok(content.body.clone()),
                     _ => Err(IndexError::MessageTypeNotSupported),
@@ -133,7 +127,7 @@ impl MatrixSearchIndexSchema for RoomMessageSchema {
                 .map(RoomIndexOperation::Add),
 
             // new MSC-1767 m.message behaviour
-            AnyMessageLikeEvent::Message(event) => self
+            AnySyncMessageLikeEvent::Message(event) => self
                 .make_doc(event, |content| {
                     content.text.find_plain().ok_or(IndexError::EmptyMessage).map(|v| v.to_owned())
                 })
