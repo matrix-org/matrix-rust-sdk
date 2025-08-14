@@ -172,8 +172,7 @@ impl Display for OwnedLinkedChunkId {
 }
 
 impl OwnedLinkedChunkId {
-    #[cfg(test)]
-    fn as_ref(&self) -> LinkedChunkId<'_> {
+    pub fn as_ref(&self) -> LinkedChunkId<'_> {
         match self {
             OwnedLinkedChunkId::Room(room_id) => LinkedChunkId::Room(room_id.as_ref()),
             OwnedLinkedChunkId::Thread(room_id, event_id) => {
