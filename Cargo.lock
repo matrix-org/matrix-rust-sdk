@@ -3506,7 +3506,7 @@ dependencies = [
 
 [[package]]
 name = "matrix-sdk-test-utils"
-version = "0.1.0"
+version = "0.13.0"
 dependencies = [
  "ctor",
  "tracing-subscriber",
