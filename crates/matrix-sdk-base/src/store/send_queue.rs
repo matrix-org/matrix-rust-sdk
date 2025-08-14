@@ -66,11 +66,18 @@ impl SerializableEventContent {
         self.event.deserialize_with_type(&self.event_type)
     }
 
-    /// Returns the raw event content along with its type.
+    /// Returns the raw event content along with its type, borrowed variant.
     ///
     /// Useful for callers manipulating custom events.
     pub fn raw(&self) -> (&Raw<AnyMessageLikeEventContent>, &str) {
         (&self.event, &self.event_type)
+    }
+
+    /// Returns the raw event content along with its type, owned variant.
+    ///
+    /// Useful for callers manipulating custom events.
+    pub fn into_raw(self) -> (Raw<AnyMessageLikeEventContent>, String) {
+        (self.event, self.event_type)
     }
 }
 
