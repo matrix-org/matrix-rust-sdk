@@ -20,7 +20,6 @@ use std::pin::Pin;
 #[cfg(test)]
 matrix_sdk_test_utils::init_tracing_for_tests!();
 
-
 use futures_core::Future;
 #[doc(no_inline)]
 pub use ruma;
