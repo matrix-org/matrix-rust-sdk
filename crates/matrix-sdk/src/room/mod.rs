@@ -63,7 +63,7 @@ use mime::Mime;
 use reply::Reply;
 #[cfg(feature = "unstable-msc4274")]
 use ruma::events::room::message::GalleryItemType;
-#[cfg(feature = "experimental-search")]
+#[cfg(any(feature = "experimental-search", feature = "e2e-encryption"))]
 use ruma::events::AnySyncMessageLikeEvent;
 #[cfg(feature = "e2e-encryption")]
 use ruma::events::{

@@ -43,7 +43,9 @@ use tokio::sync::{
     broadcast::{Receiver, Sender},
     mpsc, Notify, RwLock,
 };
-use tracing::{debug, instrument, trace, warn};
+#[cfg(feature = "experimental-search")]
+use tracing::debug;
+use tracing::{instrument, trace, warn};
 
 use super::{
     AutoShrinkChannelPayload, EventsOrigin, Result, RoomEventCacheGenericUpdate,
@@ -647,11 +649,11 @@ mod private {
     };
     use matrix_sdk_common::executor::spawn;
     #[cfg(feature = "experimental-search")]
-    use ruma::events::{AnyMessageLikeEvent, AnySyncMessageLikeEvent};
+    use ruma::events::AnyMessageLikeEvent;
     use ruma::{
         events::{
-            relation::RelationType, room::redaction::SyncRoomRedactionEvent, AnySyncTimelineEvent,
-            MessageLikeEventType,
+            relation::RelationType, room::redaction::SyncRoomRedactionEvent,
+            AnySyncMessageLikeEvent, AnySyncTimelineEvent, MessageLikeEventType,
         },
         room_version_rules::RoomVersionRules,
         serde::Raw,
