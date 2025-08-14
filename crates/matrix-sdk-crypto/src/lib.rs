@@ -114,7 +114,7 @@ pub use vodozemac;
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 #[cfg(test)]
-matrix_sdk_test::init_tracing_for_tests!();
+matrix_sdk_test_utils::init_tracing_for_tests!();
 
 #[cfg(feature = "uniffi")]
 uniffi::setup_scaffolding!();

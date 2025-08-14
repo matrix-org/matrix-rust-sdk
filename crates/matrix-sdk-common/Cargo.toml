@@ -55,6 +55,7 @@ assert_matches.workspace = true
 assert_matches2.workspace = true
 insta.workspace = true
 matrix-sdk-test-macros = { path = "../../testing/matrix-sdk-test-macros" }
+matrix-sdk-test-utils.workspace = true
 proptest.workspace = true
 wasm-bindgen-test.workspace = true
 

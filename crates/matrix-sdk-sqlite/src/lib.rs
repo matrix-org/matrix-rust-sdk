@@ -41,7 +41,7 @@ pub use self::event_cache_store::SqliteEventCacheStore;
 pub use self::state_store::{SqliteStateStore, DATABASE_NAME as STATE_STORE_DATABASE_NAME};
 
 #[cfg(test)]
-matrix_sdk_test::init_tracing_for_tests!();
+matrix_sdk_test_utils::init_tracing_for_tests!();
 
 /// A configuration structure used for opening a store.
 #[derive(Clone)]
