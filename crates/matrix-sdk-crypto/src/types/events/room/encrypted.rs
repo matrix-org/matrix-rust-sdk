@@ -70,6 +70,12 @@ impl JsonCastable<EncryptedEvent>
 {
 }
 
+#[cfg(feature = "experimental-encrypted-state-events")]
+impl JsonCastable<EncryptedEvent>
+    for ruma::events::room::encrypted::unstable_state::OriginalSyncStateRoomEncryptedEvent
+{
+}
+
 /// An m.room.encrypted to-device event.
 pub type EncryptedToDeviceEvent = ToDeviceEvent<ToDeviceEncryptedEventContent>;
 
@@ -229,6 +235,9 @@ impl EventType for RoomEncryptedEventContent {
 }
 
 impl JsonCastable<ruma::events::AnyMessageLikeEventContent> for RoomEncryptedEventContent {}
+
+#[cfg(feature = "experimental-encrypted-state-events")]
+impl JsonCastable<ruma::events::AnyStateEventContent> for RoomEncryptedEventContent {}
 
 /// An enum for per encryption algorithm event contents.
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
