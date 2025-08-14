@@ -38,6 +38,8 @@ All notable changes to this project will be documented in this file.
 
 ### Refactor
 
+- [**breaking**] `SyncSettings` token is now `SyncToken` enum type which has default behaviour of `SyncToken::ReusePrevious` token. This breaks `Client::sync_once`.
+  For old behaviour, set the token to `SyncToken::NoToken` with the usual `SyncSettings::token` setter.
 - [**breaking**] Change the upload_encrypted_file and make it clone the client instead of owning it. The lifetime of the `UploadEncryptedFile` request returned by `Client::upload_encrypted_file()` only depends on the request lifetime now.
 - [**breaking**] Add an `IsPrefix = False` bound to the `account_data()` and
   `fetch_account_data_static()` methods of `Account`. These methods only worked
