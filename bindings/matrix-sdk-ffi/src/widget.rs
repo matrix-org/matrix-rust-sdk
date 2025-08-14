@@ -220,12 +220,20 @@ pub fn get_element_call_required_permissions(
                 event_type: StateEventType::CallMember.to_string(),
                 state_key: format!("{own_user_id}_{own_device_id}"),
             },
+            WidgetEventFilter::StateWithTypeAndStateKey {
+                event_type: StateEventType::CallMember.to_string(),
+                state_key: format!("{own_user_id}_{own_device_id}_m.call"),
+            },
             // The same as above but with an underscore.
             // To work around the issue that state events starting with `@` have to be Matrix id's
             // but we use mxId+deviceId.
             WidgetEventFilter::StateWithTypeAndStateKey {
                 event_type: StateEventType::CallMember.to_string(),
                 state_key: format!("_{own_user_id}_{own_device_id}"),
+            },
+            WidgetEventFilter::StateWithTypeAndStateKey {
+                event_type: StateEventType::CallMember.to_string(),
+                state_key: format!("_{own_user_id}_{own_device_id}_m.call"),
             },
         ]
         .into_iter()
@@ -507,7 +515,13 @@ mod tests {
             "org.matrix.msc2762.send.state_event:org.matrix.msc3401.call.member#@my_user:my_domain.org_ABCDEFGHI",
         );
         cap_assert(
+            "org.matrix.msc2762.send.state_event:org.matrix.msc3401.call.member#@my_user:my_domain.org_ABCDEFGHI_m.call",
+        );
+        cap_assert(
             "org.matrix.msc2762.send.state_event:org.matrix.msc3401.call.member#_@my_user:my_domain.org_ABCDEFGHI",
+        );
+        cap_assert(
+            "org.matrix.msc2762.send.state_event:org.matrix.msc3401.call.member#_@my_user:my_domain.org_ABCDEFGHI_m.call",
         );
         cap_assert("org.matrix.msc2762.send.event:org.matrix.rageshake_request");
         cap_assert("org.matrix.msc2762.send.event:io.element.call.encryption_keys");
