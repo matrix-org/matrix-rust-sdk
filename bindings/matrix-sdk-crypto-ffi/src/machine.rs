@@ -39,7 +39,7 @@ use ruma::{
     },
     events::{
         key::verification::VerificationMethod, room::message::MessageType, AnyMessageLikeEvent,
-        AnySyncMessageLikeEvent, MessageLikeEvent,
+        AnySyncMessageLikeEvent, AnyTimelineEvent, MessageLikeEvent,
     },
     serde::Raw,
     to_device::DeviceIdOrAllDevices,
@@ -902,7 +902,7 @@ impl OlmMachine {
         ))?;
 
         if handle_verification_events {
-            if let Ok(e) = decrypted.event.deserialize() {
+            if let Ok(AnyTimelineEvent::MessageLike(e)) = decrypted.event.deserialize() {
                 match &e {
                     AnyMessageLikeEvent::RoomMessage(MessageLikeEvent::Original(
                         original_event,

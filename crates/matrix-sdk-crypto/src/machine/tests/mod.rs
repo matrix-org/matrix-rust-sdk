@@ -36,8 +36,8 @@ use ruma::{
         room::message::{
             AddMentions, MessageType, Relation, ReplyWithinThread, RoomMessageEventContent,
         },
-        AnyMessageLikeEvent, AnyMessageLikeEventContent, AnySyncMessageLikeEvent, AnyToDeviceEvent,
-        MessageLikeEvent, OriginalMessageLikeEvent, ToDeviceEventType,
+        AnyMessageLikeEvent, AnyMessageLikeEventContent, AnySyncMessageLikeEvent, AnyTimelineEvent,
+        AnyToDeviceEvent, MessageLikeEvent, OriginalMessageLikeEvent, ToDeviceEventType,
     },
     room_id,
     serde::Raw,
@@ -706,8 +706,8 @@ async fn test_megolm_encryption() {
     assert_let!(RoomEventDecryptionResult::Decrypted(decrypted_event) = decryption_result);
     let decrypted_event = decrypted_event.event.deserialize().unwrap();
 
-    if let AnyMessageLikeEvent::RoomMessage(MessageLikeEvent::Original(
-        OriginalMessageLikeEvent { sender, content, .. },
+    if let AnyTimelineEvent::MessageLike(AnyMessageLikeEvent::RoomMessage(
+        MessageLikeEvent::Original(OriginalMessageLikeEvent { sender, content, .. }),
     )) = decrypted_event
     {
         assert_eq!(&sender, alice.user_id());
@@ -1490,7 +1490,10 @@ async fn test_unsigned_decryption() {
         bob.decrypt_room_event(&raw_encrypted_event, room_id, &decryption_settings).await.unwrap();
 
     let decrypted_event = raw_decrypted_event.event.deserialize().unwrap();
-    assert_matches!(decrypted_event, AnyMessageLikeEvent::RoomMessage(first_message));
+    assert_matches!(
+        decrypted_event,
+        AnyTimelineEvent::MessageLike(AnyMessageLikeEvent::RoomMessage(first_message))
+    );
 
     let first_message = first_message.as_original().unwrap();
     assert_eq!(first_message.content.body(), first_message_text);
@@ -1539,7 +1542,10 @@ async fn test_unsigned_decryption() {
         bob.decrypt_room_event(&raw_encrypted_event, room_id, &decryption_settings).await.unwrap();
 
     let decrypted_event = raw_decrypted_event.event.deserialize().unwrap();
-    assert_matches!(decrypted_event, AnyMessageLikeEvent::RoomMessage(first_message));
+    assert_matches!(
+        decrypted_event,
+        AnyTimelineEvent::MessageLike(AnyMessageLikeEvent::RoomMessage(first_message))
+    );
 
     let first_message = first_message.as_original().unwrap();
     assert_eq!(first_message.content.body(), first_message_text);
@@ -1588,7 +1594,10 @@ async fn test_unsigned_decryption() {
         bob.decrypt_room_event(&raw_encrypted_event, room_id, &decryption_settings).await.unwrap();
 
     let decrypted_event = raw_decrypted_event.event.deserialize().unwrap();
-    assert_matches!(decrypted_event, AnyMessageLikeEvent::RoomMessage(first_message));
+    assert_matches!(
+        decrypted_event,
+        AnyTimelineEvent::MessageLike(AnyMessageLikeEvent::RoomMessage(first_message))
+    );
 
     let first_message = first_message.as_original().unwrap();
     assert_eq!(first_message.content.body(), first_message_text);
@@ -1649,7 +1658,10 @@ async fn test_unsigned_decryption() {
         bob.decrypt_room_event(&raw_encrypted_event, room_id, &decryption_settings).await.unwrap();
 
     let decrypted_event = raw_decrypted_event.event.deserialize().unwrap();
-    assert_matches!(decrypted_event, AnyMessageLikeEvent::RoomMessage(first_message));
+    assert_matches!(
+        decrypted_event,
+        AnyTimelineEvent::MessageLike(AnyMessageLikeEvent::RoomMessage(first_message))
+    );
 
     let first_message = first_message.as_original().unwrap();
     assert_eq!(first_message.content.body(), first_message_text);
@@ -1705,7 +1717,10 @@ async fn test_unsigned_decryption() {
         bob.decrypt_room_event(&raw_encrypted_event, room_id, &decryption_settings).await.unwrap();
 
     let decrypted_event = raw_decrypted_event.event.deserialize().unwrap();
-    assert_matches!(decrypted_event, AnyMessageLikeEvent::RoomMessage(first_message));
+    assert_matches!(
+        decrypted_event,
+        AnyTimelineEvent::MessageLike(AnyMessageLikeEvent::RoomMessage(first_message))
+    );
 
     let first_message = first_message.as_original().unwrap();
     assert_eq!(first_message.content.body(), first_message_text);

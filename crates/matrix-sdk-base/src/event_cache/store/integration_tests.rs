@@ -33,6 +33,7 @@ use ruma::{
     api::client::media::get_content_thumbnail::v3::Method,
     event_id,
     events::{
+        AnyMessageLikeEvent, AnyTimelineEvent,
         relation::RelationType,
         room::{MediaSource, message::RoomMessageEventContentWithoutRelation},
     },
@@ -105,7 +106,7 @@ pub fn check_test_event(event: &TimelineEvent, text: &str) {
 
         // Check event.
         let deserialized = d.event.deserialize().unwrap();
-        assert_matches!(deserialized, ruma::events::AnyMessageLikeEvent::RoomMessage(msg) => {
+        assert_matches!(deserialized, AnyTimelineEvent::MessageLike(AnyMessageLikeEvent::RoomMessage(msg)) => {
             assert_eq!(msg.as_original().unwrap().content.body(), text);
         });
     });
