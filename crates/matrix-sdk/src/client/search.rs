@@ -87,6 +87,9 @@ impl SearchIndexGuard<'_> {
 
     /// Handle an [`AnyMessageLikeEvent`] in the [`RoomIndex`] of a given
     /// [`RoomId`]
+    ///
+    /// This which will add/remove/edit an event in the index based on the
+    /// event type.
     pub(crate) fn handle_event(
         &mut self,
         event: AnyMessageLikeEvent,

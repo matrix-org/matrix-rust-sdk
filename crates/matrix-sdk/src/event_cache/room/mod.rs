@@ -1481,14 +1481,17 @@ mod private {
             }
         }
 
+        /// Takes a [`TimelineEvent`] and passes it to the [`RoomIndex`] of the
+        /// given room which will add/remove/edit an event in the index based on
+        /// the event type.
         #[cfg(feature = "experimental-search")]
-        async fn index_handle_timeline_event(
+        async fn index_event(
             &self,
             event: &TimelineEvent,
             room: &Room,
         ) -> Result<(), EventCacheError> {
             if let Some(message_event) = self.parse_timeline_event(event) {
-                room.index_handle_event(message_event).await.map_err(EventCacheError::from)
+                room.index_event(message_event).await.map_err(EventCacheError::from)
             } else {
                 Ok(())
             }
@@ -1514,7 +1517,7 @@ mod private {
 
                 // We can also add the event to the index.
                 #[cfg(feature = "experimental-search")]
-                if let Err(err) = self.index_handle_timeline_event(&event, room).await {
+                if let Err(err) = self.index_event(&event, room).await {
                     warn!("error while trying to index event: {err:?}");
                 }
 

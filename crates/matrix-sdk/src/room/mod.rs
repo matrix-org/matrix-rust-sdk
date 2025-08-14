@@ -3678,12 +3678,12 @@ impl Room {
         opts.send(self, event_id).await
     }
 
-    /// Handle an [`AnyMessageLikeEvent`] in this room's [`RoomIndex`]
+    /// Handle an [`AnyMessageLikeEvent`] in this room's [`RoomIndex`].
+    ///
+    /// This which will add/remove/edit an event in the index based on the
+    /// event type.
     #[cfg(feature = "experimental-search")]
-    pub(crate) async fn index_handle_event(
-        &self,
-        event: AnyMessageLikeEvent,
-    ) -> Result<(), IndexError> {
+    pub(crate) async fn index_event(&self, event: AnyMessageLikeEvent) -> Result<(), IndexError> {
         self.client.search_index().lock().await.handle_event(event, self.room_id())
     }
 
