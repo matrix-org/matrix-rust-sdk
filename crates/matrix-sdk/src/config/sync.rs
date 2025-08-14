@@ -19,6 +19,40 @@ use ruma::{api::client::sync::sync_events, presence::PresenceState};
 
 const DEFAULT_SYNC_TIMEOUT: Duration = Duration::from_secs(30);
 
+/// Token to be used in the next sync request.
+#[derive(Clone, Default, Debug)]
+pub enum SyncToken {
+    /// Provide a specific token.
+    Specific(String),
+    /// Enforce no tokens at all.
+    NoToken,
+    /// Use a previous token if the client saw one in the past, and none
+    /// otherwise.
+    ///
+    /// This is the default value.
+    #[default]
+    ReusePrevious,
+}
+
+impl<T> From<T> for SyncToken
+where
+    T: Into<String>,
+{
+    fn from(token: T) -> SyncToken {
+        SyncToken::Specific(token.into())
+    }
+}
+
+impl SyncToken {
+    /// Convert a token that may exist into a [`SyncToken`]
+    pub fn from_optional_token(maybe_token: Option<String>) -> SyncToken {
+        match maybe_token {
+            Some(token) => SyncToken::Specific(token),
+            None => SyncToken::default(),
+        }
+    }
+}
+
 /// Settings for a sync call.
 #[derive(Clone)]
 pub struct SyncSettings {
@@ -26,7 +60,7 @@ pub struct SyncSettings {
     pub(crate) filter: Option<Box<sync_events::v3::Filter>>,
     pub(crate) timeout: Option<Duration>,
     pub(crate) ignore_timeout_on_first_sync: bool,
-    pub(crate) token: Option<String>,
+    pub(crate) token: SyncToken,
     pub(crate) full_state: bool,
     pub(crate) set_presence: PresenceState,
 }
@@ -66,7 +100,7 @@ impl SyncSettings {
             filter: None,
             timeout: Some(DEFAULT_SYNC_TIMEOUT),
             ignore_timeout_on_first_sync: false,
-            token: None,
+            token: SyncToken::default(),
             full_state: false,
             set_presence: PresenceState::Online,
         }
@@ -78,8 +112,8 @@ impl SyncSettings {
     ///
     /// * `token` - The sync token that should be used for the sync call.
     #[must_use]
-    pub fn token(mut self, token: impl Into<String>) -> Self {
-        self.token = Some(token.into());
+    pub fn token(mut self, token: impl Into<SyncToken>) -> Self {
+        self.token = token.into();
         self
     }
 

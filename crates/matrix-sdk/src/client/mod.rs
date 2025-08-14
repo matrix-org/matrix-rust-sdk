@@ -85,7 +85,7 @@ use crate::{
         matrix::MatrixAuth, oauth::OAuth, AuthCtx, AuthData, ReloadSessionCallback,
         SaveSessionCallback,
     },
-    config::RequestConfig,
+    config::{RequestConfig, SyncToken},
     deduplicating_handler::DeduplicatingHandler,
     error::HttpResult,
     event_cache::EventCache,
@@ -2349,9 +2349,15 @@ impl Client {
             error!(error = ?e, "Error while sending outgoing E2EE requests");
         }
 
+        let token = match sync_settings.token {
+            SyncToken::Specific(token) => Some(token),
+            SyncToken::NoToken => None,
+            SyncToken::ReusePrevious => self.sync_token().await,
+        };
+
         let request = assign!(sync_events::v3::Request::new(), {
             filter: sync_settings.filter.map(|f| *f),
-            since: sync_settings.token,
+            since: token,
             full_state: sync_settings.full_state,
             set_presence: sync_settings.set_presence,
             timeout: sync_settings.timeout,
@@ -2648,10 +2654,6 @@ impl Client {
         let mut is_first_sync = true;
         let mut timeout = None;
         let mut last_sync_time: Option<Instant> = None;
-
-        if sync_settings.token.is_none() {
-            sync_settings.token = self.sync_token().await;
-        }
 
         let parent_span = Span::current();
 

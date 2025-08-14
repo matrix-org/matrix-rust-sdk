@@ -3,7 +3,8 @@ use std::time::{Duration, UNIX_EPOCH};
 use futures_util::{pin_mut, FutureExt, StreamExt as _};
 use js_int::uint;
 use matrix_sdk::{
-    config::SyncSettings, live_location_share::LiveLocationShare,
+    config::{SyncSettings, SyncToken},
+    live_location_share::LiveLocationShare,
     test_utils::mocks::MatrixMockServer,
 };
 use matrix_sdk_test::{
@@ -220,7 +221,8 @@ async fn test_most_recent_event_in_stream() {
         None,
     )
     .await;
-    let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
+    let sync_settings =
+        SyncSettings::new().timeout(Duration::from_millis(3000)).token(SyncToken::NoToken);
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
     server.reset().await;
 
@@ -330,7 +332,8 @@ async fn test_observe_single_live_location_share() {
     )
     .await;
 
-    let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
+    let sync_settings =
+        SyncSettings::new().timeout(Duration::from_millis(3000)).token(SyncToken::NoToken);
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
     server.reset().await;
 
