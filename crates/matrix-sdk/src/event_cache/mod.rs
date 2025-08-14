@@ -167,7 +167,7 @@ impl fmt::Debug for EventCache {
 impl EventCache {
     /// Create a new [`EventCache`] for the given client.
     pub(crate) fn new(client: WeakClient, event_cache_store: EventCacheStoreLock) -> Self {
-        let (room_event_cache_generic_update_sender, _) = channel(32);
+        let (generic_update_sender, _) = channel(32);
 
         Self {
             inner: Arc::new(EventCacheInner {
@@ -177,7 +177,7 @@ impl EventCache {
                 by_room: Default::default(),
                 drop_handles: Default::default(),
                 auto_shrink_sender: Default::default(),
-                room_event_cache_generic_update_sender,
+                generic_update_sender,
             }),
         }
     }
@@ -389,7 +389,7 @@ impl EventCache {
     /// without side-effects, this method is recommended. Also, dropping the
     /// receiver of this channel will not trigger any side-effect.
     pub fn subscribe_to_room_generic_updates(&self) -> Receiver<RoomEventCacheGenericUpdate> {
-        self.inner.room_event_cache_generic_update_sender.subscribe()
+        self.inner.generic_update_sender.subscribe()
     }
 }
 
@@ -427,7 +427,7 @@ struct EventCacheInner {
     ///
     /// See doc comment of [`RoomEventCacheGenericUpdate`] and
     /// [`EventCache::subscribe_to_room_generic_updates`].
-    room_event_cache_generic_update_sender: Sender<RoomEventCacheGenericUpdate>,
+    generic_update_sender: Sender<RoomEventCacheGenericUpdate>,
 }
 
 type AutoShrinkChannelPayload = OwnedRoomId;
@@ -612,7 +612,7 @@ impl EventCacheInner {
                     pagination_status,
                     room_id.to_owned(),
                     auto_shrink_sender,
-                    self.room_event_cache_generic_update_sender.clone(),
+                    self.generic_update_sender.clone(),
                 );
 
                 by_room_guard.insert(room_id.to_owned(), room_event_cache.clone());
@@ -621,7 +621,7 @@ impl EventCacheInner {
                 // emit a generic update.
                 if timeline_is_not_empty {
                     let _ = self
-                        .room_event_cache_generic_update_sender
+                        .generic_update_sender
                         .send(RoomEventCacheGenericUpdate { room_id: room_id.to_owned() });
                 }
 
