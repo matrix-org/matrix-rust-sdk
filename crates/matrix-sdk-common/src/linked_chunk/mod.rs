@@ -134,6 +134,12 @@ impl LinkedChunkId<'_> {
     }
 }
 
+impl<'a> From<&'a OwnedLinkedChunkId> for LinkedChunkId<'a> {
+    fn from(value: &'a OwnedLinkedChunkId) -> Self {
+        value.as_ref()
+    }
+}
+
 impl PartialEq<&OwnedLinkedChunkId> for LinkedChunkId<'_> {
     fn eq(&self, other: &&OwnedLinkedChunkId) -> bool {
         match (self, other) {
@@ -186,6 +192,12 @@ impl OwnedLinkedChunkId {
             OwnedLinkedChunkId::Room(room_id) => room_id,
             OwnedLinkedChunkId::Thread(room_id, ..) => room_id,
         }
+    }
+}
+
+impl From<LinkedChunkId<'_>> for OwnedLinkedChunkId {
+    fn from(value: LinkedChunkId<'_>) -> Self {
+        value.to_owned()
     }
 }
 
