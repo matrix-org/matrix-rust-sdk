@@ -4812,7 +4812,7 @@ dependencies = [
 [[package]]
 name = "ruma-signatures"
 version = "0.17.1"
-source = "git+https://github.com/ruma/ruma?rev=e73f302e4df7f5f0511fca1aa43853d4cf8416c8#e73f302e4df7f5f0511fca1aa43853d4cf8416c8"
+source = "git+https://github.com/ruma/ruma?rev=0ecd23c32c58be9328fa5f3e33fe0458cc139213#0ecd23c32c58be9328fa5f3e33fe0458cc139213"
 dependencies = [
  "base64",
  "ed25519-dalek",
