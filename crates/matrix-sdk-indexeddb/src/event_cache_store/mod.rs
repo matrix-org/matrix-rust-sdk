@@ -183,7 +183,7 @@ impl_event_cache_store! {
                     transaction
                         .add_chunk(
                             &types::Chunk {
-                                room_id: room_id.to_owned(),
+                                linked_chunk_id: linked_chunk_id.to_owned(),
                                 identifier: new.index(),
                                 previous: previous.map(|i| i.index()),
                                 next: next.map(|i| i.index()),
@@ -197,7 +197,7 @@ impl_event_cache_store! {
                     transaction
                         .add_item(
                             &types::Gap {
-                                room_id: room_id.to_owned(),
+                                linked_chunk_id: linked_chunk_id.to_owned(),
                                 chunk_identifier: new.index(),
                                 prev_token: gap.prev_token,
                             },
@@ -206,7 +206,7 @@ impl_event_cache_store! {
                     transaction
                         .add_chunk(
                             &types::Chunk {
-                                room_id: room_id.to_owned(),
+                                linked_chunk_id: linked_chunk_id.to_owned(),
                                 identifier: new.index(),
                                 previous: previous.map(|i| i.index()),
                                 next: next.map(|i| i.index()),
@@ -217,7 +217,7 @@ impl_event_cache_store! {
                 }
                 Update::RemoveChunk(chunk_id) => {
                     trace!("Removing chunk {chunk_id:?}");
-                    transaction.delete_chunk_by_id(room_id, chunk_id).await?;
+                    transaction.delete_chunk_by_id(linked_chunk_id, chunk_id).await?;
                 }
                 Update::PushItems { at, items } => {
                     let chunk_identifier = at.chunk_identifier().index();
@@ -276,9 +276,9 @@ impl_event_cache_store! {
                 }
                 Update::Clear => {
                     trace!(%room_id, "clearing room");
-                    transaction.delete_chunks_in_room(room_id).await?;
+                    transaction.delete_chunks_by_linked_chunk_id(linked_chunk_id).await?;
                     transaction.delete_events_by_linked_chunk_id(linked_chunk_id).await?;
-                    transaction.delete_gaps_in_room(room_id).await?;
+                    transaction.delete_gaps_by_linked_chunk_id(linked_chunk_id).await?;
                 }
             }
         }
@@ -293,19 +293,16 @@ impl_event_cache_store! {
     ) -> Result<Vec<RawChunk<Event, Gap>>, IndexeddbEventCacheStoreError> {
         let _ = timer!("method");
 
-        let linked_chunk_id = linked_chunk_id.to_owned();
-        let room_id = linked_chunk_id.room_id();
-
         let transaction = self.transaction(
             &[keys::LINKED_CHUNKS, keys::GAPS, keys::EVENTS],
             IdbTransactionMode::Readwrite,
         )?;
 
         let mut raw_chunks = Vec::new();
-        let chunks = transaction.get_chunks_in_room(room_id).await?;
+        let chunks = transaction.get_chunks_by_linked_chunk_id(linked_chunk_id).await?;
         for chunk in chunks {
             if let Some(raw_chunk) = transaction
-                .load_chunk_by_id(room_id, ChunkIdentifier::new(chunk.identifier))
+                .load_chunk_by_id(linked_chunk_id, ChunkIdentifier::new(chunk.identifier))
                 .await?
             {
                 raw_chunks.push(raw_chunk);
@@ -331,16 +328,13 @@ impl_event_cache_store! {
         // https://github.com/matrix-org/matrix-rust-sdk/pull/5382.
         let _ = timer!("method");
 
-        let owned_linked_chunk_id = linked_chunk_id.to_owned();
-        let room_id = owned_linked_chunk_id.room_id();
-
         let transaction = self.transaction(
             &[keys::LINKED_CHUNKS, keys::EVENTS, keys::GAPS],
             IdbTransactionMode::Readwrite,
         )?;
 
         let mut raw_chunks = Vec::new();
-        let chunks = transaction.get_chunks_in_room(room_id).await?;
+        let chunks = transaction.get_chunks_by_linked_chunk_id(linked_chunk_id).await?;
         for chunk in chunks {
             let chunk_id = ChunkIdentifier::new(chunk.identifier);
             let num_items = transaction.get_events_count_by_chunk(linked_chunk_id, chunk_id).await?;
@@ -364,20 +358,20 @@ impl_event_cache_store! {
     > {
         let _timer = timer!("method");
 
-        let linked_chunk_id = linked_chunk_id.to_owned();
-        let room_id = linked_chunk_id.room_id();
+        let owned_linked_chunk_id = linked_chunk_id.to_owned();
+        let room_id = owned_linked_chunk_id.room_id();
         let transaction = self.transaction(
             &[keys::LINKED_CHUNKS, keys::EVENTS, keys::GAPS],
             IdbTransactionMode::Readonly,
         )?;
 
-        if transaction.get_chunks_count_in_room(room_id).await? == 0 {
+        if transaction.get_chunks_count_by_linked_chunk_id(linked_chunk_id).await? == 0 {
             return Ok((None, ChunkIdentifierGenerator::new_from_scratch()));
         }
         // Now that we know we have some chunks in the room, we query IndexedDB
         // for the last chunk in the room by getting the chunk which does not
         // have a next chunk.
-        match transaction.get_chunk_by_next_chunk_id(room_id, None).await {
+        match transaction.get_chunk_by_next_chunk_id(linked_chunk_id, None).await {
             Err(IndexeddbEventCacheStoreTransactionError::ItemIsNotUnique) => {
                 // If there are multiple chunks that do not have a next chunk, that
                 // means we have more than one last chunk, which means that we have
@@ -397,11 +391,11 @@ impl_event_cache_store! {
             Ok(Some(last_chunk)) => {
                 let last_chunk_identifier = ChunkIdentifier::new(last_chunk.identifier);
                 let last_raw_chunk = transaction
-                    .load_chunk_by_id(room_id, last_chunk_identifier)
+                    .load_chunk_by_id(linked_chunk_id, last_chunk_identifier)
                     .await?
                     .ok_or(IndexeddbEventCacheStoreError::UnableToLoadChunk)?;
                 let max_chunk_id = transaction
-                    .get_max_chunk_by_id(room_id)
+                    .get_max_chunk_by_id(linked_chunk_id)
                     .await?
                     .map(|chunk| ChunkIdentifier::new(chunk.identifier))
                     .ok_or(IndexeddbEventCacheStoreError::NoMaxChunkId)?;
@@ -420,16 +414,14 @@ impl_event_cache_store! {
     ) -> Result<Option<RawChunk<Event, Gap>>, IndexeddbEventCacheStoreError> {
         let _timer = timer!("method");
 
-        let linked_chunk_id = linked_chunk_id.to_owned();
-        let room_id = linked_chunk_id.room_id();
         let transaction = self.transaction(
             &[keys::LINKED_CHUNKS, keys::EVENTS, keys::GAPS],
             IdbTransactionMode::Readonly,
         )?;
-        if let Some(chunk) = transaction.get_chunk_by_id(room_id, before_chunk_identifier).await? {
+        if let Some(chunk) = transaction.get_chunk_by_id(linked_chunk_id, before_chunk_identifier).await? {
             if let Some(previous_identifier) = chunk.previous {
                 let previous_identifier = ChunkIdentifier::new(previous_identifier);
-                return Ok(transaction.load_chunk_by_id(room_id, previous_identifier).await?);
+                return Ok(transaction.load_chunk_by_id(linked_chunk_id, previous_identifier).await?);
             }
         }
         Ok(None)
