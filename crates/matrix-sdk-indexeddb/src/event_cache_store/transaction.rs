@@ -34,7 +34,8 @@ use crate::event_cache_store::{
         },
         types::{
             IndexedChunkIdKey, IndexedEventIdKey, IndexedEventPositionKey, IndexedEventRelationKey,
-            IndexedGapIdKey, IndexedKeyRange, IndexedLeaseIdKey, IndexedNextChunkIdKey,
+            IndexedEventRoomKey, IndexedGapIdKey, IndexedKeyRange, IndexedLeaseIdKey,
+            IndexedNextChunkIdKey,
         },
         IndexeddbEventCacheStoreSerializer,
     },
@@ -599,6 +600,17 @@ impl<'a> IndexeddbEventCacheStoreTransaction<'a> {
     ) -> Result<Option<Event>, IndexeddbEventCacheStoreTransactionError> {
         let key = self.serializer.encode_key((room_id, event_id));
         self.get_item_by_key::<Event, IndexedEventIdKey>(key).await
+    }
+
+    /// Query IndexedDB for events that match the given event id in the given
+    /// room. If more than one item is found, an error is returned.
+    pub async fn get_event_by_room(
+        &self,
+        room_id: &RoomId,
+        event_id: &EventId,
+    ) -> Result<Option<Event>, IndexeddbEventCacheStoreTransactionError> {
+        let key = self.serializer.encode_key((room_id, event_id));
+        self.get_item_by_key::<Event, IndexedEventRoomKey>(key).await
     }
 
     /// Query IndexedDB for events in the given position range in the given

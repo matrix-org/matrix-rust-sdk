@@ -488,7 +488,7 @@ impl_event_cache_store! {
         let transaction =
             self.transaction(&[keys::EVENTS], IdbTransactionMode::Readonly)?;
         transaction
-            .get_event_by_id(room_id, event_id)
+            .get_event_by_room(room_id, event_id)
             .await
             .map(|ok| ok.map(Into::into))
             .map_err(Into::into)
@@ -544,7 +544,7 @@ impl_event_cache_store! {
         };
         let transaction =
             self.transaction(&[keys::EVENTS], IdbTransactionMode::Readwrite)?;
-        let event = match transaction.get_event_by_id(room_id, &event_id).await? {
+        let event = match transaction.get_event_by_room(room_id, &event_id).await? {
             Some(mut inner) => inner.with_content(event),
             None => types::Event::OutOfBand(OutOfBandEvent { room_id: room_id.to_owned(), content: event, position: () }),
         };
