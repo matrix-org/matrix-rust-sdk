@@ -967,7 +967,26 @@ impl_crypto_store! {
         }
     }
 
-    async fn get_inbound_group_session_by_room_id(
+    async fn get_inbound_group_sessions(&self) -> Result<Vec<InboundGroupSession>> {
+        const INBOUND_GROUP_SESSIONS_BATCH_SIZE: usize = 1000;
+
+        let transaction = self
+            .inner
+            .transaction_on_one_with_mode(
+                keys::INBOUND_GROUP_SESSIONS_V3,
+                IdbTransactionMode::Readonly,
+            )?;
+
+        let object_store = transaction.object_store(keys::INBOUND_GROUP_SESSIONS_V3)?;
+
+        fetch_from_object_store_batched(
+            object_store,
+            |value| self.deserialize_inbound_group_session(value),
+            INBOUND_GROUP_SESSIONS_BATCH_SIZE
+        ).await
+    }
+
+    async fn get_inbound_group_sessions_by_room_id(
         &self,
         room_id: &RoomId,
     ) -> Result<Vec<InboundGroupSession>> {
@@ -990,25 +1009,6 @@ impl_crypto_store! {
                 }
             })
             .collect::<Vec<InboundGroupSession>>())
-    }
-
-    async fn get_inbound_group_sessions(&self) -> Result<Vec<InboundGroupSession>> {
-        const INBOUND_GROUP_SESSIONS_BATCH_SIZE: usize = 1000;
-
-        let transaction = self
-            .inner
-            .transaction_on_one_with_mode(
-                keys::INBOUND_GROUP_SESSIONS_V3,
-                IdbTransactionMode::Readonly,
-            )?;
-
-        let object_store = transaction.object_store(keys::INBOUND_GROUP_SESSIONS_V3)?;
-
-        fetch_from_object_store_batched(
-            object_store,
-            |value| self.deserialize_inbound_group_session(value),
-            INBOUND_GROUP_SESSIONS_BATCH_SIZE
-        ).await
     }
 
     async fn get_inbound_group_sessions_for_device_batch(
