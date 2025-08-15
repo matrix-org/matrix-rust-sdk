@@ -220,6 +220,8 @@ pub fn get_element_call_required_permissions(
                 event_type: StateEventType::CallMember.to_string(),
                 state_key: format!("{own_user_id}_{own_device_id}"),
             },
+            // Same as above for [MSC3779] and [MSC4143](https://github.com/matrix-org/matrix-spec-proposals/pull/4143),
+            // with application suffix
             WidgetEventFilter::StateWithTypeAndStateKey {
                 event_type: StateEventType::CallMember.to_string(),
                 state_key: format!("{own_user_id}_{own_device_id}_m.call"),
@@ -231,6 +233,7 @@ pub fn get_element_call_required_permissions(
                 event_type: StateEventType::CallMember.to_string(),
                 state_key: format!("_{own_user_id}_{own_device_id}"),
             },
+            // Same as above for [MSC4143], with application suffix
             WidgetEventFilter::StateWithTypeAndStateKey {
                 event_type: StateEventType::CallMember.to_string(),
                 state_key: format!("_{own_user_id}_{own_device_id}_m.call"),
