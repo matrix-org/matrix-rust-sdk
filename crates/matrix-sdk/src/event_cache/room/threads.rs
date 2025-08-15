@@ -19,16 +19,16 @@ use std::collections::BTreeSet;
 use eyeball_im::VectorDiff;
 use matrix_sdk_base::{
     event_cache::{Event, Gap},
-    linked_chunk::{ChunkContent, Position},
+    linked_chunk::{ChunkContent, OwnedLinkedChunkId, Position},
 };
-use ruma::OwnedEventId;
+use ruma::{OwnedEventId, OwnedRoomId};
 use tokio::sync::broadcast::{Receiver, Sender};
 use tracing::trace;
 
 use crate::event_cache::{
     deduplicator::DeduplicationOutcome,
     room::{events::EventLinkedChunk, LoadMoreEventsBackwardsOutcome},
-    BackPaginationOutcome, EventsOrigin,
+    BackPaginationOutcome, EventsOrigin, RoomEventCacheLinkedChunkUpdate,
 };
 
 /// An update coming from a thread event cache.
@@ -42,6 +42,9 @@ pub struct ThreadEventCacheUpdate {
 
 /// All the information related to a single thread.
 pub(crate) struct ThreadEventCache {
+    /// The room owning this thread.
+    room_id: OwnedRoomId,
+
     /// The ID of the thread root event, which is the first event in the thread
     /// (and eventually the first in the linked chunk).
     thread_root: OwnedEventId,
@@ -51,12 +54,24 @@ pub(crate) struct ThreadEventCache {
 
     /// A sender for live events updates in this thread.
     sender: Sender<ThreadEventCacheUpdate>,
+
+    linked_chunk_update_sender: Sender<RoomEventCacheLinkedChunkUpdate>,
 }
 
 impl ThreadEventCache {
     /// Create a new empty thread event cache.
-    pub fn new(thread_root: OwnedEventId) -> Self {
-        Self { chunk: EventLinkedChunk::new(), sender: Sender::new(32), thread_root }
+    pub fn new(
+        room_id: OwnedRoomId,
+        thread_root: OwnedEventId,
+        linked_chunk_update_sender: Sender<RoomEventCacheLinkedChunkUpdate>,
+    ) -> Self {
+        Self {
+            chunk: EventLinkedChunk::new(),
+            sender: Sender::new(32),
+            room_id,
+            thread_root,
+            linked_chunk_update_sender,
+        }
     }
 
     /// Subscribe to live events from this thread.
@@ -76,6 +91,22 @@ impl ThreadEventCache {
         if !diffs.is_empty() {
             let _ = self.sender.send(ThreadEventCacheUpdate { diffs, origin: EventsOrigin::Cache });
         }
+    }
+
+    // TODO(bnjbvr): share more code with `RoomEventCacheState` to avoid the
+    // duplication here too.
+    fn propagate_changes(&mut self) {
+        // This is a lie, at the moment! We're not persisting threads yet, so we're just
+        // forwarding all updates to the linked chunk update sender.
+        let updates = self.chunk.store_updates().take();
+
+        let _ = self.linked_chunk_update_sender.send(RoomEventCacheLinkedChunkUpdate {
+            updates,
+            linked_chunk: OwnedLinkedChunkId::Thread(
+                self.room_id.clone(),
+                self.thread_root.clone(),
+            ),
+        });
     }
 
     /// Push some live events to this thread, and propagate the updates to
@@ -103,6 +134,8 @@ impl ThreadEventCache {
         let events = deduplication.all_events;
 
         self.chunk.push_live_events(None, &events);
+
+        self.propagate_changes();
 
         let diffs = self.chunk.updates_as_vector_diffs();
         if !diffs.is_empty() {
@@ -248,6 +281,8 @@ impl ThreadEventCache {
 
         // Add the paginated events to the thread chunk.
         let reached_start = self.chunk.finish_back_pagination(prev_gap_id, new_gap, &events);
+
+        self.propagate_changes();
 
         // Notify observers about the updates.
         let updates = self.chunk.updates_as_vector_diffs();

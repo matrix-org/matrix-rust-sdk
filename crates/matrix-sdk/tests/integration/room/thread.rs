@@ -80,6 +80,97 @@ async fn test_subscribe_thread() {
 }
 
 #[async_test]
+async fn test_subscribe_thread_if_needed() {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+
+    let room_id = room_id!("!test:example.org");
+    let room = server.sync_joined_room(&client, room_id).await;
+
+    // If there's no prior subscription, the function `subscribe_thread_if_needed`
+    // will automatically subscribe to the thread, whether the new subscription
+    // is automatic or not.
+    for (root_id, automatic) in [
+        (owned_event_id!("$root"), None),
+        (owned_event_id!("$woot"), Some(owned_event_id!("$woot"))),
+    ] {
+        server
+            .mock_put_thread_subscription()
+            .match_room_id(room_id.to_owned())
+            .match_thread_id(root_id.clone())
+            .ok()
+            .mock_once()
+            .mount()
+            .await;
+
+        room.subscribe_thread_if_needed(&root_id, automatic).await.unwrap();
+    }
+
+    // If there's a prior automatic subscription, the function
+    // `subscribe_thread_if_needed` will only subscribe to the thread if the new
+    // subscription is manual.
+    {
+        let root_id = owned_event_id!("$toot");
+
+        server
+            .mock_get_thread_subscription()
+            .match_room_id(room_id.to_owned())
+            .match_thread_id(root_id.clone())
+            .ok(true)
+            .mock_once()
+            .mount()
+            .await;
+
+        server
+            .mock_put_thread_subscription()
+            .match_room_id(room_id.to_owned())
+            .match_thread_id(root_id.clone())
+            .ok()
+            .mock_once()
+            .mount()
+            .await;
+
+        room.subscribe_thread_if_needed(&root_id, None).await.unwrap();
+    }
+
+    // Otherwise, it will be a no-op.
+    {
+        let root_id = owned_event_id!("$foot");
+
+        server
+            .mock_get_thread_subscription()
+            .match_room_id(room_id.to_owned())
+            .match_thread_id(root_id.clone())
+            .ok(true)
+            .mock_once()
+            .mount()
+            .await;
+
+        room.subscribe_thread_if_needed(&root_id, Some(owned_event_id!("$foot"))).await.unwrap();
+    }
+
+    // The function `subscribe_thread_if_needed` is a no-op if there's a prior
+    // manual subscription, whether the new subscription is automatic or not.
+    for (root_id, automatic) in [
+        (owned_event_id!("$root"), None),
+        (owned_event_id!("$woot"), Some(owned_event_id!("$woot"))),
+    ] {
+        server
+            .mock_get_thread_subscription()
+            .match_room_id(room_id.to_owned())
+            .match_thread_id(root_id.clone())
+            .ok(false)
+            .mock_once()
+            .mount()
+            .await;
+
+        // No-op! (The PUT endpoint hasn't been mocked, so this would result in a 404 if
+        // it were trying to hit it.)
+        room.subscribe_thread_if_needed(&root_id, automatic).await.unwrap();
+    }
+}
+
+#[async_test]
 async fn test_thread_push_rule_is_triggered_for_subscribed_threads() {
     // This test checks that the evaluation of push rules for threads will correctly
     // call `Room::fetch_thread_subscription` for threads.

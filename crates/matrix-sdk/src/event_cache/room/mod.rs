@@ -617,7 +617,8 @@ mod private {
         },
         linked_chunk::{
             lazy_loader::{self},
-            ChunkContent, ChunkIdentifierGenerator, ChunkMetadata, LinkedChunkId, Position, Update,
+            ChunkContent, ChunkIdentifierGenerator, ChunkMetadata, LinkedChunkId,
+            OwnedLinkedChunkId, Position, Update,
         },
         serde_helpers::extract_thread_root,
         sync::Timeline,
@@ -632,7 +633,7 @@ mod private {
         serde::Raw,
         EventId, OwnedEventId, OwnedRoomId,
     };
-    use tokio::sync::broadcast::Receiver;
+    use tokio::sync::broadcast::{Receiver, Sender};
     use tracing::{debug, error, instrument, trace, warn};
 
     use super::{
@@ -642,7 +643,8 @@ mod private {
     };
     use crate::event_cache::{
         deduplicator::filter_duplicate_events, room::threads::ThreadEventCache,
-        BackPaginationOutcome, RoomPaginationStatus, ThreadEventCacheUpdate,
+        BackPaginationOutcome, RoomEventCacheLinkedChunkUpdate, RoomPaginationStatus,
+        ThreadEventCacheUpdate,
     };
 
     /// State for a single room's event cache.
@@ -676,6 +678,10 @@ mod private {
 
         pagination_status: SharedObservable<RoomPaginationStatus>,
 
+        /// See doc comment of
+        /// [`super::super::EventCacheInner::linked_chunk_update_sender`].
+        linked_chunk_update_sender: Sender<RoomEventCacheLinkedChunkUpdate>,
+
         /// An atomic count of the current number of subscriber of the
         /// [`super::RoomEventCache`].
         pub(super) subscriber_count: Arc<AtomicUsize>,
@@ -694,6 +700,7 @@ mod private {
         pub async fn new(
             room_id: OwnedRoomId,
             room_version_rules: RoomVersionRules,
+            linked_chunk_update_sender: Sender<RoomEventCacheLinkedChunkUpdate>,
             store: EventCacheStoreLock,
             pagination_status: SharedObservable<RoomPaginationStatus>,
         ) -> Result<Self, EventCacheError> {
@@ -766,6 +773,7 @@ mod private {
                 waited_for_initial_prev_token: false,
                 subscriber_count: Default::default(),
                 pagination_status,
+                linked_chunk_update_sender,
             })
         }
 
@@ -1235,19 +1243,26 @@ mod private {
 
             let store = self.store.clone();
             let room_id = self.room.clone();
+            let cloned_updates = updates.clone();
 
             spawn(async move {
                 let store = store.lock().await?;
 
-                trace!(?updates, "sending linked chunk updates to the store");
+                trace!(updates = ?cloned_updates, "sending linked chunk updates to the store");
                 let linked_chunk_id = LinkedChunkId::Room(&room_id);
-                store.handle_linked_chunk_updates(linked_chunk_id, updates).await?;
+                store.handle_linked_chunk_updates(linked_chunk_id, cloned_updates).await?;
                 trace!("linked chunk updates applied");
 
                 super::Result::Ok(())
             })
             .await
             .expect("joining failed")?;
+
+            // Forward that the store got updated to observers.
+            let _ = self.linked_chunk_update_sender.send(RoomEventCacheLinkedChunkUpdate {
+                linked_chunk: OwnedLinkedChunkId::Room(self.room.clone()),
+                updates,
+            });
 
             Ok(())
         }
@@ -1467,9 +1482,13 @@ mod private {
         fn get_or_reload_thread(&mut self, root_event_id: OwnedEventId) -> &mut ThreadEventCache {
             // TODO: when there's persistent storage, try to lazily reload from disk, if
             // missing from memory.
-            self.threads
-                .entry(root_event_id.clone())
-                .or_insert_with(|| ThreadEventCache::new(root_event_id))
+            self.threads.entry(root_event_id.clone()).or_insert_with(|| {
+                ThreadEventCache::new(
+                    self.room.clone(),
+                    root_event_id,
+                    self.linked_chunk_update_sender.clone(),
+                )
+            })
         }
 
         #[instrument(skip_all)]

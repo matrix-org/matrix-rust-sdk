@@ -28,7 +28,7 @@
 #![forbid(missing_docs)]
 
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, HashMap},
     fmt,
     sync::{Arc, OnceLock},
 };
@@ -38,22 +38,37 @@ use eyeball_im::VectorDiff;
 use futures_util::future::{join_all, try_join_all};
 use matrix_sdk_base::{
     deserialized_responses::{AmbiguityChange, TimelineEvent},
-    event_cache::store::{EventCacheStoreError, EventCacheStoreLock},
-    linked_chunk::lazy_loader::LazyLoaderError,
+    event_cache::{
+        store::{EventCacheStoreError, EventCacheStoreLock},
+        Gap,
+    },
+    executor::AbortOnDrop,
+    linked_chunk::{self, lazy_loader::LazyLoaderError, OwnedLinkedChunkId},
+    serde_helpers::extract_thread_root_from_content,
     store_locks::LockStoreError,
     sync::RoomUpdates,
     timer,
 };
 use matrix_sdk_common::executor::{spawn, JoinHandle};
 use room::RoomEventCacheState;
-use ruma::{events::AnySyncEphemeralRoomEvent, serde::Raw, OwnedEventId, OwnedRoomId, RoomId};
-use tokio::sync::{
-    broadcast::{channel, error::RecvError, Receiver, Sender},
-    mpsc, Mutex, RwLock,
+use ruma::{
+    events::AnySyncEphemeralRoomEvent, serde::Raw, OwnedEventId, OwnedRoomId, OwnedTransactionId,
+    RoomId,
+};
+use tokio::{
+    select,
+    sync::{
+        broadcast::{channel, error::RecvError, Receiver, Sender},
+        mpsc, Mutex, RwLock,
+    },
 };
 use tracing::{debug, error, info, info_span, instrument, trace, warn, Instrument as _, Span};
 
-use crate::{client::WeakClient, Client};
+use crate::{
+    client::WeakClient,
+    send_queue::{LocalEchoContent, RoomSendQueueUpdate, SendQueueUpdate},
+    Client,
+};
 
 mod deduplicator;
 mod pagination;
@@ -168,6 +183,14 @@ impl EventCache {
     /// Create a new [`EventCache`] for the given client.
     pub(crate) fn new(client: WeakClient, event_cache_store: EventCacheStoreLock) -> Self {
         let (generic_update_sender, _) = channel(32);
+        let (linked_chunk_update_sender, _) = channel(32);
+
+        let (thread_subscriber_sender, thread_subscriber_receiver) = channel(32);
+        let thread_subscriber_task = AbortOnDrop::new(spawn(Self::thread_subscriber_task(
+            client.clone(),
+            linked_chunk_update_sender.clone(),
+            thread_subscriber_sender,
+        )));
 
         Self {
             inner: Arc::new(EventCacheInner {
@@ -178,8 +201,19 @@ impl EventCache {
                 drop_handles: Default::default(),
                 auto_shrink_sender: Default::default(),
                 generic_update_sender,
+                linked_chunk_update_sender,
+                _thread_subscriber_task: thread_subscriber_task,
+                thread_subscriber_receiver,
             }),
         }
+    }
+
+    /// Subscribes to updates that a thread subscription has been sent.
+    ///
+    /// For testing purposes only.
+    #[doc(hidden)]
+    pub fn subscribe_thread_subscriber_updates(&self) -> Receiver<()> {
+        self.inner.thread_subscriber_receiver.resubscribe()
     }
 
     /// Starts subscribing the [`EventCache`] to sync responses, if not done
@@ -391,6 +425,243 @@ impl EventCache {
     pub fn subscribe_to_room_generic_updates(&self) -> Receiver<RoomEventCacheGenericUpdate> {
         self.inner.generic_update_sender.subscribe()
     }
+
+    #[instrument(skip(client, thread_subscriber_sender))]
+    async fn handle_thread_subscriber_linked_chunk_update(
+        client: &WeakClient,
+        thread_subscriber_sender: &Sender<()>,
+        up: RoomEventCacheLinkedChunkUpdate,
+    ) -> bool {
+        let Some(client) = client.get() else {
+            // Client shutting down.
+            debug!("Client is shutting down, exiting thread subscriber task");
+            return false;
+        };
+
+        let OwnedLinkedChunkId::Thread(room_id, thread_root) = &up.linked_chunk else {
+            trace!("received an update for a non-thread linked chunk, ignoring");
+            return true;
+        };
+
+        let Some(room) = client.get_room(room_id) else {
+            warn!(%room_id, "unknown room");
+            return true;
+        };
+
+        let thread_root = thread_root.clone();
+
+        let new_events = up.events();
+        if new_events.is_empty() {
+            // No new events, nothing to do.
+            return true;
+        }
+
+        // This `PushContext` is going to be used to compute whether an in-thread event
+        // would trigger a mention.
+        //
+        // Of course, we're not interested in an in-thread event causing a mention,
+        // because it's part of a thread we've subscribed to. So the
+        // `PushContext` must not include the check for thread subscriptions (otherwise
+        // it would be impossible to subscribe to new threads).
+
+        let with_thread_subscriptions = false;
+
+        let Some(push_context) = room
+            .push_context_internal(with_thread_subscriptions)
+            .await
+            .inspect_err(|err| {
+                warn!("Failed to get push context for threads: {err}");
+            })
+            .ok()
+            .flatten()
+        else {
+            warn!("Missing push context for thread subscriptions.");
+            return true;
+        };
+
+        let mut subscribe_up_to = None;
+
+        // Find if there's an event that would trigger a mention for the current
+        // user, iterating from the end of the new events towards the oldest,
+        for ev in new_events.into_iter().rev() {
+            if push_context
+                .for_event(ev.raw())
+                .await
+                .into_iter()
+                .any(|action| action.should_notify())
+            {
+                let Some(event_id) = ev.event_id() else {
+                    // Shouldn't happen.
+                    continue;
+                };
+                subscribe_up_to = Some(event_id);
+                break;
+            }
+        }
+
+        // And if we've found such a mention, subscribe to the thread up to this
+        // event.
+        if let Some(event_id) = subscribe_up_to {
+            trace!(thread = %thread_root, up_to = %event_id, "found a new thread to subscribe to");
+            if let Err(err) = room.subscribe_thread_if_needed(&thread_root, Some(event_id)).await {
+                warn!(%err, "Failed to subscribe to thread");
+            } else {
+                let _ = thread_subscriber_sender.send(());
+            }
+        }
+
+        true
+    }
+
+    #[instrument(skip(client, thread_subscriber_sender))]
+    async fn handle_thread_subscriber_send_queue_update(
+        client: &WeakClient,
+        thread_subscriber_sender: &Sender<()>,
+        events_being_sent: &mut HashMap<OwnedTransactionId, OwnedEventId>,
+        up: SendQueueUpdate,
+    ) -> bool {
+        let Some(client) = client.get() else {
+            // Client shutting down.
+            debug!("Client is shutting down, exiting thread subscriber task");
+            return false;
+        };
+
+        let room_id = up.room_id;
+        let Some(room) = client.get_room(&room_id) else {
+            warn!(%room_id, "unknown room");
+            return true;
+        };
+
+        let (thread_root, subscribe_up_to) = match up.update {
+            RoomSendQueueUpdate::NewLocalEvent(local_echo) => {
+                match local_echo.content {
+                    LocalEchoContent::Event { serialized_event, .. } => {
+                        if let Some(thread_root) =
+                            extract_thread_root_from_content(serialized_event.into_raw().0)
+                        {
+                            events_being_sent.insert(local_echo.transaction_id, thread_root);
+                        }
+                    }
+                    LocalEchoContent::React { .. } => {
+                        // Nothing to do, reactions don't count as a thread
+                        // subscription.
+                    }
+                }
+                return true;
+            }
+
+            RoomSendQueueUpdate::CancelledLocalEvent { transaction_id } => {
+                events_being_sent.remove(&transaction_id);
+                return true;
+            }
+
+            RoomSendQueueUpdate::ReplacedLocalEvent { transaction_id, new_content } => {
+                if let Some(thread_root) =
+                    extract_thread_root_from_content(new_content.into_raw().0)
+                {
+                    events_being_sent.insert(transaction_id, thread_root);
+                } else {
+                    // It could be that the event isn't part of a thread anymore; handle that by
+                    // removing the pending transaction id.
+                    events_being_sent.remove(&transaction_id);
+                }
+                return true;
+            }
+
+            RoomSendQueueUpdate::SentEvent { transaction_id, event_id } => {
+                if let Some(thread_root) = events_being_sent.remove(&transaction_id) {
+                    (thread_root, event_id)
+                } else {
+                    // We don't know about the event that has been sent, so ignore it.
+                    trace!(%transaction_id, "received a sent event that we didn't know about, ignoring");
+                    return true;
+                }
+            }
+
+            RoomSendQueueUpdate::SendError { .. }
+            | RoomSendQueueUpdate::RetryEvent { .. }
+            | RoomSendQueueUpdate::MediaUpload { .. } => {
+                // Nothing to do for these bad boys.
+                return true;
+            }
+        };
+
+        // And if we've found such a mention, subscribe to the thread up to this event.
+        trace!(thread = %thread_root, up_to = %subscribe_up_to, "found a new thread to subscribe to");
+        if let Err(err) = room.subscribe_thread_if_needed(&thread_root, Some(subscribe_up_to)).await
+        {
+            warn!(%err, "Failed to subscribe to thread");
+        } else {
+            let _ = thread_subscriber_sender.send(());
+        }
+
+        true
+    }
+
+    #[instrument(skip_all)]
+    async fn thread_subscriber_task(
+        client: WeakClient,
+        linked_chunk_update_sender: Sender<RoomEventCacheLinkedChunkUpdate>,
+        thread_subscriber_sender: Sender<()>,
+    ) {
+        let mut send_q_rx = if let Some(client) = client.get() {
+            if !client.enabled_thread_subscriptions() {
+                trace!("Thread subscriptions are not enabled, not spawning thread subscriber task");
+                return;
+            }
+
+            client.send_queue().subscribe()
+        } else {
+            trace!("Client is shutting down, not spawning thread subscriber task");
+            return;
+        };
+
+        let mut linked_chunk_rx = linked_chunk_update_sender.subscribe();
+
+        // A mapping of local echoes (events being sent), to their thread root, if
+        // they're in an in-thread reply.
+        //
+        // Entirely managed by `handle_thread_subscriber_send_queue_update`.
+        let mut events_being_sent = HashMap::new();
+
+        loop {
+            select! {
+                res = send_q_rx.recv() => {
+                    match res {
+                        Ok(up) => {
+                            if !Self::handle_thread_subscriber_send_queue_update(&client, &thread_subscriber_sender, &mut events_being_sent, up).await {
+                                break;
+                            }
+                        }
+                        Err(RecvError::Closed) => {
+                            debug!("Linked chunk update channel has been closed, exiting thread subscriber task");
+                            break;
+                        }
+                        Err(RecvError::Lagged(num_skipped)) => {
+                            warn!(num_skipped, "Lagged behind linked chunk updates");
+                        }
+                    }
+                }
+
+                res = linked_chunk_rx.recv() => {
+                    match res {
+                        Ok(up) => {
+                            if !Self::handle_thread_subscriber_linked_chunk_update(&client, &thread_subscriber_sender, up).await {
+                                break;
+                            }
+                        }
+                        Err(RecvError::Closed) => {
+                            debug!("Linked chunk update channel has been closed, exiting thread subscriber task");
+                            break;
+                        }
+                        Err(RecvError::Lagged(num_skipped)) => {
+                            warn!(num_skipped, "Lagged behind linked chunk updates");
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
 
 struct EventCacheInner {
@@ -428,6 +699,29 @@ struct EventCacheInner {
     /// See doc comment of [`RoomEventCacheGenericUpdate`] and
     /// [`EventCache::subscribe_to_room_generic_updates`].
     generic_update_sender: Sender<RoomEventCacheGenericUpdate>,
+
+    /// A sender for a persisted linked chunk update.
+    ///
+    /// This is used to notify that some linked chunk has persisted some updates
+    /// to a store, and can be used by observers to look for new events.
+    ///
+    /// See doc comment of [`RoomEventCacheLinkedChunkUpdate`].
+    linked_chunk_update_sender: Sender<RoomEventCacheLinkedChunkUpdate>,
+
+    /// A background task listening to room and send queue updates, and
+    /// automatically subscribing the user to threads when needed, based on
+    /// the semantics of MSC4306.
+    ///
+    /// One important constraint is that there is only one such task per
+    /// [`EventCache`], so it does listen to *all* rooms at the same time.
+    _thread_subscriber_task: AbortOnDrop<()>,
+
+    /// A test helper receiver that will be emitted every time the thread
+    /// subscriber task subscribed to a new thread.
+    ///
+    /// This is helpful for tests to coordinate that a new thread subscription
+    /// has been sent or not.
+    thread_subscriber_receiver: Receiver<()>,
 }
 
 type AutoShrinkChannelPayload = OwnedRoomId;
@@ -591,6 +885,7 @@ impl EventCacheInner {
                 let room_state = RoomEventCacheState::new(
                     room_id.to_owned(),
                     room_version_rules,
+                    self.linked_chunk_update_sender.clone(),
                     self.store.clone(),
                     pagination_status.clone(),
                 )
@@ -655,6 +950,42 @@ pub struct BackPaginationOutcome {
 pub struct RoomEventCacheGenericUpdate {
     /// The room ID owning the timeline.
     pub room_id: OwnedRoomId,
+}
+
+/// An update being triggered when events change in the persisted event cache
+/// for any room.
+#[derive(Clone, Debug)]
+struct RoomEventCacheLinkedChunkUpdate {
+    /// The linked chunk affected by the update.
+    linked_chunk: OwnedLinkedChunkId,
+
+    /// A vector of all the updates that happened during this update.
+    updates: Vec<linked_chunk::Update<TimelineEvent, Gap>>,
+}
+
+impl RoomEventCacheLinkedChunkUpdate {
+    /// Return all the new events propagated by this update, in topological
+    /// order.
+    pub fn events(self) -> Vec<TimelineEvent> {
+        self.updates
+            .into_iter()
+            .flat_map(|update| match update {
+                linked_chunk::Update::PushItems { items, .. } => items,
+                linked_chunk::Update::ReplaceItem { item, .. } => vec![item],
+                linked_chunk::Update::RemoveItem { .. }
+                | linked_chunk::Update::DetachLastItems { .. }
+                | linked_chunk::Update::StartReattachItems
+                | linked_chunk::Update::EndReattachItems
+                | linked_chunk::Update::NewItemsChunk { .. }
+                | linked_chunk::Update::NewGapChunk { .. }
+                | linked_chunk::Update::RemoveChunk(..)
+                | linked_chunk::Update::Clear => {
+                    // All these updates don't contain any new event.
+                    vec![]
+                }
+            })
+            .collect()
+    }
 }
 
 /// An update related to events happened in a room.
