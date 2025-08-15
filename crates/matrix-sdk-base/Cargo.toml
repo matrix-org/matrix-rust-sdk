@@ -31,6 +31,15 @@ automatic-room-key-forwarding = [
 experimental-send-custom-to-device = [
     "matrix-sdk-crypto?/experimental-send-custom-to-device",
 ]
+
+# Enable experimental support for encrypting state events; see
+# https://github.com/matrix-org/matrix-rust-sdk/issues/5397.
+experimental-encrypted-state-events = [
+    "e2e-encryption",
+    "ruma/unstable-msc3414",
+    "matrix-sdk-crypto?/experimental-encrypted-state-events"
+]
+
 uniffi = ["dep:uniffi", "matrix-sdk-crypto?/uniffi", "matrix-sdk-common/uniffi"]
 
 # Private feature, see

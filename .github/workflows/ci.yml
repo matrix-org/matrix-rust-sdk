@@ -34,6 +34,7 @@ jobs:
           - no-sqlite
           - no-encryption-and-sqlite
           - sqlite-cryptostore
+          - experimental-encrypted-state-events
           - rustls-tls
           - markdown
           - socks

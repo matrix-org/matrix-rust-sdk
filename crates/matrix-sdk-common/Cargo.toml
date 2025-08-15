@@ -24,6 +24,10 @@ uniffi = ["dep:uniffi"]
 # details.
 test-send-sync = []
 
+# Enable experimental support for encrypting state events; see
+# https://github.com/matrix-org/matrix-rust-sdk/issues/5397.
+experimental-encrypted-state-events = []
+
 [dependencies]
 eyeball-im.workspace = true
 futures-core.workspace = true
