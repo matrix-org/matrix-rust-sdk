@@ -168,9 +168,6 @@ impl_event_cache_store! {
     ) -> Result<(), IndexeddbEventCacheStoreError> {
         let _timer = timer!("method");
 
-        let owned_linked_chunk_id = linked_chunk_id.to_owned();
-        let room_id = owned_linked_chunk_id.room_id();
-
         let transaction = self.transaction(
             &[keys::LINKED_CHUNKS, keys::GAPS, keys::EVENTS],
             IdbTransactionMode::Readwrite,
@@ -179,7 +176,7 @@ impl_event_cache_store! {
         for update in updates {
             match update {
                 Update::NewItemsChunk { previous, new, next } => {
-                    trace!(%room_id, "Inserting new chunk (prev={previous:?}, new={new:?}, next={next:?})");
+                    trace!(%linked_chunk_id, "Inserting new chunk (prev={previous:?}, new={new:?}, next={next:?})");
                     transaction
                         .add_chunk(
                             &types::Chunk {
@@ -193,7 +190,7 @@ impl_event_cache_store! {
                         .await?;
                 }
                 Update::NewGapChunk { previous, new, next, gap } => {
-                    trace!(%room_id, "Inserting new gap (prev={previous:?}, new={new:?}, next={next:?})");
+                    trace!(%linked_chunk_id, "Inserting new gap (prev={previous:?}, new={new:?}, next={next:?})");
                     transaction
                         .add_item(
                             &types::Gap {
@@ -216,13 +213,13 @@ impl_event_cache_store! {
                         .await?;
                 }
                 Update::RemoveChunk(chunk_id) => {
-                    trace!("Removing chunk {chunk_id:?}");
+                    trace!(%linked_chunk_id, "Removing chunk {chunk_id:?}");
                     transaction.delete_chunk_by_id(linked_chunk_id, chunk_id).await?;
                 }
                 Update::PushItems { at, items } => {
                     let chunk_identifier = at.chunk_identifier().index();
 
-                    trace!(%room_id, "pushing {} items @ {chunk_identifier}", items.len());
+                    trace!(%linked_chunk_id, "pushing {} items @ {chunk_identifier}", items.len());
 
                     for (i, item) in items.into_iter().enumerate() {
                         transaction
@@ -243,7 +240,7 @@ impl_event_cache_store! {
                     let chunk_id = at.chunk_identifier().index();
                     let index = at.index();
 
-                    trace!(%room_id, "replacing item @ {chunk_id}:{index}");
+                    trace!(%linked_chunk_id, "replacing item @ {chunk_id}:{index}");
 
                     transaction
                         .put_event(
@@ -259,7 +256,7 @@ impl_event_cache_store! {
                     let chunk_id = at.chunk_identifier().index();
                     let index = at.index();
 
-                    trace!(%room_id, "removing item @ {chunk_id}:{index}");
+                    trace!(%linked_chunk_id, "removing item @ {chunk_id}:{index}");
 
                     transaction.delete_event_by_position(linked_chunk_id, at.into()).await?;
                 }
@@ -267,7 +264,7 @@ impl_event_cache_store! {
                     let chunk_id = at.chunk_identifier().index();
                     let index = at.index();
 
-                    trace!(%room_id, "detaching last items @ {chunk_id}:{index}");
+                    trace!(%linked_chunk_id, "detaching last items @ {chunk_id}:{index}");
 
                     transaction.delete_events_by_chunk_from_index(linked_chunk_id, at.into()).await?;
                 }
@@ -275,7 +272,7 @@ impl_event_cache_store! {
                     // Nothing? See sqlite implementation
                 }
                 Update::Clear => {
-                    trace!(%room_id, "clearing room");
+                    trace!(%linked_chunk_id, "clearing room");
                     transaction.delete_chunks_by_linked_chunk_id(linked_chunk_id).await?;
                     transaction.delete_events_by_linked_chunk_id(linked_chunk_id).await?;
                     transaction.delete_gaps_by_linked_chunk_id(linked_chunk_id).await?;
