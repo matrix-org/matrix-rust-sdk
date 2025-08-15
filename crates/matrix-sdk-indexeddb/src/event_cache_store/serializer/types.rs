@@ -448,6 +448,9 @@ impl<'a> IndexedPrefixKeyComponentBounds<'a, Chunk, &'a RoomId> for IndexedNextC
 pub struct IndexedEvent {
     /// The primary key of the object store.
     pub id: IndexedEventIdKey,
+    /// An indexed key on the object store, which represents the room in which
+    /// the event exists
+    pub room: IndexedEventRoomKey,
     /// An indexed key on the object store, which represents the position of the
     /// event, if it is in a chunk.
     pub position: Option<IndexedEventPositionKey>,
@@ -478,6 +481,7 @@ impl Indexed for Event {
     ) -> Result<Self::IndexedType, Self::Error> {
         let event_id = self.event_id().ok_or(Self::Error::NoEventId)?;
         let id = IndexedEventIdKey::encode((self.room_id(), &event_id), serializer);
+        let room = IndexedEventRoomKey::encode((self.room_id(), &event_id), serializer);
         let position = self.position().map(|position| {
             IndexedEventPositionKey::encode((self.room_id(), position), serializer)
         });
@@ -487,7 +491,13 @@ impl Indexed for Event {
                 serializer,
             )
         });
-        Ok(IndexedEvent { id, position, relation, content: serializer.maybe_encrypt_value(self)? })
+        Ok(IndexedEvent {
+            id,
+            room,
+            position,
+            relation,
+            content: serializer.maybe_encrypt_value(self)?,
+        })
     }
 
     fn from_indexed(
@@ -529,6 +539,41 @@ impl IndexedPrefixKeyBounds<Event, &RoomId> for IndexedEventIdKey {
 }
 
 pub type IndexedEventId = String;
+
+/// The value associated with the [primary key](IndexedEvent::id) of the
+/// [`EVENTS`][1] object store, which is constructed from:
+///
+/// - The (possibly) encrypted Room ID
+/// - The (possibly) encrypted Event ID.
+///
+/// [1]: crate::event_cache_store::migrations::v1::create_events_object_store
+#[derive(Debug, Serialize, Deserialize)]
+pub struct IndexedEventRoomKey(IndexedRoomId, IndexedEventId);
+
+impl IndexedKey<Event> for IndexedEventRoomKey {
+    const INDEX: Option<&'static str> = Some(keys::EVENTS_ROOM);
+
+    type KeyComponents<'a> = (&'a RoomId, &'a EventId);
+
+    fn encode(
+        (room_id, event_id): Self::KeyComponents<'_>,
+        serializer: &IndexeddbSerializer,
+    ) -> Self {
+        let room_id = serializer.encode_key_as_string(keys::ROOMS, room_id.as_str());
+        let event_id = serializer.encode_key_as_string(keys::EVENTS, event_id);
+        Self(room_id, event_id)
+    }
+}
+
+impl IndexedPrefixKeyBounds<Event, &RoomId> for IndexedEventRoomKey {
+    fn lower_key_with_prefix(room_id: &RoomId, serializer: &IndexeddbSerializer) -> Self {
+        Self::encode((room_id, &*INDEXED_KEY_LOWER_EVENT_ID), serializer)
+    }
+
+    fn upper_key_with_prefix(room_id: &RoomId, serializer: &IndexeddbSerializer) -> Self {
+        Self::encode((room_id, &*INDEXED_KEY_UPPER_EVENT_ID), serializer)
+    }
+}
 
 /// The value associated with the [`position`](IndexedEvent::position) index of
 /// the [`EVENTS`][1] object store, which is constructed from:

@@ -118,6 +118,8 @@ pub mod v1 {
         pub const LINKED_CHUNKS_NEXT_KEY_PATH: &str = "next";
         pub const EVENTS: &str = "events";
         pub const EVENTS_KEY_PATH: &str = "id";
+        pub const EVENTS_ROOM: &str = "events_room";
+        pub const EVENTS_ROOM_KEY_PATH: &str = "room";
         pub const EVENTS_POSITION: &str = "events_position";
         pub const EVENTS_POSITION_KEY_PATH: &str = "position";
         pub const EVENTS_RELATION: &str = "events_relation";
@@ -169,6 +171,7 @@ pub mod v1 {
     /// Create an object store for tracking information about events.
     ///
     /// * Primary Key - `id`
+    /// * Index (unique) - `room` - tracks whether an event is in a given room
     /// * Index (unique) - `position` - tracks position of an event in linked
     ///   chunks
     /// * Index - `relation` - tracks any event to which the given event is
@@ -177,6 +180,14 @@ pub mod v1 {
         let mut object_store_params = IdbObjectStoreParameters::new();
         object_store_params.key_path(Some(&keys::EVENTS_KEY_PATH.into()));
         let events = db.create_object_store_with_params(keys::EVENTS, &object_store_params)?;
+
+        let events_room_params = IdbIndexParameters::new();
+        events_room_params.set_unique(true);
+        events.create_index_with_params(
+            keys::EVENTS_ROOM,
+            &keys::EVENTS_ROOM_KEY_PATH.into(),
+            &events_room_params,
+        );
 
         let events_position_params = IdbIndexParameters::new();
         events_position_params.set_unique(true);
