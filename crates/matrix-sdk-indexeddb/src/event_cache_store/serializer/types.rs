@@ -231,6 +231,39 @@ impl<K> From<K> for IndexedKeyRange<K> {
     }
 }
 
+/// A (possibly) encrypted representation of a [`Lease`]
+pub type IndexedLeaseContent = MaybeEncrypted;
+
+/// A (possibly) hashed representation of an [`RoomId`] which is suitable for
+/// use in an IndexedDB key
+pub type IndexedRoomId = String;
+
+/// A representation of a [`ChunkIdentifier`] which is suitable for use in an
+/// IndexedDB key
+pub type IndexedChunkId = u64;
+
+/// A (possibly) encrypted representation of an [`Event`]
+pub type IndexedChunkContent = MaybeEncrypted;
+
+/// A (possibly) hashed representation of an [`EventId`] which is suitable for
+/// use in an IndexedDB key
+pub type IndexedEventId = String;
+
+/// A representation of the position of an [`Event`] in a [`Chunk`] which is
+/// suitable for use in an IndexedDB key
+pub type IndexedEventPositionIndex = usize;
+
+/// A (possibly) hashed representation of the relationship between two events
+/// (see [`RelationType`](ruma::events::relation::RelationType)) which is
+/// suitable for use in an IndexedDB key
+pub type IndexedRelationType = String;
+
+/// A (possibly) encrypted representation of an [`Event`]
+pub type IndexedEventContent = MaybeEncrypted;
+
+/// A (possibly) encrypted representation of a [`Gap`]
+pub type IndexedGapContent = MaybeEncrypted;
+
 /// Represents the [`LEASES`][1] object store.
 ///
 /// [1]: crate::event_cache_store::migrations::v1::create_lease_object_store
@@ -292,8 +325,6 @@ impl IndexedKeyComponentBounds<Lease> for IndexedLeaseIdKey {
         INDEXED_KEY_UPPER_STRING.as_str()
     }
 }
-
-pub type IndexedLeaseContent = MaybeEncrypted;
 
 /// Represents the [`LINKED_CHUNKS`][1] object store.
 ///
@@ -373,10 +404,6 @@ impl<'a> IndexedPrefixKeyComponentBounds<'a, Chunk, &'a RoomId> for IndexedChunk
         (room_id, *INDEXED_KEY_UPPER_CHUNK_IDENTIFIER)
     }
 }
-
-pub type IndexedRoomId = String;
-pub type IndexedChunkId = u64;
-pub type IndexedChunkContent = MaybeEncrypted;
 
 /// The value associated with the [`next`](IndexedChunk::next) index of the
 /// [`LINKED_CHUNKS`][1] object store, which is constructed from:
@@ -538,8 +565,6 @@ impl IndexedPrefixKeyBounds<Event, &RoomId> for IndexedEventIdKey {
     }
 }
 
-pub type IndexedEventId = String;
-
 /// The value associated with the [primary key](IndexedEvent::id) of the
 /// [`EVENTS`][1] object store, which is constructed from:
 ///
@@ -632,8 +657,6 @@ impl<'a> IndexedPrefixKeyComponentBounds<'a, Event, (&'a RoomId, ChunkIdentifier
     }
 }
 
-pub type IndexedEventPositionIndex = usize;
-
 /// The value associated with the [`relation`](IndexedEvent::relation) index of
 /// the [`EVENTS`][1] object store, which is constructed from:
 ///
@@ -703,12 +726,6 @@ impl IndexedPrefixKeyBounds<Event, (&RoomId, &EventId)> for IndexedEventRelation
     }
 }
 
-/// A representation of the relationship between two events (see
-/// [`RelationType`](ruma::events::relation::RelationType))
-pub type IndexedRelationType = String;
-
-pub type IndexedEventContent = MaybeEncrypted;
-
 /// Represents the [`GAPS`][1] object store.
 ///
 /// [1]: crate::event_cache_store::migrations::v1::create_gaps_object_store
@@ -776,5 +793,3 @@ impl<'a> IndexedPrefixKeyComponentBounds<'a, Gap, &'a RoomId> for IndexedGapIdKe
         )
     }
 }
-
-pub type IndexedGapContent = MaybeEncrypted;
