@@ -24,8 +24,7 @@ use matrix_sdk_base::{
         store::{
             compute_filters_string, extract_event_relation,
             media::{
-                EventCacheStoreMedia, IgnoreMediaRetentionPolicy, MediaRetentionPolicy,
-                MediaService,
+                IgnoreMediaRetentionPolicy, MediaRetentionPolicy, MediaService, MediaStoreInner,
             },
             EventCacheStore,
         },
@@ -1421,7 +1420,7 @@ impl EventCacheStore for SqliteEventCacheStore {
 
 #[cfg_attr(target_family = "wasm", async_trait(?Send))]
 #[cfg_attr(not(target_family = "wasm"), async_trait)]
-impl EventCacheStoreMedia for SqliteEventCacheStore {
+impl MediaStoreInner for SqliteEventCacheStore {
     type Error = Error;
 
     async fn media_retention_policy_inner(
@@ -1871,9 +1870,9 @@ mod tests {
             Gap,
         },
         event_cache_store_integration_tests, event_cache_store_integration_tests_time,
-        event_cache_store_media_integration_tests,
         linked_chunk::{ChunkContent, ChunkIdentifier, LinkedChunkId, Position, Update},
         media::{MediaFormat, MediaRequestParameters, MediaThumbnailSettings},
+        media_store_inner_integration_tests,
     };
     use matrix_sdk_test::{async_test, DEFAULT_TEST_ROOM_ID};
     use once_cell::sync::Lazy;
@@ -1905,7 +1904,7 @@ mod tests {
 
     event_cache_store_integration_tests!();
     event_cache_store_integration_tests_time!();
-    event_cache_store_media_integration_tests!(with_media_size_tests);
+    media_store_inner_integration_tests!(with_media_size_tests);
 
     async fn get_event_cache_store_content_sorted_by_last_access(
         event_cache_store: &SqliteEventCacheStore,
@@ -2842,7 +2841,7 @@ mod encrypted_tests {
     use matrix_sdk_base::{
         event_cache::store::{EventCacheStore, EventCacheStoreError},
         event_cache_store_integration_tests, event_cache_store_integration_tests_time,
-        event_cache_store_media_integration_tests,
+        media_store_inner_integration_tests,
     };
     use matrix_sdk_test::{async_test, event_factory::EventFactory};
     use once_cell::sync::Lazy;
@@ -2874,7 +2873,7 @@ mod encrypted_tests {
 
     event_cache_store_integration_tests!();
     event_cache_store_integration_tests_time!();
-    event_cache_store_media_integration_tests!();
+    media_store_inner_integration_tests!();
 
     #[async_test]
     async fn test_no_sqlite_injection_in_find_event_relations() {

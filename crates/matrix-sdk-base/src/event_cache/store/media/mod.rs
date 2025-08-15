@@ -21,8 +21,15 @@ mod media_service;
 pub mod integration_tests;
 
 #[cfg(any(test, feature = "testing"))]
-pub use self::integration_tests::EventCacheStoreMediaIntegrationTests;
+pub use self::integration_tests::MediaStoreInnerIntegrationTests;
 pub use self::{
     media_retention_policy::MediaRetentionPolicy,
-    media_service::{EventCacheStoreMedia, IgnoreMediaRetentionPolicy, MediaService},
+    media_service::{IgnoreMediaRetentionPolicy, MediaService, MediaStoreInner},
 };
+
+/// Media store specific error type.
+#[derive(Debug, thiserror::Error)]
+pub enum MediaStoreError {}
+
+/// An `MediaStore` specific result type.
+pub type Result<T, E = MediaStoreError> = std::result::Result<T, E>;
