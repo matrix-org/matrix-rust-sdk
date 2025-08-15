@@ -112,6 +112,7 @@ pub mod v1 {
         pub const LEASES: &str = "leases";
         pub const LEASES_KEY_PATH: &str = "id";
         pub const ROOMS: &str = "rooms";
+        pub const LINKED_CHUNK_IDS: &str = "linked_chunk_ids";
         pub const LINKED_CHUNKS: &str = "linked_chunks";
         pub const LINKED_CHUNKS_KEY_PATH: &str = "id";
         pub const LINKED_CHUNKS_NEXT: &str = "linked_chunks_next";
