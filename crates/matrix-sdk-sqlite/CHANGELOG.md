@@ -8,6 +8,9 @@ All notable changes to this project will be documented in this file.
 
 ## [0.13.0] - 2025-07-10
 
+### Refactor
+- [breaking] Change the logic for opening a store so as to use a `Secret` enum in the function `open_with_pool` instead of a `passphrase` (https://github.com/matrix-org/matrix-rust-sdk/pull/5472)
+
 ### Security Fixes
 
 - Fix SQL injection vulnerability in `find_event_relations()`.
