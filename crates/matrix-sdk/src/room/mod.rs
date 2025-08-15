@@ -54,14 +54,20 @@ use matrix_sdk_common::{
     executor::{spawn, JoinHandle},
     timeout::timeout,
 };
+#[cfg(feature = "experimental-search")]
+use matrix_sdk_search::error::IndexError;
+#[cfg(feature = "experimental-search")]
+#[cfg(doc)]
+use matrix_sdk_search::index::RoomIndex;
 use mime::Mime;
 use reply::Reply;
 #[cfg(feature = "unstable-msc4274")]
 use ruma::events::room::message::GalleryItemType;
+#[cfg(any(feature = "experimental-search", feature = "e2e-encryption"))]
+use ruma::events::AnySyncMessageLikeEvent;
 #[cfg(feature = "e2e-encryption")]
 use ruma::events::{
-    room::encrypted::OriginalSyncRoomEncryptedEvent, AnySyncMessageLikeEvent, AnySyncTimelineEvent,
-    SyncMessageLikeEvent,
+    room::encrypted::OriginalSyncRoomEncryptedEvent, AnySyncTimelineEvent, SyncMessageLikeEvent,
 };
 use ruma::{
     api::client::{
@@ -3669,6 +3675,37 @@ impl Room {
         opts: RelationsOptions,
     ) -> Result<Relations> {
         opts.send(self, event_id).await
+    }
+
+    /// Handle an [`AnySyncMessageLikeEvent`] in this room's [`RoomIndex`].
+    ///
+    /// This which will add/remove/edit an event in the index based on the
+    /// event type.
+    #[cfg(feature = "experimental-search")]
+    pub(crate) async fn index_event(
+        &self,
+        event: AnySyncMessageLikeEvent,
+    ) -> Result<(), IndexError> {
+        self.client.search_index().lock().await.handle_event(event, self.room_id())
+    }
+
+    /// Search this room's [`RoomIndex`] for query and return at most
+    /// max_number_of_results results.
+    #[cfg(feature = "experimental-search")]
+    pub async fn search(
+        &self,
+        query: &str,
+        max_number_of_results: usize,
+    ) -> Option<Vec<OwnedEventId>> {
+        self.commit_and_reload_search_index().await;
+
+        self.client.search_index().lock().await.search(query, max_number_of_results, self.room_id())
+    }
+
+    /// Commit a [`Room`]'s [`RoomIndex`] and reload searchers
+    #[cfg(feature = "experimental-search")]
+    pub(crate) async fn commit_and_reload_search_index(&self) {
+        self.client.search_index().lock().await.commit_and_reload(self.room_id());
     }
 
     /// Subscribe to a given thread in this room.

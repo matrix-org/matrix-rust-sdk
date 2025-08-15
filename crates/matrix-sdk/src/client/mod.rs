@@ -114,8 +114,12 @@ use crate::{
 mod builder;
 pub(crate) mod caches;
 pub(crate) mod futures;
+#[cfg(feature = "experimental-search")]
+pub(crate) mod search;
 
 pub use self::builder::{sanitize_server_name, ClientBuildError, ClientBuilder};
+#[cfg(feature = "experimental-search")]
+use crate::client::search::SearchIndex;
 
 #[cfg(not(target_family = "wasm"))]
 type NotificationHandlerFut = Pin<Box<dyn Future<Output = ()> + Send>>;
@@ -363,6 +367,10 @@ pub(crate) struct ClientInner {
     ///
     /// [`LatestEvent`]: crate::latest_event::LatestEvent
     latest_events: OnceCell<LatestEvents>,
+
+    #[cfg(feature = "experimental-search")]
+    /// Handler for [`RoomIndex`]'s of each room
+    search_index: SearchIndex,
 }
 
 impl ClientInner {
@@ -387,6 +395,7 @@ impl ClientInner {
         #[cfg(feature = "e2e-encryption")] encryption_settings: EncryptionSettings,
         #[cfg(feature = "e2e-encryption")] enable_share_history_on_invite: bool,
         cross_process_store_locks_holder_name: String,
+        #[cfg(feature = "experimental-search")] search_index_handler: SearchIndex,
     ) -> Arc<Self> {
         let caches = ClientCaches {
             server_info: server_info.into(),
@@ -422,6 +431,8 @@ impl ClientInner {
             #[cfg(feature = "e2e-encryption")]
             enable_share_history_on_invite,
             server_max_upload_size: Mutex::new(OnceCell::new()),
+            #[cfg(feature = "experimental-search")]
+            search_index: search_index_handler,
         };
 
         #[allow(clippy::let_and_return)]
@@ -2760,6 +2771,8 @@ impl Client {
                 #[cfg(feature = "e2e-encryption")]
                 self.inner.enable_share_history_on_invite,
                 cross_process_store_locks_holder_name,
+                #[cfg(feature = "experimental-search")]
+                self.inner.search_index.clone(),
             )
             .await,
         };
@@ -2865,6 +2878,11 @@ impl Client {
     #[cfg(feature = "e2e-encryption")]
     pub fn decryption_settings(&self) -> &DecryptionSettings {
         &self.base_client().decryption_settings
+    }
+
+    #[cfg(feature = "experimental-search")]
+    pub(crate) fn search_index(&self) -> &SearchIndex {
+        &self.inner.search_index
     }
 
     /// Whether the client is configured to take thread subscriptions (MSC4306
