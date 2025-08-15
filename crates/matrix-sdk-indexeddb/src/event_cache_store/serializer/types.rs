@@ -29,7 +29,7 @@
 
 use std::sync::LazyLock;
 
-use matrix_sdk_base::linked_chunk::ChunkIdentifier;
+use matrix_sdk_base::linked_chunk::{ChunkIdentifier, LinkedChunkId};
 use matrix_sdk_crypto::CryptoStoreError;
 use ruma::{events::relation::RelationType, EventId, OwnedEventId, RoomId};
 use serde::{Deserialize, Serialize};
@@ -233,6 +233,10 @@ impl<K> From<K> for IndexedKeyRange<K> {
 
 /// A (possibly) encrypted representation of a [`Lease`]
 pub type IndexedLeaseContent = MaybeEncrypted;
+
+/// A (possibly) hashed representation of a [`LinkedChunkId`] which is suitable
+/// for use in an IndexedDB key
+pub type IndexedLinkedChunkId = Vec<u8>;
 
 /// A (possibly) hashed representation of an [`RoomId`] which is suitable for
 /// use in an IndexedDB key
@@ -507,10 +511,10 @@ impl Indexed for Event {
         serializer: &IndexeddbSerializer,
     ) -> Result<Self::IndexedType, Self::Error> {
         let event_id = self.event_id().ok_or(Self::Error::NoEventId)?;
-        let id = IndexedEventIdKey::encode((self.room_id(), &event_id), serializer);
+        let id = IndexedEventIdKey::encode((self.linked_chunk_id(), &event_id), serializer);
         let room = IndexedEventRoomKey::encode((self.room_id(), &event_id), serializer);
         let position = self.position().map(|position| {
-            IndexedEventPositionKey::encode((self.room_id(), position), serializer)
+            IndexedEventPositionKey::encode((self.linked_chunk_id(), position), serializer)
         });
         let relation = self.relation().map(|(related_event, relation_type)| {
             IndexedEventRelationKey::encode(
@@ -538,30 +542,40 @@ impl Indexed for Event {
 /// The value associated with the [primary key](IndexedEvent::id) of the
 /// [`EVENTS`][1] object store, which is constructed from:
 ///
-/// - The (possibly) encrypted Room ID
+/// - The (possibly) encrypted Linked Chunk ID
 /// - The (possibly) encrypted Event ID.
 ///
 /// [1]: crate::event_cache_store::migrations::v1::create_events_object_store
 #[derive(Debug, Serialize, Deserialize)]
-pub struct IndexedEventIdKey(IndexedRoomId, IndexedEventId);
+pub struct IndexedEventIdKey(IndexedLinkedChunkId, IndexedEventId);
 
 impl IndexedKey<Event> for IndexedEventIdKey {
-    type KeyComponents<'a> = (&'a RoomId, &'a EventId);
+    type KeyComponents<'a> = (LinkedChunkId<'a>, &'a EventId);
 
-    fn encode((room_id, event_id): (&RoomId, &EventId), serializer: &IndexeddbSerializer) -> Self {
-        let room_id = serializer.encode_key_as_string(keys::ROOMS, room_id);
+    fn encode(
+        (linked_chunk_id, event_id): Self::KeyComponents<'_>,
+        serializer: &IndexeddbSerializer,
+    ) -> Self {
+        let linked_chunk_id =
+            serializer.hash_key(keys::LINKED_CHUNK_IDS, linked_chunk_id.storage_key());
         let event_id = serializer.encode_key_as_string(keys::EVENTS, event_id);
-        Self(room_id, event_id)
+        Self(linked_chunk_id, event_id)
     }
 }
 
-impl IndexedPrefixKeyBounds<Event, &RoomId> for IndexedEventIdKey {
-    fn lower_key_with_prefix(room_id: &RoomId, serializer: &IndexeddbSerializer) -> Self {
-        Self::encode((room_id, &*INDEXED_KEY_LOWER_EVENT_ID), serializer)
+impl IndexedPrefixKeyBounds<Event, LinkedChunkId<'_>> for IndexedEventIdKey {
+    fn lower_key_with_prefix(
+        linked_chunk_id: LinkedChunkId<'_>,
+        serializer: &IndexeddbSerializer,
+    ) -> Self {
+        Self::encode((linked_chunk_id, &*INDEXED_KEY_LOWER_EVENT_ID), serializer)
     }
 
-    fn upper_key_with_prefix(room_id: &RoomId, serializer: &IndexeddbSerializer) -> Self {
-        Self::encode((room_id, &*INDEXED_KEY_UPPER_EVENT_ID), serializer)
+    fn upper_key_with_prefix(
+        linked_chunk_id: LinkedChunkId<'_>,
+        serializer: &IndexeddbSerializer,
+    ) -> Self {
+        Self::encode((linked_chunk_id, &*INDEXED_KEY_UPPER_EVENT_ID), serializer)
     }
 }
 
@@ -603,55 +617,60 @@ impl IndexedPrefixKeyBounds<Event, &RoomId> for IndexedEventRoomKey {
 /// The value associated with the [`position`](IndexedEvent::position) index of
 /// the [`EVENTS`][1] object store, which is constructed from:
 ///
-/// - The (possibly) encrypted Room ID
+/// - The (possibly) encrypted Linked Chunk ID
 /// - The Chunk ID
 /// - The index of the event in the chunk.
 ///
 /// [1]: crate::event_cache_store::migrations::v1::create_events_object_store
 #[derive(Debug, Serialize, Deserialize)]
-pub struct IndexedEventPositionKey(IndexedRoomId, IndexedChunkId, IndexedEventPositionIndex);
+pub struct IndexedEventPositionKey(IndexedLinkedChunkId, IndexedChunkId, IndexedEventPositionIndex);
 
 impl IndexedKey<Event> for IndexedEventPositionKey {
     const INDEX: Option<&'static str> = Some(keys::EVENTS_POSITION);
 
-    type KeyComponents<'a> = (&'a RoomId, Position);
+    type KeyComponents<'a> = (LinkedChunkId<'a>, Position);
 
     fn encode(
-        (room_id, position): Self::KeyComponents<'_>,
+        (linked_chunk_id, position): Self::KeyComponents<'_>,
         serializer: &IndexeddbSerializer,
     ) -> Self {
-        let room_id = serializer.encode_key_as_string(keys::ROOMS, room_id);
-        Self(room_id, position.chunk_identifier, position.index)
+        let linked_chunk_id =
+            serializer.hash_key(keys::LINKED_CHUNK_IDS, linked_chunk_id.storage_key());
+        Self(linked_chunk_id, position.chunk_identifier, position.index)
     }
 }
 
-impl<'a> IndexedPrefixKeyComponentBounds<'a, Event, &'a RoomId> for IndexedEventPositionKey {
-    fn lower_key_components_with_prefix(room_id: &'a RoomId) -> Self::KeyComponents<'a> {
-        (room_id, *INDEXED_KEY_LOWER_EVENT_POSITION)
+impl<'a> IndexedPrefixKeyComponentBounds<'a, Event, LinkedChunkId<'a>> for IndexedEventPositionKey {
+    fn lower_key_components_with_prefix(
+        linked_chunk_id: LinkedChunkId<'a>,
+    ) -> Self::KeyComponents<'a> {
+        (linked_chunk_id, *INDEXED_KEY_LOWER_EVENT_POSITION)
     }
 
-    fn upper_key_components_with_prefix(room_id: &'a RoomId) -> Self::KeyComponents<'a> {
-        (room_id, *INDEXED_KEY_UPPER_EVENT_POSITION)
+    fn upper_key_components_with_prefix(
+        linked_chunk_id: LinkedChunkId<'a>,
+    ) -> Self::KeyComponents<'a> {
+        (linked_chunk_id, *INDEXED_KEY_UPPER_EVENT_POSITION)
     }
 }
 
-impl<'a> IndexedPrefixKeyComponentBounds<'a, Event, (&'a RoomId, ChunkIdentifier)>
+impl<'a> IndexedPrefixKeyComponentBounds<'a, Event, (LinkedChunkId<'a>, ChunkIdentifier)>
     for IndexedEventPositionKey
 {
     fn lower_key_components_with_prefix(
-        (room_id, chunk_id): (&'a RoomId, ChunkIdentifier),
+        (linked_chunk_id, chunk_id): (LinkedChunkId<'a>, ChunkIdentifier),
     ) -> Self::KeyComponents<'a> {
         (
-            room_id,
+            linked_chunk_id,
             Position { chunk_identifier: chunk_id.index(), index: INDEXED_KEY_LOWER_EVENT_INDEX },
         )
     }
 
     fn upper_key_components_with_prefix(
-        (room_id, chunk_id): (&'a RoomId, ChunkIdentifier),
+        (linked_chunk_id, chunk_id): (LinkedChunkId<'a>, ChunkIdentifier),
     ) -> Self::KeyComponents<'a> {
         (
-            room_id,
+            linked_chunk_id,
             Position { chunk_identifier: chunk_id.index(), index: INDEXED_KEY_UPPER_EVENT_INDEX },
         )
     }

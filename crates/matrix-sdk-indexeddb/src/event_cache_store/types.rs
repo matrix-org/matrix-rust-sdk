@@ -15,8 +15,9 @@
 use std::time::Duration;
 
 use matrix_sdk_base::{
-    deserialized_responses::TimelineEvent, event_cache::store::extract_event_relation,
-    linked_chunk::ChunkIdentifier,
+    deserialized_responses::TimelineEvent,
+    event_cache::store::extract_event_relation,
+    linked_chunk::{ChunkIdentifier, LinkedChunkId, OwnedLinkedChunkId},
 };
 use ruma::{OwnedEventId, OwnedRoomId, RoomId};
 use serde::{Deserialize, Serialize};
@@ -89,11 +90,19 @@ impl From<Event> for TimelineEvent {
 }
 
 impl Event {
+    /// The [`LinkedChunkId`] in which the underlying event exists.
+    pub fn linked_chunk_id(&self) -> LinkedChunkId<'_> {
+        match self {
+            Event::InBand(e) => e.linked_chunk_id.as_ref(),
+            Event::OutOfBand(e) => e.linked_chunk_id.as_ref(),
+        }
+    }
+
     /// The [`RoomId`] of the room in which the underlying event exists.
     pub fn room_id(&self) -> &RoomId {
         match self {
-            Event::InBand(e) => &e.room_id,
-            Event::OutOfBand(e) => &e.room_id,
+            Event::InBand(e) => e.room_id(),
+            Event::OutOfBand(e) => e.room_id(),
         }
     }
 
@@ -142,8 +151,8 @@ impl Event {
 /// in-band or out-of-band.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct GenericEvent<P> {
-    /// The room in which the event exists.
-    pub room_id: OwnedRoomId,
+    /// The linked chunk id in which the event exists.
+    pub linked_chunk_id: OwnedLinkedChunkId,
     /// The full content of the event.
     pub content: TimelineEvent,
     /// The position of the event, if it is in a chunk.
@@ -151,6 +160,11 @@ pub struct GenericEvent<P> {
 }
 
 impl<P> GenericEvent<P> {
+    /// The [`RoomId`] of the room in which the event exists.
+    pub fn room_id(&self) -> &RoomId {
+        self.linked_chunk_id.room_id()
+    }
+
     /// The [`OwnedEventId`] of the underlying event.
     pub fn event_id(&self) -> Option<OwnedEventId> {
         self.content.event_id()

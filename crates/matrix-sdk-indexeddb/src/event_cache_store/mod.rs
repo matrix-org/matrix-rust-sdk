@@ -168,8 +168,8 @@ impl_event_cache_store! {
     ) -> Result<(), IndexeddbEventCacheStoreError> {
         let _timer = timer!("method");
 
-        let linked_chunk_id = linked_chunk_id.to_owned();
-        let room_id = linked_chunk_id.room_id();
+        let owned_linked_chunk_id = linked_chunk_id.to_owned();
+        let room_id = owned_linked_chunk_id.room_id();
 
         let transaction = self.transaction(
             &[keys::LINKED_CHUNKS, keys::GAPS, keys::EVENTS],
@@ -228,7 +228,7 @@ impl_event_cache_store! {
                         transaction
                             .put_event(
                                 &types::Event::InBand(InBandEvent {
-                                    room_id: room_id.to_owned(),
+                                    linked_chunk_id: linked_chunk_id.to_owned(),
                                     content: item,
                                     position: types::Position {
                                         chunk_identifier,
@@ -248,7 +248,7 @@ impl_event_cache_store! {
                     transaction
                         .put_event(
                             &types::Event::InBand(InBandEvent {
-                                room_id: room_id.to_owned(),
+                                linked_chunk_id: linked_chunk_id.to_owned(),
                                 content: item,
                                 position: at.into(),
                             }),
@@ -261,7 +261,7 @@ impl_event_cache_store! {
 
                     trace!(%room_id, "removing item @ {chunk_id}:{index}");
 
-                    transaction.delete_event_by_position(room_id, at.into()).await?;
+                    transaction.delete_event_by_position(linked_chunk_id, at.into()).await?;
                 }
                 Update::DetachLastItems { at } => {
                     let chunk_id = at.chunk_identifier().index();
@@ -269,7 +269,7 @@ impl_event_cache_store! {
 
                     trace!(%room_id, "detaching last items @ {chunk_id}:{index}");
 
-                    transaction.delete_events_by_chunk_from_index(room_id, at.into()).await?;
+                    transaction.delete_events_by_chunk_from_index(linked_chunk_id, at.into()).await?;
                 }
                 Update::StartReattachItems | Update::EndReattachItems => {
                     // Nothing? See sqlite implementation
@@ -277,7 +277,7 @@ impl_event_cache_store! {
                 Update::Clear => {
                     trace!(%room_id, "clearing room");
                     transaction.delete_chunks_in_room(room_id).await?;
-                    transaction.delete_events_in_room(room_id).await?;
+                    transaction.delete_events_by_linked_chunk_id(linked_chunk_id).await?;
                     transaction.delete_gaps_in_room(room_id).await?;
                 }
             }
@@ -331,8 +331,8 @@ impl_event_cache_store! {
         // https://github.com/matrix-org/matrix-rust-sdk/pull/5382.
         let _ = timer!("method");
 
-        let linked_chunk_id = linked_chunk_id.to_owned();
-        let room_id = linked_chunk_id.room_id();
+        let owned_linked_chunk_id = linked_chunk_id.to_owned();
+        let room_id = owned_linked_chunk_id.room_id();
 
         let transaction = self.transaction(
             &[keys::LINKED_CHUNKS, keys::EVENTS, keys::GAPS],
@@ -343,7 +343,7 @@ impl_event_cache_store! {
         let chunks = transaction.get_chunks_in_room(room_id).await?;
         for chunk in chunks {
             let chunk_id = ChunkIdentifier::new(chunk.identifier);
-            let num_items = transaction.get_events_count_by_chunk(room_id, chunk_id).await?;
+            let num_items = transaction.get_events_count_by_chunk(linked_chunk_id, chunk_id).await?;
             raw_chunks.push(ChunkMetadata {
                 num_items,
                 previous: chunk.previous.map(ChunkIdentifier::new),
@@ -462,14 +462,12 @@ impl_event_cache_store! {
             return Ok(Vec::new());
         }
 
-        let linked_chunk_id = linked_chunk_id.to_owned();
-        let room_id = linked_chunk_id.room_id();
         let transaction =
             self.transaction(&[keys::EVENTS], IdbTransactionMode::Readonly)?;
         let mut duplicated = Vec::new();
         for event_id in events {
             if let Some(types::Event::InBand(event)) =
-                transaction.get_event_by_id(room_id, &event_id).await?
+                transaction.get_event_by_id(linked_chunk_id, &event_id).await?
             {
                 duplicated.push((event_id, event.position.into()));
             }
@@ -546,7 +544,11 @@ impl_event_cache_store! {
             self.transaction(&[keys::EVENTS], IdbTransactionMode::Readwrite)?;
         let event = match transaction.get_event_by_room(room_id, &event_id).await? {
             Some(mut inner) => inner.with_content(event),
-            None => types::Event::OutOfBand(OutOfBandEvent { room_id: room_id.to_owned(), content: event, position: () }),
+            None => types::Event::OutOfBand(OutOfBandEvent {
+                linked_chunk_id: LinkedChunkId::Room(room_id).to_owned(),
+                content: event,
+                position: ()
+            }),
         };
         transaction.put_event(&event).await?;
         transaction.commit().await?;
