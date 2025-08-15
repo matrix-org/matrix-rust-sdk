@@ -667,14 +667,13 @@ impl_event_cache_store! {
 mod tests {
     use matrix_sdk_base::{
         event_cache::store::{EventCacheStore, EventCacheStoreError},
-        event_cache_store_integration_tests_time,
+        event_cache_store_integration_tests, event_cache_store_integration_tests_time,
     };
     use matrix_sdk_test::async_test;
     use uuid::Uuid;
 
     use crate::{
-        event_cache_store::IndexeddbEventCacheStore, event_cache_store_integration_tests,
-        indexeddb_event_cache_store_integration_tests,
+        event_cache_store::IndexeddbEventCacheStore, indexeddb_event_cache_store_integration_tests,
     };
 
     mod unencrypted {
