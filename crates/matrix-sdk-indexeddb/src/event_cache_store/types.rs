@@ -42,8 +42,8 @@ impl Lease {
 /// which can be stored in IndexedDB.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Chunk {
-    /// The room in which the chunk exists.
-    pub room_id: OwnedRoomId,
+    /// The linked chunk id in which the chunk exists.
+    pub linked_chunk_id: OwnedLinkedChunkId,
     /// The identifier of the chunk - i.e.,
     /// [`ChunkIdentifier`](matrix_sdk_base::linked_chunk::ChunkIdentifier).
     pub identifier: u64,
@@ -213,8 +213,8 @@ impl From<matrix_sdk_base::linked_chunk::Position> for Position {
 /// which can be stored in IndexedDB.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Gap {
-    /// The room in which the gap exists.
-    pub room_id: OwnedRoomId,
+    /// The linked chunk id in which the gap exists.
+    pub linked_chunk_id: OwnedLinkedChunkId,
     /// The identifier of the chunk containing this gap.
     pub chunk_identifier: u64,
     /// The token to use in the query, extracted from a previous "from" /

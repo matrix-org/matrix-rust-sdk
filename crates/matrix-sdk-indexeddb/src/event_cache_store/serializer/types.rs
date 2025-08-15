@@ -357,11 +357,11 @@ impl Indexed for Chunk {
     ) -> Result<Self::IndexedType, Self::Error> {
         Ok(IndexedChunk {
             id: <IndexedChunkIdKey as IndexedKey<Chunk>>::encode(
-                (&self.room_id, ChunkIdentifier::new(self.identifier)),
+                (self.linked_chunk_id.as_ref(), ChunkIdentifier::new(self.identifier)),
                 serializer,
             ),
             next: IndexedNextChunkIdKey::encode(
-                (&self.room_id, self.next.map(ChunkIdentifier::new)),
+                (self.linked_chunk_id.as_ref(), self.next.map(ChunkIdentifier::new)),
                 serializer,
             ),
             content: serializer.maybe_encrypt_value(self)?,
@@ -379,40 +379,45 @@ impl Indexed for Chunk {
 /// The value associated with the [primary key](IndexedChunk::id) of the
 /// [`LINKED_CHUNKS`][1] object store, which is constructed from:
 ///
-/// - The (possibly) encrypted Room ID
+/// - The (possibly) encrypted Linked Chunk ID
 /// - The Chunk ID.
 ///
 /// [1]: crate::event_cache_store::migrations::v1::create_linked_chunks_object_store
 #[derive(Debug, Serialize, Deserialize)]
-pub struct IndexedChunkIdKey(IndexedRoomId, IndexedChunkId);
+pub struct IndexedChunkIdKey(IndexedLinkedChunkId, IndexedChunkId);
 
 impl IndexedKey<Chunk> for IndexedChunkIdKey {
-    type KeyComponents<'a> = (&'a RoomId, ChunkIdentifier);
+    type KeyComponents<'a> = (LinkedChunkId<'a>, ChunkIdentifier);
 
     fn encode(
-        (room_id, chunk_id): Self::KeyComponents<'_>,
+        (linked_chunk_id, chunk_id): Self::KeyComponents<'_>,
         serializer: &IndexeddbSerializer,
     ) -> Self {
-        let room_id = serializer.encode_key_as_string(keys::ROOMS, room_id);
+        let linked_chunk_id =
+            serializer.hash_key(keys::LINKED_CHUNK_IDS, linked_chunk_id.storage_key());
         let chunk_id = chunk_id.index();
-        Self(room_id, chunk_id)
+        Self(linked_chunk_id, chunk_id)
     }
 }
 
-impl<'a> IndexedPrefixKeyComponentBounds<'a, Chunk, &'a RoomId> for IndexedChunkIdKey {
-    fn lower_key_components_with_prefix(room_id: &'a RoomId) -> Self::KeyComponents<'a> {
-        (room_id, *INDEXED_KEY_LOWER_CHUNK_IDENTIFIER)
+impl<'a> IndexedPrefixKeyComponentBounds<'a, Chunk, LinkedChunkId<'a>> for IndexedChunkIdKey {
+    fn lower_key_components_with_prefix(
+        linked_chunk_id: LinkedChunkId<'a>,
+    ) -> Self::KeyComponents<'a> {
+        (linked_chunk_id, *INDEXED_KEY_LOWER_CHUNK_IDENTIFIER)
     }
 
-    fn upper_key_components_with_prefix(room_id: &'a RoomId) -> Self::KeyComponents<'a> {
-        (room_id, *INDEXED_KEY_UPPER_CHUNK_IDENTIFIER)
+    fn upper_key_components_with_prefix(
+        linked_chunk_id: LinkedChunkId<'a>,
+    ) -> Self::KeyComponents<'a> {
+        (linked_chunk_id, *INDEXED_KEY_UPPER_CHUNK_IDENTIFIER)
     }
 }
 
 /// The value associated with the [`next`](IndexedChunk::next) index of the
 /// [`LINKED_CHUNKS`][1] object store, which is constructed from:
 ///
-/// - The (possibly) encrypted Room ID
+/// - The (possibly) encrypted Linked Chunk ID
 /// - The Chunk ID, if there is a next chunk in the list.
 ///
 /// Note: it would be more convenient to represent this type with an optional
@@ -428,47 +433,52 @@ impl<'a> IndexedPrefixKeyComponentBounds<'a, Chunk, &'a RoomId> for IndexedChunk
 #[serde(untagged)]
 pub enum IndexedNextChunkIdKey {
     /// There is no next chunk.
-    None((IndexedRoomId,)),
+    None((IndexedLinkedChunkId,)),
     /// The identifier of the next chunk in the list.
     Some(IndexedChunkIdKey),
 }
 
 impl IndexedNextChunkIdKey {
-    pub fn none(room_id: IndexedRoomId) -> Self {
-        Self::None((room_id,))
+    pub fn none(linked_chunk_id: IndexedLinkedChunkId) -> Self {
+        Self::None((linked_chunk_id,))
     }
 }
 
 impl IndexedKey<Chunk> for IndexedNextChunkIdKey {
     const INDEX: Option<&'static str> = Some(keys::LINKED_CHUNKS_NEXT);
 
-    type KeyComponents<'a> = (&'a RoomId, Option<ChunkIdentifier>);
+    type KeyComponents<'a> = (LinkedChunkId<'a>, Option<ChunkIdentifier>);
 
     fn encode(
-        (room_id, next_chunk_id): Self::KeyComponents<'_>,
+        (linked_chunk_id, next_chunk_id): Self::KeyComponents<'_>,
         serializer: &IndexeddbSerializer,
     ) -> Self {
         next_chunk_id
             .map(|id| {
                 Self::Some(<IndexedChunkIdKey as IndexedKey<Chunk>>::encode(
-                    (room_id, id),
+                    (linked_chunk_id, id),
                     serializer,
                 ))
             })
             .unwrap_or_else(|| {
-                let room_id = serializer.encode_key_as_string(keys::ROOMS, room_id);
+                let room_id =
+                    serializer.hash_key(keys::LINKED_CHUNK_IDS, linked_chunk_id.storage_key());
                 Self::none(room_id)
             })
     }
 }
 
-impl<'a> IndexedPrefixKeyComponentBounds<'a, Chunk, &'a RoomId> for IndexedNextChunkIdKey {
-    fn lower_key_components_with_prefix(room_id: &'a RoomId) -> Self::KeyComponents<'a> {
-        (room_id, None)
+impl<'a> IndexedPrefixKeyComponentBounds<'a, Chunk, LinkedChunkId<'a>> for IndexedNextChunkIdKey {
+    fn lower_key_components_with_prefix(
+        linked_chunk_id: LinkedChunkId<'a>,
+    ) -> Self::KeyComponents<'a> {
+        (linked_chunk_id, None)
     }
 
-    fn upper_key_components_with_prefix(room_id: &'a RoomId) -> Self::KeyComponents<'a> {
-        (room_id, Some(*INDEXED_KEY_UPPER_CHUNK_IDENTIFIER))
+    fn upper_key_components_with_prefix(
+        linked_chunk_id: LinkedChunkId<'a>,
+    ) -> Self::KeyComponents<'a> {
+        (linked_chunk_id, Some(*INDEXED_KEY_UPPER_CHUNK_IDENTIFIER))
     }
 }
 
@@ -768,7 +778,7 @@ impl Indexed for Gap {
     ) -> Result<Self::IndexedType, Self::Error> {
         Ok(IndexedGap {
             id: <IndexedGapIdKey as IndexedKey<Gap>>::encode(
-                (&self.room_id, ChunkIdentifier::new(self.chunk_identifier)),
+                (self.linked_chunk_id.as_ref(), ChunkIdentifier::new(self.chunk_identifier)),
                 serializer,
             ),
             content: serializer.maybe_encrypt_value(self)?,
@@ -785,7 +795,7 @@ impl Indexed for Gap {
 
 /// The primary key of the [`GAPS`][1] object store, which is constructed from:
 ///
-/// - The (possibly) encrypted Room ID
+/// - The (possibly) encrypted Linked Chunk ID
 /// - The Chunk ID
 ///
 /// [1]: crate::event_cache_store::migrations::v1::create_gaps_object_store
@@ -799,16 +809,20 @@ impl IndexedKey<Gap> for IndexedGapIdKey {
     }
 }
 
-impl<'a> IndexedPrefixKeyComponentBounds<'a, Gap, &'a RoomId> for IndexedGapIdKey {
-    fn lower_key_components_with_prefix(room_id: &'a RoomId) -> Self::KeyComponents<'a> {
+impl<'a> IndexedPrefixKeyComponentBounds<'a, Gap, LinkedChunkId<'a>> for IndexedGapIdKey {
+    fn lower_key_components_with_prefix(
+        linked_chunk_id: LinkedChunkId<'a>,
+    ) -> Self::KeyComponents<'a> {
         <Self as IndexedPrefixKeyComponentBounds<Chunk, _>>::lower_key_components_with_prefix(
-            room_id,
+            linked_chunk_id,
         )
     }
 
-    fn upper_key_components_with_prefix(room_id: &'a RoomId) -> Self::KeyComponents<'a> {
+    fn upper_key_components_with_prefix(
+        linked_chunk_id: LinkedChunkId<'a>,
+    ) -> Self::KeyComponents<'a> {
         <Self as IndexedPrefixKeyComponentBounds<Chunk, _>>::upper_key_components_with_prefix(
-            room_id,
+            linked_chunk_id,
         )
     }
 }
