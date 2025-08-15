@@ -12,7 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Types and traits regarding media caching of the event cache store.
+//! The media store holds downloaded media when the cache was
+//! activated to save bandwidth at the cost of increased storage space usage.
+//!
+//! Implementing the `MediaStore` trait, you can plug any storage backend
+//! into the media store for the actual storage. By default this brings an
+//! in-memory store.
 
 mod media_retention_policy;
 mod media_service;
@@ -21,8 +26,15 @@ mod media_service;
 pub mod integration_tests;
 
 #[cfg(any(test, feature = "testing"))]
-pub use self::integration_tests::EventCacheStoreMediaIntegrationTests;
+pub use self::integration_tests::MediaStoreInnerIntegrationTests;
 pub use self::{
     media_retention_policy::MediaRetentionPolicy,
-    media_service::{EventCacheStoreMedia, IgnoreMediaRetentionPolicy, MediaService},
+    media_service::{IgnoreMediaRetentionPolicy, MediaService, MediaStoreInner},
 };
+
+/// Media store specific error type.
+#[derive(Debug, thiserror::Error)]
+pub enum MediaStoreError {}
+
+/// An `MediaStore` specific result type.
+pub type Result<T, E = MediaStoreError> = std::result::Result<T, E>;

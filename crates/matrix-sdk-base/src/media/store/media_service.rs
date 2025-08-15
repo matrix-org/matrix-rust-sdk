@@ -24,13 +24,13 @@ use ruma::{MxcUri, time::SystemTime};
 use tokio::sync::Mutex as AsyncMutex;
 use tracing::error;
 
-use super::MediaRetentionPolicy;
-use crate::{event_cache::store::EventCacheStoreError, media::MediaRequestParameters};
+use super::{MediaRetentionPolicy, MediaStoreError};
+use crate::media::MediaRequestParameters;
 
-/// API for implementors of [`EventCacheStore`] to manage their media through
-/// their implementation of [`EventCacheStoreMedia`].
+/// API for implementors of [`MediaStore`] to manage their media through
+/// their implementation of [`MediaStoreInner`].
 ///
-/// [`EventCacheStore`]: crate::event_cache::store::EventCacheStore
+/// [`MediaStore`]: crate::media::store::MediaStore
 #[derive(Debug)]
 pub struct MediaService<Time: TimeProvider = DefaultTimeProvider> {
     inner: Arc<MediaServiceInner<Time>>,
@@ -122,10 +122,10 @@ where
     ///
     /// # Arguments
     ///
-    /// * `store` - The `EventCacheStoreMedia`.
+    /// * `store` - The `MediaStoreInner`.
     ///
     /// * `policy` - The `MediaRetentionPolicy` to use.
-    pub async fn set_media_retention_policy<Store: EventCacheStoreMedia + 'static>(
+    pub async fn set_media_retention_policy<Store: MediaStoreInner + 'static>(
         &self,
         store: &Store,
         policy: MediaRetentionPolicy,
@@ -148,7 +148,7 @@ where
     ///
     /// # Arguments
     ///
-    /// * `store` - The `EventCacheStoreMedia`.
+    /// * `store` - The `MediaStoreInner`.
     ///
     /// * `request` - The `MediaRequestParameters` of the file.
     ///
@@ -156,7 +156,7 @@ where
     ///
     /// * `ignore_policy` - Whether the current `MediaRetentionPolicy` should be
     ///   ignored.
-    pub async fn add_media_content<Store: EventCacheStoreMedia + 'static>(
+    pub async fn add_media_content<Store: MediaStoreInner + 'static>(
         &self,
         store: &Store,
         request: &MediaRequestParameters,
@@ -189,13 +189,13 @@ where
     ///
     /// # Arguments
     ///
-    /// * `store` - The `EventCacheStoreMedia`.
+    /// * `store` - The `MediaStoreInner`.
     ///
     /// * `request` - The `MediaRequestParameters` of the file.
     ///
     /// * `ignore_policy` - Whether the current `MediaRetentionPolicy` should be
     ///   ignored.
-    pub async fn set_ignore_media_retention_policy<Store: EventCacheStoreMedia>(
+    pub async fn set_ignore_media_retention_policy<Store: MediaStoreInner>(
         &self,
         store: &Store,
         request: &MediaRequestParameters,
@@ -208,10 +208,10 @@ where
     ///
     /// # Arguments
     ///
-    /// * `store` - The `EventCacheStoreMedia`.
+    /// * `store` - The `MediaStoreInner`.
     ///
     /// * `request` - The `MediaRequestParameters` of the file.
-    pub async fn get_media_content<Store: EventCacheStoreMedia + 'static>(
+    pub async fn get_media_content<Store: MediaStoreInner + 'static>(
         &self,
         store: &Store,
         request: &MediaRequestParameters,
@@ -229,10 +229,10 @@ where
     ///
     /// # Arguments
     ///
-    /// * `store` - The `EventCacheStoreMedia`.
+    /// * `store` - The `MediaStoreInner`.
     ///
     /// * `uri` - The `MxcUri` of the media file.
-    pub async fn get_media_content_for_uri<Store: EventCacheStoreMedia + 'static>(
+    pub async fn get_media_content_for_uri<Store: MediaStoreInner + 'static>(
         &self,
         store: &Store,
         uri: &MxcUri,
@@ -251,15 +251,15 @@ where
     ///
     /// # Arguments
     ///
-    /// * `store` - The `EventCacheStoreMedia`.
-    pub async fn clean_up_media_cache<Store: EventCacheStoreMedia>(
+    /// * `store` - The `MediaStoreInner`.
+    pub async fn clean_up_media_cache<Store: MediaStoreInner>(
         &self,
         store: &Store,
     ) -> Result<(), Store::Error> {
         self.clean_up_media_cache_inner(store, self.now()).await
     }
 
-    async fn clean_up_media_cache_inner<Store: EventCacheStoreMedia>(
+    async fn clean_up_media_cache_inner<Store: MediaStoreInner>(
         &self,
         store: &Store,
         current_time: SystemTime,
@@ -290,7 +290,7 @@ where
     /// * The media retention policy's `cleanup_frequency` is set and enough
     ///   time has passed since the last cleanup.
     /// * No other cleanup is running,
-    fn maybe_spawn_automatic_media_cache_cleanup<Store: EventCacheStoreMedia + 'static>(
+    fn maybe_spawn_automatic_media_cache_cleanup<Store: MediaStoreInner + 'static>(
         &self,
         store: &Store,
         current_time: SystemTime,
@@ -350,6 +350,146 @@ where
 }
 
 /// An abstract trait that can be used to implement different store backends
+/// for the media store of the SDK.
+#[cfg_attr(target_family = "wasm", async_trait(?Send))]
+#[cfg_attr(not(target_family = "wasm"), async_trait)]
+pub trait MediaStore: AsyncTraitDeps {
+    /// The error type used by this media store.
+    type Error: fmt::Debug + Into<MediaStoreError>;
+
+    /// Try to take a lock using the given store.
+    async fn try_take_leased_lock(
+        &self,
+        lease_duration_ms: u32,
+        key: &str,
+        holder: &str,
+    ) -> Result<bool, Self::Error>;
+
+    /// Add a media file's content in the media store.
+    ///
+    /// # Arguments
+    ///
+    /// * `request` - The `MediaRequest` of the file.
+    ///
+    /// * `content` - The content of the file.
+    async fn add_media_content(
+        &self,
+        request: &MediaRequestParameters,
+        content: Vec<u8>,
+        ignore_policy: IgnoreMediaRetentionPolicy,
+    ) -> Result<(), Self::Error>;
+
+    /// Replaces the given media's content key with another one.
+    ///
+    /// This should be used whenever a temporary (local) MXID has been used, and
+    /// it must now be replaced with its actual remote counterpart (after
+    /// uploading some content, or creating an empty MXC URI).
+    ///
+    /// ⚠ No check is performed to ensure that the media formats are consistent,
+    /// i.e. it's possible to update with a thumbnail key a media that was
+    /// keyed as a file before. The caller is responsible of ensuring that
+    /// the replacement makes sense, according to their use case.
+    ///
+    /// This should not raise an error when the `from` parameter points to an
+    /// unknown media, and it should silently continue in this case.
+    ///
+    /// # Arguments
+    ///
+    /// * `from` - The previous `MediaRequest` of the file.
+    ///
+    /// * `to` - The new `MediaRequest` of the file.
+    async fn replace_media_key(
+        &self,
+        from: &MediaRequestParameters,
+        to: &MediaRequestParameters,
+    ) -> Result<(), Self::Error>;
+
+    /// Get a media file's content out of the media store.
+    ///
+    /// # Arguments
+    ///
+    /// * `request` - The `MediaRequest` of the file.
+    async fn get_media_content(
+        &self,
+        request: &MediaRequestParameters,
+    ) -> Result<Option<Vec<u8>>, Self::Error>;
+
+    /// Remove a media file's content from the media store.
+    ///
+    /// # Arguments
+    ///
+    /// * `request` - The `MediaRequest` of the file.
+    async fn remove_media_content(
+        &self,
+        request: &MediaRequestParameters,
+    ) -> Result<(), Self::Error>;
+
+    /// Get a media file's content associated to an `MxcUri` from the
+    /// media store.
+    ///
+    /// In theory, there could be several files stored using the same URI and a
+    /// different `MediaFormat`. This API is meant to be used with a media file
+    /// that has only been stored with a single format.
+    ///
+    /// If there are several media files for a given URI in different formats,
+    /// this API will only return one of them. Which one is left as an
+    /// implementation detail.
+    ///
+    /// # Arguments
+    ///
+    /// * `uri` - The `MxcUri` of the media file.
+    async fn get_media_content_for_uri(&self, uri: &MxcUri)
+    -> Result<Option<Vec<u8>>, Self::Error>;
+
+    /// Remove all the media files' content associated to an `MxcUri` from the
+    /// media store.
+    ///
+    /// This should not raise an error when the `uri` parameter points to an
+    /// unknown media, and it should return an Ok result in this case.
+    ///
+    /// # Arguments
+    ///
+    /// * `uri` - The `MxcUri` of the media files.
+    async fn remove_media_content_for_uri(&self, uri: &MxcUri) -> Result<(), Self::Error>;
+
+    /// Set the `MediaRetentionPolicy` to use for deciding whether to store or
+    /// keep media content.
+    ///
+    /// # Arguments
+    ///
+    /// * `policy` - The `MediaRetentionPolicy` to use.
+    async fn set_media_retention_policy(
+        &self,
+        policy: MediaRetentionPolicy,
+    ) -> Result<(), Self::Error>;
+
+    /// Get the current `MediaRetentionPolicy`.
+    fn media_retention_policy(&self) -> MediaRetentionPolicy;
+
+    /// Set whether the current [`MediaRetentionPolicy`] should be ignored for
+    /// the media.
+    ///
+    /// The change will be taken into account in the next cleanup.
+    ///
+    /// # Arguments
+    ///
+    /// * `request` - The `MediaRequestParameters` of the file.
+    ///
+    /// * `ignore_policy` - Whether the current `MediaRetentionPolicy` should be
+    ///   ignored.
+    async fn set_ignore_media_retention_policy(
+        &self,
+        request: &MediaRequestParameters,
+        ignore_policy: IgnoreMediaRetentionPolicy,
+    ) -> Result<(), Self::Error>;
+
+    /// Clean up the media cache with the current `MediaRetentionPolicy`.
+    ///
+    /// If there is already an ongoing cleanup, this is a noop.
+    async fn clean_up_media_cache(&self) -> Result<(), Self::Error>;
+}
+
+/// An abstract trait that can be used to implement different store backends
 /// for the media cache of the SDK.
 ///
 /// The main purposes of this trait are to be able to centralize where we handle
@@ -358,9 +498,9 @@ where
 /// over the `SystemTime`s provided to the store.
 #[cfg_attr(target_family = "wasm", async_trait(?Send))]
 #[cfg_attr(not(target_family = "wasm"), async_trait)]
-pub trait EventCacheStoreMedia: AsyncTraitDeps + Clone {
+pub trait MediaStoreInner: AsyncTraitDeps + Clone {
     /// The error type used by this media cache store.
-    type Error: fmt::Debug + fmt::Display + Into<EventCacheStoreError>;
+    type Error: fmt::Debug + fmt::Display + Into<MediaStoreError>;
 
     /// The persisted media retention policy in the media cache.
     async fn media_retention_policy_inner(
@@ -544,18 +684,18 @@ mod tests {
         time::{Duration, SystemTime},
     };
 
-    use super::{EventCacheStoreMedia, IgnoreMediaRetentionPolicy, MediaService, TimeProvider};
-    use crate::{
-        event_cache::store::{EventCacheStoreError, media::MediaRetentionPolicy},
-        media::{MediaFormat, MediaRequestParameters, UniqueKey},
+    use super::{
+        IgnoreMediaRetentionPolicy, MediaRetentionPolicy, MediaService, MediaStoreError,
+        MediaStoreInner, TimeProvider,
     };
+    use crate::media::{MediaFormat, MediaRequestParameters, UniqueKey};
 
     #[derive(Debug, Default, Clone)]
-    struct MockEventCacheStoreMedia {
-        inner: Arc<Mutex<MockEventCacheStoreMediaInner>>,
+    struct MockMediaStoreInner {
+        inner: Arc<Mutex<MockMediaStoreInnerInner>>,
     }
 
-    impl MockEventCacheStoreMedia {
+    impl MockMediaStoreInner {
         /// Whether the store was accessed.
         fn accessed(&self) -> bool {
             self.inner.lock().accessed
@@ -570,7 +710,7 @@ mod tests {
         ///
         /// Should be called for every access to the inner store as it also sets
         /// the `accessed` boolean.
-        fn inner(&self) -> MutexGuard<'_, MockEventCacheStoreMediaInner> {
+        fn inner(&self) -> MutexGuard<'_, MockMediaStoreInnerInner> {
             let mut inner = self.inner.lock();
             inner.accessed = true;
             inner
@@ -578,7 +718,7 @@ mod tests {
     }
 
     #[derive(Debug, Default)]
-    struct MockEventCacheStoreMediaInner {
+    struct MockMediaStoreInnerInner {
         /// Whether this store was accessed.
         ///
         /// Must be set to `true` for any operation that unlocks the store.
@@ -614,26 +754,26 @@ mod tests {
     }
 
     #[derive(Debug)]
-    struct MockEventCacheStoreMediaError;
+    struct MockMediaStoreInnerError;
 
-    impl fmt::Display for MockEventCacheStoreMediaError {
+    impl fmt::Display for MockMediaStoreInnerError {
         fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-            write!(f, "MockEventCacheStoreMediaError")
+            write!(f, "MockMediaStoreInnerError")
         }
     }
 
-    impl std::error::Error for MockEventCacheStoreMediaError {}
+    impl std::error::Error for MockMediaStoreInnerError {}
 
-    impl From<MockEventCacheStoreMediaError> for EventCacheStoreError {
-        fn from(value: MockEventCacheStoreMediaError) -> Self {
+    impl From<MockMediaStoreInnerError> for MediaStoreError {
+        fn from(value: MockMediaStoreInnerError) -> Self {
             Self::backend(value)
         }
     }
 
     #[cfg_attr(target_family = "wasm", async_trait(?Send))]
     #[cfg_attr(not(target_family = "wasm"), async_trait)]
-    impl EventCacheStoreMedia for MockEventCacheStoreMedia {
-        type Error = MockEventCacheStoreMediaError;
+    impl MediaStoreInner for MockMediaStoreInner {
+        type Error = MockMediaStoreInnerError;
 
         async fn media_retention_policy_inner(
             &self,
@@ -787,7 +927,7 @@ mod tests {
 
         let now = SystemTime::UNIX_EPOCH;
 
-        let store = MockEventCacheStoreMedia::default();
+        let store = MockMediaStoreInner::default();
         let service = MediaService::with_time_provider(MockTimeProvider::new(now));
 
         // By default an empty policy is used.
@@ -877,7 +1017,7 @@ mod tests {
 
         let now = SystemTime::UNIX_EPOCH;
 
-        let store = MockEventCacheStoreMedia::default();
+        let store = MockMediaStoreInner::default();
         let service = MediaService::with_time_provider(MockTimeProvider::new(now));
 
         // Check that restoring the policy works.
@@ -1034,7 +1174,7 @@ mod tests {
 
         let now = SystemTime::UNIX_EPOCH;
 
-        let store = MockEventCacheStoreMedia::default();
+        let store = MockMediaStoreInner::default();
         let service = MediaService::with_time_provider(MockTimeProvider::new(now));
 
         // Set an empty policy.
