@@ -443,6 +443,26 @@ impl CryptoStore for MemoryStore {
         Ok(inbounds)
     }
 
+    async fn get_inbound_group_sessions_by_room_id(
+        &self,
+        room_id: &RoomId,
+    ) -> Result<Vec<InboundGroupSession>> {
+        let inbounds: Vec<InboundGroupSession> = self
+            .inbound_group_sessions
+            .read()
+            .get(room_id)
+            .into_iter()
+            .flat_map(HashMap::values)
+            .map(|ser| {
+                let pickle: PickledInboundGroupSession =
+                    serde_json::from_str(ser).expect("Pickle deserialization should work");
+                InboundGroupSession::from_pickle(pickle).expect("Expect from pickle to always work")
+            })
+            .collect();
+
+        Ok(inbounds)
+    }
+
     async fn inbound_group_session_counts(
         &self,
         backup_version: Option<&str>,
@@ -1361,6 +1381,13 @@ mod integration_tests {
             &self,
         ) -> Result<Vec<InboundGroupSession>, Self::Error> {
             self.0.get_inbound_group_sessions().await
+        }
+
+        async fn get_inbound_group_sessions_by_room_id(
+            &self,
+            room_id: &RoomId,
+        ) -> Result<Vec<InboundGroupSession>, Self::Error> {
+            self.0.get_inbound_group_sessions_by_room_id(room_id).await
         }
 
         async fn inbound_group_session_counts(
