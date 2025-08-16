@@ -440,6 +440,13 @@ impl<T: CryptoStore> CryptoStore for EraseCryptoStoreError<T> {
         self.0.get_inbound_group_sessions().await.map_err(Into::into)
     }
 
+    async fn get_inbound_group_sessions_by_room_id(
+        &self,
+        room_id: &RoomId,
+    ) -> Result<Vec<InboundGroupSession>> {
+        self.0.get_inbound_group_sessions_by_room_id(room_id).await.map_err(Into::into)
+    }
+
     async fn get_inbound_group_sessions_for_device_batch(
         &self,
         curve_key: Curve25519PublicKey,
