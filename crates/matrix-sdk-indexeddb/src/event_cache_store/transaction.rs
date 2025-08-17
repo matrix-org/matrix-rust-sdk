@@ -104,8 +104,7 @@ impl<'a> IndexeddbEventCacheStoreTransaction<'a> {
         self.transaction.await.into_result().map_err(Into::into)
     }
 
-    /// Query IndexedDB for items that match the given key range in the given
-    /// room.
+    /// Query IndexedDB for items that match the given key range
     pub async fn get_items_by_key<T, K>(
         &self,
         range: impl Into<IndexedKeyRange<K>>,
@@ -133,8 +132,7 @@ impl<'a> IndexeddbEventCacheStoreTransaction<'a> {
         Ok(items)
     }
 
-    /// Query IndexedDB for items that match the given key component range in
-    /// the given room.
+    /// Query IndexedDB for items that match the given key component range
     pub async fn get_items_by_key_components<'b, T, K>(
         &self,
         range: impl Into<IndexedKeyRange<K::KeyComponents<'b>>>,
@@ -168,7 +166,7 @@ impl<'a> IndexeddbEventCacheStoreTransaction<'a> {
         .await
     }
 
-    /// Query IndexedDB for all items in the given room by key `K`
+    /// Query IndexedDB for all items of type `T` by key `K` in the given room
     pub async fn get_items_in_room<'b, T, K>(
         &self,
         room_id: &'b RoomId,
@@ -186,7 +184,7 @@ impl<'a> IndexeddbEventCacheStoreTransaction<'a> {
         .await
     }
 
-    /// Query IndexedDB for items that match the given key in the given room. If
+    /// Query IndexedDB for items that match the given key. If
     /// more than one item is found, an error is returned.
     pub async fn get_item_by_key<T, K>(
         &self,
@@ -205,8 +203,8 @@ impl<'a> IndexeddbEventCacheStoreTransaction<'a> {
         Ok(items.pop())
     }
 
-    /// Query IndexedDB for items that match the given key components in the
-    /// given room. If more than one item is found, an error is returned.
+    /// Query IndexedDB for items that match the given key components. If more
+    /// than one item is found, an error is returned.
     pub async fn get_item_by_key_components<'b, T, K>(
         &self,
         components: K::KeyComponents<'b>,
@@ -224,8 +222,7 @@ impl<'a> IndexeddbEventCacheStoreTransaction<'a> {
         Ok(items.pop())
     }
 
-    /// Query IndexedDB for the number of items that match the given key range
-    /// in the given room.
+    /// Query IndexedDB for the number of items that match the given key range.
     pub async fn get_items_count_by_key<T, K>(
         &self,
         range: impl Into<IndexedKeyRange<K>>,
@@ -247,7 +244,7 @@ impl<'a> IndexeddbEventCacheStoreTransaction<'a> {
     }
 
     /// Query IndexedDB for the number of items that match the given key
-    /// components range in the given room.
+    /// components range.
     pub async fn get_items_count_by_key_components<'b, T, K>(
         &self,
         range: impl Into<IndexedKeyRange<K::KeyComponents<'b>>>,
@@ -281,7 +278,8 @@ impl<'a> IndexeddbEventCacheStoreTransaction<'a> {
         .await
     }
 
-    /// Query IndexedDB for the number of items in the given room.
+    /// Query IndexedDB for the number of items of type `T` by `K` in the given
+    /// room.
     pub async fn get_items_count_in_room<'b, T, K>(
         &self,
         room_id: &'b RoomId,
@@ -331,7 +329,7 @@ impl<'a> IndexeddbEventCacheStoreTransaction<'a> {
         }
     }
 
-    /// Adds an item to the given room in the corresponding IndexedDB object
+    /// Adds an item to the corresponding IndexedDB object
     /// store, i.e., `T::OBJECT_STORE`. If an item with the same key already
     /// exists, it will be rejected.
     pub async fn add_item<T>(
@@ -352,7 +350,7 @@ impl<'a> IndexeddbEventCacheStoreTransaction<'a> {
             .map_err(Into::into)
     }
 
-    /// Puts an item in the given room in the corresponding IndexedDB object
+    /// Puts an item in the corresponding IndexedDB object
     /// store, i.e., `T::OBJECT_STORE`. If an item with the same key already
     /// exists, it will be overwritten.
     pub async fn put_item<T>(
@@ -373,7 +371,7 @@ impl<'a> IndexeddbEventCacheStoreTransaction<'a> {
             .map_err(Into::into)
     }
 
-    /// Delete items in given key range in the given room from IndexedDB
+    /// Delete items in given key range from IndexedDB
     pub async fn delete_items_by_key<T, K>(
         &self,
         range: impl Into<IndexedKeyRange<K>>,
@@ -398,7 +396,7 @@ impl<'a> IndexeddbEventCacheStoreTransaction<'a> {
         Ok(())
     }
 
-    /// Delete items in the given key component range in the given room from
+    /// Delete items in the given key component range from
     /// IndexedDB
     pub async fn delete_items_by_key_components<'b, T, K>(
         &self,
@@ -445,7 +443,7 @@ impl<'a> IndexeddbEventCacheStoreTransaction<'a> {
         .await
     }
 
-    /// Delete item that matches the given key components in the given room from
+    /// Delete item that matches the given key components from
     /// IndexedDB
     pub async fn delete_item_by_key<'b, T, K>(
         &self,
@@ -458,7 +456,8 @@ impl<'a> IndexeddbEventCacheStoreTransaction<'a> {
         self.delete_items_by_key_components::<T, K>(key).await
     }
 
-    /// Clear all items of type `T` in all rooms from IndexedDB
+    /// Clear all items of type `T` from the associated object store
+    /// `T::OBJECT_STORE` from IndexedDB
     pub async fn clear<T>(&self) -> Result<(), IndexeddbEventCacheStoreTransactionError>
     where
         T: Indexed,
@@ -651,7 +650,7 @@ impl<'a> IndexeddbEventCacheStoreTransaction<'a> {
         Ok(())
     }
 
-    /// Delete all chunks in the given room
+    /// Delete all chunks associated with the given linked chunk id
     pub async fn delete_chunks_by_linked_chunk_id(
         &self,
         linked_chunk_id: LinkedChunkId<'_>,
@@ -757,7 +756,7 @@ impl<'a> IndexeddbEventCacheStoreTransaction<'a> {
         self.get_items_by_key::<Event, IndexedEventRelationKey>(range).await
     }
 
-    /// Puts an event in the given room. If an event with the same key already
+    /// Puts an event in IndexedDB. If an event with the same key already
     /// exists, it will be overwritten.
     pub async fn put_event(
         &self,
