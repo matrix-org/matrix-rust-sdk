@@ -178,38 +178,32 @@ impl_event_cache_store! {
                 Update::NewItemsChunk { previous, new, next } => {
                     trace!(%linked_chunk_id, "Inserting new chunk (prev={previous:?}, new={new:?}, next={next:?})");
                     transaction
-                        .add_chunk(
-                            &types::Chunk {
-                                linked_chunk_id: linked_chunk_id.to_owned(),
-                                identifier: new.index(),
-                                previous: previous.map(|i| i.index()),
-                                next: next.map(|i| i.index()),
-                                chunk_type: ChunkType::Event,
-                            },
-                        )
+                        .add_chunk(&types::Chunk {
+                            linked_chunk_id: linked_chunk_id.to_owned(),
+                            identifier: new.index(),
+                            previous: previous.map(|i| i.index()),
+                            next: next.map(|i| i.index()),
+                            chunk_type: ChunkType::Event,
+                        })
                         .await?;
                 }
                 Update::NewGapChunk { previous, new, next, gap } => {
                     trace!(%linked_chunk_id, "Inserting new gap (prev={previous:?}, new={new:?}, next={next:?})");
                     transaction
-                        .add_item(
-                            &types::Gap {
-                                linked_chunk_id: linked_chunk_id.to_owned(),
-                                chunk_identifier: new.index(),
-                                prev_token: gap.prev_token,
-                            },
-                        )
+                        .add_item(&types::Gap {
+                            linked_chunk_id: linked_chunk_id.to_owned(),
+                            chunk_identifier: new.index(),
+                            prev_token: gap.prev_token,
+                        })
                         .await?;
                     transaction
-                        .add_chunk(
-                            &types::Chunk {
-                                linked_chunk_id: linked_chunk_id.to_owned(),
-                                identifier: new.index(),
-                                previous: previous.map(|i| i.index()),
-                                next: next.map(|i| i.index()),
-                                chunk_type: ChunkType::Gap,
-                            },
-                        )
+                        .add_chunk(&types::Chunk {
+                            linked_chunk_id: linked_chunk_id.to_owned(),
+                            identifier: new.index(),
+                            previous: previous.map(|i| i.index()),
+                            next: next.map(|i| i.index()),
+                            chunk_type: ChunkType::Gap,
+                        })
                         .await?;
                 }
                 Update::RemoveChunk(chunk_id) => {
@@ -223,16 +217,14 @@ impl_event_cache_store! {
 
                     for (i, item) in items.into_iter().enumerate() {
                         transaction
-                            .put_event(
-                                &types::Event::InBand(InBandEvent {
-                                    linked_chunk_id: linked_chunk_id.to_owned(),
-                                    content: item,
-                                    position: types::Position {
-                                        chunk_identifier,
-                                        index: at.index() + i,
-                                    },
-                                }),
-                            )
+                            .put_event(&types::Event::InBand(InBandEvent {
+                                linked_chunk_id: linked_chunk_id.to_owned(),
+                                content: item,
+                                position: types::Position {
+                                    chunk_identifier,
+                                    index: at.index() + i,
+                                },
+                            }))
                             .await?;
                     }
                 }
@@ -243,13 +235,11 @@ impl_event_cache_store! {
                     trace!(%linked_chunk_id, "replacing item @ {chunk_id}:{index}");
 
                     transaction
-                        .put_event(
-                            &types::Event::InBand(InBandEvent {
-                                linked_chunk_id: linked_chunk_id.to_owned(),
-                                content: item,
-                                position: at.into(),
-                            }),
-                        )
+                        .put_event(&types::Event::InBand(InBandEvent {
+                            linked_chunk_id: linked_chunk_id.to_owned(),
+                            content: item,
+                            position: at.into(),
+                        }))
                         .await?;
                 }
                 Update::RemoveItem { at } => {
@@ -266,7 +256,9 @@ impl_event_cache_store! {
 
                     trace!(%linked_chunk_id, "detaching last items @ {chunk_id}:{index}");
 
-                    transaction.delete_events_by_chunk_from_index(linked_chunk_id, at.into()).await?;
+                    transaction
+                        .delete_events_by_chunk_from_index(linked_chunk_id, at.into())
+                        .await?;
                 }
                 Update::StartReattachItems | Update::EndReattachItems => {
                     // Nothing? See sqlite implementation
@@ -334,7 +326,8 @@ impl_event_cache_store! {
         let chunks = transaction.get_chunks_by_linked_chunk_id(linked_chunk_id).await?;
         for chunk in chunks {
             let chunk_id = ChunkIdentifier::new(chunk.identifier);
-            let num_items = transaction.get_events_count_by_chunk(linked_chunk_id, chunk_id).await?;
+            let num_items =
+                transaction.get_events_count_by_chunk(linked_chunk_id, chunk_id).await?;
             raw_chunks.push(ChunkMetadata {
                 num_items,
                 previous: chunk.previous.map(ChunkIdentifier::new),
@@ -379,12 +372,12 @@ impl_event_cache_store! {
                 // There was some error querying IndexedDB, but it is not necessarily
                 // a violation of our data constraints.
                 Err(e.into())
-            },
+            }
             Ok(None) => {
                 // If there is no chunk without a next chunk, that means every chunk
                 // points to another chunk, which means that we have a cycle in our list.
                 Err(IndexeddbEventCacheStoreError::ChunksContainCycle)
-            },
+            }
             Ok(Some(last_chunk)) => {
                 let last_chunk_identifier = ChunkIdentifier::new(last_chunk.identifier);
                 let last_raw_chunk = transaction
@@ -415,10 +408,14 @@ impl_event_cache_store! {
             &[keys::LINKED_CHUNKS, keys::EVENTS, keys::GAPS],
             IdbTransactionMode::Readonly,
         )?;
-        if let Some(chunk) = transaction.get_chunk_by_id(linked_chunk_id, before_chunk_identifier).await? {
+        if let Some(chunk) =
+            transaction.get_chunk_by_id(linked_chunk_id, before_chunk_identifier).await?
+        {
             if let Some(previous_identifier) = chunk.previous {
                 let previous_identifier = ChunkIdentifier::new(previous_identifier);
-                return Ok(transaction.load_chunk_by_id(linked_chunk_id, previous_identifier).await?);
+                return Ok(transaction
+                    .load_chunk_by_id(linked_chunk_id, previous_identifier)
+                    .await?);
             }
         }
         Ok(None)
@@ -451,8 +448,7 @@ impl_event_cache_store! {
             return Ok(Vec::new());
         }
 
-        let transaction =
-            self.transaction(&[keys::EVENTS], IdbTransactionMode::Readonly)?;
+        let transaction = self.transaction(&[keys::EVENTS], IdbTransactionMode::Readonly)?;
         let mut duplicated = Vec::new();
         for event_id in events {
             if let Some(types::Event::InBand(event)) =
@@ -472,8 +468,7 @@ impl_event_cache_store! {
     ) -> Result<Option<Event>, IndexeddbEventCacheStoreError> {
         let _timer = timer!("method");
 
-        let transaction =
-            self.transaction(&[keys::EVENTS], IdbTransactionMode::Readonly)?;
+        let transaction = self.transaction(&[keys::EVENTS], IdbTransactionMode::Readonly)?;
         transaction
             .get_event_by_room(room_id, event_id)
             .await
@@ -490,8 +485,7 @@ impl_event_cache_store! {
     ) -> Result<Vec<(Event, Option<Position>)>, IndexeddbEventCacheStoreError> {
         let _timer = timer!("method");
 
-        let transaction =
-            self.transaction(&[keys::EVENTS], IdbTransactionMode::Readonly)?;
+        let transaction = self.transaction(&[keys::EVENTS], IdbTransactionMode::Readonly)?;
 
         let mut related_events = Vec::new();
         match filters {
@@ -506,9 +500,7 @@ impl_event_cache_store! {
                 }
             }
             _ => {
-                for event in
-                    transaction.get_events_by_related_event(room_id, event_id).await?
-                {
+                for event in transaction.get_events_by_related_event(room_id, event_id).await? {
                     let position = event.position().map(Into::into);
                     related_events.push((event.into(), position));
                 }
@@ -529,14 +521,13 @@ impl_event_cache_store! {
             error!(%room_id, "Trying to save an event with no ID");
             return Ok(());
         };
-        let transaction =
-            self.transaction(&[keys::EVENTS], IdbTransactionMode::Readwrite)?;
+        let transaction = self.transaction(&[keys::EVENTS], IdbTransactionMode::Readwrite)?;
         let event = match transaction.get_event_by_room(room_id, &event_id).await? {
             Some(mut inner) => inner.with_content(event),
             None => types::Event::OutOfBand(OutOfBandEvent {
                 linked_chunk_id: LinkedChunkId::Room(room_id).to_owned(),
                 content: event,
-                position: ()
+                position: (),
             }),
         };
         transaction.put_event(&event).await?;
