@@ -379,7 +379,7 @@ impl Indexed for Chunk {
 /// The value associated with the [primary key](IndexedChunk::id) of the
 /// [`LINKED_CHUNKS`][1] object store, which is constructed from:
 ///
-/// - The (possibly) encrypted Linked Chunk ID
+/// - The (possibly) hashed Linked Chunk ID
 /// - The Chunk ID.
 ///
 /// [1]: crate::event_cache_store::migrations::v1::create_linked_chunks_object_store
@@ -417,7 +417,7 @@ impl<'a> IndexedPrefixKeyComponentBounds<'a, Chunk, LinkedChunkId<'a>> for Index
 /// The value associated with the [`next`](IndexedChunk::next) index of the
 /// [`LINKED_CHUNKS`][1] object store, which is constructed from:
 ///
-/// - The (possibly) encrypted Linked Chunk ID
+/// - The (possibly) hashed Linked Chunk ID
 /// - The Chunk ID, if there is a next chunk in the list.
 ///
 /// Note: it would be more convenient to represent this type with an optional
@@ -552,8 +552,8 @@ impl Indexed for Event {
 /// The value associated with the [primary key](IndexedEvent::id) of the
 /// [`EVENTS`][1] object store, which is constructed from:
 ///
-/// - The (possibly) encrypted Linked Chunk ID
-/// - The (possibly) encrypted Event ID.
+/// - The (possibly) hashed Linked Chunk ID
+/// - The (possibly) hashed Event ID.
 ///
 /// [1]: crate::event_cache_store::migrations::v1::create_events_object_store
 #[derive(Debug, Serialize, Deserialize)]
@@ -592,8 +592,8 @@ impl IndexedPrefixKeyBounds<Event, LinkedChunkId<'_>> for IndexedEventIdKey {
 /// The value associated with the [primary key](IndexedEvent::id) of the
 /// [`EVENTS`][1] object store, which is constructed from:
 ///
-/// - The (possibly) encrypted Room ID
-/// - The (possibly) encrypted Event ID.
+/// - The (possibly) hashed Room ID
+/// - The (possibly) hashed Event ID.
 ///
 /// [1]: crate::event_cache_store::migrations::v1::create_events_object_store
 #[derive(Debug, Serialize, Deserialize)]
@@ -627,7 +627,7 @@ impl IndexedPrefixKeyBounds<Event, &RoomId> for IndexedEventRoomKey {
 /// The value associated with the [`position`](IndexedEvent::position) index of
 /// the [`EVENTS`][1] object store, which is constructed from:
 ///
-/// - The (possibly) encrypted Linked Chunk ID
+/// - The (possibly) hashed Linked Chunk ID
 /// - The Chunk ID
 /// - The index of the event in the chunk.
 ///
@@ -689,8 +689,8 @@ impl<'a> IndexedPrefixKeyComponentBounds<'a, Event, (LinkedChunkId<'a>, ChunkIde
 /// The value associated with the [`relation`](IndexedEvent::relation) index of
 /// the [`EVENTS`][1] object store, which is constructed from:
 ///
-/// - The (possibly) encrypted Room ID
-/// - The (possibly) encrypted Event ID of the related event
+/// - The (possibly) hashed Room ID
+/// - The (possibly) hashed Event ID of the related event
 /// - The type of relationship between the events
 ///
 /// [1]: crate::event_cache_store::migrations::v1::create_events_object_store
@@ -795,7 +795,7 @@ impl Indexed for Gap {
 
 /// The primary key of the [`GAPS`][1] object store, which is constructed from:
 ///
-/// - The (possibly) encrypted Linked Chunk ID
+/// - The (possibly) hashed Linked Chunk ID
 /// - The Chunk ID
 ///
 /// [1]: crate::event_cache_store::migrations::v1::create_gaps_object_store
