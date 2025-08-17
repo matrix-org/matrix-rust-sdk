@@ -99,6 +99,7 @@ impl IndexeddbSerializer {
     /// **Note** that when dealing with keys which will be encoded as strings,
     /// it is recommended to use [`encode_key`](Self::encode_key), as it
     /// ensures that strings are safe for use as a key.
+    #[allow(unused)]
     pub fn hash_key<T>(&self, table_name: &str, key: T) -> Vec<u8>
     where
         T: AsRef<[u8]>,
