@@ -455,4 +455,47 @@ mod tests {
         assert_eq!(thread.in_reply_to.as_ref().unwrap().event_id, event_id);
         assert!(thread.is_falling_back);
     }
+
+    #[async_test]
+    async fn test_reply_forwarding_thread_for_poll_start() {
+        let thread_root = event_id!("$thread_root");
+        let event_id = event_id!("$thread_reply");
+        let own_user_id = user_id!("@me:saucisse.bzh");
+
+        let mut cache = TestEventCache::default();
+        let f = EventFactory::new();
+
+        cache.events.insert(
+            event_id.to_owned(),
+            f.poll_start(
+                "would you rather… A) eat a pineapple pizza, B) drink pickle juice",
+                "would you rather…",
+                vec!["eat a pineapple pizza", "drink pickle juice"],
+            )
+            .in_thread(thread_root, thread_root)
+            .event_id(event_id)
+            .sender(own_user_id)
+            .into(),
+        );
+
+        let content = RoomMessageEventContentWithoutRelation::text_plain("the reply");
+
+        let reply_event = make_reply_event(
+            cache,
+            own_user_id,
+            content,
+            Reply {
+                event_id: event_id.into(),
+                enforce_thread: EnforceThread::Threaded(ReplyWithinThread::No),
+            },
+        )
+        .await
+        .unwrap();
+
+        assert_let!(Some(Relation::Thread(thread)) = &reply_event.relates_to);
+
+        assert_eq!(thread.event_id, thread_root);
+        assert_eq!(thread.in_reply_to.as_ref().unwrap().event_id, event_id);
+        assert!(thread.is_falling_back);
+    }
 }
