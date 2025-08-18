@@ -39,6 +39,7 @@ jobs:
           - markdown
           - socks
           - sso-login
+          - search
 
     steps:
       - name: Checkout
