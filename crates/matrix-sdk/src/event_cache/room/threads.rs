@@ -55,6 +55,10 @@ pub(crate) struct ThreadEventCache {
     /// A sender for live events updates in this thread.
     sender: Sender<ThreadEventCacheUpdate>,
 
+    /// A sender for the globally observable linked chunk updates that happened
+    /// during a sync or a back-pagination.
+    ///
+    /// See also [`super::super::EventCacheInner::linked_chunk_update_sender`].
     linked_chunk_update_sender: Sender<RoomEventCacheLinkedChunkUpdate>,
 }
 
@@ -102,7 +106,7 @@ impl ThreadEventCache {
 
         let _ = self.linked_chunk_update_sender.send(RoomEventCacheLinkedChunkUpdate {
             updates,
-            linked_chunk: OwnedLinkedChunkId::Thread(
+            linked_chunk_id: OwnedLinkedChunkId::Thread(
                 self.room_id.clone(),
                 self.thread_root.clone(),
             ),

@@ -3084,6 +3084,7 @@ dependencies = [
  "imbl",
  "indexmap",
  "insta",
+ "itertools 0.14.0",
  "js_int",
  "language-tags",
  "matrix-sdk-base",
