@@ -640,8 +640,6 @@ mod private {
         sync::Timeline,
     };
     use matrix_sdk_common::executor::spawn;
-    #[cfg(feature = "experimental-search")]
-    use ruma::events::AnyMessageLikeEvent;
     use ruma::{
         events::{
             relation::RelationType, room::redaction::SyncRoomRedactionEvent,
@@ -1464,28 +1462,20 @@ mod private {
 
         #[cfg(feature = "experimental-search")]
         fn parse_timeline_event(&self, event: &TimelineEvent) -> Option<AnySyncMessageLikeEvent> {
-            let maybe_try_event = match &event.kind {
-                TimelineEventKind::Decrypted(d) => {
-                    Some(d.event.deserialize().map(AnyMessageLikeEvent::into))
-                }
-                TimelineEventKind::PlainText { event } => match event.deserialize() {
-                    Ok(event_obj) => match event_obj {
-                        AnySyncTimelineEvent::MessageLike(sync_event) => Some(Ok(sync_event)),
-                        AnySyncTimelineEvent::State(_) => None,
-                    },
-                    Err(e) => Some(Err(e)),
+            if event.kind.is_utd() {
+                return None;
+            }
+
+            match event.raw().deserialize() {
+                Ok(event) => match event {
+                    AnySyncTimelineEvent::MessageLike(event) => Some(event),
+                    AnySyncTimelineEvent::State(_) => None,
                 },
 
-                TimelineEventKind::UnableToDecrypt { event: _, utd_info: _ } => None,
-            };
-
-            match maybe_try_event {
-                Some(Ok(event)) => Some(event),
-                Some(Err(e)) => {
+                Err(e) => {
                     warn!("failed to parse event: {e:?}");
                     None
                 }
-                None => None,
             }
         }
 
