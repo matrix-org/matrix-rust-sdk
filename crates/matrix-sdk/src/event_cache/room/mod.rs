@@ -1260,7 +1260,7 @@ mod private {
 
             // Forward that the store got updated to observers.
             let _ = self.linked_chunk_update_sender.send(RoomEventCacheLinkedChunkUpdate {
-                linked_chunk: OwnedLinkedChunkId::Room(self.room.clone()),
+                linked_chunk_id: OwnedLinkedChunkId::Room(self.room.clone()),
                 updates,
             });
 

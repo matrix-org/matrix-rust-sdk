@@ -426,6 +426,12 @@ impl EventCache {
         self.inner.generic_update_sender.subscribe()
     }
 
+    /// React to a given linked chunk update by subscribing the user to a
+    /// thread, if needs be (when the user got mentioned in a thread reply, for
+    /// a thread they were not subscribed to).
+    ///
+    /// Returns a boolean indicating whether the task should keep on running or
+    /// not.
     #[instrument(skip(client, thread_subscriber_sender))]
     async fn handle_thread_subscriber_linked_chunk_update(
         client: &WeakClient,
@@ -438,7 +444,7 @@ impl EventCache {
             return false;
         };
 
-        let OwnedLinkedChunkId::Thread(room_id, thread_root) = &up.linked_chunk else {
+        let OwnedLinkedChunkId::Thread(room_id, thread_root) = &up.linked_chunk_id else {
             trace!("received an update for a non-thread linked chunk, ignoring");
             return true;
         };
@@ -450,8 +456,9 @@ impl EventCache {
 
         let thread_root = thread_root.clone();
 
-        let new_events = up.events();
-        if new_events.is_empty() {
+        let mut new_events = up.events().peekable();
+
+        if new_events.peek().is_none() {
             // No new events, nothing to do.
             return true;
         }
@@ -482,8 +489,9 @@ impl EventCache {
         let mut subscribe_up_to = None;
 
         // Find if there's an event that would trigger a mention for the current
-        // user, iterating from the end of the new events towards the oldest,
-        for ev in new_events.into_iter().rev() {
+        // user, iterating from the end of the new events towards the oldest, so we can
+        // find the most recent event to subscribe to.
+        for ev in new_events.rev() {
             if push_context
                 .for_event(ev.raw())
                 .await
@@ -513,6 +521,12 @@ impl EventCache {
         true
     }
 
+    /// React to a given send queue update by subscribing the user to a
+    /// thread, if needs be (when the user sent an event in a thread they were
+    /// not subscribed to).
+    ///
+    /// Returns a boolean indicating whether the task should keep on running or
+    /// not.
     #[instrument(skip(client, thread_subscriber_sender))]
     async fn handle_thread_subscriber_send_queue_update(
         client: &WeakClient,
@@ -703,7 +717,8 @@ struct EventCacheInner {
     /// A sender for a persisted linked chunk update.
     ///
     /// This is used to notify that some linked chunk has persisted some updates
-    /// to a store, and can be used by observers to look for new events.
+    /// to a store, during sync or a back-pagination of *any* linked chunk.
+    /// This can be used by observers to look for new events.
     ///
     /// See doc comment of [`RoomEventCacheLinkedChunkUpdate`].
     linked_chunk_update_sender: Sender<RoomEventCacheLinkedChunkUpdate>,
@@ -957,34 +972,37 @@ pub struct RoomEventCacheGenericUpdate {
 #[derive(Clone, Debug)]
 struct RoomEventCacheLinkedChunkUpdate {
     /// The linked chunk affected by the update.
-    linked_chunk: OwnedLinkedChunkId,
+    linked_chunk_id: OwnedLinkedChunkId,
 
-    /// A vector of all the updates that happened during this update.
+    /// A vector of all the linked chunk updates that happened during this event
+    /// cache update.
     updates: Vec<linked_chunk::Update<TimelineEvent, Gap>>,
 }
 
 impl RoomEventCacheLinkedChunkUpdate {
     /// Return all the new events propagated by this update, in topological
     /// order.
-    pub fn events(self) -> Vec<TimelineEvent> {
-        self.updates
-            .into_iter()
-            .flat_map(|update| match update {
-                linked_chunk::Update::PushItems { items, .. } => items,
-                linked_chunk::Update::ReplaceItem { item, .. } => vec![item],
-                linked_chunk::Update::RemoveItem { .. }
-                | linked_chunk::Update::DetachLastItems { .. }
-                | linked_chunk::Update::StartReattachItems
-                | linked_chunk::Update::EndReattachItems
-                | linked_chunk::Update::NewItemsChunk { .. }
-                | linked_chunk::Update::NewGapChunk { .. }
-                | linked_chunk::Update::RemoveChunk(..)
-                | linked_chunk::Update::Clear => {
-                    // All these updates don't contain any new event.
-                    vec![]
-                }
-            })
-            .collect()
+    pub fn events(self) -> impl DoubleEndedIterator<Item = TimelineEvent> {
+        use itertools::Either;
+        self.updates.into_iter().flat_map(|update| match update {
+            linked_chunk::Update::PushItems { items, .. } => {
+                Either::Left(Either::Left(items.into_iter()))
+            }
+            linked_chunk::Update::ReplaceItem { item, .. } => {
+                Either::Left(Either::Right(std::iter::once(item)))
+            }
+            linked_chunk::Update::RemoveItem { .. }
+            | linked_chunk::Update::DetachLastItems { .. }
+            | linked_chunk::Update::StartReattachItems
+            | linked_chunk::Update::EndReattachItems
+            | linked_chunk::Update::NewItemsChunk { .. }
+            | linked_chunk::Update::NewGapChunk { .. }
+            | linked_chunk::Update::RemoveChunk(..)
+            | linked_chunk::Update::Clear => {
+                // All these updates don't contain any new event.
+                Either::Right(std::iter::empty())
+            }
+        })
     }
 }
 
