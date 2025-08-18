@@ -1106,8 +1106,8 @@ mod tests_latest_event_value_non_wasm {
     };
 
     use super::{
-        LatestEventKind, LatestEventValue, LatestEventValuesForLocalEvents, RoomEventCache,
-        RoomSendQueueUpdate,
+        LatestEvent, LatestEventKind, LatestEventValue, LatestEventValuesForLocalEvents,
+        RoomEventCache, RoomSendQueueUpdate,
     };
     use crate::{
         client::WeakClient,
@@ -1116,6 +1116,50 @@ mod tests_latest_event_value_non_wasm {
         test_utils::mocks::MatrixMockServer,
         Client, Error,
     };
+
+    #[async_test]
+    async fn test_update_ignores_none_value() {
+        let room_id = room_id!("!r0");
+
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+        let weak_client = WeakClient::from_client(&client);
+
+        // Create the room.
+        client.base_client().get_or_create_room(room_id, RoomState::Joined);
+        let weak_room = WeakRoom::new(weak_client, room_id.to_owned());
+
+        // Get a `RoomEventCache`.
+        let event_cache = client.event_cache();
+        event_cache.subscribe().unwrap();
+
+        let (room_event_cache, _) = event_cache.for_room(room_id).await.unwrap();
+
+        let mut latest_event = LatestEvent::new(room_id, None, &room_event_cache, &weak_room).await;
+
+        // First off, check the default value is `None`!
+        assert_matches!(latest_event.current_value.get().await, LatestEventValue::None);
+
+        // Second, set a new value.
+        latest_event
+            .update(LatestEventValue::LocalIsSending(LatestEventKind::RoomMessage(
+                RoomMessageEventContent::text_plain("foo"),
+            )))
+            .await;
+
+        assert_matches!(
+            latest_event.current_value.get().await,
+            LatestEventValue::LocalIsSending(_)
+        );
+
+        // Finally, set a new `None` value. It must be ignored.
+        latest_event.update(LatestEventValue::None).await;
+
+        assert_matches!(
+            latest_event.current_value.get().await,
+            LatestEventValue::LocalIsSending(_)
+        );
+    }
 
     #[async_test]
     async fn test_remote_is_scanning_event_backwards_from_event_cache() {
