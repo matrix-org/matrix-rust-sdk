@@ -105,6 +105,7 @@ enum FeatureSet {
     Markdown,
     Socks,
     SsoLogin,
+    Search,
 }
 
 #[derive(Subcommand, PartialEq, Eq, PartialOrd, Ord)]
@@ -271,6 +272,7 @@ fn run_feature_tests(cmd: Option<FeatureSet>) -> Result<()> {
         (FeatureSet::Markdown, "--features markdown,testing"),
         (FeatureSet::Socks, "--features socks,testing"),
         (FeatureSet::SsoLogin, "--features sso-login,testing"),
+        (FeatureSet::Search, "--features experimental-search"),
     ]);
 
     let sh = sh();
