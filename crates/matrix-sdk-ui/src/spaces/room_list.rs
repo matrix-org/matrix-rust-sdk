@@ -66,6 +66,10 @@ impl SpaceRoomList {
             loop {
                 match all_room_updates_receiver.recv().await {
                     Ok(updates) => {
+                        if updates.is_empty() {
+                            continue;
+                        }
+
                         let mut mutable_rooms = rooms_clone.lock();
 
                         updates.iter_all_room_ids().for_each(|updated_room_id| {
