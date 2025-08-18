@@ -97,6 +97,15 @@ impl RoomUpdates {
             .chain(self.invited.keys())
             .chain(self.knocked.keys())
     }
+
+    /// Returns whether or not this update contains any changes to the list
+    /// of invited, joined, knocked or left rooms.
+    pub fn is_empty(&self) -> bool {
+        self.invited.is_empty()
+            && self.joined.is_empty()
+            && self.knocked.is_empty()
+            && self.left.is_empty()
+    }
 }
 
 #[cfg(test)]
@@ -157,6 +166,16 @@ mod tests {
         assert_matches!(iter.next(), Some(room_id) => assert_eq!(room_id, room_id_6));
         assert_matches!(iter.next(), Some(room_id) => assert_eq!(room_id, room_id_7));
         assert!(iter.next().is_none());
+    }
+
+    #[test]
+    fn test_empty_room_updates() {
+        let room_updates = RoomUpdates::default();
+
+        let mut iter = room_updates.iter_all_room_ids();
+        assert!(iter.next().is_none());
+
+        assert!(room_updates.is_empty());
     }
 }
 
