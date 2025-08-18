@@ -45,6 +45,8 @@ use matrix_sdk_base::{
     timer,
 };
 use matrix_sdk_common::executor::{spawn, JoinHandle};
+#[cfg(feature = "experimental-search")]
+use matrix_sdk_search::error::IndexError;
 use room::RoomEventCacheState;
 use ruma::{events::AnySyncEphemeralRoomEvent, serde::Raw, OwnedEventId, OwnedRoomId, RoomId};
 use tokio::sync::{
@@ -116,6 +118,11 @@ pub enum EventCacheError {
         /// A string containing details about the error.
         details: String,
     },
+
+    /// An error occurred in the index.
+    #[cfg(feature = "experimental-search")]
+    #[error(transparent)]
+    IndexError(#[from] IndexError),
 }
 
 /// A result using the [`EventCacheError`].

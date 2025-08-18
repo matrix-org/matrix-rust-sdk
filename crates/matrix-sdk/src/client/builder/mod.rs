@@ -15,8 +15,12 @@
 
 mod homeserver_config;
 
+#[cfg(feature = "experimental-search")]
+use std::collections::HashMap;
 #[cfg(feature = "sqlite")]
 use std::path::Path;
+#[cfg(any(feature = "experimental-search", feature = "sqlite"))]
+use std::path::PathBuf;
 use std::{collections::BTreeSet, fmt, sync::Arc};
 
 use homeserver_config::*;
@@ -34,6 +38,10 @@ use tokio::sync::{broadcast, Mutex, OnceCell};
 use tracing::{debug, field::debug, instrument, Span};
 
 use super::{Client, ClientInner};
+#[cfg(feature = "experimental-search")]
+use crate::client::search::SearchIndex;
+#[cfg(feature = "experimental-search")]
+use crate::client::search::SearchIndexStoreKind;
 #[cfg(feature = "e2e-encryption")]
 use crate::crypto::{CollectStrategy, TrustRequirement};
 #[cfg(feature = "e2e-encryption")]
@@ -114,6 +122,8 @@ pub struct ClientBuilder {
     enable_share_history_on_invite: bool,
     cross_process_store_locks_holder_name: String,
     threading_support: ThreadingSupport,
+    #[cfg(feature = "experimental-search")]
+    search_index_store_kind: SearchIndexStoreKind,
 }
 
 impl ClientBuilder {
@@ -145,6 +155,8 @@ impl ClientBuilder {
             cross_process_store_locks_holder_name:
                 Self::DEFAULT_CROSS_PROCESS_STORE_LOCKS_HOLDER_NAME.to_owned(),
             threading_support: ThreadingSupport::Disabled,
+            #[cfg(feature = "experimental-search")]
+            search_index_store_kind: SearchIndexStoreKind::InMemory,
         }
     }
 
@@ -489,6 +501,13 @@ impl ClientBuilder {
         self
     }
 
+    /// The base directory in which each room's index directory will be stored.
+    #[cfg(feature = "experimental-search")]
+    pub fn search_index_store(mut self, kind: SearchIndexStoreKind) -> Self {
+        self.search_index_store_kind = kind;
+        self
+    }
+
     /// Create a [`Client`] with the options set on this builder.
     ///
     /// # Errors
@@ -590,6 +609,10 @@ impl ClientBuilder {
         let event_cache = OnceCell::new();
         let latest_events = OnceCell::new();
 
+        #[cfg(feature = "experimental-search")]
+        let search_index =
+            SearchIndex::new(Arc::new(Mutex::new(HashMap::new())), self.search_index_store_kind);
+
         let inner = ClientInner::new(
             auth_ctx,
             server,
@@ -607,6 +630,8 @@ impl ClientBuilder {
             #[cfg(feature = "e2e-encryption")]
             self.enable_share_history_on_invite,
             self.cross_process_store_locks_holder_name,
+            #[cfg(feature = "experimental-search")]
+            search_index,
         )
         .await;
 
@@ -755,7 +780,7 @@ enum BuilderStoreConfig {
     #[cfg(feature = "sqlite")]
     Sqlite {
         config: SqliteStoreConfig,
-        cache_path: Option<std::path::PathBuf>,
+        cache_path: Option<PathBuf>,
     },
     #[cfg(feature = "indexeddb")]
     IndexedDb {
