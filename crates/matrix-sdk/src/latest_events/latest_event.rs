@@ -27,7 +27,8 @@ use ruma::{
             power_levels::RoomPowerLevels,
         },
         sticker::StickerEventContent,
-        AnyMessageLikeEventContent, AnySyncStateEvent, AnySyncTimelineEvent, SyncStateEvent,
+        AnyMessageLikeEventContent, AnySyncMessageLikeEvent, AnySyncStateEvent,
+        AnySyncTimelineEvent, SyncStateEvent,
     },
     EventId, OwnedEventId, OwnedRoomId, OwnedTransactionId, RoomId, TransactionId, UserId,
 };
@@ -517,7 +518,10 @@ pub enum LatestEventKind {
 
     /// A `m.room.member` event, more precisely a knock membership change that
     /// can be handled by the current user.
-    KnockedStateEvent(Option<RoomMemberEventContent>),
+    KnockedStateEvent(RoomMemberEventContent),
+
+    /// A redacted event.
+    Redacted(AnySyncMessageLikeEvent),
 }
 
 fn find_and_map_timeline_event(
@@ -540,13 +544,13 @@ fn find_and_map_timeline_event(
                 }
 
                 // The event has been redacted.
-                None => todo!("what to do with a redacted message-like event?"),
+                None => Some(LatestEventKind::Redacted(message_like_event)),
             }
         }
 
         // We don't currently support most state events…
         AnySyncTimelineEvent::State(state) => {
-            // … but we make an exception for knocked state events *if* the current user
+            // … but we make an exception for knocked state events _if_ the current user
             // can either accept or decline them.
             if let AnySyncStateEvent::RoomMember(member) = state {
                 if matches!(member.membership(), MembershipState::Knock) {
@@ -562,8 +566,12 @@ fn find_and_map_timeline_event(
                     // displayed
                     if can_accept_or_decline_knocks {
                         return Some(LatestEventKind::KnockedStateEvent(match member {
-                            SyncStateEvent::Original(member) => Some(member.content),
-                            SyncStateEvent::Redacted(_) => None,
+                            SyncStateEvent::Original(member) => member.content,
+                            SyncStateEvent::Redacted(_) => {
+                                // Cannot decide if the user can accept or decline knocks because
+                                // the event has been redacted.
+                                return None;
+                            }
                         }));
                     }
                 }
@@ -650,8 +658,7 @@ mod tests_latest_event_kind {
     }
 
     #[test]
-    #[ignore]
-    fn test_room_message_redacted() {
+    fn test_redacted() {
         assert_latest_event_kind!(
             with |event_factory| {
                 event_factory
@@ -661,7 +668,7 @@ mod tests_latest_event_kind {
                     )
                     .into_event()
             }
-            it produces Some(LatestEventKind::RoomMessage(_))
+            it produces Some(LatestEventKind::Redacted(_))
         );
     }
 
