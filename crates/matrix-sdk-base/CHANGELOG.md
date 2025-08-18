@@ -7,7 +7,8 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased] - ReleaseDate
 
 ### Features
-
+- Add `SyncResponse::RoomUpdates::is_empty` to check if there were any room updates.
+  ([#5593](https://github.com/matrix-org/matrix-rust-sdk/pull/5593))
 - Add `EncryptionState::StateEncrypted` to represent rooms supporting encrypted
   state events. Feature-gated behind `experimental-encrypted-state-events`.
   ([#5523](https://github.com/matrix-org/matrix-rust-sdk/pull/5523))
