@@ -77,7 +77,11 @@ impl SpaceService {
 
                 loop {
                     match all_room_updates_receiver.recv().await {
-                        Ok(_) => {
+                        Ok(updates) => {
+                            if updates.is_empty() {
+                                continue;
+                            }
+
                             let new_spaces = Vector::from(Self::joined_spaces_for(&client).await);
                             Self::update_joined_spaces_if_needed(new_spaces, &joined_spaces);
                         }
