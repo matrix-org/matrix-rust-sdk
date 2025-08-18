@@ -1489,7 +1489,12 @@ mod private {
             room: &Room,
         ) -> Result<(), EventCacheError> {
             if let Some(message_event) = self.parse_timeline_event(event) {
-                room.index_event(message_event).await.map_err(EventCacheError::from)
+                room.client
+                    .search_index()
+                    .lock()
+                    .await
+                    .handle_event(message_event, room.room_id())
+                    .map_err(EventCacheError::from)
             } else {
                 Ok(())
             }
