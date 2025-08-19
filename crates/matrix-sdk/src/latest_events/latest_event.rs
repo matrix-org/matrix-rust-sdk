@@ -244,16 +244,30 @@ impl LatestEventValue {
                 let position =
                     buffer_of_values_for_local_events.mark_is_sending_after(transaction_id);
 
-                if let Some(position) = position {
-                    buffer_of_values_for_local_events.remove(position);
-                }
-
-                Self::new_local_or_remote(
+                // First, compute the new value. Then we remove the sent local event from the
+                // buffer.
+                //
+                // Why in this order? Because once the local event is sent, it's not yet
+                // received by the sync and consequently not stored in the event cache. So once
+                // the local event is sent, it won't show up as a `LatestEventValue` as it will
+                // immediately be replaced by an event from the event cache. By computing the
+                // new value before removing it from the buffer, we ensure the
+                // `LatestEventValue` represents the just sent local event.
+                //
+                // Note: the next sync may not include the just sent local event. This is a race
+                // condition we are aware of, see https://github.com/matrix-org/matrix-rust-sdk/issues/3941.
+                let value = Self::new_local_or_remote(
                     buffer_of_values_for_local_events,
                     room_event_cache,
                     power_levels,
                 )
-                .await
+                .await;
+
+                if let Some(position) = position {
+                    buffer_of_values_for_local_events.remove(position);
+                }
+
+                value
             }
 
             // A local event has been replaced by another one.
@@ -1519,19 +1533,22 @@ mod tests_latest_event_value_non_wasm {
             assert_eq!(buffer.buffer.len(), 1);
         }
 
-        // Receiving a `SentEvent` targeting the first event. The `LaetstEvent` cannot
-        // be computed from the send queue and will fallback to the event cache.
-        // The event cache is empty in this case, so we get nothing.
+        // Receiving a `SentEvent` targeting the first event. The `LatestEventValue`
+        // hasn't changed, this is still this event.
         {
             let update = RoomSendQueueUpdate::SentEvent {
                 transaction_id: transaction_id_1,
                 event_id: event_id!("$ev1").to_owned(),
             };
 
-            // The `LatestEventValue` has changed, it's empty!
+            // The `LatestEventValue` hasn't changed.
             assert_matches!(
                 LatestEventValue::new_local(&update, &mut buffer, &room_event_cache, &None).await,
-                LatestEventValue::None
+                LatestEventValue::LocalIsSending(
+                    LatestEventContent::RoomMessage(message_content)
+                ) => {
+                    assert_eq!(message_content.body(), "B");
+                }
             );
 
             assert!(buffer.buffer.is_empty());
