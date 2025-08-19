@@ -66,7 +66,7 @@ use tokio::{
     select,
     sync::{broadcast, mpsc, RwLock, RwLockReadGuard, RwLockWriteGuard},
 };
-use tracing::error;
+use tracing::{error, warn};
 
 use crate::{
     client::WeakClient,
@@ -608,7 +608,7 @@ async fn listen_to_event_cache_and_send_queue_updates_task(
         .await
         .is_break()
         {
-            error!("`listen_to_event_cache_and_send_queue_updates_task` has stopped");
+            warn!("`listen_to_event_cache_and_send_queue_updates_task` has stopped");
 
             break;
         }
@@ -657,7 +657,7 @@ async fn listen_to_event_cache_and_send_queue_updates(
                     });
                 }
             } else {
-                error!("`event_cache_generic_updates` channel has been closed");
+                warn!("`event_cache_generic_updates` channel has been closed");
 
                 return ControlFlow::Break(());
             }
@@ -672,7 +672,7 @@ async fn listen_to_event_cache_and_send_queue_updates(
                     });
                 }
             } else {
-                error!("`send_queue_generic_updates` channel has been closed");
+                warn!("`send_queue_generic_updates` channel has been closed");
 
                 return ControlFlow::Break(());
             }
@@ -700,7 +700,7 @@ async fn compute_latest_events_task(
         buffer.clear();
     }
 
-    error!("`compute_latest_events_task` has stopped");
+    warn!("`compute_latest_events_task` has stopped");
 }
 
 async fn compute_latest_events(
