@@ -276,12 +276,15 @@ impl RoomPagination {
             .await
             .map_err(|err| EventCacheError::BackpaginationError(Box::new(err)))?;
 
+        let locked_store = self.inner.store.lock_owned().await?;
+
         if let Some((outcome, timeline_event_diffs)) = self
             .inner
             .state
             .write()
             .await
             .handle_backpagination(
+                locked_store,
                 response.chunk,
                 response.end,
                 prev_token,

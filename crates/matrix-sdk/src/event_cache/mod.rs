@@ -804,25 +804,31 @@ impl EventCacheInner {
         .await;
 
         // Clear the storage for all the rooms, using the storage facility.
-        self.store.lock().await?.clear_all_linked_chunks().await?;
+        let locked_store = self.store.lock_owned().await?;
+
+        locked_store.store.clear_all_linked_chunks().await?;
 
         // At this point, all the in-memory linked chunks are desynchronized from the
         // storage. Resynchronize them manually by calling reset(), and
         // propagate updates to observers.
-        try_join_all(room_locks.into_iter().map(|(room, mut state_guard)| async move {
-            let updates_as_vector_diffs = state_guard.reset().await?;
+        try_join_all(room_locks.into_iter().map(|(room, mut state_guard)| {
+            let locked_store = locked_store.clone();
 
-            let _ = room.inner.sender.send(RoomEventCacheUpdate::UpdateTimelineEvents {
-                diffs: updates_as_vector_diffs,
-                origin: EventsOrigin::Cache,
-            });
+            async move {
+                let updates_as_vector_diffs = state_guard.reset(locked_store).await?;
 
-            let _ = room
-                .inner
-                .generic_update_sender
-                .send(RoomEventCacheGenericUpdate { room_id: room.inner.room_id.clone() });
+                let _ = room.inner.sender.send(RoomEventCacheUpdate::UpdateTimelineEvents {
+                    diffs: updates_as_vector_diffs,
+                    origin: EventsOrigin::Cache,
+                });
 
-            Ok::<_, EventCacheError>(())
+                let _ = room
+                    .inner
+                    .generic_update_sender
+                    .send(RoomEventCacheGenericUpdate { room_id: room.inner.room_id.clone() });
+
+                Ok::<_, EventCacheError>(())
+            }
         }))
         .await?;
 
@@ -839,6 +845,8 @@ impl EventCacheInner {
             self.multiple_room_updates_lock.lock().await
         };
 
+        let locked_store = self.store.lock_owned().await?;
+
         // Note: bnjbvr tried to make this concurrent at some point, but it turned out
         // to be a performance regression, even for large sync updates. Lacking
         // time to investigate, this code remains sequential for now. See also
@@ -848,7 +856,9 @@ impl EventCacheInner {
         for (room_id, left_room_update) in updates.left {
             let room = self.for_room(&room_id).await?;
 
-            if let Err(err) = room.inner.handle_left_room_update(left_room_update).await {
+            if let Err(err) =
+                room.inner.handle_left_room_update(locked_store.clone(), left_room_update).await
+            {
                 // Non-fatal error, try to continue to the next room.
                 error!("handling left room update: {err}");
             }
@@ -860,7 +870,9 @@ impl EventCacheInner {
 
             let room = self.for_room(&room_id).await?;
 
-            if let Err(err) = room.inner.handle_joined_room_update(joined_room_update).await {
+            if let Err(err) =
+                room.inner.handle_joined_room_update(locked_store.clone(), joined_room_update).await
+            {
                 // Non-fatal error, try to continue to the next room.
                 error!(%room_id, "handling joined room update: {err}");
             }
@@ -925,6 +937,7 @@ impl EventCacheInner {
 
                 let room_event_cache = RoomEventCache::new(
                     self.client.clone(),
+                    self.store.clone(),
                     room_state,
                     pagination_status,
                     room_id.to_owned(),
@@ -1125,11 +1138,17 @@ mod tests {
         .unwrap();
         let account_data = vec![read_marker_event; 100];
 
-        room_event_cache
-            .inner
-            .handle_joined_room_update(JoinedRoomUpdate { account_data, ..Default::default() })
-            .await
-            .unwrap();
+        {
+            let locked_store = room_event_cache.inner.store.lock_owned().await.unwrap();
+            room_event_cache
+                .inner
+                .handle_joined_room_update(
+                    locked_store,
+                    JoinedRoomUpdate { account_data, ..Default::default() },
+                )
+                .await
+                .unwrap();
+        }
 
         // … there's only one read marker update.
         assert_matches!(

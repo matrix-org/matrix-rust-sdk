@@ -29,7 +29,10 @@ use eyeball::SharedObservable;
 use eyeball_im::VectorDiff;
 use matrix_sdk_base::{
     deserialized_responses::AmbiguityChange,
-    event_cache::Event,
+    event_cache::{
+        store::{EventCacheStoreLock, OwnedEventCacheStoreLockGuard},
+        Event,
+    },
     linked_chunk::Position,
     sync::{JoinedRoomUpdate, LeftRoomUpdate, Timeline},
 };
@@ -163,6 +166,7 @@ impl RoomEventCache {
     /// Create a new [`RoomEventCache`] using the given room and store.
     pub(super) fn new(
         client: WeakClient,
+        store: EventCacheStoreLock,
         state: RoomEventCacheState,
         pagination_status: SharedObservable<RoomPaginationStatus>,
         room_id: OwnedRoomId,
@@ -172,6 +176,7 @@ impl RoomEventCache {
         Self {
             inner: Arc::new(RoomEventCacheInner::new(
                 client,
+                store,
                 state,
                 pagination_status,
                 room_id,
@@ -375,7 +380,9 @@ impl RoomEventCache {
     /// storage.
     pub async fn clear(&self) -> Result<()> {
         // Clear the linked chunk and persisted storage.
-        let updates_as_vector_diffs = self.inner.state.write().await.reset().await?;
+        let locked_store = self.inner.store.lock_owned().await?;
+
+        let updates_as_vector_diffs = self.inner.state.write().await.reset(locked_store).await?;
 
         // Notify observers about the update.
         let _ = self.inner.sender.send(RoomEventCacheUpdate::UpdateTimelineEvents {
@@ -414,6 +421,8 @@ pub(super) struct RoomEventCacheInner {
 
     pub weak_room: WeakRoom,
 
+    pub store: EventCacheStoreLock,
+
     /// Sender part for subscribers to this room.
     pub sender: Sender<RoomEventCacheUpdate>,
 
@@ -444,6 +453,7 @@ impl RoomEventCacheInner {
     /// to handle new timeline events.
     fn new(
         client: WeakClient,
+        store: EventCacheStoreLock,
         state: RoomEventCacheState,
         pagination_status: SharedObservable<RoomPaginationStatus>,
         room_id: OwnedRoomId,
@@ -457,6 +467,7 @@ impl RoomEventCacheInner {
             weak_room,
             state: RwLock::new(state),
             sender,
+            store,
             pagination_batch_token_notifier: Default::default(),
             auto_shrink_sender,
             pagination_status,
@@ -504,21 +515,32 @@ impl RoomEventCacheInner {
     }
 
     #[instrument(skip_all, fields(room_id = %self.room_id))]
-    pub(super) async fn handle_joined_room_update(&self, updates: JoinedRoomUpdate) -> Result<()> {
+    pub(super) async fn handle_joined_room_update(
+        &self,
+        locked_store: OwnedEventCacheStoreLockGuard,
+        updates: JoinedRoomUpdate,
+    ) -> Result<()> {
         self.handle_timeline(
+            locked_store,
             updates.timeline,
             updates.ephemeral.clone(),
             updates.ambiguity_changes,
         )
         .await?;
+
         self.handle_account_data(updates.account_data);
 
         Ok(())
     }
 
     #[instrument(skip_all, fields(room_id = %self.room_id))]
-    pub(super) async fn handle_left_room_update(&self, updates: LeftRoomUpdate) -> Result<()> {
-        self.handle_timeline(updates.timeline, Vec::new(), updates.ambiguity_changes).await?;
+    pub(super) async fn handle_left_room_update(
+        &self,
+        locked_store: OwnedEventCacheStoreLockGuard,
+        updates: LeftRoomUpdate,
+    ) -> Result<()> {
+        self.handle_timeline(locked_store, updates.timeline, Vec::new(), updates.ambiguity_changes)
+            .await?;
 
         Ok(())
     }
@@ -527,6 +549,7 @@ impl RoomEventCacheInner {
     /// room.
     async fn handle_timeline(
         &self,
+        locked_store: OwnedEventCacheStoreLockGuard,
         timeline: Timeline,
         ephemeral_events: Vec<Raw<AnySyncEphemeralRoomEvent>>,
         ambiguity_changes: BTreeMap<OwnedEventId, AmbiguityChange>,
@@ -553,6 +576,7 @@ impl RoomEventCacheInner {
             .write()
             .await
             .handle_sync(
+                locked_store,
                 timeline,
                 #[cfg(feature = "experimental-search")]
                 &room,
@@ -628,7 +652,7 @@ mod private {
         apply_redaction,
         deserialized_responses::{ThreadSummary, ThreadSummaryStatus, TimelineEventKind},
         event_cache::{
-            store::{DynEventCacheStore, EventCacheStoreLock},
+            store::{DynEventCacheStore, EventCacheStoreLock, OwnedEventCacheStoreLockGuard},
             Event, Gap,
         },
         linked_chunk::{
@@ -1042,7 +1066,10 @@ mod private {
         /// pending diff updates with the result of this function.
         ///
         /// Otherwise, returns `None`.
-        pub(super) async fn shrink_to_last_chunk(&mut self) -> Result<(), EventCacheError> {
+        pub(super) async fn shrink_to_last_chunk(
+            &mut self,
+            locked_store: OwnedEventCacheStoreLockGuard,
+        ) -> Result<(), EventCacheError> {
             let store_lock = self.store.lock().await?;
 
             // Attempt to load the last chunk.
@@ -1073,7 +1100,7 @@ mod private {
                 self.room_linked_chunk.replace_with(last_chunk, chunk_identifier_generator)
             {
                 error!("error when replacing the linked chunk: {err}");
-                return self.reset_internal().await;
+                return self.reset_internal(locked_store).await;
             }
 
             // Let pagination observers know that we may have not reached the start of the
@@ -1101,7 +1128,8 @@ mod private {
             if subscriber_count == 0 {
                 // If we are the last strong reference to the auto-shrinker, we can shrink the
                 // events data structure to its last chunk.
-                self.shrink_to_last_chunk().await?;
+                let locked_store = self.store.lock_owned().await?;
+                self.shrink_to_last_chunk(locked_store).await?;
                 Ok(Some(self.room_linked_chunk.updates_as_vector_diffs()))
             } else {
                 Ok(None)
@@ -1112,7 +1140,8 @@ mod private {
         pub(crate) async fn force_shrink_to_last_chunk(
             &mut self,
         ) -> Result<Vec<VectorDiff<Event>>, EventCacheError> {
-            self.shrink_to_last_chunk().await?;
+            let locked_store = self.store.lock_owned().await?;
+            self.shrink_to_last_chunk(locked_store).await?;
             Ok(self.room_linked_chunk.updates_as_vector_diffs())
         }
 
@@ -1172,6 +1201,7 @@ mod private {
         #[instrument(skip_all)]
         async fn remove_events(
             &mut self,
+            locked_store: OwnedEventCacheStoreLockGuard,
             in_memory_events: Vec<(OwnedEventId, Position)>,
             in_store_events: Vec<(OwnedEventId, Position)>,
         ) -> Result<(), EventCacheError> {
@@ -1189,7 +1219,7 @@ mod private {
                     .map(|pos| Update::RemoveItem { at: pos })
                     .collect::<Vec<_>>();
 
-                self.apply_store_only_updates(updates).await?;
+                self.apply_store_only_updates(locked_store.clone(), updates).await?;
             }
 
             // In-memory events.
@@ -1205,13 +1235,16 @@ mod private {
                 )
                 .expect("failed to remove an event");
 
-            self.propagate_changes().await
+            self.propagate_changes(locked_store).await
         }
 
         /// Propagate changes to the underlying storage.
-        async fn propagate_changes(&mut self) -> Result<(), EventCacheError> {
+        async fn propagate_changes(
+            &mut self,
+            locked_store: OwnedEventCacheStoreLockGuard,
+        ) -> Result<(), EventCacheError> {
             let updates = self.room_linked_chunk.store_updates().take();
-            self.send_updates_to_store(updates).await
+            self.send_updates_to_store(locked_store, updates).await
         }
 
         /// Apply some updates that are effective only on the store itself.
@@ -1222,14 +1255,16 @@ mod private {
         /// storage.
         async fn apply_store_only_updates(
             &mut self,
+            locked_store: OwnedEventCacheStoreLockGuard,
             updates: Vec<Update<Event, Gap>>,
         ) -> Result<(), EventCacheError> {
             self.room_linked_chunk.order_tracker.map_updates(&updates);
-            self.send_updates_to_store(updates).await
+            self.send_updates_to_store(locked_store, updates).await
         }
 
         async fn send_updates_to_store(
             &mut self,
+            locked_store: OwnedEventCacheStoreLockGuard,
             mut updates: Vec<Update<Event, Gap>>,
         ) -> Result<(), EventCacheError> {
             if updates.is_empty() {
@@ -1259,16 +1294,16 @@ mod private {
             // The store cross-process locking involves an actual mutex, which ensures that
             // storing updates happens in the expected order.
 
-            let store = self.store.clone();
             let room_id = self.room.clone();
             let cloned_updates = updates.clone();
 
             spawn(async move {
-                let store = store.lock().await?;
-
                 trace!(updates = ?cloned_updates, "sending linked chunk updates to the store");
                 let linked_chunk_id = LinkedChunkId::Room(&room_id);
-                store.handle_linked_chunk_updates(linked_chunk_id, cloned_updates).await?;
+                locked_store
+                    .store
+                    .handle_linked_chunk_updates(linked_chunk_id, cloned_updates)
+                    .await?;
                 trace!("linked chunk updates applied");
 
                 super::Result::Ok(())
@@ -1291,8 +1326,11 @@ mod private {
         /// result, the caller may override any pending diff updates
         /// with the result of this function.
         #[must_use = "Propagate `VectorDiff` updates via `RoomEventCacheUpdate`"]
-        pub async fn reset(&mut self) -> Result<Vec<VectorDiff<Event>>, EventCacheError> {
-            self.reset_internal().await?;
+        pub async fn reset(
+            &mut self,
+            locked_store: OwnedEventCacheStoreLockGuard,
+        ) -> Result<Vec<VectorDiff<Event>>, EventCacheError> {
+            self.reset_internal(locked_store).await?;
 
             let diff_updates = self.room_linked_chunk.updates_as_vector_diffs();
 
@@ -1303,7 +1341,10 @@ mod private {
             Ok(diff_updates)
         }
 
-        async fn reset_internal(&mut self) -> Result<(), EventCacheError> {
+        async fn reset_internal(
+            &mut self,
+            locked_store: OwnedEventCacheStoreLockGuard,
+        ) -> Result<(), EventCacheError> {
             self.room_linked_chunk.reset();
 
             // No need to update the thread summaries: the room events are
@@ -1315,7 +1356,7 @@ mod private {
                 thread.clear();
             }
 
-            self.propagate_changes().await?;
+            self.propagate_changes(locked_store).await?;
 
             // Reset the pagination state too: pretend we never waited for the initial
             // prev-batch token, and indicate that we're not at the start of the
@@ -1501,17 +1542,18 @@ mod private {
         /// Flushes updates to disk first.
         async fn post_process_new_events(
             &mut self,
+            locked_store: OwnedEventCacheStoreLockGuard,
             events: Vec<Event>,
             is_sync: bool,
             #[cfg(feature = "experimental-search")] room: &Room,
         ) -> Result<(), EventCacheError> {
             // Update the store before doing the post-processing.
-            self.propagate_changes().await?;
+            self.propagate_changes(locked_store.clone()).await?;
 
             let mut new_events_by_thread: BTreeMap<_, Vec<_>> = BTreeMap::new();
 
             for event in events {
-                self.maybe_apply_new_redaction(&event).await?; // TODO: Handle redaction for search index
+                self.maybe_apply_new_redaction(locked_store.clone(), &event).await?; // TODO: Handle redaction for search index
 
                 // We can also add the event to the index.
                 #[cfg(feature = "experimental-search")]
@@ -1534,7 +1576,7 @@ mod private {
                 }
             }
 
-            self.update_threads(new_events_by_thread, is_sync).await?;
+            self.update_threads(locked_store, new_events_by_thread, is_sync).await?;
 
             Ok(())
         }
@@ -1554,6 +1596,7 @@ mod private {
         #[instrument(skip_all)]
         async fn update_threads(
             &mut self,
+            locked_store: OwnedEventCacheStoreLockGuard,
             new_events_by_thread: BTreeMap<OwnedEventId, Vec<Event>>,
             is_sync: bool,
         ) -> Result<(), EventCacheError> {
@@ -1616,7 +1659,7 @@ mod private {
 
                 // Trigger an update to observers.
                 target_event.thread_summary = ThreadSummaryStatus::Some(new_summary);
-                self.replace_event_at(location, target_event).await?;
+                self.replace_event_at(locked_store.clone(), location, target_event).await?;
             }
 
             Ok(())
@@ -1630,6 +1673,7 @@ mod private {
         /// unlikely to observe the store updates directly.
         async fn replace_event_at(
             &mut self,
+            locked_store: OwnedEventCacheStoreLockGuard,
             location: EventLocation,
             event: Event,
         ) -> Result<(), EventCacheError> {
@@ -1640,7 +1684,7 @@ mod private {
                         .expect("should have been a valid position of an item");
                     // We just changed the in-memory representation; synchronize this with
                     // the store.
-                    self.propagate_changes().await?;
+                    self.propagate_changes(locked_store).await?;
                 }
                 EventLocation::Store => {
                     self.save_event([event]).await?;
@@ -1656,6 +1700,7 @@ mod private {
         #[instrument(skip_all)]
         async fn maybe_apply_new_redaction(
             &mut self,
+            locked_store: OwnedEventCacheStoreLockGuard,
             event: &Event,
         ) -> Result<(), EventCacheError> {
             let raw_event = event.raw();
@@ -1715,7 +1760,7 @@ mod private {
                 // - or it wasn't, and it's a plain `AnySyncTimelineEvent` in this case.
                 target_event.replace_raw(redacted_event.cast_unchecked());
 
-                self.replace_event_at(location, target_event).await?;
+                self.replace_event_at(locked_store, location, target_event).await?;
             }
 
             Ok(())
@@ -1759,6 +1804,7 @@ mod private {
         #[must_use = "Propagate `VectorDiff` updates via `RoomEventCacheUpdate`"]
         pub async fn handle_sync(
             &mut self,
+            locked_store: OwnedEventCacheStoreLockGuard,
             mut timeline: Timeline,
             #[cfg(feature = "experimental-search")] room: &Room,
         ) -> Result<(bool, Vec<VectorDiff<Event>>), EventCacheError> {
@@ -1824,7 +1870,7 @@ mod private {
 
                         target_event.thread_summary = ThreadSummaryStatus::Some(prev_summary);
 
-                        self.replace_event_at(location, target_event).await?;
+                        self.replace_event_at(locked_store.clone(), location, target_event).await?;
                     }
                 }
             }
@@ -1847,13 +1893,18 @@ mod private {
             //
             // We don't have to worry the removals can change the position of the existing
             // events, because we are pushing all _new_ `events` at the back.
-            self.remove_events(in_memory_duplicated_event_ids, in_store_duplicated_event_ids)
-                .await?;
+            self.remove_events(
+                locked_store.clone(),
+                in_memory_duplicated_event_ids,
+                in_store_duplicated_event_ids,
+            )
+            .await?;
 
             self.room_linked_chunk
                 .push_live_events(prev_batch.map(|prev_token| Gap { prev_token }), &events);
 
             self.post_process_new_events(
+                locked_store.clone(),
                 events,
                 true,
                 #[cfg(feature = "experimental-search")]
@@ -1868,7 +1919,7 @@ mod private {
                 //
                 // We must do this *after* persisting these events to storage (in
                 // `post_process_new_events`).
-                self.shrink_to_last_chunk().await?;
+                self.shrink_to_last_chunk(locked_store).await?;
             }
 
             let timeline_event_diffs = self.room_linked_chunk.updates_as_vector_diffs();
@@ -1886,6 +1937,7 @@ mod private {
         #[must_use = "Propagate `VectorDiff` updates via `RoomEventCacheUpdate`"]
         pub async fn handle_backpagination(
             &mut self,
+            locked_store: OwnedEventCacheStoreLockGuard,
             events: Vec<Event>,
             mut new_token: Option<String>,
             prev_token: Option<String>,
@@ -1942,8 +1994,12 @@ mod private {
 
             if !all_duplicates {
                 // Let's forget all the previous events.
-                self.remove_events(in_memory_duplicated_event_ids, in_store_duplicated_event_ids)
-                    .await?;
+                self.remove_events(
+                    locked_store.clone(),
+                    in_memory_duplicated_event_ids,
+                    in_store_duplicated_event_ids,
+                )
+                .await?;
             } else {
                 // All new events are duplicated, they can all be ignored.
                 events.clear();
@@ -1965,6 +2021,7 @@ mod private {
 
             // Note: this flushes updates to the store.
             self.post_process_new_events(
+                locked_store,
                 topo_ordered_events,
                 false,
                 #[cfg(feature = "experimental-search")]
@@ -2347,11 +2404,17 @@ mod timed_tests {
             events: vec![f.text_msg("hey yo").sender(*ALICE).into_event()],
         };
 
-        room_event_cache
-            .inner
-            .handle_joined_room_update(JoinedRoomUpdate { timeline, ..Default::default() })
-            .await
-            .unwrap();
+        {
+            let locked_store = room_event_cache.inner.store.lock_owned().await.unwrap();
+            room_event_cache
+                .inner
+                .handle_joined_room_update(
+                    locked_store,
+                    JoinedRoomUpdate { timeline, ..Default::default() },
+                )
+                .await
+                .unwrap();
+        }
 
         // Just checking the generic update is correct.
         assert_matches!(
@@ -2426,11 +2489,17 @@ mod timed_tests {
 
         let timeline = Timeline { limited: false, prev_batch: None, events: vec![ev] };
 
-        room_event_cache
-            .inner
-            .handle_joined_room_update(JoinedRoomUpdate { timeline, ..Default::default() })
-            .await
-            .unwrap();
+        {
+            let locked_store = room_event_cache.inner.store.lock_owned().await.unwrap();
+            room_event_cache
+                .inner
+                .handle_joined_room_update(
+                    locked_store,
+                    JoinedRoomUpdate { timeline, ..Default::default() },
+                )
+                .await
+                .unwrap();
+        }
 
         // Just checking the generic update is correct.
         assert_matches!(
@@ -2754,11 +2823,17 @@ mod timed_tests {
         // A new update with one of these events leads to deduplication.
         let timeline = Timeline { limited: false, prev_batch: None, events: vec![ev2] };
 
-        room_event_cache
-            .inner
-            .handle_joined_room_update(JoinedRoomUpdate { timeline, ..Default::default() })
-            .await
-            .unwrap();
+        {
+            let locked_store = room_event_cache.inner.store.lock_owned().await.unwrap();
+            room_event_cache
+                .inner
+                .handle_joined_room_update(
+                    locked_store,
+                    JoinedRoomUpdate { timeline, ..Default::default() },
+                )
+                .await
+                .unwrap();
+        }
 
         // Just checking the generic update is correct. There is a duplicate event, so
         // no generic changes whatsoever!
@@ -2861,18 +2936,24 @@ mod timed_tests {
 
         // Propagate an update including a limited timeline with one message and a
         // prev-batch token.
-        room_event_cache
-            .inner
-            .handle_joined_room_update(JoinedRoomUpdate {
-                timeline: Timeline {
-                    limited: true,
-                    prev_batch: Some("raclette".to_owned()),
-                    events: vec![f.text_msg("hey yo").into_event()],
-                },
-                ..Default::default()
-            })
-            .await
-            .unwrap();
+        {
+            let locked_store = room_event_cache.inner.store.lock_owned().await.unwrap();
+            room_event_cache
+                .inner
+                .handle_joined_room_update(
+                    locked_store,
+                    JoinedRoomUpdate {
+                        timeline: Timeline {
+                            limited: true,
+                            prev_batch: Some("raclette".to_owned()),
+                            events: vec![f.text_msg("hey yo").into_event()],
+                        },
+                        ..Default::default()
+                    },
+                )
+                .await
+                .unwrap();
+        }
 
         // Just checking the generic update is correct.
         assert_matches!(
@@ -2922,18 +3003,24 @@ mod timed_tests {
 
         // Now, propagate an update for another message, but the timeline isn't limited
         // this time.
-        room_event_cache
-            .inner
-            .handle_joined_room_update(JoinedRoomUpdate {
-                timeline: Timeline {
-                    limited: false,
-                    prev_batch: Some("fondue".to_owned()),
-                    events: vec![f.text_msg("sup").into_event()],
-                },
-                ..Default::default()
-            })
-            .await
-            .unwrap();
+        {
+            let locked_store = room_event_cache.inner.store.lock_owned().await.unwrap();
+            room_event_cache
+                .inner
+                .handle_joined_room_update(
+                    locked_store,
+                    JoinedRoomUpdate {
+                        timeline: Timeline {
+                            limited: false,
+                            prev_batch: Some("fondue".to_owned()),
+                            events: vec![f.text_msg("sup").into_event()],
+                        },
+                        ..Default::default()
+                    },
+                )
+                .await
+                .unwrap();
+        }
 
         // Just checking the generic update is correct.
         assert_matches!(
@@ -3180,18 +3267,24 @@ mod timed_tests {
         // last chunk, and that the linked chunk only contains the last two
         // events.
         let evid4 = event_id!("$4");
-        room_event_cache
-            .inner
-            .handle_joined_room_update(JoinedRoomUpdate {
-                timeline: Timeline {
-                    limited: true,
-                    prev_batch: Some("fondue".to_owned()),
-                    events: vec![ev3, f.text_msg("sup").event_id(evid4).into_event()],
-                },
-                ..Default::default()
-            })
-            .await
-            .unwrap();
+        {
+            let locked_store = room_event_cache.inner.store.lock_owned().await.unwrap();
+            room_event_cache
+                .inner
+                .handle_joined_room_update(
+                    locked_store,
+                    JoinedRoomUpdate {
+                        timeline: Timeline {
+                            limited: true,
+                            prev_batch: Some("fondue".to_owned()),
+                            events: vec![ev3, f.text_msg("sup").event_id(evid4).into_event()],
+                        },
+                        ..Default::default()
+                    },
+                )
+                .await
+                .unwrap();
+        }
 
         {
             let state = room_event_cache.inner.state.read().await;
