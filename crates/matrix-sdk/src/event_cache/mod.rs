@@ -58,7 +58,7 @@ use ruma::{
     RoomId,
 };
 use tokio::{
-    join, select,
+    select,
     sync::{
         broadcast::{channel, error::RecvError, Receiver, Sender},
         mpsc, Mutex, RwLock,
@@ -859,9 +859,6 @@ impl EventCacheInner {
 
         let locked_store = self.store.lock_owned().await?;
 
-        let mut left_futures = Vec::with_capacity(updates.left.len());
-        let mut joined_futures = Vec::with_capacity(updates.joined.len());
-
         // Note: bnjbvr tried to make this concurrent at some point, but it turned out
         // to be a performance regression, even for large sync updates. Lacking
         // time to investigate, this code remains sequential for now. See also
@@ -871,17 +868,12 @@ impl EventCacheInner {
         for (room_id, left_room_update) in updates.left {
             let room = self.for_room(&*locked_store.store, &room_id).await?;
 
-            let locked_store = locked_store.clone();
-            left_futures.push(async move {
-                trace!(?room_id, "Handling a `LeftRoomUpdate`");
-
-                if let Err(err) =
-                    room.inner.handle_left_room_update(locked_store, left_room_update).await
-                {
-                    // Non-fatal error, try to continue to the next room.
-                    error!("handling left room update: {err}");
-                }
-            });
+            if let Err(err) =
+                room.inner.handle_left_room_update(locked_store.clone(), left_room_update).await
+            {
+                // Non-fatal error, try to continue to the next room.
+                error!("handling left room update: {err}");
+            }
         }
 
         // Joined rooms.
@@ -890,20 +882,13 @@ impl EventCacheInner {
 
             let room = self.for_room(&*locked_store.store, &room_id).await?;
 
-            let locked_store = locked_store.clone();
-            joined_futures.push(async move {
-                trace!(?room_id, "Handling a `JoinedRoomUpdate`");
-
-                if let Err(err) =
-                    room.inner.handle_joined_room_update(locked_store, joined_room_update).await
-                {
-                    // Non-fatal error, try to continue to the next room.
-                    error!(%room_id, "handling joined room update: {err}");
-                }
-            });
+            if let Err(err) =
+                room.inner.handle_joined_room_update(locked_store.clone(), joined_room_update).await
+            {
+                // Non-fatal error, try to continue to the next room.
+                error!(%room_id, "handling joined room update: {err}");
+            }
         }
-
-        join!(join_all(left_futures), join_all(joined_futures));
 
         // Invited rooms.
         // TODO: we don't anything with `updates.invite` at this point.
