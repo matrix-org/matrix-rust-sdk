@@ -27,6 +27,8 @@ use itertools::Itertools;
 use matrix_sdk_common::{
     deserialized_responses::WithheldCode, executor::spawn, locks::RwLock as StdRwLock,
 };
+#[cfg(feature = "experimental-encrypted-state-events")]
+use ruma::events::AnyStateEventContent;
 use ruma::{
     events::{AnyMessageLikeEventContent, AnyToDeviceEventContent, ToDeviceEventType},
     serde::Raw,
@@ -216,6 +218,50 @@ impl GroupSessionManager {
         assert!(!session.expired(), "Session expired");
 
         let content = session.encrypt(event_type, content).await;
+
+        let mut changes = Changes::default();
+        changes.outbound_group_sessions.push(session);
+        self.store.save_changes(changes).await?;
+
+        Ok(content)
+    }
+
+    /// Encrypts a state event for the given room using its outbound group
+    /// session.
+    ///
+    /// # Arguments
+    ///
+    /// * `room_id` - The ID of the room where the state event will be sent.
+    /// * `event_type` - The type of the state event to encrypt.
+    /// * `state_key` - The state key associated with the event.
+    /// * `content` - The raw content of the state event to encrypt.
+    ///
+    /// # Returns
+    ///
+    /// Returns the raw encrypted state event content.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if saving changes to the store fails.
+    ///
+    /// # Panics
+    ///
+    /// Panics if no session exists for the given room ID, or the session
+    /// has expired.
+    #[cfg(feature = "experimental-encrypted-state-events")]
+    pub async fn encrypt_state(
+        &self,
+        room_id: &RoomId,
+        event_type: &str,
+        state_key: &str,
+        content: &Raw<AnyStateEventContent>,
+    ) -> MegolmResult<Raw<RoomEncryptedEventContent>> {
+        let session =
+            self.sessions.get_or_load(room_id).await.expect("Session wasn't created nor shared");
+
+        assert!(!session.expired(), "Session expired");
+
+        let content = session.encrypt_state(event_type, state_key, content).await;
 
         let mut changes = Changes::default();
         changes.outbound_group_sessions.push(session);

@@ -36,6 +36,10 @@ where
     /// The globally unique identifier for this event.
     pub event_id: OwnedEventId,
 
+    /// Present if and only if this event is a state event.
+    #[cfg(feature = "experimental-encrypted-state-events")]
+    pub state_key: Option<String>,
+
     /// The body of this event, as created by the client which sent it.
     pub content: C,
 
