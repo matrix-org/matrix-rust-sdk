@@ -12,25 +12,32 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use tantivy::{IndexWriter, TantivyDocument, TantivyError};
+use ruma::EventId;
+use tantivy::{IndexWriter, TantivyDocument, TantivyError, Term};
 
-use crate::{OpStamp, error::IndexError};
+use crate::{
+    OpStamp,
+    error::IndexError,
+    schema::{MatrixSearchIndexSchema, RoomMessageSchema},
+};
 
 pub(crate) struct SearchIndexWriter {
     inner: IndexWriter,
     last_commit_opstamp: OpStamp,
-}
-
-impl From<IndexWriter> for SearchIndexWriter {
-    fn from(writer: IndexWriter) -> Self {
-        SearchIndexWriter { last_commit_opstamp: writer.commit_opstamp(), inner: writer }
-    }
+    schema: RoomMessageSchema,
 }
 
 impl SearchIndexWriter {
-    pub(crate) fn add_document(&self, document: TantivyDocument) -> Result<OpStamp, IndexError> {
-        Ok(self.inner.add_document(document)?) // TODO: This is blocking. Handle
-        // it.
+    pub(crate) fn new(writer: IndexWriter, schema: RoomMessageSchema) -> Self {
+        Self { last_commit_opstamp: writer.commit_opstamp(), inner: writer, schema }
+    }
+
+    pub(crate) fn add(&self, document: TantivyDocument) -> Result<OpStamp, IndexError> {
+        Ok(self.inner.add_document(document)?) // TODO: This is blocking. Handle it.
+    }
+
+    pub(crate) fn remove(&self, event_id: &EventId) {
+        self.inner.delete_term(Term::from_field_text(self.schema.primary_key(), event_id.as_str()));
     }
 
     pub(crate) fn commit(&mut self) -> Result<OpStamp, TantivyError> {

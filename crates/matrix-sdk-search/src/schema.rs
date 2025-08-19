@@ -12,14 +12,21 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use ruma::events::{
-    AnySyncMessageLikeEvent, MessageLikeEventContent, RedactContent,
-    RedactedMessageLikeEventContent, SyncMessageLikeEvent, room::message::MessageType,
+use ruma::{
+    events::{
+        AnySyncMessageLikeEvent, SyncMessageLikeEvent,
+        room::{
+            message::{MessageType, RoomMessageEventContent},
+            redaction::SyncRoomRedactionEvent,
+        },
+    },
+    room_version_rules::RedactionRules,
 };
 use tantivy::{
     DateTime, TantivyDocument, doc,
     schema::{DateOptions, DateTimePrecision, Field, INDEXED, STORED, STRING, Schema, TEXT},
 };
+use tracing::trace;
 
 use crate::{
     error::{IndexError, IndexSchemaError},
@@ -48,21 +55,19 @@ pub(crate) struct RoomMessageSchema {
 }
 
 impl RoomMessageSchema {
-    /// Given an [`AnySyncMessageLikeEvent`] and a function to convert the
-    /// content into a String to be indexed, return a [`TantivyDocument`] to
-    /// index.
-    fn make_doc<C: MessageLikeEventContent + RedactContent, F>(
+    /// Given an [`SyncMessageLikeEvent<RoomMessageEventContent>`] and a
+    /// function to convert the content into a String to be indexed, return
+    /// a [`TantivyDocument`] to index.
+    fn make_doc(
         &self,
-        event: SyncMessageLikeEvent<C>,
-        get_body_from_content: F,
-    ) -> Result<TantivyDocument, IndexError>
-    where
-        <C as RedactContent>::Redacted: RedactedMessageLikeEventContent,
-        F: FnOnce(&C) -> Result<String, IndexError>,
-    {
+        event: SyncMessageLikeEvent<RoomMessageEventContent>,
+    ) -> Result<TantivyDocument, IndexError> {
         let unredacted = event.as_original().ok_or(IndexError::CannotIndexRedactedMessage)?;
 
-        let body = get_body_from_content(&unredacted.content)?;
+        let body = match &unredacted.content.msgtype {
+            MessageType::Text(content) => Ok(content.body.clone()),
+            _ => Err(IndexError::MessageTypeNotSupported),
+        }?;
 
         Ok(doc!(
             self.event_id_field => unredacted.event_id.to_string(),
@@ -116,22 +121,28 @@ impl MatrixSearchIndexSchema for RoomMessageSchema {
     fn handle_event(
         &self,
         event: AnySyncMessageLikeEvent,
+        rules: &RedactionRules,
     ) -> Result<RoomIndexOperation, IndexError> {
         match event {
             // m.room.message behaviour
-            AnySyncMessageLikeEvent::RoomMessage(event) => self
-                .make_doc(event, |content| match &content.msgtype {
-                    MessageType::Text(content) => Ok(content.body.clone()),
-                    _ => Err(IndexError::MessageTypeNotSupported),
-                })
-                .map(RoomIndexOperation::Add),
+            AnySyncMessageLikeEvent::RoomMessage(event) => {
+                self.make_doc(event).map(RoomIndexOperation::Add)
+            }
 
-            // new MSC-1767 m.message behaviour
-            AnySyncMessageLikeEvent::Message(event) => self
-                .make_doc(event, |content| {
-                    content.text.find_plain().ok_or(IndexError::EmptyMessage).map(|v| v.to_owned())
-                })
-                .map(RoomIndexOperation::Add),
+            AnySyncMessageLikeEvent::RoomRedaction(redaction_event) => {
+                if let SyncRoomRedactionEvent::Original(redaction_event) = redaction_event {
+                    if let Some(redacted_event_id) = redaction_event.redacts(rules) {
+                        Ok(RoomIndexOperation::Remove(redacted_event_id))
+                    } else {
+                        // If not acting on anything, we can just ignore it.
+                        trace!("Room redaction in indexing redacts nothing, ignoring.");
+                        Ok(RoomIndexOperation::Noop)
+                    }
+                } else {
+                    // If redaction itself is redacted, we can ignore it.
+                    Ok(RoomIndexOperation::Noop)
+                }
+            }
 
             _ => Err(IndexError::MessageTypeNotSupported),
         }
