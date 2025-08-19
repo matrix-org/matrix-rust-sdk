@@ -240,7 +240,8 @@ impl LatestEventValue {
             // `LatestEventValue` from the buffer of values. Finally, return the last
             // `LatestEventValue` or calculate a new one.
             RoomSendQueueUpdate::SentEvent { transaction_id, .. } => {
-                let position = buffer_of_values_for_local_events.unwedged_after(transaction_id);
+                let position =
+                    buffer_of_values_for_local_events.mark_unwedged_after(transaction_id);
 
                 if let Some(position) = position {
                     buffer_of_values_for_local_events.remove(position);
@@ -291,7 +292,7 @@ impl LatestEventValue {
             // Mark the latest event value matching `transaction_id`, and all its following values,
             // as wedged.
             RoomSendQueueUpdate::SendError { transaction_id, .. } => {
-                buffer_of_values_for_local_events.wedged_from(transaction_id);
+                buffer_of_values_for_local_events.mark_wedged_from(transaction_id);
 
                 Self::new_local_or_remote(
                     buffer_of_values_for_local_events,
@@ -306,7 +307,7 @@ impl LatestEventValue {
             // Mark the latest event value matching `transaction_id`, and all its following values,
             // as unwedged.
             RoomSendQueueUpdate::RetryEvent { transaction_id } => {
-                buffer_of_values_for_local_events.unwedged_from(transaction_id);
+                buffer_of_values_for_local_events.mark_unwedged_from(transaction_id);
 
                 Self::new_local_or_remote(
                     buffer_of_values_for_local_events,
@@ -453,7 +454,7 @@ impl LatestEventValuesForLocalEvents {
 
     /// Mark the `LatestEventValue` matching `transaction_id`, and all the
     /// following values, as wedged.
-    fn wedged_from(&mut self, transaction_id: &TransactionId) {
+    fn mark_wedged_from(&mut self, transaction_id: &TransactionId) {
         let mut values = self.buffer.iter_mut();
 
         if let Some(first_value_to_wedge) = values
@@ -471,7 +472,7 @@ impl LatestEventValuesForLocalEvents {
 
     /// Mark the `LatestEventValue` matching `transaction_id`, and all the
     /// following values, as unwedged.
-    fn unwedged_from(&mut self, transaction_id: &TransactionId) {
+    fn mark_unwedged_from(&mut self, transaction_id: &TransactionId) {
         let mut values = self.buffer.iter_mut();
 
         if let Some(first_value_to_unwedge) = values
@@ -492,7 +493,7 @@ impl LatestEventValuesForLocalEvents {
     ///
     /// Note that contrary to [`Self::unwedged_from`], the `LatestEventValue` is
     /// untouched. However, its position is returned (if any).
-    fn unwedged_after(&mut self, transaction_id: &TransactionId) -> Option<usize> {
+    fn mark_unwedged_after(&mut self, transaction_id: &TransactionId) -> Option<usize> {
         let mut values = self.buffer.iter_mut();
 
         if let Some(position) = values
@@ -1068,7 +1069,7 @@ mod tests_latest_event_values_for_local_events {
         );
         buffer.push(transaction_id_2, LatestEventValue::LocalIsSending(room_message("raclette")));
 
-        buffer.wedged_from(&transaction_id_1);
+        buffer.mark_wedged_from(&transaction_id_1);
 
         assert_eq!(buffer.buffer.len(), 3);
         assert_matches!(buffer.buffer[0].1, LatestEventValue::LocalIsSending(_));
@@ -1090,7 +1091,7 @@ mod tests_latest_event_values_for_local_events {
         );
         buffer.push(transaction_id_2, LatestEventValue::LocalIsWedged(room_message("raclette")));
 
-        buffer.unwedged_from(&transaction_id_1);
+        buffer.mark_unwedged_from(&transaction_id_1);
 
         assert_eq!(buffer.buffer.len(), 3);
         assert_matches!(buffer.buffer[0].1, LatestEventValue::LocalIsWedged(_));
@@ -1112,7 +1113,7 @@ mod tests_latest_event_values_for_local_events {
         );
         buffer.push(transaction_id_2, LatestEventValue::LocalIsWedged(room_message("raclette")));
 
-        buffer.unwedged_after(&transaction_id_1);
+        buffer.mark_unwedged_after(&transaction_id_1);
 
         assert_eq!(buffer.buffer.len(), 3);
         assert_matches!(buffer.buffer[0].1, LatestEventValue::LocalIsWedged(_));
