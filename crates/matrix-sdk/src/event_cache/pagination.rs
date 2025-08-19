@@ -180,7 +180,7 @@ impl RoomPagination {
         loop {
             let mut state_guard = self.inner.state.write().await;
 
-            match state_guard.load_more_events_backwards().await? {
+            match state_guard.load_more_events_backwards(&self.inner.store).await? {
                 LoadMoreEventsBackwardsOutcome::WaitForInitialPrevToken => {
                     const DEFAULT_WAIT_FOR_TOKEN_DURATION: Duration = Duration::from_secs(3);
 

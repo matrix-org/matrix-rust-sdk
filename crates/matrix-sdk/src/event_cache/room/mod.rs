@@ -976,6 +976,7 @@ mod private {
         /// Load more events backwards if the last chunk is **not** a gap.
         pub(in super::super) async fn load_more_events_backwards(
             &mut self,
+            store_lock: &EventCacheStoreLock,
         ) -> Result<LoadMoreEventsBackwardsOutcome, EventCacheError> {
             // If any in-memory chunk is a gap, don't load more events, and let the caller
             // resolve the gap.
@@ -992,7 +993,7 @@ mod private {
                 .expect("a linked chunk is never empty")
                 .identifier();
 
-            let store = self.store.lock().await?;
+            let store = store_lock.lock().await?;
 
             // The first chunk is not a gap, we can load its previous chunk.
             let linked_chunk_id = LinkedChunkId::Room(&self.room);
@@ -2988,7 +2989,7 @@ mod timed_tests {
 
             // But if I manually reload more of the chunk, the gap will be present.
             assert_matches!(
-                state.load_more_events_backwards().await.unwrap(),
+                state.load_more_events_backwards(&room_event_cache.inner.store).await.unwrap(),
                 LoadMoreEventsBackwardsOutcome::Gap { .. }
             );
 
