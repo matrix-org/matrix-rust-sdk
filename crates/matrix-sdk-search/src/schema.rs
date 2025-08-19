@@ -35,6 +35,7 @@ pub(crate) trait MatrixSearchIndexSchema {
     fn new() -> Self;
     fn default_search_fields(&self) -> Vec<Field>;
     fn primary_key(&self) -> Field;
+    fn deletion_key(&self) -> Field;
     fn as_tantivy_schema(&self) -> Schema;
     fn handle_event(
         &self,
@@ -123,6 +124,10 @@ impl MatrixSearchIndexSchema for RoomMessageSchema {
 
     fn primary_key(&self) -> Field {
         self.event_id_field
+    }
+
+    fn deletion_key(&self) -> Field {
+        self.original_event_id_field
     }
 
     fn as_tantivy_schema(&self) -> Schema {

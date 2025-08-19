@@ -232,7 +232,9 @@ mod tests {
     use std::{collections::HashSet, error::Error};
 
     use matrix_sdk_test::event_factory::EventFactory;
-    use ruma::{event_id, room_id, user_id};
+    use ruma::{
+        event_id, events::room::message::RoomMessageEventContentWithoutRelation, room_id, user_id,
+    };
 
     use crate::index::RoomIndex;
 
@@ -420,6 +422,49 @@ mod tests {
         index.commit_and_reload()?;
 
         assert!(!index.contains(event_id), "Index should not contain event");
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_edit_removes_old_and_adds_new_event() -> Result<(), Box<dyn Error>> {
+        let room_id = room_id!("!room_id:localhost");
+        let mut index =
+            RoomIndex::new_in_memory(room_id).expect("failed to make index in ram: {index:?}");
+
+        let old_event_id = event_id!("$old_event_id:localhost");
+        let user_id = user_id!("@user_id:localhost");
+        let old_event = EventFactory::new()
+            .text_msg("This is a sentence")
+            .event_id(old_event_id)
+            .room(room_id)
+            .sender(user_id)
+            .into_any_sync_message_like_event();
+
+        index.handle_event(old_event)?;
+
+        index.commit_and_reload()?;
+
+        assert!(index.contains(old_event_id), "Index should contain event");
+
+        let new_event_id = event_id!("$new_event_id:localhost");
+        let edit = EventFactory::new()
+            .text_msg("This is a brand new sentence!")
+            .edit(
+                old_event_id,
+                RoomMessageEventContentWithoutRelation::text_plain("This is a brand new sentence!"),
+            )
+            .event_id(new_event_id)
+            .room(room_id)
+            .sender(user_id)
+            .into_any_sync_message_like_event();
+
+        index.handle_event(edit)?;
+
+        index.commit_and_reload()?;
+
+        assert!(!index.contains(old_event_id), "Index should not contain old event");
+        assert!(index.contains(new_event_id), "Index should contain edited event");
 
         Ok(())
     }
