@@ -135,6 +135,204 @@ impl LatestEvent {
     }
 }
 
+#[cfg(all(not(target_family = "wasm"), test))]
+mod tests_latest_event {
+    use assert_matches::assert_matches;
+    use matrix_sdk_base::{
+        linked_chunk::{ChunkIdentifier, LinkedChunkId, Position, Update},
+        store::SerializableEventContent,
+        RoomState,
+    };
+    use matrix_sdk_test::{async_test, event_factory::EventFactory};
+    use ruma::{
+        event_id,
+        events::{room::message::RoomMessageEventContent, AnyMessageLikeEventContent},
+        room_id, user_id, MilliSecondsSinceUnixEpoch, OwnedTransactionId,
+    };
+
+    use super::{LatestEvent, LatestEventValue};
+    use crate::{
+        client::WeakClient,
+        latest_events::LatestEventContent,
+        room::WeakRoom,
+        send_queue::{LocalEcho, LocalEchoContent, RoomSendQueue, RoomSendQueueUpdate, SendHandle},
+        test_utils::mocks::MatrixMockServer,
+    };
+
+    fn new_local_echo_content(
+        room_send_queue: &RoomSendQueue,
+        transaction_id: &OwnedTransactionId,
+        body: &str,
+    ) -> LocalEchoContent {
+        LocalEchoContent::Event {
+            serialized_event: SerializableEventContent::new(
+                &AnyMessageLikeEventContent::RoomMessage(RoomMessageEventContent::text_plain(body)),
+            )
+            .unwrap(),
+            send_handle: SendHandle::new(
+                room_send_queue.clone(),
+                transaction_id.clone(),
+                MilliSecondsSinceUnixEpoch::now(),
+            ),
+            send_error: None,
+        }
+    }
+
+    #[async_test]
+    async fn test_update_ignores_none_value() {
+        let room_id = room_id!("!r0");
+
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+        let weak_client = WeakClient::from_client(&client);
+
+        // Create the room.
+        client.base_client().get_or_create_room(room_id, RoomState::Joined);
+        let weak_room = WeakRoom::new(weak_client, room_id.to_owned());
+
+        // Get a `RoomEventCache`.
+        let event_cache = client.event_cache();
+        event_cache.subscribe().unwrap();
+
+        let (room_event_cache, _) = event_cache.for_room(room_id).await.unwrap();
+
+        let mut latest_event = LatestEvent::new(room_id, None, &room_event_cache, &weak_room).await;
+
+        // First off, check the default value is `None`!
+        assert_matches!(latest_event.current_value.get().await, LatestEventValue::None);
+
+        // Second, set a new value.
+        latest_event
+            .update(LatestEventValue::LocalIsSending(LatestEventContent::RoomMessage(
+                RoomMessageEventContent::text_plain("foo"),
+            )))
+            .await;
+
+        assert_matches!(
+            latest_event.current_value.get().await,
+            LatestEventValue::LocalIsSending(_)
+        );
+
+        // Finally, set a new `None` value. It must be ignored.
+        latest_event.update(LatestEventValue::None).await;
+
+        assert_matches!(
+            latest_event.current_value.get().await,
+            LatestEventValue::LocalIsSending(_)
+        );
+    }
+
+    #[async_test]
+    async fn test_local_has_priority_over_remote() {
+        let room_id = room_id!("!r0").to_owned();
+        let user_id = user_id!("@mnt_io:matrix.org");
+        let event_factory = EventFactory::new().sender(user_id).room(&room_id);
+
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+        client.base_client().get_or_create_room(&room_id, RoomState::Joined);
+        let room = client.get_room(&room_id).unwrap();
+        let weak_room = WeakRoom::new(WeakClient::from_client(&client), room_id.clone());
+
+        let event_cache = client.event_cache();
+        event_cache.subscribe().unwrap();
+
+        // Fill the event cache with one event.
+        client
+            .event_cache_store()
+            .lock()
+            .await
+            .unwrap()
+            .handle_linked_chunk_updates(
+                LinkedChunkId::Room(&room_id),
+                vec![
+                    Update::NewItemsChunk {
+                        previous: None,
+                        new: ChunkIdentifier::new(0),
+                        next: None,
+                    },
+                    Update::PushItems {
+                        at: Position::new(ChunkIdentifier::new(0), 0),
+                        items: vec![event_factory.text_msg("A").event_id(event_id!("$ev0")).into()],
+                    },
+                ],
+            )
+            .await
+            .unwrap();
+
+        let (room_event_cache, _) = event_cache.for_room(&room_id).await.unwrap();
+
+        let send_queue = client.send_queue();
+        let room_send_queue = send_queue.for_room(room);
+
+        let mut latest_event =
+            LatestEvent::new(&room_id, None, &room_event_cache, &weak_room).await;
+
+        // First, let's create a `LatestEventValue` from the event cache. It must work.
+        {
+            latest_event.update_with_event_cache(&room_event_cache, &None).await;
+
+            assert_matches!(latest_event.current_value.get().await, LatestEventValue::Remote(_));
+        }
+
+        // Second, let's create a `LatestEventValue` from the send queue. It
+        // must overwrite the current `LatestEventValue`.
+        let transaction_id = OwnedTransactionId::from("txnid0");
+
+        {
+            let content = new_local_echo_content(&room_send_queue, &transaction_id, "B");
+
+            let update = RoomSendQueueUpdate::NewLocalEvent(LocalEcho {
+                transaction_id: transaction_id.clone(),
+                content,
+            });
+
+            latest_event.update_with_send_queue(&update, &room_event_cache, &None).await;
+
+            assert_matches!(
+                latest_event.current_value.get().await,
+                LatestEventValue::LocalIsSending(_)
+            );
+        }
+
+        // Third, let's create a `LatestEventValue` from the event cache.
+        // Nothing must happen, it cannot overwrite the current
+        // `LatestEventValue` because the local event isn't sent yet.
+        {
+            latest_event.update_with_event_cache(&room_event_cache, &None).await;
+
+            assert_matches!(
+                latest_event.current_value.get().await,
+                LatestEventValue::LocalIsSending(_)
+            );
+        }
+
+        // Fourth, let's a `LatestEventValue` from the send queue. It must stay the
+        // same, but now the local event is sent.
+        {
+            let update = RoomSendQueueUpdate::SentEvent {
+                transaction_id,
+                event_id: event_id!("$ev1").to_owned(),
+            };
+
+            latest_event.update_with_send_queue(&update, &room_event_cache, &None).await;
+
+            assert_matches!(
+                latest_event.current_value.get().await,
+                LatestEventValue::LocalIsSending(_)
+            );
+        }
+
+        // Finally, let's create a `LatestEventValue` from the event cache. _Now_ it's
+        // possible, because there is no more local events.
+        {
+            latest_event.update_with_event_cache(&room_event_cache, &None).await;
+
+            assert_matches!(latest_event.current_value.get().await, LatestEventValue::Remote(_));
+        }
+    }
+}
+
 /// A latest event value!
 #[derive(Debug, Default, Clone)]
 pub enum LatestEventValue {
@@ -1163,7 +1361,7 @@ mod tests_latest_event_values_for_local_events {
 }
 
 #[cfg(all(not(target_family = "wasm"), test))]
-mod tests_latest_event_value_non_wasm {
+mod tests_latest_event_value {
     use std::sync::Arc;
 
     use assert_matches::assert_matches;
@@ -1183,8 +1381,8 @@ mod tests_latest_event_value_non_wasm {
     };
 
     use super::{
-        LatestEvent, LatestEventContent, LatestEventValue, LatestEventValuesForLocalEvents,
-        RoomEventCache, RoomSendQueueUpdate,
+        LatestEventContent, LatestEventValue, LatestEventValuesForLocalEvents, RoomEventCache,
+        RoomSendQueueUpdate,
     };
     use crate::{
         client::WeakClient,
@@ -1193,50 +1391,6 @@ mod tests_latest_event_value_non_wasm {
         test_utils::mocks::MatrixMockServer,
         Client, Error,
     };
-
-    #[async_test]
-    async fn test_update_ignores_none_value() {
-        let room_id = room_id!("!r0");
-
-        let server = MatrixMockServer::new().await;
-        let client = server.client_builder().build().await;
-        let weak_client = WeakClient::from_client(&client);
-
-        // Create the room.
-        client.base_client().get_or_create_room(room_id, RoomState::Joined);
-        let weak_room = WeakRoom::new(weak_client, room_id.to_owned());
-
-        // Get a `RoomEventCache`.
-        let event_cache = client.event_cache();
-        event_cache.subscribe().unwrap();
-
-        let (room_event_cache, _) = event_cache.for_room(room_id).await.unwrap();
-
-        let mut latest_event = LatestEvent::new(room_id, None, &room_event_cache, &weak_room).await;
-
-        // First off, check the default value is `None`!
-        assert_matches!(latest_event.current_value.get().await, LatestEventValue::None);
-
-        // Second, set a new value.
-        latest_event
-            .update(LatestEventValue::LocalIsSending(LatestEventContent::RoomMessage(
-                RoomMessageEventContent::text_plain("foo"),
-            )))
-            .await;
-
-        assert_matches!(
-            latest_event.current_value.get().await,
-            LatestEventValue::LocalIsSending(_)
-        );
-
-        // Finally, set a new `None` value. It must be ignored.
-        latest_event.update(LatestEventValue::None).await;
-
-        assert_matches!(
-            latest_event.current_value.get().await,
-            LatestEventValue::LocalIsSending(_)
-        );
-    }
 
     #[async_test]
     async fn test_remote_is_scanning_event_backwards_from_event_cache() {
