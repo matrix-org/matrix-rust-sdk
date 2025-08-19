@@ -2432,6 +2432,37 @@ impl<'a> MockEndpoint<'a, EncryptionStateEndpoint> {
         )
     }
 
+    /// Marks the room as encrypted, opting into experimental state event
+    /// encryption.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # tokio_test::block_on(async {
+    /// use matrix_sdk::{ruma::room_id, test_utils::mocks::MatrixMockServer};
+    ///
+    /// let mock_server = MatrixMockServer::new().await;
+    /// let client = mock_server.client_builder().build().await;
+    ///
+    /// mock_server.mock_room_state_encryption().state_encrypted().mount().await;
+    ///
+    /// let room = mock_server
+    ///     .sync_joined_room(&client, room_id!("!room_id:localhost"))
+    ///     .await;
+    ///
+    /// assert!(
+    ///     room.latest_encryption_state().await?.is_state_encrypted(),
+    ///     "The room should be marked as state encrypted."
+    /// );
+    /// # anyhow::Ok(()) });
+    #[cfg(feature = "experimental-encrypted-state-events")]
+    pub fn state_encrypted(self) -> MatrixMock<'a> {
+        self.respond_with(
+            ResponseTemplate::new(200)
+                .set_body_json(&*test_json::sync_events::ENCRYPTION_WITH_STATE_CONTENT),
+        )
+    }
+
     /// Marks the room as not encrypted.
     ///
     /// # Examples

@@ -15,6 +15,7 @@ pub enum StateTestEvent {
     Aliases,
     Create,
     Encryption,
+    EncryptionWithState,
     HistoryVisibility,
     JoinRules,
     Member,
@@ -40,6 +41,9 @@ impl From<StateTestEvent> for JsonValue {
             StateTestEvent::Aliases => test_json::sync_events::ALIASES.to_owned(),
             StateTestEvent::Create => test_json::sync_events::CREATE.to_owned(),
             StateTestEvent::Encryption => test_json::sync_events::ENCRYPTION.to_owned(),
+            StateTestEvent::EncryptionWithState => {
+                test_json::sync_events::ENCRYPTION_WITH_STATE.to_owned()
+            }
             StateTestEvent::HistoryVisibility => {
                 test_json::sync_events::HISTORY_VISIBILITY.to_owned()
             }
