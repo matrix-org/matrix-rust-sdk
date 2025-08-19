@@ -732,6 +732,19 @@ async fn test_megolm_encryption() {
     }
 }
 
+/// Helper function to set up end-to-end Megolm encryption between two devices.
+///
+/// Creates two devices, Alice and Bob, and has Alice create an outgoing Megolm
+/// session in the given room, whose decryption key is shared with Bob via a
+/// to-device message.
+///
+/// # Arguments
+///
+/// * `room_id` - The RoomId for which to set up Megolm encryption.
+///
+/// # Returns
+///
+/// A tuple containing the alice and bob OlmMachine instances.
 #[cfg(feature = "experimental-encrypted-state-events")]
 async fn megolm_encryption_setup_helper(room_id: &RoomId) -> (OlmMachine, OlmMachine) {
     let (alice, bob) =
@@ -773,6 +786,9 @@ async fn megolm_encryption_setup_helper(room_id: &RoomId) -> (OlmMachine, OlmMac
     (alice, bob)
 }
 
+/// Verifies that Megolm-encrypted state events can be encrypted and decrypted
+/// correctly, and that the decrypted event matches the expected type and
+/// content.
 #[cfg(feature = "experimental-encrypted-state-events")]
 #[async_test]
 async fn test_megolm_state_encryption() {
@@ -818,6 +834,9 @@ async fn test_megolm_state_encryption() {
     }
 }
 
+/// Verifies that decryption fails with StateKeyVerificationFailed
+/// when unpacking the state_key of the decrypted event yields an event type
+/// that does not exist or does not match the type in the decrypted ciphertext.
 #[cfg(feature = "experimental-encrypted-state-events")]
 #[async_test]
 async fn test_megolm_state_encryption_bad_type() {
@@ -831,7 +850,6 @@ async fn test_megolm_state_encryption_bad_type() {
     let encrypted_content =
         alice.encrypt_state_event(room_id, content, EmptyStateKey).await.unwrap();
 
-    // Malformed events
     let bad_type_event = json!({
         "event_id": "$xxxxx:example.org",
         "origin_server_ts": MilliSecondsSinceUnixEpoch::now(),
@@ -858,6 +876,9 @@ async fn test_megolm_state_encryption_bad_type() {
     );
 }
 
+/// Verifies that decryption fails with StateKeyVerificationFailed
+/// when unpacking the state_key of the decrypted event yields a state_key
+/// that does not match the state_key in the decrypted ciphertext.
 #[cfg(feature = "experimental-encrypted-state-events")]
 #[async_test]
 async fn test_megolm_state_encryption_bad_state_key() {
@@ -890,7 +911,6 @@ async fn test_megolm_state_encryption_bad_state_key() {
         .await
         .unwrap();
 
-    // Require malformed events fail verification
     assert_matches!(
         bad_state_key_decryption_result,
         RoomEventDecryptionResult::UnableToDecrypt(UnableToDecryptInfo {
