@@ -127,7 +127,7 @@ pub trait CryptoStore: AsyncTraitDeps {
         &self,
         backup_version: Option<&str>,
     ) -> Result<RoomKeyCounts, Self::Error>;
-    
+
     /// Get all the inbound group sessions for a given room.
     ///
     /// # Arguments

@@ -576,7 +576,7 @@ macro_rules! cryptostore_integration_tests {
                 let room_id = &room_id!("!testing:localhost");
                 let (_, session_1) = account.create_group_session_pair_with_defaults(room_id).await;
                 let (_, session_2) = account.create_group_session_pair_with_defaults(room_id).await;
-                
+
                 let second_room_id = &room_id!("!other_room_testing:localhost");
                 let (_, session_3) = account.create_group_session_pair_with_defaults(second_room_id).await;
 
@@ -602,8 +602,8 @@ macro_rules! cryptostore_integration_tests {
 
                 // Remove the last sessions since it is in an other room
                 sessions.pop();
-               
-                
+
+
                 let store = get_store(dir, None, false).await;
 
                 store.load_account().await.unwrap();
