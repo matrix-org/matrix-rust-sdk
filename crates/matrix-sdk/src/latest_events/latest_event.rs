@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::iter::once;
+use std::{iter::once, ops::Not};
 
 use eyeball::{AsyncLock, SharedObservable, Subscriber};
 use matrix_sdk_base::event_cache::Event;
@@ -79,12 +79,26 @@ impl LatestEvent {
     }
 
     /// Update the inner latest event value, based on the event cache
-    /// (specifically with a [`RoomEventCache`]).
+    /// (specifically with a [`RoomEventCache`]), if and only if there is no
+    /// local latest event value waiting.
+    ///
+    /// It is only necessary to compute a new [`LatestEventValue`] from the
+    /// event cache if there is no [`LatestEventValue`] to be compute from the
+    /// send queue. Indeed, anything coming from the send queue has the priority
+    /// over the anything coming from the event cache. We believe it provides a
+    /// better user experience.
     pub async fn update_with_event_cache(
         &mut self,
         room_event_cache: &RoomEventCache,
         power_levels: &Option<(&UserId, RoomPowerLevels)>,
     ) {
+        if self.buffer_of_values_for_local_events.is_empty().not() {
+            // At least one `LatestEventValue` exists for local events (i.e. coming from the
+            // send queue). In this case, we don't overwrite the current value with a new
+            // computed one from the event cache.
+            return;
+        }
+
         let new_value =
             LatestEventValue::new_remote_with_power_levels(room_event_cache, power_levels).await;
 
@@ -406,6 +420,11 @@ impl LatestEventValuesForLocalEvents {
     /// Create a new [`LatestEventValuesForLocalEvents`].
     fn new() -> Self {
         Self { buffer: Vec::with_capacity(2) }
+    }
+
+    /// Check the buffer is empty.
+    fn is_empty(&self) -> bool {
+        self.buffer.is_empty()
     }
 
     /// Get the last [`LatestEventValue`].
