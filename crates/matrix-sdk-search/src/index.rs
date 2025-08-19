@@ -35,6 +35,7 @@ use crate::{
 pub(crate) enum RoomIndexOperation {
     Add(TantivyDocument),
     Remove(OwnedEventId),
+    Edit(OwnedEventId, TantivyDocument),
     Noop,
 }
 
@@ -145,6 +146,12 @@ impl RoomIndex {
             }
             RoomIndexOperation::Remove(event_id) => {
                 self.writer.remove(&event_id);
+            }
+            RoomIndexOperation::Edit(remove_event_id, document) => {
+                self.writer.remove(&remove_event_id);
+                if !self.contains(&event_id) {
+                    self.writer.add(document)?;
+                }
             }
             RoomIndexOperation::Noop => {}
         };
