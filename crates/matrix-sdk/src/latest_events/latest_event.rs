@@ -616,6 +616,9 @@ fn extract_content_from_any_message_like(
 
             // Check if this is a replacement for another message. If it is, ignore
             // it.
+            //
+            // TODO: if we want to support something like
+            // `LatestEventContent::EditedRoomMessage`, it's here :-].
             let is_replacement = message.relates_to.as_ref().is_some_and(|relates_to| {
                 if let Some(relation_type) = relates_to.rel_type() {
                     relation_type == RelationType::Replacement
