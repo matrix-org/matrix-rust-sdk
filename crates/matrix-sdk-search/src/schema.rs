@@ -12,11 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use ruma::events::{
-    AnySyncMessageLikeEvent, SyncMessageLikeEvent,
-    room::{
-        message::{MessageType, Relation, RoomMessageEventContent},
-        redaction::SyncRoomRedactionEvent,
+use ruma::{
+    events::{
+        AnySyncMessageLikeEvent, SyncMessageLikeEvent,
+        room::message::{MessageType, Relation, RoomMessageEventContent},
     },
     room_version_rules::RedactionRules,
 };
@@ -35,10 +34,12 @@ pub(crate) trait MatrixSearchIndexSchema {
     fn new() -> Self;
     fn default_search_fields(&self) -> Vec<Field>;
     fn primary_key(&self) -> Field;
+    fn deletion_key(&self) -> Field;
     fn as_tantivy_schema(&self) -> Schema;
     fn handle_event(
         &self,
         event: AnySyncMessageLikeEvent,
+        redaction_rules: &RedactionRules,
     ) -> Result<RoomIndexOperation, IndexError>;
 }
 
@@ -125,6 +126,10 @@ impl MatrixSearchIndexSchema for RoomMessageSchema {
         self.event_id_field
     }
 
+    fn deletion_key(&self) -> Field {
+        self.original_event_id_field
+    }
+
     fn as_tantivy_schema(&self) -> Schema {
         self.inner.clone()
     }
@@ -132,22 +137,17 @@ impl MatrixSearchIndexSchema for RoomMessageSchema {
     fn handle_event(
         &self,
         event: AnySyncMessageLikeEvent,
-        rules: &RedactionRules,
+        redaction_rules: &RedactionRules,
     ) -> Result<RoomIndexOperation, IndexError> {
         match event {
             AnySyncMessageLikeEvent::RoomMessage(event) => self.handle_message(event),
 
             AnySyncMessageLikeEvent::RoomRedaction(redaction_event) => {
-                if let SyncRoomRedactionEvent::Original(redaction_event) = redaction_event {
-                    if let Some(redacted_event_id) = redaction_event.redacts(rules) {
-                        Ok(RoomIndexOperation::Remove(redacted_event_id))
-                    } else {
-                        // If not acting on anything, we can just ignore it.
-                        trace!("Room redaction in indexing redacts nothing, ignoring.");
-                        Ok(RoomIndexOperation::Noop)
-                    }
+                if let Some(redacted_event_id) = redaction_event.redacts(redaction_rules) {
+                    Ok(RoomIndexOperation::Remove(redacted_event_id.to_owned()))
                 } else {
-                    // If redaction itself is redacted, we can ignore it.
+                    // If not acting on anything, we can just ignore it.
+                    trace!("Room redaction in indexing redacts nothing, ignoring.");
                     Ok(RoomIndexOperation::Noop)
                 }
             }
