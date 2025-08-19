@@ -137,7 +137,7 @@ impl RoomIndex {
                     self.writer.add_document(document)?;
                 }
             }
-        };
+        }
         Ok(())
     }
 
@@ -192,12 +192,11 @@ impl RoomIndex {
     }
 
     fn contains(&self, event_id: &EventId) -> bool {
-        let search_result = self.search(format!("event_id:\"{}\"", event_id).as_str(), 5);
+        let search_result = self.search(format!("event_id:\"{event_id}\"").as_str(), 1);
         match search_result {
-            // If there are > 1 entry (which there shouldn't be), still return true
-            Ok(results) => results.len() != 0,
+            Ok(results) => !results.is_empty(),
             Err(err) => {
-                warn!("Failed to check if event has been indexed, assuming it has: {err:?}");
+                warn!("Failed to check if event has been indexed, assuming it has: {err}");
                 true
             }
         }
@@ -298,6 +297,78 @@ mod tests {
         let result = index.search("sentence", 10).expect("search failed with: {result:?}");
 
         assert!(result.is_empty(), "search result not empty: {result:?}");
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_index_contains_false() -> Result<(), Box<dyn Error>> {
+        let room_id = room_id!("!room_id:localhost");
+        let mut index =
+            RoomIndex::new_in_memory(room_id).expect("failed to make index in ram: {index:?}");
+
+        let event_id = event_id!("$event_id:localhost");
+
+        index.commit_and_reload()?;
+
+        assert!(!index.contains(event_id), "Index should not contain event");
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_index_contains_true() -> Result<(), Box<dyn Error>> {
+        let room_id = room_id!("!room_id:localhost");
+        let mut index =
+            RoomIndex::new_in_memory(room_id).expect("failed to make index in ram: {index:?}");
+
+        let event_id = event_id!("$event_id:localhost");
+        let event = EventFactory::new()
+            .text_msg("This is a sentence")
+            .event_id(event_id)
+            .room(room_id)
+            .sender(user_id!("@user_id:localhost"))
+            .into_any_sync_message_like_event();
+
+        index.handle_event(event)?;
+
+        index.commit_and_reload()?;
+
+        assert!(index.contains(event_id), "Index should contain event");
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_indexing_idempotency() -> Result<(), Box<dyn Error>> {
+        let room_id = room_id!("!room_id:localhost");
+        let mut index =
+            RoomIndex::new_in_memory(room_id).expect("failed to make index in ram: {index:?}");
+
+        let event_id = event_id!("$event_id:localhost");
+        let event = EventFactory::new()
+            .text_msg("This is a sentence")
+            .event_id(event_id)
+            .room(room_id)
+            .sender(user_id!("@user_id:localhost"))
+            .into_any_sync_message_like_event();
+
+        index.handle_event(event.clone())?;
+
+        index.commit_and_reload()?;
+
+        assert!(index.contains(event_id), "Index should contain event");
+
+        // indexing again should do nothing
+        index.handle_event(event)?;
+
+        index.commit_and_reload()?;
+
+        assert!(index.contains(event_id), "Index should still contain event");
+
+        let result = index.search("sentence", 10).expect("search failed with: {result:?}");
+
+        assert_eq!(result.len(), 1, "Index should have ignored second indexing");
 
         Ok(())
     }
