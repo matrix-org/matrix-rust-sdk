@@ -134,9 +134,9 @@ pub enum LatestEventValue {
     /// The latest event represents a local event that is sending.
     LocalIsSending(LatestEventContent),
 
-    /// The latest event represents a local event that is wedged, either because
-    /// a previous local event, or this local event cannot be sent.
-    LocalIsWedged(LatestEventContent),
+    /// The latest event represents a local event that cannot be sent, either
+    /// because a previous local event, or this local event cannot be sent.
+    LocalCannotBeSent(LatestEventContent),
 }
 
 impl LatestEventValue {
@@ -172,7 +172,7 @@ impl LatestEventValue {
     }
 
     /// Create a new [`LatestEventValue::LocalIsSending`] or
-    /// [`LatestEventValue::LocalIsWedged`].
+    /// [`LatestEventValue::LocalCannotBeSent`].
     async fn new_local(
         send_queue_update: &RoomSendQueueUpdate,
         buffer_of_values_for_local_events: &mut LatestEventValuesForLocalEvents,
@@ -234,14 +234,15 @@ impl LatestEventValue {
 
             // A local event has successfully been sent!
             //
-            // Unwedge all wedged values after the one matching `transaction_id`. Indeed, if
-            // an event has been sent, it means the send queue is working, so if any value has been
-            // marked as wedged, it must be marked as unwedged. Then, remove the calculated
-            // `LatestEventValue` from the buffer of values. Finally, return the last
-            // `LatestEventValue` or calculate a new one.
+            // Mark all “cannot be sent” values as “is sending” after the one matching
+            // `transaction_id`. Indeed, if an event has been sent, it means the send queue is
+            // working, so if any value has been marked as “cannot be sent”, it must be marked as
+            // “is sending”. Then, remove the calculated `LatestEventValue` from the buffer of
+            // values. Finally, return the last `LatestEventValue` or calculate a new
+            // one.
             RoomSendQueueUpdate::SentEvent { transaction_id, .. } => {
                 let position =
-                    buffer_of_values_for_local_events.mark_unwedged_after(transaction_id);
+                    buffer_of_values_for_local_events.mark_is_sending_after(transaction_id);
 
                 if let Some(position) = position {
                     buffer_of_values_for_local_events.remove(position);
@@ -290,9 +291,9 @@ impl LatestEventValue {
             // An error has occurred.
             //
             // Mark the latest event value matching `transaction_id`, and all its following values,
-            // as wedged.
+            // as “cannot be sent”.
             RoomSendQueueUpdate::SendError { transaction_id, .. } => {
-                buffer_of_values_for_local_events.mark_wedged_from(transaction_id);
+                buffer_of_values_for_local_events.mark_cannot_be_sent_from(transaction_id);
 
                 Self::new_local_or_remote(
                     buffer_of_values_for_local_events,
@@ -305,9 +306,9 @@ impl LatestEventValue {
             // A local event has been unwedged and sending is being retried.
             //
             // Mark the latest event value matching `transaction_id`, and all its following values,
-            // as unwedged.
+            // as “is sending”.
             RoomSendQueueUpdate::RetryEvent { transaction_id } => {
-                buffer_of_values_for_local_events.mark_unwedged_from(transaction_id);
+                buffer_of_values_for_local_events.mark_is_sending_from(transaction_id);
 
                 Self::new_local_or_remote(
                     buffer_of_values_for_local_events,
@@ -376,9 +377,9 @@ impl LatestEventValue {
 /// Because a `SendError` is received (targeting the first `NewLocalEvent`), the
 /// send queue is stopped. However, the `LatestEventValue` targets the second
 /// `NewLocalEvent`. The system must consider that when a local event is wedged,
-/// all the following local events must also be marked as wedged. And vice
-/// versa, when the send queue is able to send an event again, all the following
-/// local events must be marked as unwedged.
+/// all the following local events must also be marked as “cannot be sent”. And
+/// vice versa, when the send queue is able to send an event again, all the
+/// following local events must be marked as “is sending”.
 ///
 /// This type isolates a couple of methods designed to manage these specific
 /// behaviours.
@@ -410,14 +411,14 @@ impl LatestEventValuesForLocalEvents {
     /// # Panics
     ///
     /// Panics if `value` is not of kind [`LatestEventValue::LocalIsSending`] or
-    /// [`LatestEventValue::LocalIsWedged`].
+    /// [`LatestEventValue::LocalCannotBeSent`].
     fn push(&mut self, transaction_id: OwnedTransactionId, value: LatestEventValue) {
         assert!(
             matches!(
                 value,
-                LatestEventValue::LocalIsSending(_) | LatestEventValue::LocalIsWedged(_)
+                LatestEventValue::LocalIsSending(_) | LatestEventValue::LocalCannotBeSent(_)
             ),
-            "`value` must be either `LocalIsSending` or `LocalIsWedged`"
+            "`value` must be either `LocalIsSending` or `LocalCannotBeSent`"
         );
 
         self.buffer.push((transaction_id, value));
@@ -432,14 +433,14 @@ impl LatestEventValuesForLocalEvents {
     /// - `position` is strictly greater than buffer's length,
     /// - the [`LatestEventValue`] is not of kind
     ///   [`LatestEventValue::LocalIsSending`] or
-    ///   [`LatestEventValue::LocalIsWedged`].
+    ///   [`LatestEventValue::LocalCannotBeSent`].
     fn replace_content(&mut self, position: usize, new_content: LatestEventContent) {
         let (_, value) = self.buffer.get_mut(position).expect("`position` must be valid");
 
         match value {
             LatestEventValue::LocalIsSending(content) => *content = new_content,
-            LatestEventValue::LocalIsWedged(content) => *content = new_content,
-            _ => panic!("`value` must be either `LocalIsSending` or `LocalIsWedged`"),
+            LatestEventValue::LocalCannotBeSent(content) => *content = new_content,
+            _ => panic!("`value` must be either `LocalIsSending` or `LocalCannotBeSent`"),
         }
     }
 
@@ -453,8 +454,8 @@ impl LatestEventValuesForLocalEvents {
     }
 
     /// Mark the `LatestEventValue` matching `transaction_id`, and all the
-    /// following values, as wedged.
-    fn mark_wedged_from(&mut self, transaction_id: &TransactionId) {
+    /// following values, as “cannot be sent”.
+    fn mark_cannot_be_sent_from(&mut self, transaction_id: &TransactionId) {
         let mut values = self.buffer.iter_mut();
 
         if let Some(first_value_to_wedge) = values
@@ -464,15 +465,15 @@ impl LatestEventValuesForLocalEvents {
             // Iterate over the found value and the following ones.
             for (_, value_to_wedge) in once(first_value_to_wedge).chain(values) {
                 if let LatestEventValue::LocalIsSending(content) = value_to_wedge {
-                    *value_to_wedge = LatestEventValue::LocalIsWedged(content.clone());
+                    *value_to_wedge = LatestEventValue::LocalCannotBeSent(content.clone());
                 }
             }
         }
     }
 
     /// Mark the `LatestEventValue` matching `transaction_id`, and all the
-    /// following values, as unwedged.
-    fn mark_unwedged_from(&mut self, transaction_id: &TransactionId) {
+    /// following values, as “is sending”.
+    fn mark_is_sending_from(&mut self, transaction_id: &TransactionId) {
         let mut values = self.buffer.iter_mut();
 
         if let Some(first_value_to_unwedge) = values
@@ -481,7 +482,7 @@ impl LatestEventValuesForLocalEvents {
         {
             // Iterate over the found value and the following ones.
             for (_, value_to_unwedge) in once(first_value_to_unwedge).chain(values) {
-                if let LatestEventValue::LocalIsWedged(content) = value_to_unwedge {
+                if let LatestEventValue::LocalCannotBeSent(content) = value_to_unwedge {
                     *value_to_unwedge = LatestEventValue::LocalIsSending(content.clone());
                 }
             }
@@ -489,11 +490,12 @@ impl LatestEventValuesForLocalEvents {
     }
 
     /// Mark all the following values after the `LatestEventValue` matching
-    /// `transaction_id` as unwedged.
+    /// `transaction_id` as “is sending”.
     ///
-    /// Note that contrary to [`Self::unwedged_from`], the `LatestEventValue` is
-    /// untouched. However, its position is returned (if any).
-    fn mark_unwedged_after(&mut self, transaction_id: &TransactionId) -> Option<usize> {
+    /// Note that contrary to [`Self::mark_is_sending_from`], the
+    /// `LatestEventValue` is untouched. However, its position is returned
+    /// (if any).
+    fn mark_is_sending_after(&mut self, transaction_id: &TransactionId) -> Option<usize> {
         let mut values = self.buffer.iter_mut();
 
         if let Some(position) = values
@@ -502,7 +504,7 @@ impl LatestEventValuesForLocalEvents {
         {
             // Iterate over all values after the found one.
             for (_, value_to_unwedge) in values {
-                if let LatestEventValue::LocalIsWedged(content) = value_to_unwedge {
+                if let LatestEventValue::LocalCannotBeSent(content) = value_to_unwedge {
                     *value_to_unwedge = LatestEventValue::LocalIsSending(content.clone());
                 }
             }
@@ -1017,7 +1019,7 @@ mod tests_latest_event_values_for_local_events {
         );
         buffer.push(
             OwnedTransactionId::from("txnid1"),
-            LatestEventValue::LocalIsWedged(room_message("raclette")),
+            LatestEventValue::LocalCannotBeSent(room_message("raclette")),
         );
 
         // no panic.
@@ -1059,7 +1061,7 @@ mod tests_latest_event_values_for_local_events {
     }
 
     #[test]
-    fn test_wedged_from() {
+    fn test_mark_cannot_be_sent_from() {
         let mut buffer = LatestEventValuesForLocalEvents::new();
         let transaction_id_0 = OwnedTransactionId::from("txnid0");
         let transaction_id_1 = OwnedTransactionId::from("txnid1");
@@ -1072,55 +1074,57 @@ mod tests_latest_event_values_for_local_events {
         );
         buffer.push(transaction_id_2, LatestEventValue::LocalIsSending(room_message("raclette")));
 
-        buffer.mark_wedged_from(&transaction_id_1);
+        buffer.mark_cannot_be_sent_from(&transaction_id_1);
 
         assert_eq!(buffer.buffer.len(), 3);
         assert_matches!(buffer.buffer[0].1, LatestEventValue::LocalIsSending(_));
-        assert_matches!(buffer.buffer[1].1, LatestEventValue::LocalIsWedged(_));
-        assert_matches!(buffer.buffer[2].1, LatestEventValue::LocalIsWedged(_));
+        assert_matches!(buffer.buffer[1].1, LatestEventValue::LocalCannotBeSent(_));
+        assert_matches!(buffer.buffer[2].1, LatestEventValue::LocalCannotBeSent(_));
     }
 
     #[test]
-    fn test_unwedged_from() {
+    fn test_mark_is_sending_from() {
         let mut buffer = LatestEventValuesForLocalEvents::new();
         let transaction_id_0 = OwnedTransactionId::from("txnid0");
         let transaction_id_1 = OwnedTransactionId::from("txnid1");
         let transaction_id_2 = OwnedTransactionId::from("txnid2");
 
-        buffer.push(transaction_id_0, LatestEventValue::LocalIsWedged(room_message("gruyère")));
+        buffer.push(transaction_id_0, LatestEventValue::LocalCannotBeSent(room_message("gruyère")));
         buffer.push(
             transaction_id_1.clone(),
-            LatestEventValue::LocalIsWedged(room_message("brigand")),
+            LatestEventValue::LocalCannotBeSent(room_message("brigand")),
         );
-        buffer.push(transaction_id_2, LatestEventValue::LocalIsWedged(room_message("raclette")));
+        buffer
+            .push(transaction_id_2, LatestEventValue::LocalCannotBeSent(room_message("raclette")));
 
-        buffer.mark_unwedged_from(&transaction_id_1);
+        buffer.mark_is_sending_from(&transaction_id_1);
 
         assert_eq!(buffer.buffer.len(), 3);
-        assert_matches!(buffer.buffer[0].1, LatestEventValue::LocalIsWedged(_));
+        assert_matches!(buffer.buffer[0].1, LatestEventValue::LocalCannotBeSent(_));
         assert_matches!(buffer.buffer[1].1, LatestEventValue::LocalIsSending(_));
         assert_matches!(buffer.buffer[2].1, LatestEventValue::LocalIsSending(_));
     }
 
     #[test]
-    fn test_unwedged_after() {
+    fn test_mark_is_sending_after() {
         let mut buffer = LatestEventValuesForLocalEvents::new();
         let transaction_id_0 = OwnedTransactionId::from("txnid0");
         let transaction_id_1 = OwnedTransactionId::from("txnid1");
         let transaction_id_2 = OwnedTransactionId::from("txnid2");
 
-        buffer.push(transaction_id_0, LatestEventValue::LocalIsWedged(room_message("gruyère")));
+        buffer.push(transaction_id_0, LatestEventValue::LocalCannotBeSent(room_message("gruyère")));
         buffer.push(
             transaction_id_1.clone(),
-            LatestEventValue::LocalIsWedged(room_message("brigand")),
+            LatestEventValue::LocalCannotBeSent(room_message("brigand")),
         );
-        buffer.push(transaction_id_2, LatestEventValue::LocalIsWedged(room_message("raclette")));
+        buffer
+            .push(transaction_id_2, LatestEventValue::LocalCannotBeSent(room_message("raclette")));
 
-        buffer.mark_unwedged_after(&transaction_id_1);
+        buffer.mark_is_sending_after(&transaction_id_1);
 
         assert_eq!(buffer.buffer.len(), 3);
-        assert_matches!(buffer.buffer[0].1, LatestEventValue::LocalIsWedged(_));
-        assert_matches!(buffer.buffer[1].1, LatestEventValue::LocalIsWedged(_));
+        assert_matches!(buffer.buffer[0].1, LatestEventValue::LocalCannotBeSent(_));
+        assert_matches!(buffer.buffer[1].1, LatestEventValue::LocalCannotBeSent(_));
         assert_matches!(buffer.buffer[2].1, LatestEventValue::LocalIsSending(_));
     }
 }
@@ -1715,7 +1719,7 @@ mod tests_latest_event_value_non_wasm {
         }
 
         // Receiving a `SendError` targeting the first event. The
-        // `LatestEventValue` must change to indicate it's wedged.
+        // `LatestEventValue` must change to indicate it's “cannot be sent”.
         {
             let update = RoomSendQueueUpdate::SendError {
                 transaction_id: transaction_id_0.clone(),
@@ -1724,10 +1728,10 @@ mod tests_latest_event_value_non_wasm {
             };
 
             // The `LatestEventValue` has changed, it still matches the latest local
-            // event but it's marked as wedged.
+            // event but it's marked as “cannot be sent”.
             assert_matches!(
                 LatestEventValue::new_local(&update, &mut buffer, &room_event_cache, &None).await,
-                LatestEventValue::LocalIsWedged(
+                LatestEventValue::LocalCannotBeSent(
                     LatestEventContent::RoomMessage(message_content)
                 ) => {
                     assert_eq!(message_content.body(), "B");
@@ -1737,7 +1741,7 @@ mod tests_latest_event_value_non_wasm {
             assert_eq!(buffer.buffer.len(), 2);
             assert_matches!(
                 &buffer.buffer[0].1,
-                LatestEventValue::LocalIsWedged(
+                LatestEventValue::LocalCannotBeSent(
                     LatestEventContent::RoomMessage(message_content)
                 ) => {
                     assert_eq!(message_content.body(), "A");
@@ -1745,7 +1749,7 @@ mod tests_latest_event_value_non_wasm {
             );
             assert_matches!(
                 &buffer.buffer[1].1,
-                LatestEventValue::LocalIsWedged(
+                LatestEventValue::LocalCannotBeSent(
                     LatestEventContent::RoomMessage(message_content)
                 ) => {
                     assert_eq!(message_content.body(), "B");
@@ -1755,7 +1759,7 @@ mod tests_latest_event_value_non_wasm {
 
         // Receiving a `SentEvent` targeting the first event. The `LatestEventValue`
         // must change: since an event has been sent, the following events are now
-        // unwedged.
+        // “is sending”.
         {
             let update = RoomSendQueueUpdate::SentEvent {
                 transaction_id: transaction_id_0.clone(),
@@ -1763,7 +1767,7 @@ mod tests_latest_event_value_non_wasm {
             };
 
             // The `LatestEventValue` has changed, it still matches the latest local
-            // event but it's unwedged.
+            // event but it's “is sending”.
             assert_matches!(
                 LatestEventValue::new_local(&update, &mut buffer, &room_event_cache, &None).await,
                 LatestEventValue::LocalIsSending(
@@ -1818,7 +1822,7 @@ mod tests_latest_event_value_non_wasm {
         }
 
         // Receiving a `SendError` targeting the first event. The
-        // `LatestEventValue` must change to indicate it's wedged.
+        // `LatestEventValue` must change to indicate it's “cannot be sent”.
         {
             let update = RoomSendQueueUpdate::SendError {
                 transaction_id: transaction_id_0.clone(),
@@ -1827,10 +1831,10 @@ mod tests_latest_event_value_non_wasm {
             };
 
             // The `LatestEventValue` has changed, it still matches the latest local
-            // event but it's marked as wedged.
+            // event but it's marked as “cannot be sent”.
             assert_matches!(
                 LatestEventValue::new_local(&update, &mut buffer, &room_event_cache, &None).await,
-                LatestEventValue::LocalIsWedged(
+                LatestEventValue::LocalCannotBeSent(
                     LatestEventContent::RoomMessage(message_content)
                 ) => {
                     assert_eq!(message_content.body(), "B");
@@ -1840,7 +1844,7 @@ mod tests_latest_event_value_non_wasm {
             assert_eq!(buffer.buffer.len(), 2);
             assert_matches!(
                 &buffer.buffer[0].1,
-                LatestEventValue::LocalIsWedged(
+                LatestEventValue::LocalCannotBeSent(
                     LatestEventContent::RoomMessage(message_content)
                 ) => {
                     assert_eq!(message_content.body(), "A");
@@ -1848,7 +1852,7 @@ mod tests_latest_event_value_non_wasm {
             );
             assert_matches!(
                 &buffer.buffer[1].1,
-                LatestEventValue::LocalIsWedged(
+                LatestEventValue::LocalCannotBeSent(
                     LatestEventContent::RoomMessage(message_content)
                 ) => {
                     assert_eq!(message_content.body(), "B");
@@ -1857,13 +1861,13 @@ mod tests_latest_event_value_non_wasm {
         }
 
         // Receiving a `RetryEvent` targeting the first event. The `LatestEventValue`
-        // must change: this local event and its following must be unwedged.
+        // must change: this local event and its following must be “is sending”.
         {
             let update =
                 RoomSendQueueUpdate::RetryEvent { transaction_id: transaction_id_0.clone() };
 
             // The `LatestEventValue` has changed, it still matches the latest local
-            // event but it's unwedged.
+            // event but it's “is sending”.
             assert_matches!(
                 LatestEventValue::new_local(&update, &mut buffer, &room_event_cache, &None).await,
                 LatestEventValue::LocalIsSending(
