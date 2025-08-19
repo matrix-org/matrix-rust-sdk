@@ -14,7 +14,10 @@
 
 use std::{fmt, fs, path::Path, sync::Arc};
 
-use ruma::{EventId, OwnedEventId, OwnedRoomId, RoomId, events::AnySyncMessageLikeEvent};
+use ruma::{
+    EventId, OwnedEventId, OwnedRoomId, RoomId, events::AnySyncMessageLikeEvent,
+    room_version_rules::RedactionRules,
+};
 use tantivy::{
     Index, IndexReader, TantivyDocument,
     collector::TopDocs,
@@ -141,11 +144,11 @@ impl RoomIndex {
     pub fn handle_event(
         &mut self,
         event: AnySyncMessageLikeEvent,
-        rules: &RedactionRules,
+        redaction_rules: &RedactionRules,
     ) -> Result<(), IndexError> {
         let event_id = event.event_id().to_owned();
 
-        match self.schema.handle_event(event, rules)? {
+        match self.schema.handle_event(event, redaction_rules)? {
             RoomIndexOperation::Add(document) => {
                 if !self.contains(&event_id) {
                     self.writer.add(document)?;
@@ -161,7 +164,7 @@ impl RoomIndex {
                 }
             }
             RoomIndexOperation::Noop => {}
-        };
+        }
         Ok(())
     }
 
@@ -232,7 +235,10 @@ mod tests {
     use std::{collections::HashSet, error::Error};
 
     use matrix_sdk_test::event_factory::EventFactory;
-    use ruma::{event_id, room_id, user_id};
+    use ruma::{
+        event_id, events::room::message::RoomMessageEventContentWithoutRelation, room_id,
+        room_version_rules::RedactionRules, user_id,
+    };
 
     use crate::index::RoomIndex;
 
@@ -257,7 +263,7 @@ mod tests {
             .sender(user_id!("@user_id:localhost"))
             .into_any_sync_message_like_event();
 
-        index.handle_event(event).expect("failed to add event: {res:?}");
+        index.handle_event(event, &RedactionRules::V11).expect("failed to add event: {res:?}");
     }
 
     #[test]
@@ -269,32 +275,26 @@ mod tests {
         let event_id_1 = event_id!("$event_id_1:localhost");
         let event_id_2 = event_id!("$event_id_2:localhost");
         let event_id_3 = event_id!("$event_id_3:localhost");
+        let user_id = user_id!("@user_id:localhost");
+        let f = EventFactory::new().room(room_id).sender(user_id);
 
         index.handle_event(
-            EventFactory::new()
-                .text_msg("This is a sentence")
+            f.text_msg("This is a sentence")
                 .event_id(event_id_1)
-                .room(room_id)
-                .sender(user_id!("@user_id:localhost"))
                 .into_any_sync_message_like_event(),
+            &RedactionRules::V11,
         )?;
 
         index.handle_event(
-            EventFactory::new()
-                .text_msg("All new words")
-                .event_id(event_id_2)
-                .room(room_id)
-                .sender(user_id!("@user_id:localhost"))
-                .into_any_sync_message_like_event(),
+            f.text_msg("All new words").event_id(event_id_2).into_any_sync_message_like_event(),
+            &RedactionRules::V11,
         )?;
 
         index.handle_event(
-            EventFactory::new()
-                .text_msg("A similar sentence")
+            f.text_msg("A similar sentence")
                 .event_id(event_id_3)
-                .room(room_id)
-                .sender(user_id!("@user_id:localhost"))
                 .into_any_sync_message_like_event(),
+            &RedactionRules::V11,
         )?;
 
         index.commit_and_reload()?;
@@ -351,7 +351,7 @@ mod tests {
             .sender(user_id!("@user_id:localhost"))
             .into_any_sync_message_like_event();
 
-        index.handle_event(event)?;
+        index.handle_event(event, &RedactionRules::V11)?;
 
         index.commit_and_reload()?;
 
@@ -373,14 +373,14 @@ mod tests {
             .sender(user_id!("@user_id:localhost"))
             .into_any_sync_message_like_event();
 
-        index.handle_event(event.clone())?;
+        index.handle_event(event.clone(), &RedactionRules::V11)?;
 
         index.commit_and_reload()?;
 
         assert!(index.contains(event_id), "Index should contain event");
 
         // indexing again should do nothing
-        index.handle_event(event)?;
+        index.handle_event(event, &RedactionRules::V11)?;
 
         index.commit_and_reload()?;
 
@@ -405,7 +405,7 @@ mod tests {
         let event =
             f.text_msg("This is a sentence").event_id(event_id).into_any_sync_message_like_event();
 
-        index.handle_event(event)?;
+        index.handle_event(event, &RedactionRules::V11)?;
 
         index.commit_and_reload()?;
 
@@ -415,11 +415,51 @@ mod tests {
         let redaction =
             f.redaction(event_id).event_id(redaction_event_id).into_any_sync_message_like_event();
 
-        index.handle_event(redaction)?;
+        index.handle_event(redaction, &RedactionRules::V11)?;
 
         index.commit_and_reload()?;
 
         assert!(!index.contains(event_id), "Index should not contain event");
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_edit_removes_old_and_adds_new_event() -> Result<(), Box<dyn Error>> {
+        let room_id = room_id!("!room_id:localhost");
+        let mut index = RoomIndex::new_in_memory(room_id)?;
+
+        let old_event_id = event_id!("$old_event_id:localhost");
+        let user_id = user_id!("@user_id:localhost");
+        let f = EventFactory::new().room(room_id).sender(user_id);
+
+        let old_event = f
+            .text_msg("This is a sentence")
+            .event_id(old_event_id)
+            .into_any_sync_message_like_event();
+
+        index.handle_event(old_event, &RedactionRules::V11)?;
+
+        index.commit_and_reload()?;
+
+        assert!(index.contains(old_event_id), "Index should contain event");
+
+        let new_event_id = event_id!("$new_event_id:localhost");
+        let edit = f
+            .text_msg("This is a brand new sentence!")
+            .edit(
+                old_event_id,
+                RoomMessageEventContentWithoutRelation::text_plain("This is a brand new sentence!"),
+            )
+            .event_id(new_event_id)
+            .into_any_sync_message_like_event();
+
+        index.handle_event(edit, &RedactionRules::V11)?;
+
+        index.commit_and_reload()?;
+
+        assert!(!index.contains(old_event_id), "Index should not contain old event");
+        assert!(index.contains(new_event_id), "Index should contain edited event");
 
         Ok(())
     }
