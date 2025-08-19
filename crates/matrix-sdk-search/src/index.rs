@@ -14,7 +14,7 @@
 
 use std::{fmt, fs, path::Path, sync::Arc};
 
-use ruma::{OwnedEventId, OwnedRoomId, RoomId, events::AnySyncMessageLikeEvent};
+use ruma::{EventId, OwnedEventId, OwnedRoomId, RoomId, events::AnySyncMessageLikeEvent};
 use tantivy::{
     Index, IndexReader, TantivyDocument,
     collector::TopDocs,
@@ -22,7 +22,7 @@ use tantivy::{
     query::QueryParser,
     schema::Value,
 };
-use tracing::error;
+use tracing::{error, warn};
 
 use crate::{
     OpStamp, TANTIVY_INDEX_MEMORY_BUDGET,
@@ -129,8 +129,14 @@ impl RoomIndex {
     /// This which will add/remove/edit an event in the index based on the
     /// event type.
     pub fn handle_event(&mut self, event: AnySyncMessageLikeEvent) -> Result<(), IndexError> {
+        let event_id = event.event_id().to_owned();
+
         match self.schema.handle_event(event)? {
-            RoomIndexOperation::Add(document) => self.writer.add_document(document)?,
+            RoomIndexOperation::Add(document) => {
+                if !self.contains(&event_id) {
+                    self.writer.add_document(document)?;
+                }
+            }
         };
         Ok(())
     }
@@ -183,6 +189,18 @@ impl RoomIndex {
         }
 
         Ok(ret)
+    }
+
+    fn contains(&self, event_id: &EventId) -> bool {
+        let search_result = self.search(format!("event_id:\"{}\"", event_id).as_str(), 5);
+        match search_result {
+            // If there are > 1 entry (which there shouldn't be), still return true
+            Ok(results) => results.len() != 0,
+            Err(err) => {
+                warn!("Failed to check if event has been indexed, assuming it has: {err:?}");
+                true
+            }
+        }
     }
 }
 
