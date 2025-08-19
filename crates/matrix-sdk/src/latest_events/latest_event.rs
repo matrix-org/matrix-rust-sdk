@@ -191,7 +191,7 @@ impl LatestEventValue {
             }) => match local_echo_content {
                 LocalEchoContent::Event { serialized_event: content, .. } => {
                     if let Ok(content) = content.deserialize() {
-                        if let Some(kind) = find_and_map_any_message_like_event_content(content) {
+                        if let Some(content) = extract_content_from_any_message_like(content) {
                             let value = Self::LocalIsSending(content);
 
                             buffer_of_values_for_local_events
@@ -255,7 +255,7 @@ impl LatestEventValue {
             RoomSendQueueUpdate::ReplacedLocalEvent { transaction_id, new_content: content } => {
                 if let Some(position) = buffer_of_values_for_local_events.position(transaction_id) {
                     if let Ok(content) = content.deserialize() {
-                        if let Some(kind) = find_and_map_any_message_like_event_content(content) {
+                        if let Some(content) = extract_content_from_any_message_like(content) {
                             buffer_of_values_for_local_events.replace_content(position, content);
                         }
                     } else {
@@ -540,7 +540,7 @@ fn find_and_map_timeline_event(
         AnySyncTimelineEvent::MessageLike(message_like_event) => {
             match message_like_event.original_content() {
                 Some(any_message_like_event_content) => {
-                    find_and_map_any_message_like_event_content(any_message_like_event_content)
+                    extract_content_from_any_message_like(any_message_like_event_content)
                 }
 
                 // The event has been redacted.
@@ -582,7 +582,7 @@ fn find_and_map_timeline_event(
     }
 }
 
-fn find_and_map_any_message_like_event_content(
+fn extract_content_from_any_message_like(
     event: AnyMessageLikeEventContent,
 ) -> Option<LatestEventContent> {
     match event {
