@@ -59,7 +59,7 @@ pub use error::LatestEventsError;
 use eyeball::{AsyncLock, Subscriber};
 use futures_util::FutureExt;
 use latest_event::LatestEvent;
-pub use latest_event::{LatestEventKind, LatestEventValue};
+pub use latest_event::{LatestEventContent, LatestEventValue};
 use matrix_sdk_common::executor::{spawn, AbortOnDrop, JoinHandleExt as _};
 use ruma::{EventId, OwnedEventId, OwnedRoomId, RoomId};
 use tokio::{
@@ -750,7 +750,7 @@ mod tests {
     use stream_assert::assert_pending;
 
     use super::{
-        broadcast, listen_to_event_cache_and_send_queue_updates, mpsc, HashSet, LatestEventKind,
+        broadcast, listen_to_event_cache_and_send_queue_updates, mpsc, HashSet, LatestEventContent,
         LatestEventValue, RoomEventCacheGenericUpdate, RoomRegistration, RoomSendQueueUpdate,
         SendQueueUpdate,
     };
@@ -1272,7 +1272,7 @@ mod tests {
         // latest event!
         assert_matches!(
             latest_event_stream.get().await,
-            LatestEventValue::Remote(LatestEventKind::RoomMessage(message_content)) => {
+            LatestEventValue::Remote(LatestEventContent::RoomMessage(message_content)) => {
                 assert_eq!(message_content.body(), "world");
             }
         );
@@ -1295,7 +1295,7 @@ mod tests {
         // `compute_latest_events` which has updated the latest event value.
         assert_matches!(
             latest_event_stream.next().await,
-            Some(LatestEventValue::Remote(LatestEventKind::RoomMessage(message_content))) => {
+            Some(LatestEventValue::Remote(LatestEventContent::RoomMessage(message_content))) => {
                 assert_eq!(message_content.body(), "raclette !");
             }
         );

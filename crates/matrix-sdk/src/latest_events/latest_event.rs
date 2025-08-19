@@ -129,14 +129,14 @@ pub enum LatestEventValue {
     None,
 
     /// The latest event represents a remote event.
-    Remote(LatestEventKind),
+    Remote(LatestEventContent),
 
     /// The latest event represents a local event that is sending.
-    LocalIsSending(LatestEventKind),
+    LocalIsSending(LatestEventContent),
 
     /// The latest event represents a local event that is wedged, either because
     /// a previous local event, or this local event cannot be sent.
-    LocalIsWedged(LatestEventKind),
+    LocalIsWedged(LatestEventContent),
 }
 
 impl LatestEventValue {
@@ -192,7 +192,7 @@ impl LatestEventValue {
                 LocalEchoContent::Event { serialized_event: content, .. } => {
                     if let Ok(content) = content.deserialize() {
                         if let Some(kind) = find_and_map_any_message_like_event_content(content) {
-                            let value = Self::LocalIsSending(kind);
+                            let value = Self::LocalIsSending(content);
 
                             buffer_of_values_for_local_events
                                 .push(transaction_id.to_owned(), value.clone());
@@ -256,7 +256,7 @@ impl LatestEventValue {
                 if let Some(position) = buffer_of_values_for_local_events.position(transaction_id) {
                     if let Ok(content) = content.deserialize() {
                         if let Some(kind) = find_and_map_any_message_like_event_content(content) {
-                            buffer_of_values_for_local_events.replace_kind(position, kind);
+                            buffer_of_values_for_local_events.replace_content(position, content);
                         }
                     } else {
                         return Self::None;
@@ -407,8 +407,8 @@ impl LatestEventValuesForLocalEvents {
         self.buffer.push((transaction_id, value));
     }
 
-    /// Replace the [`LatestEventKind`] of the [`LatestEventValue`] at position
-    /// `position`.
+    /// Replace the [`LatestEventContent`] of the [`LatestEventValue`] at
+    /// position `position`.
     ///
     /// # Panics
     ///
@@ -417,12 +417,12 @@ impl LatestEventValuesForLocalEvents {
     /// - the [`LatestEventValue`] is not of kind
     ///   [`LatestEventValue::LocalIsSending`] or
     ///   [`LatestEventValue::LocalIsWedged`].
-    fn replace_kind(&mut self, position: usize, new_kind: LatestEventKind) {
+    fn replace_content(&mut self, position: usize, new_content: LatestEventContent) {
         let (_, value) = self.buffer.get_mut(position).expect("`position` must be valid");
 
         match value {
-            LatestEventValue::LocalIsSending(kind) => *kind = new_kind,
-            LatestEventValue::LocalIsWedged(kind) => *kind = new_kind,
+            LatestEventValue::LocalIsSending(content) => *content = new_content,
+            LatestEventValue::LocalIsWedged(content) => *content = new_content,
             _ => panic!("`value` must be either `LocalIsSending` or `LocalIsWedged`"),
         }
     }
@@ -447,8 +447,8 @@ impl LatestEventValuesForLocalEvents {
         {
             // Iterate over the found value and the following ones.
             for (_, value_to_wedge) in once(first_value_to_wedge).chain(values) {
-                if let LatestEventValue::LocalIsSending(kind) = value_to_wedge {
-                    *value_to_wedge = LatestEventValue::LocalIsWedged(kind.clone());
+                if let LatestEventValue::LocalIsSending(content) = value_to_wedge {
+                    *value_to_wedge = LatestEventValue::LocalIsWedged(content.clone());
                 }
             }
         }
@@ -465,8 +465,8 @@ impl LatestEventValuesForLocalEvents {
         {
             // Iterate over the found value and the following ones.
             for (_, value_to_unwedge) in once(first_value_to_unwedge).chain(values) {
-                if let LatestEventValue::LocalIsWedged(kind) = value_to_unwedge {
-                    *value_to_unwedge = LatestEventValue::LocalIsSending(kind.clone());
+                if let LatestEventValue::LocalIsWedged(content) = value_to_unwedge {
+                    *value_to_unwedge = LatestEventValue::LocalIsSending(content.clone());
                 }
             }
         }
@@ -486,8 +486,8 @@ impl LatestEventValuesForLocalEvents {
         {
             // Iterate over all values after the found one.
             for (_, value_to_unwedge) in values {
-                if let LatestEventValue::LocalIsWedged(kind) = value_to_unwedge {
-                    *value_to_unwedge = LatestEventValue::LocalIsSending(kind.clone());
+                if let LatestEventValue::LocalIsWedged(content) = value_to_unwedge {
+                    *value_to_unwedge = LatestEventValue::LocalIsSending(content.clone());
                 }
             }
 
@@ -498,9 +498,9 @@ impl LatestEventValuesForLocalEvents {
     }
 }
 
-/// A latest event value!
+/// A latest event value content!
 #[derive(Debug, Clone)]
-pub enum LatestEventKind {
+pub enum LatestEventContent {
     /// A `m.room.message` event.
     RoomMessage(RoomMessageEventContent),
 
@@ -527,7 +527,7 @@ pub enum LatestEventKind {
 fn find_and_map_timeline_event(
     event: &Event,
     power_levels: &Option<(&UserId, RoomPowerLevels)>,
-) -> Option<LatestEventKind> {
+) -> Option<LatestEventContent> {
     // Cast the event into an `AnySyncTimelineEvent`. If deserializing fails, we
     // ignore the event.
     let Some(event) = event.raw().deserialize().ok() else {
@@ -544,7 +544,7 @@ fn find_and_map_timeline_event(
                 }
 
                 // The event has been redacted.
-                None => Some(LatestEventKind::Redacted(message_like_event)),
+                None => Some(LatestEventContent::Redacted(message_like_event)),
             }
         }
 
@@ -565,7 +565,7 @@ fn find_and_map_timeline_event(
                     // The current user can act on the knock changes, so they should be
                     // displayed
                     if can_accept_or_decline_knocks {
-                        return Some(LatestEventKind::KnockedStateEvent(match member {
+                        return Some(LatestEventContent::KnockedStateEvent(match member {
                             SyncStateEvent::Original(member) => member.content,
                             SyncStateEvent::Redacted(_) => {
                                 // Cannot decide if the user can accept or decline knocks because
@@ -584,7 +584,7 @@ fn find_and_map_timeline_event(
 
 fn find_and_map_any_message_like_event_content(
     event: AnyMessageLikeEventContent,
-) -> Option<LatestEventKind> {
+) -> Option<LatestEventContent> {
     match event {
         AnyMessageLikeEventContent::RoomMessage(message) => {
             // Don't show incoming verification requests.
@@ -605,17 +605,21 @@ fn find_and_map_any_message_like_event_content(
             if is_replacement {
                 None
             } else {
-                Some(LatestEventKind::RoomMessage(message))
+                Some(LatestEventContent::RoomMessage(message))
             }
         }
 
-        AnyMessageLikeEventContent::UnstablePollStart(poll) => Some(LatestEventKind::Poll(poll)),
+        AnyMessageLikeEventContent::UnstablePollStart(poll) => Some(LatestEventContent::Poll(poll)),
 
-        AnyMessageLikeEventContent::CallInvite(invite) => Some(LatestEventKind::CallInvite(invite)),
+        AnyMessageLikeEventContent::CallInvite(invite) => {
+            Some(LatestEventContent::CallInvite(invite))
+        }
 
-        AnyMessageLikeEventContent::CallNotify(notify) => Some(LatestEventKind::CallNotify(notify)),
+        AnyMessageLikeEventContent::CallNotify(notify) => {
+            Some(LatestEventContent::CallNotify(notify))
+        }
 
-        AnyMessageLikeEventContent::Sticker(sticker) => Some(LatestEventKind::Sticker(sticker)),
+        AnyMessageLikeEventContent::Sticker(sticker) => Some(LatestEventContent::Sticker(sticker)),
 
         // Encrypted events are not suitable.
         AnyMessageLikeEventContent::RoomEncrypted(_) => None,
@@ -626,14 +630,14 @@ fn find_and_map_any_message_like_event_content(
 }
 
 #[cfg(test)]
-mod tests_latest_event_kind {
+mod tests_latest_event_content {
     use assert_matches::assert_matches;
     use matrix_sdk_test::event_factory::EventFactory;
     use ruma::{event_id, user_id};
 
-    use super::{find_and_map_timeline_event, LatestEventKind, RoomMessageEventContent};
+    use super::{find_and_map_timeline_event, LatestEventContent, RoomMessageEventContent};
 
-    macro_rules! assert_latest_event_kind {
+    macro_rules! assert_latest_event_content {
         ( with | $event_factory:ident | $event_builder:block
           it produces $match:pat ) => {
             let user_id = user_id!("@mnt_io:matrix.org");
@@ -649,17 +653,17 @@ mod tests_latest_event_kind {
 
     #[test]
     fn test_room_message() {
-        assert_latest_event_kind!(
+        assert_latest_event_content!(
             with |event_factory| {
                 event_factory.text_msg("hello").into_event()
             }
-            it produces Some(LatestEventKind::RoomMessage(_))
+            it produces Some(LatestEventContent::RoomMessage(_))
         );
     }
 
     #[test]
     fn test_redacted() {
-        assert_latest_event_kind!(
+        assert_latest_event_content!(
             with |event_factory| {
                 event_factory
                     .redacted(
@@ -668,13 +672,13 @@ mod tests_latest_event_kind {
                     )
                     .into_event()
             }
-            it produces Some(LatestEventKind::Redacted(_))
+            it produces Some(LatestEventContent::Redacted(_))
         );
     }
 
     #[test]
     fn test_room_message_replacement() {
-        assert_latest_event_kind!(
+        assert_latest_event_content!(
             with |event_factory| {
                 event_factory
                     .text_msg("bonjour")
@@ -690,7 +694,7 @@ mod tests_latest_event_kind {
 
     #[test]
     fn test_poll() {
-        assert_latest_event_kind!(
+        assert_latest_event_content!(
             with |event_factory| {
                 event_factory
                     .poll_start(
@@ -700,13 +704,13 @@ mod tests_latest_event_kind {
                     )
                     .into_event()
             }
-            it produces Some(LatestEventKind::Poll(_))
+            it produces Some(LatestEventContent::Poll(_))
         );
     }
 
     #[test]
     fn test_call_invite() {
-        assert_latest_event_kind!(
+        assert_latest_event_content!(
             with |event_factory| {
                 event_factory
                     .call_invite(
@@ -717,13 +721,13 @@ mod tests_latest_event_kind {
                     )
                     .into_event()
             }
-            it produces Some(LatestEventKind::CallInvite(_))
+            it produces Some(LatestEventContent::CallInvite(_))
         );
     }
 
     #[test]
     fn test_call_notify() {
-        assert_latest_event_kind!(
+        assert_latest_event_content!(
             with |event_factory| {
                 event_factory
                     .call_notify(
@@ -734,13 +738,13 @@ mod tests_latest_event_kind {
                     )
                     .into_event()
             }
-            it produces Some(LatestEventKind::CallNotify(_))
+            it produces Some(LatestEventContent::CallNotify(_))
         );
     }
 
     #[test]
     fn test_sticker() {
-        assert_latest_event_kind!(
+        assert_latest_event_content!(
             with |event_factory| {
                 event_factory
                     .sticker(
@@ -750,13 +754,13 @@ mod tests_latest_event_kind {
                     )
                     .into_event()
             }
-            it produces Some(LatestEventKind::Sticker(_))
+            it produces Some(LatestEventContent::Sticker(_))
         );
     }
 
     #[test]
     fn test_encrypted_room_message() {
-        assert_latest_event_kind!(
+        assert_latest_event_content!(
             with |event_factory| {
                 event_factory
                     .event(ruma::events::room::encrypted::RoomEncryptedEventContent::new(
@@ -780,7 +784,7 @@ mod tests_latest_event_kind {
     #[test]
     fn test_reaction() {
         // Take a random message-like event.
-        assert_latest_event_kind!(
+        assert_latest_event_content!(
             with |event_factory| {
                 event_factory
                     .reaction(event_id!("$ev0"), "+1")
@@ -792,7 +796,7 @@ mod tests_latest_event_kind {
 
     #[test]
     fn test_state_event() {
-        assert_latest_event_kind!(
+        assert_latest_event_content!(
             with |event_factory| {
                 event_factory
                     .room_topic("new room topic")
@@ -804,7 +808,7 @@ mod tests_latest_event_kind {
 
     #[test]
     fn test_knocked_state_event_without_power_levels() {
-        assert_latest_event_kind!(
+        assert_latest_event_content!(
             with |event_factory| {
                 event_factory
                     .member(user_id!("@other_mnt_io:server.name"))
@@ -854,7 +858,7 @@ mod tests_latest_event_kind {
             room_power_levels.kick = 10.into();
             assert_matches!(
                 find_and_map_timeline_event(&event, &Some((user_id, room_power_levels))),
-                Some(LatestEventKind::KnockedStateEvent(_)),
+                Some(LatestEventContent::KnockedStateEvent(_)),
                 "can accept, cannot decline",
             );
         }
@@ -866,7 +870,7 @@ mod tests_latest_event_kind {
             room_power_levels.kick = 0.into();
             assert_matches!(
                 find_and_map_timeline_event(&event, &Some((user_id, room_power_levels))),
-                Some(LatestEventKind::KnockedStateEvent(_)),
+                Some(LatestEventContent::KnockedStateEvent(_)),
                 "cannot accept, can decline",
             );
         }
@@ -877,7 +881,7 @@ mod tests_latest_event_kind {
             room_power_levels.kick = 0.into();
             assert_matches!(
                 find_and_map_timeline_event(&event, &Some((user_id, room_power_levels))),
-                Some(LatestEventKind::KnockedStateEvent(_)),
+                Some(LatestEventContent::KnockedStateEvent(_)),
                 "can accept, can decline",
             );
         }
@@ -887,7 +891,7 @@ mod tests_latest_event_kind {
     fn test_room_message_verification_request() {
         use ruma::{events::room::message, OwnedDeviceId};
 
-        assert_latest_event_kind!(
+        assert_latest_event_content!(
             with |event_factory| {
                 event_factory
                     .event(
@@ -915,11 +919,12 @@ mod tests_latest_event_values_for_local_events {
     use ruma::OwnedTransactionId;
 
     use super::{
-        LatestEventKind, LatestEventValue, LatestEventValuesForLocalEvents, RoomMessageEventContent,
+        LatestEventContent, LatestEventValue, LatestEventValuesForLocalEvents,
+        RoomMessageEventContent,
     };
 
-    fn room_message(body: &str) -> LatestEventKind {
-        LatestEventKind::RoomMessage(RoomMessageEventContent::text_plain(body))
+    fn room_message(body: &str) -> LatestEventContent {
+        LatestEventContent::RoomMessage(RoomMessageEventContent::text_plain(body))
     }
 
     #[test]
@@ -935,7 +940,7 @@ mod tests_latest_event_values_for_local_events {
 
         assert_matches!(
             buffer.last(),
-            Some(LatestEventValue::LocalIsSending(LatestEventKind::RoomMessage(_)))
+            Some(LatestEventValue::LocalIsSending(LatestEventContent::RoomMessage(_)))
         );
     }
 
@@ -994,7 +999,7 @@ mod tests_latest_event_values_for_local_events {
     }
 
     #[test]
-    fn test_replace_kind() {
+    fn test_replace_content() {
         let mut buffer = LatestEventValuesForLocalEvents::new();
 
         buffer.push(
@@ -1002,11 +1007,11 @@ mod tests_latest_event_values_for_local_events {
             LatestEventValue::LocalIsSending(room_message("gruyère")),
         );
 
-        buffer.replace_kind(0, room_message("comté"));
+        buffer.replace_content(0, room_message("comté"));
 
         assert_matches!(
             buffer.last(),
-            Some(LatestEventValue::LocalIsSending(LatestEventKind::RoomMessage(content))) => {
+            Some(LatestEventValue::LocalIsSending(LatestEventContent::RoomMessage(content))) => {
                 assert_eq!(content.body(), "comté");
             }
         );
@@ -1113,7 +1118,7 @@ mod tests_latest_event_value_non_wasm {
     };
 
     use super::{
-        LatestEvent, LatestEventKind, LatestEventValue, LatestEventValuesForLocalEvents,
+        LatestEvent, LatestEventContent, LatestEventValue, LatestEventValuesForLocalEvents,
         RoomEventCache, RoomSendQueueUpdate,
     };
     use crate::{
@@ -1149,7 +1154,7 @@ mod tests_latest_event_value_non_wasm {
 
         // Second, set a new value.
         latest_event
-            .update(LatestEventValue::LocalIsSending(LatestEventKind::RoomMessage(
+            .update(LatestEventValue::LocalIsSending(LatestEventContent::RoomMessage(
                 RoomMessageEventContent::text_plain("foo"),
             )))
             .await;
@@ -1227,7 +1232,7 @@ mod tests_latest_event_value_non_wasm {
 
         assert_matches!(
             LatestEventValue::new_remote(&room_event_cache, &weak_room).await,
-            LatestEventValue::Remote(LatestEventKind::RoomMessage(message_content)) => {
+            LatestEventValue::Remote(LatestEventContent::RoomMessage(message_content)) => {
                 // We get `event_id_1` because `event_id_2` isn't a candidate,
                 // and `event_id_0` hasn't been read yet (because events are
                 // read backwards).
@@ -1290,7 +1295,7 @@ mod tests_latest_event_value_non_wasm {
             // The `LatestEventValue` matches the new local event.
             assert_matches!(
                 LatestEventValue::new_local(&update, &mut buffer, &room_event_cache, &None).await,
-                LatestEventValue::LocalIsSending(LatestEventKind::RoomMessage(message_content)) => {
+                LatestEventValue::LocalIsSending(LatestEventContent::RoomMessage(message_content)) => {
                     assert_eq!(message_content.body(), "A");
                 }
             );
@@ -1307,7 +1312,7 @@ mod tests_latest_event_value_non_wasm {
             assert_matches!(
                 LatestEventValue::new_local(&update, &mut buffer, &room_event_cache, &None).await,
                 LatestEventValue::LocalIsSending(
-                    LatestEventKind::RoomMessage(message_content)
+                    LatestEventContent::RoomMessage(message_content)
                 ) => {
                     assert_eq!(message_content.body(), "B");
                 }
@@ -1318,7 +1323,7 @@ mod tests_latest_event_value_non_wasm {
         assert_matches!(
             &buffer.buffer[0].1,
             LatestEventValue::LocalIsSending(
-                LatestEventKind::RoomMessage(message_content)
+                LatestEventContent::RoomMessage(message_content)
             ) => {
                 assert_eq!(message_content.body(), "A");
             }
@@ -1326,7 +1331,7 @@ mod tests_latest_event_value_non_wasm {
         assert_matches!(
             &buffer.buffer[1].1,
             LatestEventValue::LocalIsSending(
-                LatestEventKind::RoomMessage(message_content)
+                LatestEventContent::RoomMessage(message_content)
             ) => {
                 assert_eq!(message_content.body(), "B");
             }
@@ -1358,7 +1363,7 @@ mod tests_latest_event_value_non_wasm {
                 assert_matches!(
                     LatestEventValue::new_local(&update, &mut buffer, &room_event_cache, &None).await,
                     LatestEventValue::LocalIsSending(
-                        LatestEventKind::RoomMessage(message_content)
+                        LatestEventContent::RoomMessage(message_content)
                     ) => {
                         assert_eq!(message_content.body(), body);
                     }
@@ -1380,7 +1385,7 @@ mod tests_latest_event_value_non_wasm {
             assert_matches!(
                 LatestEventValue::new_local(&update, &mut buffer, &room_event_cache, &None).await,
                 LatestEventValue::LocalIsSending(
-                    LatestEventKind::RoomMessage(message_content)
+                    LatestEventContent::RoomMessage(message_content)
                 ) => {
                     assert_eq!(message_content.body(), "C");
                 }
@@ -1401,7 +1406,7 @@ mod tests_latest_event_value_non_wasm {
             assert_matches!(
                 LatestEventValue::new_local(&update, &mut buffer, &room_event_cache, &None).await,
                 LatestEventValue::LocalIsSending(
-                    LatestEventKind::RoomMessage(message_content)
+                    LatestEventContent::RoomMessage(message_content)
                 ) => {
                     assert_eq!(message_content.body(), "A");
                 }
@@ -1450,7 +1455,7 @@ mod tests_latest_event_value_non_wasm {
                 assert_matches!(
                     LatestEventValue::new_local(&update, &mut buffer, &room_event_cache, &None).await,
                     LatestEventValue::LocalIsSending(
-                        LatestEventKind::RoomMessage(message_content)
+                        LatestEventContent::RoomMessage(message_content)
                     ) => {
                         assert_eq!(message_content.body(), body);
                     }
@@ -1473,7 +1478,7 @@ mod tests_latest_event_value_non_wasm {
             assert_matches!(
                 LatestEventValue::new_local(&update, &mut buffer, &room_event_cache, &None).await,
                 LatestEventValue::LocalIsSending(
-                    LatestEventKind::RoomMessage(message_content)
+                    LatestEventContent::RoomMessage(message_content)
                 ) => {
                     assert_eq!(message_content.body(), "B");
                 }
@@ -1523,7 +1528,7 @@ mod tests_latest_event_value_non_wasm {
                 assert_matches!(
                     LatestEventValue::new_local(&update, &mut buffer, &room_event_cache, &None).await,
                     LatestEventValue::LocalIsSending(
-                        LatestEventKind::RoomMessage(message_content)
+                        LatestEventContent::RoomMessage(message_content)
                     ) => {
                         assert_eq!(message_content.body(), body);
                     }
@@ -1553,7 +1558,7 @@ mod tests_latest_event_value_non_wasm {
             assert_matches!(
                 LatestEventValue::new_local(&update, &mut buffer, &room_event_cache, &None).await,
                 LatestEventValue::LocalIsSending(
-                    LatestEventKind::RoomMessage(message_content)
+                    LatestEventContent::RoomMessage(message_content)
                 ) => {
                     assert_eq!(message_content.body(), "B");
                 }
@@ -1582,7 +1587,7 @@ mod tests_latest_event_value_non_wasm {
             assert_matches!(
                 LatestEventValue::new_local(&update, &mut buffer, &room_event_cache, &None).await,
                 LatestEventValue::LocalIsSending(
-                    LatestEventKind::RoomMessage(message_content)
+                    LatestEventContent::RoomMessage(message_content)
                 ) => {
                     assert_eq!(message_content.body(), "B.");
                 }
@@ -1614,7 +1619,7 @@ mod tests_latest_event_value_non_wasm {
                 assert_matches!(
                     LatestEventValue::new_local(&update, &mut buffer, &room_event_cache, &None).await,
                     LatestEventValue::LocalIsSending(
-                        LatestEventKind::RoomMessage(message_content)
+                        LatestEventContent::RoomMessage(message_content)
                     ) => {
                         assert_eq!(message_content.body(), body);
                     }
@@ -1638,7 +1643,7 @@ mod tests_latest_event_value_non_wasm {
             assert_matches!(
                 LatestEventValue::new_local(&update, &mut buffer, &room_event_cache, &None).await,
                 LatestEventValue::LocalIsWedged(
-                    LatestEventKind::RoomMessage(message_content)
+                    LatestEventContent::RoomMessage(message_content)
                 ) => {
                     assert_eq!(message_content.body(), "B");
                 }
@@ -1648,7 +1653,7 @@ mod tests_latest_event_value_non_wasm {
             assert_matches!(
                 &buffer.buffer[0].1,
                 LatestEventValue::LocalIsWedged(
-                    LatestEventKind::RoomMessage(message_content)
+                    LatestEventContent::RoomMessage(message_content)
                 ) => {
                     assert_eq!(message_content.body(), "A");
                 }
@@ -1656,7 +1661,7 @@ mod tests_latest_event_value_non_wasm {
             assert_matches!(
                 &buffer.buffer[1].1,
                 LatestEventValue::LocalIsWedged(
-                    LatestEventKind::RoomMessage(message_content)
+                    LatestEventContent::RoomMessage(message_content)
                 ) => {
                     assert_eq!(message_content.body(), "B");
                 }
@@ -1677,7 +1682,7 @@ mod tests_latest_event_value_non_wasm {
             assert_matches!(
                 LatestEventValue::new_local(&update, &mut buffer, &room_event_cache, &None).await,
                 LatestEventValue::LocalIsSending(
-                    LatestEventKind::RoomMessage(message_content)
+                    LatestEventContent::RoomMessage(message_content)
                 ) => {
                     assert_eq!(message_content.body(), "B");
                 }
@@ -1687,7 +1692,7 @@ mod tests_latest_event_value_non_wasm {
             assert_matches!(
                 &buffer.buffer[0].1,
                 LatestEventValue::LocalIsSending(
-                    LatestEventKind::RoomMessage(message_content)
+                    LatestEventContent::RoomMessage(message_content)
                 ) => {
                     assert_eq!(message_content.body(), "B");
                 }
@@ -1717,7 +1722,7 @@ mod tests_latest_event_value_non_wasm {
                 assert_matches!(
                     LatestEventValue::new_local(&update, &mut buffer, &room_event_cache, &None).await,
                     LatestEventValue::LocalIsSending(
-                        LatestEventKind::RoomMessage(message_content)
+                        LatestEventContent::RoomMessage(message_content)
                     ) => {
                         assert_eq!(message_content.body(), body);
                     }
@@ -1741,7 +1746,7 @@ mod tests_latest_event_value_non_wasm {
             assert_matches!(
                 LatestEventValue::new_local(&update, &mut buffer, &room_event_cache, &None).await,
                 LatestEventValue::LocalIsWedged(
-                    LatestEventKind::RoomMessage(message_content)
+                    LatestEventContent::RoomMessage(message_content)
                 ) => {
                     assert_eq!(message_content.body(), "B");
                 }
@@ -1751,7 +1756,7 @@ mod tests_latest_event_value_non_wasm {
             assert_matches!(
                 &buffer.buffer[0].1,
                 LatestEventValue::LocalIsWedged(
-                    LatestEventKind::RoomMessage(message_content)
+                    LatestEventContent::RoomMessage(message_content)
                 ) => {
                     assert_eq!(message_content.body(), "A");
                 }
@@ -1759,7 +1764,7 @@ mod tests_latest_event_value_non_wasm {
             assert_matches!(
                 &buffer.buffer[1].1,
                 LatestEventValue::LocalIsWedged(
-                    LatestEventKind::RoomMessage(message_content)
+                    LatestEventContent::RoomMessage(message_content)
                 ) => {
                     assert_eq!(message_content.body(), "B");
                 }
@@ -1777,7 +1782,7 @@ mod tests_latest_event_value_non_wasm {
             assert_matches!(
                 LatestEventValue::new_local(&update, &mut buffer, &room_event_cache, &None).await,
                 LatestEventValue::LocalIsSending(
-                    LatestEventKind::RoomMessage(message_content)
+                    LatestEventContent::RoomMessage(message_content)
                 ) => {
                     assert_eq!(message_content.body(), "B");
                 }
@@ -1787,7 +1792,7 @@ mod tests_latest_event_value_non_wasm {
             assert_matches!(
                 &buffer.buffer[0].1,
                 LatestEventValue::LocalIsSending(
-                    LatestEventKind::RoomMessage(message_content)
+                    LatestEventContent::RoomMessage(message_content)
                 ) => {
                     assert_eq!(message_content.body(), "A");
                 }
@@ -1795,7 +1800,7 @@ mod tests_latest_event_value_non_wasm {
             assert_matches!(
                 &buffer.buffer[1].1,
                 LatestEventValue::LocalIsSending(
-                    LatestEventKind::RoomMessage(message_content)
+                    LatestEventContent::RoomMessage(message_content)
                 ) => {
                     assert_eq!(message_content.body(), "B");
                 }
@@ -1823,7 +1828,7 @@ mod tests_latest_event_value_non_wasm {
             assert_matches!(
                 LatestEventValue::new_local(&update, &mut buffer, &room_event_cache, &None).await,
                 LatestEventValue::LocalIsSending(
-                    LatestEventKind::RoomMessage(message_content)
+                    LatestEventContent::RoomMessage(message_content)
                 ) => {
                     assert_eq!(message_content.body(), "A");
                 }
@@ -1916,7 +1921,7 @@ mod tests_latest_event_value_non_wasm {
             )
             .await,
             // We get a `Remote` because there is no `Local*` values!
-            LatestEventValue::Remote(LatestEventKind::RoomMessage(message_content)) => {
+            LatestEventValue::Remote(LatestEventContent::RoomMessage(message_content)) => {
                 assert_eq!(message_content.body(), "hello");
             }
         );
