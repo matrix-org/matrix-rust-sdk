@@ -382,4 +382,42 @@ mod tests {
 
         Ok(())
     }
+
+    #[test]
+    fn test_redaction_removes_event() -> Result<(), Box<dyn Error>> {
+        let room_id = room_id!("!room_id:localhost");
+        let mut index =
+            RoomIndex::new_in_memory(room_id).expect("failed to make index in ram: {index:?}");
+
+        let event_id = event_id!("$event_id:localhost");
+        let user_id = user_id!("@user_id:localhost");
+        let event = EventFactory::new()
+            .text_msg("This is a sentence")
+            .event_id(event_id)
+            .room(room_id)
+            .sender(user_id)
+            .into_any_sync_message_like_event();
+
+        index.handle_event(event.clone())?;
+
+        index.commit_and_reload()?;
+
+        assert!(index.contains(event_id), "Index should contain event");
+
+        let redaction_event_id = event_id!("$redaction_event_id:localhost");
+        let redaction = EventFactory::new()
+            .redaction(event_id)
+            .event_id(redaction_event_id)
+            .room(room_id)
+            .sender(user_id)
+            .into_any_sync_message_like_event();
+
+        index.handle_event(redaction.clone())?;
+
+        index.commit_and_reload()?;
+
+        assert!(!index.contains(event_id), "Index should not contain event");
+
+        Ok(())
+    }
 }
