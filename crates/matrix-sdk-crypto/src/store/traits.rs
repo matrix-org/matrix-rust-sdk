@@ -121,10 +121,10 @@ pub trait CryptoStore: AsyncTraitDeps {
     /// Get all the inbound group sessions we have stored.
     async fn get_inbound_group_sessions(&self) -> Result<Vec<InboundGroupSession>, Self::Error>;
 
-    /// Get all the inbound group sessions linked to a room
+    /// Get all the inbound group sessions for a given room.
     ///
     /// # Arguments
-    /// * `room_id` - the room id of the room that the sessions are linked to.
+    /// * `room_id` - The ID of the room to return sessions for.
     async fn get_inbound_group_sessions_by_room_id(
         &self,
         room_id: &RoomId,

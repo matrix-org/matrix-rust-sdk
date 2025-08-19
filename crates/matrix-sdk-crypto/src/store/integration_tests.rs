@@ -568,8 +568,8 @@ macro_rules! cryptostore_integration_tests {
             }
 
             #[async_test]
-            async fn test_load_inbound_group_sessions_by_room_id() {
-                let dir = "load_inbound_group_session_by_room_id";
+            async fn test_get_inbound_group_sessions_by_room_id() {
+                let dir = "get_inbound_group_session_by_room_id";
                 let (account, store) = get_loaded_store(dir).await;
                 assert_eq!(store.get_inbound_group_sessions().await.unwrap().len(), 0);
 
