@@ -30,6 +30,9 @@ impl SpaceGraphNode {
 }
 
 #[derive(Debug)]
+/// A graph structure representing a space hierarchy. Contains functionality
+/// for mapping parent-child relationships between rooms, removing cycles and
+/// retrieving top-level parents/roots.
 pub struct SpaceGraph {
     nodes: BTreeMap<OwnedRoomId, SpaceGraphNode>,
 }
@@ -45,18 +48,25 @@ impl SpaceGraph {
         Self { nodes: BTreeMap::new() }
     }
 
+    /// Returns the root nodes of the graph, which are nodes without any
+    /// parents.
     pub fn root_nodes(&self) -> Vec<&OwnedRoomId> {
         self.nodes.values().filter(|node| node.parents.is_empty()).map(|node| &node.id).collect()
     }
 
+    /// Returns the children of a given node. If the node does not exist, it
+    /// returns an empty vector.
     pub fn children_of(&self, node_id: &OwnedRoomId) -> Vec<&OwnedRoomId> {
         self.nodes.get(node_id).map_or(vec![], |node| node.children.iter().collect())
     }
 
+    /// Adds a node to the graph. If the node already exists, it does nothing.
     pub fn add_node(&mut self, node_id: OwnedRoomId) {
         self.nodes.entry(node_id.clone()).or_insert(SpaceGraphNode::new(node_id));
     }
 
+    /// Adds a directed edge from `parent_id` to `child_id`, creating nodes if
+    /// they do not already exist in the graph.
     pub fn add_edge(&mut self, parent_id: OwnedRoomId, child_id: OwnedRoomId) {
         self.nodes.entry(parent_id.clone()).or_insert(SpaceGraphNode::new(parent_id.clone()));
 
@@ -66,6 +76,9 @@ impl SpaceGraph {
         self.nodes.get_mut(&child_id).unwrap().parents.insert(parent_id);
     }
 
+    /// Removes cycles in the graph by performing a depth-first search (DFS) and
+    /// remembering the visited nodes. If a node is revisited while still in the
+    /// current path (i.e. it's on the stack), it indicates a cycle.
     pub fn remove_cycles(&mut self) {
         let mut visited = BTreeSet::new();
         let mut stack = BTreeSet::new();

@@ -14,7 +14,17 @@
 
 //! High level interfaces for working with Spaces
 //!
-//! See [`SpaceService`] for details.
+//! The `SpaceService` is an UI oriented, high-level interface for working with
+//! Matrix Spaces. It provides methods to retrieve joined spaces, subscribe
+//! to updates, and navigate space hierarchies.
+//!
+//! It consists of 3 main components:
+//! - `SpaceService`: The main service for managing spaces. It
+//! - `SpaceGraph`: An utility that maps the `m.space.parent` and
+//!   `m.space.child` fields into a graph structure, removing cycles and
+//!   providing access to top level parents.
+//! - `SpaceRoomList`: A component for retrieving a space's children rooms and
+//!   their details.
 
 use std::sync::Arc;
 
@@ -39,6 +49,43 @@ pub mod graph;
 pub mod room;
 pub mod room_list;
 
+/// The main entry point into the Spaces facilities.
+///
+/// The spaces service is responsible for retrieving one's joined rooms,
+/// building a graph out of their `m.space.parent` and `m.space.child` state
+/// events, and providing access to the top-level spaces and their children.
+///
+/// # Examples
+///
+/// ```no_run
+/// use futures_util::StreamExt;
+/// use matrix_sdk::Client;
+/// use matrix_sdk_ui::spaces::SpaceService;
+/// use ruma::owned_room_id;
+///
+/// # async {
+/// let client: Client = todo!();
+/// let space_service = SpaceService::new(client.clone());
+///
+/// // Get a list of all the joined spaces
+/// let joined_spaces = space_service.joined_spaces().await;
+///
+/// // And subscribe to changes on them
+/// // `initial_values` is equal to `joined_spaces` if nothing changed meanwhile
+/// let (initial_values, stream) = space_service.subscribe_to_joined_spaces();
+///
+/// while let Some(diffs) = stream.next().await {
+///     println!("Received joined spaces updates: {diffs:?}");
+/// }
+///
+/// // Get a list of all the rooms in a particular space
+/// let room_list = space_service
+///     .space_room_list(owned_room_id!("!some_space:example.org"));
+///
+/// // Which can be used to retrieve information about the children rooms
+/// let children = room_list.rooms();
+/// # anyhow::Ok(()) };
+/// ```
 pub struct SpaceService {
     client: Client,
 
@@ -64,6 +111,8 @@ impl SpaceService {
         }
     }
 
+    /// Subscribes to updates on the joined spaces list. If space rooms are
+    /// joined or left, the stream will yield diffs that reflect the changes.
     pub fn subscribe_to_joined_spaces(
         &self,
     ) -> (Vector<SpaceRoom>, VectorSubscriberBatchedStream<SpaceRoom>) {
@@ -96,6 +145,9 @@ impl SpaceService {
         self.joined_spaces.lock().subscribe().into_values_and_batched_stream()
     }
 
+    /// Returns a list of all the top-level joined spaces. It will eagerly
+    /// compute the latest version and also notify subscribers if there were
+    /// any changes.
     pub async fn joined_spaces(&self) -> Vec<SpaceRoom> {
         let spaces = Self::joined_spaces_for(&self.client).await;
 
@@ -104,6 +156,7 @@ impl SpaceService {
         spaces
     }
 
+    /// Returns a `SpaceRoomList` for the given space ID.
     pub fn space_room_list(&self, space_id: OwnedRoomId) -> SpaceRoomList {
         SpaceRoomList::new(self.client.clone(), space_id)
     }
@@ -127,8 +180,11 @@ impl SpaceService {
             .filter_map(|room| room.is_space().then_some(room))
             .collect::<Vec<_>>();
 
+        // Build a graph to hold the parent-child relations
         let mut graph = SpaceGraph::new();
 
+        // Iterate over all joined spaces and populate the graph with edges based
+        // on `m.space.parent` and `m.space.child` state events.
         for space in joined_spaces.iter() {
             graph.add_node(space.room_id().to_owned());
 
@@ -167,6 +223,8 @@ impl SpaceService {
             }
         }
 
+        // Remove cycles from the graph. This is important because they are not
+        // enforced backend side.
         graph.remove_cycles();
 
         let root_notes = graph.root_nodes();

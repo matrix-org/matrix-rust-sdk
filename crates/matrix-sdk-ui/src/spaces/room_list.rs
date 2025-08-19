@@ -33,6 +33,68 @@ pub enum SpaceRoomListPaginationState {
     Loading,
 }
 
+/// The `SpaceRoomList`represents a paginated list of direct rooms
+/// that belong to a particular space.
+///
+/// It can be used to paginate through the list (and have live updates on the
+/// pagination state) as well as subscribe to changes as rooms are joined or
+/// left.
+///
+/// The `SpaceRoomList` also automatically subscribes to client room changes
+/// and updates the list accordingly as rooms are joined or left.
+///
+/// # Examples
+///
+/// ```no_run
+/// use futures_util::StreamExt;
+/// use matrix_sdk::Client;
+/// use matrix_sdk_ui::spaces::{
+///     SpaceService, room_list::SpaceRoomListPaginationState,
+/// };
+/// use ruma::owned_room_id;
+///
+/// # async {
+/// let client: Client = todo!();
+/// let space_service = SpaceService::new(client.clone());
+///
+/// // Get a list of all the rooms in a particular space
+/// let room_list = space_service
+///     .space_room_list(owned_room_id!("!some_space:example.org"));
+///
+/// // Start off with an empty and idle list
+/// room_list.rooms().is_empty();
+///
+/// assert_eq!(
+///     room_list.pagination_state(),
+///     SpaceRoomListPaginationState::Idle { end_reached: false }
+/// );
+///
+/// // Subscribe to pagination state updates
+/// let pagination_state_stream =
+///     room_list.subscribe_to_pagination_state_updates();
+///
+/// // And to room list updates
+/// let (_, room_stream) = room_list.subscribe_to_room_updates();
+///
+/// // spawn {
+/// while let Some(pagination_state) = pagination_state_stream.next().await {
+///     println!("Received pagination state update: {pagination_state:?}");
+/// }
+/// // }
+///
+/// // spawn {
+/// while let Some(diffs) = room_stream.next().await {
+///     println!("Received room list update: {diffs:?}");
+/// }
+/// // }
+///
+/// // Ask the room to load the next page
+/// room_list.paginate().await.unwrap();
+///
+/// // And, if successful, rooms are available
+/// let rooms = room_list.rooms();
+/// # anyhow::Ok(()) };
+/// ```
 pub struct SpaceRoomList {
     client: Client,
 
@@ -53,6 +115,7 @@ impl Drop for SpaceRoomList {
     }
 }
 impl SpaceRoomList {
+    /// Creates a new `SpaceRoomList` for the given space identifier.
     pub fn new(client: Client, parent_space_id: OwnedRoomId) -> Self {
         let rooms = Arc::new(Mutex::new(ObservableVector::<SpaceRoom>::new()));
 
@@ -105,26 +168,32 @@ impl SpaceRoomList {
         }
     }
 
+    /// Returns if the room list is currently paginating or not.
     pub fn pagination_state(&self) -> SpaceRoomListPaginationState {
         self.pagination_state.get()
     }
 
+    /// Subscribe to pagination updates.
     pub fn subscribe_to_pagination_state_updates(
         &self,
     ) -> Subscriber<SpaceRoomListPaginationState> {
         self.pagination_state.subscribe()
     }
 
+    /// Return the current list of rooms.
     pub fn rooms(&self) -> Vec<SpaceRoom> {
         self.rooms.lock().iter().cloned().collect_vec()
     }
 
+    /// Subscribes to room list updates.
     pub fn subscribe_to_room_updates(
         &self,
     ) -> (Vector<SpaceRoom>, VectorSubscriberBatchedStream<SpaceRoom>) {
         self.rooms.lock().subscribe().into_values_and_batched_stream()
     }
 
+    /// Ask the list to retrieve the next page if the end hasn't been reached
+    /// yet. Otherwise it no-ops.
     pub async fn paginate(&self) -> Result<(), Error> {
         match *self.pagination_state.read() {
             SpaceRoomListPaginationState::Idle { end_reached } if end_reached => {
