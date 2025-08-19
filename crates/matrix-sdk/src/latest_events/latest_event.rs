@@ -32,7 +32,7 @@ use ruma::{
     },
     EventId, OwnedEventId, OwnedRoomId, OwnedTransactionId, RoomId, TransactionId, UserId,
 };
-use tracing::warn;
+use tracing::error;
 
 use crate::{event_cache::RoomEventCache, room::WeakRoom, send_queue::RoomSendQueueUpdate};
 
@@ -190,19 +190,25 @@ impl LatestEventValue {
                 content: local_echo_content,
             }) => match local_echo_content {
                 LocalEchoContent::Event { serialized_event: content, .. } => {
-                    if let Ok(content) = content.deserialize() {
-                        if let Some(content) = extract_content_from_any_message_like(content) {
-                            let value = Self::LocalIsSending(content);
+                    match content.deserialize() {
+                        Ok(content) => {
+                            if let Some(content) = extract_content_from_any_message_like(content) {
+                                let value = Self::LocalIsSending(content);
 
-                            buffer_of_values_for_local_events
-                                .push(transaction_id.to_owned(), value.clone());
+                                buffer_of_values_for_local_events
+                                    .push(transaction_id.to_owned(), value.clone());
 
-                            value
-                        } else {
+                                value
+                            } else {
+                                Self::None
+                            }
+                        }
+
+                        Err(error) => {
+                            error!(?error, "Failed to deserialize an event from `RoomSendQueueUpdate::NewLocalEvent`");
+
                             Self::None
                         }
-                    } else {
-                        Self::None
                     }
                 }
 
@@ -254,12 +260,19 @@ impl LatestEventValue {
             // (note: it should!), and return the last `LatestEventValue` or calculate a new one.
             RoomSendQueueUpdate::ReplacedLocalEvent { transaction_id, new_content: content } => {
                 if let Some(position) = buffer_of_values_for_local_events.position(transaction_id) {
-                    if let Ok(content) = content.deserialize() {
-                        if let Some(content) = extract_content_from_any_message_like(content) {
-                            buffer_of_values_for_local_events.replace_content(position, content);
+                    match content.deserialize() {
+                        Ok(content) => {
+                            if let Some(content) = extract_content_from_any_message_like(content) {
+                                buffer_of_values_for_local_events
+                                    .replace_content(position, content);
+                            }
                         }
-                    } else {
-                        return Self::None;
+
+                        Err(error) => {
+                            error!(?error, "Failed to deserialize an event from `RoomSendQueueUpdate::ReplacedLocalEvent`");
+
+                            return Self::None;
+                        }
                     }
                 }
 
@@ -530,10 +543,16 @@ fn find_and_map_timeline_event(
 ) -> Option<LatestEventContent> {
     // Cast the event into an `AnySyncTimelineEvent`. If deserializing fails, we
     // ignore the event.
-    let Some(event) = event.raw().deserialize().ok() else {
-        warn!(?event, "Failed to deserialize the event when looking for a suitable latest event");
+    let event = match event.raw().deserialize() {
+        Ok(event) => event,
+        Err(error) => {
+            error!(
+                ?error,
+                "Failed to deserialize the event when looking for a suitable latest event"
+            );
 
-        return None;
+            return None;
+        }
     };
 
     match event {
