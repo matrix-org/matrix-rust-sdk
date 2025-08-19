@@ -576,21 +576,14 @@ macro_rules! cryptostore_integration_tests {
                 let room_id = &room_id!("!testing:localhost");
                 let (_, session_1) = account.create_group_session_pair_with_defaults(room_id).await;
                 let (_, session_2) = account.create_group_session_pair_with_defaults(room_id).await;
-                let (_, session_3) = account.create_group_session_pair_with_defaults(room_id).await;
-                let (_, session_4) = account.create_group_session_pair_with_defaults(room_id).await;
-                let (_, session_5) = account.create_group_session_pair_with_defaults(room_id).await;
-                let (_, session_6) = account.create_group_session_pair_with_defaults(room_id).await;
-                let (_, session_7) = account.create_group_session_pair_with_defaults(room_id).await;
-
+                
+                let second_room_id = &room_id!("!other_room_testing:localhost");
+                let (_, session_3) = account.create_group_session_pair_with_defaults(second_room_id).await;
 
                 let mut sessions = vec![
-                    session_1.clone(),
-                    session_2.clone(),
-                    session_3.clone(),
-                    session_4.clone(),
-                    session_5.clone(),
-                    session_6.clone(),
-                    session_7.clone(),
+                    session_1,
+                    session_2,
+                    session_3
                 ];
 
                 for session in sessions.iter_mut() {
@@ -604,8 +597,13 @@ macro_rules! cryptostore_integration_tests {
                 };
                 store.save_changes(changes).await.expect("Can't save group session");
 
+
                 drop(store);
 
+                // Remove the last sessions since it is in an other room
+                sessions.pop();
+               
+                
                 let store = get_store(dir, None, false).await;
 
                 store.load_account().await.unwrap();
@@ -618,11 +616,12 @@ macro_rules! cryptostore_integration_tests {
                 for session in loaded_sessions.iter() {
                     session.export().await;
                 }
-                assert_eq!(loaded_sessions.len(), 7);
+
+                assert_eq!(loaded_sessions.len(), 2);
                 assert_session_lists_eq(sessions, loaded_sessions, "room by id sessions");
 
-                assert_eq!(store.get_inbound_group_sessions().await.unwrap().len(), 7);
-                assert_eq!(store.inbound_group_session_counts(None).await.unwrap().total, 7);
+                assert_eq!(store.get_inbound_group_sessions().await.unwrap().len(), 3);
+                assert_eq!(store.inbound_group_session_counts(None).await.unwrap().total, 3);
             }
 
             #[async_test]
