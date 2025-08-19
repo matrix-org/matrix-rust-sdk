@@ -32,6 +32,11 @@ use crate::{
     TaskHandle,
 };
 
+/// The main entry point into the Spaces facilities.
+///
+/// The spaces service is responsible for retrieving one's joined rooms,
+/// building a graph out of their `m.space.parent` and `m.space.child` state
+/// events, and providing access to the top-level spaces and their children.
 #[derive(uniffi::Object)]
 pub struct SpaceService {
     inner: UISpaceService,
@@ -45,10 +50,15 @@ impl SpaceService {
 
 #[matrix_sdk_ffi_macros::export]
 impl SpaceService {
+    /// Returns a list of all the top-level joined spaces. It will eagerly
+    /// compute the latest version and also notify subscribers if there were
+    /// any changes.
     pub async fn joined_spaces(&self) -> Vec<SpaceRoom> {
         self.inner.joined_spaces().await.into_iter().map(Into::into).collect()
     }
 
+    /// Subscribes to updates on the joined spaces list. If space rooms are
+    /// joined or left, the stream will yield diffs that reflect the changes.
     #[allow(clippy::unused_async)]
     // This method doesn't need to be async but if its not the FFI layer panics
     // with "there is no no reactor running, must be called from the context
@@ -70,6 +80,8 @@ impl SpaceService {
             }
         })))
     }
+
+    /// Returns a `SpaceRoomList` for the given space ID.
     #[allow(clippy::unused_async)]
     // This method doesn't need to be async but if its not the FFI layer panics
     // with "there is no no reactor running, must be called from the context
@@ -84,12 +96,22 @@ impl SpaceService {
     }
 }
 
+/// The `SpaceRoomList`represents a paginated list of direct rooms
+/// that belong to a particular space.
+///
+/// It can be used to paginate through the list (and have live updates on the
+/// pagination state) as well as subscribe to changes as rooms are joined or
+/// left.
+///
+/// The `SpaceRoomList` also automatically subscribes to client room changes
+/// and updates the list accordingly as rooms are joined or left.
 #[derive(uniffi::Object)]
 pub struct SpaceRoomList {
     inner: UISpaceRoomList,
 }
 
 impl SpaceRoomList {
+    /// Creates a new `SpaceRoomList` for the underlying UI crate room list.
     fn new(inner: UISpaceRoomList) -> Self {
         Self { inner }
     }
@@ -97,10 +119,12 @@ impl SpaceRoomList {
 
 #[matrix_sdk_ffi_macros::export]
 impl SpaceRoomList {
+    /// Returns if the room list is currently paginating or not.
     pub fn pagination_state(&self) -> SpaceRoomListPaginationState {
         self.inner.pagination_state()
     }
 
+    /// Subscribe to pagination updates.
     pub fn subscribe_to_pagination_state_updates(
         &self,
         listener: Box<dyn SpaceRoomListPaginationStateListener>,
@@ -116,10 +140,12 @@ impl SpaceRoomList {
         })))
     }
 
+    /// Return the current list of rooms.
     pub fn rooms(&self) -> Vec<SpaceRoom> {
         self.inner.rooms().into_iter().map(Into::into).collect()
     }
 
+    /// Subscribes to room list updates.
     pub fn subscribe_to_room_update(
         &self,
         listener: Box<dyn SpaceRoomListEntriesListener>,
@@ -137,6 +163,8 @@ impl SpaceRoomList {
         })))
     }
 
+    /// Ask the list to retrieve the next page if the end hasn't been reached
+    /// yet. Otherwise it no-ops.
     pub async fn paginate(&self) -> Result<(), ClientError> {
         self.inner.paginate().await.map_err(ClientError::from)
     }
@@ -157,6 +185,8 @@ pub trait SpaceServiceJoinedSpacesListener: SendOutsideWasm + SyncOutsideWasm + 
     fn on_update(&self, room_updates: Vec<SpaceListUpdate>);
 }
 
+/// Structure representing a room in a space and aggregated information
+/// relevant to the UI layer.
 #[derive(uniffi::Record)]
 pub struct SpaceRoom {
     pub room_id: String,

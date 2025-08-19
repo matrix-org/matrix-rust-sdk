@@ -19,6 +19,8 @@ use ruma::{
     room::{JoinRuleSummary, RoomSummary, RoomType},
 };
 
+/// Structure representing a room in a space and aggregated information
+/// relevant to the UI layer.
 #[derive(Debug, Clone, PartialEq)]
 pub struct SpaceRoom {
     pub room_id: OwnedRoomId,
