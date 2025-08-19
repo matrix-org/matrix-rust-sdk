@@ -451,8 +451,8 @@ impl CryptoStore for MemoryStore {
             .inbound_group_sessions
             .read()
             .get(room_id)
-            .into_iter()
-            .flat_map(HashMap::values)
+            .expect("No inbound group sessions for that roomId")
+            .values()
             .map(|ser| {
                 let pickle: PickledInboundGroupSession =
                     serde_json::from_str(ser).expect("Pickle deserialization should work");
