@@ -39,7 +39,7 @@ use futures_util::future::{join_all, try_join_all};
 use matrix_sdk_base::{
     deserialized_responses::{AmbiguityChange, TimelineEvent},
     event_cache::{
-        store::{EventCacheStoreError, EventCacheStoreLock},
+        store::{DynEventCacheStore, EventCacheStoreError, EventCacheStoreLock},
         Gap,
     },
     executor::AbortOnDrop,
@@ -358,11 +358,22 @@ impl EventCache {
         while let Some(room_id) = rx.recv().await {
             trace!(for_room = %room_id, "received notification to shrink");
 
-            let room = match inner.for_room(&room_id).await {
-                Ok(room) => room,
-                Err(err) => {
-                    warn!(for_room = %room_id, "Failed to get the `RoomEventCache`: {err}");
+            let room = {
+                let Ok(store) = inner
+                    .store
+                    .lock()
+                    .await
+                    .inspect_err(|err| warn!("Failed to lock the store: {err}"))
+                else {
                     continue;
+                };
+
+                match inner.for_room(&*store, &room_id).await {
+                    Ok(room) => room,
+                    Err(err) => {
+                        warn!(for_room = %room_id, "Failed to get the `RoomEventCache`: {err}");
+                        continue;
+                    }
                 }
             };
 
@@ -408,7 +419,8 @@ impl EventCache {
             return Err(EventCacheError::NotSubscribedYet);
         };
 
-        let room = self.inner.for_room(room_id).await?;
+        let store = self.inner.store.lock().await?;
+        let room = self.inner.for_room(&*store, room_id).await?;
 
         Ok((room, drop_handles))
     }
@@ -854,7 +866,7 @@ impl EventCacheInner {
 
         // Left rooms.
         for (room_id, left_room_update) in updates.left {
-            let room = self.for_room(&room_id).await?;
+            let room = self.for_room(&*locked_store.store, &room_id).await?;
 
             if let Err(err) =
                 room.inner.handle_left_room_update(locked_store.clone(), left_room_update).await
@@ -868,7 +880,7 @@ impl EventCacheInner {
         for (room_id, joined_room_update) in updates.joined {
             trace!(?room_id, "Handling a `JoinedRoomUpdate`");
 
-            let room = self.for_room(&room_id).await?;
+            let room = self.for_room(&*locked_store.store, &room_id).await?;
 
             if let Err(err) =
                 room.inner.handle_joined_room_update(locked_store.clone(), joined_room_update).await
@@ -885,7 +897,11 @@ impl EventCacheInner {
     }
 
     /// Return a room-specific view over the [`EventCache`].
-    async fn for_room(&self, room_id: &RoomId) -> Result<RoomEventCache> {
+    async fn for_room(
+        &self,
+        store: &DynEventCacheStore,
+        room_id: &RoomId,
+    ) -> Result<RoomEventCache> {
         // Fast path: the entry exists; let's acquire a read lock, it's cheaper than a
         // write lock.
         let by_room_guard = self.by_room.read().await;
@@ -920,7 +936,7 @@ impl EventCacheInner {
                     room_id.to_owned(),
                     room_version_rules,
                     self.linked_chunk_update_sender.clone(),
-                    self.store.clone(),
+                    store,
                     pagination_status.clone(),
                 )
                 .await?;

@@ -748,11 +748,9 @@ mod private {
             room_id: OwnedRoomId,
             room_version_rules: RoomVersionRules,
             linked_chunk_update_sender: Sender<RoomEventCacheLinkedChunkUpdate>,
-            store: EventCacheStoreLock,
+            store: &DynEventCacheStore,
             pagination_status: SharedObservable<RoomPaginationStatus>,
         ) -> Result<Self, EventCacheError> {
-            let store_lock = store.lock().await?;
-
             let linked_chunk_id = LinkedChunkId::Room(&room_id);
 
             // Load the full linked chunk's metadata, so as to feed the order tracker.
@@ -760,7 +758,7 @@ mod private {
             // If loading the full linked chunk failed, we'll clear the event cache, as it
             // indicates that at some point, there's some malformed data.
             let full_linked_chunk_metadata =
-                match Self::load_linked_chunk_metadata(&*store_lock, linked_chunk_id).await {
+                match Self::load_linked_chunk_metadata(store, linked_chunk_id).await {
                     Ok(metas) => metas,
                     Err(err) => {
                         error!(
@@ -768,7 +766,7 @@ mod private {
                         );
 
                         // Try to clear storage for this room.
-                        store_lock
+                        store
                             .handle_linked_chunk_updates(linked_chunk_id, vec![Update::Clear])
                             .await?;
 
@@ -777,7 +775,7 @@ mod private {
                     }
                 };
 
-            let linked_chunk = match store_lock
+            let linked_chunk = match store
                 .load_last_chunk(linked_chunk_id)
                 .await
                 .map_err(EventCacheError::from)
@@ -792,9 +790,7 @@ mod private {
                     );
 
                     // Try to clear storage for this room.
-                    store_lock
-                        .handle_linked_chunk_updates(linked_chunk_id, vec![Update::Clear])
-                        .await?;
+                    store.handle_linked_chunk_updates(linked_chunk_id, vec![Update::Clear]).await?;
 
                     None
                 }
