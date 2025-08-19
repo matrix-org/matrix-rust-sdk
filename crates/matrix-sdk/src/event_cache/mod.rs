@@ -369,7 +369,7 @@ impl EventCache {
             trace!("waiting for state lock…");
             let mut state = room.inner.state.write().await;
 
-            match state.auto_shrink_if_no_subscribers().await {
+            match state.auto_shrink_if_no_subscribers(&room.inner.store).await {
                 Ok(diffs) => {
                     if let Some(diffs) = diffs {
                         // Hey, fun stuff: we shrunk the linked chunk, so there shouldn't be any

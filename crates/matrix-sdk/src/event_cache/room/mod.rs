@@ -1076,12 +1076,10 @@ mod private {
             &mut self,
             locked_store: OwnedEventCacheStoreLockGuard,
         ) -> Result<(), EventCacheError> {
-            let store_lock = self.store.lock().await?;
-
             // Attempt to load the last chunk.
             let linked_chunk_id = LinkedChunkId::Room(&self.room);
             let (last_chunk, chunk_identifier_generator) =
-                match store_lock.load_last_chunk(linked_chunk_id).await {
+                match locked_store.store.load_last_chunk(linked_chunk_id).await {
                     Ok(pair) => pair,
 
                     Err(err) => {
@@ -1089,7 +1087,8 @@ mod private {
                         error!("error when reloading a linked chunk from memory: {err}");
 
                         // Clear storage for this room.
-                        store_lock
+                        locked_store
+                            .store
                             .handle_linked_chunk_updates(linked_chunk_id, vec![Update::Clear])
                             .await?;
 
@@ -1126,6 +1125,7 @@ mod private {
         #[must_use = "Propagate `VectorDiff` updates via `RoomEventCacheUpdate`"]
         pub(crate) async fn auto_shrink_if_no_subscribers(
             &mut self,
+            store_lock: &EventCacheStoreLock,
         ) -> Result<Option<Vec<VectorDiff<Event>>>, EventCacheError> {
             let subscriber_count = self.subscriber_count.load(std::sync::atomic::Ordering::SeqCst);
 
@@ -1134,7 +1134,7 @@ mod private {
             if subscriber_count == 0 {
                 // If we are the last strong reference to the auto-shrinker, we can shrink the
                 // events data structure to its last chunk.
-                let locked_store = self.store.lock_owned().await?;
+                let locked_store = store_lock.lock_owned().await?;
                 self.shrink_to_last_chunk(locked_store).await?;
                 Ok(Some(self.room_linked_chunk.updates_as_vector_diffs()))
             } else {
@@ -1641,8 +1641,8 @@ mod private {
                 // worry about filtering out aggregation events (like
                 // reactions/edits/etc.). Pretty neat, huh?
                 let num_replies = {
-                    let store_guard = &*self.store.lock().await?;
-                    let related_thread_events = store_guard
+                    let related_thread_events = locked_store
+                        .store
                         .find_event_relations(
                             &self.room,
                             &thread_root,
