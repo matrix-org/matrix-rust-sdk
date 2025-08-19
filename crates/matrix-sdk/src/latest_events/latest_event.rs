@@ -265,6 +265,8 @@ impl LatestEventValue {
                             if let Some(content) = extract_content_from_any_message_like(content) {
                                 buffer_of_values_for_local_events
                                     .replace_content(position, content);
+                            } else {
+                                buffer_of_values_for_local_events.remove(position);
                             }
                         }
 
@@ -1132,7 +1134,10 @@ mod tests_latest_event_value_non_wasm {
     use matrix_sdk_test::{async_test, event_factory::EventFactory};
     use ruma::{
         event_id,
-        events::{room::message::RoomMessageEventContent, AnyMessageLikeEventContent},
+        events::{
+            reaction::ReactionEventContent, relation::Annotation,
+            room::message::RoomMessageEventContent, AnyMessageLikeEventContent,
+        },
         room_id, user_id, MilliSecondsSinceUnixEpoch, OwnedRoomId, OwnedTransactionId,
     };
 
@@ -1613,6 +1618,63 @@ mod tests_latest_event_value_non_wasm {
             );
 
             assert_eq!(buffer.buffer.len(), 2);
+        }
+    }
+
+    #[async_test]
+    async fn test_local_replaced_local_event_by_a_non_suitable_event() {
+        let (_client, _room_id, room_send_queue, room_event_cache) = local_prelude().await;
+
+        let mut buffer = LatestEventValuesForLocalEvents::new();
+        let transaction_id = OwnedTransactionId::from("txnid0");
+
+        // Receiving one `NewLocalEvent`.
+        {
+            let content = new_local_echo_content(&room_send_queue, &transaction_id, "A");
+
+            let update = RoomSendQueueUpdate::NewLocalEvent(LocalEcho {
+                transaction_id: transaction_id.clone(),
+                content,
+            });
+
+            // The `LatestEventValue` matches the new local event.
+            assert_matches!(
+                LatestEventValue::new_local(&update, &mut buffer, &room_event_cache, &None).await,
+                LatestEventValue::LocalIsSending(
+                    LatestEventContent::RoomMessage(message_content)
+                ) => {
+                    assert_eq!(message_content.body(), "A");
+                }
+            );
+
+            assert_eq!(buffer.buffer.len(), 1);
+        }
+
+        // Receiving a `ReplacedLocalEvent` targeting the first event. Sadly, the new
+        // event cannot be mapped to a `LatestEventValue`! The first event is removed
+        // from the buffer, and the `LatestEventValue` becomes `None` because there is
+        // no other alternative.
+        {
+            let new_content = SerializableEventContent::new(&AnyMessageLikeEventContent::Reaction(
+                ReactionEventContent::new(Annotation::new(
+                    event_id!("$ev0").to_owned(),
+                    "+1".to_owned(),
+                )),
+            ))
+            .unwrap();
+
+            let update = RoomSendQueueUpdate::ReplacedLocalEvent {
+                transaction_id: transaction_id.clone(),
+                new_content,
+            };
+
+            // The `LatestEventValue` has changed!
+            assert_matches!(
+                LatestEventValue::new_local(&update, &mut buffer, &room_event_cache, &None).await,
+                LatestEventValue::None
+            );
+
+            assert_eq!(buffer.buffer.len(), 0);
         }
     }
 
