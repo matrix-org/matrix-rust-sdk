@@ -121,6 +121,13 @@ pub trait CryptoStore: AsyncTraitDeps {
     /// Get all the inbound group sessions we have stored.
     async fn get_inbound_group_sessions(&self) -> Result<Vec<InboundGroupSession>, Self::Error>;
 
+    /// Get the number inbound group sessions we have and how many of them are
+    /// backed up.
+    async fn inbound_group_session_counts(
+        &self,
+        backup_version: Option<&str>,
+    ) -> Result<RoomKeyCounts, Self::Error>;
+    
     /// Get all the inbound group sessions for a given room.
     ///
     /// # Arguments
@@ -129,13 +136,6 @@ pub trait CryptoStore: AsyncTraitDeps {
         &self,
         room_id: &RoomId,
     ) -> Result<Vec<InboundGroupSession>, Self::Error>;
-
-    /// Get the number inbound group sessions we have and how many of them are
-    /// backed up.
-    async fn inbound_group_session_counts(
-        &self,
-        backup_version: Option<&str>,
-    ) -> Result<RoomKeyCounts, Self::Error>;
 
     /// Get a batch of inbound group sessions for the device with the supplied
     /// curve key, whose sender data is of the supplied type.

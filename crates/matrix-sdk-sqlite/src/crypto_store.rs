@@ -514,6 +514,23 @@ trait SqliteObjectCryptoStoreExt: SqliteAsyncConnExt {
             .await?)
     }
 
+    async fn get_inbound_group_session_counts(
+        &self,
+        _backup_version: Option<&str>,
+    ) -> Result<RoomKeyCounts> {
+        let total = self
+            .query_row("SELECT count(*) FROM inbound_group_session", (), |row| row.get(0))
+            .await?;
+        let backed_up = self
+            .query_row(
+                "SELECT count(*) FROM inbound_group_session WHERE backed_up = TRUE",
+                (),
+                |row| row.get(0),
+            )
+            .await?;
+        Ok(RoomKeyCounts { total, backed_up })
+    }
+
     async fn get_inbound_group_sessions_by_room_id(
         &self,
         room_id: Key,
@@ -530,23 +547,6 @@ trait SqliteObjectCryptoStoreExt: SqliteAsyncConnExt {
                 },
             )
             .await?)
-    }
-
-    async fn get_inbound_group_session_counts(
-        &self,
-        _backup_version: Option<&str>,
-    ) -> Result<RoomKeyCounts> {
-        let total = self
-            .query_row("SELECT count(*) FROM inbound_group_session", (), |row| row.get(0))
-            .await?;
-        let backed_up = self
-            .query_row(
-                "SELECT count(*) FROM inbound_group_session WHERE backed_up = TRUE",
-                (),
-                |row| row.get(0),
-            )
-            .await?;
-        Ok(RoomKeyCounts { total, backed_up })
     }
 
     async fn get_inbound_group_sessions_for_device_batch(
