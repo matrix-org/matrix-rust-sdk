@@ -336,11 +336,13 @@ impl RoomEventCache {
     /// It starts by looking into loaded events before looking inside the
     /// storage.
     pub async fn find_event(&self, event_id: &EventId) -> Option<Event> {
+        let locked_store = self.inner.store.lock_owned().await.ok()?;
+
         self.inner
             .state
             .read()
             .await
-            .find_event(event_id)
+            .find_event(&locked_store, event_id)
             .await
             .ok()
             .flatten()
@@ -368,7 +370,7 @@ impl RoomEventCache {
             .state
             .read()
             .await
-            .find_event_with_relations(event_id, filter.clone())
+            .find_event_with_relations(&self.inner.store, event_id, filter.clone())
             .await
             .ok()
             .flatten()
@@ -1146,8 +1148,9 @@ mod private {
         #[cfg(test)]
         pub(crate) async fn force_shrink_to_last_chunk(
             &mut self,
+            store_lock: &EventCacheStoreLock,
         ) -> Result<Vec<VectorDiff<Event>>, EventCacheError> {
-            let locked_store = self.store.lock_owned().await?;
+            let locked_store = store_lock.lock_owned().await?;
             self.shrink_to_last_chunk(locked_store).await?;
             Ok(self.room_linked_chunk.updates_as_vector_diffs())
         }
@@ -1398,6 +1401,7 @@ mod private {
         /// looking inside the storage.
         pub async fn find_event(
             &self,
+            locked_store: &OwnedEventCacheStoreLockGuard,
             event_id: &EventId,
         ) -> Result<Option<(EventLocation, Event)>, EventCacheError> {
             // There are supposedly fewer events loaded in memory than in the store. Let's
@@ -1408,9 +1412,8 @@ mod private {
                 }
             }
 
-            let store = self.store.lock().await?;
-
-            Ok(store
+            Ok(locked_store
+                .store
                 .find_event(&self.room, event_id)
                 .await?
                 .map(|event| (EventLocation::Store, event)))
@@ -1431,10 +1434,11 @@ mod private {
         ///   chunk.
         pub async fn find_event_with_relations(
             &self,
+            store_lock: &EventCacheStoreLock,
             event_id: &EventId,
             filters: Option<Vec<RelationType>>,
         ) -> Result<Option<(Event, Vec<Event>)>, EventCacheError> {
-            let store = self.store.lock().await?;
+            let store = store_lock.lock().await?;
 
             // First, hit storage to get the target event and its related events.
             let found = store.find_event(&self.room, event_id).await?;
@@ -1623,7 +1627,8 @@ mod private {
 
                 let last_event_id = thread_cache.latest_event_id();
 
-                let Some((location, mut target_event)) = self.find_event(&thread_root).await?
+                let Some((location, mut target_event)) =
+                    self.find_event(&locked_store, &thread_root).await?
                 else {
                     trace!(%thread_root, "thread root event is missing from the linked chunk");
                     continue;
@@ -1735,7 +1740,9 @@ mod private {
             };
 
             // Replace the redacted event by a redacted form, if we knew about it.
-            let Some((location, mut target_event)) = self.find_event(event_id).await? else {
+            let Some((location, mut target_event)) =
+                self.find_event(&locked_store, event_id).await?
+            else {
                 trace!("redacted event is missing from the linked chunk");
                 return Ok(());
             };
@@ -1865,7 +1872,8 @@ mod private {
                 // thread event is. The thread count can remain as is, as it might still be
                 // valid, and there's no good value to reset it to, anyways.
                 for thread_root in summaries_to_update {
-                    let Some((location, mut target_event)) = self.find_event(&thread_root).await?
+                    let Some((location, mut target_event)) =
+                        self.find_event(&locked_store, &thread_root).await?
                     else {
                         trace!(%thread_root, "thread root event is unknown, when updating thread summary after a gappy sync");
                         continue;
@@ -3148,7 +3156,7 @@ mod timed_tests {
             .state
             .write()
             .await
-            .force_shrink_to_last_chunk()
+            .force_shrink_to_last_chunk(&room_event_cache.inner.store)
             .await
             .expect("shrinking should succeed");
 
