@@ -402,7 +402,13 @@ impl RoomEventCache {
     /// Save some events in the event cache, for further retrieval with
     /// [`Self::event`].
     pub(crate) async fn save_events(&self, events: impl IntoIterator<Item = Event>) {
-        if let Err(err) = self.inner.state.write().await.save_event(events).await {
+        let Ok(locked_store) = self.inner.store.lock_owned().await.inspect_err(|err| {
+            warn!("couldn't lock the event cache store: {err}");
+        }) else {
+            return;
+        };
+
+        if let Err(err) = self.inner.state.write().await.save_event(locked_store, events).await {
             warn!("couldn't save event in the event cache: {err}");
         }
     }
@@ -1572,7 +1578,7 @@ mod private {
 
                 // Save a bundled thread event, if there was one.
                 if let Some(bundled_thread) = event.bundled_latest_thread_event {
-                    self.save_event([*bundled_thread]).await?;
+                    self.save_event(locked_store.clone(), [*bundled_thread]).await?;
                 }
             }
 
@@ -1687,7 +1693,7 @@ mod private {
                     self.propagate_changes(locked_store).await?;
                 }
                 EventLocation::Store => {
-                    self.save_event([event]).await?;
+                    self.save_event(locked_store, [event]).await?;
                 }
             }
 
@@ -1774,17 +1780,16 @@ mod private {
         /// the event. Instead, an update to the linked chunk must be used.
         pub async fn save_event(
             &self,
+            locked_store: OwnedEventCacheStoreLockGuard,
             events: impl IntoIterator<Item = Event>,
         ) -> Result<(), EventCacheError> {
-            let store = self.store.clone();
             let room_id = self.room.clone();
             let events = events.into_iter().collect::<Vec<_>>();
 
             // Spawn a task so the save is uninterrupted by task cancellation.
             spawn(async move {
-                let store = store.lock().await?;
                 for event in events {
-                    store.save_event(&room_id, event).await?;
+                    locked_store.store.save_event(&room_id, event).await?;
                 }
                 super::Result::Ok(())
             })
@@ -1816,7 +1821,7 @@ mod private {
                 in_store_duplicated_event_ids,
                 non_empty_all_duplicates: all_duplicates,
             } = filter_duplicate_events(
-                &self.store,
+                locked_store.clone(),
                 LinkedChunkId::Room(self.room.as_ref()),
                 &self.room_linked_chunk,
                 timeline.events,
@@ -1972,7 +1977,7 @@ mod private {
                 in_store_duplicated_event_ids,
                 non_empty_all_duplicates: all_duplicates,
             } = filter_duplicate_events(
-                &self.store,
+                locked_store.clone(),
                 LinkedChunkId::Room(self.room.as_ref()),
                 &self.room_linked_chunk,
                 events,
