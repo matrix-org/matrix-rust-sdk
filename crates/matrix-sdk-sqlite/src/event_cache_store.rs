@@ -181,8 +181,7 @@ impl SqliteEventCacheStore {
     // Acquire a connection for executing read operations.
     #[instrument(skip_all)]
     async fn read(&self) -> Result<SqliteAsyncConn> {
-        trace!("Taking a `read` connection");
-        let _timer = timer!("connection");
+        let _timer = timer!("Taking a `read` connection");
 
         let connection = self.pool.get().await?;
 
@@ -198,8 +197,7 @@ impl SqliteEventCacheStore {
     // Acquire a connection for executing write operations.
     #[instrument(skip_all)]
     async fn write(&self) -> Result<OwnedMutexGuard<SqliteAsyncConn>> {
-        trace!("Taking a `write` connection");
-        let _timer = timer!("connection");
+        let _timer = timer!("Taking a `write` connection");
 
         let connection = self.write_connection.clone().lock_owned().await;
 
