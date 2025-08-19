@@ -14,12 +14,14 @@
 
 use ruma::events::{
     AnySyncMessageLikeEvent, MessageLikeEventContent, RedactContent,
-    RedactedMessageLikeEventContent, SyncMessageLikeEvent, room::message::MessageType,
+    RedactedMessageLikeEventContent, SyncMessageLikeEvent,
+    room::{message::MessageType, redaction::SyncRoomRedactionEvent},
 };
 use tantivy::{
     DateTime, TantivyDocument, doc,
     schema::{DateOptions, DateTimePrecision, Field, INDEXED, STORED, STRING, Schema, TEXT},
 };
+use tracing::trace;
 
 use crate::{
     error::{IndexError, IndexSchemaError},
@@ -132,6 +134,27 @@ impl MatrixSearchIndexSchema for RoomMessageSchema {
                     content.text.find_plain().ok_or(IndexError::EmptyMessage).map(|v| v.to_owned())
                 })
                 .map(RoomIndexOperation::Add),
+
+            AnySyncMessageLikeEvent::RoomRedaction(redaction_event) => {
+                if let SyncRoomRedactionEvent::Original(redaction_event) = redaction_event {
+                    if let Some(redacted_event_id) = redaction_event.content.redacts {
+                        // From room version 11, redacted event id is here. Prefer this if it
+                        // exists since it's newer.
+                        Ok(RoomIndexOperation::Remove(redacted_event_id))
+                    } else if let Some(redacted_event_id) = redaction_event.redacts {
+                        // Before room version 11, redacted event id is here.
+                        // Fallback to this.
+                        Ok(RoomIndexOperation::Remove(redacted_event_id))
+                    } else {
+                        // If not acting on anything, we can just ignore it.
+                        trace!("Room redaction in indexing redacts nothing, ignoring.");
+                        Ok(RoomIndexOperation::NoOp)
+                    }
+                } else {
+                    // If redaction itself is redacted, we can ignore it.
+                    Ok(RoomIndexOperation::NoOp)
+                }
+            }
 
             _ => Err(IndexError::MessageTypeNotSupported),
         }
