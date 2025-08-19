@@ -708,9 +708,6 @@ mod private {
         /// The rules for the version of this room.
         room_version_rules: RoomVersionRules,
 
-        /// Reference to the underlying backing store.
-        store: EventCacheStoreLock,
-
         /// The loaded events for the current room, that is, the in-memory
         /// linked chunk for this room.
         room_linked_chunk: EventLinkedChunk,
@@ -817,7 +814,6 @@ mod private {
             Ok(Self {
                 room: room_id,
                 room_version_rules,
-                store,
                 room_linked_chunk,
                 threads,
                 waited_for_initial_prev_token: false,
