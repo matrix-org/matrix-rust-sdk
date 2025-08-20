@@ -180,7 +180,7 @@ impl RoomPagination {
         loop {
             let mut state_guard = self.inner.state.write().await;
 
-            match state_guard.load_more_events_backwards().await? {
+            match state_guard.load_more_events_backwards(&self.inner.store).await? {
                 LoadMoreEventsBackwardsOutcome::WaitForInitialPrevToken => {
                     const DEFAULT_WAIT_FOR_TOKEN_DURATION: Duration = Duration::from_secs(3);
 
@@ -276,12 +276,15 @@ impl RoomPagination {
             .await
             .map_err(|err| EventCacheError::BackpaginationError(Box::new(err)))?;
 
+        let locked_store = self.inner.store.lock_owned().await?;
+
         if let Some((outcome, timeline_event_diffs)) = self
             .inner
             .state
             .write()
             .await
             .handle_backpagination(
+                locked_store,
                 response.chunk,
                 response.end,
                 prev_token,

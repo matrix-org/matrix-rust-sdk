@@ -39,7 +39,7 @@ use futures_util::future::{join_all, try_join_all};
 use matrix_sdk_base::{
     deserialized_responses::{AmbiguityChange, TimelineEvent},
     event_cache::{
-        store::{EventCacheStoreError, EventCacheStoreLock},
+        store::{DynEventCacheStore, EventCacheStoreError, EventCacheStoreLock},
         Gap,
     },
     executor::AbortOnDrop,
@@ -358,18 +358,29 @@ impl EventCache {
         while let Some(room_id) = rx.recv().await {
             trace!(for_room = %room_id, "received notification to shrink");
 
-            let room = match inner.for_room(&room_id).await {
-                Ok(room) => room,
-                Err(err) => {
-                    warn!(for_room = %room_id, "Failed to get the `RoomEventCache`: {err}");
+            let room = {
+                let Ok(store) = inner
+                    .store
+                    .lock()
+                    .await
+                    .inspect_err(|err| warn!("Failed to lock the store: {err}"))
+                else {
                     continue;
+                };
+
+                match inner.for_room(&*store, &room_id).await {
+                    Ok(room) => room,
+                    Err(err) => {
+                        warn!(for_room = %room_id, "Failed to get the `RoomEventCache`: {err}");
+                        continue;
+                    }
                 }
             };
 
             trace!("waiting for state lock…");
             let mut state = room.inner.state.write().await;
 
-            match state.auto_shrink_if_no_subscribers().await {
+            match state.auto_shrink_if_no_subscribers(&room.inner.store).await {
                 Ok(diffs) => {
                     if let Some(diffs) = diffs {
                         // Hey, fun stuff: we shrunk the linked chunk, so there shouldn't be any
@@ -408,7 +419,8 @@ impl EventCache {
             return Err(EventCacheError::NotSubscribedYet);
         };
 
-        let room = self.inner.for_room(room_id).await?;
+        let store = self.inner.store.lock().await?;
+        let room = self.inner.for_room(&*store, room_id).await?;
 
         Ok((room, drop_handles))
     }
@@ -804,25 +816,31 @@ impl EventCacheInner {
         .await;
 
         // Clear the storage for all the rooms, using the storage facility.
-        self.store.lock().await?.clear_all_linked_chunks().await?;
+        let locked_store = self.store.lock_owned().await?;
+
+        locked_store.store.clear_all_linked_chunks().await?;
 
         // At this point, all the in-memory linked chunks are desynchronized from the
         // storage. Resynchronize them manually by calling reset(), and
         // propagate updates to observers.
-        try_join_all(room_locks.into_iter().map(|(room, mut state_guard)| async move {
-            let updates_as_vector_diffs = state_guard.reset().await?;
+        try_join_all(room_locks.into_iter().map(|(room, mut state_guard)| {
+            let locked_store = locked_store.clone();
 
-            let _ = room.inner.sender.send(RoomEventCacheUpdate::UpdateTimelineEvents {
-                diffs: updates_as_vector_diffs,
-                origin: EventsOrigin::Cache,
-            });
+            async move {
+                let updates_as_vector_diffs = state_guard.reset(locked_store).await?;
 
-            let _ = room
-                .inner
-                .generic_update_sender
-                .send(RoomEventCacheGenericUpdate { room_id: room.inner.room_id.clone() });
+                let _ = room.inner.sender.send(RoomEventCacheUpdate::UpdateTimelineEvents {
+                    diffs: updates_as_vector_diffs,
+                    origin: EventsOrigin::Cache,
+                });
 
-            Ok::<_, EventCacheError>(())
+                let _ = room
+                    .inner
+                    .generic_update_sender
+                    .send(RoomEventCacheGenericUpdate { room_id: room.inner.room_id.clone() });
+
+                Ok::<_, EventCacheError>(())
+            }
         }))
         .await?;
 
@@ -839,6 +857,8 @@ impl EventCacheInner {
             self.multiple_room_updates_lock.lock().await
         };
 
+        let locked_store = self.store.lock_owned().await?;
+
         // Note: bnjbvr tried to make this concurrent at some point, but it turned out
         // to be a performance regression, even for large sync updates. Lacking
         // time to investigate, this code remains sequential for now. See also
@@ -846,9 +866,11 @@ impl EventCacheInner {
 
         // Left rooms.
         for (room_id, left_room_update) in updates.left {
-            let room = self.for_room(&room_id).await?;
+            let room = self.for_room(&*locked_store.store, &room_id).await?;
 
-            if let Err(err) = room.inner.handle_left_room_update(left_room_update).await {
+            if let Err(err) =
+                room.inner.handle_left_room_update(locked_store.clone(), left_room_update).await
+            {
                 // Non-fatal error, try to continue to the next room.
                 error!("handling left room update: {err}");
             }
@@ -858,9 +880,11 @@ impl EventCacheInner {
         for (room_id, joined_room_update) in updates.joined {
             trace!(?room_id, "Handling a `JoinedRoomUpdate`");
 
-            let room = self.for_room(&room_id).await?;
+            let room = self.for_room(&*locked_store.store, &room_id).await?;
 
-            if let Err(err) = room.inner.handle_joined_room_update(joined_room_update).await {
+            if let Err(err) =
+                room.inner.handle_joined_room_update(locked_store.clone(), joined_room_update).await
+            {
                 // Non-fatal error, try to continue to the next room.
                 error!(%room_id, "handling joined room update: {err}");
             }
@@ -873,7 +897,11 @@ impl EventCacheInner {
     }
 
     /// Return a room-specific view over the [`EventCache`].
-    async fn for_room(&self, room_id: &RoomId) -> Result<RoomEventCache> {
+    async fn for_room(
+        &self,
+        store: &DynEventCacheStore,
+        room_id: &RoomId,
+    ) -> Result<RoomEventCache> {
         // Fast path: the entry exists; let's acquire a read lock, it's cheaper than a
         // write lock.
         let by_room_guard = self.by_room.read().await;
@@ -908,7 +936,7 @@ impl EventCacheInner {
                     room_id.to_owned(),
                     room_version_rules,
                     self.linked_chunk_update_sender.clone(),
-                    self.store.clone(),
+                    store,
                     pagination_status.clone(),
                 )
                 .await?;
@@ -925,6 +953,7 @@ impl EventCacheInner {
 
                 let room_event_cache = RoomEventCache::new(
                     self.client.clone(),
+                    self.store.clone(),
                     room_state,
                     pagination_status,
                     room_id.to_owned(),
@@ -1125,11 +1154,17 @@ mod tests {
         .unwrap();
         let account_data = vec![read_marker_event; 100];
 
-        room_event_cache
-            .inner
-            .handle_joined_room_update(JoinedRoomUpdate { account_data, ..Default::default() })
-            .await
-            .unwrap();
+        {
+            let locked_store = room_event_cache.inner.store.lock_owned().await.unwrap();
+            room_event_cache
+                .inner
+                .handle_joined_room_update(
+                    locked_store,
+                    JoinedRoomUpdate { account_data, ..Default::default() },
+                )
+                .await
+                .unwrap();
+        }
 
         // … there's only one read marker update.
         assert_matches!(

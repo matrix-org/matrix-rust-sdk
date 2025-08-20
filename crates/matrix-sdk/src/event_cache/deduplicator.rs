@@ -18,7 +18,7 @@
 use std::collections::BTreeSet;
 
 use matrix_sdk_base::{
-    event_cache::store::EventCacheStoreLock,
+    event_cache::store::OwnedEventCacheStoreLockGuard,
     linked_chunk::{LinkedChunkId, Position},
 };
 use ruma::OwnedEventId;
@@ -32,7 +32,7 @@ use super::{
 /// information about the duplicates found in the new events, including the
 /// events that are not loaded in memory.
 pub async fn filter_duplicate_events(
-    store: &EventCacheStoreLock,
+    store: OwnedEventCacheStoreLockGuard,
     linked_chunk_id: LinkedChunkId<'_>,
     linked_chunk: &EventLinkedChunk,
     mut new_events: Vec<Event>,
@@ -50,10 +50,9 @@ pub async fn filter_duplicate_events(
         });
     }
 
-    let store = store.lock().await?;
-
     // Let the store do its magic ✨
     let duplicated_event_ids = store
+        .store
         .filter_duplicated_events(
             linked_chunk_id,
             new_events.iter().filter_map(|event| event.event_id()).collect(),
@@ -148,7 +147,10 @@ pub(super) struct DeduplicationOutcome {
 mod tests {
     use std::ops::Not as _;
 
-    use matrix_sdk_base::{deserialized_responses::TimelineEvent, linked_chunk::ChunkIdentifier};
+    use matrix_sdk_base::{
+        deserialized_responses::TimelineEvent, event_cache::store::EventCacheStoreLock,
+        linked_chunk::ChunkIdentifier,
+    };
     use matrix_sdk_test::{async_test, event_factory::EventFactory};
     use ruma::{owned_event_id, serde::Raw, user_id, EventId};
 
@@ -222,6 +224,7 @@ mod tests {
             .unwrap();
 
         let event_cache_store = EventCacheStoreLock::new(event_cache_store, "hodor".to_owned());
+        let locked_store = event_cache_store.lock_owned().await.unwrap();
 
         {
             // When presenting with only duplicate events, some of them in the in-memory
@@ -232,7 +235,7 @@ mod tests {
             linked_chunk.push_events([event_1.clone(), event_2.clone(), event_3.clone()]);
 
             let outcome = filter_duplicate_events(
-                &event_cache_store,
+                locked_store.clone(),
                 LinkedChunkId::Room(room_id),
                 &linked_chunk,
                 vec![event_0.clone(), event_1.clone(), event_2.clone(), event_3.clone()],
@@ -247,7 +250,7 @@ mod tests {
         linked_chunk.push_events([event_2.clone(), event_3.clone()]);
 
         let outcome = filter_duplicate_events(
-            &event_cache_store,
+            locked_store,
             LinkedChunkId::Room(room_id),
             &linked_chunk,
             vec![event_0, event_1, event_2, event_3, event_4],
@@ -351,6 +354,7 @@ mod tests {
 
         // Wrap the store into its lock.
         let event_cache_store = EventCacheStoreLock::new(event_cache_store, "hodor".to_owned());
+        let locked_store = event_cache_store.lock_owned().await.unwrap();
 
         let linked_chunk = EventLinkedChunk::new();
 
@@ -360,7 +364,7 @@ mod tests {
             in_store_duplicated_event_ids,
             non_empty_all_duplicates,
         } = filter_duplicate_events(
-            &event_cache_store,
+            locked_store,
             LinkedChunkId::Room(room_id),
             &linked_chunk,
             vec![ev1, ev2, ev3, ev4],

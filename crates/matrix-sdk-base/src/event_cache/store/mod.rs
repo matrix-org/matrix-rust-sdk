@@ -92,6 +92,39 @@ impl EventCacheStoreLock {
 
         Ok(EventCacheStoreLockGuard { cross_process_lock_guard, store: self.store.deref() })
     }
+
+    /// Acquire a spin lock and return an owned guard that can be used to access
+    /// the cache store.
+    pub async fn lock_owned(&self) -> Result<OwnedEventCacheStoreLockGuard, LockStoreError> {
+        let cross_process_lock_guard = self.cross_process_lock.spin_lock(None).await?;
+
+        Ok(OwnedEventCacheStoreLockGuard {
+            cross_process_lock_guard: Arc::new(cross_process_lock_guard),
+            store: self.store.clone(),
+        })
+    }
+}
+
+/// An RAII implementation of a owned “scoped lock” of an
+/// [`EventCacheStoreLock`].
+///
+/// When this structure is dropped (falls out of scope), the lock will be
+/// unlocked.
+#[derive(Clone)]
+pub struct OwnedEventCacheStoreLockGuard {
+    /// The cross process lock guard.
+    #[allow(unused)]
+    cross_process_lock_guard: Arc<CrossProcessStoreLockGuard>,
+
+    /// A reference to the store.
+    pub store: Arc<DynEventCacheStore>,
+}
+
+#[cfg(not(tarpaulin_include))]
+impl fmt::Debug for OwnedEventCacheStoreLockGuard {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.debug_struct("OwnedEventCacheStoreLockGuard").finish_non_exhaustive()
+    }
 }
 
 /// An RAII implementation of a “scoped lock” of an [`EventCacheStoreLock`].
