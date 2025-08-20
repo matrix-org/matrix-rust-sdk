@@ -2457,10 +2457,9 @@ impl<'a> MockEndpoint<'a, EncryptionStateEndpoint> {
     /// # anyhow::Ok(()) });
     #[cfg(feature = "experimental-encrypted-state-events")]
     pub fn state_encrypted(self) -> MatrixMock<'a> {
-        self.respond_with(
-            ResponseTemplate::new(200)
-                .set_body_json(&*test_json::sync_events::ENCRYPTION_WITH_STATE_CONTENT),
-        )
+        self.respond_with(ResponseTemplate::new(200).set_body_json(
+            &*test_json::sync_events::ENCRYPTION_WITH_ENCRYPTED_STATE_EVENTS_CONTENT,
+        ))
     }
 
     /// Marks the room as not encrypted.

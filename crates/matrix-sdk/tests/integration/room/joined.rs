@@ -1133,7 +1133,9 @@ async fn test_enable_state_encryption_doesnt_stay_unknown() {
 
     assert_matches!(room.latest_encryption_state().await.unwrap(), EncryptionState::NotEncrypted);
 
-    room.enable_encryption_with_state().await.expect("enabling encryption should work");
+    room.enable_encryption_with_state_event_encryption()
+        .await
+        .expect("enabling encryption should work");
 
     mock.verify_and_reset().await;
     mock.mock_room_state_encryption().state_encrypted().mount().await;

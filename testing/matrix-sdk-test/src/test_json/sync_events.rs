@@ -138,7 +138,7 @@ pub static ENCRYPTION: Lazy<JsonValue> = Lazy::new(|| {
     })
 });
 
-pub static ENCRYPTION_WITH_STATE_CONTENT: Lazy<JsonValue> = Lazy::new(|| {
+pub static ENCRYPTION_WITH_ENCRYPTED_STATE_EVENTS_CONTENT: Lazy<JsonValue> = Lazy::new(|| {
     json!({
         "algorithm": "m.megolm.v1.aes-sha2",
         "rotation_period_ms": 604800000,
@@ -147,9 +147,9 @@ pub static ENCRYPTION_WITH_STATE_CONTENT: Lazy<JsonValue> = Lazy::new(|| {
     })
 });
 
-pub static ENCRYPTION_WITH_STATE: Lazy<JsonValue> = Lazy::new(|| {
+pub static ENCRYPTION_WITH_ENCRYPTED_STATE_EVENTS: Lazy<JsonValue> = Lazy::new(|| {
     json!({
-        "content": *ENCRYPTION_WITH_STATE_CONTENT,
+        "content": *ENCRYPTION_WITH_ENCRYPTED_STATE_EVENTS_CONTENT,
         "event_id": "$143273582443PhrSn:example.org",
         "origin_server_ts": 1432735824653u64,
         "room_id": "!jEsUZKDJdhlrceRyVU:example.org",

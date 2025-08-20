@@ -2000,13 +2000,13 @@ impl Room {
     /// let room_id = room_id!("!SVkFJHzfwvuaIEawgC:localhost");
     ///
     /// if let Some(room) = client.get_room(&room_id) {
-    ///     room.enable_encryption_with_state().await?
+    ///     room.enable_encryption_with_state_event_encryption().await?
     /// }
     /// # anyhow::Ok(()) };
     /// ```
     #[instrument(skip_all)]
     #[cfg(feature = "experimental-encrypted-state-events")]
-    pub async fn enable_encryption_with_state(&self) -> Result<()> {
+    pub async fn enable_encryption_with_state_event_encryption(&self) -> Result<()> {
         self.enable_encryption_inner(true).await
     }
 
