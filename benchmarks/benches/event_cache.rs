@@ -1,8 +1,4 @@
-use std::{
-    pin::Pin,
-    sync::Arc,
-    time::{Duration, Instant},
-};
+use std::{pin::Pin, sync::Arc};
 
 use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
 use matrix_sdk::{
@@ -96,6 +92,25 @@ fn handle_room_updates(c: &mut Criterion) {
         });
 
         for (store_name, store_builder) in &store_builders {
+            let client = runtime.block_on(async {
+                let event_cache_store = store_builder().await;
+
+                let client = MockClientBuilder::new(None)
+                    .on_builder(|builder| {
+                        builder.store_config(
+                            StoreConfig::new("cross-process-store-locks-holder-name".to_owned())
+                                .state_store(state_store.clone())
+                                .event_cache_store(event_cache_store.clone()),
+                        )
+                    })
+                    .build()
+                    .await;
+
+                client.event_cache().subscribe().unwrap();
+
+                client
+            });
+
             // Define a state store with all rooms known in it.
             // Define the throughput.
             group.throughput(Throughput::Elements(num_rooms));
@@ -107,52 +122,23 @@ fn handle_room_updates(c: &mut Criterion) {
                     format!("room count: {num_rooms}"),
                 ),
                 |bencher| {
-                    // Ideally we'd use `iter_with_setup` here, but it doesn't allow an async setup
-                    // (which we need to setup the client), see also
-                    // https://github.com/bheisler/criterion.rs/issues/751.
-                    bencher.to_async(&runtime).iter_custom(|num_iters| {
-                        let room_updates = room_updates.clone();
-                        let state_store = state_store.clone();
+                    bencher.to_async(&runtime).iter(
+                        // The routine itself.
+                        || {
+                            let room_updates = room_updates.clone();
+                            let client = client.clone();
 
-                        async move {
-                            let mut total_time = Duration::new(0, 0);
+                            async move {
+                                client.event_cache().clear_all_rooms().await.unwrap();
 
-                            for _ in 0..num_iters {
-                                // Setup code.
-                                let event_cache_store = store_builder().await;
-
-                                let client = MockClientBuilder::new(None)
-                                    .on_builder(|builder| {
-                                        builder.store_config(
-                                            StoreConfig::new(
-                                                "cross-process-store-locks-holder-name".to_owned(),
-                                            )
-                                            .state_store(state_store.clone())
-                                            .event_cache_store(event_cache_store.clone()),
-                                        )
-                                    })
-                                    .build()
-                                    .await;
-
-                                // Make sure to subscribe to the event cache *after* syncing all
-                                // rooms, so that the client knows about all the rooms, but the
-                                // event cache doesn't (and need to create the initial empty room
-                                // mapping).
-                                client.event_cache().subscribe().unwrap();
-
-                                // Run the actual benchmark.
-                                let time_before = Instant::now();
                                 client
                                     .event_cache()
                                     .handle_room_updates(room_updates.clone())
                                     .await
                                     .unwrap();
-                                total_time += time_before.elapsed();
                             }
-
-                            total_time
-                        }
-                    })
+                        },
+                    )
                 },
             );
         }
