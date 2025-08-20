@@ -1917,10 +1917,10 @@ impl Room {
             let res = timeout(
                 async {
                     loop {
-                        // Listen for sync events, then check if the encryption state has been set.
+                        // Listen for sync events, then check if the encryption state is known.
                         self.client.inner.sync_beat.listen().await;
                         let _sync_lock = self.client.base_client().sync_lock().lock().await;
-                        if self.inner.encryption_state().is_encrypted() {
+                        if !self.inner.encryption_state().is_unknown() {
                             break;
                         }
                     }
@@ -1930,7 +1930,8 @@ impl Room {
             .await;
 
             // If encryption was enabled, return.
-            if res.is_ok() {
+            let _sync_lock = self.client.base_client().sync_lock().lock().await;
+            if res.is_ok() && self.inner.encryption_state().is_encrypted() {
                 debug!("room successfully marked as encrypted");
                 return Ok(());
             }
@@ -1939,7 +1940,6 @@ impl Room {
             // expect, assume the local encryption state is incorrect; this will
             // cause the SDK to re-request it later for confirmation, instead of
             // assuming it's sync'd and correct (and not encrypted).
-            let _sync_lock = self.client.base_client().sync_lock().lock().await;
             debug!("still not marked as encrypted, marking encryption state as missing");
 
             let mut room_info = self.clone_info();
