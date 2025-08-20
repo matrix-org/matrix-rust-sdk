@@ -74,7 +74,8 @@ pub mod room_list;
 ///
 /// // And subscribe to changes on them
 /// // `initial_values` is equal to `joined_spaces` if nothing changed meanwhile
-/// let (initial_values, stream) = space_service.subscribe_to_joined_spaces();
+/// let (initial_values, stream) =
+///     space_service.subscribe_to_joined_spaces().await;
 ///
 /// while let Some(diffs) = stream.next().await {
 ///     println!("Received joined spaces updates: {diffs:?}");
@@ -107,7 +108,7 @@ impl SpaceService {
 
     /// Subscribes to updates on the joined spaces list. If space rooms are
     /// joined or left, the stream will yield diffs that reflect the changes.
-    pub fn subscribe_to_joined_spaces(
+    pub async fn subscribe_to_joined_spaces(
         &self,
     ) -> (Vector<SpaceRoom>, VectorSubscriberBatchedStream<SpaceRoom>) {
         if self.room_update_handle.lock().is_none() {
@@ -134,6 +135,10 @@ impl SpaceService {
                     }
                 }
             })));
+
+            // Make sure to also update the currently joined spaces for the initial values.
+            let spaces = Self::joined_spaces_for(&self.client).await;
+            Self::update_joined_spaces_if_needed(Vector::from(spaces), &self.joined_spaces);
         }
 
         self.joined_spaces.lock().subscribe().into_values_and_batched_stream()
@@ -394,25 +399,24 @@ mod tests {
 
         let space_service = SpaceService::new(client.clone());
 
-        let (_, joined_spaces_subscriber) = space_service.subscribe_to_joined_spaces();
+        let (initial_values, joined_spaces_subscriber) =
+            space_service.subscribe_to_joined_spaces().await;
         pin_mut!(joined_spaces_subscriber);
         assert_pending!(joined_spaces_subscriber);
+
+        assert_eq!(
+            initial_values,
+            vec![SpaceRoom::new_from_known(client.get_room(first_space_id).unwrap(), 0)].into()
+        );
 
         assert_eq!(
             space_service.joined_spaces().await,
             vec![SpaceRoom::new_from_known(client.get_room(first_space_id).unwrap(), 0)]
         );
 
-        assert_next_eq!(
-            joined_spaces_subscriber,
-            vec![VectorDiff::Append {
-                values: vec![SpaceRoom::new_from_known(
-                    client.get_room(first_space_id).unwrap(),
-                    0
-                )]
-                .into()
-            }]
-        );
+        // And the stream is still pending as the initial values were
+        // already set.
+        assert_pending!(joined_spaces_subscriber);
 
         // Join the second space
 

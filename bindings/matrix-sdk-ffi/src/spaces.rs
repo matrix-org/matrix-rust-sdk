@@ -59,16 +59,11 @@ impl SpaceService {
 
     /// Subscribes to updates on the joined spaces list. If space rooms are
     /// joined or left, the stream will yield diffs that reflect the changes.
-    #[allow(clippy::unused_async)]
-    // This method doesn't need to be async but if its not the FFI layer panics
-    // with "there is no no reactor running, must be called from the context
-    // of a Tokio 1.x runtime" error because the underlying method spawns an
-    // async task.
     pub async fn subscribe_to_joined_spaces(
         &self,
         listener: Box<dyn SpaceServiceJoinedSpacesListener>,
     ) -> Arc<TaskHandle> {
-        let (initial_values, mut stream) = self.inner.subscribe_to_joined_spaces();
+        let (initial_values, mut stream) = self.inner.subscribe_to_joined_spaces().await;
 
         listener.on_update(vec![SpaceListUpdate::Reset {
             values: initial_values.into_iter().map(Into::into).collect(),
