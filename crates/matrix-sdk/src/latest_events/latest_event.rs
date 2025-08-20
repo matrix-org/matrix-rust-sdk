@@ -15,22 +15,17 @@
 use std::{iter::once, ops::Not};
 
 use eyeball::{AsyncLock, SharedObservable, Subscriber};
-use matrix_sdk_base::event_cache::Event;
+use matrix_sdk_base::deserialized_responses::TimelineEvent;
 use ruma::{
     events::{
-        call::{invite::CallInviteEventContent, notify::CallNotifyEventContent},
-        poll::unstable_start::UnstablePollStartEventContent,
         relation::RelationType,
-        room::{
-            member::{MembershipState, RoomMemberEventContent},
-            message::{MessageType, RoomMessageEventContent},
-            power_levels::RoomPowerLevels,
-        },
-        sticker::StickerEventContent,
-        AnyMessageLikeEventContent, AnySyncMessageLikeEvent, AnySyncStateEvent,
-        AnySyncTimelineEvent, SyncStateEvent,
+        room::{member::MembershipState, message::MessageType, power_levels::RoomPowerLevels},
+        AnyMessageLikeEventContent, AnySyncStateEvent, AnySyncTimelineEvent, RawExt,
+        SyncStateEvent,
     },
-    EventId, OwnedEventId, OwnedRoomId, OwnedTransactionId, RoomId, TransactionId, UserId,
+    serde::Raw,
+    EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedRoomId, OwnedTransactionId, RoomId,
+    TransactionId, UserId,
 };
 use tracing::error;
 
@@ -147,17 +142,29 @@ mod tests_latest_event {
     use ruma::{
         event_id,
         events::{room::message::RoomMessageEventContent, AnyMessageLikeEventContent},
-        room_id, user_id, MilliSecondsSinceUnixEpoch, OwnedTransactionId,
+        room_id,
+        serde::Raw,
+        user_id, MilliSecondsSinceUnixEpoch, OwnedTransactionId,
     };
 
-    use super::{LatestEvent, LatestEventValue};
+    use super::{LatestEvent, LatestEventValue, LocalLatestEventValue};
     use crate::{
         client::WeakClient,
-        latest_events::LatestEventContent,
         room::WeakRoom,
         send_queue::{LocalEcho, LocalEchoContent, RoomSendQueue, RoomSendQueueUpdate, SendHandle},
         test_utils::mocks::MatrixMockServer,
     };
+
+    fn local_room_message(body: &str) -> LocalLatestEventValue {
+        LocalLatestEventValue {
+            timestamp: MilliSecondsSinceUnixEpoch::now(),
+            content: Raw::new(&AnyMessageLikeEventContent::RoomMessage(
+                RoomMessageEventContent::text_plain(body),
+            ))
+            .unwrap(),
+            event_type: "m.room.message".to_owned(),
+        }
+    }
 
     fn new_local_echo_content(
         room_send_queue: &RoomSendQueue,
@@ -202,11 +209,7 @@ mod tests_latest_event {
         assert_matches!(latest_event.current_value.get().await, LatestEventValue::None);
 
         // Second, set a new value.
-        latest_event
-            .update(LatestEventValue::LocalIsSending(LatestEventContent::RoomMessage(
-                RoomMessageEventContent::text_plain("foo"),
-            )))
-            .await;
+        latest_event.update(LatestEventValue::LocalIsSending(local_room_message("foo"))).await;
 
         assert_matches!(
             latest_event.current_value.get().await,
@@ -341,14 +344,38 @@ pub enum LatestEventValue {
     None,
 
     /// The latest event represents a remote event.
-    Remote(LatestEventContent),
+    Remote(RemoteLatestEventValue),
 
     /// The latest event represents a local event that is sending.
-    LocalIsSending(LatestEventContent),
+    LocalIsSending(LocalLatestEventValue),
 
     /// The latest event represents a local event that cannot be sent, either
     /// because a previous local event, or this local event cannot be sent.
-    LocalCannotBeSent(LatestEventContent),
+    LocalCannotBeSent(LocalLatestEventValue),
+}
+
+/// Represents the value for [`LatestEventValue::Remote`].
+pub type RemoteLatestEventValue = TimelineEvent;
+
+/// Represents the value for [`LatestEventValue::LocalIsSending`] and
+/// [`LatestEventValue::LocalCannotBeSent`].
+#[derive(Debug, Clone)]
+pub struct LocalLatestEventValue {
+    /// The time where the event has been created (by this module).
+    pub timestamp: MilliSecondsSinceUnixEpoch,
+
+    /// The content of the local event.
+    pub content: Raw<AnyMessageLikeEventContent>,
+
+    /// The event type of the local event.
+    pub event_type: String,
+}
+
+impl LocalLatestEventValue {
+    /// Deserialize the local event content.
+    pub fn deserialize(&self) -> Result<AnyMessageLikeEventContent, serde_json::Error> {
+        self.content.deserialize_with_type(&self.event_type)
+    }
 }
 
 impl LatestEventValue {
@@ -377,7 +404,9 @@ impl LatestEventValue {
         power_levels: &Option<(&UserId, RoomPowerLevels)>,
     ) -> Self {
         room_event_cache
-            .rfind_map_event_in_memory_by(|event| find_and_map_timeline_event(event, power_levels))
+            .rfind_map_event_in_memory_by(|event| {
+                filter_timeline_event(event, power_levels).then(|| event.clone())
+            })
             .await
             .map(Self::Remote)
             .unwrap_or_default()
@@ -401,11 +430,17 @@ impl LatestEventValue {
                 transaction_id,
                 content: local_echo_content,
             }) => match local_echo_content {
-                LocalEchoContent::Event { serialized_event: content, .. } => {
-                    match content.deserialize() {
+                LocalEchoContent::Event { serialized_event: serialized_event_content, .. } => {
+                    match serialized_event_content.deserialize() {
                         Ok(content) => {
-                            if let Some(content) = extract_content_from_any_message_like(content) {
-                                let value = Self::LocalIsSending(content);
+                            if filter_any_message_like_event_content(content) {
+                                let (content, event_type) = serialized_event_content.raw();
+
+                                let value = Self::LocalIsSending(LocalLatestEventValue {
+                                    timestamp: MilliSecondsSinceUnixEpoch::now(),
+                                    content: content.clone(),
+                                    event_type: event_type.to_owned(),
+                                });
 
                                 buffer_of_values_for_local_events
                                     .push(transaction_id.to_owned(), value.clone());
@@ -486,13 +521,21 @@ impl LatestEventValue {
             //
             // Replace the latest event value matching `transaction_id` in the buffer if it exists
             // (note: it should!), and return the last `LatestEventValue` or calculate a new one.
-            RoomSendQueueUpdate::ReplacedLocalEvent { transaction_id, new_content: content } => {
+            RoomSendQueueUpdate::ReplacedLocalEvent {
+                transaction_id,
+                new_content: new_serialized_event_content,
+            } => {
                 if let Some(position) = buffer_of_values_for_local_events.position(transaction_id) {
-                    match content.deserialize() {
+                    match new_serialized_event_content.deserialize() {
                         Ok(content) => {
-                            if let Some(content) = extract_content_from_any_message_like(content) {
-                                buffer_of_values_for_local_events
-                                    .replace_content(position, content);
+                            if filter_any_message_like_event_content(content) {
+                                let (content, event_type) = new_serialized_event_content.raw();
+
+                                buffer_of_values_for_local_events.replace_content(
+                                    position,
+                                    content.clone(),
+                                    event_type.to_owned(),
+                                );
                             } else {
                                 buffer_of_values_for_local_events.remove(position);
                             }
@@ -655,8 +698,7 @@ impl LatestEventValuesForLocalEvents {
         self.buffer.push((transaction_id, value));
     }
 
-    /// Replace the [`LatestEventContent`] of the [`LatestEventValue`] at
-    /// position `position`.
+    /// Replace the content of the [`LatestEventValue`] at position `position`.
     ///
     /// # Panics
     ///
@@ -665,12 +707,30 @@ impl LatestEventValuesForLocalEvents {
     /// - the [`LatestEventValue`] is not of kind
     ///   [`LatestEventValue::LocalIsSending`] or
     ///   [`LatestEventValue::LocalCannotBeSent`].
-    fn replace_content(&mut self, position: usize, new_content: LatestEventContent) {
+    fn replace_content(
+        &mut self,
+        position: usize,
+        new_content: Raw<AnyMessageLikeEventContent>,
+        new_event_type: String,
+    ) {
         let (_, value) = self.buffer.get_mut(position).expect("`position` must be valid");
 
         match value {
-            LatestEventValue::LocalIsSending(content) => *content = new_content,
-            LatestEventValue::LocalCannotBeSent(content) => *content = new_content,
+            LatestEventValue::LocalIsSending(LocalLatestEventValue {
+                content, event_type, ..
+            }) => {
+                *content = new_content;
+                *event_type = new_event_type;
+            }
+
+            LatestEventValue::LocalCannotBeSent(LocalLatestEventValue {
+                content,
+                event_type,
+                ..
+            }) => {
+                *content = new_content;
+                *event_type = new_event_type;
+            }
             _ => panic!("`value` must be either `LocalIsSending` or `LocalCannotBeSent`"),
         }
     }
@@ -747,36 +807,10 @@ impl LatestEventValuesForLocalEvents {
     }
 }
 
-/// A latest event value content!
-#[derive(Debug, Clone)]
-pub enum LatestEventContent {
-    /// A `m.room.message` event.
-    RoomMessage(RoomMessageEventContent),
-
-    /// A `m.sticker` event.
-    Sticker(StickerEventContent),
-
-    /// An `org.matrix.msc3381.poll.start` event.
-    Poll(UnstablePollStartEventContent),
-
-    /// A `m.call.invite` event.
-    CallInvite(CallInviteEventContent),
-
-    /// A `m.call.notify` event.
-    CallNotify(CallNotifyEventContent),
-
-    /// A `m.room.member` event, more precisely a knock membership change that
-    /// can be handled by the current user.
-    KnockedStateEvent(RoomMemberEventContent),
-
-    /// A redacted event.
-    Redacted(AnySyncMessageLikeEvent),
-}
-
-fn find_and_map_timeline_event(
-    event: &Event,
+fn filter_timeline_event(
+    event: &TimelineEvent,
     power_levels: &Option<(&UserId, RoomPowerLevels)>,
-) -> Option<LatestEventContent> {
+) -> bool {
     // Cast the event into an `AnySyncTimelineEvent`. If deserializing fails, we
     // ignore the event.
     let event = match event.raw().deserialize() {
@@ -787,7 +821,7 @@ fn find_and_map_timeline_event(
                 "Failed to deserialize the event when looking for a suitable latest event"
             );
 
-            return None;
+            return false;
         }
     };
 
@@ -795,11 +829,11 @@ fn find_and_map_timeline_event(
         AnySyncTimelineEvent::MessageLike(message_like_event) => {
             match message_like_event.original_content() {
                 Some(any_message_like_event_content) => {
-                    extract_content_from_any_message_like(any_message_like_event_content)
+                    filter_any_message_like_event_content(any_message_like_event_content)
                 }
 
                 // The event has been redacted.
-                None => Some(LatestEventContent::Redacted(message_like_event)),
+                None => true,
             }
         }
 
@@ -820,31 +854,24 @@ fn find_and_map_timeline_event(
                     // The current user can act on the knock changes, so they should be
                     // displayed
                     if can_accept_or_decline_knocks {
-                        return Some(LatestEventContent::KnockedStateEvent(match member {
-                            SyncStateEvent::Original(member) => member.content,
-                            SyncStateEvent::Redacted(_) => {
-                                // Cannot decide if the user can accept or decline knocks because
-                                // the event has been redacted.
-                                return None;
-                            }
-                        }));
+                        // We can only decide whether the user can accept or decline knocks if the
+                        // event isn't redacted.
+                        return matches!(member, SyncStateEvent::Original(_));
                     }
                 }
             }
 
-            None
+            false
         }
     }
 }
 
-fn extract_content_from_any_message_like(
-    event: AnyMessageLikeEventContent,
-) -> Option<LatestEventContent> {
+fn filter_any_message_like_event_content(event: AnyMessageLikeEventContent) -> bool {
     match event {
         AnyMessageLikeEventContent::RoomMessage(message) => {
             // Don't show incoming verification requests.
             if let MessageType::VerificationRequest(_) = message.msgtype {
-                return None;
+                return false;
             }
 
             // Check if this is a replacement for another message. If it is, ignore
@@ -860,44 +887,34 @@ fn extract_content_from_any_message_like(
                 }
             });
 
-            if is_replacement {
-                None
-            } else {
-                Some(LatestEventContent::RoomMessage(message))
-            }
+            !is_replacement
         }
 
-        AnyMessageLikeEventContent::UnstablePollStart(poll) => Some(LatestEventContent::Poll(poll)),
-
-        AnyMessageLikeEventContent::CallInvite(invite) => {
-            Some(LatestEventContent::CallInvite(invite))
-        }
-
-        AnyMessageLikeEventContent::CallNotify(notify) => {
-            Some(LatestEventContent::CallNotify(notify))
-        }
-
-        AnyMessageLikeEventContent::Sticker(sticker) => Some(LatestEventContent::Sticker(sticker)),
+        AnyMessageLikeEventContent::UnstablePollStart(_)
+        | AnyMessageLikeEventContent::CallInvite(_)
+        | AnyMessageLikeEventContent::CallNotify(_)
+        | AnyMessageLikeEventContent::Sticker(_) => true,
 
         // Encrypted events are not suitable.
-        AnyMessageLikeEventContent::RoomEncrypted(_) => None,
+        AnyMessageLikeEventContent::RoomEncrypted(_) => false,
 
         // Everything else is considered not suitable.
-        _ => None,
+        _ => false,
     }
 }
 
 #[cfg(test)]
 mod tests_latest_event_content {
-    use assert_matches::assert_matches;
-    use matrix_sdk_test::event_factory::EventFactory;
-    use ruma::{event_id, user_id};
+    use std::ops::Not;
 
-    use super::{find_and_map_timeline_event, LatestEventContent, RoomMessageEventContent};
+    use matrix_sdk_test::event_factory::EventFactory;
+    use ruma::{event_id, events::room::message::RoomMessageEventContent, user_id};
+
+    use super::filter_timeline_event;
 
     macro_rules! assert_latest_event_content {
-        ( with | $event_factory:ident | $event_builder:block
-          it produces $match:pat ) => {
+        ( with | $event_factory:ident | $event_builder:block,
+          $bool:literal $(,)* ) => {
             let user_id = user_id!("@mnt_io:matrix.org");
             let event_factory = EventFactory::new().sender(user_id);
             let event = {
@@ -905,88 +922,82 @@ mod tests_latest_event_content {
                 $event_builder
             };
 
-            assert_matches!(find_and_map_timeline_event(&event, &None), $match);
+            assert_eq!(filter_timeline_event(&event, &None), $bool);
         };
     }
 
     #[test]
     fn test_room_message() {
         assert_latest_event_content!(
-            with |event_factory| {
-                event_factory.text_msg("hello").into_event()
-            }
-            it produces Some(LatestEventContent::RoomMessage(_))
+            with | event_factory | { event_factory.text_msg("hello").into_event() },
+            true,
         );
     }
 
     #[test]
     fn test_redacted() {
         assert_latest_event_content!(
-            with |event_factory| {
+            with | event_factory | {
                 event_factory
                     .redacted(
                         user_id!("@mnt_io:matrix.org"),
-                        ruma::events::room::message::RedactedRoomMessageEventContent::new()
+                        ruma::events::room::message::RedactedRoomMessageEventContent::new(),
                     )
                     .into_event()
-            }
-            it produces Some(LatestEventContent::Redacted(_))
+            },
+            true,
         );
     }
 
     #[test]
     fn test_room_message_replacement() {
         assert_latest_event_content!(
-            with |event_factory| {
+            with | event_factory | {
                 event_factory
                     .text_msg("bonjour")
-                    .edit(
-                        event_id!("$ev0"),
-                        RoomMessageEventContent::text_plain("hello").into()
-                    )
+                    .edit(event_id!("$ev0"), RoomMessageEventContent::text_plain("hello").into())
                     .into_event()
-            }
-            it produces None
+            },
+            false,
         );
     }
 
     #[test]
     fn test_poll() {
         assert_latest_event_content!(
-            with |event_factory| {
+            with | event_factory | {
                 event_factory
-                    .poll_start(
-                        "the people need to know",
-                        "comté > gruyère",
-                        vec!["yes", "oui"]
-                    )
+                    .poll_start("the people need to know", "comté > gruyère", vec!["yes", "oui"])
                     .into_event()
-            }
-            it produces Some(LatestEventContent::Poll(_))
+            },
+            true,
         );
     }
 
     #[test]
     fn test_call_invite() {
         assert_latest_event_content!(
-            with |event_factory| {
+            with | event_factory | {
                 event_factory
                     .call_invite(
                         ruma::OwnedVoipId::from("vvooiipp".to_owned()),
                         ruma::UInt::from(1234u32),
-                        ruma::events::call::SessionDescription::new("type".to_owned(), "sdp".to_owned()),
+                        ruma::events::call::SessionDescription::new(
+                            "type".to_owned(),
+                            "sdp".to_owned(),
+                        ),
                         ruma::VoipVersionId::V1,
                     )
                     .into_event()
-            }
-            it produces Some(LatestEventContent::CallInvite(_))
+            },
+            true,
         );
     }
 
     #[test]
     fn test_call_notify() {
         assert_latest_event_content!(
-            with |event_factory| {
+            with | event_factory | {
                 event_factory
                     .call_notify(
                         "call_id".to_owned(),
@@ -995,31 +1006,31 @@ mod tests_latest_event_content {
                         ruma::events::Mentions::new(),
                     )
                     .into_event()
-            }
-            it produces Some(LatestEventContent::CallNotify(_))
+            },
+            true,
         );
     }
 
     #[test]
     fn test_sticker() {
         assert_latest_event_content!(
-            with |event_factory| {
+            with | event_factory | {
                 event_factory
                     .sticker(
                         "wink wink",
                         ruma::events::room::ImageInfo::new(),
-                        ruma::OwnedMxcUri::from("mxc://foo/bar")
+                        ruma::OwnedMxcUri::from("mxc://foo/bar"),
                     )
                     .into_event()
-            }
-            it produces Some(LatestEventContent::Sticker(_))
+            },
+            true,
         );
     }
 
     #[test]
     fn test_encrypted_room_message() {
         assert_latest_event_content!(
-            with |event_factory| {
+            with | event_factory | {
                 event_factory
                     .event(ruma::events::room::encrypted::RoomEncryptedEventContent::new(
                         ruma::events::room::encrypted::EncryptedEventScheme::MegolmV1AesSha2(
@@ -1034,8 +1045,8 @@ mod tests_latest_event_content {
                         None,
                     ))
                     .into_event()
-            }
-            it produces None
+            },
+            false,
         );
     }
 
@@ -1043,37 +1054,29 @@ mod tests_latest_event_content {
     fn test_reaction() {
         // Take a random message-like event.
         assert_latest_event_content!(
-            with |event_factory| {
-                event_factory
-                    .reaction(event_id!("$ev0"), "+1")
-                    .into_event()
-            }
-            it produces None
+            with | event_factory | { event_factory.reaction(event_id!("$ev0"), "+1").into_event() },
+            false,
         );
     }
 
     #[test]
     fn test_state_event() {
         assert_latest_event_content!(
-            with |event_factory| {
-                event_factory
-                    .room_topic("new room topic")
-                    .into_event()
-            }
-            it produces None
+            with | event_factory | { event_factory.room_topic("new room topic").into_event() },
+            false,
         );
     }
 
     #[test]
     fn test_knocked_state_event_without_power_levels() {
         assert_latest_event_content!(
-            with |event_factory| {
+            with | event_factory | {
                 event_factory
                     .member(user_id!("@other_mnt_io:server.name"))
                     .membership(ruma::events::room::member::MembershipState::Knock)
                     .into_event()
-            }
-            it produces None
+            },
+            false,
         );
     }
 
@@ -1102,9 +1105,8 @@ mod tests_latest_event_content {
             let mut room_power_levels = room_power_levels.clone();
             room_power_levels.invite = 10.into();
             room_power_levels.kick = 10.into();
-            assert_matches!(
-                find_and_map_timeline_event(&event, &Some((user_id, room_power_levels))),
-                None,
+            assert!(
+                filter_timeline_event(&event, &Some((user_id, room_power_levels))).not(),
                 "cannot accept, cannot decline",
             );
         }
@@ -1114,9 +1116,8 @@ mod tests_latest_event_content {
             let mut room_power_levels = room_power_levels.clone();
             room_power_levels.invite = 0.into();
             room_power_levels.kick = 10.into();
-            assert_matches!(
-                find_and_map_timeline_event(&event, &Some((user_id, room_power_levels))),
-                Some(LatestEventContent::KnockedStateEvent(_)),
+            assert!(
+                filter_timeline_event(&event, &Some((user_id, room_power_levels))),
                 "can accept, cannot decline",
             );
         }
@@ -1126,9 +1127,8 @@ mod tests_latest_event_content {
             let mut room_power_levels = room_power_levels.clone();
             room_power_levels.invite = 10.into();
             room_power_levels.kick = 0.into();
-            assert_matches!(
-                find_and_map_timeline_event(&event, &Some((user_id, room_power_levels))),
-                Some(LatestEventContent::KnockedStateEvent(_)),
+            assert!(
+                filter_timeline_event(&event, &Some((user_id, room_power_levels))),
                 "cannot accept, can decline",
             );
         }
@@ -1137,9 +1137,8 @@ mod tests_latest_event_content {
         {
             room_power_levels.invite = 0.into();
             room_power_levels.kick = 0.into();
-            assert_matches!(
-                find_and_map_timeline_event(&event, &Some((user_id, room_power_levels))),
-                Some(LatestEventContent::KnockedStateEvent(_)),
+            assert!(
+                filter_timeline_event(&event, &Some((user_id, room_power_levels))),
                 "can accept, can decline",
             );
         }
@@ -1150,23 +1149,19 @@ mod tests_latest_event_content {
         use ruma::{events::room::message, OwnedDeviceId};
 
         assert_latest_event_content!(
-            with |event_factory| {
+            with | event_factory | {
                 event_factory
-                    .event(
-                        RoomMessageEventContent::new(
-                            message::MessageType::VerificationRequest(
-                                message::KeyVerificationRequestEventContent::new(
-                                    "body".to_owned(),
-                                    vec![],
-                                    OwnedDeviceId::from("device_id"),
-                                    user_id!("@user:server.name").to_owned(),
-                                )
-                            )
-                        )
-                    )
+                    .event(RoomMessageEventContent::new(message::MessageType::VerificationRequest(
+                        message::KeyVerificationRequestEventContent::new(
+                            "body".to_owned(),
+                            vec![],
+                            OwnedDeviceId::from("device_id"),
+                            user_id!("@user:server.name").to_owned(),
+                        ),
+                    )))
                     .into_event()
-            }
-            it produces None
+            },
+            false,
         );
     }
 }
@@ -1174,15 +1169,44 @@ mod tests_latest_event_content {
 #[cfg(test)]
 mod tests_latest_event_values_for_local_events {
     use assert_matches::assert_matches;
-    use ruma::OwnedTransactionId;
+    use ruma::{
+        events::{room::message::RoomMessageEventContent, AnyMessageLikeEventContent},
+        serde::Raw,
+        MilliSecondsSinceUnixEpoch, OwnedTransactionId,
+    };
+    use serde_json::json;
 
     use super::{
-        LatestEventContent, LatestEventValue, LatestEventValuesForLocalEvents,
-        RoomMessageEventContent,
+        LatestEventValue, LatestEventValuesForLocalEvents, LocalLatestEventValue,
+        RemoteLatestEventValue,
     };
 
-    fn room_message(body: &str) -> LatestEventContent {
-        LatestEventContent::RoomMessage(RoomMessageEventContent::text_plain(body))
+    fn remote_room_message(body: &str) -> RemoteLatestEventValue {
+        RemoteLatestEventValue::from_plaintext(
+            Raw::from_json_string(
+                json!({
+                    "content": RoomMessageEventContent::text_plain(body),
+                    "type": "m.room.message",
+                    "event_id": "$ev0",
+                    "room_id": "!r0",
+                    "origin_server_ts": 42,
+                    "sender": "@mnt_io:matrix.org",
+                })
+                .to_string(),
+            )
+            .unwrap(),
+        )
+    }
+
+    fn local_room_message(body: &str) -> LocalLatestEventValue {
+        LocalLatestEventValue {
+            timestamp: MilliSecondsSinceUnixEpoch::now(),
+            content: Raw::new(&AnyMessageLikeEventContent::RoomMessage(
+                RoomMessageEventContent::text_plain(body),
+            ))
+            .unwrap(),
+            event_type: "m.room.message".to_owned(),
+        }
     }
 
     #[test]
@@ -1193,13 +1217,10 @@ mod tests_latest_event_values_for_local_events {
 
         buffer.push(
             OwnedTransactionId::from("txnid"),
-            LatestEventValue::LocalIsSending(room_message("tome")),
+            LatestEventValue::LocalIsSending(local_room_message("tome")),
         );
 
-        assert_matches!(
-            buffer.last(),
-            Some(LatestEventValue::LocalIsSending(LatestEventContent::RoomMessage(_)))
-        );
+        assert_matches!(buffer.last(), Some(LatestEventValue::LocalIsSending(_)));
     }
 
     #[test]
@@ -1211,11 +1232,11 @@ mod tests_latest_event_values_for_local_events {
 
         buffer.push(
             transaction_id.clone(),
-            LatestEventValue::LocalIsSending(room_message("raclette")),
+            LatestEventValue::LocalIsSending(local_room_message("raclette")),
         );
         buffer.push(
             OwnedTransactionId::from("othertxnid"),
-            LatestEventValue::LocalIsSending(room_message("tome")),
+            LatestEventValue::LocalIsSending(local_room_message("tome")),
         );
 
         assert_eq!(buffer.position(&transaction_id), Some(0));
@@ -1236,7 +1257,7 @@ mod tests_latest_event_values_for_local_events {
 
         buffer.push(
             OwnedTransactionId::from("txnid"),
-            LatestEventValue::Remote(room_message("tome")),
+            LatestEventValue::Remote(remote_room_message("tome")),
         );
     }
 
@@ -1246,11 +1267,11 @@ mod tests_latest_event_values_for_local_events {
 
         buffer.push(
             OwnedTransactionId::from("txnid0"),
-            LatestEventValue::LocalIsSending(room_message("tome")),
+            LatestEventValue::LocalIsSending(local_room_message("tome")),
         );
         buffer.push(
             OwnedTransactionId::from("txnid1"),
-            LatestEventValue::LocalCannotBeSent(room_message("raclette")),
+            LatestEventValue::LocalCannotBeSent(local_room_message("raclette")),
         );
 
         // no panic.
@@ -1262,15 +1283,23 @@ mod tests_latest_event_values_for_local_events {
 
         buffer.push(
             OwnedTransactionId::from("txnid0"),
-            LatestEventValue::LocalIsSending(room_message("gruyère")),
+            LatestEventValue::LocalIsSending(local_room_message("gruyère")),
         );
 
-        buffer.replace_content(0, room_message("comté"));
+        let LocalLatestEventValue { content: new_content, event_type: new_event_type, .. } =
+            local_room_message("comté");
+
+        buffer.replace_content(0, new_content, new_event_type);
 
         assert_matches!(
             buffer.last(),
-            Some(LatestEventValue::LocalIsSending(LatestEventContent::RoomMessage(content))) => {
-                assert_eq!(content.body(), "comté");
+            Some(LatestEventValue::LocalIsSending(local_event)) => {
+                assert_matches!(
+                    local_event.deserialize().unwrap(),
+                    AnyMessageLikeEventContent::RoomMessage(content) => {
+                        assert_eq!(content.body(), "comté");
+                    }
+                );
             }
         );
     }
@@ -1281,7 +1310,7 @@ mod tests_latest_event_values_for_local_events {
 
         buffer.push(
             OwnedTransactionId::from("txnid"),
-            LatestEventValue::LocalIsSending(room_message("gryuère")),
+            LatestEventValue::LocalIsSending(local_room_message("gryuère")),
         );
 
         assert!(buffer.last().is_some());
@@ -1298,12 +1327,18 @@ mod tests_latest_event_values_for_local_events {
         let transaction_id_1 = OwnedTransactionId::from("txnid1");
         let transaction_id_2 = OwnedTransactionId::from("txnid2");
 
-        buffer.push(transaction_id_0, LatestEventValue::LocalIsSending(room_message("gruyère")));
+        buffer.push(
+            transaction_id_0,
+            LatestEventValue::LocalIsSending(local_room_message("gruyère")),
+        );
         buffer.push(
             transaction_id_1.clone(),
-            LatestEventValue::LocalIsSending(room_message("brigand")),
+            LatestEventValue::LocalIsSending(local_room_message("brigand")),
         );
-        buffer.push(transaction_id_2, LatestEventValue::LocalIsSending(room_message("raclette")));
+        buffer.push(
+            transaction_id_2,
+            LatestEventValue::LocalIsSending(local_room_message("raclette")),
+        );
 
         buffer.mark_cannot_be_sent_from(&transaction_id_1);
 
@@ -1320,13 +1355,18 @@ mod tests_latest_event_values_for_local_events {
         let transaction_id_1 = OwnedTransactionId::from("txnid1");
         let transaction_id_2 = OwnedTransactionId::from("txnid2");
 
-        buffer.push(transaction_id_0, LatestEventValue::LocalCannotBeSent(room_message("gruyère")));
+        buffer.push(
+            transaction_id_0,
+            LatestEventValue::LocalCannotBeSent(local_room_message("gruyère")),
+        );
         buffer.push(
             transaction_id_1.clone(),
-            LatestEventValue::LocalCannotBeSent(room_message("brigand")),
+            LatestEventValue::LocalCannotBeSent(local_room_message("brigand")),
         );
-        buffer
-            .push(transaction_id_2, LatestEventValue::LocalCannotBeSent(room_message("raclette")));
+        buffer.push(
+            transaction_id_2,
+            LatestEventValue::LocalCannotBeSent(local_room_message("raclette")),
+        );
 
         buffer.mark_is_sending_from(&transaction_id_1);
 
@@ -1343,13 +1383,18 @@ mod tests_latest_event_values_for_local_events {
         let transaction_id_1 = OwnedTransactionId::from("txnid1");
         let transaction_id_2 = OwnedTransactionId::from("txnid2");
 
-        buffer.push(transaction_id_0, LatestEventValue::LocalCannotBeSent(room_message("gruyère")));
+        buffer.push(
+            transaction_id_0,
+            LatestEventValue::LocalCannotBeSent(local_room_message("gruyère")),
+        );
         buffer.push(
             transaction_id_1.clone(),
-            LatestEventValue::LocalCannotBeSent(room_message("brigand")),
+            LatestEventValue::LocalCannotBeSent(local_room_message("brigand")),
         );
-        buffer
-            .push(transaction_id_2, LatestEventValue::LocalCannotBeSent(room_message("raclette")));
+        buffer.push(
+            transaction_id_2,
+            LatestEventValue::LocalCannotBeSent(local_room_message("raclette")),
+        );
 
         buffer.mark_is_sending_after(&transaction_id_1);
 
@@ -1366,6 +1411,7 @@ mod tests_latest_event_value {
 
     use assert_matches::assert_matches;
     use matrix_sdk_base::{
+        deserialized_responses::TimelineEventKind,
         linked_chunk::{ChunkIdentifier, LinkedChunkId, Position, Update},
         store::SerializableEventContent,
         RoomState,
@@ -1376,12 +1422,13 @@ mod tests_latest_event_value {
         events::{
             reaction::ReactionEventContent, relation::Annotation,
             room::message::RoomMessageEventContent, AnyMessageLikeEventContent,
+            AnySyncMessageLikeEvent, AnySyncTimelineEvent, SyncMessageLikeEvent,
         },
         room_id, user_id, MilliSecondsSinceUnixEpoch, OwnedRoomId, OwnedTransactionId,
     };
 
     use super::{
-        LatestEventContent, LatestEventValue, LatestEventValuesForLocalEvents, RoomEventCache,
+        LatestEventValue, LatestEventValuesForLocalEvents, RemoteLatestEventValue, RoomEventCache,
         RoomSendQueueUpdate,
     };
     use crate::{
@@ -1391,6 +1438,42 @@ mod tests_latest_event_value {
         test_utils::mocks::MatrixMockServer,
         Client, Error,
     };
+
+    macro_rules! assert_remote_value_matches_room_message_with_body {
+        ( $latest_event_value:expr => with body = $body:expr ) => {
+            assert_matches!(
+                $latest_event_value,
+                LatestEventValue::Remote(RemoteLatestEventValue { kind: TimelineEventKind::PlainText { event }, .. }) => {
+                    assert_matches!(
+                        event.deserialize().unwrap(),
+                        AnySyncTimelineEvent::MessageLike(
+                            AnySyncMessageLikeEvent::RoomMessage(
+                                SyncMessageLikeEvent::Original(message_content)
+                            )
+                        ) => {
+                            assert_eq!(message_content.content.body(), $body);
+                        }
+                    );
+                }
+            );
+        };
+    }
+
+    macro_rules! assert_local_value_matches_room_message_with_body {
+        ( $latest_event_value:expr, $pattern:path => with body = $body:expr ) => {
+            assert_matches!(
+                $latest_event_value,
+                $pattern (local_event) => {
+                    assert_matches!(
+                        local_event.deserialize().unwrap(),
+                        AnyMessageLikeEventContent::RoomMessage(message_content) => {
+                            assert_eq!(message_content.body(), $body);
+                        }
+                    );
+                }
+            );
+        };
+    }
 
     #[async_test]
     async fn test_remote_is_scanning_event_backwards_from_event_cache() {
@@ -1449,14 +1532,11 @@ mod tests_latest_event_value {
         let (room_event_cache, _) = event_cache.for_room(room_id).await.unwrap();
         let weak_room = WeakRoom::new(WeakClient::from_client(&client), room_id.to_owned());
 
-        assert_matches!(
-            LatestEventValue::new_remote(&room_event_cache, &weak_room).await,
-            LatestEventValue::Remote(LatestEventContent::RoomMessage(message_content)) => {
-                // We get `event_id_1` because `event_id_2` isn't a candidate,
-                // and `event_id_0` hasn't been read yet (because events are
-                // read backwards).
-                assert_eq!(message_content.body(), "world");
-            }
+        assert_remote_value_matches_room_message_with_body!(
+            // We get `event_id_1` because `event_id_2` isn't a candidate,
+            // and `event_id_0` hasn't been read yet (because events are read
+            // backwards).
+            LatestEventValue::new_remote(&room_event_cache, &weak_room).await => with body = "world"
         );
     }
 
@@ -1512,11 +1592,9 @@ mod tests_latest_event_value {
             let update = RoomSendQueueUpdate::NewLocalEvent(LocalEcho { transaction_id, content });
 
             // The `LatestEventValue` matches the new local event.
-            assert_matches!(
+            assert_local_value_matches_room_message_with_body!(
                 LatestEventValue::new_local(&update, &mut buffer, &room_event_cache, &None).await,
-                LatestEventValue::LocalIsSending(LatestEventContent::RoomMessage(message_content)) => {
-                    assert_eq!(message_content.body(), "A");
-                }
+                LatestEventValue::LocalIsSending => with body = "A"
             );
         }
 
@@ -1528,33 +1606,13 @@ mod tests_latest_event_value {
             let update = RoomSendQueueUpdate::NewLocalEvent(LocalEcho { transaction_id, content });
 
             // The `LatestEventValue` matches the new local event.
-            assert_matches!(
+            assert_local_value_matches_room_message_with_body!(
                 LatestEventValue::new_local(&update, &mut buffer, &room_event_cache, &None).await,
-                LatestEventValue::LocalIsSending(
-                    LatestEventContent::RoomMessage(message_content)
-                ) => {
-                    assert_eq!(message_content.body(), "B");
-                }
+                LatestEventValue::LocalIsSending => with body = "B"
             );
         }
 
         assert_eq!(buffer.buffer.len(), 2);
-        assert_matches!(
-            &buffer.buffer[0].1,
-            LatestEventValue::LocalIsSending(
-                LatestEventContent::RoomMessage(message_content)
-            ) => {
-                assert_eq!(message_content.body(), "A");
-            }
-        );
-        assert_matches!(
-            &buffer.buffer[1].1,
-            LatestEventValue::LocalIsSending(
-                LatestEventContent::RoomMessage(message_content)
-            ) => {
-                assert_eq!(message_content.body(), "B");
-            }
-        );
     }
 
     #[async_test]
@@ -1579,13 +1637,9 @@ mod tests_latest_event_value {
                 });
 
                 // The `LatestEventValue` matches the new local event.
-                assert_matches!(
+                assert_local_value_matches_room_message_with_body!(
                     LatestEventValue::new_local(&update, &mut buffer, &room_event_cache, &None).await,
-                    LatestEventValue::LocalIsSending(
-                        LatestEventContent::RoomMessage(message_content)
-                    ) => {
-                        assert_eq!(message_content.body(), body);
-                    }
+                    LatestEventValue::LocalIsSending => with body = body
                 );
             }
 
@@ -1601,13 +1655,9 @@ mod tests_latest_event_value {
 
             // The `LatestEventValue` hasn't changed, it still matches the latest local
             // event.
-            assert_matches!(
+            assert_local_value_matches_room_message_with_body!(
                 LatestEventValue::new_local(&update, &mut buffer, &room_event_cache, &None).await,
-                LatestEventValue::LocalIsSending(
-                    LatestEventContent::RoomMessage(message_content)
-                ) => {
-                    assert_eq!(message_content.body(), "C");
-                }
+                LatestEventValue::LocalIsSending => with body = "C"
             );
 
             assert_eq!(buffer.buffer.len(), 2);
@@ -1622,13 +1672,9 @@ mod tests_latest_event_value {
 
             // The `LatestEventValue` has changed, it matches the previous (so the first)
             // local event.
-            assert_matches!(
+            assert_local_value_matches_room_message_with_body!(
                 LatestEventValue::new_local(&update, &mut buffer, &room_event_cache, &None).await,
-                LatestEventValue::LocalIsSending(
-                    LatestEventContent::RoomMessage(message_content)
-                ) => {
-                    assert_eq!(message_content.body(), "A");
-                }
+                LatestEventValue::LocalIsSending => with body = "A"
             );
 
             assert_eq!(buffer.buffer.len(), 1);
@@ -1671,13 +1717,9 @@ mod tests_latest_event_value {
                 });
 
                 // The `LatestEventValue` matches the new local event.
-                assert_matches!(
+                assert_local_value_matches_room_message_with_body!(
                     LatestEventValue::new_local(&update, &mut buffer, &room_event_cache, &None).await,
-                    LatestEventValue::LocalIsSending(
-                        LatestEventContent::RoomMessage(message_content)
-                    ) => {
-                        assert_eq!(message_content.body(), body);
-                    }
+                    LatestEventValue::LocalIsSending => with body = body
                 );
             }
 
@@ -1694,13 +1736,9 @@ mod tests_latest_event_value {
 
             // The `LatestEventValue` hasn't changed, it still matches the latest local
             // event.
-            assert_matches!(
+            assert_local_value_matches_room_message_with_body!(
                 LatestEventValue::new_local(&update, &mut buffer, &room_event_cache, &None).await,
-                LatestEventValue::LocalIsSending(
-                    LatestEventContent::RoomMessage(message_content)
-                ) => {
-                    assert_eq!(message_content.body(), "B");
-                }
+                LatestEventValue::LocalIsSending => with body = "B"
             );
 
             assert_eq!(buffer.buffer.len(), 1);
@@ -1715,13 +1753,9 @@ mod tests_latest_event_value {
             };
 
             // The `LatestEventValue` hasn't changed.
-            assert_matches!(
+            assert_local_value_matches_room_message_with_body!(
                 LatestEventValue::new_local(&update, &mut buffer, &room_event_cache, &None).await,
-                LatestEventValue::LocalIsSending(
-                    LatestEventContent::RoomMessage(message_content)
-                ) => {
-                    assert_eq!(message_content.body(), "B");
-                }
+                LatestEventValue::LocalIsSending => with body = "B"
             );
 
             assert!(buffer.buffer.is_empty());
@@ -1747,13 +1781,9 @@ mod tests_latest_event_value {
                 });
 
                 // The `LatestEventValue` matches the new local event.
-                assert_matches!(
+                assert_local_value_matches_room_message_with_body!(
                     LatestEventValue::new_local(&update, &mut buffer, &room_event_cache, &None).await,
-                    LatestEventValue::LocalIsSending(
-                        LatestEventContent::RoomMessage(message_content)
-                    ) => {
-                        assert_eq!(message_content.body(), body);
-                    }
+                    LatestEventValue::LocalIsSending => with body = body
                 );
             }
 
@@ -1777,13 +1807,9 @@ mod tests_latest_event_value {
 
             // The `LatestEventValue` hasn't changed, it still matches the latest local
             // event.
-            assert_matches!(
+            assert_local_value_matches_room_message_with_body!(
                 LatestEventValue::new_local(&update, &mut buffer, &room_event_cache, &None).await,
-                LatestEventValue::LocalIsSending(
-                    LatestEventContent::RoomMessage(message_content)
-                ) => {
-                    assert_eq!(message_content.body(), "B");
-                }
+                LatestEventValue::LocalIsSending => with body = "B"
             );
 
             assert_eq!(buffer.buffer.len(), 2);
@@ -1806,13 +1832,9 @@ mod tests_latest_event_value {
 
             // The `LatestEventValue` has changed, it still matches the latest local
             // event but with its new content.
-            assert_matches!(
+            assert_local_value_matches_room_message_with_body!(
                 LatestEventValue::new_local(&update, &mut buffer, &room_event_cache, &None).await,
-                LatestEventValue::LocalIsSending(
-                    LatestEventContent::RoomMessage(message_content)
-                ) => {
-                    assert_eq!(message_content.body(), "B.");
-                }
+                LatestEventValue::LocalIsSending => with body = "B."
             );
 
             assert_eq!(buffer.buffer.len(), 2);
@@ -1836,13 +1858,9 @@ mod tests_latest_event_value {
             });
 
             // The `LatestEventValue` matches the new local event.
-            assert_matches!(
+            assert_local_value_matches_room_message_with_body!(
                 LatestEventValue::new_local(&update, &mut buffer, &room_event_cache, &None).await,
-                LatestEventValue::LocalIsSending(
-                    LatestEventContent::RoomMessage(message_content)
-                ) => {
-                    assert_eq!(message_content.body(), "A");
-                }
+                LatestEventValue::LocalIsSending => with body = "A"
             );
 
             assert_eq!(buffer.buffer.len(), 1);
@@ -1895,13 +1913,9 @@ mod tests_latest_event_value {
                 });
 
                 // The `LatestEventValue` matches the new local event.
-                assert_matches!(
+                assert_local_value_matches_room_message_with_body!(
                     LatestEventValue::new_local(&update, &mut buffer, &room_event_cache, &None).await,
-                    LatestEventValue::LocalIsSending(
-                        LatestEventContent::RoomMessage(message_content)
-                    ) => {
-                        assert_eq!(message_content.body(), body);
-                    }
+                    LatestEventValue::LocalIsSending => with body = body
                 );
             }
 
@@ -1919,32 +1933,14 @@ mod tests_latest_event_value {
 
             // The `LatestEventValue` has changed, it still matches the latest local
             // event but it's marked as “cannot be sent”.
-            assert_matches!(
+            assert_local_value_matches_room_message_with_body!(
                 LatestEventValue::new_local(&update, &mut buffer, &room_event_cache, &None).await,
-                LatestEventValue::LocalCannotBeSent(
-                    LatestEventContent::RoomMessage(message_content)
-                ) => {
-                    assert_eq!(message_content.body(), "B");
-                }
+                LatestEventValue::LocalCannotBeSent => with body = "B"
             );
 
             assert_eq!(buffer.buffer.len(), 2);
-            assert_matches!(
-                &buffer.buffer[0].1,
-                LatestEventValue::LocalCannotBeSent(
-                    LatestEventContent::RoomMessage(message_content)
-                ) => {
-                    assert_eq!(message_content.body(), "A");
-                }
-            );
-            assert_matches!(
-                &buffer.buffer[1].1,
-                LatestEventValue::LocalCannotBeSent(
-                    LatestEventContent::RoomMessage(message_content)
-                ) => {
-                    assert_eq!(message_content.body(), "B");
-                }
-            );
+            assert_matches!(&buffer.buffer[0].1, LatestEventValue::LocalCannotBeSent(_));
+            assert_matches!(&buffer.buffer[1].1, LatestEventValue::LocalCannotBeSent(_));
         }
 
         // Receiving a `SentEvent` targeting the first event. The `LatestEventValue`
@@ -1958,24 +1954,13 @@ mod tests_latest_event_value {
 
             // The `LatestEventValue` has changed, it still matches the latest local
             // event but it's “is sending”.
-            assert_matches!(
+            assert_local_value_matches_room_message_with_body!(
                 LatestEventValue::new_local(&update, &mut buffer, &room_event_cache, &None).await,
-                LatestEventValue::LocalIsSending(
-                    LatestEventContent::RoomMessage(message_content)
-                ) => {
-                    assert_eq!(message_content.body(), "B");
-                }
+                LatestEventValue::LocalIsSending => with body = "B"
             );
 
             assert_eq!(buffer.buffer.len(), 1);
-            assert_matches!(
-                &buffer.buffer[0].1,
-                LatestEventValue::LocalIsSending(
-                    LatestEventContent::RoomMessage(message_content)
-                ) => {
-                    assert_eq!(message_content.body(), "B");
-                }
-            );
+            assert_matches!(&buffer.buffer[0].1, LatestEventValue::LocalIsSending(_));
         }
     }
 
@@ -1998,13 +1983,9 @@ mod tests_latest_event_value {
                 });
 
                 // The `LatestEventValue` matches the new local event.
-                assert_matches!(
+                assert_local_value_matches_room_message_with_body!(
                     LatestEventValue::new_local(&update, &mut buffer, &room_event_cache, &None).await,
-                    LatestEventValue::LocalIsSending(
-                        LatestEventContent::RoomMessage(message_content)
-                    ) => {
-                        assert_eq!(message_content.body(), body);
-                    }
+                    LatestEventValue::LocalIsSending => with body = body
                 );
             }
 
@@ -2022,32 +2003,14 @@ mod tests_latest_event_value {
 
             // The `LatestEventValue` has changed, it still matches the latest local
             // event but it's marked as “cannot be sent”.
-            assert_matches!(
+            assert_local_value_matches_room_message_with_body!(
                 LatestEventValue::new_local(&update, &mut buffer, &room_event_cache, &None).await,
-                LatestEventValue::LocalCannotBeSent(
-                    LatestEventContent::RoomMessage(message_content)
-                ) => {
-                    assert_eq!(message_content.body(), "B");
-                }
+                LatestEventValue::LocalCannotBeSent => with body = "B"
             );
 
             assert_eq!(buffer.buffer.len(), 2);
-            assert_matches!(
-                &buffer.buffer[0].1,
-                LatestEventValue::LocalCannotBeSent(
-                    LatestEventContent::RoomMessage(message_content)
-                ) => {
-                    assert_eq!(message_content.body(), "A");
-                }
-            );
-            assert_matches!(
-                &buffer.buffer[1].1,
-                LatestEventValue::LocalCannotBeSent(
-                    LatestEventContent::RoomMessage(message_content)
-                ) => {
-                    assert_eq!(message_content.body(), "B");
-                }
-            );
+            assert_matches!(&buffer.buffer[0].1, LatestEventValue::LocalCannotBeSent(_));
+            assert_matches!(&buffer.buffer[1].1, LatestEventValue::LocalCannotBeSent(_));
         }
 
         // Receiving a `RetryEvent` targeting the first event. The `LatestEventValue`
@@ -2058,32 +2021,14 @@ mod tests_latest_event_value {
 
             // The `LatestEventValue` has changed, it still matches the latest local
             // event but it's “is sending”.
-            assert_matches!(
+            assert_local_value_matches_room_message_with_body!(
                 LatestEventValue::new_local(&update, &mut buffer, &room_event_cache, &None).await,
-                LatestEventValue::LocalIsSending(
-                    LatestEventContent::RoomMessage(message_content)
-                ) => {
-                    assert_eq!(message_content.body(), "B");
-                }
+                LatestEventValue::LocalIsSending => with body = "B"
             );
 
             assert_eq!(buffer.buffer.len(), 2);
-            assert_matches!(
-                &buffer.buffer[0].1,
-                LatestEventValue::LocalIsSending(
-                    LatestEventContent::RoomMessage(message_content)
-                ) => {
-                    assert_eq!(message_content.body(), "A");
-                }
-            );
-            assert_matches!(
-                &buffer.buffer[1].1,
-                LatestEventValue::LocalIsSending(
-                    LatestEventContent::RoomMessage(message_content)
-                ) => {
-                    assert_eq!(message_content.body(), "B");
-                }
-            );
+            assert_matches!(&buffer.buffer[0].1, LatestEventValue::LocalIsSending(_));
+            assert_matches!(&buffer.buffer[1].1, LatestEventValue::LocalIsSending(_));
         }
     }
 
@@ -2104,13 +2049,9 @@ mod tests_latest_event_value {
             });
 
             // The `LatestEventValue` matches the new local event.
-            assert_matches!(
+            assert_local_value_matches_room_message_with_body!(
                 LatestEventValue::new_local(&update, &mut buffer, &room_event_cache, &None).await,
-                LatestEventValue::LocalIsSending(
-                    LatestEventContent::RoomMessage(message_content)
-                ) => {
-                    assert_eq!(message_content.body(), "A");
-                }
+                LatestEventValue::LocalIsSending => with body = "A"
             );
 
             assert_eq!(buffer.buffer.len(), 1);
@@ -2187,7 +2128,8 @@ mod tests_latest_event_value {
 
         let mut buffer = LatestEventValuesForLocalEvents::new();
 
-        assert_matches!(
+        // We get a `Remote` because there is no `Local*` values!
+        assert_remote_value_matches_room_message_with_body!(
             LatestEventValue::new_local(
                 // An update that won't be create a new `LatestEventValue`.
                 &RoomSendQueueUpdate::SentEvent {
@@ -2198,11 +2140,8 @@ mod tests_latest_event_value {
                 &room_event_cache,
                 &None,
             )
-            .await,
-            // We get a `Remote` because there is no `Local*` values!
-            LatestEventValue::Remote(LatestEventContent::RoomMessage(message_content)) => {
-                assert_eq!(message_content.body(), "hello");
-            }
+            .await
+             => with body = "hello"
         );
     }
 }
