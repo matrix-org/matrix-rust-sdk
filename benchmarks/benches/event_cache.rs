@@ -1,20 +1,23 @@
 use std::{
+    pin::Pin,
     sync::Arc,
     time::{Duration, Instant},
 };
 
 use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
 use matrix_sdk::{
-    SqliteEventCacheStore,
+    RoomInfo, RoomState, SqliteEventCacheStore, StateStore,
     store::StoreConfig,
     sync::{JoinedRoomUpdate, RoomUpdates},
-    test_utils::mocks::MatrixMockServer,
+    test_utils::client::MockClientBuilder,
 };
-use matrix_sdk_base::event_cache::store::{IntoEventCacheStore, MemoryStore};
-use matrix_sdk_test::{ALICE, JoinedRoomBuilder, event_factory::EventFactory};
+use matrix_sdk_base::event_cache::store::{DynEventCacheStore, IntoEventCacheStore, MemoryStore};
+use matrix_sdk_test::{ALICE, event_factory::EventFactory};
 use ruma::{EventId, RoomId};
 use tempfile::tempdir;
 use tokio::runtime::Builder;
+
+type StoreBuilder = Box<dyn Fn() -> Pin<Box<dyn Future<Output = Arc<DynEventCacheStore>>>>>;
 
 fn handle_room_updates(c: &mut Criterion) {
     // Create a new asynchronous runtime.
@@ -33,6 +36,8 @@ fn handle_room_updates(c: &mut Criterion) {
         // Add some joined rooms, each with NUM_EVENTS in it, to the sync response.
         let mut room_updates = RoomUpdates::default();
 
+        let mut changes = matrix_sdk::StateChanges::default();
+
         for i in 0..num_rooms {
             let room_id = RoomId::parse(format!("!room{i}:example.com")).unwrap();
             let event_factory = EventFactory::new().room(&room_id).sender(&ALICE);
@@ -45,26 +50,53 @@ fn handle_room_updates(c: &mut Criterion) {
                 joined_room_update.timeline.events.push(event);
             }
             room_updates.joined.insert(room_id.clone(), joined_room_update);
+
+            changes.add_room(RoomInfo::new(&room_id, RoomState::Joined));
         }
 
         // Declare new stores for this set of events.
-        let sqlite_temp_dir = tempdir().unwrap();
-        let stores = vec![
-            ("memory", MemoryStore::default().into_event_cache_store()),
+        let temp_dir = Arc::new(tempdir().unwrap());
+
+        let store_builders: Vec<(_, StoreBuilder)> = vec![
+            (
+                "memory",
+                Box::new(|| Box::pin(async { MemoryStore::default().into_event_cache_store() })),
+            ),
             (
                 "SQLite",
-                runtime.block_on(async {
-                    SqliteEventCacheStore::open(sqlite_temp_dir.path().join("bench"), None)
-                        .await
-                        .unwrap()
-                        .into_event_cache_store()
+                Box::new(move || {
+                    let temp_dir = temp_dir.clone();
+                    Box::pin(async move {
+                        // Remove all the files in the temp_dir, to reset the event cache state.
+                        for entry in temp_dir.path().read_dir().unwrap() {
+                            let entry = entry.unwrap();
+                            let path = entry.path();
+                            if path.is_dir() {
+                                // If it's a directory, remove it recursively.
+                                std::fs::remove_dir_all(path).unwrap();
+                            } else {
+                                std::fs::remove_file(path).unwrap();
+                            }
+                        }
+
+                        // Recreate a new store.
+                        SqliteEventCacheStore::open(temp_dir.path().join("bench"), None)
+                            .await
+                            .unwrap()
+                            .into_event_cache_store()
+                    })
                 }),
             ),
         ];
 
-        let server = Arc::new(runtime.block_on(MatrixMockServer::new()));
+        let state_store = runtime.block_on(async {
+            let state_store = matrix_sdk::MemoryStore::new();
+            state_store.save_changes(&changes).await.unwrap();
+            Arc::new(state_store)
+        });
 
-        for (store_name, store) in &stores {
+        for (store_name, store_builder) in &store_builders {
+            // Define a state store with all rooms known in it.
             // Define the throughput.
             group.throughput(Throughput::Elements(num_rooms));
 
@@ -80,39 +112,35 @@ fn handle_room_updates(c: &mut Criterion) {
                     // https://github.com/bheisler/criterion.rs/issues/751.
                     bencher.to_async(&runtime).iter_custom(|num_iters| {
                         let room_updates = room_updates.clone();
-                        let server = server.clone();
+                        let state_store = state_store.clone();
 
                         async move {
                             let mut total_time = Duration::new(0, 0);
 
                             for _ in 0..num_iters {
                                 // Setup code.
-                                let client = server
-                                    .client_builder()
+                                let event_cache_store = store_builder().await;
+
+                                let client = MockClientBuilder::new(None)
                                     .on_builder(|builder| {
                                         builder.store_config(
                                             StoreConfig::new(
                                                 "cross-process-store-locks-holder-name".to_owned(),
                                             )
-                                            .event_cache_store(store.clone()),
+                                            .state_store(state_store.clone())
+                                            .event_cache_store(event_cache_store.clone()),
                                         )
                                     })
                                     .build()
                                     .await;
 
+                                // Make sure to subscribe to the event cache *after* syncing all
+                                // rooms, so that the client knows about all the rooms, but the
+                                // event cache doesn't (and need to create the initial empty room
+                                // mapping).
                                 client.event_cache().subscribe().unwrap();
 
-                                // Make sure the client knows about all the to-be joined rooms.
-                                server
-                                    .mock_sync()
-                                    .ok_and_run(&client, |builder| {
-                                        for room_id in room_updates.joined.keys() {
-                                            builder
-                                                .add_joined_room(JoinedRoomBuilder::new(room_id));
-                                        }
-                                    })
-                                    .await;
-
+                                // Run the actual benchmark.
                                 let time_before = Instant::now();
                                 client
                                     .event_cache()
@@ -127,11 +155,6 @@ fn handle_room_updates(c: &mut Criterion) {
                     })
                 },
             );
-        }
-
-        for (_store_name, store) in stores.into_iter() {
-            let _guard = runtime.enter();
-            drop(store);
         }
     }
 
