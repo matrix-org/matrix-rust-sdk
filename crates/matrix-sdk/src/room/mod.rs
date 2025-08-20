@@ -1908,29 +1908,47 @@ impl Room {
             }
             self.send_state_event(content).await?;
 
+            // Spin on the sync beat event, since the first sync we receive might not
+            // include the encryption event.
+            //
             // TODO do we want to return an error here if we time out? This
             // could be quite useful if someone wants to enable encryption and
             // send a message right after it's enabled.
-            _ = timeout(self.client.inner.sync_beat.listen(), SYNC_WAIT_TIME).await;
+            let res = timeout(
+                async {
+                    loop {
+                        // Listen for sync events, then check if the encryption state has been set.
+                        self.client.inner.sync_beat.listen().await;
+                        let _sync_lock = self.client.base_client().sync_lock().lock().await;
+                        if self.inner.encryption_state().is_encrypted() {
+                            break;
+                        }
+                    }
+                },
+                SYNC_WAIT_TIME,
+            )
+            .await;
 
-            // If after waiting for a sync, we don't have the encryption state we expect,
-            // assume the local encryption state is incorrect; this will cause
-            // the SDK to re-request it later for confirmation, instead of
+            // If encryption was enabled, return.
+            if res.is_ok() {
+                debug!("room successfully marked as encrypted");
+                return Ok(());
+            }
+
+            // If after waiting for multiple syncs, we don't have the encryption state we
+            // expect, assume the local encryption state is incorrect; this will
+            // cause the SDK to re-request it later for confirmation, instead of
             // assuming it's sync'd and correct (and not encrypted).
             let _sync_lock = self.client.base_client().sync_lock().lock().await;
-            if !self.inner.encryption_state().is_encrypted() {
-                debug!("still not marked as encrypted, marking encryption state as missing");
+            debug!("still not marked as encrypted, marking encryption state as missing");
 
-                let mut room_info = self.clone_info();
-                room_info.mark_encryption_state_missing();
-                let mut changes = StateChanges::default();
-                changes.add_room(room_info.clone());
+            let mut room_info = self.clone_info();
+            room_info.mark_encryption_state_missing();
+            let mut changes = StateChanges::default();
+            changes.add_room(room_info.clone());
 
-                self.client.state_store().save_changes(&changes).await?;
-                self.set_room_info(room_info, RoomInfoNotableUpdateReasons::empty());
-            } else {
-                debug!("room successfully marked as encrypted");
-            }
+            self.client.state_store().save_changes(&changes).await?;
+            self.set_room_info(room_info, RoomInfoNotableUpdateReasons::empty());
         }
 
         Ok(())
