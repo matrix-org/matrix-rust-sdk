@@ -79,7 +79,7 @@ impl LatestEvent {
     }
 
     /// Update the inner latest event value, based on the event cache
-    /// (specifically with a [`RoomEventCache`]), if and only if there is no
+    /// (specifically with the [`RoomEventCache`]), if and only if there is no
     /// local latest event value waiting.
     ///
     /// It is only necessary to compute a new [`LatestEventValue`] from the
@@ -94,7 +94,7 @@ impl LatestEvent {
     ) {
         if self.buffer_of_values_for_local_events.is_empty().not() {
             // At least one `LatestEventValue` exists for local events (i.e. coming from the
-            // send queue). In this case, we don't overwrite the current value with a new
+            // send queue). In this case, we don't overwrite the current value with a newly
             // computed one from the event cache.
             return;
         }
@@ -106,7 +106,7 @@ impl LatestEvent {
     }
 
     /// Update the inner latest event value, based on the send queue
-    /// (specifically with a [`RoomSendQueueUpdate`]).
+    /// (specifically with the [`RoomSendQueueUpdate`]).
     pub async fn update_with_send_queue(
         &mut self,
         send_queue_update: &RoomSendQueueUpdate,
@@ -459,11 +459,11 @@ impl LatestEventValue {
                 // First, compute the new value. Then we remove the sent local event from the
                 // buffer.
                 //
-                // Why in this order? Because once the local event is sent, it's not yet
-                // received by the sync and consequently not stored in the event cache. So once
-                // the local event is sent, it won't show up as a `LatestEventValue` as it will
-                // immediately be replaced by an event from the event cache. By computing the
-                // new value before removing it from the buffer, we ensure the
+                // Why in this order? Because in between sending and remote echoing, the event
+                // will only be stored as a local echo and not as a full event in the event
+                // cache. Just after sending, it won't show up as a `LatestEventValue` as it
+                // will immediately be replaced by an event from the event cache. By computing
+                // the new value before removing it from the buffer, we ensure the
                 // `LatestEventValue` represents the just sent local event.
                 //
                 // Note: the next sync may not include the just sent local event. This is a race
