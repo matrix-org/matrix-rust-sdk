@@ -26,9 +26,9 @@ use super::{url_params, WidgetSettings};
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-/// Parameters for the Element Call widget.
+/// Serialization struct for URL parameters for the Element Call widget.
 /// These are documented at https://github.com/element-hq/element-call/blob/livekit/docs/url-params.md
-struct ElementCallParams {
+struct ElementCallUrlParams {
     user_id: String,
     room_id: String,
     widget_id: String,
@@ -44,13 +44,13 @@ struct ElementCallParams {
     /// compatibility. Set to `true` if intent is `Intent::StartCall`.
     skip_lobby: Option<bool>,
     confine_to_room: bool,
-    app_prompt: bool,
+    app_prompt: Option<bool>,
     /// Supported since Element Call v0.13.0.
-    header: HeaderStyle,
+    header: Option<HeaderStyle>,
     /// Deprecated since Element Call v0.13.0. Included for backwards
     /// compatibility. Use header: "standard"|"none" instead.
     hide_header: Option<bool>,
-    preload: bool,
+    preload: Option<bool>,
     /// Deprecated since Element Call v0.9.0. Included for backwards
     /// compatibility. Set to the same as `posthog_user_id`.
     analytics_id: Option<String>,
@@ -59,7 +59,7 @@ struct ElementCallParams {
     font_scale: Option<f64>,
     font: Option<String>,
     #[serde(rename = "perParticipantE2EE")]
-    per_participant_e2ee: bool,
+    per_participant_e2ee: Option<bool>,
     password: Option<String>,
     /// Supported since Element Call v0.8.0.
     intent: Option<Intent>,
@@ -73,8 +73,10 @@ struct ElementCallParams {
     sentry_dsn: Option<String>,
     /// Supported since Element Call v0.9.0. Only used by the embedded package.
     sentry_environment: Option<String>,
-    hide_screensharing: bool,
-    controlled_media_devices: bool,
+    /// Supported since Element Call v0.9.0.
+    hide_screensharing: Option<bool>,
+    /// Supported since Element Call v0.13.0.
+    controlled_audio_devices: Option<bool>,
     /// Supported since Element Call v0.14.0.
     send_notification_type: Option<NotificationType>,
 }
@@ -112,6 +114,11 @@ pub enum Intent {
     StartCall,
     /// The user wants to join an existing call.
     JoinExisting,
+    /// The user wants to join an existing call that is a "Direct Message" (DM)
+    /// room.
+    JoinExistingDM,
+    /// The user wants to start a call in a "Direct Message" (DM) room.
+    StartCallDM,
 }
 
 /// Defines how (if) element-call renders a header.
@@ -130,19 +137,84 @@ pub enum HeaderStyle {
 
 /// Types of call notifications.
 #[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
-#[derive(Debug, PartialEq, Serialize, Clone)]
+#[derive(Debug, PartialEq, Serialize, Clone, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum NotificationType {
-    /// The receiving client should display a visual notification.
+    /// The receiving client should display a visual notification.    
+    #[default]
     Notification,
     /// The receiving client should ring with an audible sound.
     Ring,
 }
 
-/// Properties to create a new virtual Element Call widget.
+/// Configuration parameters, to create a new virtual Element Call widget.
+///
+/// If `intent` is provided the appropriate default values for all other
+/// parameters will be used by element call.
+/// In most cases its enough to only set the intent. Use the other properties
+/// only if you want to deviate from the `intent` defaults.
+///
+/// Set [`docs/url-params.md`](https://github.com/element-hq/element-call/blob/livekit/docs/url-params.md)
+/// to find out more about the parameters and their defaults.
 #[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
 #[derive(Debug, Default, Clone)]
-pub struct VirtualElementCallWidgetOptions {
+pub struct VirtualElementCallWidgetConfig {
+    /// The intent of showing the call.
+    /// If the user wants to start a call or join an existing one.
+    /// Controls if the lobby is skipped or not.
+    pub intent: Option<Intent>,
+
+    /// Skip the lobby when joining a call.
+    pub skip_lobby: Option<bool>,
+
+    /// Whether the branding header of Element call should be shown or if a
+    /// mobile header navbar should be render.
+    ///
+    /// Default: [`HeaderStyle::Standard`]
+    pub header: Option<HeaderStyle>,
+
+    /// Whether the branding header of Element call should be hidden.
+    ///
+    /// Default: `true`
+    #[deprecated(note = "Use `header` instead", since = "0.12.1")]
+    pub hide_header: Option<bool>,
+
+    /// If set, the lobby will be skipped and the widget will join the
+    /// call on the `io.element.join` action.
+    ///
+    /// Default: `false`
+    pub preload: Option<bool>,
+
+    /// Whether element call should prompt the user to open in the browser or
+    /// the app.
+    ///
+    /// Default: `false`
+    pub app_prompt: Option<bool>,
+
+    /// Make it not possible to get to the calls list in the webview.
+    ///
+    /// Default: `true`
+    pub confine_to_room: Option<bool>,
+
+    /// Do not show the screenshare button.
+    pub hide_screensharing: Option<bool>,
+
+    /// Make the audio devices be controlled by the os instead of the
+    /// element-call webview.
+    pub controlled_audio_devices: Option<bool>,
+
+    /// Whether and what type of notification Element Call should send, when
+    /// starting a call.
+    pub send_notification_type: Option<NotificationType>,
+}
+
+/// Properties to create a new virtual Element Call widget.
+///
+/// All these are required to start the widget in the first place.
+/// This is different from the `VirtualElementCallWidgetConfiguration` which
+/// configures the widgets behavior.
+#[derive(Debug, Default, uniffi::Record, Clone)]
+pub struct VirtualElementCallWidgetProperties {
     /// The url to the app.
     ///
     /// E.g. <https://call.element.io>, <https://call.element.dev>, <https://call.element.dev/room>
@@ -166,39 +238,10 @@ pub struct VirtualElementCallWidgetOptions {
     /// usecase.
     pub parent_url: Option<String>,
 
-    /// Whether the branding header of Element call should be shown or if a
-    /// mobile header navbar should be render.
-    ///
-    /// Default: [`HeaderStyle::Standard`]
-    pub header: Option<HeaderStyle>,
-
-    /// Whether the branding header of Element call should be hidden.
-    ///
-    /// Default: `true`
-    #[deprecated(note = "Use `header` instead", since = "0.12.1")]
-    pub hide_header: Option<bool>,
-
-    /// If set, the lobby will be skipped and the widget will join the
-    /// call on the `io.element.join` action.
-    ///
-    /// Default: `false`
-    pub preload: Option<bool>,
-
     /// The font scale which will be used inside element call.
     ///
     /// Default: `1`
     pub font_scale: Option<f64>,
-
-    /// Whether element call should prompt the user to open in the browser or
-    /// the app.
-    ///
-    /// Default: `false`
-    pub app_prompt: Option<bool>,
-
-    /// Make it not possible to get to the calls list in the webview.
-    ///
-    /// Default: `true`
-    pub confine_to_room: Option<bool>,
 
     /// The font to use, to adapt to the system font.
     pub font: Option<String>,
@@ -207,14 +250,6 @@ pub struct VirtualElementCallWidgetOptions {
     ///
     /// Use `EncryptionSystem::Unencrypted` to disable encryption.
     pub encryption: EncryptionSystem,
-
-    /// The intent of showing the call.
-    /// If the user wants to start a call or join an existing one.
-    /// Controls if the lobby is skipped or not.
-    pub intent: Option<Intent>,
-
-    /// Do not show the screenshare button.
-    pub hide_screensharing: bool,
 
     /// Can be used to pass a PostHog id to element call.
     pub posthog_user_id: Option<String>,
@@ -235,14 +270,6 @@ pub struct VirtualElementCallWidgetOptions {
     /// Sentry [environment](https://docs.sentry.io/concepts/key-terms/key-terms/)
     /// This is only used by the embedded package of Element Call.
     pub sentry_environment: Option<String>,
-    //// - `true`: The webview should show the list of media devices it detects using
-    ////   `enumerateDevices`.
-    ///  - `false`: the webview shows a a list of devices injected by the
-    ///    client. (used on ios & android)
-    pub controlled_media_devices: bool,
-    /// Whether and what type of notification Element Call should send, when
-    /// starting a call.
-    pub send_notification_type: Option<NotificationType>,
 }
 
 impl WidgetSettings {
@@ -260,17 +287,13 @@ impl WidgetSettings {
     /// * `props` - A struct containing the configuration parameters for a
     ///   element call widget.
     pub fn new_virtual_element_call_widget(
-        props: VirtualElementCallWidgetOptions,
+        props: VirtualElementCallWidgetProperties,
+        config: VirtualElementCallWidgetConfig,
     ) -> Result<Self, url::ParseError> {
         let mut raw_url: Url = Url::parse(&props.element_call_url)?;
 
-        let skip_lobby = if props.intent.as_ref().is_some_and(|x| x == &Intent::StartCall) {
-            Some(true)
-        } else {
-            None
-        };
         #[allow(deprecated)]
-        let query_params = ElementCallParams {
+        let query_params = ElementCallUrlParams {
             user_id: url_params::USER_ID.to_owned(),
             room_id: url_params::ROOM_ID.to_owned(),
             widget_id: url_params::WIDGET_ID.to_owned(),
@@ -282,20 +305,20 @@ impl WidgetSettings {
             base_url: url_params::HOMESERVER_URL.to_owned(),
 
             parent_url: props.parent_url.unwrap_or(props.element_call_url.clone()),
-            confine_to_room: props.confine_to_room.unwrap_or(true),
-            app_prompt: props.app_prompt.unwrap_or_default(),
-            header: props.header.unwrap_or_default(),
-            hide_header: props.hide_header,
-            preload: props.preload.unwrap_or_default(),
+            confine_to_room: config.confine_to_room.unwrap_or(true),
+            app_prompt: config.app_prompt,
+            header: config.header,
+            hide_header: config.hide_header,
+            preload: config.preload,
             font_scale: props.font_scale,
             font: props.font,
-            per_participant_e2ee: props.encryption == EncryptionSystem::PerParticipantKeys,
+            per_participant_e2ee: Some(props.encryption == EncryptionSystem::PerParticipantKeys),
             password: match props.encryption {
                 EncryptionSystem::SharedSecret { secret } => Some(secret),
                 _ => None,
             },
-            intent: props.intent,
-            skip_lobby,
+            intent: config.intent,
+            skip_lobby: config.skip_lobby,
             analytics_id: props.posthog_user_id.clone(),
             posthog_user_id: props.posthog_user_id,
             posthog_api_host: props.posthog_api_host,
@@ -303,9 +326,9 @@ impl WidgetSettings {
             sentry_dsn: props.sentry_dsn,
             sentry_environment: props.sentry_environment,
             rageshake_submit_url: props.rageshake_submit_url,
-            hide_screensharing: props.hide_screensharing,
-            controlled_media_devices: props.controlled_media_devices,
-            send_notification_type: props.send_notification_type,
+            hide_screensharing: config.hide_screensharing,
+            controlled_audio_devices: config.controlled_audio_devices,
+            send_notification_type: config.send_notification_type,
         };
 
         let query =
@@ -331,46 +354,46 @@ mod tests {
     use ruma::api::client::profile::get_profile;
     use url::Url;
 
-    use crate::widget::{ClientProperties, Intent, WidgetSettings};
+    use crate::widget::{
+        settings::element_call::{HeaderStyle, VirtualElementCallWidgetConfig},
+        ClientProperties, Intent, WidgetSettings,
+    };
 
     const WIDGET_ID: &str = "1/@#w23";
 
-    fn get_widget_settings(
+    fn get_element_call_widget_settings(
         encryption: Option<EncryptionSystem>,
         posthog: bool,
         rageshake: bool,
         sentry: bool,
         intent: Option<Intent>,
-        controlle_output: bool,
+        controlled_output: bool,
     ) -> WidgetSettings {
-        let mut props = VirtualElementCallWidgetOptions {
+        let props = VirtualElementCallWidgetProperties {
             element_call_url: "https://call.element.io".to_owned(),
             widget_id: WIDGET_ID.to_owned(),
+            posthog_user_id: posthog.then(|| "POSTHOG_USER_ID".to_owned()),
+            posthog_api_host: posthog.then(|| "posthog.element.io".to_owned()),
+            posthog_api_key: posthog.then(|| "POSTHOG_KEY".to_owned()),
+            rageshake_submit_url: rageshake.then(|| "https://rageshake.element.io".to_owned()),
+            sentry_dsn: sentry.then(|| "SENTRY_DSN".to_owned()),
+            sentry_environment: sentry.then(|| "SENTRY_ENV".to_owned()),
+            encryption: encryption.unwrap_or(EncryptionSystem::PerParticipantKeys),
+            ..VirtualElementCallWidgetProperties::default()
+        };
+
+        let config = VirtualElementCallWidgetConfig {
+            controlled_audio_devices: Some(controlled_output),
             preload: Some(true),
             app_prompt: Some(true),
             confine_to_room: Some(true),
-            encryption: encryption.unwrap_or(EncryptionSystem::PerParticipantKeys),
+            hide_screensharing: Some(false),
+            header: Some(HeaderStyle::Standard),
             intent,
-            controlled_media_devices: controlle_output,
-            ..VirtualElementCallWidgetOptions::default()
+            ..VirtualElementCallWidgetConfig::default()
         };
 
-        if posthog {
-            props.posthog_user_id = Some("POSTHOG_USER_ID".to_owned());
-            props.posthog_api_host = Some("posthog.element.io".to_owned());
-            props.posthog_api_key = Some("POSTHOG_KEY".to_owned());
-        }
-
-        if rageshake {
-            props.rageshake_submit_url = Some("https://rageshake.element.io".to_owned());
-        }
-
-        if sentry {
-            props.sentry_dsn = Some("SENTRY_DSN".to_owned());
-            props.sentry_environment = Some("SENTRY_ENV".to_owned());
-        }
-
-        WidgetSettings::new_virtual_element_call_widget(props)
+        WidgetSettings::new_virtual_element_call_widget(props, config)
             .expect("could not parse virtual element call widget")
     }
 
@@ -390,7 +413,7 @@ mod tests {
 
     use serde_html_form::from_str;
 
-    use super::{EncryptionSystem, VirtualElementCallWidgetOptions};
+    use super::{EncryptionSystem, VirtualElementCallWidgetProperties};
 
     fn get_query_sets(url: &Url) -> Option<(QuerySet, QuerySet)> {
         let fq = from_str::<QuerySet>(url.fragment_query().unwrap_or_default()).ok()?;
@@ -400,7 +423,8 @@ mod tests {
 
     #[test]
     fn test_new_virtual_element_call_widget_base_url() {
-        let widget_settings = get_widget_settings(None, false, false, false, None, false);
+        let widget_settings =
+            get_element_call_widget_settings(None, false, false, false, None, false);
         assert_eq!(widget_settings.base_url().unwrap().as_str(), "https://call.element.io/");
     }
 
@@ -424,10 +448,12 @@ mod tests {
                 &preload=true\
                 &perParticipantE2EE=true\
                 &hideScreensharing=false\
-                &controlledMediaDevices=false\
+                &controlledAudioDevices=false\
         ";
 
-        let mut url = get_widget_settings(None, false, false, false, None, false).raw_url().clone();
+        let mut url = get_element_call_widget_settings(None, false, false, false, None, false)
+            .raw_url()
+            .clone();
         let mut gen = Url::parse(CONVERTED_URL).unwrap();
         assert_eq!(get_query_sets(&url).unwrap(), get_query_sets(&gen).unwrap());
         url.set_fragment(None);
@@ -440,7 +466,7 @@ mod tests {
     #[test]
     fn test_new_virtual_element_call_widget_id() {
         assert_eq!(
-            get_widget_settings(None, false, false, false, None, false).widget_id(),
+            get_element_call_widget_settings(None, false, false, false, None, false).widget_id(),
             WIDGET_ID
         );
     }
@@ -485,9 +511,9 @@ mod tests {
                 &clientId=io.my_matrix.client\
                 &perParticipantE2EE=true\
                 &hideScreensharing=false\
-                &controlledMediaDevices=false\
+                &controlledAudioDevices=false\
         ";
-        let gen = build_url_from_widget_settings(get_widget_settings(
+        let gen = build_url_from_widget_settings(get_element_call_widget_settings(
             None, false, false, false, None, false,
         ));
 
@@ -526,9 +552,9 @@ mod tests {
                 &rageshakeSubmitUrl=https%3A%2F%2Frageshake.element.io\
                 &sentryDsn=SENTRY_DSN\
                 &sentryEnvironment=SENTRY_ENV\
-                &controlledMediaDevices=false\
+                &controlledAudioDevices=false\
         ";
-        let gen = build_url_from_widget_settings(get_widget_settings(
+        let gen = build_url_from_widget_settings(get_element_call_widget_settings(
             None, true, true, true, None, false,
         ));
 
@@ -546,7 +572,7 @@ mod tests {
     fn test_password_url_props_from_widget_settings() {
         {
             // PerParticipantKeys
-            let url = build_url_from_widget_settings(get_widget_settings(
+            let url = build_url_from_widget_settings(get_element_call_widget_settings(
                 Some(EncryptionSystem::PerParticipantKeys),
                 false,
                 false,
@@ -565,7 +591,7 @@ mod tests {
         }
         {
             // Unencrypted
-            let url = build_url_from_widget_settings(get_widget_settings(
+            let url = build_url_from_widget_settings(get_element_call_widget_settings(
                 Some(EncryptionSystem::Unencrypted),
                 false,
                 false,
@@ -582,7 +608,7 @@ mod tests {
         }
         {
             // SharedSecret
-            let url = build_url_from_widget_settings(get_widget_settings(
+            let url = build_url_from_widget_settings(get_element_call_widget_settings(
                 Some(EncryptionSystem::SharedSecret { secret: "this_surely_is_save".to_owned() }),
                 false,
                 false,
@@ -605,7 +631,7 @@ mod tests {
     fn test_controlled_output_url_props_from_widget_settings() {
         {
             // PerParticipantKeys
-            let url = build_url_from_widget_settings(get_widget_settings(
+            let url = build_url_from_widget_settings(get_element_call_widget_settings(
                 Some(EncryptionSystem::PerParticipantKeys),
                 false,
                 false,
@@ -613,11 +639,11 @@ mod tests {
                 None,
                 true,
             ));
-            let controlled_media_element = ("controlledMediaDevices".to_owned(), "true".to_owned());
+            let controlled_audio_element = ("controlledAudioDevices".to_owned(), "true".to_owned());
             let query_set = get_query_sets(&Url::parse(&url).unwrap()).unwrap().1;
             assert!(
-                query_set.contains(&controlled_media_element),
-                "The query elements: \n{query_set:?}\nDid not contain: \n{controlled_media_element:?}"
+                query_set.contains(&controlled_audio_element),
+                "The query elements: \n{query_set:?}\nDid not contain: \n{controlled_audio_element:?}"
             );
         }
     }
@@ -626,7 +652,7 @@ mod tests {
     fn test_intent_url_props_from_widget_settings() {
         {
             // no intent
-            let url = build_url_from_widget_settings(get_widget_settings(
+            let url = build_url_from_widget_settings(get_element_call_widget_settings(
                 None, false, false, false, None, false,
             ));
             let query_set = get_query_sets(&Url::parse(&url).unwrap()).unwrap().1;
@@ -642,7 +668,7 @@ mod tests {
         }
         {
             // Intent::JoinExisting
-            let url = build_url_from_widget_settings(get_widget_settings(
+            let url = build_url_from_widget_settings(get_element_call_widget_settings(
                 None,
                 false,
                 false,
@@ -668,7 +694,7 @@ mod tests {
         }
         {
             // Intent::StartCall
-            let url = build_url_from_widget_settings(get_widget_settings(
+            let url = build_url_from_widget_settings(get_element_call_widget_settings(
                 None,
                 false,
                 false,
@@ -678,11 +704,7 @@ mod tests {
             ));
             let query_set = get_query_sets(&Url::parse(&url).unwrap()).unwrap().1;
 
-            // skipLobby should be set for compatibility with versions < 0.8.0
-            let expected_elements = [
-                ("intent".to_owned(), "start_call".to_owned()),
-                ("skipLobby".to_owned(), "true".to_owned()),
-            ];
+            let expected_elements = [("intent".to_owned(), "start_call".to_owned())];
             for e in expected_elements {
                 assert!(
                     query_set.contains(&e),
