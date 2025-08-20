@@ -19,8 +19,8 @@ use eyeball_im::{ObservableVector, VectorSubscriberBatchedStream};
 use futures_util::pin_mut;
 use imbl::Vector;
 use itertools::Itertools;
-use matrix_sdk::{Client, Error, locks::Mutex, paginators::PaginationToken};
-use matrix_sdk_common::executor::{JoinHandle, spawn};
+use matrix_sdk::{Client, Error, executor::AbortOnDrop, locks::Mutex, paginators::PaginationToken};
+use matrix_sdk_common::executor::spawn;
 use ruma::{OwnedRoomId, api::client::space::get_hierarchy, uint};
 use tracing::error;
 
@@ -106,14 +106,9 @@ pub struct SpaceRoomList {
 
     rooms: Arc<Mutex<ObservableVector<SpaceRoom>>>,
 
-    room_update_handle: JoinHandle<()>,
+    _room_update_handle: AbortOnDrop<()>,
 }
 
-impl Drop for SpaceRoomList {
-    fn drop(&mut self) {
-        self.room_update_handle.abort();
-    }
-}
 impl SpaceRoomList {
     /// Creates a new `SpaceRoomList` for the given space identifier.
     pub fn new(client: Client, parent_space_id: OwnedRoomId) -> Self {
@@ -164,7 +159,7 @@ impl SpaceRoomList {
                 end_reached: false,
             }),
             rooms,
-            room_update_handle: handle,
+            _room_update_handle: AbortOnDrop::new(handle),
         }
     }
 

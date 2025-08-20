@@ -31,8 +31,10 @@ use std::sync::Arc;
 use eyeball_im::{ObservableVector, VectorSubscriberBatchedStream};
 use futures_util::pin_mut;
 use imbl::Vector;
-use matrix_sdk::{Client, deserialized_responses::SyncOrStrippedState, locks::Mutex};
-use matrix_sdk_common::executor::{JoinHandle, spawn};
+use matrix_sdk::{
+    Client, deserialized_responses::SyncOrStrippedState, executor::AbortOnDrop, locks::Mutex,
+};
+use matrix_sdk_common::executor::spawn;
 use ruma::{
     OwnedRoomId,
     events::{
@@ -91,15 +93,7 @@ pub struct SpaceService {
 
     joined_spaces: Arc<Mutex<ObservableVector<SpaceRoom>>>,
 
-    room_update_handle: Mutex<Option<JoinHandle<()>>>,
-}
-
-impl Drop for SpaceService {
-    fn drop(&mut self) {
-        if let Some(handle) = &*self.room_update_handle.lock() {
-            handle.abort();
-        }
-    }
+    room_update_handle: Mutex<Option<AbortOnDrop<()>>>,
 }
 
 impl SpaceService {
@@ -121,7 +115,7 @@ impl SpaceService {
             let joined_spaces = Arc::clone(&self.joined_spaces);
             let all_room_updates_receiver = self.client.subscribe_to_all_room_updates();
 
-            *self.room_update_handle.lock() = Some(spawn(async move {
+            *self.room_update_handle.lock() = Some(AbortOnDrop::new(spawn(async move {
                 pin_mut!(all_room_updates_receiver);
 
                 loop {
@@ -139,7 +133,7 @@ impl SpaceService {
                         }
                     }
                 }
-            }));
+            })));
         }
 
         self.joined_spaces.lock().subscribe().into_values_and_batched_stream()
