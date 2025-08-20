@@ -1221,29 +1221,17 @@ impl Client {
 
     /// Returns the joined rooms this client knows about.
     pub fn joined_rooms(&self) -> Vec<Room> {
-        self.base_client()
-            .rooms_filtered(RoomStateFilter::JOINED)
-            .into_iter()
-            .map(|room| Room::new(self.clone(), room))
-            .collect()
+        self.rooms_filtered(RoomStateFilter::JOINED)
     }
 
     /// Returns the invited rooms this client knows about.
     pub fn invited_rooms(&self) -> Vec<Room> {
-        self.base_client()
-            .rooms_filtered(RoomStateFilter::INVITED)
-            .into_iter()
-            .map(|room| Room::new(self.clone(), room))
-            .collect()
+        self.rooms_filtered(RoomStateFilter::INVITED)
     }
 
     /// Returns the left rooms this client knows about.
     pub fn left_rooms(&self) -> Vec<Room> {
-        self.base_client()
-            .rooms_filtered(RoomStateFilter::LEFT)
-            .into_iter()
-            .map(|room| Room::new(self.clone(), room))
-            .collect()
+        self.rooms_filtered(RoomStateFilter::LEFT)
     }
 
     /// Get a room with the given room id.
