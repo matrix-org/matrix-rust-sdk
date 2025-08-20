@@ -27,6 +27,7 @@ use ruma::{
     EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedRoomId, OwnedTransactionId, RoomId,
     TransactionId, UserId,
 };
+use serde::{Deserialize, Serialize};
 use tracing::error;
 
 use crate::{event_cache::RoomEventCache, room::WeakRoom, send_queue::RoomSendQueueUpdate};
@@ -337,7 +338,7 @@ mod tests_latest_event {
 }
 
 /// A latest event value!
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub enum LatestEventValue {
     /// No value has been computed yet, or no candidate value was found.
     #[default]
@@ -359,7 +360,7 @@ pub type RemoteLatestEventValue = TimelineEvent;
 
 /// Represents the value for [`LatestEventValue::LocalIsSending`] and
 /// [`LatestEventValue::LocalCannotBeSent`].
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LocalLatestEventValue {
     /// The time where the event has been created (by this module).
     pub timestamp: MilliSecondsSinceUnixEpoch,
