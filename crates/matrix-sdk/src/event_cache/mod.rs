@@ -30,7 +30,7 @@
 use std::{
     collections::{BTreeMap, HashMap},
     fmt,
-    sync::{Arc, OnceLock},
+    sync::{Arc, OnceLock, Weak},
 };
 
 use eyeball::{SharedObservable, Subscriber};
@@ -250,7 +250,7 @@ impl EventCache {
             self.inner.auto_shrink_sender.get_or_init(|| auto_shrink_sender);
 
             let auto_shrink_linked_chunk_task = spawn(Self::auto_shrink_linked_chunk_task(
-                self.inner.clone(),
+                Arc::downgrade(&self.inner),
                 auto_shrink_receiver,
             ));
 
@@ -352,11 +352,15 @@ impl EventCache {
     ///   time to do so (new subscribers might have spawned in the meanwhile).
     #[instrument(skip_all)]
     async fn auto_shrink_linked_chunk_task(
-        inner: Arc<EventCacheInner>,
+        inner: Weak<EventCacheInner>,
         mut rx: mpsc::Receiver<AutoShrinkChannelPayload>,
     ) {
         while let Some(room_id) = rx.recv().await {
             trace!(for_room = %room_id, "received notification to shrink");
+
+            let Some(inner) = inner.upgrade() else {
+                return;
+            };
 
             let room = match inner.for_room(&room_id).await {
                 Ok(room) => room,
@@ -397,6 +401,8 @@ impl EventCache {
                 }
             }
         }
+
+        info!("Auto-shrink linked chunk task has been closed, exiting");
     }
 
     /// Return a room-specific view over the [`EventCache`].
