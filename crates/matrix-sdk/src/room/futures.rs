@@ -414,7 +414,7 @@ impl<'a> IntoFuture for SendRawStateEvent<'a> {
             if Self::should_encrypt(room, event_type) {
                 use tracing::debug;
 
-                Span::current().record("is_room_encrypted", true);
+                Span::current().record("should_encrypt", true);
                 debug!(
                     room_id = ?room.room_id(),
                     "Sending encrypted event because the room is encrypted.",
@@ -433,7 +433,7 @@ impl<'a> IntoFuture for SendRawStateEvent<'a> {
                 state_key = format!("{event_type}:{state_key}");
                 event_type = "m.room.encrypted";
             } else {
-                Span::current().record("is_room_encrypted", false);
+                Span::current().record("should_encrypt", false);
             }
 
             let request = send_state_event::v3::Request::new_raw(
