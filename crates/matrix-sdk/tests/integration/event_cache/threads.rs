@@ -14,9 +14,7 @@ use matrix_sdk::{
     },
     Client, ThreadingSupport,
 };
-use matrix_sdk_test::{
-    async_test, event_factory::EventFactory, GlobalAccountDataTestEvent, JoinedRoomBuilder, ALICE,
-};
+use matrix_sdk_test::{async_test, event_factory::EventFactory, JoinedRoomBuilder, ALICE};
 use ruma::{
     event_id,
     events::{AnySyncTimelineEvent, Mentions},
@@ -25,7 +23,6 @@ use ruma::{
     serde::Raw,
     user_id, OwnedEventId, OwnedRoomId,
 };
-use serde_json::json;
 use tokio::sync::broadcast;
 
 /// Small helper for backpagination tests, to wait for initial events to
@@ -168,14 +165,8 @@ async fn test_ignored_user_empties_threads() {
     server
         .mock_sync()
         .ok_and_run(&client, |sync_builder| {
-            sync_builder.add_global_account_data_event(GlobalAccountDataTestEvent::Custom(json!({
-                "content": {
-                    "ignored_users": {
-                        dexter: {}
-                    }
-                },
-                "type": "m.ignored_user_list",
-            })));
+            sync_builder
+                .add_global_account_data(f.ignored_user_list([dexter.to_owned()]).into_raw());
         })
         .await;
 
@@ -506,12 +497,7 @@ async fn thread_subscription_test_setup() -> ThreadSubscriptionTestSetup {
         .mock_sync()
         .ok_and_run(&client, |sync_builder| {
             sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_state_event(member));
-            sync_builder.add_global_account_data_event(GlobalAccountDataTestEvent::Custom(json!({
-                "type": "m.push_rules",
-                "content": {
-                    "global": push_rules
-                }
-            })));
+            sync_builder.add_global_account_data(f.push_rules(push_rules).into_raw());
         })
         .await;
 
