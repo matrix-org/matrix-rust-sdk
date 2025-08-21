@@ -143,7 +143,7 @@ impl SqliteEventCacheStore {
     }
 
     /// Open an SQLite-based event cache store using the given SQLite database
-    /// pool. The given key will be used to encrypt private data.
+    /// pool. The given secret will be used to encrypt private data.
     async fn open_with_pool(
         pool: SqlitePool,
         secret: Option<Secret>,
