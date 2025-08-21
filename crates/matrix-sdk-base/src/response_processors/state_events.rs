@@ -445,15 +445,19 @@ mod tests {
             let response = response_builder
                 .add_joined_room(
                     JoinedRoomBuilder::new(room_id_0)
-                        .add_timeline_event(
-                            event_factory.create(sender, RoomVersionId::try_from("42")?),
-                        )
-                        .add_timeline_event(
-                            event_factory.create(sender, RoomVersionId::try_from("43")?),
-                        ),
+                        .add_timeline_event(event_factory.create(
+                            sender,
+                            RoomVersionId::try_from("42")?,
+                            None,
+                        ))
+                        .add_timeline_event(event_factory.create(
+                            sender,
+                            RoomVersionId::try_from("43")?,
+                            None,
+                        )),
                 )
                 .add_joined_room(JoinedRoomBuilder::new(room_id_1).add_timeline_event(
-                    event_factory.create(sender, RoomVersionId::try_from("44")?),
+                    event_factory.create(sender, RoomVersionId::try_from("44")?, None),
                 ))
                 .add_joined_room(JoinedRoomBuilder::new(room_id_2))
                 .build_sync_response();
@@ -481,13 +485,13 @@ mod tests {
         {
             let response = response_builder
                 .add_joined_room(JoinedRoomBuilder::new(room_id_0).add_timeline_event(
-                    event_factory.create(sender, RoomVersionId::try_from("45")?),
+                    event_factory.create(sender, RoomVersionId::try_from("45")?, None),
                 ))
                 .add_joined_room(JoinedRoomBuilder::new(room_id_1).add_timeline_event(
-                    event_factory.create(sender, RoomVersionId::try_from("46")?),
+                    event_factory.create(sender, RoomVersionId::try_from("46")?, None),
                 ))
                 .add_joined_room(JoinedRoomBuilder::new(room_id_2).add_timeline_event(
-                    event_factory.create(sender, RoomVersionId::try_from("47")?),
+                    event_factory.create(sender, RoomVersionId::try_from("47")?, None),
                 ))
                 .build_sync_response();
 
@@ -545,7 +549,7 @@ mod tests {
             let response = response_builder
                 .add_joined_room(JoinedRoomBuilder::new(room_id_0).add_timeline_event(
                     // Room 0 has no predecessor.
-                    event_factory.create(sender, RoomVersionId::try_from("41")?),
+                    event_factory.create(sender, RoomVersionId::try_from("41")?, None),
                 ))
                 .build_sync_response();
 
@@ -569,7 +573,7 @@ mod tests {
                     JoinedRoomBuilder::new(room_id_1).add_timeline_event(
                         // Predecessor of room 1 is room 0.
                         event_factory
-                            .create(sender, RoomVersionId::try_from("42")?)
+                            .create(sender, RoomVersionId::try_from("42")?, None)
                             .predecessor(room_id_0),
                     ),
                 )
@@ -608,7 +612,7 @@ mod tests {
                     JoinedRoomBuilder::new(room_id_2).add_timeline_event(
                         // Predecessor of room 2 is room 1.
                         event_factory
-                            .create(sender, RoomVersionId::try_from("43")?)
+                            .create(sender, RoomVersionId::try_from("43")?, None)
                             .predecessor(room_id_1),
                     ),
                 )
@@ -664,7 +668,7 @@ mod tests {
                     JoinedRoomBuilder::new(room_id_0)
                         .add_timeline_event(
                             // No predecessor for room 0.
-                            event_factory.create(sender, RoomVersionId::try_from("41")?),
+                            event_factory.create(sender, RoomVersionId::try_from("41")?, None),
                         )
                         .add_timeline_event(
                             // Successor of room 0 is room 1.
@@ -679,7 +683,7 @@ mod tests {
                         .add_timeline_event(
                             // Predecessor of room 1 is room 0.
                             event_factory
-                                .create(sender, RoomVersionId::try_from("42")?)
+                                .create(sender, RoomVersionId::try_from("42")?, None)
                                 .predecessor(room_id_0),
                         )
                         .add_timeline_event(
@@ -694,7 +698,7 @@ mod tests {
                     JoinedRoomBuilder::new(room_id_2).add_timeline_event(
                         // Predecessor of room 2 is room 1.
                         event_factory
-                            .create(sender, RoomVersionId::try_from("43")?)
+                            .create(sender, RoomVersionId::try_from("43")?, None)
                             .predecessor(room_id_1),
                     ),
                 )
@@ -809,7 +813,7 @@ mod tests {
                     JoinedRoomBuilder::new(room_id_1).add_timeline_event(
                         // Predecessor of room 1 is room 0.
                         event_factory
-                            .create(sender, RoomVersionId::try_from("42")?)
+                            .create(sender, RoomVersionId::try_from("42")?, None)
                             .predecessor(room_id_0),
                     ),
                 )
@@ -849,7 +853,7 @@ mod tests {
                         .add_timeline_event(
                             // Predecessor of room 2 is room 1.
                             event_factory
-                                .create(sender, RoomVersionId::try_from("43")?)
+                                .create(sender, RoomVersionId::try_from("43")?, None)
                                 .predecessor(room_id_1),
                         )
                         .add_timeline_event(
@@ -919,7 +923,7 @@ mod tests {
                     // No successor.
                     JoinedRoomBuilder::new(room_id_0).add_timeline_event(
                         event_factory
-                            .create(sender, RoomVersionId::try_from("42")?)
+                            .create(sender, RoomVersionId::try_from("42")?, None)
                             .predecessor(room_id_0)
                             .event_id(tombstone_event_id),
                     ),
@@ -964,7 +968,7 @@ mod tests {
                         .add_timeline_event(
                             // Predecessor of room 0 is room 0
                             event_factory
-                                .create(sender, RoomVersionId::try_from("42")?)
+                                .create(sender, RoomVersionId::try_from("42")?, None)
                                 .predecessor(room_id_0),
                         ),
                 )
@@ -1007,7 +1011,7 @@ mod tests {
                         .add_timeline_event(
                             // Predecessor of room 0 is room 2
                             event_factory
-                                .create(sender, RoomVersionId::try_from("42")?)
+                                .create(sender, RoomVersionId::try_from("42")?, None)
                                 .predecessor(room_id_2),
                         )
                         .add_timeline_event(
@@ -1022,7 +1026,7 @@ mod tests {
                         .add_timeline_event(
                             // Predecessor of room 1 is room 0
                             event_factory
-                                .create(sender, RoomVersionId::try_from("43")?)
+                                .create(sender, RoomVersionId::try_from("43")?, None)
                                 .predecessor(room_id_0),
                         )
                         .add_timeline_event(
@@ -1037,7 +1041,7 @@ mod tests {
                         .add_timeline_event(
                             // Predecessor of room 2 is room 1
                             event_factory
-                                .create(sender, RoomVersionId::try_from("44")?)
+                                .create(sender, RoomVersionId::try_from("44")?, None)
                                 .predecessor(room_id_1),
                         )
                         .add_timeline_event(

@@ -48,6 +48,7 @@ use matrix_sdk_ui::{
         NotificationClient as MatrixNotificationClient,
         NotificationProcessSetup as MatrixNotificationProcessSetup,
     },
+    spaces::SpaceService as UISpaceService,
     unable_to_decrypt_hook::UtdHookManager,
 };
 use mime::Mime;
@@ -111,6 +112,7 @@ use crate::{
         MediaPreviews, MediaSource, RoomAccountDataEvent, RoomAccountDataEventType,
     },
     runtime::get_runtime_handle,
+    spaces::SpaceService,
     sync_service::{SyncService, SyncServiceBuilder},
     task_handle::TaskHandle,
     utd::{UnableToDecryptDelegate, UtdHook},
@@ -1255,6 +1257,11 @@ impl Client {
 
     pub fn sync_service(&self) -> Arc<SyncServiceBuilder> {
         SyncServiceBuilder::new((*self.inner).clone(), self.utd_hook_manager.get().cloned())
+    }
+
+    pub fn space_service(&self) -> Arc<SpaceService> {
+        let inner = UISpaceService::new((*self.inner).clone());
+        Arc::new(SpaceService::new(inner))
     }
 
     pub async fn get_notification_settings(&self) -> Arc<NotificationSettings> {

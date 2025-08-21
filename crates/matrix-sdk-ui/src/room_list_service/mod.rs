@@ -96,6 +96,8 @@ const DEFAULT_REQUIRED_STATE: &[(StateEventType, &str)] = &[
     (StateEventType::RoomHistoryVisibility, ""),
     // Required to correctly calculate the room display name.
     (StateEventType::MemberHints, ""),
+    (StateEventType::SpaceParent, "*"),
+    (StateEventType::SpaceChild, "*"),
 ];
 
 /// The default `required_state` constant value for sliding sync room

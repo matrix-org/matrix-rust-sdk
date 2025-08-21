@@ -195,7 +195,7 @@ async fn test_leave_room_also_leaves_predecessor() -> Result<(), anyhow::Error> 
             builder.add_joined_room(
                 JoinedRoomBuilder::new(room_a_id).add_state_event(
                     EventFactory::new()
-                        .create(user, RoomVersionId::V1)
+                        .create(user, RoomVersionId::V1, None)
                         .room(room_a_id)
                         .sender(user)
                         .event_id(create_room_a_event_id),
@@ -223,7 +223,7 @@ async fn test_leave_room_also_leaves_predecessor() -> Result<(), anyhow::Error> 
                 .add_joined_room(
                     JoinedRoomBuilder::new(room_b_id).add_state_event(
                         EventFactory::new()
-                            .create(user, RoomVersionId::V2)
+                            .create(user, RoomVersionId::V2, None)
                             .predecessor(room_a_id)
                             .room(room_b_id)
                             .sender(user)
@@ -271,7 +271,7 @@ async fn test_leave_predecessor_before_successor_no_error() -> Result<(), anyhow
             builder.add_joined_room(
                 JoinedRoomBuilder::new(room_a_id).add_state_event(
                     EventFactory::new()
-                        .create(user, RoomVersionId::V1)
+                        .create(user, RoomVersionId::V1, None)
                         .room(room_a_id)
                         .sender(user)
                         .event_id(create_room_a_event_id),
@@ -299,7 +299,7 @@ async fn test_leave_predecessor_before_successor_no_error() -> Result<(), anyhow
                 .add_joined_room(
                     JoinedRoomBuilder::new(room_b_id).add_state_event(
                         EventFactory::new()
-                            .create(user, RoomVersionId::V2)
+                            .create(user, RoomVersionId::V2, None)
                             .predecessor(room_a_id)
                             .room(room_b_id)
                             .sender(user)
@@ -352,7 +352,7 @@ async fn test_leave_room_with_fake_predecessor_no_error() -> Result<(), anyhow::
             builder.add_joined_room(
                 JoinedRoomBuilder::new(room_id).add_state_event(
                     EventFactory::new()
-                        .create(user, RoomVersionId::V2)
+                        .create(user, RoomVersionId::V2, None)
                         .predecessor(fake_room_id)
                         .room(room_id)
                         .sender(user)
@@ -391,7 +391,7 @@ async fn test_leave_room_fails_with_error() -> Result<(), anyhow::Error> {
             builder.add_joined_room(
                 JoinedRoomBuilder::new(room_id).add_state_event(
                     EventFactory::new()
-                        .create(user, RoomVersionId::V2)
+                        .create(user, RoomVersionId::V2, None)
                         .room(room_id)
                         .sender(user)
                         .event_id(create_room_event_id),

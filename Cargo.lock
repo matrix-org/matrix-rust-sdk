@@ -3535,6 +3535,7 @@ dependencies = [
  "eyeball-im",
  "eyeball-im-util",
  "futures-core",
+ "futures-executor",
  "futures-util",
  "fuzzy-matcher",
  "growable-bloom-filter",

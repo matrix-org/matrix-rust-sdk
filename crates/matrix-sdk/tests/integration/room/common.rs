@@ -305,7 +305,7 @@ async fn test_room_route() {
     // Without eligible server
     sync_builder.add_joined_room(
         JoinedRoomBuilder::new(room_id).add_timeline_bulk([
-            f.create(user_id!("@creator:127.0.0.1"), room_version_id!("6"))
+            f.create(user_id!("@creator:127.0.0.1"), room_version_id!("6"), None)
                 .event_id(event_id!("$151957878228ekrDs"))
                 .server_ts(15195787)
                 .sender(user_id!("@creator:127.0.0.1"))

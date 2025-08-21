@@ -31,10 +31,10 @@ impl RoomPreview {
             avatar_url: info.avatar_url.as_ref().map(|url| url.to_string()),
             num_joined_members: info.num_joined_members,
             num_active_members: info.num_active_members,
-            room_type: info.room_type.as_ref().into(),
+            room_type: info.room_type.clone().into(),
             is_history_world_readable: info.is_world_readable,
             membership: info.state.map(|state| state.into()),
-            join_rule: info.join_rule.as_ref().map(Into::into),
+            join_rule: info.join_rule.clone().map(Into::into),
             is_direct: info.is_direct,
             heroes: info
                 .heroes
@@ -116,8 +116,8 @@ pub struct RoomPreviewInfo {
     pub heroes: Option<Vec<RoomHero>>,
 }
 
-impl From<&JoinRuleSummary> for JoinRule {
-    fn from(join_rule: &JoinRuleSummary) -> Self {
+impl From<JoinRuleSummary> for JoinRule {
+    fn from(join_rule: JoinRuleSummary) -> Self {
         match join_rule {
             JoinRuleSummary::Invite => JoinRule::Invite,
             JoinRuleSummary::Knock => JoinRule::Knock,
@@ -153,8 +153,8 @@ pub enum RoomType {
     Custom { value: String },
 }
 
-impl From<Option<&RumaRoomType>> for RoomType {
-    fn from(value: Option<&RumaRoomType>) -> Self {
+impl From<Option<RumaRoomType>> for RoomType {
+    fn from(value: Option<RumaRoomType>) -> Self {
         match value {
             Some(RumaRoomType::Space) => RoomType::Space,
             Some(RumaRoomType::_Custom(_)) => RoomType::Custom {

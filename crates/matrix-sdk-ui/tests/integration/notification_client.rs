@@ -335,7 +335,7 @@ async fn test_notification_client_sliding_sync() {
 
     let event_factory = EventFactory::new().room(room_id);
 
-    let room_create_event = event_factory.create(sender, RoomVersionId::V1).into_raw_sync();
+    let room_create_event = event_factory.create(sender, RoomVersionId::V1, None).into_raw_sync();
 
     let sender_member_event = event_factory
         .member(sender)

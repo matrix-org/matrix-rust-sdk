@@ -1390,6 +1390,13 @@ impl MatrixMockServer {
         let mock = Mock::given(method("GET")).and(path("/_matrix/federation/v1/version"));
         self.mock_endpoint(mock, FederationVersionEndpoint)
     }
+
+    /// Create a prebuilt mock for the endpoint used to retrieve a space tree
+    pub fn mock_get_hierarchy(&self) -> MockEndpoint<'_, GetHierarchyEndpoint> {
+        let mock =
+            Mock::given(method("GET")).and(path_regex(r"^/_matrix/client/v1/rooms/.*/hierarchy"));
+        self.mock_endpoint(mock, GetHierarchyEndpoint).expect_default_access_token()
+    }
 }
 
 /// Parameter to [`MatrixMockServer::sync_room`].
@@ -4026,7 +4033,6 @@ impl<'a> MockEndpoint<'a, EnablePushRuleEndpoint> {
         self.ok_empty_json()
     }
 }
-
 /// A prebuilt mock for the federation version endpoint.
 pub struct FederationVersionEndpoint;
 
@@ -4046,5 +4052,68 @@ impl<'a> MockEndpoint<'a, FederationVersionEndpoint> {
     pub fn ok_empty(self) -> MatrixMock<'a> {
         let response_body = json!({});
         self.respond_with(ResponseTemplate::new(200).set_body_json(response_body))
+    }
+}
+
+/// A prebuilt mock for `GET /client/*/rooms/{roomId}/hierarchy`
+#[derive(Default)]
+pub struct GetHierarchyEndpoint;
+
+impl<'a> MockEndpoint<'a, GetHierarchyEndpoint> {
+    /// Returns a successful response containing the given room IDs.
+    pub fn ok_with_room_ids(self, room_ids: Vec<&RoomId>) -> MatrixMock<'a> {
+        let rooms = room_ids
+            .iter()
+            .map(|id| {
+                json!({
+                  "room_id": id,
+                  "num_joined_members": 1,
+                  "world_readable": false,
+                  "guest_can_join": false,
+                  "children_state": []
+                })
+            })
+            .collect::<Vec<_>>();
+
+        self.respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "rooms": rooms,
+        })))
+    }
+
+    /// Returns a successful response containing the given room IDs and children
+    /// states
+    pub fn ok_with_room_ids_and_children_state(
+        self,
+        room_ids: Vec<&RoomId>,
+        children_state: Vec<&RoomId>,
+    ) -> MatrixMock<'a> {
+        let children_state = children_state
+            .into_iter()
+            .map(|id| json!({ "type": "m.space.child", "state_key": id }))
+            .collect::<Vec<_>>();
+
+        let rooms = room_ids
+            .iter()
+            .map(|id| {
+                json!({
+                  "room_id": id,
+                  "num_joined_members": 1,
+                  "world_readable": false,
+                  "guest_can_join": false,
+                  "children_state": children_state
+                })
+            })
+            .collect::<Vec<_>>();
+
+        self.respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "rooms": rooms,
+        })))
+    }
+
+    /// Returns a successful response with an empty list of rooms.
+    pub fn ok(self) -> MatrixMock<'a> {
+        self.respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "rooms": []
+        })))
     }
 }
