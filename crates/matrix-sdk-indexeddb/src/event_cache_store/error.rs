@@ -13,7 +13,9 @@
 // limitations under the License
 
 use matrix_sdk_base::{
-    event_cache::store::{EventCacheStore, EventCacheStoreError, MemoryStore},
+    event_cache::store::{
+        media::MediaStore, EventCacheStore, EventCacheStoreError, MemoryMediaStore, MemoryStore,
+    },
     SendOutsideWasm, SyncOutsideWasm,
 };
 use serde::de::Error;
