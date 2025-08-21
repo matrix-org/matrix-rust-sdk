@@ -1929,9 +1929,24 @@ impl Room {
             )
             .await;
 
-            // If encryption was enabled, return.
             let _sync_lock = self.client.base_client().sync_lock().lock().await;
+
+            // If encryption was enabled, return.
+            #[cfg(not(feature = "experimental-encrypted-state-events"))]
             if res.is_ok() && self.inner.encryption_state().is_encrypted() {
+                debug!("room successfully marked as encrypted");
+                return Ok(());
+            }
+
+            // If encryption with state event encryption was enabled, return.
+            #[cfg(feature = "experimental-encrypted-state-events")]
+            if res.is_ok() && {
+                if encrypted_state_events {
+                    self.inner.encryption_state().is_state_encrypted()
+                } else {
+                    self.inner.encryption_state().is_encrypted()
+                }
+            } {
                 debug!("room successfully marked as encrypted");
                 return Ok(());
             }
