@@ -723,14 +723,3 @@ pub static MARKED_UNREAD: Lazy<JsonValue> = Lazy::new(|| {
         "type": "m.marked_unread",
     })
 });
-
-pub static IGNORED_USER_LIST: Lazy<JsonValue> = Lazy::new(|| {
-    json!({
-        "content": {
-            "ignored_users": {
-                "@someone:example.org": {},
-            },
-        },
-        "type": "m.ignored_user_list",
-    })
-});

@@ -3010,8 +3010,8 @@ pub(crate) mod tests {
         RoomState,
     };
     use matrix_sdk_test::{
-        async_test, GlobalAccountDataTestEvent, JoinedRoomBuilder, StateTestEvent,
-        SyncResponseBuilder, DEFAULT_TEST_ROOM_ID,
+        async_test, event_factory::EventFactory, GlobalAccountDataTestEvent, JoinedRoomBuilder,
+        StateTestEvent, SyncResponseBuilder, DEFAULT_TEST_ROOM_ID,
     };
     #[cfg(target_family = "wasm")]
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
@@ -3029,7 +3029,7 @@ pub(crate) mod tests {
             ignored_user_list::IgnoredUserListEventContent,
             media_preview_config::{InviteAvatars, MediaPreviewConfigEventContent, MediaPreviews},
         },
-        owned_room_id, room_alias_id, room_id, RoomId, ServerName, UserId,
+        owned_room_id, owned_user_id, room_alias_id, room_id, RoomId, ServerName, UserId,
     };
     use serde_json::json;
     use stream_assert::{assert_next_matches, assert_pending};
@@ -3054,10 +3054,13 @@ pub(crate) mod tests {
         let server = MatrixMockServer::new().await;
         let client = server.client_builder().build().await;
 
+        let f = EventFactory::new();
         server
             .mock_sync()
             .ok_and_run(&client, |builder| {
-                builder.add_global_account_data_event(GlobalAccountDataTestEvent::IgnoredUserList);
+                builder.add_global_account_data(
+                    f.ignored_user_list([owned_user_id!("@someone:example.org")]).into_raw(),
+                );
             })
             .await;
 

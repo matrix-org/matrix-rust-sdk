@@ -39,6 +39,7 @@ use ruma::{
             notify::{ApplicationType, CallNotifyEventContent, NotifyType},
         },
         direct::{DirectEventContent, OwnedDirectUserIdentifier},
+        ignored_user_list::IgnoredUserListEventContent,
         member_hints::MemberHintsEventContent,
         poll::{
             unstable_end::UnstablePollEndEventContent,
@@ -995,6 +996,16 @@ impl EventFactory {
     /// Create a new `m.direct` global account data event.
     pub fn direct(&self) -> EventBuilder<DirectEventContent> {
         let mut builder = self.event(DirectEventContent::default());
+        builder.is_global = true;
+        builder
+    }
+
+    /// Create a new `m.ignored_user_list` global account data event.
+    pub fn ignored_user_list(
+        &self,
+        users: impl IntoIterator<Item = OwnedUserId>,
+    ) -> EventBuilder<IgnoredUserListEventContent> {
+        let mut builder = self.event(IgnoredUserListEventContent::users(users));
         builder.is_global = true;
         builder
     }
