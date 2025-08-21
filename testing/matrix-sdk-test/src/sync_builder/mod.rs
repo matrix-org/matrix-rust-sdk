@@ -151,7 +151,6 @@ impl SyncResponseBuilder {
         event: GlobalAccountDataTestEvent,
     ) -> &mut Self {
         let val = match event {
-            GlobalAccountDataTestEvent::Direct => test_json::DIRECT.to_owned(),
             GlobalAccountDataTestEvent::PushRules => test_json::PUSH_RULES.to_owned(),
             GlobalAccountDataTestEvent::IgnoredUserList => test_json::IGNORED_USER_LIST.to_owned(),
             GlobalAccountDataTestEvent::Custom(json) => json,
