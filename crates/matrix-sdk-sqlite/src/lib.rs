@@ -266,7 +266,24 @@ mod tests {
     }
 
     #[test]
-    fn test_store_config() {
+    fn test_store_config_when_passphrase() {
+        let store_config = SqliteStoreConfig::new(Path::new("foo"))
+            .passphrase(Some("bar"))
+            .pool_max_size(42)
+            .optimize(false)
+            .cache_size(43)
+            .journal_size_limit(44);
+
+        assert_eq!(store_config.path, PathBuf::from("foo"));
+        assert_eq!(store_config.secret, Some(Secret::PassPhrase("bar".to_owned())));
+        assert_eq!(store_config.pool_config.max_size, 42);
+        assert!(store_config.runtime_config.optimize.not());
+        assert_eq!(store_config.runtime_config.cache_size, 43);
+        assert_eq!(store_config.runtime_config.journal_size_limit, 44);
+    }
+
+    #[test]
+    fn test_store_config_when_key() {
         let store_config = SqliteStoreConfig::new(Path::new("foo"))
             .key(Some(&[
                 143, 27, 202, 78, 96, 55, 13, 149, 247, 8, 33, 120, 204, 92, 171, 66, 19, 238, 61,
