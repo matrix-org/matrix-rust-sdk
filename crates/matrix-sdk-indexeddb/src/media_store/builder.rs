@@ -14,19 +14,20 @@
 
 use std::{rc::Rc, sync::Arc};
 
+use matrix_sdk_base::media::store::{MediaService, MemoryMediaStore};
 use matrix_sdk_store_encryption::StoreCipher;
 use web_sys::DomException;
 
 use crate::{
-    event_cache_store::{
-        error::IndexeddbEventCacheStoreError, migrations::open_and_upgrade_db,
-        serializer::IndexeddbEventCacheStoreSerializer, IndexeddbEventCacheStore,
+    media_store::{
+        error::IndexeddbMediaStoreError, migrations::open_and_upgrade_db,
+        serializer::IndexeddbMediaStoreSerializer, IndexeddbMediaStore,
     },
     serializer::IndexeddbSerializer,
 };
 
-/// A type for conveniently building an [`IndexeddbEventCacheStore`]
-pub struct IndexeddbEventCacheStoreBuilder {
+/// A type for conveniently building an [`IndexeddbMediaStore`]
+pub struct IndexeddbMediaStoreBuilder {
     // The name of the IndexedDB database which will be opened
     database_name: String,
     // The store cipher, if any, to use when encrypting data
@@ -34,16 +35,16 @@ pub struct IndexeddbEventCacheStoreBuilder {
     store_cipher: Option<Arc<StoreCipher>>,
 }
 
-impl Default for IndexeddbEventCacheStoreBuilder {
+impl Default for IndexeddbMediaStoreBuilder {
     fn default() -> Self {
         Self { database_name: Self::DEFAULT_DATABASE_NAME.to_owned(), store_cipher: None }
     }
 }
 
-impl IndexeddbEventCacheStoreBuilder {
+impl IndexeddbMediaStoreBuilder {
     /// The default name of the IndexedDB database used to back the
     /// [`IndexeddbEventCacheStore`]
-    pub const DEFAULT_DATABASE_NAME: &'static str = "event_cache";
+    pub const DEFAULT_DATABASE_NAME: &'static str = "media";
 
     /// Sets the name of the IndexedDB database which will be opened. This
     /// defaults to [`Self::DEFAULT_DATABASE_NAME`].
@@ -61,14 +62,16 @@ impl IndexeddbEventCacheStoreBuilder {
     }
 
     /// Opens the IndexedDB database with the provided name. If successfully
-    /// opened, builds the [`IndexeddbEventCacheStore`] with that database
+    /// opened, builds the [`IndexeddbMediaStore`] with that database
     /// and the provided store cipher.
-    pub async fn build(self) -> Result<IndexeddbEventCacheStore, IndexeddbEventCacheStoreError> {
-        Ok(IndexeddbEventCacheStore {
+    pub async fn build(self) -> Result<IndexeddbMediaStore, IndexeddbMediaStoreError> {
+        Ok(IndexeddbMediaStore {
             inner: Rc::new(open_and_upgrade_db(&self.database_name).await?),
-            serializer: IndexeddbEventCacheStoreSerializer::new(IndexeddbSerializer::new(
+            serializer: IndexeddbMediaStoreSerializer::new(IndexeddbSerializer::new(
                 self.store_cipher,
             )),
+            media_service: MediaService::new(),
+            memory_store: MemoryMediaStore::new(),
         })
     }
 }
