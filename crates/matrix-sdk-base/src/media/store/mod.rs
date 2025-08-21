@@ -21,20 +21,56 @@
 
 mod media_retention_policy;
 mod media_service;
+mod memory_store;
 #[cfg(any(test, feature = "testing"))]
 #[macro_use]
 pub mod integration_tests;
 
+use matrix_sdk_store_encryption::Error as StoreEncryptionError;
+
 #[cfg(any(test, feature = "testing"))]
-pub use self::integration_tests::MediaStoreInnerIntegrationTests;
+pub use self::integration_tests::{MediaStoreInnerIntegrationTests, MediaStoreIntegrationTests};
 pub use self::{
     media_retention_policy::MediaRetentionPolicy,
-    media_service::{IgnoreMediaRetentionPolicy, MediaService, MediaStoreInner},
+    media_service::{IgnoreMediaRetentionPolicy, MediaService, MediaStore, MediaStoreInner},
+    memory_store::MemoryMediaStore,
 };
 
 /// Media store specific error type.
 #[derive(Debug, thiserror::Error)]
-pub enum MediaStoreError {}
+pub enum MediaStoreError {
+    /// An error happened in the underlying database backend.
+    #[error(transparent)]
+    Backend(Box<dyn std::error::Error + Send + Sync>),
+
+    /// The store failed to encrypt or decrypt some data.
+    #[error("Error encrypting or decrypting data from the event cache store: {0}")]
+    Encryption(#[from] StoreEncryptionError),
+
+    /// The store contains invalid data.
+    #[error("The store contains invalid data: {details}")]
+    InvalidData {
+        /// Details why the data contained in the store was invalid.
+        details: String,
+    },
+
+    /// The store failed to serialize or deserialize some data.
+    #[error("Error serializing or deserializing data from the event cache store: {0}")]
+    Serialization(#[from] serde_json::Error),
+}
+
+impl MediaStoreError {
+    /// Create a new [`Backend`][Self::Backend] error.
+    ///
+    /// Shorthand for `MediaStoreError::Backend(Box::new(error))`.
+    #[inline]
+    pub fn backend<E>(error: E) -> Self
+    where
+        E: std::error::Error + Send + Sync + 'static,
+    {
+        Self::Backend(Box::new(error))
+    }
+}
 
 /// An `MediaStore` specific result type.
 pub type Result<T, E = MediaStoreError> = std::result::Result<T, E>;
