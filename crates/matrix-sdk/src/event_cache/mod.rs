@@ -710,22 +710,24 @@ impl EventCache {
 
                     let mut timeline_events = room_ec_lc_update.events().peekable();
 
-                    if timeline_events.peek().is_some() {
-                        if let Some(client) = client.get() {
-                            let mut search_index_guard = client.search_index().lock().await;
+                    if timeline_events.peek().is_none() {
+                        continue;
+                    }
 
-                            for event in timeline_events {
-                                if let Some(message_event) = parse_timeline_event(&event) {
-                                    if let Err(err) =
-                                        search_index_guard.handle_event(message_event, &room_id)
-                                    {
-                                        warn!("Failed to handle event for indexing: {err}")
-                                    }
-                                }
+                    let Some(client) = client.get() else {
+                        trace!("Client is shutting down, not spawning thread subscriber task");
+                        return;
+                    };
+
+                    let mut search_index_guard = client.search_index().lock().await;
+
+                    for event in timeline_events {
+                        if let Some(message_event) = parse_timeline_event_for_search_index(&event) {
+                            if let Err(err) =
+                                search_index_guard.handle_event(message_event, &room_id)
+                            {
+                                warn!("Failed to handle event for indexing: {err}")
                             }
-                        } else {
-                            trace!("Client is shutting down, not spawning thread subscriber task");
-                            return;
                         }
                     }
                 }
@@ -742,7 +744,7 @@ impl EventCache {
 }
 
 #[cfg(feature = "experimental-search")]
-fn parse_timeline_event(event: &TimelineEvent) -> Option<AnySyncMessageLikeEvent> {
+fn parse_timeline_event_for_search_index(event: &TimelineEvent) -> Option<AnySyncMessageLikeEvent> {
     use ruma::events::AnySyncTimelineEvent;
 
     if event.kind.is_utd() {
@@ -815,7 +817,7 @@ struct EventCacheInner {
     /// [`EventCache`], so it does listen to *all* rooms at the same time.
     _thread_subscriber_task: AbortOnDrop<()>,
 
-    /// A background task listening to room and send queue updates, and
+    /// A background task listening to room updates, and
     /// automatically handling search index operations add/remove/edit
     /// depending on the event type.
     ///
