@@ -574,6 +574,8 @@ macro_rules! cryptostore_integration_tests {
                 assert_eq!(store.get_inbound_group_sessions().await.unwrap().len(), 0);
 
                 let room_id = &room_id!("!testing:localhost");
+                assert_eq!(store.get_inbound_group_sessions_by_room_id(room_id).await.unwrap().len(), 0);
+
                 let (_, session_1) = account.create_group_session_pair_with_defaults(room_id).await;
                 let (_, session_2) = account.create_group_session_pair_with_defaults(room_id).await;
 
@@ -621,7 +623,6 @@ macro_rules! cryptostore_integration_tests {
 
                 assert_eq!(loaded_sessions.len(), 2);
                 assert_session_lists_eq(sessions, loaded_sessions, "room by id sessions");
-                
             }
 
             #[async_test]
