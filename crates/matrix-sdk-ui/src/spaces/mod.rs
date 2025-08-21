@@ -173,11 +173,7 @@ impl SpaceService {
     }
 
     async fn joined_spaces_for(client: &Client) -> Vec<SpaceRoom> {
-        let joined_spaces = client
-            .joined_rooms()
-            .into_iter()
-            .filter_map(|room| room.is_space().then_some(room))
-            .collect::<Vec<_>>();
+        let joined_spaces = client.joined_space_rooms();
 
         // Build a graph to hold the parent-child relations
         let mut graph = SpaceGraph::new();
