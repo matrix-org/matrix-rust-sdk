@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use qrcode::{bits::Bits, EcLevel, QrCode, Version};
-use ruma_common::serde::Base64;
+use ruma::serde::Base64;
 use vodozemac::Ed25519PublicKey;
 
 use crate::error::EncodingError;
