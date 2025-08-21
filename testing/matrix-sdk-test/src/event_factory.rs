@@ -38,6 +38,7 @@ use ruma::{
             invite::CallInviteEventContent,
             notify::{ApplicationType, CallNotifyEventContent, NotifyType},
         },
+        direct::{DirectEventContent, OwnedDirectUserIdentifier},
         member_hints::MemberHintsEventContent,
         poll::{
             unstable_end::UnstablePollEndEventContent,
@@ -149,6 +150,9 @@ pub struct EventBuilder<C: StaticEventContent<IsPrefix = False>> {
     /// Whether the event is an ephemeral one. As such, it doesn't require a
     /// room id or a sender.
     is_ephemeral: bool,
+    /// Whether the event is global account data. As such, it doesn't require a
+    /// room id.
+    is_global: bool,
     room: Option<OwnedRoomId>,
     event_id: Option<OwnedEventId>,
     /// Whether the event should *not* have an event id. False by default.
@@ -256,13 +260,13 @@ where
 
         if sender.is_none() {
             assert!(
-                self.is_ephemeral,
+                self.is_ephemeral || self.is_global,
                 "the sender must be known when building the JSON for a non read-receipt event"
             );
         } else {
             assert!(
-                !self.is_ephemeral,
-                "event builder set is_ephemeral, but also has a sender field"
+                !self.is_ephemeral && !self.is_global,
+                "event builder set is_ephemeral or is_global, but also has a sender field"
             );
         }
 
@@ -288,7 +292,7 @@ where
             map.insert("event_id".to_owned(), json!(event_id));
         }
 
-        if requires_room && !self.is_ephemeral {
+        if requires_room && !self.is_ephemeral && !self.is_global {
             let room_id = self.room.expect("TimelineEvent requires a room id");
             map.insert("room_id".to_owned(), json!(room_id));
         }
@@ -550,6 +554,7 @@ impl EventFactory {
         EventBuilder {
             sender: self.sender.clone(),
             is_ephemeral: false,
+            is_global: false,
             room: self.room.clone(),
             server_ts: self.next_server_ts(),
             event_id: None,
@@ -987,11 +992,26 @@ impl EventFactory {
         self.event(CallNotifyEventContent::new(call_id, application, notify_type, mentions))
     }
 
+    /// Create a new `m.direct` global account data event.
+    pub fn direct(&self) -> EventBuilder<DirectEventContent> {
+        let mut builder = self.event(DirectEventContent::default());
+        builder.is_global = true;
+        builder
+    }
+
     /// Set the next server timestamp.
     ///
     /// Timestamps will continue to increase by 1 (millisecond) from that value.
     pub fn set_next_ts(&self, value: u64) {
         self.next_ts.store(value, SeqCst);
+    }
+}
+
+impl EventBuilder<DirectEventContent> {
+    /// Add a user/room pair to the `m.direct` event.
+    pub fn add_user(mut self, user_id: OwnedDirectUserIdentifier, room_id: &RoomId) -> Self {
+        self.content.0.entry(user_id).or_default().push(room_id.to_owned());
+        self
     }
 }
 

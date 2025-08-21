@@ -137,6 +137,15 @@ impl SyncResponseBuilder {
     }
 
     /// Add global account data.
+    pub fn add_global_account_data(
+        &mut self,
+        event: impl Into<Raw<AnyGlobalAccountDataEvent>>,
+    ) -> &mut Self {
+        self.account_data.push(event.into());
+        self
+    }
+
+    /// Add global account data.
     pub fn add_global_account_data_event(
         &mut self,
         event: GlobalAccountDataTestEvent,

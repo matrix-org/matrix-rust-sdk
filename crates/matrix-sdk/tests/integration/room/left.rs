@@ -4,7 +4,7 @@ use assert_matches2::assert_matches;
 use matrix_sdk::{config::SyncSettings, linked_chunk::LinkedChunkId};
 use matrix_sdk_base::{RoomInfoNotableUpdateReasons, RoomState};
 use matrix_sdk_test::{
-    async_test, test_json, GlobalAccountDataTestEvent, LeftRoomBuilder, SyncResponseBuilder,
+    async_test, event_factory::EventFactory, test_json, LeftRoomBuilder, SyncResponseBuilder,
     DEFAULT_TEST_ROOM_ID,
 };
 use ruma::{
@@ -155,9 +155,15 @@ async fn test_forget_direct_room() {
     let invited_user_id = user_id!("@invited:localhost");
 
     // Initialize the direct room.
+    let f = EventFactory::new();
+
     let mut sync_builder = SyncResponseBuilder::new();
     sync_builder.add_left_room(LeftRoomBuilder::default());
-    sync_builder.add_global_account_data_event(GlobalAccountDataTestEvent::Direct);
+
+    sync_builder.add_global_account_data(
+        f.direct().add_user(invited_user_id.to_owned().into(), *DEFAULT_TEST_ROOM_ID).into_raw(),
+    );
+
     mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
 
     let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));

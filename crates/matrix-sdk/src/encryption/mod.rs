@@ -1907,7 +1907,7 @@ mod tests {
     };
 
     use matrix_sdk_test::{
-        async_test, test_json, GlobalAccountDataTestEvent, JoinedRoomBuilder, StateTestEvent,
+        async_test, event_factory::EventFactory, test_json, JoinedRoomBuilder, StateTestEvent,
         SyncResponseBuilder, DEFAULT_TEST_ROOM_ID,
     };
     use ruma::{
@@ -1991,11 +1991,14 @@ mod tests {
         let user_id = user_id!("@invited:localhost");
 
         // When we receive a sync response saying "invited" is invited to a DM
+        let f = EventFactory::new();
         let response = SyncResponseBuilder::default()
             .add_joined_room(
                 JoinedRoomBuilder::default().add_state_event(StateTestEvent::MemberAdditional),
             )
-            .add_global_account_data_event(GlobalAccountDataTestEvent::Direct)
+            .add_global_account_data(
+                f.direct().add_user(user_id.to_owned().into(), *DEFAULT_TEST_ROOM_ID).into_raw(),
+            )
             .build_sync_response();
         client.base_client().receive_sync_response(response).await.unwrap();
 
@@ -2012,11 +2015,14 @@ mod tests {
         let user_id = user_id!("@invited:localhost");
 
         // When we receive a sync response saying "invited" is invited to a DM
+        let f = EventFactory::new();
         let response = SyncResponseBuilder::default()
             .add_joined_room(
                 JoinedRoomBuilder::default().add_state_event(StateTestEvent::MemberInvite),
             )
-            .add_global_account_data_event(GlobalAccountDataTestEvent::Direct)
+            .add_global_account_data(
+                f.direct().add_user(user_id.to_owned().into(), *DEFAULT_TEST_ROOM_ID).into_raw(),
+            )
             .build_sync_response();
         client.base_client().receive_sync_response(response).await.unwrap();
 
@@ -2038,11 +2044,14 @@ mod tests {
         let user_id = user_id!("@invited:localhost");
 
         // When we receive a sync response saying "invited" is invited to a DM
+        let f = EventFactory::new();
         let response = SyncResponseBuilder::default()
             .add_joined_room(
                 JoinedRoomBuilder::default().add_state_event(StateTestEvent::MemberLeave),
             )
-            .add_global_account_data_event(GlobalAccountDataTestEvent::Direct)
+            .add_global_account_data(
+                f.direct().add_user(user_id.to_owned().into(), *DEFAULT_TEST_ROOM_ID).into_raw(),
+            )
             .build_sync_response();
         client.base_client().receive_sync_response(response).await.unwrap();
 
