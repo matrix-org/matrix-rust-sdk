@@ -1709,7 +1709,7 @@ mod tests {
         let f = EventFactory::new();
         let mut sync_builder = SyncResponseBuilder::new();
         let response = sync_builder
-            .add_global_account_data(f.ignored_user_list([(*BOB).into()]).into_raw())
+            .add_global_account_data(f.ignored_user_list([(*BOB).into()]))
             .build_sync_response();
         client.receive_sync_response(response).await.unwrap();
 
@@ -1718,7 +1718,7 @@ mod tests {
 
         // Receive the same response.
         let response = sync_builder
-            .add_global_account_data(f.ignored_user_list([(*BOB).into()]).into_raw())
+            .add_global_account_data(f.ignored_user_list([(*BOB).into()]))
             .build_sync_response();
         client.receive_sync_response(response).await.unwrap();
 
@@ -1726,9 +1726,8 @@ mod tests {
         assert!(subscriber.next().now_or_never().is_none());
 
         // Now remove Bob from the ignored list.
-        let response = sync_builder
-            .add_global_account_data(f.ignored_user_list([]).into_raw())
-            .build_sync_response();
+        let response =
+            sync_builder.add_global_account_data(f.ignored_user_list([])).build_sync_response();
         client.receive_sync_response(response).await.unwrap();
 
         assert_let!(Some(ignored) = subscriber.next().await);
@@ -1743,7 +1742,7 @@ mod tests {
         let mut sync_builder = SyncResponseBuilder::new();
         let f = EventFactory::new();
         let response = sync_builder
-            .add_global_account_data(f.ignored_user_list([ignored_user_id.to_owned()]).into_raw())
+            .add_global_account_data(f.ignored_user_list([ignored_user_id.to_owned()]))
             .build_sync_response();
         client.receive_sync_response(response).await.unwrap();
 

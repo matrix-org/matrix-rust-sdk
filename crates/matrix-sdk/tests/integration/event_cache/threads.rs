@@ -165,8 +165,7 @@ async fn test_ignored_user_empties_threads() {
     server
         .mock_sync()
         .ok_and_run(&client, |sync_builder| {
-            sync_builder
-                .add_global_account_data(f.ignored_user_list([dexter.to_owned()]).into_raw());
+            sync_builder.add_global_account_data(f.ignored_user_list([dexter.to_owned()]));
         })
         .await;
 
@@ -497,7 +496,7 @@ async fn thread_subscription_test_setup() -> ThreadSubscriptionTestSetup {
         .mock_sync()
         .ok_and_run(&client, |sync_builder| {
             sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_state_event(member));
-            sync_builder.add_global_account_data(f.push_rules(push_rules).into_raw());
+            sync_builder.add_global_account_data(f.push_rules(push_rules));
         })
         .await;
 

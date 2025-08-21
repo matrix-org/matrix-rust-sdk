@@ -1997,7 +1997,7 @@ mod tests {
                 JoinedRoomBuilder::default().add_state_event(StateTestEvent::MemberAdditional),
             )
             .add_global_account_data(
-                f.direct().add_user(user_id.to_owned().into(), *DEFAULT_TEST_ROOM_ID).into_raw(),
+                f.direct().add_user(user_id.to_owned().into(), *DEFAULT_TEST_ROOM_ID),
             )
             .build_sync_response();
         client.base_client().receive_sync_response(response).await.unwrap();
@@ -2021,7 +2021,7 @@ mod tests {
                 JoinedRoomBuilder::default().add_state_event(StateTestEvent::MemberInvite),
             )
             .add_global_account_data(
-                f.direct().add_user(user_id.to_owned().into(), *DEFAULT_TEST_ROOM_ID).into_raw(),
+                f.direct().add_user(user_id.to_owned().into(), *DEFAULT_TEST_ROOM_ID),
             )
             .build_sync_response();
         client.base_client().receive_sync_response(response).await.unwrap();
@@ -2050,7 +2050,7 @@ mod tests {
                 JoinedRoomBuilder::default().add_state_event(StateTestEvent::MemberLeave),
             )
             .add_global_account_data(
-                f.direct().add_user(user_id.to_owned().into(), *DEFAULT_TEST_ROOM_ID).into_raw(),
+                f.direct().add_user(user_id.to_owned().into(), *DEFAULT_TEST_ROOM_ID),
             )
             .build_sync_response();
         client.base_client().receive_sync_response(response).await.unwrap();

@@ -3059,7 +3059,7 @@ pub(crate) mod tests {
             .mock_sync()
             .ok_and_run(&client, |builder| {
                 builder.add_global_account_data(
-                    f.ignored_user_list([owned_user_id!("@someone:example.org")]).into_raw(),
+                    f.ignored_user_list([owned_user_id!("@someone:example.org")]),
                 );
             })
             .await;
