@@ -1036,22 +1036,12 @@ async fn test_reset_power_levels() {
 async fn test_is_direct_invite_by_3pid() {
     let (client, server) = logged_in_client_with_server().await;
 
+    let f = EventFactory::new();
     let mut sync_builder = SyncResponseBuilder::new();
     sync_builder.add_joined_room(JoinedRoomBuilder::default());
-    let data = json!({
-        "content": {
-            "invited@localhost.com": [*DEFAULT_TEST_ROOM_ID],
-        },
-        "event_id": "$757957878228ekrDs:localhost",
-        "origin_server_ts": 17195787,
-        "sender": "@example:localhost",
-        "state_key": "",
-        "type": "m.direct",
-        "unsigned": {
-          "age": 139298
-        }
-    });
-    sync_builder.add_global_account_data_bulk(vec![from_value(data).unwrap()]);
+    sync_builder.add_global_account_data(
+        f.direct().add_user("invited@localhost.com".into(), *DEFAULT_TEST_ROOM_ID).into_raw(),
+    );
 
     mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
     mock_encryption_state(&server, false).await;

@@ -22,10 +22,7 @@ use matrix_sdk_base::event_cache::{
     store::{EventCacheStore, MemoryStore},
     Gap,
 };
-use matrix_sdk_test::{
-    async_test, event_factory::EventFactory, GlobalAccountDataTestEvent, JoinedRoomBuilder, ALICE,
-    BOB,
-};
+use matrix_sdk_test::{async_test, event_factory::EventFactory, JoinedRoomBuilder, ALICE, BOB};
 use ruma::{
     event_id,
     events::{
@@ -36,7 +33,6 @@ use ruma::{
     room_version_rules::RedactionRules,
     user_id, EventId,
 };
-use serde_json::json;
 use tokio::{spawn, sync::broadcast, time::sleep};
 
 mod threads;
@@ -163,14 +159,8 @@ async fn test_ignored_unignored() {
     server
         .mock_sync()
         .ok_and_run(&client, |sync_builder| {
-            sync_builder.add_global_account_data_event(GlobalAccountDataTestEvent::Custom(json!({
-                "content": {
-                    "ignored_users": {
-                        dexter: {}
-                    }
-                },
-                "type": "m.ignored_user_list",
-            })));
+            sync_builder
+                .add_global_account_data(f.ignored_user_list([dexter.to_owned()]).into_raw());
         })
         .await;
 

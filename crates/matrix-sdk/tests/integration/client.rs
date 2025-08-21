@@ -16,7 +16,9 @@ use matrix_sdk::{
 use matrix_sdk_base::{sync::RoomUpdates, RoomState};
 use matrix_sdk_common::executor::spawn;
 use matrix_sdk_test::{
-    async_test, sync_state_event,
+    async_test,
+    event_factory::EventFactory,
+    sync_state_event,
     test_json::{
         self,
         sync::{
@@ -26,7 +28,7 @@ use matrix_sdk_test::{
         sync_events::PINNED_EVENTS,
         TAG,
     },
-    GlobalAccountDataTestEvent, JoinedRoomBuilder, SyncResponseBuilder, DEFAULT_TEST_ROOM_ID,
+    JoinedRoomBuilder, SyncResponseBuilder, DEFAULT_TEST_ROOM_ID,
 };
 use ruma::{
     api::client::{
@@ -1295,28 +1297,14 @@ async fn test_dms_are_processed_in_any_sync_response() {
     let room_id_2 = room_id!("!s:e.uk");
 
     let joined_room_builder = JoinedRoomBuilder::new(room_id_1);
+    let f = EventFactory::new();
     let mut sync_response_builder = SyncResponseBuilder::new();
-    sync_response_builder.add_global_account_data_event(GlobalAccountDataTestEvent::Custom(
-        json!({
-          "content": {
-            user_a_id: [
-                room_id_1
-            ],
-            user_b_id: [
-                room_id_2
-            ]
-          },
-          "type": "m.direct",
-          "event_id": "$757957878228ekrDs:localhost",
-            "origin_server_ts": 17195787,
-            "sender": "@example:localhost",
-            "state_key": "",
-            "type": "m.direct",
-            "unsigned": {
-              "age": 139298
-            }
-        }),
-    ));
+    sync_response_builder.add_global_account_data(
+        f.direct()
+            .add_user(user_a_id.to_owned().into(), room_id_1)
+            .add_user(user_b_id.to_owned().into(), room_id_2)
+            .into_raw(),
+    );
     sync_response_builder.add_joined_room(joined_room_builder);
     let json_response = sync_response_builder.build_json_sync_response();
 

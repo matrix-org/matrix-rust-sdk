@@ -24,8 +24,8 @@ use matrix_sdk::{
 };
 use matrix_sdk_common::executor::spawn;
 use matrix_sdk_test::{
-    ALICE, BOB, GlobalAccountDataTestEvent, JoinedRoomBuilder, SyncResponseBuilder, async_test,
-    event_factory::EventFactory, mocks::mock_encryption_state,
+    ALICE, BOB, JoinedRoomBuilder, SyncResponseBuilder, async_test, event_factory::EventFactory,
+    mocks::mock_encryption_state,
 };
 use matrix_sdk_ui::timeline::{RoomExt, TimelineDetails};
 use ruma::{
@@ -36,7 +36,6 @@ use ruma::{
     },
     room_id, user_id,
 };
-use serde_json::json;
 use stream_assert::assert_pending;
 
 use crate::mock_sync;
@@ -237,14 +236,7 @@ async fn test_timeline_is_reset_when_a_user_is_ignored_or_unignored() {
 
     assert_pending!(timeline_stream);
 
-    sync_builder.add_global_account_data_event(GlobalAccountDataTestEvent::Custom(json!({
-        "content": {
-            "ignored_users": {
-                bob: {}
-            }
-        },
-        "type": "m.ignored_user_list",
-    })));
+    sync_builder.add_global_account_data(ev_factory.ignored_user_list([bob.to_owned()]).into_raw());
 
     mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();

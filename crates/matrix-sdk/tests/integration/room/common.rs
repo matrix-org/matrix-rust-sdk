@@ -10,8 +10,8 @@ use matrix_sdk::{
 };
 use matrix_sdk_test::{
     async_test, bulk_room_members, event_factory::EventFactory, sync_state_event, test_json,
-    GlobalAccountDataTestEvent, JoinedRoomBuilder, LeftRoomBuilder, StateTestEvent,
-    SyncResponseBuilder, BOB, DEFAULT_TEST_ROOM_ID,
+    JoinedRoomBuilder, LeftRoomBuilder, StateTestEvent, SyncResponseBuilder, BOB,
+    DEFAULT_TEST_ROOM_ID,
 };
 use ruma::{
     event_id,
@@ -807,10 +807,10 @@ async fn test_is_direct() {
     room.set_is_direct(true).await.unwrap();
 
     // Mock the sync response we should get from the homeserver.
-    sync_builder.add_global_account_data_event(GlobalAccountDataTestEvent::Custom(json!({
-        "type": "m.direct",
-        "content": direct_content,
-    })));
+    let f = EventFactory::new();
+    sync_builder.add_global_account_data(
+        f.direct().add_user((*BOB).to_owned().into(), *DEFAULT_TEST_ROOM_ID).into_raw(),
+    );
     mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
     server.reset().await;
@@ -835,10 +835,7 @@ async fn test_is_direct() {
         .await;
 
     // Mock the sync response we should get from the homeserver.
-    sync_builder.add_global_account_data_event(GlobalAccountDataTestEvent::Custom(json!({
-        "type": "m.direct",
-        "content": direct_content,
-    })));
+    sync_builder.add_global_account_data(f.direct().into_raw());
     mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
     server.reset().await;

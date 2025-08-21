@@ -261,18 +261,6 @@ where
             .sender
             .or_else(|| Some(self.unsigned.as_ref()?.redacted_because.as_ref()?.sender.clone()));
 
-        if sender.is_none() {
-            assert!(
-                self.is_ephemeral || self.is_global,
-                "the sender must be known when building the JSON for a non read-receipt event"
-            );
-        } else {
-            assert!(
-                !self.is_ephemeral && !self.is_global,
-                "event builder set is_ephemeral or is_global, but also has a sender field"
-            );
-        }
-
         let mut json = json!({
             "type": E::TYPE,
             "content": self.content,
@@ -282,7 +270,14 @@ where
         let map = json.as_object_mut().unwrap();
 
         if let Some(sender) = sender {
-            map.insert("sender".to_owned(), json!(sender));
+            if !self.is_ephemeral && !self.is_global {
+                map.insert("sender".to_owned(), json!(sender));
+            }
+        } else {
+            assert!(
+                self.is_ephemeral || self.is_global,
+                "the sender must be known when building the JSON for a non read-receipt or global event"
+            );
         }
 
         let event_id = self
