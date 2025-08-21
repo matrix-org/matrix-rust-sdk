@@ -584,27 +584,26 @@ mod tests {
     use assert_matches::assert_matches;
     use matrix_sdk_test::{
         async_test,
+        event_factory::EventFactory,
         notification_settings::{build_ruleset, get_server_default_ruleset},
-        test_json, TestResult,
+        TestResult,
     };
     use ruma::{
         owned_room_id,
         push::{
             Action, AnyPushRuleRef, NewPatternedPushRule, NewPushRule, PredefinedContentRuleId,
-            PredefinedOverrideRuleId, PredefinedUnderrideRuleId, RuleKind,
+            PredefinedOverrideRuleId, PredefinedUnderrideRuleId, RuleKind, Ruleset,
         },
         OwnedRoomId, RoomId,
     };
-    use serde_json::json;
     use stream_assert::{assert_next_eq, assert_pending};
     use tokio_stream::wrappers::BroadcastStream;
     use wiremock::{
-        matchers::{header, method, path, path_regex},
+        matchers::{method, path, path_regex},
         Mock, MockServer, ResponseTemplate,
     };
 
     use crate::{
-        config::SyncSettings,
         error::NotificationSettingsError,
         notification_settings::{
             IsEncrypted, IsOneToOne, NotificationSettings, RoomNotificationMode,
@@ -634,29 +633,24 @@ mod tests {
 
     #[async_test]
     async fn test_subscribe_to_changes() -> TestResult {
-        let server = MockServer::start().await;
-        let client = logged_in_client(Some(server.uri())).await;
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
         let settings = client.notification_settings().await;
-
-        Mock::given(method("GET"))
-            .and(path("/_matrix/client/r0/sync"))
-            .and(header("authorization", "Bearer 1234"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-                "next_batch": "1234",
-                "account_data": {
-                    "events": [*test_json::PUSH_RULES]
-                }
-            })))
-            .expect(1)
-            .mount(&server)
-            .await;
 
         let subscriber = settings.subscribe_to_changes();
         let mut stream = BroadcastStream::new(subscriber);
 
         assert_pending!(stream);
 
-        client.sync_once(SyncSettings::default()).await?;
+        server
+            .mock_sync()
+            .ok_and_run(&client, |sync_response_builder| {
+                let f = EventFactory::new();
+                sync_response_builder.add_global_account_data(
+                    f.push_rules(Ruleset::server_default(client.user_id().unwrap())).into_raw(),
+                );
+            })
+            .await;
 
         assert_next_eq!(stream, Ok(()));
         assert_pending!(stream);

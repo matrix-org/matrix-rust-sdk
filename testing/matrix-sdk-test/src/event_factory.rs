@@ -49,6 +49,7 @@ use ruma::{
                 UnstablePollAnswer, UnstablePollStartContentBlock, UnstablePollStartEventContent,
             },
         },
+        push_rules::PushRulesEventContent,
         reaction::ReactionEventContent,
         receipt::{Receipt, ReceiptEventContent, ReceiptThread, ReceiptType},
         relation::{Annotation, BundledThread, InReplyTo, Replacement, Thread},
@@ -74,6 +75,7 @@ use ruma::{
         sticker::StickerEventContent,
         typing::TypingEventContent,
     },
+    push::Ruleset,
     room_version_rules::AuthorizationRules,
     serde::Raw,
     server_name,
@@ -1006,6 +1008,13 @@ impl EventFactory {
         users: impl IntoIterator<Item = OwnedUserId>,
     ) -> EventBuilder<IgnoredUserListEventContent> {
         let mut builder = self.event(IgnoredUserListEventContent::users(users));
+        builder.is_global = true;
+        builder
+    }
+
+    /// Create a new `m.push_rules` global account data event.
+    pub fn push_rules(&self, rules: Ruleset) -> EventBuilder<PushRulesEventContent> {
+        let mut builder = self.event(PushRulesEventContent::new(rules));
         builder.is_global = true;
         builder
     }

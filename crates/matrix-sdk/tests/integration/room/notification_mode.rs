@@ -4,10 +4,13 @@ use assert_matches::assert_matches;
 use matrix_sdk::{config::SyncSettings, notification_settings::RoomNotificationMode};
 use matrix_sdk_base::RoomState;
 use matrix_sdk_test::{
-    async_test, GlobalAccountDataTestEvent, InvitedRoomBuilder, JoinedRoomBuilder,
+    async_test, event_factory::EventFactory, InvitedRoomBuilder, JoinedRoomBuilder,
     SyncResponseBuilder, DEFAULT_TEST_ROOM_ID,
 };
-use ruma::room_id;
+use ruma::{
+    push::{Action, ConditionalPushRule, NewSimplePushRule, PatternedPushRule, Ruleset, Tweak},
+    room_id,
+};
 use serde_json::json;
 use wiremock::{
     matchers::{header, method, path_regex},
@@ -29,7 +32,33 @@ async fn test_get_notification_mode() {
     sync_builder.add_joined_room(JoinedRoomBuilder::new(&DEFAULT_TEST_ROOM_ID));
     sync_builder.add_joined_room(JoinedRoomBuilder::new(room_no_rules_id));
     sync_builder.add_invited_room(InvitedRoomBuilder::new(room_not_joined_id));
-    sync_builder.add_global_account_data_event(GlobalAccountDataTestEvent::PushRules);
+
+    let f = EventFactory::new();
+
+    let mut ruleset = Ruleset::default();
+    #[allow(deprecated)]
+    ruleset.content.insert(PatternedPushRule::contains_user_name(client.user_id().unwrap()));
+    ruleset.override_ =
+        [ConditionalPushRule::master(), ConditionalPushRule::suppress_notices()].into();
+    ruleset.room.insert(
+        NewSimplePushRule::new(
+            (*DEFAULT_TEST_ROOM_ID).into(),
+            vec![Action::Notify, Action::SetTweak(Tweak::Sound("default".into()))],
+        )
+        .into(),
+    );
+    ruleset.underride = [
+        ConditionalPushRule::call(),
+        #[allow(deprecated)]
+        ConditionalPushRule::contains_display_name(),
+        ConditionalPushRule::room_one_to_one(),
+        ConditionalPushRule::invite_for_me(client.user_id().unwrap()),
+        ConditionalPushRule::member_event(),
+        ConditionalPushRule::message(),
+    ]
+    .into();
+
+    sync_builder.add_global_account_data(f.push_rules(ruleset).into_raw());
 
     mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
