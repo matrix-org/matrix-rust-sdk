@@ -284,6 +284,7 @@ async fn test_invited_rooms() {
     assert!(client.joined_rooms().is_empty());
     assert!(client.left_rooms().is_empty());
     assert!(!client.invited_rooms().is_empty());
+    assert!(client.joined_space_rooms().is_empty());
 
     let room = client.get_room(room_id!("!696r7674:example.com")).unwrap();
     assert_eq!(room.state(), RoomState::Invited);
@@ -300,9 +301,29 @@ async fn test_left_rooms() {
     assert!(client.joined_rooms().is_empty());
     assert!(!client.left_rooms().is_empty());
     assert!(client.invited_rooms().is_empty());
+    assert!(client.joined_space_rooms().is_empty());
 
     let room = client.get_room(&DEFAULT_TEST_ROOM_ID).unwrap();
     assert_eq!(room.state(), RoomState::Left);
+}
+
+#[async_test]
+async fn test_joined_space_rooms() {
+    let (client, server) = logged_in_client_with_server().await;
+
+    mock_sync(&server, &*test_json::JOIN_SPACE_SYNC, None).await;
+
+    let _response = client.sync_once(SyncSettings::default()).await.unwrap();
+
+    assert!(!client.joined_rooms().is_empty());
+    assert!(!client.joined_space_rooms().is_empty());
+
+    assert!(client.left_rooms().is_empty());
+    assert!(client.invited_rooms().is_empty());
+
+    let room = client.get_room(&DEFAULT_TEST_ROOM_ID).unwrap();
+    assert_eq!(room.state(), RoomState::Joined);
+    assert!(room.is_space());
 }
 
 #[async_test]

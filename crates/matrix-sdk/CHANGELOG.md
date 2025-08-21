@@ -8,6 +8,7 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
+- Add a `Client::joined_space_rooms` method that allows retrieving the list of joined spaces.
 - `Room::enable_encryption` and `Room::enable_encryption_with_state_event_encryption` will poll
   the encryption state for up to 3 seconds, rather than checking once after a single sync has
   completed.
