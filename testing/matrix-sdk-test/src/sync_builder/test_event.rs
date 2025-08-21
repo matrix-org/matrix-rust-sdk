@@ -1,7 +1,6 @@
 use ruma::{
     events::{
-        AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent, AnyStrippedStateEvent,
-        AnySyncStateEvent, presence::PresenceEvent,
+        AnyRoomAccountDataEvent, AnyStrippedStateEvent, AnySyncStateEvent, presence::PresenceEvent,
     },
     serde::Raw,
 };
@@ -143,25 +142,6 @@ impl From<PresenceTestEvent> for JsonValue {
 
 impl From<PresenceTestEvent> for Raw<PresenceEvent> {
     fn from(val: PresenceTestEvent) -> Self {
-        from_json_value(val.into()).unwrap()
-    }
-}
-
-/// Test events that can be added to the global account data.
-pub enum GlobalAccountDataTestEvent {
-    Custom(JsonValue),
-}
-
-impl From<GlobalAccountDataTestEvent> for JsonValue {
-    fn from(val: GlobalAccountDataTestEvent) -> Self {
-        match val {
-            GlobalAccountDataTestEvent::Custom(json) => json,
-        }
-    }
-}
-
-impl From<GlobalAccountDataTestEvent> for Raw<AnyGlobalAccountDataEvent> {
-    fn from(val: GlobalAccountDataTestEvent) -> Self {
         from_json_value(val.into()).unwrap()
     }
 }

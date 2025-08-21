@@ -41,7 +41,7 @@ use ruma::{
     int, mxc_uri, owned_event_id, room_id, thirdparty, user_id, OwnedUserId, RoomVersionId,
     TransactionId,
 };
-use serde_json::{from_value, json};
+use serde_json::json;
 use stream_assert::assert_pending;
 use tokio::time::sleep;
 use wiremock::{

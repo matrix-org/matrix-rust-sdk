@@ -3010,8 +3010,8 @@ pub(crate) mod tests {
         RoomState,
     };
     use matrix_sdk_test::{
-        async_test, event_factory::EventFactory, GlobalAccountDataTestEvent, JoinedRoomBuilder,
-        StateTestEvent, SyncResponseBuilder, DEFAULT_TEST_ROOM_ID,
+        async_test, event_factory::EventFactory, JoinedRoomBuilder, StateTestEvent,
+        SyncResponseBuilder, DEFAULT_TEST_ROOM_ID,
     };
     #[cfg(target_family = "wasm")]
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
@@ -3763,13 +3763,13 @@ pub(crate) mod tests {
         server
             .mock_sync()
             .ok_and_run(&client, |builder| {
-                builder.add_global_account_data_event(GlobalAccountDataTestEvent::Custom(json!({
+                builder.add_custom_global_account_data(json!({
                     "content": {
                         "media_previews": "private",
                         "invite_avatars": "off"
                     },
                     "type": "m.media_preview_config"
-                })));
+                }));
             })
             .await;
 
@@ -3785,13 +3785,13 @@ pub(crate) mod tests {
         server
             .mock_sync()
             .ok_and_run(&client, |builder| {
-                builder.add_global_account_data_event(GlobalAccountDataTestEvent::Custom(json!({
+                builder.add_custom_global_account_data(json!({
                     "content": {
                         "media_previews": "off",
                         "invite_avatars": "on"
                     },
                     "type": "m.media_preview_config"
-                })));
+                }));
             })
             .await;
 
@@ -3814,13 +3814,13 @@ pub(crate) mod tests {
         server
             .mock_sync()
             .ok_and_run(&client, |builder| {
-                builder.add_global_account_data_event(GlobalAccountDataTestEvent::Custom(json!({
+                builder.add_custom_global_account_data(json!({
                     "content": {
                         "media_previews": "private",
                         "invite_avatars": "off"
                     },
                     "type": "io.element.msc4278.media_preview_config"
-                })));
+                }));
             })
             .await;
 
@@ -3836,13 +3836,13 @@ pub(crate) mod tests {
         server
             .mock_sync()
             .ok_and_run(&client, |builder| {
-                builder.add_global_account_data_event(GlobalAccountDataTestEvent::Custom(json!({
+                builder.add_custom_global_account_data(json!({
                     "content": {
                         "media_previews": "off",
                         "invite_avatars": "on"
                     },
                     "type": "io.element.msc4278.media_preview_config"
-                })));
+                }));
             })
             .await;
 

@@ -1351,7 +1351,7 @@ mod tests {
 
         let mut response_builder = SyncResponseBuilder::new();
         let response = response_builder
-            .add_global_account_data_bulk([Raw::new(&json!({
+            .add_custom_global_account_data(json!({
                 "content": {
                     "algorithm": "m.secret_storage.v1.aes-hmac-sha2",
                     "iv": "gH2iNpiETFhApvW6/FFEJQ",
@@ -1364,8 +1364,6 @@ mod tests {
                 },
                 "type": "m.secret_storage.key.foobar",
             }))
-            .unwrap()
-            .cast_unchecked()])
             .build_sync_response();
         client.process_sync(response).await?;
 
