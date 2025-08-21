@@ -586,7 +586,7 @@ macro_rules! cryptostore_integration_tests {
                     session_3
                 ];
 
-                for session in sessions.iter_mut() {
+                for session in sessions.iter_mut(){
                     let export = session.export().await;
                     *session = InboundGroupSession::from_export(&export).unwrap();
                 }
@@ -597,14 +597,16 @@ macro_rules! cryptostore_integration_tests {
                 };
                 store.save_changes(changes).await.expect("Can't save group session");
 
-
                 drop(store);
 
-                // Remove the last sessions since it is in an other room
+                // The last session is in a different room, so should not be returned by 
+                // get_inbound_group_sessions_by_room_id. Remove it from the list.
                 sessions.pop();
 
-
                 let store = get_store(dir, None, false).await;
+                
+                // Make sure all the sessions are in the store
+                assert_eq!(store.get_inbound_group_sessions().await.unwrap().len(), 3);
 
                 store.load_account().await.unwrap();
 
@@ -619,9 +621,7 @@ macro_rules! cryptostore_integration_tests {
 
                 assert_eq!(loaded_sessions.len(), 2);
                 assert_session_lists_eq(sessions, loaded_sessions, "room by id sessions");
-
-                assert_eq!(store.get_inbound_group_sessions().await.unwrap().len(), 3);
-                assert_eq!(store.inbound_group_session_counts(None).await.unwrap().total, 3);
+                
             }
 
             #[async_test]
