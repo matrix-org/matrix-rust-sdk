@@ -20,8 +20,8 @@ use indexed_db_futures::IdbDatabase;
 use matrix_sdk_base::{
     event_cache::{
         store::{
-            media::{IgnoreMediaRetentionPolicy, MediaRetentionPolicy},
-            EventCacheStore, MemoryStore,
+            media::{IgnoreMediaRetentionPolicy, MediaRetentionPolicy, MediaStore},
+            EventCacheStore, MemoryMediaStore, MemoryStore,
         },
         Event, Gap,
     },
@@ -533,121 +533,6 @@ impl_event_cache_store! {
         transaction.put_event(&event).await?;
         transaction.commit().await?;
         Ok(())
-    }
-
-    #[instrument(skip_all)]
-    async fn add_media_content(
-        &self,
-        request: &MediaRequestParameters,
-        content: Vec<u8>,
-        ignore_policy: IgnoreMediaRetentionPolicy,
-    ) -> Result<(), IndexeddbEventCacheStoreError> {
-        let _timer = timer!("method");
-        self.memory_store
-            .add_media_content(request, content, ignore_policy)
-            .await
-            .map_err(IndexeddbEventCacheStoreError::MemoryStore)
-    }
-
-    #[instrument(skip_all)]
-    async fn replace_media_key(
-        &self,
-        from: &MediaRequestParameters,
-        to: &MediaRequestParameters,
-    ) -> Result<(), IndexeddbEventCacheStoreError> {
-        let _timer = timer!("method");
-        self.memory_store
-            .replace_media_key(from, to)
-            .await
-            .map_err(IndexeddbEventCacheStoreError::MemoryStore)
-    }
-
-    #[instrument(skip_all)]
-    async fn get_media_content(
-        &self,
-        request: &MediaRequestParameters,
-    ) -> Result<Option<Vec<u8>>, IndexeddbEventCacheStoreError> {
-        let _timer = timer!("method");
-        self.memory_store
-            .get_media_content(request)
-            .await
-            .map_err(IndexeddbEventCacheStoreError::MemoryStore)
-    }
-
-    #[instrument(skip_all)]
-    async fn remove_media_content(
-        &self,
-        request: &MediaRequestParameters,
-    ) -> Result<(), IndexeddbEventCacheStoreError> {
-        let _timer = timer!("method");
-        self.memory_store
-            .remove_media_content(request)
-            .await
-            .map_err(IndexeddbEventCacheStoreError::MemoryStore)
-    }
-
-    #[instrument(skip(self))]
-    async fn get_media_content_for_uri(
-        &self,
-        uri: &MxcUri,
-    ) -> Result<Option<Vec<u8>>, IndexeddbEventCacheStoreError> {
-        let _timer = timer!("method");
-        self.memory_store
-            .get_media_content_for_uri(uri)
-            .await
-            .map_err(IndexeddbEventCacheStoreError::MemoryStore)
-    }
-
-    #[instrument(skip(self))]
-    async fn remove_media_content_for_uri(
-        &self,
-        uri: &MxcUri,
-    ) -> Result<(), IndexeddbEventCacheStoreError> {
-        let _timer = timer!("method");
-        self.memory_store
-            .remove_media_content_for_uri(uri)
-            .await
-            .map_err(IndexeddbEventCacheStoreError::MemoryStore)
-    }
-
-    #[instrument(skip_all)]
-    async fn set_media_retention_policy(
-        &self,
-        policy: MediaRetentionPolicy,
-    ) -> Result<(), IndexeddbEventCacheStoreError> {
-        let _timer = timer!("method");
-        self.memory_store
-            .set_media_retention_policy(policy)
-            .await
-            .map_err(IndexeddbEventCacheStoreError::MemoryStore)
-    }
-
-    #[instrument(skip_all)]
-    fn media_retention_policy(&self) -> MediaRetentionPolicy {
-        let _timer = timer!("method");
-        self.memory_store.media_retention_policy()
-    }
-
-    #[instrument(skip_all)]
-    async fn set_ignore_media_retention_policy(
-        &self,
-        request: &MediaRequestParameters,
-        ignore_policy: IgnoreMediaRetentionPolicy,
-    ) -> Result<(), IndexeddbEventCacheStoreError> {
-        let _timer = timer!("method");
-        self.memory_store
-            .set_ignore_media_retention_policy(request, ignore_policy)
-            .await
-            .map_err(IndexeddbEventCacheStoreError::MemoryStore)
-    }
-
-    #[instrument(skip_all)]
-    async fn clean_up_media_cache(&self) -> Result<(), IndexeddbEventCacheStoreError> {
-        let _timer = timer!("method");
-        self.memory_store
-            .clean_up_media_cache()
-            .await
-            .map_err(IndexeddbEventCacheStoreError::MemoryStore)
     }
 }
 

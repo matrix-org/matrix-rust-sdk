@@ -42,7 +42,7 @@ use tracing::trace;
 #[cfg(any(test, feature = "testing"))]
 pub use self::integration_tests::EventCacheStoreIntegrationTests;
 pub use self::{
-    memory_store::MemoryStore,
+    memory_store::{MemoryMediaStore, MemoryStore},
     traits::{DEFAULT_CHUNK_CAPACITY, DynEventCacheStore, EventCacheStore, IntoEventCacheStore},
 };
 
