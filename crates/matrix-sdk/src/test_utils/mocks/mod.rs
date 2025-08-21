@@ -1385,10 +1385,65 @@ impl MatrixMockServer {
         self.mock_endpoint(mock, EnablePushRuleEndpoint).expect_default_access_token()
     }
 
+    /// Create a prebuilt mock for the endpoint used to set push rules actions.
+    pub fn mock_set_push_rules_actions(
+        &self,
+        kind: RuleKind,
+        rule_id: PushRuleIdSpec<'_>,
+    ) -> MockEndpoint<'_, SetPushRulesActionsEndpoint> {
+        let rule_id = rule_id.to_path();
+        let mock = Mock::given(method("PUT")).and(path_regex(format!(
+            "^/_matrix/client/v3/pushrules/global/{kind}/{rule_id}/actions",
+        )));
+        self.mock_endpoint(mock, SetPushRulesActionsEndpoint).expect_default_access_token()
+    }
+
+    /// Create a prebuilt mock for the endpoint used to set push rules.
+    pub fn mock_set_push_rules(
+        &self,
+        kind: RuleKind,
+        rule_id: PushRuleIdSpec<'_>,
+    ) -> MockEndpoint<'_, SetPushRulesEndpoint> {
+        let rule_id = rule_id.to_path();
+        let mock = Mock::given(method("PUT"))
+            .and(path_regex(format!("^/_matrix/client/v3/pushrules/global/{kind}/{rule_id}$",)));
+        self.mock_endpoint(mock, SetPushRulesEndpoint).expect_default_access_token()
+    }
+
+    /// Create a prebuilt mock for the endpoint used to delete push rules.
+    pub fn mock_delete_push_rules(
+        &self,
+        kind: RuleKind,
+        rule_id: PushRuleIdSpec<'_>,
+    ) -> MockEndpoint<'_, DeletePushRulesEndpoint> {
+        let rule_id = rule_id.to_path();
+        let mock = Mock::given(method("DELETE"))
+            .and(path_regex(format!("^/_matrix/client/v3/pushrules/global/{kind}/{rule_id}$",)));
+        self.mock_endpoint(mock, DeletePushRulesEndpoint).expect_default_access_token()
+    }
+
     /// Create a prebuilt mock for the federation version endpoint.
     pub fn mock_federation_version(&self) -> MockEndpoint<'_, FederationVersionEndpoint> {
         let mock = Mock::given(method("GET")).and(path("/_matrix/federation/v1/version"));
         self.mock_endpoint(mock, FederationVersionEndpoint)
+    }
+}
+
+/// A specification for a push rule ID.
+pub enum PushRuleIdSpec<'a> {
+    /// A precise rule ID.
+    Some(&'a str),
+    /// Any rule ID should match.
+    Any,
+}
+
+impl<'a> PushRuleIdSpec<'a> {
+    /// Convert this [`PushRuleIdSpec`] to a path.
+    pub fn to_path(&self) -> &str {
+        match self {
+            PushRuleIdSpec::Some(id) => id,
+            PushRuleIdSpec::Any => "[^/]*",
+        }
     }
 }
 
@@ -4021,6 +4076,39 @@ impl<'a> MockEndpoint<'a, DeleteThreadSubscriptionEndpoint> {
 pub struct EnablePushRuleEndpoint;
 
 impl<'a> MockEndpoint<'a, EnablePushRuleEndpoint> {
+    /// Returns a successful empty JSON response.
+    pub fn ok(self) -> MatrixMock<'a> {
+        self.ok_empty_json()
+    }
+}
+
+/// A prebuilt mock for `PUT
+/// /_matrix/client/v3/pushrules/global/{kind}/{ruleId}/actions`.
+pub struct SetPushRulesActionsEndpoint;
+
+impl<'a> MockEndpoint<'a, SetPushRulesActionsEndpoint> {
+    /// Returns a successful empty JSON response.
+    pub fn ok(self) -> MatrixMock<'a> {
+        self.ok_empty_json()
+    }
+}
+
+/// A prebuilt mock for `PUT
+/// /_matrix/client/v3/pushrules/global/{kind}/{ruleId}`.
+pub struct SetPushRulesEndpoint;
+
+impl<'a> MockEndpoint<'a, SetPushRulesEndpoint> {
+    /// Returns a successful empty JSON response.
+    pub fn ok(self) -> MatrixMock<'a> {
+        self.ok_empty_json()
+    }
+}
+
+/// A prebuilt mock for `DELETE
+/// /_matrix/client/v3/pushrules/global/{kind}/{ruleId}`.
+pub struct DeletePushRulesEndpoint;
+
+impl<'a> MockEndpoint<'a, DeletePushRulesEndpoint> {
     /// Returns a successful empty JSON response.
     pub fn ok(self) -> MatrixMock<'a> {
         self.ok_empty_json()

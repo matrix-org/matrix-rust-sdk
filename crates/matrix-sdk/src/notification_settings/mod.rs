@@ -571,6 +571,12 @@ impl NotificationSettings {
         }
         Ok(())
     }
+
+    /// Returns the inner ruleset currently known by this
+    /// [`NotificationSettings`] instance.
+    pub async fn ruleset(&self) -> Ruleset {
+        self.rules.read().await.ruleset.clone()
+    }
 }
 
 // The http mocking library is not supported for wasm32

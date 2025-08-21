@@ -127,7 +127,7 @@ use ruma::{
         StaticStateEventContent, SyncStateEvent,
     },
     int,
-    push::{Action, PushConditionRoomCtx, Ruleset},
+    push::{Action, AnyPushRuleRef, PushConditionRoomCtx, Ruleset},
     serde::Raw,
     time::Instant,
     EventId, Int, MatrixToUri, MatrixUri, MxcUri, OwnedEventId, OwnedRoomId, OwnedServerName,
@@ -225,6 +225,49 @@ impl PushContext {
     /// Compute the push rules for a given event.
     pub async fn for_event<T>(&self, event: &Raw<T>) -> Vec<Action> {
         self.push_rules.get_actions(event, &self.push_condition_room_ctx).await.to_owned()
+    }
+
+    /// Compute the push rules for a given event, with extra logging to help
+    /// debugging.
+    #[doc(hidden)]
+    #[instrument(skip_all)]
+    pub async fn traced_for_event<T>(&self, event: &Raw<T>) -> Vec<Action> {
+        let rules = self
+            .push_rules
+            .iter()
+            .filter_map(|r| {
+                if !r.enabled() {
+                    return None;
+                }
+
+                let simplified_action = if r.actions().is_empty() { "inhibit" } else { "notify" };
+
+                let conditions = match r {
+                    AnyPushRuleRef::Override(r) => {
+                        format!("{:?}", r.conditions)
+                    }
+                    AnyPushRuleRef::Content(r) => format!("content-body-match:{}", r.pattern),
+                    AnyPushRuleRef::Room(r) => format!("room-match:{}", r.rule_id),
+                    AnyPushRuleRef::Sender(r) => format!("sender-match:{}", r.rule_id),
+                    AnyPushRuleRef::Underride(r) => format!("{:?}", r.conditions),
+                    _ => "<unknown push rule kind>".to_owned(),
+                };
+
+                Some(format!("- {}: {conditions} => {simplified_action}", r.rule_id(),))
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        trace!("rules:\n\n{rules}\n\n");
+
+        let found = self.push_rules.get_match(event, &self.push_condition_room_ctx).await;
+
+        if let Some(found) = found {
+            trace!("rule {} matched", found.rule_id());
+            found.actions().to_owned()
+        } else {
+            trace!("no match");
+            Vec::new()
+        }
     }
 }
 
