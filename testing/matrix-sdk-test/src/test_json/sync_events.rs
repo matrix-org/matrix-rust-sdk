@@ -57,22 +57,6 @@ pub static CREATE: Lazy<JsonValue> = Lazy::new(|| {
     })
 });
 
-pub static DIRECT: Lazy<JsonValue> = Lazy::new(|| {
-    json!({
-        "content": {
-            "@invited:localhost": [*DEFAULT_TEST_ROOM_ID],
-        },
-        "event_id": "$757957878228ekrDs:localhost",
-        "origin_server_ts": 17195787,
-        "sender": "@example:localhost",
-        "state_key": "",
-        "type": "m.direct",
-        "unsigned": {
-          "age": 139298
-        }
-    })
-});
-
 pub static FULLY_READ: Lazy<JsonValue> = Lazy::new(|| {
     json!({
         "content": {

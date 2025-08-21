@@ -149,7 +149,6 @@ impl From<PresenceTestEvent> for Raw<PresenceEvent> {
 
 /// Test events that can be added to the global account data.
 pub enum GlobalAccountDataTestEvent {
-    Direct,
     PushRules,
     IgnoredUserList,
     Custom(JsonValue),
@@ -158,7 +157,6 @@ pub enum GlobalAccountDataTestEvent {
 impl From<GlobalAccountDataTestEvent> for JsonValue {
     fn from(val: GlobalAccountDataTestEvent) -> Self {
         match val {
-            GlobalAccountDataTestEvent::Direct => test_json::sync_events::DIRECT.to_owned(),
             GlobalAccountDataTestEvent::PushRules => test_json::sync_events::PUSH_RULES.to_owned(),
             GlobalAccountDataTestEvent::IgnoredUserList => {
                 test_json::sync_events::IGNORED_USER_LIST.to_owned()
