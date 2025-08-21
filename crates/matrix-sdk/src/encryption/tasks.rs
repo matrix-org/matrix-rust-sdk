@@ -16,15 +16,19 @@ use std::{collections::BTreeMap, sync::Arc, time::Duration};
 
 use futures_core::Stream;
 use futures_util::{pin_mut, StreamExt};
+#[cfg(feature = "experimental-encrypted-state-events")]
+use matrix_sdk_base::crypto::types::events::room::encrypted::{
+    EncryptedEvent, RoomEventEncryptionScheme,
+};
 use matrix_sdk_base::{
     crypto::store::types::RoomKeyBundleInfo, InviteAcceptanceDetails, RoomState,
 };
 use matrix_sdk_common::failures_cache::FailuresCache;
-use ruma::{
-    events::room::encrypted::{EncryptedEventScheme, OriginalSyncRoomEncryptedEvent},
-    serde::Raw,
-    OwnedEventId, OwnedRoomId,
-};
+#[cfg(not(feature = "experimental-encrypted-state-events"))]
+use ruma::events::room::encrypted::{EncryptedEventScheme, OriginalSyncRoomEncryptedEvent};
+#[cfg(feature = "experimental-encrypted-state-events")]
+use ruma::serde::JsonCastable;
+use ruma::{serde::Raw, OwnedEventId, OwnedRoomId};
 use tokio::sync::{mpsc, Mutex};
 use tracing::{debug, info, instrument, trace, warn};
 
@@ -109,7 +113,12 @@ struct RoomKeyDownloadRequest {
     event_id: OwnedEventId,
 
     /// The event we could not decrypt.
+    #[cfg(not(feature = "experimental-encrypted-state-events"))]
     event: Raw<OriginalSyncRoomEncryptedEvent>,
+
+    /// The event we could not decrypt.
+    #[cfg(feature = "experimental-encrypted-state-events")]
+    event: Raw<EncryptedEvent>,
 
     /// The unique ID of the room key that the event was encrypted with.
     megolm_session_id: String,
@@ -155,6 +164,7 @@ impl BackupDownloadTask {
     /// Does nothing unless the event is encrypted using `m.megolm.v1.aes-sha2`.
     /// Otherwise, tells the listener task to set off a task to do a backup
     /// download, unless there is one already running.
+    #[cfg(not(feature = "experimental-encrypted-state-events"))]
     pub(crate) fn trigger_download_for_utd_event(
         &self,
         room_id: OwnedRoomId,
@@ -166,6 +176,30 @@ impl BackupDownloadTask {
                     room_id,
                     event_id: deserialized_event.event_id,
                     event,
+                    megolm_session_id: c.session_id,
+                });
+            }
+        }
+    }
+
+    /// Trigger a backup download for the keys for the given event.
+    ///
+    /// Does nothing unless the event is encrypted using `m.megolm.v1.aes-sha2`.
+    /// Otherwise, tells the listener task to set off a task to do a backup
+    /// download, unless there is one already running.
+    #[cfg(feature = "experimental-encrypted-state-events")]
+    pub(crate) fn trigger_download_for_utd_event<T: JsonCastable<EncryptedEvent>>(
+        &self,
+        room_id: OwnedRoomId,
+        event: Raw<T>,
+    ) {
+        if let Ok(deserialized_event) = event.deserialize_as::<EncryptedEvent>() {
+            if let RoomEventEncryptionScheme::MegolmV1AesSha2(c) = deserialized_event.content.scheme
+            {
+                let _ = self.sender.send(RoomKeyDownloadRequest {
+                    room_id,
+                    event_id: deserialized_event.event_id,
+                    event: event.cast(),
                     megolm_session_id: c.session_id,
                 });
             }
@@ -356,7 +390,13 @@ impl BackupDownloadTaskListenerState {
         // (though if the store is returning errors, probably something else is
         // going to go wrong very soon).
         if machine
-            .is_room_key_available(download_request.event.cast_ref(), &download_request.room_id)
+            .is_room_key_available(
+                #[cfg(not(feature = "experimental-encrypted-state-events"))]
+                download_request.event.cast_ref(),
+                #[cfg(feature = "experimental-encrypted-state-events")]
+                &download_request.event,
+                &download_request.room_id,
+            )
             .await
             .unwrap_or(false)
         {
@@ -477,6 +517,8 @@ mod test {
     use matrix_sdk_test::{
         async_test, event_factory::EventFactory, InvitedRoomBuilder, JoinedRoomBuilder,
     };
+    #[cfg(not(feature = "experimental-encrypted-state-events"))]
+    use ruma::events::room::encrypted::OriginalSyncRoomEncryptedEvent;
     use ruma::{event_id, room_id, user_id};
     use serde_json::json;
     use vodozemac::Curve25519PublicKey;
@@ -515,8 +557,12 @@ mod test {
             }
         });
 
+        #[cfg(not(feature = "experimental-encrypted-state-events"))]
         let event: Raw<OriginalSyncRoomEncryptedEvent> =
             serde_json::from_value(event_content).expect("");
+
+        #[cfg(feature = "experimental-encrypted-state-events")]
+        let event: Raw<EncryptedEvent> = serde_json::from_value(event_content).expect("");
 
         let state = Arc::new(Mutex::new(BackupDownloadTaskListenerState::new(weak_client)));
         let download_request = RoomKeyDownloadRequest {
