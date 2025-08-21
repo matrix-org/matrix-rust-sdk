@@ -79,7 +79,6 @@ ruma = { git = "https://github.com/ruma/ruma", rev = "e85e224cef32181029efa106a0
     "unstable-msc4286",
     "unstable-msc4306"
 ] }
-ruma-common = { git = "https://github.com/ruma/ruma", rev = "e85e224cef32181029efa106a059d277ecfbe87d" }
 sentry = "0.36.0"
 sentry-tracing = "0.36.0"
 serde = { version = "1.0.217", features = ["rc"] }
