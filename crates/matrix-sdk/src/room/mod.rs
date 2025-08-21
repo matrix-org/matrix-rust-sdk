@@ -3296,7 +3296,7 @@ impl Room {
 
         let notification_settings = self.client().notification_settings().await;
 
-        // Get the user-defined mode if available
+        // Get the user-defined mode if available.
         let mode =
             notification_settings.get_user_defined_room_notification_mode(self.room_id()).await;
 

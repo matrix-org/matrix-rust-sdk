@@ -91,36 +91,40 @@ pub struct NotificationSettings {
     rules: Arc<RwLock<Rules>>,
     /// Drop guard of event handler for push rules event.
     _push_rules_event_handler_guard: Arc<EventHandlerDropGuard>,
+    /// Notified every time the push rules change, either due to sync or local
+    /// changes.
     changes_sender: broadcast::Sender<()>,
 }
 
 impl NotificationSettings {
-    /// Build a new `NotificationSettings``
+    /// Build a new [`NotificationSettings`].
     ///
     /// # Arguments
     ///
-    /// * `client` - A `Client` used to perform API calls
-    /// * `ruleset` - A `Ruleset` containing account's owner push rules
+    /// * `client` - A [`Client`] used to perform API calls.
+    /// * `ruleset` - A [`Ruleset`] containing account's owner push rules.
     pub(crate) fn new(client: Client, ruleset: Ruleset) -> Self {
         let changes_sender = broadcast::Sender::new(100);
         let rules = Arc::new(RwLock::new(Rules::new(ruleset)));
 
-        // Listen for PushRulesEvent
+        // Listen for PushRulesEvent.
         let push_rules_event_handler_handle = client.add_event_handler({
             let changes_sender = changes_sender.clone();
-            let rules = Arc::clone(&rules);
+            let rules = rules.clone();
             move |ev: PushRulesEvent| async move {
                 *rules.write().await = Rules::new(ev.content.global);
                 let _ = changes_sender.send(());
             }
         });
+
         let _push_rules_event_handler_guard =
-            client.event_handler_drop_guard(push_rules_event_handler_handle).into();
+            Arc::new(client.event_handler_drop_guard(push_rules_event_handler_handle));
 
         Self { client, rules, _push_rules_event_handler_guard, changes_sender }
     }
 
-    /// Subscribe to changes in the `NotificationSettings`.
+    /// Subscribe to changes to the [`NotificationSettings`] (i.e. changes to
+    /// push rules).
     ///
     /// Changes can happen due to local changes or changes in another session.
     pub fn subscribe_to_changes(&self) -> Receiver<()> {
