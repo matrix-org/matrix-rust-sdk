@@ -162,24 +162,6 @@ impl<'a> SendRawMessageLikeEvent<'a> {
     }
 }
 
-/// Ensures the room is ready for encrypted events to be sent.
-#[cfg(feature = "e2e-encryption")]
-async fn ensure_room_encryption_ready(room: &Room) -> Result<()> {
-    if !room.are_members_synced() {
-        room.sync_members().await?;
-    }
-
-    // Query keys in case we don't have them for newly synced members.
-    //
-    // Note we do it all the time, because we might have sync'd members before
-    // sending a message (so didn't enter the above branch), but
-    // could have not query their keys ever.
-    room.query_keys_for_untracked_or_dirty_users().await?;
-    room.preshare_room_key().await?;
-
-    Ok(())
-}
-
 impl<'a> IntoFuture for SendRawMessageLikeEvent<'a> {
     type Output = Result<send_message_event::v3::Response>;
     boxed_into_future!(extra_bounds: 'a);
@@ -519,4 +501,23 @@ impl<'a> IntoFuture for SendStateEvent<'a> {
                 .await
         })
     }
+}
+
+/// Ensures the room is ready for encrypted events to be sent.
+#[cfg(feature = "e2e-encryption")]
+async fn ensure_room_encryption_ready(room: &Room) -> Result<()> {
+    if !room.are_members_synced() {
+        room.sync_members().await?;
+    }
+
+    // Query keys in case we don't have them for newly synced members.
+    //
+    // Note we do it all the time, because we might have sync'd members before
+    // sending a message (so didn't enter the above branch), but
+    // could have not query their keys ever.
+    room.query_keys_for_untracked_or_dirty_users().await?;
+
+    room.preshare_room_key().await?;
+
+    Ok(())
 }
