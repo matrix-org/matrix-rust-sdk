@@ -92,8 +92,8 @@ impl fmt::Debug for SqliteStateStore {
 }
 
 impl SqliteStateStore {
-    /// Open the SQLite-based state store at the given path using the
-    /// given passphrase to encrypt private data
+    /// Open the SQLite-based state store at the given path using the given
+    /// given passphrase to encrypt private data.
     pub async fn open(
         path: impl AsRef<Path>,
         passphrase: Option<&str>,
@@ -128,7 +128,7 @@ impl SqliteStateStore {
     }
 
     /// Create an SQLite-based state store using the given SQLite database pool.
-    /// The given key will be used to encrypt private data.
+    /// The given secret will be used to encrypt private data.
     pub async fn open_with_pool(
         pool: SqlitePool,
         secret: Option<Secret>,

@@ -83,8 +83,8 @@ impl EncryptableStore for SqliteCryptoStore {
 }
 
 impl SqliteCryptoStore {
-    /// Open the SQLite-based crypto store at the given path using the
-    /// given passphrase to encrypt private data
+    /// Open the SQLite-based crypto store at the given path using the given
+    /// passphrase to encrypt private data.
     pub async fn open(
         path: impl AsRef<Path>,
         passphrase: Option<&str>,
@@ -119,7 +119,7 @@ impl SqliteCryptoStore {
     }
 
     /// Create an SQLite-based crypto store using the given SQLite database
-    /// pool. The given key will be used to encrypt private data.
+    /// pool. The given secret will be used to encrypt private data.
     async fn open_with_pool(
         pool: SqlitePool,
         secret: Option<Secret>,
@@ -1914,7 +1914,7 @@ mod tests {
 
         SqliteCryptoStore::open(tmpdir_path.to_str().unwrap(), passphrase)
             .await
-            .expect("Can't create a encrypted protected store")
+            .expect("Can't create a secret protected store")
     }
 
     cryptostore_integration_tests!();
@@ -1946,7 +1946,7 @@ mod encrypted_tests {
 
         SqliteCryptoStore::open(tmpdir_path.to_str().unwrap(), Some(pass))
             .await
-            .expect("Can't create a encrypted protected store")
+            .expect("Can't create a secret protected store")
     }
 
     cryptostore_integration_tests!();
