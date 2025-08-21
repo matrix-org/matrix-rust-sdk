@@ -16,7 +16,7 @@ use std::io::{Cursor, Read};
 
 use byteorder::{BigEndian, ReadBytesExt};
 use qrcode::QrCode;
-use ruma_common::serde::Base64;
+use ruma::serde::Base64;
 use vodozemac::Ed25519PublicKey;
 
 use crate::{

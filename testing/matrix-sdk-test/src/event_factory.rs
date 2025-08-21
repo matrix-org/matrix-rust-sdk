@@ -28,8 +28,8 @@ use ruma::{
     OwnedRoomId, OwnedTransactionId, OwnedUserId, OwnedVoipId, RoomId, RoomVersionId,
     TransactionId, UInt, UserId, VoipVersionId,
     events::{
-        AnyStateEvent, AnySyncMessageLikeEvent, AnySyncStateEvent, AnySyncTimelineEvent,
-        AnyTimelineEvent, BundledMessageLikeRelations, False, Mentions,
+        AnyGlobalAccountDataEvent, AnyStateEvent, AnySyncMessageLikeEvent, AnySyncStateEvent,
+        AnySyncTimelineEvent, AnyTimelineEvent, BundledMessageLikeRelations, False, Mentions,
         RedactedMessageLikeEventContent, RedactedStateEventContent, StateEventContent,
         StaticEventContent,
         beacon::BeaconEventContent,
@@ -38,6 +38,8 @@ use ruma::{
             invite::CallInviteEventContent,
             notify::{ApplicationType, CallNotifyEventContent, NotifyType},
         },
+        direct::{DirectEventContent, OwnedDirectUserIdentifier},
+        ignored_user_list::IgnoredUserListEventContent,
         member_hints::MemberHintsEventContent,
         poll::{
             unstable_end::UnstablePollEndEventContent,
@@ -47,6 +49,7 @@ use ruma::{
                 UnstablePollAnswer, UnstablePollStartContentBlock, UnstablePollStartEventContent,
             },
         },
+        push_rules::PushRulesEventContent,
         reaction::ReactionEventContent,
         receipt::{Receipt, ReceiptEventContent, ReceiptThread, ReceiptType},
         relation::{Annotation, BundledThread, InReplyTo, Replacement, Thread},
@@ -72,6 +75,7 @@ use ruma::{
         sticker::StickerEventContent,
         typing::TypingEventContent,
     },
+    push::Ruleset,
     room_version_rules::AuthorizationRules,
     serde::Raw,
     server_name,
@@ -149,6 +153,9 @@ pub struct EventBuilder<C: StaticEventContent<IsPrefix = False>> {
     /// Whether the event is an ephemeral one. As such, it doesn't require a
     /// room id or a sender.
     is_ephemeral: bool,
+    /// Whether the event is global account data. As such, it doesn't require a
+    /// room id.
+    is_global: bool,
     room: Option<OwnedRoomId>,
     event_id: Option<OwnedEventId>,
     /// Whether the event should *not* have an event id. False by default.
@@ -254,18 +261,6 @@ where
             .sender
             .or_else(|| Some(self.unsigned.as_ref()?.redacted_because.as_ref()?.sender.clone()));
 
-        if sender.is_none() {
-            assert!(
-                self.is_ephemeral,
-                "the sender must be known when building the JSON for a non read-receipt event"
-            );
-        } else {
-            assert!(
-                !self.is_ephemeral,
-                "event builder set is_ephemeral, but also has a sender field"
-            );
-        }
-
         let mut json = json!({
             "type": E::TYPE,
             "content": self.content,
@@ -275,7 +270,14 @@ where
         let map = json.as_object_mut().unwrap();
 
         if let Some(sender) = sender {
-            map.insert("sender".to_owned(), json!(sender));
+            if !self.is_ephemeral && !self.is_global {
+                map.insert("sender".to_owned(), json!(sender));
+            }
+        } else {
+            assert!(
+                self.is_ephemeral || self.is_global,
+                "the sender must be known when building the JSON for a non read-receipt or global event"
+            );
         }
 
         let event_id = self
@@ -288,7 +290,7 @@ where
             map.insert("event_id".to_owned(), json!(event_id));
         }
 
-        if requires_room && !self.is_ephemeral {
+        if requires_room && !self.is_ephemeral && !self.is_global {
             let room_id = self.room.expect("TimelineEvent requires a room id");
             map.insert("room_id".to_owned(), json!(room_id));
         }
@@ -489,6 +491,16 @@ where
     }
 }
 
+impl<E: StaticEventContent<IsPrefix = False>> From<EventBuilder<E>>
+    for Raw<AnyGlobalAccountDataEvent>
+where
+    E: Serialize,
+{
+    fn from(val: EventBuilder<E>) -> Self {
+        val.into_raw()
+    }
+}
+
 impl<E: StaticEventContent<IsPrefix = False>> From<EventBuilder<E>> for TimelineEvent
 where
     E: Serialize,
@@ -550,6 +562,7 @@ impl EventFactory {
         EventBuilder {
             sender: self.sender.clone(),
             is_ephemeral: false,
+            is_global: false,
             room: self.room.clone(),
             server_ts: self.next_server_ts(),
             event_id: None,
@@ -987,11 +1000,43 @@ impl EventFactory {
         self.event(CallNotifyEventContent::new(call_id, application, notify_type, mentions))
     }
 
+    /// Create a new `m.direct` global account data event.
+    pub fn direct(&self) -> EventBuilder<DirectEventContent> {
+        let mut builder = self.event(DirectEventContent::default());
+        builder.is_global = true;
+        builder
+    }
+
+    /// Create a new `m.ignored_user_list` global account data event.
+    pub fn ignored_user_list(
+        &self,
+        users: impl IntoIterator<Item = OwnedUserId>,
+    ) -> EventBuilder<IgnoredUserListEventContent> {
+        let mut builder = self.event(IgnoredUserListEventContent::users(users));
+        builder.is_global = true;
+        builder
+    }
+
+    /// Create a new `m.push_rules` global account data event.
+    pub fn push_rules(&self, rules: Ruleset) -> EventBuilder<PushRulesEventContent> {
+        let mut builder = self.event(PushRulesEventContent::new(rules));
+        builder.is_global = true;
+        builder
+    }
+
     /// Set the next server timestamp.
     ///
     /// Timestamps will continue to increase by 1 (millisecond) from that value.
     pub fn set_next_ts(&self, value: u64) {
         self.next_ts.store(value, SeqCst);
+    }
+}
+
+impl EventBuilder<DirectEventContent> {
+    /// Add a user/room pair to the `m.direct` event.
+    pub fn add_user(mut self, user_id: OwnedDirectUserIdentifier, room_id: &RoomId) -> Self {
+        self.content.0.entry(user_id).or_default().push(room_id.to_owned());
+        self
     }
 }
 

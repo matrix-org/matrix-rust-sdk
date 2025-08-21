@@ -260,34 +260,32 @@ impl RoomPagination {
         batch_size: u16,
         prev_token: Option<String>,
     ) -> Result<Option<BackPaginationOutcome>> {
-        let Some(room) = self.inner.weak_room.get() else {
-            // The client is shutting down, return an empty default response.
-            return Ok(Some(BackPaginationOutcome {
-                reached_start: false,
-                events: Default::default(),
-            }));
+        let (events, new_token) = {
+            let Some(room) = self.inner.weak_room.get() else {
+                // The client is shutting down, return an empty default response.
+                return Ok(Some(BackPaginationOutcome {
+                    reached_start: false,
+                    events: Default::default(),
+                }));
+            };
+
+            let mut options = MessagesOptions::new(Direction::Backward).from(prev_token.as_deref());
+            options.limit = batch_size.into();
+
+            let response = room
+                .messages(options)
+                .await
+                .map_err(|err| EventCacheError::BackpaginationError(Box::new(err)))?;
+
+            (response.chunk, response.end)
         };
-
-        let mut options = MessagesOptions::new(Direction::Backward).from(prev_token.as_deref());
-        options.limit = batch_size.into();
-
-        let response = room
-            .messages(options)
-            .await
-            .map_err(|err| EventCacheError::BackpaginationError(Box::new(err)))?;
 
         if let Some((outcome, timeline_event_diffs)) = self
             .inner
             .state
             .write()
             .await
-            .handle_backpagination(
-                response.chunk,
-                response.end,
-                prev_token,
-                #[cfg(feature = "experimental-search")]
-                &room,
-            )
+            .handle_backpagination(events, new_token, prev_token)
             .await?
         {
             if !timeline_event_diffs.is_empty() {

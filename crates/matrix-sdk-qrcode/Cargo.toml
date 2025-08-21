@@ -21,7 +21,7 @@ js = ["vodozemac/js"]
 [dependencies]
 byteorder.workspace = true
 qrcode = { version = "0.14.1", default-features = false }
-ruma-common.workspace = true
+ruma.workspace = true
 thiserror.workspace = true
 vodozemac.workspace = true
 

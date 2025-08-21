@@ -87,6 +87,9 @@ impl RuleCommands {
         Ok(())
     }
 
+    /// Enable or disable the given rule.
+    ///
+    /// Will return an error if the rule does not exist.
     fn set_enabled_internal(
         &mut self,
         kind: RuleKind,

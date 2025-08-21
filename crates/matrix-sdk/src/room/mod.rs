@@ -55,8 +55,6 @@ use matrix_sdk_common::{
     timeout::timeout,
 };
 #[cfg(feature = "experimental-search")]
-use matrix_sdk_search::error::IndexError;
-#[cfg(feature = "experimental-search")]
 #[cfg(doc)]
 use matrix_sdk_search::index::RoomIndex;
 use mime::Mime;
@@ -3296,7 +3294,7 @@ impl Room {
 
         let notification_settings = self.client().notification_settings().await;
 
-        // Get the user-defined mode if available
+        // Get the user-defined mode if available.
         let mode =
             notification_settings.get_user_defined_room_notification_mode(self.room_id()).await;
 
@@ -3750,18 +3748,6 @@ impl Room {
         opts: RelationsOptions,
     ) -> Result<Relations> {
         opts.send(self, event_id).await
-    }
-
-    /// Handle an [`AnySyncMessageLikeEvent`] in this room's [`RoomIndex`].
-    ///
-    /// This which will add/remove/edit an event in the index based on the
-    /// event type.
-    #[cfg(feature = "experimental-search")]
-    pub(crate) async fn index_event(
-        &self,
-        event: AnySyncMessageLikeEvent,
-    ) -> Result<(), IndexError> {
-        self.client.search_index().lock().await.handle_event(event, self.room_id())
     }
 
     /// Search this room's [`RoomIndex`] for query and return at most

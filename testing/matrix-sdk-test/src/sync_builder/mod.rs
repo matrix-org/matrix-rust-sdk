@@ -31,8 +31,7 @@ pub use joined_room::JoinedRoomBuilder;
 pub use knocked_room::KnockedRoomBuilder;
 pub use left_room::LeftRoomBuilder;
 pub use test_event::{
-    GlobalAccountDataTestEvent, PresenceTestEvent, RoomAccountDataTestEvent, StateTestEvent,
-    StrippedStateTestEvent,
+    PresenceTestEvent, RoomAccountDataTestEvent, StateTestEvent, StrippedStateTestEvent,
 };
 
 /// The `SyncResponseBuilder` struct can be used to easily generate valid sync
@@ -137,27 +136,17 @@ impl SyncResponseBuilder {
     }
 
     /// Add global account data.
-    pub fn add_global_account_data_event(
+    pub fn add_global_account_data(
         &mut self,
-        event: GlobalAccountDataTestEvent,
+        event: impl Into<Raw<AnyGlobalAccountDataEvent>>,
     ) -> &mut Self {
-        let val = match event {
-            GlobalAccountDataTestEvent::Direct => test_json::DIRECT.to_owned(),
-            GlobalAccountDataTestEvent::PushRules => test_json::PUSH_RULES.to_owned(),
-            GlobalAccountDataTestEvent::IgnoredUserList => test_json::IGNORED_USER_LIST.to_owned(),
-            GlobalAccountDataTestEvent::Custom(json) => json,
-        };
-
-        self.account_data.push(from_json_value(val).unwrap());
+        self.account_data.push(event.into());
         self
     }
 
-    /// Add global account data in bulk.
-    pub fn add_global_account_data_bulk<I>(&mut self, events: I) -> &mut Self
-    where
-        I: IntoIterator<Item = Raw<AnyGlobalAccountDataEvent>>,
-    {
-        self.account_data.extend(events);
+    /// Add custom global account data based on a JSON value.
+    pub fn add_custom_global_account_data(&mut self, event: serde_json::Value) -> &mut Self {
+        self.account_data.push(Raw::new(&event).unwrap().cast_unchecked());
         self
     }
 

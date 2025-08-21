@@ -20,8 +20,8 @@ use futures_util::{StreamExt as _, pin_mut};
 use imbl::Vector;
 use layout::Flex;
 use matrix_sdk::{
-    AuthSession, Client, SqliteCryptoStore, SqliteEventCacheStore, SqliteStateStore,
-    ThreadingSupport,
+    AuthSession, Client, SearchIndexStoreKind, SqliteCryptoStore, SqliteEventCacheStore,
+    SqliteStateStore, ThreadingSupport,
     authentication::matrix::MatrixSession,
     config::StoreConfig,
     encryption::{BackupDownloadStrategy, EncryptionSettings},
@@ -38,7 +38,7 @@ use matrix_sdk_ui::{
 use ratatui::{prelude::*, style::palette::tailwind, widgets::*};
 use throbber_widgets_tui::{Throbber, ThrobberState};
 use tokio::{spawn, task::JoinHandle};
-use tracing::{error, warn};
+use tracing::{debug, error, warn};
 use tracing_subscriber::EnvFilter;
 use widgets::{
     recovery::create_centered_throbber_area, room_view::RoomView, settings::SettingsView,
@@ -48,6 +48,7 @@ use crate::widgets::{
     create_room::CreateRoomView,
     help::HelpView,
     room_list::{ExtraRoomInfo, RoomInfos, RoomList, Rooms},
+    search::SearchingView,
     status::Status,
 };
 
@@ -88,6 +89,8 @@ pub enum GlobalMode {
     Exiting { shutdown_task: JoinHandle<()> },
     /// Mode where we have opened create room screen
     CreateRoom { view: CreateRoomView },
+    /// Mode where we have opened create room screen
+    Searching { view: SearchingView },
 }
 
 /// Helper function to create a centered rect using up certain percentage of the
@@ -358,6 +361,10 @@ impl App {
                 self.set_global_mode(GlobalMode::CreateRoom { view: CreateRoomView::new() })
             }
 
+            Event::Key(KeyEvent { modifiers: KeyModifiers::CONTROL, code: Char('s'), .. }) => {
+                self.set_global_mode(GlobalMode::Searching { view: SearchingView::new() })
+            }
+
             _ => self.room_view.handle_event(event).await,
         }
 
@@ -371,6 +378,7 @@ impl App {
             GlobalMode::Help
             | GlobalMode::Default
             | GlobalMode::CreateRoom { .. }
+            | GlobalMode::Searching { .. }
             | GlobalMode::Exiting { .. } => {}
             GlobalMode::Settings { view } => {
                 view.on_tick();
@@ -448,6 +456,29 @@ impl App {
                             }
                         }
                     }
+                    GlobalMode::Searching { view } => {
+                        if let Event::Key(key) = event
+                            && let KeyModifiers::NONE = key.modifiers
+                        {
+                            match key.code {
+                                Enter => {
+                                    if let Some(query) = view.get_text() {
+                                        if let Some(room) = self.room_view.room() {
+                                            if let Some(results) = room.search(&query, 100).await {
+                                                view.results(results);
+                                            } else {
+                                                debug!("No results found in search.")
+                                            }
+                                        } else {
+                                            warn!("No room in view.")
+                                        }
+                                    }
+                                }
+                                Esc => self.set_global_mode(GlobalMode::Default),
+                                _ => view.handle_key_press(key),
+                            }
+                        }
+                    }
                     GlobalMode::Exiting { .. } => {}
                 }
             }
@@ -456,6 +487,7 @@ impl App {
                 GlobalMode::Default
                 | GlobalMode::Help
                 | GlobalMode::CreateRoom { .. }
+                | GlobalMode::Searching { .. }
                 | GlobalMode::Settings { .. } => {}
                 GlobalMode::Exiting { shutdown_task } => {
                     if shutdown_task.is_finished() {
@@ -523,6 +555,9 @@ impl Widget for &mut App {
             GlobalMode::CreateRoom { view } => {
                 view.render(area, buf);
             }
+            GlobalMode::Searching { view } => {
+                view.render(area, buf);
+            }
         }
     }
 }
@@ -556,7 +591,8 @@ async fn configure_client(cli: Cli) -> Result<Client> {
             auto_enable_backups: true,
         })
         .with_enable_share_history_on_invite(true)
-        .with_threading_support(ThreadingSupport::Enabled { with_subscriptions: true });
+        .with_threading_support(ThreadingSupport::Enabled { with_subscriptions: true })
+        .search_index_store(SearchIndexStoreKind::Directory(session_path.join("indexData")));
 
     if let Some(proxy_url) = proxy {
         client_builder = client_builder.proxy(proxy_url).disable_ssl_verification();

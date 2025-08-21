@@ -65,6 +65,7 @@ impl Widget for &mut HelpView {
                 Cell::from("Open a thread on the focused timeline item"),
             ]),
             Row::new(vec![Cell::from("Ctrl-r"), Cell::from("Create a new room")]),
+            Row::new(vec![Cell::from("Ctrl-s"), Cell::from("Search")]),
         ];
         let widths = [Constraint::Length(5), Constraint::Length(5)];
 

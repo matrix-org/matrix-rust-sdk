@@ -30,7 +30,7 @@
 use std::{
     collections::{BTreeMap, HashMap},
     fmt,
-    sync::{Arc, OnceLock},
+    sync::{Arc, OnceLock, Weak},
 };
 
 use eyeball::{SharedObservable, Subscriber};
@@ -50,9 +50,9 @@ use matrix_sdk_base::{
     timer,
 };
 use matrix_sdk_common::executor::{spawn, JoinHandle};
-#[cfg(feature = "experimental-search")]
-use matrix_sdk_search::error::IndexError;
 use room::RoomEventCacheState;
+#[cfg(feature = "experimental-search")]
+use ruma::events::AnySyncMessageLikeEvent;
 use ruma::{
     events::AnySyncEphemeralRoomEvent, serde::Raw, OwnedEventId, OwnedRoomId, OwnedTransactionId,
     RoomId,
@@ -133,11 +133,6 @@ pub enum EventCacheError {
         /// A string containing details about the error.
         details: String,
     },
-
-    /// An error occurred in the index.
-    #[cfg(feature = "experimental-search")]
-    #[error(transparent)]
-    IndexError(#[from] IndexError),
 }
 
 /// A result using the [`EventCacheError`].
@@ -199,6 +194,12 @@ impl EventCache {
             thread_subscriber_sender,
         )));
 
+        #[cfg(feature = "experimental-search")]
+        let search_indexing_task = AbortOnDrop::new(spawn(Self::search_indexing_task(
+            client.clone(),
+            linked_chunk_update_sender.clone(),
+        )));
+
         Self {
             inner: Arc::new(EventCacheInner {
                 client,
@@ -210,6 +211,8 @@ impl EventCache {
                 generic_update_sender,
                 linked_chunk_update_sender,
                 _thread_subscriber_task: thread_subscriber_task,
+                #[cfg(feature = "experimental-search")]
+                _search_indexing_task: search_indexing_task,
                 thread_subscriber_receiver,
             }),
         }
@@ -250,7 +253,7 @@ impl EventCache {
             self.inner.auto_shrink_sender.get_or_init(|| auto_shrink_sender);
 
             let auto_shrink_linked_chunk_task = spawn(Self::auto_shrink_linked_chunk_task(
-                self.inner.clone(),
+                Arc::downgrade(&self.inner),
                 auto_shrink_receiver,
             ));
 
@@ -352,11 +355,15 @@ impl EventCache {
     ///   time to do so (new subscribers might have spawned in the meanwhile).
     #[instrument(skip_all)]
     async fn auto_shrink_linked_chunk_task(
-        inner: Arc<EventCacheInner>,
+        inner: Weak<EventCacheInner>,
         mut rx: mpsc::Receiver<AutoShrinkChannelPayload>,
     ) {
         while let Some(room_id) = rx.recv().await {
             trace!(for_room = %room_id, "received notification to shrink");
+
+            let Some(inner) = inner.upgrade() else {
+                return;
+            };
 
             let room = match inner.for_room(&room_id).await {
                 Ok(room) => room,
@@ -397,6 +404,8 @@ impl EventCache {
                 }
             }
         }
+
+        info!("Auto-shrink linked chunk task has been closed, exiting");
     }
 
     /// Return a room-specific view over the [`EventCache`].
@@ -683,6 +692,82 @@ impl EventCache {
             }
         }
     }
+
+    /// Takes a [`TimelineEvent`] and passes it to the [`RoomIndex`] of the
+    /// given room which will add/remove/edit an event in the index based on
+    /// the event type.
+    #[cfg(feature = "experimental-search")]
+    #[instrument(skip_all)]
+    async fn search_indexing_task(
+        client: WeakClient,
+        linked_chunk_update_sender: Sender<RoomEventCacheLinkedChunkUpdate>,
+    ) {
+        let mut linked_chunk_update_receiver = linked_chunk_update_sender.subscribe();
+
+        loop {
+            match linked_chunk_update_receiver.recv().await {
+                Ok(room_ec_lc_update) => {
+                    let OwnedLinkedChunkId::Room(room_id) =
+                        room_ec_lc_update.linked_chunk_id.clone()
+                    else {
+                        trace!("Received non-room updates, ignoring.");
+                        continue;
+                    };
+
+                    let mut timeline_events = room_ec_lc_update.events().peekable();
+
+                    if timeline_events.peek().is_none() {
+                        continue;
+                    }
+
+                    let Some(client) = client.get() else {
+                        trace!("Client is shutting down, not spawning thread subscriber task");
+                        return;
+                    };
+
+                    let mut search_index_guard = client.search_index().lock().await;
+
+                    for event in timeline_events {
+                        if let Some(message_event) = parse_timeline_event_for_search_index(&event) {
+                            if let Err(err) =
+                                search_index_guard.handle_event(message_event, &room_id)
+                            {
+                                warn!("Failed to handle event for indexing: {err}")
+                            }
+                        }
+                    }
+                }
+                Err(RecvError::Closed) => {
+                    debug!("Linked chunk update channel has been closed, exiting thread subscriber task");
+                    break;
+                }
+                Err(RecvError::Lagged(num_skipped)) => {
+                    warn!(num_skipped, "Lagged behind linked chunk updates");
+                }
+            }
+        }
+    }
+}
+
+#[cfg(feature = "experimental-search")]
+fn parse_timeline_event_for_search_index(event: &TimelineEvent) -> Option<AnySyncMessageLikeEvent> {
+    use ruma::events::AnySyncTimelineEvent;
+
+    if event.kind.is_utd() {
+        return None;
+    }
+
+    match event.raw().deserialize() {
+        Ok(event) => match event {
+            AnySyncTimelineEvent::MessageLike(event) => Some(event),
+            AnySyncTimelineEvent::State(_) => None,
+        },
+
+        Err(e) => {
+            warn!("failed to parse event: {e:?}");
+            None
+        }
+    }
 }
 
 struct EventCacheInner {
@@ -737,6 +822,15 @@ struct EventCacheInner {
     /// One important constraint is that there is only one such task per
     /// [`EventCache`], so it does listen to *all* rooms at the same time.
     _thread_subscriber_task: AbortOnDrop<()>,
+
+    /// A background task listening to room updates, and
+    /// automatically handling search index operations add/remove/edit
+    /// depending on the event type.
+    ///
+    /// One important constraint is that there is only one such task per
+    /// [`EventCache`], so it does listen to *all* rooms at the same time.
+    #[cfg(feature = "experimental-search")]
+    _search_indexing_task: AbortOnDrop<()>,
 
     /// A test helper receiver that will be emitted every time the thread
     /// subscriber task subscribed to a new thread.

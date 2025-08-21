@@ -29,7 +29,9 @@ use ruma::{
             topic::RoomTopicEventContent,
         },
     },
-    owned_event_id, owned_mxc_uri, room_id,
+    owned_event_id, owned_mxc_uri,
+    push::Ruleset,
+    room_id,
     room_version_rules::AuthorizationRules,
     serde::Raw,
     uint, user_id,
@@ -107,6 +109,7 @@ pub trait StateStoreIntegrationTests {
 
 impl StateStoreIntegrationTests for DynStateStore {
     async fn populate(&self) -> TestResult {
+        let f = EventFactory::new();
         let mut changes = StateChanges::default();
 
         let user_id = user_id();
@@ -121,9 +124,8 @@ impl StateStoreIntegrationTests for DynStateStore {
         let presence_event = presence_raw.deserialize()?;
         changes.add_presence_event(presence_event, presence_raw);
 
-        let pushrules_json: &JsonValue = &test_json::PUSH_RULES;
-        let pushrules_raw =
-            serde_json::from_value::<Raw<AnyGlobalAccountDataEvent>>(pushrules_json.clone())?;
+        let pushrules_raw: Raw<AnyGlobalAccountDataEvent> =
+            f.push_rules(Ruleset::server_default(user_id)).into_raw();
         let pushrules_event = pushrules_raw.deserialize()?;
         changes.account_data.insert(pushrules_event.event_type(), pushrules_raw);
 
@@ -175,8 +177,8 @@ impl StateStoreIntegrationTests for DynStateStore {
         let invited_member_state_event = invited_member_state_raw.deserialize()?;
         changes.add_state_event(room_id, invited_member_state_event, invited_member_state_raw);
 
-        let f = EventFactory::new().room(room_id);
         let receipt_content = f
+            .room(room_id)
             .read_receipts()
             .add(event_id!("$example"), user_id, ReceiptType::Read, ReceiptThread::Unthreaded)
             .into_content();
