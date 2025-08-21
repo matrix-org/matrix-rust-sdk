@@ -54,14 +54,20 @@ use matrix_sdk_common::{
     executor::{spawn, JoinHandle},
     timeout::timeout,
 };
+#[cfg(feature = "experimental-search")]
+use matrix_sdk_search::error::IndexError;
+#[cfg(feature = "experimental-search")]
+#[cfg(doc)]
+use matrix_sdk_search::index::RoomIndex;
 use mime::Mime;
 use reply::Reply;
 #[cfg(feature = "unstable-msc4274")]
 use ruma::events::room::message::GalleryItemType;
+#[cfg(any(feature = "experimental-search", feature = "e2e-encryption"))]
+use ruma::events::AnySyncMessageLikeEvent;
 #[cfg(feature = "e2e-encryption")]
 use ruma::events::{
-    room::encrypted::OriginalSyncRoomEncryptedEvent, AnySyncMessageLikeEvent, AnySyncTimelineEvent,
-    SyncMessageLikeEvent,
+    room::encrypted::OriginalSyncRoomEncryptedEvent, AnySyncTimelineEvent, SyncMessageLikeEvent,
 };
 use ruma::{
     api::client::{
@@ -1883,6 +1889,53 @@ impl Room {
         Ok(())
     }
 
+    /// Helper function to enable End-to-end encryption in this room.
+    /// `encrypted_state_events` is not used unless the
+    /// `experimental-encrypted-state-events` feature is enabled.
+    #[allow(unused_variables, unused_mut)]
+    async fn enable_encryption_inner(&self, encrypted_state_events: bool) -> Result<()> {
+        use ruma::{
+            events::room::encryption::RoomEncryptionEventContent, EventEncryptionAlgorithm,
+        };
+        const SYNC_WAIT_TIME: Duration = Duration::from_secs(3);
+
+        if !self.latest_encryption_state().await?.is_encrypted() {
+            let mut content =
+                RoomEncryptionEventContent::new(EventEncryptionAlgorithm::MegolmV1AesSha2);
+            #[cfg(feature = "experimental-encrypted-state-events")]
+            if encrypted_state_events {
+                content = content.with_encrypted_state();
+            }
+            self.send_state_event(content).await?;
+
+            // TODO do we want to return an error here if we time out? This
+            // could be quite useful if someone wants to enable encryption and
+            // send a message right after it's enabled.
+            _ = timeout(self.client.inner.sync_beat.listen(), SYNC_WAIT_TIME).await;
+
+            // If after waiting for a sync, we don't have the encryption state we expect,
+            // assume the local encryption state is incorrect; this will cause
+            // the SDK to re-request it later for confirmation, instead of
+            // assuming it's sync'd and correct (and not encrypted).
+            let _sync_lock = self.client.base_client().sync_lock().lock().await;
+            if !self.inner.encryption_state().is_encrypted() {
+                debug!("still not marked as encrypted, marking encryption state as missing");
+
+                let mut room_info = self.clone_info();
+                room_info.mark_encryption_state_missing();
+                let mut changes = StateChanges::default();
+                changes.add_room(room_info.clone());
+
+                self.client.state_store().save_changes(&changes).await?;
+                self.set_room_info(room_info, RoomInfoNotableUpdateReasons::empty());
+            } else {
+                debug!("room successfully marked as encrypted");
+            }
+        }
+
+        Ok(())
+    }
+
     /// Enable End-to-end encryption in this room.
     ///
     /// This method will be a noop if encryption is already enabled, otherwise
@@ -1916,42 +1969,45 @@ impl Room {
     /// ```
     #[instrument(skip_all)]
     pub async fn enable_encryption(&self) -> Result<()> {
-        use ruma::{
-            events::room::encryption::RoomEncryptionEventContent, EventEncryptionAlgorithm,
-        };
-        const SYNC_WAIT_TIME: Duration = Duration::from_secs(3);
+        self.enable_encryption_inner(false).await
+    }
 
-        if !self.latest_encryption_state().await?.is_encrypted() {
-            let content =
-                RoomEncryptionEventContent::new(EventEncryptionAlgorithm::MegolmV1AesSha2);
-            self.send_state_event(content).await?;
-
-            // TODO do we want to return an error here if we time out? This
-            // could be quite useful if someone wants to enable encryption and
-            // send a message right after it's enabled.
-            _ = timeout(self.client.inner.sync_beat.listen(), SYNC_WAIT_TIME).await;
-
-            // If after waiting for a sync, we don't have the encryption state we expect,
-            // assume the local encryption state is incorrect; this will cause
-            // the SDK to re-request it later for confirmation, instead of
-            // assuming it's sync'd and correct (and not encrypted).
-            let _sync_lock = self.client.base_client().sync_lock().lock().await;
-            if !self.inner.encryption_state().is_encrypted() {
-                debug!("still not marked as encrypted, marking encryption state as missing");
-
-                let mut room_info = self.clone_info();
-                room_info.mark_encryption_state_missing();
-                let mut changes = StateChanges::default();
-                changes.add_room(room_info.clone());
-
-                self.client.state_store().save_changes(&changes).await?;
-                self.set_room_info(room_info, RoomInfoNotableUpdateReasons::empty());
-            } else {
-                debug!("room successfully marked as encrypted");
-            }
-        }
-
-        Ok(())
+    /// Enable End-to-end encryption in this room, opting into experimental
+    /// state event encryption.
+    ///
+    /// This method will be a noop if encryption is already enabled, otherwise
+    /// sends a `m.room.encryption` state event to the room. This might fail if
+    /// you don't have the appropriate power level to enable end-to-end
+    /// encryption.
+    ///
+    /// A sync needs to be received to update the local room state. This method
+    /// will wait for a sync to be received, this might time out if no
+    /// sync loop is running or if the server is slow.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # use matrix_sdk::{
+    /// #     Client, config::SyncSettings,
+    /// #     ruma::room_id,
+    /// # };
+    /// # use url::Url;
+    /// #
+    /// # async {
+    /// # let homeserver = Url::parse("http://localhost:8080")?;
+    /// # let client = Client::new(homeserver).await?;
+    /// # let room_id = room_id!("!test:localhost");
+    /// let room_id = room_id!("!SVkFJHzfwvuaIEawgC:localhost");
+    ///
+    /// if let Some(room) = client.get_room(&room_id) {
+    ///     room.enable_encryption_with_state_event_encryption().await?
+    /// }
+    /// # anyhow::Ok(()) };
+    /// ```
+    #[instrument(skip_all)]
+    #[cfg(feature = "experimental-encrypted-state-events")]
+    pub async fn enable_encryption_with_state_event_encryption(&self) -> Result<()> {
+        self.enable_encryption_inner(true).await
     }
 
     /// Share a room key with users in the given room.
@@ -2994,11 +3050,24 @@ impl Room {
         self.inner.load_event_receipts(receipt_type, thread, event_id).await.map_err(Into::into)
     }
 
-    /// Get the push context for this room.
+    /// Get the push-condition context for this room.
     ///
     /// Returns `None` if some data couldn't be found. This should only happen
     /// in brand new rooms, while we process its state.
     pub async fn push_condition_room_ctx(&self) -> Result<Option<PushConditionRoomCtx>> {
+        self.push_condition_room_ctx_internal(self.client.enabled_thread_subscriptions()).await
+    }
+
+    /// Get the push-condition context for this room, with a choice to include
+    /// thread subscriptions or not, based on the extra
+    /// `with_threads_subscriptions` parameter.
+    ///
+    /// Returns `None` if some data couldn't be found. This should only happen
+    /// in brand new rooms, while we process its state.
+    pub(crate) async fn push_condition_room_ctx_internal(
+        &self,
+        with_threads_subscriptions: bool,
+    ) -> Result<Option<PushConditionRoomCtx>> {
         let room_id = self.room_id();
         let user_id = self.own_user_id();
         let room_info = self.clone_info();
@@ -3022,7 +3091,6 @@ impl Room {
             }
         };
 
-        let this = self.clone();
         let mut ctx = assign!(PushConditionRoomCtx::new(
             room_id.to_owned(),
             UInt::new(member_count).unwrap_or(UInt::MAX),
@@ -3033,12 +3101,12 @@ impl Room {
             power_levels,
         });
 
-        if self.client.enabled_thread_subscriptions() {
+        if with_threads_subscriptions {
+            let this = self.clone();
             ctx = ctx.with_has_thread_subscription_fn(move |event_id: &EventId| {
                 let room = this.clone();
                 Box::pin(async move {
-                    if let Ok(maybe_sub) = room.fetch_thread_subscription(event_id.to_owned()).await
-                    {
+                    if let Ok(maybe_sub) = room.load_or_fetch_thread_subscription(event_id).await {
                         maybe_sub.is_some()
                     } else {
                         false
@@ -3053,7 +3121,20 @@ impl Room {
     /// Retrieves a [`PushContext`] that can be used to compute the push
     /// actions for events.
     pub async fn push_context(&self) -> Result<Option<PushContext>> {
-        let Some(push_condition_room_ctx) = self.push_condition_room_ctx().await? else {
+        self.push_context_internal(self.client.enabled_thread_subscriptions()).await
+    }
+
+    /// Retrieves a [`PushContext`] that can be used to compute the push actions
+    /// for events, with a choice to include thread subscriptions or not,
+    /// based on the extra `with_threads_subscriptions` parameter.
+    #[instrument(skip(self))]
+    pub(crate) async fn push_context_internal(
+        &self,
+        with_threads_subscriptions: bool,
+    ) -> Result<Option<PushContext>> {
+        let Some(push_condition_room_ctx) =
+            self.push_condition_room_ctx_internal(with_threads_subscriptions).await?
+        else {
             debug!("Could not aggregate push context");
             return Ok(None);
         };
@@ -3671,6 +3752,31 @@ impl Room {
         opts.send(self, event_id).await
     }
 
+    /// Handle an [`AnySyncMessageLikeEvent`] in this room's [`RoomIndex`].
+    ///
+    /// This which will add/remove/edit an event in the index based on the
+    /// event type.
+    #[cfg(feature = "experimental-search")]
+    pub(crate) async fn index_event(
+        &self,
+        event: AnySyncMessageLikeEvent,
+    ) -> Result<(), IndexError> {
+        self.client.search_index().lock().await.handle_event(event, self.room_id())
+    }
+
+    /// Search this room's [`RoomIndex`] for query and return at most
+    /// max_number_of_results results.
+    #[cfg(feature = "experimental-search")]
+    pub async fn search(
+        &self,
+        query: &str,
+        max_number_of_results: usize,
+    ) -> Option<Vec<OwnedEventId>> {
+        let mut search_index_guard = self.client.search_index().lock().await;
+        search_index_guard.commit_and_reload(self.room_id());
+        search_index_guard.search(query, max_number_of_results, self.room_id())
+    }
+
     /// Subscribe to a given thread in this room.
     ///
     /// This will subscribe the user to the thread, so that they will receive
@@ -3738,6 +3844,26 @@ impl Room {
                 }
             }
         }
+    }
+
+    /// Subscribe to a thread if needed, based on a current subscription to it.
+    ///
+    /// This is like [`Self::subscribe_thread`], but it first checks if the user
+    /// has already subscribed to a thread, so as to minimize sending
+    /// unnecessary subscriptions which would be ignored by the server.
+    pub async fn subscribe_thread_if_needed(
+        &self,
+        thread_root: &EventId,
+        automatic: Option<OwnedEventId>,
+    ) -> Result<()> {
+        if let Some(prev_sub) = self.load_or_fetch_thread_subscription(thread_root).await? {
+            // If we have a previous subscription, we should only send the new one if it's
+            // manual and the previous one was automatic.
+            if !prev_sub.automatic || automatic.is_some() {
+                return Ok(());
+            }
+        }
+        self.subscribe_thread(thread_root.to_owned(), automatic).await
     }
 
     /// Unsubscribe from a given thread in this room.
@@ -3820,6 +3946,20 @@ impl Room {
         }
 
         Ok(subscription)
+    }
+
+    /// Return the current thread subscription for the given thread root in this
+    /// room, by getting it from storage if possible, or fetching it from
+    /// network otherwise.
+    ///
+    /// See also [`Self::fetch_thread_subscription`] for the exact semantics of
+    /// this method.
+    pub async fn load_or_fetch_thread_subscription(
+        &self,
+        thread_root: &EventId,
+    ) -> Result<Option<ThreadSubscription>> {
+        // A bit of a lie at the moment, since thread subscriptions are not sync'd yet.
+        self.fetch_thread_subscription(thread_root.to_owned()).await
     }
 }
 

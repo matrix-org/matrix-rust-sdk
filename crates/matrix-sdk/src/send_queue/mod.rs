@@ -236,7 +236,7 @@ impl SendQueue {
 
     /// Get or create a new send queue for a given room, and insert it into our
     /// memoized rooms mapping.
-    fn for_room(&self, room: Room) -> RoomSendQueue {
+    pub(crate) fn for_room(&self, room: Room) -> RoomSendQueue {
         let data = self.data();
 
         let mut map = data.rooms.write().unwrap();
@@ -2406,6 +2406,16 @@ pub struct SendHandle {
 }
 
 impl SendHandle {
+    /// Creates a new [`SendHandle`].
+    #[cfg(test)]
+    pub(crate) fn new(
+        room: RoomSendQueue,
+        transaction_id: OwnedTransactionId,
+        created_at: MilliSecondsSinceUnixEpoch,
+    ) -> Self {
+        Self { room, transaction_id, media_handles: vec![], created_at }
+    }
+
     fn nyi_for_uploads(&self) -> Result<(), RoomSendQueueStorageError> {
         if !self.media_handles.is_empty() {
             Err(RoomSendQueueStorageError::OperationNotImplementedYet)

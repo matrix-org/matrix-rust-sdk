@@ -616,6 +616,7 @@ impl RoomInfo {
     }
 
     /// Returns the encryption state of this room.
+    #[cfg(not(feature = "experimental-encrypted-state-events"))]
     pub fn encryption_state(&self) -> EncryptionState {
         if !self.encryption_state_synced {
             EncryptionState::Unknown
@@ -623,6 +624,26 @@ impl RoomInfo {
             EncryptionState::Encrypted
         } else {
             EncryptionState::NotEncrypted
+        }
+    }
+
+    /// Returns the encryption state of this room.
+    #[cfg(feature = "experimental-encrypted-state-events")]
+    pub fn encryption_state(&self) -> EncryptionState {
+        if !self.encryption_state_synced {
+            EncryptionState::Unknown
+        } else {
+            self.base_info
+                .encryption
+                .as_ref()
+                .map(|state| {
+                    if state.encrypt_state_events {
+                        EncryptionState::StateEncrypted
+                    } else {
+                        EncryptionState::Encrypted
+                    }
+                })
+                .unwrap_or(EncryptionState::NotEncrypted)
         }
     }
 

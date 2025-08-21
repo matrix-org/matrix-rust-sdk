@@ -1,5 +1,8 @@
 use assert_matches2::assert_matches;
-use matrix_sdk::{config::SyncSettings, sync::Notification};
+use matrix_sdk::{
+    config::{SyncSettings, SyncToken},
+    sync::Notification,
+};
 use matrix_sdk_base::deserialized_responses::RawAnySyncOrStrippedTimelineEvent;
 use matrix_sdk_test::{
     async_test, event_factory::EventFactory, stripped_state_event, sync_state_event, test_json,
@@ -50,7 +53,7 @@ async fn test_notifications_joined() {
     sync_builder.add_joined_room(joined_room);
 
     mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
-    client.sync_once(SyncSettings::default()).await.unwrap();
+    client.sync_once(SyncSettings::default().token(SyncToken::NoToken)).await.unwrap();
     server.reset().await;
 
     assert_pending!(receiver_stream);
@@ -72,7 +75,7 @@ async fn test_notifications_joined() {
     sync_builder.add_joined_room(joined_room);
 
     mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
-    client.sync_once(SyncSettings::default()).await.unwrap();
+    client.sync_once(SyncSettings::default().token(SyncToken::NoToken)).await.unwrap();
 
     let (notif_room_id, notification) = assert_ready!(receiver_stream);
     assert_eq!(notif_room_id, room_id);

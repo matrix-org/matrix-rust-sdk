@@ -441,9 +441,13 @@ mod tests {
     }
 
     fn build_url_from_widget_settings(settings: WidgetSettings) -> String {
+        let mut profile = get_profile::v3::Response::new();
+        profile.set("avatar_url", "some-url".into());
+        profile.set("displayname", "hello".into());
+
         settings
             ._generate_webview_url(
-                get_profile::v3::Response::new(Some("some-url".into()), Some("hello".into())),
+                profile,
                 "@test:user.org".try_into().unwrap(),
                 "!room_id:room.org".try_into().unwrap(),
                 "ABCDEFG".into(),

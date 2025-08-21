@@ -19,7 +19,10 @@ use std::time::Duration;
 use assert_matches2::assert_let;
 use eyeball_im::VectorDiff;
 use futures_util::StreamExt;
-use matrix_sdk::{config::SyncSettings, test_utils::logged_in_client_with_server};
+use matrix_sdk::{
+    config::{SyncSettings, SyncToken},
+    test_utils::logged_in_client_with_server,
+};
 use matrix_sdk_test::{
     ALICE, BOB, JoinedRoomBuilder, SyncResponseBuilder, async_test, event_factory::EventFactory,
     mocks::mock_encryption_state,
@@ -189,7 +192,8 @@ async fn test_new_focused() {
 async fn test_live_aggregations_are_reflected_on_focused_timelines() {
     let room_id = room_id!("!a98sd12bjh:example.org");
     let (client, server) = logged_in_client_with_server().await;
-    let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
+    let sync_settings =
+        SyncSettings::new().timeout(Duration::from_millis(3000)).token(SyncToken::NoToken);
 
     let mut sync_response_builder = SyncResponseBuilder::new();
     sync_response_builder.add_joined_room(JoinedRoomBuilder::new(room_id));

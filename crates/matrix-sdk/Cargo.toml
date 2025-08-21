@@ -46,6 +46,15 @@ indexeddb = ["matrix-sdk-indexeddb/state-store"]
 qrcode = ["e2e-encryption", "matrix-sdk-base/qrcode"]
 automatic-room-key-forwarding = ["e2e-encryption", "matrix-sdk-base/automatic-room-key-forwarding"]
 experimental-send-custom-to-device = ["e2e-encryption", "matrix-sdk-base/experimental-send-custom-to-device"]
+
+# Enable experimental support for encrypting state events; see
+# https://github.com/matrix-org/matrix-rust-sdk/issues/5397.
+experimental-encrypted-state-events = [
+    "e2e-encryption",
+    "matrix-sdk-base/experimental-encrypted-state-events",
+    "matrix-sdk-sqlite/experimental-encrypted-state-events"
+]
+
 markdown = ["ruma/markdown"]
 native-tls = ["reqwest/native-tls"]
 rustls-tls = ["reqwest/rustls-tls"]
@@ -61,6 +70,8 @@ docsrs = ["e2e-encryption", "sqlite", "indexeddb", "sso-login", "qrcode"]
 
 # Add support for inline media galleries via msgtypes
 unstable-msc4274 = ["ruma/unstable-msc4274", "matrix-sdk-base/unstable-msc4274"]
+
+experimental-search = ["matrix-sdk-search"]
 
 [dependencies]
 anyhow = { workspace = true, optional = true }
@@ -84,12 +95,14 @@ futures-util.workspace = true
 http.workspace = true
 imbl = { workspace = true, features = ["serde"] }
 indexmap.workspace = true
+itertools.workspace = true
 js_int = "0.2.2"
 language-tags = { version = "0.3.2" }
 matrix-sdk-base.workspace = true
 matrix-sdk-common.workspace = true
 matrix-sdk-ffi-macros = { workspace = true, optional = true }
 matrix-sdk-indexeddb = { workspace = true, optional = true }
+matrix-sdk-search = { workspace = true, optional = true }
 matrix-sdk-sqlite = { workspace = true, optional = true }
 matrix-sdk-test = { workspace = true, optional = true }
 mime.workspace = true
@@ -101,6 +114,7 @@ pin-project-lite.workspace = true
 rand = { workspace = true, optional = true }
 ruma = { workspace = true, features = [
     "rand",
+    "federation-api-c",
     "unstable-msc2448",
     "unstable-msc4191",
     "unstable-msc3930",
@@ -108,6 +122,7 @@ ruma = { workspace = true, features = [
     "unstable-msc4230",
     "unstable-msc2967",
     "unstable-msc4108",
+    "unstable-msc4133",
     "unstable-msc4278",
 ] }
 serde.workspace = true
@@ -150,6 +165,7 @@ futures-executor.workspace = true
 insta.workspace = true
 matrix-sdk-base = { workspace = true, features = ["testing"] }
 matrix-sdk-test.workspace = true
+matrix-sdk-test-utils.workspace = true
 serde_urlencoded = "0.7.1"
 similar-asserts.workspace = true
 stream_assert.workspace = true

@@ -8,6 +8,10 @@ All notable changes to this project will be documented in this file.
 
 ### Features:
 
+- Add `LowPriority` and `NonLowPriority` variants to `RoomListEntriesDynamicFilterKind` for filtering 
+  rooms based on their low priority status. These filters allow clients to show only low priority rooms 
+  or exclude low priority rooms from the room list.
+  ([#5508](https://github.com/matrix-org/matrix-rust-sdk/pull/5508))
 - Add `room_version` and `privileged_creators_role` to `RoomInfo` ([#5449](https://github.com/matrix-org/matrix-rust-sdk/pull/5449)).
 - The [`unstable-hydra`] feature has been enabled, which enables room v12 changes in the SDK.
   ([#5450](https://github.com/matrix-org/matrix-rust-sdk/pull/5450)).
@@ -32,6 +36,14 @@ All notable changes to this project will be documented in this file.
 
 ### Breaking changes:
 
+- The timeline will now always use the send queue to upload medias, so the
+  `UploadParameters::use_send_queue` bool has been removed. Make sure to listen to the send queue's
+  error updates, and to handle send queue restarts.
+  ([#5525](https://github.com/matrix-org/matrix-rust-sdk/pull/5525))
+- Support for the legacy media upload progress has been disabled. Media upload progress is
+  available through the send queue, and can be enabled thanks to
+  `Client::enable_send_queue_upload_progress()`.
+  ([#5525](https://github.com/matrix-org/matrix-rust-sdk/pull/5525))
 - `TimelineDiff` is now exported as a true `uniffi::Enum` instead of the weird `uniffi::Object` hybrid. This matches
   both `RoomDirectorySearchEntryUpdate` and `RoomListEntriesUpdate` and can be used in the same way.
   ([#5474](https://github.com/matrix-org/matrix-rust-sdk/pull/5474))
@@ -68,6 +80,11 @@ All notable changes to this project will be documented in this file.
 - The MSRV has been bumped to Rust 1.88.
   ([#5431](https://github.com/matrix-org/matrix-rust-sdk/pull/5431))
 - `Room::send_call_notification` and `Room::send_call_notification_if_needed` have been removed, since the event type they send is outdated, and `Client` is not actually supposed to be able to join MatrixRTC sessions (yet). In practice, users of these methods probably already rely on another MatrixRTC implementation to participate in sessions, and such an implementation should be capable of sending notifications itself.
+- The `GalleryItemInfo` variants now take an `UploadSource` rather than a `String` path to enable uploading
+  from bytes directly.
+  ([#5529](https://github.com/matrix-org/matrix-rust-sdk/pull/5529))
+- Media and gallery uploads now use `UploadSource` to specify the thumbnail.
+  ([#5530](https://github.com/matrix-org/matrix-rust-sdk/pull/5530))
 
 ## [0.13.0] - 2025-07-10
 

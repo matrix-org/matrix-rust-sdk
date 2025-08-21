@@ -45,6 +45,7 @@ use ruma::{
         client::{
             account::whoami,
             alias::{create_alias, delete_alias, get_alias},
+            authenticated_media,
             device::{delete_devices, get_devices, update_device},
             directory::{get_public_rooms, get_public_rooms_filtered},
             discovery::{
@@ -55,6 +56,7 @@ use ruma::{
             error::ErrorKind,
             filter::{create_filter::v3::Request as FilterUploadRequest, FilterDefinition},
             knock::knock_room,
+            media,
             membership::{join_room_by_id, join_room_by_id_or_alias},
             room::create_room,
             session::login::v3::DiscoveryInfo,
@@ -63,6 +65,7 @@ use ruma::{
             user_directory::search_users,
         },
         error::FromHttpResponseError,
+        federation::discovery::get_server_version,
         FeatureFlag, MatrixVersion, OutgoingRequest, SupportedVersions,
     },
     assign,
@@ -82,7 +85,7 @@ use crate::{
         matrix::MatrixAuth, oauth::OAuth, AuthCtx, AuthData, ReloadSessionCallback,
         SaveSessionCallback,
     },
-    config::RequestConfig,
+    config::{RequestConfig, SyncToken},
     deduplicating_handler::DeduplicatingHandler,
     error::HttpResult,
     event_cache::EventCache,
@@ -111,8 +114,12 @@ use crate::{
 mod builder;
 pub(crate) mod caches;
 pub(crate) mod futures;
+#[cfg(feature = "experimental-search")]
+pub(crate) mod search;
 
 pub use self::builder::{sanitize_server_name, ClientBuildError, ClientBuilder};
+#[cfg(feature = "experimental-search")]
+use crate::client::search::SearchIndex;
 
 #[cfg(not(target_family = "wasm"))]
 type NotificationHandlerFut = Pin<Box<dyn Future<Output = ()> + Send>>;
@@ -149,6 +156,16 @@ pub enum SessionChange {
     },
     /// The session's tokens have been refreshed.
     TokensRefreshed,
+}
+
+/// Information about the server vendor obtained from the federation API.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+pub struct ServerVendorInfo {
+    /// The server name.
+    pub server_name: String,
+    /// The server version.
+    pub version: String,
 }
 
 /// An async/await enabled Matrix client.
@@ -350,6 +367,10 @@ pub(crate) struct ClientInner {
     ///
     /// [`LatestEvent`]: crate::latest_event::LatestEvent
     latest_events: OnceCell<LatestEvents>,
+
+    #[cfg(feature = "experimental-search")]
+    /// Handler for [`RoomIndex`]'s of each room
+    search_index: SearchIndex,
 }
 
 impl ClientInner {
@@ -374,6 +395,7 @@ impl ClientInner {
         #[cfg(feature = "e2e-encryption")] encryption_settings: EncryptionSettings,
         #[cfg(feature = "e2e-encryption")] enable_share_history_on_invite: bool,
         cross_process_store_locks_holder_name: String,
+        #[cfg(feature = "experimental-search")] search_index_handler: SearchIndex,
     ) -> Arc<Self> {
         let caches = ClientCaches {
             server_info: server_info.into(),
@@ -409,6 +431,8 @@ impl ClientInner {
             #[cfg(feature = "e2e-encryption")]
             enable_share_history_on_invite,
             server_max_upload_size: Mutex::new(OnceCell::new()),
+            #[cfg(feature = "experimental-search")]
+            search_index: search_index_handler,
         };
 
         #[allow(clippy::let_and_return)]
@@ -519,6 +543,38 @@ impl Client {
     pub async fn get_capabilities(&self) -> HttpResult<Capabilities> {
         let res = self.send(get_capabilities::v3::Request::new()).await?;
         Ok(res.capabilities)
+    }
+
+    /// Get the server vendor information from the federation API.
+    ///
+    /// This method calls the `/_matrix/federation/v1/version` endpoint to get
+    /// both the server's software name and version.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # use matrix_sdk::Client;
+    /// # use url::Url;
+    /// # async {
+    /// # let homeserver = Url::parse("http://example.com")?;
+    /// let client = Client::new(homeserver).await?;
+    ///
+    /// let server_info = client.server_vendor_info().await?;
+    /// println!(
+    ///     "Server: {}, Version: {}",
+    ///     server_info.server_name, server_info.version
+    /// );
+    /// # anyhow::Ok(()) };
+    /// ```
+    pub async fn server_vendor_info(&self) -> HttpResult<ServerVendorInfo> {
+        let res = self.send(get_server_version::v1::Request::new()).await?;
+
+        // Extract server info, using defaults if fields are missing.
+        let server = res.server.unwrap_or_default();
+        let server_name_str = server.name.unwrap_or_else(|| "unknown".to_owned());
+        let version = server.version.unwrap_or_else(|| "unknown".to_owned());
+
+        Ok(ServerVendorInfo { server_name: server_name_str, version })
     }
 
     /// Get a copy of the default request config.
@@ -1165,29 +1221,17 @@ impl Client {
 
     /// Returns the joined rooms this client knows about.
     pub fn joined_rooms(&self) -> Vec<Room> {
-        self.base_client()
-            .rooms_filtered(RoomStateFilter::JOINED)
-            .into_iter()
-            .map(|room| Room::new(self.clone(), room))
-            .collect()
+        self.rooms_filtered(RoomStateFilter::JOINED)
     }
 
     /// Returns the invited rooms this client knows about.
     pub fn invited_rooms(&self) -> Vec<Room> {
-        self.base_client()
-            .rooms_filtered(RoomStateFilter::INVITED)
-            .into_iter()
-            .map(|room| Room::new(self.clone(), room))
-            .collect()
+        self.rooms_filtered(RoomStateFilter::INVITED)
     }
 
     /// Returns the left rooms this client knows about.
     pub fn left_rooms(&self) -> Vec<Room> {
-        self.base_client()
-            .rooms_filtered(RoomStateFilter::LEFT)
-            .into_iter()
-            .map(|room| Room::new(self.clone(), room))
-            .collect()
+        self.rooms_filtered(RoomStateFilter::LEFT)
     }
 
     /// Get a room with the given room id.
@@ -2304,9 +2348,15 @@ impl Client {
             error!(error = ?e, "Error while sending outgoing E2EE requests");
         }
 
+        let token = match sync_settings.token {
+            SyncToken::Specific(token) => Some(token),
+            SyncToken::NoToken => None,
+            SyncToken::ReusePrevious => self.sync_token().await,
+        };
+
         let request = assign!(sync_events::v3::Request::new(), {
             filter: sync_settings.filter.map(|f| *f),
-            since: sync_settings.token,
+            since: token,
             full_state: sync_settings.full_state,
             set_presence: sync_settings.set_presence,
             timeout: sync_settings.timeout,
@@ -2604,10 +2654,6 @@ impl Client {
         let mut timeout = None;
         let mut last_sync_time: Option<Instant> = None;
 
-        if sync_settings.token.is_none() {
-            sync_settings.token = self.sync_token().await;
-        }
-
         let parent_span = Span::current();
 
         async_stream::stream!({
@@ -2713,6 +2759,8 @@ impl Client {
                 #[cfg(feature = "e2e-encryption")]
                 self.inner.enable_share_history_on_invite,
                 cross_process_store_locks_holder_name,
+                #[cfg(feature = "experimental-search")]
+                self.inner.search_index.clone(),
             )
             .await,
         };
@@ -2792,12 +2840,22 @@ impl Client {
             return Ok(data.to_owned());
         }
 
-        let response = self
-            .send(ruma::api::client::authenticated_media::get_media_config::v1::Request::default())
-            .await?;
+        // Use the authenticated endpoint when the server supports it.
+        let supported_versions = self.supported_versions().await?;
+        let use_auth =
+            authenticated_media::get_media_config::v1::Request::is_supported(&supported_versions);
 
-        match max_upload_size_lock.set(response.upload_size) {
-            Ok(_) => Ok(response.upload_size),
+        let upload_size = if use_auth {
+            self.send(authenticated_media::get_media_config::v1::Request::default())
+                .await?
+                .upload_size
+        } else {
+            #[allow(deprecated)]
+            self.send(media::get_media_config::v3::Request::default()).await?.upload_size
+        };
+
+        match max_upload_size_lock.set(upload_size) {
+            Ok(_) => Ok(upload_size),
             Err(error) => {
                 Err(Error::Media(MediaError::FetchMaxUploadSizeFailed(error.to_string())))
             }
@@ -2808,6 +2866,11 @@ impl Client {
     #[cfg(feature = "e2e-encryption")]
     pub fn decryption_settings(&self) -> &DecryptionSettings {
         &self.base_client().decryption_settings
+    }
+
+    #[cfg(feature = "experimental-search")]
+    pub(crate) fn search_index(&self) -> &SearchIndex {
+        &self.inner.search_index
     }
 
     /// Whether the client is configured to take thread subscriptions (MSC4306
@@ -2978,7 +3041,6 @@ pub(crate) mod tests {
 
     use super::Client;
     use crate::{
-        assert_let_timeout,
         client::{futures::SendMediaUploadRequest, WeakClient},
         config::{RequestConfig, SyncSettings},
         futures::SendRequest,
@@ -3803,13 +3865,64 @@ pub(crate) mod tests {
     }
 
     #[async_test]
-    async fn test_load_or_fetch_max_upload_size() {
+    async fn test_load_or_fetch_max_upload_size_with_auth_matrix_version() {
+        // The default Matrix version we use is 1.11 or higher, so authenticated media
+        // is supported.
         let server = MatrixMockServer::new().await;
         let client = server.client_builder().build().await;
 
         assert!(!client.inner.server_max_upload_size.lock().await.initialized());
 
         server.mock_authenticated_media_config().ok(uint!(2)).mock_once().mount().await;
+        client.load_or_fetch_max_upload_size().await.unwrap();
+
+        assert_eq!(*client.inner.server_max_upload_size.lock().await.get().unwrap(), uint!(2));
+    }
+
+    #[async_test]
+    async fn test_load_or_fetch_max_upload_size_with_auth_stable_feature() {
+        // The server must advertise support for the stable feature for authenticated
+        // media support, so we mock the `GET /versions` response.
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().no_server_versions().build().await;
+
+        server
+            .mock_versions()
+            .ok_custom(
+                &["v1.7", "v1.8", "v1.9", "v1.10"],
+                &[("org.matrix.msc3916.stable", true)].into(),
+            )
+            .named("versions")
+            .expect(1)
+            .mount()
+            .await;
+
+        assert!(!client.inner.server_max_upload_size.lock().await.initialized());
+
+        server.mock_authenticated_media_config().ok(uint!(2)).mock_once().mount().await;
+        client.load_or_fetch_max_upload_size().await.unwrap();
+
+        assert_eq!(*client.inner.server_max_upload_size.lock().await.get().unwrap(), uint!(2));
+    }
+
+    #[async_test]
+    async fn test_load_or_fetch_max_upload_size_no_auth() {
+        // The server must not support Matrix 1.11 or higher for unauthenticated
+        // media requests, so we mock the `GET /versions` response.
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().no_server_versions().build().await;
+
+        server
+            .mock_versions()
+            .ok_custom(&["v1.1"], &Default::default())
+            .named("versions")
+            .expect(1)
+            .mount()
+            .await;
+
+        assert!(!client.inner.server_max_upload_size.lock().await.initialized());
+
+        server.mock_media_config().ok(uint!(2)).mock_once().mount().await;
         client.load_or_fetch_max_upload_size().await.unwrap();
 
         assert_eq!(*client.inner.server_max_upload_size.lock().await.get().unwrap(), uint!(2));
@@ -3857,7 +3970,12 @@ pub(crate) mod tests {
 
         // Call the endpoint once to check the timeout.
         let mut stream = Box::pin(client.sync_stream(SyncSettings::new()).await);
-        assert_let_timeout!(Some(Ok(_)) = stream.next());
+
+        timeout(Duration::from_secs(1), async {
+            stream.next().await.unwrap().unwrap();
+        })
+        .await
+        .unwrap();
     }
 
     #[async_test]
@@ -3886,7 +4004,12 @@ pub(crate) mod tests {
         let mut stream = Box::pin(
             client.sync_stream(SyncSettings::new().ignore_timeout_on_first_sync(true)).await,
         );
-        assert_let_timeout!(Some(Ok(_)) = stream.next());
-        assert_let_timeout!(Some(Ok(_)) = stream.next());
+
+        timeout(Duration::from_secs(1), async {
+            stream.next().await.unwrap().unwrap();
+            stream.next().await.unwrap().unwrap();
+        })
+        .await
+        .unwrap();
     }
 }

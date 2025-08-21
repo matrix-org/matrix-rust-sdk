@@ -29,7 +29,7 @@ use mime::Mime;
 use ruma::{
     api::{
         client::{authenticated_media, error::ErrorKind, media},
-        FeatureFlag, MatrixVersion,
+        OutgoingRequest,
     },
     assign,
     events::room::{MediaSource, ThumbnailInfo},
@@ -441,18 +441,10 @@ impl Media {
             // available for the user or the file size
             .timeout(None);
 
-        // Use the authenticated endpoints when the server supports Matrix 1.11 or the
-        // authenticated media stable feature.
-        let (use_auth, request_config) =
-            if self.client.server_versions().await?.contains(&MatrixVersion::V1_11) {
-                (true, request_config)
-            } else if self.client.unstable_features().await?.contains(&FeatureFlag::Msc3916Stable) {
-                // We need to force the use of the stable endpoint with the Matrix version
-                // because Ruma does not handle stable features.
-                (true, request_config.force_matrix_version(MatrixVersion::V1_11))
-            } else {
-                (false, request_config)
-            };
+        // Use the authenticated endpoints when the server supports it.
+        let supported_versions = self.client.supported_versions().await?;
+        let use_auth =
+            authenticated_media::get_content::v1::Request::is_supported(&supported_versions);
 
         let content: Vec<u8> = match &request.source {
             MediaSource::Encrypted(file) => {
@@ -463,7 +455,7 @@ impl Media {
                 } else {
                     #[allow(deprecated)]
                     let request = media::get_content::v3::Request::from_url(&file.url)?;
-                    self.client.send(request).await?.file
+                    self.client.send(request).with_request_config(request_config).await?.file
                 };
 
                 #[cfg(feature = "e2e-encryption")]
@@ -513,7 +505,7 @@ impl Media {
                             request
                         };
 
-                        self.client.send(request).await?.file
+                        self.client.send(request).with_request_config(request_config).await?.file
                     }
                 } else if use_auth {
                     let request = authenticated_media::get_content::v1::Request::from_uri(uri)?;
@@ -521,7 +513,7 @@ impl Media {
                 } else {
                     #[allow(deprecated)]
                     let request = media::get_content::v3::Request::from_url(uri)?;
-                    self.client.send(request).await?.file
+                    self.client.send(request).with_request_config(request_config).await?.file
                 }
             }
         };

@@ -8,6 +8,9 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
+- Add `Room::enable_encryption_with_state` to enable E2E encryption with encrypted state event
+  support, gated behind the `experimental-encrypted-state-events` feature.
+  ([#5557](https://github.com/matrix-org/matrix-rust-sdk/pull/5557))
 - Add `ignore_timeout_on_first_sync` to the `SyncSettings`, which should allow to have a quicker
   first response when using one of the `sync`, `sync_with_callback`, `sync_with_result_callback`
   or `sync_stream` methods on `Client`, if the response is empty.
@@ -20,7 +23,7 @@ All notable changes to this project will be documented in this file.
   [MSC4306](https://github.com/matrix-org/matrix-spec-proposals/pull/4306), with the
   `Room::fetch_thread_subscription()`, `Room::subscribe_thread()` and `Room::unsubscribe_thread()`
   methods.
-  ([#5442](https://github.com/matrix-org/matrix-rust-sdk/pull/5442))
+  ([#5439](https://github.com/matrix-org/matrix-rust-sdk/pull/5439))
 - [**breaking**] `RoomMemberRole` has a new `Creator` variant, that
   differentiates room creators with infinite power levels, as introduced in room
   version 12.
@@ -38,6 +41,8 @@ All notable changes to this project will be documented in this file.
 
 ### Refactor
 
+- [**breaking**] `SyncSettings` token is now `SyncToken` enum type which has default behaviour of `SyncToken::ReusePrevious` token. This breaks `Client::sync_once`.
+  For old behaviour, set the token to `SyncToken::NoToken` with the usual `SyncSettings::token` setter.
 - [**breaking**] Change the upload_encrypted_file and make it clone the client instead of owning it. The lifetime of the `UploadEncryptedFile` request returned by `Client::upload_encrypted_file()` only depends on the request lifetime now.
 - [**breaking**] Add an `IsPrefix = False` bound to the `account_data()` and
   `fetch_account_data_static()` methods of `Account`. These methods only worked

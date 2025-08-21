@@ -18,7 +18,11 @@ use assert_matches::assert_matches;
 use assert_matches2::assert_let;
 use eyeball_im::VectorDiff;
 use futures_util::StreamExt;
-use matrix_sdk::{Error, config::SyncSettings, test_utils::logged_in_client_with_server};
+use matrix_sdk::{
+    Error,
+    config::{SyncSettings, SyncToken},
+    test_utils::logged_in_client_with_server,
+};
 use matrix_sdk_base::store::QueueWedgeError;
 use matrix_sdk_test::{
     ALICE, JoinedRoomBuilder, SyncResponseBuilder, async_test, event_factory::EventFactory,
@@ -314,7 +318,8 @@ async fn test_reloaded_failed_local_echoes_are_marked_as_failed() {
 async fn test_clear_with_echoes() {
     let room_id = room_id!("!a98sd12bjh:example.org");
     let (client, server) = logged_in_client_with_server().await;
-    let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
+    let sync_settings =
+        SyncSettings::new().timeout(Duration::from_millis(3000)).token(SyncToken::NoToken);
 
     let f = EventFactory::new();
     let mut sync_builder = SyncResponseBuilder::new();
@@ -379,7 +384,10 @@ async fn test_clear_with_echoes() {
     // The message that failed to send.
     assert_matches!(event_items[1].send_state(), Some(EventSendState::SendingFailed { .. }));
     // The message that is still pending.
-    assert_matches!(event_items[2].send_state(), Some(EventSendState::NotSentYet));
+    assert_matches!(
+        event_items[2].send_state(),
+        Some(EventSendState::NotSentYet { progress: None })
+    );
 
     // When we clear the timeline now,
     timeline.clear().await;
@@ -390,14 +398,18 @@ async fn test_clear_with_echoes() {
 
     assert_eq!(event_items.len(), 2);
     assert_matches!(event_items[0].send_state(), Some(EventSendState::SendingFailed { .. }));
-    assert_matches!(event_items[1].send_state(), Some(EventSendState::NotSentYet));
+    assert_matches!(
+        event_items[1].send_state(),
+        Some(EventSendState::NotSentYet { progress: None })
+    );
 }
 
 #[async_test]
 async fn test_no_duplicate_date_divider() {
     let room_id = room_id!("!a98sd12bjh:example.org");
     let (client, server) = logged_in_client_with_server().await;
-    let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
+    let sync_settings =
+        SyncSettings::new().timeout(Duration::from_millis(3000)).token(SyncToken::NoToken);
 
     let mut sync_response_builder = SyncResponseBuilder::new();
     sync_response_builder.add_joined_room(JoinedRoomBuilder::new(room_id));

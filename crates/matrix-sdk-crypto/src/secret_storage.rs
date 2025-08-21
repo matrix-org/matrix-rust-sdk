@@ -585,6 +585,12 @@ impl SecretStorageKey {
     }
 }
 
+impl Default for SecretStorageKey {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[cfg(test)]
 mod test {
     use assert_matches::assert_matches;

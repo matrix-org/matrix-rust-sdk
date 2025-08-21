@@ -256,6 +256,10 @@ macro_rules! assert_decrypted_message_eq {
             .deserialize()
             .expect("We should be able to deserialize the decrypted event");
 
+        assert_matches2::assert_let!(
+            $crate::ruma::events::AnyTimelineEvent::MessageLike(deserialized_event) = deserialized_event
+        );
+
         let content =
             deserialized_event.original_content().expect("The event should not have been redacted");
         assert_matches2::assert_let!($crate::ruma::events::AnyMessageLikeEventContent::RoomMessage(content) = content);

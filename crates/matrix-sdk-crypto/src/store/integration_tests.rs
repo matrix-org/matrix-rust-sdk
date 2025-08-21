@@ -1163,6 +1163,8 @@ macro_rules! cryptostore_integration_tests {
                 let room_1 = room_id!("!test_1:localhost");
                 let settings_1 = RoomSettings {
                     algorithm: EventEncryptionAlgorithm::MegolmV1AesSha2,
+                    #[cfg(feature = "experimental-encrypted-state-events")]
+                    encrypt_state_events: false,
                     only_allow_trusted_devices: true,
                     session_rotation_period: Some(Duration::from_secs(10)),
                     session_rotation_period_messages: Some(123),

@@ -150,8 +150,9 @@ impl KeyQueryResponseTemplate {
     /// calculated.
     ///
     /// The device can optionally be signed by the self-signing key by calling
-    /// [`KeyResponseTemplateDeviceOptions::verified(true)`] on the `options`
-    /// object.
+    /// [`KeyQueryResponseTemplateDeviceOptions::new().
+    /// verified(true)`](KeyQueryResponseTemplateDeviceOptions::verified) on the
+    /// `options` object.
     pub fn with_device(
         mut self,
         device_id: &DeviceId,

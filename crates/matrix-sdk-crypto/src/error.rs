@@ -133,6 +133,12 @@ pub enum MegolmError {
     /// The nested value is the sender's current verification level.
     #[error("decryption failed because trust requirement not satisfied: {0}")]
     SenderIdentityNotTrusted(VerificationLevel),
+
+    /// The outer state key could not be verified against the inner encrypted
+    /// state key and type.
+    #[cfg(feature = "experimental-encrypted-state-events")]
+    #[error("decryption failed because the state key failed to validate")]
+    StateKeyVerificationFailed,
 }
 
 /// Decryption failed because of a mismatch between the identity keys of the

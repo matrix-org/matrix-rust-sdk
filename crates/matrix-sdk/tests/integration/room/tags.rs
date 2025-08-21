@@ -1,6 +1,9 @@
 use std::{collections::BTreeMap, ops::Not, time::Duration};
 
-use matrix_sdk::{config::SyncSettings, Client, Room};
+use matrix_sdk::{
+    config::{SyncSettings, SyncToken},
+    Client, Room,
+};
 use matrix_sdk_test::{
     async_test, test_json, JoinedRoomBuilder, RoomAccountDataTestEvent, SyncResponseBuilder,
 };
@@ -61,7 +64,8 @@ async fn mock_sync_with_tags(
 }
 
 async fn sync_once(client: &Client, server: &MockServer) {
-    let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
+    let sync_settings =
+        SyncSettings::new().timeout(Duration::from_millis(3000)).token(SyncToken::NoToken);
     client.sync_once(sync_settings).await.unwrap();
     server.reset().await;
 }

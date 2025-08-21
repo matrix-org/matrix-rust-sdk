@@ -32,8 +32,9 @@ use stream_assert::{assert_next_matches, assert_pending};
 
 use super::{ReadReceiptMap, TestRoomDataProvider};
 use crate::timeline::{
-    MsgLikeContent, MsgLikeKind, TimelineFocus, controller::TimelineSettings,
-    tests::TestTimelineBuilder,
+    MsgLikeContent, MsgLikeKind, TimelineFocus,
+    controller::TimelineSettings,
+    tests::{TestDecryptor, TestTimelineBuilder},
 };
 
 fn filter_notice(ev: &AnySyncTimelineEvent, _rules: &RoomVersionRules) -> bool {
@@ -412,12 +413,19 @@ async fn test_read_receipts_updates_on_message_decryption() {
         HztoSJUr/2Y\n\
         -----END MEGOLM SESSION DATA-----";
 
+    let own_user_id = user_id!("@example:morheus.localhost");
+    let olm_machine = OlmMachine::new(own_user_id, "SomeDeviceId".into()).await;
+
     let timeline = TestTimelineBuilder::new()
         .settings(TimelineSettings {
             track_read_receipts: true,
             event_filter: Arc::new(filter_text_msg),
             ..Default::default()
         })
+        .provider(TestRoomDataProvider::default().with_decryptor(TestDecryptor::new(
+            room_id!("!DovneieKSTkdHKpIXy:morpheus.localhost"),
+            &olm_machine,
+        )))
         .build();
     let mut stream = timeline.subscribe().await;
 
@@ -480,19 +488,13 @@ async fn test_read_receipts_updates_on_message_decryption() {
     assert!(encrypted_event.read_receipts().get(*BOB).is_some());
 
     // Decrypt encrypted message.
-    let own_user_id = user_id!("@example:morheus.localhost");
     let exported_keys = decrypt_room_key_export(Cursor::new(SESSION_KEY), "1234").unwrap();
 
-    let olm_machine = OlmMachine::new(own_user_id, "SomeDeviceId".into()).await;
     olm_machine.store().import_exported_room_keys(exported_keys, |_, _| {}).await.unwrap();
 
     timeline
         .controller
-        .retry_event_decryption_test(
-            room_id!("!DovneieKSTkdHKpIXy:morpheus.localhost"),
-            olm_machine,
-            Some(iter::once(SESSION_ID.to_owned()).collect()),
-        )
+        .retry_event_decryption_test(Some(iter::once(SESSION_ID.to_owned()).collect()))
         .await;
 
     // The first event now has both receipts.
@@ -825,4 +827,75 @@ async fn test_threaded_latest_user_read_receipt() {
         timeline.controller.latest_user_read_receipt(*BOB).await.unwrap();
     assert_eq!(receipt_event_id, event_id!("$3"));
     assert_eq!(receipt.thread, receipt_thread);
+}
+
+#[async_test]
+async fn test_unthreaded_client_updates_threaded_read_receipts() {
+    let timeline = TestTimelineBuilder::new()
+        .settings(TimelineSettings { track_read_receipts: true, ..Default::default() })
+        .focus(TimelineFocus::Live { hide_threaded_events: true })
+        .build();
+    let mut stream = timeline.subscribe().await;
+
+    let event_b = event_id!("$event_b");
+
+    // Alice sends 2 messages
+    let f = &timeline.factory;
+    timeline.handle_live_event(f.text_msg("A").sender(*ALICE)).await;
+    timeline.handle_live_event(f.text_msg("B").sender(*ALICE).event_id(event_b)).await;
+
+    assert_next_matches!(stream, VectorDiff::PushBack { .. });
+    assert_next_matches!(stream, VectorDiff::PushFront { .. });
+    assert_next_matches!(stream, VectorDiff::PushBack { .. });
+    assert_pending!(stream);
+
+    // Bob reads the last one from an unthreaded client
+    timeline
+        .handle_read_receipts([(
+            event_b.to_owned(),
+            ReceiptType::Read,
+            BOB.to_owned(),
+            ReceiptThread::Unthreaded,
+        )])
+        .await;
+
+    // Alice's timeline gets updated
+    let item_b = assert_next_matches!(stream, VectorDiff::Set { index: 2, value } => value);
+    let event_b = item_b.as_event().unwrap();
+    assert_eq!(event_b.read_receipts().len(), 1);
+    assert!(event_b.read_receipts().get(*BOB).is_some());
+    assert_pending!(stream);
+
+    // Then Alice sends a message in a thread
+    let event_c = event_id!("$event_c");
+    let thread_event_id = event_id!("$thread");
+
+    timeline
+        .handle_live_event(
+            f.text_msg("C")
+                .sender(*ALICE)
+                .event_id(event_c)
+                .in_thread(thread_event_id, event_id!("$latest")),
+        )
+        .await;
+
+    // Alice is using a threaded client so the main timeline shouldn't change
+    assert_pending!(stream);
+
+    // Bob reads the threaded message
+    timeline
+        .handle_read_receipts([(
+            event_c.to_owned(),
+            ReceiptType::Read,
+            BOB.to_owned(),
+            ReceiptThread::Thread(thread_event_id.to_owned()),
+        )])
+        .await;
+
+    // The main timeline read receipts are still correct
+    let event_b = timeline.controller.items().await[2].as_event().unwrap().to_owned();
+    assert_eq!(event_b.read_receipts().len(), 1);
+    assert!(event_b.read_receipts().get(*BOB).is_some());
+
+    assert_pending!(stream);
 }

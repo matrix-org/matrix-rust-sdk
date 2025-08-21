@@ -68,7 +68,8 @@ pub mod widget;
 pub use account::Account;
 pub use authentication::{AuthApi, AuthSession, SessionTokens};
 pub use client::{
-    sanitize_server_name, Client, ClientBuildError, ClientBuilder, LoopCtrl, SessionChange,
+    sanitize_server_name, Client, ClientBuildError, ClientBuilder, LoopCtrl, ServerVendorInfo,
+    SessionChange,
 };
 pub use error::{
     Error, HttpError, HttpResult, NotificationSettingsError, RefreshTokenError, Result,
@@ -98,4 +99,4 @@ pub mod live_location_share;
 pub mod test_utils;
 
 #[cfg(test)]
-matrix_sdk_test::init_tracing_for_tests!();
+matrix_sdk_test_utils::init_tracing_for_tests!();

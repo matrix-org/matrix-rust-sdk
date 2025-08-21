@@ -153,7 +153,8 @@ pub enum DecryptionError {
 
 /// A high-level API to manage secret storage.
 ///
-/// To get this, use [`Client::encryption()::secret_storage()`].
+/// To get this, use
+/// [`client.encryption().secret_storage()`](super::Encryption::secret_storage).
 #[derive(Debug)]
 pub struct SecretStorage {
     pub(super) client: Client,

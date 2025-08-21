@@ -1,7 +1,6 @@
 use ruma::{
-    OwnedRoomId, RoomId,
-    api::client::sync::sync_events::{StrippedState, v3::KnockedRoom},
-    serde::Raw,
+    OwnedRoomId, RoomId, api::client::sync::sync_events::v3::KnockedRoom,
+    events::AnyStrippedStateEvent, serde::Raw,
 };
 
 use super::StrippedStateTestEvent;
@@ -35,7 +34,7 @@ impl KnockedRoomBuilder {
     /// Add events to the state in bulk.
     pub fn add_state_bulk<I>(mut self, events: I) -> Self
     where
-        I: IntoIterator<Item = Raw<StrippedState>>,
+        I: IntoIterator<Item = Raw<AnyStrippedStateEvent>>,
     {
         self.inner.knock_state.events.extend(events);
         self

@@ -740,6 +740,36 @@ async fn test_room_message_send() {
     assert_eq!(event_id!("$h29iv0s8:example.com"), response.event_id)
 }
 
+#[cfg(feature = "experimental-search")]
+#[async_test]
+async fn test_sync_message_is_indexed() {
+    let mock_server = MatrixMockServer::new().await;
+    let client = mock_server.client_builder().build().await;
+
+    client.event_cache().subscribe().unwrap();
+
+    let room_id = room_id!("!room_id:localhost");
+    let event_id = event_id!("$event_id:localost");
+    let user_id = user_id!("@user_id:localost");
+
+    let event_factory = EventFactory::new();
+    let room = mock_server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id).add_timeline_bulk(vec![event_factory
+                .text_msg("this is a sentence")
+                .event_id(event_id)
+                .sender(user_id)
+                .into_raw_sync()]),
+        )
+        .await;
+
+    let response = room.search("this", 5).await.expect("search should have 1 result");
+
+    assert_eq!(response.len(), 1, "unexpected numbers of responses: {response:?}");
+    assert_eq!(response[0], event_id, "event id doesn't match: {response:?}");
+}
+
 #[async_test]
 async fn test_room_redact() {
     let server = MatrixMockServer::new().await;
@@ -1085,6 +1115,35 @@ async fn test_enable_encryption_doesnt_stay_unknown() {
 
     assert!(room.latest_encryption_state().await.unwrap().is_encrypted());
     assert_matches!(room.encryption_state(), EncryptionState::Encrypted);
+}
+
+#[cfg(feature = "experimental-encrypted-state-events")]
+#[async_test]
+async fn test_enable_state_encryption_doesnt_stay_unknown() {
+    let mock = MatrixMockServer::new().await;
+    let client = mock.client_builder().build().await;
+
+    let room_id = room_id!("!a:b.c");
+    let room = mock.sync_joined_room(&client, room_id).await;
+
+    assert_matches!(room.encryption_state(), EncryptionState::Unknown);
+
+    mock.mock_room_state_encryption().plain().mount().await;
+    mock.mock_set_room_state_encryption().ok(event_id!("$1")).mount().await;
+
+    assert_matches!(room.latest_encryption_state().await.unwrap(), EncryptionState::NotEncrypted);
+
+    room.enable_encryption_with_state_event_encryption()
+        .await
+        .expect("enabling encryption should work");
+
+    mock.verify_and_reset().await;
+    mock.mock_room_state_encryption().state_encrypted().mount().await;
+
+    assert_matches!(room.encryption_state(), EncryptionState::Unknown);
+
+    assert!(room.latest_encryption_state().await.unwrap().is_state_encrypted());
+    assert_matches!(room.encryption_state(), EncryptionState::StateEncrypted);
 }
 
 #[async_test]

@@ -206,10 +206,8 @@ pub mod sync {
 pub mod stripped {
     use std::{collections::BTreeMap, iter};
 
-    use ruma::{
-        api::client::sync::sync_events::StrippedState, events::AnyStrippedStateEvent, push::Action,
-    };
-    use tracing::{instrument, warn};
+    use ruma::{events::AnyStrippedStateEvent, push::Action};
+    use tracing::instrument;
 
     use super::{
         super::{notification, timeline},
@@ -217,20 +215,11 @@ pub mod stripped {
     };
     use crate::{Result, Room, RoomInfo};
 
-    /// Collect [`Raw<StrippedState>`] to [`AnyStrippedStateEvent`].
+    /// Collect [`Raw<AnyStrippedStateEvent>`] to [`AnyStrippedStateEvent`].
     pub fn collect(
-        raw_events: &[Raw<StrippedState>],
-    ) -> (Vec<Raw<StrippedState>>, Vec<AnyStrippedStateEvent>) {
-        raw_events
-            .iter()
-            .filter_map(|raw_event| match raw_event.deserialize_as() {
-                Ok(event) => Some((raw_event.clone(), event)),
-                Err(e) => {
-                    warn!("Couldn't deserialize stripped state event: {e}");
-                    None
-                }
-            })
-            .unzip()
+        raw_events: &[Raw<AnyStrippedStateEvent>],
+    ) -> (Vec<Raw<AnyStrippedStateEvent>>, Vec<AnyStrippedStateEvent>) {
+        super::collect(raw_events)
     }
 
     /// Dispatch the stripped state events.
@@ -252,7 +241,7 @@ pub mod stripped {
     #[instrument(skip_all, fields(room_id = ?room_info.room_id))]
     pub(crate) async fn dispatch_invite_or_knock(
         context: &mut Context,
-        (raw_events, events): (&[Raw<StrippedState>], &[AnyStrippedStateEvent]),
+        (raw_events, events): (&[Raw<AnyStrippedStateEvent>], &[AnyStrippedStateEvent]),
         room: &Room,
         room_info: &mut RoomInfo,
         mut notification: notification::Notification<'_>,

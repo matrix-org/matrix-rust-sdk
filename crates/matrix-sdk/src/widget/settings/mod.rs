@@ -13,7 +13,10 @@
 // limitations under the License.
 
 use language_tags::LanguageTag;
-use ruma::{api::client::profile::get_profile, DeviceId, RoomId, UserId};
+use ruma::{
+    api::client::profile::{get_profile, AvatarUrl, DisplayName},
+    DeviceId, RoomId, UserId,
+};
 use url::Url;
 
 use crate::Room;
@@ -110,12 +113,17 @@ impl WidgetSettings {
         homeserver_url: Url,
         client_props: ClientProperties,
     ) -> Result<Url, url::ParseError> {
-        let avatar_url = profile.avatar_url.map(|url| url.to_string()).unwrap_or_default();
+        let avatar_url = profile
+            .get_static::<AvatarUrl>()
+            .ok()
+            .flatten()
+            .map(|url| url.to_string())
+            .unwrap_or_default();
 
         let query_props = url_params::QueryProperties {
             widget_id: self.widget_id.clone(),
             avatar_url,
-            display_name: profile.displayname.unwrap_or_default(),
+            display_name: profile.get_static::<DisplayName>().ok().flatten().unwrap_or_default(),
             user_id: user_id.into(),
             room_id: room_id.into(),
             language: client_props.language.to_string(),

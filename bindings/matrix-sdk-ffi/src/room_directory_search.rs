@@ -155,11 +155,6 @@ impl RoomDirectorySearch {
     }
 }
 
-#[derive(uniffi::Record)]
-pub struct RoomDirectorySearchEntriesResult {
-    pub entries_stream: Arc<TaskHandle>,
-}
-
 #[derive(uniffi::Enum)]
 pub enum RoomDirectorySearchEntryUpdate {
     Append { values: Vec<RoomDescription> },

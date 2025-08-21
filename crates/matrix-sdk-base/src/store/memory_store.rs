@@ -23,11 +23,10 @@ use matrix_sdk_common::{ROOM_VERSION_FALLBACK, ROOM_VERSION_RULES_FALLBACK};
 use ruma::{
     CanonicalJsonObject, EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedMxcUri,
     OwnedRoomId, OwnedTransactionId, OwnedUserId, RoomId, TransactionId, UserId,
-    api::client::sync::sync_events::StrippedState,
     canonical_json::{RedactedBecause, redact},
     events::{
-        AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent, AnySyncStateEvent,
-        GlobalAccountDataEventType, RoomAccountDataEventType, StateEventType,
+        AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent, AnyStrippedStateEvent,
+        AnySyncStateEvent, GlobalAccountDataEventType, RoomAccountDataEventType, StateEventType,
         presence::PresenceEvent,
         receipt::{Receipt, ReceiptThread, ReceiptType},
         room::member::{MembershipState, StrippedRoomMemberEvent, SyncRoomMemberEvent},
@@ -69,7 +68,7 @@ struct MemoryStoreInner {
     room_account_data:
         HashMap<OwnedRoomId, HashMap<RoomAccountDataEventType, Raw<AnyRoomAccountDataEvent>>>,
     stripped_room_state:
-        HashMap<OwnedRoomId, HashMap<StateEventType, HashMap<String, Raw<StrippedState>>>>,
+        HashMap<OwnedRoomId, HashMap<StateEventType, HashMap<String, Raw<AnyStrippedStateEvent>>>>,
     stripped_members: HashMap<OwnedRoomId, HashMap<OwnedUserId, MembershipState>>,
     presence: HashMap<OwnedUserId, Raw<PresenceEvent>>,
     room_user_receipts: HashMap<

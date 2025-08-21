@@ -5,7 +5,7 @@ use eyeball_im::VectorDiff;
 use futures_util::FutureExt;
 use matrix_sdk::{
     authentication::oauth::{error::OAuthTokenRevocationError, OAuthError},
-    config::{RequestConfig, StoreConfig, SyncSettings},
+    config::{RequestConfig, StoreConfig, SyncSettings, SyncToken},
     store::RoomLoadSettings,
     sync::{RoomUpdate, State},
     test_utils::{
@@ -942,7 +942,8 @@ async fn test_test_ambiguity_changes() {
 
     // Initial sync, adds 2 members.
     mock_sync(&server, &*test_json::SYNC, None).await;
-    let response = client.sync_once(SyncSettings::default()).await.unwrap();
+    let response =
+        client.sync_once(SyncSettings::default().token(SyncToken::NoToken)).await.unwrap();
     server.reset().await;
 
     let room = client.get_room(&DEFAULT_TEST_ROOM_ID).unwrap();
@@ -1015,7 +1016,8 @@ async fn test_test_ambiguity_changes() {
     sync_builder.add_joined_room(joined_room);
 
     mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
-    let response = client.sync_once(SyncSettings::default()).await.unwrap();
+    let response =
+        client.sync_once(SyncSettings::default().token(SyncToken::NoToken)).await.unwrap();
     server.reset().await;
 
     let changes = &response.rooms.joined.get(*DEFAULT_TEST_ROOM_ID).unwrap().ambiguity_changes;
@@ -1074,7 +1076,8 @@ async fn test_test_ambiguity_changes() {
     sync_builder.add_joined_room(joined_room);
 
     mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
-    let response = client.sync_once(SyncSettings::default()).await.unwrap();
+    let response =
+        client.sync_once(SyncSettings::default().token(SyncToken::NoToken)).await.unwrap();
     server.reset().await;
 
     let changes = &response.rooms.joined.get(*DEFAULT_TEST_ROOM_ID).unwrap().ambiguity_changes;
@@ -1120,7 +1123,8 @@ async fn test_test_ambiguity_changes() {
     sync_builder.add_joined_room(joined_room);
 
     mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
-    let response = client.sync_once(SyncSettings::default()).await.unwrap();
+    let response =
+        client.sync_once(SyncSettings::default().token(SyncToken::NoToken)).await.unwrap();
     server.reset().await;
 
     let changes = &response.rooms.joined.get(*DEFAULT_TEST_ROOM_ID).unwrap().ambiguity_changes;
@@ -1166,7 +1170,8 @@ async fn test_test_ambiguity_changes() {
     sync_builder.add_joined_room(joined_room);
 
     mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
-    let response = client.sync_once(SyncSettings::default()).await.unwrap();
+    let response =
+        client.sync_once(SyncSettings::default().token(SyncToken::NoToken)).await.unwrap();
     server.reset().await;
 
     let changes = &response.rooms.joined.get(*DEFAULT_TEST_ROOM_ID).unwrap().ambiguity_changes;
@@ -1212,7 +1217,8 @@ async fn test_test_ambiguity_changes() {
     sync_builder.add_joined_room(joined_room);
 
     mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
-    let response = client.sync_once(SyncSettings::default()).await.unwrap();
+    let response =
+        client.sync_once(SyncSettings::default().token(SyncToken::NoToken)).await.unwrap();
     server.reset().await;
 
     // Avatar change does not trigger ambiguity change.
@@ -1315,7 +1321,7 @@ async fn test_dms_are_processed_in_any_sync_response() {
     let json_response = sync_response_builder.build_json_sync_response();
 
     mock_sync(&server, json_response, None).await;
-    client.sync_once(SyncSettings::default()).await.unwrap();
+    client.sync_once(SyncSettings::default().token(SyncToken::NoToken)).await.unwrap();
     server.reset().await;
 
     let room_1 = client.get_room(room_id_1).unwrap();
@@ -1327,7 +1333,7 @@ async fn test_dms_are_processed_in_any_sync_response() {
     let json_response = sync_response_builder.build_json_sync_response();
 
     mock_sync(&server, json_response, None).await;
-    client.sync_once(SyncSettings::default()).await.unwrap();
+    client.sync_once(SyncSettings::default().token(SyncToken::NoToken)).await.unwrap();
     server.reset().await;
 
     let room_2 = client.get_room(room_id_2).unwrap();
@@ -1489,4 +1495,37 @@ async fn test_room_sync_state_after() {
 
     let member = room.get_member_no_sync(user_id!("@invited:localhost")).await.unwrap().unwrap();
     assert_eq!(*member.membership(), MembershipState::Leave);
+}
+
+#[async_test]
+async fn test_server_vendor_info() {
+    use matrix_sdk::test_utils::mocks::MatrixMockServer;
+
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+
+    // Mock the federation version endpoint
+    server.mock_federation_version().ok("Synapse", "1.70.0").mount().await;
+
+    let server_info = client.server_vendor_info().await.unwrap();
+
+    assert_eq!(server_info.server_name, "Synapse");
+    assert_eq!(server_info.version, "1.70.0");
+}
+
+#[async_test]
+async fn test_server_vendor_info_with_missing_fields() {
+    use matrix_sdk::test_utils::mocks::MatrixMockServer;
+
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+
+    // Mock the federation version endpoint with missing fields
+    server.mock_federation_version().ok_empty().mount().await;
+
+    let server_info = client.server_vendor_info().await.unwrap();
+
+    // Should use defaults for missing fields
+    assert_eq!(server_info.server_name, "unknown");
+    assert_eq!(server_info.version, "unknown");
 }

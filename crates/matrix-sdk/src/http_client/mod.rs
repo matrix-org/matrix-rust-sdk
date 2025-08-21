@@ -14,7 +14,6 @@
 
 use std::{
     any::type_name,
-    borrow::Cow,
     fmt::Debug,
     num::NonZeroUsize,
     sync::{
@@ -109,15 +108,6 @@ impl HttpClient {
     {
         trace!(request_type = type_name::<R>(), "Serializing request");
 
-        let supported_versions = if let Some(matrix_version) = config.force_matrix_version {
-            Cow::Owned(SupportedVersions {
-                versions: [matrix_version].into(),
-                features: Default::default(),
-            })
-        } else {
-            Cow::Borrowed(supported_versions)
-        };
-
         let send_access_token = match access_token {
             Some(access_token) => {
                 if config.force_auth {
@@ -130,7 +120,7 @@ impl HttpClient {
         };
 
         let request = request
-            .try_into_http_request::<BytesMut>(&homeserver, send_access_token, &supported_versions)?
+            .try_into_http_request::<BytesMut>(&homeserver, send_access_token, supported_versions)?
             .map(|body| body.freeze());
 
         Ok(request)

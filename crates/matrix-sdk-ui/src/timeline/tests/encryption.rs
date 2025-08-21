@@ -53,7 +53,7 @@ use super::TestTimeline;
 use crate::{
     timeline::{
         EncryptedMessage, MsgLikeContent, MsgLikeKind, TimelineDetails, TimelineItemContent,
-        tests::{TestRoomDataProvider, TestTimelineBuilder},
+        tests::{TestDecryptor, TestRoomDataProvider, TestTimelineBuilder},
     },
     unable_to_decrypt_hook::{UnableToDecryptHook, UnableToDecryptInfo, UtdHookManager},
 };
@@ -90,7 +90,17 @@ async fn test_retry_message_decryption() {
     let client = test_client_builder(None).build().await.unwrap();
     let utd_hook = Arc::new(UtdHookManager::new(hook.clone(), client));
 
-    let timeline = TestTimelineBuilder::new().unable_to_decrypt_hook(utd_hook.clone()).build();
+    let own_user_id = user_id!("@example:morheus.localhost");
+    let olm_machine = OlmMachine::new(own_user_id, "SomeDeviceId".into()).await;
+
+    let timeline = TestTimelineBuilder::new()
+        .unable_to_decrypt_hook(utd_hook.clone())
+        .provider(TestRoomDataProvider::default().with_decryptor(TestDecryptor::new(
+            room_id!("!DovneieKSTkdHKpIXy:morpheus.localhost"),
+            &olm_machine,
+        )))
+        .build();
+
     let mut stream = timeline.subscribe().await;
 
     let f = &timeline.factory;
@@ -146,19 +156,13 @@ async fn test_retry_message_decryption() {
         assert!(utds[0].time_to_decrypt.is_none());
     }
 
-    let own_user_id = user_id!("@example:morheus.localhost");
     let exported_keys = decrypt_room_key_export(Cursor::new(SESSION_KEY), "1234").unwrap();
 
-    let olm_machine = OlmMachine::new(own_user_id, "SomeDeviceId".into()).await;
     olm_machine.store().import_exported_room_keys(exported_keys, |_, _| {}).await.unwrap();
 
     timeline
         .controller
-        .retry_event_decryption_test(
-            room_id!("!DovneieKSTkdHKpIXy:morpheus.localhost"),
-            olm_machine,
-            Some(iter::once(SESSION_ID.to_owned()).collect()),
-        )
+        .retry_event_decryption_test(Some(iter::once(SESSION_ID.to_owned()).collect()))
         .await;
 
     assert_eq!(timeline.controller.items().await.len(), 2);
@@ -198,7 +202,16 @@ async fn test_false_positive_late_decryption_regression() {
         UtdHookManager::new(hook.clone(), client).with_max_delay(Duration::from_millis(500)),
     );
 
-    let timeline = TestTimelineBuilder::new().unable_to_decrypt_hook(utd_hook.clone()).build();
+    let own_user_id = user_id!("@example:morheus.localhost");
+    let olm_machine = OlmMachine::new(own_user_id, "SomeDeviceId".into()).await;
+
+    let timeline = TestTimelineBuilder::new()
+        .unable_to_decrypt_hook(utd_hook.clone())
+        .provider(TestRoomDataProvider::default().with_decryptor(TestDecryptor::new(
+            room_id!("!DovneieKSTkdHKpIXy:morpheus.localhost"),
+            &olm_machine,
+        )))
+        .build();
 
     let f = &timeline.factory;
     timeline
@@ -227,9 +240,6 @@ async fn test_false_positive_late_decryption_regression() {
         )
         .await;
 
-    let own_user_id = user_id!("@example:morheus.localhost");
-    let olm_machine = OlmMachine::new(own_user_id, "SomeDeviceId".into()).await;
-
     sleep(Duration::from_millis(200)).await;
 
     // Simulate a retry decryption.
@@ -237,11 +247,7 @@ async fn test_false_positive_late_decryption_regression() {
     // retry
     timeline
         .controller
-        .retry_event_decryption_test(
-            room_id!("!DovneieKSTkdHKpIXy:morpheus.localhost"),
-            olm_machine,
-            Some(iter::once(SESSION_ID.to_owned()).collect()),
-        )
+        .retry_event_decryption_test(Some(iter::once(SESSION_ID.to_owned()).collect()))
         .await;
     assert_eq!(timeline.controller.items().await.len(), 2);
 
@@ -287,7 +293,16 @@ async fn test_retry_edit_decryption() {
         rHCyB4ElRjU\n\
         -----END MEGOLM SESSION DATA-----";
 
-    let timeline = TestTimeline::new();
+    let own_user_id = user_id!("@example:morheus.localhost");
+    let olm_machine = OlmMachine::new(own_user_id, "SomeDeviceId".into()).await;
+
+    let timeline = TestTimelineBuilder::new()
+        .provider(TestRoomDataProvider::default().with_decryptor(TestDecryptor::new(
+            room_id!("!bdsREiCPHyZAPkpXer:morpheus.localhost"),
+            &olm_machine,
+        )))
+        .build();
+
     let f = &timeline.factory;
     let mut stream = timeline.subscribe_events().await;
 
@@ -353,18 +368,9 @@ async fn test_retry_edit_decryption() {
     let mut keys = decrypt_room_key_export(Cursor::new(SESSION1_KEY), "1234").unwrap();
     keys.extend(decrypt_room_key_export(Cursor::new(SESSION2_KEY), "1234").unwrap());
 
-    let own_user_id = user_id!("@example:morheus.localhost");
-    let olm_machine = OlmMachine::new(own_user_id, "SomeDeviceId".into()).await;
     olm_machine.store().import_exported_room_keys(keys, |_, _| {}).await.unwrap();
 
-    timeline
-        .controller
-        .retry_event_decryption_test(
-            room_id!("!bdsREiCPHyZAPkpXer:morpheus.localhost"),
-            olm_machine,
-            None,
-        )
-        .await;
+    timeline.controller.retry_event_decryption_test(None).await;
 
     // Then first, the first item gets decrypted on its own
     assert_next_matches_with_timeout!(stream, VectorDiff::Set { index: 0, .. });
@@ -419,7 +425,15 @@ async fn test_retry_edit_and_more() {
         )
     }
 
-    let timeline = TestTimeline::new();
+    let olm_machine = OlmMachine::new(user_id!("@jptest:matrix.org"), DEVICE_ID.into()).await;
+
+    let timeline = TestTimelineBuilder::new()
+        .provider(TestRoomDataProvider::default().with_decryptor(TestDecryptor::new(
+            room_id!("!wFnAUSQbxMcfIMgvNX:flipdot.org"),
+            &olm_machine,
+        )))
+        .build();
+
     let f = &timeline.factory;
     let mut stream = timeline.subscribe().await;
 
@@ -480,17 +494,12 @@ async fn test_retry_edit_and_more() {
     assert_next_matches_with_timeout!(stream, VectorDiff::PushBack { .. });
     assert_next_matches_with_timeout!(stream, VectorDiff::PushBack { .. });
 
-    let olm_machine = OlmMachine::new(user_id!("@jptest:matrix.org"), DEVICE_ID.into()).await;
     let keys = decrypt_room_key_export(Cursor::new(SESSION_KEY), "testing").unwrap();
     olm_machine.store().import_exported_room_keys(keys, |_, _| {}).await.unwrap();
 
     timeline
         .controller
-        .retry_event_decryption_test(
-            room_id!("!wFnAUSQbxMcfIMgvNX:flipdot.org"),
-            olm_machine,
-            Some(iter::once(SESSION_ID.to_owned()).collect()),
-        )
+        .retry_event_decryption_test(Some(iter::once(SESSION_ID.to_owned()).collect()))
         .await;
 
     // Then first, the original item got decrypted
@@ -536,7 +545,16 @@ async fn test_retry_message_decryption_highlighted() {
         FM8H2PpVkKgrA+tx8LNQD+FWDfp6MyhmEJEvk9r5vU9LtTXtZl4toYvNY0UHUBbZj2xF9U9Z9A\n\
         -----END MEGOLM SESSION DATA-----";
 
-    let timeline = TestTimeline::new();
+    let own_user_id = user_id!("@example:matrix.org");
+    let olm_machine = OlmMachine::new(own_user_id, "SomeDeviceId".into()).await;
+
+    let timeline = TestTimelineBuilder::new()
+        .provider(TestRoomDataProvider::default().with_decryptor(TestDecryptor::new(
+            room_id!("!rYtFvMGENJleNQVJzb:matrix.org"),
+            &olm_machine,
+        )))
+        .build();
+
     let f = &timeline.factory;
     let mut stream = timeline.subscribe().await;
 
@@ -583,19 +601,13 @@ async fn test_retry_message_decryption_highlighted() {
     let date_divider = assert_next_matches!(stream, VectorDiff::PushFront { value } => value);
     assert!(date_divider.is_date_divider());
 
-    let own_user_id = user_id!("@example:matrix.org");
     let exported_keys = decrypt_room_key_export(Cursor::new(SESSION_KEY), "1234").unwrap();
 
-    let olm_machine = OlmMachine::new(own_user_id, "SomeDeviceId".into()).await;
     olm_machine.store().import_exported_room_keys(exported_keys, |_, _| {}).await.unwrap();
 
     timeline
         .controller
-        .retry_event_decryption_test(
-            room_id!("!rYtFvMGENJleNQVJzb:matrix.org"),
-            olm_machine,
-            Some(iter::once(SESSION_ID.to_owned()).collect()),
-        )
+        .retry_event_decryption_test(Some(iter::once(SESSION_ID.to_owned()).collect()))
         .await;
 
     assert_eq!(timeline.controller.items().await.len(), 2);
@@ -615,12 +627,19 @@ async fn test_retry_fetching_encryption_info() {
     let sender = user_id!("@sender:s.co");
     let room_id = room_id!("!room:s.co");
 
+    let own_user_id = user_id!("@me:s.co");
+    let olm_machine = OlmMachine::new(own_user_id, "SomeDeviceId".into()).await;
+
     // Given when I ask the room for new encryption info for any session, it will
     // say "verified"
     let verified_encryption_info = make_encryption_info(SESSION_ID, VerificationState::Verified);
-    let provider =
-        TestRoomDataProvider::default().with_encryption_info(SESSION_ID, verified_encryption_info);
+
+    let provider = TestRoomDataProvider::default()
+        .with_encryption_info(SESSION_ID, verified_encryption_info)
+        .with_decryptor(TestDecryptor::new(room_id, &olm_machine));
+
     let timeline = TestTimelineBuilder::new().provider(provider).build();
+
     let f = &timeline.factory;
     let mut stream = timeline.subscribe_events().await;
 
@@ -671,15 +690,9 @@ async fn test_retry_fetching_encryption_info() {
     }
 
     // When we retry the session with ID SESSION_ID
-    let own_user_id = user_id!("@me:s.co");
-    let olm_machine = OlmMachine::new(own_user_id, "SomeDeviceId".into()).await;
     timeline
         .controller
-        .retry_event_decryption_test(
-            room_id,
-            olm_machine,
-            Some(iter::once(SESSION_ID.to_owned()).collect()),
-        )
+        .retry_event_decryption_test(Some(iter::once(SESSION_ID.to_owned()).collect()))
         .await;
 
     // Then the event in that session has been updated to be verified
@@ -817,7 +830,16 @@ async fn test_retry_decryption_updates_response() {
         HztoSJUr/2Y\n\
         -----END MEGOLM SESSION DATA-----";
 
-    let timeline = TestTimeline::new();
+    let own_user_id = user_id!("@example:morheus.localhost");
+    let olm_machine = OlmMachine::new(own_user_id, "SomeDeviceId".into()).await;
+
+    let timeline = TestTimelineBuilder::new()
+        .provider(TestRoomDataProvider::default().with_decryptor(TestDecryptor::new(
+            room_id!("!DovneieKSTkdHKpIXy:morpheus.localhost"),
+            &olm_machine,
+        )))
+        .build();
+
     let mut stream = timeline.subscribe_events().await;
 
     let original_event_id = event_id!("$original");
@@ -883,20 +905,14 @@ async fn test_retry_decryption_updates_response() {
     }
 
     // Import a room key backup.
-    let own_user_id = user_id!("@example:morheus.localhost");
     let exported_keys = decrypt_room_key_export(Cursor::new(SESSION_KEY), "1234").unwrap();
 
-    let olm_machine = OlmMachine::new(own_user_id, "SomeDeviceId".into()).await;
     olm_machine.store().import_exported_room_keys(exported_keys, |_, _| {}).await.unwrap();
 
     // Retry decrypting the UTD.
     timeline
         .controller
-        .retry_event_decryption_test(
-            room_id!("!DovneieKSTkdHKpIXy:morpheus.localhost"),
-            olm_machine,
-            Some(iter::once(SESSION_ID.to_owned()).collect()),
-        )
+        .retry_event_decryption_test(Some(iter::once(SESSION_ID.to_owned()).collect()))
         .await;
 
     // The response is updated.

@@ -254,18 +254,14 @@ impl SessionVerificationController {
             return;
         };
 
-        let Ok(sender_profile) = self.account.fetch_user_profile_of(sender).await else {
+        let Ok(sender_profile) = UserProfile::fetch(&self.account, sender).await else {
             error!("Failed fetching user profile for verification request");
             return;
         };
 
         if let Some(delegate) = &*self.delegate.read().unwrap() {
             delegate.did_receive_verification_request(SessionVerificationRequestDetails {
-                sender_profile: UserProfile {
-                    user_id: request.other_user_id().to_string(),
-                    display_name: sender_profile.displayname,
-                    avatar_url: sender_profile.avatar_url.as_ref().map(|url| url.to_string()),
-                },
+                sender_profile,
                 flow_id: request.flow_id().into(),
                 device_id: other_device_data.device_id().into(),
                 device_display_name: other_device_data.display_name().map(str::to_string),

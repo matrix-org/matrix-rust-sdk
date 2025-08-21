@@ -16,8 +16,6 @@ use std::{future::Future, sync::Arc};
 
 use eyeball::Subscriber;
 use indexmap::IndexMap;
-#[cfg(test)]
-use matrix_sdk::crypto::{DecryptionSettings, RoomEventDecryptionResult, TrustRequirement};
 use matrix_sdk::{
     AsyncTraitDeps, Result, Room, SendOutsideWasm,
     crypto::types::events::CryptoContextInfo,
@@ -88,7 +86,7 @@ impl RoomExt for Room {
 }
 
 pub(super) trait RoomDataProvider:
-    Clone + PaginableRoom + PaginableThread + PinnedEventsRoom + 'static
+    Clone + Decryptor + PaginableRoom + PaginableThread + PinnedEventsRoom + 'static
 {
     fn own_user_id(&self) -> &UserId;
     fn room_version_rules(&self) -> RoomVersionRules;
@@ -309,7 +307,7 @@ impl RoomDataProvider for Room {
 
 // Internal helper to make most of retry_event_decryption independent of a room
 // object, which is annoying to create for testing and not really needed
-pub(super) trait Decryptor: AsyncTraitDeps + Clone + 'static {
+pub(crate) trait Decryptor: AsyncTraitDeps + Clone + 'static {
     fn decrypt_event_impl(
         &self,
         raw: &Raw<AnySyncTimelineEvent>,
@@ -324,35 +322,5 @@ impl Decryptor for Room {
         push_ctx: Option<&PushContext>,
     ) -> Result<TimelineEvent> {
         self.decrypt_event(raw.cast_ref_unchecked(), push_ctx).await
-    }
-}
-
-#[cfg(test)]
-impl Decryptor for (matrix_sdk_base::crypto::OlmMachine, ruma::OwnedRoomId) {
-    async fn decrypt_event_impl(
-        &self,
-        raw: &Raw<AnySyncTimelineEvent>,
-        push_ctx: Option<&PushContext>,
-    ) -> Result<TimelineEvent> {
-        let (olm_machine, room_id) = self;
-        let decryption_settings =
-            DecryptionSettings { sender_device_trust_requirement: TrustRequirement::Untrusted };
-
-        match olm_machine
-            .try_decrypt_room_event(raw.cast_ref_unchecked(), room_id, &decryption_settings)
-            .await?
-        {
-            RoomEventDecryptionResult::Decrypted(decrypted) => {
-                let push_actions = if let Some(push_ctx) = push_ctx {
-                    Some(push_ctx.for_event(&decrypted.event).await)
-                } else {
-                    None
-                };
-                Ok(TimelineEvent::from_decrypted(decrypted, push_actions))
-            }
-            RoomEventDecryptionResult::UnableToDecrypt(utd_info) => {
-                Ok(TimelineEvent::from_utd(raw.clone(), utd_info))
-            }
-        }
     }
 }

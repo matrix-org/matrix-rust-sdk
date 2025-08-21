@@ -1226,12 +1226,19 @@ impl MatrixMockServer {
     }
 
     /// Create a prebuilt mock for the endpoint used to get the media config of
-    /// the homeserver.
+    /// the homeserver that requires authentication.
     pub fn mock_authenticated_media_config(
         &self,
     ) -> MockEndpoint<'_, AuthenticatedMediaConfigEndpoint> {
         let mock = Mock::given(method("GET")).and(path("/_matrix/client/v1/media/config"));
         self.mock_endpoint(mock, AuthenticatedMediaConfigEndpoint)
+    }
+
+    /// Create a prebuilt mock for the endpoint used to get the media config of
+    /// the homeserver without requiring authentication.
+    pub fn mock_media_config(&self) -> MockEndpoint<'_, MediaConfigEndpoint> {
+        let mock = Mock::given(method("GET")).and(path("/_matrix/media/v3/config"));
+        self.mock_endpoint(mock, MediaConfigEndpoint)
     }
 
     /// Create a prebuilt mock for the endpoint used to log into a session.
@@ -1376,6 +1383,12 @@ impl MatrixMockServer {
             "^/_matrix/client/v3/pushrules/global/{kind}/{rule_id}/enabled",
         )));
         self.mock_endpoint(mock, EnablePushRuleEndpoint).expect_default_access_token()
+    }
+
+    /// Create a prebuilt mock for the federation version endpoint.
+    pub fn mock_federation_version(&self) -> MockEndpoint<'_, FederationVersionEndpoint> {
+        let mock = Mock::given(method("GET")).and(path("/_matrix/federation/v1/version"));
+        self.mock_endpoint(mock, FederationVersionEndpoint)
     }
 }
 
@@ -1549,6 +1562,15 @@ impl<'a, T> MockEndpoint<'a, T> {
     /// Expect authentication with the given access token on this endpoint.
     pub fn expect_access_token(mut self, access_token: &'static str) -> Self {
         self.expected_access_token = ExpectedAccessToken::Custom(access_token);
+        self
+    }
+
+    /// Don't expect authentication with an access token on this endpoint.
+    ///
+    /// This should be used to override the default behavior of the endpoint,
+    /// when the access token is unknown for example.
+    pub fn do_not_expect_access_token(mut self) -> Self {
+        self.expected_access_token = ExpectedAccessToken::None;
         self
     }
 
@@ -2408,6 +2430,36 @@ impl<'a> MockEndpoint<'a, EncryptionStateEndpoint> {
         self.respond_with(
             ResponseTemplate::new(200).set_body_json(&*test_json::sync_events::ENCRYPTION_CONTENT),
         )
+    }
+
+    /// Marks the room as encrypted, opting into experimental state event
+    /// encryption.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # tokio_test::block_on(async {
+    /// use matrix_sdk::{ruma::room_id, test_utils::mocks::MatrixMockServer};
+    ///
+    /// let mock_server = MatrixMockServer::new().await;
+    /// let client = mock_server.client_builder().build().await;
+    ///
+    /// mock_server.mock_room_state_encryption().state_encrypted().mount().await;
+    ///
+    /// let room = mock_server
+    ///     .sync_joined_room(&client, room_id!("!room_id:localhost"))
+    ///     .await;
+    ///
+    /// assert!(
+    ///     room.latest_encryption_state().await?.is_state_encrypted(),
+    ///     "The room should be marked as state encrypted."
+    /// );
+    /// # anyhow::Ok(()) });
+    #[cfg(feature = "experimental-encrypted-state-events")]
+    pub fn state_encrypted(self) -> MatrixMock<'a> {
+        self.respond_with(ResponseTemplate::new(200).set_body_json(
+            &*test_json::sync_events::ENCRYPTION_WITH_ENCRYPTED_STATE_EVENTS_CONTENT,
+        ))
     }
 
     /// Marks the room as not encrypted.
@@ -3495,6 +3547,18 @@ impl<'a> MockEndpoint<'a, AuthenticatedMediaConfigEndpoint> {
     }
 }
 
+/// A prebuilt mock for `GET /_matrix/media/v3/config` request.
+pub struct MediaConfigEndpoint;
+
+impl<'a> MockEndpoint<'a, MediaConfigEndpoint> {
+    /// Returns a successful response with the provided max upload size.
+    pub fn ok(self, max_upload_size: UInt) -> MatrixMock<'a> {
+        self.respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "m.upload.size": max_upload_size,
+        })))
+    }
+}
+
 /// A prebuilt mock for `POST /login` requests.
 pub struct LoginEndpoint;
 
@@ -3744,13 +3808,6 @@ impl<'a> MockEndpoint<'a, MediaDownloadEndpoint> {
         self.respond_with(ResponseTemplate::new(200).set_body_string("Hello, World!"))
     }
 
-    /// Returns a successful response with the given bytes.
-    pub fn ok_bytes(self, bytes: Vec<u8>) -> MatrixMock<'a> {
-        self.respond_with(
-            ResponseTemplate::new(200).set_body_raw(bytes, "application/octet-stream"),
-        )
-    }
-
     /// Returns a successful response with a fake image content.
     pub fn ok_image(self) -> MatrixMock<'a> {
         self.respond_with(
@@ -3778,6 +3835,13 @@ impl<'a> MockEndpoint<'a, AuthedMediaDownloadEndpoint> {
     /// Returns a successful response with a plain text content.
     pub fn ok_plain_text(self) -> MatrixMock<'a> {
         self.respond_with(ResponseTemplate::new(200).set_body_string("Hello, World!"))
+    }
+
+    /// Returns a successful response with the given bytes.
+    pub fn ok_bytes(self, bytes: Vec<u8>) -> MatrixMock<'a> {
+        self.respond_with(
+            ResponseTemplate::new(200).set_body_raw(bytes, "application/octet-stream"),
+        )
     }
 
     /// Returns a successful response with a fake image content.
@@ -3916,6 +3980,13 @@ impl<'a> MockEndpoint<'a, PutThreadSubscriptionEndpoint> {
         self.endpoint.matchers = self.endpoint.matchers.match_thread_id(thread_root);
         self
     }
+    /// Match the request body's `automatic` field against a specific event id.
+    pub fn match_automatic_event_id(mut self, up_to_event_id: &EventId) -> Self {
+        self.mock = self.mock.and(body_json(json!({
+            "automatic": up_to_event_id
+        })));
+        self
+    }
 }
 
 /// A prebuilt mock for `DELETE
@@ -3953,5 +4024,27 @@ impl<'a> MockEndpoint<'a, EnablePushRuleEndpoint> {
     /// Returns a successful empty JSON response.
     pub fn ok(self) -> MatrixMock<'a> {
         self.ok_empty_json()
+    }
+}
+
+/// A prebuilt mock for the federation version endpoint.
+pub struct FederationVersionEndpoint;
+
+impl<'a> MockEndpoint<'a, FederationVersionEndpoint> {
+    /// Returns a successful response with the given server name and version.
+    pub fn ok(self, server_name: &str, version: &str) -> MatrixMock<'a> {
+        let response_body = json!({
+            "server": {
+                "name": server_name,
+                "version": version
+            }
+        });
+        self.respond_with(ResponseTemplate::new(200).set_body_json(response_body))
+    }
+
+    /// Returns a successful response with empty/missing server information.
+    pub fn ok_empty(self) -> MatrixMock<'a> {
+        let response_body = json!({});
+        self.respond_with(ResponseTemplate::new(200).set_body_json(response_body))
     }
 }

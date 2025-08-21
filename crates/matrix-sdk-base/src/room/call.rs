@@ -133,17 +133,22 @@ mod tests {
             "https://lk.org".to_owned(),
         ))];
         let focus_active = ActiveFocus::Livekit(ActiveLivekitFocus::new());
+
         let (content, state_key) = match init_data {
-            Some(InitData { device_id, minutes_ago }) => (
-                CallMemberEventContent::new(
-                    application,
-                    device_id.to_owned(),
-                    focus_active,
-                    foci_preferred,
-                    Some(timestamp(minutes_ago)),
-                ),
-                CallMemberStateKey::new(user_id.to_owned(), Some(device_id.to_owned()), false),
-            ),
+            Some(InitData { device_id, minutes_ago }) => {
+                let member_id = format!("{device_id}_m.call");
+                (
+                    CallMemberEventContent::new(
+                        application,
+                        device_id.to_owned(),
+                        focus_active,
+                        foci_preferred,
+                        Some(timestamp(minutes_ago)),
+                    ),
+                    CallMemberStateKey::new(user_id.to_owned(), Some(member_id), false),
+                )
+            }
+
             None => (
                 CallMemberEventContent::new_empty(None),
                 CallMemberStateKey::new(user_id.to_owned(), None, false),

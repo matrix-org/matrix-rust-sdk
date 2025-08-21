@@ -269,23 +269,25 @@ impl Account {
         Ok(upload_response.content_uri)
     }
 
-    /// Get the profile of the account.
+    /// Get the profile of this account.
     ///
-    /// Allows to get both the display name and avatar URL in a single call.
+    /// Allows to get all the profile data in a single call.
     ///
     /// # Examples
     ///
     /// ```no_run
     /// # use matrix_sdk::Client;
+    /// use ruma::api::client::profile::{AvatarUrl, DisplayName};
     /// # use url::Url;
     /// # async {
     /// # let homeserver = Url::parse("http://localhost:8080")?;
     /// # let client = Client::new(homeserver).await?;
+    ///
     /// let profile = client.account().fetch_user_profile().await?;
-    /// println!(
-    ///     "You are '{:?}' with avatar '{:?}'",
-    ///     profile.displayname, profile.avatar_url
-    /// );
+    /// let display_name = profile.get_static::<DisplayName>()?;
+    /// let avatar_url = profile.get_static::<AvatarUrl>()?;
+    ///
+    /// println!("You are '{display_name:?}' with avatar '{avatar_url:?}'");
     /// # anyhow::Ok(()) };
     /// ```
     pub async fn fetch_user_profile(&self) -> Result<get_profile::v3::Response> {

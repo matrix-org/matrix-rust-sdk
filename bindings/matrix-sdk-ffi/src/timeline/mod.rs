@@ -30,7 +30,8 @@ use matrix_sdk_common::{
     stream::StreamExt,
 };
 use matrix_sdk_ui::timeline::{
-    self, AttachmentConfig, AttachmentSource, EventItemOrigin, Profile, TimelineDetails,
+    self, AttachmentConfig, AttachmentSource, EventItemOrigin,
+    MediaUploadProgress as SdkMediaUploadProgress, Profile, TimelineDetails,
     TimelineUniqueId as SdkTimelineUniqueId,
 };
 use mime::Mime;
@@ -60,7 +61,6 @@ use uuid::Uuid;
 use self::content::TimelineItemContent;
 pub use self::msg_like::MessageContent;
 use crate::{
-    client::ProgressWatcher,
     error::{ClientError, RoomError},
     event::EventOrTransactionId,
     ruma::{
@@ -98,12 +98,13 @@ impl Timeline {
         params: UploadParameters,
         attachment_info: AttachmentInfo,
         mime_type: Option<String>,
-        progress_watcher: Option<Box<dyn ProgressWatcher>>,
         thumbnail: Option<Thumbnail>,
     ) -> Result<Arc<SendAttachmentJoinHandle>, RoomError> {
         let mime_str = mime_type.as_ref().ok_or(RoomError::InvalidAttachmentMimeType)?;
+
         let mime_type =
             mime_str.parse::<Mime>().map_err(|_| RoomError::InvalidAttachmentMimeType)?;
+
         let in_reply_to_event_id = params
             .in_reply_to
             .map(EventId::parse)
@@ -126,24 +127,11 @@ impl Timeline {
         };
 
         let handle = SendAttachmentJoinHandle::new(get_runtime_handle().spawn(async move {
-            let mut request =
-                self.inner.send_attachment(params.source, mime_type, attachment_config);
-
-            if params.use_send_queue {
-                request = request.use_send_queue();
-            }
-
-            if let Some(progress_watcher) = progress_watcher {
-                let mut subscriber = request.subscribe_to_send_progress();
-                get_runtime_handle().spawn(async move {
-                    while let Some(progress) = subscriber.next().await {
-                        progress_watcher.transmission_progress(progress.into());
-                    }
-                });
-            }
-
-            request.await.map_err(|_| RoomError::FailedSendingAttachment)?;
-            Ok(())
+            self.inner
+                .send_attachment(params.source, mime_type, attachment_config)
+                .use_send_queue()
+                .await
+                .map_err(|_| RoomError::FailedSendingAttachment)
         }));
 
         Ok(handle)
@@ -151,15 +139,19 @@ impl Timeline {
 }
 
 fn build_thumbnail_info(
-    thumbnail_path: Option<String>,
+    thumbnail_source: Option<UploadSource>,
     thumbnail_info: Option<ThumbnailInfo>,
 ) -> Result<Option<Thumbnail>, RoomError> {
-    match (thumbnail_path, thumbnail_info) {
+    match (thumbnail_source, thumbnail_info) {
         (None, None) => Ok(None),
 
-        (Some(thumbnail_path), Some(thumbnail_info)) => {
-            let thumbnail_data =
-                fs::read(thumbnail_path).map_err(|_| RoomError::InvalidThumbnailData)?;
+        (Some(thumbnail_source), Some(thumbnail_info)) => {
+            let thumbnail_data = match thumbnail_source {
+                UploadSource::File { filename } => {
+                    fs::read(filename).map_err(|_| RoomError::InvalidThumbnailData)?
+                }
+                UploadSource::Data { bytes, .. } => bytes,
+            };
 
             let height = thumbnail_info
                 .height
@@ -189,7 +181,7 @@ fn build_thumbnail_info(
         }
 
         _ => {
-            warn!("Ignoring thumbnail because either the thumbnail path or info isn't defined");
+            warn!("Ignoring thumbnail because either the thumbnail source or info isn't defined");
             Ok(None)
         }
     }
@@ -207,14 +199,10 @@ pub struct UploadParameters {
     mentions: Option<Mentions>,
     /// Optional Event ID to reply to.
     in_reply_to: Option<String>,
-    /// Should the media be sent with the send queue, or synchronously?
-    ///
-    /// Watching progress only works with the synchronous method, at the moment.
-    use_send_queue: bool,
 }
 
 /// A source for uploading a file
-#[derive(uniffi::Enum)]
+#[derive(Clone, uniffi::Enum)]
 pub enum UploadSource {
     /// Upload source is a file on disk
     File {
@@ -235,6 +223,50 @@ impl From<UploadSource> for AttachmentSource {
         match value {
             UploadSource::File { filename } => Self::File(filename.into()),
             UploadSource::Data { bytes, filename } => Self::Data { bytes, filename },
+        }
+    }
+}
+
+/// This type represents the progress of a media (consisting of a file and
+/// possibly a thumbnail) being uploaded.
+#[derive(Clone, Copy, uniffi::Record)]
+pub struct MediaUploadProgress {
+    /// The index of the media within the transaction. A file and its
+    /// thumbnail share the same index. Will always be 0 for non-gallery
+    /// media uploads.
+    pub index: u64,
+
+    /// The current combined upload progress for both the file and,
+    /// if it exists, its thumbnail.
+    pub progress: AbstractProgress,
+}
+
+impl From<SdkMediaUploadProgress> for MediaUploadProgress {
+    fn from(value: SdkMediaUploadProgress) -> Self {
+        Self { index: value.index, progress: value.progress.into() }
+    }
+}
+
+/// Progress of an operation in abstract units.
+///
+/// Contrary to [`TransmissionProgress`], this allows tracking the progress
+/// of sending or receiving a payload in estimated pseudo units representing a
+/// percentage. This is helpful in cases where the exact progress in bytes isn't
+/// known, for instance, because encryption (which changes the size) happens on
+/// the fly.
+#[derive(Clone, Copy, uniffi::Record)]
+pub struct AbstractProgress {
+    /// How many units were already transferred.
+    pub current: u64,
+    /// How many units there are in total.
+    pub total: u64,
+}
+
+impl From<matrix_sdk::send_queue::AbstractProgress> for AbstractProgress {
+    fn from(value: matrix_sdk::send_queue::AbstractProgress) -> Self {
+        Self {
+            current: value.current.try_into().unwrap_or(u64::MAX),
+            total: value.total.try_into().unwrap_or(u64::MAX),
         }
     }
 }
@@ -352,53 +384,38 @@ impl Timeline {
     pub fn send_image(
         self: Arc<Self>,
         params: UploadParameters,
-        thumbnail_path: Option<String>,
+        thumbnail_source: Option<UploadSource>,
         image_info: ImageInfo,
-        progress_watcher: Option<Box<dyn ProgressWatcher>>,
     ) -> Result<Arc<SendAttachmentJoinHandle>, RoomError> {
         let attachment_info = AttachmentInfo::Image(
             BaseImageInfo::try_from(&image_info).map_err(|_| RoomError::InvalidAttachmentData)?,
         );
-        let thumbnail = build_thumbnail_info(thumbnail_path, image_info.thumbnail_info)?;
-        self.send_attachment(
-            params,
-            attachment_info,
-            image_info.mimetype,
-            progress_watcher,
-            thumbnail,
-        )
+        let thumbnail = build_thumbnail_info(thumbnail_source, image_info.thumbnail_info)?;
+        self.send_attachment(params, attachment_info, image_info.mimetype, thumbnail)
     }
 
     pub fn send_video(
         self: Arc<Self>,
         params: UploadParameters,
-        thumbnail_path: Option<String>,
+        thumbnail_source: Option<UploadSource>,
         video_info: VideoInfo,
-        progress_watcher: Option<Box<dyn ProgressWatcher>>,
     ) -> Result<Arc<SendAttachmentJoinHandle>, RoomError> {
         let attachment_info = AttachmentInfo::Video(
             BaseVideoInfo::try_from(&video_info).map_err(|_| RoomError::InvalidAttachmentData)?,
         );
-        let thumbnail = build_thumbnail_info(thumbnail_path, video_info.thumbnail_info)?;
-        self.send_attachment(
-            params,
-            attachment_info,
-            video_info.mimetype,
-            progress_watcher,
-            thumbnail,
-        )
+        let thumbnail = build_thumbnail_info(thumbnail_source, video_info.thumbnail_info)?;
+        self.send_attachment(params, attachment_info, video_info.mimetype, thumbnail)
     }
 
     pub fn send_audio(
         self: Arc<Self>,
         params: UploadParameters,
         audio_info: AudioInfo,
-        progress_watcher: Option<Box<dyn ProgressWatcher>>,
     ) -> Result<Arc<SendAttachmentJoinHandle>, RoomError> {
         let attachment_info = AttachmentInfo::Audio(
             BaseAudioInfo::try_from(&audio_info).map_err(|_| RoomError::InvalidAttachmentData)?,
         );
-        self.send_attachment(params, attachment_info, audio_info.mimetype, progress_watcher, None)
+        self.send_attachment(params, attachment_info, audio_info.mimetype, None)
     }
 
     pub fn send_voice_message(
@@ -406,26 +423,24 @@ impl Timeline {
         params: UploadParameters,
         audio_info: AudioInfo,
         waveform: Vec<u16>,
-        progress_watcher: Option<Box<dyn ProgressWatcher>>,
     ) -> Result<Arc<SendAttachmentJoinHandle>, RoomError> {
         let attachment_info = AttachmentInfo::Voice {
             audio_info: BaseAudioInfo::try_from(&audio_info)
                 .map_err(|_| RoomError::InvalidAttachmentData)?,
             waveform: Some(waveform),
         };
-        self.send_attachment(params, attachment_info, audio_info.mimetype, progress_watcher, None)
+        self.send_attachment(params, attachment_info, audio_info.mimetype, None)
     }
 
     pub fn send_file(
         self: Arc<Self>,
         params: UploadParameters,
         file_info: FileInfo,
-        progress_watcher: Option<Box<dyn ProgressWatcher>>,
     ) -> Result<Arc<SendAttachmentJoinHandle>, RoomError> {
         let attachment_info = AttachmentInfo::File(
             BaseFileInfo::try_from(&file_info).map_err(|_| RoomError::InvalidAttachmentData)?,
         );
-        self.send_attachment(params, attachment_info, file_info.mimetype, progress_watcher, None)
+        self.send_attachment(params, attachment_info, file_info.mimetype, None)
     }
 
     pub async fn create_poll(
@@ -842,33 +857,6 @@ impl TimelineDiff {
     }
 }
 
-#[derive(uniffi::Record)]
-pub struct InsertData {
-    pub index: u32,
-    pub item: Arc<TimelineItem>,
-}
-
-#[derive(uniffi::Record)]
-pub struct SetData {
-    pub index: u32,
-    pub item: Arc<TimelineItem>,
-}
-
-#[derive(Clone, Copy, uniffi::Enum)]
-pub enum TimelineChange {
-    Append,
-    Clear,
-    Insert,
-    Set,
-    Remove,
-    PushBack,
-    PushFront,
-    PopBack,
-    PopFront,
-    Truncate,
-    Reset,
-}
-
 #[derive(Clone, uniffi::Record)]
 pub struct TimelineUniqueId {
     id: String,
@@ -928,7 +916,11 @@ impl TimelineItem {
 #[derive(Clone, uniffi::Enum)]
 pub enum EventSendState {
     /// The local event has not been sent yet.
-    NotSentYet,
+    NotSentYet {
+        /// The progress of the sending operation, if the event involves a media
+        /// upload.
+        progress: Option<MediaUploadProgress>,
+    },
 
     /// The local event has been sent to the server, but unsuccessfully: The
     /// sending has failed.
@@ -953,7 +945,9 @@ impl From<&matrix_sdk_ui::timeline::EventSendState> for EventSendState {
         use matrix_sdk_ui::timeline::EventSendState::*;
 
         match value {
-            NotSentYet => Self::NotSentYet,
+            NotSentYet { progress } => {
+                Self::NotSentYet { progress: progress.clone().map(|p| p.into()) }
+            }
             SendingFailed { error, is_recoverable } => {
                 let as_queue_wedge_error: matrix_sdk::QueueWedgeError = (&**error).into();
                 Self::SendingFailed {
@@ -1312,7 +1306,7 @@ mod galleries {
         error::RoomError,
         ruma::{AudioInfo, FileInfo, FormattedBody, ImageInfo, Mentions, VideoInfo},
         runtime::get_runtime_handle,
-        timeline::{build_thumbnail_info, Timeline},
+        timeline::{build_thumbnail_info, Timeline, UploadSource},
     };
 
     #[derive(uniffi::Record)]
@@ -1331,29 +1325,29 @@ mod galleries {
     pub enum GalleryItemInfo {
         Audio {
             audio_info: AudioInfo,
-            filename: String,
+            source: UploadSource,
             caption: Option<String>,
             formatted_caption: Option<FormattedBody>,
         },
         File {
             file_info: FileInfo,
-            filename: String,
+            source: UploadSource,
             caption: Option<String>,
             formatted_caption: Option<FormattedBody>,
         },
         Image {
             image_info: ImageInfo,
-            filename: String,
+            source: UploadSource,
             caption: Option<String>,
             formatted_caption: Option<FormattedBody>,
-            thumbnail_path: Option<String>,
+            thumbnail_source: Option<UploadSource>,
         },
         Video {
             video_info: VideoInfo,
-            filename: String,
+            source: UploadSource,
             caption: Option<String>,
             formatted_caption: Option<FormattedBody>,
-            thumbnail_path: Option<String>,
+            thumbnail_source: Option<UploadSource>,
         },
     }
 
@@ -1367,12 +1361,12 @@ mod galleries {
             }
         }
 
-        fn filename(&self) -> &String {
+        fn source(&self) -> &UploadSource {
             match self {
-                GalleryItemInfo::Audio { filename, .. } => filename,
-                GalleryItemInfo::File { filename, .. } => filename,
-                GalleryItemInfo::Image { filename, .. } => filename,
-                GalleryItemInfo::Video { filename, .. } => filename,
+                GalleryItemInfo::File { source, .. } => source,
+                GalleryItemInfo::Audio { source, .. } => source,
+                GalleryItemInfo::Image { source, .. } => source,
+                GalleryItemInfo::Video { source, .. } => source,
             }
         }
 
@@ -1418,11 +1412,17 @@ mod galleries {
         fn thumbnail(&self) -> Result<Option<Thumbnail>, RoomError> {
             match self {
                 GalleryItemInfo::Audio { .. } | GalleryItemInfo::File { .. } => Ok(None),
-                GalleryItemInfo::Image { image_info, thumbnail_path, .. } => {
-                    build_thumbnail_info(thumbnail_path.clone(), image_info.thumbnail_info.clone())
+                GalleryItemInfo::Image { image_info, thumbnail_source, .. } => {
+                    build_thumbnail_info(
+                        thumbnail_source.as_ref().cloned(),
+                        image_info.thumbnail_info.clone(),
+                    )
                 }
-                GalleryItemInfo::Video { video_info, thumbnail_path, .. } => {
-                    build_thumbnail_info(thumbnail_path.clone(), video_info.thumbnail_info.clone())
+                GalleryItemInfo::Video { video_info, thumbnail_source, .. } => {
+                    build_thumbnail_info(
+                        thumbnail_source.as_ref().cloned(),
+                        video_info.thumbnail_info.clone(),
+                    )
                 }
             }
         }
@@ -1438,7 +1438,7 @@ mod galleries {
             let mime_type =
                 mime_str.parse::<Mime>().map_err(|_| RoomError::InvalidAttachmentMimeType)?;
             Ok(matrix_sdk_ui::timeline::GalleryItemInfo {
-                source: self.filename().into(),
+                source: self.source().clone().into(),
                 content_type: mime_type,
                 attachment_info: self.attachment_info()?,
                 caption: self.caption().clone(),

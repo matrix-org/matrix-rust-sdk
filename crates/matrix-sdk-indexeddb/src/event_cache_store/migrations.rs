@@ -109,13 +109,18 @@ pub mod v1 {
 
     pub mod keys {
         pub const CORE: &str = "core";
+        pub const LEASES: &str = "leases";
+        pub const LEASES_KEY_PATH: &str = "id";
         pub const ROOMS: &str = "rooms";
+        pub const LINKED_CHUNK_IDS: &str = "linked_chunk_ids";
         pub const LINKED_CHUNKS: &str = "linked_chunks";
         pub const LINKED_CHUNKS_KEY_PATH: &str = "id";
         pub const LINKED_CHUNKS_NEXT: &str = "linked_chunks_next";
         pub const LINKED_CHUNKS_NEXT_KEY_PATH: &str = "next";
         pub const EVENTS: &str = "events";
         pub const EVENTS_KEY_PATH: &str = "id";
+        pub const EVENTS_ROOM: &str = "events_room";
+        pub const EVENTS_ROOM_KEY_PATH: &str = "room";
         pub const EVENTS_POSITION: &str = "events_position";
         pub const EVENTS_POSITION_KEY_PATH: &str = "position";
         pub const EVENTS_RELATION: &str = "events_relation";
@@ -129,16 +134,24 @@ pub mod v1 {
     /// Create all object stores and indices for v1 database
     pub fn create_object_stores(db: &IdbDatabase) -> Result<(), DomException> {
         create_core_object_store(db)?;
+        create_lease_object_store(db)?;
         create_linked_chunks_object_store(db)?;
         create_events_object_store(db)?;
         create_gaps_object_store(db)?;
         Ok(())
     }
 
-    /// Create an object store for tracking miscellaneous information, e.g.,
-    /// leases locks
+    /// Create an object store for tracking miscellaneous information
     fn create_core_object_store(db: &IdbDatabase) -> Result<(), DomException> {
         let _ = db.create_object_store(keys::CORE)?;
+        Ok(())
+    }
+
+    /// Create an object store tracking leases on time-based locks
+    fn create_lease_object_store(db: &IdbDatabase) -> Result<(), DomException> {
+        let mut object_store_params = IdbObjectStoreParameters::new();
+        object_store_params.key_path(Some(&keys::LEASES_KEY_PATH.into()));
+        let _ = db.create_object_store_with_params(keys::LEASES, &object_store_params)?;
         Ok(())
     }
 
@@ -159,6 +172,7 @@ pub mod v1 {
     /// Create an object store for tracking information about events.
     ///
     /// * Primary Key - `id`
+    /// * Index (unique) - `room` - tracks whether an event is in a given room
     /// * Index (unique) - `position` - tracks position of an event in linked
     ///   chunks
     /// * Index - `relation` - tracks any event to which the given event is
@@ -167,6 +181,14 @@ pub mod v1 {
         let mut object_store_params = IdbObjectStoreParameters::new();
         object_store_params.key_path(Some(&keys::EVENTS_KEY_PATH.into()));
         let events = db.create_object_store_with_params(keys::EVENTS, &object_store_params)?;
+
+        let events_room_params = IdbIndexParameters::new();
+        events_room_params.set_unique(true);
+        events.create_index_with_params(
+            keys::EVENTS_ROOM,
+            &keys::EVENTS_ROOM_KEY_PATH.into(),
+            &events_room_params,
+        );
 
         let events_position_params = IdbIndexParameters::new();
         events_position_params.set_unique(true);

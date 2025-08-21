@@ -3,8 +3,10 @@ use std::{collections::BTreeMap, iter, time::Duration};
 use assert_matches2::{assert_let, assert_matches};
 use js_int::uint;
 use matrix_sdk::{
-    config::SyncSettings, room::RoomMember, test_utils::mocks::MatrixMockServer, RoomDisplayName,
-    RoomMemberships,
+    config::{SyncSettings, SyncToken},
+    room::RoomMember,
+    test_utils::mocks::MatrixMockServer,
+    RoomDisplayName, RoomMemberships,
 };
 use matrix_sdk_test::{
     async_test, bulk_room_members, event_factory::EventFactory, sync_state_event, test_json,
@@ -76,7 +78,7 @@ async fn test_room_names() {
     // Room with a canonical alias.
     mock_sync(&server, &*test_json::SYNC, None).await;
 
-    client.sync_once(SyncSettings::default()).await.unwrap();
+    client.sync_once(SyncSettings::default().token(SyncToken::NoToken)).await.unwrap();
     server.reset().await;
 
     assert_eq!(client.rooms().len(), 1);
@@ -87,7 +89,7 @@ async fn test_room_names() {
     // Room with a name.
     mock_sync(&server, &*test_json::INVITE_SYNC, None).await;
 
-    client.sync_once(SyncSettings::default()).await.unwrap();
+    client.sync_once(SyncSettings::default().token(SyncToken::NoToken)).await.unwrap();
     server.reset().await;
 
     assert_eq!(client.rooms().len(), 2);
@@ -124,7 +126,7 @@ async fn test_room_names() {
     );
     mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
 
-    client.sync_once(SyncSettings::default()).await.unwrap();
+    client.sync_once(SyncSettings::default().token(SyncToken::NoToken)).await.unwrap();
     server.reset().await;
 
     let room = client.get_room(room_id).unwrap();
@@ -174,7 +176,7 @@ async fn test_room_names() {
     ]));
     mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
 
-    client.sync_once(SyncSettings::default()).await.unwrap();
+    client.sync_once(SyncSettings::default().token(SyncToken::NoToken)).await.unwrap();
     server.reset().await;
 
     let room = client.get_room(room_id).unwrap();
@@ -194,7 +196,7 @@ async fn test_room_names() {
     );
     mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
 
-    client.sync_once(SyncSettings::default()).await.unwrap();
+    client.sync_once(SyncSettings::default().token(SyncToken::NoToken)).await.unwrap();
     server.reset().await;
 
     let room = client.get_room(room_id).unwrap();
@@ -737,7 +739,8 @@ async fn test_event_with_context() {
 async fn test_is_direct() {
     let (client, server) = logged_in_client_with_server().await;
     let own_user_id = client.user_id().unwrap();
-    let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
+    let sync_settings =
+        SyncSettings::new().timeout(Duration::from_millis(3000)).token(SyncToken::NoToken);
 
     let bob_member_event = json!({
         "content": {
@@ -853,7 +856,7 @@ async fn test_room_avatar() {
     // Room without avatar.
     mock_sync(&server, &*test_json::SYNC, None).await;
 
-    client.sync_once(SyncSettings::default()).await.unwrap();
+    client.sync_once(SyncSettings::default().token(SyncToken::NoToken)).await.unwrap();
     server.reset().await;
 
     assert_eq!(client.rooms().len(), 1);
@@ -874,7 +877,7 @@ async fn test_room_avatar() {
     sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_timeline_event(event));
     mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
 
-    client.sync_once(SyncSettings::default()).await.unwrap();
+    client.sync_once(SyncSettings::default().token(SyncToken::NoToken)).await.unwrap();
     server.reset().await;
 
     assert_eq!(room.avatar_url().as_deref(), Some(avatar_url_1));
@@ -893,7 +896,7 @@ async fn test_room_avatar() {
     sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_timeline_event(event));
     mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
 
-    client.sync_once(SyncSettings::default()).await.unwrap();
+    client.sync_once(SyncSettings::default().token(SyncToken::NoToken)).await.unwrap();
     server.reset().await;
 
     assert_eq!(room.avatar_url().as_deref(), Some(avatar_url_2));
