@@ -647,7 +647,7 @@ mod tests {
             .ok_and_run(&client, |sync_response_builder| {
                 let f = EventFactory::new();
                 sync_response_builder.add_global_account_data(
-                    f.push_rules(Ruleset::server_default(client.user_id().unwrap())).into_raw(),
+                    f.push_rules(Ruleset::server_default(client.user_id().unwrap())),
                 );
             })
             .await;

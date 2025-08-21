@@ -159,8 +159,7 @@ async fn test_ignored_unignored() {
     server
         .mock_sync()
         .ok_and_run(&client, |sync_builder| {
-            sync_builder
-                .add_global_account_data(f.ignored_user_list([dexter.to_owned()]).into_raw());
+            sync_builder.add_global_account_data(f.ignored_user_list([dexter.to_owned()]));
         })
         .await;
 

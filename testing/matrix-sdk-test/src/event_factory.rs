@@ -28,8 +28,8 @@ use ruma::{
     OwnedRoomId, OwnedTransactionId, OwnedUserId, OwnedVoipId, RoomId, RoomVersionId,
     TransactionId, UInt, UserId, VoipVersionId,
     events::{
-        AnyStateEvent, AnySyncMessageLikeEvent, AnySyncStateEvent, AnySyncTimelineEvent,
-        AnyTimelineEvent, BundledMessageLikeRelations, False, Mentions,
+        AnyGlobalAccountDataEvent, AnyStateEvent, AnySyncMessageLikeEvent, AnySyncStateEvent,
+        AnySyncTimelineEvent, AnyTimelineEvent, BundledMessageLikeRelations, False, Mentions,
         RedactedMessageLikeEventContent, RedactedStateEventContent, StateEventContent,
         StaticEventContent,
         beacon::BeaconEventContent,
@@ -488,6 +488,16 @@ where
 {
     fn from(val: EventBuilder<E>) -> Self {
         val.into_raw_timeline()
+    }
+}
+
+impl<E: StaticEventContent<IsPrefix = False>> From<EventBuilder<E>>
+    for Raw<AnyGlobalAccountDataEvent>
+where
+    E: Serialize,
+{
+    fn from(val: EventBuilder<E>) -> Self {
+        val.into_raw()
     }
 }
 

@@ -1040,7 +1040,7 @@ async fn test_is_direct_invite_by_3pid() {
     let mut sync_builder = SyncResponseBuilder::new();
     sync_builder.add_joined_room(JoinedRoomBuilder::default());
     sync_builder.add_global_account_data(
-        f.direct().add_user("invited@localhost.com".into(), *DEFAULT_TEST_ROOM_ID).into_raw(),
+        f.direct().add_user("invited@localhost.com".into(), *DEFAULT_TEST_ROOM_ID),
     );
 
     mock_sync(&server, sync_builder.build_json_sync_response(), None).await;

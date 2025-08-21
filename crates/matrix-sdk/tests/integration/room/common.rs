@@ -809,7 +809,7 @@ async fn test_is_direct() {
     // Mock the sync response we should get from the homeserver.
     let f = EventFactory::new();
     sync_builder.add_global_account_data(
-        f.direct().add_user((*BOB).to_owned().into(), *DEFAULT_TEST_ROOM_ID).into_raw(),
+        f.direct().add_user((*BOB).to_owned().into(), *DEFAULT_TEST_ROOM_ID),
     );
     mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
@@ -835,7 +835,7 @@ async fn test_is_direct() {
         .await;
 
     // Mock the sync response we should get from the homeserver.
-    sync_builder.add_global_account_data(f.direct().into_raw());
+    sync_builder.add_global_account_data(f.direct());
     mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
     server.reset().await;

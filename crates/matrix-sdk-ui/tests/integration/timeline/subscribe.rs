@@ -236,7 +236,7 @@ async fn test_timeline_is_reset_when_a_user_is_ignored_or_unignored() {
 
     assert_pending!(timeline_stream);
 
-    sync_builder.add_global_account_data(ev_factory.ignored_user_list([bob.to_owned()]).into_raw());
+    sync_builder.add_global_account_data(ev_factory.ignored_user_list([bob.to_owned()]));
 
     mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();

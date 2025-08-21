@@ -58,7 +58,7 @@ async fn test_get_notification_mode() {
     ]
     .into();
 
-    sync_builder.add_global_account_data(f.push_rules(ruleset).into_raw());
+    sync_builder.add_global_account_data(f.push_rules(ruleset));
 
     mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
