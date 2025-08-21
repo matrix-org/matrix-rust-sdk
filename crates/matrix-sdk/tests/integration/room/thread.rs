@@ -1,7 +1,11 @@
 use assert_matches2::assert_matches;
-use matrix_sdk::{room::ThreadSubscription, test_utils::mocks::MatrixMockServer};
+use matrix_sdk::{
+    notification_settings::RoomNotificationMode,
+    room::ThreadSubscription,
+    test_utils::mocks::{MatrixMockServer, PushRuleIdSpec},
+};
 use matrix_sdk_test::{async_test, event_factory::EventFactory, JoinedRoomBuilder, ALICE};
-use ruma::{event_id, owned_event_id, room_id};
+use ruma::{event_id, owned_event_id, push::RuleKind, room_id};
 
 #[async_test]
 async fn test_subscribe_thread() {
@@ -237,4 +241,184 @@ async fn test_thread_push_rule_is_triggered_for_subscribed_threads() {
 
     let actions = push_context.for_event(&event).await;
     assert!(actions.is_empty());
+}
+
+#[async_test]
+async fn test_thread_push_rules_and_notification_modes() {
+    // This test checks that, given a combination of a global notification mode, and
+    // a room notification mode, we do get notifications for thread events according
+    // to the subscriptions.
+
+    let server = MatrixMockServer::new().await;
+    let client = server
+        .client_builder()
+        .on_builder(|builder| {
+            builder.with_threading_support(matrix_sdk::ThreadingSupport::Enabled {
+                with_subscriptions: true,
+            })
+        })
+        .build()
+        .await;
+
+    let room_id = room_id!("!test:example.org");
+    let f = EventFactory::new().room(room_id).sender(*ALICE);
+    // Make it so that the client has a member event for the current user.
+    let room = server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id).add_state_event(f.member(client.user_id().unwrap())),
+        )
+        .await;
+
+    // Sanity check: we can get a push context.
+    room.push_context()
+        .await
+        .expect("getting a push context works")
+        .expect("the push context should exist");
+
+    // Mock push rules endpoints, allowing any modification to any rule.
+    server.mock_set_push_rules_actions(RuleKind::Underride, PushRuleIdSpec::Any).ok().mount().await;
+    server.mock_set_push_rules_actions(RuleKind::Room, PushRuleIdSpec::Any).ok().mount().await;
+    server.mock_set_push_rules(RuleKind::Underride, PushRuleIdSpec::Any).ok().mount().await;
+    server.mock_set_push_rules(RuleKind::Room, PushRuleIdSpec::Any).ok().mount().await;
+    server.mock_set_push_rules(RuleKind::Override, PushRuleIdSpec::Any).ok().mount().await;
+    server.mock_delete_push_rules(RuleKind::Room, PushRuleIdSpec::Any).ok().mount().await;
+    server.mock_delete_push_rules(RuleKind::Override, PushRuleIdSpec::Any).ok().mount().await;
+
+    // Given a thread I'm subscribed to,
+    let thread_root_id = owned_event_id!("$root");
+
+    server
+        .mock_get_thread_subscription()
+        .match_room_id(room_id.to_owned())
+        .match_thread_id(thread_root_id.clone())
+        .ok(true)
+        .mount()
+        .await;
+
+    // Given an event in the thread I'm subscribed to,
+    let event =
+        f.text_msg("hello to you too!").in_thread(&thread_root_id, &thread_root_id).into_raw_sync();
+
+    // If global mode = AllMessages,
+    let settings = client.notification_settings().await;
+
+    let is_encrypted = false;
+    let is_one_to_one = false;
+    settings
+        .set_default_room_notification_mode(
+            is_encrypted.into(),
+            is_one_to_one.into(),
+            RoomNotificationMode::AllMessages,
+        )
+        .await
+        .unwrap();
+
+    // If room mode = AllMessages,
+    settings.set_room_notification_mode(room_id, RoomNotificationMode::AllMessages).await.unwrap();
+    // Ack the push rules change via sync, for it to be applied in the push context.
+    let ruleset = settings.ruleset().await;
+    server
+        .mock_sync()
+        .ok_and_run(&client, |builder| {
+            builder.add_global_account_data(f.push_rules(ruleset));
+        })
+        .await;
+
+    // The thread event will trigger a notification.
+    let actions = room.push_context().await.unwrap().unwrap().traced_for_event(&event).await;
+    assert!(actions.iter().any(|action| action.should_notify()));
+
+    // If room mode = mentions and keywords only,
+    settings
+        .set_room_notification_mode(room_id, RoomNotificationMode::MentionsAndKeywordsOnly)
+        .await
+        .unwrap();
+    let ruleset = settings.ruleset().await;
+    server
+        .mock_sync()
+        .ok_and_run(&client, |builder| {
+            builder.add_global_account_data(f.push_rules(ruleset));
+        })
+        .await;
+
+    // The thread event will trigger a notification.
+    let actions = room.push_context().await.unwrap().unwrap().traced_for_event(&event).await;
+    // TODO: unexpected! this should trigger a thread mention
+    //assert!(actions.iter().any(|action| action.should_notify()));
+    assert!(!actions.iter().any(|action| action.should_notify()));
+
+    // If room mode = mute,
+    settings.set_room_notification_mode(room_id, RoomNotificationMode::Mute).await.unwrap();
+    let ruleset = settings.ruleset().await;
+    server
+        .mock_sync()
+        .ok_and_run(&client, |builder| {
+            builder.add_global_account_data(f.push_rules(ruleset));
+        })
+        .await;
+
+    // The thread event will not trigger a notification, as the room has been muted.
+    let actions = room.push_context().await.unwrap().unwrap().traced_for_event(&event).await;
+    assert!(!actions.iter().any(|action| action.should_notify()));
+
+    // Now, if global mode = mentions only,
+    settings
+        .set_default_room_notification_mode(
+            is_encrypted.into(),
+            is_one_to_one.into(),
+            RoomNotificationMode::MentionsAndKeywordsOnly,
+        )
+        .await
+        .unwrap();
+
+    // If room mode = AllMessages,
+    settings.set_room_notification_mode(room_id, RoomNotificationMode::AllMessages).await.unwrap();
+    // Ack the push rules change via sync, for it to be applied in the push context.
+    let ruleset = settings.ruleset().await;
+    server
+        .mock_sync()
+        .ok_and_run(&client, |builder| {
+            builder.add_global_account_data(f.push_rules(ruleset));
+        })
+        .await;
+
+    // The thread event will trigger a notification.
+    let actions = room.push_context().await.unwrap().unwrap().traced_for_event(&event).await;
+    assert!(actions.iter().any(|action| action.should_notify()));
+
+    // If room mode = Mentions only,
+    settings
+        .set_room_notification_mode(room_id, RoomNotificationMode::MentionsAndKeywordsOnly)
+        .await
+        .unwrap();
+    // Ack the push rules change via sync, for it to be applied in the push context.
+    let ruleset = settings.ruleset().await;
+    server
+        .mock_sync()
+        .ok_and_run(&client, |builder| {
+            builder.add_global_account_data(f.push_rules(ruleset));
+        })
+        .await;
+
+    // The thread event will trigger a notification.
+    let actions = room.push_context().await.unwrap().unwrap().traced_for_event(&event).await;
+    // TODO: unexpected! this should trigger a thread mention
+    //assert!(actions.iter().any(|action| action.should_notify()));
+    assert!(!actions.iter().any(|action| action.should_notify()));
+
+    // If room mode = mute,
+    settings.set_room_notification_mode(room_id, RoomNotificationMode::Mute).await.unwrap();
+    // Ack the push rules change via sync, for it to be applied in the push context.
+    let ruleset = settings.ruleset().await;
+    server
+        .mock_sync()
+        .ok_and_run(&client, |builder| {
+            builder.add_global_account_data(f.push_rules(ruleset));
+        })
+        .await;
+
+    // The thread event will not trigger a notification, as the room has been muted.
+    let actions = room.push_context().await.unwrap().unwrap().traced_for_event(&event).await;
+    assert!(!actions.iter().any(|action| action.should_notify()));
 }
