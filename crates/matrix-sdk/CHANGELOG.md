@@ -8,6 +8,10 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
+- `Room::enable_encryption` and `Room::enable_encryption_with_state_event_encryption` will poll
+  the encryption state for up to 3 seconds, rather than checking once after a single sync has
+  completed.
+  ([#5559](https://github.com/matrix-org/matrix-rust-sdk/pull/5559))
 - Add `Room::enable_encryption_with_state` to enable E2E encryption with encrypted state event
   support, gated behind the `experimental-encrypted-state-events` feature.
   ([#5557](https://github.com/matrix-org/matrix-rust-sdk/pull/5557))
