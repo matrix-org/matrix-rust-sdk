@@ -12,11 +12,20 @@
 // See the License for the specific language governing permissions and
 // limitations under the License
 
-use matrix_sdk_base::event_cache::store::{media::MediaStore, MemoryMediaStore};
+use matrix_sdk_base::event_cache::store::{
+    media::{MediaStore, MediaStoreError},
+    MemoryMediaStore,
+};
 use thiserror::Error;
 
 #[derive(Debug, Error)]
 pub enum IndexeddbMediaStoreError {
     #[error("media store: {0}")]
     MemoryStore(<MemoryMediaStore as MediaStore>::Error),
+}
+
+impl From<IndexeddbMediaStoreError> for MediaStoreError {
+    fn from(value: IndexeddbMediaStoreError) -> Self {
+        Self::Backend(Box::new(value))
+    }
 }
