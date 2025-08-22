@@ -509,7 +509,7 @@ impl ClientBuilder {
         Span::current().record("homeserver", debug(&homeserver_cfg));
 
         #[cfg_attr(target_family = "wasm", allow(clippy::infallible_destructuring_match))]
-        let inner_http_client = match self.http_cfg.unwrap_or_default() {
+        let inner_http_client = match self.http_cfg.clone().unwrap_or_default() {
             #[cfg(not(target_family = "wasm"))]
             HttpConfig::Settings(mut settings) => {
                 settings.timeout = self.request_config.timeout;
@@ -537,11 +537,24 @@ impl ClientBuilder {
             client
         };
 
+        let discover_http_client = HttpClient::new(
+            match self.http_cfg.unwrap_or_default() {
+                #[cfg(not(target_family = "wasm"))]
+                HttpConfig::Settings(mut settings) => {
+                    settings.timeout = self.request_config.timeout;
+                    settings.disable_built_in_root_certificates = false;
+                    settings.make_client()?
+                }
+                HttpConfig::Custom(c) => c,
+            },
+            self.request_config.clone()
+        );
+
         let http_client = HttpClient::new(inner_http_client.clone(), self.request_config);
 
         #[allow(unused_variables)]
         let HomeserverDiscoveryResult { server, homeserver, supported_versions, well_known } =
-            homeserver_cfg.discover(&http_client).await?;
+            homeserver_cfg.discover(&discover_http_client).await?;
 
         let sliding_sync_version = {
             let supported_versions = match supported_versions {
