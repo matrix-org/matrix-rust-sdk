@@ -1504,7 +1504,7 @@ impl Client {
         policy: MediaRetentionPolicy,
     ) -> Result<(), ClientError> {
         let closure = async || -> Result<_, EventCacheError> {
-            let store = self.inner.event_cache_store().lock().await?;
+            let store = self.inner.media_store().lock().await?;
             Ok(store.set_media_retention_policy(policy).await?)
         };
 
@@ -1552,7 +1552,7 @@ impl Client {
 
             // Clean up the media cache according to the current media retention policy.
             self.inner
-                .event_cache_store()
+                .media_store()
                 .lock()
                 .await
                 .map_err(EventCacheError::from)?

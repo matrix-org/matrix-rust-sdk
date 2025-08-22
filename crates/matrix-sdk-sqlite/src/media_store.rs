@@ -641,7 +641,9 @@ mod tests {
     };
 
     use matrix_sdk_base::{
-        event_cache::store::media::{IgnoreMediaRetentionPolicy, MediaStore, MediaStoreInner, MediaStoreError},
+        event_cache::store::media::{
+            IgnoreMediaRetentionPolicy, MediaStore, MediaStoreError,
+        },
         media::{MediaFormat, MediaRequestParameters, MediaThumbnailSettings},
         media_store_inner_integration_tests, media_store_integration_tests,
         media_store_integration_tests_time,

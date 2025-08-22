@@ -31,7 +31,7 @@ use futures_util::StreamExt;
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk_base::crypto::{store::LockableCryptoStore, DecryptionSettings};
 use matrix_sdk_base::{
-    event_cache::store::EventCacheStoreLock,
+    event_cache::store::{media::MediaStoreLock, EventCacheStoreLock},
     store::{DynStateStore, RoomLoadSettings, ServerInfo, WellKnownResponse},
     sync::{Notification, RoomUpdates},
     BaseClient, RoomInfoNotableUpdate, RoomState, RoomStateFilter, SendOutsideWasm, SessionMeta,
@@ -724,6 +724,11 @@ impl Client {
     /// Get a reference to the event cache store.
     pub fn event_cache_store(&self) -> &EventCacheStoreLock {
         self.base_client().event_cache_store()
+    }
+
+    /// Get a reference to the media store.
+    pub fn media_store(&self) -> &MediaStoreLock {
+        self.base_client().media_store()
     }
 
     /// Access the native Matrix authentication API with this client.
