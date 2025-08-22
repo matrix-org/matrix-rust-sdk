@@ -469,19 +469,18 @@ impl CryptoStore for MemoryStore {
         &self,
         room_id: &RoomId,
     ) -> Result<Vec<InboundGroupSession>> {
-        let inbounds: Vec<InboundGroupSession> = self
-            .inbound_group_sessions
-            .read()
-            .get(room_id)
-            .expect("No inbound group sessions for that roomId")
-            .values()
-            .map(|ser| {
-                let pickle: PickledInboundGroupSession =
-                    serde_json::from_str(ser).expect("Pickle deserialization should work");
-                InboundGroupSession::from_pickle(pickle).expect("Expect from pickle to always work")
-            })
-            .collect();
-
+        let inbounds = match self.inbound_group_sessions.read().get(room_id) {
+            None => Vec::new(),
+            Some(v) => v
+                .values()
+                .map(|ser| {
+                    let pickle: PickledInboundGroupSession =
+                        serde_json::from_str(ser).expect("Pickle deserialization should work");
+                    InboundGroupSession::from_pickle(pickle)
+                        .expect("Expect from pickle to always work")
+                })
+                .collect(),
+        };
         Ok(inbounds)
     }
 

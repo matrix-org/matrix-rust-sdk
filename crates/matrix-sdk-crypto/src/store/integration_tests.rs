@@ -601,12 +601,11 @@ macro_rules! cryptostore_integration_tests {
 
                 drop(store);
 
-                // The last session is in a different room, so should not be returned by 
+                // The last session is in a different room, so should not be returned by
                 // get_inbound_group_sessions_by_room_id. Remove it from the list.
                 sessions.pop();
 
                 let store = get_store(dir, None, false).await;
-                
                 // Make sure all the sessions are in the store
                 assert_eq!(store.get_inbound_group_sessions().await.unwrap().len(), 3);
 
