@@ -666,11 +666,20 @@ async fn build_store_config(
                 .event_cache_store({
                     let mut config = config.clone();
 
-                    if let Some(cache_path) = cache_path {
+                    if let Some(ref cache_path) = cache_path {
                         config = config.path(cache_path);
                     }
 
                     matrix_sdk_sqlite::SqliteEventCacheStore::open_with_config(config).await?
+                })
+                .media_store({
+                    let mut config = config.clone();
+
+                    if let Some(ref cache_path) = cache_path {
+                        config = config.path(cache_path);
+                    }
+
+                    matrix_sdk_sqlite::SqliteMediaStore::open_with_config(config).await?
                 });
 
             #[cfg(feature = "e2e-encryption")]

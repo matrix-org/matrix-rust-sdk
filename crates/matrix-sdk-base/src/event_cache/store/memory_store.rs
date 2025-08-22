@@ -16,7 +16,6 @@ use std::{
     collections::HashMap,
     num::NonZeroUsize,
     sync::{Arc, RwLock as StdRwLock},
-    time::SystemTime,
 };
 
 use async_trait::async_trait;
@@ -29,8 +28,9 @@ use matrix_sdk_common::{
     store_locks::memory_store_helper::try_take_leased_lock,
 };
 use ruma::{
-    EventId, MxcUri, OwnedEventId, OwnedMxcUri, RoomId, events::relation::RelationType,
-    time::Instant,
+    EventId, MxcUri, OwnedEventId, OwnedMxcUri, RoomId,
+    events::relation::RelationType,
+    time::{Instant, SystemTime},
 };
 use tracing::error;
 

@@ -45,7 +45,8 @@ pub struct IndexeddbMediaStore {
 
 impl IndexeddbMediaStore {
     /// Provides a type with which to conveniently build an
-    /// [`IndexeddbEventCacheStore`]
+    /// [`IndexeddbMediaStore`]
+    #[allow(dead_code)]
     pub fn builder() -> IndexeddbMediaStoreBuilder {
         IndexeddbMediaStoreBuilder::default()
     }
@@ -222,17 +223,12 @@ mod tests {
 
     use crate::media_store::{error::IndexeddbMediaStoreError, IndexeddbMediaStore};
 
-    impl From<IndexeddbMediaStoreError> for MediaStoreError {
-        fn from(value: IndexeddbMediaStoreError) -> Self {
-            Self::Backend(Box::new(value))
-        }
-    }
-
     mod unencrypted {
         use super::*;
 
         wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
+        #[allow(clippy::unused_async)]
         async fn get_media_store() -> Result<IndexeddbMediaStore, MediaStoreError> {
             let name = format!("test-media-store-{}", Uuid::new_v4().as_hyphenated());
             Ok(IndexeddbMediaStore::builder().build()?)
@@ -250,7 +246,8 @@ mod tests {
 
         wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
-        async fn get_event_cache_store() -> Result<IndexeddbMediaStore, MediaStoreError> {
+        #[allow(clippy::unused_async)]
+        async fn get_media_store() -> Result<IndexeddbMediaStore, MediaStoreError> {
             let name = format!("test-media-store-{}", Uuid::new_v4().as_hyphenated());
             Ok(IndexeddbMediaStore::builder().build()?)
         }
