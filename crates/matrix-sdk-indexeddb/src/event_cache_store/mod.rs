@@ -18,10 +18,7 @@ use std::{rc::Rc, time::Duration};
 
 use indexed_db_futures::IdbDatabase;
 use matrix_sdk_base::{
-    event_cache::{
-        store::EventCacheStore,
-        Event, Gap,
-    },
+    event_cache::{store::EventCacheStore, Event, Gap},
     linked_chunk::{
         ChunkIdentifier, ChunkIdentifierGenerator, ChunkMetadata, LinkedChunkId, Position,
         RawChunk, Update,

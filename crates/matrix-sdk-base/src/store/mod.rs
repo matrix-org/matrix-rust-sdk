@@ -72,6 +72,7 @@ use crate::{
     MinimalRoomMemberEvent, Room, RoomCreateWithCreatorEventContent, RoomStateFilter, SessionMeta,
     deserialized_responses::DisplayName,
     event_cache::store as event_cache_store,
+    media::store as media_store,
     room::{RoomInfo, RoomInfoNotableUpdate, RoomState},
 };
 
@@ -775,6 +776,7 @@ pub struct StoreConfig {
     pub(crate) crypto_store: Arc<DynCryptoStore>,
     pub(crate) state_store: Arc<DynStateStore>,
     pub(crate) event_cache_store: event_cache_store::EventCacheStoreLock,
+    pub(crate) media_store: media_store::MediaStoreLock,
     cross_process_store_locks_holder_name: String,
 }
 
@@ -798,6 +800,10 @@ impl StoreConfig {
             state_store: Arc::new(MemoryStore::new()),
             event_cache_store: event_cache_store::EventCacheStoreLock::new(
                 event_cache_store::MemoryStore::new(),
+                cross_process_store_locks_holder_name.clone(),
+            ),
+            media_store: media_store::MediaStoreLock::new(
+                media_store::MemoryMediaStore::new(),
                 cross_process_store_locks_holder_name.clone(),
             ),
             cross_process_store_locks_holder_name,
@@ -826,6 +832,18 @@ impl StoreConfig {
     {
         self.event_cache_store = event_cache_store::EventCacheStoreLock::new(
             event_cache_store,
+            self.cross_process_store_locks_holder_name.clone(),
+        );
+        self
+    }
+
+    /// Set a custom implementation of an `MediaStore`.
+    pub fn media_store<S>(mut self, media_store: S) -> Self
+    where
+        S: media_store::IntoMediaStore,
+    {
+        self.media_store = media_store::MediaStoreLock::new(
+            media_store,
             self.cross_process_store_locks_holder_name.clone(),
         );
         self
