@@ -588,11 +588,6 @@ macro_rules! cryptostore_integration_tests {
                     session_3
                 ];
 
-                for session in sessions.iter_mut(){
-                    let export = session.export().await;
-                    *session = InboundGroupSession::from_export(&export).unwrap();
-                }
-
                 let changes = Changes {
                     inbound_group_sessions: sessions.clone(),
                     ..Default::default()
@@ -615,10 +610,6 @@ macro_rules! cryptostore_integration_tests {
                     .get_inbound_group_sessions_by_room_id(room_id)
                     .await
                     .unwrap();
-
-                for session in loaded_sessions.iter() {
-                    session.export().await;
-                }
 
                 assert_eq!(loaded_sessions.len(), 2);
                 assert_session_lists_eq(sessions, loaded_sessions, "room by id sessions");
