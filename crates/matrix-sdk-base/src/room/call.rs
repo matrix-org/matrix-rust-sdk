@@ -144,6 +144,7 @@ mod tests {
                         focus_active,
                         foci_preferred,
                         Some(timestamp(minutes_ago)),
+                        None,
                     ),
                     CallMemberStateKey::new(user_id.to_owned(), Some(member_id), false),
                 )
