@@ -130,6 +130,7 @@ pub mod v1 {
         pub const EVENTS_RELATION_RELATION_TYPES: &str = "events_relation_relation_type";
         pub const GAPS: &str = "gaps";
         pub const GAPS_KEY_PATH: &str = "id";
+        pub const MEDIA_RETENTION_POLICY_KEY: &str = "media_retention_policy";
     }
 
     /// Create all object stores and indices for v1 database

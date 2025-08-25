@@ -29,7 +29,10 @@
 
 use std::sync::LazyLock;
 
-use matrix_sdk_base::linked_chunk::{ChunkIdentifier, LinkedChunkId};
+use matrix_sdk_base::{
+    event_cache::store::media::MediaRetentionPolicy,
+    linked_chunk::{ChunkIdentifier, LinkedChunkId},
+};
 use matrix_sdk_crypto::CryptoStoreError;
 use ruma::{events::relation::RelationType, EventId, OwnedEventId, RoomId};
 use serde::{Deserialize, Serialize};
@@ -231,6 +234,13 @@ impl<K> From<K> for IndexedKeyRange<K> {
     }
 }
 
+/// A representation of the primary key of the [`CORE`][1] object store.
+/// The key may or may not be hashed depending on the
+/// provided [`IndexeddbSerializer`].
+///
+/// [1]: crate::event_cache_store::migrations::v1::create_core_object_store
+pub type IndexedCoreIdKey = String;
+
 /// A (possibly) encrypted representation of a [`Lease`]
 pub type IndexedLeaseContent = MaybeEncrypted;
 
@@ -268,6 +278,9 @@ pub type IndexedEventContent = MaybeEncrypted;
 /// A (possibly) encrypted representation of a [`Gap`]
 pub type IndexedGapContent = MaybeEncrypted;
 
+/// A (possibly) encrypted representation of a [`MediaRetentionPolicy`]
+pub type IndexedMediaRetentionPolicyContent = MaybeEncrypted;
+
 /// Represents the [`LEASES`][1] object store.
 ///
 /// [1]: crate::event_cache_store::migrations::v1::create_lease_object_store
@@ -291,7 +304,7 @@ impl Indexed for Lease {
         serializer: &IndexeddbSerializer,
     ) -> Result<Self::IndexedType, Self::Error> {
         Ok(IndexedLease {
-            id: IndexedLeaseIdKey::encode(&self.key, serializer),
+            id: <IndexedLeaseIdKey as IndexedKey<Lease>>::encode(&self.key, serializer),
             content: serializer.maybe_encrypt_value(self)?,
         })
     }
@@ -824,5 +837,49 @@ impl<'a> IndexedPrefixKeyComponentBounds<'a, Gap, LinkedChunkId<'a>> for Indexed
         <Self as IndexedPrefixKeyComponentBounds<Chunk, _>>::upper_key_components_with_prefix(
             linked_chunk_id,
         )
+    }
+}
+
+/// Represents the [`MediaRetentionPolicy`] record in the [`CORE`][1] object
+/// store.
+///
+/// [1]: crate::event_cache_store::migrations::v1::create_core_object_store
+#[derive(Debug, Serialize, Deserialize)]
+pub struct IndexedMediaRetentionPolicy {
+    /// The primary key of the object store.
+    pub id: IndexedCoreIdKey,
+    /// The (possibly) encrypted content - i.e., a [`MediaRetentionPolicy`].
+    pub content: IndexedMediaRetentionPolicyContent,
+}
+
+impl Indexed for MediaRetentionPolicy {
+    const OBJECT_STORE: &'static str = keys::CORE;
+
+    type IndexedType = IndexedMediaRetentionPolicy;
+    type Error = CryptoStoreError;
+
+    fn to_indexed(
+        &self,
+        serializer: &IndexeddbSerializer,
+    ) -> Result<Self::IndexedType, Self::Error> {
+        Ok(Self::IndexedType {
+            id: <IndexedCoreIdKey as IndexedKey<Self>>::encode((), serializer),
+            content: serializer.maybe_encrypt_value(self)?,
+        })
+    }
+
+    fn from_indexed(
+        indexed: Self::IndexedType,
+        serializer: &IndexeddbSerializer,
+    ) -> Result<Self, Self::Error> {
+        serializer.maybe_decrypt_value(indexed.content)
+    }
+}
+
+impl IndexedKey<MediaRetentionPolicy> for IndexedCoreIdKey {
+    type KeyComponents<'a> = ();
+
+    fn encode(components: Self::KeyComponents<'_>, serializer: &IndexeddbSerializer) -> Self {
+        serializer.encode_key_as_string(keys::CORE, keys::MEDIA_RETENTION_POLICY_KEY)
     }
 }
