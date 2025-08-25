@@ -14,7 +14,7 @@
 
 #![allow(unused)]
 
-use std::time::Duration;
+use std::{rc::Rc, time::Duration};
 
 use indexed_db_futures::IdbDatabase;
 use matrix_sdk_base::{
@@ -63,10 +63,10 @@ pub use error::IndexeddbEventCacheStoreError;
 /// contexts.
 ///
 /// [1]: matrix_sdk_base::event_cache::store::EventCacheStore
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct IndexeddbEventCacheStore {
     // A handle to the IndexedDB database
-    inner: IdbDatabase,
+    inner: Rc<IdbDatabase>,
     // A serializer with functionality tailored to `IndexeddbEventCacheStore`
     serializer: IndexeddbEventCacheStoreSerializer,
     // An in-memory store for providing temporary implementations for
