@@ -1354,27 +1354,31 @@ impl MatrixMockServer {
 
     /// Create a prebuilt mock for the endpoint used to get a single thread
     /// subscription status in a given room.
-    pub fn mock_get_thread_subscription(&self) -> MockEndpoint<'_, GetThreadSubscriptionEndpoint> {
+    pub fn mock_room_get_thread_subscription(
+        &self,
+    ) -> MockEndpoint<'_, RoomGetThreadSubscriptionEndpoint> {
         let mock = Mock::given(method("GET"));
-        self.mock_endpoint(mock, GetThreadSubscriptionEndpoint::default())
+        self.mock_endpoint(mock, RoomGetThreadSubscriptionEndpoint::default())
             .expect_default_access_token()
     }
 
     /// Create a prebuilt mock for the endpoint used to define a thread
     /// subscription in a given room.
-    pub fn mock_put_thread_subscription(&self) -> MockEndpoint<'_, PutThreadSubscriptionEndpoint> {
+    pub fn mock_room_put_thread_subscription(
+        &self,
+    ) -> MockEndpoint<'_, RoomPutThreadSubscriptionEndpoint> {
         let mock = Mock::given(method("PUT"));
-        self.mock_endpoint(mock, PutThreadSubscriptionEndpoint::default())
+        self.mock_endpoint(mock, RoomPutThreadSubscriptionEndpoint::default())
             .expect_default_access_token()
     }
 
     /// Create a prebuilt mock for the endpoint used to delete a thread
     /// subscription in a given room.
-    pub fn mock_delete_thread_subscription(
+    pub fn mock_room_delete_thread_subscription(
         &self,
-    ) -> MockEndpoint<'_, DeleteThreadSubscriptionEndpoint> {
+    ) -> MockEndpoint<'_, RoomDeleteThreadSubscriptionEndpoint> {
         let mock = Mock::given(method("DELETE"));
-        self.mock_endpoint(mock, DeleteThreadSubscriptionEndpoint::default())
+        self.mock_endpoint(mock, RoomDeleteThreadSubscriptionEndpoint::default())
             .expect_default_access_token()
     }
 
@@ -3991,11 +3995,11 @@ impl ThreadSubscriptionMatchers {
 /// A prebuilt mock for `GET
 /// /client/*/rooms/{room_id}/threads/{thread_root}/subscription`
 #[derive(Default)]
-pub struct GetThreadSubscriptionEndpoint {
+pub struct RoomGetThreadSubscriptionEndpoint {
     matchers: ThreadSubscriptionMatchers,
 }
 
-impl<'a> MockEndpoint<'a, GetThreadSubscriptionEndpoint> {
+impl<'a> MockEndpoint<'a, RoomGetThreadSubscriptionEndpoint> {
     /// Returns a successful response for the given thread subscription.
     pub fn ok(mut self, automatic: bool) -> MatrixMock<'a> {
         self.mock = self.mock.and(path_regex(self.endpoint.matchers.endpoint_regexp_uri()));
@@ -4019,11 +4023,11 @@ impl<'a> MockEndpoint<'a, GetThreadSubscriptionEndpoint> {
 /// A prebuilt mock for `PUT
 /// /client/*/rooms/{room_id}/threads/{thread_root}/subscription`
 #[derive(Default)]
-pub struct PutThreadSubscriptionEndpoint {
+pub struct RoomPutThreadSubscriptionEndpoint {
     matchers: ThreadSubscriptionMatchers,
 }
 
-impl<'a> MockEndpoint<'a, PutThreadSubscriptionEndpoint> {
+impl<'a> MockEndpoint<'a, RoomPutThreadSubscriptionEndpoint> {
     /// Returns a successful response for the given setting of thread
     /// subscription.
     pub fn ok(mut self) -> MatrixMock<'a> {
@@ -4064,11 +4068,11 @@ impl<'a> MockEndpoint<'a, PutThreadSubscriptionEndpoint> {
 /// A prebuilt mock for `DELETE
 /// /client/*/rooms/{room_id}/threads/{thread_root}/subscription`
 #[derive(Default)]
-pub struct DeleteThreadSubscriptionEndpoint {
+pub struct RoomDeleteThreadSubscriptionEndpoint {
     matchers: ThreadSubscriptionMatchers,
 }
 
-impl<'a> MockEndpoint<'a, DeleteThreadSubscriptionEndpoint> {
+impl<'a> MockEndpoint<'a, RoomDeleteThreadSubscriptionEndpoint> {
     /// Returns a successful response for the deletion of a given thread
     /// subscription.
     pub fn ok(mut self) -> MatrixMock<'a> {
