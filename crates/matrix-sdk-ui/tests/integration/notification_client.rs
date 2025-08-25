@@ -135,7 +135,7 @@ async fn test_subscribed_threads_get_notifications() {
     // For a thread I'm subscribed to,
     let thread_root = event_id!("$thread_root");
     server
-        .mock_get_thread_subscription()
+        .mock_room_get_thread_subscription()
         .match_thread_id(thread_root.to_owned())
         .ok(false)
         .expect(2)

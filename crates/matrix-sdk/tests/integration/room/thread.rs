@@ -18,7 +18,7 @@ async fn test_subscribe_thread() {
     let root_id = owned_event_id!("$root");
 
     server
-        .mock_put_thread_subscription()
+        .mock_room_put_thread_subscription()
         .match_room_id(room_id.to_owned())
         .match_thread_id(root_id.clone())
         .ok()
@@ -30,7 +30,7 @@ async fn test_subscribe_thread() {
     room.subscribe_thread(root_id.clone(), Some(root_id.clone())).await.unwrap();
 
     server
-        .mock_get_thread_subscription()
+        .mock_room_get_thread_subscription()
         .match_room_id(room_id.to_owned())
         .match_thread_id(root_id.clone())
         .ok(true)
@@ -50,7 +50,7 @@ async fn test_subscribe_thread() {
 
     // I can also unsubscribe from a thread.
     server
-        .mock_delete_thread_subscription()
+        .mock_room_delete_thread_subscription()
         .match_room_id(room_id.to_owned())
         .match_thread_id(root_id.clone())
         .ok()
@@ -68,7 +68,7 @@ async fn test_subscribe_thread() {
     // Subscribing automatically to the thread may also return a `M_SKIPPED` error
     // that should be non-fatal.
     server
-        .mock_put_thread_subscription()
+        .mock_room_put_thread_subscription()
         .match_room_id(room_id.to_owned())
         .match_thread_id(root_id.clone())
         .conflicting_unsubscription()
@@ -99,7 +99,7 @@ async fn test_subscribe_thread_if_needed() {
         (owned_event_id!("$woot"), Some(owned_event_id!("$woot"))),
     ] {
         server
-            .mock_put_thread_subscription()
+            .mock_room_put_thread_subscription()
             .match_room_id(room_id.to_owned())
             .match_thread_id(root_id.clone())
             .ok()
@@ -117,7 +117,7 @@ async fn test_subscribe_thread_if_needed() {
         let root_id = owned_event_id!("$toot");
 
         server
-            .mock_get_thread_subscription()
+            .mock_room_get_thread_subscription()
             .match_room_id(room_id.to_owned())
             .match_thread_id(root_id.clone())
             .ok(true)
@@ -126,7 +126,7 @@ async fn test_subscribe_thread_if_needed() {
             .await;
 
         server
-            .mock_put_thread_subscription()
+            .mock_room_put_thread_subscription()
             .match_room_id(room_id.to_owned())
             .match_thread_id(root_id.clone())
             .ok()
@@ -142,7 +142,7 @@ async fn test_subscribe_thread_if_needed() {
         let root_id = owned_event_id!("$foot");
 
         server
-            .mock_get_thread_subscription()
+            .mock_room_get_thread_subscription()
             .match_room_id(room_id.to_owned())
             .match_thread_id(root_id.clone())
             .ok(true)
@@ -160,7 +160,7 @@ async fn test_subscribe_thread_if_needed() {
         (owned_event_id!("$woot"), Some(owned_event_id!("$woot"))),
     ] {
         server
-            .mock_get_thread_subscription()
+            .mock_room_get_thread_subscription()
             .match_room_id(room_id.to_owned())
             .match_thread_id(root_id.clone())
             .ok(false)
@@ -214,7 +214,7 @@ async fn test_thread_push_rule_is_triggered_for_subscribed_threads() {
     // Mock the thread subscriptions endpoint so the user is subscribed to the
     // thread.
     server
-        .mock_get_thread_subscription()
+        .mock_room_get_thread_subscription()
         .match_room_id(room_id.to_owned())
         .match_thread_id(thread_root_id.clone())
         .ok(true)
@@ -289,7 +289,7 @@ async fn test_thread_push_rules_and_notification_modes() {
     let thread_root_id = owned_event_id!("$root");
 
     server
-        .mock_get_thread_subscription()
+        .mock_room_get_thread_subscription()
         .match_room_id(room_id.to_owned())
         .match_thread_id(thread_root_id.clone())
         .ok(true)

@@ -555,7 +555,7 @@ async fn test_auto_subscribe_thread_via_sync() {
     // (The endpoint will be called for the current thread, and with an automatic
     // subscription up to the given event ID.)
     s.server
-        .mock_put_thread_subscription()
+        .mock_room_put_thread_subscription()
         .match_automatic_event_id(&s.mention_event_id)
         .match_thread_id(s.thread_root.to_owned())
         .ok()
@@ -587,7 +587,7 @@ async fn test_dont_auto_subscribe_on_already_subscribed_thread() {
 
     // Given a thread I'm already subscribed to,
     s.server
-        .mock_get_thread_subscription()
+        .mock_room_get_thread_subscription()
         .match_thread_id(s.thread_root.to_owned())
         .ok(false)
         .mock_once()
@@ -595,7 +595,7 @@ async fn test_dont_auto_subscribe_on_already_subscribed_thread() {
         .await;
 
     // The PUT endpoint (to subscribe to the thread) shouldn't be called…
-    s.server.mock_put_thread_subscription().ok().expect(0).mount().await;
+    s.server.mock_room_put_thread_subscription().ok().expect(0).mount().await;
 
     // …when I receive a new in-thread mention for this thread.
     s.server
@@ -678,7 +678,7 @@ async fn test_auto_subscribe_on_thread_paginate() {
     // (The endpoint will be called for the current thread, and with an automatic
     // subscription up to the given event ID.)
     s.server
-        .mock_put_thread_subscription()
+        .mock_room_put_thread_subscription()
         .match_automatic_event_id(&s.mention_event_id)
         .match_thread_id(s.thread_root.to_owned())
         .ok()
@@ -764,7 +764,7 @@ async fn test_auto_subscribe_on_thread_paginate_root_event() {
     // (The endpoint will be called for the current thread, and with an automatic
     // subscription up to the given event ID.)
     s.server
-        .mock_put_thread_subscription()
+        .mock_room_put_thread_subscription()
         .match_automatic_event_id(thread_root_id)
         .match_thread_id(thread_root_id.to_owned())
         .ok()

@@ -3747,7 +3747,7 @@ async fn test_sending_reply_in_thread_auto_subscribe() {
     server.mock_room_send().ok(event_id!("$reply")).mock_once().mount().await;
 
     server
-        .mock_put_thread_subscription()
+        .mock_room_put_thread_subscription()
         .match_room_id(room_id.to_owned())
         .match_thread_id(thread_root.to_owned())
         .ok()
@@ -3771,7 +3771,7 @@ async fn test_sending_reply_in_thread_auto_subscribe() {
 
     // Subscribed, automatically.
     server
-        .mock_get_thread_subscription()
+        .mock_room_get_thread_subscription()
         .match_room_id(room_id.to_owned())
         .match_thread_id(thread_root.to_owned())
         .ok(true)
@@ -3780,7 +3780,7 @@ async fn test_sending_reply_in_thread_auto_subscribe() {
 
     // I'll get one subscription.
     server
-        .mock_put_thread_subscription()
+        .mock_room_put_thread_subscription()
         .match_room_id(room_id.to_owned())
         .match_thread_id(thread_root.to_owned())
         .ok()
@@ -3805,7 +3805,7 @@ async fn test_sending_reply_in_thread_auto_subscribe() {
 
     // Subscribed, but manually.
     server
-        .mock_get_thread_subscription()
+        .mock_room_get_thread_subscription()
         .match_room_id(room_id.to_owned())
         .match_thread_id(thread_root.to_owned())
         .ok(false)
@@ -3813,7 +3813,7 @@ async fn test_sending_reply_in_thread_auto_subscribe() {
         .await;
 
     // I'll get zero subscription.
-    server.mock_put_thread_subscription().ok().expect(0).mount().await;
+    server.mock_room_put_thread_subscription().ok().expect(0).mount().await;
 
     server.mock_room_send().ok(event_id!("$reply")).mock_once().mount().await;
 
