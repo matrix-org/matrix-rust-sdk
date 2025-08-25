@@ -48,7 +48,7 @@ use crate::event_cache_store::{
 
 mod builder;
 mod error;
-#[cfg(test)]
+#[cfg(all(test, target_family = "wasm"))]
 mod integration_tests;
 mod migrations;
 mod serializer;
@@ -99,36 +99,11 @@ impl IndexeddbEventCacheStore {
     }
 }
 
-// Small hack to have the following macro invocation act as the appropriate
-// trait impl block on wasm, but still be compiled on non-wasm as a regular
-// impl block otherwise.
-//
-// The trait impl doesn't compile on non-wasm due to unfulfilled trait bounds,
-// this hack allows us to still have most of rust-analyzer's IDE functionality
-// within the impl block without having to set it up to check things against
-// the wasm target (which would disable many other parts of the codebase).
-#[cfg(target_arch = "wasm32")]
-macro_rules! impl_event_cache_store {
-    ( $($body:tt)* ) => {
-        #[async_trait::async_trait(?Send)]
-        impl EventCacheStore for IndexeddbEventCacheStore {
-            type Error = IndexeddbEventCacheStoreError;
+#[cfg(target_family = "wasm")]
+#[async_trait::async_trait(?Send)]
+impl EventCacheStore for IndexeddbEventCacheStore {
+    type Error = IndexeddbEventCacheStoreError;
 
-            $($body)*
-        }
-    };
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-macro_rules! impl_event_cache_store {
-    ( $($body:tt)* ) => {
-        impl IndexeddbEventCacheStore {
-            $($body)*
-        }
-    };
-}
-
-impl_event_cache_store! {
     #[instrument(skip(self))]
     async fn try_take_leased_lock(
         &self,
@@ -651,7 +626,7 @@ impl_event_cache_store! {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, target_family = "wasm"))]
 mod tests {
     use matrix_sdk_base::{
         event_cache::store::{EventCacheStore, EventCacheStoreError},
@@ -674,14 +649,10 @@ mod tests {
             Ok(IndexeddbEventCacheStore::builder().database_name(name).build().await?)
         }
 
-        #[cfg(target_family = "wasm")]
         event_cache_store_integration_tests!();
-
-        #[cfg(target_family = "wasm")]
-        indexeddb_event_cache_store_integration_tests!();
-
-        #[cfg(target_family = "wasm")]
         event_cache_store_integration_tests_time!();
+
+        indexeddb_event_cache_store_integration_tests!();
     }
 
     mod encrypted {
@@ -694,13 +665,9 @@ mod tests {
             Ok(IndexeddbEventCacheStore::builder().database_name(name).build().await?)
         }
 
-        #[cfg(target_family = "wasm")]
         event_cache_store_integration_tests!();
-
-        #[cfg(target_family = "wasm")]
-        indexeddb_event_cache_store_integration_tests!();
-
-        #[cfg(target_family = "wasm")]
         event_cache_store_integration_tests_time!();
+
+        indexeddb_event_cache_store_integration_tests!();
     }
 }
