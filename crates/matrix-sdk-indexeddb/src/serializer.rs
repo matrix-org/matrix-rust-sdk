@@ -35,6 +35,7 @@ const BASE64: GeneralPurpose = GeneralPurpose::new(&alphabet::STANDARD, general_
 
 /// Handles the functionality of serializing and encrypting data for the
 /// indexeddb store.
+#[derive(Clone)]
 pub struct IndexeddbSerializer {
     store_cipher: Option<Arc<StoreCipher>>,
 }
