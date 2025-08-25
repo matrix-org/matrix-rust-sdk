@@ -20,7 +20,10 @@ use indexed_db_futures::IdbDatabase;
 use matrix_sdk_base::{
     event_cache::{
         store::{
-            media::{EventCacheStoreMedia, IgnoreMediaRetentionPolicy, MediaRetentionPolicy},
+            media::{
+                EventCacheStoreMedia, IgnoreMediaRetentionPolicy, MediaRetentionPolicy,
+                MediaService,
+            },
             EventCacheStore, MemoryStore,
         },
         Event, Gap,
@@ -69,6 +72,9 @@ pub struct IndexeddbEventCacheStore {
     inner: Rc<IdbDatabase>,
     // A serializer with functionality tailored to `IndexeddbEventCacheStore`
     serializer: IndexeddbEventCacheStoreSerializer,
+    // A service for conveniently delegating media-related queries to an `EventCacheStoreMedia`
+    // implementation
+    media_service: MediaService,
     // An in-memory store for providing temporary implementations for
     // functions of `EventCacheStore`.
     //
@@ -518,10 +524,7 @@ impl EventCacheStore for IndexeddbEventCacheStore {
         ignore_policy: IgnoreMediaRetentionPolicy,
     ) -> Result<(), IndexeddbEventCacheStoreError> {
         let _timer = timer!("method");
-        self.memory_store
-            .add_media_content(request, content, ignore_policy)
-            .await
-            .map_err(IndexeddbEventCacheStoreError::MemoryStore)
+        self.media_service.add_media_content(self, request, content, ignore_policy).await
     }
 
     #[instrument(skip_all)]
@@ -543,10 +546,7 @@ impl EventCacheStore for IndexeddbEventCacheStore {
         request: &MediaRequestParameters,
     ) -> Result<Option<Vec<u8>>, IndexeddbEventCacheStoreError> {
         let _timer = timer!("method");
-        self.memory_store
-            .get_media_content(request)
-            .await
-            .map_err(IndexeddbEventCacheStoreError::MemoryStore)
+        self.media_service.get_media_content(self, request).await
     }
 
     #[instrument(skip_all)]
@@ -567,10 +567,7 @@ impl EventCacheStore for IndexeddbEventCacheStore {
         uri: &MxcUri,
     ) -> Result<Option<Vec<u8>>, IndexeddbEventCacheStoreError> {
         let _timer = timer!("method");
-        self.memory_store
-            .get_media_content_for_uri(uri)
-            .await
-            .map_err(IndexeddbEventCacheStoreError::MemoryStore)
+        self.media_service.get_media_content_for_uri(self, uri).await
     }
 
     #[instrument(skip(self))]
@@ -591,16 +588,13 @@ impl EventCacheStore for IndexeddbEventCacheStore {
         policy: MediaRetentionPolicy,
     ) -> Result<(), IndexeddbEventCacheStoreError> {
         let _timer = timer!("method");
-        self.memory_store
-            .set_media_retention_policy(policy)
-            .await
-            .map_err(IndexeddbEventCacheStoreError::MemoryStore)
+        self.media_service.set_media_retention_policy(self, policy).await
     }
 
     #[instrument(skip_all)]
     fn media_retention_policy(&self) -> MediaRetentionPolicy {
         let _timer = timer!("method");
-        self.memory_store.media_retention_policy()
+        self.media_service.media_retention_policy()
     }
 
     #[instrument(skip_all)]
@@ -610,19 +604,13 @@ impl EventCacheStore for IndexeddbEventCacheStore {
         ignore_policy: IgnoreMediaRetentionPolicy,
     ) -> Result<(), IndexeddbEventCacheStoreError> {
         let _timer = timer!("method");
-        self.memory_store
-            .set_ignore_media_retention_policy(request, ignore_policy)
-            .await
-            .map_err(IndexeddbEventCacheStoreError::MemoryStore)
+        self.media_service.set_ignore_media_retention_policy(self, request, ignore_policy).await
     }
 
     #[instrument(skip_all)]
     async fn clean_up_media_cache(&self) -> Result<(), IndexeddbEventCacheStoreError> {
         let _timer = timer!("method");
-        self.memory_store
-            .clean_up_media_cache()
-            .await
-            .map_err(IndexeddbEventCacheStoreError::MemoryStore)
+        self.media_service.clean_up_media_cache(self).await
     }
 }
 
