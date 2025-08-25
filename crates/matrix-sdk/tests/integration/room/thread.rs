@@ -344,9 +344,7 @@ async fn test_thread_push_rules_and_notification_modes() {
 
     // The thread event will trigger a notification.
     let actions = room.push_context().await.unwrap().unwrap().traced_for_event(&event).await;
-    // TODO: unexpected! this should trigger a thread mention
-    //assert!(actions.iter().any(|action| action.should_notify()));
-    assert!(!actions.iter().any(|action| action.should_notify()));
+    assert!(actions.iter().any(|action| action.should_notify()));
 
     // If room mode = mute,
     settings.set_room_notification_mode(room_id, RoomNotificationMode::Mute).await.unwrap();
@@ -403,9 +401,7 @@ async fn test_thread_push_rules_and_notification_modes() {
 
     // The thread event will trigger a notification.
     let actions = room.push_context().await.unwrap().unwrap().traced_for_event(&event).await;
-    // TODO: unexpected! this should trigger a thread mention
-    //assert!(actions.iter().any(|action| action.should_notify()));
-    assert!(!actions.iter().any(|action| action.should_notify()));
+    assert!(actions.iter().any(|action| action.should_notify()));
 
     // If room mode = mute,
     settings.set_room_notification_mode(room_id, RoomNotificationMode::Mute).await.unwrap();
