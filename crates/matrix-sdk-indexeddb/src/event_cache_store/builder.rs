@@ -14,7 +14,7 @@
 
 use std::{rc::Rc, sync::Arc};
 
-use matrix_sdk_base::event_cache::store::MemoryStore;
+use matrix_sdk_base::event_cache::store::{media::MediaService, MemoryStore};
 use matrix_sdk_store_encryption::StoreCipher;
 use web_sys::DomException;
 
@@ -70,6 +70,7 @@ impl IndexeddbEventCacheStoreBuilder {
             serializer: IndexeddbEventCacheStoreSerializer::new(IndexeddbSerializer::new(
                 self.store_cipher,
             )),
+            media_service: MediaService::new(),
             memory_store: MemoryStore::new(),
         })
     }
