@@ -439,7 +439,7 @@ impl Media {
             .request_config()
             // Downloading a file should have no timeout as we don't know the network connectivity
             // available for the user or the file size
-            .timeout(None);
+            .timeout(Some(Duration::MAX));
 
         // Use the authenticated endpoints when the server supports it.
         let supported_versions = self.client.supported_versions().await?;
