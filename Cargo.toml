@@ -78,7 +78,8 @@ ruma = { path = "/home/work/code/ruma/crates/ruma", features = [
     "unstable-msc4222",
     "unstable-msc4278",
     "unstable-msc4286",
-    "unstable-msc4306"
+    "unstable-msc4306",
+    "unstable-msc4308"
 ] }
 sentry = "0.36.0"
 sentry-tracing = "0.36.0"

@@ -1,4 +1,4 @@
-use std::{collections::BTreeMap, time::Duration};
+use std::{collections::BTreeMap, ops::Not as _, time::Duration};
 
 use assert_matches2::{assert_let, assert_matches};
 use eyeball_im::VectorDiff;
@@ -46,10 +46,11 @@ use ruma::{
         room::{history_visibility::HistoryVisibility, member::MembershipState},
         AnyInitialStateEvent,
     },
+    owned_event_id, owned_room_id,
     room::JoinRule,
     room_id,
     serde::Raw,
-    user_id, OwnedUserId,
+    uint, user_id, OwnedUserId,
 };
 use serde_json::{json, Value as JsonValue};
 use stream_assert::{assert_next_matches, assert_pending};
@@ -1515,4 +1516,67 @@ async fn test_server_vendor_info_with_missing_fields() {
     // Should use defaults for missing fields
     assert_eq!(server_info.server_name, "unknown");
     assert_eq!(server_info.version, "unknown");
+}
+
+#[async_test]
+async fn test_fetch_thread_subscriptions() {
+    use ruma::api::client::threads::get_thread_subscriptions_changes::unstable::{
+        ThreadSubscription, ThreadUnsubscription,
+    };
+
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+
+    let room1 = owned_room_id!("!room1:example.com");
+    let room2 = owned_room_id!("!room2:example.com");
+    let room3 = owned_room_id!("!room3:example.com");
+
+    let thread1 = owned_event_id!("$thread1:example.com");
+    let thread2 = owned_event_id!("$thread2:example.com");
+    let thread3 = owned_event_id!("$thread3:example.com");
+
+    server
+        .mock_get_thread_subscriptions()
+        .match_from("from")
+        .match_to("to")
+        .add_subscription(
+            room1.clone(),
+            thread1.clone(),
+            ThreadSubscription { automatic: true, bump_stamp: uint!(42) },
+        )
+        .add_subscription(
+            room2.clone(),
+            thread2.clone(),
+            ThreadSubscription { automatic: false, bump_stamp: uint!(7) },
+        )
+        .add_unsubcription(
+            room3.clone(),
+            thread3.clone(),
+            ThreadUnsubscription { bump_stamp: uint!(13) },
+        )
+        .ok(Some("next_batch_token".to_owned()))
+        .mount()
+        .await;
+
+    let response = client
+        .fetch_thread_subscriptions(Some("from".to_owned()), Some("to".to_owned()), None)
+        .await
+        .unwrap();
+
+    assert_eq!(response.end.as_deref(), Some("next_batch_token"));
+
+    assert_eq!(response.subscribed.len(), 2);
+
+    let s1 = &response.subscribed[&room1][&thread1];
+    assert!(s1.automatic);
+    assert_eq!(s1.bump_stamp, uint!(42));
+
+    let s2 = &response.subscribed[&room2][&thread2];
+    assert!(s2.automatic.not());
+    assert_eq!(s2.bump_stamp, uint!(7));
+
+    assert_eq!(response.unsubscribed.len(), 1);
+
+    let u = &response.unsubscribed[&room3][&thread3];
+    assert_eq!(u.bump_stamp, uint!(13));
 }

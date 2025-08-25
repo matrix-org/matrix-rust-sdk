@@ -8,6 +8,10 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
+- `Client::fetch_thread_subscriptions` implements support for the companion endpoint of the
+  experimental MSC4308, allowing to fetch thread subscriptions for a given range, as specified by
+  the MSC.
+  ([#XXXX](https://github.com/matrix-org/matrix-rust-sdk/pull/XXXX))
 - `Room::enable_encryption` and `Room::enable_encryption_with_state_event_encryption` will poll
   the encryption state for up to 3 seconds, rather than checking once after a single sync has
   completed.
