@@ -32,6 +32,7 @@ use ruma::{
         AnySyncMessageLikeEvent, AnySyncTimelineEvent, FullStateEventContent, StateEventType,
         TimelineEventType,
         room::{
+            encrypted::OriginalSyncRoomEncryptedEvent,
             join_rules::JoinRule,
             member::{MembershipState, StrippedRoomMemberEvent},
             message::{Relation, SyncRoomMessageEvent},
@@ -265,8 +266,14 @@ impl NotificationClient {
 
                         sleep(Duration::from_millis(wait)).await;
 
+                        // Note: We specify the cast type in case the
+                        // `experimental-encrypted-state-events` feature is enabled, which provides
+                        // multiple cast implementations.
                         let new_event = room
-                            .decrypt_event(raw_event.cast_ref_unchecked(), push_ctx.as_ref())
+                            .decrypt_event(
+                                raw_event.cast_ref_unchecked::<OriginalSyncRoomEncryptedEvent>(),
+                                push_ctx.as_ref(),
+                            )
                             .await?;
 
                         match new_event.kind {
@@ -308,7 +315,10 @@ impl NotificationClient {
 
         match encryption_sync {
             Ok(sync) => match sync.run_fixed_iterations(2, sync_permit_guard).await {
-                Ok(()) => match room.decrypt_event(raw_event.cast_ref_unchecked(), push_ctx.as_ref()).await {
+                // Note: We specify the cast type in case the
+                // `experimental-encrypted-state-events` feature is enabled, which provides
+                // multiple cast implementations.
+                Ok(()) => match room.decrypt_event(raw_event.cast_ref_unchecked::<OriginalSyncRoomEncryptedEvent>(), push_ctx.as_ref()).await {
                     Ok(new_event) => match new_event.kind {
                         matrix_sdk::deserialized_responses::TimelineEventKind::UnableToDecrypt {
                             utd_info, ..

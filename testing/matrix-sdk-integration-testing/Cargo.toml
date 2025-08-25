@@ -21,8 +21,8 @@ futures-core.workspace = true
 futures-util.workspace = true
 http.workspace = true
 json-structural-diff = "0.1.0"
-matrix-sdk = { workspace = true, default-features = true, features = ["testing", "qrcode"] }
-matrix-sdk-base = { workspace = true, default-features = true, features = ["testing", "qrcode"] }
+matrix-sdk = { workspace = true, default-features = true, features = ["testing", "qrcode", "experimental-encrypted-state-events"] }
+matrix-sdk-base = { workspace = true, default-features = true, features = ["testing", "qrcode", "experimental-encrypted-state-events"] }
 matrix-sdk-common.workspace = true
 matrix-sdk-test.workspace = true
 matrix-sdk-test-utils.workspace = true

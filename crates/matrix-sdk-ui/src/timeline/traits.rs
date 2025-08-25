@@ -30,6 +30,7 @@ use ruma::{
         AnyMessageLikeEventContent, AnySyncTimelineEvent,
         fully_read::FullyReadEventContent,
         receipt::{Receipt, ReceiptThread, ReceiptType},
+        room::encrypted::OriginalSyncRoomEncryptedEvent,
     },
     room_version_rules::RoomVersionRules,
     serde::Raw,
@@ -321,6 +322,10 @@ impl Decryptor for Room {
         raw: &Raw<AnySyncTimelineEvent>,
         push_ctx: Option<&PushContext>,
     ) -> Result<TimelineEvent> {
-        self.decrypt_event(raw.cast_ref_unchecked(), push_ctx).await
+        // Note: We specify the cast type in case the
+        // `experimental-encrypted-state-events` feature is enabled, which provides
+        // multiple cast implementations.
+        self.decrypt_event(raw.cast_ref_unchecked::<OriginalSyncRoomEncryptedEvent>(), push_ctx)
+            .await
     }
 }

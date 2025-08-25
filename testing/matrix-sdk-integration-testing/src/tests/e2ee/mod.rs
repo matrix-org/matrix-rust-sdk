@@ -43,6 +43,7 @@ use tracing::{debug, warn};
 use crate::helpers::{SyncTokenAwareClient, TestClientBuilder};
 
 mod shared_history;
+mod state_events;
 
 // This test reproduces a bug seen on clients that use the same `Client`
 // instance for both the usual sliding sync loop and for getting the event for a
