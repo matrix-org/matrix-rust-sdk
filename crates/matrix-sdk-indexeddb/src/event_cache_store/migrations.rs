@@ -109,6 +109,7 @@ pub mod v1 {
 
     pub mod keys {
         pub const CORE: &str = "core";
+        pub const CORE_KEY_PATH: &str = "id";
         pub const LEASES: &str = "leases";
         pub const LEASES_KEY_PATH: &str = "id";
         pub const ROOMS: &str = "rooms";
@@ -142,8 +143,12 @@ pub mod v1 {
     }
 
     /// Create an object store for tracking miscellaneous information
+    ///
+    /// * Primary Key - `id`
     fn create_core_object_store(db: &IdbDatabase) -> Result<(), DomException> {
-        let _ = db.create_object_store(keys::CORE)?;
+        let mut object_store_params = IdbObjectStoreParameters::new();
+        object_store_params.key_path(Some(&keys::CORE_KEY_PATH.into()));
+        let _ = db.create_object_store_with_params(keys::CORE, &object_store_params)?;
         Ok(())
     }
 
