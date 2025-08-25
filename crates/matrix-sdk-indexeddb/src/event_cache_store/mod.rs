@@ -732,7 +732,8 @@ mod tests {
     use uuid::Uuid;
 
     use crate::{
-        event_cache_store::IndexeddbEventCacheStore, indexeddb_event_cache_store_integration_tests,
+        event_cache_store::IndexeddbEventCacheStore, event_cache_store_media_integration_tests,
+        indexeddb_event_cache_store_integration_tests,
     };
 
     mod unencrypted {
@@ -749,6 +750,8 @@ mod tests {
         event_cache_store_integration_tests_time!();
 
         indexeddb_event_cache_store_integration_tests!();
+
+        event_cache_store_media_integration_tests!();
     }
 
     mod encrypted {
@@ -765,5 +768,7 @@ mod tests {
         event_cache_store_integration_tests_time!();
 
         indexeddb_event_cache_store_integration_tests!();
+
+        event_cache_store_media_integration_tests!();
     }
 }
