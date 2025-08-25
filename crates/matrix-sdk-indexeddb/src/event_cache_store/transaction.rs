@@ -14,7 +14,10 @@
 
 use indexed_db_futures::{prelude::IdbTransaction, IdbQuerySource};
 use matrix_sdk_base::{
-    event_cache::{store::EventCacheStoreError, Event as RawEvent, Gap as RawGap},
+    event_cache::{
+        store::{media::MediaRetentionPolicy, EventCacheStoreError},
+        Event as RawEvent, Gap as RawGap,
+    },
     linked_chunk::{ChunkContent, ChunkIdentifier, LinkedChunkId, RawChunk},
 };
 use ruma::{events::relation::RelationType, EventId, OwnedEventId, RoomId};
@@ -27,15 +30,16 @@ use web_sys::IdbCursorDirection;
 
 use crate::event_cache_store::{
     error::AsyncErrorDeps,
+    migrations::v1::keys,
     serializer::{
         traits::{
             Indexed, IndexedKey, IndexedKeyBounds, IndexedKeyComponentBounds,
             IndexedPrefixKeyBounds, IndexedPrefixKeyComponentBounds,
         },
         types::{
-            IndexedChunkIdKey, IndexedEventIdKey, IndexedEventPositionKey, IndexedEventRelationKey,
-            IndexedEventRoomKey, IndexedGapIdKey, IndexedKeyRange, IndexedLeaseIdKey,
-            IndexedNextChunkIdKey,
+            IndexedChunkIdKey, IndexedCoreIdKey, IndexedEventIdKey, IndexedEventPositionKey,
+            IndexedEventRelationKey, IndexedEventRoomKey, IndexedGapIdKey, IndexedKeyRange,
+            IndexedLeaseIdKey, IndexedNextChunkIdKey,
         },
         IndexeddbEventCacheStoreSerializer,
     },
@@ -860,5 +864,12 @@ impl<'a> IndexeddbEventCacheStoreTransaction<'a> {
         linked_chunk_id: LinkedChunkId<'_>,
     ) -> Result<(), IndexeddbEventCacheStoreTransactionError> {
         self.delete_items_by_linked_chunk_id::<Gap, IndexedGapIdKey>(linked_chunk_id).await
+    }
+
+    /// Query IndexedDB for the stored [`MediaRetentionPolicy`]
+    pub async fn get_media_retention_policy(
+        &self,
+    ) -> Result<Option<MediaRetentionPolicy>, IndexeddbEventCacheStoreTransactionError> {
+        self.get_item_by_key_components::<MediaRetentionPolicy, IndexedCoreIdKey>(()).await
     }
 }

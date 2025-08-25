@@ -624,10 +624,10 @@ impl EventCacheStoreMedia for IndexeddbEventCacheStore {
         &self,
     ) -> Result<Option<MediaRetentionPolicy>, IndexeddbEventCacheStoreError> {
         let _timer = timer!("method");
-        self.memory_store
-            .media_retention_policy_inner()
+        self.transaction(&[MediaRetentionPolicy::OBJECT_STORE], IdbTransactionMode::Readonly)?
+            .get_media_retention_policy()
             .await
-            .map_err(IndexeddbEventCacheStoreError::MemoryStore)
+            .map_err(Into::into)
     }
 
     #[instrument(skip_all)]
@@ -636,10 +636,10 @@ impl EventCacheStoreMedia for IndexeddbEventCacheStore {
         policy: MediaRetentionPolicy,
     ) -> Result<(), IndexeddbEventCacheStoreError> {
         let _timer = timer!("method");
-        self.memory_store
-            .set_media_retention_policy_inner(policy)
+        self.transaction(&[MediaRetentionPolicy::OBJECT_STORE], IdbTransactionMode::Readwrite)?
+            .put_item(&policy)
             .await
-            .map_err(IndexeddbEventCacheStoreError::MemoryStore)
+            .map_err(Into::into)
     }
 
     #[instrument(skip_all)]
