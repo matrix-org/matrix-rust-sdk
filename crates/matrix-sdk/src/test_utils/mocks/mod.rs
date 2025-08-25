@@ -30,7 +30,13 @@ use matrix_sdk_test::{
 };
 use percent_encoding::{AsciiSet, CONTROLS};
 use ruma::{
-    api::client::{receipt::create_receipt::v3::ReceiptType, room::Visibility},
+    api::client::{
+        receipt::create_receipt::v3::ReceiptType,
+        room::Visibility,
+        threads::get_thread_subscriptions_changes::unstable::{
+            ThreadSubscription, ThreadUnsubscription,
+        },
+    },
     device_id,
     directory::PublicRoomsChunk,
     encryption::{CrossSigningKey, DeviceKeys, OneTimeKey},
@@ -1346,8 +1352,8 @@ impl MatrixMockServer {
         self.mock_endpoint(mock, AuthedMediaThumbnailEndpoint).expect_default_access_token()
     }
 
-    /// Create a prebuilt mock for the endpoint used to get a thread
-    /// subscription in a given room.
+    /// Create a prebuilt mock for the endpoint used to get a single thread
+    /// subscription status in a given room.
     pub fn mock_get_thread_subscription(&self) -> MockEndpoint<'_, GetThreadSubscriptionEndpoint> {
         let mock = Mock::given(method("GET"));
         self.mock_endpoint(mock, GetThreadSubscriptionEndpoint::default())
@@ -1426,6 +1432,17 @@ impl MatrixMockServer {
     pub fn mock_federation_version(&self) -> MockEndpoint<'_, FederationVersionEndpoint> {
         let mock = Mock::given(method("GET")).and(path("/_matrix/federation/v1/version"));
         self.mock_endpoint(mock, FederationVersionEndpoint)
+    }
+
+    /// Create a prebuilt mock for the endpoint used to get all thread
+    /// subscriptions across all rooms.
+    pub fn mock_get_thread_subscriptions(
+        &self,
+    ) -> MockEndpoint<'_, GetThreadSubscriptionsEndpoint> {
+        let mock = Mock::given(method("GET"))
+            .and(path_regex(r"^/_matrix/client/unstable/io.element.msc4308/thread_subscriptions$"));
+        self.mock_endpoint(mock, GetThreadSubscriptionsEndpoint::default())
+            .expect_default_access_token()
     }
 }
 
@@ -4133,6 +4150,59 @@ impl<'a> MockEndpoint<'a, FederationVersionEndpoint> {
     /// Returns a successful response with empty/missing server information.
     pub fn ok_empty(self) -> MatrixMock<'a> {
         let response_body = json!({});
+        self.respond_with(ResponseTemplate::new(200).set_body_json(response_body))
+    }
+}
+
+/// A prebuilt mock for `GET ^/_matrix/client/v3/thread_subscriptions`.
+#[derive(Default)]
+pub struct GetThreadSubscriptionsEndpoint {
+    /// New thread subscriptions per (room id, thread root event id).
+    subscribed: BTreeMap<OwnedRoomId, BTreeMap<OwnedEventId, ThreadSubscription>>,
+    /// New thread unsubscriptions per (room id, thread root event id).
+    unsubscribed: BTreeMap<OwnedRoomId, BTreeMap<OwnedEventId, ThreadUnsubscription>>,
+}
+
+impl<'a> MockEndpoint<'a, GetThreadSubscriptionsEndpoint> {
+    /// Add a single thread subscription to the response.
+    pub fn add_subscription(
+        mut self,
+        room_id: OwnedRoomId,
+        thread_root: OwnedEventId,
+        subscription: ThreadSubscription,
+    ) -> Self {
+        self.endpoint.subscribed.entry(room_id).or_default().insert(thread_root, subscription);
+        self
+    }
+
+    /// Add a single thread unsubscription to the response.
+    pub fn add_unsubcription(
+        mut self,
+        room_id: OwnedRoomId,
+        thread_root: OwnedEventId,
+        unsubscription: ThreadUnsubscription,
+    ) -> Self {
+        self.endpoint.unsubscribed.entry(room_id).or_default().insert(thread_root, unsubscription);
+        self
+    }
+
+    /// Match the `from` query parameter to a given value.
+    pub fn match_from(self, from: &str) -> Self {
+        Self { mock: self.mock.and(query_param("from", from)), ..self }
+    }
+    /// Match the `to` query parameter to a given value.
+    pub fn match_to(self, to: &str) -> Self {
+        Self { mock: self.mock.and(query_param("to", to)), ..self }
+    }
+
+    /// Returns a successful response with the given thread subscriptions, and
+    /// "end" parameter to be used in the next query.
+    pub fn ok(self, end: Option<String>) -> MatrixMock<'a> {
+        let response_body = json!({
+            "subscribed": self.endpoint.subscribed,
+            "unsubscribed": self.endpoint.unsubscribed,
+            "end": end,
+        });
         self.respond_with(ResponseTemplate::new(200).set_body_json(response_body))
     }
 }
