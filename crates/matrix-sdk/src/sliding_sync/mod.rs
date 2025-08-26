@@ -39,7 +39,7 @@ use matrix_sdk_common::executor::JoinHandleExt as _;
 use matrix_sdk_common::{executor::spawn, timer};
 use ruma::{
     api::client::{error::ErrorKind, sync::sync_events::v5 as http},
-    assign, OwnedRoomId, RoomId,
+    assign, OwnedRoomId, RoomId, UInt,
 };
 use serde::{Deserialize, Serialize};
 use tokio::{
@@ -55,6 +55,10 @@ use self::{
     sticky_parameters::{LazyTransactionId, SlidingSyncStickyManager, StickyData},
 };
 use crate::{config::RequestConfig, Client, Result};
+
+/// The number of thread subscriptions we should request in the
+/// thread_subscriptions extension, if thread subscriptions are enabled.
+const THREAD_SUBSCRIPTIONS_LIMIT: u64 = 50;
 
 /// The Sliding Sync instance.
 ///
@@ -482,6 +486,13 @@ impl SlidingSync {
         if to_device_enabled {
             request.extensions.to_device.since =
                 restored_fields.and_then(|fields| fields.to_device_token);
+        }
+
+        if self.inner.client.enabled_thread_subscriptions() {
+            request.extensions.thread_subscriptions.limit = Some(
+                UInt::new(THREAD_SUBSCRIPTIONS_LIMIT)
+                    .expect("THREAD_SUBSCRIPTIONS_LIMIT must be smaller than UInt::MAX_SAFE_INT"),
+            );
         }
 
         // Apply the transaction id if one was generated.
