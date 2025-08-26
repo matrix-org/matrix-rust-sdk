@@ -48,10 +48,20 @@ async fn wait_for_initial_events(
     }
 }
 
+async fn client_with_threading_support(server: &MatrixMockServer) -> Client {
+    server
+        .client_builder()
+        .on_builder(|builder| {
+            builder.with_threading_support(ThreadingSupport::Enabled { with_subscriptions: false })
+        })
+        .build()
+        .await
+}
+
 #[async_test]
 async fn test_thread_can_paginate_even_if_seen_sync_event() {
     let server = MatrixMockServer::new().await;
-    let client = server.client_builder().build().await;
+    let client = client_with_threading_support(&server).await;
 
     let room_id = room_id!("!galette:saucisse.bzh");
 
@@ -115,7 +125,7 @@ async fn test_thread_can_paginate_even_if_seen_sync_event() {
 #[async_test]
 async fn test_ignored_user_empties_threads() {
     let server = MatrixMockServer::new().await;
-    let client = server.client_builder().build().await;
+    let client = client_with_threading_support(&server).await;
 
     // Immediately subscribe the event cache to sync updates.
     client.event_cache().subscribe().unwrap();
@@ -207,7 +217,7 @@ async fn test_ignored_user_empties_threads() {
 #[async_test]
 async fn test_gappy_sync_empties_all_threads() {
     let server = MatrixMockServer::new().await;
-    let client = server.client_builder().build().await;
+    let client = client_with_threading_support(&server).await;
 
     // Immediately subscribe the event cache to sync updates.
     client.event_cache().subscribe().unwrap();
@@ -355,7 +365,7 @@ async fn test_gappy_sync_empties_all_threads() {
 #[async_test]
 async fn test_deduplication() {
     let server = MatrixMockServer::new().await;
-    let client = server.client_builder().build().await;
+    let client = client_with_threading_support(&server).await;
 
     // Immediately subscribe the event cache to sync updates.
     client.event_cache().subscribe().unwrap();

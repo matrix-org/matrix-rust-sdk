@@ -658,6 +658,9 @@ mod private {
         /// The rules for the version of this room.
         room_version_rules: RoomVersionRules,
 
+        /// Whether thread support has been enabled for the event cache.
+        enabled_thread_support: bool,
+
         /// Reference to the underlying backing store.
         store: EventCacheStoreLock,
 
@@ -700,6 +703,7 @@ mod private {
         pub async fn new(
             room_id: OwnedRoomId,
             room_version_rules: RoomVersionRules,
+            enabled_thread_support: bool,
             linked_chunk_update_sender: Sender<RoomEventCacheLinkedChunkUpdate>,
             store: EventCacheStoreLock,
             pagination_status: SharedObservable<RoomPaginationStatus>,
@@ -767,6 +771,7 @@ mod private {
             Ok(Self {
                 room: room_id,
                 room_version_rules,
+                enabled_thread_support,
                 store,
                 room_linked_chunk,
                 threads,
@@ -1459,12 +1464,14 @@ mod private {
             for event in events {
                 self.maybe_apply_new_redaction(&event).await?;
 
-                if let Some(thread_root) = extract_thread_root(event.raw()) {
-                    new_events_by_thread.entry(thread_root).or_default().push(event.clone());
-                } else if let Some(event_id) = event.event_id() {
-                    // If we spot the root of a thread, add it to its linked chunk, in sync mode.
-                    if self.threads.contains_key(&event_id) {
-                        new_events_by_thread.entry(event_id).or_default().push(event.clone());
+                if self.enabled_thread_support {
+                    if let Some(thread_root) = extract_thread_root(event.raw()) {
+                        new_events_by_thread.entry(thread_root).or_default().push(event.clone());
+                    } else if let Some(event_id) = event.event_id() {
+                        // If we spot the root of a thread, add it to its linked chunk.
+                        if self.threads.contains_key(&event_id) {
+                            new_events_by_thread.entry(event_id).or_default().push(event.clone());
+                        }
                     }
                 }
 

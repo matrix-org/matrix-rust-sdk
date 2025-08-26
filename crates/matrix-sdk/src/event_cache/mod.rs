@@ -47,7 +47,7 @@ use matrix_sdk_base::{
     serde_helpers::extract_thread_root_from_content,
     store_locks::LockStoreError,
     sync::RoomUpdates,
-    timer,
+    timer, ThreadingSupport,
 };
 use matrix_sdk_common::executor::{spawn, JoinHandle};
 use room::RoomEventCacheState;
@@ -998,9 +998,15 @@ impl EventCacheInner {
                     .ok_or_else(|| EventCacheError::RoomNotFound { room_id: room_id.to_owned() })?;
                 let room_version_rules = room.clone_info().room_version_rules_or_default();
 
+                let enabled_thread_support = matches!(
+                    client.base_client().threading_support,
+                    ThreadingSupport::Enabled { .. }
+                );
+
                 let room_state = RoomEventCacheState::new(
                     room_id.to_owned(),
                     room_version_rules,
+                    enabled_thread_support,
                     self.linked_chunk_update_sender.clone(),
                     self.store.clone(),
                     pagination_status.clone(),
