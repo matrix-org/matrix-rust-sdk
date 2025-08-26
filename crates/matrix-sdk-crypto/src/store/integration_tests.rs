@@ -568,13 +568,20 @@ macro_rules! cryptostore_integration_tests {
             }
 
             #[async_test]
-            async fn test_get_inbound_group_sessions_by_room_id() {
-                let dir = "get_inbound_group_session_by_room_id";
+            async fn test_get_inbound_group_sessions_by_room_id_empty() {
+                let dir = "get_inbound_group_session_by_room_id_empty";
                 let (account, store) = get_loaded_store(dir).await;
                 assert_eq!(store.get_inbound_group_sessions().await.unwrap().len(), 0);
 
                 let room_id = &room_id!("!testing:localhost");
                 assert_eq!(store.get_inbound_group_sessions_by_room_id(room_id).await.unwrap().len(), 0);
+            }
+
+            #[async_test]
+            async fn test_get_inbound_group_sessions_by_room_id() {
+                let dir = "get_inbound_group_session_by_room_id";
+                let (account, store) = get_loaded_store(dir).await;
+                assert_eq!(store.get_inbound_group_sessions().await.unwrap().len(), 0);
 
                 let (_, session_1) = account.create_group_session_pair_with_defaults(room_id).await;
                 let (_, session_2) = account.create_group_session_pair_with_defaults(room_id).await;
