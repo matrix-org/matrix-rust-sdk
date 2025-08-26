@@ -152,6 +152,14 @@ fn handle_room_updates(c: &mut Criterion) {
 }
 
 fn find_event_relations(c: &mut Criterion) {
+    // Number of other events to saturate the DB, but that will not be affected by
+    // the benchmark. A small multiple of this number will be added.
+    // When running locally, run with more events than in Codespeed CI.
+    #[cfg(feature = "codspeed")]
+    const NUM_OTHER_EVENTS: usize = 100;
+    #[cfg(not(feature = "codspeed"))]
+    const NUM_OTHER_EVENTS: usize = 1000;
+
     // Create a new asynchronous runtime.
     let runtime = Builder::new_multi_thread()
         .enable_time()
@@ -205,7 +213,7 @@ fn find_event_relations(c: &mut Criterion) {
         }
 
         // Add other events, in the same room, without a relation.
-        for i in 0..1000 {
+        for i in 0..NUM_OTHER_EVENTS {
             let event_id = EventId::parse(format!("$msg{i}")).unwrap();
             let event =
                 event_factory.text_msg(format!("unrelated message {i}")).event_id(&event_id).into();
@@ -218,7 +226,7 @@ fn find_event_relations(c: &mut Criterion) {
             event_factory.text_msg("hello world").event_id(other_target_event_id).into_event();
         joined_room_update.timeline.events.push(other_target_event);
 
-        for i in 0..1000 {
+        for i in 0..NUM_OTHER_EVENTS {
             let event_id = EventId::parse(format!("$unrelated{i}")).unwrap();
             let event =
                 event_factory.reaction(other_target_event_id, "👍").event_id(&event_id).into();
@@ -230,7 +238,7 @@ fn find_event_relations(c: &mut Criterion) {
         // Add other events, in another room.
         let mut other_joined_room_update = JoinedRoomUpdate::default();
         let event_factory = event_factory.room(other_room_id);
-        for i in 0..1000 {
+        for i in 0..NUM_OTHER_EVENTS {
             let event_id = EventId::parse(format!("$other_room{i}")).unwrap();
             let event = event_factory.text_msg(format!("hi {i}")).event_id(&event_id).into();
             other_joined_room_update.timeline.events.push(event);
@@ -275,9 +283,12 @@ fn find_event_relations(c: &mut Criterion) {
 
                 client.event_cache().handle_room_updates(room_updates.clone()).await.unwrap();
 
-                // Wait for the event cache to notify us of the update.
+                // Wait for the event cache to notify us of the room updates.
                 let update = update_recv.recv().await.unwrap();
-                assert_eq!(update.room_id, room_id);
+                assert!(update.room_id == room_id || update.room_id == other_room_id);
+
+                let update = update_recv.recv().await.unwrap();
+                assert!(update.room_id == room_id || update.room_id == other_room_id);
 
                 let room = client.get_room(room_id).unwrap();
                 let room_event_cache = room.event_cache().await.unwrap();
