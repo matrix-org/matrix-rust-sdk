@@ -420,7 +420,10 @@ impl SecretStore {
             }
         }
 
-        self.maybe_enable_backups().await?;
+        // We swallow errors here because we don't want backup failures to
+        // result in the whole process erroring.  All errors are logged in
+        // `maybe_enable_backups`.
+        let _ = self.maybe_enable_backups().await;
 
         Ok(())
     }
