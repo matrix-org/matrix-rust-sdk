@@ -295,7 +295,8 @@ impl SecretStore {
     }
 
     async fn maybe_enable_backups(&self) -> Result<()> {
-        if let Some(mut secret) = self.get_secret(SecretName::RecoveryKey).await? {
+        let get_secret_result = self.get_secret(SecretName::RecoveryKey).await;
+        if let Ok(Some(mut secret)) = get_secret_result {
             let ret = self.client.encryption().backups().maybe_enable_backups(&secret).await;
 
             if let Err(e) = &ret {
@@ -305,6 +306,10 @@ impl SecretStore {
             secret.zeroize();
 
             Ok(ret.map(|_| ())?)
+        } else if let Err(e) = get_secret_result {
+            warn!("Could not enable backups from secret storage: {e:?}");
+
+            Err(e)
         } else {
             info!("No backup recovery key found.");
 
