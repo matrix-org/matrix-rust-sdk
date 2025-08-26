@@ -84,6 +84,40 @@ All notable changes to this project will be documented in this file.
   ([#5431](https://github.com/matrix-org/matrix-rust-sdk/pull/5431))
 - [**breaking**] `Room::send_call_notification` and `Room::send_call_notification_if_needed` have been removed, since the event type they send is outdated, and `Client` is not actually supposed to be able to join MatrixRTC sessions (yet). In practice, users of these methods probably already rely on another MatrixRTC implementation to participate in sessions, and such an implementation should be capable of sending notifications itself.
   ([#5452](https://github.com/matrix-org/matrix-rust-sdk/pull/5452))
+- [**breaking**] The `new_virtual_element_call_widget` now uses a `props` and a `config` parameter instead of only `props`.
+  This splits the configuration of the widget into required properties ("widget_id", "parent_url"...) so the widget can work
+  and optional config parameters ("skip_lobby", "header", "...").
+  The config option should in most cases only provide the `"intent"` property.
+  All other config options will then be chosen by EC based on platform + `intent`.
+
+  Before:
+
+  ```rust
+  new_virtual_element_call_widget(
+    VirtualElementCallWidgetProperties {
+      widget_id: "my_widget_id", // required property
+      skip_lobby: Some(true), // optional configuration
+      preload: Some(true), // optional configuration
+      // ...
+    }
+  )
+  ```
+
+  Now:
+
+  ```rust
+  new_virtual_element_call_widget(
+    VirtualElementCallWidgetProperties {
+      widget_id: "my_widget_id", // required property
+      // ... only required properties
+    },
+    VirtualElementCallWidgetConfig {
+      intend: Intend.StartCallDM, // defines the default values for all other configuration
+      skip_lobby: Some(false), // overwrite a specific default value
+      ..VirtualElementCallWidgetConfig::default() // set all other config options to `None`. Use defaults from intent
+    }
+  )
+  ```
 
 ### Bugfix
 
