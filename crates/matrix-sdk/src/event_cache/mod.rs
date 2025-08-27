@@ -1527,6 +1527,7 @@ mod tests {
 
     /// Test that the event cache does not create reference cycles or tasks that
     /// retain its reference indefinitely, preventing it from being deallocated.
+    #[cfg(not(target_family = "wasm"))]
     #[async_test]
     async fn test_no_refcycle_event_cache_tasks() {
         let client = MockClientBuilder::new(None).build().await;
