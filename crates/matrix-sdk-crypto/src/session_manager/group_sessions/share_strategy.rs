@@ -1139,7 +1139,21 @@ mod tests {
     /// Assert that [`CollectStrategy::AllDevices`] retains the same
     /// serialization format.
     #[test]
+    #[cfg(not(feature = "experimental-encrypted-state-events"))]
     fn test_serialize_device_based_strategy() {
+        let encryption_settings = all_devices_strategy_settings();
+        let serialized = serde_json::to_string(&encryption_settings).unwrap();
+        with_settings!({prepend_module_to_snapshot => false}, {
+            assert_snapshot!(serialized)
+        });
+    }
+
+    /// Assert that [`CollectStrategy::AllDevices`] retains the same
+    /// serialization format, even when experimental encrypted state events
+    /// are enabled.
+    #[test]
+    #[cfg(feature = "experimental-encrypted-state-events")]
+    fn test_serialize_device_based_strategy_with_encrypted_state_events() {
         let encryption_settings = all_devices_strategy_settings();
         let serialized = serde_json::to_string(&encryption_settings).unwrap();
         with_settings!({prepend_module_to_snapshot => false}, {

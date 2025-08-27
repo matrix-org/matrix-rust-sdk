@@ -23,6 +23,12 @@ path = "uniffi-bindgen.rs"
 default = ["bundled-sqlite"]
 bundled-sqlite = ["matrix-sdk-sqlite/bundled"]
 
+# Enable experimental support for encrypting state events; see
+# https://github.com/matrix-org/matrix-rust-sdk/issues/5397.
+experimental-encrypted-state-events = [
+    "matrix-sdk-crypto/experimental-encrypted-state-events",
+]
+
 [dependencies]
 anyhow.workspace = true
 futures-util.workspace = true
