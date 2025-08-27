@@ -482,8 +482,13 @@ pub trait StateStore: AsyncTraitDeps {
 
     /// Insert or update a thread subscription for a given room and thread.
     ///
-    /// If the new thread subscription hasn't set a bumpstamp, and there was one
-    /// in the database with a bumpstamp, the existing bumpstamp is kept.
+    /// If the new thread subscription hasn't set a bumpstamp, and there was a
+    /// previous subscription in the database with a bumpstamp, the existing
+    /// bumpstamp is kept.
+    ///
+    /// If the new thread subscription has a bumpstamp that's lower than or
+    /// equal to a previously one, the existing subscription is kept, i.e.
+    /// this method must have no effect.
     async fn upsert_thread_subscription(
         &self,
         room: &RoomId,
