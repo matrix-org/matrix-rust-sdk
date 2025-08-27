@@ -1449,6 +1449,7 @@ mod tests {
         assert!(client_room.latest_event().is_none());
     }
 
+    #[cfg(feature = "e2e-encryption")]
     #[async_test]
     async fn test_cached_latest_event_can_be_redacted() {
         // Given a logged-in client
