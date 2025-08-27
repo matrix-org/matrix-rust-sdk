@@ -1043,6 +1043,11 @@ impl RoomInfo {
         self.latest_event.as_deref()
     }
 
+    /// Sets the new `LatestEventValue`.
+    pub fn set_new_latest_event(&mut self, new_value: LatestEventValue) {
+        self.new_latest_event = new_value;
+    }
+
     /// Updates the recency stamp of this room.
     ///
     /// Please read [`Self::recency_stamp`] to learn more.
