@@ -74,7 +74,7 @@ pub const DATABASE_NAME: &str = "matrix-sdk-state.sqlite3";
 /// This is used to figure whether the SQLite database requires a migration.
 /// Every new SQL migration should imply a bump of this number, and changes in
 /// the [`SqliteStateStore::run_migrations`] function.
-const DATABASE_VERSION: u8 = 13;
+const DATABASE_VERSION: u8 = 14;
 
 /// An SQLite-based state store.
 #[derive(Clone)]
@@ -365,6 +365,17 @@ impl SqliteStateStore {
                     "../migrations/state_store/011_thread_subscriptions.sql"
                 ))?;
                 txn.set_db_version(13)
+            })
+            .await?;
+        }
+
+        if from < 14 && to >= 14 {
+            conn.with_transaction(move |txn| {
+                // Run the migration.
+                txn.execute_batch(include_str!(
+                    "../migrations/state_store/012_thread_subscriptions_bumpstamp.sql"
+                ))?;
+                txn.set_db_version(14)
             })
             .await?;
         }
@@ -2108,20 +2119,45 @@ impl StateStore for SqliteStateStore {
         &self,
         room_id: &RoomId,
         thread_id: &EventId,
-        subscription: StoredThreadSubscription,
+        mut new: StoredThreadSubscription,
     ) -> Result<(), Self::Error> {
+        if let Some(previous) = self.load_thread_subscription(room_id, thread_id).await? {
+            if previous == new {
+                // No need to update anything.
+                return Ok(());
+            }
+
+            match (previous.bump_stamp, new.bump_stamp) {
+                // If the previous subscription had a bump stamp, and the new one
+                // doesn't, keep the previous one.
+                (Some(prev_bump), None) => {
+                    new.bump_stamp = Some(prev_bump);
+                }
+
+                // If the previous bump stamp is newer than the new one, don't store the value at
+                // all.
+                (Some(prev_bump), Some(new_bump)) if new_bump <= prev_bump => {
+                    return Ok(());
+                }
+
+                // In all other cases, keep the new bumpstamp.
+                _ => {}
+            }
+        }
+
         let room_id = self.encode_key(keys::THREAD_SUBSCRIPTIONS, room_id);
         let thread_id = self.encode_key(keys::THREAD_SUBSCRIPTIONS, thread_id);
-        let status = subscription.status.as_str();
+        let status = new.status.as_str();
 
         self.acquire()
             .await?
             .with_transaction(move |txn| {
+                // Try to find a previous value.
                 txn.prepare_cached(
-                    "INSERT OR REPLACE INTO thread_subscriptions (room_id, event_id, status)
-                         VALUES (?, ?, ?)",
+                    "INSERT OR REPLACE INTO thread_subscriptions (room_id, event_id, status, bump_stamp)
+                         VALUES (?, ?, ?, ?)",
                 )?
-                .execute((room_id, thread_id, status))
+                .execute((room_id, thread_id, status, new.bump_stamp))
             })
             .await?;
         Ok(())
@@ -2139,17 +2175,17 @@ impl StateStore for SqliteStateStore {
             .acquire()
             .await?
             .query_row(
-                "SELECT status FROM thread_subscriptions WHERE room_id = ? AND event_id = ?",
+                "SELECT status, bump_stamp FROM thread_subscriptions WHERE room_id = ? AND event_id = ?",
                 (room_id, thread_id),
-                |row| row.get::<_, String>(0),
+                |row| Ok((row.get::<_, String>(0)?, row.get::<_, Option<u64>>(1)?))
             )
             .await
             .optional()?
-            .map(|data| -> Result<_, Self::Error> {
-                let status = ThreadSubscriptionStatus::from_str(&data).map_err(|_| {
-                    Error::InvalidData { details: format!("Invalid thread status: {data}") }
+            .map(|(status, bump_stamp)| -> Result<_, Self::Error> {
+                let status = ThreadSubscriptionStatus::from_str(&status).map_err(|_| {
+                    Error::InvalidData { details: format!("Invalid thread status: {status}") }
                 })?;
-                Ok(StoredThreadSubscription { status, bump_stamp: None })
+                Ok(StoredThreadSubscription { status, bump_stamp })
             })
             .transpose()?)
     }

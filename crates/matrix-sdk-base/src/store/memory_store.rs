@@ -968,15 +968,37 @@ impl StateStore for MemoryStore {
         &self,
         room: &RoomId,
         thread_id: &EventId,
-        subscription: StoredThreadSubscription,
+        mut new: StoredThreadSubscription,
     ) -> Result<(), Self::Error> {
-        self.inner
-            .write()
-            .unwrap()
-            .thread_subscriptions
-            .entry(room.to_owned())
-            .or_default()
-            .insert(thread_id.to_owned(), subscription);
+        let mut inner = self.inner.write().unwrap();
+        let room_subs = inner.thread_subscriptions.entry(room.to_owned()).or_default();
+
+        if let Some(previous) = room_subs.get(thread_id) {
+            // Nothing to do.
+            if *previous == new {
+                return Ok(());
+            }
+
+            match (previous.bump_stamp, new.bump_stamp) {
+                // If the previous subscription had a bump stamp, and the new one
+                // doesn't, keep the previous one.
+                (Some(prev_bump), None) => {
+                    new.bump_stamp = Some(prev_bump);
+                }
+
+                // If the previous bump stamp is newer than the new one, don't store the value at
+                // all.
+                (Some(prev_bump), Some(new_bump)) if new_bump <= prev_bump => {
+                    return Ok(());
+                }
+
+                // In all other cases, keep the new bumpstamp.
+                _ => {}
+            }
+        }
+
+        room_subs.insert(thread_id.to_owned(), new);
+
         Ok(())
     }
 

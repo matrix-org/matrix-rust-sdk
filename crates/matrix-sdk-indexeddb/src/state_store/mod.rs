@@ -502,6 +502,18 @@ impl PersistedQueuedRequest {
     }
 }
 
+#[derive(Serialize, Deserialize, PartialEq)]
+struct PersistedThreadSubscription {
+    status: String,
+    bump_stamp: Option<u64>,
+}
+
+impl From<StoredThreadSubscription> for PersistedThreadSubscription {
+    fn from(value: StoredThreadSubscription) -> Self {
+        Self { status: value.status.as_str().to_owned(), bump_stamp: value.bump_stamp }
+    }
+}
+
 // Small hack to have the following macro invocation act as the appropriate
 // trait impl block on wasm, but still be compiled on non-wasm as a regular
 // impl block otherwise.
@@ -1810,8 +1822,36 @@ impl_state_store!({
         )?;
         let obj = tx.object_store(keys::THREAD_SUBSCRIPTIONS)?;
 
-        // TODO: store the bump stamp as well.
-        let serialized_value = self.serialize_value(&subscription.status.as_str().to_owned());
+        let mut new = PersistedThreadSubscription::from(subscription);
+
+        // See if there's a previous subscription.
+        if let Some(previous_value) = obj.get(&encoded_key)?.await? {
+            let previous: PersistedThreadSubscription = self.deserialize_value(&previous_value)?;
+
+            // If the previous status is the same as the new one, don't do anything.
+            if new == previous {
+                return Ok(());
+            }
+
+            match (previous.bump_stamp, new.bump_stamp) {
+                // If the previous subscription had a bump stamp, and the new one
+                // doesn't, keep the previous one.
+                (Some(prev_bump), None) => {
+                    new.bump_stamp = Some(prev_bump);
+                }
+
+                // If the previous bump stamp is newer than the new one, don't store the value at
+                // all.
+                (Some(prev_bump), Some(new_bump)) if new_bump <= prev_bump => {
+                    return Ok(());
+                }
+
+                // In all other cases, keep the new bumpstamp.
+                _ => {}
+            }
+        }
+
+        let serialized_value = self.serialize_value(&new);
         obj.put_key_val(&encoded_key, &serialized_value?)?;
 
         tx.await.into_result()?;
