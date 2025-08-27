@@ -14,6 +14,7 @@
 
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap, HashSet},
+    str::FromStr as _,
     sync::Arc,
 };
 
@@ -28,7 +29,7 @@ use matrix_sdk_base::{
         ChildTransactionId, ComposerDraft, DependentQueuedRequest, DependentQueuedRequestKind,
         QueuedRequest, QueuedRequestKind, RoomLoadSettings, SentRequestKey,
         SerializableEventContent, ServerInfo, StateChanges, StateStore, StoreError,
-        ThreadSubscription,
+        ThreadSubscription, ThreadSubscriptionStatus,
     },
     MinimalRoomMemberEvent, RoomInfo, RoomMemberships, StateStoreDataKey, StateStoreDataValue,
     ROOM_VERSION_FALLBACK, ROOM_VERSION_RULES_FALLBACK,
@@ -1809,7 +1810,8 @@ impl_state_store!({
         )?;
         let obj = tx.object_store(keys::THREAD_SUBSCRIPTIONS)?;
 
-        let serialized_value = self.serialize_value(&subscription.as_str().to_owned());
+        // TODO: store the bump stamp as well.
+        let serialized_value = self.serialize_value(&subscription.status.as_str().to_owned());
         obj.put_key_val(&encoded_key, &serialized_value?)?;
 
         tx.await.into_result()?;
@@ -1836,16 +1838,18 @@ impl_state_store!({
             return Ok(None);
         };
 
-        let status_string: String = self.deserialize_value(&js_value)?;
-        let status = ThreadSubscription::from_value(&status_string).ok_or_else(|| {
+        let sub: PersistedThreadSubscription = self.deserialize_value(&js_value)?;
+
+        let status = ThreadSubscriptionStatus::from_str(&sub.status).map_err(|_| {
             StoreError::InvalidData {
                 details: format!(
-                    "invalid thread status for room {room} and thread {thread_id}: {status_string}"
+                    "invalid thread status for room {room} and thread {thread_id}: {}",
+                    sub.status
                 ),
             }
         })?;
 
-        Ok(Some(status))
+        Ok(Some(ThreadSubscription { status, bump_stamp: sub.bump_stamp }))
     }
 
     async fn remove_thread_subscription(&self, room: &RoomId, thread_id: &EventId) -> Result<()> {
