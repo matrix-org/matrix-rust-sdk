@@ -324,18 +324,25 @@ pub enum AlgorithmInfo {
 pub struct EncryptionInfo {
     /// The user ID of the event sender, note this is untrusted data unless the
     /// `verification_state` is `Verified` as well.
+    #[serde(rename = "s")]
     pub sender: OwnedUserId,
+
     /// The device ID of the device that sent us the event, note this is
     /// untrusted data unless `verification_state` is `Verified` as well.
+    #[serde(rename = "d")]
     pub sender_device: Option<OwnedDeviceId>,
+
     /// Information about the algorithm that was used to encrypt the event.
+    #[serde(rename = "a")]
     pub algorithm_info: AlgorithmInfo,
+
     /// The verification state of the device that sent us the event, note this
     /// is the state of the device at the time of decryption. It may change in
     /// the future if a device gets verified or deleted.
     ///
     /// Callers that persist this should mark the state as dirty when a device
     /// change is received down the sync.
+    #[serde(rename = "v")]
     pub verification_state: VerificationState,
 }
 
@@ -359,9 +366,13 @@ impl<'de> Deserialize<'de> for EncryptionInfo {
         // EncryptionInfo the session_id was not in AlgorithmInfo
         #[derive(Deserialize)]
         struct Helper {
+            #[serde(rename = "s", alias = "sender")]
             pub sender: OwnedUserId,
+            #[serde(rename = "d", alias = "sender_device")]
             pub sender_device: Option<OwnedDeviceId>,
+            #[serde(rename = "a", alias = "algorithm_info")]
             pub algorithm_info: AlgorithmInfo,
+            #[serde(rename = "v", alias = "verification_state")]
             pub verification_state: VerificationState,
             #[serde(rename = "session_id")]
             pub old_session_id: Option<String>,
@@ -1478,16 +1489,16 @@ mod tests {
                             "type": "m.room.message",
                         },
                         "ei": {
-                            "sender": "@sender:example.com",
-                            "sender_device": null,
-                            "algorithm_info": {
+                            "s": "@sender:example.com",
+                            "d": null,
+                            "a": {
                                 "MegolmV1AesSha2": {
                                     "curve25519_key": "xxx",
                                     "sender_claimed_keys": {},
                                     "session_id": "xyz",
                                 }
                             },
-                            "verification_state": "Verified",
+                            "v": "Verified",
                         },
                         "uei": {
                             "RelationsReplace": {"UnableToDecrypt": {
@@ -1542,7 +1553,7 @@ mod tests {
                 }
             }
         });
-        assert!(serde_json::from_value::<TimelineEvent>(serialized).is_ok());
+        serde_json::from_value::<TimelineEvent>(serialized).unwrap();
 
         // Test that the previous format can also be deserialized.
         let serialized = json!({
