@@ -43,7 +43,7 @@ use matrix_sdk_base::{
     },
     event_cache::store::media::IgnoreMediaRetentionPolicy,
     media::MediaThumbnailSettings,
-    store::StateStoreExt,
+    store::{StateStoreExt, ThreadSubscriptionStatus},
     ComposerDraft, EncryptionState, RoomInfoNotableUpdateReasons, RoomMemberships, SendOutsideWasm,
     StateChanges, StateStoreDataKey, StateStoreDataValue,
 };
@@ -4057,13 +4057,19 @@ impl Room {
         {
             Ok(_response) => {
                 trace!("Server acknowledged the thread subscription; saving in db");
+
                 // Immediately save the result into the database.
                 self.client
                     .state_store()
                     .upsert_thread_subscription(
                         self.room_id(),
                         &thread_root,
-                        ThreadSubscription { automatic: is_automatic },
+                        ThreadSubscription {
+                            status: ThreadSubscriptionStatus::Subscribed {
+                                automatic: is_automatic,
+                            },
+                            bump_stamp: None,
+                        },
                     )
                     .await?;
 
@@ -4099,8 +4105,14 @@ impl Room {
         if let Some(prev_sub) = self.load_or_fetch_thread_subscription(thread_root).await? {
             // If we have a previous subscription, we should only send the new one if it's
             // manual and the previous one was automatic.
-            if !prev_sub.automatic || automatic.is_some() {
-                return Ok(());
+            if let ThreadSubscriptionStatus::Subscribed { automatic: was_automatic } =
+                prev_sub.status
+            {
+                if !was_automatic || automatic.is_some() {
+                    // Either we had already a manual subscription, or we had an automatic one and
+                    // the new one is automatic too: nothing to do!
+                    return Ok(());
+                }
             }
         }
         self.subscribe_thread(thread_root.to_owned(), automatic).await
@@ -4129,7 +4141,17 @@ impl Room {
         trace!("Server acknowledged the thread subscription removal; removed it from db too");
 
         // Immediately save the result into the database.
-        self.client.state_store().remove_thread_subscription(self.room_id(), &thread_root).await?;
+        self.client
+            .state_store()
+            .upsert_thread_subscription(
+                self.room_id(),
+                &thread_root,
+                ThreadSubscription {
+                    status: ThreadSubscriptionStatus::Unsubscribed,
+                    bump_stamp: None,
+                },
+            )
+            .await?;
 
         Ok(())
     }
@@ -4164,7 +4186,10 @@ impl Room {
             .await;
 
         let subscription = match result {
-            Ok(response) => Some(ThreadSubscription { automatic: response.automatic }),
+            Ok(response) => Some(ThreadSubscription {
+                status: ThreadSubscriptionStatus::Subscribed { automatic: response.automatic },
+                bump_stamp: None,
+            }),
             Err(http_error) => match http_error.as_client_api_error() {
                 Some(error) if error.status_code == StatusCode::NOT_FOUND => None,
                 _ => return Err(http_error.into()),
