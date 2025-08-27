@@ -15,15 +15,13 @@
 use std::{iter::once, ops::Not};
 
 use eyeball::{AsyncLock, SharedObservable, Subscriber};
-use matrix_sdk_base::deserialized_responses::TimelineEvent;
+use matrix_sdk_base::{deserialized_responses::TimelineEvent, store::SerializableEventContent};
 use ruma::{
     events::{
         relation::RelationType,
         room::{member::MembershipState, message::MessageType, power_levels::RoomPowerLevels},
-        AnyMessageLikeEventContent, AnySyncStateEvent, AnySyncTimelineEvent, RawExt,
-        SyncStateEvent,
+        AnyMessageLikeEventContent, AnySyncStateEvent, AnySyncTimelineEvent, SyncStateEvent,
     },
-    serde::Raw,
     EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedRoomId, OwnedTransactionId, RoomId,
     TransactionId, UserId,
 };
@@ -136,7 +134,6 @@ mod tests_latest_event {
     use assert_matches::assert_matches;
     use matrix_sdk_base::{
         linked_chunk::{ChunkIdentifier, LinkedChunkId, Position, Update},
-        store::SerializableEventContent,
         RoomState,
     };
     use matrix_sdk_test::{async_test, event_factory::EventFactory};
@@ -148,7 +145,7 @@ mod tests_latest_event {
         user_id, MilliSecondsSinceUnixEpoch, OwnedTransactionId,
     };
 
-    use super::{LatestEvent, LatestEventValue, LocalLatestEventValue};
+    use super::{LatestEvent, LatestEventValue, LocalLatestEventValue, SerializableEventContent};
     use crate::{
         client::WeakClient,
         room::WeakRoom,
@@ -159,11 +156,13 @@ mod tests_latest_event {
     fn local_room_message(body: &str) -> LocalLatestEventValue {
         LocalLatestEventValue {
             timestamp: MilliSecondsSinceUnixEpoch::now(),
-            content: Raw::new(&AnyMessageLikeEventContent::RoomMessage(
-                RoomMessageEventContent::text_plain(body),
-            ))
-            .unwrap(),
-            event_type: "m.room.message".to_owned(),
+            content: SerializableEventContent::from_raw(
+                Raw::new(&AnyMessageLikeEventContent::RoomMessage(
+                    RoomMessageEventContent::text_plain(body),
+                ))
+                .unwrap(),
+                "m.room.message".to_owned(),
+            ),
         }
     }
 
@@ -366,17 +365,7 @@ pub struct LocalLatestEventValue {
     pub timestamp: MilliSecondsSinceUnixEpoch,
 
     /// The content of the local event.
-    pub content: Raw<AnyMessageLikeEventContent>,
-
-    /// The event type of the local event.
-    pub event_type: String,
-}
-
-impl LocalLatestEventValue {
-    /// Deserialize the local event content.
-    pub fn deserialize(&self) -> Result<AnyMessageLikeEventContent, serde_json::Error> {
-        self.content.deserialize_with_type(&self.event_type)
-    }
+    pub content: SerializableEventContent,
 }
 
 impl LatestEventValue {
@@ -435,12 +424,9 @@ impl LatestEventValue {
                     match serialized_event_content.deserialize() {
                         Ok(content) => {
                             if filter_any_message_like_event_content(content) {
-                                let (content, event_type) = serialized_event_content.raw();
-
                                 let value = Self::LocalIsSending(LocalLatestEventValue {
                                     timestamp: MilliSecondsSinceUnixEpoch::now(),
-                                    content: content.clone(),
-                                    event_type: event_type.to_owned(),
+                                    content: serialized_event_content.clone(),
                                 });
 
                                 buffer_of_values_for_local_events
@@ -530,12 +516,9 @@ impl LatestEventValue {
                     match new_serialized_event_content.deserialize() {
                         Ok(content) => {
                             if filter_any_message_like_event_content(content) {
-                                let (content, event_type) = new_serialized_event_content.raw();
-
                                 buffer_of_values_for_local_events.replace_content(
                                     position,
-                                    content.clone(),
-                                    event_type.to_owned(),
+                                    new_serialized_event_content.clone(),
                                 );
                             } else {
                                 buffer_of_values_for_local_events.remove(position);
@@ -708,30 +691,18 @@ impl LatestEventValuesForLocalEvents {
     /// - the [`LatestEventValue`] is not of kind
     ///   [`LatestEventValue::LocalIsSending`] or
     ///   [`LatestEventValue::LocalCannotBeSent`].
-    fn replace_content(
-        &mut self,
-        position: usize,
-        new_content: Raw<AnyMessageLikeEventContent>,
-        new_event_type: String,
-    ) {
+    fn replace_content(&mut self, position: usize, new_content: SerializableEventContent) {
         let (_, value) = self.buffer.get_mut(position).expect("`position` must be valid");
 
         match value {
-            LatestEventValue::LocalIsSending(LocalLatestEventValue {
-                content, event_type, ..
-            }) => {
+            LatestEventValue::LocalIsSending(LocalLatestEventValue { content, .. }) => {
                 *content = new_content;
-                *event_type = new_event_type;
             }
 
-            LatestEventValue::LocalCannotBeSent(LocalLatestEventValue {
-                content,
-                event_type,
-                ..
-            }) => {
+            LatestEventValue::LocalCannotBeSent(LocalLatestEventValue { content, .. }) => {
                 *content = new_content;
-                *event_type = new_event_type;
             }
+
             _ => panic!("`value` must be either `LocalIsSending` or `LocalCannotBeSent`"),
         }
     }
@@ -1179,7 +1150,7 @@ mod tests_latest_event_values_for_local_events {
 
     use super::{
         LatestEventValue, LatestEventValuesForLocalEvents, LocalLatestEventValue,
-        RemoteLatestEventValue,
+        RemoteLatestEventValue, SerializableEventContent,
     };
 
     fn remote_room_message(body: &str) -> RemoteLatestEventValue {
@@ -1202,11 +1173,13 @@ mod tests_latest_event_values_for_local_events {
     fn local_room_message(body: &str) -> LocalLatestEventValue {
         LocalLatestEventValue {
             timestamp: MilliSecondsSinceUnixEpoch::now(),
-            content: Raw::new(&AnyMessageLikeEventContent::RoomMessage(
-                RoomMessageEventContent::text_plain(body),
-            ))
-            .unwrap(),
-            event_type: "m.room.message".to_owned(),
+            content: SerializableEventContent::from_raw(
+                Raw::new(&AnyMessageLikeEventContent::RoomMessage(
+                    RoomMessageEventContent::text_plain(body),
+                ))
+                .unwrap(),
+                "m.room.message".to_owned(),
+            ),
         }
     }
 
@@ -1287,16 +1260,15 @@ mod tests_latest_event_values_for_local_events {
             LatestEventValue::LocalIsSending(local_room_message("gruyère")),
         );
 
-        let LocalLatestEventValue { content: new_content, event_type: new_event_type, .. } =
-            local_room_message("comté");
+        let LocalLatestEventValue { content: new_content, .. } = local_room_message("comté");
 
-        buffer.replace_content(0, new_content, new_event_type);
+        buffer.replace_content(0, new_content);
 
         assert_matches!(
             buffer.last(),
             Some(LatestEventValue::LocalIsSending(local_event)) => {
                 assert_matches!(
-                    local_event.deserialize().unwrap(),
+                    local_event.content.deserialize().unwrap(),
                     AnyMessageLikeEventContent::RoomMessage(content) => {
                         assert_eq!(content.body(), "comté");
                     }
@@ -1466,7 +1438,7 @@ mod tests_latest_event_value {
                 $latest_event_value,
                 $pattern (local_event) => {
                     assert_matches!(
-                        local_event.deserialize().unwrap(),
+                        local_event.content.deserialize().unwrap(),
                         AnyMessageLikeEventContent::RoomMessage(message_content) => {
                             assert_eq!(message_content.body(), $body);
                         }
