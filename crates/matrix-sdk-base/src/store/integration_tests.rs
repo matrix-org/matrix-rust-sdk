@@ -73,6 +73,8 @@ pub trait StateStoreIntegrationTests {
     async fn test_sync_token_saving(&self) -> TestResult;
     /// Test UtdHookManagerData saving.
     async fn test_utd_hook_manager_data_saving(&self) -> TestResult;
+    /// Test the saving of the OneTimeKeyAlreadyUploaded key/value data type.
+    async fn test_one_time_key_already_uploaded_data_saving(&self) -> TestResult;
     /// Test stripped room member saving.
     async fn test_stripped_member_saving(&self) -> TestResult;
     /// Test room power levels saving.
@@ -582,6 +584,26 @@ impl StateStoreIntegrationTests for DynStateStore {
             .expect("not UtdHookManagerData");
 
         assert_eq!(read_data, data);
+
+        Ok(())
+    }
+
+    async fn test_one_time_key_already_uploaded_data_saving(&self) -> TestResult {
+        // Before any data is written, the getter should return None.
+        assert!(
+            self.get_kv_data(StateStoreDataKey::OneTimeKeyAlreadyUploaded).await?.is_none(),
+            "Store was not empty at start"
+        );
+
+        self.set_kv_data(
+            StateStoreDataKey::OneTimeKeyAlreadyUploaded,
+            StateStoreDataValue::OneTimeKeyAlreadyUploaded,
+        )
+        .await?;
+
+        let data = self.get_kv_data(StateStoreDataKey::OneTimeKeyAlreadyUploaded).await?;
+        data.expect("The loaded data should be Some");
+
         Ok(())
     }
 
@@ -1902,6 +1924,12 @@ macro_rules! statestore_integration_tests {
             async fn test_utd_hook_manager_data_saving() -> TestResult {
                 let store = get_store().await?.into_state_store();
                 store.test_utd_hook_manager_data_saving().await
+            }
+
+            #[async_test]
+            async fn test_one_time_key_already_uploaded_data_saving() -> TestResult {
+                let store = get_store().await?.into_state_store();
+                store.test_one_time_key_already_uploaded_data_saving().await
             }
 
             #[async_test]
