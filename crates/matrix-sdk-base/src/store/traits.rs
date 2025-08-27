@@ -55,7 +55,7 @@ use crate::{
     deserialized_responses::{
         DisplayName, RawAnySyncOrStrippedState, RawMemberEvent, RawSyncOrStrippedState,
     },
-    store::ThreadSubscription,
+    store::StoredThreadSubscription,
 };
 
 /// An abstract state store trait that can be used to implement different stores
@@ -488,7 +488,7 @@ pub trait StateStore: AsyncTraitDeps {
         &self,
         room: &RoomId,
         thread_id: &EventId,
-        subscription: ThreadSubscription,
+        subscription: StoredThreadSubscription,
     ) -> Result<(), Self::Error>;
 
     /// Remove a previous thread subscription for a given room and thread.
@@ -507,7 +507,7 @@ pub trait StateStore: AsyncTraitDeps {
         &self,
         room: &RoomId,
         thread_id: &EventId,
-    ) -> Result<Option<ThreadSubscription>, Self::Error>;
+    ) -> Result<Option<StoredThreadSubscription>, Self::Error>;
 }
 
 #[repr(transparent)]
@@ -807,7 +807,7 @@ impl<T: StateStore> StateStore for EraseStateStoreError<T> {
         &self,
         room: &RoomId,
         thread_id: &EventId,
-        subscription: ThreadSubscription,
+        subscription: StoredThreadSubscription,
     ) -> Result<(), Self::Error> {
         self.0.upsert_thread_subscription(room, thread_id, subscription).await.map_err(Into::into)
     }
@@ -816,7 +816,7 @@ impl<T: StateStore> StateStore for EraseStateStoreError<T> {
         &self,
         room: &RoomId,
         thread_id: &EventId,
-    ) -> Result<Option<ThreadSubscription>, Self::Error> {
+    ) -> Result<Option<StoredThreadSubscription>, Self::Error> {
         self.0.load_thread_subscription(room, thread_id).await.map_err(Into::into)
     }
 
