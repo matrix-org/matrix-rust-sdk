@@ -1131,6 +1131,10 @@ pub enum StateStoreDataValue {
     /// `matrix_sdk_ui::unable_to_decrypt_hook::UtdHookManager`.
     UtdHookManagerData(GrowableBloom),
 
+    /// A unit value telling us that the client uploaded duplicate one-time
+    /// keys.
+    OneTimeKeyAlreadyUploaded,
+
     /// A composer draft for the room.
     /// To learn more, see [`ComposerDraft`].
     ///
@@ -1234,6 +1238,10 @@ pub enum StateStoreDataKey<'a> {
     /// `matrix_sdk_ui::unable_to_decrypt_hook::UtdHookManager`.
     UtdHookManagerData,
 
+    /// Data remembering if the client already reported that it has uploaded
+    /// duplicate one-time keys.
+    OneTimeKeyAlreadyUploaded,
+
     /// A composer draft for the room.
     /// To learn more, see [`ComposerDraft`].
     ///
@@ -1247,11 +1255,14 @@ pub enum StateStoreDataKey<'a> {
 impl StateStoreDataKey<'_> {
     /// Key to use for the [`SyncToken`][Self::SyncToken] variant.
     pub const SYNC_TOKEN: &'static str = "sync_token";
+
     /// Key to use for the [`ServerInfo`][Self::ServerInfo]
     /// variant.
     pub const SERVER_INFO: &'static str = "server_capabilities"; // Note: this is the old name, kept for backwards compatibility.
+    //
     /// Key prefix to use for the [`Filter`][Self::Filter] variant.
     pub const FILTER: &'static str = "filter";
+
     /// Key prefix to use for the [`UserAvatarUrl`][Self::UserAvatarUrl]
     /// variant.
     pub const USER_AVATAR_URL: &'static str = "user_avatar_url";
@@ -1263,6 +1274,10 @@ impl StateStoreDataKey<'_> {
     /// Key to use for the [`UtdHookManagerData`][Self::UtdHookManagerData]
     /// variant.
     pub const UTD_HOOK_MANAGER_DATA: &'static str = "utd_hook_manager_data";
+
+    /// Key to use for the flag remembering that we already reported that we
+    /// uploaded duplicate one-time keys.
+    pub const ONE_TIME_KEY_ALREADY_UPLOADED: &'static str = "one_time_key_already_uploaded";
 
     /// Key prefix to use for the [`ComposerDraft`][Self::ComposerDraft]
     /// variant.

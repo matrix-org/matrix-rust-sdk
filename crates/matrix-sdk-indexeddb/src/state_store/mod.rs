@@ -422,6 +422,9 @@ impl IndexeddbStateStore {
             StateStoreDataKey::UtdHookManagerData => {
                 self.encode_key(keys::KV, StateStoreDataKey::UTD_HOOK_MANAGER_DATA)
             }
+            StateStoreDataKey::OneTimeKeyAlreadyUploaded => {
+                self.encode_key(keys::KV, StateStoreDataKey::ONE_TIME_KEY_ALREADY_UPLOADED)
+            }
             StateStoreDataKey::ComposerDraft(room_id, thread_root) => {
                 if let Some(thread_root) = thread_root {
                     self.encode_key(
@@ -563,6 +566,10 @@ impl_state_store!({
                 .map(|f| self.deserialize_value::<GrowableBloom>(&f))
                 .transpose()?
                 .map(StateStoreDataValue::UtdHookManagerData),
+            StateStoreDataKey::OneTimeKeyAlreadyUploaded => value
+                .map(|f| self.deserialize_value::<bool>(&f))
+                .transpose()?
+                .map(|_| StateStoreDataValue::OneTimeKeyAlreadyUploaded),
             StateStoreDataKey::ComposerDraft(_, _) => value
                 .map(|f| self.deserialize_value::<ComposerDraft>(&f))
                 .transpose()?
@@ -603,6 +610,7 @@ impl_state_store!({
             StateStoreDataKey::UtdHookManagerData => self.serialize_value(
                 &value.into_utd_hook_manager_data().expect("Session data not UtdHookManagerData"),
             ),
+            StateStoreDataKey::OneTimeKeyAlreadyUploaded => self.serialize_value(&true),
             StateStoreDataKey::ComposerDraft(_, _) => self.serialize_value(
                 &value.into_composer_draft().expect("Session data not a composer draft"),
             ),

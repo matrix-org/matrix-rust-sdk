@@ -58,6 +58,7 @@ struct MemoryStoreInner {
     server_info: Option<ServerInfo>,
     filters: HashMap<String, String>,
     utd_hook_manager_data: Option<GrowableBloom>,
+    one_time_key_uploaded_error: bool,
     account_data: HashMap<GlobalAccountDataEventType, Raw<AnyGlobalAccountDataEvent>>,
     profiles: HashMap<OwnedRoomId, HashMap<OwnedUserId, MinimalRoomMemberEvent>>,
     display_names: HashMap<OwnedRoomId, HashMap<DisplayName, BTreeSet<OwnedUserId>>>,
@@ -146,6 +147,7 @@ impl StateStore for MemoryStore {
 
     async fn get_kv_data(&self, key: StateStoreDataKey<'_>) -> Result<Option<StateStoreDataValue>> {
         let inner = self.inner.read().unwrap();
+
         Ok(match key {
             StateStoreDataKey::SyncToken => {
                 inner.sync_token.clone().map(StateStoreDataValue::SyncToken)
@@ -167,6 +169,9 @@ impl StateStore for MemoryStore {
             StateStoreDataKey::UtdHookManagerData => {
                 inner.utd_hook_manager_data.clone().map(StateStoreDataValue::UtdHookManagerData)
             }
+            StateStoreDataKey::OneTimeKeyAlreadyUploaded => inner
+                .one_time_key_uploaded_error
+                .then_some(StateStoreDataValue::OneTimeKeyAlreadyUploaded),
             StateStoreDataKey::ComposerDraft(room_id, thread_root) => {
                 let key = (room_id.to_owned(), thread_root.map(ToOwned::to_owned));
                 inner.composer_drafts.get(&key).cloned().map(StateStoreDataValue::ComposerDraft)
@@ -217,6 +222,9 @@ impl StateStore for MemoryStore {
                         .expect("Session data not the hook manager data"),
                 );
             }
+            StateStoreDataKey::OneTimeKeyAlreadyUploaded => {
+                inner.one_time_key_uploaded_error = true;
+            }
             StateStoreDataKey::ComposerDraft(room_id, thread_root) => {
                 inner.composer_drafts.insert(
                     (room_id.to_owned(), thread_root.map(ToOwned::to_owned)),
@@ -256,6 +264,9 @@ impl StateStore for MemoryStore {
                 inner.recently_visited_rooms.remove(user_id);
             }
             StateStoreDataKey::UtdHookManagerData => inner.utd_hook_manager_data = None,
+            StateStoreDataKey::OneTimeKeyAlreadyUploaded => {
+                inner.one_time_key_uploaded_error = false
+            }
             StateStoreDataKey::ComposerDraft(room_id, thread_root) => {
                 let key = (room_id.to_owned(), thread_root.map(ToOwned::to_owned));
                 inner.composer_drafts.remove(&key);
