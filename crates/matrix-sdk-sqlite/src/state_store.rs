@@ -14,7 +14,7 @@ use matrix_sdk_base::{
     store::{
         migration_helpers::RoomInfoV1, ChildTransactionId, DependentQueuedRequest,
         DependentQueuedRequestKind, QueueWedgeError, QueuedRequest, QueuedRequestKind,
-        RoomLoadSettings, SentRequestKey, ThreadSubscription, ThreadSubscriptionStatus,
+        RoomLoadSettings, SentRequestKey, StoredThreadSubscription, ThreadSubscriptionStatus,
     },
     MinimalRoomMemberEvent, RoomInfo, RoomMemberships, RoomState, StateChanges, StateStore,
     StateStoreDataKey, StateStoreDataValue, ROOM_VERSION_FALLBACK, ROOM_VERSION_RULES_FALLBACK,
@@ -2099,7 +2099,7 @@ impl StateStore for SqliteStateStore {
         &self,
         room_id: &RoomId,
         thread_id: &EventId,
-        subscription: ThreadSubscription,
+        subscription: StoredThreadSubscription,
     ) -> Result<(), Self::Error> {
         let room_id = self.encode_key(keys::THREAD_SUBSCRIPTIONS, room_id);
         let thread_id = self.encode_key(keys::THREAD_SUBSCRIPTIONS, thread_id);
@@ -2122,7 +2122,7 @@ impl StateStore for SqliteStateStore {
         &self,
         room_id: &RoomId,
         thread_id: &EventId,
-    ) -> Result<Option<ThreadSubscription>, Self::Error> {
+    ) -> Result<Option<StoredThreadSubscription>, Self::Error> {
         let room_id = self.encode_key(keys::THREAD_SUBSCRIPTIONS, room_id);
         let thread_id = self.encode_key(keys::THREAD_SUBSCRIPTIONS, thread_id);
 
@@ -2140,7 +2140,7 @@ impl StateStore for SqliteStateStore {
                 let status = ThreadSubscriptionStatus::from_str(&data).map_err(|_| {
                     Error::InvalidData { details: format!("Invalid thread status: {data}") }
                 })?;
-                Ok(ThreadSubscription { status, bump_stamp: None })
+                Ok(StoredThreadSubscription { status, bump_stamp: None })
             })
             .transpose()?)
     }

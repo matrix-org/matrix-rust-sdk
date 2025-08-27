@@ -47,7 +47,7 @@ use crate::{
     deserialized_responses::MemberEvent,
     store::{
         ChildTransactionId, QueueWedgeError, SerializableEventContent, StateStoreExt,
-        ThreadSubscription, ThreadSubscriptionStatus,
+        StoredThreadSubscription, ThreadSubscriptionStatus,
     },
 };
 
@@ -1772,7 +1772,7 @@ impl StateStoreIntegrationTests for DynStateStore {
         self.upsert_thread_subscription(
             room_id(),
             first_thread,
-            ThreadSubscription {
+            StoredThreadSubscription {
                 status: ThreadSubscriptionStatus::Subscribed { automatic: true },
                 bump_stamp: None,
             },
@@ -1782,7 +1782,7 @@ impl StateStoreIntegrationTests for DynStateStore {
         self.upsert_thread_subscription(
             room_id(),
             second_thread,
-            ThreadSubscription {
+            StoredThreadSubscription {
                 status: ThreadSubscriptionStatus::Subscribed { automatic: false },
                 bump_stamp: None,
             },
@@ -1793,7 +1793,7 @@ impl StateStoreIntegrationTests for DynStateStore {
         let maybe_status = self.load_thread_subscription(room_id(), first_thread).await?;
         assert_eq!(
             maybe_status,
-            Some(ThreadSubscription {
+            Some(StoredThreadSubscription {
                 status: ThreadSubscriptionStatus::Subscribed { automatic: true },
                 bump_stamp: None,
             })
@@ -1802,7 +1802,7 @@ impl StateStoreIntegrationTests for DynStateStore {
         let maybe_status = self.load_thread_subscription(room_id(), second_thread).await?;
         assert_eq!(
             maybe_status,
-            Some(ThreadSubscription {
+            Some(StoredThreadSubscription {
                 status: ThreadSubscriptionStatus::Subscribed { automatic: false },
                 bump_stamp: None,
             })
@@ -1812,7 +1812,10 @@ impl StateStoreIntegrationTests for DynStateStore {
         self.upsert_thread_subscription(
             room_id(),
             first_thread,
-            ThreadSubscription { status: ThreadSubscriptionStatus::Unsubscribed, bump_stamp: None },
+            StoredThreadSubscription {
+                status: ThreadSubscriptionStatus::Unsubscribed,
+                bump_stamp: None,
+            },
         )
         .await?;
 
@@ -1820,7 +1823,7 @@ impl StateStoreIntegrationTests for DynStateStore {
         let maybe_status = self.load_thread_subscription(room_id(), first_thread).await?;
         assert_eq!(
             maybe_status,
-            Some(ThreadSubscription {
+            Some(StoredThreadSubscription {
                 status: ThreadSubscriptionStatus::Unsubscribed,
                 bump_stamp: None,
             })
@@ -1830,7 +1833,7 @@ impl StateStoreIntegrationTests for DynStateStore {
         let maybe_status = self.load_thread_subscription(room_id(), second_thread).await?;
         assert_eq!(
             maybe_status,
-            Some(ThreadSubscription {
+            Some(StoredThreadSubscription {
                 status: ThreadSubscriptionStatus::Subscribed { automatic: false },
                 bump_stamp: None,
             })
@@ -1847,7 +1850,7 @@ impl StateStoreIntegrationTests for DynStateStore {
         let maybe_status = self.load_thread_subscription(room_id(), first_thread).await?;
         assert_eq!(
             maybe_status,
-            Some(ThreadSubscription {
+            Some(StoredThreadSubscription {
                 status: ThreadSubscriptionStatus::Unsubscribed,
                 bump_stamp: None,
             })
