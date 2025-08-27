@@ -335,8 +335,7 @@ jobs:
           target/debug/xtask ci clippy
 
   integration-tests:
-    name: Integration test
-
+    name: 'Integration test (features: ${{ matrix.feature }})'
     runs-on: ubuntu-latest
 
     # run several docker containers with the same networking stack so the hostname 'synapse'
@@ -351,6 +350,13 @@ jobs:
             SERVER_NAME: synapse
         ports:
             - 8008:8008
+
+    strategy:
+      fail-fast: true
+      matrix:
+        feature:
+          - "default"
+          - "experimental-encrypted-state-events"
 
     steps:
       - name: Checkout the repo
@@ -378,7 +384,7 @@ jobs:
           HOMESERVER_URL: "http://localhost:8008"
           HOMESERVER_DOMAIN: "synapse"
         run: |
-          cargo nextest run -p matrix-sdk-integration-testing
+          cargo nextest run -p matrix-sdk-integration-testing --features "${{ matrix.feature }}"
 
   compile-bench:
     name: 🚄 Compile benchmarks
