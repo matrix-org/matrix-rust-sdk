@@ -727,9 +727,17 @@ impl EventCache {
 
                     let maybe_room_cache = client.event_cache().for_room(&room_id).await;
                     let Ok((room_cache, _drop_handles)) = maybe_room_cache else {
-                        warn!(for_room = %room_id, "Failed to get RoomEventCache {maybe_room_cache:?}");
+                        warn!(for_room = %room_id, "Failed to get RoomEventCache: {maybe_room_cache:?}");
                         continue;
                     };
+
+                    let maybe_room = client.get_room(&room_id);
+                    let Some(room) = maybe_room else {
+                        warn!(get_room = %room_id, "Failed to get room while indexing: {maybe_room:?}");
+                        continue;
+                    };
+                    let redaction_rules =
+                        room.clone_info().room_version_rules_or_default().redaction;
 
                     let mut search_index_guard = client.search_index().lock().await;
 
@@ -737,9 +745,11 @@ impl EventCache {
                         if let Some(message_event) =
                             search::parse_timeline_event(&room_cache, &event).await
                         {
-                            if let Err(err) =
-                                search_index_guard.handle_event(message_event, &room_id)
-                            {
+                            if let Err(err) = search_index_guard.handle_event(
+                                message_event,
+                                &room_id,
+                                &redaction_rules,
+                            ) {
                                 warn!("Failed to handle event for indexing: {err}")
                             }
                         }

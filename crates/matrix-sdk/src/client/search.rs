@@ -15,7 +15,10 @@
 use std::{collections::hash_map::HashMap, path::PathBuf, sync::Arc};
 
 use matrix_sdk_search::{error::IndexError, index::RoomIndex};
-use ruma::{events::AnySyncMessageLikeEvent, OwnedEventId, OwnedRoomId, RoomId};
+use ruma::{
+    events::AnySyncMessageLikeEvent, room_version_rules::RedactionRules, OwnedEventId, OwnedRoomId,
+    RoomId,
+};
 use tokio::sync::{Mutex, MutexGuard};
 use tracing::{debug, error};
 
@@ -81,6 +84,7 @@ impl SearchIndexGuard<'_> {
         &mut self,
         event: AnySyncMessageLikeEvent,
         room_id: &RoomId,
+        redaction_rules: &RedactionRules,
     ) -> Result<(), IndexError> {
         if !self.index_map.contains_key(room_id) {
             let index = self.create_index(room_id)?;
@@ -88,7 +92,7 @@ impl SearchIndexGuard<'_> {
         }
 
         let index = self.index_map.get_mut(room_id).expect("index should exist");
-        let result = index.handle_event(event);
+        let result = index.handle_event(event, redaction_rules);
 
         match result {
             Ok(_) => {}
@@ -133,5 +137,129 @@ impl SearchIndexGuard<'_> {
                 error!("error occurred while committing: {err:?}");
             });
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use matrix_sdk_test::{async_test, event_factory::EventFactory, JoinedRoomBuilder};
+    use ruma::{
+        event_id, events::room::message::RoomMessageEventContentWithoutRelation, room_id, user_id,
+    };
+
+    use crate::test_utils::mocks::MatrixMockServer;
+
+    #[cfg(feature = "experimental-search")]
+    #[async_test]
+    async fn test_sync_message_is_indexed() {
+        let mock_server = MatrixMockServer::new().await;
+        let client = mock_server.client_builder().build().await;
+
+        client.event_cache().subscribe().unwrap();
+
+        let room_id = room_id!("!room_id:localhost");
+        let event_id = event_id!("$event_id:localost");
+        let user_id = user_id!("@user_id:localost");
+
+        let event_factory = EventFactory::new();
+        let room = mock_server
+            .sync_room(
+                &client,
+                JoinedRoomBuilder::new(room_id).add_timeline_bulk(vec![event_factory
+                    .text_msg("this is a sentence")
+                    .event_id(event_id)
+                    .sender(user_id)
+                    .into_raw_sync()]),
+            )
+            .await;
+
+        let response = room.search("this", 5).await.expect("search should have 1 result");
+
+        assert_eq!(response.len(), 1, "unexpected numbers of responses: {response:?}");
+        assert_eq!(response[0], event_id, "event id doesn't match: {response:?}");
+    }
+
+    #[cfg(feature = "experimental-search")]
+    #[async_test]
+    async fn test_search_index_edit_ordering() {
+        let room_id = room_id!("!room_id:localhost");
+        let dummy_id = event_id!("$dummy");
+        let edit1_id = event_id!("$edit1");
+        let edit2_id = event_id!("$edit2");
+        let edit3_id = event_id!("$edit3");
+        let original_id = event_id!("$original");
+
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+
+        let event_cache = client.event_cache();
+        event_cache.subscribe().unwrap();
+
+        let room = server.sync_joined_room(&client, room_id).await;
+
+        let f = EventFactory::new().room(room_id).sender(user_id!("@user_id:localhost"));
+
+        // Indexable dummy message required because RoomIndex is initialised lazily.
+        let dummy = f.text_msg("dummy").event_id(dummy_id).into_raw();
+
+        let original = f.text_msg("This is a message").event_id(original_id).into_raw();
+
+        let edit1 = f
+            .text_msg("* A new message")
+            .edit(original_id, RoomMessageEventContentWithoutRelation::text_plain("A new message"))
+            .event_id(edit1_id)
+            .into_raw();
+
+        let edit2 = f
+            .text_msg("* An even newer message")
+            .edit(
+                original_id,
+                RoomMessageEventContentWithoutRelation::text_plain("An even newer message"),
+            )
+            .event_id(edit2_id)
+            .into_raw();
+
+        let edit3 = f
+            .text_msg("* The newest message")
+            .edit(
+                original_id,
+                RoomMessageEventContentWithoutRelation::text_plain("The newest message"),
+            )
+            .event_id(edit3_id)
+            .into_raw();
+
+        server
+            .sync_room(
+                &client,
+                JoinedRoomBuilder::new(room_id)
+                    .add_timeline_event(dummy.clone())
+                    .add_timeline_event(edit1.clone())
+                    .add_timeline_event(edit2.clone()),
+            )
+            .await;
+
+        let results = room.search("message", 3).await.unwrap();
+
+        assert_eq!(results.len(), 0, "Search should return 0 results, got {results:?}");
+
+        // Adding the original after some pending edits should add the latest edit
+        // instead of the original.
+        server
+            .sync_room(&client, JoinedRoomBuilder::new(room_id).add_timeline_event(original))
+            .await;
+
+        let results = room.search("message", 3).await.unwrap();
+
+        assert_eq!(results.len(), 1, "Search should return 1 result, got {results:?}");
+        assert_eq!(results[0], edit2_id, "Search should return latest edit, got {:?}", results[0]);
+
+        // Editing the original after it exists and there has been another edit should
+        // delete the previous edits and add this one
+        server.sync_room(&client, JoinedRoomBuilder::new(room_id).add_timeline_event(edit3)).await;
+
+        let results = room.search("message", 3).await.unwrap();
+
+        assert_eq!(results.len(), 1, "Search should return 1 result, got {results:?}");
+        assert_eq!(results[0], edit3_id, "Search should return latest edit, got {:?}", results[0]);
     }
 }
