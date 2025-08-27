@@ -15,8 +15,7 @@
 use std::{fmt, fs, path::Path, sync::Arc};
 
 use ruma::{
-    EventId, OwnedEventId, OwnedRoomId, RoomId, events::AnySyncMessageLikeEvent,
-    room_version_rules::RedactionRules,
+    EventId, OwnedEventId, OwnedRoomId, RoomId, events::room::message::OriginalSyncRoomMessageEvent,
 };
 use tantivy::{
     Index, IndexReader, TantivyDocument,
@@ -35,16 +34,17 @@ use crate::{
 };
 
 /// A struct to represent the operations on a [`RoomIndex`]
-pub(crate) enum RoomIndexOperation {
-    /// Add this document to the index.
-    Add(TantivyDocument),
+#[derive(Debug)]
+pub enum RoomIndexOperation {
+    /// Add this event to the index.
+    Add(OriginalSyncRoomMessageEvent),
     /// Remove all documents in the index where
-    /// [`MatrixSearchIndexSchema::deletion_key()`] matches this event id.
+    /// `MatrixSearchIndexSchema::deletion_key()` matches this event id.
     Remove(OwnedEventId),
     /// Replace all documents in the index where
-    /// [`MatrixSearchIndexSchema::deletion_key()`] matches this event id with
-    /// the new document.
-    Edit(OwnedEventId, TantivyDocument),
+    /// `MatrixSearchIndexSchema::deletion_key()` matches this event id with
+    /// the new event.
+    Edit(OwnedEventId, OriginalSyncRoomMessageEvent),
     /// Do nothing.
     Noop,
 }
@@ -137,37 +137,6 @@ impl RoomIndex {
         RoomIndex::new_with(index, schema, room_id)
     }
 
-    /// Handle [`AnySyncMessageLikeEvent`]
-    ///
-    /// This which will add/remove/edit an event in the index based on the
-    /// event type.
-    pub fn handle_event(
-        &mut self,
-        event: AnySyncMessageLikeEvent,
-        redaction_rules: &RedactionRules,
-    ) -> Result<(), IndexError> {
-        let event_id = event.event_id().to_owned();
-
-        match self.schema.handle_event(event, redaction_rules)? {
-            RoomIndexOperation::Add(document) => {
-                if !self.contains(&event_id) {
-                    self.writer.add(document)?;
-                }
-            }
-            RoomIndexOperation::Remove(event_id) => {
-                self.writer.remove(&event_id);
-            }
-            RoomIndexOperation::Edit(remove_event_id, document) => {
-                self.writer.remove(&remove_event_id);
-                if !self.contains(&event_id) {
-                    self.writer.add(document)?;
-                }
-            }
-            RoomIndexOperation::Noop => {}
-        }
-        Ok(())
-    }
-
     /// Commit added events to [`RoomIndex`]
     pub fn commit(&mut self) -> Result<OpStamp, IndexError> {
         let last_commit_opstamp = self.writer.commit()?; // TODO: This is blocking. Handle it.
@@ -218,6 +187,31 @@ impl RoomIndex {
         Ok(ret)
     }
 
+    /// Execute [`RoomIndexOperation`]
+    ///
+    /// This which will add/remove/edit an event in the index based on the
+    /// operation.
+    pub fn execute(&mut self, operation: RoomIndexOperation) -> Result<(), IndexError> {
+        match operation {
+            RoomIndexOperation::Add(event) => {
+                if !self.contains(&event.event_id) {
+                    self.writer.add(self.schema.make_doc(event)?)?;
+                }
+            }
+            RoomIndexOperation::Remove(event_id) => {
+                self.writer.remove(&event_id);
+            }
+            RoomIndexOperation::Edit(remove_event_id, event) => {
+                self.writer.remove(&remove_event_id);
+                if !self.contains(&event.event_id) {
+                    self.writer.add(self.schema.make_doc(event)?)?;
+                }
+            }
+            RoomIndexOperation::Noop => {}
+        }
+        Ok(())
+    }
+
     fn contains(&self, event_id: &EventId) -> bool {
         let search_result = self.search(format!("event_id:\"{event_id}\"").as_str(), 1);
         match search_result {
@@ -236,11 +230,52 @@ mod tests {
 
     use matrix_sdk_test::event_factory::EventFactory;
     use ruma::{
-        event_id, events::room::message::RoomMessageEventContentWithoutRelation, room_id,
-        room_version_rules::RedactionRules, user_id,
+        EventId, event_id,
+        events::{
+            AnySyncMessageLikeEvent,
+            room::message::{OriginalSyncRoomMessageEvent, RoomMessageEventContentWithoutRelation},
+        },
+        room_id, user_id,
     };
 
-    use crate::index::RoomIndex;
+    use crate::{
+        error::IndexError,
+        index::{RoomIndex, RoomIndexOperation},
+    };
+
+    /// Helper function to add a regular message to the index
+    ///
+    /// # Panic
+    /// Panics when event is not a [`OriginalSyncRoomMessageEvent`] with no
+    /// relations.
+    fn index_message(
+        index: &mut RoomIndex,
+        event: AnySyncMessageLikeEvent,
+    ) -> Result<(), IndexError> {
+        if let AnySyncMessageLikeEvent::RoomMessage(ev) = event
+            && let Some(ev) = ev.as_original()
+            && ev.content.relates_to.is_none()
+        {
+            return index.execute(RoomIndexOperation::Add(ev.clone()));
+        }
+        panic!("Event was not a relationless OriginalSyncRoomMessageEvent.")
+    }
+
+    /// Helper function to remove events to the index
+    fn index_remove(index: &mut RoomIndex, event_id: &EventId) -> Result<(), IndexError> {
+        index.execute(RoomIndexOperation::Remove(event_id.to_owned()))
+    }
+
+    /// Helper function to edit events in index
+    ///
+    /// Edit event with `event_id` into new [`OriginalSyncRoomMessageEvent`]
+    fn index_edit(
+        index: &mut RoomIndex,
+        event_id: &EventId,
+        new: OriginalSyncRoomMessageEvent,
+    ) -> Result<(), IndexError> {
+        index.execute(RoomIndexOperation::Edit(event_id.to_owned(), new))
+    }
 
     #[test]
     fn test_make_index_in_memory() {
@@ -251,7 +286,7 @@ mod tests {
     }
 
     #[test]
-    fn test_handle_event() {
+    fn test_add_event() {
         let room_id = room_id!("!room_id:localhost");
         let mut index =
             RoomIndex::new_in_memory(room_id).expect("failed to make index in ram: {index:?}");
@@ -263,7 +298,7 @@ mod tests {
             .sender(user_id!("@user_id:localhost"))
             .into_any_sync_message_like_event();
 
-        index.handle_event(event, &RedactionRules::V11).expect("failed to add event: {res:?}");
+        index_message(&mut index, event).expect("failed to add event: {res:?}");
     }
 
     #[test]
@@ -278,23 +313,23 @@ mod tests {
         let user_id = user_id!("@user_id:localhost");
         let f = EventFactory::new().room(room_id).sender(user_id);
 
-        index.handle_event(
+        index_message(
+            &mut index,
             f.text_msg("This is a sentence")
                 .event_id(event_id_1)
                 .into_any_sync_message_like_event(),
-            &RedactionRules::V11,
         )?;
 
-        index.handle_event(
+        index_message(
+            &mut index,
             f.text_msg("All new words").event_id(event_id_2).into_any_sync_message_like_event(),
-            &RedactionRules::V11,
         )?;
 
-        index.handle_event(
+        index_message(
+            &mut index,
             f.text_msg("A similar sentence")
                 .event_id(event_id_3)
                 .into_any_sync_message_like_event(),
-            &RedactionRules::V11,
         )?;
 
         index.commit_and_reload()?;
@@ -351,7 +386,7 @@ mod tests {
             .sender(user_id!("@user_id:localhost"))
             .into_any_sync_message_like_event();
 
-        index.handle_event(event, &RedactionRules::V11)?;
+        index_message(&mut index, event)?;
 
         index.commit_and_reload()?;
 
@@ -361,7 +396,7 @@ mod tests {
     }
 
     #[test]
-    fn test_indexing_idempotency() -> Result<(), Box<dyn Error>> {
+    fn test_index_add_idempotency() -> Result<(), Box<dyn Error>> {
         let room_id = room_id!("!room_id:localhost");
         let mut index = RoomIndex::new_in_memory(room_id)?;
 
@@ -373,14 +408,14 @@ mod tests {
             .sender(user_id!("@user_id:localhost"))
             .into_any_sync_message_like_event();
 
-        index.handle_event(event.clone(), &RedactionRules::V11)?;
+        index_message(&mut index, event.clone())?;
 
         index.commit_and_reload()?;
 
         assert!(index.contains(event_id), "Index should contain event");
 
         // indexing again should do nothing
-        index.handle_event(event, &RedactionRules::V11)?;
+        index_message(&mut index, event)?;
 
         index.commit_and_reload()?;
 
@@ -394,7 +429,7 @@ mod tests {
     }
 
     #[test]
-    fn test_redaction_removes_event() -> Result<(), Box<dyn Error>> {
+    fn test_remove_event() -> Result<(), Box<dyn Error>> {
         let room_id = room_id!("!room_id:localhost");
         let mut index = RoomIndex::new_in_memory(room_id)?;
 
@@ -405,17 +440,13 @@ mod tests {
         let event =
             f.text_msg("This is a sentence").event_id(event_id).into_any_sync_message_like_event();
 
-        index.handle_event(event, &RedactionRules::V11)?;
+        index_message(&mut index, event)?;
 
         index.commit_and_reload()?;
 
         assert!(index.contains(event_id), "Index should contain event");
 
-        let redaction_event_id = event_id!("$redaction_event_id:localhost");
-        let redaction =
-            f.redaction(event_id).event_id(redaction_event_id).into_any_sync_message_like_event();
-
-        index.handle_event(redaction, &RedactionRules::V11)?;
+        index_remove(&mut index, event_id)?;
 
         index.commit_and_reload()?;
 
@@ -438,7 +469,7 @@ mod tests {
             .event_id(old_event_id)
             .into_any_sync_message_like_event();
 
-        index.handle_event(old_event, &RedactionRules::V11)?;
+        index_message(&mut index, old_event)?;
 
         index.commit_and_reload()?;
 
@@ -452,9 +483,9 @@ mod tests {
                 RoomMessageEventContentWithoutRelation::text_plain("This is a brand new sentence!"),
             )
             .event_id(new_event_id)
-            .into_any_sync_message_like_event();
+            .into_original_sync_room_message_event();
 
-        index.handle_event(edit, &RedactionRules::V11)?;
+        index_edit(&mut index, old_event_id, edit)?;
 
         index.commit_and_reload()?;
 

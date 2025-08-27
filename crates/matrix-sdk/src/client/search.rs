@@ -14,11 +14,11 @@
 
 use std::{collections::hash_map::HashMap, path::PathBuf, sync::Arc};
 
-use matrix_sdk_search::{error::IndexError, index::RoomIndex};
-use ruma::{
-    events::AnySyncMessageLikeEvent, room_version_rules::RedactionRules, OwnedEventId, OwnedRoomId,
-    RoomId,
+use matrix_sdk_search::{
+    error::IndexError,
+    index::{RoomIndex, RoomIndexOperation},
 };
+use ruma::{OwnedEventId, OwnedRoomId, RoomId};
 use tokio::sync::{Mutex, MutexGuard};
 use tracing::{debug, error};
 
@@ -80,11 +80,10 @@ impl SearchIndexGuard<'_> {
     ///
     /// This which will add/remove/edit an event in the index based on the
     /// event type.
-    pub(crate) fn handle_event(
+    pub(crate) fn execute(
         &mut self,
-        event: AnySyncMessageLikeEvent,
+        operation: RoomIndexOperation,
         room_id: &RoomId,
-        redaction_rules: &RedactionRules,
     ) -> Result<(), IndexError> {
         if !self.index_map.contains_key(room_id) {
             let index = self.create_index(room_id)?;
@@ -92,7 +91,7 @@ impl SearchIndexGuard<'_> {
         }
 
         let index = self.index_map.get_mut(room_id).expect("index should exist");
-        let result = index.handle_event(event, redaction_rules);
+        let result = index.execute(operation);
 
         match result {
             Ok(_) => {}

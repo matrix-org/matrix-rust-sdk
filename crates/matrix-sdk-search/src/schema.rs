@@ -12,23 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use ruma::{
-    events::{
-        AnySyncMessageLikeEvent, SyncMessageLikeEvent,
-        room::message::{MessageType, Relation, RoomMessageEventContent},
-    },
-    room_version_rules::RedactionRules,
-};
+use ruma::events::room::message::{MessageType, OriginalSyncRoomMessageEvent, Relation};
 use tantivy::{
-    DateTime, doc,
+    DateTime, TantivyDocument, doc,
     schema::{DateOptions, DateTimePrecision, Field, INDEXED, STORED, STRING, Schema, TEXT},
 };
-use tracing::trace;
 
-use crate::{
-    error::{IndexError, IndexSchemaError},
-    index::RoomIndexOperation,
-};
+use crate::error::{IndexError, IndexSchemaError};
 
 pub(crate) trait MatrixSearchIndexSchema {
     fn new() -> Self;
@@ -36,11 +26,7 @@ pub(crate) trait MatrixSearchIndexSchema {
     fn primary_key(&self) -> Field;
     fn deletion_key(&self) -> Field;
     fn as_tantivy_schema(&self) -> Schema;
-    fn handle_event(
-        &self,
-        event: AnySyncMessageLikeEvent,
-        redaction_rules: &RedactionRules,
-    ) -> Result<RoomIndexOperation, IndexError>;
+    fn make_doc(&self, event: OriginalSyncRoomMessageEvent) -> Result<TantivyDocument, IndexError>;
 }
 
 #[derive(Debug, Clone)]
@@ -55,39 +41,6 @@ pub(crate) struct RoomMessageSchema {
     date_field: Field,
     sender_field: Field,
     default_search_fields: Vec<Field>,
-}
-
-impl RoomMessageSchema {
-    /// Given an [`SyncMessageLikeEvent<RoomMessageEventContent>`] return a
-    /// [`RoomIndexOperation`].
-    fn handle_message(
-        &self,
-        event: SyncMessageLikeEvent<RoomMessageEventContent>,
-    ) -> Result<RoomIndexOperation, IndexError> {
-        let unredacted = event.as_original().ok_or(IndexError::CannotIndexRedactedMessage)?;
-
-        let body = match &unredacted.content.msgtype {
-            MessageType::Text(content) => Ok(content.body.clone()),
-            _ => Err(IndexError::MessageTypeNotSupported),
-        }?;
-
-        let mut document = doc!(
-            self.event_id_field => unredacted.event_id.to_string(),
-            self.body_field => body,
-            self.date_field =>
-                DateTime::from_timestamp_millis(
-                    unredacted.origin_server_ts.get().into()),
-            self.sender_field => unredacted.sender.to_string(),
-        );
-
-        if let Some(Relation::Replacement(replacement_data)) = &unredacted.content.relates_to {
-            document.add_text(self.original_event_id_field, replacement_data.event_id.clone());
-            Ok(RoomIndexOperation::Edit(replacement_data.event_id.clone(), document))
-        } else {
-            document.add_text(self.original_event_id_field, unredacted.event_id.clone());
-            Ok(RoomIndexOperation::Add(document))
-        }
-    }
 }
 
 impl MatrixSearchIndexSchema for RoomMessageSchema {
@@ -134,26 +87,30 @@ impl MatrixSearchIndexSchema for RoomMessageSchema {
         self.inner.clone()
     }
 
-    fn handle_event(
-        &self,
-        event: AnySyncMessageLikeEvent,
-        redaction_rules: &RedactionRules,
-    ) -> Result<RoomIndexOperation, IndexError> {
-        match event {
-            AnySyncMessageLikeEvent::RoomMessage(event) => self.handle_message(event),
-
-            AnySyncMessageLikeEvent::RoomRedaction(redaction_event) => {
-                if let Some(redacted_event_id) = redaction_event.redacts(redaction_rules) {
-                    Ok(RoomIndexOperation::Remove(redacted_event_id.to_owned()))
-                } else {
-                    // If not acting on anything, we can just ignore it.
-                    trace!("Room redaction in indexing redacts nothing, ignoring.");
-                    Ok(RoomIndexOperation::Noop)
-                }
-            }
-
+    /// Given an [`OriginalSyncRoomMessageEvent`] return a
+    /// [`TantivyDocument`].
+    fn make_doc(&self, event: OriginalSyncRoomMessageEvent) -> Result<TantivyDocument, IndexError> {
+        let body = match &event.content.msgtype {
+            MessageType::Text(content) => Ok(content.body.clone()),
             _ => Err(IndexError::MessageTypeNotSupported),
+        }?;
+
+        let mut document = doc!(
+            self.event_id_field => event.event_id.to_string(),
+            self.body_field => body,
+            self.date_field =>
+                DateTime::from_timestamp_millis(
+                    event.origin_server_ts.get().into()),
+            self.sender_field => event.sender.to_string(),
+        );
+
+        if let Some(Relation::Replacement(replacement_data)) = &event.content.relates_to {
+            document.add_text(self.original_event_id_field, replacement_data.event_id.clone());
+        } else {
+            document.add_text(self.original_event_id_field, event.event_id);
         }
+
+        Ok(document)
     }
 }
 
