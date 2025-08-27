@@ -2,7 +2,6 @@ use assert_matches2::assert_matches;
 use matrix_sdk::{
     notification_settings::RoomNotificationMode,
     room::ThreadSubscription,
-    store::ThreadSubscriptionStatus,
     test_utils::mocks::{MatrixMockServer, PushRuleIdSpec},
 };
 use matrix_sdk_test::{async_test, event_factory::EventFactory, JoinedRoomBuilder, ALICE};
@@ -41,13 +40,7 @@ async fn test_subscribe_thread() {
 
     // I can get the subscription for that same thread.
     let subscription = room.fetch_thread_subscription(root_id.clone()).await.unwrap().unwrap();
-    assert_eq!(
-        subscription,
-        ThreadSubscription {
-            status: ThreadSubscriptionStatus::Subscribed { automatic: true },
-            bump_stamp: None
-        }
-    );
+    assert_eq!(subscription, ThreadSubscription { automatic: true });
 
     // If I try to get a subscription for a thread event that's unknown, I get no
     // `ThreadSubscription`, not an error.
