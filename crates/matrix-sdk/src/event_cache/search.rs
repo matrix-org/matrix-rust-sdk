@@ -21,6 +21,8 @@ use tracing::warn;
 
 use crate::event_cache::RoomEventCache;
 
+/// Given an event id this function returns the most recent edit on said event
+/// or the event itself if there are no edits.
 async fn get_most_recent_edit(
     cache: &RoomEventCache,
     original: &EventId,
@@ -34,18 +36,14 @@ async fn get_most_recent_edit(
         return None;
     };
 
-    related
-        .last()
-        .and_then(|latest| match latest.raw().deserialize() {
-            Ok(AnySyncTimelineEvent::MessageLike(latest)) => Some(latest),
-            _ => None,
-        })
-        .or_else(|| match original_ev.raw().deserialize() {
-            Ok(AnySyncTimelineEvent::MessageLike(original_ev)) => Some(original_ev),
-            _ => None,
-        })
+    match related.last().unwrap_or(&original_ev).raw().deserialize() {
+        Ok(AnySyncTimelineEvent::MessageLike(latest)) => Some(latest),
+        _ => None,
+    }
 }
 
+/// Given an event, if it is a message then we return its latest edit else we
+/// return the event.
 async fn handle_possible_edits(
     cache: &RoomEventCache,
     event: &AnySyncMessageLikeEvent,
@@ -59,19 +57,12 @@ async fn handle_possible_edits(
 
             get_most_recent_edit(cache, original_ev_id).await
         }
-
-        AnySyncMessageLikeEvent::Message(ev) => {
-            let original_ev_id = ev.as_original().map(|ev| match &ev.content.relates_to {
-                Some(Relation::Replacement(replaces)) => &replaces.event_id,
-                _ => event.event_id(),
-            })?;
-
-            get_most_recent_edit(cache, original_ev_id).await
-        }
-        _ => None,
+        _ => Some(event.clone()),
     }
 }
 
+/// Prepare a [`TimelineEvent`] into a [`AnySyncMessageLikeEvent`] for search
+/// indexing.
 pub(crate) async fn parse_timeline_event(
     cache: &RoomEventCache,
     event: &TimelineEvent,

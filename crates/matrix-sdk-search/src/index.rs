@@ -33,9 +33,16 @@ use crate::{
 
 /// A struct to represent the operations on a [`RoomIndex`]
 pub(crate) enum RoomIndexOperation {
+    /// Add this document to the index.
     Add(TantivyDocument),
+    /// Remove all documents in the index where
+    /// [`MatrixSearchIndexSchema::deletion_key()`] matches this event id.
     Remove(OwnedEventId),
+    /// Replace all documents in the index where
+    /// [`MatrixSearchIndexSchema::deletion_key()`] matches this event id with
+    /// the new document.
     Edit(OwnedEventId, TantivyDocument),
+    /// Do nothing.
     Noop,
 }
 

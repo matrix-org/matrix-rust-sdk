@@ -725,10 +725,9 @@ impl EventCache {
                         return;
                     };
 
-                    let Ok((room_cache, _drop_handles)) =
-                        client.event_cache().for_room(&room_id).await
-                    else {
-                        warn!(for_room = %room_id, "Failed to get RoomEventCache");
+                    let maybe_room_cache = client.event_cache().for_room(&room_id).await;
+                    let Ok((room_cache, _drop_handles)) = maybe_room_cache else {
+                        warn!(for_room = %room_id, "Failed to get RoomEventCache {maybe_room_cache:?}");
                         continue;
                     };
 
