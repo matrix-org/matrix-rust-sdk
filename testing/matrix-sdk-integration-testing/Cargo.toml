@@ -9,6 +9,16 @@ license = "Apache-2.0"
 [package.metadata.release]
 release = false
 
+[features]
+default = []
+
+# Enable experimental support for encrypting state events; see
+# https://github.com/matrix-org/matrix-rust-sdk/issues/5397.
+experimental-encrypted-state-events = [
+    "matrix-sdk/experimental-encrypted-state-events",
+    "matrix-sdk-base/experimental-encrypted-state-events"
+]
+
 [dev-dependencies]
 anyhow.workspace = true
 assert_matches.workspace = true
@@ -21,8 +31,8 @@ futures-core.workspace = true
 futures-util.workspace = true
 http.workspace = true
 json-structural-diff = "0.1.0"
-matrix-sdk = { workspace = true, default-features = true, features = ["testing", "qrcode", "experimental-encrypted-state-events"] }
-matrix-sdk-base = { workspace = true, default-features = true, features = ["testing", "qrcode", "experimental-encrypted-state-events"] }
+matrix-sdk = { workspace = true, default-features = true, features = ["testing", "qrcode"] }
+matrix-sdk-base = { workspace = true, default-features = true, features = ["testing", "qrcode"] }
 matrix-sdk-common.workspace = true
 matrix-sdk-test.workspace = true
 matrix-sdk-test-utils.workspace = true
