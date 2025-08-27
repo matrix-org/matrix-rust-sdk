@@ -8,7 +8,6 @@ use matrix_sdk::{
         edit::EditedContent, power_levels::RoomPowerLevelChanges, Room as SdkRoom, RoomMemberRole,
         TryFromReportedContentScoreError,
     },
-    store::ThreadSubscriptionStatus,
     ComposerDraft as SdkComposerDraft, ComposerDraftType as SdkComposerDraftType, EncryptionState,
     PredecessorRoom as SdkPredecessorRoom, RoomHero as SdkRoomHero, RoomMemberships, RoomState,
     SuccessorRoom as SdkSuccessorRoom,
@@ -1132,13 +1131,11 @@ impl Room {
         thread_root_event_id: String,
     ) -> Result<Option<ThreadSubscription>, ClientError> {
         let thread_root = EventId::parse(thread_root_event_id)?;
-        Ok(self.inner.fetch_thread_subscription(thread_root).await?.and_then(|sub| {
-            if let ThreadSubscriptionStatus::Subscribed { automatic } = sub.status {
-                Some(ThreadSubscription { automatic })
-            } else {
-                None
-            }
-        }))
+        Ok(self
+            .inner
+            .fetch_thread_subscription(thread_root)
+            .await?
+            .map(|sub| ThreadSubscription { automatic: sub.automatic }))
     }
 }
 

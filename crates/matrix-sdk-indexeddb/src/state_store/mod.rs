@@ -29,7 +29,7 @@ use matrix_sdk_base::{
         ChildTransactionId, ComposerDraft, DependentQueuedRequest, DependentQueuedRequestKind,
         QueuedRequest, QueuedRequestKind, RoomLoadSettings, SentRequestKey,
         SerializableEventContent, ServerInfo, StateChanges, StateStore, StoreError,
-        ThreadSubscription, ThreadSubscriptionStatus,
+        StoredThreadSubscription, ThreadSubscriptionStatus,
     },
     MinimalRoomMemberEvent, RoomInfo, RoomMemberships, StateStoreDataKey, StateStoreDataValue,
     ROOM_VERSION_FALLBACK, ROOM_VERSION_RULES_FALLBACK,
@@ -1792,7 +1792,7 @@ impl_state_store!({
         &self,
         room: &RoomId,
         thread_id: &EventId,
-        subscription: ThreadSubscription,
+        subscription: StoredThreadSubscription,
     ) -> Result<()> {
         let encoded_key = self.encode_key(keys::THREAD_SUBSCRIPTIONS, (room, thread_id));
 
@@ -1815,7 +1815,7 @@ impl_state_store!({
         &self,
         room: &RoomId,
         thread_id: &EventId,
-    ) -> Result<Option<ThreadSubscription>> {
+    ) -> Result<Option<StoredThreadSubscription>> {
         let encoded_key = self.encode_key(keys::THREAD_SUBSCRIPTIONS, (room, thread_id));
 
         let js_value = self
@@ -1840,7 +1840,7 @@ impl_state_store!({
             }
         })?;
 
-        Ok(Some(ThreadSubscription { status, bump_stamp: None }))
+        Ok(Some(StoredThreadSubscription { status, bump_stamp: None }))
     }
 
     async fn remove_thread_subscription(&self, room: &RoomId, thread_id: &EventId) -> Result<()> {

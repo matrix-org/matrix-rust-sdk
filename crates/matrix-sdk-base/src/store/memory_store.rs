@@ -45,7 +45,7 @@ use super::{
 use crate::{
     MinimalRoomMemberEvent, RoomMemberships, StateStoreDataKey, StateStoreDataValue,
     deserialized_responses::{DisplayName, RawAnySyncOrStrippedState},
-    store::{QueueWedgeError, ThreadSubscription},
+    store::{QueueWedgeError, StoredThreadSubscription},
 };
 
 #[derive(Debug, Default)]
@@ -83,7 +83,7 @@ struct MemoryStoreInner {
     send_queue_events: BTreeMap<OwnedRoomId, Vec<QueuedRequest>>,
     dependent_send_queue_events: BTreeMap<OwnedRoomId, Vec<DependentQueuedRequest>>,
     seen_knock_requests: BTreeMap<OwnedRoomId, BTreeMap<OwnedEventId, OwnedUserId>>,
-    thread_subscriptions: BTreeMap<OwnedRoomId, BTreeMap<OwnedEventId, ThreadSubscription>>,
+    thread_subscriptions: BTreeMap<OwnedRoomId, BTreeMap<OwnedEventId, StoredThreadSubscription>>,
 }
 
 /// In-memory, non-persistent implementation of the `StateStore`.
@@ -957,7 +957,7 @@ impl StateStore for MemoryStore {
         &self,
         room: &RoomId,
         thread_id: &EventId,
-        subscription: ThreadSubscription,
+        subscription: StoredThreadSubscription,
     ) -> Result<(), Self::Error> {
         self.inner
             .write()
@@ -973,7 +973,7 @@ impl StateStore for MemoryStore {
         &self,
         room: &RoomId,
         thread_id: &EventId,
-    ) -> Result<Option<ThreadSubscription>, Self::Error> {
+    ) -> Result<Option<StoredThreadSubscription>, Self::Error> {
         let inner = self.inner.read().unwrap();
         Ok(inner
             .thread_subscriptions

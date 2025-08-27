@@ -506,7 +506,7 @@ impl ThreadSubscriptionStatus {
 
 /// A thread subscription, as saved in the state store.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct ThreadSubscription {
+pub struct StoredThreadSubscription {
     /// Current status of the subscription.
     pub status: ThreadSubscriptionStatus,
 
