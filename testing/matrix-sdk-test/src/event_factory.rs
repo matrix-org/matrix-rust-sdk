@@ -62,8 +62,9 @@ use ruma::{
             member::{MembershipState, RoomMemberEventContent},
             message::{
                 FormattedBody, GalleryItemType, GalleryMessageEventContent,
-                ImageMessageEventContent, MessageType, Relation, RelationWithoutReplacement,
-                RoomMessageEventContent, RoomMessageEventContentWithoutRelation,
+                ImageMessageEventContent, MessageType, OriginalSyncRoomMessageEvent, Relation,
+                RelationWithoutReplacement, RoomMessageEventContent,
+                RoomMessageEventContentWithoutRelation,
             },
             name::RoomNameEventContent,
             power_levels::RoomPowerLevelsEventContent,
@@ -327,6 +328,10 @@ where
 
     pub fn into_any_sync_message_like_event(self) -> AnySyncMessageLikeEvent {
         self.into_raw().deserialize().expect("expected message like event")
+    }
+
+    pub fn into_original_sync_room_message_event(self) -> OriginalSyncRoomMessageEvent {
+        self.into_raw().deserialize().expect("expected original sync room message event")
     }
 
     pub fn into_raw_sync(self) -> Raw<AnySyncTimelineEvent> {

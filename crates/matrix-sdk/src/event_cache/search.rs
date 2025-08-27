@@ -13,8 +13,16 @@
 // limitations under the License.
 
 use matrix_sdk_base::deserialized_responses::TimelineEvent;
+use matrix_sdk_search::index::RoomIndexOperation;
 use ruma::{
-    events::{room::message::Relation, AnySyncMessageLikeEvent},
+    events::{
+        room::{
+            message::{OriginalSyncRoomMessageEvent, Relation, SyncRoomMessageEvent},
+            redaction::SyncRoomRedactionEvent,
+        },
+        AnySyncMessageLikeEvent, AnySyncTimelineEvent,
+    },
+    room_version_rules::RedactionRules,
     EventId,
 };
 use tracing::warn;
@@ -26,7 +34,7 @@ use crate::event_cache::RoomEventCache;
 async fn get_most_recent_edit(
     cache: &RoomEventCache,
     original: &EventId,
-) -> Option<AnySyncMessageLikeEvent> {
+) -> Option<OriginalSyncRoomMessageEvent> {
     use ruma::events::{relation::RelationType, AnySyncTimelineEvent};
 
     let Some((original_ev, related)) =
@@ -37,36 +45,78 @@ async fn get_most_recent_edit(
     };
 
     match related.last().unwrap_or(&original_ev).raw().deserialize() {
-        Ok(AnySyncTimelineEvent::MessageLike(latest)) => Some(latest),
+        Ok(AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::RoomMessage(latest))) => {
+            latest.as_original().cloned()
+        }
         _ => None,
     }
 }
 
-/// Given an event, if it is a message then we return its latest edit else we
-/// return the event.
-async fn handle_possible_edits(
+/// If the given [`OriginalSyncRoomMessageEvent`] is an edit we make an
+/// [`RoomIndexOperation::Edit`] with the new most recent version of the
+/// original.
+async fn handle_possible_edit(
+    event: &OriginalSyncRoomMessageEvent,
     cache: &RoomEventCache,
-    event: &AnySyncMessageLikeEvent,
-) -> Option<AnySyncMessageLikeEvent> {
-    match event {
-        AnySyncMessageLikeEvent::RoomMessage(ev) => {
-            let original_ev_id = ev.as_original().map(|ev| match &ev.content.relates_to {
-                Some(Relation::Replacement(replaces)) => &replaces.event_id,
-                _ => event.event_id(),
-            })?;
-
-            get_most_recent_edit(cache, original_ev_id).await
+) -> Option<RoomIndexOperation> {
+    if let Some(Relation::Replacement(replacement_data)) = &event.content.relates_to {
+        if let Some(recent) = get_most_recent_edit(cache, &replacement_data.event_id).await {
+            return Some(RoomIndexOperation::Edit(replacement_data.event_id.clone(), recent));
+        } else {
+            return Some(RoomIndexOperation::Noop);
         }
-        _ => Some(event.clone()),
     }
+    None
 }
 
-/// Prepare a [`TimelineEvent`] into a [`AnySyncMessageLikeEvent`] for search
+/// Return a [`RoomIndexOperation::Edit`] or [`RoomIndexOperation::Add`]
+/// depending on the message.
+async fn handle_room_message(
+    event: SyncRoomMessageEvent,
+    cache: &RoomEventCache,
+) -> Option<RoomIndexOperation> {
+    if let Some(event) = event.as_original() {
+        return handle_possible_edit(event, cache).await.or(get_most_recent_edit(
+            cache,
+            &event.event_id,
+        )
+        .await
+        .map(RoomIndexOperation::Add));
+    }
+    None
+}
+
+/// Return a [`RoomIndexOperation::Edit`] or [`RoomIndexOperation::Remove`]
+/// depending on the message.
+async fn handle_room_redaction(
+    event: SyncRoomRedactionEvent,
+    cache: &RoomEventCache,
+    rules: &RedactionRules,
+) -> Option<RoomIndexOperation> {
+    if let Some(redacted_event_id) = event.redacts(rules) {
+        if let Some(redacted_event) = cache.find_event(redacted_event_id).await {
+            if let Ok(AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::RoomMessage(
+                redacted_event,
+            ))) = redacted_event.raw().deserialize()
+            {
+                if let Some(redacted_event) = redacted_event.as_original() {
+                    return handle_possible_edit(redacted_event, cache)
+                        .await
+                        .or(Some(RoomIndexOperation::Remove(redacted_event.event_id.clone())));
+                }
+            }
+        }
+    }
+    None
+}
+
+/// Prepare a [`TimelineEvent`] into a [`RoomIndexOperation`] for search
 /// indexing.
 pub(crate) async fn parse_timeline_event(
     cache: &RoomEventCache,
     event: &TimelineEvent,
-) -> Option<AnySyncMessageLikeEvent> {
+    redaction_rules: &RedactionRules,
+) -> Option<RoomIndexOperation> {
     use ruma::events::AnySyncTimelineEvent;
 
     if event.kind.is_utd() {
@@ -75,7 +125,15 @@ pub(crate) async fn parse_timeline_event(
 
     match event.raw().deserialize() {
         Ok(event) => match event {
-            AnySyncTimelineEvent::MessageLike(event) => handle_possible_edits(cache, &event).await,
+            AnySyncTimelineEvent::MessageLike(event) => match event {
+                AnySyncMessageLikeEvent::RoomMessage(event) => {
+                    handle_room_message(event, cache).await
+                }
+                AnySyncMessageLikeEvent::RoomRedaction(event) => {
+                    handle_room_redaction(event, cache, redaction_rules).await
+                }
+                _ => None,
+            },
             AnySyncTimelineEvent::State(_) => None,
         },
 
