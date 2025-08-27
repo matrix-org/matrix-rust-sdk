@@ -14,7 +14,7 @@
 
 use deadpool_sqlite::{CreatePoolError, PoolError};
 #[cfg(feature = "event-cache")]
-use matrix_sdk_base::event_cache::store::EventCacheStoreError;
+use matrix_sdk_base::event_cache::store::{media::MediaStoreError, EventCacheStoreError};
 #[cfg(feature = "state-store")]
 use matrix_sdk_base::store::StoreError as StateStoreError;
 #[cfg(feature = "crypto-store")]
@@ -165,6 +165,16 @@ impl From<Error> for EventCacheStoreError {
         match e {
             Error::Encryption(e) => EventCacheStoreError::Encryption(e),
             e => EventCacheStoreError::backend(e),
+        }
+    }
+}
+
+#[cfg(feature = "event-cache")]
+impl From<Error> for MediaStoreError {
+    fn from(e: Error) -> Self {
+        match e {
+            Error::Encryption(e) => MediaStoreError::Encryption(e),
+            e => MediaStoreError::backend(e),
         }
     }
 }

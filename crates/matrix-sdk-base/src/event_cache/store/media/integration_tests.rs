@@ -972,24 +972,24 @@ where
 /// recommended to run those in encrypted stores because the size of the
 /// encrypted content may vary compared to what the tests expect.
 ///
-/// You need to provide an `async fn get_event_cache_store() ->
-/// event_cache::store::Result<Store>` that provides a fresh event cache store
-/// that implements `MediaStoreInner` on the same level you invoke the
+/// You need to provide an `async fn get_media_store() ->
+/// event_cache::store::media::Result<Store>` that provides a fresh media
+/// store that implements `MediaStoreInner` on the same level you invoke the
 /// macro.
 ///
 /// ## Usage Example:
 /// ```no_run
-/// # use matrix_sdk_base::event_cache::store::{
-/// #    EventCacheStore,
+/// # use matrix_sdk_base::event_cache::store::media{
+/// #    MediaStoreInner,
 /// #    MemoryStore as MyStore,
-/// #    Result as EventCacheStoreResult,
+/// #    Result as MediaStoreResult,
 /// # };
 ///
 /// #[cfg(test)]
 /// mod tests {
-///     use super::{EventCacheStoreResult, MyStore};
+///     use super::{MediaStoreResult, MyStore};
 ///
-///     async fn get_event_cache_store() -> EventCacheStoreResult<MyStore> {
+///     async fn get_media_store() -> MediaStoreResult<MyStore> {
 ///         Ok(MyStore::new())
 ///     }
 ///
@@ -1005,19 +1005,19 @@ macro_rules! media_store_inner_integration_tests {
 
             #[async_test]
             async fn test_media_max_file_size() {
-                let media_store_inner = get_event_cache_store().await.unwrap();
+                let media_store_inner = get_media_store().await.unwrap();
                 media_store_inner.test_media_max_file_size().await;
             }
 
             #[async_test]
             async fn test_media_max_cache_size() {
-                let media_store_inner = get_event_cache_store().await.unwrap();
+                let media_store_inner = get_media_store().await.unwrap();
                 media_store_inner.test_media_max_cache_size().await;
             }
 
             #[async_test]
             async fn test_media_ignore_max_size() {
-                let media_store_inner = get_event_cache_store().await.unwrap();
+                let media_store_inner = get_media_store().await.unwrap();
                 media_store_inner.test_media_ignore_max_size().await;
             }
         }
@@ -1033,29 +1033,29 @@ macro_rules! media_store_inner_integration_tests {
         use matrix_sdk_test::async_test;
         use $crate::event_cache::store::media::MediaStoreInnerIntegrationTests;
 
-        use super::get_event_cache_store;
+        use super::get_media_store;
 
         #[async_test]
         async fn test_store_media_retention_policy() {
-            let media_store_inner = get_event_cache_store().await.unwrap();
+            let media_store_inner = get_media_store().await.unwrap();
             media_store_inner.test_store_media_retention_policy().await;
         }
 
         #[async_test]
         async fn test_media_expiry() {
-            let media_store_inner = get_event_cache_store().await.unwrap();
+            let media_store_inner = get_media_store().await.unwrap();
             media_store_inner.test_media_expiry().await;
         }
 
         #[async_test]
         async fn test_media_ignore_expiry() {
-            let media_store_inner = get_event_cache_store().await.unwrap();
+            let media_store_inner = get_media_store().await.unwrap();
             media_store_inner.test_media_ignore_expiry().await;
         }
 
         #[async_test]
         async fn test_store_last_media_cleanup_time() {
-            let media_store_inner = get_event_cache_store().await.unwrap();
+            let media_store_inner = get_media_store().await.unwrap();
             media_store_inner.test_store_last_media_cleanup_time().await;
         }
     };
@@ -1296,19 +1296,99 @@ macro_rules! media_store_integration_tests {
     () => {
         mod media_store_integration_tests {
             use matrix_sdk_test::async_test;
+            use $crate::event_cache::store::media::MediaStoreIntegrationTests;
 
             use super::get_media_store;
 
             #[async_test]
             async fn test_media_content() {
-                let event_cache_store = get_media_store().await.unwrap().into_event_cache_store();
-                event_cache_store.test_media_content().await;
+                let media_store = get_media_store().await.unwrap();
+                media_store.test_media_content().await;
             }
 
             #[async_test]
             async fn test_replace_media_key() {
-                let event_cache_store = get_media_store().await.unwrap().into_event_cache_store();
-                event_cache_store.test_replace_media_key().await;
+                let media_store = get_media_store().await.unwrap();
+                media_store.test_replace_media_key().await;
+            }
+        }
+    };
+}
+
+/// Macro generating tests for the media store, related to time (mostly
+/// for the cross-process lock).
+#[allow(unused_macros)]
+#[macro_export]
+macro_rules! media_store_integration_tests_time {
+    () => {
+        mod media_store_integration_tests_time {
+            use std::time::Duration;
+
+            #[cfg(all(target_family = "wasm", target_os = "unknown"))]
+            use gloo_timers::future::sleep;
+            use matrix_sdk_test::async_test;
+            #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
+            use tokio::time::sleep;
+            use $crate::event_cache::store::media::MediaStore;
+
+            use super::get_media_store;
+
+            #[async_test]
+            async fn test_lease_locks() {
+                let store = get_media_store().await.unwrap();
+
+                let acquired0 = store.try_take_leased_lock(0, "key", "alice").await.unwrap();
+                assert!(acquired0);
+
+                // Should extend the lease automatically (same holder).
+                let acquired2 = store.try_take_leased_lock(300, "key", "alice").await.unwrap();
+                assert!(acquired2);
+
+                // Should extend the lease automatically (same holder + time is ok).
+                let acquired3 = store.try_take_leased_lock(300, "key", "alice").await.unwrap();
+                assert!(acquired3);
+
+                // Another attempt at taking the lock should fail, because it's taken.
+                let acquired4 = store.try_take_leased_lock(300, "key", "bob").await.unwrap();
+                assert!(!acquired4);
+
+                // Even if we insist.
+                let acquired5 = store.try_take_leased_lock(300, "key", "bob").await.unwrap();
+                assert!(!acquired5);
+
+                // That's a nice test we got here, go take a little nap.
+                sleep(Duration::from_millis(50)).await;
+
+                // Still too early.
+                let acquired55 = store.try_take_leased_lock(300, "key", "bob").await.unwrap();
+                assert!(!acquired55);
+
+                // Ok you can take another nap then.
+                sleep(Duration::from_millis(250)).await;
+
+                // At some point, we do get the lock.
+                let acquired6 = store.try_take_leased_lock(0, "key", "bob").await.unwrap();
+                assert!(acquired6);
+
+                sleep(Duration::from_millis(1)).await;
+
+                // The other gets it almost immediately too.
+                let acquired7 = store.try_take_leased_lock(0, "key", "alice").await.unwrap();
+                assert!(acquired7);
+
+                sleep(Duration::from_millis(1)).await;
+
+                // But when we take a longer lease...
+                let acquired8 = store.try_take_leased_lock(300, "key", "bob").await.unwrap();
+                assert!(acquired8);
+
+                // It blocks the other user.
+                let acquired9 = store.try_take_leased_lock(300, "key", "alice").await.unwrap();
+                assert!(!acquired9);
+
+                // We can hold onto our lease.
+                let acquired10 = store.try_take_leased_lock(300, "key", "bob").await.unwrap();
+                assert!(acquired10);
             }
         }
     };

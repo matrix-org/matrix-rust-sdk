@@ -25,10 +25,7 @@ use tokio::sync::Mutex as AsyncMutex;
 use tracing::error;
 
 use super::MediaRetentionPolicy;
-use crate::{
-    event_cache::store::{EventCacheStoreError, media::MediaStoreError},
-    media::MediaRequestParameters,
-};
+use crate::{event_cache::store::media::MediaStoreError, media::MediaRequestParameters};
 
 /// API for implementors of [`EventCacheStore`] to manage their media through
 /// their implementation of [`MediaStoreInner`].
@@ -503,7 +500,7 @@ pub trait MediaStore: AsyncTraitDeps {
 #[cfg_attr(not(target_family = "wasm"), async_trait)]
 pub trait MediaStoreInner: AsyncTraitDeps + Clone {
     /// The error type used by this media cache store.
-    type Error: fmt::Debug + fmt::Display + Into<EventCacheStoreError>;
+    type Error: fmt::Debug + fmt::Display + Into<MediaStoreError>;
 
     /// The persisted media retention policy in the media cache.
     async fn media_retention_policy_inner(
@@ -689,7 +686,7 @@ mod tests {
 
     use super::{IgnoreMediaRetentionPolicy, MediaService, MediaStoreInner, TimeProvider};
     use crate::{
-        event_cache::store::{EventCacheStoreError, media::MediaRetentionPolicy},
+        event_cache::store::media::{MediaRetentionPolicy, MediaStoreError},
         media::{MediaFormat, MediaRequestParameters, UniqueKey},
     };
 
@@ -767,7 +764,7 @@ mod tests {
 
     impl std::error::Error for MockMediaStoreInnerError {}
 
-    impl From<MockMediaStoreInnerError> for EventCacheStoreError {
+    impl From<MockMediaStoreInnerError> for MediaStoreError {
         fn from(value: MockMediaStoreInnerError) -> Self {
             Self::backend(value)
         }

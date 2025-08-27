@@ -16,6 +16,7 @@ use std::{
     collections::HashMap,
     num::NonZeroUsize,
     sync::{Arc, RwLock as StdRwLock},
+    time::SystemTime,
 };
 
 use async_trait::async_trait;
@@ -28,9 +29,8 @@ use matrix_sdk_common::{
     store_locks::memory_store_helper::try_take_leased_lock,
 };
 use ruma::{
-    EventId, MxcUri, OwnedEventId, OwnedMxcUri, RoomId,
-    events::relation::RelationType,
-    time::{Instant, SystemTime},
+    EventId, MxcUri, OwnedEventId, OwnedMxcUri, RoomId, events::relation::RelationType,
+    time::Instant,
 };
 use tracing::error;
 
@@ -39,7 +39,10 @@ use super::{
     media::{IgnoreMediaRetentionPolicy, MediaRetentionPolicy, MediaService, MediaStoreInner},
 };
 use crate::{
-    event_cache::{Event, Gap},
+    event_cache::{
+        Event, Gap,
+        store::media::{MediaStore, MediaStoreError},
+    },
     media::{MediaRequestParameters, UniqueKey as _},
 };
 
@@ -49,14 +52,27 @@ use crate::{
 #[derive(Debug, Clone)]
 pub struct MemoryStore {
     inner: Arc<StdRwLock<MemoryStoreInner>>,
-    media_service: MediaService,
 }
 
 #[derive(Debug)]
 struct MemoryStoreInner {
-    media: RingBuffer<MediaContent>,
     leases: HashMap<String, (String, Instant)>,
     events: RelationalLinkedChunk<OwnedEventId, Event, Gap>,
+}
+
+/// In-memory, non-persistent implementation of the `MediaStore`.
+///
+/// Default if no other is configured at startup.
+#[derive(Debug, Clone)]
+pub struct MemoryMediaStore {
+    inner: Arc<StdRwLock<MemoryMediaStoreInner>>,
+    media_service: MediaService,
+}
+
+#[derive(Debug)]
+struct MemoryMediaStoreInner {
+    media: RingBuffer<MediaContent>,
+    leases: HashMap<String, (String, Instant)>,
     media_retention_policy: Option<MediaRetentionPolicy>,
     last_media_cleanup_time: SystemTime,
 }
@@ -84,16 +100,26 @@ const NUMBER_OF_MEDIAS: NonZeroUsize = NonZeroUsize::new(20).unwrap();
 
 impl Default for MemoryStore {
     fn default() -> Self {
+        Self {
+            inner: Arc::new(StdRwLock::new(MemoryStoreInner {
+                leases: Default::default(),
+                events: RelationalLinkedChunk::new(),
+            })),
+        }
+    }
+}
+
+impl Default for MemoryMediaStore {
+    fn default() -> Self {
         // Given that the store is empty, we won't need to clean it up right away.
         let last_media_cleanup_time = SystemTime::now();
         let media_service = MediaService::new();
         media_service.restore(None, Some(last_media_cleanup_time));
 
         Self {
-            inner: Arc::new(StdRwLock::new(MemoryStoreInner {
+            inner: Arc::new(StdRwLock::new(MemoryMediaStoreInner {
                 media: RingBuffer::new(NUMBER_OF_MEDIAS),
                 leases: Default::default(),
-                events: RelationalLinkedChunk::new(),
                 media_retention_policy: None,
                 last_media_cleanup_time,
             })),
@@ -104,6 +130,13 @@ impl Default for MemoryStore {
 
 impl MemoryStore {
     /// Create a new empty MemoryStore
+    pub fn new() -> Self {
+        Self::default()
+    }
+}
+
+impl MemoryMediaStore {
+    /// Create a new empty MemoryMediaStore
     pub fn new() -> Self {
         Self::default()
     }
@@ -272,13 +305,30 @@ impl EventCacheStore for MemoryStore {
         self.inner.write().unwrap().events.save_item(room_id.to_owned(), event);
         Ok(())
     }
+}
+
+#[cfg_attr(target_family = "wasm", async_trait(?Send))]
+#[cfg_attr(not(target_family = "wasm"), async_trait)]
+impl MediaStore for MemoryMediaStore {
+    type Error = MediaStoreError;
+
+    async fn try_take_leased_lock(
+        &self,
+        lease_duration_ms: u32,
+        key: &str,
+        holder: &str,
+    ) -> Result<bool, Self::Error> {
+        let mut inner = self.inner.write().unwrap();
+
+        Ok(try_take_leased_lock(&mut inner.leases, lease_duration_ms, key, holder))
+    }
 
     async fn add_media_content(
         &self,
         request: &MediaRequestParameters,
         data: Vec<u8>,
         ignore_policy: IgnoreMediaRetentionPolicy,
-    ) -> Result<()> {
+    ) -> Result<(), Self::Error> {
         self.media_service.add_media_content(self, request, data, ignore_policy).await
     }
 
@@ -301,11 +351,17 @@ impl EventCacheStore for MemoryStore {
         Ok(())
     }
 
-    async fn get_media_content(&self, request: &MediaRequestParameters) -> Result<Option<Vec<u8>>> {
+    async fn get_media_content(
+        &self,
+        request: &MediaRequestParameters,
+    ) -> Result<Option<Vec<u8>>, Self::Error> {
         self.media_service.get_media_content(self, request).await
     }
 
-    async fn remove_media_content(&self, request: &MediaRequestParameters) -> Result<()> {
+    async fn remove_media_content(
+        &self,
+        request: &MediaRequestParameters,
+    ) -> Result<(), Self::Error> {
         let expected_key = request.unique_key();
 
         let mut inner = self.inner.write().unwrap();
@@ -328,7 +384,7 @@ impl EventCacheStore for MemoryStore {
         self.media_service.get_media_content_for_uri(self, uri).await
     }
 
-    async fn remove_media_content_for_uri(&self, uri: &MxcUri) -> Result<()> {
+    async fn remove_media_content_for_uri(&self, uri: &MxcUri) -> Result<(), Self::Error> {
         let mut inner = self.inner.write().unwrap();
 
         let positions = inner
@@ -372,8 +428,8 @@ impl EventCacheStore for MemoryStore {
 
 #[cfg_attr(target_family = "wasm", async_trait(?Send))]
 #[cfg_attr(not(target_family = "wasm"), async_trait)]
-impl MediaStoreInner for MemoryStore {
-    type Error = EventCacheStoreError;
+impl MediaStoreInner for MemoryMediaStore {
+    type Error = MediaStoreError;
 
     async fn media_retention_policy_inner(
         &self,
@@ -578,13 +634,23 @@ impl MediaStoreInner for MemoryStore {
 #[cfg(test)]
 mod tests {
     use super::{MemoryStore, Result};
-    use crate::media_store_inner_integration_tests;
+    use crate::{
+        event_cache::store::memory_store::MemoryMediaStore, event_cache_store_integration_tests,
+        event_cache_store_integration_tests_time, media_store_inner_integration_tests,
+        media_store_integration_tests, media_store_integration_tests_time,
+    };
 
     async fn get_event_cache_store() -> Result<MemoryStore> {
         Ok(MemoryStore::new())
     }
 
+    async fn get_media_store() -> Result<MemoryMediaStore> {
+        Ok(MemoryMediaStore::new())
+    }
+
     event_cache_store_integration_tests!();
     event_cache_store_integration_tests_time!();
-    media_store_inner_integration_tests!(with_media_size_tests);
+    media_store_inner_integration_tests!();
+    media_store_integration_tests!();
+    media_store_integration_tests_time!();
 }
