@@ -21,7 +21,7 @@ use ruma::{OwnedRoomId, events::AnySyncTimelineEvent, serde::Raw};
 use super::Room;
 #[cfg(feature = "e2e-encryption")]
 use super::RoomInfoNotableUpdateReasons;
-use crate::latest_event::LatestEvent;
+use crate::latest_event::{LatestEvent, LatestEventValue};
 
 impl Room {
     /// The size of the latest_encrypted_events RingBuffer
@@ -32,6 +32,11 @@ impl Room {
     /// sliding sync.
     pub fn latest_event(&self) -> Option<LatestEvent> {
         self.inner.read().latest_event.as_deref().cloned()
+    }
+
+    /// Return the [`LatestEventValue`] of this room.
+    pub fn new_latest_event(&self) -> LatestEventValue {
+        self.inner.read().new_latest_event.clone()
     }
 
     /// Return the most recent few encrypted events. When the keys come through

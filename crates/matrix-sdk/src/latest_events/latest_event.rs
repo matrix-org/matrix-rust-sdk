@@ -18,7 +18,10 @@ use eyeball::{AsyncLock, SharedObservable, Subscriber};
 pub use matrix_sdk_base::latest_event::{
     LatestEventValue, LocalLatestEventValue, RemoteLatestEventValue,
 };
-use matrix_sdk_base::{deserialized_responses::TimelineEvent, store::SerializableEventContent};
+use matrix_sdk_base::{
+    deserialized_responses::TimelineEvent, store::SerializableEventContent,
+    RoomInfoNotableUpdateReasons, StateChanges,
+};
 use ruma::{
     events::{
         relation::RelationType,
@@ -27,7 +30,7 @@ use ruma::{
     },
     EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, TransactionId, UserId,
 };
-use tracing::error;
+use tracing::{error, instrument, warn};
 
 use crate::{event_cache::RoomEventCache, room::WeakRoom, send_queue::RoomSendQueueUpdate};
 
@@ -37,7 +40,7 @@ use crate::{event_cache::RoomEventCache, room::WeakRoom, send_queue::RoomSendQue
 #[derive(Debug)]
 pub(super) struct LatestEvent {
     /// The room owning this latest event.
-    _weak_room: WeakRoom,
+    weak_room: WeakRoom,
 
     /// The thread (if any) owning this latest event.
     _thread_id: Option<OwnedEventId>,
@@ -58,7 +61,7 @@ impl LatestEvent {
         room_event_cache: &RoomEventCache,
     ) -> Self {
         Self {
-            _weak_room: weak_room.clone(),
+            weak_room: weak_room.clone(),
             _thread_id: thread_id.map(ToOwned::to_owned),
             buffer_of_values_for_local_events: LatestEventValuesForLocalEvents::new(),
             current_value: SharedObservable::new_async(
@@ -125,8 +128,41 @@ impl LatestEvent {
         if let LatestEventValue::None = new_value {
             // Do not update to a `None` value.
         } else {
-            self.current_value.set(new_value).await;
+            self.current_value.set(new_value.clone()).await;
+            self.store(new_value).await;
         }
+    }
+
+    /// Update the `RoomInfo` associated to this room to set the new
+    /// [`LatestEventValue`], and persist it in the
+    /// [`StateStore`][matrix_sdk_base::StateStore] (the one from
+    /// [`Client::state_store`][crate::Client::state_store]).
+    #[instrument(skip_all)]
+    async fn store(&mut self, new_value: LatestEventValue) {
+        let Some(room) = self.weak_room.get() else {
+            warn!(room_id = ?self.weak_room.room_id(), "Cannot store the latest event value because the room cannot be upgrading");
+            return;
+        };
+
+        // Compute a new `RoomInfo`.
+        let mut room_info = room.clone_info();
+        room_info.set_new_latest_event(new_value);
+
+        let mut state_changes = StateChanges::default();
+        state_changes.add_room(room_info.clone());
+
+        let client = room.client();
+
+        // Take the sync lock.
+        let _sync_lock = client.base_client().sync_lock().lock().await;
+
+        // Update the `RoomInfo` in the state store.
+        if let Err(error) = client.state_store().save_changes(&state_changes).await {
+            error!(room_id = ?room.room_id(), ?error, "Failed to save the changes");
+        }
+
+        // Update the `RoomInfo` of the room.
+        room.set_room_info(room_info, RoomInfoNotableUpdateReasons::LATEST_EVENT);
     }
 }
 
@@ -135,7 +171,8 @@ mod tests_latest_event {
     use assert_matches::assert_matches;
     use matrix_sdk_base::{
         linked_chunk::{ChunkIdentifier, LinkedChunkId, Position, Update},
-        RoomState,
+        store::StoreConfig,
+        RoomInfoNotableUpdateReasons, RoomState,
     };
     use matrix_sdk_test::{async_test, event_factory::EventFactory};
     use ruma::{
@@ -332,6 +369,107 @@ mod tests_latest_event {
             latest_event.update_with_event_cache(&room_event_cache, &None).await;
 
             assert_matches!(latest_event.current_value.get().await, LatestEventValue::Remote(_));
+        }
+    }
+
+    #[async_test]
+    async fn test_store_latest_event_value() {
+        let room_id = room_id!("!r0").to_owned();
+        let user_id = user_id!("@mnt_io:matrix.org");
+        let event_factory = EventFactory::new().sender(user_id).room(&room_id);
+
+        let server = MatrixMockServer::new().await;
+
+        let store_config = StoreConfig::new("cross-process-lock-holder".to_owned());
+
+        // Load the client for the first time, and run some operations.
+        {
+            let client = server
+                .client_builder()
+                .on_builder(|builder| builder.store_config(store_config.clone()))
+                .build()
+                .await;
+            let mut room_info_notable_update_receiver = client.room_info_notable_update_receiver();
+            let room = client.base_client().get_or_create_room(&room_id, RoomState::Joined);
+            let weak_room = WeakRoom::new(WeakClient::from_client(&client), room_id.clone());
+
+            let event_cache = client.event_cache();
+            event_cache.subscribe().unwrap();
+
+            // Fill the event cache with one event.
+            client
+                .event_cache_store()
+                .lock()
+                .await
+                .unwrap()
+                .handle_linked_chunk_updates(
+                    LinkedChunkId::Room(&room_id),
+                    vec![
+                        Update::NewItemsChunk {
+                            previous: None,
+                            new: ChunkIdentifier::new(0),
+                            next: None,
+                        },
+                        Update::PushItems {
+                            at: Position::new(ChunkIdentifier::new(0), 0),
+                            items: vec![event_factory
+                                .text_msg("A")
+                                .event_id(event_id!("$ev0"))
+                                .into()],
+                        },
+                    ],
+                )
+                .await
+                .unwrap();
+
+            let (room_event_cache, _) = event_cache.for_room(&room_id).await.unwrap();
+
+            // Check there is no `LatestEventValue` for the moment.
+            {
+                let latest_event = room.new_latest_event();
+
+                assert_matches!(latest_event, LatestEventValue::None);
+            }
+
+            // Generate a new `LatestEventValue`.
+            {
+                let mut latest_event = LatestEvent::new(&weak_room, None, &room_event_cache).await;
+                latest_event.update_with_event_cache(&room_event_cache, &None).await;
+
+                assert_matches!(
+                    latest_event.current_value.get().await,
+                    LatestEventValue::Remote(_)
+                );
+            }
+
+            // We see the `RoomInfoNotableUpdateReasons`.
+            {
+                let update = room_info_notable_update_receiver.recv().await.unwrap();
+
+                assert_eq!(update.room_id, room_id);
+                assert!(update.reasons.contains(RoomInfoNotableUpdateReasons::LATEST_EVENT));
+            }
+
+            // Check it's in the `RoomInfo` and in `Room`.
+            {
+                let latest_event = room.new_latest_event();
+
+                assert_matches!(latest_event, LatestEventValue::Remote(_));
+            }
+        }
+
+        // Reload the client with the same store config, and see the `LatestEventValue`
+        // is inside the `RoomInfo`.
+        {
+            let client = server
+                .client_builder()
+                .on_builder(|builder| builder.store_config(store_config))
+                .build()
+                .await;
+            let room = client.get_room(&room_id).unwrap();
+            let latest_event = room.new_latest_event();
+
+            assert_matches!(latest_event, LatestEventValue::Remote(_));
         }
     }
 }
