@@ -885,8 +885,17 @@ mod tests_latest_event_content {
     use super::filter_timeline_event;
 
     macro_rules! assert_latest_event_content {
-        ( with | $event_factory:ident | $event_builder:block,
-          $bool:literal $(,)* ) => {
+        ( event | $event_factory:ident | $event_builder:block
+          is a candidate ) => {
+            assert_latest_event_content!(@_ | $event_factory | $event_builder, true);
+        };
+
+        ( event | $event_factory:ident | $event_builder:block
+          is not a candidate ) => {
+            assert_latest_event_content!(@_ | $event_factory | $event_builder, false);
+        };
+
+        ( @_ | $event_factory:ident | $event_builder:block, $expect:literal ) => {
             let user_id = user_id!("@mnt_io:matrix.org");
             let event_factory = EventFactory::new().sender(user_id);
             let event = {
@@ -894,62 +903,62 @@ mod tests_latest_event_content {
                 $event_builder
             };
 
-            assert_eq!(filter_timeline_event(&event, &None), $bool);
+            assert_eq!(filter_timeline_event(&event, &None), $expect );
         };
     }
 
     #[test]
     fn test_room_message() {
         assert_latest_event_content!(
-            with | event_factory | { event_factory.text_msg("hello").into_event() },
-            true,
+            event | event_factory | { event_factory.text_msg("hello").into_event() }
+            is a candidate
         );
     }
 
     #[test]
     fn test_redacted() {
         assert_latest_event_content!(
-            with | event_factory | {
+            event | event_factory | {
                 event_factory
                     .redacted(
                         user_id!("@mnt_io:matrix.org"),
                         ruma::events::room::message::RedactedRoomMessageEventContent::new(),
                     )
                     .into_event()
-            },
-            true,
+            }
+            is a candidate
         );
     }
 
     #[test]
     fn test_room_message_replacement() {
         assert_latest_event_content!(
-            with | event_factory | {
+            event | event_factory | {
                 event_factory
                     .text_msg("bonjour")
                     .edit(event_id!("$ev0"), RoomMessageEventContent::text_plain("hello").into())
                     .into_event()
-            },
-            false,
+            }
+            is not a candidate
         );
     }
 
     #[test]
     fn test_poll() {
         assert_latest_event_content!(
-            with | event_factory | {
+            event | event_factory | {
                 event_factory
                     .poll_start("the people need to know", "comté > gruyère", vec!["yes", "oui"])
                     .into_event()
-            },
-            true,
+            }
+            is a candidate
         );
     }
 
     #[test]
     fn test_call_invite() {
         assert_latest_event_content!(
-            with | event_factory | {
+            event | event_factory | {
                 event_factory
                     .call_invite(
                         ruma::OwnedVoipId::from("vvooiipp".to_owned()),
@@ -961,15 +970,15 @@ mod tests_latest_event_content {
                         ruma::VoipVersionId::V1,
                     )
                     .into_event()
-            },
-            true,
+            }
+            is a candidate
         );
     }
 
     #[test]
     fn test_call_notify() {
         assert_latest_event_content!(
-            with | event_factory | {
+            event | event_factory | {
                 event_factory
                     .call_notify(
                         "call_id".to_owned(),
@@ -978,15 +987,15 @@ mod tests_latest_event_content {
                         ruma::events::Mentions::new(),
                     )
                     .into_event()
-            },
-            true,
+            }
+            is a candidate
         );
     }
 
     #[test]
     fn test_sticker() {
         assert_latest_event_content!(
-            with | event_factory | {
+            event | event_factory | {
                 event_factory
                     .sticker(
                         "wink wink",
@@ -994,15 +1003,15 @@ mod tests_latest_event_content {
                         ruma::OwnedMxcUri::from("mxc://foo/bar"),
                     )
                     .into_event()
-            },
-            true,
+            }
+            is a candidate
         );
     }
 
     #[test]
     fn test_encrypted_room_message() {
         assert_latest_event_content!(
-            with | event_factory | {
+            event | event_factory | {
                 event_factory
                     .event(ruma::events::room::encrypted::RoomEncryptedEventContent::new(
                         ruma::events::room::encrypted::EncryptedEventScheme::MegolmV1AesSha2(
@@ -1017,8 +1026,8 @@ mod tests_latest_event_content {
                         None,
                     ))
                     .into_event()
-            },
-            false,
+            }
+            is not a candidate
         );
     }
 
@@ -1026,29 +1035,29 @@ mod tests_latest_event_content {
     fn test_reaction() {
         // Take a random message-like event.
         assert_latest_event_content!(
-            with | event_factory | { event_factory.reaction(event_id!("$ev0"), "+1").into_event() },
-            false,
+            event | event_factory | { event_factory.reaction(event_id!("$ev0"), "+1").into_event() }
+            is not a candidate
         );
     }
 
     #[test]
     fn test_state_event() {
         assert_latest_event_content!(
-            with | event_factory | { event_factory.room_topic("new room topic").into_event() },
-            false,
+            event | event_factory | { event_factory.room_topic("new room topic").into_event() }
+            is not a candidate
         );
     }
 
     #[test]
     fn test_knocked_state_event_without_power_levels() {
         assert_latest_event_content!(
-            with | event_factory | {
+            event | event_factory | {
                 event_factory
                     .member(user_id!("@other_mnt_io:server.name"))
                     .membership(ruma::events::room::member::MembershipState::Knock)
                     .into_event()
-            },
-            false,
+            }
+            is not a candidate
         );
     }
 
@@ -1121,7 +1130,7 @@ mod tests_latest_event_content {
         use ruma::{events::room::message, OwnedDeviceId};
 
         assert_latest_event_content!(
-            with | event_factory | {
+            event | event_factory | {
                 event_factory
                     .event(RoomMessageEventContent::new(message::MessageType::VerificationRequest(
                         message::KeyVerificationRequestEventContent::new(
@@ -1132,8 +1141,8 @@ mod tests_latest_event_content {
                         ),
                     )))
                     .into_event()
-            },
-            false,
+            }
+            is not a candidate
         );
     }
 }
