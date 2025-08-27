@@ -1542,17 +1542,17 @@ async fn test_fetch_thread_subscriptions() {
         .add_subscription(
             room1.clone(),
             thread1.clone(),
-            ThreadSubscription { automatic: true, bump_stamp: uint!(42) },
+            assign!(ThreadSubscription::default(), { automatic: true, bump_stamp: uint!(42) }),
         )
         .add_subscription(
             room2.clone(),
             thread2.clone(),
-            ThreadSubscription { automatic: false, bump_stamp: uint!(7) },
+            assign!(ThreadSubscription::default(), { automatic: false, bump_stamp: uint!(7) }),
         )
         .add_unsubcription(
             room3.clone(),
             thread3.clone(),
-            ThreadUnsubscription { bump_stamp: uint!(13) },
+            assign!(ThreadUnsubscription::default(), { bump_stamp: uint!(13) }),
         )
         .ok(Some("next_batch_token".to_owned()))
         .mount()

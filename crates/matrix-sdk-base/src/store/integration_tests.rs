@@ -47,7 +47,7 @@ use crate::{
     deserialized_responses::MemberEvent,
     store::{
         ChildTransactionId, QueueWedgeError, SerializableEventContent, StateStoreExt,
-        ThreadSubscription,
+        ThreadSubscription, ThreadSubscriptionStatus,
     },
 };
 
@@ -1772,37 +1772,69 @@ impl StateStoreIntegrationTests for DynStateStore {
         self.upsert_thread_subscription(
             room_id(),
             first_thread,
-            ThreadSubscription { automatic: true },
+            ThreadSubscription {
+                status: ThreadSubscriptionStatus::Subscribed { automatic: true },
+                bump_stamp: None,
+            },
         )
         .await?;
 
         self.upsert_thread_subscription(
             room_id(),
             second_thread,
-            ThreadSubscription { automatic: false },
+            ThreadSubscription {
+                status: ThreadSubscriptionStatus::Subscribed { automatic: false },
+                bump_stamp: None,
+            },
         )
         .await?;
 
         // Now, reading the thread subscription returns the expected status.
         let maybe_status = self.load_thread_subscription(room_id(), first_thread).await?;
-        assert_eq!(maybe_status, Some(ThreadSubscription { automatic: true }));
+        assert_eq!(
+            maybe_status,
+            Some(ThreadSubscription {
+                status: ThreadSubscriptionStatus::Subscribed { automatic: true },
+                bump_stamp: None,
+            })
+        );
+
         let maybe_status = self.load_thread_subscription(room_id(), second_thread).await?;
-        assert_eq!(maybe_status, Some(ThreadSubscription { automatic: false }));
+        assert_eq!(
+            maybe_status,
+            Some(ThreadSubscription {
+                status: ThreadSubscriptionStatus::Subscribed { automatic: false },
+                bump_stamp: None,
+            })
+        );
 
         // We can override the thread subscription status.
         self.upsert_thread_subscription(
             room_id(),
             first_thread,
-            ThreadSubscription { automatic: false },
+            ThreadSubscription { status: ThreadSubscriptionStatus::Unsubscribed, bump_stamp: None },
         )
         .await?;
 
         // And it's correctly reflected.
         let maybe_status = self.load_thread_subscription(room_id(), first_thread).await?;
-        assert_eq!(maybe_status, Some(ThreadSubscription { automatic: false }));
+        assert_eq!(
+            maybe_status,
+            Some(ThreadSubscription {
+                status: ThreadSubscriptionStatus::Unsubscribed,
+                bump_stamp: None,
+            })
+        );
+
         // And the second thread is still subscribed.
         let maybe_status = self.load_thread_subscription(room_id(), second_thread).await?;
-        assert_eq!(maybe_status, Some(ThreadSubscription { automatic: false }));
+        assert_eq!(
+            maybe_status,
+            Some(ThreadSubscription {
+                status: ThreadSubscriptionStatus::Subscribed { automatic: false },
+                bump_stamp: None,
+            })
+        );
 
         // We can remove a thread subscription.
         self.remove_thread_subscription(room_id(), second_thread).await?;
@@ -1810,9 +1842,16 @@ impl StateStoreIntegrationTests for DynStateStore {
         // And it's correctly reflected.
         let maybe_status = self.load_thread_subscription(room_id(), second_thread).await?;
         assert_eq!(maybe_status, None);
-        // And the first thread is still subscribed.
+
+        // And the first thread is still unsubscribed.
         let maybe_status = self.load_thread_subscription(room_id(), first_thread).await?;
-        assert_eq!(maybe_status, Some(ThreadSubscription { automatic: false }));
+        assert_eq!(
+            maybe_status,
+            Some(ThreadSubscription {
+                status: ThreadSubscriptionStatus::Unsubscribed,
+                bump_stamp: None,
+            })
+        );
 
         // Removing a thread subscription for an unknown thread is a no-op.
         self.remove_thread_subscription(room_id(), second_thread).await?;

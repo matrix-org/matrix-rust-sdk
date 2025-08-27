@@ -481,6 +481,9 @@ pub trait StateStore: AsyncTraitDeps {
     ) -> Result<Vec<DependentQueuedRequest>, Self::Error>;
 
     /// Insert or update a thread subscription for a given room and thread.
+    ///
+    /// If the new thread subscription hasn't set a bumpstamp, and there was one
+    /// in the database with a bumpstamp, the existing bumpstamp is kept.
     async fn upsert_thread_subscription(
         &self,
         room: &RoomId,
