@@ -36,7 +36,7 @@ pub use identity_status_changes::IdentityStatusChanges;
 use matrix_sdk_base::crypto::types::events::room::encrypted::EncryptedEvent;
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk_base::crypto::{IdentityStatusChange, RoomIdentityProvider, UserIdentity};
-pub use matrix_sdk_base::store::ThreadSubscription;
+pub use matrix_sdk_base::store::StoredThreadSubscription;
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk_base::{crypto::RoomEventDecryptionResult, deserialized_responses::EncryptionInfo};
 use matrix_sdk_base::{
@@ -213,6 +213,14 @@ impl Deref for Room {
 
 const TYPING_NOTICE_TIMEOUT: Duration = Duration::from_secs(4);
 const TYPING_NOTICE_RESEND_TIMEOUT: Duration = Duration::from_secs(3);
+
+/// A thread subscription, according to the semantics of MSC4306.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ThreadSubscription {
+    /// Whether the subscription was made automatically by a client, not by
+    /// manual user choice.
+    pub automatic: bool,
+}
 
 /// Context allowing to compute the push actions for a given event.
 #[derive(Debug)]
@@ -4169,7 +4177,7 @@ impl Room {
                     .upsert_thread_subscription(
                         self.room_id(),
                         &thread_root,
-                        ThreadSubscription {
+                        StoredThreadSubscription {
                             status: ThreadSubscriptionStatus::Subscribed {
                                 automatic: is_automatic,
                             },
@@ -4210,14 +4218,10 @@ impl Room {
         if let Some(prev_sub) = self.load_or_fetch_thread_subscription(thread_root).await? {
             // If we have a previous subscription, we should only send the new one if it's
             // manual and the previous one was automatic.
-            if let ThreadSubscriptionStatus::Subscribed { automatic: was_automatic } =
-                prev_sub.status
-            {
-                if !was_automatic || automatic.is_some() {
-                    // Either we had already a manual subscription, or we had an automatic one and
-                    // the new one is automatic too: nothing to do!
-                    return Ok(());
-                }
+            if !prev_sub.automatic || automatic.is_some() {
+                // Either we had already a manual subscription, or we had an automatic one and
+                // the new one is automatic too: nothing to do!
+                return Ok(());
             }
         }
         self.subscribe_thread(thread_root.to_owned(), automatic).await
@@ -4251,7 +4255,7 @@ impl Room {
             .upsert_thread_subscription(
                 self.room_id(),
                 &thread_root,
-                ThreadSubscription {
+                StoredThreadSubscription {
                     status: ThreadSubscriptionStatus::Unsubscribed,
                     bump_stamp: None,
                 },
@@ -4291,10 +4295,7 @@ impl Room {
             .await;
 
         let subscription = match result {
-            Ok(response) => Some(ThreadSubscription {
-                status: ThreadSubscriptionStatus::Subscribed { automatic: response.automatic },
-                bump_stamp: None,
-            }),
+            Ok(response) => Some(ThreadSubscription { automatic: response.automatic }),
             Err(http_error) => match http_error.as_client_api_error() {
                 Some(error) if error.status_code == StatusCode::NOT_FOUND => None,
                 _ => return Err(http_error.into()),
@@ -4305,7 +4306,14 @@ impl Room {
         if let Some(sub) = &subscription {
             self.client
                 .state_store()
-                .upsert_thread_subscription(self.room_id(), &thread_root, *sub)
+                .upsert_thread_subscription(
+                    self.room_id(),
+                    &thread_root,
+                    StoredThreadSubscription {
+                        status: ThreadSubscriptionStatus::Subscribed { automatic: sub.automatic },
+                        bump_stamp: None,
+                    },
+                )
                 .await?;
         } else {
             // If the subscription was not found, remove it from the database.
