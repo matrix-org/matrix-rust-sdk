@@ -62,7 +62,7 @@ use super::{
 use crate::{
     MinimalStateEvent, OriginalMinimalStateEvent,
     deserialized_responses::RawSyncOrStrippedState,
-    latest_event::LatestEvent,
+    latest_event::{LatestEvent, LatestEventValue},
     notification_settings::RoomNotificationMode,
     read_receipts::RoomReadReceipts,
     store::{DynStateStore, StateStoreExt},
@@ -453,7 +453,15 @@ pub struct RoomInfo {
     pub(crate) encryption_state_synced: bool,
 
     /// The last event send by sliding sync
+    ///
+    /// TODO(@hywan): Remove.
     pub(crate) latest_event: Option<Box<LatestEvent>>,
+
+    /// The latest event value of this room.
+    ///
+    /// TODO(@hywan): Rename to `latest_event`.
+    #[serde(default)]
+    pub(crate) new_latest_event: LatestEventValue,
 
     /// Information about read receipts for this room.
     #[serde(default)]
@@ -512,6 +520,7 @@ impl RoomInfo {
             sync_info: SyncInfo::NoState,
             encryption_state_synced: false,
             latest_event: None,
+            new_latest_event: LatestEventValue::default(),
             read_receipts: Default::default(),
             base_info: Box::new(BaseRoomInfo::new()),
             warned_about_unknown_room_version_rules: Arc::new(false.into()),
@@ -1239,6 +1248,7 @@ impl Default for RoomInfoNotableUpdateReasons {
 mod tests {
     use std::sync::Arc;
 
+    use assert_matches::assert_matches;
     use matrix_sdk_common::deserialized_responses::TimelineEvent;
     use matrix_sdk_test::{
         async_test,
@@ -1251,7 +1261,7 @@ mod tests {
     use serde_json::json;
     use similar_asserts::assert_eq;
 
-    use super::{BaseRoomInfo, RoomInfo, SyncInfo};
+    use super::{BaseRoomInfo, LatestEventValue, RoomInfo, SyncInfo};
     use crate::{
         RoomDisplayName, RoomHero, RoomState, StateChanges,
         latest_event::LatestEvent,
@@ -1290,6 +1300,7 @@ mod tests {
             latest_event: Some(Box::new(LatestEvent::new(TimelineEvent::from_plaintext(
                 Raw::from_json_string(json!({"sender": "@u:i.uk"}).to_string()).unwrap(),
             )))),
+            new_latest_event: LatestEventValue::None,
             base_info: Box::new(
                 assign!(BaseRoomInfo::new(), { pinned_events: Some(RoomPinnedEventsEventContent::new(vec![owned_event_id!("$a")])) }),
             ),
@@ -1328,6 +1339,7 @@ mod tests {
                     "thread_summary": "None"
                 },
             },
+            "new_latest_event": "None",
             "base_info": {
                 "avatar": null,
                 "canonical_alias": null,
@@ -1523,6 +1535,7 @@ mod tests {
         assert_eq!(info.sync_info, SyncInfo::FullySynced);
         assert!(info.encryption_state_synced);
         assert!(info.latest_event.is_none());
+        assert_matches!(info.new_latest_event, LatestEventValue::None);
         assert!(info.base_info.avatar.is_none());
         assert!(info.base_info.canonical_alias.is_none());
         assert!(info.base_info.create.is_none());
