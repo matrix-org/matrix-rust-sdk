@@ -1163,7 +1163,7 @@ pub enum EventsOrigin {
 
 #[cfg(test)]
 mod tests {
-    use std::ops::Not;
+    use std::{ops::Not, sync::Arc, time::Duration};
 
     use assert_matches::assert_matches;
     use futures_util::FutureExt as _;
@@ -1172,12 +1172,17 @@ mod tests {
         sync::{JoinedRoomUpdate, RoomUpdates, Timeline},
         RoomState,
     };
-    use matrix_sdk_test::{async_test, event_factory::EventFactory};
+    use matrix_sdk_test::{
+        async_test, event_factory::EventFactory, JoinedRoomBuilder, SyncResponseBuilder,
+    };
     use ruma::{event_id, room_id, serde::Raw, user_id};
     use serde_json::json;
+    use tokio::time::sleep;
 
     use super::{EventCacheError, RoomEventCacheGenericUpdate, RoomEventCacheUpdate};
-    use crate::test_utils::{assert_event_matches_msg, logged_in_client};
+    use crate::test_utils::{
+        assert_event_matches_msg, client::MockClientBuilder, logged_in_client,
+    };
 
     #[async_test]
     async fn test_must_explicitly_subscribe() {
@@ -1518,5 +1523,46 @@ mod tests {
 
         // Room exists. Everything fine.
         assert!(event_cache.for_room(room_id).await.is_ok());
+    }
+
+    /// Test that the event cache does not create reference cycles or tasks that
+    /// retain its reference indefinitely, preventing it from being deallocated.
+    #[async_test]
+    async fn test_no_refcycle_event_cache_tasks() {
+        let client = MockClientBuilder::new(None).build().await;
+
+        // Wait for the init tasks to die.
+        sleep(Duration::from_secs(1)).await;
+
+        let event_cache_weak = Arc::downgrade(&client.event_cache().inner);
+        assert_eq!(event_cache_weak.strong_count(), 1);
+
+        {
+            let room_id = room_id!("!room:example.org");
+
+            // Have the client know the room.
+            let response = SyncResponseBuilder::default()
+                .add_joined_room(JoinedRoomBuilder::new(room_id))
+                .build_sync_response();
+            client.inner.base_client.receive_sync_response(response).await.unwrap();
+
+            client.event_cache().subscribe().unwrap();
+
+            let (_room_event_cache, _drop_handles) =
+                client.get_room(room_id).unwrap().event_cache().await.unwrap();
+        }
+
+        drop(client);
+
+        // Give a bit of time for background tasks to die.
+        sleep(Duration::from_secs(1)).await;
+
+        // No strong counts should exist now that the Client has been dropped.
+        assert_eq!(
+            event_cache_weak.strong_count(),
+            0,
+            "Too many strong references to the event cache {}",
+            event_cache_weak.strong_count()
+        );
     }
 }
