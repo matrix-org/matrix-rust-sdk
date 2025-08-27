@@ -35,7 +35,7 @@ use crate::{
 pub(crate) enum RoomIndexOperation {
     Add(TantivyDocument),
     Remove(OwnedEventId),
-    NoOp,
+    Noop,
 }
 
 /// A struct that holds all data pertaining to a particular room's
@@ -130,10 +130,14 @@ impl RoomIndex {
     ///
     /// This which will add/remove/edit an event in the index based on the
     /// event type.
-    pub fn handle_event(&mut self, event: AnySyncMessageLikeEvent) -> Result<(), IndexError> {
+    pub fn handle_event(
+        &mut self,
+        event: AnySyncMessageLikeEvent,
+        rules: &RedactionRules,
+    ) -> Result<(), IndexError> {
         let event_id = event.event_id().to_owned();
 
-        match self.schema.handle_event(event)? {
+        match self.schema.handle_event(event, rules)? {
             RoomIndexOperation::Add(document) => {
                 if !self.contains(&event_id) {
                     self.writer.add(document)?;
@@ -142,7 +146,7 @@ impl RoomIndex {
             RoomIndexOperation::Remove(event_id) => {
                 self.writer.remove(&event_id);
             }
-            RoomIndexOperation::NoOp => {}
+            RoomIndexOperation::Noop => {}
         };
         Ok(())
     }
