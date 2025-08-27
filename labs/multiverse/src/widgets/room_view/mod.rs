@@ -13,6 +13,7 @@ use matrix_sdk::{
         api::client::receipt::create_receipt::v3::ReceiptType,
         events::room::message::RoomMessageEventContent,
     },
+    store::ThreadSubscriptionStatus,
 };
 use matrix_sdk_ui::{
     Timeline,
@@ -526,10 +527,16 @@ impl RoomView {
                     Ok(Some(subscription)) => {
                         status_handle.set_message(format!(
                             "Thread subscription status: {}",
-                            if subscription.automatic {
-                                "subscribed (automatic)"
+                            if let ThreadSubscriptionStatus::Subscribed { automatic } =
+                                subscription.status
+                            {
+                                if automatic {
+                                    "subscribed (automatic)"
+                                } else {
+                                    "subscribed (manual)"
+                                }
                             } else {
-                                "subscribed (manual)"
+                                "unsubscribed"
                             }
                         ));
                     }
