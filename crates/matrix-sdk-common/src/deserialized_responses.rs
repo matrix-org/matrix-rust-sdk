@@ -463,6 +463,7 @@ impl ThreadSummaryStatus {
 #[derive(Clone, Debug, Serialize)]
 pub struct TimelineEvent {
     /// The event itself, together with any information on decryption.
+    #[serde(rename = "k")]
     pub kind: TimelineEventKind,
 
     /// The push actions associated with this event.
@@ -701,7 +702,7 @@ impl<'de> Deserialize<'de> for TimelineEvent {
                 })?;
             Ok(v0.into())
         }
-        // Otherwise, it's V1
+        // Otherwise, it's V1.
         else {
             let v1: SyncTimelineEventDeserializationHelperV1 =
                 serde_json::from_value(Value::Object(value)).map_err(|e| {
@@ -718,24 +719,30 @@ impl<'de> Deserialize<'de> for TimelineEvent {
 #[derive(Clone, Serialize, Deserialize)]
 pub enum TimelineEventKind {
     /// A successfully-decrypted encrypted event.
+    #[serde(rename = "d", alias = "Decrypted")]
     Decrypted(DecryptedRoomEvent),
 
     /// An encrypted event which could not be decrypted.
+    #[serde(rename = "utd", alias = "UnableToDecrypt")]
     UnableToDecrypt {
         /// The `m.room.encrypted` event. Depending on the source of the event,
         /// it could actually be an [`AnyTimelineEvent`] (i.e., it may
         /// have a `room_id` property).
+        #[serde(rename = "e", alias = "event")]
         event: Raw<AnySyncTimelineEvent>,
 
         /// Information on the reason we failed to decrypt
+        #[serde(rename = "u", alias = "utd_info")]
         utd_info: UnableToDecryptInfo,
     },
 
     /// An unencrypted event.
+    #[serde(rename = "u", alias = "PlainText")]
     PlainText {
         /// The actual event. Depending on the source of the event, it could
         /// actually be a [`AnyTimelineEvent`] (which differs from
         /// [`AnySyncTimelineEvent`] by the addition of a `room_id` property).
+        #[serde(rename = "e", alias = "event")]
         event: Raw<AnySyncTimelineEvent>,
     },
 }
@@ -847,16 +854,22 @@ pub struct DecryptedRoomEvent {
     /// encrypted payload *always contains* a room id, by the [spec].
     ///
     /// [spec]: https://spec.matrix.org/v1.12/client-server-api/#mmegolmv1aes-sha2
+    #[serde(rename = "e", alias = "event")]
     pub event: Raw<AnyTimelineEvent>,
 
     /// The encryption info about the event.
+    #[serde(rename = "ei", alias = "encryption_info")]
     pub encryption_info: Arc<EncryptionInfo>,
 
     /// The encryption info about the events bundled in the `unsigned`
     /// object.
     ///
     /// Will be `None` if no bundled event was encrypted.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(
+        rename = "uei",
+        alias = "unsigned_encryption_info",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub unsigned_encryption_info: Option<BTreeMap<UnsignedEventLocation, UnsignedDecryptionResult>>,
 }
 
@@ -1104,6 +1117,7 @@ impl fmt::Debug for PrivOwnedStr {
 #[derive(Debug, Deserialize)]
 struct SyncTimelineEventDeserializationHelperV1 {
     /// The event itself, together with any information on decryption.
+    #[serde(rename = "k", alias = "kind")]
     kind: TimelineEventKind,
 
     /// The push actions associated with this event.
@@ -1453,9 +1467,9 @@ mod tests {
         assert_eq!(
             serialized,
             json!({
-                "kind": {
-                    "Decrypted": {
-                        "event": {
+                "k": {
+                    "d": {
+                        "e": {
                             "content": {"body": "secret", "msgtype": "m.text"},
                             "event_id": "$xxxxx:example.org",
                             "origin_server_ts": 2189,
@@ -1463,7 +1477,7 @@ mod tests {
                             "sender": "@carl:example.com",
                             "type": "m.room.message",
                         },
-                        "encryption_info": {
+                        "ei": {
                             "sender": "@sender:example.com",
                             "sender_device": null,
                             "algorithm_info": {
@@ -1475,7 +1489,7 @@ mod tests {
                             },
                             "verification_state": "Verified",
                         },
-                        "unsigned_encryption_info": {
+                        "uei": {
                             "RelationsReplace": {"UnableToDecrypt": {
                                 "session_id": "xyz",
                                 "reason": "MalformedEncryptedEvent",
@@ -1493,6 +1507,42 @@ mod tests {
             event.encryption_info().unwrap().algorithm_info,
             AlgorithmInfo::MegolmV1AesSha2 { .. }
         );
+
+        // Test that the previous format with no `rename` and no `alias` can also be
+        // deserialized.
+        let serialized = json!({
+            "kind": {
+                "Decrypted": {
+                    "event": {
+                        "content": {"body": "secret", "msgtype": "m.text"},
+                        "event_id": "$xxxxx:example.org",
+                        "origin_server_ts": 2189,
+                        "room_id": "!someroom:example.com",
+                        "sender": "@carl:example.com",
+                        "type": "m.room.message",
+                    },
+                    "encryption_info": {
+                        "sender": "@sender:example.com",
+                        "sender_device": null,
+                        "algorithm_info": {
+                            "MegolmV1AesSha2": {
+                                "curve25519_key": "xxx",
+                                "sender_claimed_keys": {},
+                                "session_id": "xyz",
+                            }
+                        },
+                        "verification_state": "Verified",
+                    },
+                    "unsigned_encryption_info": {
+                        "RelationsReplace": {"UnableToDecrypt": {
+                            "session_id": "xyz",
+                            "reason": "MalformedEncryptedEvent",
+                        }}
+                    }
+                }
+            }
+        });
+        assert!(serde_json::from_value::<TimelineEvent>(serialized).is_ok());
 
         // Test that the previous format can also be deserialized.
         let serialized = json!({
