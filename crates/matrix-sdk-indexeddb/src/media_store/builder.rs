@@ -12,16 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License
 
-use std::sync::Arc;
+use matrix_sdk_base::event_cache::store::MemoryMediaStore;
 
-use matrix_sdk_base::event_cache::store::{MemoryMediaStore, MemoryStore};
-use matrix_sdk_store_encryption::StoreCipher;
-use web_sys::DomException;
-
-use crate::{
-    media_store::{error::IndexeddbMediaStoreError, IndexeddbMediaStore},
-    serializer::IndexeddbSerializer,
-};
+use crate::media_store::{error::IndexeddbMediaStoreError, IndexeddbMediaStore};
 
 /// A type for conveniently building an [`IndexeddbMediaStore`]
 #[derive(Default)]
@@ -31,6 +24,7 @@ impl IndexeddbMediaStoreBuilder {
     /// Opens the IndexedDB database with the provided name. If successfully
     /// opened, builds the [`IndexeddbMediaStore`] with that database
     /// and the provided store cipher.
+    #[allow(dead_code)]
     pub fn build(self) -> Result<IndexeddbMediaStore, IndexeddbMediaStoreError> {
         Ok(IndexeddbMediaStore { memory_store: MemoryMediaStore::new() })
     }

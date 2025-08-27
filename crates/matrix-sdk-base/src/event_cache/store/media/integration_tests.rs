@@ -25,7 +25,7 @@ use ruma::{
 
 use super::{MediaRetentionPolicy, MediaStoreInner, media_service::IgnoreMediaRetentionPolicy};
 use crate::{
-    event_cache::store::media::media_service::MediaStore,
+    event_cache::store::media::MediaStore,
     media::{MediaFormat, MediaRequestParameters, MediaThumbnailSettings},
 };
 
