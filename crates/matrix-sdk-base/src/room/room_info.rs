@@ -1191,7 +1191,7 @@ pub fn apply_redaction(
 
 /// Indicates that a notable update of `RoomInfo` has been applied, and why.
 ///
-/// A room info notable update is an update that can be interested for other
+/// A room info notable update is an update that can be interesting for other
 /// parts of the code. This mechanism is used in coordination with
 /// [`BaseClient::room_info_notable_update_receiver`][baseclient] (and
 /// `Room::inner` plus `Room::room_info_notable_update_sender`) where `RoomInfo`
