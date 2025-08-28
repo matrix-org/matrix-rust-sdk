@@ -140,7 +140,7 @@ impl LatestEvent {
     #[instrument(skip_all)]
     async fn store(&mut self, new_value: LatestEventValue) {
         let Some(room) = self.weak_room.get() else {
-            warn!(room_id = ?self.weak_room.room_id(), "Cannot store the latest event value because the room cannot be upgrading");
+            warn!(room_id = ?self.weak_room.room_id(), "Cannot store the latest event value because the room cannot be accessed");
             return;
         };
 
