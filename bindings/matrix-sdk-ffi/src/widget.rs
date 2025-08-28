@@ -125,9 +125,10 @@ pub async fn generate_webview_url(
 ///   call widget.
 #[matrix_sdk_ffi_macros::export]
 pub fn new_virtual_element_call_widget(
-    props: matrix_sdk::widget::VirtualElementCallWidgetOptions,
+    props: matrix_sdk::widget::VirtualElementCallWidgetProperties,
+    config: matrix_sdk::widget::VirtualElementCallWidgetConfig,
 ) -> Result<WidgetSettings, ParseError> {
-    Ok(matrix_sdk::widget::WidgetSettings::new_virtual_element_call_widget(props)
+    Ok(matrix_sdk::widget::WidgetSettings::new_virtual_element_call_widget(props, config)
         .map(|w| w.into())?)
 }
 
