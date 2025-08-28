@@ -636,8 +636,7 @@ impl Client {
     }
 
     /// Returns a receiver that gets events for each room info update. To watch
-    /// for new events, use `receiver.resubscribe()`. Each event contains the
-    /// room and a boolean whether this event should trigger a room list update.
+    /// for new events, use `receiver.resubscribe()`.
     pub fn room_info_notable_update_receiver(&self) -> broadcast::Receiver<RoomInfoNotableUpdate> {
         self.base_client().room_info_notable_update_receiver()
     }
