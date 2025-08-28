@@ -1153,7 +1153,7 @@ mod tests {
     /// are enabled.
     #[test]
     #[cfg(feature = "experimental-encrypted-state-events")]
-    fn test_serialize_device_based_strategy_with_encrypted_state_events() {
+    fn test_serialize_strategy_with_encrypted_state() {
         let encryption_settings = all_devices_strategy_settings();
         let serialized = serde_json::to_string(&encryption_settings).unwrap();
         with_settings!({prepend_module_to_snapshot => false}, {
