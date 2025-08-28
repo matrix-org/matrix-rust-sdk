@@ -17,7 +17,7 @@ anyhow.workspace = true
 # when copy-pasting this, please use a git dependency or make sure that you
 # have copied the example as it was at the time of the release you use.
 matrix-sdk = { path = "../../crates/matrix-sdk" }
-serde = "1.0"
+serde.workspace = true
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 tracing-subscriber.workspace = true
 
