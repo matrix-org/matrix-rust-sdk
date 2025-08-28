@@ -94,7 +94,7 @@ paranoid-android = "0.2.1"
 
 [build-dependencies]
 uniffi = { workspace = true, features = ["build"] }
-vergen = { workspace = true, features = ["build", "git", "gitcl"] }
+vergen-gitcl = { workspace = true, features = ["build"] }
 
 [lints]
 workspace = true
