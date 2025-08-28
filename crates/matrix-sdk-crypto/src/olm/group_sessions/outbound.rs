@@ -96,6 +96,10 @@ pub(crate) enum ShareState {
 pub struct EncryptionSettings {
     /// The encryption algorithm that should be used in the room.
     pub algorithm: EventEncryptionAlgorithm,
+    /// Whether state event encryption is enabled.
+    #[cfg(feature = "experimental-encrypted-state-events")]
+    #[serde(default)]
+    pub encrypt_state_events: bool,
     /// How long the session should be used before changing it.
     pub rotation_period: Duration,
     /// How many messages should be sent before changing the session.
@@ -112,6 +116,8 @@ impl Default for EncryptionSettings {
     fn default() -> Self {
         Self {
             algorithm: EventEncryptionAlgorithm::MegolmV1AesSha2,
+            #[cfg(feature = "experimental-encrypted-state-events")]
+            encrypt_state_events: false,
             rotation_period: ROTATION_PERIOD,
             rotation_period_msgs: ROTATION_MESSAGES,
             history_visibility: HistoryVisibility::Shared,
@@ -135,6 +141,8 @@ impl EncryptionSettings {
 
         Self {
             algorithm: EventEncryptionAlgorithm::from(content.algorithm.as_str()),
+            #[cfg(feature = "experimental-encrypted-state-events")]
+            encrypt_state_events: false,
             rotation_period,
             rotation_period_msgs,
             history_visibility,
