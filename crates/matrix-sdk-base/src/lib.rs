@@ -62,7 +62,7 @@ pub use room::{
 };
 pub use store::{
     ComposerDraft, ComposerDraftType, QueueWedgeError, StateChanges, StateStore, StateStoreDataKey,
-    StateStoreDataValue, StoreError,
+    StateStoreDataValue, StoreError, ThreadSubscriptionCatchupToken,
 };
 pub use utils::{
     MinimalRoomMemberEvent, MinimalStateEvent, OriginalMinimalStateEvent, RedactedMinimalStateEvent,

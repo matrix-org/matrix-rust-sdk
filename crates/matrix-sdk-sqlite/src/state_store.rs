@@ -416,6 +416,9 @@ impl SqliteStateStore {
             StateStoreDataKey::SeenKnockRequests(room_id) => {
                 Cow::Owned(format!("{}:{room_id}", StateStoreDataKey::SEEN_KNOCK_REQUESTS))
             }
+            StateStoreDataKey::ThreadSubscriptionsCatchupTokens => {
+                Cow::Borrowed(StateStoreDataKey::THREAD_SUBSCRIPTIONS_CATCHUP_TOKENS)
+            }
         };
 
         self.encode_key(keys::KV_BLOB, &*key_s)
@@ -1037,6 +1040,11 @@ impl StateStore for SqliteStateStore {
                     StateStoreDataKey::SeenKnockRequests(_) => {
                         StateStoreDataValue::SeenKnockRequests(self.deserialize_value(&data)?)
                     }
+                    StateStoreDataKey::ThreadSubscriptionsCatchupTokens => {
+                        StateStoreDataValue::ThreadSubscriptionsCatchupTokens(
+                            self.deserialize_value(&data)?,
+                        )
+                    }
                 })
             })
             .transpose()
@@ -1076,6 +1084,11 @@ impl StateStore for SqliteStateStore {
                 &value
                     .into_seen_knock_requests()
                     .expect("Session data is not a set of seen knock request ids"),
+            )?,
+            StateStoreDataKey::ThreadSubscriptionsCatchupTokens => self.serialize_value(
+                &value
+                    .into_thread_subscriptions_catchup_tokens()
+                    .expect("Session data is not a list of thread subscription catchup tokens"),
             )?,
         };
 

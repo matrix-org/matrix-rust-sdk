@@ -1,8 +1,13 @@
 use std::collections::BTreeSet;
 
-use matrix_sdk_base::{sync::SyncResponse, RequestedRequiredStates};
+use matrix_sdk_base::{
+    sync::SyncResponse, RequestedRequiredStates, ThreadSubscriptionCatchupToken,
+};
 use matrix_sdk_common::deserialized_responses::ProcessedToDeviceEvent;
-use ruma::api::{client::sync::sync_events::v5 as http, FeatureFlag, SupportedVersions};
+use ruma::api::{
+    client::sync::sync_events::v5::{self as http, response},
+    FeatureFlag, SupportedVersions,
+};
 use tracing::error;
 
 use super::{SlidingSync, SlidingSyncBuilder};
@@ -160,10 +165,7 @@ impl SlidingSyncResponseProcessor {
     }
 
     #[cfg(feature = "e2e-encryption")]
-    pub async fn handle_encryption(
-        &mut self,
-        extensions: &http::response::Extensions,
-    ) -> Result<()> {
+    pub async fn handle_encryption(&mut self, extensions: &response::Extensions) -> Result<()> {
         // This is an internal API misuse if this is triggered (calling
         // `handle_room_response` before this function), so panic is fine.
         assert!(self.response.is_none());
@@ -200,6 +202,31 @@ impl SlidingSyncResponseProcessor {
         update_in_memory_caches(&self.client, &sync_response).await?;
 
         self.response = Some(sync_response);
+
+        Ok(())
+    }
+
+    pub async fn handle_thread_subscriptions(
+        &mut self,
+        previous_pos: Option<&str>,
+        thread_subs: response::ThreadSubscriptions,
+    ) -> Result<()> {
+        // Save the catchup token, if any.
+        self.client
+            .thread_subscription_catchup()
+            .save_catchup_token(thread_subs.prev_batch.map(|prev_batch| {
+                ThreadSubscriptionCatchupToken {
+                    from: prev_batch,
+                    to: previous_pos.map(|s| s.to_owned()),
+                }
+            }))
+            .await?;
+
+        // Take into account new changes.
+        self.client
+            .thread_subscription_catchup()
+            .store_subscriptions(thread_subs.subscribed, thread_subs.unsubscribed)
+            .await?;
 
         Ok(())
     }

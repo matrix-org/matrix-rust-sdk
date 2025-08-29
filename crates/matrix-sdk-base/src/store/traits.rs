@@ -1151,6 +1151,20 @@ pub enum StateStoreDataValue {
 
     /// A list of knock request ids marked as seen in a room.
     SeenKnockRequests(BTreeMap<OwnedEventId, OwnedUserId>),
+
+    /// A list of tokens to continue thread subscriptions catchup.
+    ThreadSubscriptionsCatchupTokens(Vec<ThreadSubscriptionCatchupToken>),
+}
+
+/// Tokens to use when catching up on thread subscriptions.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ThreadSubscriptionCatchupToken {
+    /// The token to use as the lower bound when fetching new threads
+    /// subscriptions.
+    pub from: String,
+    /// The token to use as the upper bound when fetching new threads
+    /// subscriptions.
+    pub to: Option<String>,
 }
 
 /// Current draft of the composer for the room.
@@ -1222,6 +1236,14 @@ impl StateStoreDataValue {
     pub fn into_seen_knock_requests(self) -> Option<BTreeMap<OwnedEventId, OwnedUserId>> {
         as_variant!(self, Self::SeenKnockRequests)
     }
+
+    /// Get this value if it is the data for the thread subscriptions catchup
+    /// tokens.
+    pub fn into_thread_subscriptions_catchup_tokens(
+        self,
+    ) -> Option<Vec<ThreadSubscriptionCatchupToken>> {
+        as_variant!(self, Self::ThreadSubscriptionsCatchupTokens)
+    }
 }
 
 /// A key for key-value data.
@@ -1258,6 +1280,9 @@ pub enum StateStoreDataKey<'a> {
 
     /// A list of knock request ids marked as seen in a room.
     SeenKnockRequests(&'a RoomId),
+
+    /// A list of thread subscriptions catchup tokens.
+    ThreadSubscriptionsCatchupTokens,
 }
 
 impl StateStoreDataKey<'_> {
@@ -1294,6 +1319,11 @@ impl StateStoreDataKey<'_> {
     /// Key prefix to use for the
     /// [`SeenKnockRequests`][Self::SeenKnockRequests] variant.
     pub const SEEN_KNOCK_REQUESTS: &'static str = "seen_knock_requests";
+
+    /// Key prefix to use for the
+    /// [`ThreadSubscriptionsCatchupTokens`][Self::ThreadSubscriptionsCatchupTokens] variant.
+    pub const THREAD_SUBSCRIPTIONS_CATCHUP_TOKENS: &'static str =
+        "thread_subscriptions_catchup_tokens";
 }
 
 /// Compare two thread subscription changes bump stamps, given a fixed room and
