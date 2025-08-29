@@ -66,6 +66,7 @@ use ruma::{
 use serde::de::DeserializeOwned;
 use tokio::sync::{Mutex, RwLock, broadcast};
 use tracing::warn;
+pub use traits::compare_thread_subscription_bump_stamps;
 
 use crate::{
     MinimalRoomMemberEvent, Room, RoomCreateWithCreatorEventContent, RoomStateFilter, SessionMeta,
