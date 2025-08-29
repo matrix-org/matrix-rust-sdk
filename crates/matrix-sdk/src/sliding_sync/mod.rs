@@ -277,7 +277,7 @@ impl SlidingSync {
                 // It's important to do this *before* handling the room responses, so that
                 // notifications can be properly generated based on the thread subscriptions,
                 // for the events in threads we've subscribed to.
-                if self.inner.client.enabled_thread_subscriptions() {
+                if self.is_thread_subscriptions_enabled() {
                     response_processor
                         .handle_thread_subscriptions(
                             position.pos.as_deref(),
