@@ -43,6 +43,7 @@ use ruma::{
         space::{child::SpaceChildEventContent, parent::SpaceParentEventContent},
     },
 };
+use tokio::sync::Mutex as AsyncMutex;
 use tracing::error;
 
 use crate::spaces::graph::SpaceGraph;
@@ -95,7 +96,7 @@ pub struct SpaceService {
 
     joined_spaces: Arc<Mutex<ObservableVector<SpaceRoom>>>,
 
-    room_update_handle: Mutex<Option<AbortOnDrop<()>>>,
+    room_update_handle: AsyncMutex<Option<AbortOnDrop<()>>>,
 }
 
 impl SpaceService {
@@ -104,7 +105,7 @@ impl SpaceService {
         Self {
             client,
             joined_spaces: Arc::new(Mutex::new(ObservableVector::new())),
-            room_update_handle: Mutex::new(None),
+            room_update_handle: AsyncMutex::new(None),
         }
     }
 
@@ -113,12 +114,14 @@ impl SpaceService {
     pub async fn subscribe_to_joined_spaces(
         &self,
     ) -> (Vector<SpaceRoom>, VectorSubscriberBatchedStream<SpaceRoom>) {
-        if self.room_update_handle.lock().is_none() {
+        let mut room_update_handle = self.room_update_handle.lock().await;
+
+        if room_update_handle.is_none() {
             let client = self.client.clone();
             let joined_spaces = Arc::clone(&self.joined_spaces);
             let all_room_updates_receiver = self.client.subscribe_to_all_room_updates();
 
-            *self.room_update_handle.lock() = Some(AbortOnDrop::new(spawn(async move {
+            *room_update_handle = Some(AbortOnDrop::new(spawn(async move {
                 pin_mut!(all_room_updates_receiver);
 
                 loop {
