@@ -1864,17 +1864,18 @@ impl_state_store!({
             return Ok(None);
         };
 
-        let status_string: String = self.deserialize_value(&js_value)?;
-        // TODO: deserialize the bump stamp as well.
-        let status = ThreadSubscriptionStatus::from_str(&status_string).map_err(|_| {
+        let sub: PersistedThreadSubscription = self.deserialize_value(&js_value)?;
+
+        let status = ThreadSubscriptionStatus::from_str(&sub.status).map_err(|_| {
             StoreError::InvalidData {
                 details: format!(
-                    "invalid thread status for room {room} and thread {thread_id}: {status_string}"
+                    "invalid thread status for room {room} and thread {thread_id}: {}",
+                    sub.status
                 ),
             }
         })?;
 
-        Ok(Some(StoredThreadSubscription { status, bump_stamp: None }))
+        Ok(Some(StoredThreadSubscription { status, bump_stamp: sub.bump_stamp }))
     }
 
     async fn remove_thread_subscription(&self, room: &RoomId, thread_id: &EventId) -> Result<()> {
