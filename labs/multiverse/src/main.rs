@@ -20,13 +20,16 @@ use futures_util::{StreamExt as _, pin_mut};
 use imbl::Vector;
 use layout::Flex;
 use matrix_sdk::{
-    AuthSession, Client, SearchIndexStoreKind, SqliteCryptoStore, SqliteEventCacheStore,
+    AuthSession, Client, Room, SearchIndexStoreKind, SqliteCryptoStore, SqliteEventCacheStore,
     SqliteStateStore, ThreadingSupport,
     authentication::matrix::MatrixSession,
     config::StoreConfig,
+    deserialized_responses::TimelineEvent,
     encryption::{BackupDownloadStrategy, EncryptionSettings},
     reqwest::Url,
-    ruma::{OwnedRoomId, api::client::room::create_room::v3::Request as CreateRoomRequest},
+    ruma::{
+        OwnedEventId, OwnedRoomId, api::client::room::create_room::v3::Request as CreateRoomRequest,
+    },
 };
 use matrix_sdk_common::locks::Mutex;
 use matrix_sdk_ui::{
@@ -457,14 +460,19 @@ impl App {
                         }
                     }
                     GlobalMode::Searching { view } => {
-                        if let Event::Key(key) = event
-                            && let KeyModifiers::NONE = key.modifiers
-                        {
+                        if let Event::Key(key) = event {
                             match key.code {
                                 Enter => {
                                     if let Some(query) = view.get_text() {
                                         if let Some(room) = self.room_view.room() {
                                             if let Some(results) = room.search(&query, 100).await {
+                                                let results = get_events_from_event_ids(
+                                                    &self.client,
+                                                    &room,
+                                                    results,
+                                                )
+                                                .await;
+
                                                 view.results(results);
                                             } else {
                                                 debug!("No results found in search.")
@@ -475,6 +483,8 @@ impl App {
                                     }
                                 }
                                 Esc => self.set_global_mode(GlobalMode::Default),
+                                Up => view.list_state.previous(),
+                                Down => view.list_state.next(),
                                 _ => view.handle_key_press(key),
                             }
                         }
@@ -556,7 +566,7 @@ impl Widget for &mut App {
                 view.render(area, buf);
             }
             GlobalMode::Searching { view } => {
-                view.render(area, buf);
+                view.render(room_view_area, buf);
             }
         }
     }
@@ -657,4 +667,33 @@ async fn login_with_password(client: &Client) -> Result<()> {
     }
 
     Ok(())
+}
+
+async fn get_events_from_event_ids(
+    client: &Client,
+    room: &Room,
+    event_ids: Vec<OwnedEventId>,
+) -> Vec<TimelineEvent> {
+    if let Ok(cache_lock) = client.event_cache_store().lock().await {
+        futures_util::future::join_all(event_ids.iter().map(|event_id| async {
+            let event_id = event_id.clone();
+            match cache_lock.find_event(room.room_id(), &event_id).await {
+                Ok(ev) => ev,
+                Err(_) => room
+                    .event(&event_id, None)
+                    .await
+                    .inspect_err(|err| {
+                        debug!("Failed to find event {event_id} in event cache and server: {err}");
+                    })
+                    .ok(),
+            }
+        }))
+        .await
+        .into_iter()
+        .flatten()
+        .collect::<Vec<TimelineEvent>>()
+    } else {
+        debug!("Couldnt get event cache store lock.");
+        Vec::new()
+    }
 }
