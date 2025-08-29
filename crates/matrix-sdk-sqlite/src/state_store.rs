@@ -2208,6 +2208,11 @@ impl StateStore for SqliteStateStore {
 
         Ok(())
     }
+
+    async fn empty_thread_subs(&self) -> Result<(), Self::Error> {
+        self.acquire().await?.execute("DELETE FROM thread_subscriptions", ()).await?;
+        Ok(())
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

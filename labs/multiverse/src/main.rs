@@ -176,7 +176,10 @@ impl App {
     const TICK_RATE: Duration = Duration::from_millis(250);
 
     async fn new(client: Client) -> Result<Self> {
-        let sync_service = Arc::new(SyncService::builder(client.clone()).build().await?);
+        let sync_service =
+            Arc::new(SyncService::builder(client.clone()).with_share_pos(false).build().await?);
+
+        client.state_store().empty_thread_subs().await.unwrap();
 
         let rooms = Rooms::default();
         let room_infos = RoomInfos::default();

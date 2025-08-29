@@ -505,6 +505,10 @@ pub trait StateStore: AsyncTraitDeps {
         thread_id: &EventId,
     ) -> Result<(), Self::Error>;
 
+    async fn empty_thread_subs(&self) -> Result<(), Self::Error> {
+        Ok(())
+    }
+
     /// Loads the current thread subscription for a given room and thread.
     ///
     /// Returns `None` if there was no entry for the given room/thread pair.
