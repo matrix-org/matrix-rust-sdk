@@ -43,6 +43,7 @@ pub struct SpaceService {
 }
 
 impl SpaceService {
+    /// Creates a new `SpaceService` instance.
     pub(crate) fn new(inner: UISpaceService) -> Self {
         Self { inner }
     }
@@ -184,19 +185,32 @@ pub trait SpaceServiceJoinedSpacesListener: SendOutsideWasm + SyncOutsideWasm + 
 /// relevant to the UI layer.
 #[derive(uniffi::Record)]
 pub struct SpaceRoom {
+    /// The ID of the room.
     pub room_id: String,
+    /// The canonical alias of the room, if any.
     pub canonical_alias: Option<String>,
+    /// The name of the room, if any.
     pub name: Option<String>,
+    /// The topic of the room, if any.
     pub topic: Option<String>,
+    /// The URL for the room's avatar, if one is set.
     pub avatar_url: Option<String>,
+    /// The type of room from `m.room.create`, if any.
     pub room_type: RoomType,
+    /// The number of members joined to the room.
     pub num_joined_members: u64,
+    /// The join rule of the room.
     pub join_rule: Option<JoinRule>,
+    /// Whether the room may be viewed by users without joining.
     pub world_readable: Option<bool>,
+    /// Whether guest users may join the room and participate in it.
     pub guest_can_join: bool,
 
+    /// The number of children room this has, if a space.
     pub children_count: u64,
+    /// Whether this room is joined, left etc.
     pub state: Option<Membership>,
+    /// A list of room members considered to be heroes.
     pub heroes: Option<Vec<RoomHero>>,
 }
 

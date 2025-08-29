@@ -15,7 +15,8 @@
 //! High level interfaces for working with Spaces
 //!
 //! The `SpaceService` is an UI oriented, high-level interface for working with
-//! Matrix Spaces. It provides methods to retrieve joined spaces, subscribe
+//! [Matrix Spaces](https://spec.matrix.org/latest/client-server-api/#spaces).
+//! It provides methods to retrieve joined spaces, subscribe
 //! to updates, and navigate space hierarchies.
 //!
 //! It consists of 3 main components:
@@ -98,6 +99,7 @@ pub struct SpaceService {
 }
 
 impl SpaceService {
+    /// Creates a new `SpaceService` instance.
     pub fn new(client: Client) -> Self {
         Self {
             client,

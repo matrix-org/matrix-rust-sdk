@@ -23,24 +23,39 @@ use ruma::{
 /// relevant to the UI layer.
 #[derive(Debug, Clone, PartialEq)]
 pub struct SpaceRoom {
+    /// The ID of the room.
     pub room_id: OwnedRoomId,
+    /// The canonical alias of the room, if any.
     pub canonical_alias: Option<OwnedRoomAliasId>,
+    /// The name of the room, if any.
     pub name: Option<String>,
+    /// The topic of the room, if any.
     pub topic: Option<String>,
+    /// The URL for the room's avatar, if one is set.
     pub avatar_url: Option<OwnedMxcUri>,
+    /// The type of room from `m.room.create`, if any.
     pub room_type: Option<RoomType>,
+    /// The number of members joined to the room.
     pub num_joined_members: u64,
+    /// The join rule of the room.
     pub join_rule: Option<JoinRuleSummary>,
+    /// Whether the room may be viewed by users without joining.
     pub world_readable: Option<bool>,
+    /// Whether guest users may join the room and participate in it.
     pub guest_can_join: bool,
 
+    /// The number of children room this has, if a space.
     pub children_count: u64,
+    /// Whether this room is joined, left etc.
     pub state: Option<RoomState>,
+    /// A list of room members considered to be heroes.
     pub heroes: Option<Vec<RoomHero>>,
 }
 
 impl SpaceRoom {
-    pub fn new_from_summary(
+    /// Build a `SpaceRoom` from a `RoomSummary` received from the /hierarchy
+    /// endpoint.
+    pub(crate) fn new_from_summary(
         summary: &RoomSummary,
         known_room: Option<Room>,
         children_count: u64,
@@ -62,6 +77,7 @@ impl SpaceRoom {
         }
     }
 
+    /// Build a `SpaceRoom` from a room already known to this client.
     pub fn new_from_known(known_room: Room, children_count: u64) -> Self {
         let room_info = known_room.clone_info();
 
