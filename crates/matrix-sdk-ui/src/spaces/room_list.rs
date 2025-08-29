@@ -22,6 +22,7 @@ use itertools::Itertools;
 use matrix_sdk::{Client, Error, executor::AbortOnDrop, locks::Mutex, paginators::PaginationToken};
 use matrix_sdk_common::executor::spawn;
 use ruma::{OwnedRoomId, api::client::space::get_hierarchy, uint};
+use tokio::sync::Mutex as AsyncMutex;
 use tracing::error;
 
 use crate::spaces::SpaceRoom;
@@ -98,7 +99,7 @@ pub struct SpaceRoomList {
 
     parent_space_id: OwnedRoomId,
 
-    token: Mutex<PaginationToken>,
+    token: AsyncMutex<PaginationToken>,
 
     pagination_state: SharedObservable<SpaceRoomListPaginationState>,
 
@@ -155,7 +156,7 @@ impl SpaceRoomList {
         Self {
             client,
             parent_space_id,
-            token: Mutex::new(None.into()),
+            token: AsyncMutex::new(None.into()),
             pagination_state: SharedObservable::new(SpaceRoomListPaginationState::Idle {
                 end_reached: false,
             }),
@@ -206,14 +207,15 @@ impl SpaceRoomList {
         let mut request = get_hierarchy::v1::Request::new(self.parent_space_id.clone());
         request.max_depth = Some(uint!(1)); // We only want the immediate children of the space
 
-        if let PaginationToken::HasMore(ref token) = *self.token.lock() {
+        let mut pagination_token = self.token.lock().await;
+
+        if let PaginationToken::HasMore(ref token) = *pagination_token {
             request.from = Some(token.clone());
         }
 
         match self.client.send(request).await {
             Ok(result) => {
-                let mut token = self.token.lock();
-                *token = match &result.next_batch {
+                *pagination_token = match &result.next_batch {
                     Some(val) => PaginationToken::HasMore(val.clone()),
                     None => PaginationToken::HitEnd,
                 };
