@@ -201,7 +201,7 @@ impl SpaceRoomList {
             _ => {}
         }
 
-        self.pagination_state.set(SpaceRoomListPaginationState::Loading);
+        self.pagination_state.set_if_not_eq(SpaceRoomListPaginationState::Loading);
 
         let mut request = get_hierarchy::v1::Request::new(self.parent_space_id.clone());
         request.max_depth = Some(uint!(1)); // We only want the immediate children of the space
