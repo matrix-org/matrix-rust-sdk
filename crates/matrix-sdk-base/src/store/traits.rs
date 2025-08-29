@@ -1164,8 +1164,10 @@ pub enum StateStoreDataValue {
 /// These tokens are created when the client receives some thread subscriptions
 /// from sync, but the sync indicates that there are more thread subscriptions
 /// available on the server. In this case, it's expected that the client will
-/// call the MSC4308 companion endpoint to catch up (back-paginate) on previous
-/// thread subscriptions.
+/// call the [MSC4308] companion endpoint to catch up (back-paginate) on
+/// previous thread subscriptions.
+///
+/// [MSC4308]: https://github.com/matrix-org/matrix-spec-proposals/pull/4308
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ThreadSubscriptionCatchupToken {
     /// The token to use as the lower bound when fetching new threads

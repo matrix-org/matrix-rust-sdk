@@ -211,7 +211,16 @@ impl SlidingSyncResponseProcessor {
         previous_pos: Option<&str>,
         thread_subs: response::ThreadSubscriptions,
     ) -> Result<()> {
-        // TODO
+        let catchup_token =
+            thread_subs.prev_batch.map(|prev_batch| ThreadSubscriptionCatchupToken {
+                from: prev_batch,
+                to: previous_pos.map(|s| s.to_owned()),
+            });
+
+        self.client
+            .thread_subscription_catchup()
+            .sync_subscriptions(thread_subs.subscribed, thread_subs.unsubscribed, catchup_token)
+            .await?;
 
         Ok(())
     }

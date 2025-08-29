@@ -86,6 +86,7 @@ use crate::{
         matrix::MatrixAuth, oauth::OAuth, AuthCtx, AuthData, ReloadSessionCallback,
         SaveSessionCallback,
     },
+    client::thread_subscriptions::ThreadSubscriptionCatchup,
     config::{RequestConfig, SyncToken},
     deduplicating_handler::DeduplicatingHandler,
     error::HttpResult,
@@ -117,6 +118,7 @@ pub(crate) mod caches;
 pub(crate) mod futures;
 #[cfg(feature = "experimental-search")]
 pub(crate) mod search;
+pub(crate) mod thread_subscriptions;
 
 pub use self::builder::{sanitize_server_name, ClientBuildError, ClientBuilder};
 #[cfg(feature = "experimental-search")]
@@ -369,6 +371,10 @@ pub(crate) struct ClientInner {
     /// [`LatestEvent`]: crate::latest_event::LatestEvent
     latest_events: OnceCell<LatestEvents>,
 
+    /// Service handling the catching up of thread subscriptions in the
+    /// background.
+    thread_subscription_catchup: OnceCell<Arc<ThreadSubscriptionCatchup>>,
+
     #[cfg(feature = "experimental-search")]
     /// Handler for [`RoomIndex`]'s of each room
     search_index: SearchIndex,
@@ -397,6 +403,7 @@ impl ClientInner {
         #[cfg(feature = "e2e-encryption")] enable_share_history_on_invite: bool,
         cross_process_store_locks_holder_name: String,
         #[cfg(feature = "experimental-search")] search_index_handler: SearchIndex,
+        thread_subscription_catchup: OnceCell<Arc<ThreadSubscriptionCatchup>>,
     ) -> Arc<Self> {
         let caches = ClientCaches {
             server_info: server_info.into(),
@@ -434,6 +441,7 @@ impl ClientInner {
             server_max_upload_size: Mutex::new(OnceCell::new()),
             #[cfg(feature = "experimental-search")]
             search_index: search_index_handler,
+            thread_subscription_catchup,
         };
 
         #[allow(clippy::let_and_return)]
@@ -449,6 +457,13 @@ impl ClientInner {
                     WeakClient::from_inner(&client),
                     client.base_client.event_cache_store().clone(),
                 )
+            })
+            .await;
+
+        let _ = client
+            .thread_subscription_catchup
+            .get_or_init(|| async {
+                ThreadSubscriptionCatchup::new(Client { inner: client.clone() })
             })
             .await;
 
@@ -2770,6 +2785,7 @@ impl Client {
                 cross_process_store_locks_holder_name,
                 #[cfg(feature = "experimental-search")]
                 self.inner.search_index.clone(),
+                self.inner.thread_subscription_catchup.clone(),
             )
             .await,
         };
@@ -2912,6 +2928,10 @@ impl Client {
             limit,
         });
         Ok(self.send(request).await?)
+    }
+
+    pub(crate) fn thread_subscription_catchup(&self) -> &ThreadSubscriptionCatchup {
+        self.inner.thread_subscription_catchup.get().unwrap()
     }
 }
 
