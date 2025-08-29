@@ -78,7 +78,7 @@ impl SpaceRoom {
     }
 
     /// Build a `SpaceRoom` from a room already known to this client.
-    pub fn new_from_known(known_room: Room, children_count: u64) -> Self {
+    pub(crate) fn new_from_known(known_room: Room, children_count: u64) -> Self {
         let room_info = known_room.clone_info();
 
         Self {
