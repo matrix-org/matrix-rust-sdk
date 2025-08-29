@@ -229,12 +229,12 @@ impl SpaceService {
         joined_spaces
             .iter()
             .filter_map(|room| {
-                let room_id = room.room_id().to_owned();
+                let room_id = room.room_id();
 
-                if root_nodes.contains(&&room_id) {
+                if root_nodes.contains(&room_id) {
                     Some(SpaceRoom::new_from_known(
                         room.clone(),
-                        graph.children_of(&room_id).len() as u64,
+                        graph.children_of(room_id).len() as u64,
                     ))
                 } else {
                     None
