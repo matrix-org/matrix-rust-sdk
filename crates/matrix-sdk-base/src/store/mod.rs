@@ -456,7 +456,7 @@ pub enum RoomLoadSettings {
 /// The subscription status of a thread.
 ///
 /// We keep unsubscriptions in the database, because we need the bumpstamp
-/// information (in [`ThreadSubscription`]) to be around to order subscriptions
+/// information (in `ThreadSubscription`) to be around to order subscriptions
 /// and unsubscriptions.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ThreadSubscriptionStatus {
