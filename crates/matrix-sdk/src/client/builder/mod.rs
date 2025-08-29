@@ -608,6 +608,7 @@ impl ClientBuilder {
 
         let event_cache = OnceCell::new();
         let latest_events = OnceCell::new();
+        let thread_subscriptions_catchup = OnceCell::new();
 
         #[cfg(feature = "experimental-search")]
         let search_index =
@@ -632,6 +633,7 @@ impl ClientBuilder {
             self.cross_process_store_locks_holder_name,
             #[cfg(feature = "experimental-search")]
             search_index,
+            thread_subscriptions_catchup,
         )
         .await;
 
