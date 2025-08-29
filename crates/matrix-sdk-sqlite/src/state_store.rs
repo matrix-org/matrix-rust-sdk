@@ -12,9 +12,10 @@ use deadpool_sqlite::{Object as SqliteAsyncConn, Pool as SqlitePool, Runtime};
 use matrix_sdk_base::{
     deserialized_responses::{DisplayName, RawAnySyncOrStrippedState, SyncOrStrippedState},
     store::{
-        migration_helpers::RoomInfoV1, ChildTransactionId, DependentQueuedRequest,
-        DependentQueuedRequestKind, QueueWedgeError, QueuedRequest, QueuedRequestKind,
-        RoomLoadSettings, SentRequestKey, StoredThreadSubscription, ThreadSubscriptionStatus,
+        compare_thread_subscription_bump_stamps, migration_helpers::RoomInfoV1, ChildTransactionId,
+        DependentQueuedRequest, DependentQueuedRequestKind, QueueWedgeError, QueuedRequest,
+        QueuedRequestKind, RoomLoadSettings, SentRequestKey, StoredThreadSubscription,
+        ThreadSubscriptionStatus,
     },
     MinimalRoomMemberEvent, RoomInfo, RoomMemberships, RoomState, StateChanges, StateStore,
     StateStoreDataKey, StateStoreDataValue, ROOM_VERSION_FALLBACK, ROOM_VERSION_RULES_FALLBACK,
@@ -2126,22 +2127,8 @@ impl StateStore for SqliteStateStore {
                 // No need to update anything.
                 return Ok(());
             }
-
-            match (previous.bump_stamp, new.bump_stamp) {
-                // If the previous subscription had a bump stamp, and the new one
-                // doesn't, keep the previous one.
-                (Some(prev_bump), None) => {
-                    new.bump_stamp = Some(prev_bump);
-                }
-
-                // If the previous bump stamp is newer than the new one, don't store the value at
-                // all.
-                (Some(prev_bump), Some(new_bump)) if new_bump <= prev_bump => {
-                    return Ok(());
-                }
-
-                // In all other cases, keep the new bumpstamp.
-                _ => {}
+            if !compare_thread_subscription_bump_stamps(previous.bump_stamp, &mut new.bump_stamp) {
+                return Ok(());
             }
         }
 

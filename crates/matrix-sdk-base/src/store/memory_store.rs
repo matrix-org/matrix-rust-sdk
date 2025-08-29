@@ -45,7 +45,9 @@ use super::{
 use crate::{
     MinimalRoomMemberEvent, RoomMemberships, StateStoreDataKey, StateStoreDataValue,
     deserialized_responses::{DisplayName, RawAnySyncOrStrippedState},
-    store::{QueueWedgeError, StoredThreadSubscription},
+    store::{
+        QueueWedgeError, StoredThreadSubscription, traits::compare_thread_subscription_bump_stamps,
+    },
 };
 
 #[derive(Debug, Default)]
@@ -978,22 +980,8 @@ impl StateStore for MemoryStore {
             if *previous == new {
                 return Ok(());
             }
-
-            match (previous.bump_stamp, new.bump_stamp) {
-                // If the previous subscription had a bump stamp, and the new one
-                // doesn't, keep the previous one.
-                (Some(prev_bump), None) => {
-                    new.bump_stamp = Some(prev_bump);
-                }
-
-                // If the previous bump stamp is newer than the new one, don't store the value at
-                // all.
-                (Some(prev_bump), Some(new_bump)) if new_bump <= prev_bump => {
-                    return Ok(());
-                }
-
-                // In all other cases, keep the new bumpstamp.
-                _ => {}
+            if !compare_thread_subscription_bump_stamps(previous.bump_stamp, &mut new.bump_stamp) {
+                return Ok(());
             }
         }
 
