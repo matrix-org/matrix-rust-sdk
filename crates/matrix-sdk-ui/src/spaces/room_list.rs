@@ -14,7 +14,7 @@
 
 use std::sync::Arc;
 
-use eyeball::{SharedObservable, Subscriber};
+use eyeball::{ObservableWriteGuard, SharedObservable, Subscriber};
 use eyeball_im::{ObservableVector, VectorSubscriberBatchedStream};
 use futures_util::pin_mut;
 use imbl::Vector;
@@ -192,17 +192,21 @@ impl SpaceRoomList {
     /// Ask the list to retrieve the next page if the end hasn't been reached
     /// yet. Otherwise it no-ops.
     pub async fn paginate(&self) -> Result<(), Error> {
-        match *self.pagination_state.read() {
-            SpaceRoomListPaginationState::Idle { end_reached } if end_reached => {
-                return Ok(());
-            }
-            SpaceRoomListPaginationState::Loading => {
-                return Ok(());
-            }
-            _ => {}
-        }
+        {
+            let mut pagination_state = self.pagination_state.write();
 
-        self.pagination_state.set_if_not_eq(SpaceRoomListPaginationState::Loading);
+            match *pagination_state {
+                SpaceRoomListPaginationState::Idle { end_reached } if end_reached => {
+                    return Ok(());
+                }
+                SpaceRoomListPaginationState::Loading => {
+                    return Ok(());
+                }
+                _ => {}
+            }
+
+            ObservableWriteGuard::set(&mut pagination_state, SpaceRoomListPaginationState::Loading);
+        }
 
         let mut request = get_hierarchy::v1::Request::new(self.parent_space_id.clone());
         request.max_depth = Some(uint!(1)); // We only want the immediate children of the space
