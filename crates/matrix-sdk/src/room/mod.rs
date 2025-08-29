@@ -1281,7 +1281,7 @@ impl Room {
             .await?
             .into_iter()
             // Extract state key (ie. the parent's id) and sender
-            .flat_map(|parent_event| match parent_event.deserialize() {
+            .filter_map(|parent_event| match parent_event.deserialize() {
                 Ok(SyncOrStrippedState::Sync(SyncStateEvent::Original(e))) => {
                     Some((e.state_key.to_owned(), e.sender))
                 }

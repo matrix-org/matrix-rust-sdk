@@ -67,7 +67,7 @@ pub mod room_list;
 /// use ruma::owned_room_id;
 ///
 /// # async {
-/// let client: Client = todo!();
+/// # let client: Client = todo!();
 /// let space_service = SpaceService::new(client.clone());
 ///
 /// // Get a list of all the joined spaces
@@ -204,7 +204,7 @@ impl SpaceService {
 
             if let Ok(children) = space.get_state_events_static::<SpaceChildEventContent>().await {
                 children.into_iter()
-                .flat_map(|child_event| match child_event.deserialize() {
+                .filter_map(|child_event| match child_event.deserialize() {
                     Ok(SyncOrStrippedState::Sync(SyncStateEvent::Original(e))) => {
                         Some(e.state_key)
                     }
@@ -228,7 +228,7 @@ impl SpaceService {
 
         joined_spaces
             .iter()
-            .flat_map(|room| {
+            .filter_map(|room| {
                 let room_id = room.room_id().to_owned();
 
                 if root_notes.contains(&&room_id) {
