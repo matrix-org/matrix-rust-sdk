@@ -29,11 +29,11 @@ impl SpaceGraphNode {
     }
 }
 
-#[derive(Debug)]
 /// A graph structure representing a space hierarchy. Contains functionality
 /// for mapping parent-child relationships between rooms, removing cycles and
 /// retrieving top-level parents/roots.
-pub struct SpaceGraph {
+#[derive(Debug)]
+pub(super) struct SpaceGraph {
     nodes: BTreeMap<OwnedRoomId, SpaceGraphNode>,
 }
 
@@ -44,6 +44,7 @@ impl Default for SpaceGraph {
 }
 
 impl SpaceGraph {
+    /// Creates a new empty space graph containing no nodes or edges.
     pub fn new() -> Self {
         Self { nodes: BTreeMap::new() }
     }

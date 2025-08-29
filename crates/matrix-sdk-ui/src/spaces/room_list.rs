@@ -54,7 +54,7 @@ pub enum SpaceRoomListPaginationState {
 /// use ruma::owned_room_id;
 ///
 /// # async {
-/// let client: Client = todo!();
+/// # let client: Client = todo!();
 /// let space_service = SpaceService::new(client.clone());
 ///
 /// // Get a list of all the rooms in a particular space
@@ -76,17 +76,15 @@ pub enum SpaceRoomListPaginationState {
 /// // And to room list updates
 /// let (_, room_stream) = room_list.subscribe_to_room_updates();
 ///
-/// // spawn {
+/// // Run this in a background task so it doesn't block
 /// while let Some(pagination_state) = pagination_state_stream.next().await {
 ///     println!("Received pagination state update: {pagination_state:?}");
 /// }
-/// // }
 ///
-/// // spawn {
+/// // Run this in a background task so it doesn't block
 /// while let Some(diffs) = room_stream.next().await {
 ///     println!("Received room list update: {diffs:?}");
 /// }
-/// // }
 ///
 /// // Ask the room to load the next page
 /// room_list.paginate().await.unwrap();
