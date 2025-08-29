@@ -1296,6 +1296,37 @@ impl StateStoreDataKey<'_> {
     pub const SEEN_KNOCK_REQUESTS: &'static str = "seen_knock_requests";
 }
 
+/// Compare two thread subscription changes bump stamps, given a fixed room and
+/// thread root event id pair.
+///
+/// May update the newer one to keep the previous one if needed, under some
+/// conditions.
+///
+/// Returns true if the new subscription should be stored, or false if the new
+/// subscription should be ignored.
+pub fn compare_thread_subscription_bump_stamps(
+    previous: Option<u64>,
+    new: &mut Option<u64>,
+) -> bool {
+    match (previous, &new) {
+        // If the previous subscription had a bump stamp, and the new one doesn't, keep the
+        // previous one; it should be updated soon via sync anyways.
+        (Some(prev_bump), None) => {
+            *new = Some(prev_bump);
+        }
+
+        // If the previous bump stamp is newer than the new one, don't store the value at all.
+        (Some(prev_bump), Some(new_bump)) if *new_bump <= prev_bump => {
+            return false;
+        }
+
+        // In all other cases, keep the new bumpstamp.
+        _ => {}
+    }
+
+    true
+}
+
 #[cfg(test)]
 mod tests {
     use super::{ServerInfo, now_timestamp_ms};
