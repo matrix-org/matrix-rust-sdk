@@ -28,6 +28,7 @@ use crate::{
     serializer::IndexeddbSerializer,
 };
 
+pub mod foreign;
 pub mod traits;
 pub mod types;
 
