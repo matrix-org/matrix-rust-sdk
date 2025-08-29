@@ -166,6 +166,11 @@ impl ThreadSubscriptionCatchup {
             return Ok(());
         };
 
+        if subscribed.is_empty() && unsubscribed.is_empty() {
+            // Nothing to do.
+            return Ok(());
+        }
+
         trace!(
             "saving {} new subscriptions and {} unsubscriptions",
             subscribed.len(),
