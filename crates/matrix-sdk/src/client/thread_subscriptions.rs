@@ -155,6 +155,7 @@ impl ThreadSubscriptionCatchup {
         self.is_outdated.load(atomic::Ordering::SeqCst)
     }
 
+    #[instrument(skip_all)]
     pub(crate) async fn store_subscriptions(
         &self,
         subscribed: BTreeMap<OwnedRoomId, BTreeMap<OwnedEventId, ThreadSubscription>>,
@@ -164,6 +165,12 @@ impl ThreadSubscriptionCatchup {
             // Client is shutting down.
             return Ok(());
         };
+
+        trace!(
+            "saving {} new subscriptions and {} unsubscriptions",
+            subscribed.len(),
+            unsubscribed.len()
+        );
 
         // Take into account the new unsubscriptions.
         for (room_id, room_map) in unsubscribed {
