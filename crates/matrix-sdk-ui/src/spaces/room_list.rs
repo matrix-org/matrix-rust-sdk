@@ -219,7 +219,7 @@ impl SpaceRoomList {
                 result
                     .rooms
                     .iter()
-                    .flat_map(|room| {
+                    .filter_map(|room| {
                         if room.summary.room_id == self.parent_space_id {
                             None
                         } else {
