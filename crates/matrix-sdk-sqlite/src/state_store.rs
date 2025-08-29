@@ -2155,7 +2155,7 @@ impl StateStore for SqliteStateStore {
             .query_row(
                 "SELECT status, bump_stamp FROM thread_subscriptions WHERE room_id = ? AND event_id = ?",
                 (room_id, thread_id),
-                |row| (Ok((row.get::<_, String>(0)?, row.get::<_, Option<u64>>(1)?)))
+                |row| Ok((row.get::<_, String>(0)?, row.get::<_, Option<u64>>(1)?))
             )
             .await
             .optional()?
