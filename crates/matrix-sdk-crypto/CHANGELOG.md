@@ -8,6 +8,7 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
+- Log message index for Megolm sessions received over encrypted to-device messages. ([#5599](https://github.com/matrix-org/matrix-rust-sdk/pull/5599))
 - Add `RoomSettings::encrypt_state_events` flag. ([#5511](https://github.com/matrix-org/matrix-rust-sdk/pull/5511))
 - Make sure to accept historic room key bundles only if the sender is trusted
   enough.
