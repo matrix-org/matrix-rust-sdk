@@ -128,6 +128,15 @@ pub trait CryptoStore: AsyncTraitDeps {
         backup_version: Option<&str>,
     ) -> Result<RoomKeyCounts, Self::Error>;
 
+    /// Get all the inbound group sessions for a given room.
+    ///
+    /// # Arguments
+    /// * `room_id` - The ID of the room to return sessions for.
+    async fn get_inbound_group_sessions_by_room_id(
+        &self,
+        room_id: &RoomId,
+    ) -> Result<Vec<InboundGroupSession>, Self::Error>;
+
     /// Get a batch of inbound group sessions for the device with the supplied
     /// curve key, whose sender data is of the supplied type.
     ///
@@ -432,6 +441,13 @@ impl<T: CryptoStore> CryptoStore for EraseCryptoStoreError<T> {
 
     async fn get_inbound_group_sessions(&self) -> Result<Vec<InboundGroupSession>> {
         self.0.get_inbound_group_sessions().await.map_err(Into::into)
+    }
+
+    async fn get_inbound_group_sessions_by_room_id(
+        &self,
+        room_id: &RoomId,
+    ) -> Result<Vec<InboundGroupSession>> {
+        self.0.get_inbound_group_sessions_by_room_id(room_id).await.map_err(Into::into)
     }
 
     async fn get_inbound_group_sessions_for_device_batch(
