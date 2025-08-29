@@ -112,38 +112,41 @@ impl SpaceRoomList {
     pub fn new(client: Client, parent_space_id: OwnedRoomId) -> Self {
         let rooms = Arc::new(Mutex::new(ObservableVector::<SpaceRoom>::new()));
 
-        let client_clone = client.clone();
-        let rooms_clone = rooms.clone();
         let all_room_updates_receiver = client.subscribe_to_all_room_updates();
 
-        let handle = spawn(async move {
-            pin_mut!(all_room_updates_receiver);
+        let handle = spawn({
+            let client = client.clone();
+            let rooms = rooms.clone();
 
-            loop {
-                match all_room_updates_receiver.recv().await {
-                    Ok(updates) => {
-                        if updates.is_empty() {
-                            continue;
-                        }
+            async move {
+                pin_mut!(all_room_updates_receiver);
 
-                        let mut mutable_rooms = rooms_clone.lock();
-
-                        updates.iter_all_room_ids().for_each(|updated_room_id| {
-                            if let Some((position, room)) = mutable_rooms
-                                .clone()
-                                .iter()
-                                .find_position(|room| &room.room_id == updated_room_id)
-                                && let Some(update_room) = client_clone.get_room(updated_room_id)
-                            {
-                                mutable_rooms.set(
-                                    position,
-                                    SpaceRoom::new_from_known(update_room, room.children_count),
-                                );
+                loop {
+                    match all_room_updates_receiver.recv().await {
+                        Ok(updates) => {
+                            if updates.is_empty() {
+                                continue;
                             }
-                        })
-                    }
-                    Err(err) => {
-                        error!("error when listening to room updates: {err}");
+
+                            let mut mutable_rooms = rooms.lock();
+
+                            updates.iter_all_room_ids().for_each(|updated_room_id| {
+                                if let Some((position, room)) = mutable_rooms
+                                    .clone()
+                                    .iter()
+                                    .find_position(|room| &room.room_id == updated_room_id)
+                                    && let Some(update_room) = client.get_room(updated_room_id)
+                                {
+                                    mutable_rooms.set(
+                                        position,
+                                        SpaceRoom::new_from_known(update_room, room.children_count),
+                                    );
+                                }
+                            })
+                        }
+                        Err(err) => {
+                            error!("error when listening to room updates: {err}");
+                        }
                     }
                 }
             }
