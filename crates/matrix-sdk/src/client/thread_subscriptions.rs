@@ -250,7 +250,9 @@ impl ThreadSubscriptionCatchup {
         guard.save_catchup_tokens(tokens).await;
 
         // Wake up the catchup task, if it's waiting.
-        let _ = self.ping_sender.send(()).await;
+        if !tokens.is_empty() {
+            let _ = self.ping_sender.send(()).await;
+        }
 
         Ok(())
     }
