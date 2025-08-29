@@ -36,7 +36,7 @@ use tracing::error;
 
 use super::{
     EventCacheStore, EventCacheStoreError, Result, compute_filters_string, extract_event_relation,
-    media::{EventCacheStoreMedia, IgnoreMediaRetentionPolicy, MediaRetentionPolicy, MediaService},
+    media::{IgnoreMediaRetentionPolicy, MediaRetentionPolicy, MediaService, MediaStoreInner},
 };
 use crate::{
     event_cache::{Event, Gap},
@@ -372,7 +372,7 @@ impl EventCacheStore for MemoryStore {
 
 #[cfg_attr(target_family = "wasm", async_trait(?Send))]
 #[cfg_attr(not(target_family = "wasm"), async_trait)]
-impl EventCacheStoreMedia for MemoryStore {
+impl MediaStoreInner for MemoryStore {
     type Error = EventCacheStoreError;
 
     async fn media_retention_policy_inner(
@@ -578,7 +578,7 @@ impl EventCacheStoreMedia for MemoryStore {
 #[cfg(test)]
 mod tests {
     use super::{MemoryStore, Result};
-    use crate::event_cache_store_media_integration_tests;
+    use crate::media_store_inner_integration_tests;
 
     async fn get_event_cache_store() -> Result<MemoryStore> {
         Ok(MemoryStore::new())
@@ -586,5 +586,5 @@ mod tests {
 
     event_cache_store_integration_tests!();
     event_cache_store_integration_tests_time!();
-    event_cache_store_media_integration_tests!(with_media_size_tests);
+    media_store_inner_integration_tests!(with_media_size_tests);
 }
