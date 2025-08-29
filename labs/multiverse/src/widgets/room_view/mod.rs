@@ -522,7 +522,7 @@ impl RoomView {
     async fn print_thread_subscription_status(&mut self) {
         if let TimelineKind::Thread { thread_root, .. } = &self.kind {
             self.call_with_room(async |room, status_handle| {
-                match room.fetch_thread_subscription(thread_root.clone()).await {
+                match room.load_or_fetch_thread_subscription(thread_root).await {
                     Ok(Some(subscription)) => {
                         status_handle.set_message(format!(
                             "Thread subscription status: {}",
