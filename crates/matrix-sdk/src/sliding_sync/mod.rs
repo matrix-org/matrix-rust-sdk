@@ -639,6 +639,13 @@ impl SlidingSync {
         self.inner.sticky.read().unwrap().data().extensions.e2ee.enabled == Some(true)
     }
 
+    /// Is the thread subscriptions extension enabled for this sliding sync
+    /// instance?
+    fn is_thread_subscriptions_enabled(&self) -> bool {
+        self.inner.sticky.read().unwrap().data().extensions.thread_subscriptions.enabled
+            == Some(true)
+    }
+
     #[cfg(not(feature = "e2e-encryption"))]
     fn is_e2ee_enabled(&self) -> bool {
         false

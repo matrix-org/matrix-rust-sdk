@@ -247,10 +247,12 @@ impl ThreadSubscriptionCatchup {
             trace!("No catchup token to save");
         }
 
+        let has_tokens = !tokens.is_empty();
+
         guard.save_catchup_tokens(tokens).await;
 
         // Wake up the catchup task, if it's waiting.
-        if !tokens.is_empty() {
+        if has_tokens {
             let _ = self.ping_sender.send(()).await;
         }
 
