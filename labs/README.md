@@ -14,8 +14,10 @@ Rust SDK can evolve, feel free to propose an experiment.
 ## Current experiments
 
 - multiverse: a TUI client mostly for quick development iteration of SDK features and debugging.
-  Run with `cargo run --bin multiverse matrix.org ~/.cache/multiverse-cache`.
-
+  - Run with `cargo run --bin multiverse matrix.org ~/.cache/multiverse-cache`.
+  - To inspect network requests, there is a `--proxy` option which can use in
+    combination with [mitmproxy](https://www.mitmproxy.org/):
+    `cargo run --bin multiverse -- --proxy http://localhost:8080 matrix.org ~/.cache/multiverse-cache`
 
 ## Archived experiments
 
