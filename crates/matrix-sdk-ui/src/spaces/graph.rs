@@ -69,12 +69,13 @@ impl SpaceGraph {
     /// Adds a directed edge from `parent_id` to `child_id`, creating nodes if
     /// they do not already exist in the graph.
     pub(super) fn add_edge(&mut self, parent_id: OwnedRoomId, child_id: OwnedRoomId) {
-        self.nodes.entry(parent_id.clone()).or_insert(SpaceGraphNode::new(parent_id.clone()));
+        let parent_entry =
+            self.nodes.entry(parent_id.clone()).or_insert(SpaceGraphNode::new(parent_id.clone()));
+        parent_entry.children.insert(child_id.clone());
 
-        self.nodes.entry(child_id.clone()).or_insert(SpaceGraphNode::new(child_id.clone()));
-
-        self.nodes.get_mut(&parent_id).unwrap().children.insert(child_id.clone());
-        self.nodes.get_mut(&child_id).unwrap().parents.insert(parent_id);
+        let child_entry =
+            self.nodes.entry(child_id.clone()).or_insert(SpaceGraphNode::new(child_id));
+        child_entry.parents.insert(parent_id);
     }
 
     /// Removes cycles in the graph by performing a depth-first search (DFS) and
