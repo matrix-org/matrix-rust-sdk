@@ -224,14 +224,14 @@ impl SpaceService {
         // enforced backend side.
         graph.remove_cycles();
 
-        let root_notes = graph.root_nodes();
+        let root_nodes = graph.root_nodes();
 
         joined_spaces
             .iter()
             .filter_map(|room| {
                 let room_id = room.room_id().to_owned();
 
-                if root_notes.contains(&&room_id) {
+                if root_nodes.contains(&&room_id) {
                     Some(SpaceRoom::new_from_known(
                         room.clone(),
                         graph.children_of(&room_id).len() as u64,
