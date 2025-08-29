@@ -4336,8 +4336,25 @@ impl Room {
         &self,
         thread_root: &EventId,
     ) -> Result<Option<ThreadSubscription>> {
-        // A bit of a lie at the moment, since thread subscriptions are not sync'd yet.
-        self.fetch_thread_subscription(thread_root.to_owned()).await
+        // If the thread subscriptions list is outdated, fetch from the server.
+        if self.client.thread_subscription_catchup().is_outdated() {
+            return self.fetch_thread_subscription(thread_root.to_owned()).await;
+        }
+
+        // Otherwise, we can rely on the store information.
+        Ok(self
+            .client
+            .state_store()
+            .load_thread_subscription(self.room_id(), thread_root)
+            .await
+            .map(|maybe_sub| {
+                maybe_sub.and_then(|stored| match stored.status {
+                    ThreadSubscriptionStatus::Unsubscribed => None,
+                    ThreadSubscriptionStatus::Subscribed { automatic } => {
+                        Some(ThreadSubscription { automatic })
+                    }
+                })
+            })?)
     }
 }
 
