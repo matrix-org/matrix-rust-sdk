@@ -51,8 +51,6 @@ use matrix_sdk_base::{
 };
 use matrix_sdk_common::executor::{spawn, JoinHandle};
 use room::RoomEventCacheState;
-#[cfg(feature = "experimental-search")]
-use ruma::events::AnySyncMessageLikeEvent;
 use ruma::{
     events::AnySyncEphemeralRoomEvent, serde::Raw, OwnedEventId, OwnedRoomId, OwnedTransactionId,
     RoomId,
@@ -75,6 +73,8 @@ use crate::{
 mod deduplicator;
 mod pagination;
 mod room;
+#[cfg(feature = "experimental-search")]
+mod search;
 
 pub use pagination::{RoomPagination, RoomPaginationStatus};
 pub use room::{RoomEventCache, RoomEventCacheSubscriber, ThreadEventCacheUpdate};
@@ -725,13 +725,31 @@ impl EventCache {
                         return;
                     };
 
+                    let maybe_room_cache = client.event_cache().for_room(&room_id).await;
+                    let Ok((room_cache, _drop_handles)) = maybe_room_cache else {
+                        warn!(for_room = %room_id, "Failed to get RoomEventCache: {maybe_room_cache:?}");
+                        continue;
+                    };
+
+                    let maybe_room = client.get_room(&room_id);
+                    let Some(room) = maybe_room else {
+                        warn!(get_room = %room_id, "Failed to get room while indexing: {maybe_room:?}");
+                        continue;
+                    };
+                    let redaction_rules =
+                        room.clone_info().room_version_rules_or_default().redaction;
+
                     let mut search_index_guard = client.search_index().lock().await;
 
                     for event in timeline_events {
-                        if let Some(message_event) = parse_timeline_event_for_search_index(&event) {
-                            if let Err(err) =
-                                search_index_guard.handle_event(message_event, &room_id)
-                            {
+                        if let Some(message_event) =
+                            search::parse_timeline_event(&room_cache, &event).await
+                        {
+                            if let Err(err) = search_index_guard.handle_event(
+                                message_event,
+                                &room_id,
+                                &redaction_rules,
+                            ) {
                                 warn!("Failed to handle event for indexing: {err}")
                             }
                         }
@@ -745,27 +763,6 @@ impl EventCache {
                     warn!(num_skipped, "Lagged behind linked chunk updates");
                 }
             }
-        }
-    }
-}
-
-#[cfg(feature = "experimental-search")]
-fn parse_timeline_event_for_search_index(event: &TimelineEvent) -> Option<AnySyncMessageLikeEvent> {
-    use ruma::events::AnySyncTimelineEvent;
-
-    if event.kind.is_utd() {
-        return None;
-    }
-
-    match event.raw().deserialize() {
-        Ok(event) => match event {
-            AnySyncTimelineEvent::MessageLike(event) => Some(event),
-            AnySyncTimelineEvent::State(_) => None,
-        },
-
-        Err(e) => {
-            warn!("failed to parse event: {e:?}");
-            None
         }
     }
 }

@@ -12,14 +12,18 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use ruma::events::{
-    AnySyncMessageLikeEvent, MessageLikeEventContent, RedactContent,
-    RedactedMessageLikeEventContent, SyncMessageLikeEvent, room::message::MessageType,
+use ruma::{
+    events::{
+        AnySyncMessageLikeEvent, SyncMessageLikeEvent,
+        room::message::{MessageType, Relation, RoomMessageEventContent},
+    },
+    room_version_rules::RedactionRules,
 };
 use tantivy::{
-    DateTime, TantivyDocument, doc,
+    DateTime, doc,
     schema::{DateOptions, DateTimePrecision, Field, INDEXED, STORED, STRING, Schema, TEXT},
 };
+use tracing::trace;
 
 use crate::{
     error::{IndexError, IndexSchemaError},
@@ -30,17 +34,23 @@ pub(crate) trait MatrixSearchIndexSchema {
     fn new() -> Self;
     fn default_search_fields(&self) -> Vec<Field>;
     fn primary_key(&self) -> Field;
+    fn deletion_key(&self) -> Field;
     fn as_tantivy_schema(&self) -> Schema;
     fn handle_event(
         &self,
         event: AnySyncMessageLikeEvent,
+        redaction_rules: &RedactionRules,
     ) -> Result<RoomIndexOperation, IndexError>;
 }
 
 #[derive(Debug, Clone)]
 pub(crate) struct RoomMessageSchema {
     inner: Schema,
+    /// The event id of this event (primary key).
     event_id_field: Field,
+    /// The event id of the event that this event affects.
+    /// Used by edits to refer to the event they edited (deletion key).
+    original_event_id_field: Field,
     body_field: Field,
     date_field: Field,
     sender_field: Field,
@@ -48,30 +58,35 @@ pub(crate) struct RoomMessageSchema {
 }
 
 impl RoomMessageSchema {
-    /// Given an [`AnySyncMessageLikeEvent`] and a function to convert the
-    /// content into a String to be indexed, return a [`TantivyDocument`] to
-    /// index.
-    fn make_doc<C: MessageLikeEventContent + RedactContent, F>(
+    /// Given an [`SyncMessageLikeEvent<RoomMessageEventContent>`] return a
+    /// [`RoomIndexOperation`].
+    fn handle_message(
         &self,
-        event: SyncMessageLikeEvent<C>,
-        get_body_from_content: F,
-    ) -> Result<TantivyDocument, IndexError>
-    where
-        <C as RedactContent>::Redacted: RedactedMessageLikeEventContent,
-        F: FnOnce(&C) -> Result<String, IndexError>,
-    {
+        event: SyncMessageLikeEvent<RoomMessageEventContent>,
+    ) -> Result<RoomIndexOperation, IndexError> {
         let unredacted = event.as_original().ok_or(IndexError::CannotIndexRedactedMessage)?;
 
-        let body = get_body_from_content(&unredacted.content)?;
+        let body = match &unredacted.content.msgtype {
+            MessageType::Text(content) => Ok(content.body.clone()),
+            _ => Err(IndexError::MessageTypeNotSupported),
+        }?;
 
-        Ok(doc!(
+        let mut document = doc!(
             self.event_id_field => unredacted.event_id.to_string(),
             self.body_field => body,
             self.date_field =>
                 DateTime::from_timestamp_millis(
                     unredacted.origin_server_ts.get().into()),
             self.sender_field => unredacted.sender.to_string(),
-        ))
+        );
+
+        if let Some(Relation::Replacement(replacement_data)) = &unredacted.content.relates_to {
+            document.add_text(self.original_event_id_field, replacement_data.event_id.clone());
+            Ok(RoomIndexOperation::Edit(replacement_data.event_id.clone(), document))
+        } else {
+            document.add_text(self.original_event_id_field, unredacted.event_id.clone());
+            Ok(RoomIndexOperation::Add(document))
+        }
     }
 }
 
@@ -79,6 +94,7 @@ impl MatrixSearchIndexSchema for RoomMessageSchema {
     fn new() -> Self {
         let mut schema = Schema::builder();
         let event_id_field = schema.add_text_field("event_id", STORED | STRING);
+        let original_event_id_field = schema.add_text_field("original_event_id", STRING);
         let body_field = schema.add_text_field("body", TEXT);
 
         let date_options =
@@ -94,6 +110,7 @@ impl MatrixSearchIndexSchema for RoomMessageSchema {
         Self {
             inner: schema,
             event_id_field,
+            original_event_id_field,
             body_field,
             date_field,
             sender_field,
@@ -109,6 +126,10 @@ impl MatrixSearchIndexSchema for RoomMessageSchema {
         self.event_id_field
     }
 
+    fn deletion_key(&self) -> Field {
+        self.original_event_id_field
+    }
+
     fn as_tantivy_schema(&self) -> Schema {
         self.inner.clone()
     }
@@ -116,22 +137,20 @@ impl MatrixSearchIndexSchema for RoomMessageSchema {
     fn handle_event(
         &self,
         event: AnySyncMessageLikeEvent,
+        redaction_rules: &RedactionRules,
     ) -> Result<RoomIndexOperation, IndexError> {
         match event {
-            // m.room.message behaviour
-            AnySyncMessageLikeEvent::RoomMessage(event) => self
-                .make_doc(event, |content| match &content.msgtype {
-                    MessageType::Text(content) => Ok(content.body.clone()),
-                    _ => Err(IndexError::MessageTypeNotSupported),
-                })
-                .map(RoomIndexOperation::Add),
+            AnySyncMessageLikeEvent::RoomMessage(event) => self.handle_message(event),
 
-            // new MSC-1767 m.message behaviour
-            AnySyncMessageLikeEvent::Message(event) => self
-                .make_doc(event, |content| {
-                    content.text.find_plain().ok_or(IndexError::EmptyMessage).map(|v| v.to_owned())
-                })
-                .map(RoomIndexOperation::Add),
+            AnySyncMessageLikeEvent::RoomRedaction(redaction_event) => {
+                if let Some(redacted_event_id) = redaction_event.redacts(redaction_rules) {
+                    Ok(RoomIndexOperation::Remove(redacted_event_id.to_owned()))
+                } else {
+                    // If not acting on anything, we can just ignore it.
+                    trace!("Room redaction in indexing redacts nothing, ignoring.");
+                    Ok(RoomIndexOperation::Noop)
+                }
+            }
 
             _ => Err(IndexError::MessageTypeNotSupported),
         }
@@ -143,6 +162,7 @@ impl TryFrom<Schema> for RoomMessageSchema {
 
     fn try_from(schema: Schema) -> Result<RoomMessageSchema, Self::Error> {
         let event_id_field = schema.get_field("event_id")?;
+        let original_event_id_field = schema.get_field("original_event_id")?;
         let body_field = schema.get_field("body")?;
         let date_field = schema.get_field("date")?;
         let sender_field = schema.get_field("sender")?;
@@ -152,6 +172,7 @@ impl TryFrom<Schema> for RoomMessageSchema {
         Ok(Self {
             inner: schema,
             event_id_field,
+            original_event_id_field,
             body_field,
             date_field,
             sender_field,
