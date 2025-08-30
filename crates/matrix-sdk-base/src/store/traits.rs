@@ -55,7 +55,7 @@ use crate::{
     deserialized_responses::{
         DisplayName, RawAnySyncOrStrippedState, RawMemberEvent, RawSyncOrStrippedState,
     },
-    store::ThreadSubscription,
+    store::StoredThreadSubscription,
 };
 
 /// An abstract state store trait that can be used to implement different stores
@@ -481,11 +481,19 @@ pub trait StateStore: AsyncTraitDeps {
     ) -> Result<Vec<DependentQueuedRequest>, Self::Error>;
 
     /// Insert or update a thread subscription for a given room and thread.
+    ///
+    /// If the new thread subscription hasn't set a bumpstamp, and there was a
+    /// previous subscription in the database with a bumpstamp, the existing
+    /// bumpstamp is kept.
+    ///
+    /// If the new thread subscription has a bumpstamp that's lower than or
+    /// equal to a previously one, the existing subscription is kept, i.e.
+    /// this method must have no effect.
     async fn upsert_thread_subscription(
         &self,
         room: &RoomId,
         thread_id: &EventId,
-        subscription: ThreadSubscription,
+        subscription: StoredThreadSubscription,
     ) -> Result<(), Self::Error>;
 
     /// Remove a previous thread subscription for a given room and thread.
@@ -504,7 +512,7 @@ pub trait StateStore: AsyncTraitDeps {
         &self,
         room: &RoomId,
         thread_id: &EventId,
-    ) -> Result<Option<ThreadSubscription>, Self::Error>;
+    ) -> Result<Option<StoredThreadSubscription>, Self::Error>;
 }
 
 #[repr(transparent)]
@@ -804,7 +812,7 @@ impl<T: StateStore> StateStore for EraseStateStoreError<T> {
         &self,
         room: &RoomId,
         thread_id: &EventId,
-        subscription: ThreadSubscription,
+        subscription: StoredThreadSubscription,
     ) -> Result<(), Self::Error> {
         self.0.upsert_thread_subscription(room, thread_id, subscription).await.map_err(Into::into)
     }
@@ -813,7 +821,7 @@ impl<T: StateStore> StateStore for EraseStateStoreError<T> {
         &self,
         room: &RoomId,
         thread_id: &EventId,
-    ) -> Result<Option<ThreadSubscription>, Self::Error> {
+    ) -> Result<Option<StoredThreadSubscription>, Self::Error> {
         self.0.load_thread_subscription(room, thread_id).await.map_err(Into::into)
     }
 
@@ -1286,6 +1294,37 @@ impl StateStoreDataKey<'_> {
     /// Key prefix to use for the
     /// [`SeenKnockRequests`][Self::SeenKnockRequests] variant.
     pub const SEEN_KNOCK_REQUESTS: &'static str = "seen_knock_requests";
+}
+
+/// Compare two thread subscription changes bump stamps, given a fixed room and
+/// thread root event id pair.
+///
+/// May update the newer one to keep the previous one if needed, under some
+/// conditions.
+///
+/// Returns true if the new subscription should be stored, or false if the new
+/// subscription should be ignored.
+pub fn compare_thread_subscription_bump_stamps(
+    previous: Option<u64>,
+    new: &mut Option<u64>,
+) -> bool {
+    match (previous, &new) {
+        // If the previous subscription had a bump stamp, and the new one doesn't, keep the
+        // previous one; it should be updated soon via sync anyways.
+        (Some(prev_bump), None) => {
+            *new = Some(prev_bump);
+        }
+
+        // If the previous bump stamp is newer than the new one, don't store the value at all.
+        (Some(prev_bump), Some(new_bump)) if *new_bump <= prev_bump => {
+            return false;
+        }
+
+        // In all other cases, keep the new bumpstamp.
+        _ => {}
+    }
+
+    true
 }
 
 #[cfg(test)]

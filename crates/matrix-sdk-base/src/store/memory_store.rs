@@ -45,7 +45,9 @@ use super::{
 use crate::{
     MinimalRoomMemberEvent, RoomMemberships, StateStoreDataKey, StateStoreDataValue,
     deserialized_responses::{DisplayName, RawAnySyncOrStrippedState},
-    store::{QueueWedgeError, ThreadSubscription},
+    store::{
+        QueueWedgeError, StoredThreadSubscription, traits::compare_thread_subscription_bump_stamps,
+    },
 };
 
 #[derive(Debug, Default)]
@@ -84,7 +86,7 @@ struct MemoryStoreInner {
     send_queue_events: BTreeMap<OwnedRoomId, Vec<QueuedRequest>>,
     dependent_send_queue_events: BTreeMap<OwnedRoomId, Vec<DependentQueuedRequest>>,
     seen_knock_requests: BTreeMap<OwnedRoomId, BTreeMap<OwnedEventId, OwnedUserId>>,
-    thread_subscriptions: BTreeMap<OwnedRoomId, BTreeMap<OwnedEventId, ThreadSubscription>>,
+    thread_subscriptions: BTreeMap<OwnedRoomId, BTreeMap<OwnedEventId, StoredThreadSubscription>>,
 }
 
 /// In-memory, non-persistent implementation of the `StateStore`.
@@ -968,15 +970,23 @@ impl StateStore for MemoryStore {
         &self,
         room: &RoomId,
         thread_id: &EventId,
-        subscription: ThreadSubscription,
+        mut new: StoredThreadSubscription,
     ) -> Result<(), Self::Error> {
-        self.inner
-            .write()
-            .unwrap()
-            .thread_subscriptions
-            .entry(room.to_owned())
-            .or_default()
-            .insert(thread_id.to_owned(), subscription);
+        let mut inner = self.inner.write().unwrap();
+        let room_subs = inner.thread_subscriptions.entry(room.to_owned()).or_default();
+
+        if let Some(previous) = room_subs.get(thread_id) {
+            // Nothing to do.
+            if *previous == new {
+                return Ok(());
+            }
+            if !compare_thread_subscription_bump_stamps(previous.bump_stamp, &mut new.bump_stamp) {
+                return Ok(());
+            }
+        }
+
+        room_subs.insert(thread_id.to_owned(), new);
+
         Ok(())
     }
 
@@ -984,7 +994,7 @@ impl StateStore for MemoryStore {
         &self,
         room: &RoomId,
         thread_id: &EventId,
-    ) -> Result<Option<ThreadSubscription>, Self::Error> {
+    ) -> Result<Option<StoredThreadSubscription>, Self::Error> {
         let inner = self.inner.read().unwrap();
         Ok(inner
             .thread_subscriptions

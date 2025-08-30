@@ -40,7 +40,7 @@ async fn test_subscribe_thread() {
 
     // I can get the subscription for that same thread.
     let subscription = room.fetch_thread_subscription(root_id.clone()).await.unwrap().unwrap();
-    assert_matches!(subscription, ThreadSubscription { automatic: true });
+    assert_eq!(subscription, ThreadSubscription { automatic: true });
 
     // If I try to get a subscription for a thread event that's unknown, I get no
     // `ThreadSubscription`, not an error.
