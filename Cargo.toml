@@ -196,4 +196,3 @@ tracing = { git = "https://github.com/element-hq/tracing.git", rev = "5635147b86
 tracing-core = { git = "https://github.com/element-hq/tracing.git", rev = "5635147b868541d8c13d6f8c9c8558f9ddd29c6c" }
 tracing-subscriber = { git = "https://github.com/element-hq/tracing.git", rev = "5635147b868541d8c13d6f8c9c8558f9ddd29c6c" }
 tracing-appender = { git = "https://github.com/element-hq/tracing.git", rev = "5635147b868541d8c13d6f8c9c8558f9ddd29c6c" }
-paranoid-android = { git = "https://github.com/element-hq/paranoid-android.git", rev = "69388ac5b4afeed7be4401c70ce17f6d9a2cf19b" }
