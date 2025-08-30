@@ -80,8 +80,8 @@ ruma = { git = "https://github.com/ruma/ruma", rev = "57049282e3a74f67f86e4eb238
     "unstable-msc4306",
     "unstable-msc4308"
 ] }
-sentry = "0.36.0"
-sentry-tracing = "0.36.0"
+sentry = "0.42.0"
+sentry-tracing = "0.42.0"
 serde = { version = "1.0.217", features = ["rc"] }
 serde_html_form = "0.2.7"
 serde_json = "1.0.138"
@@ -92,9 +92,9 @@ tempfile = "3.16.0"
 thiserror = "2.0.11"
 tokio = { version = "1.43.1", default-features = false, features = ["sync"] }
 tokio-stream = "0.1.17"
-tracing = { version = "0.1.40", default-features = false, features = ["std"] }
-tracing-core = "0.1.32"
-tracing-subscriber = "0.3.18"
+tracing = { version = "0.1.41", default-features = false, features = ["std"] }
+tracing-core = "0.1.34"
+tracing-subscriber = "0.3.20"
 unicode-normalization = "0.1.24"
 uniffi = { version = "0.28.0" }
 uniffi_bindgen = { version = "0.28.0" }
@@ -192,8 +192,8 @@ lto = false
 async-compat = { git = "https://github.com/element-hq/async-compat", rev = "5a27c8b290f1f1dcfc0c4ec22c464e38528aa591" }
 const_panic = { git = "https://github.com/jplatte/const_panic", rev = "9024a4cb3eac45c1d2d980f17aaee287b17be498" }
 # Needed to fix rotation log issue on Android (https://github.com/tokio-rs/tracing/issues/2937)
-tracing = { git = "https://github.com/element-hq/tracing.git", rev = "ca9431f74d37c9d3b5e6a9f35b2c706711dab7dd" }
-tracing-core = { git = "https://github.com/element-hq/tracing.git", rev = "ca9431f74d37c9d3b5e6a9f35b2c706711dab7dd" }
-tracing-subscriber = { git = "https://github.com/element-hq/tracing.git", rev = "ca9431f74d37c9d3b5e6a9f35b2c706711dab7dd" }
-tracing-appender = { git = "https://github.com/element-hq/tracing.git", rev = "ca9431f74d37c9d3b5e6a9f35b2c706711dab7dd" }
+tracing = { git = "https://github.com/element-hq/tracing.git", rev = "5635147b868541d8c13d6f8c9c8558f9ddd29c6c" }
+tracing-core = { git = "https://github.com/element-hq/tracing.git", rev = "5635147b868541d8c13d6f8c9c8558f9ddd29c6c" }
+tracing-subscriber = { git = "https://github.com/element-hq/tracing.git", rev = "5635147b868541d8c13d6f8c9c8558f9ddd29c6c" }
+tracing-appender = { git = "https://github.com/element-hq/tracing.git", rev = "5635147b868541d8c13d6f8c9c8558f9ddd29c6c" }
 paranoid-android = { git = "https://github.com/element-hq/paranoid-android.git", rev = "69388ac5b4afeed7be4401c70ce17f6d9a2cf19b" }
