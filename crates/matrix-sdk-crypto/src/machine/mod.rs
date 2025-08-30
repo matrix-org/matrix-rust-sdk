@@ -897,7 +897,7 @@ impl OlmMachine {
         // This function is only ever called by add_room_key via
         // handle_decrypted_to_device_event, so sender, sender_key, and algorithm are
         // already recorded.
-        fields(room_id = ? content.room_id, session_id)
+        fields(room_id = ? content.room_id, session_id, message_index)
     )]
     async fn handle_key(
         &self,
@@ -911,6 +911,7 @@ impl OlmMachine {
         match session {
             Ok(mut session) => {
                 Span::current().record("session_id", session.session_id());
+                Span::current().record("message_index", session.first_known_index());
 
                 let sender_data =
                     SenderDataFinder::find_using_event(self.store(), sender_key, event, &session)
