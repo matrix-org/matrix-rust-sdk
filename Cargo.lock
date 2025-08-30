@@ -607,7 +607,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "05efc5cfd9110c8416e471df0e96702d58690178e206e61b7173706673c93706"
 dependencies = [
  "memchr",
- "regex-automata 0.4.8",
+ "regex-automata",
  "serde",
 ]
 
@@ -938,7 +938,7 @@ checksum = "cd6be1b2a7e382e2b98b43b2adcca6bb0e465af0bdd38123873ae61eb17a72c2"
 dependencies = [
  "once_cell",
  "owo-colors",
- "tracing-core",
+ "tracing-core 0.1.34",
  "tracing-error",
 ]
 
@@ -1544,7 +1544,7 @@ dependencies = [
  "anyhow",
  "matrix-sdk",
  "tokio",
- "tracing-subscriber",
+ "tracing-subscriber 0.3.20",
 ]
 
 [[package]]
@@ -1556,7 +1556,7 @@ dependencies = [
  "futures-util",
  "matrix-sdk",
  "tokio",
- "tracing-subscriber",
+ "tracing-subscriber 0.3.20",
  "url",
 ]
 
@@ -1567,7 +1567,7 @@ dependencies = [
  "anyhow",
  "matrix-sdk",
  "tokio",
- "tracing-subscriber",
+ "tracing-subscriber 0.3.20",
 ]
 
 [[package]]
@@ -1577,7 +1577,7 @@ dependencies = [
  "anyhow",
  "matrix-sdk",
  "tokio",
- "tracing-subscriber",
+ "tracing-subscriber 0.3.20",
  "url",
 ]
 
@@ -1589,7 +1589,7 @@ dependencies = [
  "matrix-sdk",
  "serde",
  "tokio",
- "tracing-subscriber",
+ "tracing-subscriber 0.3.20",
 ]
 
 [[package]]
@@ -1601,7 +1601,7 @@ dependencies = [
  "futures-util",
  "matrix-sdk",
  "tokio",
- "tracing-subscriber",
+ "tracing-subscriber 0.3.20",
  "url",
 ]
 
@@ -1612,7 +1612,7 @@ dependencies = [
  "anyhow",
  "matrix-sdk",
  "tokio",
- "tracing-subscriber",
+ "tracing-subscriber 0.3.20",
  "url",
 ]
 
@@ -1623,7 +1623,7 @@ dependencies = [
  "anyhow",
  "matrix-sdk",
  "tokio",
- "tracing-subscriber",
+ "tracing-subscriber 0.3.20",
 ]
 
 [[package]]
@@ -1634,7 +1634,7 @@ dependencies = [
  "matrix-sdk",
  "mime",
  "tokio",
- "tracing-subscriber",
+ "tracing-subscriber 0.3.20",
  "url",
 ]
 
@@ -1645,7 +1645,7 @@ dependencies = [
  "anyhow",
  "matrix-sdk",
  "tokio",
- "tracing-subscriber",
+ "tracing-subscriber 0.3.20",
  "url",
 ]
 
@@ -1662,7 +1662,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tokio",
- "tracing-subscriber",
+ "tracing-subscriber 0.3.20",
  "url",
 ]
 
@@ -1677,7 +1677,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tokio",
- "tracing-subscriber",
+ "tracing-subscriber 0.3.20",
 ]
 
 [[package]]
@@ -1689,7 +1689,7 @@ dependencies = [
  "futures-util",
  "matrix-sdk",
  "tokio",
- "tracing-subscriber",
+ "tracing-subscriber 0.3.20",
  "url",
 ]
 
@@ -1701,7 +1701,7 @@ dependencies = [
  "clap",
  "matrix-sdk",
  "tokio",
- "tracing-subscriber",
+ "tracing-subscriber 0.3.20",
  "url",
 ]
 
@@ -1715,7 +1715,7 @@ dependencies = [
  "matrix-sdk",
  "matrix-sdk-ui",
  "tokio",
- "tracing-subscriber",
+ "tracing-subscriber 0.3.20",
  "url",
 ]
 
@@ -3016,11 +3016,11 @@ dependencies = [
 
 [[package]]
 name = "matchers"
-version = "0.1.0"
+version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8263075bb86c5a1b1427b5ae862e8889656f126e9f77c484496e8b47cf5c5558"
+checksum = "d1525a2a28c7f4fa0fc98bb91ae755d1e2d1505079e05539e35bc876b5d65ae9"
 dependencies = [
- "regex-automata 0.1.10",
+ "regex-automata",
 ]
 
 [[package]]
@@ -3120,7 +3120,7 @@ dependencies = [
  "tokio-util",
  "tower",
  "tracing",
- "tracing-subscriber",
+ "tracing-subscriber 0.3.20",
  "uniffi",
  "url",
  "urlencoding",
@@ -3194,7 +3194,7 @@ dependencies = [
  "thiserror 2.0.11",
  "tokio",
  "tracing",
- "tracing-subscriber",
+ "tracing-subscriber 0.3.20",
  "uniffi",
  "wasm-bindgen",
  "wasm-bindgen-futures",
@@ -3278,7 +3278,7 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.11",
  "tokio",
- "tracing-subscriber",
+ "tracing-subscriber 0.3.20",
  "uniffi",
  "vergen",
  "vodozemac",
@@ -3314,8 +3314,8 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-appender",
- "tracing-core",
- "tracing-subscriber",
+ "tracing-core 0.1.34",
+ "tracing-subscriber 0.3.20",
  "uniffi",
  "url",
  "uuid",
@@ -3362,7 +3362,7 @@ dependencies = [
  "thiserror 2.0.11",
  "tokio",
  "tracing",
- "tracing-subscriber",
+ "tracing-subscriber 0.3.20",
  "uuid",
  "wasm-bindgen",
  "wasm-bindgen-test",
@@ -3494,7 +3494,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tokio",
- "tracing-subscriber",
+ "tracing-subscriber 0.3.20",
  "vodozemac",
  "wasm-bindgen-test",
  "wiremock",
@@ -3513,7 +3513,7 @@ name = "matrix-sdk-test-utils"
 version = "0.13.0"
 dependencies = [
  "ctor",
- "tracing-subscriber",
+ "tracing-subscriber 0.3.20",
 ]
 
 [[package]]
@@ -3672,7 +3672,7 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-appender",
- "tracing-subscriber",
+ "tracing-subscriber 0.3.20",
  "tui-framework-experiment",
  "tui-textarea",
 ]
@@ -3739,12 +3739,11 @@ dependencies = [
 
 [[package]]
 name = "nu-ansi-term"
-version = "0.46.0"
+version = "0.50.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "77a8165726e8236064dbb45459242600304b42a5ea24ee2948e18e023bf7ba84"
+checksum = "d4a28e057d01f97e61255210fcff094d74ed0466038633e95017f5beb68e4399"
 dependencies = [
- "overload",
- "winapi",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -3897,12 +3896,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "overload"
-version = "0.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b15813163c1d831bf4a13c3610c05c0d03b39feb07f7e09fa234dac9b15aaf39"
-
-[[package]]
 name = "ownedbytes"
 version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3926,8 +3919,8 @@ dependencies = [
  "ndk-sys",
  "sharded-slab",
  "smallvec",
- "tracing-core",
- "tracing-subscriber",
+ "tracing-core 0.1.32",
+ "tracing-subscriber 0.3.18",
 ]
 
 [[package]]
@@ -4255,7 +4248,7 @@ dependencies = [
  "rand",
  "rand_chacha",
  "rand_xorshift",
- "regex-syntax 0.8.5",
+ "regex-syntax",
  "unarray",
 ]
 
@@ -4512,17 +4505,8 @@ checksum = "b544ef1b4eac5dc2db33ea63606ae9ffcfac26c1416a2806ae0bf5f56b201191"
 dependencies = [
  "aho-corasick",
  "memchr",
- "regex-automata 0.4.8",
- "regex-syntax 0.8.5",
-]
-
-[[package]]
-name = "regex-automata"
-version = "0.1.10"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6c230d73fb8d8c1b9c0b3135c5142a8acee3a0558fb8db5cf1cb65f8d7862132"
-dependencies = [
- "regex-syntax 0.6.29",
+ "regex-automata",
+ "regex-syntax",
 ]
 
 [[package]]
@@ -4533,14 +4517,8 @@ checksum = "368758f23274712b504848e9d5a6f010445cc8b87a7cdb4d7cbee666c1288da3"
 dependencies = [
  "aho-corasick",
  "memchr",
- "regex-syntax 0.8.5",
+ "regex-syntax",
 ]
-
-[[package]]
-name = "regex-syntax"
-version = "0.6.29"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f162c6dd7b008981e4d40210aca20b4bd0f9b60ca9271061b07f78537722f2e1"
 
 [[package]]
 name = "regex-syntax"
@@ -5112,8 +5090,8 @@ checksum = "64e75c831b4d8b34a5aec1f65f67c5d46a26c7c5d3c7abd8b5ef430796900cf8"
 dependencies = [
  "sentry-backtrace",
  "sentry-core",
- "tracing-core",
- "tracing-subscriber",
+ "tracing-core 0.1.34",
+ "tracing-subscriber 0.3.20",
 ]
 
 [[package]]
@@ -5622,7 +5600,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d60769b80ad7953d8a7b2c70cdfe722bbcdcac6bccc8ac934c40c034d866fc18"
 dependencies = [
  "byteorder",
- "regex-syntax 0.8.5",
+ "regex-syntax",
  "utf8-ranges",
 ]
 
@@ -6004,30 +5982,30 @@ checksum = "8df9b6e13f2d32c91b9bd719c00d1958837bc7dec474d94952798cc8e69eeec3"
 
 [[package]]
 name = "tracing"
-version = "0.1.40"
-source = "git+https://github.com/element-hq/tracing.git?rev=ca9431f74d37c9d3b5e6a9f35b2c706711dab7dd#ca9431f74d37c9d3b5e6a9f35b2c706711dab7dd"
+version = "0.1.41"
+source = "git+https://github.com/element-hq/tracing.git?rev=5635147b868541d8c13d6f8c9c8558f9ddd29c6c#5635147b868541d8c13d6f8c9c8558f9ddd29c6c"
 dependencies = [
  "log",
  "pin-project-lite",
  "tracing-attributes",
- "tracing-core",
+ "tracing-core 0.1.34",
 ]
 
 [[package]]
 name = "tracing-appender"
 version = "0.2.3"
-source = "git+https://github.com/element-hq/tracing.git?rev=ca9431f74d37c9d3b5e6a9f35b2c706711dab7dd#ca9431f74d37c9d3b5e6a9f35b2c706711dab7dd"
+source = "git+https://github.com/element-hq/tracing.git?rev=5635147b868541d8c13d6f8c9c8558f9ddd29c6c#5635147b868541d8c13d6f8c9c8558f9ddd29c6c"
 dependencies = [
  "crossbeam-channel",
- "thiserror 1.0.63",
+ "thiserror 2.0.11",
  "time",
- "tracing-subscriber",
+ "tracing-subscriber 0.3.20",
 ]
 
 [[package]]
 name = "tracing-attributes"
-version = "0.1.27"
-source = "git+https://github.com/element-hq/tracing.git?rev=ca9431f74d37c9d3b5e6a9f35b2c706711dab7dd#ca9431f74d37c9d3b5e6a9f35b2c706711dab7dd"
+version = "0.1.30"
+source = "git+https://github.com/element-hq/tracing.git?rev=5635147b868541d8c13d6f8c9c8558f9ddd29c6c#5635147b868541d8c13d6f8c9c8558f9ddd29c6c"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -6040,6 +6018,14 @@ version = "0.1.32"
 source = "git+https://github.com/element-hq/tracing.git?rev=ca9431f74d37c9d3b5e6a9f35b2c706711dab7dd#ca9431f74d37c9d3b5e6a9f35b2c706711dab7dd"
 dependencies = [
  "once_cell",
+]
+
+[[package]]
+name = "tracing-core"
+version = "0.1.34"
+source = "git+https://github.com/element-hq/tracing.git?rev=5635147b868541d8c13d6f8c9c8558f9ddd29c6c#5635147b868541d8c13d6f8c9c8558f9ddd29c6c"
+dependencies = [
+ "once_cell",
  "valuable",
 ]
 
@@ -6050,17 +6036,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d686ec1c0f384b1277f097b2f279a2ecc11afe8c133c1aabf036a27cb4cd206e"
 dependencies = [
  "tracing",
- "tracing-subscriber",
+ "tracing-subscriber 0.3.20",
 ]
 
 [[package]]
 name = "tracing-log"
 version = "0.2.0"
-source = "git+https://github.com/element-hq/tracing.git?rev=ca9431f74d37c9d3b5e6a9f35b2c706711dab7dd#ca9431f74d37c9d3b5e6a9f35b2c706711dab7dd"
+source = "git+https://github.com/element-hq/tracing.git?rev=5635147b868541d8c13d6f8c9c8558f9ddd29c6c#5635147b868541d8c13d6f8c9c8558f9ddd29c6c"
 dependencies = [
  "log",
  "once_cell",
- "tracing-core",
+ "tracing-core 0.1.34",
 ]
 
 [[package]]
@@ -6068,15 +6054,26 @@ name = "tracing-subscriber"
 version = "0.3.18"
 source = "git+https://github.com/element-hq/tracing.git?rev=ca9431f74d37c9d3b5e6a9f35b2c706711dab7dd#ca9431f74d37c9d3b5e6a9f35b2c706711dab7dd"
 dependencies = [
+ "sharded-slab",
+ "smallvec",
+ "thread_local",
+ "tracing-core 0.1.32",
+]
+
+[[package]]
+name = "tracing-subscriber"
+version = "0.3.20"
+source = "git+https://github.com/element-hq/tracing.git?rev=5635147b868541d8c13d6f8c9c8558f9ddd29c6c#5635147b868541d8c13d6f8c9c8558f9ddd29c6c"
+dependencies = [
  "matchers",
  "nu-ansi-term",
  "once_cell",
- "regex",
+ "regex-automata",
  "sharded-slab",
  "smallvec",
  "thread_local",
  "tracing",
- "tracing-core",
+ "tracing-core 0.1.34",
  "tracing-log",
 ]
 

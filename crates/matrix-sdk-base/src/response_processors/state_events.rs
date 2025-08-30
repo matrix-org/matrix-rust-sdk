@@ -238,7 +238,7 @@ pub mod sync {
     }
 
     /// A trait to collect new users in [`dispatch`].
-    trait NewUsers {
+    pub(crate) trait NewUsers {
         /// Insert a new user in the collection of new users.
         fn insert(&mut self, user_id: &UserId);
     }
