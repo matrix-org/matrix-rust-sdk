@@ -133,6 +133,8 @@ pub mod v1 {
         pub const MEDIA_RETENTION_POLICY_KEY: &str = "media_retention_policy";
         pub const MEDIA: &str = "media";
         pub const MEDIA_KEY_PATH: &str = "id";
+        pub const MEDIA_CONTENT_SIZE: &str = "media_content_size";
+        pub const MEDIA_CONTENT_SIZE_KEY_PATH: &str = "content_size";
     }
 
     /// Create all object stores and indices for v1 database
@@ -225,10 +227,15 @@ pub mod v1 {
     /// Create an object store for tracking information about media.
     ///
     /// * Primary Key - `id`
+    /// * Index - `content_size` - tracks the size of the media content and
+    ///   whether to ignore the [`MediaRetentionPolicy`][1]
+    ///
+    /// [1]: matrix_sdk_base::event_cache::store::media::MediaRetentionPolicy
     fn create_media_object_store(db: &IdbDatabase) -> Result<(), DomException> {
         let mut object_store_params = IdbObjectStoreParameters::new();
         object_store_params.key_path(Some(&keys::MEDIA_KEY_PATH.into()));
-        let _ = db.create_object_store_with_params(keys::MEDIA, &object_store_params)?;
+        let media = db.create_object_store_with_params(keys::MEDIA, &object_store_params)?;
+        media.create_index(keys::MEDIA_CONTENT_SIZE, &keys::MEDIA_CONTENT_SIZE_KEY_PATH.into())?;
         Ok(())
     }
 }
