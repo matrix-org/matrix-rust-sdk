@@ -42,9 +42,12 @@ use thiserror::Error;
 use crate::{
     event_cache_store::{
         migrations::current::keys,
-        serializer::traits::{
-            Indexed, IndexedKey, IndexedKeyBounds, IndexedKeyComponentBounds,
-            IndexedPrefixKeyBounds, IndexedPrefixKeyComponentBounds,
+        serializer::{
+            foreign::ignore_media_retention_policy,
+            traits::{
+                Indexed, IndexedKey, IndexedKeyBounds, IndexedKeyComponentBounds,
+                IndexedPrefixKeyBounds, IndexedPrefixKeyComponentBounds,
+            },
         },
         types::{Chunk, Event, Gap, Lease, Media, Position},
     },
@@ -289,6 +292,10 @@ pub type IndexedMediaMetadata = MaybeEncrypted;
 
 /// A (possibly) encrypted representation of [`Media::content`]
 pub type IndexedMediaContent = Vec<u8>;
+
+/// A representation of the size in bytes of the [`IndexedMediaContent`] which
+/// is suitable for use in an IndexedDB key
+pub type IndexedMediaContentSize = usize;
 
 /// Represents the [`LEASES`][1] object store.
 ///
@@ -900,6 +907,9 @@ impl IndexedKey<MediaRetentionPolicy> for IndexedCoreIdKey {
 pub struct IndexedMedia {
     /// The primary key of the object store
     pub id: IndexedMediaIdKey,
+    /// The size (in bytes) of the media content and whether to ignore the
+    /// [`MediaRetentionPolicy`]
+    pub content_size: IndexedMediaContentSizeKey,
     /// The (possibly) encrypted metadata - i.e., [`MediaMetadata`][1]
     ///
     /// [1]: crate::event_cache_store::types::MediaMetadata
@@ -934,6 +944,10 @@ impl Indexed for Media {
                 &self.metadata.request_parameters,
                 serializer,
             ),
+            content_size: IndexedMediaContentSizeKey::encode(
+                (self.metadata.ignore_policy, content.len()),
+                serializer,
+            ),
             metadata: serializer.maybe_encrypt_value(&self.metadata)?,
             content,
         })
@@ -964,5 +978,68 @@ impl IndexedKey<Media> for IndexedMediaIdKey {
 
     fn encode(components: Self::KeyComponents<'_>, serializer: &IndexeddbSerializer) -> Self {
         Self(serializer.encode_key_as_string(keys::MEDIA, components.unique_key()))
+    }
+}
+
+/// The value associated with the [`content_size`](IndexedMedia::content_size)
+/// index of the [`MEDIA`][1] object store, which is constructed from:
+///
+/// - The value of [`IgnoreMediaRetentionPolicy`]
+/// - The size in bytes of the associated [`IndexedMedia::content`]
+///
+/// [1]: crate::event_cache_store::migrations::v1::create_media_object_store
+#[derive(Debug, Serialize, Deserialize)]
+pub struct IndexedMediaContentSizeKey(
+    #[serde(with = "ignore_media_retention_policy")] IgnoreMediaRetentionPolicy,
+    IndexedMediaContentSize,
+);
+
+impl IndexedMediaContentSizeKey {
+    /// Returns whether the associated [`IndexedMedia`] record should ignore the
+    /// global [`MediaRetentionPolicy`]
+    pub fn ignore_policy(&self) -> bool {
+        self.0.is_yes()
+    }
+
+    /// Returns the size in bytes of the associated [`IndexedMedia::content`]
+    pub fn content_size(&self) -> usize {
+        self.1
+    }
+}
+
+impl IndexedKey<Media> for IndexedMediaContentSizeKey {
+    type KeyComponents<'a> = (IgnoreMediaRetentionPolicy, IndexedMediaContentSize);
+
+    fn encode(
+        (ignore_policy, content_size): Self::KeyComponents<'_>,
+        _: &IndexeddbSerializer,
+    ) -> Self {
+        Self(ignore_policy, content_size)
+    }
+}
+
+impl IndexedKeyComponentBounds<Media> for IndexedMediaContentSizeKey {
+    fn lower_key_components() -> Self::KeyComponents<'static> {
+        Self::lower_key_components_with_prefix(IgnoreMediaRetentionPolicy::No)
+    }
+
+    fn upper_key_components() -> Self::KeyComponents<'static> {
+        Self::lower_key_components_with_prefix(IgnoreMediaRetentionPolicy::Yes)
+    }
+}
+
+impl<'a> IndexedPrefixKeyComponentBounds<'a, Media, IgnoreMediaRetentionPolicy>
+    for IndexedMediaContentSizeKey
+{
+    fn lower_key_components_with_prefix(
+        prefix: IgnoreMediaRetentionPolicy,
+    ) -> Self::KeyComponents<'a> {
+        (prefix, IndexedMediaContentSize::MIN)
+    }
+
+    fn upper_key_components_with_prefix(
+        prefix: IgnoreMediaRetentionPolicy,
+    ) -> Self::KeyComponents<'a> {
+        (prefix, IndexedMediaContentSize::MAX)
     }
 }
