@@ -16,8 +16,9 @@ use std::time::Duration;
 
 use matrix_sdk_base::{
     deserialized_responses::TimelineEvent,
-    event_cache::store::extract_event_relation,
+    event_cache::store::{extract_event_relation, media::IgnoreMediaRetentionPolicy},
     linked_chunk::{ChunkIdentifier, LinkedChunkId, OwnedLinkedChunkId},
+    media::MediaRequestParameters,
 };
 use ruma::{OwnedEventId, OwnedRoomId, RoomId};
 use serde::{Deserialize, Serialize};
@@ -220,4 +221,28 @@ pub struct Gap {
     /// The token to use in the query, extracted from a previous "from" /
     /// "end" field of a `/messages` response.
     pub prev_token: String,
+}
+
+/// A representation of media data which can be stored in IndexedDB.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct Media {
+    /// The metadata associated with [`Media::content`]
+    pub metadata: MediaMetadata,
+    /// The content of the media
+    pub content: Vec<u8>,
+}
+
+/// A representation of media metadata which can be stored in IndexedDB.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct MediaMetadata {
+    /// The parameters specifying the type and source of the media contained in
+    /// [`Media::content`]
+    pub request_parameters: MediaRequestParameters,
+    /// The last time the media was accessed in IndexedDB
+    pub last_access: Duration,
+    /// Whether to ignore the [`MediaRetentionPolicy`][1] stored in IndexedDB
+    ///
+    /// [1]: matrix_sdk_base::event_cache::store::media::MediaRetentionPolicy
+    #[serde(with = "crate::event_cache_store::serializer::foreign::ignore_media_retention_policy")]
+    pub ignore_policy: IgnoreMediaRetentionPolicy,
 }
