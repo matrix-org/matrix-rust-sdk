@@ -30,8 +30,9 @@
 use std::sync::LazyLock;
 
 use matrix_sdk_base::{
-    event_cache::store::media::MediaRetentionPolicy,
+    event_cache::store::media::{IgnoreMediaRetentionPolicy, MediaRetentionPolicy},
     linked_chunk::{ChunkIdentifier, LinkedChunkId},
+    media::{MediaRequestParameters, UniqueKey},
 };
 use matrix_sdk_crypto::CryptoStoreError;
 use ruma::{events::relation::RelationType, EventId, OwnedEventId, RoomId};
@@ -45,7 +46,7 @@ use crate::{
             Indexed, IndexedKey, IndexedKeyBounds, IndexedKeyComponentBounds,
             IndexedPrefixKeyBounds, IndexedPrefixKeyComponentBounds,
         },
-        types::{Chunk, Event, Gap, Lease, Position},
+        types::{Chunk, Event, Gap, Lease, Media, Position},
     },
     serializer::{IndexeddbSerializer, MaybeEncrypted},
 };
@@ -280,6 +281,14 @@ pub type IndexedGapContent = MaybeEncrypted;
 
 /// A (possibly) encrypted representation of a [`MediaRetentionPolicy`]
 pub type IndexedMediaRetentionPolicyContent = MaybeEncrypted;
+
+/// A (possibly) encrypted representation of a [`MediaMetadata`][1]
+///
+/// [1]: crate::event_cache_store::types::MediaMetadata
+pub type IndexedMediaMetadata = MaybeEncrypted;
+
+/// A (possibly) encrypted representation of [`Media::content`]
+pub type IndexedMediaContent = Vec<u8>;
 
 /// Represents the [`LEASES`][1] object store.
 ///
@@ -881,5 +890,79 @@ impl IndexedKey<MediaRetentionPolicy> for IndexedCoreIdKey {
 
     fn encode(components: Self::KeyComponents<'_>, serializer: &IndexeddbSerializer) -> Self {
         serializer.encode_key_as_string(keys::CORE, keys::MEDIA_RETENTION_POLICY_KEY)
+    }
+}
+
+/// Represents the [`MEDIA`][1] object store.
+///
+/// [1]: crate::event_cache_store::migrations::v1::create_media_object_store
+#[derive(Debug, Serialize, Deserialize)]
+pub struct IndexedMedia {
+    /// The primary key of the object store
+    pub id: IndexedMediaIdKey,
+    /// The (possibly) encrypted metadata - i.e., [`MediaMetadata`][1]
+    ///
+    /// [1]: crate::event_cache_store::types::MediaMetadata
+    pub metadata: IndexedMediaMetadata,
+    /// The (possibly) encrypted content - i.e., [`Media::content`]
+    pub content: IndexedMediaContent,
+}
+
+#[derive(Debug, Error)]
+pub enum IndexedMediaError {
+    #[error("crypto store: {0}")]
+    CryptoStore(#[from] CryptoStoreError),
+    #[error("serialization: {0}")]
+    Serialization(#[from] rmp_serde::encode::Error),
+    #[error("deserialization: {0}")]
+    Deserialization(#[from] rmp_serde::decode::Error),
+}
+
+impl Indexed for Media {
+    const OBJECT_STORE: &'static str = keys::MEDIA;
+
+    type IndexedType = IndexedMedia;
+    type Error = IndexedMediaError;
+
+    fn to_indexed(
+        &self,
+        serializer: &IndexeddbSerializer,
+    ) -> Result<Self::IndexedType, Self::Error> {
+        let content = rmp_serde::to_vec_named(&serializer.maybe_encrypt_value(&self.content)?)?;
+        Ok(Self::IndexedType {
+            id: <IndexedMediaIdKey as IndexedKey<Self>>::encode(
+                &self.metadata.request_parameters,
+                serializer,
+            ),
+            metadata: serializer.maybe_encrypt_value(&self.metadata)?,
+            content,
+        })
+    }
+
+    fn from_indexed(
+        indexed: Self::IndexedType,
+        serializer: &IndexeddbSerializer,
+    ) -> Result<Self, Self::Error> {
+        Ok(Self {
+            metadata: serializer.maybe_decrypt_value(indexed.metadata)?,
+            content: serializer.maybe_decrypt_value(rmp_serde::from_slice(&indexed.content)?)?,
+        })
+    }
+}
+
+/// The primary key of the [`MEDIA`][1] object store, which is constructed from:
+///
+/// - The (possibly) hashed value returned by
+///   [`MediaRequestParameters::unique_key`]
+///
+/// [1]: crate::event_cache_store::migrations::v1::create_media_object_store
+#[derive(Debug, Serialize, Deserialize)]
+pub struct IndexedMediaIdKey(String);
+
+impl IndexedKey<Media> for IndexedMediaIdKey {
+    type KeyComponents<'a> = &'a MediaRequestParameters;
+
+    fn encode(components: Self::KeyComponents<'_>, serializer: &IndexeddbSerializer) -> Self {
+        Self(serializer.encode_key_as_string(keys::MEDIA, components.unique_key()))
     }
 }

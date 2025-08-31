@@ -131,6 +131,8 @@ pub mod v1 {
         pub const GAPS: &str = "gaps";
         pub const GAPS_KEY_PATH: &str = "id";
         pub const MEDIA_RETENTION_POLICY_KEY: &str = "media_retention_policy";
+        pub const MEDIA: &str = "media";
+        pub const MEDIA_KEY_PATH: &str = "id";
     }
 
     /// Create all object stores and indices for v1 database
@@ -140,6 +142,7 @@ pub mod v1 {
         create_linked_chunks_object_store(db)?;
         create_events_object_store(db)?;
         create_gaps_object_store(db)?;
+        create_media_object_store(db)?;
         Ok(())
     }
 
@@ -216,6 +219,16 @@ pub mod v1 {
         let mut object_store_params = IdbObjectStoreParameters::new();
         object_store_params.key_path(Some(&keys::GAPS_KEY_PATH.into()));
         let _ = db.create_object_store_with_params(keys::GAPS, &object_store_params)?;
+        Ok(())
+    }
+
+    /// Create an object store for tracking information about media.
+    ///
+    /// * Primary Key - `id`
+    fn create_media_object_store(db: &IdbDatabase) -> Result<(), DomException> {
+        let mut object_store_params = IdbObjectStoreParameters::new();
+        object_store_params.key_path(Some(&keys::MEDIA_KEY_PATH.into()));
+        let _ = db.create_object_store_with_params(keys::MEDIA, &object_store_params)?;
         Ok(())
     }
 }
