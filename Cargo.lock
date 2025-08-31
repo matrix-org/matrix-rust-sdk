@@ -3400,6 +3400,7 @@ dependencies = [
  "matrix-sdk-store-encryption",
  "matrix-sdk-test",
  "rand 0.8.5",
+ "rmp-serde",
  "ruma",
  "serde",
  "serde-wasm-bindgen",
