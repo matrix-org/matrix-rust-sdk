@@ -137,6 +137,8 @@ pub mod v1 {
         pub const MEDIA_SOURCE_KEY_PATH: &str = "source";
         pub const MEDIA_CONTENT_SIZE: &str = "media_content_size";
         pub const MEDIA_CONTENT_SIZE_KEY_PATH: &str = "content_size";
+        pub const MEDIA_LAST_ACCESS: &str = "media_last_access";
+        pub const MEDIA_LAST_ACCESS_KEY_PATH: &str = "last_access";
     }
 
     /// Create all object stores and indices for v1 database
@@ -233,6 +235,8 @@ pub mod v1 {
     ///   media
     /// * Index - `content_size` - tracks the size of the media content and
     ///   whether to ignore the [`MediaRetentionPolicy`][2]
+    /// * Index - `last_access` - tracks the last time the associated media was
+    ///   accessed
     ///
     /// [1]: ruma::events::room::MediaSource
     /// [2]: matrix_sdk_base::event_cache::store::media::MediaRetentionPolicy
@@ -242,6 +246,7 @@ pub mod v1 {
         let media = db.create_object_store_with_params(keys::MEDIA, &object_store_params)?;
         media.create_index(keys::MEDIA_SOURCE, &keys::MEDIA_SOURCE_KEY_PATH.into())?;
         media.create_index(keys::MEDIA_CONTENT_SIZE, &keys::MEDIA_CONTENT_SIZE_KEY_PATH.into())?;
+        media.create_index(keys::MEDIA_LAST_ACCESS, &keys::MEDIA_LAST_ACCESS_KEY_PATH.into())?;
         Ok(())
     }
 }

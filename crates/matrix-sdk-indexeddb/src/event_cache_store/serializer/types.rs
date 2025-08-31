@@ -27,7 +27,7 @@
 //! These types mimic the structure of the object stores and indices created in
 //! [`crate::event_cache_store::migrations`].
 
-use std::sync::LazyLock;
+use std::{sync::LazyLock, time::Duration};
 
 use matrix_sdk_base::{
     event_cache::store::media::{IgnoreMediaRetentionPolicy, MediaRetentionPolicy},
@@ -153,6 +153,22 @@ static INDEXED_KEY_UPPER_EVENT_POSITION: LazyLock<Position> = LazyLock::new(|| P
     chunk_identifier: INDEXED_KEY_UPPER_CHUNK_IDENTIFIER.index(),
     index: INDEXED_KEY_UPPER_EVENT_INDEX,
 });
+
+/// The minimum possible [`Duration`].
+///
+/// This value is useful for constructing a key range over all keys which
+/// contain time-related values when used in conjunction with
+/// [`INDEXED_KEY_UPPER_DURATION`].
+const INDEXED_KEY_LOWER_DURATION: Duration = Duration::ZERO;
+
+/// A [`Duration`] constructed with [`js_sys::Number::MAX_SAFE_INTEGER`]
+/// seconds.
+///
+/// This value is useful for constructing a key range over all keys which
+/// contain time-related values in seconds when used in conjunction with
+/// [`INDEXED_KEY_LOWER_DURATION`].
+const INDEXED_KEY_UPPER_DURATION_SECONDS: Duration =
+    Duration::from_secs(js_sys::Number::MAX_SAFE_INTEGER as u64);
 
 /// Representation of a range of keys of type `K`. This is loosely
 /// correlated with [IDBKeyRange][1], with a few differences.
@@ -299,6 +315,10 @@ pub type IndexedMediaContent = Vec<u8>;
 /// A representation of the size in bytes of the [`IndexedMediaContent`] which
 /// is suitable for use in an IndexedDB key
 pub type IndexedMediaContentSize = usize;
+
+/// A representation of time in seconds since the [Unix
+/// Epoch](std::time::UNIX_EPOCH) which is suitable for use in an IndexedDB key
+pub type IndexedSecondsSinceUnixEpoch = u64;
 
 /// Represents the [`LEASES`][1] object store.
 ///
@@ -916,6 +936,9 @@ pub struct IndexedMedia {
     /// The size (in bytes) of the media content and whether to ignore the
     /// [`MediaRetentionPolicy`]
     pub content_size: IndexedMediaContentSizeKey,
+    /// The last time the media was accessed and whether to ignore the
+    /// [`MediaRetentionPolicy`]
+    pub last_access: IndexedMediaLastAccessKey,
     /// The (possibly) encrypted metadata - i.e., [`MediaMetadata`][1]
     ///
     /// [1]: crate::event_cache_store::types::MediaMetadata
@@ -956,6 +979,10 @@ impl Indexed for Media {
             ),
             content_size: IndexedMediaContentSizeKey::encode(
                 (self.metadata.ignore_policy, content.len()),
+                serializer,
+            ),
+            last_access: IndexedMediaLastAccessKey::encode(
+                (self.metadata.ignore_policy, self.metadata.last_access),
                 serializer,
             ),
             metadata: serializer.maybe_encrypt_value(&self.metadata)?,
@@ -1068,5 +1095,56 @@ impl<'a> IndexedPrefixKeyComponentBounds<'a, Media, IgnoreMediaRetentionPolicy>
         prefix: IgnoreMediaRetentionPolicy,
     ) -> Self::KeyComponents<'a> {
         (prefix, IndexedMediaContentSize::MAX)
+    }
+}
+
+/// The value associated with the [`last_access`](IndexedMedia::last_access)
+/// index of the [`MEDIA`][1] object store, which is constructed from:
+///
+/// - The value of [`IgnoreMediaRetentionPolicy`]
+/// - The last time the associated [`IndexedMedia`] was accessed (in seconds
+///   since the Unix Epoch)
+///
+/// [1]: crate::event_cache_store::migrations::v1::create_media_object_store
+#[derive(Debug, Serialize, Deserialize)]
+pub struct IndexedMediaLastAccessKey(
+    #[serde(with = "ignore_media_retention_policy")] IgnoreMediaRetentionPolicy,
+    IndexedSecondsSinceUnixEpoch,
+);
+
+impl IndexedKey<Media> for IndexedMediaLastAccessKey {
+    type KeyComponents<'a> = (IgnoreMediaRetentionPolicy, Duration);
+
+    fn encode(
+        (ignore_policy, last_access): Self::KeyComponents<'_>,
+        _: &IndexeddbSerializer,
+    ) -> Self {
+        Self(ignore_policy, last_access.as_secs())
+    }
+}
+
+impl IndexedKeyComponentBounds<Media> for IndexedMediaLastAccessKey {
+    fn lower_key_components() -> Self::KeyComponents<'static> {
+        Self::lower_key_components_with_prefix(IgnoreMediaRetentionPolicy::No)
+    }
+
+    fn upper_key_components() -> Self::KeyComponents<'static> {
+        Self::lower_key_components_with_prefix(IgnoreMediaRetentionPolicy::Yes)
+    }
+}
+
+impl<'a> IndexedPrefixKeyComponentBounds<'a, Media, IgnoreMediaRetentionPolicy>
+    for IndexedMediaLastAccessKey
+{
+    fn lower_key_components_with_prefix(
+        prefix: IgnoreMediaRetentionPolicy,
+    ) -> Self::KeyComponents<'a> {
+        (prefix, INDEXED_KEY_LOWER_DURATION)
+    }
+
+    fn upper_key_components_with_prefix(
+        prefix: IgnoreMediaRetentionPolicy,
+    ) -> Self::KeyComponents<'a> {
+        (prefix, INDEXED_KEY_UPPER_DURATION_SECONDS)
     }
 }
