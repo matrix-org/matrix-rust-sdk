@@ -51,9 +51,7 @@ unknown-git = "deny"
 allow-git = [
     # A patch override for the bindings fixing a bug for Android before upstream
     # releases a new version.
-    "https://github.com/element-hq/tracing.git",
-    # Same as for the tracing dependency.
-    "https://github.com/element-hq/paranoid-android.git",
+    "https://github.com/tokio-rs/tracing.git",
     # Well, it's Ruma.
     "https://github.com/ruma/ruma",
     # A patch override for the bindings: https://github.com/rodrimati1992/const_panic/pull/10
