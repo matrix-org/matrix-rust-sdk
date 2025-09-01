@@ -32,7 +32,7 @@ use matrix_sdk_base::{
         StateStore, StoreError, StoredThreadSubscription, ThreadSubscriptionStatus,
     },
     MinimalRoomMemberEvent, RoomInfo, RoomMemberships, StateStoreDataKey, StateStoreDataValue,
-    ROOM_VERSION_FALLBACK, ROOM_VERSION_RULES_FALLBACK,
+    ThreadSubscriptionCatchupToken, ROOM_VERSION_FALLBACK, ROOM_VERSION_RULES_FALLBACK,
 };
 use matrix_sdk_store_encryption::{Error as EncryptionError, StoreCipher};
 use ruma::{
@@ -439,6 +439,9 @@ impl IndexeddbStateStore {
             StateStoreDataKey::SeenKnockRequests(room_id) => {
                 self.encode_key(keys::KV, (StateStoreDataKey::SEEN_KNOCK_REQUESTS, room_id))
             }
+            StateStoreDataKey::ThreadSubscriptionsCatchupTokens => {
+                self.encode_key(keys::KV, StateStoreDataKey::THREAD_SUBSCRIPTIONS_CATCHUP_TOKENS)
+            }
         }
     }
 }
@@ -591,6 +594,10 @@ impl_state_store!({
                 .map(|f| self.deserialize_value::<BTreeMap<OwnedEventId, OwnedUserId>>(&f))
                 .transpose()?
                 .map(StateStoreDataValue::SeenKnockRequests),
+            StateStoreDataKey::ThreadSubscriptionsCatchupTokens => value
+                .map(|f| self.deserialize_value::<Vec<ThreadSubscriptionCatchupToken>>(&f))
+                .transpose()?
+                .map(StateStoreDataValue::ThreadSubscriptionsCatchupTokens),
         };
 
         Ok(value)
@@ -631,6 +638,11 @@ impl_state_store!({
                 &value
                     .into_seen_knock_requests()
                     .expect("Session data is not a set of seen knock request ids"),
+            ),
+            StateStoreDataKey::ThreadSubscriptionsCatchupTokens => self.serialize_value(
+                &value
+                    .into_thread_subscriptions_catchup_tokens()
+                    .expect("Session data is not a list of thread subscription catchup tokens"),
             ),
         };
 

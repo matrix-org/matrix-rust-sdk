@@ -40,7 +40,7 @@ use ruma::{
 use rusqlite::{OptionalExtension, Transaction};
 use serde::{Deserialize, Serialize};
 use tokio::fs;
-use tracing::{debug, warn};
+use tracing::{debug, trace, warn};
 
 use crate::{
     error::{Error, Result},
@@ -415,6 +415,9 @@ impl SqliteStateStore {
             }
             StateStoreDataKey::SeenKnockRequests(room_id) => {
                 Cow::Owned(format!("{}:{room_id}", StateStoreDataKey::SEEN_KNOCK_REQUESTS))
+            }
+            StateStoreDataKey::ThreadSubscriptionsCatchupTokens => {
+                Cow::Borrowed(StateStoreDataKey::THREAD_SUBSCRIPTIONS_CATCHUP_TOKENS)
             }
         };
 
@@ -1037,6 +1040,11 @@ impl StateStore for SqliteStateStore {
                     StateStoreDataKey::SeenKnockRequests(_) => {
                         StateStoreDataValue::SeenKnockRequests(self.deserialize_value(&data)?)
                     }
+                    StateStoreDataKey::ThreadSubscriptionsCatchupTokens => {
+                        StateStoreDataValue::ThreadSubscriptionsCatchupTokens(
+                            self.deserialize_value(&data)?,
+                        )
+                    }
                 })
             })
             .transpose()
@@ -1076,6 +1084,11 @@ impl StateStore for SqliteStateStore {
                 &value
                     .into_seen_knock_requests()
                     .expect("Session data is not a set of seen knock request ids"),
+            )?,
+            StateStoreDataKey::ThreadSubscriptionsCatchupTokens => self.serialize_value(
+                &value
+                    .into_thread_subscriptions_catchup_tokens()
+                    .expect("Session data is not a list of thread subscription catchup tokens"),
             )?,
         };
 
@@ -2125,9 +2138,11 @@ impl StateStore for SqliteStateStore {
         if let Some(previous) = self.load_thread_subscription(room_id, thread_id).await? {
             if previous == new {
                 // No need to update anything.
+                trace!("not saving thread subscription because the subscription is the same");
                 return Ok(());
             }
             if !compare_thread_subscription_bump_stamps(previous.bump_stamp, &mut new.bump_stamp) {
+                trace!("not saving thread subscription because we have a newer bump stamp");
                 return Ok(());
             }
         }
