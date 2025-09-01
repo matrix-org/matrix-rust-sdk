@@ -33,6 +33,7 @@ use ruma::{
     api::client::{
         receipt::create_receipt::v3::ReceiptType,
         room::Visibility,
+        sync::sync_events::v5,
         threads::get_thread_subscriptions_changes::unstable::{
             ThreadSubscription, ThreadUnsubscription,
         },
@@ -68,7 +69,7 @@ pub mod encryption;
 pub mod oauth;
 
 use super::client::MockClientBuilder;
-use crate::{room::IncludeRelations, Client, OwnedServerName, Room};
+use crate::{room::IncludeRelations, Client, OwnedServerName, Room, SlidingSyncBuilder};
 
 /// Structure used to store the crypto keys uploaded to the server.
 /// They will be served back to clients when requested.
@@ -351,6 +352,13 @@ impl MatrixMockServer {
             mock,
             SyncEndpoint { sync_response_builder: self.sync_response_builder.clone() },
         )
+    }
+
+    /// Mocks the sliding sync endpoint.
+    pub fn mock_sliding_sync(&self) -> MockEndpoint<'_, SlidingSyncEndpoint> {
+        let mock = Mock::given(method("POST"))
+            .and(path("/_matrix/client/unstable/org.matrix.simplified_msc3575/sync"));
+        self.mock_endpoint(mock, SlidingSyncEndpoint)
     }
 
     /// Creates a prebuilt mock for joining a room.
@@ -4172,6 +4180,8 @@ pub struct GetThreadSubscriptionsEndpoint {
     subscribed: BTreeMap<OwnedRoomId, BTreeMap<OwnedEventId, ThreadSubscription>>,
     /// New thread unsubscriptions per (room id, thread root event id).
     unsubscribed: BTreeMap<OwnedRoomId, BTreeMap<OwnedEventId, ThreadUnsubscription>>,
+    /// Optional delay to respond to the query.
+    delay: Option<Duration>,
 }
 
 impl<'a> MockEndpoint<'a, GetThreadSubscriptionsEndpoint> {
@@ -4197,6 +4207,12 @@ impl<'a> MockEndpoint<'a, GetThreadSubscriptionsEndpoint> {
         self
     }
 
+    /// Respond with a given delay to the query.
+    pub fn with_delay(mut self, delay: Duration) -> Self {
+        self.endpoint.delay = Some(delay);
+        self
+    }
+
     /// Match the `from` query parameter to a given value.
     pub fn match_from(self, from: &str) -> Self {
         Self { mock: self.mock.and(query_param("from", from)), ..self }
@@ -4214,7 +4230,14 @@ impl<'a> MockEndpoint<'a, GetThreadSubscriptionsEndpoint> {
             "unsubscribed": self.endpoint.unsubscribed,
             "end": end,
         });
-        self.respond_with(ResponseTemplate::new(200).set_body_json(response_body))
+
+        let mut template = ResponseTemplate::new(200).set_body_json(response_body);
+
+        if let Some(delay) = self.endpoint.delay {
+            template = template.set_delay(delay);
+        }
+
+        self.respond_with(template)
     }
 }
 
@@ -4278,5 +4301,41 @@ impl<'a> MockEndpoint<'a, GetHierarchyEndpoint> {
         self.respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "rooms": []
         })))
+    }
+}
+
+/// A prebuilt mock for running simplified sliding sync.
+pub struct SlidingSyncEndpoint;
+
+impl<'a> MockEndpoint<'a, SlidingSyncEndpoint> {
+    /// Mocks the sliding sync endpoint with the given response.
+    pub fn ok(self, response: v5::Response) -> MatrixMock<'a> {
+        // A bit silly that we need to destructure all the fields ourselves, but
+        // Response isn't serializable :'(
+        self.respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "txn_id": response.txn_id,
+            "pos": response.pos,
+            "lists": response.lists,
+            "rooms": response.rooms,
+            "extensions": response.extensions,
+        })))
+    }
+
+    /// Temporarily mocks the sync with the given endpoint and runs a client
+    /// sync with it.
+    ///
+    /// After calling this function, the sync endpoint isn't mocked anymore.
+    pub async fn ok_and_run<F: FnOnce(SlidingSyncBuilder) -> SlidingSyncBuilder>(
+        self,
+        client: &Client,
+        on_builder: F,
+        response: v5::Response,
+    ) {
+        let _scope = self.ok(response).mount_as_scoped().await;
+
+        let sliding_sync =
+            on_builder(client.sliding_sync("test_id").unwrap()).build().await.unwrap();
+
+        let _summary = sliding_sync.sync_once().await.unwrap();
     }
 }
