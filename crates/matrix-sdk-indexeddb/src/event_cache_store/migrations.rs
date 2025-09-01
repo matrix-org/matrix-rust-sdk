@@ -139,6 +139,8 @@ pub mod v1 {
         pub const MEDIA_CONTENT_SIZE_KEY_PATH: &str = "content_size";
         pub const MEDIA_LAST_ACCESS: &str = "media_last_access";
         pub const MEDIA_LAST_ACCESS_KEY_PATH: &str = "last_access";
+        pub const MEDIA_RETENTION_METADATA: &str = "media_retention_metadata";
+        pub const MEDIA_RETENTION_METADATA_KEY_PATH: &str = "retention_metadata";
     }
 
     /// Create all object stores and indices for v1 database
@@ -237,6 +239,8 @@ pub mod v1 {
     ///   whether to ignore the [`MediaRetentionPolicy`][2]
     /// * Index - `last_access` - tracks the last time the associated media was
     ///   accessed
+    /// * Index - `retention_metadata` - tracks all retention metadata - i.e.,
+    ///   joins `content_size` and `last_access`
     ///
     /// [1]: ruma::events::room::MediaSource
     /// [2]: matrix_sdk_base::event_cache::store::media::MediaRetentionPolicy
@@ -247,6 +251,10 @@ pub mod v1 {
         media.create_index(keys::MEDIA_SOURCE, &keys::MEDIA_SOURCE_KEY_PATH.into())?;
         media.create_index(keys::MEDIA_CONTENT_SIZE, &keys::MEDIA_CONTENT_SIZE_KEY_PATH.into())?;
         media.create_index(keys::MEDIA_LAST_ACCESS, &keys::MEDIA_LAST_ACCESS_KEY_PATH.into())?;
+        media.create_index(
+            keys::MEDIA_RETENTION_METADATA,
+            &keys::MEDIA_RETENTION_METADATA_KEY_PATH.into(),
+        )?;
         Ok(())
     }
 }
