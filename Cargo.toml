@@ -106,7 +106,7 @@ uniffi = { version = "0.28.0" }
 uniffi_bindgen = { version = "0.28.0" }
 url = "2.5.7"
 uuid = "1.18.0"
-vergen = "8.3.2"
+vergen-gitcl = "1.0.8"
 vodozemac = { version = "0.9.0", features = ["insecure-pk-encryption"] }
 wasm-bindgen = "0.2.84"
 wasm-bindgen-test = "0.3.50"
