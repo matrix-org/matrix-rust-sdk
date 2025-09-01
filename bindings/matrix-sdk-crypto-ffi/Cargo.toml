@@ -68,7 +68,7 @@ features = ["rt-multi-thread"]
 
 [build-dependencies]
 uniffi = { workspace = true, features = ["build"] }
-vergen = { workspace = true, features = ["build", "git", "gitcl"] }
+vergen-gitcl = { workspace = true, features = ["build"] }
 
 [dev-dependencies]
 assert_matches2.workspace = true

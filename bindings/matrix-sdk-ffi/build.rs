@@ -5,7 +5,7 @@ use std::{
     process::Command,
 };
 
-use vergen::EmitBuilder;
+use vergen_gitcl::{Emitter, GitclBuilder};
 
 /// Adds a temporary workaround for an issue with the Rust compiler and Android
 /// in x86_64 devices: https://github.com/rust-lang/rust/issues/109717.
@@ -59,6 +59,9 @@ fn get_clang_major_version(clang_path: &Path) -> String {
 fn main() -> Result<(), Box<dyn Error>> {
     setup_x86_64_android_workaround();
     uniffi::generate_scaffolding("./src/api.udl").expect("Building the UDL file failed");
-    EmitBuilder::builder().git_sha(true).emit()?;
+
+    let git_config = GitclBuilder::default().sha(true).build()?;
+    Emitter::default().add_instructions(&git_config)?.emit()?;
+
     Ok(())
 }
