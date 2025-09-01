@@ -1629,7 +1629,7 @@ impl StateStore for SqliteStateStore {
                     (self.encode_key(keys::DISPLAY_NAME, normalized), display_name)
                 });
 
-                iter::once(raw).chain(normalized.into_iter())
+                iter::once(raw).chain(normalized)
             })
             .collect::<BTreeMap<_, _>>();
         let names = names_map.keys().cloned().collect();
