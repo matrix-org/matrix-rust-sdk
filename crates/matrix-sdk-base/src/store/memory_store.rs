@@ -46,7 +46,8 @@ use crate::{
     MinimalRoomMemberEvent, RoomMemberships, StateStoreDataKey, StateStoreDataValue,
     deserialized_responses::{DisplayName, RawAnySyncOrStrippedState},
     store::{
-        QueueWedgeError, StoredThreadSubscription, traits::compare_thread_subscription_bump_stamps,
+        QueueWedgeError, StoredThreadSubscription,
+        traits::{ThreadSubscriptionCatchupToken, compare_thread_subscription_bump_stamps},
     },
 };
 
@@ -87,6 +88,7 @@ struct MemoryStoreInner {
     dependent_send_queue_events: BTreeMap<OwnedRoomId, Vec<DependentQueuedRequest>>,
     seen_knock_requests: BTreeMap<OwnedRoomId, BTreeMap<OwnedEventId, OwnedUserId>>,
     thread_subscriptions: BTreeMap<OwnedRoomId, BTreeMap<OwnedEventId, StoredThreadSubscription>>,
+    thread_subscriptions_catchup_tokens: Option<Vec<ThreadSubscriptionCatchupToken>>,
 }
 
 /// In-memory, non-persistent implementation of the `StateStore`.
@@ -183,6 +185,10 @@ impl StateStore for MemoryStore {
                 .get(room_id)
                 .cloned()
                 .map(StateStoreDataValue::SeenKnockRequests),
+            StateStoreDataKey::ThreadSubscriptionsCatchupTokens => inner
+                .thread_subscriptions_catchup_tokens
+                .clone()
+                .map(StateStoreDataValue::ThreadSubscriptionsCatchupTokens),
         })
     }
 
@@ -246,6 +252,12 @@ impl StateStore for MemoryStore {
                         .expect("Session data is not a set of seen join request ids"),
                 );
             }
+            StateStoreDataKey::ThreadSubscriptionsCatchupTokens => {
+                inner.thread_subscriptions_catchup_tokens =
+                    Some(value.into_thread_subscriptions_catchup_tokens().expect(
+                        "Session data is not a list of thread subscription catchup tokens",
+                    ));
+            }
         }
 
         Ok(())
@@ -275,6 +287,9 @@ impl StateStore for MemoryStore {
             }
             StateStoreDataKey::SeenKnockRequests(room_id) => {
                 inner.seen_knock_requests.remove(room_id);
+            }
+            StateStoreDataKey::ThreadSubscriptionsCatchupTokens => {
+                inner.thread_subscriptions_catchup_tokens = None;
             }
         }
         Ok(())

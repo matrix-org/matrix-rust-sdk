@@ -93,7 +93,8 @@ pub use self::{
     },
     traits::{
         ComposerDraft, ComposerDraftType, DynStateStore, IntoStateStore, ServerInfo, StateStore,
-        StateStoreDataKey, StateStoreDataValue, StateStoreExt, WellKnownResponse,
+        StateStoreDataKey, StateStoreDataValue, StateStoreExt, ThreadSubscriptionCatchupToken,
+        WellKnownResponse,
     },
 };
 
