@@ -14,13 +14,16 @@
 
 #![allow(unused)]
 
-use std::time::Duration;
+use std::{rc::Rc, time::Duration};
 
 use indexed_db_futures::IdbDatabase;
 use matrix_sdk_base::{
     event_cache::{
         store::{
-            media::{IgnoreMediaRetentionPolicy, MediaRetentionPolicy},
+            media::{
+                EventCacheStoreMedia, IgnoreMediaRetentionPolicy, MediaRetentionPolicy,
+                MediaService,
+            },
             EventCacheStore, MemoryStore,
         },
         Event, Gap,
@@ -33,8 +36,8 @@ use matrix_sdk_base::{
     timer,
 };
 use ruma::{
-    events::relation::RelationType, EventId, MilliSecondsSinceUnixEpoch, MxcUri, OwnedEventId,
-    RoomId,
+    events::relation::RelationType, time::SystemTime, EventId, MilliSecondsSinceUnixEpoch, MxcUri,
+    OwnedEventId, RoomId,
 };
 use tracing::{error, instrument, trace};
 use web_sys::IdbTransactionMode;
@@ -48,7 +51,7 @@ use crate::event_cache_store::{
 
 mod builder;
 mod error;
-#[cfg(test)]
+#[cfg(all(test, target_family = "wasm"))]
 mod integration_tests;
 mod migrations;
 mod serializer;
@@ -63,12 +66,15 @@ pub use error::IndexeddbEventCacheStoreError;
 /// contexts.
 ///
 /// [1]: matrix_sdk_base::event_cache::store::EventCacheStore
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct IndexeddbEventCacheStore {
     // A handle to the IndexedDB database
-    inner: IdbDatabase,
+    inner: Rc<IdbDatabase>,
     // A serializer with functionality tailored to `IndexeddbEventCacheStore`
     serializer: IndexeddbEventCacheStoreSerializer,
+    // A service for conveniently delegating media-related queries to an `EventCacheStoreMedia`
+    // implementation
+    media_service: MediaService,
     // An in-memory store for providing temporary implementations for
     // functions of `EventCacheStore`.
     //
@@ -99,36 +105,11 @@ impl IndexeddbEventCacheStore {
     }
 }
 
-// Small hack to have the following macro invocation act as the appropriate
-// trait impl block on wasm, but still be compiled on non-wasm as a regular
-// impl block otherwise.
-//
-// The trait impl doesn't compile on non-wasm due to unfulfilled trait bounds,
-// this hack allows us to still have most of rust-analyzer's IDE functionality
-// within the impl block without having to set it up to check things against
-// the wasm target (which would disable many other parts of the codebase).
-#[cfg(target_arch = "wasm32")]
-macro_rules! impl_event_cache_store {
-    ( $($body:tt)* ) => {
-        #[async_trait::async_trait(?Send)]
-        impl EventCacheStore for IndexeddbEventCacheStore {
-            type Error = IndexeddbEventCacheStoreError;
+#[cfg(target_family = "wasm")]
+#[async_trait::async_trait(?Send)]
+impl EventCacheStore for IndexeddbEventCacheStore {
+    type Error = IndexeddbEventCacheStoreError;
 
-            $($body)*
-        }
-    };
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-macro_rules! impl_event_cache_store {
-    ( $($body:tt)* ) => {
-        impl IndexeddbEventCacheStore {
-            $($body)*
-        }
-    };
-}
-
-impl_event_cache_store! {
     #[instrument(skip(self))]
     async fn try_take_leased_lock(
         &self,
@@ -168,9 +149,6 @@ impl_event_cache_store! {
     ) -> Result<(), IndexeddbEventCacheStoreError> {
         let _timer = timer!("method");
 
-        let linked_chunk_id = linked_chunk_id.to_owned();
-        let room_id = linked_chunk_id.room_id();
-
         let transaction = self.transaction(
             &[keys::LINKED_CHUNKS, keys::GAPS, keys::EVENTS],
             IdbTransactionMode::Readwrite,
@@ -179,63 +157,55 @@ impl_event_cache_store! {
         for update in updates {
             match update {
                 Update::NewItemsChunk { previous, new, next } => {
-                    trace!(%room_id, "Inserting new chunk (prev={previous:?}, new={new:?}, next={next:?})");
+                    trace!(%linked_chunk_id, "Inserting new chunk (prev={previous:?}, new={new:?}, next={next:?})");
                     transaction
-                        .add_chunk(
-                            &types::Chunk {
-                                room_id: room_id.to_owned(),
-                                identifier: new.index(),
-                                previous: previous.map(|i| i.index()),
-                                next: next.map(|i| i.index()),
-                                chunk_type: ChunkType::Event,
-                            },
-                        )
+                        .add_chunk(&types::Chunk {
+                            linked_chunk_id: linked_chunk_id.to_owned(),
+                            identifier: new.index(),
+                            previous: previous.map(|i| i.index()),
+                            next: next.map(|i| i.index()),
+                            chunk_type: ChunkType::Event,
+                        })
                         .await?;
                 }
                 Update::NewGapChunk { previous, new, next, gap } => {
-                    trace!(%room_id, "Inserting new gap (prev={previous:?}, new={new:?}, next={next:?})");
+                    trace!(%linked_chunk_id, "Inserting new gap (prev={previous:?}, new={new:?}, next={next:?})");
                     transaction
-                        .add_item(
-                            &types::Gap {
-                                room_id: room_id.to_owned(),
-                                chunk_identifier: new.index(),
-                                prev_token: gap.prev_token,
-                            },
-                        )
+                        .add_item(&types::Gap {
+                            linked_chunk_id: linked_chunk_id.to_owned(),
+                            chunk_identifier: new.index(),
+                            prev_token: gap.prev_token,
+                        })
                         .await?;
                     transaction
-                        .add_chunk(
-                            &types::Chunk {
-                                room_id: room_id.to_owned(),
-                                identifier: new.index(),
-                                previous: previous.map(|i| i.index()),
-                                next: next.map(|i| i.index()),
-                                chunk_type: ChunkType::Gap,
-                            },
-                        )
+                        .add_chunk(&types::Chunk {
+                            linked_chunk_id: linked_chunk_id.to_owned(),
+                            identifier: new.index(),
+                            previous: previous.map(|i| i.index()),
+                            next: next.map(|i| i.index()),
+                            chunk_type: ChunkType::Gap,
+                        })
                         .await?;
                 }
                 Update::RemoveChunk(chunk_id) => {
-                    trace!("Removing chunk {chunk_id:?}");
-                    transaction.delete_chunk_by_id(room_id, chunk_id).await?;
+                    trace!(%linked_chunk_id, "Removing chunk {chunk_id:?}");
+                    transaction.delete_chunk_by_id(linked_chunk_id, chunk_id).await?;
                 }
                 Update::PushItems { at, items } => {
                     let chunk_identifier = at.chunk_identifier().index();
 
-                    trace!(%room_id, "pushing {} items @ {chunk_identifier}", items.len());
+                    trace!(%linked_chunk_id, "pushing {} items @ {chunk_identifier}", items.len());
 
                     for (i, item) in items.into_iter().enumerate() {
                         transaction
-                            .put_event(
-                                &types::Event::InBand(InBandEvent {
-                                    room_id: room_id.to_owned(),
-                                    content: item,
-                                    position: types::Position {
-                                        chunk_identifier,
-                                        index: at.index() + i,
-                                    },
-                                }),
-                            )
+                            .put_event(&types::Event::InBand(InBandEvent {
+                                linked_chunk_id: linked_chunk_id.to_owned(),
+                                content: item,
+                                position: types::Position {
+                                    chunk_identifier,
+                                    index: at.index() + i,
+                                },
+                            }))
                             .await?;
                     }
                 }
@@ -243,42 +213,42 @@ impl_event_cache_store! {
                     let chunk_id = at.chunk_identifier().index();
                     let index = at.index();
 
-                    trace!(%room_id, "replacing item @ {chunk_id}:{index}");
+                    trace!(%linked_chunk_id, "replacing item @ {chunk_id}:{index}");
 
                     transaction
-                        .put_event(
-                            &types::Event::InBand(InBandEvent {
-                                room_id: room_id.to_owned(),
-                                content: item,
-                                position: at.into(),
-                            }),
-                        )
+                        .put_event(&types::Event::InBand(InBandEvent {
+                            linked_chunk_id: linked_chunk_id.to_owned(),
+                            content: item,
+                            position: at.into(),
+                        }))
                         .await?;
                 }
                 Update::RemoveItem { at } => {
                     let chunk_id = at.chunk_identifier().index();
                     let index = at.index();
 
-                    trace!(%room_id, "removing item @ {chunk_id}:{index}");
+                    trace!(%linked_chunk_id, "removing item @ {chunk_id}:{index}");
 
-                    transaction.delete_event_by_position(room_id, at.into()).await?;
+                    transaction.delete_event_by_position(linked_chunk_id, at.into()).await?;
                 }
                 Update::DetachLastItems { at } => {
                     let chunk_id = at.chunk_identifier().index();
                     let index = at.index();
 
-                    trace!(%room_id, "detaching last items @ {chunk_id}:{index}");
+                    trace!(%linked_chunk_id, "detaching last items @ {chunk_id}:{index}");
 
-                    transaction.delete_events_by_chunk_from_index(room_id, at.into()).await?;
+                    transaction
+                        .delete_events_by_chunk_from_index(linked_chunk_id, at.into())
+                        .await?;
                 }
                 Update::StartReattachItems | Update::EndReattachItems => {
                     // Nothing? See sqlite implementation
                 }
                 Update::Clear => {
-                    trace!(%room_id, "clearing room");
-                    transaction.delete_chunks_in_room(room_id).await?;
-                    transaction.delete_events_in_room(room_id).await?;
-                    transaction.delete_gaps_in_room(room_id).await?;
+                    trace!(%linked_chunk_id, "clearing room");
+                    transaction.delete_chunks_by_linked_chunk_id(linked_chunk_id).await?;
+                    transaction.delete_events_by_linked_chunk_id(linked_chunk_id).await?;
+                    transaction.delete_gaps_by_linked_chunk_id(linked_chunk_id).await?;
                 }
             }
         }
@@ -293,19 +263,16 @@ impl_event_cache_store! {
     ) -> Result<Vec<RawChunk<Event, Gap>>, IndexeddbEventCacheStoreError> {
         let _ = timer!("method");
 
-        let linked_chunk_id = linked_chunk_id.to_owned();
-        let room_id = linked_chunk_id.room_id();
-
         let transaction = self.transaction(
             &[keys::LINKED_CHUNKS, keys::GAPS, keys::EVENTS],
             IdbTransactionMode::Readwrite,
         )?;
 
         let mut raw_chunks = Vec::new();
-        let chunks = transaction.get_chunks_in_room(room_id).await?;
+        let chunks = transaction.get_chunks_by_linked_chunk_id(linked_chunk_id).await?;
         for chunk in chunks {
             if let Some(raw_chunk) = transaction
-                .load_chunk_by_id(room_id, ChunkIdentifier::new(chunk.identifier))
+                .load_chunk_by_id(linked_chunk_id, ChunkIdentifier::new(chunk.identifier))
                 .await?
             {
                 raw_chunks.push(raw_chunk);
@@ -331,19 +298,17 @@ impl_event_cache_store! {
         // https://github.com/matrix-org/matrix-rust-sdk/pull/5382.
         let _ = timer!("method");
 
-        let linked_chunk_id = linked_chunk_id.to_owned();
-        let room_id = linked_chunk_id.room_id();
-
         let transaction = self.transaction(
             &[keys::LINKED_CHUNKS, keys::EVENTS, keys::GAPS],
             IdbTransactionMode::Readwrite,
         )?;
 
         let mut raw_chunks = Vec::new();
-        let chunks = transaction.get_chunks_in_room(room_id).await?;
+        let chunks = transaction.get_chunks_by_linked_chunk_id(linked_chunk_id).await?;
         for chunk in chunks {
             let chunk_id = ChunkIdentifier::new(chunk.identifier);
-            let num_items = transaction.get_events_count_by_chunk(room_id, chunk_id).await?;
+            let num_items =
+                transaction.get_events_count_by_chunk(linked_chunk_id, chunk_id).await?;
             raw_chunks.push(ChunkMetadata {
                 num_items,
                 previous: chunk.previous.map(ChunkIdentifier::new),
@@ -364,20 +329,20 @@ impl_event_cache_store! {
     > {
         let _timer = timer!("method");
 
-        let linked_chunk_id = linked_chunk_id.to_owned();
-        let room_id = linked_chunk_id.room_id();
+        let owned_linked_chunk_id = linked_chunk_id.to_owned();
+        let room_id = owned_linked_chunk_id.room_id();
         let transaction = self.transaction(
             &[keys::LINKED_CHUNKS, keys::EVENTS, keys::GAPS],
             IdbTransactionMode::Readonly,
         )?;
 
-        if transaction.get_chunks_count_in_room(room_id).await? == 0 {
+        if transaction.get_chunks_count_by_linked_chunk_id(linked_chunk_id).await? == 0 {
             return Ok((None, ChunkIdentifierGenerator::new_from_scratch()));
         }
         // Now that we know we have some chunks in the room, we query IndexedDB
         // for the last chunk in the room by getting the chunk which does not
         // have a next chunk.
-        match transaction.get_chunk_by_next_chunk_id(room_id, None).await {
+        match transaction.get_chunk_by_next_chunk_id(linked_chunk_id, None).await {
             Err(IndexeddbEventCacheStoreTransactionError::ItemIsNotUnique) => {
                 // If there are multiple chunks that do not have a next chunk, that
                 // means we have more than one last chunk, which means that we have
@@ -388,20 +353,20 @@ impl_event_cache_store! {
                 // There was some error querying IndexedDB, but it is not necessarily
                 // a violation of our data constraints.
                 Err(e.into())
-            },
+            }
             Ok(None) => {
                 // If there is no chunk without a next chunk, that means every chunk
                 // points to another chunk, which means that we have a cycle in our list.
                 Err(IndexeddbEventCacheStoreError::ChunksContainCycle)
-            },
+            }
             Ok(Some(last_chunk)) => {
                 let last_chunk_identifier = ChunkIdentifier::new(last_chunk.identifier);
                 let last_raw_chunk = transaction
-                    .load_chunk_by_id(room_id, last_chunk_identifier)
+                    .load_chunk_by_id(linked_chunk_id, last_chunk_identifier)
                     .await?
                     .ok_or(IndexeddbEventCacheStoreError::UnableToLoadChunk)?;
                 let max_chunk_id = transaction
-                    .get_max_chunk_by_id(room_id)
+                    .get_max_chunk_by_id(linked_chunk_id)
                     .await?
                     .map(|chunk| ChunkIdentifier::new(chunk.identifier))
                     .ok_or(IndexeddbEventCacheStoreError::NoMaxChunkId)?;
@@ -420,16 +385,18 @@ impl_event_cache_store! {
     ) -> Result<Option<RawChunk<Event, Gap>>, IndexeddbEventCacheStoreError> {
         let _timer = timer!("method");
 
-        let linked_chunk_id = linked_chunk_id.to_owned();
-        let room_id = linked_chunk_id.room_id();
         let transaction = self.transaction(
             &[keys::LINKED_CHUNKS, keys::EVENTS, keys::GAPS],
             IdbTransactionMode::Readonly,
         )?;
-        if let Some(chunk) = transaction.get_chunk_by_id(room_id, before_chunk_identifier).await? {
+        if let Some(chunk) =
+            transaction.get_chunk_by_id(linked_chunk_id, before_chunk_identifier).await?
+        {
             if let Some(previous_identifier) = chunk.previous {
                 let previous_identifier = ChunkIdentifier::new(previous_identifier);
-                return Ok(transaction.load_chunk_by_id(room_id, previous_identifier).await?);
+                return Ok(transaction
+                    .load_chunk_by_id(linked_chunk_id, previous_identifier)
+                    .await?);
             }
         }
         Ok(None)
@@ -462,14 +429,11 @@ impl_event_cache_store! {
             return Ok(Vec::new());
         }
 
-        let linked_chunk_id = linked_chunk_id.to_owned();
-        let room_id = linked_chunk_id.room_id();
-        let transaction =
-            self.transaction(&[keys::EVENTS], IdbTransactionMode::Readonly)?;
+        let transaction = self.transaction(&[keys::EVENTS], IdbTransactionMode::Readonly)?;
         let mut duplicated = Vec::new();
         for event_id in events {
             if let Some(types::Event::InBand(event)) =
-                transaction.get_event_by_id(room_id, &event_id).await?
+                transaction.get_event_by_id(linked_chunk_id, &event_id).await?
             {
                 duplicated.push((event_id, event.position.into()));
             }
@@ -485,10 +449,9 @@ impl_event_cache_store! {
     ) -> Result<Option<Event>, IndexeddbEventCacheStoreError> {
         let _timer = timer!("method");
 
-        let transaction =
-            self.transaction(&[keys::EVENTS], IdbTransactionMode::Readonly)?;
+        let transaction = self.transaction(&[keys::EVENTS], IdbTransactionMode::Readonly)?;
         transaction
-            .get_event_by_id(room_id, event_id)
+            .get_event_by_room(room_id, event_id)
             .await
             .map(|ok| ok.map(Into::into))
             .map_err(Into::into)
@@ -503,8 +466,7 @@ impl_event_cache_store! {
     ) -> Result<Vec<(Event, Option<Position>)>, IndexeddbEventCacheStoreError> {
         let _timer = timer!("method");
 
-        let transaction =
-            self.transaction(&[keys::EVENTS], IdbTransactionMode::Readonly)?;
+        let transaction = self.transaction(&[keys::EVENTS], IdbTransactionMode::Readonly)?;
 
         let mut related_events = Vec::new();
         match filters {
@@ -519,9 +481,7 @@ impl_event_cache_store! {
                 }
             }
             _ => {
-                for event in
-                    transaction.get_events_by_related_event(room_id, event_id).await?
-                {
+                for event in transaction.get_events_by_related_event(room_id, event_id).await? {
                     let position = event.position().map(Into::into);
                     related_events.push((event.into(), position));
                 }
@@ -542,11 +502,14 @@ impl_event_cache_store! {
             error!(%room_id, "Trying to save an event with no ID");
             return Ok(());
         };
-        let transaction =
-            self.transaction(&[keys::EVENTS], IdbTransactionMode::Readwrite)?;
-        let event = match transaction.get_event_by_id(room_id, &event_id).await? {
+        let transaction = self.transaction(&[keys::EVENTS], IdbTransactionMode::Readwrite)?;
+        let event = match transaction.get_event_by_room(room_id, &event_id).await? {
             Some(mut inner) => inner.with_content(event),
-            None => types::Event::OutOfBand(OutOfBandEvent { room_id: room_id.to_owned(), content: event, position: () }),
+            None => types::Event::OutOfBand(OutOfBandEvent {
+                linked_chunk_id: LinkedChunkId::Room(room_id).to_owned(),
+                content: event,
+                position: (),
+            }),
         };
         transaction.put_event(&event).await?;
         transaction.commit().await?;
@@ -561,10 +524,7 @@ impl_event_cache_store! {
         ignore_policy: IgnoreMediaRetentionPolicy,
     ) -> Result<(), IndexeddbEventCacheStoreError> {
         let _timer = timer!("method");
-        self.memory_store
-            .add_media_content(request, content, ignore_policy)
-            .await
-            .map_err(IndexeddbEventCacheStoreError::MemoryStore)
+        self.media_service.add_media_content(self, request, content, ignore_policy).await
     }
 
     #[instrument(skip_all)]
@@ -586,10 +546,7 @@ impl_event_cache_store! {
         request: &MediaRequestParameters,
     ) -> Result<Option<Vec<u8>>, IndexeddbEventCacheStoreError> {
         let _timer = timer!("method");
-        self.memory_store
-            .get_media_content(request)
-            .await
-            .map_err(IndexeddbEventCacheStoreError::MemoryStore)
+        self.media_service.get_media_content(self, request).await
     }
 
     #[instrument(skip_all)]
@@ -610,10 +567,7 @@ impl_event_cache_store! {
         uri: &MxcUri,
     ) -> Result<Option<Vec<u8>>, IndexeddbEventCacheStoreError> {
         let _timer = timer!("method");
-        self.memory_store
-            .get_media_content_for_uri(uri)
-            .await
-            .map_err(IndexeddbEventCacheStoreError::MemoryStore)
+        self.media_service.get_media_content_for_uri(self, uri).await
     }
 
     #[instrument(skip(self))]
@@ -634,16 +588,13 @@ impl_event_cache_store! {
         policy: MediaRetentionPolicy,
     ) -> Result<(), IndexeddbEventCacheStoreError> {
         let _timer = timer!("method");
-        self.memory_store
-            .set_media_retention_policy(policy)
-            .await
-            .map_err(IndexeddbEventCacheStoreError::MemoryStore)
+        self.media_service.set_media_retention_policy(self, policy).await
     }
 
     #[instrument(skip_all)]
     fn media_retention_policy(&self) -> MediaRetentionPolicy {
         let _timer = timer!("method");
-        self.memory_store.media_retention_policy()
+        self.media_service.media_retention_policy()
     }
 
     #[instrument(skip_all)]
@@ -653,33 +604,135 @@ impl_event_cache_store! {
         ignore_policy: IgnoreMediaRetentionPolicy,
     ) -> Result<(), IndexeddbEventCacheStoreError> {
         let _timer = timer!("method");
-        self.memory_store
-            .set_ignore_media_retention_policy(request, ignore_policy)
-            .await
-            .map_err(IndexeddbEventCacheStoreError::MemoryStore)
+        self.media_service.set_ignore_media_retention_policy(self, request, ignore_policy).await
     }
 
     #[instrument(skip_all)]
     async fn clean_up_media_cache(&self) -> Result<(), IndexeddbEventCacheStoreError> {
         let _timer = timer!("method");
+        self.media_service.clean_up_media_cache(self).await
+    }
+}
+
+#[cfg(target_family = "wasm")]
+#[async_trait::async_trait(?Send)]
+impl EventCacheStoreMedia for IndexeddbEventCacheStore {
+    type Error = IndexeddbEventCacheStoreError;
+
+    #[instrument(skip_all)]
+    async fn media_retention_policy_inner(
+        &self,
+    ) -> Result<Option<MediaRetentionPolicy>, IndexeddbEventCacheStoreError> {
+        let _timer = timer!("method");
+        self.transaction(&[MediaRetentionPolicy::OBJECT_STORE], IdbTransactionMode::Readonly)?
+            .get_media_retention_policy()
+            .await
+            .map_err(Into::into)
+    }
+
+    #[instrument(skip_all)]
+    async fn set_media_retention_policy_inner(
+        &self,
+        policy: MediaRetentionPolicy,
+    ) -> Result<(), IndexeddbEventCacheStoreError> {
+        let _timer = timer!("method");
+        self.transaction(&[MediaRetentionPolicy::OBJECT_STORE], IdbTransactionMode::Readwrite)?
+            .put_item(&policy)
+            .await
+            .map_err(Into::into)
+    }
+
+    #[instrument(skip_all)]
+    async fn add_media_content_inner(
+        &self,
+        request: &MediaRequestParameters,
+        content: Vec<u8>,
+        current_time: SystemTime,
+        policy: MediaRetentionPolicy,
+        ignore_policy: IgnoreMediaRetentionPolicy,
+    ) -> Result<(), IndexeddbEventCacheStoreError> {
+        let _timer = timer!("method");
         self.memory_store
-            .clean_up_media_cache()
+            .add_media_content_inner(request, content, current_time, policy, ignore_policy)
+            .await
+            .map_err(IndexeddbEventCacheStoreError::MemoryStore)
+    }
+
+    #[instrument(skip_all)]
+    async fn set_ignore_media_retention_policy_inner(
+        &self,
+        request: &MediaRequestParameters,
+        ignore_policy: IgnoreMediaRetentionPolicy,
+    ) -> Result<(), IndexeddbEventCacheStoreError> {
+        let _timer = timer!("method");
+        self.memory_store
+            .set_ignore_media_retention_policy_inner(request, ignore_policy)
+            .await
+            .map_err(IndexeddbEventCacheStoreError::MemoryStore)
+    }
+
+    #[instrument(skip_all)]
+    async fn get_media_content_inner(
+        &self,
+        request: &MediaRequestParameters,
+        current_time: SystemTime,
+    ) -> Result<Option<Vec<u8>>, IndexeddbEventCacheStoreError> {
+        let _timer = timer!("method");
+        self.memory_store
+            .get_media_content_inner(request, current_time)
+            .await
+            .map_err(IndexeddbEventCacheStoreError::MemoryStore)
+    }
+
+    #[instrument(skip_all)]
+    async fn get_media_content_for_uri_inner(
+        &self,
+        uri: &MxcUri,
+        current_time: SystemTime,
+    ) -> Result<Option<Vec<u8>>, IndexeddbEventCacheStoreError> {
+        let _timer = timer!("method");
+        self.memory_store
+            .get_media_content_for_uri_inner(uri, current_time)
+            .await
+            .map_err(IndexeddbEventCacheStoreError::MemoryStore)
+    }
+
+    #[instrument(skip_all)]
+    async fn clean_up_media_cache_inner(
+        &self,
+        policy: MediaRetentionPolicy,
+        current_time: SystemTime,
+    ) -> Result<(), IndexeddbEventCacheStoreError> {
+        let _timer = timer!("method");
+        self.memory_store
+            .clean_up_media_cache_inner(policy, current_time)
+            .await
+            .map_err(IndexeddbEventCacheStoreError::MemoryStore)
+    }
+
+    #[instrument(skip_all)]
+    async fn last_media_cleanup_time_inner(
+        &self,
+    ) -> Result<Option<SystemTime>, IndexeddbEventCacheStoreError> {
+        let _timer = timer!("method");
+        self.memory_store
+            .last_media_cleanup_time_inner()
             .await
             .map_err(IndexeddbEventCacheStoreError::MemoryStore)
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, target_family = "wasm"))]
 mod tests {
     use matrix_sdk_base::{
         event_cache::store::{EventCacheStore, EventCacheStoreError},
-        event_cache_store_integration_tests_time,
+        event_cache_store_integration_tests, event_cache_store_integration_tests_time,
     };
     use matrix_sdk_test::async_test;
     use uuid::Uuid;
 
     use crate::{
-        event_cache_store::IndexeddbEventCacheStore, event_cache_store_integration_tests,
+        event_cache_store::IndexeddbEventCacheStore, event_cache_store_media_integration_tests,
         indexeddb_event_cache_store_integration_tests,
     };
 
@@ -693,14 +746,12 @@ mod tests {
             Ok(IndexeddbEventCacheStore::builder().database_name(name).build().await?)
         }
 
-        #[cfg(target_family = "wasm")]
         event_cache_store_integration_tests!();
+        event_cache_store_integration_tests_time!();
 
-        #[cfg(target_family = "wasm")]
         indexeddb_event_cache_store_integration_tests!();
 
-        #[cfg(target_family = "wasm")]
-        event_cache_store_integration_tests_time!();
+        event_cache_store_media_integration_tests!();
     }
 
     mod encrypted {
@@ -713,13 +764,11 @@ mod tests {
             Ok(IndexeddbEventCacheStore::builder().database_name(name).build().await?)
         }
 
-        #[cfg(target_family = "wasm")]
         event_cache_store_integration_tests!();
+        event_cache_store_integration_tests_time!();
 
-        #[cfg(target_family = "wasm")]
         indexeddb_event_cache_store_integration_tests!();
 
-        #[cfg(target_family = "wasm")]
-        event_cache_store_integration_tests_time!();
+        event_cache_store_media_integration_tests!();
     }
 }

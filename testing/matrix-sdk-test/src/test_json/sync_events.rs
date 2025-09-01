@@ -3,8 +3,6 @@
 use once_cell::sync::Lazy;
 use serde_json::{Value as JsonValue, json};
 
-use crate::DEFAULT_TEST_ROOM_ID;
-
 pub static ALIAS: Lazy<JsonValue> = Lazy::new(|| {
     json!({
         "content": {
@@ -53,22 +51,6 @@ pub static CREATE: Lazy<JsonValue> = Lazy::new(|| {
         "type": "m.room.create",
         "unsigned": {
             "age": 139298
-        }
-    })
-});
-
-pub static DIRECT: Lazy<JsonValue> = Lazy::new(|| {
-    json!({
-        "content": {
-            "@invited:localhost": [*DEFAULT_TEST_ROOM_ID],
-        },
-        "event_id": "$757957878228ekrDs:localhost",
-        "origin_server_ts": 17195787,
-        "sender": "@example:localhost",
-        "state_key": "",
-        "type": "m.direct",
-        "unsigned": {
-          "age": 139298
         }
     })
 });
@@ -126,6 +108,30 @@ pub static ENCRYPTION_CONTENT: Lazy<JsonValue> = Lazy::new(|| {
 pub static ENCRYPTION: Lazy<JsonValue> = Lazy::new(|| {
     json!({
         "content": *ENCRYPTION_CONTENT,
+        "event_id": "$143273582443PhrSn:example.org",
+        "origin_server_ts": 1432735824653u64,
+        "room_id": "!jEsUZKDJdhlrceRyVU:example.org",
+        "sender": "@example:example.org",
+        "state_key": "",
+        "type": "m.room.encryption",
+        "unsigned": {
+            "age": 1234
+        }
+    })
+});
+
+pub static ENCRYPTION_WITH_ENCRYPTED_STATE_EVENTS_CONTENT: Lazy<JsonValue> = Lazy::new(|| {
+    json!({
+        "algorithm": "m.megolm.v1.aes-sha2",
+        "rotation_period_ms": 604800000,
+        "rotation_period_msgs": 100,
+        "io.element.msc3414.encrypt_state_events": true
+    })
+});
+
+pub static ENCRYPTION_WITH_ENCRYPTED_STATE_EVENTS: Lazy<JsonValue> = Lazy::new(|| {
+    json!({
+        "content": *ENCRYPTION_WITH_ENCRYPTED_STATE_EVENTS_CONTENT,
         "event_id": "$143273582443PhrSn:example.org",
         "origin_server_ts": 1432735824653u64,
         "room_id": "!jEsUZKDJdhlrceRyVU:example.org",
@@ -384,218 +390,6 @@ pub static PRESENCE: Lazy<JsonValue> = Lazy::new(|| {
     })
 });
 
-pub static PUSH_RULES: Lazy<JsonValue> = Lazy::new(|| {
-    json!({
-        "content": {
-            "global": {
-                "content": [
-                    {
-                        "actions": [
-                            "notify",
-                            {
-                                "set_tweak": "sound",
-                                "value": "default"
-                            },
-                            {
-                                "set_tweak": "highlight"
-                            }
-                        ],
-                        "default": true,
-                        "enabled": true,
-                        "pattern": "example",
-                        "rule_id": ".m.rule.contains_user_name"
-                    }
-                ],
-                "override": [
-                    {
-                        "actions": [
-                            "dont_notify"
-                        ],
-                        "conditions": [],
-                        "default": true,
-                        "enabled": false,
-                        "rule_id": ".m.rule.master"
-                    },
-                    {
-                        "actions": [
-                            "dont_notify"
-                        ],
-                        "conditions": [
-                            {
-                                "key": "content.msgtype",
-                                "kind": "event_match",
-                                "pattern": "m.notice"
-                            }
-                        ],
-                        "default": true,
-                        "enabled": true,
-                        "rule_id": ".m.rule.suppress_notices"
-                    }
-                ],
-                "room": [
-                    {
-                      "actions": [
-                        "notify",
-                        {
-                          "set_tweak": "sound",
-                          "value": "default"
-                        }
-                      ],
-                      "rule_id": *DEFAULT_TEST_ROOM_ID,
-                      "default": false,
-                      "enabled": true
-                    }
-                ],
-                "sender": [],
-                "underride": [
-                    {
-                        "actions": [
-                            "notify",
-                            {
-                                "set_tweak": "sound",
-                                "value": "ring"
-                            },
-                            {
-                                "set_tweak": "highlight",
-                                "value": false
-                            }
-                        ],
-                        "conditions": [
-                            {
-                                "key": "type",
-                                "kind": "event_match",
-                                "pattern": "m.call.invite"
-                            }
-                        ],
-                        "default": true,
-                        "enabled": true,
-                        "rule_id": ".m.rule.call"
-                    },
-                    {
-                        "actions": [
-                            "notify",
-                            {
-                                "set_tweak": "sound",
-                                "value": "default"
-                            },
-                            {
-                                "set_tweak": "highlight"
-                            }
-                        ],
-                        "conditions": [
-                            {
-                                "kind": "contains_display_name"
-                            }
-                        ],
-                        "default": true,
-                        "enabled": true,
-                        "rule_id": ".m.rule.contains_display_name"
-                    },
-                    {
-                        "actions": [
-                            "notify",
-                            {
-                                "set_tweak": "sound",
-                                "value": "default"
-                            },
-                            {
-                                "set_tweak": "highlight",
-                                "value": false
-                            }
-                        ],
-                        "conditions": [
-                            {
-                                "is": "2",
-                                "kind": "room_member_count"
-                            },
-                            {
-                                "key": "type",
-                                "kind": "event_match",
-                                "pattern": "m.room.message"
-                            }
-                        ],
-                        "default": true,
-                        "enabled": true,
-                        "rule_id": ".m.rule.room_one_to_one"
-                    },
-                    {
-                        "actions": [
-                            "notify",
-                            {
-                                "set_tweak": "sound",
-                                "value": "default"
-                            },
-                            {
-                                "set_tweak": "highlight",
-                                "value": false
-                            }
-                        ],
-                        "conditions": [
-                            {
-                                "key": "type",
-                                "kind": "event_match",
-                                "pattern": "m.room.member"
-                            },
-                            {
-                                "key": "content.membership",
-                                "kind": "event_match",
-                                "pattern": "invite"
-                            },
-                            {
-                                "key": "state_key",
-                                "kind": "event_match",
-                                "pattern": "@example:localhost"
-                            }
-                        ],
-                        "default": true,
-                        "enabled": true,
-                        "rule_id": ".m.rule.invite_for_me"
-                    },
-                    {
-                        "actions": [
-                            "notify",
-                            {
-                                "set_tweak": "highlight",
-                                "value": false
-                            }
-                        ],
-                        "conditions": [
-                            {
-                                "key": "type",
-                                "kind": "event_match",
-                                "pattern": "m.room.member"
-                            }
-                        ],
-                        "default": true,
-                        "enabled": true,
-                        "rule_id": ".m.rule.member_event"
-                    },
-                    {
-                        "actions": [
-                            "notify",
-                            {
-                                "set_tweak": "highlight",
-                                "value": false
-                            }
-                        ],
-                        "conditions": [
-                            {
-                                "key": "type",
-                                "kind": "event_match",
-                                "pattern": "m.room.message"
-                            }
-                        ],
-                        "default": true,
-                        "enabled": true,
-                        "rule_id": ".m.rule.message"
-                    }
-                ]
-            }
-        },
-        "type": "m.push_rules"
-    })
-});
-
 pub static REDACTED_INVALID: Lazy<JsonValue> = Lazy::new(|| {
     json!({
         "content": {},
@@ -713,16 +507,5 @@ pub static MARKED_UNREAD: Lazy<JsonValue> = Lazy::new(|| {
             "unread": true,
         },
         "type": "m.marked_unread",
-    })
-});
-
-pub static IGNORED_USER_LIST: Lazy<JsonValue> = Lazy::new(|| {
-    json!({
-        "content": {
-            "ignored_users": {
-                "@someone:example.org": {},
-            },
-        },
-        "type": "m.ignored_user_list",
     })
 });

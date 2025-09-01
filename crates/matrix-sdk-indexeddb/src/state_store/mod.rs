@@ -14,6 +14,7 @@
 
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap, HashSet},
+    str::FromStr as _,
     sync::Arc,
 };
 
@@ -25,10 +26,10 @@ use indexed_db_futures::prelude::*;
 use matrix_sdk_base::{
     deserialized_responses::{DisplayName, RawAnySyncOrStrippedState},
     store::{
-        ChildTransactionId, ComposerDraft, DependentQueuedRequest, DependentQueuedRequestKind,
-        QueuedRequest, QueuedRequestKind, RoomLoadSettings, SentRequestKey,
-        SerializableEventContent, ServerInfo, StateChanges, StateStore, StoreError,
-        ThreadSubscription,
+        compare_thread_subscription_bump_stamps, ChildTransactionId, ComposerDraft,
+        DependentQueuedRequest, DependentQueuedRequestKind, QueuedRequest, QueuedRequestKind,
+        RoomLoadSettings, SentRequestKey, SerializableEventContent, ServerInfo, StateChanges,
+        StateStore, StoreError, StoredThreadSubscription, ThreadSubscriptionStatus,
     },
     MinimalRoomMemberEvent, RoomInfo, RoomMemberships, StateStoreDataKey, StateStoreDataValue,
     ROOM_VERSION_FALLBACK, ROOM_VERSION_RULES_FALLBACK,
@@ -422,6 +423,9 @@ impl IndexeddbStateStore {
             StateStoreDataKey::UtdHookManagerData => {
                 self.encode_key(keys::KV, StateStoreDataKey::UTD_HOOK_MANAGER_DATA)
             }
+            StateStoreDataKey::OneTimeKeyAlreadyUploaded => {
+                self.encode_key(keys::KV, StateStoreDataKey::ONE_TIME_KEY_ALREADY_UPLOADED)
+            }
             StateStoreDataKey::ComposerDraft(room_id, thread_root) => {
                 if let Some(thread_root) = thread_root {
                     self.encode_key(
@@ -498,6 +502,18 @@ impl PersistedQueuedRequest {
     }
 }
 
+#[derive(Serialize, Deserialize, PartialEq)]
+struct PersistedThreadSubscription {
+    status: String,
+    bump_stamp: Option<u64>,
+}
+
+impl From<StoredThreadSubscription> for PersistedThreadSubscription {
+    fn from(value: StoredThreadSubscription) -> Self {
+        Self { status: value.status.as_str().to_owned(), bump_stamp: value.bump_stamp }
+    }
+}
+
 // Small hack to have the following macro invocation act as the appropriate
 // trait impl block on wasm, but still be compiled on non-wasm as a regular
 // impl block otherwise.
@@ -563,6 +579,10 @@ impl_state_store!({
                 .map(|f| self.deserialize_value::<GrowableBloom>(&f))
                 .transpose()?
                 .map(StateStoreDataValue::UtdHookManagerData),
+            StateStoreDataKey::OneTimeKeyAlreadyUploaded => value
+                .map(|f| self.deserialize_value::<bool>(&f))
+                .transpose()?
+                .map(|_| StateStoreDataValue::OneTimeKeyAlreadyUploaded),
             StateStoreDataKey::ComposerDraft(_, _) => value
                 .map(|f| self.deserialize_value::<ComposerDraft>(&f))
                 .transpose()?
@@ -603,6 +623,7 @@ impl_state_store!({
             StateStoreDataKey::UtdHookManagerData => self.serialize_value(
                 &value.into_utd_hook_manager_data().expect("Session data not UtdHookManagerData"),
             ),
+            StateStoreDataKey::OneTimeKeyAlreadyUploaded => self.serialize_value(&true),
             StateStoreDataKey::ComposerDraft(_, _) => self.serialize_value(
                 &value.into_composer_draft().expect("Session data not a composer draft"),
             ),
@@ -1791,7 +1812,7 @@ impl_state_store!({
         &self,
         room: &RoomId,
         thread_id: &EventId,
-        subscription: ThreadSubscription,
+        subscription: StoredThreadSubscription,
     ) -> Result<()> {
         let encoded_key = self.encode_key(keys::THREAD_SUBSCRIPTIONS, (room, thread_id));
 
@@ -1801,7 +1822,22 @@ impl_state_store!({
         )?;
         let obj = tx.object_store(keys::THREAD_SUBSCRIPTIONS)?;
 
-        let serialized_value = self.serialize_value(&subscription.as_str().to_owned());
+        let mut new = PersistedThreadSubscription::from(subscription);
+
+        // See if there's a previous subscription.
+        if let Some(previous_value) = obj.get(&encoded_key)?.await? {
+            let previous: PersistedThreadSubscription = self.deserialize_value(&previous_value)?;
+
+            // If the previous status is the same as the new one, don't do anything.
+            if new == previous {
+                return Ok(());
+            }
+            if !compare_thread_subscription_bump_stamps(previous.bump_stamp, &mut new.bump_stamp) {
+                return Ok(());
+            }
+        }
+
+        let serialized_value = self.serialize_value(&new);
         obj.put_key_val(&encoded_key, &serialized_value?)?;
 
         tx.await.into_result()?;
@@ -1813,7 +1849,7 @@ impl_state_store!({
         &self,
         room: &RoomId,
         thread_id: &EventId,
-    ) -> Result<Option<ThreadSubscription>> {
+    ) -> Result<Option<StoredThreadSubscription>> {
         let encoded_key = self.encode_key(keys::THREAD_SUBSCRIPTIONS, (room, thread_id));
 
         let js_value = self
@@ -1828,16 +1864,18 @@ impl_state_store!({
             return Ok(None);
         };
 
-        let status_string: String = self.deserialize_value(&js_value)?;
-        let status = ThreadSubscription::from_value(&status_string).ok_or_else(|| {
+        let sub: PersistedThreadSubscription = self.deserialize_value(&js_value)?;
+
+        let status = ThreadSubscriptionStatus::from_str(&sub.status).map_err(|_| {
             StoreError::InvalidData {
                 details: format!(
-                    "invalid thread status for room {room} and thread {thread_id}: {status_string}"
+                    "invalid thread status for room {room} and thread {thread_id}: {}",
+                    sub.status
                 ),
             }
         })?;
 
-        Ok(Some(status))
+        Ok(Some(StoredThreadSubscription { status, bump_stamp: sub.bump_stamp }))
     }
 
     async fn remove_thread_subscription(&self, room: &RoomId, thread_id: &EventId) -> Result<()> {

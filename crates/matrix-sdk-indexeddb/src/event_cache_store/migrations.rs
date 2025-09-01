@@ -109,15 +109,19 @@ pub mod v1 {
 
     pub mod keys {
         pub const CORE: &str = "core";
+        pub const CORE_KEY_PATH: &str = "id";
         pub const LEASES: &str = "leases";
         pub const LEASES_KEY_PATH: &str = "id";
         pub const ROOMS: &str = "rooms";
+        pub const LINKED_CHUNK_IDS: &str = "linked_chunk_ids";
         pub const LINKED_CHUNKS: &str = "linked_chunks";
         pub const LINKED_CHUNKS_KEY_PATH: &str = "id";
         pub const LINKED_CHUNKS_NEXT: &str = "linked_chunks_next";
         pub const LINKED_CHUNKS_NEXT_KEY_PATH: &str = "next";
         pub const EVENTS: &str = "events";
         pub const EVENTS_KEY_PATH: &str = "id";
+        pub const EVENTS_ROOM: &str = "events_room";
+        pub const EVENTS_ROOM_KEY_PATH: &str = "room";
         pub const EVENTS_POSITION: &str = "events_position";
         pub const EVENTS_POSITION_KEY_PATH: &str = "position";
         pub const EVENTS_RELATION: &str = "events_relation";
@@ -126,6 +130,7 @@ pub mod v1 {
         pub const EVENTS_RELATION_RELATION_TYPES: &str = "events_relation_relation_type";
         pub const GAPS: &str = "gaps";
         pub const GAPS_KEY_PATH: &str = "id";
+        pub const MEDIA_RETENTION_POLICY_KEY: &str = "media_retention_policy";
     }
 
     /// Create all object stores and indices for v1 database
@@ -139,8 +144,12 @@ pub mod v1 {
     }
 
     /// Create an object store for tracking miscellaneous information
+    ///
+    /// * Primary Key - `id`
     fn create_core_object_store(db: &IdbDatabase) -> Result<(), DomException> {
-        let _ = db.create_object_store(keys::CORE)?;
+        let mut object_store_params = IdbObjectStoreParameters::new();
+        object_store_params.key_path(Some(&keys::CORE_KEY_PATH.into()));
+        let _ = db.create_object_store_with_params(keys::CORE, &object_store_params)?;
         Ok(())
     }
 
@@ -169,6 +178,7 @@ pub mod v1 {
     /// Create an object store for tracking information about events.
     ///
     /// * Primary Key - `id`
+    /// * Index (unique) - `room` - tracks whether an event is in a given room
     /// * Index (unique) - `position` - tracks position of an event in linked
     ///   chunks
     /// * Index - `relation` - tracks any event to which the given event is
@@ -177,6 +187,14 @@ pub mod v1 {
         let mut object_store_params = IdbObjectStoreParameters::new();
         object_store_params.key_path(Some(&keys::EVENTS_KEY_PATH.into()));
         let events = db.create_object_store_with_params(keys::EVENTS, &object_store_params)?;
+
+        let events_room_params = IdbIndexParameters::new();
+        events_room_params.set_unique(true);
+        events.create_index_with_params(
+            keys::EVENTS_ROOM,
+            &keys::EVENTS_ROOM_KEY_PATH.into(),
+            &events_room_params,
+        );
 
         let events_position_params = IdbIndexParameters::new();
         events_position_params.set_unique(true);

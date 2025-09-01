@@ -42,6 +42,8 @@ pub mod sync {
     use tracing::{error, instrument};
 
     use super::{super::profiles, AnySyncStateEvent, Context, Raw};
+    #[cfg(feature = "experimental-encrypted-state-events")]
+    use crate::response_processors::e2ee;
     use crate::{
         RoomInfo,
         store::{BaseStateStore, Result as StoreResult, ambiguity_map::AmbiguityCache},
@@ -89,6 +91,7 @@ pub mod sync {
         ambiguity_cache: &mut AmbiguityCache,
         new_users: &mut U,
         state_store: &BaseStateStore,
+        #[cfg(feature = "experimental-encrypted-state-events")] e2ee: e2ee::E2EE<'_>,
     ) -> StoreResult<()>
     where
         U: NewUsers,
@@ -142,6 +145,55 @@ pub mod sync {
                     }
                 }
 
+                #[cfg(feature = "experimental-encrypted-state-events")]
+                AnySyncStateEvent::RoomEncrypted(SyncStateEvent::Original(outer)) => {
+                    use matrix_sdk_crypto::RoomEventDecryptionResult;
+                    use tracing::{trace, warn};
+
+                    trace!(event_id = ?outer.event_id, "Received encrypted state event, attempting decryption...");
+
+                    let Some(olm_machine) = e2ee.olm_machine else {
+                        continue;
+                    };
+
+                    let decrypted_event = olm_machine
+                        .try_decrypt_room_event(
+                            raw_event.cast_ref_unchecked(),
+                            &room_info.room_id,
+                            e2ee.decryption_settings,
+                        )
+                        .await
+                        .expect("OlmMachine was not started");
+
+                    // Skip state events that failed to decrypt.
+                    let RoomEventDecryptionResult::Decrypted(decrypted_event) = decrypted_event
+                    else {
+                        warn!(event_id = ?outer.event_id, "Failed to decrypt state event");
+                        continue;
+                    };
+
+                    // Cast to `AnySyncTimelineEvent`, safe since this is a supertype of
+                    // `AnyTimelineEvent`.
+                    let deserialized_event = match decrypted_event
+                        .event
+                        .deserialize_as::<AnySyncTimelineEvent>()
+                    {
+                        Ok(event) => event,
+                        Err(err) => {
+                            warn!(event_id = ?outer.event_id, "Failed to decrypt state event: {err}");
+                            continue;
+                        }
+                    };
+
+                    // Ensure decrypted event is actually a state event.
+                    let AnySyncTimelineEvent::State(event) = deserialized_event else {
+                        continue;
+                    };
+
+                    trace!(event_id = ?outer.event_id, "Decrypted state event successfully.");
+                    room_info.handle_state_event(&event);
+                }
+
                 _ => {
                     room_info.handle_state_event(event);
                 }
@@ -186,7 +238,7 @@ pub mod sync {
     }
 
     /// A trait to collect new users in [`dispatch`].
-    trait NewUsers {
+    pub(crate) trait NewUsers {
         /// Insert a new user in the collection of new users.
         fn insert(&mut self, user_id: &UserId);
     }

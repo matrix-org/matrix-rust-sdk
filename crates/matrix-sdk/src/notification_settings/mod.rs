@@ -91,36 +91,40 @@ pub struct NotificationSettings {
     rules: Arc<RwLock<Rules>>,
     /// Drop guard of event handler for push rules event.
     _push_rules_event_handler_guard: Arc<EventHandlerDropGuard>,
+    /// Notified every time the push rules change, either due to sync or local
+    /// changes.
     changes_sender: broadcast::Sender<()>,
 }
 
 impl NotificationSettings {
-    /// Build a new `NotificationSettings``
+    /// Build a new [`NotificationSettings`].
     ///
     /// # Arguments
     ///
-    /// * `client` - A `Client` used to perform API calls
-    /// * `ruleset` - A `Ruleset` containing account's owner push rules
+    /// * `client` - A [`Client`] used to perform API calls.
+    /// * `ruleset` - A [`Ruleset`] containing account's owner push rules.
     pub(crate) fn new(client: Client, ruleset: Ruleset) -> Self {
         let changes_sender = broadcast::Sender::new(100);
         let rules = Arc::new(RwLock::new(Rules::new(ruleset)));
 
-        // Listen for PushRulesEvent
+        // Listen for PushRulesEvent.
         let push_rules_event_handler_handle = client.add_event_handler({
             let changes_sender = changes_sender.clone();
-            let rules = Arc::clone(&rules);
+            let rules = rules.clone();
             move |ev: PushRulesEvent| async move {
                 *rules.write().await = Rules::new(ev.content.global);
                 let _ = changes_sender.send(());
             }
         });
+
         let _push_rules_event_handler_guard =
-            client.event_handler_drop_guard(push_rules_event_handler_handle).into();
+            Arc::new(client.event_handler_drop_guard(push_rules_event_handler_handle));
 
         Self { client, rules, _push_rules_event_handler_guard, changes_sender }
     }
 
-    /// Subscribe to changes in the `NotificationSettings`.
+    /// Subscribe to changes to the [`NotificationSettings`] (i.e. changes to
+    /// push rules).
     ///
     /// Changes can happen due to local changes or changes in another session.
     pub fn subscribe_to_changes(&self) -> Receiver<()> {
@@ -567,6 +571,12 @@ impl NotificationSettings {
         }
         Ok(())
     }
+
+    /// Returns the inner ruleset currently known by this
+    /// [`NotificationSettings`] instance.
+    pub async fn ruleset(&self) -> Ruleset {
+        self.rules.read().await.ruleset.clone()
+    }
 }
 
 // The http mocking library is not supported for wasm32
@@ -580,27 +590,26 @@ mod tests {
     use assert_matches::assert_matches;
     use matrix_sdk_test::{
         async_test,
+        event_factory::EventFactory,
         notification_settings::{build_ruleset, get_server_default_ruleset},
-        test_json, TestResult,
+        TestResult,
     };
     use ruma::{
         owned_room_id,
         push::{
             Action, AnyPushRuleRef, NewPatternedPushRule, NewPushRule, PredefinedContentRuleId,
-            PredefinedOverrideRuleId, PredefinedUnderrideRuleId, RuleKind,
+            PredefinedOverrideRuleId, PredefinedUnderrideRuleId, RuleKind, Ruleset,
         },
         OwnedRoomId, RoomId,
     };
-    use serde_json::json;
     use stream_assert::{assert_next_eq, assert_pending};
     use tokio_stream::wrappers::BroadcastStream;
     use wiremock::{
-        matchers::{header, method, path, path_regex},
+        matchers::{method, path, path_regex},
         Mock, MockServer, ResponseTemplate,
     };
 
     use crate::{
-        config::SyncSettings,
         error::NotificationSettingsError,
         notification_settings::{
             IsEncrypted, IsOneToOne, NotificationSettings, RoomNotificationMode,
@@ -630,29 +639,24 @@ mod tests {
 
     #[async_test]
     async fn test_subscribe_to_changes() -> TestResult {
-        let server = MockServer::start().await;
-        let client = logged_in_client(Some(server.uri())).await;
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
         let settings = client.notification_settings().await;
-
-        Mock::given(method("GET"))
-            .and(path("/_matrix/client/r0/sync"))
-            .and(header("authorization", "Bearer 1234"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-                "next_batch": "1234",
-                "account_data": {
-                    "events": [*test_json::PUSH_RULES]
-                }
-            })))
-            .expect(1)
-            .mount(&server)
-            .await;
 
         let subscriber = settings.subscribe_to_changes();
         let mut stream = BroadcastStream::new(subscriber);
 
         assert_pending!(stream);
 
-        client.sync_once(SyncSettings::default()).await?;
+        server
+            .mock_sync()
+            .ok_and_run(&client, |sync_response_builder| {
+                let f = EventFactory::new();
+                sync_response_builder.add_global_account_data(
+                    f.push_rules(Ruleset::server_default(client.user_id().unwrap())),
+                );
+            })
+            .await;
 
         assert_next_eq!(stream, Ok(()));
         assert_pending!(stream);

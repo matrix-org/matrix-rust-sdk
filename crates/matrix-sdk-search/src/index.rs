@@ -12,22 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! The event cache is an abstraction layer, sitting between the Rust SDK and a
-//! final client, that acts as a global observer of all the rooms, gathering and
-//! inferring some extra useful information about each room. In particular, this
-//! doesn't require subscribing to a specific room to get access to this
-//! information.
-//!
-//! It's intended to be fast, robust and easy to maintain, having learned from
-//! previous endeavours at implementing middle to high level features elsewhere
-//! in the SDK, notably in the UI's Timeline object.
-//!
-//! See the [github issue](https://github.com/matrix-org/matrix-rust-sdk/issues/3058) for more
-//! details about the historical reasons that led us to start writing this.
-
 use std::{fmt, fs, path::Path, sync::Arc};
 
-use ruma::{OwnedEventId, OwnedRoomId, RoomId, events::AnyMessageLikeEvent};
+use ruma::{EventId, OwnedEventId, OwnedRoomId, RoomId, events::AnySyncMessageLikeEvent};
 use tantivy::{
     Index, IndexReader, TantivyDocument,
     collector::TopDocs,
@@ -35,7 +22,7 @@ use tantivy::{
     query::QueryParser,
     schema::Value,
 };
-use tracing::error;
+use tracing::{error, warn};
 
 use crate::{
     OpStamp, TANTIVY_INDEX_MEMORY_BUDGET,
@@ -43,6 +30,11 @@ use crate::{
     schema::{MatrixSearchIndexSchema, RoomMessageSchema},
     writer::SearchIndexWriter,
 };
+
+/// A struct to represent the operations on a [`RoomIndex`]
+pub(crate) enum RoomIndexOperation {
+    Add(TantivyDocument),
+}
 
 /// A struct that holds all data pertaining to a particular room's
 /// message index.
@@ -86,14 +78,14 @@ impl RoomIndex {
     pub fn new(path: &Path, room_id: &RoomId) -> Result<RoomIndex, IndexError> {
         let path = path.join(room_id.as_str());
         let schema = RoomMessageSchema::new();
-        fs::create_dir(path.clone())?;
+        fs::create_dir_all(path.clone())?;
         let index = Index::create_in_dir(path, schema.as_tantivy_schema())?;
         RoomIndex::new_with(index, schema, room_id)
     }
 
-    /// Create new [`RoomIndex`] which stores the index in RAM.
+    /// Create new [`RoomIndex`] which stores the index in memory.
     /// Intended for testing.
-    pub fn new_in_ram(room_id: &RoomId) -> Result<RoomIndex, IndexError> {
+    pub fn new_in_memory(room_id: &RoomId) -> Result<RoomIndex, IndexError> {
         let schema = RoomMessageSchema::new();
         let index = Index::create_in_ram(schema.as_tantivy_schema());
         RoomIndex::new_with(index, schema, room_id)
@@ -107,9 +99,11 @@ impl RoomIndex {
             Ok(dir) => Ok(dir),
             Err(err) => match err {
                 OpenDirectoryError::DoesNotExist(path) => {
-                    fs::create_dir(path.clone()).map_err(|err| OpenDirectoryError::IoError {
-                        io_error: Arc::new(err),
-                        directory_path: path.to_path_buf(),
+                    fs::create_dir_all(path.clone()).map_err(|err| {
+                        OpenDirectoryError::IoError {
+                            io_error: Arc::new(err),
+                            directory_path: path.to_path_buf(),
+                        }
                     })?;
                     MmapDirectory::open(path)
                 }
@@ -130,10 +124,20 @@ impl RoomIndex {
         RoomIndex::new_with(index, schema, room_id)
     }
 
-    /// Add [`AnyMessageLikeEvent`] to [`RoomIndex`]
-    pub fn add_event(&mut self, event: AnyMessageLikeEvent) -> Result<(), IndexError> {
-        let doc = self.schema.make_doc(event)?;
-        self.writer.add_document(doc)?; // TODO: This is blocking. Handle it.
+    /// Handle [`AnySyncMessageLikeEvent`]
+    ///
+    /// This which will add/remove/edit an event in the index based on the
+    /// event type.
+    pub fn handle_event(&mut self, event: AnySyncMessageLikeEvent) -> Result<(), IndexError> {
+        let event_id = event.event_id().to_owned();
+
+        match self.schema.handle_event(event)? {
+            RoomIndexOperation::Add(document) => {
+                if !self.contains(&event_id) {
+                    self.writer.add_document(document)?;
+                }
+            }
+        }
         Ok(())
     }
 
@@ -186,6 +190,17 @@ impl RoomIndex {
 
         Ok(ret)
     }
+
+    fn contains(&self, event_id: &EventId) -> bool {
+        let search_result = self.search(format!("event_id:\"{event_id}\"").as_str(), 1);
+        match search_result {
+            Ok(results) => !results.is_empty(),
+            Err(err) => {
+                warn!("Failed to check if event has been indexed, assuming it has: {err}");
+                true
+            }
+        }
+    }
 }
 
 #[cfg(test)]
@@ -193,65 +208,69 @@ mod tests {
     use std::{collections::HashSet, error::Error};
 
     use matrix_sdk_test::event_factory::EventFactory;
-    use ruma::{event_id, owned_event_id, room_id, user_id};
+    use ruma::{event_id, room_id, user_id};
 
     use crate::index::RoomIndex;
 
     #[test]
-    fn test_make_index_in_ram() {
+    fn test_make_index_in_memory() {
         let room_id = room_id!("!room_id:localhost");
-        let index = RoomIndex::new_in_ram(room_id);
+        let index = RoomIndex::new_in_memory(room_id);
 
         index.expect("failed to make index in ram: {index:?}");
     }
 
     #[test]
-    fn test_add_event() {
+    fn test_handle_event() {
         let room_id = room_id!("!room_id:localhost");
         let mut index =
-            RoomIndex::new_in_ram(room_id).expect("failed to make index in ram: {index:?}");
+            RoomIndex::new_in_memory(room_id).expect("failed to make index in ram: {index:?}");
 
         let event = EventFactory::new()
             .text_msg("event message")
             .event_id(event_id!("$event_id:localhost"))
             .room(room_id)
             .sender(user_id!("@user_id:localhost"))
-            .into_any_message_like_event();
+            .into_any_sync_message_like_event();
 
-        index.add_event(event).expect("failed to add event: {res:?}");
+        index.handle_event(event).expect("failed to add event: {res:?}");
     }
 
     #[test]
     fn test_search_populated_index() -> Result<(), Box<dyn Error>> {
         let room_id = room_id!("!room_id:localhost");
         let mut index =
-            RoomIndex::new_in_ram(room_id).expect("failed to make index in ram: {index:?}");
+            RoomIndex::new_in_memory(room_id).expect("failed to make index in ram: {index:?}");
 
-        index.add_event(
+        let event_id_1 = event_id!("$event_id_1:localhost");
+        let event_id_2 = event_id!("$event_id_2:localhost");
+        let event_id_3 = event_id!("$event_id_3:localhost");
+
+        index.handle_event(
             EventFactory::new()
                 .text_msg("This is a sentence")
-                .event_id(event_id!("$event_id_1:localhost"))
+                .event_id(event_id_1)
                 .room(room_id)
                 .sender(user_id!("@user_id:localhost"))
-                .into_any_message_like_event(),
+                .into_any_sync_message_like_event(),
         )?;
 
-        index.add_event(
+        index.handle_event(
             EventFactory::new()
                 .text_msg("All new words")
-                .event_id(event_id!("$event_id_2:localhost"))
+                .event_id(event_id_2)
                 .room(room_id)
                 .sender(user_id!("@user_id:localhost"))
-                .into_any_message_like_event(),
+                .into_any_sync_message_like_event(),
         )?;
 
-        index.add_event(
+        index.handle_event(
             EventFactory::new()
                 .text_msg("A similar sentence")
-                .event_id(event_id!("$event_id_3:localhost"))
+                .event_id(event_id_3)
                 .room(room_id)
                 .sender(user_id!("@user_id:localhost"))
-                .into_any_message_like_event(),
+                .into_any_sync_message_like_event(),
         )?;
 
         index.commit_and_reload()?;
@@ -259,8 +278,7 @@ mod tests {
         let result = index.search("sentence", 10).expect("search failed with: {result:?}");
         let result: HashSet<_> = result.iter().collect();
 
-        let true_value =
-            [owned_event_id!("$event_id_1:localhost"), owned_event_id!("$event_id_3:localhost")];
+        let true_value = [event_id_1.to_owned(), event_id_3.to_owned()];
         let true_value: HashSet<_> = true_value.iter().collect();
 
         assert_eq!(result, true_value, "search result not correct: {result:?}");
@@ -272,13 +290,85 @@ mod tests {
     fn test_search_empty_index() -> Result<(), Box<dyn Error>> {
         let room_id = room_id!("!room_id:localhost");
         let mut index =
-            RoomIndex::new_in_ram(room_id).expect("failed to make index in ram: {index:?}");
+            RoomIndex::new_in_memory(room_id).expect("failed to make index in ram: {index:?}");
 
         index.commit_and_reload()?;
 
         let result = index.search("sentence", 10).expect("search failed with: {result:?}");
 
         assert!(result.is_empty(), "search result not empty: {result:?}");
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_index_contains_false() -> Result<(), Box<dyn Error>> {
+        let room_id = room_id!("!room_id:localhost");
+        let mut index =
+            RoomIndex::new_in_memory(room_id).expect("failed to make index in ram: {index:?}");
+
+        let event_id = event_id!("$event_id:localhost");
+
+        index.commit_and_reload()?;
+
+        assert!(!index.contains(event_id), "Index should not contain event");
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_index_contains_true() -> Result<(), Box<dyn Error>> {
+        let room_id = room_id!("!room_id:localhost");
+        let mut index =
+            RoomIndex::new_in_memory(room_id).expect("failed to make index in ram: {index:?}");
+
+        let event_id = event_id!("$event_id:localhost");
+        let event = EventFactory::new()
+            .text_msg("This is a sentence")
+            .event_id(event_id)
+            .room(room_id)
+            .sender(user_id!("@user_id:localhost"))
+            .into_any_sync_message_like_event();
+
+        index.handle_event(event)?;
+
+        index.commit_and_reload()?;
+
+        assert!(index.contains(event_id), "Index should contain event");
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_indexing_idempotency() -> Result<(), Box<dyn Error>> {
+        let room_id = room_id!("!room_id:localhost");
+        let mut index =
+            RoomIndex::new_in_memory(room_id).expect("failed to make index in ram: {index:?}");
+
+        let event_id = event_id!("$event_id:localhost");
+        let event = EventFactory::new()
+            .text_msg("This is a sentence")
+            .event_id(event_id)
+            .room(room_id)
+            .sender(user_id!("@user_id:localhost"))
+            .into_any_sync_message_like_event();
+
+        index.handle_event(event.clone())?;
+
+        index.commit_and_reload()?;
+
+        assert!(index.contains(event_id), "Index should contain event");
+
+        // indexing again should do nothing
+        index.handle_event(event)?;
+
+        index.commit_and_reload()?;
+
+        assert!(index.contains(event_id), "Index should still contain event");
+
+        let result = index.search("sentence", 10).expect("search failed with: {result:?}");
+
+        assert_eq!(result.len(), 1, "Index should have ignored second indexing");
 
         Ok(())
     }

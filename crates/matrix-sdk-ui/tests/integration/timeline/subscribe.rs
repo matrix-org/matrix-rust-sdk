@@ -18,11 +18,14 @@ use assert_matches::assert_matches;
 use assert_matches2::assert_let;
 use eyeball_im::VectorDiff;
 use futures_util::StreamExt;
-use matrix_sdk::{config::SyncSettings, test_utils::logged_in_client_with_server};
+use matrix_sdk::{
+    config::{SyncSettings, SyncToken},
+    test_utils::logged_in_client_with_server,
+};
 use matrix_sdk_common::executor::spawn;
 use matrix_sdk_test::{
-    ALICE, BOB, GlobalAccountDataTestEvent, JoinedRoomBuilder, SyncResponseBuilder, async_test,
-    event_factory::EventFactory, mocks::mock_encryption_state,
+    ALICE, BOB, JoinedRoomBuilder, SyncResponseBuilder, async_test, event_factory::EventFactory,
+    mocks::mock_encryption_state,
 };
 use matrix_sdk_ui::timeline::{RoomExt, TimelineDetails};
 use ruma::{
@@ -33,7 +36,6 @@ use ruma::{
     },
     room_id, user_id,
 };
-use serde_json::json;
 use stream_assert::assert_pending;
 
 use crate::mock_sync;
@@ -42,7 +44,8 @@ use crate::mock_sync;
 async fn test_batched() {
     let room_id = room_id!("!a98sd12bjh:example.org");
     let (client, server) = logged_in_client_with_server().await;
-    let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
+    let sync_settings =
+        SyncSettings::new().timeout(Duration::from_millis(3000)).token(SyncToken::NoToken);
 
     let f = EventFactory::new();
     let mut sync_builder = SyncResponseBuilder::new();
@@ -84,7 +87,8 @@ async fn test_batched() {
 async fn test_event_filter() {
     let room_id = room_id!("!a98sd12bjh:example.org");
     let (client, server) = logged_in_client_with_server().await;
-    let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
+    let sync_settings =
+        SyncSettings::new().timeout(Duration::from_millis(3000)).token(SyncToken::NoToken);
     let f = EventFactory::new();
 
     let mut sync_builder = SyncResponseBuilder::new();
@@ -174,7 +178,8 @@ async fn test_event_filter() {
 async fn test_timeline_is_reset_when_a_user_is_ignored_or_unignored() {
     let room_id = room_id!("!a98sd12bjh:example.org");
     let (client, server) = logged_in_client_with_server().await;
-    let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
+    let sync_settings =
+        SyncSettings::new().timeout(Duration::from_millis(3000)).token(SyncToken::NoToken);
 
     let mut sync_builder = SyncResponseBuilder::new();
     sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id));
@@ -231,14 +236,7 @@ async fn test_timeline_is_reset_when_a_user_is_ignored_or_unignored() {
 
     assert_pending!(timeline_stream);
 
-    sync_builder.add_global_account_data_event(GlobalAccountDataTestEvent::Custom(json!({
-        "content": {
-            "ignored_users": {
-                bob: {}
-            }
-        },
-        "type": "m.ignored_user_list",
-    })));
+    sync_builder.add_global_account_data(ev_factory.ignored_user_list([bob.to_owned()]));
 
     mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
@@ -289,7 +287,8 @@ async fn test_timeline_is_reset_when_a_user_is_ignored_or_unignored() {
 async fn test_profile_updates() {
     let room_id = room_id!("!a98sd12bjh:example.org");
     let (client, server) = logged_in_client_with_server().await;
-    let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
+    let sync_settings =
+        SyncSettings::new().timeout(Duration::from_millis(3000)).token(SyncToken::NoToken);
     let f = EventFactory::new();
 
     let mut sync_builder = SyncResponseBuilder::new();

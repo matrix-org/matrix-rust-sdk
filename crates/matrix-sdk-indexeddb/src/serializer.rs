@@ -35,6 +35,7 @@ const BASE64: GeneralPurpose = GeneralPurpose::new(&alphabet::STANDARD, general_
 
 /// Handles the functionality of serializing and encrypting data for the
 /// indexeddb store.
+#[derive(Clone)]
 pub struct IndexeddbSerializer {
     store_cipher: Option<Arc<StoreCipher>>,
 }
@@ -86,6 +87,28 @@ pub enum MaybeEncrypted {
 impl IndexeddbSerializer {
     pub fn new(store_cipher: Option<Arc<StoreCipher>>) -> Self {
         Self { store_cipher }
+    }
+
+    /// Hash the given key securely for the given tablename using the store
+    /// cipher.
+    ///
+    /// This works similarly to [`encode_key`](Self::encode_key), but skips
+    /// formatting and base64 encoding. This is useful for dealing with keys
+    /// that are represented as byte arrays, as it prevents having to convert
+    /// the byte array into a string and then back into a byte array.
+    ///
+    /// **Note** that when dealing with keys which will be encoded as strings,
+    /// it is recommended to use [`encode_key`](Self::encode_key), as it
+    /// ensures that strings are safe for use as a key.
+    #[allow(unused)]
+    pub fn hash_key<T>(&self, table_name: &str, key: T) -> Vec<u8>
+    where
+        T: AsRef<[u8]>,
+    {
+        match &self.store_cipher {
+            Some(cipher) => cipher.hash_key(table_name, key.as_ref()).into(),
+            None => key.as_ref().into(),
+        }
     }
 
     /// Hash the given key securely for the given tablename, using the store

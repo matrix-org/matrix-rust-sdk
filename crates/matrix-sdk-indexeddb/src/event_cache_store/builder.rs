@@ -12,9 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License
 
-use std::sync::Arc;
+use std::{rc::Rc, sync::Arc};
 
-use matrix_sdk_base::event_cache::store::MemoryStore;
+use matrix_sdk_base::event_cache::store::{media::MediaService, MemoryStore};
 use matrix_sdk_store_encryption::StoreCipher;
 use web_sys::DomException;
 
@@ -66,10 +66,11 @@ impl IndexeddbEventCacheStoreBuilder {
     /// and the provided store cipher.
     pub async fn build(self) -> Result<IndexeddbEventCacheStore, IndexeddbEventCacheStoreError> {
         Ok(IndexeddbEventCacheStore {
-            inner: open_and_upgrade_db(&self.database_name).await?,
+            inner: Rc::new(open_and_upgrade_db(&self.database_name).await?),
             serializer: IndexeddbEventCacheStoreSerializer::new(IndexeddbSerializer::new(
                 self.store_cipher,
             )),
+            media_service: MediaService::new(),
             memory_store: MemoryStore::new(),
         })
     }

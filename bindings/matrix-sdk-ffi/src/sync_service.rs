@@ -90,6 +90,15 @@ impl SyncService {
             }
         })))
     }
+
+    /// Force expiring both sliding sync sessions.
+    ///
+    /// This ensures that the sync service is stopped before expiring both
+    /// sessions. It should be used sparingly, as it will cause a restart of
+    /// the sessions on the server as well.
+    pub async fn expire_sessions(&self) {
+        self.inner.expire_sessions().await;
+    }
 }
 
 #[derive(Clone, uniffi::Object)]

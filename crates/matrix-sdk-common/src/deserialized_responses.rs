@@ -762,6 +762,11 @@ impl TimelineEventKind {
         self.raw().get_field::<OwnedEventId>("event_id").ok().flatten()
     }
 
+    /// Whether we could not decrypt the event (i.e. it is a UTD).
+    pub fn is_utd(&self) -> bool {
+        matches!(self, TimelineEventKind::UnableToDecrypt { .. })
+    }
+
     /// If the event was a decrypted event that was successfully decrypted, get
     /// its encryption info. Otherwise, `None`.
     pub fn encryption_info(&self) -> Option<&Arc<EncryptionInfo>> {
@@ -998,6 +1003,11 @@ pub enum UnableToDecryptReason {
     /// cross-signing identity did not satisfy the requested
     /// `TrustRequirement`.
     SenderIdentityNotTrusted(VerificationLevel),
+
+    /// The outer state key could not be verified against the inner encrypted
+    /// state key and type.
+    #[cfg(feature = "experimental-encrypted-state-events")]
+    StateKeyVerificationFailed,
 }
 
 impl UnableToDecryptReason {

@@ -8,6 +8,8 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
+- Tracing subscribers created via [`matrix_sdk_common::js_tracing::MakeJsLogWriter`] or [`make_tracing_subscriber`] will now drop log events at the `TRACE` level. Previously `TRACE` logs were treated the same as `DEBUG` logs. ([#5590](https://github.com/matrix-org/matrix-rust-sdk/pull/5590)).
+
 - [**breaking**] Use `Raw<AnyTimelineEvent>` in place of `Raw<AnyMessageLikeEvent>`
   in `DecryptedRoomEvent::event`.
   ([#5512](https://github.com/matrix-org/matrix-rust-sdk/pull/5512/files)).

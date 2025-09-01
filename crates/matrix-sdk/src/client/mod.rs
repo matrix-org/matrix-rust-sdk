@@ -61,6 +61,7 @@ use ruma::{
             room::create_room,
             session::login::v3::DiscoveryInfo,
             sync::sync_events,
+            threads::get_thread_subscriptions_changes,
             uiaa,
             user_directory::search_users,
         },
@@ -85,7 +86,7 @@ use crate::{
         matrix::MatrixAuth, oauth::OAuth, AuthCtx, AuthData, ReloadSessionCallback,
         SaveSessionCallback,
     },
-    config::RequestConfig,
+    config::{RequestConfig, SyncToken},
     deduplicating_handler::DeduplicatingHandler,
     error::HttpResult,
     event_cache::EventCache,
@@ -114,8 +115,12 @@ use crate::{
 mod builder;
 pub(crate) mod caches;
 pub(crate) mod futures;
+#[cfg(feature = "experimental-search")]
+pub(crate) mod search;
 
 pub use self::builder::{sanitize_server_name, ClientBuildError, ClientBuilder};
+#[cfg(feature = "experimental-search")]
+use crate::client::search::SearchIndex;
 
 #[cfg(not(target_family = "wasm"))]
 type NotificationHandlerFut = Pin<Box<dyn Future<Output = ()> + Send>>;
@@ -363,6 +368,10 @@ pub(crate) struct ClientInner {
     ///
     /// [`LatestEvent`]: crate::latest_event::LatestEvent
     latest_events: OnceCell<LatestEvents>,
+
+    #[cfg(feature = "experimental-search")]
+    /// Handler for [`RoomIndex`]'s of each room
+    search_index: SearchIndex,
 }
 
 impl ClientInner {
@@ -387,6 +396,7 @@ impl ClientInner {
         #[cfg(feature = "e2e-encryption")] encryption_settings: EncryptionSettings,
         #[cfg(feature = "e2e-encryption")] enable_share_history_on_invite: bool,
         cross_process_store_locks_holder_name: String,
+        #[cfg(feature = "experimental-search")] search_index_handler: SearchIndex,
     ) -> Arc<Self> {
         let caches = ClientCaches {
             server_info: server_info.into(),
@@ -422,6 +432,8 @@ impl ClientInner {
             #[cfg(feature = "e2e-encryption")]
             enable_share_history_on_invite,
             server_max_upload_size: Mutex::new(OnceCell::new()),
+            #[cfg(feature = "experimental-search")]
+            search_index: search_index_handler,
         };
 
         #[allow(clippy::let_and_return)]
@@ -625,8 +637,7 @@ impl Client {
     }
 
     /// Returns a receiver that gets events for each room info update. To watch
-    /// for new events, use `receiver.resubscribe()`. Each event contains the
-    /// room and a boolean whether this event should trigger a room list update.
+    /// for new events, use `receiver.resubscribe()`.
     pub fn room_info_notable_update_receiver(&self) -> broadcast::Receiver<RoomInfoNotableUpdate> {
         self.base_client().room_info_notable_update_receiver()
     }
@@ -1210,28 +1221,25 @@ impl Client {
 
     /// Returns the joined rooms this client knows about.
     pub fn joined_rooms(&self) -> Vec<Room> {
-        self.base_client()
-            .rooms_filtered(RoomStateFilter::JOINED)
-            .into_iter()
-            .map(|room| Room::new(self.clone(), room))
-            .collect()
+        self.rooms_filtered(RoomStateFilter::JOINED)
     }
 
     /// Returns the invited rooms this client knows about.
     pub fn invited_rooms(&self) -> Vec<Room> {
-        self.base_client()
-            .rooms_filtered(RoomStateFilter::INVITED)
-            .into_iter()
-            .map(|room| Room::new(self.clone(), room))
-            .collect()
+        self.rooms_filtered(RoomStateFilter::INVITED)
     }
 
     /// Returns the left rooms this client knows about.
     pub fn left_rooms(&self) -> Vec<Room> {
+        self.rooms_filtered(RoomStateFilter::LEFT)
+    }
+
+    /// Returns the joined space rooms this client knows about.
+    pub fn joined_space_rooms(&self) -> Vec<Room> {
         self.base_client()
-            .rooms_filtered(RoomStateFilter::LEFT)
+            .rooms_filtered(RoomStateFilter::JOINED)
             .into_iter()
-            .map(|room| Room::new(self.clone(), room))
+            .flat_map(|room| room.is_space().then_some(Room::new(self.clone(), room)))
             .collect()
     }
 
@@ -2349,9 +2357,15 @@ impl Client {
             error!(error = ?e, "Error while sending outgoing E2EE requests");
         }
 
+        let token = match sync_settings.token {
+            SyncToken::Specific(token) => Some(token),
+            SyncToken::NoToken => None,
+            SyncToken::ReusePrevious => self.sync_token().await,
+        };
+
         let request = assign!(sync_events::v3::Request::new(), {
             filter: sync_settings.filter.map(|f| *f),
-            since: sync_settings.token,
+            since: token,
             full_state: sync_settings.full_state,
             set_presence: sync_settings.set_presence,
             timeout: sync_settings.timeout,
@@ -2649,10 +2663,6 @@ impl Client {
         let mut timeout = None;
         let mut last_sync_time: Option<Instant> = None;
 
-        if sync_settings.token.is_none() {
-            sync_settings.token = self.sync_token().await;
-        }
-
         let parent_span = Span::current();
 
         async_stream::stream!({
@@ -2758,6 +2768,8 @@ impl Client {
                 #[cfg(feature = "e2e-encryption")]
                 self.inner.enable_share_history_on_invite,
                 cross_process_store_locks_holder_name,
+                #[cfg(feature = "experimental-search")]
+                self.inner.search_index.clone(),
             )
             .await,
         };
@@ -2865,6 +2877,11 @@ impl Client {
         &self.base_client().decryption_settings
     }
 
+    #[cfg(feature = "experimental-search")]
+    pub(crate) fn search_index(&self) -> &SearchIndex {
+        &self.inner.search_index
+    }
+
     /// Whether the client is configured to take thread subscriptions (MSC4306
     /// and MSC4308) into account.
     ///
@@ -2876,6 +2893,25 @@ impl Client {
             ThreadingSupport::Enabled { with_subscriptions } => with_subscriptions,
             ThreadingSupport::Disabled => false,
         }
+    }
+
+    /// Fetch thread subscriptions changes between `from` and up to `to`.
+    ///
+    /// The `limit` optional parameter can be used to limit the number of
+    /// entries in a response. It can also be overridden by the server, if
+    /// it's deemed too large.
+    pub async fn fetch_thread_subscriptions(
+        &self,
+        from: Option<String>,
+        to: Option<String>,
+        limit: Option<UInt>,
+    ) -> Result<get_thread_subscriptions_changes::unstable::Response> {
+        let request = assign!(get_thread_subscriptions_changes::unstable::Request::new(), {
+            from,
+            to,
+            limit,
+        });
+        Ok(self.send(request).await?)
     }
 }
 
@@ -3002,7 +3038,7 @@ pub(crate) mod tests {
         RoomState,
     };
     use matrix_sdk_test::{
-        async_test, GlobalAccountDataTestEvent, JoinedRoomBuilder, StateTestEvent,
+        async_test, event_factory::EventFactory, JoinedRoomBuilder, StateTestEvent,
         SyncResponseBuilder, DEFAULT_TEST_ROOM_ID,
     };
     #[cfg(target_family = "wasm")]
@@ -3021,7 +3057,7 @@ pub(crate) mod tests {
             ignored_user_list::IgnoredUserListEventContent,
             media_preview_config::{InviteAvatars, MediaPreviewConfigEventContent, MediaPreviews},
         },
-        owned_room_id, room_alias_id, room_id, RoomId, ServerName, UserId,
+        owned_room_id, owned_user_id, room_alias_id, room_id, RoomId, ServerName, UserId,
     };
     use serde_json::json;
     use stream_assert::{assert_next_matches, assert_pending};
@@ -3046,10 +3082,13 @@ pub(crate) mod tests {
         let server = MatrixMockServer::new().await;
         let client = server.client_builder().build().await;
 
+        let f = EventFactory::new();
         server
             .mock_sync()
             .ok_and_run(&client, |builder| {
-                builder.add_global_account_data_event(GlobalAccountDataTestEvent::IgnoredUserList);
+                builder.add_global_account_data(
+                    f.ignored_user_list([owned_user_id!("@someone:example.org")]),
+                );
             })
             .await;
 
@@ -3752,13 +3791,13 @@ pub(crate) mod tests {
         server
             .mock_sync()
             .ok_and_run(&client, |builder| {
-                builder.add_global_account_data_event(GlobalAccountDataTestEvent::Custom(json!({
+                builder.add_custom_global_account_data(json!({
                     "content": {
                         "media_previews": "private",
                         "invite_avatars": "off"
                     },
                     "type": "m.media_preview_config"
-                })));
+                }));
             })
             .await;
 
@@ -3774,13 +3813,13 @@ pub(crate) mod tests {
         server
             .mock_sync()
             .ok_and_run(&client, |builder| {
-                builder.add_global_account_data_event(GlobalAccountDataTestEvent::Custom(json!({
+                builder.add_custom_global_account_data(json!({
                     "content": {
                         "media_previews": "off",
                         "invite_avatars": "on"
                     },
                     "type": "m.media_preview_config"
-                })));
+                }));
             })
             .await;
 
@@ -3803,13 +3842,13 @@ pub(crate) mod tests {
         server
             .mock_sync()
             .ok_and_run(&client, |builder| {
-                builder.add_global_account_data_event(GlobalAccountDataTestEvent::Custom(json!({
+                builder.add_custom_global_account_data(json!({
                     "content": {
                         "media_previews": "private",
                         "invite_avatars": "off"
                     },
                     "type": "io.element.msc4278.media_preview_config"
-                })));
+                }));
             })
             .await;
 
@@ -3825,13 +3864,13 @@ pub(crate) mod tests {
         server
             .mock_sync()
             .ok_and_run(&client, |builder| {
-                builder.add_global_account_data_event(GlobalAccountDataTestEvent::Custom(json!({
+                builder.add_custom_global_account_data(json!({
                     "content": {
                         "media_previews": "off",
                         "invite_avatars": "on"
                     },
                     "type": "io.element.msc4278.media_preview_config"
-                })));
+                }));
             })
             .await;
 

@@ -24,12 +24,16 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use futures_core::Stream;
 use futures_util::StreamExt;
+#[cfg(feature = "experimental-encrypted-state-events")]
+use matrix_sdk_base::crypto::types::events::room::encrypted::EncryptedEvent;
 use matrix_sdk_base::crypto::{
     backups::MegolmV1BackupKey,
     store::types::BackupDecryptionKey,
     types::{requests::KeysBackupRequest, RoomKeyBackupInfo},
     OlmMachine, RoomKeyImportResult,
 };
+#[cfg(feature = "experimental-encrypted-state-events")]
+use ruma::serde::JsonCastable;
 use ruma::{
     api::client::{
         backup::{
@@ -1002,10 +1006,25 @@ impl Backups {
 
     /// Send a notification to the task responsible for key backup downloads
     /// that it should attempt to download the keys for the given event.
+    #[cfg(not(feature = "experimental-encrypted-state-events"))]
     pub(crate) fn maybe_download_room_key(
         &self,
         room_id: OwnedRoomId,
         event: Raw<OriginalSyncRoomEncryptedEvent>,
+    ) {
+        let tasks = self.client.inner.e2ee.tasks.lock();
+        if let Some(task) = tasks.download_room_keys.as_ref() {
+            task.trigger_download_for_utd_event(room_id, event);
+        }
+    }
+
+    /// Send a notification to the task responsible for key backup downloads
+    /// that it should attempt to download the keys for the given event.
+    #[cfg(feature = "experimental-encrypted-state-events")]
+    pub(crate) fn maybe_download_room_key<T: JsonCastable<EncryptedEvent>>(
+        &self,
+        room_id: OwnedRoomId,
+        event: Raw<T>,
     ) {
         let tasks = self.client.inner.e2ee.tasks.lock();
         if let Some(task) = tasks.download_room_keys.as_ref() {

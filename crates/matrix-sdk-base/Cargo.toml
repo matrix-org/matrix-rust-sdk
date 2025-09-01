@@ -31,6 +31,15 @@ automatic-room-key-forwarding = [
 experimental-send-custom-to-device = [
     "matrix-sdk-crypto?/experimental-send-custom-to-device",
 ]
+
+# Enable experimental support for encrypting state events; see
+# https://github.com/matrix-org/matrix-rust-sdk/issues/5397.
+experimental-encrypted-state-events = [
+    "e2e-encryption",
+    "ruma/unstable-msc3414",
+    "matrix-sdk-crypto?/experimental-encrypted-state-events"
+]
+
 uniffi = ["dep:uniffi", "matrix-sdk-crypto?/uniffi", "matrix-sdk-common/uniffi"]
 
 # Private feature, see
@@ -62,7 +71,7 @@ assert_matches = { workspace = true, optional = true }
 assert_matches2 = { workspace = true, optional = true }
 async-trait.workspace = true
 bitflags = { workspace = true, features = ["serde"] }
-decancer = "3.3.0"
+decancer = "3.3.3"
 eyeball = { workspace = true, features = ["async-lock"] }
 eyeball-im.workspace = true
 futures-util.workspace = true
@@ -73,7 +82,7 @@ matrix-sdk-crypto = { workspace = true, optional = true }
 matrix-sdk-store-encryption.workspace = true
 matrix-sdk-test = { workspace = true, optional = true }
 once_cell.workspace = true
-regex = "1.11.1"
+regex = "1.11.2"
 ruma = { workspace = true, features = [
     "canonical-json",
     "unstable-msc2867",

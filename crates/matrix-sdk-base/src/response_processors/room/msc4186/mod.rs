@@ -117,6 +117,8 @@ pub async fn update_any_room(
         ambiguity_cache,
         &mut new_user_ids,
         state_store,
+        #[cfg(feature = "experimental-encrypted-state-events")]
+        e2ee.clone(),
     )
     .await?;
 

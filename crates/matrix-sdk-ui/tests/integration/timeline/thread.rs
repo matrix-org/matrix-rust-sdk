@@ -18,7 +18,7 @@ use assert_matches2::{assert_let, assert_matches};
 use eyeball_im::VectorDiff;
 use futures_util::StreamExt as _;
 use matrix_sdk::{
-    assert_let_timeout,
+    Client, ThreadingSupport, assert_let_timeout,
     test_utils::mocks::{MatrixMockServer, RoomRelationsResponseTemplate},
 };
 use matrix_sdk_test::{
@@ -48,10 +48,20 @@ use ruma::{
 use stream_assert::assert_pending;
 use tokio::task::yield_now;
 
+async fn client_with_threading_support(server: &MatrixMockServer) -> Client {
+    server
+        .client_builder()
+        .on_builder(|builder| {
+            builder.with_threading_support(ThreadingSupport::Enabled { with_subscriptions: false })
+        })
+        .build()
+        .await
+}
+
 #[async_test]
 async fn test_new_empty_thread() {
     let server = MatrixMockServer::new().await;
-    let client = server.client_builder().build().await;
+    let client = client_with_threading_support(&server).await;
 
     let room_id = room_id!("!a:b.c");
 
@@ -75,7 +85,7 @@ async fn test_new_empty_thread() {
 #[async_test]
 async fn test_thread_backpagination() {
     let server = MatrixMockServer::new().await;
-    let client = server.client_builder().build().await;
+    let client = client_with_threading_support(&server).await;
 
     let room_id = room_id!("!a:b.c");
     let sender_id = user_id!("@alice:b.c");
@@ -236,7 +246,7 @@ async fn test_extract_bundled_thread_summary() {
     // `ThreadSummary` in the associated timeline content.
 
     let server = MatrixMockServer::new().await;
-    let client = server.client_builder().build().await;
+    let client = client_with_threading_support(&server).await;
 
     let room_id = room_id!("!a:b.c");
     let room = server.sync_joined_room(&client, room_id).await;
@@ -291,7 +301,7 @@ async fn test_new_thread_reply_causes_thread_summary_update() {
     // summary to be updated.
 
     let server = MatrixMockServer::new().await;
-    let client = server.client_builder().build().await;
+    let client = client_with_threading_support(&server).await;
 
     let room_id = room_id!("!a:b.c");
     let room = server.sync_joined_room(&client, room_id).await;
@@ -446,7 +456,7 @@ async fn test_thread_filtering_for_sync() {
     // - a thread timeline will show the threaded events
 
     let server = MatrixMockServer::new().await;
-    let client = server.client_builder().build().await;
+    let client = client_with_threading_support(&server).await;
 
     let room_id = room_id!("!a:b.c");
     let sender_id = user_id!("@alice:b.c");
@@ -603,7 +613,7 @@ async fn test_thread_timeline_gets_related_events_from_sync() {
     // gets updated.
 
     let server = MatrixMockServer::new().await;
-    let client = server.client_builder().build().await;
+    let client = client_with_threading_support(&server).await;
 
     let room_id = room_id!("!a:b.c");
     let sender_id = user_id!("@alice:b.c");
@@ -696,7 +706,7 @@ async fn test_thread_timeline_gets_local_echoes() {
     // gets updated. If the event is a reaction, it gets updated too.
 
     let server = MatrixMockServer::new().await;
-    let client = server.client_builder().build().await;
+    let client = client_with_threading_support(&server).await;
 
     let room_id = room_id!("!a:b.c");
     let thread_root_event_id = owned_event_id!("$root");
@@ -823,7 +833,7 @@ async fn test_thread_timeline_can_send_edit() {
     // relationship).
 
     let server = MatrixMockServer::new().await;
-    let client = server.client_builder().build().await;
+    let client = client_with_threading_support(&server).await;
 
     let room_id = room_id!("!a:b.c");
     let thread_root_event_id = owned_event_id!("$root");
@@ -907,7 +917,7 @@ async fn test_send_sticker_thread() {
     // set the threaded relationship does kick in).
 
     let server = MatrixMockServer::new().await;
-    let client = server.client_builder().build().await;
+    let client = client_with_threading_support(&server).await;
 
     let room_id = room_id!("!a:b.c");
     let thread_root_event_id = owned_event_id!("$root");
@@ -985,7 +995,7 @@ async fn test_send_poll_thread() {
     // set the threaded relationship does kick in).
 
     let server = MatrixMockServer::new().await;
-    let client = server.client_builder().build().await;
+    let client = client_with_threading_support(&server).await;
 
     let room_id = room_id!("!a:b.c");
     let thread_root_event_id = owned_event_id!("$root");
@@ -1069,7 +1079,7 @@ async fn test_sending_read_receipt_with_no_events_doesnt_unset_read_flag() {
     // unread flag on the room.
 
     let server = MatrixMockServer::new().await;
-    let client = server.client_builder().build().await;
+    let client = client_with_threading_support(&server).await;
 
     let room_id = room_id!("!a:b.c");
     let thread_root_event_id = owned_event_id!("$root");
@@ -1109,7 +1119,7 @@ async fn test_read_receipts() {
     // Threaded read receipts are correctly handled in a thread timeline.
 
     let server = MatrixMockServer::new().await;
-    let client = server.client_builder().build().await;
+    let client = client_with_threading_support(&server).await;
 
     let room_id = room_id!("!a:b.c");
     let thread_root = owned_event_id!("$root");
@@ -1248,7 +1258,7 @@ async fn test_initial_read_receipts_are_correctly_populated() {
     // populated in the timeline.
 
     let server = MatrixMockServer::new().await;
-    let client = server.client_builder().build().await;
+    let client = client_with_threading_support(&server).await;
     client.event_cache().subscribe().unwrap();
 
     let room_id = room_id!("!a:b.c");
@@ -1312,7 +1322,7 @@ async fn test_send_read_receipts() {
     // read receipt on an event that had one is a no-op.
 
     let server = MatrixMockServer::new().await;
-    let client = server.client_builder().build().await;
+    let client = client_with_threading_support(&server).await;
     client.event_cache().subscribe().unwrap();
 
     let user_id = client.user_id().unwrap();

@@ -1231,6 +1231,268 @@ pub static LEAVE_SYNC_EVENT: Lazy<JsonValue> = Lazy::new(|| {
     })
 });
 
+pub static JOIN_SPACE_SYNC: Lazy<JsonValue> = Lazy::new(|| {
+    json!({
+        "device_one_time_keys_count": {},
+        "next_batch": "s526_47314_0_7_1_1_1_11444_1",
+        "device_lists": {
+            "changed": [
+                "@example:example.org"
+            ],
+            "left": []
+        },
+        "account_data": {
+            "events": [
+                {
+                    "content": {
+                        "ignored_users": {
+                            "@someone:example.org": {}
+                        }
+                    },
+                    "type": "m.ignored_user_list"
+                }
+            ]
+        },
+        "rooms": {
+            "invite": {},
+            "join": {
+                *DEFAULT_TEST_ROOM_ID: {
+                    "summary": {},
+                    "account_data": {
+                        "events": [
+                            {
+                                "content": {
+                                    "event_id": "$someplace:example.org"
+                                },
+                                "room_id": "!roomid:room.com",
+                                "type": "m.fully_read"
+                            }
+                        ]
+                    },
+                    "ephemeral": {
+                        "events": [
+                            {
+                                "content": {
+                                    "$151680659217152dPKjd:localhost": {
+                                        "m.read": {
+                                            "@example:localhost": {
+                                                "ts": 151680989
+                                            }
+                                        }
+                                    }
+                                },
+                                "room_id": *DEFAULT_TEST_ROOM_ID,
+                                "type": "m.receipt"
+                            },
+                        ]
+                    },
+                    "state": {
+                        "events": [
+                            {
+                                "content": {
+                                    "join_rule": "public"
+                                },
+                                "event_id": "$15139375514WsgmR:localhost",
+                                "origin_server_ts": 151393755000000_u64,
+                                "sender": "@example:localhost",
+                                "state_key": "",
+                                "type": "m.room.join_rules",
+                                "unsigned": {
+                                    "age": 7034220
+                                }
+                            },
+                            {
+                                "content": {
+                                    "avatar_url": null,
+                                    "displayname": "example",
+                                    "membership": "join"
+                                },
+                                "event_id": "$151800140517rfvjc:localhost",
+                                "membership": "join",
+                                "origin_server_ts": 151800140000000_u64,
+                                "sender": "@example:localhost",
+                                "state_key": "@example:localhost",
+                                "type": "m.room.member",
+                                "unsigned": {
+                                    "age": 2970366,
+                                    "replaces_state": "$151800111315tsynI:localhost"
+                                }
+                            },
+                            {
+                                "content": {
+                                    "history_visibility": "shared"
+                                },
+                                "event_id": "$15139375515VaJEY:localhost",
+                                "origin_server_ts": 151393755000000_u64,
+                                "sender": "@example:localhost",
+                                "state_key": "",
+                                "type": "m.room.history_visibility",
+                                "unsigned": {
+                                    "age": 7034220
+                                }
+                            },
+                            {
+                                "content": {
+                                    "creator": "@example:localhost",
+                                    "type": "m.space"
+                                },
+                                "event_id": "$15139375510KUZHi:localhost",
+                                "origin_server_ts": 151393755000000_u64,
+                                "sender": "@example:localhost",
+                                "state_key": "",
+                                "type": "m.room.create",
+                                "unsigned": {
+                                    "age": 703422
+                                }
+                            },
+                            {
+                                "content": {
+                                    "aliases": [
+                                        "#tutorial:localhost"
+                                    ]
+                                },
+                                "event_id": "$15139375516NUgtD:localhost",
+                                "origin_server_ts": 151393755000000_u64,
+                                "sender": "@example:localhost",
+                                "state_key": "localhost",
+                                "type": "m.room.aliases",
+                                "unsigned": {
+                                    "age": 703422
+                                }
+                            },
+                            {
+                                "content": {
+                                    "topic": "room topic"
+                                },
+                                "event_id": "$151957878228ssqrJ:localhost",
+                                "origin_server_ts": 151957878000000_u64,
+                                "sender": "@example:localhost",
+                                "state_key": "",
+                                "type": "m.room.topic",
+                                "unsigned": {
+                                    "age": 1392989709,
+                                    "prev_content": {
+                                        "topic": "test"
+                                    },
+                                    "prev_sender": "@example:localhost",
+                                    "replaces_state": "$151957069225EVYKm:localhost"
+                                }
+                            },
+                            {
+                                "content": {
+                                    "ban": 50,
+                                    "events": {
+                                        "m.room.avatar": 50,
+                                        "m.room.canonical_alias": 50,
+                                        "m.room.history_visibility": 100,
+                                        "m.room.name": 50,
+                                        "m.room.power_levels": 100
+                                    },
+                                    "events_default": 0,
+                                    "invite": 0,
+                                    "kick": 50,
+                                    "redact": 50,
+                                    "state_default": 50,
+                                    "users": {
+                                        "@example:localhost": 100
+                                    },
+                                    "users_default": 0
+                                },
+                                "event_id": "$15139375512JaHAW:localhost",
+                                "origin_server_ts": 151393755000000_u64,
+                                "sender": "@example:localhost",
+                                "state_key": "",
+                                "type": "m.room.power_levels",
+                                "unsigned": {
+                                    "age": 703422
+                                }
+                            },
+                            {
+                                "content": {
+                                    "alias": "#tutorial:localhost"
+                                },
+                                "event_id": "$15139375513VdeRF:localhost",
+                                "origin_server_ts": 151393755000000_u64,
+                                "sender": "@example:localhost",
+                                "state_key": "",
+                                "type": "m.room.canonical_alias",
+                                "unsigned": {
+                                    "age": 703422
+                                }
+                            },
+                            {
+                                "content": {
+                                    "avatar_url": null,
+                                    "displayname": "example2",
+                                    "membership": "join"
+                                },
+                                "event_id": "$152034824468gOeNB:localhost",
+                                "membership": "join",
+                                "origin_server_ts": 152034824000000_u64,
+                                "sender": "@example2:localhost",
+                                "state_key": "@example2:localhost",
+                                "type": "m.room.member",
+                                "unsigned": {
+                                    "age": 623527289,
+                                    "prev_content": {
+                                        "membership": "leave"
+                                    },
+                                    "prev_sender": "@example:localhost",
+                                    "replaces_state": "$152034819067QWJxM:localhost"
+                                }
+                            },
+                        ]
+                    },
+                    "timeline": {
+                        "events": [
+                            {
+                                "content": {
+                                    "body": "baba",
+                                    "format": "org.matrix.custom.html",
+                                    "formatted_body": "<strong>baba</strong>",
+                                    "msgtype": "m.text"
+                                },
+                                "event_id": "$152037280074GZeOm:localhost",
+                                "origin_server_ts": 152037280000000_u64,
+                                "sender": "@example:localhost",
+                                "type": "m.room.message",
+                                "unsigned": {
+                                    "age": 598971425
+                                }
+                            }
+                        ],
+                        "limited": true,
+                        "prev_batch": "t392-516_47314_0_7_1_1_1_11444_1"
+                    },
+                    "unread_notifications": {
+                        "highlight_count": 0,
+                        "notification_count": 11
+                    }
+                }
+            },
+            "leave": {}
+        },
+        "to_device": {
+            "events": []
+        },
+        "presence": {
+            "events": [
+                {
+                    "content": {
+                        "avatar_url": "mxc://localhost/wefuiwegh8742w",
+                        "currently_active": false,
+                        "last_active_ago": 1,
+                        "presence": "online",
+                        "status_msg": "Making cupcakes"
+                    },
+                    "sender": "@example:localhost",
+                    "type": "m.presence"
+                }
+            ]
+        }
+    })
+});
+
 /// In the [`MIXED_SYNC`], the room id of the joined room.
 pub static MIXED_JOINED_ROOM_ID: Lazy<&RoomId> =
     Lazy::new(|| room_id!("!SVkFJHzfwvuaIEawgC:localhost"));

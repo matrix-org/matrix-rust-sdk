@@ -1,16 +1,16 @@
 use crossterm::event::KeyEvent;
-use ratatui::{layout::Flex, prelude::*};
-mod input;
-use input::Input;
+use ratatui::prelude::*;
+
+use crate::widgets::popup_input::PopupInput;
 
 #[derive(Default)]
 pub struct CreateRoomView {
-    input: Input,
+    input: PopupInput,
 }
 
 impl CreateRoomView {
     pub fn new() -> Self {
-        Self { input: Input::new() }
+        Self { input: PopupInput::new("Create Room", "(Enter name for new room)") }
     }
 
     pub fn get_text(&self) -> Option<String> {
@@ -25,11 +25,6 @@ impl CreateRoomView {
 
 impl Widget for &mut CreateRoomView {
     fn render(self, area: Rect, buf: &mut Buffer) {
-        let vertical = Layout::vertical([Constraint::Length(3)]).flex(Flex::Center);
-        let horizontal = Layout::horizontal([Constraint::Percentage(30)]).flex(Flex::Center);
-        let [area] = vertical.areas(area);
-        let [area] = horizontal.areas(area);
-
         self.input.render(area, buf);
     }
 }

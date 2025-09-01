@@ -12,19 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! The event cache is an abstraction layer, sitting between the Rust SDK and a
-//! final client, that acts as a global observer of all the rooms, gathering and
-//! inferring some extra useful information about each room. In particular, this
-//! doesn't require subscribing to a specific room to get access to this
-//! information.
-//!
-//! It's intended to be fast, robust and easy to maintain, having learned from
-//! previous endeavours at implementing middle to high level features elsewhere
-//! in the SDK, notably in the UI's Timeline object.
-//!
-//! See the [github issue](https://github.com/matrix-org/matrix-rust-sdk/issues/3058) for more
-//! details about the historical reasons that led us to start writing this.
-
 use tantivy::{IndexWriter, TantivyDocument, TantivyError};
 
 use crate::{OpStamp, error::IndexError};

@@ -34,12 +34,15 @@ use futures_util::{
 };
 #[cfg(feature = "experimental-send-custom-to-device")]
 use matrix_sdk_base::crypto::CollectStrategy;
-use matrix_sdk_base::crypto::{
-    store::types::{RoomKeyBundleInfo, RoomKeyInfo},
-    types::requests::{
-        OutgoingRequest, OutgoingVerificationRequest, RoomMessageRequest, ToDeviceRequest,
+use matrix_sdk_base::{
+    crypto::{
+        store::types::{RoomKeyBundleInfo, RoomKeyInfo},
+        types::requests::{
+            OutgoingRequest, OutgoingVerificationRequest, RoomMessageRequest, ToDeviceRequest,
+        },
+        CrossSigningBootstrapRequests, OlmMachine,
     },
-    CrossSigningBootstrapRequests, OlmMachine,
+    StateStoreDataKey, StateStoreDataValue,
 };
 use matrix_sdk_common::{executor::spawn, locks::Mutex as StdMutex};
 use ruma::{
@@ -623,7 +626,9 @@ impl Client {
                 self.keys_query(r.request_id(), request.device_keys.clone()).await?;
             }
             AnyOutgoingRequest::KeysUpload(request) => {
-                self.keys_upload(r.request_id(), request).await.inspect_err(|e| {
+                let response = self.keys_upload(r.request_id(), request).await;
+
+                if let Err(e) = &response {
                     match e.as_ruma_api_error() {
                         Some(RumaApiError::ClientApi(e)) if e.status_code == 400 => {
                             if let ErrorBody::Standard { message, .. } = &e.body {
@@ -631,18 +636,35 @@ impl Client {
                                 // telling us that we already have a one-time key uploaded means
                                 // that we forgot about some of our one-time keys. This will lead to
                                 // UTDs.
-                                if message.starts_with("One time key") {
-                                    tracing::error!(
-                                        sentry = true,
-                                        error_message = message,
-                                        "Duplicate one-time keys have been uploaded"
-                                    );
+                                {
+                                    let already_reported = self
+                                        .state_store()
+                                        .get_kv_data(StateStoreDataKey::OneTimeKeyAlreadyUploaded)
+                                        .await?
+                                        .is_some();
+
+                                    if message.starts_with("One time key") && !already_reported {
+                                        tracing::error!(
+                                            sentry = true,
+                                            error_message = message,
+                                            "Duplicate one-time keys have been uploaded"
+                                        );
+
+                                        self.state_store()
+                                            .set_kv_data(
+                                                StateStoreDataKey::OneTimeKeyAlreadyUploaded,
+                                                StateStoreDataValue::OneTimeKeyAlreadyUploaded,
+                                            )
+                                            .await?;
+                                    }
                                 }
                             }
                         }
                         _ => {}
                     }
-                })?;
+
+                    response?;
+                }
             }
             AnyOutgoingRequest::ToDeviceRequest(request) => {
                 let response = self.send_to_device(request).await?;
@@ -1907,7 +1929,7 @@ mod tests {
     };
 
     use matrix_sdk_test::{
-        async_test, test_json, GlobalAccountDataTestEvent, JoinedRoomBuilder, StateTestEvent,
+        async_test, event_factory::EventFactory, test_json, JoinedRoomBuilder, StateTestEvent,
         SyncResponseBuilder, DEFAULT_TEST_ROOM_ID,
     };
     use ruma::{
@@ -1991,11 +2013,14 @@ mod tests {
         let user_id = user_id!("@invited:localhost");
 
         // When we receive a sync response saying "invited" is invited to a DM
+        let f = EventFactory::new();
         let response = SyncResponseBuilder::default()
             .add_joined_room(
                 JoinedRoomBuilder::default().add_state_event(StateTestEvent::MemberAdditional),
             )
-            .add_global_account_data_event(GlobalAccountDataTestEvent::Direct)
+            .add_global_account_data(
+                f.direct().add_user(user_id.to_owned().into(), *DEFAULT_TEST_ROOM_ID),
+            )
             .build_sync_response();
         client.base_client().receive_sync_response(response).await.unwrap();
 
@@ -2012,11 +2037,14 @@ mod tests {
         let user_id = user_id!("@invited:localhost");
 
         // When we receive a sync response saying "invited" is invited to a DM
+        let f = EventFactory::new();
         let response = SyncResponseBuilder::default()
             .add_joined_room(
                 JoinedRoomBuilder::default().add_state_event(StateTestEvent::MemberInvite),
             )
-            .add_global_account_data_event(GlobalAccountDataTestEvent::Direct)
+            .add_global_account_data(
+                f.direct().add_user(user_id.to_owned().into(), *DEFAULT_TEST_ROOM_ID),
+            )
             .build_sync_response();
         client.base_client().receive_sync_response(response).await.unwrap();
 
@@ -2038,11 +2066,14 @@ mod tests {
         let user_id = user_id!("@invited:localhost");
 
         // When we receive a sync response saying "invited" is invited to a DM
+        let f = EventFactory::new();
         let response = SyncResponseBuilder::default()
             .add_joined_room(
                 JoinedRoomBuilder::default().add_state_event(StateTestEvent::MemberLeave),
             )
-            .add_global_account_data_event(GlobalAccountDataTestEvent::Direct)
+            .add_global_account_data(
+                f.direct().add_user(user_id.to_owned().into(), *DEFAULT_TEST_ROOM_ID),
+            )
             .build_sync_response();
         client.base_client().receive_sync_response(response).await.unwrap();
 

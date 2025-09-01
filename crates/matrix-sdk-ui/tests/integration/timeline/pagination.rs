@@ -23,7 +23,7 @@ use futures_util::{
 };
 use matrix_sdk::{
     assert_let_timeout,
-    config::SyncSettings,
+    config::{SyncSettings, SyncToken},
     event_cache::RoomPaginationStatus,
     test_utils::{
         logged_in_client_with_server,
@@ -412,7 +412,8 @@ async fn test_wait_for_token() {
     let room_id = room_id!("!a98sd12bjh:example.org");
     let (client, server) = logged_in_client_with_server().await;
 
-    let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
+    let sync_settings =
+        SyncSettings::new().timeout(Duration::from_millis(3000)).token(SyncToken::NoToken);
 
     let f = EventFactory::new();
     let mut sync_builder = SyncResponseBuilder::new();
@@ -535,7 +536,8 @@ async fn test_dedup_pagination() {
 async fn test_timeline_reset_while_paginating() {
     let room_id = room_id!("!a98sd12bjh:example.org");
     let (client, server) = logged_in_client_with_server().await;
-    let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
+    let sync_settings =
+        SyncSettings::new().timeout(Duration::from_millis(3000)).token(SyncToken::NoToken);
 
     let f = EventFactory::new();
     let mut sync_builder = SyncResponseBuilder::new();

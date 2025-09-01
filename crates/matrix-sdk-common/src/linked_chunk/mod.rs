@@ -107,6 +107,7 @@ use std::{
 pub use as_vector::*;
 pub use order_tracker::OrderTracker;
 use ruma::{EventId, OwnedEventId, OwnedRoomId, RoomId};
+use serde::{Deserialize, Serialize};
 pub use updates::*;
 
 /// An identifier for a linked chunk; borrowed variant.
@@ -114,6 +115,17 @@ pub use updates::*;
 pub enum LinkedChunkId<'a> {
     Room(&'a RoomId),
     Thread(&'a RoomId, &'a EventId),
+}
+
+impl Display for LinkedChunkId<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Room(room_id) => write!(f, "{room_id}"),
+            Self::Thread(room_id, thread_root) => {
+                write!(f, "{room_id}:thread:{thread_root}")
+            }
+        }
+    }
 }
 
 impl LinkedChunkId<'_> {
@@ -131,6 +143,12 @@ impl LinkedChunkId<'_> {
                 OwnedLinkedChunkId::Thread((*room_id).to_owned(), (*event_id).to_owned())
             }
         }
+    }
+}
+
+impl<'a> From<&'a OwnedLinkedChunkId> for LinkedChunkId<'a> {
+    fn from(value: &'a OwnedLinkedChunkId) -> Self {
+        value.as_ref()
     }
 }
 
@@ -154,7 +172,7 @@ impl PartialEq<LinkedChunkId<'_>> for OwnedLinkedChunkId {
 }
 
 /// An identifier for a linked chunk; owned variant.
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum OwnedLinkedChunkId {
     Room(OwnedRoomId),
     Thread(OwnedRoomId, OwnedEventId),
@@ -162,18 +180,12 @@ pub enum OwnedLinkedChunkId {
 
 impl Display for OwnedLinkedChunkId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            OwnedLinkedChunkId::Room(room_id) => write!(f, "{room_id}"),
-            OwnedLinkedChunkId::Thread(room_id, thread_root) => {
-                write!(f, "{room_id}:thread:{thread_root}")
-            }
-        }
+        self.as_ref().fmt(f)
     }
 }
 
 impl OwnedLinkedChunkId {
-    #[cfg(test)]
-    fn as_ref(&self) -> LinkedChunkId<'_> {
+    pub fn as_ref(&self) -> LinkedChunkId<'_> {
         match self {
             OwnedLinkedChunkId::Room(room_id) => LinkedChunkId::Room(room_id.as_ref()),
             OwnedLinkedChunkId::Thread(room_id, event_id) => {
@@ -187,6 +199,12 @@ impl OwnedLinkedChunkId {
             OwnedLinkedChunkId::Room(room_id) => room_id,
             OwnedLinkedChunkId::Thread(room_id, ..) => room_id,
         }
+    }
+}
+
+impl From<LinkedChunkId<'_>> for OwnedLinkedChunkId {
+    fn from(value: LinkedChunkId<'_>) -> Self {
+        value.to_owned()
     }
 }
 

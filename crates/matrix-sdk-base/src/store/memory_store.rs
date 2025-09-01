@@ -45,7 +45,9 @@ use super::{
 use crate::{
     MinimalRoomMemberEvent, RoomMemberships, StateStoreDataKey, StateStoreDataValue,
     deserialized_responses::{DisplayName, RawAnySyncOrStrippedState},
-    store::{QueueWedgeError, ThreadSubscription},
+    store::{
+        QueueWedgeError, StoredThreadSubscription, traits::compare_thread_subscription_bump_stamps,
+    },
 };
 
 #[derive(Debug, Default)]
@@ -58,6 +60,7 @@ struct MemoryStoreInner {
     server_info: Option<ServerInfo>,
     filters: HashMap<String, String>,
     utd_hook_manager_data: Option<GrowableBloom>,
+    one_time_key_uploaded_error: bool,
     account_data: HashMap<GlobalAccountDataEventType, Raw<AnyGlobalAccountDataEvent>>,
     profiles: HashMap<OwnedRoomId, HashMap<OwnedUserId, MinimalRoomMemberEvent>>,
     display_names: HashMap<OwnedRoomId, HashMap<DisplayName, BTreeSet<OwnedUserId>>>,
@@ -83,7 +86,7 @@ struct MemoryStoreInner {
     send_queue_events: BTreeMap<OwnedRoomId, Vec<QueuedRequest>>,
     dependent_send_queue_events: BTreeMap<OwnedRoomId, Vec<DependentQueuedRequest>>,
     seen_knock_requests: BTreeMap<OwnedRoomId, BTreeMap<OwnedEventId, OwnedUserId>>,
-    thread_subscriptions: BTreeMap<OwnedRoomId, BTreeMap<OwnedEventId, ThreadSubscription>>,
+    thread_subscriptions: BTreeMap<OwnedRoomId, BTreeMap<OwnedEventId, StoredThreadSubscription>>,
 }
 
 /// In-memory, non-persistent implementation of the `StateStore`.
@@ -146,6 +149,7 @@ impl StateStore for MemoryStore {
 
     async fn get_kv_data(&self, key: StateStoreDataKey<'_>) -> Result<Option<StateStoreDataValue>> {
         let inner = self.inner.read().unwrap();
+
         Ok(match key {
             StateStoreDataKey::SyncToken => {
                 inner.sync_token.clone().map(StateStoreDataValue::SyncToken)
@@ -167,6 +171,9 @@ impl StateStore for MemoryStore {
             StateStoreDataKey::UtdHookManagerData => {
                 inner.utd_hook_manager_data.clone().map(StateStoreDataValue::UtdHookManagerData)
             }
+            StateStoreDataKey::OneTimeKeyAlreadyUploaded => inner
+                .one_time_key_uploaded_error
+                .then_some(StateStoreDataValue::OneTimeKeyAlreadyUploaded),
             StateStoreDataKey::ComposerDraft(room_id, thread_root) => {
                 let key = (room_id.to_owned(), thread_root.map(ToOwned::to_owned));
                 inner.composer_drafts.get(&key).cloned().map(StateStoreDataValue::ComposerDraft)
@@ -217,6 +224,9 @@ impl StateStore for MemoryStore {
                         .expect("Session data not the hook manager data"),
                 );
             }
+            StateStoreDataKey::OneTimeKeyAlreadyUploaded => {
+                inner.one_time_key_uploaded_error = true;
+            }
             StateStoreDataKey::ComposerDraft(room_id, thread_root) => {
                 inner.composer_drafts.insert(
                     (room_id.to_owned(), thread_root.map(ToOwned::to_owned)),
@@ -256,6 +266,9 @@ impl StateStore for MemoryStore {
                 inner.recently_visited_rooms.remove(user_id);
             }
             StateStoreDataKey::UtdHookManagerData => inner.utd_hook_manager_data = None,
+            StateStoreDataKey::OneTimeKeyAlreadyUploaded => {
+                inner.one_time_key_uploaded_error = false
+            }
             StateStoreDataKey::ComposerDraft(room_id, thread_root) => {
                 let key = (room_id.to_owned(), thread_root.map(ToOwned::to_owned));
                 inner.composer_drafts.remove(&key);
@@ -957,15 +970,23 @@ impl StateStore for MemoryStore {
         &self,
         room: &RoomId,
         thread_id: &EventId,
-        subscription: ThreadSubscription,
+        mut new: StoredThreadSubscription,
     ) -> Result<(), Self::Error> {
-        self.inner
-            .write()
-            .unwrap()
-            .thread_subscriptions
-            .entry(room.to_owned())
-            .or_default()
-            .insert(thread_id.to_owned(), subscription);
+        let mut inner = self.inner.write().unwrap();
+        let room_subs = inner.thread_subscriptions.entry(room.to_owned()).or_default();
+
+        if let Some(previous) = room_subs.get(thread_id) {
+            // Nothing to do.
+            if *previous == new {
+                return Ok(());
+            }
+            if !compare_thread_subscription_bump_stamps(previous.bump_stamp, &mut new.bump_stamp) {
+                return Ok(());
+            }
+        }
+
+        room_subs.insert(thread_id.to_owned(), new);
+
         Ok(())
     }
 
@@ -973,7 +994,7 @@ impl StateStore for MemoryStore {
         &self,
         room: &RoomId,
         thread_id: &EventId,
-    ) -> Result<Option<ThreadSubscription>, Self::Error> {
+    ) -> Result<Option<StoredThreadSubscription>, Self::Error> {
         let inner = self.inner.read().unwrap();
         Ok(inner
             .thread_subscriptions

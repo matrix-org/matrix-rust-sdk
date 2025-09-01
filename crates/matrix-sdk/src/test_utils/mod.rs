@@ -270,6 +270,61 @@ macro_rules! assert_decrypted_message_eq {
     }};
 }
 
+/// Given a [`TimelineEvent`], assert that the event is a decrypted state
+/// event, and that its content matches the given pattern via a let binding.
+///
+/// If more than one argument is provided, these will be used as an error
+/// message if the content does not match the provided pattern.
+///
+/// # Examples
+///
+/// ```no_run
+/// # async {
+/// # let client: matrix_sdk::Client = unreachable!();
+/// # let room_id: ruma::OwnedRoomId = unreachable!();
+/// # let event_id: ruma::OwnedEventId = unreachable!();
+/// use matrix_sdk::assert_let_decrypted_state_event_content;
+///
+/// let room =
+///     client.get_room(&room_id).expect("Bob should have received the invite");
+///
+/// let event = room.event(&event_id, None).await?;
+///
+/// assert_let_decrypted_state_event_content!(
+///     ruma::events::AnyStateEventContent::RoomTopic(
+///         ruma::events::room::topic::RoomTopicEventContent { topic, .. }
+///     ) = event
+/// );
+/// assert_eq!(topic, "Encrypted topic!");
+/// # anyhow::Ok(()) };
+/// ```
+#[macro_export]
+macro_rules! assert_let_decrypted_state_event_content {
+    ($pat:pat = $event:expr, $($msg:tt)*) => {
+        assert_matches2::assert_let!(
+            $crate::deserialized_responses::TimelineEventKind::Decrypted(decrypted_event) =
+                $event.kind,
+            "Event was not decrypted"
+        );
+
+        let deserialized_event = decrypted_event
+            .event
+            .deserialize_as_unchecked::<$crate::ruma::events::AnyStateEvent>()
+            .expect("We should be able to deserialize the decrypted event");
+
+        let content =
+            deserialized_event.original_content().expect("The event should not have been redacted");
+
+        assert_matches2::assert_let!($pat = content, $($msg)*);
+    };
+    ($pat:pat = $event:expr) => {
+        assert_let_decrypted_state_event_content!(
+            $pat = $event,
+            "The decrypted event did not match the expected value"
+        );
+    };
+}
+
 #[doc(hidden)]
 #[macro_export]
 macro_rules! assert_next_eq_with_timeout_impl {

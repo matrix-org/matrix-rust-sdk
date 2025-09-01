@@ -17,7 +17,10 @@
 
 use ruma::{
     OwnedEventId,
-    events::{AnySyncMessageLikeEvent, AnySyncTimelineEvent, relation::BundledThread},
+    events::{
+        AnyMessageLikeEventContent, AnySyncMessageLikeEvent, AnySyncTimelineEvent,
+        relation::BundledThread,
+    },
     serde::Raw,
 };
 use serde::Deserialize;
@@ -43,6 +46,22 @@ struct RelatesTo {
 struct SimplifiedContent {
     #[serde(rename = "m.relates_to")]
     relates_to: Option<RelatesTo>,
+}
+
+/// Try to extract the thread root from an event's content, if provided.
+///
+/// The thread root is the field located at `m.relates_to`.`event_id`,
+/// if the field at `m.relates_to`.`rel_type` is `m.thread`.
+///
+/// Returns `None` if we couldn't find a thread root, or if there was an issue
+/// during deserialization.
+pub fn extract_thread_root_from_content(
+    content: Raw<AnyMessageLikeEventContent>,
+) -> Option<OwnedEventId> {
+    let relates_to = content.deserialize_as_unchecked::<SimplifiedContent>().ok()?.relates_to?;
+    match relates_to.rel_type {
+        RelationsType::Thread => relates_to.event_id,
+    }
 }
 
 /// Try to extract the thread root from a timeline event, if provided.

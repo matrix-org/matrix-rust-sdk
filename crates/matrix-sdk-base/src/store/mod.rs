@@ -26,7 +26,7 @@ use std::{
     fmt,
     ops::Deref,
     result::Result as StdResult,
-    str::Utf8Error,
+    str::{FromStr, Utf8Error},
     sync::{Arc, RwLock as StdRwLock},
 };
 
@@ -66,6 +66,7 @@ use ruma::{
 use serde::de::DeserializeOwned;
 use tokio::sync::{Mutex, RwLock, broadcast};
 use tracing::warn;
+pub use traits::compare_thread_subscription_bump_stamps;
 
 use crate::{
     MinimalRoomMemberEvent, Room, RoomCreateWithCreatorEventContent, RoomStateFilter, SessionMeta,
@@ -452,29 +453,72 @@ pub enum RoomLoadSettings {
     One(OwnedRoomId),
 }
 
-/// A thread subscription, as saved in the state store.
+/// The subscription status of a thread.
+///
+/// We keep unsubscriptions in the database, because we need the bumpstamp
+/// information (in `ThreadSubscription`) to be around to order subscriptions
+/// and unsubscriptions.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct ThreadSubscription {
-    /// Whether the subscription was made automatically by a client, not by
-    /// manual user choice.
-    pub automatic: bool,
+pub enum ThreadSubscriptionStatus {
+    /// The user is subscribed to the related thread.
+    Subscribed {
+        /// Whether the subscription was made automatically by a client, not by
+        /// manual user choice.
+        automatic: bool,
+    },
+
+    /// The user has been unsubscribed to the related thread.
+    Unsubscribed,
 }
 
-impl ThreadSubscription {
-    /// Convert the current [`ThreadSubscription`] into a string representation.
-    pub fn as_str(&self) -> &'static str {
-        if self.automatic { "automatic" } else { "manual" }
-    }
+impl FromStr for ThreadSubscriptionStatus {
+    type Err = ();
 
-    /// Convert a string representation into a [`ThreadSubscription`], if it is
-    /// a valid one, or `None` otherwise.
-    pub fn from_value(s: &str) -> Option<Self> {
+    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
         match s {
-            "automatic" => Some(Self { automatic: true }),
-            "manual" => Some(Self { automatic: false }),
-            _ => None,
+            "automatic" => Ok(ThreadSubscriptionStatus::Subscribed { automatic: true }),
+            "manual" => Ok(ThreadSubscriptionStatus::Subscribed { automatic: false }),
+            "unsubscribed" => Ok(ThreadSubscriptionStatus::Unsubscribed),
+            _ => Err(()),
         }
     }
+}
+
+impl ThreadSubscriptionStatus {
+    /// Represent the status as a static string ref, for it to be stored into a
+    /// persistent format.
+    ///
+    /// Note: this is serialized in some databases implementations, so make sure
+    /// to not change it lightly, and keep it in sync with
+    /// [`Self::from_str`].
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            ThreadSubscriptionStatus::Subscribed { automatic } => {
+                if *automatic {
+                    "automatic"
+                } else {
+                    "manual"
+                }
+            }
+            ThreadSubscriptionStatus::Unsubscribed => "unsubscribed",
+        }
+    }
+}
+
+/// A thread subscription, as saved in the state store.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct StoredThreadSubscription {
+    /// Current status of the subscription.
+    pub status: ThreadSubscriptionStatus,
+
+    /// An optional bump stamp, as defined in the MSC; the higher the value, the
+    /// most recent the thread subscription information is, and should be
+    /// remembered.
+    ///
+    /// If not set, this means it's a user-provided thread subscription, for
+    /// which we're waiting validation from a server (e.g. through a remote
+    /// echo via sync).
+    pub bump_stamp: Option<u64>,
 }
 
 /// Store state changes and pass them to the StateStore.

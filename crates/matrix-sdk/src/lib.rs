@@ -67,6 +67,8 @@ pub mod widget;
 
 pub use account::Account;
 pub use authentication::{AuthApi, AuthSession, SessionTokens};
+#[cfg(feature = "experimental-search")]
+pub use client::search::SearchIndexStoreKind;
 pub use client::{
     sanitize_server_name, Client, ClientBuildError, ClientBuilder, LoopCtrl, ServerVendorInfo,
     SessionChange,

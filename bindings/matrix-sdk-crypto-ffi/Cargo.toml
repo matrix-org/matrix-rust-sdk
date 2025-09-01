@@ -23,14 +23,20 @@ path = "uniffi-bindgen.rs"
 default = ["bundled-sqlite"]
 bundled-sqlite = ["matrix-sdk-sqlite/bundled"]
 
+# Enable experimental support for encrypting state events; see
+# https://github.com/matrix-org/matrix-rust-sdk/issues/5397.
+experimental-encrypted-state-events = [
+    "matrix-sdk-crypto/experimental-encrypted-state-events",
+]
+
 [dependencies]
 anyhow.workspace = true
 futures-util.workspace = true
-hmac = "0.12.1"
+hmac.workspace = true
 http.workspace = true
 matrix-sdk-common = { workspace = true, features = ["uniffi"] }
 matrix-sdk-ffi-macros.workspace = true
-pbkdf2 = "0.12.2"
+pbkdf2.workspace = true
 rand.workspace = true
 ruma.workspace = true
 serde.workspace = true
@@ -56,17 +62,17 @@ workspace = true
 features = ["crypto-store"]
 
 [dependencies.tokio]
-version = "1.43.1"
+workspace = true
 default-features = false
 features = ["rt-multi-thread"]
 
 [build-dependencies]
 uniffi = { workspace = true, features = ["build"] }
-vergen = { version = "8.2.5", features = ["build", "git", "gitcl"] }
+vergen-gitcl = { workspace = true, features = ["build"] }
 
 [dev-dependencies]
 assert_matches2.workspace = true
-tempfile = "3.8.0"
+tempfile.workspace = true
 
 [lints]
 workspace = true

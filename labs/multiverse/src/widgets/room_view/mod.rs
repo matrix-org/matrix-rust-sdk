@@ -189,7 +189,8 @@ impl RoomView {
         }
     }
 
-    fn room(&self) -> Option<Room> {
+    /// Get currently focused [`Room`]
+    pub fn room(&self) -> Option<Room> {
         self.room_id().and_then(|room_id| self.client.get_room(room_id))
     }
 

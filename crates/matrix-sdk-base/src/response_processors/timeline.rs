@@ -34,6 +34,7 @@ use crate::{Result, Room, RoomInfo, sync::Timeline};
 /// - will process verification,
 /// - will process redaction,
 /// - will process notification.
+#[allow(clippy::extra_unused_lifetimes)]
 #[instrument(skip_all, fields(room_id = ?room_info.room_id))]
 pub async fn build<'notification, 'e2ee>(
     context: &mut Context,

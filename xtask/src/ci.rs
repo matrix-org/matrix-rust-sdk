@@ -100,10 +100,12 @@ enum FeatureSet {
     NoSqlite,
     NoEncryptionAndSqlite,
     SqliteCryptostore,
+    ExperimentalEncryptedStateEvents,
     RustlsTls,
     Markdown,
     Socks,
     SsoLogin,
+    Search,
 }
 
 #[derive(Subcommand, PartialEq, Eq, PartialOrd, Ord)]
@@ -262,10 +264,15 @@ fn run_feature_tests(cmd: Option<FeatureSet>) -> Result<()> {
             FeatureSet::SqliteCryptostore,
             "--no-default-features --features e2e-encryption,sqlite,native-tls,testing",
         ),
+        (
+            FeatureSet::ExperimentalEncryptedStateEvents,
+            "--no-default-features --features experimental-encrypted-state-events,e2e-encryption,sqlite,native-tls,testing",
+        ),
         (FeatureSet::RustlsTls, "--no-default-features --features rustls-tls,testing"),
         (FeatureSet::Markdown, "--features markdown,testing"),
         (FeatureSet::Socks, "--features socks,testing"),
         (FeatureSet::SsoLogin, "--features sso-login,testing"),
+        (FeatureSet::Search, "--features experimental-search"),
     ]);
 
     let sh = sh();
@@ -313,6 +320,7 @@ fn run_crypto_tests() -> Result<()> {
         "rustup run stable cargo test --doc -p matrix-sdk-crypto --features=experimental-algorithms,testing"
     )
     .run()?;
+    cmd!(sh, "rustup run stable cargo nextest run -p matrix-sdk-crypto --features=experimental-encrypted-state-events").run()?;
 
     cmd!(sh, "rustup run stable cargo nextest run -p matrix-sdk-crypto-ffi").run()?;
 
