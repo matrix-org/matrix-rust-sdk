@@ -183,6 +183,23 @@ impl SlidingSyncBuilder {
         self
     }
 
+    /// Set the Threads subscriptions extension configuration.
+    pub fn with_thread_subscriptions_extension(
+        mut self,
+        thread_subscriptions: http::request::ThreadSubscriptions,
+    ) -> Self {
+        self.extensions.get_or_insert_with(Default::default).thread_subscriptions =
+            thread_subscriptions;
+        self
+    }
+
+    /// Unset the Threads subscriptions extension configuration.
+    pub fn without_thread_subscriptions_extension(mut self) -> Self {
+        self.extensions.get_or_insert_with(Default::default).thread_subscriptions =
+            Default::default();
+        self
+    }
+
     /// Sets a custom timeout duration for the sliding sync polling endpoint.
     ///
     /// This is the maximum time to wait before the sliding sync server returns

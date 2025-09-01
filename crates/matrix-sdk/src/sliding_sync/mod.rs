@@ -240,7 +240,7 @@ impl SlidingSync {
     #[instrument(skip_all)]
     async fn handle_response(
         &self,
-        sliding_sync_response: http::Response,
+        mut sliding_sync_response: http::Response,
         position: &mut SlidingSyncPositionMarkers,
         requested_required_states: RequestedRequiredStates,
     ) -> Result<UpdateSummary, crate::Error> {
@@ -271,6 +271,22 @@ impl SlidingSync {
 
                 let mut response_processor =
                     SlidingSyncResponseProcessor::new(self.inner.client.clone());
+
+                // Process thread subscriptions if they're available.
+                //
+                // It's important to do this *before* handling the room responses, so that
+                // notifications can be properly generated based on the thread subscriptions,
+                // for the events in threads we've subscribed to.
+                if self.is_thread_subscriptions_enabled() {
+                    response_processor
+                        .handle_thread_subscriptions(
+                            position.pos.as_deref(),
+                            std::mem::take(
+                                &mut sliding_sync_response.extensions.thread_subscriptions,
+                            ),
+                        )
+                        .await?;
+                }
 
                 #[cfg(feature = "e2e-encryption")]
                 if self.is_e2ee_enabled() {
@@ -621,6 +637,13 @@ impl SlidingSync {
     #[cfg(feature = "e2e-encryption")]
     fn is_e2ee_enabled(&self) -> bool {
         self.inner.sticky.read().unwrap().data().extensions.e2ee.enabled == Some(true)
+    }
+
+    /// Is the thread subscriptions extension enabled for this sliding sync
+    /// instance?
+    fn is_thread_subscriptions_enabled(&self) -> bool {
+        self.inner.sticky.read().unwrap().data().extensions.thread_subscriptions.enabled
+            == Some(true)
     }
 
     #[cfg(not(feature = "e2e-encryption"))]

@@ -155,6 +155,15 @@ impl RoomListService {
                 enabled: Some(true),
             }));
 
+        if client.enabled_thread_subscriptions() {
+            builder = builder.with_thread_subscriptions_extension(
+                assign!(http::request::ThreadSubscriptions::default(), {
+                    enabled: Some(true),
+                    limit: Some(ruma::uint!(10))
+                }),
+            );
+        }
+
         if share_pos {
             // We don't deal with encryption device messages here so this is safe
             builder = builder.share_pos();
