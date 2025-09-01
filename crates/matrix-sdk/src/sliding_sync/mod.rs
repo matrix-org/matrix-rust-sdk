@@ -659,15 +659,19 @@ impl SlidingSync {
             || !self.inner.lists.read().await.is_empty()
     }
 
+    /// Send a single sliding sync request, and returns the response summary.
+    ///
+    /// Public for testing purposes only.
+    #[doc(hidden)]
     #[instrument(skip_all, fields(pos, conn_id = self.inner.id))]
-    async fn sync_once(&self) -> Result<UpdateSummary> {
+    pub async fn sync_once(&self) -> Result<UpdateSummary> {
         let (request, request_config, position_guard) =
             self.generate_sync_request(&mut LazyTransactionId::new()).await?;
 
-        // Send the request, kaboom.
+        // Send the request.
         let summaries = self.send_sync_request(request, request_config, position_guard).await?;
 
-        // Notify a new sync was received
+        // Notify a new sync was received.
         self.inner.client.inner.sync_beat.notify(usize::MAX);
 
         Ok(summaries)
