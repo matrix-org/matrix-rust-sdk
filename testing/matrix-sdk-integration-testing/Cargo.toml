@@ -30,7 +30,7 @@ futures = { version = "0.3.29", features = ["executor"] }
 futures-core.workspace = true
 futures-util.workspace = true
 http.workspace = true
-json-structural-diff = "0.1.0"
+json-structural-diff = "0.2.0"
 matrix-sdk = { workspace = true, default-features = true, features = ["testing", "qrcode"] }
 matrix-sdk-base = { workspace = true, default-features = true, features = ["testing", "qrcode"] }
 matrix-sdk-common.workspace = true
@@ -43,7 +43,7 @@ reqwest.workspace = true
 serde_json.workspace = true
 similar-asserts.workspace = true
 stream_assert.workspace = true
-tempfile = "3.3.0"
+tempfile.workspace = true
 tokio = { workspace = true, features = ["rt", "rt-multi-thread", "macros"] }
 tracing.workspace = true
 wiremock.workspace = true
