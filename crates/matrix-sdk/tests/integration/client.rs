@@ -36,6 +36,9 @@ use ruma::{
             get_public_rooms,
             get_public_rooms_filtered::{self, v3::Request as PublicRoomsFilterRequest},
         },
+        threads::get_thread_subscriptions_changes::unstable::{
+            ThreadSubscription, ThreadUnsubscription,
+        },
         uiaa,
     },
     assign, device_id,
@@ -1511,8 +1514,6 @@ async fn test_room_sync_state_after() {
 
 #[async_test]
 async fn test_server_vendor_info() {
-    use matrix_sdk::test_utils::mocks::MatrixMockServer;
-
     let server = MatrixMockServer::new().await;
     let client = server.client_builder().build().await;
 
@@ -1527,8 +1528,6 @@ async fn test_server_vendor_info() {
 
 #[async_test]
 async fn test_server_vendor_info_with_missing_fields() {
-    use matrix_sdk::test_utils::mocks::MatrixMockServer;
-
     let server = MatrixMockServer::new().await;
     let client = server.client_builder().build().await;
 
@@ -1544,10 +1543,6 @@ async fn test_server_vendor_info_with_missing_fields() {
 
 #[async_test]
 async fn test_fetch_thread_subscriptions() {
-    use ruma::api::client::threads::get_thread_subscriptions_changes::unstable::{
-        ThreadSubscription, ThreadUnsubscription,
-    };
-
     let server = MatrixMockServer::new().await;
     let client = server.client_builder().build().await;
 
