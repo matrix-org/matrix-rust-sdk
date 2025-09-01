@@ -19,20 +19,25 @@ resolver = "2"
 rust-version = "1.88"
 
 [workspace.dependencies]
-anyhow = "1.0.95"
+anyhow = "1.0.99"
 aquamarine = "0.6.0"
 as_variant = "1.3.0"
 assert-json-diff = "2.0.2"
 assert_matches = "1.5.0"
 assert_matches2 = "0.1.2"
-async-compat = "0.2.4"
+async-compat = "0.2.5"
 async-rx = "0.1.3"
+# Bumping this to 0.3.6 produces a test failure because the semantic between the
+# versions changed subtly.
 async-stream = "0.3.5"
-async-trait = "0.1.85"
+async-trait = "0.1.89"
 base64 = "0.22.1"
-bitflags = "2.8.0"
+bitflags = "2.9.3"
 byteorder = "1.5.0"
-chrono = "0.4.39"
+cfg-if = "1.0.3"
+clap = "4.5.46"
+chrono = "0.4.41"
+dirs = "6.0.0"
 eyeball = { version = "0.8.8", features = ["tracing"] }
 eyeball-im = { version = "0.7.0", features = ["tracing"] }
 eyeball-im-util = "0.9.0"
@@ -44,20 +49,20 @@ gloo-timers = "0.3.0"
 growable-bloom-filter = "2.1.1"
 hkdf = "0.12.4"
 hmac = "0.12.1"
-http = "1.2.0"
+http = "1.3.1"
 imbl = "5.0.0"
-indexmap = "2.7.1"
-insta = { version = "1.42.1", features = ["json", "redactions"] }
+indexmap = "2.11.0"
+insta = { version = "1.43.1", features = ["json", "redactions"] }
 itertools = "0.14.0"
-js-sys = "0.3.69"
+js-sys = "0.3.77"
 mime = "0.3.17"
 oauth2 = { version = "5.0.0", default-features = false, features = ["reqwest", "timing-resistant-secret-traits"] }
-once_cell = "1.20.2"
+once_cell = "1.21.3"
 pbkdf2 = { version = "0.12.2" }
 pin-project-lite = "0.2.16"
 proptest = { version = "1.6.0", default-features = false, features = ["std"] }
 rand = "0.8.5"
-reqwest = { version = "0.12.12", default-features = false }
+reqwest = { version = "0.12.23", default-features = false }
 rmp-serde = "1.3.0"
 ruma = { git = "https://github.com/ruma/ruma", rev = "57049282e3a74f67f86e4eb2382a3e649b57cc2b", features = [
     "client-api-c",
@@ -80,31 +85,33 @@ ruma = { git = "https://github.com/ruma/ruma", rev = "57049282e3a74f67f86e4eb238
     "unstable-msc4306",
     "unstable-msc4308"
 ] }
-sentry = "0.42.0"
+sentry = { version = "0.42.0", default-features = false }
 sentry-tracing = "0.42.0"
-serde = { version = "1.0.217", features = ["rc"] }
+serde = { version = "1.0.219", features = ["rc"] }
 serde_html_form = "0.2.7"
-serde_json = "1.0.138"
-sha2 = "0.10.8"
-similar-asserts = "1.6.1"
+serde_json = "1.0.143"
+sha2 = "0.10.9"
+similar-asserts = "1.7.0"
 stream_assert = "0.1.1"
-tempfile = "3.16.0"
-thiserror = "2.0.11"
-tokio = { version = "1.43.1", default-features = false, features = ["sync"] }
+tempfile = "3.21.0"
+thiserror = "2.0.16"
+tokio = { version = "1.47.1", default-features = false, features = ["sync"] }
 tokio-stream = "0.1.17"
 tracing = { version = "0.1.41", default-features = false, features = ["std"] }
+tracing-appender = "0.2.3"
 tracing-core = "0.1.34"
 tracing-subscriber = "0.3.20"
 unicode-normalization = "0.1.24"
 uniffi = { version = "0.28.0" }
 uniffi_bindgen = { version = "0.28.0" }
-url = "2.5.4"
-uuid = "1.12.1"
+url = "2.5.7"
+uuid = "1.18.0"
+vergen = "8.3.2"
 vodozemac = { version = "0.9.0", features = ["insecure-pk-encryption"] }
 wasm-bindgen = "0.2.84"
 wasm-bindgen-test = "0.3.50"
 web-sys = "0.3.69"
-wiremock = "0.6.2"
+wiremock = "0.6.5"
 zeroize = "1.8.1"
 
 matrix-sdk = { path = "crates/matrix-sdk", version = "0.13.0", default-features = false }
