@@ -104,7 +104,7 @@ pub async fn update_joined_room(
     // Save the new `RoomInfo`.
     context.state_changes.add_room(room_info);
 
-    account_data::for_room(context, room_id, &joined_room.account_data.events, state_store).await;
+    account_data::for_room(context, room_id, &joined_room.account_data.events, state_store);
 
     // `processors::account_data::from_room` might have updated the `RoomInfo`.
     // Let's fetch it again.
@@ -201,7 +201,7 @@ pub async fn update_left_room(
     // Save the new `RoomInfo`.
     context.state_changes.add_room(room_info);
 
-    account_data::for_room(context, room_id, &left_room.account_data.events, state_store).await;
+    account_data::for_room(context, room_id, &left_room.account_data.events, state_store);
 
     let ambiguity_changes = ambiguity_cache.changes.remove(room_id).unwrap_or_default();
 
