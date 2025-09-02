@@ -160,16 +160,25 @@ impl RoomIndex {
     }
 
     /// Search the [`RoomIndex`] for some query. Returns a list of
-    /// results with a maximum given length.
+    /// results with a maximum given length. If `pagination_offset` is
+    /// set then the results will start there, i.e.
+    ///
+    /// if `max_number_of_results = 3` and `pagination_offset = 10`
+    /// (and there are a surplus of results)
+    /// then this will return results `11, 12, 13`
     pub fn search(
         &self,
         query: &str,
         max_number_of_results: usize,
+        pagination_offset: Option<usize>,
     ) -> Result<Vec<OwnedEventId>, IndexError> {
         let query = self.query_parser.parse_query(query)?;
         let searcher = self.reader.searcher();
 
-        let results = searcher.search(&query, &TopDocs::with_limit(max_number_of_results))?;
+        let offset = pagination_offset.unwrap_or(0);
+
+        let results = searcher
+            .search(&query, &TopDocs::with_limit(max_number_of_results).and_offset(offset))?;
         let mut ret: Vec<OwnedEventId> = Vec::new();
         let pk = self.schema.primary_key();
 
@@ -213,7 +222,7 @@ impl RoomIndex {
     }
 
     fn contains(&self, event_id: &EventId) -> bool {
-        let search_result = self.search(format!("event_id:\"{event_id}\"").as_str(), 1);
+        let search_result = self.search(format!("event_id:\"{event_id}\"").as_str(), 1, None);
         match search_result {
             Ok(results) => !results.is_empty(),
             Err(err) => {
@@ -334,7 +343,7 @@ mod tests {
 
         index.commit_and_reload()?;
 
-        let result = index.search("sentence", 10).expect("search failed with: {result:?}");
+        let result = index.search("sentence", 10, None).expect("search failed with: {result:?}");
         let result: HashSet<_> = result.iter().collect();
 
         let true_value = [event_id_1.to_owned(), event_id_3.to_owned()];
@@ -353,7 +362,7 @@ mod tests {
 
         index.commit_and_reload()?;
 
-        let result = index.search("sentence", 10).expect("search failed with: {result:?}");
+        let result = index.search("sentence", 10, None).expect("search failed with: {result:?}");
 
         assert!(result.is_empty(), "search result not empty: {result:?}");
 
@@ -421,7 +430,7 @@ mod tests {
 
         assert!(index.contains(event_id), "Index should still contain event");
 
-        let result = index.search("sentence", 10).expect("search failed with: {result:?}");
+        let result = index.search("sentence", 10, None).expect("search failed with: {result:?}");
 
         assert_eq!(result.len(), 1, "Index should have ignored second indexing");
 

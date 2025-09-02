@@ -4126,10 +4126,11 @@ impl Room {
         &self,
         query: &str,
         max_number_of_results: usize,
+        pagination_offset: Option<usize>,
     ) -> Option<Vec<OwnedEventId>> {
         let mut search_index_guard = self.client.search_index().lock().await;
         search_index_guard.commit_and_reload(self.room_id());
-        search_index_guard.search(query, max_number_of_results, self.room_id())
+        search_index_guard.search(query, max_number_of_results, pagination_offset, self.room_id())
     }
 
     /// Subscribe to a given thread in this room.
