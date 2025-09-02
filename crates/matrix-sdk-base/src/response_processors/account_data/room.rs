@@ -26,7 +26,7 @@ use crate::{
 };
 
 #[instrument(skip_all, fields(?room_id))]
-pub async fn for_room(
+pub fn for_room(
     context: &mut Context,
     room_id: &RoomId,
     events: &[Raw<AnyRoomAccountDataEvent>],

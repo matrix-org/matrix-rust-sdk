@@ -207,8 +207,7 @@ impl BaseClient {
             &extensions.account_data,
             &mut room_updates,
             &self.state_store,
-        )
-        .await;
+        );
 
         global_account_data_processor.apply(&mut context, &state_store).await;
 
