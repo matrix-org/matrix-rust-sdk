@@ -26,7 +26,10 @@ use matrix_sdk::{
     config::StoreConfig,
     encryption::{BackupDownloadStrategy, EncryptionSettings},
     reqwest::Url,
-    ruma::{OwnedRoomId, api::client::room::create_room::v3::Request as CreateRoomRequest},
+    ruma::{
+        OwnedRoomId, api::client::room::create_room::v3::Request as CreateRoomRequest,
+        events::InitialStateEvent, events::room::encryption::RoomEncryptionEventContent,
+    },
 };
 use matrix_sdk_common::locks::Mutex;
 use matrix_sdk_ui::{
@@ -84,13 +87,24 @@ pub enum GlobalMode {
     /// Mode where we have opened the help screen.
     Help,
     /// Mode where we have opened the settings screen.
-    Settings { view: SettingsView },
+    Settings {
+        view: SettingsView,
+    },
     /// Mode where we are shutting our tasks down and exiting multiverse.
-    Exiting { shutdown_task: JoinHandle<()> },
+    Exiting {
+        shutdown_task: JoinHandle<()>,
+    },
     /// Mode where we have opened create room screen
-    CreateRoom { view: CreateRoomView },
+    CreateRoom {
+        view: CreateRoomView,
+    },
+    CreateEncryptedRoom {
+        view: CreateRoomView,
+    },
     /// Mode where we have opened create room screen
-    Searching { view: SearchingView },
+    Searching {
+        view: SearchingView,
+    },
 }
 
 /// Helper function to create a centered rect using up certain percentage of the
@@ -357,6 +371,9 @@ impl App {
                 }
             }
 
+            Event::Key(KeyEvent { modifiers: KeyModifiers::CONTROL, code: Char('e'), .. }) => self
+                .set_global_mode(GlobalMode::CreateEncryptedRoom { view: CreateRoomView::new() }),
+
             Event::Key(KeyEvent { modifiers: KeyModifiers::CONTROL, code: Char('r'), .. }) => {
                 self.set_global_mode(GlobalMode::CreateRoom { view: CreateRoomView::new() })
             }
@@ -377,6 +394,7 @@ impl App {
         match &mut self.state.global_mode {
             GlobalMode::Help
             | GlobalMode::Default
+            | GlobalMode::CreateEncryptedRoom { .. }
             | GlobalMode::CreateRoom { .. }
             | GlobalMode::Searching { .. }
             | GlobalMode::Exiting { .. } => {}
@@ -428,6 +446,36 @@ impl App {
                             && view.handle_key_press(key).await
                         {
                             self.set_global_mode(GlobalMode::Default);
+                        }
+                    }
+                    GlobalMode::CreateEncryptedRoom { view } => {
+                        if let Event::Key(key) = event
+                            && let KeyModifiers::NONE = key.modifiers
+                        {
+                            match key.code {
+                                Enter => {
+                                    if let Some(room_name) = view.get_text() {
+                                        let mut request = CreateRoomRequest::new();
+                                        let initial_state =
+                                            vec![InitialStateEvent::new(RoomEncryptionEventContent::with_recommended_defaults())
+                                                .to_raw_any()];
+                                        request.name = Some(room_name);
+                                        request.initial_state = initial_state;
+                                        if let Err(err) = self
+                                            .sync_service
+                                            .room_list_service()
+                                            .client()
+                                            .create_room(request)
+                                            .await
+                                        {
+                                            error!("error while creating room: {err:?}");
+                                        }
+                                    }
+                                    self.set_global_mode(GlobalMode::Default);
+                                }
+                                Esc => self.set_global_mode(GlobalMode::Default),
+                                _ => view.handle_key_press(key),
+                            }
                         }
                     }
                     GlobalMode::CreateRoom { view } => {
@@ -486,6 +534,7 @@ impl App {
             match &self.state.global_mode {
                 GlobalMode::Default
                 | GlobalMode::Help
+                | GlobalMode::CreateEncryptedRoom { .. }
                 | GlobalMode::CreateRoom { .. }
                 | GlobalMode::Searching { .. }
                 | GlobalMode::Settings { .. } => {}
@@ -551,6 +600,9 @@ impl Widget for &mut App {
             GlobalMode::Help => {
                 let mut help_view = HelpView::new();
                 help_view.render(area, buf);
+            }
+            GlobalMode::CreateEncryptedRoom { view } => {
+                view.render(area, buf);
             }
             GlobalMode::CreateRoom { view } => {
                 view.render(area, buf);
