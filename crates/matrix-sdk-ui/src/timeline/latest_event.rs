@@ -12,11 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use matrix_sdk::{Room, latest_events::LocalLatestEventValue};
+use matrix_sdk::{Client, Room, latest_events::LocalLatestEventValue};
 use matrix_sdk_base::latest_event::LatestEventValue as BaseLatestEventValue;
 use ruma::{MilliSecondsSinceUnixEpoch, OwnedUserId};
 
-use crate::timeline::{TimelineItemContent, event_handler::TimelineAction};
+use crate::timeline::{
+    Profile, TimelineDetails, TimelineItemContent, event_handler::TimelineAction,
+    traits::RoomDataProvider,
+};
 
 /// A simplified version of [`matrix_sdk_base::latest_event::LatestEventValue`]
 /// tailored for this `timeline` module.
@@ -32,6 +35,12 @@ pub enum LatestEventValue {
 
         /// The sender of the remote event.
         sender: OwnedUserId,
+
+        /// Has this event been sent by the current logged user?
+        is_own: bool,
+
+        /// The sender's profile.
+        profile: TimelineDetails<Profile>,
 
         /// The content of the remote event.
         content: TimelineItemContent,
@@ -57,6 +66,7 @@ impl LatestEventValue {
     pub(crate) async fn from_base_latest_event_value(
         value: BaseLatestEventValue,
         room: &Room,
+        client: &Client,
     ) -> Self {
         match value {
             BaseLatestEventValue::None => Self::None,
@@ -68,6 +78,12 @@ impl LatestEventValue {
 
                 let timestamp = any_sync_timeline_event.origin_server_ts();
                 let sender = any_sync_timeline_event.sender().to_owned();
+                let is_own = client.user_id().map(|user_id| user_id == sender).unwrap_or(false);
+                let profile = room
+                    .profile_from_user_id(&sender)
+                    .await
+                    .map(TimelineDetails::Ready)
+                    .unwrap_or(TimelineDetails::Unavailable);
 
                 let Some(TimelineAction::AddItem { content }) = TimelineAction::from_event(
                     any_sync_timeline_event,
@@ -83,7 +99,7 @@ impl LatestEventValue {
                     return Self::None;
                 };
 
-                Self::Remote { timestamp, sender, content }
+                Self::Remote { timestamp, sender, is_own, profile, content }
             }
             BaseLatestEventValue::LocalIsSending(LocalLatestEventValue {
                 timestamp,
@@ -133,7 +149,7 @@ mod tests {
 
     use super::{
         super::{MsgLikeContent, MsgLikeKind, TimelineItemContent},
-        BaseLatestEventValue, LatestEventValue,
+        BaseLatestEventValue, LatestEventValue, TimelineDetails,
     };
 
     #[async_test]
@@ -143,7 +159,8 @@ mod tests {
         let room = server.sync_room(&client, JoinedRoomBuilder::new(room_id!("!r0"))).await;
 
         let base_value = BaseLatestEventValue::None;
-        let value = LatestEventValue::from_base_latest_event_value(base_value, &room).await;
+        let value =
+            LatestEventValue::from_base_latest_event_value(base_value, &room, &client).await;
 
         assert_matches!(value, LatestEventValue::None);
     }
@@ -169,11 +186,14 @@ mod tests {
             )
             .unwrap(),
         ));
-        let value = LatestEventValue::from_base_latest_event_value(base_value, &room).await;
+        let value =
+            LatestEventValue::from_base_latest_event_value(base_value, &room, &client).await;
 
-        assert_matches!(value, LatestEventValue::Remote { timestamp, sender: received_sender, content } => {
+        assert_matches!(value, LatestEventValue::Remote { timestamp, sender: received_sender, is_own, profile, content } => {
             assert_eq!(u64::from(timestamp.get()), 42u64);
             assert_eq!(received_sender, sender);
+            assert!(is_own.not());
+            assert_matches!(profile, TimelineDetails::Unavailable);
             assert_matches!(
                 content,
                 TimelineItemContent::MsgLike(MsgLikeContent { kind: MsgLikeKind::Message(_), .. })
@@ -197,7 +217,8 @@ mod tests {
                 "m.room.message".to_owned(),
             ),
         });
-        let value = LatestEventValue::from_base_latest_event_value(base_value, &room).await;
+        let value =
+            LatestEventValue::from_base_latest_event_value(base_value, &room, &client).await;
 
         assert_matches!(value, LatestEventValue::Local { timestamp, content, is_sending } => {
             assert_eq!(u64::from(timestamp.get()), 42u64);
@@ -225,7 +246,8 @@ mod tests {
                 "m.room.message".to_owned(),
             ),
         });
-        let value = LatestEventValue::from_base_latest_event_value(base_value, &room).await;
+        let value =
+            LatestEventValue::from_base_latest_event_value(base_value, &room, &client).await;
 
         assert_matches!(value, LatestEventValue::Local { timestamp, content, is_sending } => {
             assert_eq!(u64::from(timestamp.get()), 42u64);
