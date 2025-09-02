@@ -1289,19 +1289,33 @@ impl LazyTimelineItemProvider {
 #[derive(Clone, uniffi::Enum)]
 pub enum LatestEventValue {
     None,
-    Remote { timestamp: Timestamp, sender: String, content: TimelineItemContent },
-    Local { timestamp: Timestamp, content: TimelineItemContent, is_sending: bool },
+    Remote {
+        timestamp: Timestamp,
+        sender: String,
+        is_own: bool,
+        profile: ProfileDetails,
+        content: TimelineItemContent,
+    },
+    Local {
+        timestamp: Timestamp,
+        content: TimelineItemContent,
+        is_sending: bool,
+    },
 }
 
 impl From<UiLatestEventValue> for LatestEventValue {
     fn from(value: UiLatestEventValue) -> Self {
         match value {
             UiLatestEventValue::None => Self::None,
-            UiLatestEventValue::Remote { timestamp, sender, content } => Self::Remote {
-                timestamp: timestamp.into(),
-                sender: sender.to_string(),
-                content: content.into(),
-            },
+            UiLatestEventValue::Remote { timestamp, sender, is_own, profile, content } => {
+                Self::Remote {
+                    timestamp: timestamp.into(),
+                    sender: sender.to_string(),
+                    is_own,
+                    profile: profile.into(),
+                    content: content.into(),
+                }
+            }
             UiLatestEventValue::Local { timestamp, content, is_sending } => {
                 Self::Local { timestamp: timestamp.into(), content: content.into(), is_sending }
             }

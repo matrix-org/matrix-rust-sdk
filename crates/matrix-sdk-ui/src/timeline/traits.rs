@@ -91,7 +91,12 @@ impl RoomExt for Room {
     }
 
     async fn new_latest_event(&self) -> LatestEventValue {
-        LatestEventValue::from_base_latest_event_value((**self).new_latest_event(), self).await
+        LatestEventValue::from_base_latest_event_value(
+            (**self).new_latest_event(),
+            self,
+            &self.client(),
+        )
+        .await
     }
 }
 
