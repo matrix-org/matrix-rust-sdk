@@ -28,6 +28,7 @@ use matrix_sdk_base::{
     },
     sleep::sleep,
     sync::SyncResponse as BaseSyncResponse,
+    timer,
 };
 use matrix_sdk_common::deserialized_responses::ProcessedToDeviceEvent;
 use ruma::{
@@ -172,6 +173,8 @@ impl Client {
         &self,
         response: &BaseSyncResponse,
     ) -> Result<()> {
+        let _timer = timer!(tracing::Level::TRACE, "_method");
+
         let BaseSyncResponse { rooms, presence, account_data, to_device, notifications } = response;
 
         let now = Instant::now();

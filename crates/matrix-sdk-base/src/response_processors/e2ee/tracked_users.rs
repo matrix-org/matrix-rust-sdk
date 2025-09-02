@@ -14,6 +14,7 @@
 
 use std::collections::BTreeSet;
 
+use matrix_sdk_common::timer;
 use matrix_sdk_crypto::OlmMachine;
 use ruma::{OwnedUserId, RoomId};
 
@@ -45,6 +46,8 @@ pub async fn update_or_set_if_room_is_newly_encrypted(
     room_id: &RoomId,
     state_store: &BaseStateStore,
 ) -> Result<()> {
+    let _timer = timer!(tracing::Level::TRACE, "update_or_set_if_room_is_newly_encrypted");
+
     if new_room_encryption_state.is_encrypted()
         && let Some(olm) = olm_machine
     {

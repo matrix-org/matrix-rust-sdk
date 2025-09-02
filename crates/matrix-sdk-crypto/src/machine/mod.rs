@@ -31,7 +31,7 @@ use matrix_sdk_common::{
         UnsignedEventLocation, VerificationLevel, VerificationState,
     },
     locks::RwLock as StdRwLock,
-    BoxFuture,
+    timer, BoxFuture,
 };
 #[cfg(feature = "experimental-encrypted-state-events")]
 use ruma::events::{AnyStateEventContent, StateEventContent};
@@ -2203,6 +2203,8 @@ impl OlmMachine {
         decrypt_unsigned: bool,
         decryption_settings: &DecryptionSettings,
     ) -> MegolmResult<DecryptedRoomEvent> {
+        let _timer = timer!(tracing::Level::TRACE, "_method");
+
         let event = event.deserialize()?;
 
         Span::current()

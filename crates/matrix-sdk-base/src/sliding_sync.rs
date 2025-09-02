@@ -16,7 +16,7 @@
 
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk_common::deserialized_responses::ProcessedToDeviceEvent;
-use matrix_sdk_common::deserialized_responses::TimelineEvent;
+use matrix_sdk_common::{deserialized_responses::TimelineEvent, timer};
 use ruma::{OwnedRoomId, api::client::sync::sync_events::v5 as http};
 use tracing::{instrument, trace};
 
@@ -123,6 +123,8 @@ impl BaseClient {
             // process. stop early
             return Ok(SyncResponse::default());
         }
+
+        let _timer = timer!(tracing::Level::TRACE, "_method");
 
         let mut context = processors::Context::default();
 

@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use matrix_sdk_common::deserialized_responses::TimelineEvent;
+use matrix_sdk_common::{deserialized_responses::TimelineEvent, timer};
 #[cfg(feature = "e2e-encryption")]
 use ruma::events::SyncMessageLikeEvent;
 use ruma::{
@@ -44,6 +44,8 @@ pub async fn build<'notification, 'e2ee>(
     mut notification: notification::Notification<'notification>,
     #[cfg(feature = "e2e-encryption")] e2ee: e2ee::E2EE<'e2ee>,
 ) -> Result<Timeline> {
+    let _timer = timer!(tracing::Level::TRACE, "build a timeline from sync");
+
     let mut timeline = Timeline::new(timeline_inputs.limited, timeline_inputs.prev_batch);
     let mut push_condition_room_ctx = get_push_room_context(context, room, room_info).await?;
     let room_id = room.room_id();
