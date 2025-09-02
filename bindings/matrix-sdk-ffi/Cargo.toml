@@ -92,6 +92,9 @@ uniffi = { workspace = true, features = ["tokio"] }
 [target.'cfg(target_os = "android")'.dependencies]
 paranoid-android = "0.2.1"
 
+[dev-dependencies]
+similar-asserts.workspace = true
+
 [build-dependencies]
 uniffi = { workspace = true, features = ["build"] }
 vergen-gitcl = { workspace = true, features = ["build"] }

@@ -271,6 +271,7 @@ enum LogTarget {
     MatrixSdkBaseEventCache,
     MatrixSdkBaseSlidingSync,
     MatrixSdkBaseStoreAmbiguityMap,
+    MatrixSdkBaseResponseProcessors,
 
     // SDK common modules.
     MatrixSdkCommonStoreLocks,
@@ -300,6 +301,7 @@ impl LogTarget {
             LogTarget::MatrixSdkBaseEventCache => "matrix_sdk_base::event_cache",
             LogTarget::MatrixSdkBaseSlidingSync => "matrix_sdk_base::sliding_sync",
             LogTarget::MatrixSdkBaseStoreAmbiguityMap => "matrix_sdk_base::store::ambiguity_map",
+            LogTarget::MatrixSdkBaseResponseProcessors => "matrix_sdk_base::response_processors",
             LogTarget::MatrixSdkCommonStoreLocks => "matrix_sdk_common::store_locks",
             LogTarget::MatrixSdk => "matrix_sdk",
             LogTarget::MatrixSdkClient => "matrix_sdk::client",
@@ -336,6 +338,7 @@ const DEFAULT_TARGET_LOG_LEVELS: &[(LogTarget, LogLevel)] = &[
     (LogTarget::MatrixSdkCommonStoreLocks, LogLevel::Warn),
     (LogTarget::MatrixSdkBaseStoreAmbiguityMap, LogLevel::Warn),
     (LogTarget::MatrixSdkUiNotificationClient, LogLevel::Info),
+    (LogTarget::MatrixSdkBaseResponseProcessors, LogLevel::Debug),
 ];
 
 const IMMUTABLE_LOG_TARGETS: &[LogTarget] = &[
@@ -358,6 +361,8 @@ pub enum TraceLogPacks {
     Timeline,
     /// Enables all the logs relevant to the notification client.
     NotificationClient,
+    /// Enables all the logs relevant to sync profiling.
+    SyncProfiling,
 }
 
 impl TraceLogPacks {
@@ -373,6 +378,12 @@ impl TraceLogPacks {
             TraceLogPacks::SendQueue => &[LogTarget::MatrixSdkSendQueue],
             TraceLogPacks::Timeline => &[LogTarget::MatrixSdkUiTimeline],
             TraceLogPacks::NotificationClient => &[LogTarget::MatrixSdkUiNotificationClient],
+            TraceLogPacks::SyncProfiling => &[
+                LogTarget::MatrixSdkSlidingSync,
+                LogTarget::MatrixSdkBaseSlidingSync,
+                LogTarget::MatrixSdkBaseResponseProcessors,
+                LogTarget::MatrixSdkCrypto,
+            ],
         }
     }
 }
@@ -675,6 +686,8 @@ fn setup_lightweight_tokio_runtime() {
 
 #[cfg(test)]
 mod tests {
+    use similar_asserts::assert_eq;
+
     use super::build_tracing_filter;
     use crate::platform::TraceLogPacks;
 
@@ -713,6 +726,7 @@ mod tests {
             matrix_sdk_common::store_locks=warn,
             matrix_sdk_base::store::ambiguity_map=warn,
             matrix_sdk_ui::notification_client=info,
+            matrix_sdk_base::response_processors=debug,
             super_duper_app=error"#
                 .split('\n')
                 .map(|s| s.trim())
@@ -756,6 +770,7 @@ mod tests {
             matrix_sdk_common::store_locks=warn,
             matrix_sdk_base::store::ambiguity_map=warn,
             matrix_sdk_ui::notification_client=trace,
+            matrix_sdk_base::response_processors=trace,
             super_duper_app=trace,
             some_other_span=trace"#
                 .split('\n')
@@ -800,6 +815,7 @@ mod tests {
             matrix_sdk_common::store_locks=warn,
             matrix_sdk_base::store::ambiguity_map=warn,
             matrix_sdk_ui::notification_client=info,
+            matrix_sdk_base::response_processors=debug,
             super_duper_app=info"#
                 .split('\n')
                 .map(|s| s.trim())

@@ -3356,6 +3356,7 @@ dependencies = [
  "sentry-tracing",
  "serde",
  "serde_json",
+ "similar-asserts",
  "thiserror 2.0.16",
  "tokio",
  "tracing",
