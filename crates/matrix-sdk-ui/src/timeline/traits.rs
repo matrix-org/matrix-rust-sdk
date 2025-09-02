@@ -38,7 +38,9 @@ use ruma::{
 use tracing::error;
 
 use super::{EventTimelineItem, Profile, RedactError, TimelineBuilder};
-use crate::timeline::{self, Timeline, pinned_events_loader::PinnedEventsRoom};
+use crate::timeline::{
+    self, Timeline, latest_event::LatestEventValue, pinned_events_loader::PinnedEventsRoom,
+};
 
 pub trait RoomExt {
     /// Get a [`Timeline`] for this room.
@@ -66,6 +68,9 @@ pub trait RoomExt {
     fn latest_event_item(
         &self,
     ) -> impl Future<Output = Option<EventTimelineItem>> + SendOutsideWasm;
+
+    /// Return a [`LatestEventValue`] corresponding to this room's latest event.
+    fn new_latest_event(&self) -> impl Future<Output = LatestEventValue>;
 }
 
 impl RoomExt for Room {
@@ -78,11 +83,15 @@ impl RoomExt for Room {
     }
 
     async fn latest_event_item(&self) -> Option<EventTimelineItem> {
-        if let Some(latest_event) = (**self).latest_event() {
+        if let Some(latest_event) = self.latest_event() {
             EventTimelineItem::from_latest_event(self.client(), self.room_id(), latest_event).await
         } else {
             None
         }
+    }
+
+    async fn new_latest_event(&self) -> LatestEventValue {
+        LatestEventValue::from_base_latest_event_value((**self).new_latest_event(), self).await
     }
 }
 
