@@ -304,6 +304,10 @@ impl Room {
         self.inner.latest_event_item().await.map(Into::into)
     }
 
+    async fn new_latest_event(&self) -> LatestEventValue {
+        self.inner.new_latest_event().await.map(Into::into)
+    }
+
     pub async fn latest_encryption_state(&self) -> Result<EncryptionState, ClientError> {
         Ok(self.inner.latest_encryption_state().await?)
     }

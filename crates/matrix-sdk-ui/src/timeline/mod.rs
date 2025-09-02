@@ -77,6 +77,7 @@ mod event_item;
 pub mod event_type_filter;
 pub mod futures;
 mod item;
+mod latest_event;
 mod pagination;
 mod pinned_events_loader;
 mod subscriber;
@@ -101,6 +102,7 @@ pub use self::{
     },
     event_type_filter::TimelineEventTypeFilter,
     item::{TimelineItem, TimelineItemKind, TimelineUniqueId},
+    latest_event::LatestEventValue,
     traits::RoomExt,
     virtual_item::VirtualTimelineItem,
 };
