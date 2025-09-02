@@ -207,7 +207,6 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
             raw_event,
             room_data_provider,
             None,
-            &self.meta,
             None,
             None,
             None,
@@ -648,8 +647,8 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
                         event,
                         &raw,
                         room_data_provider,
-                        utd_info,
-                        &self.meta,
+                        utd_info
+                            .map(|utd_info| (utd_info, self.meta.unable_to_decrypt_hook.as_ref())),
                         in_reply_to,
                         thread_root,
                         thread_summary,
