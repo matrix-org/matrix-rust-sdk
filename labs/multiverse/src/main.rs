@@ -49,6 +49,7 @@ use widgets::{
 
 use crate::widgets::{
     create_room::CreateRoomView,
+    create_room::RoomEncryption,
     help::HelpView,
     room_list::{ExtraRoomInfo, RoomInfos, RoomList, Rooms},
     search::SearchingView,
@@ -87,24 +88,14 @@ pub enum GlobalMode {
     /// Mode where we have opened the help screen.
     Help,
     /// Mode where we have opened the settings screen.
-    Settings {
-        view: SettingsView,
-    },
+    Settings { view: SettingsView },
     /// Mode where we are shutting our tasks down and exiting multiverse.
-    Exiting {
-        shutdown_task: JoinHandle<()>,
-    },
+    Exiting { shutdown_task: JoinHandle<()> },
     /// Mode where we have opened create room screen
-    CreateRoom {
-        view: CreateRoomView,
-    },
-    CreateEncryptedRoom {
-        view: CreateRoomView,
-    },
+    CreateRoom { view: CreateRoomView },
+    CreateEncryptedRoom { view: CreateRoomView },
     /// Mode where we have opened create room screen
-    Searching {
-        view: SearchingView,
-    },
+    Searching { view: SearchingView },
 }
 
 /// Helper function to create a centered rect using up certain percentage of the
@@ -372,11 +363,14 @@ impl App {
             }
 
             Event::Key(KeyEvent { modifiers: KeyModifiers::CONTROL, code: Char('e'), .. }) => self
-                .set_global_mode(GlobalMode::CreateEncryptedRoom { view: CreateRoomView::new() }),
+                .set_global_mode(GlobalMode::CreateEncryptedRoom {
+                    view: CreateRoomView::new(RoomEncryption::Yes),
+                }),
 
-            Event::Key(KeyEvent { modifiers: KeyModifiers::CONTROL, code: Char('r'), .. }) => {
-                self.set_global_mode(GlobalMode::CreateRoom { view: CreateRoomView::new() })
-            }
+            Event::Key(KeyEvent { modifiers: KeyModifiers::CONTROL, code: Char('r'), .. }) => self
+                .set_global_mode(GlobalMode::CreateRoom {
+                    view: CreateRoomView::new(RoomEncryption::No),
+                }),
 
             Event::Key(KeyEvent { modifiers: KeyModifiers::CONTROL, code: Char('s'), .. }) => {
                 self.set_global_mode(GlobalMode::Searching { view: SearchingView::new() })
