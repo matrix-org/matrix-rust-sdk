@@ -568,6 +568,62 @@ macro_rules! cryptostore_integration_tests {
             }
 
             #[async_test]
+            async fn test_get_inbound_group_sessions_by_room_id_empty() {
+                let dir = "get_inbound_group_session_by_room_id_empty";
+                let (_, store) = get_loaded_store(dir).await;
+                assert_eq!(store.get_inbound_group_sessions().await.unwrap().len(), 0);
+
+                let room_id = &room_id!("!testing:localhost");
+                assert_eq!(store.get_inbound_group_sessions_by_room_id(room_id).await.unwrap().len(), 0);
+            }
+
+            #[async_test]
+            async fn test_get_inbound_group_sessions_by_room_id() {
+                let dir = "get_inbound_group_session_by_room_id";
+                let (account, store) = get_loaded_store(dir).await;
+                assert_eq!(store.get_inbound_group_sessions().await.unwrap().len(), 0);
+
+                let room_id = &room_id!("!testing:localhost");
+                let (_, session_1) = account.create_group_session_pair_with_defaults(room_id).await;
+                let (_, session_2) = account.create_group_session_pair_with_defaults(room_id).await;
+
+                let second_room_id = &room_id!("!other_room_testing:localhost");
+                let (_, session_3) = account.create_group_session_pair_with_defaults(second_room_id).await;
+
+                let mut sessions = vec![
+                    session_1,
+                    session_2,
+                    session_3
+                ];
+
+                let changes = Changes {
+                    inbound_group_sessions: sessions.clone(),
+                    ..Default::default()
+                };
+                store.save_changes(changes).await.expect("Can't save group session");
+
+                drop(store);
+
+                // The last session is in a different room, so should not be returned by
+                // get_inbound_group_sessions_by_room_id. Remove it from the list.
+                sessions.pop();
+
+                let store = get_store(dir, None, false).await;
+                // Make sure all the sessions are in the store
+                assert_eq!(store.get_inbound_group_sessions().await.unwrap().len(), 3);
+
+                store.load_account().await.unwrap();
+
+                let loaded_sessions = store
+                    .get_inbound_group_sessions_by_room_id(room_id)
+                    .await
+                    .unwrap();
+
+                assert_eq!(loaded_sessions.len(), 2);
+                assert_session_lists_eq(sessions, loaded_sessions, "room by id sessions");
+            }
+
+            #[async_test]
             async fn test_fetch_inbound_group_sessions_for_device() {
                 // Given a store exists, containing inbound group sessions from different devices
                 let (account, store) =

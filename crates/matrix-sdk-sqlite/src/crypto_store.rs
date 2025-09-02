@@ -531,6 +531,24 @@ trait SqliteObjectCryptoStoreExt: SqliteAsyncConnExt {
         Ok(RoomKeyCounts { total, backed_up })
     }
 
+    async fn get_inbound_group_sessions_by_room_id(
+        &self,
+        room_id: Key,
+    ) -> Result<Vec<(Vec<u8>, bool)>> {
+        Ok(self
+            .prepare(
+                "SELECT data, backed_up FROM inbound_group_session WHERE room_id = :room_id",
+                move |mut stmt| {
+                    stmt.query(named_params! {
+                        ":room_id": room_id,
+                    })?
+                    .mapped(|row| Ok((row.get(0)?, row.get(1)?)))
+                    .collect()
+                },
+            )
+            .await?)
+    }
+
     async fn get_inbound_group_sessions_for_device_batch(
         &self,
         sender_key: Key,
@@ -1049,6 +1067,22 @@ impl CryptoStore for SqliteCryptoStore {
         self.acquire()
             .await?
             .get_inbound_group_sessions()
+            .await?
+            .into_iter()
+            .map(|(value, backed_up)| {
+                self.deserialize_and_unpickle_inbound_group_session(value, backed_up)
+            })
+            .collect()
+    }
+
+    async fn get_inbound_group_sessions_by_room_id(
+        &self,
+        room_id: &RoomId,
+    ) -> Result<Vec<InboundGroupSession>> {
+        let room_id = self.encode_key("inbound_group_session", room_id.as_bytes());
+        self.acquire()
+            .await?
+            .get_inbound_group_sessions_by_room_id(room_id)
             .await?
             .into_iter()
             .map(|(value, backed_up)| {
