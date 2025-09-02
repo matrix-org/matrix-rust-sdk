@@ -465,7 +465,9 @@ impl App {
                                 Enter => {
                                     if let Some(query) = view.get_text() {
                                         if let Some(room) = self.room_view.room() {
-                                            if let Some(results) = room.search(&query, 100).await {
+                                            if let Some(results) =
+                                                room.search(&query, 100, None).await
+                                            {
                                                 let results = get_events_from_event_ids(
                                                     &self.client,
                                                     &room,
