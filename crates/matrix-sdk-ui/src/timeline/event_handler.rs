@@ -57,7 +57,9 @@ use super::{
     },
     traits::RoomDataProvider,
 };
-use crate::timeline::controller::aggregations::PendingEdit;
+use crate::{
+    timeline::controller::aggregations::PendingEdit, unable_to_decrypt_hook::UtdHookManager,
+};
 
 /// When adding an event, useful information related to the source of the event.
 pub(super) enum Flow {
@@ -184,8 +186,7 @@ impl TimelineAction {
         event: AnySyncTimelineEvent,
         raw_event: &Raw<AnySyncTimelineEvent>,
         room_data_provider: &P,
-        unable_to_decrypt_info: Option<UnableToDecryptInfo>,
-        meta: &TimelineMetadata,
+        unable_to_decrypt: Option<(UnableToDecryptInfo, Option<&Arc<UtdHookManager>>)>,
         in_reply_to: Option<InReplyToDetails>,
         thread_root: Option<OwnedEventId>,
         thread_summary: Option<ThreadSummary>,
@@ -212,7 +213,9 @@ impl TimelineAction {
             AnySyncTimelineEvent::MessageLike(ev) => match ev.original_content() {
                 Some(AnyMessageLikeEventContent::RoomEncrypted(content)) => {
                     // An event which is still encrypted.
-                    if let Some(unable_to_decrypt_info) = unable_to_decrypt_info {
+                    if let Some((unable_to_decrypt_info, unable_to_decrypt_hook_manager)) =
+                        unable_to_decrypt
+                    {
                         let utd_cause = UtdCause::determine(
                             raw_event,
                             room_data_provider.crypto_context_info().await,
@@ -221,7 +224,7 @@ impl TimelineAction {
 
                         // Let the hook know that we ran into an unable-to-decrypt that is added to
                         // the timeline.
-                        if let Some(hook) = meta.unable_to_decrypt_hook.as_ref() {
+                        if let Some(hook) = unable_to_decrypt_hook_manager {
                             hook.on_utd(
                                 ev.event_id(),
                                 utd_cause,
