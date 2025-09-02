@@ -1,7 +1,7 @@
 use std::collections::BTreeSet;
 
 use matrix_sdk_base::{
-    sync::SyncResponse, RequestedRequiredStates, ThreadSubscriptionCatchupToken,
+    sync::SyncResponse, timer, RequestedRequiredStates, ThreadSubscriptionCatchupToken,
 };
 use matrix_sdk_common::deserialized_responses::ProcessedToDeviceEvent;
 use ruma::api::{
@@ -240,6 +240,8 @@ impl SlidingSyncResponseProcessor {
 ///
 /// This will only fill the in-memory caches, not save the info on disk.
 async fn update_in_memory_caches(client: &Client, response: &SyncResponse) -> Result<()> {
+    let _timer = timer!(tracing::Level::TRACE, "update_in_memory_caches");
+
     for room_id in response.rooms.joined.keys() {
         let Some(room) = client.get_room(room_id) else {
             error!(?room_id, "Cannot post process a room in sliding sync because it is missing");
@@ -258,6 +260,8 @@ async fn handle_receipts_extension(
     response: &http::Response,
     sync_response: &mut SyncResponse,
 ) -> Result<()> {
+    let _timer = timer!(tracing::Level::TRACE, "handle_receipts_extension");
+
     // We need to compute read receipts for each joined room that has received an
     // update, or from each room that has received a receipt ephemeral event.
     let room_ids = BTreeSet::from_iter(

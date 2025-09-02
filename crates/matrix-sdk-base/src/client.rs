@@ -24,6 +24,7 @@ use std::{
 use eyeball::{SharedObservable, Subscriber};
 use eyeball_im::{Vector, VectorDiff};
 use futures_util::Stream;
+use matrix_sdk_common::timer;
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk_crypto::{
     CollectStrategy, DecryptionSettings, EncryptionSettings, OlmError, OlmMachine,
@@ -1060,6 +1061,7 @@ impl BaseClient {
         &self,
         global_account_data_processor: &processors::account_data::Global,
     ) -> Result<Ruleset> {
+        let _timer = timer!(Level::TRACE, "get_push_rules");
         if let Some(event) = global_account_data_processor
             .push_rules()
             .and_then(|ev| ev.deserialize_as_unchecked::<PushRulesEvent>().ok())

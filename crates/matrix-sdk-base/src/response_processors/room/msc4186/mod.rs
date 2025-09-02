@@ -20,6 +20,7 @@ use std::collections::BTreeSet;
 
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk_common::deserialized_responses::TimelineEvent;
+use matrix_sdk_common::timer;
 use ruma::{
     JsOption, OwnedRoomId, RoomId, UserId,
     api::client::sync::sync_events::{
@@ -67,6 +68,8 @@ pub async fn update_any_room(
     #[cfg(feature = "e2e-encryption")] e2ee: e2ee::E2EE<'_>,
     notification: notification::Notification<'_>,
 ) -> Result<Option<(RoomInfo, RoomUpdateKind)>> {
+    let _timer = timer!(tracing::Level::TRACE, "update_any_room");
+
     let RoomCreationData {
         room_id,
         room_info_notable_update_sender,
@@ -437,6 +440,8 @@ pub(crate) async fn cache_latest_events(
         latest_event::{LatestEvent, PossibleLatestEvent, is_suitable_for_latest_event},
         store::ambiguity_map::is_display_name_ambiguous,
     };
+
+    let _timer = timer!(tracing::Level::TRACE, "cache_latest_events");
 
     let mut encrypted_events =
         Vec::with_capacity(room.latest_encrypted_events.read().unwrap().capacity());
