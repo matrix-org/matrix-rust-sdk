@@ -574,8 +574,12 @@ impl ClientBuilder {
 
         let sdk_client = inner_builder.build().await?;
 
+        // Disable retries for this request to prevent it from being retried
+        // indefinitely
+        let config = sdk_client.request_config().disable_retry();
+
         // Log server version information at info level.
-        if let Ok(server_info) = sdk_client.server_vendor_info().await {
+        if let Ok(server_info) = sdk_client.server_vendor_info(Some(config)).await {
             tracing::info!(
                 server_name = %server_info.server_name,
                 version = %server_info.version,
