@@ -251,7 +251,7 @@ async fn update_in_memory_caches(client: &Client, response: &SyncResponse) -> Re
             .get_field::<GlobalAccountDataEventType>("type")
             .ok()
             .flatten()
-            .map_or(false, |event_type| event_type == GlobalAccountDataEventType::PushRules)
+            .is_some_and(|event_type| event_type == GlobalAccountDataEventType::PushRules)
     }) {
         for room_id in response.rooms.joined.keys() {
             let Some(room) = client.get_room(room_id) else {
