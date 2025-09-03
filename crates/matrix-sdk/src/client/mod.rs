@@ -575,15 +575,20 @@ impl Client {
     /// # let homeserver = Url::parse("http://example.com")?;
     /// let client = Client::new(homeserver).await?;
     ///
-    /// let server_info = client.server_vendor_info().await?;
+    /// let server_info = client.server_vendor_info(None).await?;
     /// println!(
     ///     "Server: {}, Version: {}",
     ///     server_info.server_name, server_info.version
     /// );
     /// # anyhow::Ok(()) };
     /// ```
-    pub async fn server_vendor_info(&self) -> HttpResult<ServerVendorInfo> {
-        let res = self.send(get_server_version::v1::Request::new()).await?;
+    pub async fn server_vendor_info(
+        &self,
+        request_config: Option<RequestConfig>,
+    ) -> HttpResult<ServerVendorInfo> {
+        let res = self
+            .send_inner(get_server_version::v1::Request::new(), request_config, Default::default())
+            .await?;
 
         // Extract server info, using defaults if fields are missing.
         let server = res.server.unwrap_or_default();

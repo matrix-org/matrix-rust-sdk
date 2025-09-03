@@ -1522,7 +1522,7 @@ async fn test_server_vendor_info() {
     // Mock the federation version endpoint
     server.mock_federation_version().ok("Synapse", "1.70.0").mount().await;
 
-    let server_info = client.server_vendor_info().await.unwrap();
+    let server_info = client.server_vendor_info(None).await.unwrap();
 
     assert_eq!(server_info.server_name, "Synapse");
     assert_eq!(server_info.version, "1.70.0");
@@ -1536,7 +1536,7 @@ async fn test_server_vendor_info_with_missing_fields() {
     // Mock the federation version endpoint with missing fields
     server.mock_federation_version().ok_empty().mount().await;
 
-    let server_info = client.server_vendor_info().await.unwrap();
+    let server_info = client.server_vendor_info(None).await.unwrap();
 
     // Should use defaults for missing fields
     assert_eq!(server_info.server_name, "unknown");
