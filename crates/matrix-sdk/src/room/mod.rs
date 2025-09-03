@@ -189,6 +189,9 @@ mod messages;
 pub mod power_levels;
 pub mod reply;
 
+#[cfg(feature = "unstable-msc4310")]
+pub mod calls;
+
 /// Contains all the functionality for modifying the privacy settings in a room.
 pub mod privacy_settings;
 
