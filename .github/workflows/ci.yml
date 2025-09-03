@@ -251,7 +251,7 @@ jobs:
         uses: qmaru/wasm-pack-action@v0.5.1
         if: '!matrix.check_only'
         with:
-          version: v0.10.3
+          version: v0.13.1
 
       - name: Load cache
         uses: Swatinem/rust-cache@v2
