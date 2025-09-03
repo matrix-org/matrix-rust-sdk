@@ -21,43 +21,44 @@ use wasm_bindgen::JsValue;
 use web_sys::IdbKeyRange;
 
 use crate::{
-    event_cache_store::serializer::{
+    media_store::serializer::{
         traits::{Indexed, IndexedKey, IndexedKeyBounds, IndexedKeyComponentBounds},
         types::IndexedKeyRange,
     },
     serializer::IndexeddbSerializer,
 };
 
+pub mod foreign;
 pub mod traits;
 pub mod types;
 
 #[derive(Debug, Error)]
-pub enum IndexeddbEventCacheStoreSerializerError<IndexingError> {
+pub enum IndexeddbMediaStoreSerializerError<IndexingError> {
     #[error("indexing: {0}")]
     Indexing(IndexingError),
     #[error("serialization: {0}")]
     Serialization(#[from] serde_json::Error),
 }
 
-impl<T> From<serde_wasm_bindgen::Error> for IndexeddbEventCacheStoreSerializerError<T> {
+impl<T> From<serde_wasm_bindgen::Error> for IndexeddbMediaStoreSerializerError<T> {
     fn from(e: serde_wasm_bindgen::Error) -> Self {
         Self::Serialization(serde::de::Error::custom(e.to_string()))
     }
 }
 
-/// A (de)serializer for an IndexedDB implementation of [`EventCacheStore`][1].
+/// A (de)serializer for an IndexedDB implementation of [`MediaStore`][1].
 ///
 /// This is primarily a wrapper around [`IndexeddbSerializer`] with a
 /// convenience functions for (de)serializing types specific to the
-/// [`EventCacheStore`][1].
+/// [`MediaStore`][1].
 ///
-/// [1]: matrix_sdk_base::event_cache::store::EventCacheStore
+/// [1]: matrix_sdk_base::media::store::MediaStore
 #[derive(Debug, Clone)]
-pub struct IndexeddbEventCacheStoreSerializer {
+pub struct IndexeddbMediaStoreSerializer {
     inner: IndexeddbSerializer,
 }
 
-impl IndexeddbEventCacheStoreSerializer {
+impl IndexeddbMediaStoreSerializer {
     pub fn new(inner: IndexeddbSerializer) -> Self {
         Self { inner }
     }
@@ -144,13 +145,13 @@ impl IndexeddbEventCacheStoreSerializer {
     pub fn serialize<T>(
         &self,
         t: &T,
-    ) -> Result<JsValue, IndexeddbEventCacheStoreSerializerError<T::Error>>
+    ) -> Result<JsValue, IndexeddbMediaStoreSerializerError<T::Error>>
     where
         T: Indexed,
         T::IndexedType: Serialize,
     {
         let indexed =
-            t.to_indexed(&self.inner).map_err(IndexeddbEventCacheStoreSerializerError::Indexing)?;
+            t.to_indexed(&self.inner).map_err(IndexeddbMediaStoreSerializerError::Indexing)?;
         serde_wasm_bindgen::to_value(&indexed).map_err(Into::into)
     }
 
@@ -158,13 +159,12 @@ impl IndexeddbEventCacheStoreSerializer {
     pub fn deserialize<T>(
         &self,
         value: JsValue,
-    ) -> Result<T, IndexeddbEventCacheStoreSerializerError<T::Error>>
+    ) -> Result<T, IndexeddbMediaStoreSerializerError<T::Error>>
     where
         T: Indexed,
         T::IndexedType: DeserializeOwned,
     {
         let indexed: T::IndexedType = value.into_serde()?;
-        T::from_indexed(indexed, &self.inner)
-            .map_err(IndexeddbEventCacheStoreSerializerError::Indexing)
+        T::from_indexed(indexed, &self.inner).map_err(IndexeddbMediaStoreSerializerError::Indexing)
     }
 }

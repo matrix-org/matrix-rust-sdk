@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! The event cache stores holds events and downloaded media when the cache was
+//! The event cache stores holds events when the cache was
 //! activated to save bandwidth at the cost of increased storage space usage.
 //!
 //! Implementing the `EventCacheStore` trait, you can plug any storage backend

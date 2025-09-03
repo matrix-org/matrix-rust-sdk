@@ -112,33 +112,24 @@ pub mod v1 {
         pub const CORE_KEY_PATH: &str = "id";
         pub const LEASES: &str = "leases";
         pub const LEASES_KEY_PATH: &str = "id";
-        pub const ROOMS: &str = "rooms";
-        pub const LINKED_CHUNK_IDS: &str = "linked_chunk_ids";
-        pub const LINKED_CHUNKS: &str = "linked_chunks";
-        pub const LINKED_CHUNKS_KEY_PATH: &str = "id";
-        pub const LINKED_CHUNKS_NEXT: &str = "linked_chunks_next";
-        pub const LINKED_CHUNKS_NEXT_KEY_PATH: &str = "next";
-        pub const EVENTS: &str = "events";
-        pub const EVENTS_KEY_PATH: &str = "id";
-        pub const EVENTS_ROOM: &str = "events_room";
-        pub const EVENTS_ROOM_KEY_PATH: &str = "room";
-        pub const EVENTS_POSITION: &str = "events_position";
-        pub const EVENTS_POSITION_KEY_PATH: &str = "position";
-        pub const EVENTS_RELATION: &str = "events_relation";
-        pub const EVENTS_RELATION_KEY_PATH: &str = "relation";
-        pub const EVENTS_RELATION_RELATED_EVENTS: &str = "events_relation_related_event";
-        pub const EVENTS_RELATION_RELATION_TYPES: &str = "events_relation_relation_type";
-        pub const GAPS: &str = "gaps";
-        pub const GAPS_KEY_PATH: &str = "id";
+        pub const MEDIA_RETENTION_POLICY_KEY: &str = "media_retention_policy";
+        pub const MEDIA: &str = "media";
+        pub const MEDIA_KEY_PATH: &str = "id";
+        pub const MEDIA_SOURCE: &str = "media_source";
+        pub const MEDIA_SOURCE_KEY_PATH: &str = "source";
+        pub const MEDIA_CONTENT_SIZE: &str = "media_content_size";
+        pub const MEDIA_CONTENT_SIZE_KEY_PATH: &str = "content_size";
+        pub const MEDIA_LAST_ACCESS: &str = "media_last_access";
+        pub const MEDIA_LAST_ACCESS_KEY_PATH: &str = "last_access";
+        pub const MEDIA_RETENTION_METADATA: &str = "media_retention_metadata";
+        pub const MEDIA_RETENTION_METADATA_KEY_PATH: &str = "retention_metadata";
     }
 
     /// Create all object stores and indices for v1 database
     pub fn create_object_stores(db: &IdbDatabase) -> Result<(), DomException> {
         create_core_object_store(db)?;
         create_lease_object_store(db)?;
-        create_linked_chunks_object_store(db)?;
-        create_events_object_store(db)?;
-        create_gaps_object_store(db)?;
+        create_media_object_store(db)?;
         Ok(())
     }
 
@@ -160,61 +151,31 @@ pub mod v1 {
         Ok(())
     }
 
-    /// Create an object store for tracking information about linked chunks.
+    /// Create an object store for tracking information about media.
     ///
     /// * Primary Key - `id`
-    /// * Index - `is_last` - tracks the last chunk in linked chunks
-    fn create_linked_chunks_object_store(db: &IdbDatabase) -> Result<(), DomException> {
-        let mut object_store_params = IdbObjectStoreParameters::new();
-        object_store_params.key_path(Some(&keys::LINKED_CHUNKS_KEY_PATH.into()));
-        let linked_chunks =
-            db.create_object_store_with_params(keys::LINKED_CHUNKS, &object_store_params)?;
-        linked_chunks
-            .create_index(keys::LINKED_CHUNKS_NEXT, &keys::LINKED_CHUNKS_NEXT_KEY_PATH.into())?;
-        Ok(())
-    }
-
-    /// Create an object store for tracking information about events.
+    /// * Index - `source` - tracks the [`MediaSource`][1] of the associated
+    ///   media
+    /// * Index - `content_size` - tracks the size of the media content and
+    ///   whether to ignore the [`MediaRetentionPolicy`][2]
+    /// * Index - `last_access` - tracks the last time the associated media was
+    ///   accessed
+    /// * Index - `retention_metadata` - tracks all retention metadata - i.e.,
+    ///   joins `content_size` and `last_access`
     ///
-    /// * Primary Key - `id`
-    /// * Index (unique) - `room` - tracks whether an event is in a given room
-    /// * Index (unique) - `position` - tracks position of an event in linked
-    ///   chunks
-    /// * Index - `relation` - tracks any event to which the given event is
-    ///   related
-    fn create_events_object_store(db: &IdbDatabase) -> Result<(), DomException> {
+    /// [1]: ruma::events::room::MediaSource
+    /// [2]: matrix_sdk_base::media::store::MediaRetentionPolicy
+    fn create_media_object_store(db: &IdbDatabase) -> Result<(), DomException> {
         let mut object_store_params = IdbObjectStoreParameters::new();
-        object_store_params.key_path(Some(&keys::EVENTS_KEY_PATH.into()));
-        let events = db.create_object_store_with_params(keys::EVENTS, &object_store_params)?;
-
-        let events_room_params = IdbIndexParameters::new();
-        events_room_params.set_unique(true);
-        events.create_index_with_params(
-            keys::EVENTS_ROOM,
-            &keys::EVENTS_ROOM_KEY_PATH.into(),
-            &events_room_params,
-        );
-
-        let events_position_params = IdbIndexParameters::new();
-        events_position_params.set_unique(true);
-        events.create_index_with_params(
-            keys::EVENTS_POSITION,
-            &keys::EVENTS_POSITION_KEY_PATH.into(),
-            &events_position_params,
+        object_store_params.key_path(Some(&keys::MEDIA_KEY_PATH.into()));
+        let media = db.create_object_store_with_params(keys::MEDIA, &object_store_params)?;
+        media.create_index(keys::MEDIA_SOURCE, &keys::MEDIA_SOURCE_KEY_PATH.into())?;
+        media.create_index(keys::MEDIA_CONTENT_SIZE, &keys::MEDIA_CONTENT_SIZE_KEY_PATH.into())?;
+        media.create_index(keys::MEDIA_LAST_ACCESS, &keys::MEDIA_LAST_ACCESS_KEY_PATH.into())?;
+        media.create_index(
+            keys::MEDIA_RETENTION_METADATA,
+            &keys::MEDIA_RETENTION_METADATA_KEY_PATH.into(),
         )?;
-
-        events.create_index(keys::EVENTS_RELATION, &keys::EVENTS_RELATION_KEY_PATH.into())?;
-
-        Ok(())
-    }
-
-    /// Create an object store for tracking information about gaps.
-    ///
-    /// * Primary Key - `id`
-    fn create_gaps_object_store(db: &IdbDatabase) -> Result<(), DomException> {
-        let mut object_store_params = IdbObjectStoreParameters::new();
-        object_store_params.key_path(Some(&keys::GAPS_KEY_PATH.into()));
-        let _ = db.create_object_store_with_params(keys::GAPS, &object_store_params)?;
         Ok(())
     }
 }

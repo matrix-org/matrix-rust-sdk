@@ -142,7 +142,7 @@ use eyeball::SharedObservable;
 use matrix_sdk_base::store::FinishGalleryItemInfo;
 use matrix_sdk_base::{
     event_cache::store::EventCacheStoreError,
-    media::MediaRequestParameters,
+    media::{store::MediaStoreError, MediaRequestParameters},
     store::{
         ChildTransactionId, DependentQueuedRequest, DependentQueuedRequestKind, DynStateStore,
         FinishUploadThumbnailInfo, QueueWedgeError, QueuedRequest, QueuedRequestKind,
@@ -842,7 +842,7 @@ impl RoomSendQueue {
                 let fut = async move {
                     let data = room
                         .client()
-                        .event_cache_store()
+                        .media_store()
                         .lock()
                         .await?
                         .get_media_content(&cache_key)
@@ -2347,6 +2347,10 @@ pub enum RoomSendQueueStorageError {
     /// Error caused by the event cache store.
     #[error(transparent)]
     EventCacheStoreError(#[from] EventCacheStoreError),
+
+    /// Error caused by the event cache store.
+    #[error(transparent)]
+    MediaStoreError(#[from] MediaStoreError),
 
     /// Error caused when attempting to get a handle on the event cache store.
     #[error(transparent)]
