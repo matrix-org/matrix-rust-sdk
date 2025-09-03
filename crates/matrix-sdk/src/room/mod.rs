@@ -43,8 +43,7 @@ use matrix_sdk_base::{
     deserialized_responses::{
         RawAnySyncOrStrippedState, RawSyncOrStrippedState, SyncOrStrippedState,
     },
-    event_cache::store::media::IgnoreMediaRetentionPolicy,
-    media::MediaThumbnailSettings,
+    media::{store::IgnoreMediaRetentionPolicy, MediaThumbnailSettings},
     store::{StateStoreExt, ThreadSubscriptionStatus},
     ComposerDraft, EncryptionState, RoomInfoNotableUpdateReasons, RoomMemberships, SendOutsideWasm,
     StateChanges, StateStoreDataKey, StateStoreDataValue,
@@ -2582,7 +2581,7 @@ impl Room {
             .await?;
 
         if store_in_cache {
-            let cache_store_lock_guard = self.client.event_cache_store().lock().await?;
+            let media_store_lock_guard = self.client.media_store().lock().await?;
 
             // A failure to cache shouldn't prevent the whole upload from finishing
             // properly, so only log errors during caching.
@@ -2591,7 +2590,7 @@ impl Room {
             let request =
                 MediaRequestParameters { source: media_source.clone(), format: MediaFormat::File };
 
-            if let Err(err) = cache_store_lock_guard
+            if let Err(err) = media_store_lock_guard
                 .add_media_content(&request, data, IgnoreMediaRetentionPolicy::No)
                 .await
             {
@@ -2608,7 +2607,7 @@ impl Room {
                     format: MediaFormat::Thumbnail(MediaThumbnailSettings::new(width, height)),
                 };
 
-                if let Err(err) = cache_store_lock_guard
+                if let Err(err) = media_store_lock_guard
                     .add_media_content(&request, data, IgnoreMediaRetentionPolicy::No)
                     .await
                 {
