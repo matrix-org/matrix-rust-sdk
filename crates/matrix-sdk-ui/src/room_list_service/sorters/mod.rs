@@ -14,12 +14,14 @@
 
 //! A collection of room sorters.
 
+mod latest_event;
 mod lexicographic;
 mod name;
 mod recency;
 
 use std::cmp::Ordering;
 
+pub use latest_event::new_sorter as new_sorter_latest_event;
 pub use lexicographic::new_sorter as new_sorter_lexicographic;
 pub use name::new_sorter as new_sorter_name;
 pub use recency::new_sorter as new_sorter_recency;
