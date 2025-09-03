@@ -4,9 +4,12 @@ use matrix_sdk_base::{
     sync::SyncResponse, timer, RequestedRequiredStates, ThreadSubscriptionCatchupToken,
 };
 use matrix_sdk_common::deserialized_responses::ProcessedToDeviceEvent;
-use ruma::api::{
-    client::sync::sync_events::v5::{self as http, response},
-    FeatureFlag, SupportedVersions,
+use ruma::{
+    api::{
+        client::sync::sync_events::v5::{self as http, response},
+        FeatureFlag, SupportedVersions,
+    },
+    events::GlobalAccountDataEventType,
 };
 use tracing::error;
 
@@ -242,13 +245,25 @@ impl SlidingSyncResponseProcessor {
 async fn update_in_memory_caches(client: &Client, response: &SyncResponse) -> Result<()> {
     let _timer = timer!(tracing::Level::TRACE, "update_in_memory_caches");
 
-    for room_id in response.rooms.joined.keys() {
-        let Some(room) = client.get_room(room_id) else {
-            error!(?room_id, "Cannot post process a room in sliding sync because it is missing");
-            continue;
-        };
+    // Only update the notification modes if the push rules have changed.
+    if response.account_data.iter().any(|event| {
+        event
+            .get_field::<GlobalAccountDataEventType>("type")
+            .ok()
+            .flatten()
+            .map_or(false, |event_type| event_type == GlobalAccountDataEventType::PushRules)
+    }) {
+        for room_id in response.rooms.joined.keys() {
+            let Some(room) = client.get_room(room_id) else {
+                error!(
+                    ?room_id,
+                    "Cannot post process a room in sliding sync because it is missing"
+                );
+                continue;
+            };
 
-        room.user_defined_notification_mode().await;
+            room.user_defined_notification_mode().await;
+        }
     }
 
     Ok(())
