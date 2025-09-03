@@ -64,7 +64,8 @@ sso-login = ["local-server"]
 
 uniffi = ["dep:uniffi", "matrix-sdk-base/uniffi", "dep:matrix-sdk-ffi-macros"]
 
-experimental-widgets = ["dep:uuid", "experimental-send-custom-to-device"]
+unstable-msc4310 = ["ruma/unstable-msc4310"]
+experimental-widgets = ["dep:uuid", "experimental-send-custom-to-device", "unstable-msc4310"]
 
 docsrs = ["e2e-encryption", "sqlite", "indexeddb", "sso-login", "qrcode"]
 

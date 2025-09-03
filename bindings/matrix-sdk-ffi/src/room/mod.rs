@@ -1006,6 +1006,41 @@ impl Room {
         Ok(())
     }
 
+    /// Declines a call (and stop ringing).
+    ///
+    /// # Arguments
+    ///
+    /// * `rtc_notification_event_id` - the event id of the m.rtc.notification
+    ///   event.
+    pub async fn decline_call(&self, rtc_notification_event_id: String) -> Result<(), ClientError> {
+        let parsed_id = EventId::parse(rtc_notification_event_id.as_str())?;
+        let content = self.inner.make_decline_call_event(&parsed_id).await?;
+
+        self.inner.send_queue().send(content.into()).await?;
+
+        Ok(())
+    }
+
+    /// Subscribes to call decline for a currently ringing call, using a
+    /// `listener` to be notified when someone declines.
+    ///
+    /// Will error if `rtc_notification_event_id` is not a valid event id.
+    /// Use the [`TaskHandle`] to cancel the subscription.
+    pub fn subscribe_to_call_decline_events(
+        self: Arc<Self>,
+        rtc_notification_event_id: String,
+        listener: Box<dyn CallDeclineListener>,
+    ) -> Result<Arc<TaskHandle>, ClientError> {
+        let parsed_id = EventId::parse(rtc_notification_event_id.as_str())?;
+        Ok(Arc::new(TaskHandle::new(get_runtime_handle().spawn(async move {
+            let (_event_handler_drop_guard, mut subscriber) =
+                self.inner.subscribe_to_call_decline_events(&parsed_id);
+            while let Ok(user_id) = subscriber.recv().await {
+                listener.call(user_id.to_string());
+            }
+        }))))
+    }
+
     /// Subscribes to live location shares in this room, using a `listener` to
     /// be notified of the changes.
     ///
@@ -1151,6 +1186,12 @@ pub struct ThreadSubscription {
 #[matrix_sdk_ffi_macros::export(callback_interface)]
 pub trait LiveLocationShareListener: SyncOutsideWasm + SendOutsideWasm {
     fn call(&self, live_location_shares: Vec<LiveLocationShare>);
+}
+
+/// A listener for receiving call decline events in a room.
+#[matrix_sdk_ffi_macros::export(callback_interface)]
+pub trait CallDeclineListener: SyncOutsideWasm + SendOutsideWasm {
+    fn call(&self, decliner_user_id: String);
 }
 
 impl From<matrix_sdk::room::knock_requests::KnockRequest> for KnockRequest {
