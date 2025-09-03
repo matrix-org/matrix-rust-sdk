@@ -34,7 +34,7 @@ pub enum CallError {
     #[error("Couldn't fetch the remote event: {0}")]
     Fetch(Box<crate::Error>),
 
-    /// We tried to decline an event wich is not of type m.rtc.notification.
+    /// We tried to decline an event which is not of type m.rtc.notification.
     #[error("You cannot decline this event type.")]
     BadEventType,
 
