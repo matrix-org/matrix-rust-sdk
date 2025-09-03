@@ -23,11 +23,10 @@ use ruma::{
     uint,
 };
 
-use super::{
-    MediaRetentionPolicy, MediaStoreInner,
-    media_service::{IgnoreMediaRetentionPolicy, MediaStore},
+use super::{MediaRetentionPolicy, MediaStoreInner, media_service::IgnoreMediaRetentionPolicy};
+use crate::media::{
+    MediaFormat, MediaRequestParameters, MediaThumbnailSettings, store::MediaStore,
 };
-use crate::media::{MediaFormat, MediaRequestParameters, MediaThumbnailSettings};
 
 /// [`MediaStoreInner`] integration tests.
 ///
@@ -981,7 +980,7 @@ where
 /// ```no_run
 /// # use matrix_sdk_base::media::store::{
 /// #    MediaStore,
-/// #    MemoryStore as MyStore,
+/// #    MemoryMediaStore as MyStore,
 /// #    Result as MediaStoreResult,
 /// # };
 ///
@@ -1275,7 +1274,7 @@ where
 /// ```no_run
 /// # use matrix_sdk_base::media::store::{
 /// #    MediaStore,
-/// #    MemoryStore as MyStore,
+/// #    MemoryMediaStore as MyStore,
 /// #    Result as MediaStoreResult,
 /// # };
 ///
