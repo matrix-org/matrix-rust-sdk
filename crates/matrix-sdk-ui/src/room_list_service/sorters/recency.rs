@@ -14,6 +14,8 @@
 
 use std::cmp::Ordering;
 
+use matrix_sdk::latest_events::LatestEventValue;
+
 use super::{Room, Sorter};
 
 struct RecencyMatcher<F>
@@ -62,25 +64,184 @@ where
 }
 
 /// Create a new sorter that will sort two [`Room`] by recency, i.e. by
-/// comparing their [`RoomInfo::recency_stamp`] value. The `Room` with the
-/// newest recency stamp comes first, i.e. newest < oldest.
+/// comparing their [`RoomInfo::new_latest_event`]'s recency (timestamp)
+/// if any (i.e. if different from [`LatestEventValue::None`]), or their
+/// [`RoomInfo::recency_stamp`] value. The `Room` with the newest recency stamp
+/// comes first, i.e. newest < oldest.
 ///
 /// [`RoomInfo::recency_stamp`]: matrix_sdk_base::RoomInfo::recency_stamp
+/// [`RoomInfo::new_latest_event`]: matrix_sdk_base::RoomInfo::new_latest_event
 pub fn new_sorter() -> impl Sorter {
-    let matcher = RecencyMatcher {
-        recency_stamps: move |left, right| (left.recency_stamp(), right.recency_stamp()),
-    };
+    let matcher =
+        RecencyMatcher { recency_stamps: move |left, right| extract_recency_stamp(left, right) };
 
     move |left, right| -> Ordering { matcher.matches(left, right) }
 }
 
+/// Extract the recency stamp from either the [`RoomInfo::new_latest_event`] or
+/// from [`RoomInfo::recency_stamp`].
+///
+/// We must be very careful to return data of the same nature: either a _recency
+/// stamp_ from the [`LatestEventValue`], or from the
+/// [`RoomInfo::recency_stamp`], but we **must never** mix both. The
+/// `RoomInfo::recency_stamp` is not a timestamp, while `LatestEventValue` uses
+/// a timestamp.
+fn extract_recency_stamp(left: &Room, right: &Room) -> (Option<u64>, Option<u64>) {
+    match (left.new_latest_event(), right.new_latest_event()) {
+        // None of both rooms, or only one of both rooms, have a latest event value. Let's fallback
+        // to the recency stamp from the `RoomInfo` for both room.
+        (LatestEventValue::None, LatestEventValue::None)
+        | (LatestEventValue::None, _)
+        | (_, LatestEventValue::None) => (left.recency_stamp(), right.recency_stamp()),
+
+        // Both rooms have a non-`None` latest event. We can use their timestamps as a recency
+        // stamp.
+        (
+            left @ LatestEventValue::Remote(_)
+            | left @ LatestEventValue::LocalIsSending(_)
+            | left @ LatestEventValue::LocalCannotBeSent(_),
+            right @ LatestEventValue::Remote(_)
+            | right @ LatestEventValue::LocalIsSending(_)
+            | right @ LatestEventValue::LocalCannotBeSent(_),
+        ) => (left.timestamp(), right.timestamp()),
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use matrix_sdk::test_utils::logged_in_client_with_server;
+    use matrix_sdk::{
+        latest_events::{LocalLatestEventValue, RemoteLatestEventValue},
+        store::SerializableEventContent,
+        test_utils::logged_in_client_with_server,
+    };
+    use matrix_sdk_base::RoomInfoNotableUpdateReasons;
     use matrix_sdk_test::async_test;
-    use ruma::room_id;
+    use ruma::{
+        MilliSecondsSinceUnixEpoch,
+        events::{AnyMessageLikeEventContent, room::message::RoomMessageEventContent},
+        room_id,
+        serde::Raw,
+    };
+    use serde_json::json;
 
     use super::{super::super::filters::new_rooms, *};
+
+    fn none() -> LatestEventValue {
+        LatestEventValue::None
+    }
+
+    fn remote(origin_server_ts: u64) -> LatestEventValue {
+        LatestEventValue::Remote(RemoteLatestEventValue::from_plaintext(
+            Raw::from_json_string(
+                json!({
+                    "content": RoomMessageEventContent::text_plain("raclette"),
+                    "type": "m.room.message",
+                    "event_id": "$ev0",
+                    "room_id": "!r0",
+                    "origin_server_ts": origin_server_ts,
+                    "sender": "@mnt_io:matrix.org",
+                })
+                .to_string(),
+            )
+            .unwrap(),
+        ))
+    }
+
+    fn local_is_sending(origin_server_ts: u32) -> LatestEventValue {
+        LatestEventValue::LocalIsSending(LocalLatestEventValue {
+            timestamp: MilliSecondsSinceUnixEpoch(origin_server_ts.into()),
+            content: SerializableEventContent::from_raw(
+                Raw::new(&AnyMessageLikeEventContent::RoomMessage(
+                    RoomMessageEventContent::text_plain("raclette"),
+                ))
+                .unwrap(),
+                "m.room.message".to_owned(),
+            ),
+        })
+    }
+
+    fn local_cannot_be_sent(origin_server_ts: u32) -> LatestEventValue {
+        LatestEventValue::LocalCannotBeSent(LocalLatestEventValue {
+            timestamp: MilliSecondsSinceUnixEpoch(origin_server_ts.into()),
+            content: SerializableEventContent::from_raw(
+                Raw::new(&AnyMessageLikeEventContent::RoomMessage(
+                    RoomMessageEventContent::text_plain("raclette"),
+                ))
+                .unwrap(),
+                "m.room.message".to_owned(),
+            ),
+        })
+    }
+
+    fn set_latest_event_value(room: &mut Room, latest_event_value: LatestEventValue) {
+        let mut room_info = room.clone_info();
+        room_info.set_new_latest_event(latest_event_value);
+        room.set_room_info(room_info, RoomInfoNotableUpdateReasons::LATEST_EVENT);
+    }
+
+    fn set_recency_stamp(room: &mut Room, recency_stamp: u64) {
+        let mut room_info = room.clone_info();
+        room_info.update_recency_stamp(recency_stamp);
+        room.set_room_info(room_info, RoomInfoNotableUpdateReasons::RECENCY_STAMP);
+    }
+
+    #[async_test]
+    async fn test_extract_recency_stamp_with_none() {
+        let (client, server) = logged_in_client_with_server().await;
+        let [mut room_a, mut room_b] =
+            new_rooms([room_id!("!a:b.c"), room_id!("!d:e.f")], &client, &server).await;
+
+        set_recency_stamp(&mut room_a, 1);
+        set_recency_stamp(&mut room_b, 2);
+
+        // Both rooms have a `LatestEventValue::None`.
+        {
+            set_latest_event_value(&mut room_a, none());
+            set_latest_event_value(&mut room_b, none());
+
+            assert_eq!(extract_recency_stamp(&room_a, &room_b), (Some(1), Some(2)));
+        }
+
+        // `room_a` has `None`, `room_b` has something else.
+        {
+            set_latest_event_value(&mut room_a, none());
+            set_latest_event_value(&mut room_b, remote(3));
+
+            assert_eq!(extract_recency_stamp(&room_a, &room_b), (Some(1), Some(2)));
+        }
+
+        // `room_b` has `None`, `room_a` has something else.
+        {
+            set_latest_event_value(&mut room_a, remote(3));
+            set_latest_event_value(&mut room_b, none());
+
+            assert_eq!(extract_recency_stamp(&room_a, &room_b), (Some(1), Some(2)));
+        }
+    }
+
+    #[async_test]
+    async fn test_extract_recency_stamp_with_remote_or_local() {
+        let (client, server) = logged_in_client_with_server().await;
+        let [mut room_a, mut room_b] =
+            new_rooms([room_id!("!a:b.c"), room_id!("!d:e.f")], &client, &server).await;
+
+        set_recency_stamp(&mut room_a, 1);
+        set_recency_stamp(&mut room_b, 2);
+
+        // `room_a` and `room_b` has either `Remote` or `Local*`.
+        {
+            for latest_event_value_a in [remote(3), local_is_sending(3), local_cannot_be_sent(3)] {
+                for latest_event_value_b in
+                    [remote(4), local_is_sending(4), local_cannot_be_sent(4)]
+                {
+                    set_latest_event_value(&mut room_a, latest_event_value_a.clone());
+                    set_latest_event_value(&mut room_b, latest_event_value_b);
+
+                    assert_eq!(extract_recency_stamp(&room_a, &room_b), (Some(3), Some(4)));
+                }
+            }
+        }
+    }
 
     #[async_test]
     async fn test_with_two_recency_stamps() {
