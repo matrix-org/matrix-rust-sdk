@@ -37,6 +37,7 @@ use super::{
     filters::BoxedFilterFn,
     sorters::{new_sorter_lexicographic, new_sorter_name, new_sorter_recency},
 };
+use crate::room_list_service::sorters::new_sorter_latest_event;
 
 /// A `RoomList` represents a list of rooms, from a
 /// [`RoomListService`](super::RoomListService).
@@ -165,7 +166,16 @@ impl RoomList {
                 let (values, stream) = (raw_values, merged_streams)
                     .filter(filter_fn)
                     .sort_by(new_sorter_lexicographic(vec![
+                        // Sort by latest event's kind, i.e. put the rooms with a
+                        // **local** latest event first.
+                        Box::new(new_sorter_latest_event()),
+
+                        // Sort rooms by their recency (either by looking
+                        // at their latest event's timestamp, or their
+                        // `recency_stamp`).
                         Box::new(new_sorter_recency()),
+
+                        // Finally, sort by name.
                         Box::new(new_sorter_name())
                     ]))
                     .dynamic_head_with_initial_value(page_size, limit_stream.clone());
