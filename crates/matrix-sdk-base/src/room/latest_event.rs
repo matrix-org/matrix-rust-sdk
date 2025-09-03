@@ -17,7 +17,7 @@ use crate::latest_event::LatestEventValue;
 
 impl Room {
     /// Return the [`LatestEventValue`] of this room.
-    pub fn new_latest_event(&self) -> LatestEventValue {
-        self.inner.read().new_latest_event.clone()
+    pub fn latest_event(&self) -> LatestEventValue {
+        self.inner.read().latest_event_value.clone()
     }
 }
