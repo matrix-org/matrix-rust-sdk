@@ -21,6 +21,8 @@ mod crypto_store;
 mod error;
 #[cfg(feature = "event-cache")]
 mod event_cache_store;
+#[cfg(feature = "event-cache")]
+mod media_store;
 #[cfg(feature = "state-store")]
 mod state_store;
 mod utils;
@@ -37,6 +39,8 @@ pub use self::crypto_store::SqliteCryptoStore;
 pub use self::error::OpenStoreError;
 #[cfg(feature = "event-cache")]
 pub use self::event_cache_store::SqliteEventCacheStore;
+#[cfg(feature = "event-cache")]
+pub use self::media_store::SqliteMediaStore;
 #[cfg(feature = "state-store")]
 pub use self::state_store::{SqliteStateStore, DATABASE_NAME as STATE_STORE_DATABASE_NAME};
 

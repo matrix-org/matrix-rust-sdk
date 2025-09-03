@@ -23,11 +23,10 @@ use ruma::{
     uint,
 };
 
-use super::{
-    MediaRetentionPolicy, MediaStoreInner,
-    media_service::{IgnoreMediaRetentionPolicy, MediaStore},
+use super::{MediaRetentionPolicy, MediaStoreInner, media_service::IgnoreMediaRetentionPolicy};
+use crate::media::{
+    MediaFormat, MediaRequestParameters, MediaThumbnailSettings, store::MediaStore,
 };
-use crate::media::{MediaFormat, MediaRequestParameters, MediaThumbnailSettings};
 
 /// [`MediaStoreInner`] integration tests.
 ///
@@ -141,7 +140,7 @@ where
         assert!(stored.is_some());
 
         // A cleanup doesn't have any effect.
-        self.clean_up_media_cache_inner(policy, time).await.unwrap();
+        self.clean_inner(policy, time).await.unwrap();
 
         let stored = self.get_media_content_inner(&request_avg, time).await.unwrap();
         assert!(stored.is_some());
@@ -152,7 +151,7 @@ where
         let policy = MediaRetentionPolicy::empty().with_max_file_size(Some(100));
 
         // The cleanup removes the average media.
-        self.clean_up_media_cache_inner(policy, time).await.unwrap();
+        self.clean_inner(policy, time).await.unwrap();
 
         let stored = self.get_media_content_inner(&request_avg, time).await.unwrap();
         assert!(stored.is_none());
@@ -220,7 +219,7 @@ where
             .with_max_file_size(Some(1000));
 
         // The cleanup removes the average media.
-        self.clean_up_media_cache_inner(policy, time).await.unwrap();
+        self.clean_inner(policy, time).await.unwrap();
 
         let stored = self.get_media_content_inner(&request_avg, time).await.unwrap();
         assert!(stored.is_none());
@@ -398,7 +397,7 @@ where
 
         // Cleanup removes the oldest content first.
         time += Duration::from_secs(1);
-        self.clean_up_media_cache_inner(policy, time).await.unwrap();
+        self.clean_inner(policy, time).await.unwrap();
 
         time += Duration::from_secs(1);
         let stored = self.get_media_content_inner(&request_small_1, time).await.unwrap();
@@ -484,7 +483,7 @@ where
         // before.
         time += Duration::from_secs(1);
         tracing::info!(?self, "before");
-        self.clean_up_media_cache_inner(policy, time).await.unwrap();
+        self.clean_inner(policy, time).await.unwrap();
         tracing::info!(?self, "after");
         time += Duration::from_secs(1);
         let stored = self.get_media_content_inner(&request_small_1, time).await.unwrap();
@@ -605,7 +604,7 @@ where
         assert_eq!(time, SystemTime::UNIX_EPOCH + Duration::from_secs(10));
 
         // Cleanup has no effect, nothing has expired.
-        self.clean_up_media_cache_inner(policy, time).await.unwrap();
+        self.clean_inner(policy, time).await.unwrap();
 
         time += Duration::from_secs(1);
         let stored = self.get_media_content_inner(&request_1, time).await.unwrap();
@@ -632,7 +631,7 @@ where
         time += Duration::from_secs(26);
 
         // Cleanup removes the two oldest media contents.
-        self.clean_up_media_cache_inner(policy, time).await.unwrap();
+        self.clean_inner(policy, time).await.unwrap();
 
         time += Duration::from_secs(1);
         let stored = self.get_media_content_inner(&request_1, time).await.unwrap();
@@ -748,7 +747,7 @@ where
 
         // Because the big and average contents are ignored, cleanup has no effect.
         time += Duration::from_secs(1);
-        self.clean_up_media_cache_inner(policy, time).await.unwrap();
+        self.clean_inner(policy, time).await.unwrap();
 
         time += Duration::from_secs(1);
         let stored = self.get_media_content_inner(&request_small, time).await.unwrap();
@@ -766,7 +765,7 @@ where
             .unwrap();
 
         time += Duration::from_secs(1);
-        self.clean_up_media_cache_inner(policy, time).await.unwrap();
+        self.clean_inner(policy, time).await.unwrap();
 
         time += Duration::from_secs(1);
         let stored = self.get_media_content_inner(&request_small, time).await.unwrap();
@@ -785,7 +784,7 @@ where
             .unwrap();
 
         time += Duration::from_secs(1);
-        self.clean_up_media_cache_inner(policy, time).await.unwrap();
+        self.clean_inner(policy, time).await.unwrap();
 
         time += Duration::from_secs(1);
         let stored = self.get_media_content_inner(&request_small, time).await.unwrap();
@@ -895,7 +894,7 @@ where
         time += Duration::from_secs(120);
 
         // Cleanup removes all the media contents that are not ignored.
-        self.clean_up_media_cache_inner(policy, time).await.unwrap();
+        self.clean_inner(policy, time).await.unwrap();
 
         time += Duration::from_secs(1);
         let stored = self.get_media_content_inner(&request_1, time).await.unwrap();
@@ -925,7 +924,7 @@ where
         time += Duration::from_secs(120);
 
         // Cleanup removes the remaining media contents.
-        self.clean_up_media_cache_inner(policy, time).await.unwrap();
+        self.clean_inner(policy, time).await.unwrap();
 
         time += Duration::from_secs(1);
         let stored = self.get_media_content_inner(&request_1, time).await.unwrap();
@@ -950,14 +949,14 @@ where
 
         // With an empty policy.
         let policy = MediaRetentionPolicy::empty();
-        self.clean_up_media_cache_inner(policy, new_time).await.unwrap();
+        self.clean_inner(policy, new_time).await.unwrap();
 
         let stored = self.last_media_cleanup_time_inner().await.unwrap();
         assert_eq!(stored, initial);
 
         // With the default policy.
         let policy = MediaRetentionPolicy::default();
-        self.clean_up_media_cache_inner(policy, new_time).await.unwrap();
+        self.clean_inner(policy, new_time).await.unwrap();
 
         let stored = self.last_media_cleanup_time_inner().await.unwrap();
         assert_eq!(stored, Some(new_time));
@@ -981,7 +980,7 @@ where
 /// ```no_run
 /// # use matrix_sdk_base::media::store::{
 /// #    MediaStore,
-/// #    MemoryStore as MyStore,
+/// #    MemoryMediaStore as MyStore,
 /// #    Result as MediaStoreResult,
 /// # };
 ///
@@ -1275,7 +1274,7 @@ where
 /// ```no_run
 /// # use matrix_sdk_base::media::store::{
 /// #    MediaStore,
-/// #    MemoryStore as MyStore,
+/// #    MemoryMediaStore as MyStore,
 /// #    Result as MediaStoreResult,
 /// # };
 ///

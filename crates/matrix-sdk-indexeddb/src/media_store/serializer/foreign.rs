@@ -21,7 +21,7 @@ pub mod ignore_media_retention_policy {
     //! This is necessary, as [`IgnoreMediaRetentionPolicy`] does not implement
     //! these traits directly.
 
-    use matrix_sdk_base::event_cache::store::media::IgnoreMediaRetentionPolicy;
+    use matrix_sdk_base::media::store::IgnoreMediaRetentionPolicy;
     use serde::{Deserializer, Serializer};
 
     /// Serializes an [`IgnoreMediaRetentionPolicy`] as a `u8`, where
