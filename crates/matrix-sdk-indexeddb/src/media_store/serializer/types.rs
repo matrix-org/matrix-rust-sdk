@@ -329,7 +329,7 @@ impl Indexed for MediaRetentionPolicy {
 impl IndexedKey<MediaRetentionPolicy> for IndexedCoreIdKey {
     type KeyComponents<'a> = ();
 
-    fn encode(components: Self::KeyComponents<'_>, serializer: &IndexeddbSerializer) -> Self {
+    fn encode(_components: Self::KeyComponents<'_>, serializer: &IndexeddbSerializer) -> Self {
         serializer.encode_key_as_string(keys::CORE, keys::MEDIA_RETENTION_POLICY_KEY)
     }
 }

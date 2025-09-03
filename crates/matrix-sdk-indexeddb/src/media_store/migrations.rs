@@ -18,7 +18,7 @@ use indexed_db_futures::{
 };
 use thiserror::Error;
 use wasm_bindgen::JsValue;
-use web_sys::{DomException, IdbIndexParameters};
+use web_sys::DomException;
 
 /// The current version and keys used in the database.
 pub mod current {

@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License
 
+#![allow(unused)]
+
 mod builder;
 mod error;
 mod migrations;
@@ -20,6 +22,8 @@ mod transaction;
 mod types;
 use std::{rc::Rc, time::Duration};
 
+pub use builder::IndexeddbMediaStoreBuilder;
+pub use error::IndexeddbMediaStoreError;
 use indexed_db_futures::IdbDatabase;
 use matrix_sdk_base::{
     media::{
@@ -37,7 +41,6 @@ use tracing::instrument;
 use web_sys::IdbTransactionMode;
 
 use crate::media_store::{
-    builder::IndexeddbMediaStoreBuilder, error::IndexeddbMediaStoreError,
     serializer::traits::Indexed, transaction::IndexeddbMediaStoreTransaction, types::Lease,
 };
 
@@ -327,7 +330,7 @@ impl MediaStoreInner for IndexeddbMediaStore {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, target_family = "wasm"))]
 mod tests {
     use matrix_sdk_base::{
         media::store::{MediaStore, MediaStoreError},
@@ -345,7 +348,7 @@ mod tests {
 
         async fn get_media_store() -> Result<IndexeddbMediaStore, MediaStoreError> {
             let name = format!("test-media-store-{}", Uuid::new_v4().as_hyphenated());
-            Ok(IndexeddbMediaStore::builder().build().await?)
+            Ok(IndexeddbMediaStore::builder().database_name(name).build().await?)
         }
 
         #[cfg(target_family = "wasm")]
@@ -362,7 +365,7 @@ mod tests {
 
         async fn get_media_store() -> Result<IndexeddbMediaStore, MediaStoreError> {
             let name = format!("test-media-store-{}", Uuid::new_v4().as_hyphenated());
-            Ok(IndexeddbMediaStore::builder().build().await?)
+            Ok(IndexeddbMediaStore::builder().database_name(name).build().await?)
         }
 
         #[cfg(target_family = "wasm")]

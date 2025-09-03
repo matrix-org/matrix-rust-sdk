@@ -13,10 +13,7 @@
 // limitations under the License
 
 use indexed_db_futures::{prelude::IdbTransaction, IdbQuerySource};
-use matrix_sdk_base::{
-    linked_chunk::{ChunkContent, ChunkIdentifier, LinkedChunkId, RawChunk},
-    media::store::{MediaRetentionPolicy, MediaStoreError},
-};
+use matrix_sdk_base::media::store::{MediaRetentionPolicy, MediaStoreError};
 use serde::{
     de::{DeserializeOwned, Error},
     Serialize,
@@ -25,13 +22,9 @@ use thiserror::Error;
 use web_sys::IdbCursorDirection;
 
 use crate::media_store::{
-    error::{AsyncErrorDeps, IndexeddbMediaStoreError},
-    migrations::v1::keys,
+    error::AsyncErrorDeps,
     serializer::{
-        traits::{
-            Indexed, IndexedKey, IndexedKeyBounds, IndexedKeyComponentBounds,
-            IndexedPrefixKeyBounds, IndexedPrefixKeyComponentBounds,
-        },
+        traits::{Indexed, IndexedKey},
         types::{IndexedCoreIdKey, IndexedKeyRange, IndexedLeaseIdKey},
         IndexeddbMediaStoreSerializer,
     },

@@ -42,7 +42,13 @@ pub enum IndexeddbMediaStoreError {
 
 impl From<IndexeddbMediaStoreError> for MediaStoreError {
     fn from(value: IndexeddbMediaStoreError) -> Self {
-        Self::Backend(Box::new(value))
+        use IndexeddbMediaStoreError::*;
+
+        match value {
+            DomException { .. } => Self::InvalidData { details: value.to_string() },
+            Transaction(inner) => inner.into(),
+            MemoryStore(error) => error,
+        }
     }
 }
 

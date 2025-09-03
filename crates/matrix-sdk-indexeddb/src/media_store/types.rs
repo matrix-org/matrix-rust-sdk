@@ -14,12 +14,7 @@
 
 use std::time::Duration;
 
-use matrix_sdk_base::{
-    deserialized_responses::TimelineEvent,
-    linked_chunk::{ChunkIdentifier, LinkedChunkId, OwnedLinkedChunkId},
-    media::{store::IgnoreMediaRetentionPolicy, MediaRequestParameters},
-};
-use ruma::{OwnedEventId, OwnedRoomId, RoomId};
+use matrix_sdk_base::media::{store::IgnoreMediaRetentionPolicy, MediaRequestParameters};
 use serde::{Deserialize, Serialize};
 
 /// Representation of a time-based lock on the entire

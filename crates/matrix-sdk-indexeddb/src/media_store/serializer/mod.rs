@@ -13,8 +13,6 @@
 // limitations under the License
 
 use gloo_utils::format::JsValueSerdeExt;
-use matrix_sdk_crypto::CryptoStoreError;
-use ruma::RoomId;
 use serde::{de::DeserializeOwned, Serialize};
 use thiserror::Error;
 use wasm_bindgen::JsValue;
@@ -22,7 +20,7 @@ use web_sys::IdbKeyRange;
 
 use crate::{
     media_store::serializer::{
-        traits::{Indexed, IndexedKey, IndexedKeyBounds, IndexedKeyComponentBounds},
+        traits::{Indexed, IndexedKey},
         types::IndexedKeyRange,
     },
     serializer::IndexeddbSerializer,

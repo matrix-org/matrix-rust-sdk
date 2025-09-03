@@ -12,8 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License
 
-use ruma::RoomId;
-
 use crate::serializer::IndexeddbSerializer;
 
 /// A conversion trait for preparing high-level types into indexed types

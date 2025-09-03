@@ -16,7 +16,6 @@ use std::{rc::Rc, sync::Arc};
 
 use matrix_sdk_base::media::store::{MediaService, MemoryMediaStore};
 use matrix_sdk_store_encryption::StoreCipher;
-use web_sys::DomException;
 
 use crate::{
     media_store::{
