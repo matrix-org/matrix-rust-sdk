@@ -35,7 +35,7 @@ pub struct Input {
 impl Input {
     /// Create a new empty [`Input`] widget.
     pub fn new() -> Self {
-        let textarea = TextArea::default();
+        let textarea = Self::text_area();
 
         Self { textarea }
     }
@@ -71,7 +71,14 @@ impl Input {
 
     /// Clear the text from the input area.
     pub fn clear(&mut self) {
-        self.textarea = TextArea::default();
+        self.textarea = Self::text_area();
+    }
+
+    fn text_area() -> TextArea<'static> {
+        let mut area = TextArea::default();
+        area.set_placeholder_style(Style::new().fg(tailwind::GRAY.c50));
+
+        area
     }
 }
 
