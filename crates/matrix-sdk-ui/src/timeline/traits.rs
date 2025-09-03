@@ -23,7 +23,7 @@ use matrix_sdk::{
     paginators::{PaginableRoom, thread::PaginableThread},
     room::PushContext,
 };
-use matrix_sdk_base::{RoomInfo, latest_event::LatestEvent};
+use matrix_sdk_base::RoomInfo;
 use ruma::{
     EventId, OwnedEventId, OwnedTransactionId, OwnedUserId, UserId,
     events::{
@@ -37,7 +37,7 @@ use ruma::{
 };
 use tracing::error;
 
-use super::{EventTimelineItem, Profile, RedactError, TimelineBuilder};
+use super::{Profile, RedactError, TimelineBuilder};
 use crate::timeline::{
     self, Timeline, latest_event::LatestEventValue, pinned_events_loader::PinnedEventsRoom,
 };
@@ -63,12 +63,6 @@ pub trait RoomExt {
     /// constructing it.
     fn timeline_builder(&self) -> TimelineBuilder;
 
-    /// Return an optional [`EventTimelineItem`] corresponding to this room's
-    /// latest event.
-    fn latest_event_item(
-        &self,
-    ) -> impl Future<Output = Option<EventTimelineItem>> + SendOutsideWasm;
-
     /// Return a [`LatestEventValue`] corresponding to this room's latest event.
     fn new_latest_event(&self) -> impl Future<Output = LatestEventValue>;
 }
@@ -80,14 +74,6 @@ impl RoomExt for Room {
 
     fn timeline_builder(&self) -> TimelineBuilder {
         TimelineBuilder::new(self).track_read_marker_and_receipts()
-    }
-
-    async fn latest_event_item(&self) -> Option<EventTimelineItem> {
-        if let Some(latest_event) = self.latest_event() {
-            EventTimelineItem::from_latest_event(self.client(), self.room_id(), latest_event).await
-        } else {
-            None
-        }
     }
 
     async fn new_latest_event(&self) -> LatestEventValue {
@@ -113,7 +99,6 @@ pub(super) trait RoomDataProvider:
         &'a self,
         user_id: &'a UserId,
     ) -> impl Future<Output = Option<Profile>> + SendOutsideWasm + 'a;
-    fn profile_from_latest_event(&self, latest_event: &LatestEvent) -> Option<Profile>;
 
     /// Loads a user receipt from the storage backend.
     fn load_user_receipt<'a>(
@@ -193,18 +178,6 @@ impl RoomDataProvider for Room {
                 None
             }
         }
-    }
-
-    fn profile_from_latest_event(&self, latest_event: &LatestEvent) -> Option<Profile> {
-        if !latest_event.has_sender_profile() {
-            return None;
-        }
-
-        Some(Profile {
-            display_name: latest_event.sender_display_name().map(ToOwned::to_owned),
-            display_name_ambiguous: latest_event.sender_name_ambiguous().unwrap_or(false),
-            avatar_url: latest_event.sender_avatar_url().map(ToOwned::to_owned),
-        })
     }
 
     async fn load_user_receipt<'a>(
