@@ -1580,10 +1580,7 @@ impl Store {
         &self,
         room_id: &RoomId,
     ) -> std::result::Result<RoomKeyBundle, CryptoStoreError> {
-        // TODO: make this WAY more efficient. We should only fetch sessions for the
-        // correct room.
-        let mut sessions = self.get_inbound_group_sessions().await?;
-        sessions.retain(|session| session.room_id == room_id);
+        let sessions = self.get_inbound_group_sessions_by_room_id(room_id).await?;
 
         let mut bundle = RoomKeyBundle::default();
         for session in sessions {
