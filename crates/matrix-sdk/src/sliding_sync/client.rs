@@ -5,9 +5,13 @@ use matrix_sdk_base::{
     RequestedRequiredStates, ThreadSubscriptionCatchupToken, sync::SyncResponse, timer,
 };
 use matrix_sdk_common::deserialized_responses::ProcessedToDeviceEvent;
-use ruma::api::{
-    FeatureFlag, SupportedVersions,
-    client::sync::sync_events::v5::{self as http, response},
+use ruma::{
+    OwnedRoomId,
+    api::{
+        FeatureFlag, SupportedVersions,
+        client::sync::sync_events::v5::{self as http, response},
+    },
+    events::GlobalAccountDataEventType,
 };
 use tracing::error;
 
@@ -193,14 +197,22 @@ impl SlidingSyncResponseProcessor {
         response: &http::Response,
         requested_required_states: &RequestedRequiredStates,
     ) -> Result<()> {
+        let previously_joined_rooms = self
+            .client
+            .joined_rooms()
+            .into_iter()
+            .map(|r| r.room_id().to_owned())
+            .collect::<BTreeSet<_>>();
+
         let mut sync_response = self
             .client
             .base_client()
             .process_sliding_sync(response, requested_required_states)
             .await?;
+
         handle_receipts_extension(&self.client, response, &mut sync_response).await?;
 
-        update_in_memory_caches(&self.client, &sync_response).await?;
+        update_in_memory_caches(&self.client, &previously_joined_rooms, &sync_response).await?;
 
         self.response = Some(sync_response);
 
@@ -240,16 +252,61 @@ impl SlidingSyncResponseProcessor {
 /// Update the caches for the rooms that received updates.
 ///
 /// This will only fill the in-memory caches, not save the info on disk.
-async fn update_in_memory_caches(client: &Client, response: &SyncResponse) -> Result<()> {
+async fn update_in_memory_caches(
+    client: &Client,
+    previously_joined_rooms: &BTreeSet<OwnedRoomId>,
+    response: &SyncResponse,
+) -> Result<()> {
     let _timer = timer!(tracing::Level::TRACE, "update_in_memory_caches");
 
-    for room_id in response.rooms.joined.keys() {
-        let Some(room) = client.get_room(room_id) else {
-            error!(?room_id, "Cannot post process a room in sliding sync because it is missing");
-            continue;
-        };
+    // If the push rules have changed, update the cached notification mode for *all*
+    // the joined rooms.
+    if response.account_data.iter().any(|event| {
+        event
+            .get_field::<GlobalAccountDataEventType>("type")
+            .ok()
+            .flatten()
+            .is_some_and(|event_type| event_type == GlobalAccountDataEventType::PushRules)
+    }) {
+        let notification_settings = client.notification_settings().await;
+        let rules = notification_settings.rules().await;
 
-        room.user_defined_notification_mode().await;
+        // Update all joined rooms.
+        for room in client.joined_rooms() {
+            if let Some(mode) = rules.get_user_defined_room_notification_mode(room.room_id()) {
+                room.update_cached_user_defined_notification_mode(mode);
+            }
+        }
+    } else {
+        // Otherwise, precompute the cached user-defined notification mode only for the
+        // newly joined rooms.
+
+        // We'll compute the rules only once, lazily, if needs be.
+        let mut rules = None;
+
+        for room_id in response
+            .rooms
+            .joined
+            .keys()
+            .filter(|room_id| !previously_joined_rooms.contains(*room_id))
+        {
+            let Some(room) = client.get_room(room_id) else {
+                error!(?room_id, "The room must exist since it has been joined");
+                continue;
+            };
+
+            // Reuse the previous `Rules` instance, or compute it once and for all.
+            let rules = if let Some(rules) = &mut rules {
+                rules
+            } else {
+                rules.insert(client.notification_settings().await.rules().await.clone())
+            };
+
+            // Define an initial value for the cached user-defined notification mode.
+            if let Some(mode) = rules.get_user_defined_room_notification_mode(room.room_id()) {
+                room.update_cached_user_defined_notification_mode(mode);
+            }
+        }
     }
 
     Ok(())

@@ -14,7 +14,7 @@
 
 //! High-level push notification settings API
 
-use std::sync::Arc;
+use std::{ops::Deref, sync::Arc};
 
 use indexmap::IndexSet;
 use ruma::{
@@ -568,6 +568,11 @@ impl NotificationSettings {
     /// [`NotificationSettings`] instance.
     pub async fn ruleset(&self) -> Ruleset {
         self.rules.read().await.ruleset.clone()
+    }
+
+    /// Returns the inner [`Rules`] object currently known by this instance.
+    pub(crate) async fn rules(&self) -> impl Deref<Target = Rules> + '_ {
+        self.rules.read().await
     }
 }
 
