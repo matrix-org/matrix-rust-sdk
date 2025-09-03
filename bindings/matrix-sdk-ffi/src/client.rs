@@ -1628,7 +1628,7 @@ impl Client {
     /// This method retrieves information about the server's name and version
     /// by calling the `/_matrix/federation/v1/version` endpoint.
     pub async fn server_vendor_info(&self) -> Result<matrix_sdk::ServerVendorInfo, ClientError> {
-        Ok(self.inner.server_vendor_info().await?)
+        Ok(self.inner.server_vendor_info(None).await?)
     }
 
     /// Subscribe to changes in the media preview configuration.
