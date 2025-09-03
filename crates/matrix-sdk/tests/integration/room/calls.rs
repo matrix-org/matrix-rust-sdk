@@ -1,3 +1,4 @@
+#![cfg(feature = "unstable-msc4310")]
 use std::sync::{Arc, Mutex};
 
 use matrix_sdk::test_utils::mocks::MatrixMockServer;
