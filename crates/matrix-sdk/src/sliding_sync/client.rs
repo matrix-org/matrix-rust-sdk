@@ -1,5 +1,6 @@
 use std::collections::BTreeSet;
 
+use futures_util::future::try_join_all;
 use matrix_sdk_base::{
     sync::SyncResponse, timer, RequestedRequiredStates, ThreadSubscriptionCatchupToken,
 };
@@ -273,29 +274,44 @@ async fn handle_receipts_extension(
             .chain(response.extensions.receipts.rooms.keys().cloned()),
     );
 
-    for room_id in room_ids {
-        let Ok((room_event_cache, _drop_handle)) = client.event_cache().for_room(&room_id).await
-        else {
-            tracing::info!(
-                ?room_id,
-                "Failed to fetch the `RoomEventCache` when computing unread counts"
-            );
+    // Process each room concurrently.
+    let futures = room_ids.into_iter().map(|room_id| {
+        let joined_room_update =
+            sync_response.rooms.joined.entry(room_id.to_owned()).or_default().clone();
 
-            continue;
-        };
+        async {
+            let Ok((room_event_cache, _drop_handle)) =
+                client.event_cache().for_room(&room_id).await
+            else {
+                tracing::info!(
+                    ?room_id,
+                    "Failed to fetch the `RoomEventCache` when computing unread counts"
+                );
+                return Ok::<_, crate::Error>(None);
+            };
 
-        let previous_events = room_event_cache.events().await;
+            let previous_events = room_event_cache.events().await;
 
-        client
-            .base_client()
-            .process_sliding_sync_receipts_extension_for_room(
-                &room_id,
-                response,
-                sync_response,
-                previous_events,
-            )
-            .await?;
+            let joined_room_update = client
+                .base_client()
+                .process_sliding_sync_receipts_extension_for_room(
+                    &room_id,
+                    response,
+                    joined_room_update,
+                    previous_events,
+                )
+                .await?;
+
+            Ok(Some((room_id, joined_room_update)))
+        }
+    });
+
+    let updates = try_join_all(futures).await?;
+
+    for (room_id, joined_room_update) in updates.into_iter().flatten() {
+        sync_response.rooms.joined.insert(room_id, joined_room_update);
     }
+
     Ok(())
 }
 

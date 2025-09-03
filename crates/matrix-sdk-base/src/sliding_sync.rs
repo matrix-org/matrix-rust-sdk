@@ -28,7 +28,7 @@ use crate::{
     response_processors as processors,
     room::RoomInfoNotableUpdateReasons,
     store::ambiguity_map::AmbiguityCache,
-    sync::{RoomUpdates, SyncResponse},
+    sync::{JoinedRoomUpdate, RoomUpdates, SyncResponse},
 };
 
 impl BaseClient {
@@ -254,16 +254,12 @@ impl BaseClient {
         &self,
         room_id: &OwnedRoomId,
         response: &http::Response,
-        sync_response: &mut SyncResponse,
+        mut joined_room_update: JoinedRoomUpdate,
         room_previous_events: Vec<TimelineEvent>,
-    ) -> Result<()> {
+    ) -> Result<JoinedRoomUpdate> {
         let mut context = processors::Context::default();
 
         let mut save_context = false;
-
-        // Get or create the `JoinedRoomUpdate`, so that we can push the receipt
-        // ephemeral event, and compute the unread counts.
-        let joined_room_update = sync_response.rooms.joined.entry(room_id.to_owned()).or_default();
 
         // Handle the receipt ephemeral event.
         if let Some(receipt_ephemeral_event) = response.extensions.receipts.rooms.get(room_id) {
@@ -271,7 +267,7 @@ impl BaseClient {
                 &mut context,
                 room_id,
                 receipt_ephemeral_event,
-                joined_room_update,
+                &mut joined_room_update,
             );
             save_context = true;
         }
@@ -310,7 +306,7 @@ impl BaseClient {
             processors::changes::save_only(context, &self.state_store).await?;
         }
 
-        Ok(())
+        Ok(joined_room_update)
     }
 }
 
