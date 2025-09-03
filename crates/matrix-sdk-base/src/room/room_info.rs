@@ -1050,7 +1050,7 @@ impl RoomInfo {
 
     /// Updates the recency stamp of this room.
     ///
-    /// Please read [`Self::recency_stamp`] to learn more.
+    /// Please read `Self::recency_stamp` to learn more.
     pub fn update_recency_stamp(&mut self, stamp: u64) {
         self.recency_stamp = Some(stamp);
     }
