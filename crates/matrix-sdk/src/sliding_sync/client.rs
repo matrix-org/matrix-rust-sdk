@@ -276,8 +276,14 @@ async fn handle_receipts_extension(
 
     // Process each room concurrently.
     let futures = room_ids.into_iter().map(|room_id| {
-        let joined_room_update =
-            sync_response.rooms.joined.entry(room_id.to_owned()).or_default().clone();
+        let new_sync_events = sync_response
+            .rooms
+            .joined
+            .entry(room_id.to_owned())
+            .or_default()
+            .timeline
+            .events
+            .clone();
 
         async {
             let Ok((room_event_cache, _drop_handle)) =
@@ -292,24 +298,26 @@ async fn handle_receipts_extension(
 
             let previous_events = room_event_cache.events().await;
 
-            let joined_room_update = client
+            let receipt_event = client
                 .base_client()
                 .process_sliding_sync_receipts_extension_for_room(
                     &room_id,
                     response,
-                    joined_room_update,
+                    new_sync_events,
                     previous_events,
                 )
                 .await?;
 
-            Ok(Some((room_id, joined_room_update)))
+            Ok(Some((room_id, receipt_event)))
         }
     });
 
     let updates = try_join_all(futures).await?;
 
-    for (room_id, joined_room_update) in updates.into_iter().flatten() {
-        sync_response.rooms.joined.insert(room_id, joined_room_update);
+    for (room_id, receipt_event_content) in updates.into_iter().flatten() {
+        if let Some(event) = receipt_event_content {
+            sync_response.rooms.joined.entry(room_id).or_default().ephemeral.push(event.cast());
+        }
     }
 
     Ok(())
