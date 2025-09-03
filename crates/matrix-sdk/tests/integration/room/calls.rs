@@ -31,7 +31,7 @@ async fn test_subscribe_to_decline_call_events() {
                     ruma::events::call::notify::NotifyType::Ring,
                     ruma::events::Mentions::new(),
                 )
-                .sender(&user_id!("@alice:matrix.org"))
+                .sender(user_id!("@alice:matrix.org"))
                 .event_id(&notification_event_id),
             ),
         )
@@ -67,15 +67,15 @@ async fn test_subscribe_to_decline_call_events() {
                 .add_timeline_event(
                     // declines another call
                     f.call_decline(&other_notification_event_id)
-                        .sender(&user_id!("@valere:matrix.org")),
+                        .sender(user_id!("@valere:matrix.org")),
                 )
                 .add_timeline_event(
                     // declines another call
-                    f.call_decline(&notification_event_id).sender(&user_id!("@bob:matrix.org")),
+                    f.call_decline(&notification_event_id).sender(user_id!("@bob:matrix.org")),
                 )
                 .add_timeline_event(
                     // declines another call
-                    f.call_decline(&notification_event_id).sender(&user_id!("@carl:example.com")),
+                    f.call_decline(&notification_event_id).sender(user_id!("@carl:example.com")),
                 ),
         )
         .await;
