@@ -51,12 +51,10 @@ pub fn dispatch_receipt_ephemeral_event_for_room(
     context: &mut Context,
     room_id: &RoomId,
     receipt: &Raw<SyncEphemeralRoomEvent<ReceiptEventContent>>,
-    joined_room_update: &mut JoinedRoomUpdate,
 ) {
     let receipt: Raw<AnySyncEphemeralRoomEvent> = receipt.cast_ref().clone();
 
     dispatch_receipt(context, &receipt, room_id);
-    joined_room_update.ephemeral.push(receipt);
 }
 
 pub fn room_account_data(

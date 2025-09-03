@@ -17,7 +17,10 @@
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk_common::deserialized_responses::ProcessedToDeviceEvent;
 use matrix_sdk_common::{deserialized_responses::TimelineEvent, timer};
-use ruma::{OwnedRoomId, api::client::sync::sync_events::v5 as http};
+use ruma::{
+    OwnedRoomId, api::client::sync::sync_events::v5 as http, events::receipt::SyncReceiptEvent,
+    serde::Raw,
+};
 use tracing::{instrument, trace};
 
 use super::BaseClient;
@@ -28,7 +31,7 @@ use crate::{
     response_processors as processors,
     room::RoomInfoNotableUpdateReasons,
     store::ambiguity_map::AmbiguityCache,
-    sync::{JoinedRoomUpdate, RoomUpdates, SyncResponse},
+    sync::{RoomUpdates, SyncResponse},
 };
 
 impl BaseClient {
@@ -254,23 +257,27 @@ impl BaseClient {
         &self,
         room_id: &OwnedRoomId,
         response: &http::Response,
-        mut joined_room_update: JoinedRoomUpdate,
+        new_sync_events: Vec<TimelineEvent>,
         room_previous_events: Vec<TimelineEvent>,
-    ) -> Result<JoinedRoomUpdate> {
+    ) -> Result<Option<Raw<SyncReceiptEvent>>> {
         let mut context = processors::Context::default();
 
         let mut save_context = false;
 
         // Handle the receipt ephemeral event.
-        if let Some(receipt_ephemeral_event) = response.extensions.receipts.rooms.get(room_id) {
+        let receipt_ephemeral_event = if let Some(receipt_ephemeral_event) =
+            response.extensions.receipts.rooms.get(room_id)
+        {
             processors::room::msc4186::extensions::dispatch_receipt_ephemeral_event_for_room(
                 &mut context,
                 room_id,
                 receipt_ephemeral_event,
-                &mut joined_room_update,
             );
             save_context = true;
-        }
+            Some(receipt_ephemeral_event.clone())
+        } else {
+            None
+        };
 
         let user_id = &self.session_meta().expect("logged in user").user_id;
 
@@ -284,7 +291,7 @@ impl BaseClient {
                 room_id,
                 context.state_changes.receipts.get(room_id),
                 room_previous_events,
-                &joined_room_update.timeline.events,
+                &new_sync_events,
                 &mut room_info.read_receipts,
                 self.threading_support,
             );
@@ -306,7 +313,7 @@ impl BaseClient {
             processors::changes::save_only(context, &self.state_store).await?;
         }
 
-        Ok(joined_room_update)
+        Ok(receipt_ephemeral_event)
     }
 }
 
