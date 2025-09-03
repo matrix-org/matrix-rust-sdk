@@ -72,6 +72,7 @@ use ruma::{
             tombstone::RoomTombstoneEventContent,
             topic::RoomTopicEventContent,
         },
+        rtc::decline::RtcDeclineEventContent,
         space::{child::SpaceChildEventContent, parent::SpaceParentEventContent},
         sticker::StickerEventContent,
         typing::TypingEventContent,
@@ -1006,6 +1007,14 @@ impl EventFactory {
         mentions: Mentions,
     ) -> EventBuilder<CallNotifyEventContent> {
         self.event(CallNotifyEventContent::new(call_id, application, notify_type, mentions))
+    }
+
+    // Creates a new `org.matrix.msc4310.rtc.decline` event.
+    pub fn call_decline(
+        &self,
+        notification_event_id: &EventId,
+    ) -> EventBuilder<RtcDeclineEventContent> {
+        self.event(RtcDeclineEventContent::new(notification_event_id))
     }
 
     /// Create a new `m.direct` global account data event.

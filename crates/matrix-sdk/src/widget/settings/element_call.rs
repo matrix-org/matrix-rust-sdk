@@ -82,7 +82,8 @@ struct ElementCallParams {
 /// Defines if a call is encrypted and which encryption system should be used.
 ///
 /// This controls the url parameters: `perParticipantE2EE`, `password`.
-#[derive(Debug, PartialEq, Default, uniffi::Enum, Clone)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
+#[derive(Debug, PartialEq, Default, Clone)]
 pub enum EncryptionSystem {
     /// Equivalent to the element call url parameter: `perParticipantE2EE=false`
     /// and no password.
@@ -102,7 +103,8 @@ pub enum EncryptionSystem {
 /// Defines the intent of showing the call.
 ///
 /// This controls whether to show or skip the lobby.
-#[derive(Debug, PartialEq, Serialize, Default, uniffi::Enum, Clone)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
+#[derive(Debug, PartialEq, Serialize, Default, Clone)]
 #[serde(rename_all = "snake_case")]
 pub enum Intent {
     #[default]
@@ -113,7 +115,8 @@ pub enum Intent {
 }
 
 /// Defines how (if) element-call renders a header.
-#[derive(Debug, PartialEq, Serialize, Default, uniffi::Enum, Clone)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
+#[derive(Debug, PartialEq, Serialize, Default, Clone)]
 #[serde(rename_all = "snake_case")]
 pub enum HeaderStyle {
     /// The normal header with branding.
@@ -126,7 +129,8 @@ pub enum HeaderStyle {
 }
 
 /// Types of call notifications.
-#[derive(Debug, PartialEq, Serialize, uniffi::Enum, Clone)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
+#[derive(Debug, PartialEq, Serialize, Clone)]
 #[serde(rename_all = "snake_case")]
 pub enum NotificationType {
     /// The receiving client should display a visual notification.
@@ -136,7 +140,8 @@ pub enum NotificationType {
 }
 
 /// Properties to create a new virtual Element Call widget.
-#[derive(Debug, Default, uniffi::Record, Clone)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Default, Clone)]
 pub struct VirtualElementCallWidgetOptions {
     /// The url to the app.
     ///
