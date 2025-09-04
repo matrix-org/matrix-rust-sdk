@@ -60,10 +60,58 @@ impl Room {
         make_call_decline_event(self, self.own_user_id(), notification_event_id).await
     }
 
-    /// Subscribe to decline call evvent for this room.
+    /// Subscribe to decline call event for this room.
     ///
     /// The returned receiver will receive the sender UserID for each decline
     /// for the matching notify event.
+    /// Example:
+    /// - A push is received for an `m.call.notify` event.
+    /// - The app starts ringing on this device.
+    /// - The app subscribes to decline events for that notify event and stops
+    ///   ringing if another device declines the call.
+    ///
+    /// In case of outgoing call, you can subscribe to see if your call was
+    /// denied from the other side.
+    ///
+    /// ```rust
+    /// # async fn start_ringing() {}
+    /// # async fn stop_ringing() {}
+    /// # async fn show_incoming_call_ui() {}
+    /// # async fn dismiss_incoming_call_ui() {}
+    /// #
+    /// # async fn on_push_for_call_notify(room: matrix_sdk::Room, notify_event_id: ruma::EventId) {
+    ///     // 1) We just received a push for an `m.call.notify` in `room`.
+    ///     show_incoming_call_ui().await;
+    ///     start_ringing().await;
+    ///
+    ///     // 2) Subscribe to declines for this notify event, in case the call is declined from another device.
+    ///     let (drop_guard, mut declines) = room.subscribe_to_call_decline_events(&notify_event_id);
+    ///
+    ///     // Keep the subscription alive while we wait for a decline.
+    ///     // You might store `drop_guard` alongside your call state.
+    ///     tokio::spawn(async move {
+    ///         loop {
+    ///             match declines.recv().await {
+    ///                 Ok(_decliner) => {
+    ///                     // 3) Check the mxID -> I declined this call from another device.
+    ///                     stop_ringing().await;
+    ///                     dismiss_incoming_call_ui().await;
+    ///                     // Exiting ends the task; dropping the guard unsubscribes the handler.
+    ///                     drop(drop_guard);
+    ///                     break;
+    ///                 }
+    ///                 Err(broadcast_err) => {
+    ///                     // Channel closed or lagged; stop waiting.
+    ///                     // In practice you might want to handle Lagged specifically.
+    ///                     eprintln!("decline subscription ended: {broadcast_err}");
+    ///                     drop(drop_guard);
+    ///                     break;
+    ///                 }
+    ///             }
+    ///         }
+    ///     });
+    /// # }
+    /// ```
     pub fn subscribe_to_call_decline_events(
         &self,
         notification_event_id: &EventId,
