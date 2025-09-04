@@ -8,7 +8,7 @@ edition = "2024"
 rust-version.workspace = true
 
 [package.metadata.release]
-release = true
+release = false
 
 [target.'cfg(not(target_family = "wasm"))'.dependencies]
 ctor = "0.2.9"
