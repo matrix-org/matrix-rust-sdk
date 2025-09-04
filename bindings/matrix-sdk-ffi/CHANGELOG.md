@@ -6,6 +6,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased] - ReleaseDate
 
+## [0.14.0] - 2025-09-04
+
 ### Features:
 
 - Add `LowPriority` and `NonLowPriority` variants to `RoomListEntriesDynamicFilterKind` for filtering 

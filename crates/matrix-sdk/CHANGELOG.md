@@ -6,6 +6,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased] - ReleaseDate
 
+## [0.14.0] - 2025-09-04
+
 ### Features
 
 - `Client::fetch_thread_subscriptions` implements support for the companion endpoint of the
