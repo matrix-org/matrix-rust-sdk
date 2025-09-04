@@ -6,6 +6,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased] - ReleaseDate
 
+## [0.14.0] - 2025-09-04
+
 ### Features
 - Add `SyncResponse::RoomUpdates::is_empty` to check if there were any room updates.
   ([#5593](https://github.com/matrix-org/matrix-rust-sdk/pull/5593))
