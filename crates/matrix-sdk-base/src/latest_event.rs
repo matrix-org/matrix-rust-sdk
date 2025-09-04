@@ -41,6 +41,35 @@ pub enum LatestEventValue {
     LocalCannotBeSent(LocalLatestEventValue),
 }
 
+impl LatestEventValue {
+    /// Get the timestamp of the [`LatestEventValue`].
+    ///
+    /// If it's [`None`], it returns `None`. If it's [`Remote`], it returns the
+    /// `origin_server_ts`. If it's [`LocalIsSending`] or [`LocalCannotBeSent`],
+    /// it returns the [`timestamp`] value.
+    ///
+    /// [`None`]: LatestEventValue::None
+    /// [`Remote`]: LatestEventValue::Remote
+    /// [`LocalIsSending`]: LatestEventValue::LocalIsSending
+    /// [`LocalCannotBeSent`]: LatestEventValue::LocalCannotBeSent
+    /// [`timestamp`]: LocalLatestEventValue::timestamp
+    pub fn timestamp(&self) -> Option<u64> {
+        match self {
+            Self::None => None,
+            Self::Remote(remote_latest_event_value) => remote_latest_event_value
+                .kind
+                .raw()
+                .get_field::<u64>("origin_server_ts")
+                .ok()
+                .flatten(),
+            Self::LocalIsSending(LocalLatestEventValue { timestamp, .. })
+            | Self::LocalCannotBeSent(LocalLatestEventValue { timestamp, .. }) => {
+                Some(timestamp.get().into())
+            }
+        }
+    }
+}
+
 /// Represents the value for [`LatestEventValue::Remote`].
 pub type RemoteLatestEventValue = TimelineEvent;
 
@@ -53,6 +82,79 @@ pub struct LocalLatestEventValue {
 
     /// The content of the local event.
     pub content: SerializableEventContent,
+}
+
+#[cfg(test)]
+mod tests_latest_event_value {
+    use ruma::{
+        MilliSecondsSinceUnixEpoch,
+        events::{AnyMessageLikeEventContent, room::message::RoomMessageEventContent},
+        serde::Raw,
+        uint,
+    };
+    use serde_json::json;
+
+    use super::{LatestEventValue, LocalLatestEventValue, RemoteLatestEventValue};
+    use crate::store::SerializableEventContent;
+
+    #[test]
+    fn test_timestamp_with_none() {
+        let value = LatestEventValue::None;
+
+        assert_eq!(value.timestamp(), None);
+    }
+
+    #[test]
+    fn test_timestamp_with_remote() {
+        let value = LatestEventValue::Remote(RemoteLatestEventValue::from_plaintext(
+            Raw::from_json_string(
+                json!({
+                    "content": RoomMessageEventContent::text_plain("raclette"),
+                    "type": "m.room.message",
+                    "event_id": "$ev0",
+                    "room_id": "!r0",
+                    "origin_server_ts": 42,
+                    "sender": "@mnt_io:matrix.org",
+                })
+                .to_string(),
+            )
+            .unwrap(),
+        ));
+
+        assert_eq!(value.timestamp(), Some(42));
+    }
+
+    #[test]
+    fn test_timestamp_with_local_is_sending() {
+        let value = LatestEventValue::LocalIsSending(LocalLatestEventValue {
+            timestamp: MilliSecondsSinceUnixEpoch(uint!(42)),
+            content: SerializableEventContent::from_raw(
+                Raw::new(&AnyMessageLikeEventContent::RoomMessage(
+                    RoomMessageEventContent::text_plain("raclette"),
+                ))
+                .unwrap(),
+                "m.room.message".to_owned(),
+            ),
+        });
+
+        assert_eq!(value.timestamp(), Some(42));
+    }
+
+    #[test]
+    fn test_timestamp_with_local_cannot_be_sent() {
+        let value = LatestEventValue::LocalCannotBeSent(LocalLatestEventValue {
+            timestamp: MilliSecondsSinceUnixEpoch(uint!(42)),
+            content: SerializableEventContent::from_raw(
+                Raw::new(&AnyMessageLikeEventContent::RoomMessage(
+                    RoomMessageEventContent::text_plain("raclette"),
+                ))
+                .unwrap(),
+                "m.room.message".to_owned(),
+            ),
+        });
+
+        assert_eq!(value.timestamp(), Some(42));
+    }
 }
 
 /// Represents a decision about whether an event could be stored as the latest
