@@ -254,15 +254,6 @@ impl Timeline {
         Some(item.to_owned())
     }
 
-    /// Get the latest of the timeline's event items.
-    pub async fn latest_event(&self) -> Option<EventTimelineItem> {
-        if self.controller.is_live() {
-            self.controller.items().await.last()?.as_event().cloned()
-        } else {
-            None
-        }
-    }
-
     /// Get the current timeline items, along with a stream of updates of
     /// timeline items.
     ///
