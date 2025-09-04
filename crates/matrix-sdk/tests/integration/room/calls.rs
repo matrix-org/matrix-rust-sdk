@@ -1,5 +1,3 @@
-#![cfg(feature = "unstable-msc4310")]
-
 use std::sync::{Arc, Mutex};
 
 use assert_matches2::assert_matches;
