@@ -79,13 +79,13 @@ impl Room {
     /// # async fn show_incoming_call_ui() {}
     /// # async fn dismiss_incoming_call_ui() {}
     /// #
-    /// # async fn on_push_for_call_notify(room: matrix_sdk::Room, notify_event_id: ruma::EventId) {
+    /// # async fn on_push_for_call_notify(room: matrix_sdk::Room, notify_event_id: &ruma::EventId) {
     ///     // 1) We just received a push for an `m.call.notify` in `room`.
     ///     show_incoming_call_ui().await;
     ///     start_ringing().await;
     ///
     ///     // 2) Subscribe to declines for this notify event, in case the call is declined from another device.
-    ///     let (drop_guard, mut declines) = room.subscribe_to_call_decline_events(&notify_event_id);
+    ///     let (drop_guard, mut declines) = room.subscribe_to_call_decline_events(notify_event_id);
     ///
     ///     // Keep the subscription alive while we wait for a decline.
     ///     // You might store `drop_guard` alongside your call state.
