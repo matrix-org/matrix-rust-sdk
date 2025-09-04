@@ -89,12 +89,12 @@ impl Room {
     }
 }
 
-async fn make_call_decline_event<S: EventSource>(
-    source: S,
+async fn make_call_decline_event(
+    room: &Room,
     own_user_id: &UserId,
     notification_event_id: &EventId,
 ) -> Result<RtcDeclineEventContent, CallError> {
-    let target = source
+    let target = room
         .get_event(notification_event_id)
         .await
         .map_err(|err| CallError::Fetch(Box::new(err)))?;
@@ -102,14 +102,14 @@ async fn make_call_decline_event<S: EventSource>(
     let event = target.raw().deserialize().map_err(CallError::Deserialize)?;
 
     // The event must be CallNotify-like.
-    let AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::CallNotify(notify)) = event
-    else {
-        return Err(CallError::BadEventType);
-    };
-
-    if notify.sender() == own_user_id {
-        return Err(CallError::DeclineOwnCall);
+    if let AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::CallNotify(notify)) = event {
+        if notify.sender() == own_user_id {
+            // Cannot decline own call.
+            Err(CallError::DeclineOwnCall)
+        } else {
+            Ok(RtcDeclineEventContent::new(notification_event_id))
+        }
+    } else {
+        Err(CallError::BadEventType)
     }
-
-    Ok(RtcDeclineEventContent::new(notification_event_id))
 }
