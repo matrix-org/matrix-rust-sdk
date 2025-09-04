@@ -175,6 +175,13 @@ pub fn get_element_call_required_permissions(
         WidgetEventFilter::MessageLikeWithType {
             event_type: MessageLikeEventType::RoomRedaction.to_string(),
         },
+        // This allows declining an incoming call and detect if someone declines a call.
+        // Accepts both `org.matrix.msc4310.rtc.decline` and `m.rtc.decline` events to ease future
+        // transition.
+        WidgetEventFilter::MessageLikeWithType {
+            event_type: "org.matrix.msc4310.rtc.decline".to_owned(),
+        },
+        WidgetEventFilter::MessageLikeWithType { event_type: "m.rtc.decline".to_owned() },
     ];
 
     WidgetCapabilities {
