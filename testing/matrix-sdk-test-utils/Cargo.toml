@@ -1,5 +1,6 @@
 [package]
 homepage = "https://github.com/matrix-org/matrix-rust-sdk"
+description = "Test utilities used in the Matrix Rust SDK"
 keywords = ["matrix", "chat", "messaging", "ruma"]
 license = "Apache-2.0"
 name = "matrix-sdk-test-utils"
