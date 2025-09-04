@@ -1018,6 +1018,7 @@ impl Room {
     ///   event.
     pub async fn decline_call(&self, rtc_notification_event_id: String) -> Result<(), ClientError> {
         let parsed_id = EventId::parse(rtc_notification_event_id.as_str())?;
+
         let content = self.inner.make_decline_call_event(&parsed_id).await?;
 
         self.inner.send_queue().send(content.into()).await?;
@@ -1036,9 +1037,11 @@ impl Room {
         listener: Box<dyn CallDeclineListener>,
     ) -> Result<Arc<TaskHandle>, ClientError> {
         let parsed_id = EventId::parse(rtc_notification_event_id.as_str())?;
+
         Ok(Arc::new(TaskHandle::new(get_runtime_handle().spawn(async move {
             let (_event_handler_drop_guard, mut subscriber) =
                 self.inner.subscribe_to_call_decline_events(&parsed_id);
+
             while let Ok(user_id) = subscriber.recv().await {
                 listener.call(user_id.to_string());
             }
