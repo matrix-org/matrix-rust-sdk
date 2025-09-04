@@ -535,5 +535,11 @@ mod tests {
         );
         cap_assert("org.matrix.msc2762.send.event:org.matrix.rageshake_request");
         cap_assert("org.matrix.msc2762.send.event:io.element.call.encryption_keys");
+
+        // RTC decline
+        cap_assert("org.matrix.msc2762.receive.event:org.matrix.msc4310.rtc.decline");
+        cap_assert("org.matrix.msc2762.receive.event:m.rtc.decline");
+        cap_assert("org.matrix.msc2762.send.event:org.matrix.msc4310.rtc.decline");
+        cap_assert("org.matrix.msc2762.send.event:m.rtc.decline");
     }
 }
