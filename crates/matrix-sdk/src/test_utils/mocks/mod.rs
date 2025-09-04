@@ -1211,6 +1211,40 @@ impl MatrixMockServer {
         self.mock_endpoint(mock, GlobalAccountDataEndpoint).expect_default_access_token()
     }
 
+    /// Create a prebuilt mock for the endpoint that updates the global account
+    /// data.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use ruma::__private_macros::user_id;
+    /// tokio_test::block_on(async {
+    /// use matrix_sdk::test_utils::mocks::MatrixMockServer;
+    /// use serde_json::json;
+    /// use ruma::events::media_preview_config::MediaPreviews;
+    ///
+    /// let mock_server = MatrixMockServer::new().await;
+    /// let client = mock_server.client_builder().build().await;
+    ///
+    /// mock_server.mock_update_global_account_data().ok(
+    ///     client.user_id().unwrap(),
+    ///     ruma::events::GlobalAccountDataEventType::IgnoredUserList,
+    /// )
+    /// .mock_once()
+    /// .mount()
+    /// .await;
+    ///
+    /// client.account().ignore_user(user_id!("@a:b.c")).await.unwrap();
+    ///
+    /// # anyhow::Ok(()) });
+    /// ```
+    pub fn mock_update_global_account_data(
+        &self,
+    ) -> MockEndpoint<'_, UpdateGlobalAccountDataEndpoint> {
+        let mock = Mock::given(method("PUT"));
+        self.mock_endpoint(mock, UpdateGlobalAccountDataEndpoint).expect_default_access_token()
+    }
+
     /// Create a prebuilt mock for the endpoint used to send a single receipt.
     pub fn mock_send_receipt(
         &self,
@@ -3502,6 +3536,22 @@ impl<'a> MockEndpoint<'a, GlobalAccountDataEndpoint> {
                 "errcode": "M_NOT_FOUND",
                 "error": "Not found"
             })));
+        MatrixMock { server: self.server, mock }
+    }
+}
+
+/// A prebuilt mock for the update global account data endpoint.
+pub struct UpdateGlobalAccountDataEndpoint;
+
+impl<'a> MockEndpoint<'a, UpdateGlobalAccountDataEndpoint> {
+    /// Returns a mock for a successful global account data event.
+    pub fn ok(self, user_id: &UserId, event_type: GlobalAccountDataEventType) -> MatrixMock<'a> {
+        let mock = self
+            .mock
+            .and(path_regex(format!(
+                r"^/_matrix/client/v3/user/{user_id}/account_data/{event_type}"
+            )))
+            .respond_with(ResponseTemplate::new(200).set_body_json(()));
         MatrixMock { server: self.server, mock }
     }
 }
