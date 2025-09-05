@@ -58,16 +58,20 @@ use crate::{
 /// [`State::Error`] (in case any of the underlying syncs ran into an error).
 ///
 /// This can be observed with [`SyncService::state`].
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug)]
 pub enum State {
     /// The service hasn't ever been started yet, or has been stopped.
     Idle,
+
     /// The underlying syncs are properly running in the background.
     Running,
+
     /// Any of the underlying syncs has terminated gracefully (i.e. be stopped).
     Terminated,
+
     /// Any of the underlying syncs has ran into an error.
     Error,
+
     /// The service has entered offline mode. This state will only be entered if
     /// the [`SyncService`] has been built with the
     /// [`SyncServiceBuilder::with_offline_mode`] setting.

@@ -158,6 +158,9 @@ macro_rules! assert_next_matches_with_timeout {
     ($stream:expr, $pat:pat => $arm:expr) => {
         $crate::assert_next_matches_with_timeout!($stream, 100, $pat => $arm)
     };
+    ($stream:expr, $timeout_ms:expr, $pat:pat) => {
+        $crate::assert_next_matches_with_timeout!($stream, $timeout_ms, $pat => {})
+    };
     ($stream:expr, $timeout_ms:expr, $pat:pat => $arm:expr) => {
         match $crate::assert_next_with_timeout!(&mut $stream, $timeout_ms) {
             $pat => $arm,
