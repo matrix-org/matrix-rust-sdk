@@ -1,5 +1,6 @@
 use assert_matches::assert_matches;
 use eyeball_im::VectorDiff;
+use matrix_sdk::crypto::OlmMachine;
 use matrix_sdk_base::deserialized_responses::{ShieldState, ShieldStateCode};
 use matrix_sdk_test::{ALICE, async_test, event_factory::EventFactory};
 use ruma::{
@@ -13,12 +14,13 @@ use ruma::{
             message::RoomMessageEventContent,
         },
     },
+    room_id, user_id,
 };
 use stream_assert::{assert_next_matches, assert_pending};
 
 use crate::timeline::{
     EventSendState,
-    tests::{TestTimeline, TestTimelineBuilder},
+    tests::{TestDecryptor, TestRoomDataProvider, TestTimeline, TestTimelineBuilder},
 };
 
 #[async_test]
@@ -134,7 +136,16 @@ async fn test_local_sent_in_clear_shield() {
 /// sent in clear` red warning.
 async fn test_utd_shield() {
     // Given we are in an encrypted room
-    let timeline = TestTimelineBuilder::new().room_encrypted(true).build();
+    let own_user_id = user_id!("@example:morheus.localhost");
+    let olm_machine = OlmMachine::new(own_user_id, "SomeDeviceId".into()).await;
+
+    let timeline = TestTimelineBuilder::new()
+        .provider(
+            TestRoomDataProvider::default()
+                .with_decryptor(TestDecryptor::new(room_id!("!r:s.co"), &olm_machine)),
+        )
+        .room_encrypted(true)
+        .build();
     let mut stream = timeline.subscribe().await;
 
     let f = &timeline.factory;

@@ -654,7 +654,7 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
                         &self.meta,
                         in_reply_to,
                         thread_root,
-                        thread_summary,
+                        thread_summary.clone(),
                     )
                     .await,
                     should_add,
@@ -690,7 +690,7 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
             let sender_profile = room_data_provider.profile_from_user_id(&sender).await;
 
             let ctx = TimelineEventContext {
-                sender,
+                sender: sender.clone(),
                 sender_profile,
                 timestamp,
                 read_receipts: if settings.track_read_receipts && should_add {
@@ -706,8 +706,8 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
                 flow: Flow::Remote {
                     event_id: event_id.clone(),
                     raw_event: raw,
-                    encryption_info,
-                    txn_id,
+                    encryption_info: encryption_info.clone(),
+                    txn_id: txn_id.clone(),
                     position,
                 },
                 should_add_new_items: should_add,
@@ -733,11 +733,100 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
                 self.items.remove(timeline_item_index);
                 item_removed = true;
             }
-        }
+        } else {
+            // Just in case the message key arrived while we were adding this event to the
+            // timeline, attempt to redecrypt it immediately.
+            let redecrypted = self.reattempt_decrypt_if_utd(event_clone, room_data_provider).await;
+            if let Some(redecrypted) = redecrypted {
+                // TODO: guessing that if we added an event it is at the end of items?
+                let position =
+                    TimelineItemPosition::UpdateAt { timeline_item_index: self.items.len() - 1 };
 
-        // Just in case the message key arrived while we were adding this event to the
-        // timeline, attempt to redecrypt it immediately.
-        self.reattempt_decrypt_if_utd(event_clone, room_data_provider).await;
+                let bundled_edit_encryption_info =
+                    redecrypted.kind.unsigned_encryption_map().and_then(|map| {
+                        map.get(&UnsignedEventLocation::RelationsReplace)?
+                            .encryption_info()
+                            .cloned()
+                    });
+
+                let (raw, utd_info) = match redecrypted.kind.clone() {
+                    TimelineEventKind::UnableToDecrypt { utd_info, event: redecrypted } => {
+                        (redecrypted.clone(), Some(utd_info))
+                    }
+                    _ => (redecrypted.kind.clone().into_raw(), None),
+                };
+
+                let event = redecrypted.raw().deserialize().unwrap();
+
+                let sender_profile = room_data_provider.profile_from_user_id(&sender).await;
+                let (in_reply_to, thread_root) = self.meta.process_event_relations(
+                    &event,
+                    &raw,
+                    bundled_edit_encryption_info,
+                    &self.items,
+                    matches!(self.focus, TimelineFocusKind::Thread { .. }),
+                );
+
+                let should_add = self.should_add_event_item(
+                    room_data_provider,
+                    settings,
+                    &event,
+                    thread_root.as_deref(),
+                    position,
+                );
+                let timeline_action = TimelineAction::from_event(
+                    event,
+                    &raw,
+                    room_data_provider,
+                    utd_info,
+                    &self.meta,
+                    in_reply_to,
+                    thread_root,
+                    thread_summary,
+                )
+                .await;
+
+                let timeline_action = timeline_action.unwrap();
+
+                let ctx = TimelineEventContext {
+                    sender: sender.clone(),
+                    sender_profile,
+                    timestamp,
+                    read_receipts: if settings.track_read_receipts && should_add {
+                        self.meta.read_receipts.compute_event_receipts(
+                            &event_id,
+                            &mut self.items,
+                            matches!(position, TimelineItemPosition::End { .. }),
+                        )
+                    } else {
+                        Default::default()
+                    },
+                    is_highlighted,
+                    flow: Flow::Remote {
+                        event_id: event_id.clone(),
+                        raw_event: raw,
+                        encryption_info,
+                        txn_id,
+                        position,
+                    },
+                    should_add_new_items: should_add,
+                };
+
+                TimelineEventHandler::new(self, ctx)
+                    .handle_event(date_divider_adjuster, timeline_action)
+                    .await;
+
+                //self.add_or_update_remote_event(
+                //    EventMeta::new(event_id.clone(), should_add),
+                //    Some(&sender),
+                //    Some(timestamp),
+                //    position,
+                //    room_data_provider,
+                //    settings,
+                //)
+                //.await;
+            }
+        }
 
         item_removed
     }
@@ -749,7 +838,7 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
         &self,
         event: TimelineEvent,
         room_data_provider: &P,
-    ) -> TimelineEvent {
+    ) -> Option<TimelineEvent> {
         error!("AJB reattempt_decrypt_if_utd");
 
         if let TimelineEventKind::UnableToDecrypt { event: utd, .. } = &event.kind {
@@ -771,19 +860,18 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
 
                     // The decryption process did not error, but may have returned us a UTD if we
                     // failed to decrypt. Return whatever we got back, hopefully decrypted.
-                    decrypted_event
+                    Some(decrypted_event)
                 }
                 Err(e) => {
-                    // If, for some reason, we hit an error while trying to decrypt, log it and
-                    // return the original event.
+                    // If, for some reason, we hit an error while trying to decrypt, just log it
                     error!("Error while decrypting event: {e}");
-                    event
+                    None
                 }
             }
         } else {
             error!("AJB not a utd");
-            // This event is not a UTD - just return it.
-            event
+            // This event is not a UTD
+            None
         }
     }
 
