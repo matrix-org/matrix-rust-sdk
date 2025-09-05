@@ -44,6 +44,8 @@ All notable changes to this project will be documented in this file.
 - Add support to accept historic room key bundles that arrive out of order, i.e.
   the bundle arrives after the invite has already been accepted.
   ([#5322](https://github.com/matrix-org/matrix-rust-sdk/pull/5322))
+- Add new API to decline calls ([MSC4310](https://github.com/matrix-org/matrix-spec-proposals/pull/4310)): `Room::make_decline_call_event` and `Room::subscribe_to_call_decline_events`
+  ([#5614](https://github.com/matrix-org/matrix-rust-sdk/pull/5614))
 
 - [**breaking**] `OAuth::login` now allows requesting additional scopes for the authorization code grant.
   ([#5395](https://github.com/matrix-org/matrix-rust-sdk/pull/5395))
