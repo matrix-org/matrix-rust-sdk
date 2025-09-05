@@ -25,8 +25,8 @@ use matrix_sdk_base::crypto::{
     CryptoStoreError, DecryptorError, KeyExportError, MegolmError, OlmError,
 };
 use matrix_sdk_base::{
-    event_cache::store::EventCacheStoreError, Error as SdkBaseError, QueueWedgeError, RoomState,
-    StoreError,
+    event_cache::store::EventCacheStoreError, media::store::MediaStoreError, Error as SdkBaseError,
+    QueueWedgeError, RoomState, StoreError,
 };
 use reqwest::Error as ReqwestError;
 use ruma::{
@@ -340,6 +340,10 @@ pub enum Error {
     #[error(transparent)]
     EventCacheStore(Box<EventCacheStoreError>),
 
+    /// An error occurred in the media store.
+    #[error(transparent)]
+    MediaStore(Box<MediaStoreError>),
+
     /// An error encountered when trying to parse an identifier.
     #[error(transparent)]
     Identifier(#[from] IdParseError),
@@ -504,6 +508,12 @@ impl From<StoreError> for Error {
 impl From<EventCacheStoreError> for Error {
     fn from(error: EventCacheStoreError) -> Self {
         Error::EventCacheStore(Box::new(error))
+    }
+}
+
+impl From<MediaStoreError> for Error {
+    fn from(error: MediaStoreError) -> Self {
+        Error::MediaStore(Box::new(error))
     }
 }
 

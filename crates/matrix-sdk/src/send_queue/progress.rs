@@ -94,17 +94,17 @@ impl RoomSendQueue {
         };
 
         // Get the size of the file being uploaded from the event cache.
-        let bytes = match room.client().event_cache_store().lock().await {
+        let bytes = match room.client().media_store().lock().await {
             Ok(cache) => match cache.get_media_content(cache_key).await {
                 Ok(Some(content)) => content.len(),
                 Ok(None) => 0,
                 Err(err) => {
-                    warn!("error when reading media content from cache store: {err}");
+                    warn!("error when reading media content from media store: {err}");
                     0
                 }
             },
             Err(err) => {
-                warn!("couldn't acquire cache store lock: {err}");
+                warn!("couldn't acquire media store lock: {err}");
                 0
             }
         };
@@ -195,9 +195,9 @@ impl RoomSendQueue {
             return Ok(None);
         }
 
-        let cache_store_guard = client.event_cache_store().lock().await?;
+        let media_store_guard = client.media_store().lock().await?;
 
-        let maybe_content = cache_store_guard.get_media_content(&cache_key).await?;
+        let maybe_content = media_store_guard.get_media_content(&cache_key).await?;
 
         Ok(maybe_content.map(|c| c.len()))
     }

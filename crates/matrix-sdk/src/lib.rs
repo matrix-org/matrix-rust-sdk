@@ -82,7 +82,8 @@ pub use http_client::TransmissionProgress;
 pub use matrix_sdk_sqlite::SqliteCryptoStore;
 #[cfg(feature = "sqlite")]
 pub use matrix_sdk_sqlite::{
-    SqliteEventCacheStore, SqliteStateStore, SqliteStoreConfig, STATE_STORE_DATABASE_NAME,
+    SqliteEventCacheStore, SqliteMediaStore, SqliteStateStore, SqliteStoreConfig,
+    STATE_STORE_DATABASE_NAME,
 };
 pub use media::Media;
 pub use pusher::Pusher;
