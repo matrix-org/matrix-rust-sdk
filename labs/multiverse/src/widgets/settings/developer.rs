@@ -59,7 +59,7 @@ impl DeveloperSettingsView {
                                 sync_service::State::Running => sync_service.stop().await,
                                 sync_service::State::Idle
                                 | sync_service::State::Terminated
-                                | sync_service::State::Error
+                                | sync_service::State::Error(_)
                                 | sync_service::State::Offline => sync_service.start().await,
                             }
                         }
@@ -86,7 +86,7 @@ impl Widget for &mut DeveloperSettingsView {
             sync_service::State::Running => ListItem::new("Sync [x]"),
             sync_service::State::Idle
             | sync_service::State::Terminated
-            | sync_service::State::Error
+            | sync_service::State::Error(_)
             | sync_service::State::Offline => ListItem::new("Sync [ ]"),
         };
 

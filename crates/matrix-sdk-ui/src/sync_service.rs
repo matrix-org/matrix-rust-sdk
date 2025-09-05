@@ -70,7 +70,10 @@ pub enum State {
     Terminated,
 
     /// Any of the underlying syncs has ran into an error.
-    Error,
+    ///
+    /// The associated [`enum@Error`] is inside an [`Arc`] to (i) make [`State`]
+    /// cloneable, and to (ii) not make it heavier.
+    Error(Arc<Error>),
 
     /// The service has entered offline mode. This state will only be entered if
     /// the [`SyncService`] has been built with the
@@ -305,15 +308,15 @@ impl SyncTaskSupervisor {
                     error!("when awaiting encryption sync: {err:#}");
                 }
 
-                if report.is_error() {
+                if let Some(error) = report.error {
                     if offline_mode {
                         state.set(State::Offline);
 
                         let client = room_list_service.client();
 
                         if let Some(report) = Self::offline_check(client, &mut receiver).await {
-                            if report.is_error() {
-                                state.set(State::Error);
+                            if let Some(error) = report.error {
+                                state.set(State::Error(Arc::new(error)));
                             } else {
                                 state.set(State::Idle);
                             }
@@ -322,7 +325,7 @@ impl SyncTaskSupervisor {
 
                         state.set(State::Running);
                     } else {
-                        state.set(State::Error);
+                        state.set(State::Error(Arc::new(error)));
                         break;
                     }
                 } else if matches!(report.origin, TerminationOrigin::Supervisor) {
@@ -567,7 +570,7 @@ impl SyncServiceInner {
 ///             eprintln!("The sync service has been gracefully terminated");
 ///             break;
 ///         }
-///         State::Error => {
+///         State::Error(_) => {
 ///             eprintln!("The sync service has run into an error");
 ///             break;
 ///         }
@@ -635,7 +638,7 @@ impl SyncService {
                     .await
             }
             // Otherwise just start.
-            State::Idle | State::Terminated | State::Error => {
+            State::Idle | State::Terminated | State::Error(_) => {
                 inner
                     .start(self.room_list_service.clone(), self.encryption_sync_permit.clone())
                     .await
@@ -653,7 +656,7 @@ impl SyncService {
         let mut inner = self.inner.lock().await;
 
         match inner.state.get() {
-            State::Idle | State::Terminated | State::Error => {
+            State::Idle | State::Terminated | State::Error(_) => {
                 // No need to stop if we were not running.
                 return;
             }
@@ -732,11 +735,6 @@ impl TerminationReport {
     /// [`TerminationOrigin::Supervisor`] and `error` set to `None`.
     fn supervisor() -> Self {
         Self { origin: TerminationOrigin::Supervisor, error: None }
-    }
-
-    /// Check whether the report is about an error.
-    fn is_error(&self) -> bool {
-        self.error.is_some()
     }
 
     /// Check whether the termination is due to an expired sliding sync session.
