@@ -160,10 +160,8 @@ impl SyncTaskSupervisor {
                 // reports from one of the sync services, in case both of them have sent a
                 // report, let's ignore all reports we receive from the sync
                 // services.
-                let report = receiver
-                    .recv()
-                    .await
-                    .unwrap_or_else(|| TerminationReport::supervisor(Some(Error::Supervisor)));
+                let report =
+                    receiver.recv().await.unwrap_or_else(TerminationReport::supervisor_error);
 
                 match report.origin {
                     TerminationOrigin::EncryptionSync | TerminationOrigin::RoomList => {}
@@ -261,7 +259,7 @@ impl SyncTaskSupervisor {
                     info!("internal channel has been closed?");
                     // We should still stop the child tasks in the unlikely scenario that our
                     // receiver died.
-                    TerminationReport::supervisor(Some(Error::Supervisor))
+                    TerminationReport::supervisor_error()
                 };
 
                 // If one service failed, make sure to request stopping the other one.
@@ -379,8 +377,7 @@ impl SyncTaskSupervisor {
                     // Carry on.
                 }
                 Some(Err(error)) => {
-                    let termination_report =
-                        TerminationReport::encryption_sync(Some(Error::EncryptionSync(error)));
+                    let termination_report = TerminationReport::encryption_sync(Some(error));
 
                     if !termination_report.has_expired() {
                         error!(
@@ -416,8 +413,7 @@ impl SyncTaskSupervisor {
                     // Carry on.
                 }
                 Some(Err(error)) => {
-                    let termination_report =
-                        TerminationReport::room_list(Some(Error::RoomList(error)));
+                    let termination_report = TerminationReport::room_list(Some(error));
 
                     if !termination_report.has_expired() {
                         error!(
@@ -441,7 +437,7 @@ impl SyncTaskSupervisor {
     }
 
     async fn shutdown(self) {
-        match self.termination_sender.send(TerminationReport::supervisor(None)).await {
+        match self.termination_sender.send(TerminationReport::supervisor()).await {
             Ok(_) => {
                 let _ = self.task.await.inspect_err(|err| {
                     // A `JoinError` indicates that the task was already dead, either because it got
@@ -708,22 +704,30 @@ struct TerminationReport {
 }
 
 impl TerminationReport {
-    /// Create a new [`TerminationReport`] with `origin` sets to
-    /// [`TerminationOrigin::EncryptionSync`].
-    fn encryption_sync(error: Option<Error>) -> Self {
-        Self { origin: TerminationOrigin::EncryptionSync, error }
+    /// Create a new [`TerminationReport`] with `origin` set to
+    /// [`TerminationOrigin::EncryptionSync`] and `error` set to
+    /// [`Error::EncryptionSync`].
+    fn encryption_sync(error: Option<encryption_sync_service::Error>) -> Self {
+        Self { origin: TerminationOrigin::EncryptionSync, error: error.map(Error::EncryptionSync) }
     }
 
-    /// Create a new [`TerminationReport`] with `origin` sets to
-    /// [`TerminationOrigin::RoomList`].
-    fn room_list(error: Option<Error>) -> Self {
-        Self { origin: TerminationOrigin::RoomList, error }
+    /// Create a new [`TerminationReport`] with `origin` set to
+    /// [`TerminationOrigin::RoomList`] and `error` set to [`Error::RoomList`].
+    fn room_list(error: Option<room_list_service::Error>) -> Self {
+        Self { origin: TerminationOrigin::RoomList, error: error.map(Error::RoomList) }
     }
 
-    /// Create a new [`TerminationReport`] with `origin` sets to
-    /// [`TerminationOrigin::Supervisor`].
-    fn supervisor(error: Option<Error>) -> Self {
-        Self { origin: TerminationOrigin::Supervisor, error }
+    /// Create a new [`TerminationReport`] with `origin` set to
+    /// [`TerminationOrigin::Supervisor`] and `error` set to
+    /// [`Error::Supervisor`].
+    fn supervisor_error() -> Self {
+        Self { origin: TerminationOrigin::Supervisor, error: Some(Error::Supervisor) }
+    }
+
+    /// Create a new [`TerminationReport`] with `origin` set to
+    /// [`TerminationOrigin::Supervisor`] and `error` set to `None`.
+    fn supervisor() -> Self {
+        Self { origin: TerminationOrigin::Supervisor, error: None }
     }
 
     /// Check whether the report is about an error.
