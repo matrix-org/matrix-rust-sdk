@@ -23,7 +23,7 @@ use ruma::{
     EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, OwnedUserId, UserId,
     events::AnySyncTimelineEvent, push::Action, serde::Raw,
 };
-use tracing::{debug, instrument, trace, warn};
+use tracing::{debug, error, instrument, trace, warn};
 
 use super::{
     super::{
@@ -590,6 +590,8 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
         settings: &TimelineSettings,
         date_divider_adjuster: &mut DateDividerAdjuster,
     ) -> RemovedItem {
+        let event_clone = event.clone();
+
         let is_highlighted =
             event.push_actions().is_some_and(|actions| actions.iter().any(Action::is_highlight));
 
@@ -733,7 +735,56 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
             }
         }
 
+        // Just in case the message key arrived while we were adding this event to the
+        // timeline, attempt to redecrypt it immediately.
+        self.reattempt_decrypt_if_utd(event_clone, room_data_provider).await;
+
         item_removed
+    }
+
+    /// If the supplied [`TimelineEvent`] is a UTD (unable to decrypt), attempt
+    /// to redecrypt it, and return the decrypted event, or return the
+    /// supplied event if decryption fails.
+    async fn reattempt_decrypt_if_utd(
+        &self,
+        event: TimelineEvent,
+        room_data_provider: &P,
+    ) -> TimelineEvent {
+        error!("AJB reattempt_decrypt_if_utd");
+
+        if let TimelineEventKind::UnableToDecrypt { event: utd, .. } = &event.kind {
+            error!("AJB is utd");
+            // This is a UTD - attempt to decrypt it.
+            let push_ctx = room_data_provider.push_context().await;
+            let push_ctx = push_ctx.as_ref();
+            match room_data_provider.decrypt_event_impl(utd, push_ctx).await {
+                Ok(decrypted_event) => {
+                    match &decrypted_event.kind {
+                        TimelineEventKind::Decrypted(decrypted_room_event) => {
+                            error!("AJB maybe decrypted {:?}", decrypted_room_event.event.json());
+                        }
+                        TimelineEventKind::UnableToDecrypt { .. } => {
+                            error!("AJB still UTD");
+                        }
+                        TimelineEventKind::PlainText { .. } => error!("AJB plain text???"),
+                    };
+
+                    // The decryption process did not error, but may have returned us a UTD if we
+                    // failed to decrypt. Return whatever we got back, hopefully decrypted.
+                    decrypted_event
+                }
+                Err(e) => {
+                    // If, for some reason, we hit an error while trying to decrypt, log it and
+                    // return the original event.
+                    error!("Error while decrypting event: {e}");
+                    event
+                }
+            }
+        } else {
+            error!("AJB not a utd");
+            // This event is not a UTD - just return it.
+            event
+        }
     }
 
     /// Remove one timeline item by its `event_index`.
