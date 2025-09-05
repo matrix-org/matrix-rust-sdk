@@ -160,8 +160,9 @@ impl SyncTaskSupervisor {
                 // reports from one of the sync services, in case both of them have sent a
                 // report, let's ignore all reports we receive from the sync
                 // services.
-                let report =
-                    receiver.recv().await.unwrap_or_else(TerminationReport::supervisor_error);
+                let report = receiver.recv().await.unwrap_or_else(|| {
+                    TerminationReport::supervisor(Some(Error::Supervisor), false)
+                });
 
                 match report.origin {
                     TerminationOrigin::EncryptionSync | TerminationOrigin::RoomList => {}
@@ -259,7 +260,7 @@ impl SyncTaskSupervisor {
                     info!("internal channel has been closed?");
                     // We should still stop the child tasks in the unlikely scenario that our
                     // receiver died.
-                    TerminationReport::supervisor_error()
+                    TerminationReport::supervisor(Some(Error::Supervisor), false)
                 };
 
                 // If one service failed, make sure to request stopping the other one.
@@ -301,14 +302,14 @@ impl SyncTaskSupervisor {
                     error!("when awaiting encryption sync: {err:#}");
                 }
 
-                if report.is_error {
+                if report.is_error() {
                     if offline_mode {
                         state.set(State::Offline);
 
                         let client = room_list_service.client();
 
                         if let Some(report) = Self::offline_check(client, &mut receiver).await {
-                            if report.is_error {
+                            if report.is_error() {
                                 state.set(State::Error);
                             } else {
                                 state.set(State::Idle);
@@ -372,12 +373,10 @@ impl SyncTaskSupervisor {
         sender: Sender<TerminationReport>,
         sync_permit_guard: OwnedMutexGuard<EncryptionSyncPermit>,
     ) {
-        use encryption_sync_service::Error;
-
         let encryption_sync_stream = encryption_sync.sync(sync_permit_guard);
         pin_mut!(encryption_sync_stream);
 
-        let (is_error, has_expired) = loop {
+        let (error, has_expired) = loop {
             match encryption_sync_stream.next().await {
                 Some(Ok(())) => {
                     // Carry on.
@@ -385,7 +384,8 @@ impl SyncTaskSupervisor {
                 Some(Err(err)) => {
                     // If the encryption sync error was an expired session, also expire the
                     // room list sync.
-                    let has_expired = if let Error::SlidingSync(err) = &err {
+                    let has_expired = if let encryption_sync_service::Error::SlidingSync(err) = &err
+                    {
                         Self::check_if_expired(err)
                     } else {
                         false
@@ -395,22 +395,16 @@ impl SyncTaskSupervisor {
                         error!("Error while processing encryption in sync service: {err:#}");
                     }
 
-                    break (true, has_expired);
+                    break (Some(Error::EncryptionSync(err)), has_expired);
                 }
                 None => {
                     // The stream has ended.
-                    break (false, false);
+                    break (None, false);
                 }
             }
         };
 
-        if let Err(err) = sender
-            .send(TerminationReport {
-                is_error,
-                has_expired,
-                origin: TerminationOrigin::EncryptionSync,
-            })
-            .await
+        if let Err(err) = sender.send(TerminationReport::encryption_sync(error, has_expired)).await
         {
             error!("Error while sending termination report: {err:#}");
         }
@@ -420,12 +414,10 @@ impl SyncTaskSupervisor {
         room_list_service: Arc<RoomListService>,
         sender: Sender<TerminationReport>,
     ) {
-        use room_list_service::Error;
-
         let room_list_stream = room_list_service.sync();
         pin_mut!(room_list_stream);
 
-        let (is_error, has_expired) = loop {
+        let (error, has_expired) = loop {
             match room_list_stream.next().await {
                 Some(Ok(())) => {
                     // Carry on.
@@ -433,7 +425,7 @@ impl SyncTaskSupervisor {
                 Some(Err(err)) => {
                     // If the room list error was an expired session, also expire the
                     // encryption sync.
-                    let has_expired = if let Error::SlidingSync(err) = &err {
+                    let has_expired = if let room_list_service::Error::SlidingSync(err) = &err {
                         Self::check_if_expired(err)
                     } else {
                         false
@@ -443,33 +435,22 @@ impl SyncTaskSupervisor {
                         error!("Error while processing room list in sync service: {err:#}");
                     }
 
-                    break (true, has_expired);
+                    break (Some(Error::RoomList(err)), has_expired);
                 }
                 None => {
                     // The stream has ended.
-                    break (false, false);
+                    break (None, false);
                 }
             }
         };
 
-        if let Err(err) = sender
-            .send(TerminationReport { is_error, has_expired, origin: TerminationOrigin::RoomList })
-            .await
-        {
+        if let Err(err) = sender.send(TerminationReport::room_list(error, has_expired)).await {
             error!("Error while sending termination report: {err:#}");
         }
     }
 
     async fn shutdown(self) {
-        match self
-            .termination_sender
-            .send(TerminationReport {
-                is_error: false,
-                has_expired: false,
-                origin: TerminationOrigin::Supervisor,
-            })
-            .await
-        {
+        match self.termination_sender.send(TerminationReport::supervisor(None, false)).await {
             Ok(_) => {
                 let _ = self.task.await.inspect_err(|err| {
                     // A `JoinError` indicates that the task was already dead, either because it got
@@ -498,6 +479,7 @@ struct SyncServiceInner {
     /// The offline mode is described in the [`State::Offline`] enum variant.
     with_offline_mode: bool,
 
+    /// What's the state of this sync service?
     state: SharedObservable<State>,
 
     /// The parent tracing span to use for the tasks within this service.
@@ -727,18 +709,38 @@ enum TerminationOrigin {
 
 #[derive(Debug)]
 struct TerminationReport {
-    is_error: bool,
-    has_expired: bool,
+    /// The origin of the termination.
     origin: TerminationOrigin,
+
+    /// If the termination is due to an error, this is the cause.
+    error: Option<Error>,
+
+    /// Whether a sliding sync session has expired.
+    has_expired: bool,
 }
 
 impl TerminationReport {
-    fn supervisor_error() -> Self {
-        TerminationReport {
-            is_error: true,
-            has_expired: false,
-            origin: TerminationOrigin::Supervisor,
-        }
+    /// Create a new [`TerminationReport`] with `origin` sets to
+    /// [`TerminationOrigin::EncryptionSync`].
+    fn encryption_sync(error: Option<Error>, has_expired: bool) -> Self {
+        Self { origin: TerminationOrigin::EncryptionSync, error, has_expired }
+    }
+
+    /// Create a new [`TerminationReport`] with `origin` sets to
+    /// [`TerminationOrigin::RoomList`].
+    fn room_list(error: Option<Error>, has_expired: bool) -> Self {
+        Self { origin: TerminationOrigin::RoomList, error, has_expired }
+    }
+
+    /// Create a new [`TerminationReport`] with `origin` sets to
+    /// [`TerminationOrigin::Supervisor`].
+    fn supervisor(error: Option<Error>, has_expired: bool) -> Self {
+        Self { origin: TerminationOrigin::Supervisor, error, has_expired }
+    }
+
+    /// Check whether the report is about an error.
+    fn is_error(&self) -> bool {
+        self.error.is_some()
     }
 }
 
@@ -881,5 +883,5 @@ pub enum Error {
 
     /// An error had occurred in the sync task supervisor, likely due to a bug.
     #[error("the supervisor channel has run into an unexpected error")]
-    InternalSupervisorError,
+    Supervisor,
 }
