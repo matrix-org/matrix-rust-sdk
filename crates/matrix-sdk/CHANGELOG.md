@@ -15,6 +15,7 @@ All notable changes to this project will be documented in this file.
   the MSC.
   ([#5590](https://github.com/matrix-org/matrix-rust-sdk/pull/5590))
 - Add a `Client::joined_space_rooms` method that allows retrieving the list of joined spaces.
+  ([#5592](https://github.com/matrix-org/matrix-rust-sdk/pull/5592))
 - `Room::enable_encryption` and `Room::enable_encryption_with_state_event_encryption` will poll
   the encryption state for up to 3 seconds, rather than checking once after a single sync has
   completed.
@@ -56,7 +57,9 @@ All notable changes to this project will be documented in this file.
   ([#5623](https://github.com/matrix-org/matrix-rust-sdk/pull/5623))
 - [**breaking**] `SyncSettings` token is now `SyncToken` enum type which has default behaviour of `SyncToken::ReusePrevious` token. This breaks `Client::sync_once`.
   For old behaviour, set the token to `SyncToken::NoToken` with the usual `SyncSettings::token` setter.
+  ([#5522](https://github.com/matrix-org/matrix-rust-sdk/pull/5522))
 - [**breaking**] Change the upload_encrypted_file and make it clone the client instead of owning it. The lifetime of the `UploadEncryptedFile` request returned by `Client::upload_encrypted_file()` only depends on the request lifetime now.
+  ([#5470](https://github.com/matrix-org/matrix-rust-sdk/pull/5470))
 - [**breaking**] Add an `IsPrefix = False` bound to the `account_data()` and
   `fetch_account_data_static()` methods of `Account`. These methods only worked
   for events where the full event type is statically-known, and this is now
@@ -78,6 +81,7 @@ All notable changes to this project will be documented in this file.
 - [**breaking**] The MSRV has been bumped to Rust 1.88.
   ([#5431](https://github.com/matrix-org/matrix-rust-sdk/pull/5431))
 - [**breaking**] `Room::send_call_notification` and `Room::send_call_notification_if_needed` have been removed, since the event type they send is outdated, and `Client` is not actually supposed to be able to join MatrixRTC sessions (yet). In practice, users of these methods probably already rely on another MatrixRTC implementation to participate in sessions, and such an implementation should be capable of sending notifications itself.
+  ([#5452](https://github.com/matrix-org/matrix-rust-sdk/pull/5452))
 
 ### Bugfix
 
