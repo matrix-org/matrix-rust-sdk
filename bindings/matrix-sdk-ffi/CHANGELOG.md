@@ -35,6 +35,8 @@ All notable changes to this project will be documented in this file.
   This is primarily for Element X to give a dedicated error message in case
   it connects a homeserver with only this method available.
   ([#5222](https://github.com/matrix-org/matrix-rust-sdk/pull/5222))
+- Add new API to decline calls ([MSC4310](https://github.com/matrix-org/matrix-spec-proposals/pull/4310)): `Room::decline_call` and `Room::subscribe_to_call_decline_events`
+  ([#5614](https://github.com/matrix-org/matrix-rust-sdk/pull/5614))
 
 ### Breaking changes:
 
