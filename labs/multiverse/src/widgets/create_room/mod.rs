@@ -1,7 +1,7 @@
 use crossterm::event::KeyEvent;
 use ratatui::prelude::*;
 
-use crate::widgets::popup_input::PopupInput;
+use crate::widgets::popup_input::{PopupInput, PopupInputBuilder};
 
 #[derive(Default)]
 pub struct CreateRoomView {
@@ -10,7 +10,7 @@ pub struct CreateRoomView {
 
 impl CreateRoomView {
     pub fn new() -> Self {
-        Self { input: PopupInput::new("Create Room", "(Enter name for new room)") }
+        Self { input: PopupInputBuilder::new("Create Room", "(Enter name for new room)").build() }
     }
 
     pub fn get_text(&self) -> Option<String> {
