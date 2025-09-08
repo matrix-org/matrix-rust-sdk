@@ -117,13 +117,11 @@ use crate::{
 mod builder;
 pub(crate) mod caches;
 pub(crate) mod futures;
-#[cfg(feature = "experimental-search")]
-pub(crate) mod search;
 pub(crate) mod thread_subscriptions;
 
 pub use self::builder::{ClientBuildError, ClientBuilder, sanitize_server_name};
 #[cfg(feature = "experimental-search")]
-use crate::client::search::SearchIndex;
+use crate::search_index::SearchIndex;
 
 #[cfg(not(target_family = "wasm"))]
 type NotificationHandlerFut = Pin<Box<dyn Future<Output = ()> + Send>>;
@@ -2902,8 +2900,9 @@ impl Client {
         &self.base_client().decryption_settings
     }
 
+    /// Returns the [`SearchIndex`] for this [`Client`].
     #[cfg(feature = "experimental-search")]
-    pub(crate) fn search_index(&self) -> &SearchIndex {
+    pub fn search_index(&self) -> &SearchIndex {
         &self.inner.search_index
     }
 

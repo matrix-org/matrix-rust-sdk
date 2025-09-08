@@ -20,8 +20,8 @@ use futures_util::{StreamExt as _, pin_mut};
 use imbl::Vector;
 use layout::Flex;
 use matrix_sdk::{
-    AuthSession, Client, Room, SearchIndexStoreKind, SqliteCryptoStore, SqliteEventCacheStore,
-    SqliteStateStore, ThreadingSupport,
+    AuthSession, Client, Room, SqliteCryptoStore, SqliteEventCacheStore, SqliteStateStore,
+    ThreadingSupport,
     authentication::matrix::MatrixSession,
     config::StoreConfig,
     deserialized_responses::TimelineEvent,
@@ -30,6 +30,7 @@ use matrix_sdk::{
     ruma::{
         OwnedEventId, OwnedRoomId, api::client::room::create_room::v3::Request as CreateRoomRequest,
     },
+    search_index::SearchIndexStoreKind,
 };
 use matrix_sdk_common::locks::Mutex;
 use matrix_sdk_ui::{

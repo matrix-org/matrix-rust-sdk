@@ -38,16 +38,16 @@ use tokio::sync::{Mutex, OnceCell, broadcast};
 use tracing::{Span, debug, field::debug, instrument};
 
 use super::{Client, ClientInner};
-#[cfg(feature = "experimental-search")]
-use crate::client::search::SearchIndex;
-#[cfg(feature = "experimental-search")]
-use crate::client::search::SearchIndexStoreKind;
 #[cfg(feature = "e2e-encryption")]
 use crate::crypto::{CollectStrategy, TrustRequirement};
 #[cfg(feature = "e2e-encryption")]
 use crate::encryption::EncryptionSettings;
 #[cfg(not(target_family = "wasm"))]
 use crate::http_client::HttpSettings;
+#[cfg(feature = "experimental-search")]
+use crate::search_index::SearchIndex;
+#[cfg(feature = "experimental-search")]
+use crate::search_index::SearchIndexStoreKind;
 use crate::{
     HttpError, IdParseError,
     authentication::{AuthCtx, oauth::OAuthCtx},
