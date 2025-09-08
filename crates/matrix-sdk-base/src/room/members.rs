@@ -471,7 +471,9 @@ impl RoomMemberships {
 pub fn normalize_power_level(power_level: Int, max_power_level: i64) -> Int {
     let mut power_level = i64::from(power_level);
     power_level = (power_level * 100) / max_power_level;
-    power_level.try_into().expect("normalized power level should fit in Int")
+
+    Int::try_from(power_level.clamp(0, 100))
+        .expect("We clamped the normalized power level so they must fit into the Int")
 }
 
 #[cfg(test)]
