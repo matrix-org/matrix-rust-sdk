@@ -6,6 +6,11 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased] - ReleaseDate
 
+### Bug Fixes
+
+- Fix a panic in the `RoomMember::normalized_power_level` method.
+  ([#5635](https://github.com/matrix-org/matrix-rust-sdk/pull/5635))
+
 ## [0.14.0] - 2025-09-04
 
 ### Features
