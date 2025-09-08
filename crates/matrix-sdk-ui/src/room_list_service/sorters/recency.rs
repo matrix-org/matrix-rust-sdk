@@ -92,7 +92,9 @@ fn extract_recency_stamp(left: &Room, right: &Room) -> (Option<u64>, Option<u64>
         // to the recency stamp from the `RoomInfo` for both room.
         (LatestEventValue::None, LatestEventValue::None)
         | (LatestEventValue::None, _)
-        | (_, LatestEventValue::None) => (left.recency_stamp(), right.recency_stamp()),
+        | (_, LatestEventValue::None) => {
+            (left.recency_stamp().map(Into::into), right.recency_stamp().map(Into::into))
+        }
 
         // Both rooms have a non-`None` latest event. We can use their timestamps as a recency
         // stamp.
@@ -110,6 +112,7 @@ fn extract_recency_stamp(left: &Room, right: &Room) -> (Option<u64>, Option<u64>
 #[cfg(test)]
 mod tests {
     use matrix_sdk::{
+        RoomRecencyStamp,
         latest_events::{LocalLatestEventValue, RemoteLatestEventValue},
         store::SerializableEventContent,
         test_utils::logged_in_client_with_server,
@@ -179,7 +182,7 @@ mod tests {
         room.set_room_info(room_info, RoomInfoNotableUpdateReasons::LATEST_EVENT);
     }
 
-    fn set_recency_stamp(room: &mut Room, recency_stamp: u64) {
+    fn set_recency_stamp(room: &mut Room, recency_stamp: RoomRecencyStamp) {
         let mut room_info = room.clone_info();
         room_info.update_recency_stamp(recency_stamp);
         room.set_room_info(room_info, RoomInfoNotableUpdateReasons::RECENCY_STAMP);
@@ -191,8 +194,8 @@ mod tests {
         let [mut room_a, mut room_b] =
             new_rooms([room_id!("!a:b.c"), room_id!("!d:e.f")], &client, &server).await;
 
-        set_recency_stamp(&mut room_a, 1);
-        set_recency_stamp(&mut room_b, 2);
+        set_recency_stamp(&mut room_a, 1.into());
+        set_recency_stamp(&mut room_b, 2.into());
 
         // Both rooms have a `LatestEventValue::None`.
         {
@@ -225,8 +228,8 @@ mod tests {
         let [mut room_a, mut room_b] =
             new_rooms([room_id!("!a:b.c"), room_id!("!d:e.f")], &client, &server).await;
 
-        set_recency_stamp(&mut room_a, 1);
-        set_recency_stamp(&mut room_b, 2);
+        set_recency_stamp(&mut room_a, 1.into());
+        set_recency_stamp(&mut room_b, 2.into());
 
         // `room_a` and `room_b` has either `Remote` or `Local*`.
         {

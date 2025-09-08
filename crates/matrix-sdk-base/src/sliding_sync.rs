@@ -1794,7 +1794,7 @@ mod tests {
 
         // Then the room in the client has the recency stamp
         let client_room = client.get_room(room_id).expect("No room found");
-        assert_eq!(client_room.recency_stamp().expect("No recency stamp"), 42);
+        assert_eq!(client_room.recency_stamp().expect("No recency stamp"), 42.into());
     }
 
     #[async_test]
@@ -1816,7 +1816,7 @@ mod tests {
 
             // Then the room in the client has the recency stamp
             let client_room = client.get_room(room_id).expect("No room found");
-            assert_eq!(client_room.recency_stamp().expect("No recency stamp"), 42);
+            assert_eq!(client_room.recency_stamp().expect("No recency stamp"), 42.into());
         }
 
         {
@@ -1832,7 +1832,7 @@ mod tests {
 
             // Then the room in the client has the previous recency stamp
             let client_room = client.get_room(room_id).expect("No room found");
-            assert_eq!(client_room.recency_stamp().expect("No recency stamp"), 42);
+            assert_eq!(client_room.recency_stamp().expect("No recency stamp"), 42.into());
         }
 
         {
@@ -1849,7 +1849,7 @@ mod tests {
 
             // Then the room in the client has the recency stamp
             let client_room = client.get_room(room_id).expect("No room found");
-            assert_eq!(client_room.recency_stamp().expect("No recency stamp"), 153);
+            assert_eq!(client_room.recency_stamp().expect("No recency stamp"), 153.into());
         }
     }
 

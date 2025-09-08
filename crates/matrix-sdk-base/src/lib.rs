@@ -57,8 +57,8 @@ pub use once_cell;
 pub use room::{
     EncryptionState, InviteAcceptanceDetails, PredecessorRoom, Room,
     RoomCreateWithCreatorEventContent, RoomDisplayName, RoomHero, RoomInfo, RoomInfoNotableUpdate,
-    RoomInfoNotableUpdateReasons, RoomMember, RoomMembersUpdate, RoomMemberships, RoomState,
-    RoomStateFilter, SuccessorRoom, apply_redaction,
+    RoomInfoNotableUpdateReasons, RoomMember, RoomMembersUpdate, RoomMemberships, RoomRecencyStamp,
+    RoomState, RoomStateFilter, SuccessorRoom, apply_redaction,
 };
 pub use store::{
     ComposerDraft, ComposerDraftType, QueueWedgeError, StateChanges, StateStore, StateStoreDataKey,

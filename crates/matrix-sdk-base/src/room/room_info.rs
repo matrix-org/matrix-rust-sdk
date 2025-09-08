@@ -495,7 +495,7 @@ pub struct RoomInfo {
     /// stamp of the room. Thus, using this `recency_stamp` value is
     /// more accurate than relying on the latest event.
     #[serde(default)]
-    pub(crate) recency_stamp: Option<u64>,
+    pub(crate) recency_stamp: Option<RoomRecencyStamp>,
 
     /// A timestamp remembering when we observed the user accepting an invite on
     /// this current device.
@@ -1051,7 +1051,7 @@ impl RoomInfo {
     /// Updates the recency stamp of this room.
     ///
     /// Please read `Self::recency_stamp` to learn more.
-    pub fn update_recency_stamp(&mut self, stamp: u64) {
+    pub fn update_recency_stamp(&mut self, stamp: RoomRecencyStamp) {
         self.recency_stamp = Some(stamp);
     }
 
@@ -1133,6 +1133,24 @@ impl RoomInfo {
         }
 
         migrated
+    }
+}
+
+/// Type to represent a `RoomInfo::recency_stamp`.
+#[repr(transparent)]
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(transparent)]
+pub struct RoomRecencyStamp(u64);
+
+impl From<u64> for RoomRecencyStamp {
+    fn from(value: u64) -> Self {
+        Self(value)
+    }
+}
+
+impl From<RoomRecencyStamp> for u64 {
+    fn from(value: RoomRecencyStamp) -> Self {
+        value.0
     }
 }
 
@@ -1313,7 +1331,7 @@ mod tests {
             warned_about_unknown_room_version_rules: Arc::new(false.into()),
             cached_display_name: None,
             cached_user_defined_notification_mode: None,
-            recency_stamp: Some(42),
+            recency_stamp: Some(42.into()),
             invite_acceptance_details: None,
         };
 
@@ -1562,7 +1580,7 @@ mod tests {
             info.cached_user_defined_notification_mode.as_ref(),
             Some(&RoomNotificationMode::Mute)
         );
-        assert_eq!(info.recency_stamp.as_ref(), Some(&42));
+        assert_eq!(info.recency_stamp.as_ref(), Some(&42.into()));
     }
 
     // Ensure we can still deserialize RoomInfos before we added things to its
