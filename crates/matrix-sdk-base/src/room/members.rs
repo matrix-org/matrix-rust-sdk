@@ -20,7 +20,7 @@ use std::{
 
 use bitflags::bitflags;
 use ruma::{
-    MxcUri, OwnedUserId, UserId,
+    Int, MxcUri, OwnedUserId, UserId,
     events::{
         MessageLikeEventType, StateEventType,
         ignored_user_list::IgnoredUserListEventContent,
@@ -277,15 +277,13 @@ impl RoomMember {
             return UserPowerLevel::Infinite;
         };
 
-        let mut power_level = i64::from(power_level);
+        let normalized_power_level = if self.max_power_level > 0 {
+            normalize_power_level(power_level, self.max_power_level)
+        } else {
+            power_level
+        };
 
-        if self.max_power_level > 0 {
-            power_level = (power_level * 100) / self.max_power_level;
-        }
-
-        UserPowerLevel::Int(
-            power_level.try_into().expect("normalized power level should fit in Int"),
-        )
+        UserPowerLevel::Int(normalized_power_level)
     }
 
     /// Get the power level of this member.
@@ -467,4 +465,11 @@ impl RoomMemberships {
 
         memberships
     }
+}
+
+/// Scale the given `power_level` to a range between 0-100.
+pub fn normalize_power_level(power_level: Int, max_power_level: i64) -> Int {
+    let mut power_level = i64::from(power_level);
+    power_level = (power_level * 100) / max_power_level;
+    power_level.try_into().expect("normalized power level should fit in Int")
 }
