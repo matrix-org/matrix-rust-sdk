@@ -107,6 +107,7 @@ futures-executor.workspace = true
 http.workspace = true
 matrix-sdk-test.workspace = true
 matrix-sdk-test-utils.workspace = true
+proptest.workspace = true
 similar-asserts.workspace = true
 stream_assert.workspace = true
 
