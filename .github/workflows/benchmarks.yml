@@ -34,7 +34,7 @@ jobs:
         run: cargo codspeed build -p benchmarks ${{ matrix.benchmark }} --features codspeed
 
       - name: Run the benchmarks
-        uses: CodSpeedHQ/action@76578c2a7ddd928664caa737f0e962e3085d4e7c
+        uses: CodSpeedHQ/action@6eeb021fd0f305388292348b775d96d95253adf4
         with:
           run: cargo codspeed run
           token: ${{ secrets.CODSPEED_TOKEN }}
