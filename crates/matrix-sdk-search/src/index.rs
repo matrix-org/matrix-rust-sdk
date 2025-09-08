@@ -56,8 +56,8 @@ pub struct RoomIndex {
     schema: RoomMessageSchema,
     query_parser: QueryParser,
     room_id: OwnedRoomId,
-    uncommited_adds: HashSet<OwnedEventId>,
-    uncommited_removes: HashSet<OwnedEventId>,
+    uncommitted_adds: HashSet<OwnedEventId>,
+    uncommitted_removes: HashSet<OwnedEventId>,
 }
 
 impl fmt::Debug for RoomIndex {
@@ -81,8 +81,8 @@ impl RoomIndex {
             schema,
             query_parser,
             room_id: room_id.to_owned(),
-            uncommited_adds: HashSet::new(),
-            uncommited_removes: HashSet::new(),
+            uncommitted_adds: HashSet::new(),
+            uncommitted_removes: HashSet::new(),
         })
     }
 
@@ -153,8 +153,8 @@ impl RoomIndex {
     /// Use [`RoomIndex::commit_and_reload`] for this purpose.
     fn commit(&mut self, writer: &mut SearchIndexWriter) -> Result<OpStamp, IndexError> {
         let last_commit_opstamp = writer.commit()?; // TODO: This is blocking. Handle it.
-        self.uncommited_adds.clear();
-        self.uncommited_removes.clear();
+        self.uncommitted_adds.clear();
+        self.uncommitted_removes.clear();
         Ok(last_commit_opstamp)
     }
 
@@ -170,8 +170,8 @@ impl RoomIndex {
     /// reload of searchers.
     fn commit_and_reload(&mut self, writer: &mut SearchIndexWriter) -> Result<OpStamp, IndexError> {
         debug!(
-            "RoomIndex: committing and reloading: uncommited: {:?}, {:?}",
-            self.uncommited_adds, self.uncommited_removes
+            "RoomIndex: committing and reloading: uncommitted: {:?}, {:?}",
+            self.uncommitted_adds, self.uncommitted_removes
         );
         let last_commit_opstamp = self.commit(writer)?;
         self.get_reader()?.reload()?;
@@ -235,8 +235,8 @@ impl RoomIndex {
         if !self.contains(&event.event_id) {
             writer.add(self.schema.make_doc(event.clone())?)?;
         }
-        self.uncommited_removes.remove(&event.event_id);
-        self.uncommited_adds.insert(event.event_id);
+        self.uncommitted_removes.remove(&event.event_id);
+        self.uncommitted_adds.insert(event.event_id);
         Ok(())
     }
 
@@ -250,8 +250,8 @@ impl RoomIndex {
         writer.remove(&event_id);
 
         for event in events.into_iter() {
-            self.uncommited_adds.remove(&event);
-            self.uncommited_removes.insert(event);
+            self.uncommitted_adds.remove(&event);
+            self.uncommitted_removes.insert(event);
         }
 
         Ok(())
@@ -367,8 +367,8 @@ impl RoomIndex {
         );
         match search_result {
             Ok(results) => {
-                !self.uncommited_removes.contains(event_id)
-                    && (!results.is_empty() || self.uncommited_adds.contains(event_id))
+                !self.uncommitted_removes.contains(event_id)
+                    && (!results.is_empty() || self.uncommitted_adds.contains(event_id))
             }
             Err(err) => {
                 warn!("Failed to check if event has been indexed, assuming it has: {err}");

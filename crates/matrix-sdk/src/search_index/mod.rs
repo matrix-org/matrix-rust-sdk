@@ -68,7 +68,7 @@ impl SearchIndex {
         Self { room_indexes, search_index_store_kind }
     }
 
-    /// Aquire [`SearchIndexGuard`] for this [`SearchIndex`].
+    /// Acquire [`SearchIndexGuard`] for this [`SearchIndex`].
     pub async fn lock(&self) -> SearchIndexGuard<'_> {
         SearchIndexGuard {
             index_map: self.room_indexes.lock().await,
@@ -77,7 +77,7 @@ impl SearchIndex {
     }
 }
 
-/// Object that represents an aquired [`SearchIndex`].
+/// Object that represents an acquired [`SearchIndex`].
 #[derive(Debug)]
 pub struct SearchIndexGuard<'a> {
     /// Guard around the [`RoomIndex`] map
