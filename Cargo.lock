@@ -3202,6 +3202,7 @@ dependencies = [
  "matrix-sdk-test",
  "matrix-sdk-test-utils",
  "once_cell",
+ "proptest",
  "regex",
  "ruma",
  "serde",
