@@ -473,3 +473,40 @@ pub fn normalize_power_level(power_level: Int, max_power_level: i64) -> Int {
     power_level = (power_level * 100) / max_power_level;
     power_level.try_into().expect("normalized power level should fit in Int")
 }
+
+#[cfg(test)]
+mod tests {
+    use proptest::prelude::*;
+
+    use super::*;
+
+    prop_compose! {
+        fn arb_int()(id in any::<i64>()) -> Int {
+            id.try_into().unwrap_or_default()
+        }
+    }
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(10_000))]
+        #[test]
+        fn test_power_level_normalization_with_min_max_level(power_level in arb_int()) {
+            let normalized = normalize_power_level(power_level, 1);
+            let normalized = i64::from(normalized);
+
+            assert!(normalized >= 0);
+            assert!(normalized <= 100);
+        }
+    }
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(10_000))]
+        #[test]
+        fn test_power_level_normalization(power_level in arb_int(), max_level in 1i64..) {
+            let normalized = normalize_power_level(power_level, max_level);
+            let normalized = i64::from(normalized);
+
+            assert!(normalized >= 0);
+            assert!(normalized <= 100);
+        }
+    }
+}
