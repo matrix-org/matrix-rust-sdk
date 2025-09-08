@@ -509,4 +509,19 @@ mod tests {
             assert!(normalized <= 100);
         }
     }
+
+    #[test]
+    fn test_power_level_normalization_limits() {
+        let level = Int::MIN;
+        let normalized = normalize_power_level(level, 1);
+        let normalized = i64::from(normalized);
+        assert!(normalized >= 0);
+        assert!(normalized <= 100);
+
+        let level = Int::MAX;
+        let normalized = normalize_power_level(level, 1);
+        let normalized = i64::from(normalized);
+        assert!(normalized >= 0);
+        assert!(normalized <= 100);
+    }
 }
