@@ -6,6 +6,12 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased] - ReleaseDate
 
+### Breaking changes:
+
+- The `normalized_power_level` field has been removed from the RoomMember
+  struct.
+  ([#5635](https://github.com/matrix-org/matrix-rust-sdk/pull/5635))
+
 ## [0.14.0] - 2025-09-04
 
 ### Features:
