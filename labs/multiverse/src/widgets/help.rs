@@ -48,6 +48,7 @@ impl Widget for &mut HelpView {
                 Cell::from("Page-Up"),
                 Cell::from("Backpaginate the currently selected room"),
             ]),
+            Row::new(vec![Cell::from("Ctrl-e"), Cell::from("Create a new encrypted room")]),
             Row::new(vec![
                 Cell::from("Ctrl-l"),
                 Cell::from("Like the last message in the selected room"),

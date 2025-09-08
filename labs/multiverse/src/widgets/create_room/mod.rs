@@ -3,14 +3,23 @@ use ratatui::prelude::*;
 
 use crate::widgets::popup_input::PopupInput;
 
+pub enum RoomEncryption {
+    Yes,
+    No,
+}
+
 #[derive(Default)]
 pub struct CreateRoomView {
     input: PopupInput,
 }
 
 impl CreateRoomView {
-    pub fn new() -> Self {
-        Self { input: PopupInput::new("Create Room", "(Enter name for new room)") }
+    pub fn new(encrypted: RoomEncryption) -> Self {
+        let title = match encrypted {
+            RoomEncryption::Yes => "Create Encrypted Room",
+            RoomEncryption::No => "Create Room",
+        };
+        Self { input: PopupInput::new(title, "(Enter name for new room)") }
     }
 
     pub fn get_text(&self) -> Option<String> {
