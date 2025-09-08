@@ -138,6 +138,25 @@ async fn test_custom_filter() {
 }
 
 #[async_test]
+async fn test_custom_filter_for_custom_msglike_event() {
+    // Filter out all state events.
+    let timeline = TestTimelineBuilder::new()
+        .settings(TimelineSettings {
+            event_filter: Arc::new(|ev, _| matches!(ev, AnySyncTimelineEvent::MessageLike(_))),
+            ..Default::default()
+        })
+        .build();
+    let mut stream = timeline.subscribe().await;
+
+    let f = &timeline.factory;
+    timeline.handle_live_event(f.custom_message_like_event().sender(&ALICE)).await;
+    let _item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
+    let _date_divider = assert_next_matches!(stream, VectorDiff::PushFront { value } => value);
+
+    assert_eq!(timeline.controller.items().await.len(), 2);
+}
+
+#[async_test]
 async fn test_hide_failed_to_parse() {
     let timeline = TestTimelineBuilder::new()
         .settings(TimelineSettings { add_failed_to_parse: false, ..Default::default() })

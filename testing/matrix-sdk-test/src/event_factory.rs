@@ -37,6 +37,7 @@ use ruma::{
         call::{SessionDescription, invite::CallInviteEventContent},
         direct::{DirectEventContent, OwnedDirectUserIdentifier},
         ignored_user_list::IgnoredUserListEventContent,
+        macros::EventContent,
         member_hints::MemberHintsEventContent,
         poll::{
             unstable_end::UnstablePollEndEventContent,
@@ -1076,6 +1077,11 @@ impl EventFactory {
         event
     }
 
+    /// Create a new `rs.matrix-sdk.custom.test` custom event
+    pub fn custom_message_like_event(&self) -> EventBuilder<CustomMessageLikeEventContent> {
+        self.event(CustomMessageLikeEventContent::new("whatever_value"))
+    }
+
     /// Set the next server timestamp.
     ///
     /// Timestamps will continue to increase by 1 (millisecond) from that value.
@@ -1295,5 +1301,17 @@ impl PreviousMembership {
 impl From<MembershipState> for PreviousMembership {
     fn from(state: MembershipState) -> Self {
         Self::new(state)
+    }
+}
+
+#[derive(Clone, Debug, Serialize, EventContent)]
+#[ruma_event(type = "rs.matrix-sdk.custom.test", kind = MessageLike)]
+pub struct CustomMessageLikeEventContent {
+    whatever_field: String,
+}
+
+impl CustomMessageLikeEventContent {
+    pub fn new(whatever_field: impl Into<String>) -> Self {
+        Self { whatever_field: whatever_field.into() }
     }
 }

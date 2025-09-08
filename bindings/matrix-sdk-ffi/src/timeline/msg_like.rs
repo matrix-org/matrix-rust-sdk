@@ -23,6 +23,7 @@ use super::{
 };
 use crate::{
     error::ClientError,
+    event::MessageLikeEventType,
     ruma::{ImageInfo, MediaSource, MediaSourceExt, Mentions, MessageType, PollKind},
     timeline::content::ReactionSenderData,
     utils::Timestamp,
@@ -50,6 +51,9 @@ pub enum MsgLikeKind {
 
     /// An `m.room.encrypted` event that could not be decrypted.
     UnableToDecrypt { msg: EncryptedMessage },
+
+    /// A custom message like event.
+    Other { event_type: MessageLikeEventType },
 }
 
 /// A special kind of [`super::TimelineItemContent`] that groups together
@@ -177,6 +181,18 @@ impl TryFrom<matrix_sdk_ui::timeline::MsgLikeContent> for MsgLikeContent {
             },
             Kind::UnableToDecrypt(msg) => Self {
                 kind: MsgLikeKind::UnableToDecrypt { msg: EncryptedMessage::new(&msg) },
+                reactions,
+                in_reply_to,
+                thread_root,
+                thread_summary,
+            },
+            Kind::Other(other) => Self {
+                kind: MsgLikeKind::Other {
+                    // This should always fail since we cannot construct a custom MessageLikeEventType,
+                    // because the enum must be exhaustive.
+                    event_type: MessageLikeEventType::try_from(other.event_type().clone())
+                        .map_err(|e| (e, other.event_type().to_string()))?,
+                },
                 reactions,
                 in_reply_to,
                 thread_root,
