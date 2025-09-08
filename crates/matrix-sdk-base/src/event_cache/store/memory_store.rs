@@ -220,6 +220,15 @@ impl EventCacheStore for MemoryStore {
         Ok(related_events)
     }
 
+    async fn get_room_events(&self, room_id: &RoomId) -> Result<Vec<Event>, Self::Error> {
+        let inner = self.inner.read().unwrap();
+
+        let event: Vec<_> =
+            inner.events.items(room_id).map(|(event, _pos)| event.clone()).collect();
+
+        Ok(event)
+    }
+
     async fn save_event(&self, room_id: &RoomId, event: Event) -> Result<(), Self::Error> {
         if event.event_id().is_none() {
             error!(%room_id, "Trying to save an event with no ID");

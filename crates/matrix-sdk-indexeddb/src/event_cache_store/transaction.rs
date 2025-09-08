@@ -32,7 +32,7 @@ use crate::event_cache_store::{
         types::{
             IndexedChunkIdKey, IndexedEventIdKey, IndexedEventPositionKey, IndexedEventRelationKey,
             IndexedEventRoomKey, IndexedGapIdKey, IndexedKeyRange, IndexedLeaseIdKey,
-            IndexedNextChunkIdKey,
+            IndexedNextChunkIdKey, IndexedRoomId,
         },
         IndexeddbEventCacheStoreSerializer,
     },
@@ -675,6 +675,15 @@ impl<'a> IndexeddbEventCacheStoreTransaction<'a> {
     ) -> Result<Option<Event>, IndexeddbEventCacheStoreTransactionError> {
         let key = self.serializer.encode_key((room_id, event_id));
         self.get_item_by_key::<Event, IndexedEventRoomKey>(key).await
+    }
+
+    /// Query IndexedDB for events that are in the given
+    /// room.
+    pub async fn get_room_events(
+        &self,
+        room_id: &RoomId,
+    ) -> Result<Vec<Event>, IndexeddbEventCacheStoreTransactionError> {
+        self.get_items_in_room::<Event, IndexedEventRoomKey>(room_id).await
     }
 
     /// Query IndexedDB for events in the given position range matching the

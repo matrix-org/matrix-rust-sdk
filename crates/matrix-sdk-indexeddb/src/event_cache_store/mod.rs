@@ -469,6 +469,21 @@ impl EventCacheStore for IndexeddbEventCacheStore {
         Ok(related_events)
     }
 
+    #[instrument(skip(self))]
+    async fn get_room_events(
+        &self,
+        room_id: &RoomId,
+    ) -> Result<Vec<Event>, IndexeddbEventCacheStoreError> {
+        let _timer = timer!("method");
+
+        let transaction = self.transaction(&[keys::EVENTS], IdbTransactionMode::Readonly)?;
+        transaction
+            .get_room_events(room_id)
+            .await
+            .map(|vec| vec.into_iter().map(Into::into).collect())
+            .map_err(Into::into)
+    }
+
     #[instrument(skip(self, event))]
     async fn save_event(
         &self,

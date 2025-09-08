@@ -1282,6 +1282,32 @@ impl EventCacheStore for SqliteEventCacheStore {
             .await
     }
 
+    #[instrument(skip(self))]
+    async fn get_room_events(&self, room_id: &RoomId) -> Result<Vec<Event>, Self::Error> {
+        let _timer = timer!("method");
+
+        let this = self.clone();
+
+        let hashed_room_id = self.encode_key(keys::LINKED_CHUNKS, room_id);
+
+        self.read()
+            .await?
+            .with_transaction(move |txn| -> Result<_> {
+                let mut statement = txn.prepare("SELECT content FROM events WHERE room_id = ?")?;
+                let maybe_events =
+                    statement.query_map((hashed_room_id,), |row| row.get::<_, Vec<u8>>(0))?;
+
+                let mut events = Vec::new();
+                for ev in maybe_events {
+                    let event = serde_json::from_slice(&this.decode_value(&ev?)?)?;
+                    events.push(event);
+                }
+
+                Ok(events)
+            })
+            .await
+    }
+
     #[instrument(skip(self, event))]
     async fn save_event(&self, room_id: &RoomId, event: Event) -> Result<(), Self::Error> {
         let _timer = timer!("method");
