@@ -141,6 +141,9 @@ pub trait EventCacheStoreIntegrationTests {
     /// Test that finding event relations works as expected.
     async fn test_find_event_relations(&self);
 
+    /// Test that getting all events in a room works as expected.
+    async fn test_get_room_events(&self);
+
     /// Test that saving an event works as expected.
     async fn test_save_event(&self);
 
@@ -919,6 +922,61 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
         );
     }
 
+    async fn test_get_room_events(&self) {
+        let room_id = room_id!("!r0:matrix.org");
+        let another_room_id = room_id!("!r1:matrix.org");
+        let linked_chunk_id = LinkedChunkId::Room(room_id);
+        let another_linked_chunk_id = LinkedChunkId::Room(another_room_id);
+        let event = |msg: &str| make_test_event(room_id, msg);
+
+        let event_comte = event("comté");
+        let event_gruyere = event("gruyère");
+        let event_stilton = event("stilton");
+
+        // Add one event in one room.
+        self.handle_linked_chunk_updates(
+            linked_chunk_id,
+            vec![
+                Update::NewItemsChunk { previous: None, new: CId::new(0), next: None },
+                Update::PushItems {
+                    at: Position::new(CId::new(0), 0),
+                    items: vec![event_comte.clone(), event_gruyere.clone()],
+                },
+            ],
+        )
+        .await
+        .unwrap();
+
+        // Add an event in a different room.
+        self.handle_linked_chunk_updates(
+            another_linked_chunk_id,
+            vec![
+                Update::NewItemsChunk { previous: None, new: CId::new(0), next: None },
+                Update::PushItems {
+                    at: Position::new(CId::new(0), 0),
+                    items: vec![event_stilton.clone()],
+                },
+            ],
+        )
+        .await
+        .unwrap();
+
+        // Now let's find the events.
+        let events = self.get_room_events(room_id).await.expect("failed to query for room events");
+
+        assert_eq!(events.len(), 2);
+
+        let got_ids: Vec<_> = events.into_iter().map(|ev| ev.event_id()).collect();
+        let expected_ids = vec![event_comte.event_id(), event_gruyere.event_id()];
+
+        for expected in expected_ids {
+            assert!(
+                got_ids.contains(&expected),
+                "Expected event {expected:?} not in got events: {got_ids:?}."
+            );
+        }
+    }
+
     async fn test_save_event(&self) {
         let room_id = room_id!("!r0:matrix.org");
         let another_room_id = room_id!("!r1:matrix.org");
@@ -1197,6 +1255,13 @@ macro_rules! event_cache_store_integration_tests {
                 let event_cache_store =
                     get_event_cache_store().await.unwrap().into_event_cache_store();
                 event_cache_store.test_find_event_relations().await;
+            }
+
+            #[async_test]
+            async fn test_get_room_events() {
+                let event_cache_store =
+                    get_event_cache_store().await.unwrap().into_event_cache_store();
+                event_cache_store.test_get_room_events().await;
             }
 
             #[async_test]

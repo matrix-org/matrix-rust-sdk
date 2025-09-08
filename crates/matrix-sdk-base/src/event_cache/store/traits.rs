@@ -154,6 +154,12 @@ pub trait EventCacheStore: AsyncTraitDeps {
         filter: Option<&[RelationType]>,
     ) -> Result<Vec<(Event, Option<Position>)>, Self::Error>;
 
+    /// Get all events in this room.
+    ///
+    /// This method must return events saved either in any linked chunks, *or*
+    /// events saved "out-of-band" with the [`Self::save_event`] method.
+    async fn get_room_events(&self, room_id: &RoomId) -> Result<Vec<Event>, Self::Error>;
+
     /// Save an event, that might or might not be part of an existing linked
     /// chunk.
     ///
@@ -256,6 +262,10 @@ impl<T: EventCacheStore> EventCacheStore for EraseEventCacheStoreError<T> {
         filter: Option<&[RelationType]>,
     ) -> Result<Vec<(Event, Option<Position>)>, Self::Error> {
         self.0.find_event_relations(room_id, event_id, filter).await.map_err(Into::into)
+    }
+
+    async fn get_room_events(&self, room_id: &RoomId) -> Result<Vec<Event>, Self::Error> {
+        self.0.get_room_events(room_id).await.map_err(Into::into)
     }
 
     async fn save_event(&self, room_id: &RoomId, event: Event) -> Result<(), Self::Error> {
