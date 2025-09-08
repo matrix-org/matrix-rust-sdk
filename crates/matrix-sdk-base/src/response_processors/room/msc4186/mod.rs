@@ -399,7 +399,7 @@ fn properties(
     }
 
     if let Some(recency_stamp) = &room_response.bump_stamp {
-        let recency_stamp: u64 = (*recency_stamp).into();
+        let recency_stamp = u64::from(*recency_stamp).into();
 
         if room_info.recency_stamp.as_ref() != Some(&recency_stamp) {
             room_info.update_recency_stamp(recency_stamp);
