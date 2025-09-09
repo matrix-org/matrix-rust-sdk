@@ -1745,6 +1745,36 @@ impl Client {
             }
         }))))
     }
+
+    #[cfg(feature = "element-recent-emojis")]
+    /// Adds a recently used emoji to the list and uploads the updated
+    /// `io.element.recent_emoji` content to the global account data.
+    pub async fn add_recent_emoji(&self, emoji: String) -> Result<(), ClientError> {
+        Ok(self.inner.add_recent_emoji(&emoji).await?)
+    }
+
+    #[cfg(feature = "element-recent-emojis")]
+    /// Gets the list of recently used emojis from the `io.element.recent_emoji`
+    /// global account data.
+    pub async fn get_recent_emojis(&self) -> Result<Vec<RecentEmoji>, ClientError> {
+        Ok(self
+            .inner
+            .get_recent_emojis()
+            .await?
+            .into_iter()
+            .map(|(emoji, count)| RecentEmoji { emoji, count })
+            .collect::<Vec<RecentEmoji>>())
+    }
+}
+
+#[cfg(feature = "element-recent-emojis")]
+#[derive(Debug, uniffi::Record)]
+/// Represents an emoji recently used for reactions.
+pub struct RecentEmoji {
+    /// The actual emoji text representation.
+    pub emoji: String,
+    /// The number of times this emoji has been used for reactions.
+    pub count: u64,
 }
 
 #[matrix_sdk_ffi_macros::export(callback_interface)]
