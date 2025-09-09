@@ -6,6 +6,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased] - ReleaseDate
 
+## [0.14.1] - 2025-09-10
+
 ### Bug Fixes
 
 - Fix a panic in the `RoomMember::normalized_power_level` method.

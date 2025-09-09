@@ -3179,7 +3179,7 @@ dependencies = [
 
 [[package]]
 name = "matrix-sdk-base"
-version = "0.14.0"
+version = "0.14.1"
 dependencies = [
  "anyhow",
  "as_variant",
