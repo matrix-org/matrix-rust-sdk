@@ -18,32 +18,21 @@ use super::{super::Room, Filter};
 
 type IsMarkedUnread = bool;
 
-struct UnreadRoomMatcher<F>
+fn matches<F>(read_receipts_and_unread: F, room: &Room) -> bool
 where
     F: Fn(&Room) -> (RoomReadReceipts, IsMarkedUnread),
 {
-    read_receipts_and_unread: F,
-}
+    let (read_receipts, is_marked_unread) = read_receipts_and_unread(room);
 
-impl<F> UnreadRoomMatcher<F>
-where
-    F: Fn(&Room) -> (RoomReadReceipts, IsMarkedUnread),
-{
-    fn matches(&self, room: &Room) -> bool {
-        let (read_receipts, is_marked_unread) = (self.read_receipts_and_unread)(room);
-
-        read_receipts.num_notifications > 0 || is_marked_unread
-    }
+    read_receipts.num_notifications > 0 || is_marked_unread
 }
 
 /// Create a new filter that will filter out rooms that have no unread
 /// notifications (different from unread messages), or is not marked as unread.
 pub fn new_filter() -> impl Filter {
-    let matcher = UnreadRoomMatcher {
-        read_receipts_and_unread: move |room| (room.read_receipts(), room.is_marked_unread()),
-    };
+    let read_receipts_and_unread = |room: &Room| (room.read_receipts(), room.is_marked_unread());
 
-    move |room_list_entry| -> bool { matcher.matches(room_list_entry) }
+    move |room_list_entry| -> bool { matches(read_receipts_and_unread, room_list_entry) }
 }
 
 #[cfg(test)]
@@ -63,17 +52,15 @@ mod tests {
         let [room] = new_rooms([room_id!("!a:b.c")], &client, &server).await;
 
         for is_marked_as_unread in [true, false] {
-            let matcher = UnreadRoomMatcher {
-                read_receipts_and_unread: |_| {
-                    let mut read_receipts = RoomReadReceipts::default();
-                    read_receipts.num_unread = 42;
-                    read_receipts.num_notifications = 42;
+            let read_receipts_and_unread = |_: &Room| {
+                let mut read_receipts = RoomReadReceipts::default();
+                read_receipts.num_unread = 42;
+                read_receipts.num_notifications = 42;
 
-                    (read_receipts, is_marked_as_unread)
-                },
+                (read_receipts, is_marked_as_unread)
             };
 
-            assert!(matcher.matches(&room));
+            assert!(matches(read_receipts_and_unread, &room));
         }
     }
 
@@ -82,17 +69,15 @@ mod tests {
         let (client, server) = logged_in_client_with_server().await;
         let [room] = new_rooms([room_id!("!a:b.c")], &client, &server).await;
 
-        let matcher = UnreadRoomMatcher {
-            read_receipts_and_unread: |_| {
-                let mut read_receipts = RoomReadReceipts::default();
-                read_receipts.num_unread = 42;
-                read_receipts.num_notifications = 0;
+        let read_receipts_and_unread = |_: &Room| {
+            let mut read_receipts = RoomReadReceipts::default();
+            read_receipts.num_unread = 42;
+            read_receipts.num_notifications = 0;
 
-                (read_receipts, false)
-            },
+            (read_receipts, false)
         };
 
-        assert!(matcher.matches(&room).not());
+        assert!(matches(read_receipts_and_unread, &room).not());
     }
 
     #[async_test]
@@ -100,17 +85,15 @@ mod tests {
         let (client, server) = logged_in_client_with_server().await;
         let [room] = new_rooms([room_id!("!a:b.c")], &client, &server).await;
 
-        let matcher = UnreadRoomMatcher {
-            read_receipts_and_unread: |_| {
-                let mut read_receipts = RoomReadReceipts::default();
-                read_receipts.num_unread = 42;
-                read_receipts.num_notifications = 0;
+        let read_receipts_and_unread = |_: &Room| {
+            let mut read_receipts = RoomReadReceipts::default();
+            read_receipts.num_unread = 42;
+            read_receipts.num_notifications = 0;
 
-                (read_receipts, true)
-            },
+            (read_receipts, true)
         };
 
-        assert!(matcher.matches(&room));
+        assert!(matches(read_receipts_and_unread, &room));
     }
 
     #[async_test]
@@ -118,11 +101,9 @@ mod tests {
         let (client, server) = logged_in_client_with_server().await;
         let [room] = new_rooms([room_id!("!a:b.c")], &client, &server).await;
 
-        let matcher = UnreadRoomMatcher {
-            read_receipts_and_unread: |_| (RoomReadReceipts::default(), false),
-        };
+        let read_receipts_and_unread = |_: &Room| (RoomReadReceipts::default(), false);
 
-        assert!(matcher.matches(&room).not());
+        assert!(matches(read_receipts_and_unread, &room).not());
     }
 
     #[async_test]
@@ -130,9 +111,8 @@ mod tests {
         let (client, server) = logged_in_client_with_server().await;
         let [room] = new_rooms([room_id!("!a:b.c")], &client, &server).await;
 
-        let matcher =
-            UnreadRoomMatcher { read_receipts_and_unread: |_| (RoomReadReceipts::default(), true) };
+        let read_receipts_and_unread = |_: &Room| (RoomReadReceipts::default(), true);
 
-        assert!(matcher.matches(&room));
+        assert!(matches(read_receipts_and_unread, &room));
     }
 }

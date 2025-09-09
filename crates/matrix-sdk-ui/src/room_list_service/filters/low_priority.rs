@@ -14,28 +14,19 @@
 
 use super::{super::Room, Filter};
 
-struct LowPriorityRoomMatcher<F>
+fn matches<F>(is_low_priority: F, room: &Room) -> bool
 where
     F: Fn(&Room) -> bool,
 {
-    is_low_priority: F,
-}
-
-impl<F> LowPriorityRoomMatcher<F>
-where
-    F: Fn(&Room) -> bool,
-{
-    fn matches(&self, room: &Room) -> bool {
-        (self.is_low_priority)(room)
-    }
+    is_low_priority(room)
 }
 
 /// Create a new filter that will filter out rooms that are not marked as
 /// low priority (see [`matrix_sdk_base::Room::is_low_priority`]).
 pub fn new_filter() -> impl Filter {
-    let matcher = LowPriorityRoomMatcher { is_low_priority: move |room| room.is_low_priority() };
+    let is_low_priority = |room: &Room| room.is_low_priority();
 
-    move |room| -> bool { matcher.matches(room) }
+    move |room| -> bool { matches(is_low_priority, room) }
 }
 
 #[cfg(test)]
@@ -53,9 +44,7 @@ mod tests {
         let (client, server) = logged_in_client_with_server().await;
         let [room] = new_rooms([room_id!("!a:b.c")], &client, &server).await;
 
-        let matcher = LowPriorityRoomMatcher { is_low_priority: |_| true };
-
-        assert!(matcher.matches(&room));
+        assert!(matches(|_| true, &room));
     }
 
     #[async_test]
@@ -63,8 +52,6 @@ mod tests {
         let (client, server) = logged_in_client_with_server().await;
         let [room] = new_rooms([room_id!("!a:b.c")], &client, &server).await;
 
-        let matcher = LowPriorityRoomMatcher { is_low_priority: |_| false };
-
-        assert!(matcher.matches(&room).not());
+        assert!(matches(|_| false, &room).not());
     }
 }
