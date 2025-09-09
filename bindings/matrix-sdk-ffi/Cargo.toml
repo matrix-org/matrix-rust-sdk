@@ -24,7 +24,7 @@ crate-type = [
 ]
 
 [features]
-default = ["bundled-sqlite", "unstable-msc4274", "element-recent-emojis"]
+default = ["bundled-sqlite", "unstable-msc4274", "experimental-element-recent-emojis"]
 bundled-sqlite = ["matrix-sdk/bundled-sqlite"]
 unstable-msc4274 = ["matrix-sdk-ui/unstable-msc4274"]
 # Required when targeting a Javascript environment, like Wasm in a browser.
@@ -36,7 +36,7 @@ rustls-tls = ["matrix-sdk/rustls-tls", "sentry?/rustls"]
 # Enable sentry error monitoring, not compatible with Wasm platforms.
 sentry = ["dep:sentry", "dep:sentry-tracing"]
 
-element-recent-emojis = ["matrix-sdk/element-recent-emojis"]
+experimental-element-recent-emojis = ["matrix-sdk/experimental-element-recent-emojis"]
 
 [dependencies]
 anyhow.workspace = true

@@ -73,7 +73,7 @@ unstable-msc4274 = ["ruma/unstable-msc4274", "matrix-sdk-base/unstable-msc4274"]
 
 experimental-search = ["matrix-sdk-search"]
 
-element-recent-emojis = ["matrix-sdk-base/element-recent-emojis"]
+experimental-element-recent-emojis = ["matrix-sdk-base/experimental-element-recent-emojis"]
 
 [dependencies]
 anyhow = { workspace = true, optional = true }

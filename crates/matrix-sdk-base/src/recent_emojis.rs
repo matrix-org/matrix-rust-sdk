@@ -3,7 +3,7 @@
 use ruma::{UInt, events::macros::EventContent};
 use serde::{Deserialize, Serialize};
 
-#[cfg(feature = "element-recent-emojis")]
+#[cfg(feature = "experimental-element-recent-emojis")]
 #[derive(Clone, Debug, Default, Deserialize, Serialize, EventContent)]
 #[ruma_event(type = "io.element.recent_emoji", kind = GlobalAccountData)]
 /// An event type containing a list of recently used emojis for reactions.
@@ -15,7 +15,7 @@ pub struct RecentEmojisContent {
     pub recent_emoji: Vec<(String, UInt)>,
 }
 
-#[cfg(feature = "element-recent-emojis")]
+#[cfg(feature = "experimental-element-recent-emojis")]
 impl RecentEmojisContent {
     /// Creates a new recent emojis event content given the provided recent
     /// emojis.

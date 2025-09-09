@@ -1746,14 +1746,14 @@ impl Client {
         }))))
     }
 
-    #[cfg(feature = "element-recent-emojis")]
+    #[cfg(feature = "experimental-element-recent-emojis")]
     /// Adds a recently used emoji to the list and uploads the updated
     /// `io.element.recent_emoji` content to the global account data.
     pub async fn add_recent_emoji(&self, emoji: String) -> Result<(), ClientError> {
         Ok(self.inner.add_recent_emoji(&emoji).await?)
     }
 
-    #[cfg(feature = "element-recent-emojis")]
+    #[cfg(feature = "experimental-element-recent-emojis")]
     /// Gets the list of recently used emojis from the `io.element.recent_emoji`
     /// global account data.
     pub async fn get_recent_emojis(&self) -> Result<Vec<RecentEmoji>, ClientError> {
@@ -1767,7 +1767,7 @@ impl Client {
     }
 }
 
-#[cfg(feature = "element-recent-emojis")]
+#[cfg(feature = "experimental-element-recent-emojis")]
 #[derive(Debug, uniffi::Record)]
 /// Represents an emoji recently used for reactions.
 pub struct RecentEmoji {

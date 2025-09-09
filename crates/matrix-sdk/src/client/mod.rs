@@ -28,7 +28,7 @@ use eyeball::{SharedObservable, Subscriber};
 use eyeball_im::{Vector, VectorDiff};
 use futures_core::Stream;
 use futures_util::StreamExt;
-#[cfg(feature = "element-recent-emojis")]
+#[cfg(feature = "experimental-element-recent-emojis")]
 use js_int::uint;
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk_base::crypto::{store::LockableCryptoStore, DecryptionSettings};
@@ -40,10 +40,10 @@ use matrix_sdk_base::{
     BaseClient, RoomInfoNotableUpdate, RoomState, RoomStateFilter, SendOutsideWasm, SessionMeta,
     StateStoreDataKey, StateStoreDataValue, SyncOutsideWasm, ThreadingSupport,
 };
-#[cfg(feature = "element-recent-emojis")]
+#[cfg(feature = "experimental-element-recent-emojis")]
 use matrix_sdk_base::{recent_emojis::RecentEmojisContent, store::StateStoreExt};
 use matrix_sdk_common::ttl_cache::TtlCache;
-#[cfg(feature = "element-recent-emojis")]
+#[cfg(feature = "experimental-element-recent-emojis")]
 use ruma::api::client::config::set_global_account_data::v3::Request as UpdateGlobalAccountDataRequest;
 #[cfg(feature = "e2e-encryption")]
 use ruma::events::{room::encryption::RoomEncryptionEventContent, InitialStateEvent};
@@ -2950,7 +2950,7 @@ impl Client {
         self.inner.thread_subscription_catchup.get().unwrap()
     }
 
-    #[cfg(feature = "element-recent-emojis")]
+    #[cfg(feature = "experimental-element-recent-emojis")]
     async fn get_recent_emoji_content(&self) -> Result<Option<RecentEmojisContent>> {
         self.state_store()
             .get_account_data_event_static::<RecentEmojisContent>()
@@ -2960,7 +2960,7 @@ impl Client {
             .map_err(Into::into)
     }
 
-    #[cfg(feature = "element-recent-emojis")]
+    #[cfg(feature = "experimental-element-recent-emojis")]
     /// Adds a recently used emoji to the list and uploads the updated
     /// `io.element.recent_emoji` content to the global account data.
     pub async fn add_recent_emoji(&self, emoji: &str) -> Result<()> {
@@ -2983,7 +2983,7 @@ impl Client {
         Ok(())
     }
 
-    #[cfg(feature = "element-recent-emojis")]
+    #[cfg(feature = "experimental-element-recent-emojis")]
     /// Gets the list of recently used emojis from the `io.element.recent_emoji`
     /// global account data.
     pub async fn get_recent_emojis(&self) -> Result<Vec<(String, u64)>> {
@@ -3124,9 +3124,9 @@ pub(crate) mod tests {
     #[cfg(target_family = "wasm")]
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
-    #[cfg(feature = "element-recent-emojis")]
+    #[cfg(feature = "experimental-element-recent-emojis")]
     use matrix_sdk_base::recent_emojis::RecentEmojisContent;
-    #[cfg(feature = "element-recent-emojis")]
+    #[cfg(feature = "experimental-element-recent-emojis")]
     use ruma::events::GlobalAccountDataEventContent;
     use ruma::{
         api::{
@@ -4128,7 +4128,7 @@ pub(crate) mod tests {
         .unwrap();
     }
 
-    #[cfg(feature = "element-recent-emojis")]
+    #[cfg(feature = "experimental-element-recent-emojis")]
     #[async_test]
     async fn test_recent_emojis() {
         let server = MatrixMockServer::new().await;

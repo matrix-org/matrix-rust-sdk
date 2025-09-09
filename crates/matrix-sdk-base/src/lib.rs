@@ -45,7 +45,7 @@ pub mod sync;
 mod test_utils;
 mod utils;
 
-#[cfg(feature = "element-recent-emojis")]
+#[cfg(feature = "experimental-element-recent-emojis")]
 pub mod recent_emojis;
 
 #[cfg(feature = "uniffi")]
