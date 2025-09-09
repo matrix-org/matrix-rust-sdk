@@ -2370,6 +2370,7 @@ mod migration_tests {
     use serde_json::json;
     use tempfile::{tempdir, TempDir};
     use tokio::fs;
+    use zeroize::Zeroizing;
 
     use super::{init, keys, SqliteStateStore, DATABASE_NAME};
     use crate::{
@@ -2399,7 +2400,9 @@ mod migration_tests {
         init(&conn).await?;
 
         let store_cipher = Some(Arc::new(
-            conn.get_or_create_store_cipher(Secret::PassPhrase(SECRET.to_owned())).await.unwrap(),
+            conn.get_or_create_store_cipher(Secret::PassPhrase(Zeroizing::new(SECRET.to_owned())))
+                .await
+                .unwrap(),
         ));
         let this = SqliteStateStore { store_cipher, pool };
         this.run_migrations(&conn, 1, Some(version)).await?;

@@ -33,7 +33,7 @@ use std::{
 };
 
 use deadpool_sqlite::PoolConfig;
-use zeroize::{Zeroize, ZeroizeOnDrop};
+use zeroize::{Zeroize, ZeroizeOnDrop, Zeroizing};
 
 #[cfg(feature = "crypto-store")]
 pub use self::crypto_store::SqliteCryptoStore;
@@ -51,7 +51,7 @@ matrix_sdk_test_utils::init_tracing_for_tests!();
 #[derive(Clone, Debug, PartialEq, Zeroize, ZeroizeOnDrop)]
 pub enum Secret {
     Key(Box<[u8; 32]>),
-    PassPhrase(String),
+    PassPhrase(Zeroizing<String>),
 }
 
 /// A configuration structure used for opening a store.
@@ -132,7 +132,8 @@ impl SqliteStoreConfig {
 
     /// Define the passphrase if the store is encoded.
     pub fn passphrase(mut self, passphrase: Option<&str>) -> Self {
-        self.secret = passphrase.map(|passphrase| Secret::PassPhrase(passphrase.to_owned()));
+        self.secret =
+            passphrase.map(|passphrase| Secret::PassPhrase(Zeroizing::new(passphrase.to_owned())));
         self
     }
 
@@ -274,7 +275,7 @@ mod tests {
             .journal_size_limit(44);
 
         assert_eq!(store_config.path, PathBuf::from("foo"));
-        assert_eq!(store_config.secret, Some(Secret::PassPhrase("bar".to_owned())));
+        assert_eq!(store_config.secret, Some(Secret::PassPhrase("bar".to_owned().into())));
         assert_eq!(store_config.pool_config.max_size, 42);
         assert!(store_config.runtime_config.optimize.not());
         assert_eq!(store_config.runtime_config.cache_size, 43);
