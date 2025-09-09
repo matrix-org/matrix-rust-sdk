@@ -25,9 +25,7 @@ use as_variant::as_variant;
 use matrix_sdk_common::locks::RwLock;
 use ruma::{
     api::client::keys::upload_signatures::v3::Request as SignatureUploadRequest,
-    events::{
-        key::verification::VerificationMethod, room::message::KeyVerificationRequestEventContent,
-    },
+    events::{key::verification::VerificationMethod, room::message::MessageType},
     DeviceId, EventId, OwnedDeviceId, OwnedUserId, RoomId, UserId,
 };
 use serde::{Deserialize, Deserializer, Serialize};
@@ -385,13 +383,13 @@ impl OtherUserIdentity {
     pub fn verification_request_content(
         &self,
         methods: Option<Vec<VerificationMethod>>,
-    ) -> KeyVerificationRequestEventContent {
-        VerificationRequest::request(
+    ) -> MessageType {
+        MessageType::VerificationRequest(VerificationRequest::request(
             self.verification_machine.own_user_id(),
             self.verification_machine.own_device_id(),
             self.user_id(),
             methods,
-        )
+        ))
     }
 
     /// Pin the current identity (public part of the master signing key).

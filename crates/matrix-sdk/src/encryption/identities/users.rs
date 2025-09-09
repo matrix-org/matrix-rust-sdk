@@ -19,10 +19,7 @@ use matrix_sdk_base::{
     RoomMemberships,
 };
 use ruma::{
-    events::{
-        key::verification::VerificationMethod,
-        room::message::{MessageType, RoomMessageEventContent},
-    },
+    events::{key::verification::VerificationMethod, room::message::RoomMessageEventContent},
     OwnedUserId, UserId,
 };
 
@@ -289,9 +286,7 @@ impl UserIdentity {
                     self.client.create_dm(i.user_id()).await?
                 };
 
-                let response = room
-                    .send(RoomMessageEventContent::new(MessageType::VerificationRequest(content)))
-                    .await?;
+                let response = room.send(RoomMessageEventContent::new(content)).await?;
 
                 let verification =
                     i.request_verification(room.room_id(), &response.event_id, methods);
