@@ -106,6 +106,7 @@ enum FeatureSet {
     Socks,
     SsoLogin,
     Search,
+    ElementRecentEmojis,
 }
 
 #[derive(Subcommand, PartialEq, Eq, PartialOrd, Ord)]
@@ -174,7 +175,7 @@ impl CiArgs {
 
 fn check_bindings() -> Result<()> {
     let sh = sh();
-    cmd!(sh, "rustup run stable cargo build -p matrix-sdk-crypto-ffi -p matrix-sdk-ffi --features native-tls,sentry").run()?;
+    cmd!(sh, "rustup run stable cargo build -p matrix-sdk-crypto-ffi -p matrix-sdk-ffi --features native-tls,sentry,element-recent-emojis").run()?;
     cmd!(
         sh,
         "
@@ -233,7 +234,7 @@ fn check_clippy() -> Result<()> {
         "rustup run {NIGHTLY} cargo clippy --workspace --all-targets
             --exclude matrix-sdk-crypto --exclude xtask
             --no-default-features
-            --features native-tls,sso-login,testing
+            --features native-tls,sso-login,testing,element-recent-emojis
             -- -D warnings"
     )
     .run()?;
@@ -273,6 +274,7 @@ fn run_feature_tests(cmd: Option<FeatureSet>) -> Result<()> {
         (FeatureSet::Socks, "--features socks,testing"),
         (FeatureSet::SsoLogin, "--features sso-login,testing"),
         (FeatureSet::Search, "--features experimental-search"),
+        (FeatureSet::ElementRecentEmojis, "--features element-recent-emojis"),
     ]);
 
     let sh = sh();
