@@ -490,10 +490,20 @@ pub struct RoomInfo {
 
     /// The recency stamp of this room.
     ///
-    /// It's not to be confused with `origin_server_ts` of the latest event.
-    /// Sliding Sync might "ignore” some events when computing the recency
-    /// stamp of the room. Thus, using this `recency_stamp` value is
-    /// more accurate than relying on the latest event.
+    /// It's not to be confused with the `origin_server_ts` value of an event.
+    /// Sliding Sync might “ignore” some events when computing the recency
+    /// stamp of the room. The recency stamp must be considered as an opaque
+    /// unsigned integer value.
+    ///
+    /// # Sorting rooms
+    ///
+    /// The recency stamp is designed to _sort_ rooms between them. The room
+    /// with the highest stamp should be at the top of a room list. However, in
+    /// some situation, it might be inaccurate (for example if the server and
+    /// the client disagree on which events should increment the recency stamp).
+    /// The [`LatestEventValue`] might be a useful alternative to sort rooms
+    /// between them as it's all computed client-side. In this case, the recency
+    /// stamp nicely acts as a default fallback.
     #[serde(default)]
     pub(crate) recency_stamp: Option<RoomRecencyStamp>,
 
