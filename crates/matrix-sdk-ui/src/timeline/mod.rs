@@ -523,7 +523,7 @@ impl Timeline {
         item_id: &TimelineEventItemId,
         reaction_key: &str,
     ) -> Result<bool, Error> {
-        Ok(self.controller.toggle_reaction_local(item_id, reaction_key).await?)
+        self.controller.toggle_reaction_local(item_id, reaction_key).await
     }
 
     /// Sends an attachment to the room.
