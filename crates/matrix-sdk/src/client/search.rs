@@ -114,11 +114,12 @@ impl SearchIndexGuard<'_> {
         &self,
         query: &str,
         max_number_of_results: usize,
+        pagination_offset: Option<usize>,
         room_id: &RoomId,
     ) -> Option<Vec<OwnedEventId>> {
         if let Some(index) = self.index_map.get(room_id) {
             index
-                .search(query, max_number_of_results)
+                .search(query, max_number_of_results, pagination_offset)
                 .inspect_err(|err| {
                     error!("error occurred while searching index: {err:?}");
                 })
@@ -172,7 +173,7 @@ mod tests {
             )
             .await;
 
-        let response = room.search("this", 5).await.expect("search should have 1 result");
+        let response = room.search("this", 5, None).await.expect("search should have 1 result");
 
         assert_eq!(response.len(), 1, "unexpected numbers of responses: {response:?}");
         assert_eq!(response[0], event_id, "event id doesn't match: {response:?}");
@@ -237,7 +238,7 @@ mod tests {
             )
             .await;
 
-        let results = room.search("message", 3).await.unwrap();
+        let results = room.search("message", 3, None).await.unwrap();
 
         assert_eq!(results.len(), 0, "Search should return 0 results, got {results:?}");
 
@@ -247,7 +248,7 @@ mod tests {
             .sync_room(&client, JoinedRoomBuilder::new(room_id).add_timeline_event(original))
             .await;
 
-        let results = room.search("message", 3).await.unwrap();
+        let results = room.search("message", 3, None).await.unwrap();
 
         assert_eq!(results.len(), 1, "Search should return 1 result, got {results:?}");
         assert_eq!(results[0], edit2_id, "Search should return latest edit, got {:?}", results[0]);
@@ -256,7 +257,7 @@ mod tests {
         // delete the previous edits and add this one
         server.sync_room(&client, JoinedRoomBuilder::new(room_id).add_timeline_event(edit3)).await;
 
-        let results = room.search("message", 3).await.unwrap();
+        let results = room.search("message", 3, None).await.unwrap();
 
         assert_eq!(results.len(), 1, "Search should return 1 result, got {results:?}");
         assert_eq!(results[0], edit3_id, "Search should return latest edit, got {:?}", results[0]);

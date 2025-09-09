@@ -45,7 +45,7 @@ pub use members::{RoomMember, RoomMembersUpdate, RoomMemberships};
 pub(crate) use room_info::SyncInfo;
 pub use room_info::{
     BaseRoomInfo, InviteAcceptanceDetails, RoomInfo, RoomInfoNotableUpdate,
-    RoomInfoNotableUpdateReasons, apply_redaction,
+    RoomInfoNotableUpdateReasons, RoomRecencyStamp, apply_redaction,
 };
 use ruma::{
     EventId, OwnedEventId, OwnedMxcUri, OwnedRoomAliasId, OwnedRoomId, OwnedUserId, RoomId,
@@ -479,7 +479,7 @@ impl Room {
     /// Returns the recency stamp of the room.
     ///
     /// Please read `RoomInfo::recency_stamp` to learn more.
-    pub fn recency_stamp(&self) -> Option<u64> {
+    pub fn recency_stamp(&self) -> Option<RoomRecencyStamp> {
         self.inner.read().recency_stamp
     }
 

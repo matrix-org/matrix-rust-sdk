@@ -14,28 +14,17 @@
 
 use super::{super::Room, Filter};
 
-struct FavouriteRoomMatcher<F>
+fn matches<F>(is_favourite: F, room: &Room) -> bool
 where
     F: Fn(&Room) -> bool,
 {
-    is_favourite: F,
-}
-
-impl<F> FavouriteRoomMatcher<F>
-where
-    F: Fn(&Room) -> bool,
-{
-    fn matches(&self, room: &Room) -> bool {
-        (self.is_favourite)(room)
-    }
+    is_favourite(room)
 }
 
 /// Create a new filter that will filter out rooms that are not marked as
 /// favourite (see [`matrix_sdk_base::Room::is_favourite`]).
 pub fn new_filter() -> impl Filter {
-    let matcher = FavouriteRoomMatcher { is_favourite: move |room| room.is_favourite() };
-
-    move |room| -> bool { matcher.matches(room) }
+    |room| -> bool { matches(|room: &Room| room.is_favourite(), room) }
 }
 
 #[cfg(test)]
@@ -53,9 +42,7 @@ mod tests {
         let (client, server) = logged_in_client_with_server().await;
         let [room] = new_rooms([room_id!("!a:b.c")], &client, &server).await;
 
-        let matcher = FavouriteRoomMatcher { is_favourite: |_| true };
-
-        assert!(matcher.matches(&room));
+        assert!(matches(|_: &Room| true, &room));
     }
 
     #[async_test]
@@ -63,8 +50,6 @@ mod tests {
         let (client, server) = logged_in_client_with_server().await;
         let [room] = new_rooms([room_id!("!a:b.c")], &client, &server).await;
 
-        let matcher = FavouriteRoomMatcher { is_favourite: |_| false };
-
-        assert!(matcher.matches(&room).not());
+        assert!(matches(|_: &Room| false, &room).not());
     }
 }

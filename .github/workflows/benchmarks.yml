@@ -37,4 +37,5 @@ jobs:
         uses: CodSpeedHQ/action@6eeb021fd0f305388292348b775d96d95253adf4
         with:
           run: cargo codspeed run
+          mode: "instrumentation"
           token: ${{ secrets.CODSPEED_TOKEN }}

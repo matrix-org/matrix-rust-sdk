@@ -490,12 +490,22 @@ pub struct RoomInfo {
 
     /// The recency stamp of this room.
     ///
-    /// It's not to be confused with `origin_server_ts` of the latest event.
-    /// Sliding Sync might "ignore” some events when computing the recency
-    /// stamp of the room. Thus, using this `recency_stamp` value is
-    /// more accurate than relying on the latest event.
+    /// It's not to be confused with the `origin_server_ts` value of an event.
+    /// Sliding Sync might “ignore” some events when computing the recency
+    /// stamp of the room. The recency stamp must be considered as an opaque
+    /// unsigned integer value.
+    ///
+    /// # Sorting rooms
+    ///
+    /// The recency stamp is designed to _sort_ rooms between them. The room
+    /// with the highest stamp should be at the top of a room list. However, in
+    /// some situation, it might be inaccurate (for example if the server and
+    /// the client disagree on which events should increment the recency stamp).
+    /// The [`LatestEventValue`] might be a useful alternative to sort rooms
+    /// between them as it's all computed client-side. In this case, the recency
+    /// stamp nicely acts as a default fallback.
     #[serde(default)]
-    pub(crate) recency_stamp: Option<u64>,
+    pub(crate) recency_stamp: Option<RoomRecencyStamp>,
 
     /// A timestamp remembering when we observed the user accepting an invite on
     /// this current device.
@@ -1050,8 +1060,8 @@ impl RoomInfo {
 
     /// Updates the recency stamp of this room.
     ///
-    /// Please read [`Self::recency_stamp`] to learn more.
-    pub(crate) fn update_recency_stamp(&mut self, stamp: u64) {
+    /// Please read `Self::recency_stamp` to learn more.
+    pub fn update_recency_stamp(&mut self, stamp: RoomRecencyStamp) {
         self.recency_stamp = Some(stamp);
     }
 
@@ -1133,6 +1143,24 @@ impl RoomInfo {
         }
 
         migrated
+    }
+}
+
+/// Type to represent a `RoomInfo::recency_stamp`.
+#[repr(transparent)]
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(transparent)]
+pub struct RoomRecencyStamp(u64);
+
+impl From<u64> for RoomRecencyStamp {
+    fn from(value: u64) -> Self {
+        Self(value)
+    }
+}
+
+impl From<RoomRecencyStamp> for u64 {
+    fn from(value: RoomRecencyStamp) -> Self {
+        value.0
     }
 }
 
@@ -1313,7 +1341,7 @@ mod tests {
             warned_about_unknown_room_version_rules: Arc::new(false.into()),
             cached_display_name: None,
             cached_user_defined_notification_mode: None,
-            recency_stamp: Some(42),
+            recency_stamp: Some(42.into()),
             invite_acceptance_details: None,
         };
 
@@ -1562,7 +1590,7 @@ mod tests {
             info.cached_user_defined_notification_mode.as_ref(),
             Some(&RoomNotificationMode::Mute)
         );
-        assert_eq!(info.recency_stamp.as_ref(), Some(&42));
+        assert_eq!(info.recency_stamp.as_ref(), Some(&42.into()));
     }
 
     // Ensure we can still deserialize RoomInfos before we added things to its
