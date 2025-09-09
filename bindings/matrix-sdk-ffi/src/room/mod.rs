@@ -48,7 +48,7 @@ use crate::{
     runtime::get_runtime_handle,
     timeline::{
         configuration::{TimelineConfiguration, TimelineFilter},
-        EventTimelineItem, LatestEventValue, ReceiptType, SendHandle, Timeline,
+        LatestEventValue, ReceiptType, SendHandle, Timeline,
     },
     utils::{u64_to_uint, AsyncRuntimeDropped},
     TaskHandle,
@@ -300,12 +300,8 @@ impl Room {
             .unwrap_or(false)
     }
 
-    async fn latest_event(&self) -> Option<EventTimelineItem> {
-        self.inner.latest_event_item().await.map(Into::into)
-    }
-
-    async fn new_latest_event(&self) -> LatestEventValue {
-        self.inner.new_latest_event().await.into()
+    async fn latest_event(&self) -> LatestEventValue {
+        self.inner.latest_event().await.into()
     }
 
     pub async fn latest_encryption_state(&self) -> Result<EncryptionState, ClientError> {

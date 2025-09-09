@@ -19,9 +19,7 @@ use std::{
 
 use bitflags::bitflags;
 use eyeball::Subscriber;
-use matrix_sdk_common::{
-    ROOM_VERSION_FALLBACK, ROOM_VERSION_RULES_FALLBACK, deserialized_responses::TimelineEventKind,
-};
+use matrix_sdk_common::{ROOM_VERSION_FALLBACK, ROOM_VERSION_RULES_FALLBACK};
 use ruma::{
     EventId, MilliSecondsSinceUnixEpoch, MxcUri, OwnedEventId, OwnedMxcUri, OwnedRoomAliasId,
     OwnedRoomId, OwnedUserId, RoomAliasId, RoomId, RoomVersionId,
@@ -53,7 +51,7 @@ use ruma::{
     serde::Raw,
 };
 use serde::{Deserialize, Serialize};
-use tracing::{debug, error, field::debug, info, instrument, warn};
+use tracing::{error, field::debug, info, instrument, warn};
 
 use super::{
     AccountDataSource, EncryptionState, Room, RoomCreateWithCreatorEventContent, RoomDisplayName,
@@ -62,7 +60,7 @@ use super::{
 use crate::{
     MinimalStateEvent, OriginalMinimalStateEvent,
     deserialized_responses::RawSyncOrStrippedState,
-    latest_event::{LatestEvent, LatestEventValue},
+    latest_event::LatestEventValue,
     notification_settings::RoomNotificationMode,
     read_receipts::RoomReadReceipts,
     store::{DynStateStore, StateStoreExt},
@@ -452,16 +450,12 @@ pub struct RoomInfo {
     /// Whether or not the encryption info was been synced.
     pub(crate) encryption_state_synced: bool,
 
-    /// The last event send by sliding sync
-    ///
-    /// TODO(@hywan): Remove.
-    pub(crate) latest_event: Option<Box<LatestEvent>>,
-
     /// The latest event value of this room.
-    ///
-    /// TODO(@hywan): Rename to `latest_event`.
+    //
+    // Note: Why `latest_event_value` and `latest_event`? Because `latest_event` existed before, we
+    // don't want to collide.
     #[serde(default)]
-    pub(crate) new_latest_event: LatestEventValue,
+    pub(crate) latest_event_value: LatestEventValue,
 
     /// Information about read receipts for this room.
     #[serde(default)]
@@ -519,8 +513,7 @@ impl RoomInfo {
             last_prev_batch: None,
             sync_info: SyncInfo::NoState,
             encryption_state_synced: false,
-            latest_event: None,
-            new_latest_event: LatestEventValue::default(),
+            latest_event_value: LatestEventValue::default(),
             read_receipts: Default::default(),
             base_info: Box::new(BaseRoomInfo::new()),
             warned_about_unknown_room_version_rules: Arc::new(false.into()),
@@ -719,25 +712,6 @@ impl RoomInfo {
             return;
         };
         tracing::Span::current().record("redacts", debug(redacts));
-
-        if let Some(latest_event) = &mut self.latest_event {
-            tracing::trace!("Checking if redaction applies to latest event");
-            if latest_event.event_id().as_deref() == Some(redacts) {
-                match apply_redaction(latest_event.event().raw(), _raw, &redaction_rules) {
-                    Some(redacted) => {
-                        // Even if the original event was encrypted, redaction removes all its
-                        // fields so it cannot possibly be successfully decrypted after redaction.
-                        latest_event.event_mut().kind =
-                            TimelineEventKind::PlainText { event: redacted };
-                        debug!("Redacted latest event");
-                    }
-                    None => {
-                        self.latest_event = None;
-                        debug!("Removed latest event");
-                    }
-                }
-            }
-        }
 
         self.base_info.handle_redaction(redacts);
     }
@@ -1038,14 +1012,14 @@ impl RoomInfo {
             .collect()
     }
 
-    /// Returns the latest (decrypted) event recorded for this room.
-    pub fn latest_event(&self) -> Option<&LatestEvent> {
-        self.latest_event.as_deref()
+    /// Return the [`LatestEventValue`].
+    pub fn latest_event(&self) -> &LatestEventValue {
+        &self.latest_event_value
     }
 
-    /// Sets the new `LatestEventValue`.
-    pub fn set_new_latest_event(&mut self, new_value: LatestEventValue) {
-        self.new_latest_event = new_value;
+    /// Set the [`LatestEventValue`].
+    pub fn set_latest_event(&mut self, new_value: LatestEventValue) {
+        self.latest_event_value = new_value;
     }
 
     /// Updates the recency stamp of this room.
@@ -1254,7 +1228,6 @@ mod tests {
     use std::sync::Arc;
 
     use assert_matches::assert_matches;
-    use matrix_sdk_common::deserialized_responses::TimelineEvent;
     use matrix_sdk_test::{
         async_test,
         test_json::{TAG, sync_events::PINNED_EVENTS},
@@ -1269,7 +1242,6 @@ mod tests {
     use super::{BaseRoomInfo, LatestEventValue, RoomInfo, SyncInfo};
     use crate::{
         RoomDisplayName, RoomHero, RoomState, StateChanges,
-        latest_event::LatestEvent,
         notification_settings::RoomNotificationMode,
         room::{RoomNotableTags, RoomSummary},
         store::{IntoStateStore, MemoryStore},
@@ -1302,10 +1274,7 @@ mod tests {
             last_prev_batch: Some("pb".to_owned()),
             sync_info: SyncInfo::FullySynced,
             encryption_state_synced: true,
-            latest_event: Some(Box::new(LatestEvent::new(TimelineEvent::from_plaintext(
-                Raw::from_json_string(json!({"sender": "@u:i.uk"}).to_string()).unwrap(),
-            )))),
-            new_latest_event: LatestEventValue::None,
+            latest_event_value: LatestEventValue::None,
             base_info: Box::new(
                 assign!(BaseRoomInfo::new(), { pinned_events: Some(RoomPinnedEventsEventContent::new(vec![owned_event_id!("$a")])) }),
             ),
@@ -1338,13 +1307,7 @@ mod tests {
             "last_prev_batch": "pb",
             "sync_info": "FullySynced",
             "encryption_state_synced": true,
-            "latest_event": {
-                "event": {
-                    "kind": {"PlainText": {"event": {"sender": "@u:i.uk"}}},
-                    "thread_summary": "None"
-                },
-            },
-            "new_latest_event": "None",
+            "latest_event_value": "None",
             "base_info": {
                 "avatar": null,
                 "canonical_alias": null,
@@ -1539,8 +1502,7 @@ mod tests {
         assert_eq!(info.last_prev_batch, Some("pb".to_owned()));
         assert_eq!(info.sync_info, SyncInfo::FullySynced);
         assert!(info.encryption_state_synced);
-        assert!(info.latest_event.is_none());
-        assert_matches!(info.new_latest_event, LatestEventValue::None);
+        assert_matches!(info.latest_event_value, LatestEventValue::None);
         assert!(info.base_info.avatar.is_none());
         assert!(info.base_info.canonical_alias.is_none());
         assert!(info.base_info.create.is_none());
