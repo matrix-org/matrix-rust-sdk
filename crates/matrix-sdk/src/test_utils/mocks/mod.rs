@@ -1217,11 +1217,10 @@ impl MatrixMockServer {
     /// # Examples
     ///
     /// ```
-    /// use ruma::__private_macros::user_id;
     /// tokio_test::block_on(async {
     /// use matrix_sdk::test_utils::mocks::MatrixMockServer;
     /// use serde_json::json;
-    /// use ruma::events::media_preview_config::MediaPreviews;
+    /// use ruma::{ events::media_preview_config::MediaPreviews, user_id};
     ///
     /// let mock_server = MatrixMockServer::new().await;
     /// let client = mock_server.client_builder().build().await;
@@ -1234,7 +1233,7 @@ impl MatrixMockServer {
     /// .mount()
     /// .await;
     ///
-    /// client.account().ignore_user(user_id!("@a:b.c")).await.unwrap();
+    /// client.account().ignore_user(user_id!("@joe:example.org")).await.unwrap();
     ///
     /// # anyhow::Ok(()) });
     /// ```
