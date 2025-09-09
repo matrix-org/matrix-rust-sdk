@@ -18,18 +18,18 @@ use matrix_sdk::latest_events::LatestEventValue;
 
 use super::{Room, Sorter};
 
-struct RecencyMatcher<F>
+struct RecencySorter<F>
 where
     F: Fn(&Room, &Room) -> (Option<u64>, Option<u64>),
 {
     recency_stamps: F,
 }
 
-impl<F> RecencyMatcher<F>
+impl<F> RecencySorter<F>
 where
     F: Fn(&Room, &Room) -> (Option<u64>, Option<u64>),
 {
-    fn matches(&self, left: &Room, right: &Room) -> Ordering {
+    fn cmp(&self, left: &Room, right: &Room) -> Ordering {
         if left.room_id() == right.room_id() {
             // `left` and `right` are the same room. We are comparing the same
             // `LatestEvent`!
@@ -72,10 +72,10 @@ where
 /// [`RoomInfo::recency_stamp`]: matrix_sdk_base::RoomInfo::recency_stamp
 /// [`RoomInfo::new_latest_event`]: matrix_sdk_base::RoomInfo::new_latest_event
 pub fn new_sorter() -> impl Sorter {
-    let matcher =
-        RecencyMatcher { recency_stamps: move |left, right| extract_recency_stamp(left, right) };
+    let sorter =
+        RecencySorter { recency_stamps: move |left, right| extract_recency_stamp(left, right) };
 
-    move |left, right| -> Ordering { matcher.matches(left, right) }
+    move |left, right| -> Ordering { sorter.cmp(left, right) }
 }
 
 /// Extract the recency stamp from either the [`RoomInfo::new_latest_event`] or
@@ -254,25 +254,25 @@ mod tests {
 
         // `room_a` has an older recency stamp than `room_b`.
         {
-            let matcher = RecencyMatcher { recency_stamps: |_left, _right| (Some(1), Some(2)) };
+            let sorter = RecencySorter { recency_stamps: |_left, _right| (Some(1), Some(2)) };
 
             // `room_a` is greater than `room_b`, i.e. it must come after `room_b`.
-            assert_eq!(matcher.matches(&room_a, &room_b), Ordering::Greater);
+            assert_eq!(sorter.cmp(&room_a, &room_b), Ordering::Greater);
         }
 
         // `room_b` has an older recency stamp than `room_a`.
         {
-            let matcher = RecencyMatcher { recency_stamps: |_left, _right| (Some(2), Some(1)) };
+            let sorter = RecencySorter { recency_stamps: |_left, _right| (Some(2), Some(1)) };
 
             // `room_a` is less than `room_b`, i.e. it must come before `room_b`.
-            assert_eq!(matcher.matches(&room_a, &room_b), Ordering::Less);
+            assert_eq!(sorter.cmp(&room_a, &room_b), Ordering::Less);
         }
 
         // `room_a` has an equally old recency stamp than `room_b`.
         {
-            let matcher = RecencyMatcher { recency_stamps: |_left, _right| (Some(1), Some(1)) };
+            let sorter = RecencySorter { recency_stamps: |_left, _right| (Some(1), Some(1)) };
 
-            assert_eq!(matcher.matches(&room_a, &room_b), Ordering::Equal);
+            assert_eq!(sorter.cmp(&room_a, &room_b), Ordering::Equal);
         }
     }
 
@@ -284,16 +284,16 @@ mod tests {
 
         // `room_a` has a recency stamp, `room_b` has no recency stamp.
         {
-            let matcher = RecencyMatcher { recency_stamps: |_left, _right| (Some(1), None) };
+            let sorter = RecencySorter { recency_stamps: |_left, _right| (Some(1), None) };
 
-            assert_eq!(matcher.matches(&room_a, &room_b), Ordering::Less);
+            assert_eq!(sorter.cmp(&room_a, &room_b), Ordering::Less);
         }
 
         // `room_a` has no recency stamp, `room_b` has a recency stamp.
         {
-            let matcher = RecencyMatcher { recency_stamps: |_left, _right| (None, Some(1)) };
+            let sorter = RecencySorter { recency_stamps: |_left, _right| (None, Some(1)) };
 
-            assert_eq!(matcher.matches(&room_a, &room_b), Ordering::Greater);
+            assert_eq!(sorter.cmp(&room_a, &room_b), Ordering::Greater);
         }
     }
 
@@ -305,9 +305,9 @@ mod tests {
 
         // `room_a` and `room_b` has no recency stamp.
         {
-            let matcher = RecencyMatcher { recency_stamps: |_left, _right| (None, None) };
+            let sorter = RecencySorter { recency_stamps: |_left, _right| (None, None) };
 
-            assert_eq!(matcher.matches(&room_a, &room_b), Ordering::Equal);
+            assert_eq!(sorter.cmp(&room_a, &room_b), Ordering::Equal);
         }
     }
 }

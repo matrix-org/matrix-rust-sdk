@@ -18,18 +18,18 @@ use matrix_sdk::latest_events::LatestEventValue;
 
 use super::{Room, Sorter};
 
-struct LatestEventMatcher<F>
+struct LatestEventSorter<F>
 where
     F: Fn(&Room, &Room) -> (LatestEventValue, LatestEventValue),
 {
     latest_events: F,
 }
 
-impl<F> LatestEventMatcher<F>
+impl<F> LatestEventSorter<F>
 where
     F: Fn(&Room, &Room) -> (LatestEventValue, LatestEventValue),
 {
-    fn matches(&self, left: &Room, right: &Room) -> Ordering {
+    fn cmp(&self, left: &Room, right: &Room) -> Ordering {
         // We want local latest event to come first. When there is a remote latest event
         // or no latest event, we don't want to sort them.
         match (self.latest_events)(left, right) {
@@ -71,11 +71,11 @@ where
 /// [`LatestEventValue::LocalCannotBeSent`]) come first, and latest event
 /// representing a remote event ([`LatestEventValue::Remote`]) come last.
 pub fn new_sorter() -> impl Sorter {
-    let matcher = LatestEventMatcher {
+    let sorter = LatestEventSorter {
         latest_events: move |left, right| (left.new_latest_event(), right.new_latest_event()),
     };
 
-    move |left, right| -> Ordering { matcher.matches(left, right) }
+    move |left, right| -> Ordering { sorter.cmp(left, right) }
 }
 
 #[cfg(test)]
@@ -153,26 +153,26 @@ mod tests {
 
         // `None` and `None`.
         {
-            let matcher = LatestEventMatcher { latest_events: |_, _| (none(), none()) };
-            assert_eq!(matcher.matches(&room_a, &room_b), Ordering::Equal);
+            let sorter = LatestEventSorter { latest_events: |_, _| (none(), none()) };
+            assert_eq!(sorter.cmp(&room_a, &room_b), Ordering::Equal);
         }
 
         // `None` and `Remote`.
         {
-            let matcher = LatestEventMatcher { latest_events: |_, _| (none(), remote()) };
-            assert_eq!(matcher.matches(&room_a, &room_b), Ordering::Equal);
+            let sorter = LatestEventSorter { latest_events: |_, _| (none(), remote()) };
+            assert_eq!(sorter.cmp(&room_a, &room_b), Ordering::Equal);
         }
 
         // `Remote` and `None`.
         {
-            let matcher = LatestEventMatcher { latest_events: |_, _| (remote(), none()) };
-            assert_eq!(matcher.matches(&room_a, &room_b), Ordering::Equal);
+            let sorter = LatestEventSorter { latest_events: |_, _| (remote(), none()) };
+            assert_eq!(sorter.cmp(&room_a, &room_b), Ordering::Equal);
         }
 
         // `Remote` and `None`.
         {
-            let matcher = LatestEventMatcher { latest_events: |_, _| (remote(), remote()) };
-            assert_eq!(matcher.matches(&room_a, &room_b), Ordering::Equal);
+            let sorter = LatestEventSorter { latest_events: |_, _| (remote(), remote()) };
+            assert_eq!(sorter.cmp(&room_a, &room_b), Ordering::Equal);
         }
     }
 
@@ -185,23 +185,22 @@ mod tests {
 
         // `None` and `Local*`.
         {
-            let matcher = LatestEventMatcher { latest_events: |_, _| (none(), local_is_sending()) };
-            assert_eq!(matcher.matches(&room_a, &room_b), Ordering::Greater);
+            let sorter = LatestEventSorter { latest_events: |_, _| (none(), local_is_sending()) };
+            assert_eq!(sorter.cmp(&room_a, &room_b), Ordering::Greater);
 
-            let matcher =
-                LatestEventMatcher { latest_events: |_, _| (none(), local_cannot_be_sent()) };
-            assert_eq!(matcher.matches(&room_a, &room_b), Ordering::Greater);
+            let sorter =
+                LatestEventSorter { latest_events: |_, _| (none(), local_cannot_be_sent()) };
+            assert_eq!(sorter.cmp(&room_a, &room_b), Ordering::Greater);
         }
 
         // `Remote` and `Local*`.
         {
-            let matcher =
-                LatestEventMatcher { latest_events: |_, _| (remote(), local_is_sending()) };
-            assert_eq!(matcher.matches(&room_a, &room_b), Ordering::Greater);
+            let sorter = LatestEventSorter { latest_events: |_, _| (remote(), local_is_sending()) };
+            assert_eq!(sorter.cmp(&room_a, &room_b), Ordering::Greater);
 
-            let matcher =
-                LatestEventMatcher { latest_events: |_, _| (remote(), local_cannot_be_sent()) };
-            assert_eq!(matcher.matches(&room_a, &room_b), Ordering::Greater);
+            let sorter =
+                LatestEventSorter { latest_events: |_, _| (remote(), local_cannot_be_sent()) };
+            assert_eq!(sorter.cmp(&room_a, &room_b), Ordering::Greater);
         }
     }
 
@@ -214,23 +213,22 @@ mod tests {
 
         // `Local*` and `None`.
         {
-            let matcher = LatestEventMatcher { latest_events: |_, _| (local_is_sending(), none()) };
-            assert_eq!(matcher.matches(&room_a, &room_b), Ordering::Less);
+            let sorter = LatestEventSorter { latest_events: |_, _| (local_is_sending(), none()) };
+            assert_eq!(sorter.cmp(&room_a, &room_b), Ordering::Less);
 
-            let matcher =
-                LatestEventMatcher { latest_events: |_, _| (local_cannot_be_sent(), none()) };
-            assert_eq!(matcher.matches(&room_a, &room_b), Ordering::Less);
+            let sorter =
+                LatestEventSorter { latest_events: |_, _| (local_cannot_be_sent(), none()) };
+            assert_eq!(sorter.cmp(&room_a, &room_b), Ordering::Less);
         }
 
         // `Local*` and `Remote`.
         {
-            let matcher =
-                LatestEventMatcher { latest_events: |_, _| (local_is_sending(), remote()) };
-            assert_eq!(matcher.matches(&room_a, &room_b), Ordering::Less);
+            let sorter = LatestEventSorter { latest_events: |_, _| (local_is_sending(), remote()) };
+            assert_eq!(sorter.cmp(&room_a, &room_b), Ordering::Less);
 
-            let matcher =
-                LatestEventMatcher { latest_events: |_, _| (local_cannot_be_sent(), remote()) };
-            assert_eq!(matcher.matches(&room_a, &room_b), Ordering::Less);
+            let sorter =
+                LatestEventSorter { latest_events: |_, _| (local_cannot_be_sent(), remote()) };
+            assert_eq!(sorter.cmp(&room_a, &room_b), Ordering::Less);
         }
     }
 
@@ -243,25 +241,25 @@ mod tests {
 
         // `Local*` and `Local*`.
         {
-            let matcher = LatestEventMatcher {
+            let sorter = LatestEventSorter {
                 latest_events: |_, _| (local_is_sending(), local_is_sending()),
             };
-            assert_eq!(matcher.matches(&room_a, &room_b), Ordering::Equal);
+            assert_eq!(sorter.cmp(&room_a, &room_b), Ordering::Equal);
 
-            let matcher = LatestEventMatcher {
+            let sorter = LatestEventSorter {
                 latest_events: |_, _| (local_is_sending(), local_cannot_be_sent()),
             };
-            assert_eq!(matcher.matches(&room_a, &room_b), Ordering::Equal);
+            assert_eq!(sorter.cmp(&room_a, &room_b), Ordering::Equal);
 
-            let matcher = LatestEventMatcher {
+            let sorter = LatestEventSorter {
                 latest_events: |_, _| (local_cannot_be_sent(), local_is_sending()),
             };
-            assert_eq!(matcher.matches(&room_a, &room_b), Ordering::Equal);
+            assert_eq!(sorter.cmp(&room_a, &room_b), Ordering::Equal);
 
-            let matcher = LatestEventMatcher {
+            let sorter = LatestEventSorter {
                 latest_events: |_, _| (local_cannot_be_sent(), local_cannot_be_sent()),
             };
-            assert_eq!(matcher.matches(&room_a, &room_b), Ordering::Equal);
+            assert_eq!(sorter.cmp(&room_a, &room_b), Ordering::Equal);
         }
     }
 }
