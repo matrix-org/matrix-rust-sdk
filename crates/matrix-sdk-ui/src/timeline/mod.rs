@@ -516,13 +516,14 @@ impl Timeline {
     ///
     /// Ensures that only one reaction is sent at a time to avoid race
     /// conditions and spamming the homeserver with requests.
+    ///
+    /// Returns `true` if the reaction was added, `false` if it was removed.
     pub async fn toggle_reaction(
         &self,
         item_id: &TimelineEventItemId,
         reaction_key: &str,
-    ) -> Result<(), Error> {
-        self.controller.toggle_reaction_local(item_id, reaction_key).await?;
-        Ok(())
+    ) -> Result<bool, Error> {
+        Ok(self.controller.toggle_reaction_local(item_id, reaction_key).await?)
     }
 
     /// Sends an attachment to the room.
