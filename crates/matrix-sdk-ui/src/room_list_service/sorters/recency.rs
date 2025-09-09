@@ -20,14 +20,14 @@ use super::{Room, Sorter};
 
 struct RecencySorter<F>
 where
-    F: Fn(&Room, &Room) -> (Option<u64>, Option<u64>),
+    F: Fn(&Room, &Room) -> (Option<Rank>, Option<Rank>),
 {
-    recency_stamps: F,
+    ranks: F,
 }
 
 impl<F> RecencySorter<F>
 where
-    F: Fn(&Room, &Room) -> (Option<u64>, Option<u64>),
+    F: Fn(&Room, &Room) -> (Option<Rank>, Option<Rank>),
 {
     fn cmp(&self, left: &Room, right: &Room) -> Ordering {
         if left.room_id() == right.room_id() {
@@ -51,8 +51,8 @@ where
             return Ordering::Greater;
         }
 
-        match (self.recency_stamps)(left, right) {
-            (Some(left_stamp), Some(right_stamp)) => left_stamp.cmp(&right_stamp).reverse(),
+        match (self.ranks)(left, right) {
+            (Some(left_rank), Some(right_rank)) => left_rank.cmp(&right_rank).reverse(),
 
             (Some(_), None) => Ordering::Less,
 
@@ -72,21 +72,25 @@ where
 /// [`RoomInfo::recency_stamp`]: matrix_sdk_base::RoomInfo::recency_stamp
 /// [`RoomInfo::new_latest_event`]: matrix_sdk_base::RoomInfo::new_latest_event
 pub fn new_sorter() -> impl Sorter {
-    let sorter =
-        RecencySorter { recency_stamps: move |left, right| extract_recency_stamp(left, right) };
+    let sorter = RecencySorter { ranks: move |left, right| extract_rank(left, right) };
 
     move |left, right| -> Ordering { sorter.cmp(left, right) }
 }
 
-/// Extract the recency stamp from either the [`RoomInfo::new_latest_event`] or
+/// The term _rank_ is used here to avoid any confusion with a _timestamp_ (a
+/// `u64` from the latest event), or a _recency stamp_ (a `u64` from the recency
+/// stamp of the room). This type hides `u64` for the sake of semantics.
+type Rank = u64;
+
+/// Extract the recency _rank_ from either the [`RoomInfo::new_latest_event`] or
 /// from [`RoomInfo::recency_stamp`].
 ///
-/// We must be very careful to return data of the same nature: either a _recency
-/// stamp_ from the [`LatestEventValue`], or from the
+/// We must be very careful to return data of the same nature: either a
+/// _rank_ from the [`LatestEventValue`]'s timestamp, or from the
 /// [`RoomInfo::recency_stamp`], but we **must never** mix both. The
 /// `RoomInfo::recency_stamp` is not a timestamp, while `LatestEventValue` uses
 /// a timestamp.
-fn extract_recency_stamp(left: &Room, right: &Room) -> (Option<u64>, Option<u64>) {
+fn extract_rank(left: &Room, right: &Room) -> (Option<Rank>, Option<Rank>) {
     match (left.new_latest_event(), right.new_latest_event()) {
         // None of both rooms, or only one of both rooms, have a latest event value. Let's fallback
         // to the recency stamp from the `RoomInfo` for both room.
@@ -96,8 +100,7 @@ fn extract_recency_stamp(left: &Room, right: &Room) -> (Option<u64>, Option<u64>
             (left.recency_stamp().map(Into::into), right.recency_stamp().map(Into::into))
         }
 
-        // Both rooms have a non-`None` latest event. We can use their timestamps as a recency
-        // stamp.
+        // Both rooms have a non-`None` latest event. We can use their timestamps as a rank.
         (
             left @ LatestEventValue::Remote(_)
             | left @ LatestEventValue::LocalIsSending(_)
@@ -202,7 +205,7 @@ mod tests {
             set_latest_event_value(&mut room_a, none());
             set_latest_event_value(&mut room_b, none());
 
-            assert_eq!(extract_recency_stamp(&room_a, &room_b), (Some(1), Some(2)));
+            assert_eq!(extract_rank(&room_a, &room_b), (Some(1), Some(2)));
         }
 
         // `room_a` has `None`, `room_b` has something else.
@@ -210,7 +213,7 @@ mod tests {
             set_latest_event_value(&mut room_a, none());
             set_latest_event_value(&mut room_b, remote(3));
 
-            assert_eq!(extract_recency_stamp(&room_a, &room_b), (Some(1), Some(2)));
+            assert_eq!(extract_rank(&room_a, &room_b), (Some(1), Some(2)));
         }
 
         // `room_b` has `None`, `room_a` has something else.
@@ -218,7 +221,7 @@ mod tests {
             set_latest_event_value(&mut room_a, remote(3));
             set_latest_event_value(&mut room_b, none());
 
-            assert_eq!(extract_recency_stamp(&room_a, &room_b), (Some(1), Some(2)));
+            assert_eq!(extract_rank(&room_a, &room_b), (Some(1), Some(2)));
         }
     }
 
@@ -240,7 +243,7 @@ mod tests {
                     set_latest_event_value(&mut room_a, latest_event_value_a.clone());
                     set_latest_event_value(&mut room_b, latest_event_value_b);
 
-                    assert_eq!(extract_recency_stamp(&room_a, &room_b), (Some(3), Some(4)));
+                    assert_eq!(extract_rank(&room_a, &room_b), (Some(3), Some(4)));
                 }
             }
         }
@@ -254,7 +257,7 @@ mod tests {
 
         // `room_a` has an older recency stamp than `room_b`.
         {
-            let sorter = RecencySorter { recency_stamps: |_left, _right| (Some(1), Some(2)) };
+            let sorter = RecencySorter { ranks: |_left, _right| (Some(1), Some(2)) };
 
             // `room_a` is greater than `room_b`, i.e. it must come after `room_b`.
             assert_eq!(sorter.cmp(&room_a, &room_b), Ordering::Greater);
@@ -262,7 +265,7 @@ mod tests {
 
         // `room_b` has an older recency stamp than `room_a`.
         {
-            let sorter = RecencySorter { recency_stamps: |_left, _right| (Some(2), Some(1)) };
+            let sorter = RecencySorter { ranks: |_left, _right| (Some(2), Some(1)) };
 
             // `room_a` is less than `room_b`, i.e. it must come before `room_b`.
             assert_eq!(sorter.cmp(&room_a, &room_b), Ordering::Less);
@@ -270,7 +273,7 @@ mod tests {
 
         // `room_a` has an equally old recency stamp than `room_b`.
         {
-            let sorter = RecencySorter { recency_stamps: |_left, _right| (Some(1), Some(1)) };
+            let sorter = RecencySorter { ranks: |_left, _right| (Some(1), Some(1)) };
 
             assert_eq!(sorter.cmp(&room_a, &room_b), Ordering::Equal);
         }
@@ -284,14 +287,14 @@ mod tests {
 
         // `room_a` has a recency stamp, `room_b` has no recency stamp.
         {
-            let sorter = RecencySorter { recency_stamps: |_left, _right| (Some(1), None) };
+            let sorter = RecencySorter { ranks: |_left, _right| (Some(1), None) };
 
             assert_eq!(sorter.cmp(&room_a, &room_b), Ordering::Less);
         }
 
         // `room_a` has no recency stamp, `room_b` has a recency stamp.
         {
-            let sorter = RecencySorter { recency_stamps: |_left, _right| (None, Some(1)) };
+            let sorter = RecencySorter { ranks: |_left, _right| (None, Some(1)) };
 
             assert_eq!(sorter.cmp(&room_a, &room_b), Ordering::Greater);
         }
@@ -305,7 +308,7 @@ mod tests {
 
         // `room_a` and `room_b` has no recency stamp.
         {
-            let sorter = RecencySorter { recency_stamps: |_left, _right| (None, None) };
+            let sorter = RecencySorter { ranks: |_left, _right| (None, None) };
 
             assert_eq!(sorter.cmp(&room_a, &room_b), Ordering::Equal);
         }
