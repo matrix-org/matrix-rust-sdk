@@ -28,6 +28,29 @@ use super::{url_params, WidgetSettings};
 #[serde(rename_all = "camelCase")]
 /// Serialization struct for URL parameters for the Element Call widget.
 /// These are documented at https://github.com/element-hq/element-call/blob/livekit/docs/url-params.md
+///
+/// The ElementCallParams are used to be translated into url query parameters.
+/// For all optional fields, the None case implies, that it will not be part of
+/// the url parameters.
+///
+/// # Example:
+///
+/// ```
+/// ElementCallParams {
+///     // Required parameters:
+///     user_id: "@1234",
+///     room_id: "$1234",
+///     ...
+///     // Optional configuration:
+///     hide_screensharing: Some(true),
+///     ..ElementCallParams::default()
+/// }
+/// ```
+/// will become: `my.url? ...requires_parameters... &hide_screensharing=true`
+/// The reason it might be desirable to not list those configurations in the
+/// URLs parameters is that the `intent` implies defaults for all configuration
+/// values in the widget itself. Setting the URL parameter specifically will
+/// overwrite those defaults.
 struct ElementCallUrlParams {
     user_id: String,
     room_id: String,
@@ -43,7 +66,7 @@ struct ElementCallUrlParams {
     /// Deprecated since Element Call v0.8.0. Included for backwards
     /// compatibility. Set to `true` if intent is `Intent::StartCall`.
     skip_lobby: Option<bool>,
-    confine_to_room: bool,
+    confine_to_room: Option<bool>,
     app_prompt: Option<bool>,
     /// Supported since Element Call v0.13.0.
     header: Option<HeaderStyle>,
@@ -305,7 +328,7 @@ impl WidgetSettings {
             base_url: url_params::HOMESERVER_URL.to_owned(),
 
             parent_url: props.parent_url.unwrap_or(props.element_call_url.clone()),
-            confine_to_room: config.confine_to_room.unwrap_or(true),
+            confine_to_room: config.confine_to_room,
             app_prompt: config.app_prompt,
             header: config.header,
             hide_header: config.hide_header,

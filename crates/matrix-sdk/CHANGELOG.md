@@ -114,7 +114,7 @@ All notable changes to this project will be documented in this file.
     VirtualElementCallWidgetConfig {
       intend: Intend.StartCallDM, // defines the default values for all other configuration
       skip_lobby: Some(false), // overwrite a specific default value
-      ..VirtualElementCallWidgetConfig::default() // set all other config options to `None`. Use defaults from intent
+      ..VirtualElementCallWidgetConfig::default() // set all other config options to `None`. Use defaults from intent.
     }
   )
   ```
