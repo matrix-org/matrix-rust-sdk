@@ -30,7 +30,7 @@ use tracing::{
 };
 use zeroize::Zeroize;
 
-use super::{DecryptionError, Result};
+use super::{DecryptionError, ImportError, Result};
 use crate::Client;
 
 #[cfg_attr(doc, aquamarine::aquamarine)]
@@ -152,8 +152,9 @@ impl SecretStore {
         let event_type = GlobalAccountDataEventType::from(secret_name.to_owned());
 
         if let Some(secret_content) = self.client.account().fetch_account_data(event_type).await? {
-            let mut secret_content =
-                secret_content.deserialize_as_unchecked::<SecretEventContent>()?;
+            let mut secret_content = secret_content
+                .deserialize_as_unchecked::<SecretEventContent>()
+                .map_err(ImportError::from)?;
 
             // The `SecretEventContent` contains a map from the secret storage key ID to the
             // ciphertext. Let's try to find a secret which was encrypted using our
@@ -162,10 +163,13 @@ impl SecretStore {
                 // We found a secret we should be able to decrypt, let's try to do so.
                 let decrypted = self
                     .key
-                    .decrypt(&secret_content.try_into()?, &secret_name)
-                    .map_err(DecryptionError::from)?;
+                    .decrypt(&secret_content.try_into().map_err(ImportError::from)?, &secret_name)
+                    .map_err(DecryptionError::from)
+                    .map_err(ImportError::from)?;
 
-                let secret = String::from_utf8(decrypted).map_err(DecryptionError::from)?;
+                let secret = String::from_utf8(decrypted)
+                    .map_err(DecryptionError::from)
+                    .map_err(ImportError::from)?;
 
                 Ok(Some(secret))
             } else {
@@ -297,7 +301,13 @@ impl SecretStore {
     async fn maybe_enable_backups(&self) -> Result<()> {
         let get_secret_result = self.get_secret(SecretName::RecoveryKey).await;
         if let Ok(Some(mut secret)) = get_secret_result {
-            let ret = self.client.encryption().backups().maybe_enable_backups(&secret).await;
+            let ret = self
+                .client
+                .encryption()
+                .backups()
+                .maybe_enable_backups(&secret)
+                .await
+                .map_err(ImportError::from);
 
             if let Err(e) = &ret {
                 warn!("Could not enable backups from secret storage: {e:?}");
@@ -393,7 +403,8 @@ impl SecretStore {
         self.client.keys_query(&request_id, request.device_keys).await?;
 
         // Let's now try to import our private cross-signing keys.
-        let status = olm_machine.import_cross_signing_keys(export).await?;
+        let status =
+            olm_machine.import_cross_signing_keys(export).await.map_err(ImportError::from)?;
 
         Span::current().record("cross_signing_status", debug(&status));
 
