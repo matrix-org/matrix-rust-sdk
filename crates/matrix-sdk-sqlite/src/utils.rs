@@ -465,7 +465,7 @@ pub(crate) trait SqliteKeyValueStoreAsyncConnExt: SqliteAsyncConnExt {
         let cipher = if let Some(encrypted) = encrypted_cipher {
             match secret {
                 Secret::PassPhrase(ref passphrase) => StoreCipher::import(passphrase, &encrypted)?,
-                Secret::Key(key) => StoreCipher::import_with_key(&key, &encrypted)?,
+                Secret::Key(ref key) => StoreCipher::import_with_key(key, &encrypted)?,
             }
         } else {
             let cipher = StoreCipher::new()?;
@@ -480,7 +480,7 @@ pub(crate) trait SqliteKeyValueStoreAsyncConnExt: SqliteAsyncConnExt {
                         cipher._insecure_export_fast_for_testing(passphrase)
                     }
                 }
-                Secret::Key(key) => cipher.export_with_key(&key),
+                Secret::Key(ref key) => cipher.export_with_key(key),
             };
             self.set_kv("cipher", export?).await.map_err(OpenStoreError::SaveCipher)?;
             cipher

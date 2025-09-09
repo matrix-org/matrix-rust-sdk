@@ -33,7 +33,7 @@ use std::{
 };
 
 use deadpool_sqlite::PoolConfig;
-use zeroize::Zeroize;
+use zeroize::{Zeroize, ZeroizeOnDrop};
 
 #[cfg(feature = "crypto-store")]
 pub use self::crypto_store::SqliteCryptoStore;
@@ -48,11 +48,9 @@ pub use self::state_store::{SqliteStateStore, DATABASE_NAME as STATE_STORE_DATAB
 #[cfg(test)]
 matrix_sdk_test_utils::init_tracing_for_tests!();
 
-#[derive(Clone, Debug, Eq, PartialEq, Zeroize)]
+#[derive(Clone, Debug, PartialEq, Zeroize, ZeroizeOnDrop)]
 pub enum Secret {
-    #[zeroize]
-    Key([u8; 32]),
-    #[zeroize]
+    Key(Box<[u8; 32]>),
     PassPhrase(String),
 }
 
@@ -140,7 +138,7 @@ impl SqliteStoreConfig {
 
     /// Define the key if the store is encoded.
     pub fn key(mut self, key: Option<&[u8; 32]>) -> Self {
-        self.secret = key.map(|key| Secret::Key(*key));
+        self.secret = key.map(|key| Secret::Key(Box::new(*key)));
         self
     }
 
@@ -298,13 +296,10 @@ mod tests {
         assert_eq!(store_config.path, PathBuf::from("foo"));
         assert_eq!(
             store_config.secret,
-            Some(Secret::Key(
-                [
-                    143, 27, 202, 78, 96, 55, 13, 149, 247, 8, 33, 120, 204, 92, 171, 66, 19, 238,
-                    61, 107, 132, 211, 40, 244, 71, 190, 99, 14, 173, 225, 6, 156,
-                ]
-                .to_owned()
-            ))
+            Some(Secret::Key(Box::new([
+                143, 27, 202, 78, 96, 55, 13, 149, 247, 8, 33, 120, 204, 92, 171, 66, 19, 238, 61,
+                107, 132, 211, 40, 244, 71, 190, 99, 14, 173, 225, 6, 156,
+            ])))
         );
         assert_eq!(store_config.pool_config.max_size, 42);
         assert!(store_config.runtime_config.optimize.not());
