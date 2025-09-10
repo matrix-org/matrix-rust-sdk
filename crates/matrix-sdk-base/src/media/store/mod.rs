@@ -32,7 +32,7 @@ use std::fmt;
 use std::{ops::Deref, sync::Arc};
 
 use matrix_sdk_common::store_locks::{
-    BackingStore, CrossProcessStoreLock, CrossProcessStoreLockGuard, LockStoreError,
+    BackingStore, CrossProcessLock, CrossProcessLockGuard, LockStoreError,
 };
 use matrix_sdk_store_encryption::Error as StoreEncryptionError;
 pub use traits::{DynMediaStore, IntoMediaStore, MediaStore, MediaStoreInner};
@@ -88,7 +88,7 @@ pub type Result<T, E = MediaStoreError> = std::result::Result<T, E>;
 #[derive(Clone)]
 pub struct MediaStoreLock {
     /// The inner cross process lock that is used to lock the `MediaStore`.
-    cross_process_lock: Arc<CrossProcessStoreLock<LockableMediaStore>>,
+    cross_process_lock: Arc<CrossProcessLock<LockableMediaStore>>,
 
     /// The store itself.
     ///
@@ -107,7 +107,7 @@ impl MediaStoreLock {
     /// Create a new lock around the [`MediaStore`].
     ///
     /// The `holder` argument represents the holder inside the
-    /// [`CrossProcessStoreLock::new`].
+    /// [`CrossProcessLock::new`].
     pub fn new<S>(store: S, holder: String) -> Self
     where
         S: IntoMediaStore,
@@ -115,7 +115,7 @@ impl MediaStoreLock {
         let store = store.into_media_store();
 
         Self {
-            cross_process_lock: Arc::new(CrossProcessStoreLock::new(
+            cross_process_lock: Arc::new(CrossProcessLock::new(
                 LockableMediaStore(store.clone()),
                 "default".to_owned(),
                 holder,
@@ -124,7 +124,7 @@ impl MediaStoreLock {
         }
     }
 
-    /// Acquire a spin lock (see [`CrossProcessStoreLock::spin_lock`]).
+    /// Acquire a spin lock (see [`CrossProcessLock::spin_lock`]).
     pub async fn lock(&self) -> Result<MediaStoreLockGuard<'_>, LockStoreError> {
         let cross_process_lock_guard = self.cross_process_lock.spin_lock(None).await?;
 
@@ -138,7 +138,7 @@ impl MediaStoreLock {
 pub struct MediaStoreLockGuard<'a> {
     /// The cross process lock guard.
     #[allow(unused)]
-    cross_process_lock_guard: CrossProcessStoreLockGuard,
+    cross_process_lock_guard: CrossProcessLockGuard,
 
     /// A reference to the store.
     store: &'a DynMediaStore,

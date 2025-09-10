@@ -82,16 +82,16 @@ enum WaitingTime {
     Stop,
 }
 
-/// A guard on the store lock.
+/// A guard of a cross-process lock.
 ///
 /// The lock will be automatically released a short period of time after all the
 /// guards have dropped.
 #[derive(Debug)]
-pub struct CrossProcessStoreLockGuard {
+pub struct CrossProcessLockGuard {
     num_holders: Arc<AtomicU32>,
 }
 
-impl Drop for CrossProcessStoreLockGuard {
+impl Drop for CrossProcessLockGuard {
     fn drop(&mut self) {
         self.num_holders.fetch_sub(1, atomic::Ordering::SeqCst);
     }
@@ -101,7 +101,7 @@ impl Drop for CrossProcessStoreLockGuard {
 ///
 /// See the doc-comment of this module for more information.
 #[derive(Clone, Debug)]
-pub struct CrossProcessStoreLock<S: BackingStore + Clone + SendOutsideWasm + 'static> {
+pub struct CrossProcessLock<S: BackingStore + Clone + SendOutsideWasm + 'static> {
     /// The store we're using to lock.
     store: S,
 
@@ -149,7 +149,7 @@ const INITIAL_BACKOFF_MS: u32 = 10;
 /// we'll wait for the lock, *between two attempts*.
 pub const MAX_BACKOFF_MS: u32 = 1000;
 
-impl<S: BackingStore + Clone + SendOutsideWasm + 'static> CrossProcessStoreLock<S> {
+impl<S: BackingStore + Clone + SendOutsideWasm + 'static> CrossProcessLock<S> {
     /// Create a new store-based lock implemented as a value in the store.
     ///
     /// # Parameters
@@ -170,9 +170,7 @@ impl<S: BackingStore + Clone + SendOutsideWasm + 'static> CrossProcessStoreLock<
 
     /// Try to lock once, returns whether the lock was obtained or not.
     #[instrument(skip(self), fields(?self.lock_key, ?self.lock_holder))]
-    pub async fn try_lock_once(
-        &self,
-    ) -> Result<Option<CrossProcessStoreLockGuard>, LockStoreError> {
+    pub async fn try_lock_once(&self) -> Result<Option<CrossProcessLockGuard>, LockStoreError> {
         // Hold onto the locking attempt mutex for the entire lifetime of this
         // function, to avoid multiple reentrant calls.
         let mut _attempt = self.locking_attempt.lock().await;
@@ -186,7 +184,7 @@ impl<S: BackingStore + Clone + SendOutsideWasm + 'static> CrossProcessStoreLock<
             // taken by at least one thread.
             trace!("We already had the lock, incrementing holder count");
             self.num_holders.fetch_add(1, atomic::Ordering::SeqCst);
-            let guard = CrossProcessStoreLockGuard { num_holders: self.num_holders.clone() };
+            let guard = CrossProcessLockGuard { num_holders: self.num_holders.clone() };
             return Ok(Some(guard));
         }
 
@@ -266,7 +264,7 @@ impl<S: BackingStore + Clone + SendOutsideWasm + 'static> CrossProcessStoreLock<
 
         self.num_holders.fetch_add(1, atomic::Ordering::SeqCst);
 
-        let guard = CrossProcessStoreLockGuard { num_holders: self.num_holders.clone() };
+        let guard = CrossProcessLockGuard { num_holders: self.num_holders.clone() };
         Ok(Some(guard))
     }
 
@@ -282,7 +280,7 @@ impl<S: BackingStore + Clone + SendOutsideWasm + 'static> CrossProcessStoreLock<
     pub async fn spin_lock(
         &self,
         max_backoff: Option<u32>,
-    ) -> Result<CrossProcessStoreLockGuard, LockStoreError> {
+    ) -> Result<CrossProcessLockGuard, LockStoreError> {
         let max_backoff = max_backoff.unwrap_or(MAX_BACKOFF_MS);
 
         // Note: reads/writes to the backoff are racy across threads in theory, but the
@@ -359,7 +357,7 @@ mod tests {
     };
 
     use super::{
-        BackingStore, CrossProcessStoreLock, CrossProcessStoreLockGuard, EXTEND_LEASE_EVERY_MS,
+        BackingStore, CrossProcessLock, CrossProcessLockGuard, EXTEND_LEASE_EVERY_MS,
         LockStoreError, memory_store_helper::try_take_leased_lock,
     };
 
@@ -391,7 +389,7 @@ mod tests {
         }
     }
 
-    async fn release_lock(guard: Option<CrossProcessStoreLockGuard>) {
+    async fn release_lock(guard: Option<CrossProcessLockGuard>) {
         drop(guard);
         sleep(Duration::from_millis(EXTEND_LEASE_EVERY_MS)).await;
     }
@@ -401,7 +399,7 @@ mod tests {
     #[async_test]
     async fn test_simple_lock_unlock() -> TestResult {
         let store = TestStore::default();
-        let lock = CrossProcessStoreLock::new(store, "key".to_owned(), "first".to_owned());
+        let lock = CrossProcessLock::new(store, "key".to_owned(), "first".to_owned());
 
         // The lock plain works when used with a single holder.
         let acquired = lock.try_lock_once().await?;
@@ -425,7 +423,7 @@ mod tests {
     #[async_test]
     async fn test_self_recovery() -> TestResult {
         let store = TestStore::default();
-        let lock = CrossProcessStoreLock::new(store.clone(), "key".to_owned(), "first".to_owned());
+        let lock = CrossProcessLock::new(store.clone(), "key".to_owned(), "first".to_owned());
 
         // When a lock is acquired...
         let acquired = lock.try_lock_once().await?;
@@ -436,7 +434,7 @@ mod tests {
         drop(lock);
 
         // And when rematerializing the lock with the same key/value...
-        let lock = CrossProcessStoreLock::new(store.clone(), "key".to_owned(), "first".to_owned());
+        let lock = CrossProcessLock::new(store.clone(), "key".to_owned(), "first".to_owned());
 
         // We still got it.
         let acquired = lock.try_lock_once().await?;
@@ -449,7 +447,7 @@ mod tests {
     #[async_test]
     async fn test_multiple_holders_same_process() -> TestResult {
         let store = TestStore::default();
-        let lock = CrossProcessStoreLock::new(store, "key".to_owned(), "first".to_owned());
+        let lock = CrossProcessLock::new(store, "key".to_owned(), "first".to_owned());
 
         // Taking the lock twice...
         let acquired = lock.try_lock_once().await?;
@@ -473,8 +471,8 @@ mod tests {
     #[async_test]
     async fn test_multiple_processes() -> TestResult {
         let store = TestStore::default();
-        let lock1 = CrossProcessStoreLock::new(store.clone(), "key".to_owned(), "first".to_owned());
-        let lock2 = CrossProcessStoreLock::new(store, "key".to_owned(), "second".to_owned());
+        let lock1 = CrossProcessLock::new(store.clone(), "key".to_owned(), "first".to_owned());
+        let lock2 = CrossProcessLock::new(store, "key".to_owned(), "second".to_owned());
 
         // When the first process takes the lock...
         let acquired1 = lock1.try_lock_once().await?;

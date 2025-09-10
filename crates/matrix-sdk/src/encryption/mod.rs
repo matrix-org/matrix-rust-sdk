@@ -88,7 +88,7 @@ use crate::{
     attachment::Thumbnail,
     client::{ClientInner, WeakClient},
     error::HttpResult,
-    store_locks::CrossProcessStoreLockGuard,
+    store_locks::CrossProcessLockGuard,
     Client, Error, HttpError, Result, Room, RumaApiError, TransmissionProgress,
 };
 
@@ -234,7 +234,7 @@ pub enum VerificationState {
 /// Wraps together a `CrossProcessLockStoreGuard` and a generation number.
 #[derive(Debug)]
 pub struct CrossProcessLockStoreGuardWithGeneration {
-    _guard: CrossProcessStoreLockGuard,
+    _guard: CrossProcessLockGuard,
     generation: u64,
 }
 

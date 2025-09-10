@@ -99,7 +99,7 @@ pub mod integration_tests;
 pub(crate) use crypto_store_wrapper::CryptoStoreWrapper;
 pub use error::{CryptoStoreError, Result};
 use matrix_sdk_common::{
-    deserialized_responses::WithheldCode, store_locks::CrossProcessStoreLock, timeout::timeout,
+    deserialized_responses::WithheldCode, store_locks::CrossProcessLock, timeout::timeout,
 };
 pub use memorystore::MemoryStore;
 pub use traits::{CryptoStore, DynCryptoStore, IntoCryptoStore};
@@ -1261,13 +1261,13 @@ impl Store {
         self.inner.store.identities_stream().map(|(_, identities, devices)| (identities, devices))
     }
 
-    /// Creates a `CrossProcessStoreLock` for this store, that will contain the
+    /// Creates a [`CrossProcessLock`] for this store, that will contain the
     /// given key and value when hold.
     pub fn create_store_lock(
         &self,
         lock_key: String,
         lock_value: String,
-    ) -> CrossProcessStoreLock<LockableCryptoStore> {
+    ) -> CrossProcessLock<LockableCryptoStore> {
         self.inner.store.create_store_lock(lock_key, lock_value)
     }
 
