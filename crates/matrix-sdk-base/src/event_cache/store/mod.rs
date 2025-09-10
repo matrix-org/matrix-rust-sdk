@@ -28,7 +28,7 @@ mod memory_store;
 mod traits;
 
 use matrix_sdk_common::store_locks::{
-    BackingStore, CrossProcessLock, CrossProcessLockGuard, LockStoreError,
+    CrossProcessLock, CrossProcessLockGuard, LockStoreError, TryLock,
 };
 pub use matrix_sdk_store_encryption::Error as StoreEncryptionError;
 use ruma::{
@@ -179,12 +179,12 @@ impl EventCacheStoreError {
 /// An `EventCacheStore` specific result type.
 pub type Result<T, E = EventCacheStoreError> = std::result::Result<T, E>;
 
-/// A type that wraps the [`EventCacheStore`] but implements [`BackingStore`] to
+/// A type that wraps the [`EventCacheStore`] but implements [`TryLock`] to
 /// make it usable inside the cross process lock.
 #[derive(Clone, Debug)]
 struct LockableEventCacheStore(Arc<DynEventCacheStore>);
 
-impl BackingStore for LockableEventCacheStore {
+impl TryLock for LockableEventCacheStore {
     type LockError = EventCacheStoreError;
 
     async fn try_lock(
