@@ -31,7 +31,7 @@ pub mod integration_tests;
 use std::fmt;
 use std::{ops::Deref, sync::Arc};
 
-use matrix_sdk_common::store_locks::{
+use matrix_sdk_common::cross_process_lock::{
     CrossProcessLock, CrossProcessLockGuard, LockStoreError, TryLock,
 };
 use matrix_sdk_store_encryption::Error as StoreEncryptionError;

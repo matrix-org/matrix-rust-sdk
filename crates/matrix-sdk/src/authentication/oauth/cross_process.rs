@@ -5,7 +5,7 @@ use matrix_sdk_base::crypto::{
     store::{LockableCryptoStore, Store},
     CryptoStoreError,
 };
-use matrix_sdk_common::store_locks::{CrossProcessLock, CrossProcessLockGuard, LockStoreError};
+use matrix_sdk_common::cross_process_lock::{CrossProcessLock, CrossProcessLockGuard, LockStoreError};
 use sha2::{Digest as _, Sha256};
 use thiserror::Error;
 use tokio::sync::{Mutex, OwnedMutexGuard};

@@ -27,7 +27,7 @@ pub mod integration_tests;
 mod memory_store;
 mod traits;
 
-use matrix_sdk_common::store_locks::{
+use matrix_sdk_common::cross_process_lock::{
     CrossProcessLock, CrossProcessLockGuard, LockStoreError, TryLock,
 };
 pub use matrix_sdk_store_encryption::Error as StoreEncryptionError;

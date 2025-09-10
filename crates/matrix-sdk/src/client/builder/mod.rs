@@ -482,7 +482,7 @@ impl ClientBuilder {
     /// Set the cross-process store locks holder name.
     ///
     /// The SDK provides cross-process store locks (see
-    /// [`matrix_sdk_common::store_locks::CrossProcessLock`]). The
+    /// [`matrix_sdk_common::cross_process_lock::CrossProcessLock`]). The
     /// `holder_name` will be the value used for all cross-process store locks
     /// used by the `Client` being built.
     ///

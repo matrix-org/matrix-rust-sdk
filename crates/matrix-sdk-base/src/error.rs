@@ -15,7 +15,7 @@
 
 //! Error conditions.
 
-use matrix_sdk_common::store_locks::LockStoreError;
+use matrix_sdk_common::cross_process_lock::LockStoreError;
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk_crypto::{CryptoStoreError, MegolmError, OlmError};
 use thiserror::Error;

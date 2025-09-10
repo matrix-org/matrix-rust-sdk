@@ -148,7 +148,7 @@ use matrix_sdk_base::{
         FinishUploadThumbnailInfo, QueueWedgeError, QueuedRequest, QueuedRequestKind,
         SentMediaInfo, SentRequestKey, SerializableEventContent,
     },
-    store_locks::LockStoreError,
+    cross_process_lock::LockStoreError,
     RoomState, StoreError,
 };
 use matrix_sdk_common::{

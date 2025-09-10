@@ -791,7 +791,7 @@ impl StoreConfig {
     /// Create a new default `StoreConfig`.
     ///
     /// To learn more about `cross_process_store_locks_holder_name`, please read
-    /// [`CrossProcessLock::new`](matrix_sdk_common::store_locks::CrossProcessLock::new).
+    /// [`CrossProcessLock::new`](matrix_sdk_common::cross_process_lock::CrossProcessLock::new).
     #[must_use]
     pub fn new(cross_process_store_locks_holder_name: String) -> Self {
         Self {
