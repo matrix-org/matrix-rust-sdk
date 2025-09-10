@@ -2416,8 +2416,11 @@ mod tests {
             r#"'signatures': {'@example:matrix.org': {'ed25519:AAAAAAAAAA': "#,
             r#"'BQ9Gp0p+6srF+c8OyruqKKd9R4yaub3THYAyyBB/7X/rG8BwcAqFynzl1aGyFYun4Q+087a5OSiglCXI+/kQAA'}}}"#
         );
-        DuplicateOneTimeKeyErrorMessage::from_str(message)
+        let message = DuplicateOneTimeKeyErrorMessage::from_str(message)
             .expect("We should be able to parse the error message");
+
+        assert_eq!(message.old_key.to_base64(), "dBcZBzQaiQYWf6rBPh2QypIOB/dxSoTeyaFaxNNbeHs");
+        assert_eq!(message.new_key.to_base64(), "CY0TWVK1/Kj3ZADuBcGe3UKvpT+IKAPMUsMeJhSDqno");
 
         DuplicateOneTimeKeyErrorMessage::from_str("One time key already exists.")
             .expect_err("We should't be able to parse an incomplete error message");
