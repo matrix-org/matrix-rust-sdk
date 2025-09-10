@@ -28,7 +28,7 @@ mod memory_store;
 mod traits;
 
 use matrix_sdk_common::cross_process_lock::{
-    CrossProcessLock, CrossProcessLockGuard, LockStoreError, TryLock,
+    CrossProcessLock, CrossProcessLockError, CrossProcessLockGuard, TryLock,
 };
 pub use matrix_sdk_store_encryption::Error as StoreEncryptionError;
 use ruma::{
@@ -86,7 +86,7 @@ impl EventCacheStoreLock {
     }
 
     /// Acquire a spin lock (see [`CrossProcessLock::spin_lock`]).
-    pub async fn lock(&self) -> Result<EventCacheStoreLockGuard<'_>, LockStoreError> {
+    pub async fn lock(&self) -> Result<EventCacheStoreLockGuard<'_>, CrossProcessLockError> {
         let cross_process_lock_guard = self.cross_process_lock.spin_lock(None).await?;
 
         Ok(EventCacheStoreLockGuard { cross_process_lock_guard, store: self.store.deref() })

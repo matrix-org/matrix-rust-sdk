@@ -32,7 +32,7 @@ use std::fmt;
 use std::{ops::Deref, sync::Arc};
 
 use matrix_sdk_common::cross_process_lock::{
-    CrossProcessLock, CrossProcessLockGuard, LockStoreError, TryLock,
+    CrossProcessLock, CrossProcessLockError, CrossProcessLockGuard, TryLock,
 };
 use matrix_sdk_store_encryption::Error as StoreEncryptionError;
 pub use traits::{DynMediaStore, IntoMediaStore, MediaStore, MediaStoreInner};
@@ -125,7 +125,7 @@ impl MediaStoreLock {
     }
 
     /// Acquire a spin lock (see [`CrossProcessLock::spin_lock`]).
-    pub async fn lock(&self) -> Result<MediaStoreLockGuard<'_>, LockStoreError> {
+    pub async fn lock(&self) -> Result<MediaStoreLockGuard<'_>, CrossProcessLockError> {
         let cross_process_lock_guard = self.cross_process_lock.spin_lock(None).await?;
 
         Ok(MediaStoreLockGuard { cross_process_lock_guard, store: self.store.deref() })

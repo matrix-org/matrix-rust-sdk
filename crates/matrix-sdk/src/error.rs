@@ -46,8 +46,9 @@ use thiserror::Error;
 use url::ParseError as UrlParseError;
 
 use crate::{
-    authentication::oauth::OAuthError, event_cache::EventCacheError, media::MediaError,
-    room::reply::ReplyError, sliding_sync::Error as SlidingSyncError, cross_process_lock::LockStoreError,
+    authentication::oauth::OAuthError, cross_process_lock::CrossProcessLockError,
+    event_cache::EventCacheError, media::MediaError, room::reply::ReplyError,
+    sliding_sync::Error as SlidingSyncError,
 };
 
 /// Result type of the matrix-sdk.
@@ -315,7 +316,7 @@ pub enum Error {
 
     /// An error occurred with a cross-process store lock.
     #[error(transparent)]
-    CrossProcessLockError(Box<LockStoreError>),
+    CrossProcessLockError(Box<CrossProcessLockError>),
 
     /// An error occurred during a E2EE operation.
     #[cfg(feature = "e2e-encryption")]
@@ -479,8 +480,8 @@ impl From<CryptoStoreError> for Error {
     }
 }
 
-impl From<LockStoreError> for Error {
-    fn from(error: LockStoreError) -> Self {
+impl From<CrossProcessLockError> for Error {
+    fn from(error: CrossProcessLockError) -> Self {
         Error::CrossProcessLockError(Box::new(error))
     }
 }
