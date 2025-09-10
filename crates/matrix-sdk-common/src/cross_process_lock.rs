@@ -190,7 +190,9 @@ where
 
     /// Try to lock once, returns whether the lock was obtained or not.
     #[instrument(skip(self), fields(?self.lock_key, ?self.lock_holder))]
-    pub async fn try_lock_once(&self) -> Result<Option<CrossProcessLockGuard>, LockStoreError> {
+    pub async fn try_lock_once(
+        &self,
+    ) -> Result<Option<CrossProcessLockGuard>, CrossProcessLockError> {
         // Hold onto the locking attempt mutex for the entire lifetime of this
         // function, to avoid multiple reentrant calls.
         let mut _attempt = self.locking_attempt.lock().await;
@@ -212,7 +214,7 @@ where
             .locker
             .try_lock(LEASE_DURATION_MS, &self.lock_key, &self.lock_holder)
             .await
-            .map_err(|err| LockStoreError::BackingStoreError(Box::new(err)))?;
+            .map_err(|err| CrossProcessLockError::TryLockError(Box::new(err)))?;
 
         if !acquired {
             trace!("Couldn't acquire the lock immediately.");
@@ -302,7 +304,7 @@ where
     pub async fn spin_lock(
         &self,
         max_backoff: Option<u32>,
-    ) -> Result<CrossProcessLockGuard, LockStoreError> {
+    ) -> Result<CrossProcessLockGuard, CrossProcessLockError> {
         let max_backoff = max_backoff.unwrap_or(MAX_BACKOFF_MS);
 
         // Note: reads/writes to the backoff are racy across threads in theory, but the
@@ -330,7 +332,7 @@ where
                 }
                 WaitingTime::Stop => {
                     // We've reached the maximum backoff, abandon.
-                    return Err(LockStoreError::LockTimeout);
+                    return Err(CrossProcessLockError::LockTimeout);
                 }
             };
 
@@ -348,18 +350,18 @@ where
 
 /// Error related to the locking API of the store.
 #[derive(Debug, thiserror::Error)]
-pub enum LockStoreError {
+pub enum CrossProcessLockError {
     /// Spent too long waiting for a database lock.
     #[error("a lock timed out")]
     LockTimeout,
 
     #[error(transparent)]
     #[cfg(not(target_family = "wasm"))]
-    BackingStoreError(#[from] Box<dyn Error + Send + Sync>),
+    TryLockError(#[from] Box<dyn Error + Send + Sync>),
 
     #[error(transparent)]
     #[cfg(target_family = "wasm")]
-    BackingStoreError(Box<dyn Error>),
+    TryLockError(Box<dyn Error>),
 }
 
 #[cfg(test)]
@@ -379,8 +381,8 @@ mod tests {
     };
 
     use super::{
-        CrossProcessLock, CrossProcessLockGuard, EXTEND_LEASE_EVERY_MS, LockStoreError, TryLock,
-        memory_store_helper::try_take_leased_lock,
+        CrossProcessLock, CrossProcessLockError, CrossProcessLockGuard, EXTEND_LEASE_EVERY_MS,
+        TryLock, memory_store_helper::try_take_leased_lock,
     };
 
     #[derive(Clone, Default)]
@@ -416,7 +418,7 @@ mod tests {
         sleep(Duration::from_millis(EXTEND_LEASE_EVERY_MS)).await;
     }
 
-    type TestResult = Result<(), LockStoreError>;
+    type TestResult = Result<(), CrossProcessLockError>;
 
     #[async_test]
     async fn test_simple_lock_unlock() -> TestResult {
@@ -518,7 +520,7 @@ mod tests {
             .expect("lock was obtained after spin-locking");
 
         // Now if lock1 tries to get the lock with a small timeout, it will fail.
-        assert_matches!(lock1.spin_lock(Some(200)).await, Err(LockStoreError::LockTimeout));
+        assert_matches!(lock1.spin_lock(Some(200)).await, Err(CrossProcessLockError::LockTimeout));
 
         Ok(())
     }

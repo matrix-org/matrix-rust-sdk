@@ -5,7 +5,9 @@ use matrix_sdk_base::crypto::{
     store::{LockableCryptoStore, Store},
     CryptoStoreError,
 };
-use matrix_sdk_common::cross_process_lock::{CrossProcessLock, CrossProcessLockGuard, LockStoreError};
+use matrix_sdk_common::cross_process_lock::{
+    CrossProcessLock, CrossProcessLockError, CrossProcessLockGuard,
+};
 use sha2::{Digest as _, Sha256};
 use thiserror::Error;
 use tokio::sync::{Mutex, OwnedMutexGuard};
@@ -216,7 +218,7 @@ pub enum CrossProcessRefreshLockError {
 
     /// The locking itself failed.
     #[error(transparent)]
-    LockError(#[from] LockStoreError),
+    LockError(#[from] CrossProcessLockError),
 
     /// The previous hash isn't valid.
     #[error("the previous stored hash isn't a valid integer")]

@@ -37,6 +37,7 @@ use eyeball::{SharedObservable, Subscriber};
 use eyeball_im::VectorDiff;
 use futures_util::future::{join_all, try_join_all};
 use matrix_sdk_base::{
+    cross_process_lock::CrossProcessLockError,
     deserialized_responses::{AmbiguityChange, TimelineEvent},
     event_cache::{
         store::{EventCacheStoreError, EventCacheStoreLock},
@@ -45,7 +46,6 @@ use matrix_sdk_base::{
     executor::AbortOnDrop,
     linked_chunk::{self, lazy_loader::LazyLoaderError, OwnedLinkedChunkId},
     serde_helpers::extract_thread_root_from_content,
-    cross_process_lock::LockStoreError,
     sync::RoomUpdates,
     timer, ThreadingSupport,
 };
@@ -111,7 +111,7 @@ pub enum EventCacheError {
 
     /// An error happening when attempting to (cross-process) lock storage.
     #[error(transparent)]
-    LockingStorage(#[from] LockStoreError),
+    LockingStorage(#[from] CrossProcessLockError),
 
     /// The [`EventCache`] owns a weak reference to the [`Client`] it pertains
     /// to. It's possible this weak reference points to nothing anymore, at

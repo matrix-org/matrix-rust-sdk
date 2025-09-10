@@ -141,6 +141,7 @@ use eyeball::SharedObservable;
 #[cfg(feature = "unstable-msc4274")]
 use matrix_sdk_base::store::FinishGalleryItemInfo;
 use matrix_sdk_base::{
+    cross_process_lock::CrossProcessLockError,
     event_cache::store::EventCacheStoreError,
     media::{store::MediaStoreError, MediaRequestParameters},
     store::{
@@ -148,7 +149,6 @@ use matrix_sdk_base::{
         FinishUploadThumbnailInfo, QueueWedgeError, QueuedRequest, QueuedRequestKind,
         SentMediaInfo, SentRequestKey, SerializableEventContent,
     },
-    cross_process_lock::LockStoreError,
     RoomState, StoreError,
 };
 use matrix_sdk_common::{
@@ -2354,7 +2354,7 @@ pub enum RoomSendQueueStorageError {
 
     /// Error caused when attempting to get a handle on the event cache store.
     #[error(transparent)]
-    LockError(#[from] LockStoreError),
+    LockError(#[from] CrossProcessLockError),
 
     /// Error caused when (de)serializing into/from json.
     #[error(transparent)]
