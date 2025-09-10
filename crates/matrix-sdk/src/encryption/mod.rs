@@ -399,7 +399,7 @@ impl FromStr for DuplicateOneTimeKeyErrorMessage {
 
     fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
         // First we split the string into two parts, the part containing the old key and
-        // the part containing the new key. The parts are conveninetly separated
+        // the part containing the new key. The parts are conveniently separated
         // by a `;` character.
         let mut split = s.split_terminator(';');
 
