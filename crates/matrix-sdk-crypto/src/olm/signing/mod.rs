@@ -499,31 +499,6 @@ impl PrivateCrossSigningIdentity {
             .sign(message))
     }
 
-    /// Create a new identity for the given Olm Account.
-    ///
-    /// Returns the new identity, the upload signing keys request and a
-    /// signature upload request that contains the signature of the account
-    /// signed by the self signing key.
-    ///
-    /// # Arguments
-    ///
-    /// * `account` - The Olm account that is creating the new identity. The
-    ///   account will sign the master key and the self signing key will sign
-    ///   the account.
-    pub(crate) async fn with_account(
-        account: &Account,
-    ) -> (Self, UploadSigningKeysRequest, SignatureUploadRequest) {
-        let identity = Self::for_account(account);
-        let signature_request = identity
-            .sign_account(account.static_data())
-            .await
-            .expect("Can't sign own device with new cross signing keys");
-
-        let request = identity.as_upload_request().await;
-
-        (identity, request, signature_request)
-    }
-
     fn new_helper(user_id: &UserId, master: MasterSigning) -> Self {
         let (user, self_signing) = master.new_subkeys();
 
