@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Collection of small helpers that implement store-based locks.
+//! A cross-process lock implementation.
 //!
 //! This is a per-process lock that may be used only for very specific use
 //! cases, where multiple processes might concurrently write to the same
@@ -21,15 +21,15 @@
 //! the same process, and it remains active as long as there's at least one user
 //! in a given process.
 //!
-//! The lock is implemented using time-based leases to values inserted in a
-//! store. The store maintains the lock identifier (key), who's the
-//! current holder (value), and an expiration timestamp on the side; see also
-//! `CryptoStore::try_take_leased_lock` for more details.
+//! The lock is implemented using time-based leases. The lock maintains the lock
+//! identifier (key), who's the current holder (value), and an expiration
+//! timestamp on the side; see also `CryptoStore::try_take_leased_lock` for more
+//! details.
 //!
 //! The lock is initially acquired for a certain period of time (namely, the
-//! duration of a lease, aka `LEASE_DURATION_MS`), and then a "heartbeat" task
+//! duration of a lease, aka `LEASE_DURATION_MS`), and then a “heartbeat” task
 //! renews the lease to extend its duration, every so often (namely, every
-//! `EXTEND_LEASE_EVERY_MS`). Since the tokio scheduler might be busy, the
+//! `EXTEND_LEASE_EVERY_MS`). Since the Tokio scheduler might be busy, the
 //! extension request should happen way more frequently than the duration of a
 //! lease, in case a deadline is missed. The current values have been chosen to
 //! reflect that, with a ratio of 1:10 as of 2023-06-23.
