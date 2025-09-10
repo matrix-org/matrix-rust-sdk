@@ -47,7 +47,7 @@ use url::ParseError as UrlParseError;
 
 use crate::{
     authentication::oauth::OAuthError, event_cache::EventCacheError, media::MediaError,
-    room::reply::ReplyError, sliding_sync::Error as SlidingSyncError, store_locks::LockStoreError,
+    room::reply::ReplyError, sliding_sync::Error as SlidingSyncError, cross_process_lock::LockStoreError,
 };
 
 /// Result type of the matrix-sdk.

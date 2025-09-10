@@ -45,7 +45,7 @@ use matrix_sdk_base::{
     executor::AbortOnDrop,
     linked_chunk::{self, lazy_loader::LazyLoaderError, OwnedLinkedChunkId},
     serde_helpers::extract_thread_root_from_content,
-    store_locks::LockStoreError,
+    cross_process_lock::LockStoreError,
     sync::RoomUpdates,
     timer, ThreadingSupport,
 };

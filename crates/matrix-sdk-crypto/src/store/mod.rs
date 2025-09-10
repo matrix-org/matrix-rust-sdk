@@ -99,7 +99,7 @@ pub mod integration_tests;
 pub(crate) use crypto_store_wrapper::CryptoStoreWrapper;
 pub use error::{CryptoStoreError, Result};
 use matrix_sdk_common::{
-    deserialized_responses::WithheldCode, store_locks::CrossProcessLock, timeout::timeout,
+    cross_process_lock::CrossProcessLock, deserialized_responses::WithheldCode, timeout::timeout,
 };
 pub use memorystore::MemoryStore;
 pub use traits::{CryptoStore, DynCryptoStore, IntoCryptoStore};
@@ -1700,7 +1700,7 @@ impl Deref for Store {
 #[derive(Clone, Debug)]
 pub struct LockableCryptoStore(Arc<dyn CryptoStore<Error = CryptoStoreError>>);
 
-impl matrix_sdk_common::store_locks::TryLock for LockableCryptoStore {
+impl matrix_sdk_common::cross_process_lock::TryLock for LockableCryptoStore {
     type LockError = CryptoStoreError;
 
     async fn try_lock(

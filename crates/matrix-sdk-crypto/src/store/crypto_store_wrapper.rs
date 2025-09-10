@@ -2,7 +2,7 @@ use std::{future, ops::Deref, sync::Arc};
 
 use futures_core::Stream;
 use futures_util::StreamExt;
-use matrix_sdk_common::store_locks::CrossProcessLock;
+use matrix_sdk_common::cross_process_lock::CrossProcessLock;
 use ruma::{DeviceId, OwnedDeviceId, OwnedUserId, UserId};
 use tokio::sync::{broadcast, Mutex};
 use tokio_stream::wrappers::{errors::BroadcastStreamRecvError, BroadcastStream};

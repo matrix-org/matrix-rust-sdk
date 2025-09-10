@@ -20,7 +20,7 @@ use std::{
 
 use async_trait::async_trait;
 use matrix_sdk_common::{
-    locks::RwLock as StdRwLock, store_locks::memory_store_helper::try_take_leased_lock,
+    cross_process_lock::memory_store_helper::try_take_leased_lock, locks::RwLock as StdRwLock,
 };
 use ruma::{
     events::secret::request::SecretName, time::Instant, DeviceId, OwnedDeviceId, OwnedRoomId,

@@ -91,8 +91,8 @@ use self::{
 use crate::{
     attachment::Thumbnail,
     client::{ClientInner, WeakClient},
+    cross_process_lock::CrossProcessLockGuard,
     error::HttpResult,
-    store_locks::CrossProcessLockGuard,
     Client, Error, HttpError, Result, Room, RumaApiError, TransmissionProgress,
 };
 

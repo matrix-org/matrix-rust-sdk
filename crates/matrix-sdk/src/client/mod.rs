@@ -110,8 +110,8 @@ use crate::{
 };
 #[cfg(feature = "e2e-encryption")]
 use crate::{
+    cross_process_lock::CrossProcessLock,
     encryption::{Encryption, EncryptionData, EncryptionSettings, VerificationState},
-    store_locks::CrossProcessLock,
 };
 
 mod builder;
@@ -301,7 +301,7 @@ pub(crate) struct ClientInner {
     /// The cross-process store locks holder name.
     ///
     /// The SDK provides cross-process store locks (see
-    /// [`matrix_sdk_common::store_locks::CrossProcessLock`]). The
+    /// [`matrix_sdk_common::cross_process_lock::CrossProcessLock`]). The
     /// `holder_name` is the value used for all cross-process store locks
     /// used by this `Client`.
     ///
@@ -519,7 +519,7 @@ impl Client {
     /// The cross-process store locks holder name.
     ///
     /// The SDK provides cross-process store locks (see
-    /// [`matrix_sdk_common::store_locks::CrossProcessLock`]). The
+    /// [`matrix_sdk_common::cross_process_lock::CrossProcessLock`]). The
     /// `holder_name` is the value used for all cross-process store locks
     /// used by this `Client`.
     pub fn cross_process_store_locks_holder_name(&self) -> &str {
@@ -2767,7 +2767,7 @@ impl Client {
     /// See [`CrossProcessLock::new`] to learn more about
     /// `cross_process_store_locks_holder_name`.
     ///
-    /// [`CrossProcessLock::new`]: matrix_sdk_common::store_locks::CrossProcessLock::new
+    /// [`CrossProcessLock::new`]: matrix_sdk_common::cross_process_lock::CrossProcessLock::new
     pub async fn notification_client(
         &self,
         cross_process_store_locks_holder_name: String,
