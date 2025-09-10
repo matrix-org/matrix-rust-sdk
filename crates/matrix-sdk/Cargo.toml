@@ -32,7 +32,6 @@ e2e-encryption = [
     "matrix-sdk-sqlite?/crypto-store",
     # activate on indexeddb if given
     "matrix-sdk-indexeddb?/e2e-encryption",
-    "regex",
 ]
 js = ["matrix-sdk-common/js", "matrix-sdk-base/js"]
 
@@ -126,7 +125,6 @@ ruma = { workspace = true, features = [
     "unstable-msc4133",
     "unstable-msc4278",
 ] }
-regex = { workspace = true, optional = true }
 serde.workspace = true
 serde_html_form.workspace = true
 serde_json.workspace = true

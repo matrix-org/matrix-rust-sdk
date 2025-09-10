@@ -398,13 +398,6 @@ impl FromStr for DuplicateOneTimeKeyErrorMessage {
     type Err = serde_json::Error;
 
     fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
-        use regex::Regex;
-
-        let re = Regex::new(
-            r"^One time key signed_curve25519:[A-Za-z0-9+/=]+ already exists\. Old key:",
-        )
-        .expect("We should be able to build the one-time key error message regex");
-
         // First we split the string into two parts, the part containing the old key and
         // the part containing the new key. The parts are conveninetly separated
         // by a `;` character.
@@ -419,7 +412,14 @@ impl FromStr for DuplicateOneTimeKeyErrorMessage {
 
         // Now we remove the lengthy prefix from the part containing the old key, we
         // should be left with just the JSON of the signed key.
-        let old_key = re.replace(old_key, "");
+        let old_key_index = old_key
+            .find("Old key:")
+            .ok_or(serde_json::Error::custom("Old key is missing the prefix"))?;
+
+        let old_key = old_key[old_key_index..]
+            .trim()
+            .strip_prefix("Old key:")
+            .ok_or(serde_json::Error::custom("Old key is missing the prefix"))?;
 
         // The part containing the new key is much simpler, we just remove a static
         // prefix.
@@ -711,20 +711,25 @@ impl Client {
                                         if let Ok(message) =
                                             DuplicateOneTimeKeyErrorMessage::from_str(message)
                                         {
-                                            tracing::error!(
+                                            error!(
                                                 sentry = true,
                                                 old_key = %message.old_key,
                                                 new_key = %message.new_key,
                                                 "Duplicate one-time keys have been uploaded"
                                             );
                                         } else {
-                                            self.state_store()
-                                                .set_kv_data(
-                                                    StateStoreDataKey::OneTimeKeyAlreadyUploaded,
-                                                    StateStoreDataValue::OneTimeKeyAlreadyUploaded,
-                                                )
-                                                .await?;
+                                            error!(
+                                                sentry = true,
+                                                "Duplicate one-time keys have been uploaded"
+                                            );
                                         }
+
+                                        self.state_store()
+                                            .set_kv_data(
+                                                StateStoreDataKey::OneTimeKeyAlreadyUploaded,
+                                                StateStoreDataValue::OneTimeKeyAlreadyUploaded,
+                                            )
+                                            .await?;
                                     }
                                 }
                             }
@@ -2413,5 +2418,8 @@ mod tests {
         );
         DuplicateOneTimeKeyErrorMessage::from_str(message)
             .expect("We should be able to parse the error message");
+
+        DuplicateOneTimeKeyErrorMessage::from_str("One time key already exists.")
+            .expect_err("We should't be able to parse an incomplete error message");
     }
 }
