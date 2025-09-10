@@ -194,16 +194,7 @@ impl<S: BackingStore + Clone + SendOutsideWasm + 'static> CrossProcessStoreLock<
             .store
             .try_lock(LEASE_DURATION_MS, &self.lock_key, &self.lock_holder)
             .await
-            .map_err(|err| {
-                #[cfg(not(target_family = "wasm"))]
-                {
-                    LockStoreError::BackingStoreError(Box::new(err))
-                }
-                #[cfg(target_family = "wasm")]
-                {
-                    LockStoreError::BackingStoreError(Box::new(err))
-                }
-            })?;
+            .map_err(|err| LockStoreError::BackingStoreError(Box::new(err)))?;
 
         if !acquired {
             trace!("Couldn't acquire the lock immediately.");
