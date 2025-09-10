@@ -433,7 +433,7 @@ impl FromStr for DuplicateOneTimeKeyErrorMessage {
         let new_key = new_key.replace("'", "\"");
 
         // Let's deserialize now.
-        let old_key: SignedKey = serde_json::from_str(&old_key)?;
+        let old_key: SignedKey = serde_json::from_str(old_key)?;
         let new_key: SignedKey = serde_json::from_str(&new_key)?;
 
         // Pick out the Curve keys, we don't care about the rest that much.
