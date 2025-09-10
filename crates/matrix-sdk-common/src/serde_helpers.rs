@@ -16,7 +16,7 @@
 //! to access some fields.
 
 use ruma::{
-    OwnedEventId,
+    MilliSecondsSinceUnixEpoch, OwnedEventId,
     events::{
         AnyMessageLikeEventContent, AnySyncMessageLikeEvent, AnySyncTimelineEvent,
         relation::BundledThread,
@@ -116,17 +116,35 @@ pub fn extract_bundled_thread_summary(
     }
 }
 
+/// Try to extract the `origin_server_ts`, if available.
+///
+/// If the value is larger than `max_value`, it becomes `max_value`. This is
+/// necessary to prevent against user-forged value pretending an event is coming
+/// from the future.
+pub fn extract_timestamp(
+    event: &Raw<AnySyncTimelineEvent>,
+    max_value: MilliSecondsSinceUnixEpoch,
+) -> Option<MilliSecondsSinceUnixEpoch> {
+    let mut origin_server_ts = event.get_field("origin_server_ts").ok().flatten()?;
+
+    if origin_server_ts > max_value {
+        origin_server_ts = max_value;
+    }
+
+    Some(origin_server_ts)
+}
+
 #[cfg(test)]
 mod tests {
     use assert_matches::assert_matches;
-    use ruma::{event_id, serde::Raw};
+    use ruma::{UInt, event_id};
     use serde_json::json;
 
-    use super::extract_thread_root;
-    use crate::{
-        deserialized_responses::{ThreadSummary, ThreadSummaryStatus},
-        serde_helpers::extract_bundled_thread_summary,
+    use super::{
+        MilliSecondsSinceUnixEpoch, Raw, extract_bundled_thread_summary, extract_thread_root,
+        extract_timestamp,
     };
+    use crate::deserialized_responses::{ThreadSummary, ThreadSummaryStatus};
 
     #[test]
     fn test_extract_thread_root() {
@@ -305,5 +323,80 @@ mod tests {
             extract_bundled_thread_summary(&event),
             (ThreadSummaryStatus::Unknown, None)
         );
+    }
+
+    #[test]
+    fn test_extract_timestamp() {
+        let event = Raw::new(&json!({
+            "event_id": "$ev0",
+            "type": "m.room.message",
+            "sender": "@mnt_io:matrix.org",
+            "origin_server_ts": 42,
+            "content": {
+                "body": "Le gras, c'est la vie",
+            }
+        }))
+        .unwrap()
+        .cast_unchecked();
+
+        let timestamp = extract_timestamp(&event, MilliSecondsSinceUnixEpoch(UInt::from(100u32)));
+
+        assert_eq!(timestamp, Some(MilliSecondsSinceUnixEpoch(UInt::from(42u32))));
+    }
+
+    #[test]
+    fn test_extract_timestamp_no_origin_server_ts() {
+        let event = Raw::new(&json!({
+            "event_id": "$ev0",
+            "type": "m.room.message",
+            "sender": "@mnt_io:matrix.org",
+            "content": {
+                "body": "Le gras, c'est la vie",
+            }
+        }))
+        .unwrap()
+        .cast_unchecked();
+
+        let timestamp = extract_timestamp(&event, MilliSecondsSinceUnixEpoch(UInt::from(100u32)));
+
+        assert!(timestamp.is_none());
+    }
+
+    #[test]
+    fn test_extract_timestamp_invalid_origin_server_ts() {
+        let event = Raw::new(&json!({
+            "event_id": "$ev0",
+            "type": "m.room.message",
+            "sender": "@mnt_io:matrix.org",
+            "origin_server_ts": "saucisse",
+            "content": {
+                "body": "Le gras, c'est la vie",
+            }
+        }))
+        .unwrap()
+        .cast_unchecked();
+
+        let timestamp = extract_timestamp(&event, MilliSecondsSinceUnixEpoch(UInt::from(100u32)));
+
+        assert!(timestamp.is_none());
+    }
+
+    #[test]
+    fn test_extract_timestamp_malicious_origin_server_ts() {
+        let event = Raw::new(&json!({
+            "event_id": "$ev0",
+            "type": "m.room.message",
+            "sender": "@mnt_io:matrix.org",
+            "origin_server_ts": 101,
+            "content": {
+                "body": "Le gras, c'est la vie",
+            }
+        }))
+        .unwrap()
+        .cast_unchecked();
+
+        let timestamp = extract_timestamp(&event, MilliSecondsSinceUnixEpoch(UInt::from(100u32)));
+
+        assert_eq!(timestamp, Some(MilliSecondsSinceUnixEpoch(UInt::from(100u32))));
     }
 }

@@ -116,6 +116,10 @@ async fn decrypt_sync_room_event(
     {
         RoomEventDecryptionResult::Decrypted(decrypted) => {
             // We're fine not setting the push actions for the latest event.
+
+            // TODO: we should use `TimelineEvent::to_decrypted`
+            // but this whole code is about to get soon removed by
+            // https://github.com/matrix-org/matrix-rust-sdk/pull/5624.
             let event = TimelineEvent::from_decrypted(decrypted, None);
 
             if let Ok(sync_timeline_event) = event.raw().deserialize() {
@@ -127,6 +131,9 @@ async fn decrypt_sync_room_event(
         }
 
         RoomEventDecryptionResult::UnableToDecrypt(utd_info) => {
+            // TODO: we should use `TimelineEvent::to_utd`
+            // but this whole code is about to get soon removed by
+            // https://github.com/matrix-org/matrix-rust-sdk/pull/5624.
             TimelineEvent::from_utd(event.clone(), utd_info)
         }
     };

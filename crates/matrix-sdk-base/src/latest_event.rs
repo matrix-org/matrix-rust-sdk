@@ -790,6 +790,7 @@ mod tests {
                             }
                         },
                         "thread_summary": "None",
+                        "timestamp": null,
                     }
                 }
             })
