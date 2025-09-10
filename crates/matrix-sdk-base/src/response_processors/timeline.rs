@@ -16,7 +16,7 @@ use matrix_sdk_common::{deserialized_responses::TimelineEvent, timer};
 #[cfg(feature = "e2e-encryption")]
 use ruma::events::SyncMessageLikeEvent;
 use ruma::{
-    UInt, UserId, assign,
+    MilliSecondsSinceUnixEpoch, UInt, UserId, assign,
     events::{AnySyncMessageLikeEvent, AnySyncTimelineEvent},
     push::{Action, PushConditionRoomCtx},
 };
@@ -31,6 +31,7 @@ use crate::{Result, Room, RoomInfo, sync::Timeline};
 ///
 /// For each event:
 /// - will try to decrypt it,
+/// - will fix the `origin_server_ts` if considered invalid,
 /// - will process verification,
 /// - will process redaction,
 /// - will process notification.
@@ -46,6 +47,7 @@ pub async fn build<'notification, 'e2ee>(
 ) -> Result<Timeline> {
     let _timer = timer!(tracing::Level::TRACE, "build a timeline from sync");
 
+    let now = MilliSecondsSinceUnixEpoch::now();
     let mut timeline = Timeline::new(timeline_inputs.limited, timeline_inputs.prev_batch);
     let mut push_condition_room_ctx = get_push_room_context(context, room, room_info).await?;
     let room_id = room.room_id();
@@ -53,7 +55,7 @@ pub async fn build<'notification, 'e2ee>(
     for raw_event in timeline_inputs.raw_events {
         // Start by assuming we have a plaintext event. We'll replace it with a
         // decrypted or UTD event below if necessary.
-        let mut timeline_event = TimelineEvent::from_plaintext(raw_event);
+        let mut timeline_event = TimelineEvent::from_plaintext_with_max_timestamp(raw_event, now);
 
         // Do some special stuff on the `timeline_event` before collecting it.
         match timeline_event.raw().deserialize() {
@@ -94,7 +96,7 @@ pub async fn build<'notification, 'e2ee>(
                                 if let Some(decrypted_timeline_event) =
                                     Box::pin(e2ee::decrypt::sync_timeline_event(
                                         e2ee.clone(),
-                                        timeline_event.raw(),
+                                        &timeline_event,
                                         room_id,
                                     ))
                                     .await?

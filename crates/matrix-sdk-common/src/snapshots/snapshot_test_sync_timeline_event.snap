@@ -49,5 +49,6 @@ expression: "serde_json::to_value(&room_event).unwrap()"
     "Some": {
       "num_replies": 2
     }
-  }
+  },
+  "timestamp": 2189
 }
