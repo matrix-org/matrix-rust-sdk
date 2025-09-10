@@ -358,7 +358,8 @@ impl OtherUserIdentity {
     }
 
     /// Create a [`VerificationRequest`] object after the verification request
-    /// content has been sent out.
+    /// content returned by [`OtherUserIdentity::verification_request_content`]
+    /// has been sent out.
     pub fn request_verification(
         &self,
         room_id: &RoomId,
@@ -373,10 +374,9 @@ impl OtherUserIdentity {
         )
     }
 
-    /// Send a verification request to the given user.
+    /// Create a verification request to send to the given user.
     ///
-    /// The returned content needs to be sent out into a DM room with the given
-    /// user.
+    /// The returned content needs to be sent out into a DM room with the user.
     ///
     /// After the content has been sent out a [`VerificationRequest`] can be
     /// started with the [`OtherUserIdentity::request_verification()`] method.
@@ -1433,7 +1433,7 @@ pub(crate) mod tests {
         store::{CryptoStoreWrapper, MemoryStore},
         types::{CrossSigningKey, MasterPubkey, SelfSigningPubkey, Signatures, UserSigningPubkey},
         verification::VerificationMachine,
-        CrossSigningKeyExport, OlmMachine, OtherUserIdentityData,
+        CrossSigningKeyExport, OlmMachine, OtherUserIdentity, OtherUserIdentityData,
     };
 
     #[test]
@@ -1962,6 +1962,57 @@ pub(crate) mod tests {
             },
             "verified": false
         })
+    }
+
+    #[async_test]
+    async fn test_other_user_identity_verification_request_content() {
+        let other_user_identity = other_user_identity().await;
+        let verification_request_content = other_user_identity.verification_request_content(None);
+        let mut verification_request_content_json =
+            serde_json::to_value(verification_request_content)
+                .expect("Could not serialize verification request content");
+
+        // Remove the body which is a pain to match
+        let verification_request_content_object = verification_request_content_json
+            .as_object_mut()
+            .expect("serialized verification request was not an object");
+        verification_request_content_object.remove("body").expect("No `body` in message content");
+
+        // The methods are variable too
+        let methods = verification_request_content_object
+            .remove("methods")
+            .expect("No `methods` in message content");
+        let methods = methods.as_array().expect("`methods` was not an array");
+        assert!(methods.contains(&json!("m.sas.v1")));
+        assert!(methods.contains(&json!("m.reciprocate.v1")));
+
+        assert_eq!(
+            verification_request_content_json,
+            json!({
+                "msgtype": "m.key.verification.request",
+                "from_device": "DEV123",
+                "to": other_user_identity.user_id().to_string(),
+            })
+        );
+    }
+
+    /// Create an [`OtherUserIdentity`] for use in tests
+    async fn other_user_identity() -> OtherUserIdentity {
+        use ruma::owned_device_id;
+
+        let other_user_identity_data = get_other_identity();
+
+        let account =
+            Account::with_device_id(user_id!("@own_user:localhost"), &owned_device_id!("DEV123"));
+
+        let verification_machine = get_verification_machine(&account);
+        let own_identity_data = verification_machine.get_own_user_identity_data().await.unwrap();
+
+        OtherUserIdentity {
+            inner: other_user_identity_data,
+            own_identity: Some(own_identity_data),
+            verification_machine,
+        }
     }
 
     /**
