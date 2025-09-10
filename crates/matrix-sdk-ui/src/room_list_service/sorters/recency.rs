@@ -99,7 +99,10 @@ fn extract_rank(left: &Room, right: &Room) -> (Option<Rank>, Option<Rank>) {
             right @ LatestEventValue::Remote(_)
             | right @ LatestEventValue::LocalIsSending(_)
             | right @ LatestEventValue::LocalCannotBeSent(_),
-        ) => (left.timestamp(), right.timestamp()),
+        ) => (
+            left.timestamp().map(|ms| ms.get().into()),
+            right.timestamp().map(|ms| ms.get().into()),
+        ),
     }
 }
 
