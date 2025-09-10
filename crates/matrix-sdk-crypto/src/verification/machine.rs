@@ -530,6 +530,18 @@ impl VerificationMachine {
 
         Ok(())
     }
+
+    /**
+     * Utility function to build the public identity (i.e., an
+     * [`OwnUserIdentityData`]) corresponding to the private identity
+     * stored in the `VerificationStore`.
+     */
+    #[cfg(test)]
+    pub async fn get_own_user_identity_data(
+        &self,
+    ) -> Result<crate::OwnUserIdentityData, crate::SignatureError> {
+        self.store.private_identity.lock().await.to_public_identity().await
+    }
 }
 
 #[cfg(test)]

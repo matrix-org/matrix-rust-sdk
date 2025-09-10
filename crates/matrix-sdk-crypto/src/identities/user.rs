@@ -1596,17 +1596,8 @@ pub(crate) mod tests {
         assert!(!identity.is_device_signed(&first));
         assert!(identity.is_device_signed(&second));
 
-        let private_identity =
-            Arc::new(Mutex::new(PrivateCrossSigningIdentity::empty(second.user_id())));
-        let verification_machine = VerificationMachine::new(
-            Account::with_device_id(second.user_id(), second.device_id()).static_data,
-            private_identity,
-            Arc::new(CryptoStoreWrapper::new(
-                second.user_id(),
-                second.device_id(),
-                MemoryStore::new(),
-            )),
-        );
+        let account = Account::with_device_id(second.user_id(), second.device_id());
+        let verification_machine = get_verification_machine(&account);
 
         let first = Device {
             inner: first,
@@ -1639,21 +1630,8 @@ pub(crate) mod tests {
         let (_, device) = device(&response);
 
         let account = Account::with_device_id(device.user_id(), device.device_id());
-        let identity = PrivateCrossSigningIdentity::for_account(&account);
-
-        let id = Arc::new(Mutex::new(identity.clone()));
-
-        let verification_machine = VerificationMachine::new(
-            Account::with_device_id(device.user_id(), device.device_id()).static_data,
-            id.clone(),
-            Arc::new(CryptoStoreWrapper::new(
-                device.user_id(),
-                device.device_id(),
-                MemoryStore::new(),
-            )),
-        );
-
-        let public_identity = identity.to_public_identity().await.unwrap();
+        let verification_machine = get_verification_machine(&account);
+        let public_identity = verification_machine.get_own_user_identity_data().await.unwrap();
 
         let mut device = Device {
             inner: device,
@@ -1666,6 +1644,7 @@ pub(crate) mod tests {
 
         let mut device_keys = device.as_device_keys().to_owned();
 
+        let identity = verification_machine.store.private_identity.lock().await;
         identity.sign_device_keys(&mut device_keys).await.unwrap();
         device.inner.update_device(&device_keys).expect("Couldn't update newly signed device keys");
         assert!(device.is_verified());
@@ -1983,5 +1962,24 @@ pub(crate) mod tests {
             },
             "verified": false
         })
+    }
+
+    /**
+     * Create a minimal [`VerificationMachine`] for the given account,
+     * backed by a [`MemoryStore`].
+     *
+     * Creates a new private user identity for the account.
+     */
+    fn get_verification_machine(account: &Account) -> VerificationMachine {
+        let private_identity = PrivateCrossSigningIdentity::for_account(account);
+        VerificationMachine::new(
+            account.static_data().clone(),
+            Arc::new(Mutex::new(private_identity)),
+            Arc::new(CryptoStoreWrapper::new(
+                account.user_id(),
+                account.device_id(),
+                MemoryStore::new(),
+            )),
+        )
     }
 }
