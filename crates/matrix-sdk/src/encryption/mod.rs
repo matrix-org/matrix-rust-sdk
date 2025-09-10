@@ -2423,6 +2423,6 @@ mod tests {
         assert_eq!(message.new_key.to_base64(), "CY0TWVK1/Kj3ZADuBcGe3UKvpT+IKAPMUsMeJhSDqno");
 
         DuplicateOneTimeKeyErrorMessage::from_str("One time key already exists.")
-            .expect_err("We should't be able to parse an incomplete error message");
+            .expect_err("We shouldn't be able to parse an incomplete error message");
     }
 }
