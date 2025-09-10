@@ -1700,7 +1700,7 @@ impl Deref for Store {
 #[derive(Clone, Debug)]
 pub struct LockableCryptoStore(Arc<dyn CryptoStore<Error = CryptoStoreError>>);
 
-impl matrix_sdk_common::store_locks::BackingStore for LockableCryptoStore {
+impl matrix_sdk_common::store_locks::TryLock for LockableCryptoStore {
     type LockError = CryptoStoreError;
 
     async fn try_lock(

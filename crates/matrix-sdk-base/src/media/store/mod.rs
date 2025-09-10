@@ -32,7 +32,7 @@ use std::fmt;
 use std::{ops::Deref, sync::Arc};
 
 use matrix_sdk_common::store_locks::{
-    BackingStore, CrossProcessLock, CrossProcessLockGuard, LockStoreError,
+    CrossProcessLock, CrossProcessLockGuard, LockStoreError, TryLock,
 };
 use matrix_sdk_store_encryption::Error as StoreEncryptionError;
 pub use traits::{DynMediaStore, IntoMediaStore, MediaStore, MediaStoreInner};
@@ -159,12 +159,12 @@ impl Deref for MediaStoreLockGuard<'_> {
     }
 }
 
-/// A type that wraps the [`MediaStore`] but implements [`BackingStore`] to
+/// A type that wraps the [`MediaStore`] but implements [`TryLock`] to
 /// make it usable inside the cross process lock.
 #[derive(Clone, Debug)]
 struct LockableMediaStore(Arc<DynMediaStore>);
 
-impl BackingStore for LockableMediaStore {
+impl TryLock for LockableMediaStore {
     type LockError = MediaStoreError;
 
     async fn try_lock(
