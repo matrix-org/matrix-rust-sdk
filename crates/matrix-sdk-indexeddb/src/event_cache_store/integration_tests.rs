@@ -684,30 +684,3 @@ macro_rules! indexeddb_event_cache_store_integration_tests {
         }
     };
 }
-
-/// This is a partial copy of
-/// [`matrix_sdk_base::event_cache_store_media_integration_tests`] that contains
-/// tests for functions of [`EventCacheStoreMedia`] that are implemented by
-/// [`IndexeddbEventCacheStore`].
-///
-/// This is useful for adding functionality to [`IndexeddbEventCacheStore`] over
-/// multiple pull requests. Once a full implementation [`EventCacheStoreMedia`]
-/// exists, this will be replaced with the actual integration tests referenced
-/// above.
-#[macro_export]
-macro_rules! event_cache_store_media_integration_tests {
-    () => {
-        mod event_cache_store_media_integration_tests {
-            use matrix_sdk_base::event_cache::store::media::EventCacheStoreMediaIntegrationTests;
-            use matrix_sdk_test::async_test;
-
-            use super::get_event_cache_store;
-
-            #[async_test]
-            async fn test_store_media_retention_policy() {
-                let event_cache_store_media = get_event_cache_store().await.unwrap();
-                event_cache_store_media.test_store_media_retention_policy().await;
-            }
-        }
-    };
-}

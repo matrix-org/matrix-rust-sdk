@@ -12,26 +12,28 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Trait and macro of integration tests for `EventCacheStoreMedia`
+//! Trait and macro of integration tests for `MediaStoreInner`
 //! implementations.
 
 use ruma::{
     events::room::MediaSource,
+    media::Method,
     mxc_uri, owned_mxc_uri,
     time::{Duration, SystemTime},
+    uint,
 };
 
-use super::{
-    EventCacheStoreMedia, MediaRetentionPolicy, media_service::IgnoreMediaRetentionPolicy,
+use super::{MediaRetentionPolicy, MediaStoreInner, media_service::IgnoreMediaRetentionPolicy};
+use crate::media::{
+    MediaFormat, MediaRequestParameters, MediaThumbnailSettings, store::MediaStore,
 };
-use crate::media::{MediaFormat, MediaRequestParameters};
 
-/// [`EventCacheStoreMedia`] integration tests.
+/// [`MediaStoreInner`] integration tests.
 ///
 /// This trait is not meant to be used directly, but will be used with the
-/// `event_cache_store_media_integration_tests!` macro.
+/// `media_store_inner_integration_tests!` macro.
 #[allow(async_fn_in_trait)]
-pub trait EventCacheStoreMediaIntegrationTests {
+pub trait MediaStoreInnerIntegrationTests {
     /// Test media retention policy storage.
     async fn test_store_media_retention_policy(&self);
 
@@ -56,9 +58,9 @@ pub trait EventCacheStoreMediaIntegrationTests {
     async fn test_store_last_media_cleanup_time(&self);
 }
 
-impl<Store> EventCacheStoreMediaIntegrationTests for Store
+impl<Store> MediaStoreInnerIntegrationTests for Store
 where
-    Store: EventCacheStoreMedia + std::fmt::Debug,
+    Store: MediaStoreInner + std::fmt::Debug,
 {
     async fn test_store_media_retention_policy(&self) {
         let stored = self.media_retention_policy_inner().await.unwrap();
@@ -138,7 +140,7 @@ where
         assert!(stored.is_some());
 
         // A cleanup doesn't have any effect.
-        self.clean_up_media_cache_inner(policy, time).await.unwrap();
+        self.clean_inner(policy, time).await.unwrap();
 
         let stored = self.get_media_content_inner(&request_avg, time).await.unwrap();
         assert!(stored.is_some());
@@ -149,7 +151,7 @@ where
         let policy = MediaRetentionPolicy::empty().with_max_file_size(Some(100));
 
         // The cleanup removes the average media.
-        self.clean_up_media_cache_inner(policy, time).await.unwrap();
+        self.clean_inner(policy, time).await.unwrap();
 
         let stored = self.get_media_content_inner(&request_avg, time).await.unwrap();
         assert!(stored.is_none());
@@ -217,7 +219,7 @@ where
             .with_max_file_size(Some(1000));
 
         // The cleanup removes the average media.
-        self.clean_up_media_cache_inner(policy, time).await.unwrap();
+        self.clean_inner(policy, time).await.unwrap();
 
         let stored = self.get_media_content_inner(&request_avg, time).await.unwrap();
         assert!(stored.is_none());
@@ -395,7 +397,7 @@ where
 
         // Cleanup removes the oldest content first.
         time += Duration::from_secs(1);
-        self.clean_up_media_cache_inner(policy, time).await.unwrap();
+        self.clean_inner(policy, time).await.unwrap();
 
         time += Duration::from_secs(1);
         let stored = self.get_media_content_inner(&request_small_1, time).await.unwrap();
@@ -481,7 +483,7 @@ where
         // before.
         time += Duration::from_secs(1);
         tracing::info!(?self, "before");
-        self.clean_up_media_cache_inner(policy, time).await.unwrap();
+        self.clean_inner(policy, time).await.unwrap();
         tracing::info!(?self, "after");
         time += Duration::from_secs(1);
         let stored = self.get_media_content_inner(&request_small_1, time).await.unwrap();
@@ -602,7 +604,7 @@ where
         assert_eq!(time, SystemTime::UNIX_EPOCH + Duration::from_secs(10));
 
         // Cleanup has no effect, nothing has expired.
-        self.clean_up_media_cache_inner(policy, time).await.unwrap();
+        self.clean_inner(policy, time).await.unwrap();
 
         time += Duration::from_secs(1);
         let stored = self.get_media_content_inner(&request_1, time).await.unwrap();
@@ -629,7 +631,7 @@ where
         time += Duration::from_secs(26);
 
         // Cleanup removes the two oldest media contents.
-        self.clean_up_media_cache_inner(policy, time).await.unwrap();
+        self.clean_inner(policy, time).await.unwrap();
 
         time += Duration::from_secs(1);
         let stored = self.get_media_content_inner(&request_1, time).await.unwrap();
@@ -745,7 +747,7 @@ where
 
         // Because the big and average contents are ignored, cleanup has no effect.
         time += Duration::from_secs(1);
-        self.clean_up_media_cache_inner(policy, time).await.unwrap();
+        self.clean_inner(policy, time).await.unwrap();
 
         time += Duration::from_secs(1);
         let stored = self.get_media_content_inner(&request_small, time).await.unwrap();
@@ -763,7 +765,7 @@ where
             .unwrap();
 
         time += Duration::from_secs(1);
-        self.clean_up_media_cache_inner(policy, time).await.unwrap();
+        self.clean_inner(policy, time).await.unwrap();
 
         time += Duration::from_secs(1);
         let stored = self.get_media_content_inner(&request_small, time).await.unwrap();
@@ -782,7 +784,7 @@ where
             .unwrap();
 
         time += Duration::from_secs(1);
-        self.clean_up_media_cache_inner(policy, time).await.unwrap();
+        self.clean_inner(policy, time).await.unwrap();
 
         time += Duration::from_secs(1);
         let stored = self.get_media_content_inner(&request_small, time).await.unwrap();
@@ -892,7 +894,7 @@ where
         time += Duration::from_secs(120);
 
         // Cleanup removes all the media contents that are not ignored.
-        self.clean_up_media_cache_inner(policy, time).await.unwrap();
+        self.clean_inner(policy, time).await.unwrap();
 
         time += Duration::from_secs(1);
         let stored = self.get_media_content_inner(&request_1, time).await.unwrap();
@@ -922,7 +924,7 @@ where
         time += Duration::from_secs(120);
 
         // Cleanup removes the remaining media contents.
-        self.clean_up_media_cache_inner(policy, time).await.unwrap();
+        self.clean_inner(policy, time).await.unwrap();
 
         time += Duration::from_secs(1);
         let stored = self.get_media_content_inner(&request_1, time).await.unwrap();
@@ -947,21 +949,21 @@ where
 
         // With an empty policy.
         let policy = MediaRetentionPolicy::empty();
-        self.clean_up_media_cache_inner(policy, new_time).await.unwrap();
+        self.clean_inner(policy, new_time).await.unwrap();
 
         let stored = self.last_media_cleanup_time_inner().await.unwrap();
         assert_eq!(stored, initial);
 
         // With the default policy.
         let policy = MediaRetentionPolicy::default();
-        self.clean_up_media_cache_inner(policy, new_time).await.unwrap();
+        self.clean_inner(policy, new_time).await.unwrap();
 
         let stored = self.last_media_cleanup_time_inner().await.unwrap();
         assert_eq!(stored, Some(new_time));
     }
 }
 
-/// Macro building to allow your [`EventCacheStoreMedia`] implementation to run
+/// Macro building to allow your [`MediaStoreInner`] implementation to run
 /// the entire tests suite locally.
 ///
 /// Can be run with the `with_media_size_tests` argument to include more tests
@@ -969,91 +971,424 @@ where
 /// recommended to run those in encrypted stores because the size of the
 /// encrypted content may vary compared to what the tests expect.
 ///
-/// You need to provide an `async fn get_event_cache_store() ->
-/// event_cache::store::Result<Store>` that provides a fresh event cache store
-/// that implements `EventCacheStoreMedia` on the same level you invoke the
+/// You need to provide an `async fn get_media_store() ->
+/// media::store::Result<Store>` that provides a fresh media store
+/// that implements `MediaStoreInner` on the same level you invoke the
 /// macro.
 ///
 /// ## Usage Example:
 /// ```no_run
-/// # use matrix_sdk_base::event_cache::store::{
-/// #    EventCacheStore,
-/// #    MemoryStore as MyStore,
-/// #    Result as EventCacheStoreResult,
+/// # use matrix_sdk_base::media::store::{
+/// #    MediaStore,
+/// #    MemoryMediaStore as MyStore,
+/// #    Result as MediaStoreResult,
 /// # };
 ///
 /// #[cfg(test)]
 /// mod tests {
-///     use super::{EventCacheStoreResult, MyStore};
+///     use super::{MediaStoreResult, MyStore};
 ///
-///     async fn get_event_cache_store() -> EventCacheStoreResult<MyStore> {
+///     async fn get_media_store() -> MediaStoreResult<MyStore> {
 ///         Ok(MyStore::new())
 ///     }
 ///
-///     event_cache_store_media_integration_tests!();
+///     media_store_inner_integration_tests!();
 /// }
 /// ```
 #[allow(unused_macros, unused_extern_crates)]
 #[macro_export]
-macro_rules! event_cache_store_media_integration_tests {
+macro_rules! media_store_inner_integration_tests {
     (with_media_size_tests) => {
-        mod event_cache_store_media_integration_tests {
-            $crate::event_cache_store_media_integration_tests!(@inner);
+        mod media_store_inner_integration_tests {
+            $crate::media_store_inner_integration_tests!(@inner);
 
             #[async_test]
             async fn test_media_max_file_size() {
-                let event_cache_store_media = get_event_cache_store().await.unwrap();
-                event_cache_store_media.test_media_max_file_size().await;
+                let media_store_inner = get_media_store().await.unwrap();
+                media_store_inner.test_media_max_file_size().await;
             }
 
             #[async_test]
             async fn test_media_max_cache_size() {
-                let event_cache_store_media = get_event_cache_store().await.unwrap();
-                event_cache_store_media.test_media_max_cache_size().await;
+                let media_store_inner = get_media_store().await.unwrap();
+                media_store_inner.test_media_max_cache_size().await;
             }
 
             #[async_test]
             async fn test_media_ignore_max_size() {
-                let event_cache_store_media = get_event_cache_store().await.unwrap();
-                event_cache_store_media.test_media_ignore_max_size().await;
+                let media_store_inner = get_media_store().await.unwrap();
+                media_store_inner.test_media_ignore_max_size().await;
             }
         }
     };
 
     () => {
-        mod event_cache_store_media_integration_tests {
-            $crate::event_cache_store_media_integration_tests!(@inner);
+        mod media_store_inner_integration_tests {
+            $crate::media_store_inner_integration_tests!(@inner);
         }
     };
 
     (@inner) => {
         use matrix_sdk_test::async_test;
-        use $crate::event_cache::store::media::EventCacheStoreMediaIntegrationTests;
+        use $crate::media::store::MediaStoreInnerIntegrationTests;
 
-        use super::get_event_cache_store;
+        use super::get_media_store;
 
         #[async_test]
         async fn test_store_media_retention_policy() {
-            let event_cache_store_media = get_event_cache_store().await.unwrap();
-            event_cache_store_media.test_store_media_retention_policy().await;
+            let media_store_inner = get_media_store().await.unwrap();
+            media_store_inner.test_store_media_retention_policy().await;
         }
 
         #[async_test]
         async fn test_media_expiry() {
-            let event_cache_store_media = get_event_cache_store().await.unwrap();
-            event_cache_store_media.test_media_expiry().await;
+            let media_store_inner = get_media_store().await.unwrap();
+            media_store_inner.test_media_expiry().await;
         }
 
         #[async_test]
         async fn test_media_ignore_expiry() {
-            let event_cache_store_media = get_event_cache_store().await.unwrap();
-            event_cache_store_media.test_media_ignore_expiry().await;
+            let media_store_inner = get_media_store().await.unwrap();
+            media_store_inner.test_media_ignore_expiry().await;
         }
 
         #[async_test]
         async fn test_store_last_media_cleanup_time() {
-            let event_cache_store_media = get_event_cache_store().await.unwrap();
-            event_cache_store_media.test_store_last_media_cleanup_time().await;
+            let media_store_inner = get_media_store().await.unwrap();
+            media_store_inner.test_store_last_media_cleanup_time().await;
+        }
+    };
+}
+
+/// [`MediaStore`] integration tests.
+///
+/// This trait is not meant to be used directly, but will be used with the
+/// `media_store_inner_integration_tests!` macro.
+#[allow(async_fn_in_trait)]
+pub trait MediaStoreIntegrationTests {
+    /// Test media content storage.
+    async fn test_media_content(&self);
+
+    /// Test replacing a MXID.
+    async fn test_replace_media_key(&self);
+}
+
+impl<Store> MediaStoreIntegrationTests for Store
+where
+    Store: MediaStore + std::fmt::Debug,
+{
+    async fn test_media_content(&self) {
+        let uri = mxc_uri!("mxc://localhost/media");
+        let request_file = MediaRequestParameters {
+            source: MediaSource::Plain(uri.to_owned()),
+            format: MediaFormat::File,
+        };
+        let request_thumbnail = MediaRequestParameters {
+            source: MediaSource::Plain(uri.to_owned()),
+            format: MediaFormat::Thumbnail(MediaThumbnailSettings::with_method(
+                Method::Crop,
+                uint!(100),
+                uint!(100),
+            )),
+        };
+
+        let other_uri = mxc_uri!("mxc://localhost/media-other");
+        let request_other_file = MediaRequestParameters {
+            source: MediaSource::Plain(other_uri.to_owned()),
+            format: MediaFormat::File,
+        };
+
+        let content: Vec<u8> = "hello".into();
+        let thumbnail_content: Vec<u8> = "world".into();
+        let other_content: Vec<u8> = "foo".into();
+
+        // Media isn't present in the cache.
+        assert!(
+            self.get_media_content(&request_file).await.unwrap().is_none(),
+            "unexpected media found"
+        );
+        assert!(
+            self.get_media_content(&request_thumbnail).await.unwrap().is_none(),
+            "media not found"
+        );
+
+        // Let's add the media.
+        self.add_media_content(&request_file, content.clone(), IgnoreMediaRetentionPolicy::No)
+            .await
+            .expect("adding media failed");
+
+        // Media is present in the cache.
+        assert_eq!(
+            self.get_media_content(&request_file).await.unwrap().as_ref(),
+            Some(&content),
+            "media not found though added"
+        );
+        assert_eq!(
+            self.get_media_content_for_uri(uri).await.unwrap().as_ref(),
+            Some(&content),
+            "media not found by URI though added"
+        );
+
+        // Let's remove the media.
+        self.remove_media_content(&request_file).await.expect("removing media failed");
+
+        // Media isn't present in the cache.
+        assert!(
+            self.get_media_content(&request_file).await.unwrap().is_none(),
+            "media still there after removing"
+        );
+        assert!(
+            self.get_media_content_for_uri(uri).await.unwrap().is_none(),
+            "media still found by URI after removing"
+        );
+
+        // Let's add the media again.
+        self.add_media_content(&request_file, content.clone(), IgnoreMediaRetentionPolicy::No)
+            .await
+            .expect("adding media again failed");
+
+        assert_eq!(
+            self.get_media_content(&request_file).await.unwrap().as_ref(),
+            Some(&content),
+            "media not found after adding again"
+        );
+
+        // Let's add the thumbnail media.
+        self.add_media_content(
+            &request_thumbnail,
+            thumbnail_content.clone(),
+            IgnoreMediaRetentionPolicy::No,
+        )
+        .await
+        .expect("adding thumbnail failed");
+
+        // Media's thumbnail is present.
+        assert_eq!(
+            self.get_media_content(&request_thumbnail).await.unwrap().as_ref(),
+            Some(&thumbnail_content),
+            "thumbnail not found"
+        );
+
+        // We get a file with the URI, we don't know which one.
+        assert!(
+            self.get_media_content_for_uri(uri).await.unwrap().is_some(),
+            "media not found by URI though two where added"
+        );
+
+        // Let's add another media with a different URI.
+        self.add_media_content(
+            &request_other_file,
+            other_content.clone(),
+            IgnoreMediaRetentionPolicy::No,
+        )
+        .await
+        .expect("adding other media failed");
+
+        // Other file is present.
+        assert_eq!(
+            self.get_media_content(&request_other_file).await.unwrap().as_ref(),
+            Some(&other_content),
+            "other file not found"
+        );
+        assert_eq!(
+            self.get_media_content_for_uri(other_uri).await.unwrap().as_ref(),
+            Some(&other_content),
+            "other file not found by URI"
+        );
+
+        // Let's remove media based on URI.
+        self.remove_media_content_for_uri(uri).await.expect("removing all media for uri failed");
+
+        assert!(
+            self.get_media_content(&request_file).await.unwrap().is_none(),
+            "media wasn't removed"
+        );
+        assert!(
+            self.get_media_content(&request_thumbnail).await.unwrap().is_none(),
+            "thumbnail wasn't removed"
+        );
+        assert!(
+            self.get_media_content(&request_other_file).await.unwrap().is_some(),
+            "other media was removed"
+        );
+        assert!(
+            self.get_media_content_for_uri(uri).await.unwrap().is_none(),
+            "media found by URI wasn't removed"
+        );
+        assert!(
+            self.get_media_content_for_uri(other_uri).await.unwrap().is_some(),
+            "other media found by URI was removed"
+        );
+    }
+
+    async fn test_replace_media_key(&self) {
+        let uri = mxc_uri!("mxc://sendqueue.local/tr4n-s4ct-10n1-d");
+        let req = MediaRequestParameters {
+            source: MediaSource::Plain(uri.to_owned()),
+            format: MediaFormat::File,
+        };
+
+        let content = "hello".as_bytes().to_owned();
+
+        // Media isn't present in the cache.
+        assert!(self.get_media_content(&req).await.unwrap().is_none(), "unexpected media found");
+
+        // Add the media.
+        self.add_media_content(&req, content.clone(), IgnoreMediaRetentionPolicy::No)
+            .await
+            .expect("adding media failed");
+
+        // Sanity-check: media is found after adding it.
+        assert_eq!(self.get_media_content(&req).await.unwrap().unwrap(), b"hello");
+
+        // Replacing a media request works.
+        let new_uri = mxc_uri!("mxc://matrix.org/tr4n-s4ct-10n1-d");
+        let new_req = MediaRequestParameters {
+            source: MediaSource::Plain(new_uri.to_owned()),
+            format: MediaFormat::File,
+        };
+        self.replace_media_key(&req, &new_req)
+            .await
+            .expect("replacing the media request key failed");
+
+        // Finding with the previous request doesn't work anymore.
+        assert!(
+            self.get_media_content(&req).await.unwrap().is_none(),
+            "unexpected media found with the old key"
+        );
+
+        // Finding with the new request does work.
+        assert_eq!(self.get_media_content(&new_req).await.unwrap().unwrap(), b"hello");
+    }
+}
+
+/// Macro building to allow your [`MediaStore`] implementation to run
+/// the entire tests suite locally.
+///
+/// You need to provide an `async fn get_media_store() ->
+/// media::store::Result<Store>` that provides a fresh media store
+/// that implements `MediaStoreInner` on the same level you invoke the
+/// macro.
+///
+/// ## Usage Example:
+/// ```no_run
+/// # use matrix_sdk_base::media::store::{
+/// #    MediaStore,
+/// #    MemoryMediaStore as MyStore,
+/// #    Result as MediaStoreResult,
+/// # };
+///
+/// #[cfg(test)]
+/// mod tests {
+///     use super::{MediaStoreResult, MyStore};
+///
+///     async fn get_media_store() -> MediaStoreResult<MyStore> {
+///         Ok(MyStore::new())
+///     }
+///
+///     media_store_integration_tests!();
+/// }
+/// ```
+#[allow(unused_macros, unused_extern_crates)]
+#[macro_export]
+macro_rules! media_store_integration_tests {
+    () => {
+        mod media_store_integration_tests {
+            use matrix_sdk_test::async_test;
+            use $crate::media::store::integration_tests::MediaStoreIntegrationTests;
+
+            use super::get_media_store;
+
+            #[async_test]
+            async fn test_media_content() {
+                let media_store = get_media_store().await.unwrap();
+                media_store.test_media_content().await;
+            }
+
+            #[async_test]
+            async fn test_replace_media_key() {
+                let media_store = get_media_store().await.unwrap();
+                media_store.test_replace_media_key().await;
+            }
+        }
+    };
+}
+
+/// Macro generating tests for the media store, related to time (mostly
+/// for the cross-process lock).
+#[allow(unused_macros)]
+#[macro_export]
+macro_rules! media_store_integration_tests_time {
+    () => {
+        mod media_store_integration_tests_time {
+            use std::time::Duration;
+
+            #[cfg(all(target_family = "wasm", target_os = "unknown"))]
+            use gloo_timers::future::sleep;
+            use matrix_sdk_test::async_test;
+            #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
+            use tokio::time::sleep;
+            use $crate::media::store::MediaStore;
+
+            use super::get_media_store;
+
+            #[async_test]
+            async fn test_lease_locks() {
+                let store = get_media_store().await.unwrap();
+
+                let acquired0 = store.try_take_leased_lock(0, "key", "alice").await.unwrap();
+                assert!(acquired0);
+
+                // Should extend the lease automatically (same holder).
+                let acquired2 = store.try_take_leased_lock(300, "key", "alice").await.unwrap();
+                assert!(acquired2);
+
+                // Should extend the lease automatically (same holder + time is ok).
+                let acquired3 = store.try_take_leased_lock(300, "key", "alice").await.unwrap();
+                assert!(acquired3);
+
+                // Another attempt at taking the lock should fail, because it's taken.
+                let acquired4 = store.try_take_leased_lock(300, "key", "bob").await.unwrap();
+                assert!(!acquired4);
+
+                // Even if we insist.
+                let acquired5 = store.try_take_leased_lock(300, "key", "bob").await.unwrap();
+                assert!(!acquired5);
+
+                // That's a nice test we got here, go take a little nap.
+                sleep(Duration::from_millis(50)).await;
+
+                // Still too early.
+                let acquired55 = store.try_take_leased_lock(300, "key", "bob").await.unwrap();
+                assert!(!acquired55);
+
+                // Ok you can take another nap then.
+                sleep(Duration::from_millis(250)).await;
+
+                // At some point, we do get the lock.
+                let acquired6 = store.try_take_leased_lock(0, "key", "bob").await.unwrap();
+                assert!(acquired6);
+
+                sleep(Duration::from_millis(1)).await;
+
+                // The other gets it almost immediately too.
+                let acquired7 = store.try_take_leased_lock(0, "key", "alice").await.unwrap();
+                assert!(acquired7);
+
+                sleep(Duration::from_millis(1)).await;
+
+                // But when we take a longer lease...
+                let acquired8 = store.try_take_leased_lock(300, "key", "bob").await.unwrap();
+                assert!(acquired8);
+
+                // It blocks the other user.
+                let acquired9 = store.try_take_leased_lock(300, "key", "alice").await.unwrap();
+                assert!(!acquired9);
+
+                // We can hold onto our lease.
+                let acquired10 = store.try_take_leased_lock(300, "key", "bob").await.unwrap();
+                assert!(acquired10);
+            }
         }
     };
 }
