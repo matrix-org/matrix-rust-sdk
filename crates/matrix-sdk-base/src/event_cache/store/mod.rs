@@ -28,7 +28,7 @@ mod memory_store;
 mod traits;
 
 use matrix_sdk_common::store_locks::{
-    BackingStore, CrossProcessStoreLock, CrossProcessStoreLockGuard, LockStoreError,
+    BackingStore, CrossProcessLock, CrossProcessLockGuard, LockStoreError,
 };
 pub use matrix_sdk_store_encryption::Error as StoreEncryptionError;
 use ruma::{
@@ -49,7 +49,7 @@ pub use self::{
 #[derive(Clone)]
 pub struct EventCacheStoreLock {
     /// The inner cross process lock that is used to lock the `EventCacheStore`.
-    cross_process_lock: Arc<CrossProcessStoreLock<LockableEventCacheStore>>,
+    cross_process_lock: Arc<CrossProcessLock<LockableEventCacheStore>>,
 
     /// The store itself.
     ///
@@ -68,7 +68,7 @@ impl EventCacheStoreLock {
     /// Create a new lock around the [`EventCacheStore`].
     ///
     /// The `holder` argument represents the holder inside the
-    /// [`CrossProcessStoreLock::new`].
+    /// [`CrossProcessLock::new`].
     pub fn new<S>(store: S, holder: String) -> Self
     where
         S: IntoEventCacheStore,
@@ -76,7 +76,7 @@ impl EventCacheStoreLock {
         let store = store.into_event_cache_store();
 
         Self {
-            cross_process_lock: Arc::new(CrossProcessStoreLock::new(
+            cross_process_lock: Arc::new(CrossProcessLock::new(
                 LockableEventCacheStore(store.clone()),
                 "default".to_owned(),
                 holder,
@@ -85,7 +85,7 @@ impl EventCacheStoreLock {
         }
     }
 
-    /// Acquire a spin lock (see [`CrossProcessStoreLock::spin_lock`]).
+    /// Acquire a spin lock (see [`CrossProcessLock::spin_lock`]).
     pub async fn lock(&self) -> Result<EventCacheStoreLockGuard<'_>, LockStoreError> {
         let cross_process_lock_guard = self.cross_process_lock.spin_lock(None).await?;
 
@@ -99,7 +99,7 @@ impl EventCacheStoreLock {
 pub struct EventCacheStoreLockGuard<'a> {
     /// The cross process lock guard.
     #[allow(unused)]
-    cross_process_lock_guard: CrossProcessStoreLockGuard,
+    cross_process_lock_guard: CrossProcessLockGuard,
 
     /// A reference to the store.
     store: &'a DynEventCacheStore,

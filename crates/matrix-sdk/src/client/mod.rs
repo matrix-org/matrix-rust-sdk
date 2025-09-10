@@ -111,7 +111,7 @@ use crate::{
 #[cfg(feature = "e2e-encryption")]
 use crate::{
     encryption::{Encryption, EncryptionData, EncryptionSettings, VerificationState},
-    store_locks::CrossProcessStoreLock,
+    store_locks::CrossProcessLock,
 };
 
 mod builder;
@@ -235,8 +235,7 @@ pub(crate) struct ClientLocks {
     pub(crate) read_receipt_deduplicated_handler: DeduplicatingHandler<(String, OwnedEventId)>,
 
     #[cfg(feature = "e2e-encryption")]
-    pub(crate) cross_process_crypto_store_lock:
-        OnceCell<CrossProcessStoreLock<LockableCryptoStore>>,
+    pub(crate) cross_process_crypto_store_lock: OnceCell<CrossProcessLock<LockableCryptoStore>>,
 
     /// Latest "generation" of data known by the crypto store.
     ///
@@ -302,7 +301,7 @@ pub(crate) struct ClientInner {
     /// The cross-process store locks holder name.
     ///
     /// The SDK provides cross-process store locks (see
-    /// [`matrix_sdk_common::store_locks::CrossProcessStoreLock`]). The
+    /// [`matrix_sdk_common::store_locks::CrossProcessLock`]). The
     /// `holder_name` is the value used for all cross-process store locks
     /// used by this `Client`.
     ///
@@ -520,7 +519,7 @@ impl Client {
     /// The cross-process store locks holder name.
     ///
     /// The SDK provides cross-process store locks (see
-    /// [`matrix_sdk_common::store_locks::CrossProcessStoreLock`]). The
+    /// [`matrix_sdk_common::store_locks::CrossProcessLock`]). The
     /// `holder_name` is the value used for all cross-process store locks
     /// used by this `Client`.
     pub fn cross_process_store_locks_holder_name(&self) -> &str {
@@ -2765,10 +2764,10 @@ impl Client {
 
     /// Create a new specialized `Client` that can process notifications.
     ///
-    /// See [`CrossProcessStoreLock::new`] to learn more about
+    /// See [`CrossProcessLock::new`] to learn more about
     /// `cross_process_store_locks_holder_name`.
     ///
-    /// [`CrossProcessStoreLock::new`]: matrix_sdk_common::store_locks::CrossProcessStoreLock::new
+    /// [`CrossProcessLock::new`]: matrix_sdk_common::store_locks::CrossProcessLock::new
     pub async fn notification_client(
         &self,
         cross_process_store_locks_holder_name: String,
