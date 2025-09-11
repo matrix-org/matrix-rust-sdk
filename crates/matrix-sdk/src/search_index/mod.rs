@@ -18,6 +18,7 @@
 
 use std::{collections::hash_map::HashMap, path::PathBuf, sync::Arc};
 
+use futures_util::future::join_all;
 use matrix_sdk_base::deserialized_responses::TimelineEvent;
 use matrix_sdk_search::{
     error::IndexError,
@@ -95,11 +96,13 @@ impl SearchIndexGuard<'_> {
         Ok(index)
     }
 
-    /// Handle an [`AnySyncMessageLikeEvent`] in the [`RoomIndex`] of a given
+    /// Handle a [`RoomIndexOperation`] in the [`RoomIndex`] of a given
     /// [`RoomId`]
     ///
     /// This which will add/remove/edit an event in the index based on the
     /// event type.
+    ///
+    /// Prefer [`SearchIndexGuard::bulk_execute`] for multiple operations.
     pub(crate) fn execute(
         &mut self,
         operation: RoomIndexOperation,
@@ -111,21 +114,28 @@ impl SearchIndexGuard<'_> {
         }
 
         let index = self.index_map.get_mut(room_id).expect("index should exist");
-        let result = index.execute(operation);
 
-        match result {
-            Ok(_) => {}
-            Err(IndexError::CannotIndexRedactedMessage)
-            | Err(IndexError::EmptyMessage)
-            | Err(IndexError::MessageTypeNotSupported) => {
-                debug!("failed to parse event for indexing: {result:?}")
-            }
-            Err(IndexError::TantivyError(err)) => {
-                error!("failed to handle event in index: {err:?}")
-            }
-            Err(_) => error!("unexpected error during indexing: {result:?}"),
+        index.execute(operation)
+    }
+
+    /// Handle a [`RoomIndexOperation`] in the [`RoomIndex`] of a given
+    /// [`RoomId`]
+    ///
+    /// This which will add/remove/edit an event in the index based on the
+    /// event type.
+    pub(crate) fn bulk_execute(
+        &mut self,
+        operations: Vec<RoomIndexOperation>,
+        room_id: &RoomId,
+    ) -> Result<(), IndexError> {
+        if !self.index_map.contains_key(room_id) {
+            let index = self.create_index(room_id)?;
+            self.index_map.insert(room_id.to_owned(), index);
         }
-        Ok(())
+
+        let index = self.index_map.get_mut(room_id).expect("index should exist");
+
+        index.bulk_execute(operations)
     }
 
     /// Search a [`Room`]'s index for the query and return at most
@@ -150,21 +160,15 @@ impl SearchIndexGuard<'_> {
         }
     }
 
-    /// Commit a [`Room`]'s [`RoomIndex`] and reload searchers
-    pub(crate) fn commit_and_reload(&mut self, room_id: &RoomId) {
-        if let Some(index) = self.index_map.get_mut(room_id) {
-            let _ = index.commit_and_reload().inspect_err(|err| {
-                error!("error occurred while committing: {err:?}");
-            });
-        }
-    }
-
     /// Given a [`TimelineEvent`] this function will derive a
     /// [`RoomIndexOperation`], if it should be handled, and execute it;
     /// returning the result.
+    ///
+    /// Prefer [`SearchIndexGuard::bulk_handle_timeline_event`] for multiple
+    /// events.
     pub async fn handle_timeline_event(
         &mut self,
-        event: &TimelineEvent,
+        event: TimelineEvent,
         room_cache: &RoomEventCache,
         room_id: &RoomId,
         redaction_rules: &RedactionRules,
@@ -176,6 +180,25 @@ impl SearchIndexGuard<'_> {
         } else {
             Ok(())
         }
+    }
+
+    /// Run [`SearchIndexGuard::handle_timeline_event`] for multiple
+    /// [`TimelineEvent`].
+    pub async fn bulk_handle_timeline_event<T>(
+        &mut self,
+        events: T,
+        room_cache: &RoomEventCache,
+        room_id: &RoomId,
+        redaction_rules: &RedactionRules,
+    ) -> Result<(), IndexError>
+    where
+        T: Iterator<Item = TimelineEvent>,
+    {
+        let futures = events.map(|ev| parse_timeline_event(room_cache, ev, redaction_rules));
+
+        let operations: Vec<_> = join_all(futures).await.into_iter().flatten().collect();
+
+        self.bulk_execute(operations, room_id)
     }
 }
 
@@ -261,7 +284,7 @@ async fn handle_room_redaction(
 /// indexing.
 async fn parse_timeline_event(
     cache: &RoomEventCache,
-    event: &TimelineEvent,
+    event: TimelineEvent,
     redaction_rules: &RedactionRules,
 ) -> Option<RoomIndexOperation> {
     use ruma::events::AnySyncTimelineEvent;

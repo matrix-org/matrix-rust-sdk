@@ -25,6 +25,7 @@ pub(crate) trait MatrixSearchIndexSchema {
     fn default_search_fields(&self) -> Vec<Field>;
     fn primary_key(&self) -> Field;
     fn deletion_key(&self) -> Field;
+    fn get_field_name(&self, field: Field) -> &str;
     fn as_tantivy_schema(&self) -> Schema;
     fn make_doc(&self, event: OriginalSyncRoomMessageEvent) -> Result<TantivyDocument, IndexError>;
 }
@@ -81,6 +82,10 @@ impl MatrixSearchIndexSchema for RoomMessageSchema {
 
     fn deletion_key(&self) -> Field {
         self.original_event_id_field
+    }
+
+    fn get_field_name(&self, field: Field) -> &str {
+        self.inner.get_field_name(field)
     }
 
     fn as_tantivy_schema(&self) -> Schema {
