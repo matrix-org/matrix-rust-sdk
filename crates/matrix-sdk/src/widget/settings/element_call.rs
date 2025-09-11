@@ -139,9 +139,9 @@ pub enum Intent {
     JoinExisting,
     /// The user wants to join an existing call that is a "Direct Message" (DM)
     /// room.
-    JoinExistingDM,
+    JoinExistingDm,
     /// The user wants to start a call in a "Direct Message" (DM) room.
-    StartCallDM,
+    StartCallDm,
 }
 
 /// Defines how (if) element-call renders a header.
@@ -728,6 +728,46 @@ mod tests {
             let query_set = get_query_sets(&Url::parse(&url).unwrap()).unwrap().1;
 
             let expected_elements = [("intent".to_owned(), "start_call".to_owned())];
+            for e in expected_elements {
+                assert!(
+                    query_set.contains(&e),
+                    "The query elements: \n{query_set:?}\nDid not contain: \n{e:?}"
+                );
+            }
+        }
+        {
+            // Intent::StartCallDm
+            let url = build_url_from_widget_settings(get_element_call_widget_settings(
+                None,
+                false,
+                false,
+                false,
+                Some(Intent::StartCallDm),
+                false,
+            ));
+            let query_set = get_query_sets(&Url::parse(&url).unwrap()).unwrap().1;
+
+            let expected_elements = [("intent".to_owned(), "start_call_dm".to_owned())];
+            for e in expected_elements {
+                assert!(
+                    query_set.contains(&e),
+                    "The query elements: \n{query_set:?}\nDid not contain: \n{e:?}"
+                );
+            }
+        }
+        {
+            // Intent::JoinExistingDm
+            let url = build_url_from_widget_settings(get_element_call_widget_settings(
+                None,
+                false,
+                false,
+                false,
+                Some(Intent::JoinExistingDm),
+                false,
+            ));
+            let query_set = get_query_sets(&Url::parse(&url).unwrap()).unwrap().1;
+
+            let expected_elements = [("intent".to_owned(), "join_existing_dm".to_owned())];
             for e in expected_elements {
                 assert!(
                     query_set.contains(&e),
