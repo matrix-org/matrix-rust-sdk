@@ -151,7 +151,9 @@ impl SecretStore {
         let secret_name = secret_name.into();
         let event_type = GlobalAccountDataEventType::from(secret_name.to_owned());
 
-        if let Some(secret_content) = self.client.account().fetch_account_data(event_type).await? {
+        if let Some(secret_content) =
+            self.client.account().fetch_account_data(event_type).await.map_err(ImportError::from)?
+        {
             let mut secret_content = secret_content
                 .deserialize_as_unchecked::<SecretEventContent>()
                 .map_err(ImportError::from)?;
