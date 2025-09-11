@@ -17,6 +17,8 @@
 use futures_core::Stream;
 use futures_util::{stream, StreamExt};
 #[cfg(feature = "experimental-element-recent-emojis")]
+use itertools::Itertools;
+#[cfg(feature = "experimental-element-recent-emojis")]
 use js_int::uint;
 #[cfg(feature = "experimental-element-recent-emojis")]
 use matrix_sdk_base::recent_emojis::RecentEmojisContent;
@@ -1206,7 +1208,7 @@ impl Account {
     /// homeserver instead of the local storage.
     #[cfg(feature = "experimental-element-recent-emojis")]
     pub async fn get_recent_emojis(&self, refresh: bool) -> Result<Vec<(String, UInt)>> {
-        let event = if refresh {
+        let content = if refresh {
             let Some(user_id) = self.client.user_id() else {
                 return Err(Error::AuthenticationRequired);
             };
@@ -1229,8 +1231,17 @@ impl Account {
                 .transpose()?
         };
 
-        if let Some(content) = event {
-            Ok(content.recent_emoji.into_iter().collect())
+        if let Some(content) = content {
+            // Sort by count, descending. For items with the same count, since they were
+            // previously ordered by recency in the list, more recent emojis will be
+            // returned first.
+            let sorted_emojis = content
+                .recent_emoji
+                .into_iter()
+                // Items with higher counts should be first
+                .sorted_by(|(_, count_a), (_, count_b)| count_b.cmp(count_a))
+                .collect();
+            Ok(sorted_emojis)
         } else {
             Ok(Vec::new())
         }
@@ -1297,9 +1308,19 @@ mod test_recent_emojis {
         let recent_emojis = client.account().get_recent_emojis(false).await.expect("recent emojis");
         assert!(recent_emojis.is_empty());
 
+        let emoji_list = vec![
+            (":/".to_owned(), uint!(1)),
+            (":)".to_owned(), uint!(12)),
+            (":D".to_owned(), uint!(12)),
+        ];
+
         server
             .mock_global_account_data()
-            .ok(user_id, RecentEmojisContent::default().event_type(), json!({ "recent_emoji": [] }))
+            .ok(
+                user_id,
+                RecentEmojisContent::default().event_type(),
+                json!({ "recent_emoji": emoji_list }),
+            )
             .named("Fetch recent emojis")
             .mock_once()
             .mount()
@@ -1310,7 +1331,7 @@ mod test_recent_emojis {
         server
             .mock_sync()
             .ok(|builder| {
-                let content = RecentEmojisContent::new(vec![(":)".to_owned(), uint!(1))]);
+                let content = RecentEmojisContent::new(emoji_list);
                 let event_builder = EventFactory::new().global_account_data(content);
                 builder.add_global_account_data(event_builder);
             })
@@ -1321,6 +1342,13 @@ mod test_recent_emojis {
         client.sync_once(SyncSettings::default()).await.expect("sync failed");
 
         let recent_emojis = client.account().get_recent_emojis(false).await.expect("recent emojis");
-        assert_eq!(recent_emojis.len(), 1);
+
+        // Assert size
+        assert_eq!(recent_emojis.len(), 3);
+
+        // Assert ordering: first by times used, then by recency
+        assert_eq!(recent_emojis[0].0, ":)");
+        assert_eq!(recent_emojis[1].0, ":D");
+        assert_eq!(recent_emojis[2].0, ":/");
     }
 }
