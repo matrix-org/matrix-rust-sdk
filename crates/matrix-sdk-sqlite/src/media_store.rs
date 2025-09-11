@@ -43,7 +43,7 @@ use crate::{
         repeat_vars, time_to_timestamp, EncryptableStore, SqliteAsyncConnExt,
         SqliteKeyValueStoreAsyncConnExt, SqliteKeyValueStoreConnExt, SqliteTransactionExt,
     },
-    OpenStoreError, SqliteStoreConfig,
+    OpenStoreError, Secret, SqliteStoreConfig,
 };
 
 mod keys {
@@ -105,6 +105,15 @@ impl SqliteMediaStore {
         Self::open_with_config(SqliteStoreConfig::new(path).passphrase(passphrase)).await
     }
 
+    /// Open the SQLite-based media store at the given path using the given
+    /// key to encrypt private data.
+    pub async fn open_with_key(
+        path: impl AsRef<Path>,
+        key: Option<&[u8; 32]>,
+    ) -> Result<Self, OpenStoreError> {
+        Self::open_with_config(SqliteStoreConfig::new(path).key(key)).await
+    }
+
     /// Open the SQLite-based media store with the config open config.
     #[instrument(skip(config), fields(path = ?config.path))]
     pub async fn open_with_config(config: SqliteStoreConfig) -> Result<Self, OpenStoreError> {
@@ -112,7 +121,7 @@ impl SqliteMediaStore {
 
         let _timer = timer!("open_with_config");
 
-        let SqliteStoreConfig { path, passphrase, pool_config, runtime_config } = config;
+        let SqliteStoreConfig { path, secret, pool_config, runtime_config } = config;
 
         fs::create_dir_all(&path).await.map_err(OpenStoreError::CreateDir)?;
 
@@ -121,7 +130,7 @@ impl SqliteMediaStore {
 
         let pool = config.create_pool(Runtime::Tokio1)?;
 
-        let this = Self::open_with_pool(pool, passphrase.as_deref()).await?;
+        let this = Self::open_with_pool(pool, secret).await?;
         this.write().await?.apply_runtime_config(runtime_config).await?;
 
         Ok(this)
@@ -131,15 +140,15 @@ impl SqliteMediaStore {
     /// pool. The given passphrase will be used to encrypt private data.
     async fn open_with_pool(
         pool: SqlitePool,
-        passphrase: Option<&str>,
+        secret: Option<Secret>,
     ) -> Result<Self, OpenStoreError> {
         let conn = pool.get().await?;
 
         let version = conn.db_version().await?;
         run_migrations(&conn, version).await?;
 
-        let store_cipher = match passphrase {
-            Some(p) => Some(Arc::new(conn.get_or_create_store_cipher(p).await?)),
+        let store_cipher = match secret {
+            Some(s) => Some(Arc::new(conn.get_or_create_store_cipher(s).await?)),
             None => None,
         };
 
