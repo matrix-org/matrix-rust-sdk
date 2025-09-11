@@ -1,4 +1,7 @@
 //! Data types used for handling the recently used emojis.
+//!
+//! There is no formal spec for this, only the implementation in Element Web:
+//! <https://github.com/element-hq/element-web/commit/a7f92f35f5a27a53a5a030ea7c471be97751a67a>
 
 use ruma::{UInt, events::macros::EventContent};
 use serde::{Deserialize, Serialize};
