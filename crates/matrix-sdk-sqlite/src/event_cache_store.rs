@@ -63,7 +63,7 @@ const DATABASE_NAME: &str = "matrix-sdk-event-cache.sqlite3";
 /// This is used to figure whether the SQLite database requires a migration.
 /// Every new SQL migration should imply a bump of this number, and changes in
 /// the [`run_migrations`] function.
-const DATABASE_VERSION: u8 = 9;
+const DATABASE_VERSION: u8 = 10;
 
 /// The string used to identify a chunk of type events, in the `type` field in
 /// the database.
@@ -439,6 +439,20 @@ async fn run_migrations(conn: &SqliteAsyncConn, version: u8) -> Result<()> {
         .await?;
     }
 
+    if version < 10 {
+        conn.with_transaction(|txn| {
+            txn.execute_batch(include_str!("../migrations/event_cache_store/010_drop_media.sql"))?;
+            txn.set_db_version(10)
+        })
+        .await?;
+
+        if version >= 1 {
+            // Defragment the DB and optimize its size on the filesystem now that we removed
+            // the media cache.
+            conn.vacuum().await?;
+        }
+    }
+
     Ok(())
 }
 
@@ -676,7 +690,7 @@ impl EventCacheStore for SqliteEventCacheStore {
                         // | $ev2     | !r0             | 42       | 2        |
                         // | $ev3     | !r0             | 42       | 3        |
                         // | $ev4     | !r0             | 42       | 4        |
-                        // 
+                        //
                         // `$ev2` has been removed, then we end up in this
                         // state:
                         //
@@ -690,7 +704,7 @@ impl EventCacheStore for SqliteEventCacheStore {
                         //
                         // We need to shift the `position` of `$ev3` and `$ev4`
                         // to `position - 1`, like so:
-                        // 
+                        //
                         // | event_id | linked_chunk_id | chunk_id | position |
                         // |----------|-----------------|----------|----------|
                         // | $ev0     | !r0             | 42       | 0        |
@@ -750,7 +764,7 @@ impl EventCacheStore for SqliteEventCacheStore {
                         // see _dropping and re-creating the index_, which is
                         // no-go for us, it's too expensive. I (@hywan) have
                         // adopted the following one:
-                        // 
+                        //
                         // - Do `position = position - 1` but in the negative
                         //   space, so `position = -(position - 1)`. A position
                         //   cannot be negative; we are sure it is unique!
