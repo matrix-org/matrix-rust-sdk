@@ -21,7 +21,10 @@ use imbl::Vector;
 use itertools::Itertools;
 use matrix_sdk::{Client, Error, executor::AbortOnDrop, locks::Mutex, paginators::PaginationToken};
 use matrix_sdk_common::executor::spawn;
-use ruma::{OwnedRoomId, api::client::space::get_hierarchy, uint};
+use ruma::{
+    OwnedRoomId, api::client::space::get_hierarchy, events::space::child::SpaceChildEventContent,
+    uint,
+};
 use tokio::sync::Mutex as AsyncMutex;
 use tracing::error;
 
@@ -60,7 +63,8 @@ pub enum SpaceRoomListPaginationState {
 ///
 /// // Get a list of all the rooms in a particular space
 /// let room_list = space_service
-///     .space_room_list(owned_room_id!("!some_space:example.org"));
+///     .space_room_list(owned_room_id!("!some_space:example.org"))
+///     .await;
 ///
 /// // Start off with an empty and idle list
 /// room_list.rooms().is_empty();
@@ -99,6 +103,8 @@ pub struct SpaceRoomList {
 
     parent_space_id: OwnedRoomId,
 
+    parent_space: SharedObservable<Option<SpaceRoom>>,
+
     token: AsyncMutex<PaginationToken>,
 
     pagination_state: SharedObservable<SpaceRoomListPaginationState>,
@@ -110,7 +116,7 @@ pub struct SpaceRoomList {
 
 impl SpaceRoomList {
     /// Creates a new `SpaceRoomList` for the given space identifier.
-    pub fn new(client: Client, parent_space_id: OwnedRoomId) -> Self {
+    pub async fn new(client: Client, parent_space_id: OwnedRoomId) -> Self {
         let rooms = Arc::new(Mutex::new(ObservableVector::<SpaceRoom>::new()));
 
         let all_room_updates_receiver = client.subscribe_to_all_room_updates();
@@ -153,9 +159,21 @@ impl SpaceRoomList {
             }
         });
 
+        let parent_space = if let Some(parent) = client.get_room(&parent_space_id) {
+            let children_count = parent
+                .get_state_events_static::<SpaceChildEventContent>()
+                .await
+                .map_or(0, |c| c.len() as u64);
+
+            Some(SpaceRoom::new_from_known(parent, children_count))
+        } else {
+            None
+        };
+
         Self {
             client,
             parent_space_id,
+            parent_space: SharedObservable::new(parent_space),
             token: AsyncMutex::new(None.into()),
             pagination_state: SharedObservable::new(SpaceRoomListPaginationState::Idle {
                 end_reached: false,
@@ -163,6 +181,16 @@ impl SpaceRoomList {
             rooms,
             _room_update_handle: AbortOnDrop::new(handle),
         }
+    }
+
+    /// Returns the parent space of the room list if known.
+    pub fn parent_space(&self) -> Option<SpaceRoom> {
+        self.parent_space.get()
+    }
+
+    /// Subscribe to space updates.
+    pub fn subscribe_to_parent_space_updates(&self) -> Subscriber<Option<SpaceRoom>> {
+        self.parent_space.subscribe()
     }
 
     /// Returns if the room list is currently paginating or not.
@@ -229,15 +257,22 @@ impl SpaceRoomList {
                     .rooms
                     .iter()
                     .filter_map(|room| {
+                        let space_room = Some(SpaceRoom::new_from_summary(
+                            &room.summary,
+                            self.client.get_room(&room.summary.room_id),
+                            room.children_state.len() as u64,
+                        ));
+
                         if room.summary.room_id == self.parent_space_id {
-                            None
-                        } else {
-                            Some(SpaceRoom::new_from_summary(
-                                &room.summary,
-                                self.client.get_room(&room.summary.room_id),
-                                room.children_state.len() as u64,
-                            ))
+                            let mut parent_space = self.parent_space.write();
+                            if parent_space.is_none() {
+                                ObservableWriteGuard::set(&mut parent_space, space_room);
+                            }
+
+                            return None;
                         }
+
+                        space_room
                     })
                     .for_each(|room| rooms.push_back(room));
 
@@ -258,11 +293,13 @@ impl SpaceRoomList {
 
 #[cfg(test)]
 mod tests {
-    use assert_matches2::assert_matches;
+    use assert_matches2::{assert_let, assert_matches};
     use eyeball_im::VectorDiff;
     use futures_util::pin_mut;
     use matrix_sdk::{RoomState, test_utils::mocks::MatrixMockServer};
-    use matrix_sdk_test::{JoinedRoomBuilder, LeftRoomBuilder, async_test};
+    use matrix_sdk_test::{
+        JoinedRoomBuilder, LeftRoomBuilder, async_test, event_factory::EventFactory,
+    };
     use ruma::{
         room::{JoinRuleSummary, RoomSummary},
         room_id, uint,
@@ -275,13 +312,38 @@ mod tests {
     async fn test_room_list_pagination() {
         let server = MatrixMockServer::new().await;
         let client = server.client_builder().build().await;
+        let user_id = client.user_id().unwrap();
         let space_service = SpaceService::new(client.clone());
+        let factory = EventFactory::new();
 
         server.mock_room_state_encryption().plain().mount().await;
 
         let parent_space_id = room_id!("!parent_space:example.org");
+        let child_space_id_1 = room_id!("!1:example.org");
+        let child_space_id_2 = room_id!("!2:example.org");
 
-        let room_list = space_service.space_room_list(parent_space_id.to_owned());
+        server
+            .sync_room(
+                &client,
+                JoinedRoomBuilder::new(parent_space_id)
+                    .add_state_event(
+                        factory
+                            .space_child(parent_space_id.to_owned(), child_space_id_1.to_owned())
+                            .sender(user_id),
+                    )
+                    .add_state_event(
+                        factory
+                            .space_child(parent_space_id.to_owned(), child_space_id_2.to_owned())
+                            .sender(user_id),
+                    ),
+            )
+            .await;
+
+        let room_list = space_service.space_room_list(parent_space_id.to_owned()).await;
+
+        // The space parent is known to the client and should be populated accordingly
+        assert_let!(Some(parent_space) = room_list.parent_space());
+        assert_eq!(parent_space.children_count, 2);
 
         // Start off idle
         assert_matches!(
@@ -301,9 +363,6 @@ mod tests {
         let (_, rooms_subscriber) = room_list.subscribe_to_room_updates();
         pin_mut!(rooms_subscriber);
         assert_pending!(rooms_subscriber);
-
-        let child_space_id_1 = room_id!("!1:example.org");
-        let child_space_id_2 = room_id!("!2:example.org");
 
         // Paginating the room list
         server
@@ -373,7 +432,7 @@ mod tests {
             .mount()
             .await;
 
-        let room_list = space_service.space_room_list(parent_space_id.to_owned());
+        let room_list = space_service.space_room_list(parent_space_id.to_owned()).await;
 
         room_list.paginate().await.unwrap();
 
@@ -409,5 +468,67 @@ mod tests {
         assert_ready!(rooms_subscriber);
         assert_eq!(room_list.rooms().first().unwrap().state, Some(RoomState::Left));
         assert_eq!(room_list.rooms().last().unwrap().state, Some(RoomState::Left));
+    }
+
+    #[async_test]
+    async fn test_parent_space_updates() {
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+        let user_id = client.user_id().unwrap();
+        let space_service = SpaceService::new(client.clone());
+        let factory = EventFactory::new();
+
+        server.mock_room_state_encryption().plain().mount().await;
+
+        let parent_space_id = room_id!("!parent_space:example.org");
+        let child_space_id_1 = room_id!("!1:example.org");
+        let child_space_id_2 = room_id!("!2:example.org");
+
+        // Parent space is unknown to the client and thus not populated yet
+        let room_list = space_service.space_room_list(parent_space_id.to_owned()).await;
+        assert!(room_list.parent_space().is_none());
+
+        let parent_space_subscriber = room_list.subscribe_to_parent_space_updates();
+        pin_mut!(parent_space_subscriber);
+        assert_pending!(parent_space_subscriber);
+
+        server
+            .mock_get_hierarchy()
+            .ok_with_room_ids(vec![parent_space_id, child_space_id_1, child_space_id_2])
+            .mount()
+            .await;
+
+        // Pagination will however fetch and populate it from /hierarchy
+        room_list.paginate().await.unwrap();
+        assert_let!(Some(parent_space) = room_list.parent_space());
+        assert_eq!(parent_space.room_id, parent_space_id);
+
+        // And the subscription is informed about the change
+        assert_next_eq!(parent_space_subscriber, Some(parent_space));
+
+        // If the room is already known to the client then the space parent
+        // is populated directly on creation
+        server
+            .sync_room(
+                &client,
+                JoinedRoomBuilder::new(parent_space_id)
+                    .add_state_event(
+                        factory
+                            .space_child(parent_space_id.to_owned(), child_space_id_1.to_owned())
+                            .sender(user_id),
+                    )
+                    .add_state_event(
+                        factory
+                            .space_child(parent_space_id.to_owned(), child_space_id_2.to_owned())
+                            .sender(user_id),
+                    ),
+            )
+            .await;
+
+        let room_list = space_service.space_room_list(parent_space_id.to_owned()).await;
+
+        // The parent space is known to the client and should be populated accordingly
+        assert_let!(Some(parent_space) = room_list.parent_space());
+        assert_eq!(parent_space.children_count, 2);
     }
 }
