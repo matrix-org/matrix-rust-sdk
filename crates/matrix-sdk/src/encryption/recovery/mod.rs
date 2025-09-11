@@ -758,7 +758,7 @@ pub(crate) mod tests {
             .mock_global_account_data()
             .ok(
                 client.user_id().unwrap(),
-                ruma::events::GlobalAccountDataEventType::SecretStorageKey("abc".to_string()),
+                ruma::events::GlobalAccountDataEventType::SecretStorageKey("abc".to_owned()),
                 json!({
                     "algorithm": "m.secret_storage.v1.aes-hmac-sha2",
                     "iv": "xv5b6/p3ExEw++wTyfSHEg==",
@@ -796,7 +796,7 @@ pub(crate) mod tests {
             .mock_global_account_data()
             .ok(
                 client.user_id().unwrap(),
-                ruma::events::GlobalAccountDataEventType::SecretStorageKey("abc".to_string()),
+                ruma::events::GlobalAccountDataEventType::SecretStorageKey("abc".to_owned()),
                 json!({
                     "algorithm": "m.secret_storage.v1.aes-hmac-sha2",
                     "iv": "xv5b6/p3ExEw++wTyfSHEg==",
@@ -843,7 +843,7 @@ pub(crate) mod tests {
             .mock_global_account_data()
             .ok(
                 client.user_id().unwrap(),
-                ruma::events::GlobalAccountDataEventType::SecretStorageKey("abc".to_string()),
+                ruma::events::GlobalAccountDataEventType::SecretStorageKey("abc".to_owned()),
                 json!({
                     "algorithm": "m.secret_storage.v1.aes-hmac-sha2",
                     "iv": "xv5b6/p3ExEw++wTyfSHEg==",
