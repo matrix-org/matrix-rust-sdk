@@ -1077,6 +1077,7 @@ impl EventFactory {
         self.next_ts.store(value, SeqCst);
     }
 
+    /// Create a new global account data event of the given `C` content type.
     pub fn global_account_data<C>(&self, content: C) -> EventBuilder<C>
     where
         C: GlobalAccountDataEventContent + StaticEventContent<IsPrefix = False>,
