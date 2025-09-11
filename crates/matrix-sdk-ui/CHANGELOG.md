@@ -6,6 +6,11 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased] - ReleaseDate
 
+### Bug Fixes
+
+- Avoid replacing timeline items when the encryption info is unchanged.
+  ([#5660](https://github.com/matrix-org/matrix-rust-sdk/pull/5660))
+
 ## [0.14.0] - 2025-09-04
 
 ### Features

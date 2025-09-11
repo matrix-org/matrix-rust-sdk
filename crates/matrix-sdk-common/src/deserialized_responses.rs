@@ -294,7 +294,7 @@ pub enum ShieldStateCode {
 }
 
 /// The algorithm specific information of a decrypted event.
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub enum AlgorithmInfo {
     /// The info if the event was encrypted using m.megolm.v1.aes-sha2
     MegolmV1AesSha2 {
@@ -320,7 +320,7 @@ pub enum AlgorithmInfo {
 }
 
 /// Struct containing information on how an event was decrypted.
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct EncryptionInfo {
     /// The user ID of the event sender, note this is untrusted data unless the
     /// `verification_state` is `Verified` as well.
