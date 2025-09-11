@@ -33,8 +33,7 @@ impl SearchIndexWriter {
     }
 
     pub(crate) fn add(&self, document: TantivyDocument) -> Result<OpStamp, IndexError> {
-        Ok(self.inner.add_document(document)?) // TODO: This is blocking. Handle
-        // it.
+        Ok(self.inner.add_document(document)?) // TODO: This is blocking. Handle it.
     }
 
     pub(crate) fn remove(&self, event_id: &EventId) {

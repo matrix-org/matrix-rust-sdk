@@ -741,13 +741,16 @@ impl EventCache {
 
                     let mut search_index_guard = client.search_index().lock().await;
 
-                    for event in timeline_events {
-                        if let Err(err) = search_index_guard
-                            .handle_timeline_event(&event, &room_cache, &room_id, &redaction_rules)
-                            .await
-                        {
-                            warn!("Failed to handle event for indexing: {err}")
-                        }
+                    if let Err(err) = search_index_guard
+                        .bulk_handle_timeline_event(
+                            timeline_events,
+                            &room_cache,
+                            &room_id,
+                            &redaction_rules,
+                        )
+                        .await
+                    {
+                        error!("Failed to handle events for indexing: {err}")
                     }
                 }
                 Err(RecvError::Closed) => {
