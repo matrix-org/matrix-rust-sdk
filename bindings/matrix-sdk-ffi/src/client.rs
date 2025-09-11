@@ -1750,7 +1750,7 @@ impl Client {
     /// Adds a recently used emoji to the list and uploads the updated
     /// `io.element.recent_emoji` content to the global account data.
     pub async fn add_recent_emoji(&self, emoji: String) -> Result<(), ClientError> {
-        Ok(self.inner.add_recent_emoji(&emoji).await?)
+        Ok(self.inner.account().add_recent_emoji(&emoji).await?)
     }
 
     #[cfg(feature = "experimental-element-recent-emojis")]
@@ -1759,10 +1759,11 @@ impl Client {
     pub async fn get_recent_emojis(&self) -> Result<Vec<RecentEmoji>, ClientError> {
         Ok(self
             .inner
-            .get_recent_emojis()
+            .account()
+            .get_recent_emojis(false)
             .await?
             .into_iter()
-            .map(|(emoji, count)| RecentEmoji { emoji, count })
+            .map(|(emoji, count)| RecentEmoji { emoji, count: count.into() })
             .collect::<Vec<RecentEmoji>>())
     }
 }

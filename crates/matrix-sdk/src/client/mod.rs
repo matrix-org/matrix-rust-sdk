@@ -28,8 +28,6 @@ use eyeball::{SharedObservable, Subscriber};
 use eyeball_im::{Vector, VectorDiff};
 use futures_core::Stream;
 use futures_util::StreamExt;
-#[cfg(feature = "experimental-element-recent-emojis")]
-use js_int::uint;
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk_base::crypto::{store::LockableCryptoStore, DecryptionSettings};
 use matrix_sdk_base::{
@@ -40,11 +38,7 @@ use matrix_sdk_base::{
     BaseClient, RoomInfoNotableUpdate, RoomState, RoomStateFilter, SendOutsideWasm, SessionMeta,
     StateStoreDataKey, StateStoreDataValue, SyncOutsideWasm, ThreadingSupport,
 };
-#[cfg(feature = "experimental-element-recent-emojis")]
-use matrix_sdk_base::{recent_emojis::RecentEmojisContent, store::StateStoreExt};
 use matrix_sdk_common::ttl_cache::TtlCache;
-#[cfg(feature = "experimental-element-recent-emojis")]
-use ruma::api::client::config::set_global_account_data::v3::Request as UpdateGlobalAccountDataRequest;
 #[cfg(feature = "e2e-encryption")]
 use ruma::events::{room::encryption::RoomEncryptionEventContent, InitialStateEvent};
 use ruma::{
@@ -2949,50 +2943,6 @@ impl Client {
     pub(crate) fn thread_subscription_catchup(&self) -> &ThreadSubscriptionCatchup {
         self.inner.thread_subscription_catchup.get().unwrap()
     }
-
-    #[cfg(feature = "experimental-element-recent-emojis")]
-    async fn get_recent_emoji_content(&self) -> Result<Option<RecentEmojisContent>> {
-        self.state_store()
-            .get_account_data_event_static::<RecentEmojisContent>()
-            .await?
-            .map(|raw| raw.deserialize().map(|event| event.content))
-            .transpose()
-            .map_err(Into::into)
-    }
-
-    #[cfg(feature = "experimental-element-recent-emojis")]
-    /// Adds a recently used emoji to the list and uploads the updated
-    /// `io.element.recent_emoji` content to the global account data.
-    pub async fn add_recent_emoji(&self, emoji: &str) -> Result<()> {
-        let mut content =
-            self.get_recent_emoji_content().await?.unwrap_or_else(RecentEmojisContent::default);
-
-        let index = content.recent_emoji.iter().position(|(unicode, _)| unicode == emoji);
-
-        let count =
-            if let Some(index) = index { content.recent_emoji.remove(index).1 } else { uint!(0) };
-
-        content.recent_emoji.insert(0, (emoji.to_owned(), count + uint!(1)));
-
-        let Some(session_id) = self.user_id() else {
-            return Err(Error::AuthenticationRequired);
-        };
-        let request = UpdateGlobalAccountDataRequest::new(session_id.to_owned(), &content)?;
-        let _ = self.send(request).await?;
-
-        Ok(())
-    }
-
-    #[cfg(feature = "experimental-element-recent-emojis")]
-    /// Gets the list of recently used emojis from the `io.element.recent_emoji`
-    /// global account data.
-    pub async fn get_recent_emojis(&self) -> Result<Vec<(String, u64)>> {
-        let Some(content) = self.get_recent_emoji_content().await? else {
-            return Ok(Vec::new());
-        };
-
-        Ok(content.recent_emoji.into_iter().map(|(emoji, count)| (emoji, count.into())).collect())
-    }
 }
 
 #[cfg(any(feature = "testing", test))]
@@ -3124,10 +3074,6 @@ pub(crate) mod tests {
     #[cfg(target_family = "wasm")]
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
-    #[cfg(feature = "experimental-element-recent-emojis")]
-    use matrix_sdk_base::recent_emojis::RecentEmojisContent;
-    #[cfg(feature = "experimental-element-recent-emojis")]
-    use ruma::events::GlobalAccountDataEventContent;
     use ruma::{
         api::{
             client::{
@@ -4126,41 +4072,5 @@ pub(crate) mod tests {
         })
         .await
         .unwrap();
-    }
-
-    #[cfg(feature = "experimental-element-recent-emojis")]
-    #[async_test]
-    async fn test_recent_emojis() {
-        let server = MatrixMockServer::new().await;
-        let client = server.client_builder().build().await;
-
-        server
-            .mock_update_global_account_data()
-            .ok(client.user_id().expect("session_id"), RecentEmojisContent::default().event_type())
-            .named("Update recent emojis global account data")
-            .mock_once()
-            .mount()
-            .await;
-
-        let recent_emojis = client.get_recent_emojis().await.expect("recent emojis");
-        assert!(recent_emojis.is_empty());
-
-        client.add_recent_emoji(":)").await.expect("adding emoji");
-
-        server
-            .mock_sync()
-            .ok(|builder| {
-                let content = RecentEmojisContent::new(vec![(":)".to_owned(), uint!(1))]);
-                let event_builder = EventFactory::new().global_account_data(content);
-                builder.add_global_account_data(event_builder);
-            })
-            .named("Sync")
-            .mount()
-            .await;
-
-        client.sync_once(SyncSettings::default()).await.expect("sync failed");
-
-        let recent_emojis = client.get_recent_emojis().await.expect("recent emojis");
-        assert_eq!(recent_emojis.len(), 1);
     }
 }
