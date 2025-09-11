@@ -24,7 +24,6 @@ use ruma::{
     events::AnySyncTimelineEvent, push::Action, serde::Raw,
 };
 use tracing::{debug, instrument, trace, warn};
-
 use super::{
     super::{
         controller::ObservableItemsTransactionEntry,
@@ -437,6 +436,7 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
                 }
             }
 
+            TimelineFocusKind::ThreadEvent { root_event_id, .. } => true,
             TimelineFocusKind::Live { hide_threaded_events } => {
                 // If the timeline's filtering out in-thread events, don't add items for
                 // threaded events.

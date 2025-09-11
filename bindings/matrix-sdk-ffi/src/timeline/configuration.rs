@@ -80,6 +80,11 @@ pub enum TimelineFocus {
         /// The thread root event ID to focus on.
         root_event_id: String,
     },
+    ThreadEvent {
+        /// The thread root event ID to focus on.
+        root_event_id: String,
+        focused_event_id: String,
+    },
     PinnedEvents {
         max_events_to_load: u16,
         max_concurrent_requests: u16,
@@ -116,6 +121,23 @@ impl TryFrom<TimelineFocus> for matrix_sdk_ui::timeline::TimelineFocus {
                 })?;
 
                 Ok(Self::Thread { root_event_id: parsed_root_event_id })
+            }
+            TimelineFocus::ThreadEvent { root_event_id, focused_event_id } => {
+                let parsed_root_event_id = EventId::parse(&root_event_id).map_err(|err| {
+                    FocusEventError::InvalidEventId {
+                        event_id: root_event_id.clone(),
+                        err: err.to_string(),
+                    }
+                })?;
+
+                let parsed_focused_event_id = EventId::parse(&focused_event_id).map_err(|err| {
+                    FocusEventError::InvalidEventId {
+                        event_id: focused_event_id.clone(),
+                        err: err.to_string(),
+                    }
+                })?;
+
+                Ok(Self::ThreadEvent{ root_event_id: parsed_root_event_id, target: parsed_focused_event_id })
             }
             TimelineFocus::PinnedEvents { max_events_to_load, max_concurrent_requests } => {
                 Ok(Self::PinnedEvents { max_events_to_load, max_concurrent_requests })

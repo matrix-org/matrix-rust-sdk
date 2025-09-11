@@ -17,18 +17,21 @@
 //! See also the documentation for the [`ThreadedEventsLoader`] struct.
 
 use std::{fmt::Formatter, future::Future, sync::Mutex};
-
+use js_int::uint;
 use matrix_sdk_base::{deserialized_responses::TimelineEvent, SendOutsideWasm, SyncOutsideWasm};
-use ruma::{api::Direction, OwnedEventId, UInt};
-
+use ruma::{api::Direction, EventId, OwnedEventId, RoomId, UInt};
+use tracing::warn;
 use crate::{
     paginators::{PaginationResult, PaginationToken, PaginatorError},
     room::{IncludeRelations, Relations, RelationsOptions},
     Error, Room,
 };
+use crate::paginators::PaginationTokens;
+use crate::room::EventWithContextResponse;
 
 /// A paginable thread interface, useful for testing purposes.
 pub trait PaginableThread: SendOutsideWasm + SyncOutsideWasm {
+    fn room_id(&self) -> &RoomId;
     /// Runs a /relations query for the given thread, with the given options.
     fn relations(
         &self,
@@ -41,9 +44,18 @@ pub trait PaginableThread: SendOutsideWasm + SyncOutsideWasm {
         &self,
         event_id: &OwnedEventId,
     ) -> impl Future<Output = Result<TimelineEvent, Error>> + SendOutsideWasm;
+
+    fn load_event_with_context(
+        &self,
+        event_id: &EventId,
+    ) -> impl Future<Output = Result<EventWithContextResponse, Error>> + SendOutsideWasm;
 }
 
 impl PaginableThread for Room {
+    fn room_id(&self) -> &RoomId {
+        self.room_id()
+    }
+
     async fn relations(
         &self,
         thread_root: OwnedEventId,
@@ -54,6 +66,10 @@ impl PaginableThread for Room {
 
     async fn load_event(&self, event_id: &OwnedEventId) -> Result<TimelineEvent, Error> {
         self.event(event_id, None).await
+    }
+
+    async fn load_event_with_context(&self, event_id: &EventId) -> Result<EventWithContextResponse, Error> {
+        self.event_with_context(event_id, true, uint!(5), None).await
     }
 }
 
@@ -67,13 +83,28 @@ pub struct ThreadedEventsLoader<P: PaginableThread> {
 
     /// The current pagination token, which is used to keep track of the
     /// pagination state.
-    token: Mutex<PaginationToken>,
+    tokens: Mutex<PaginationTokens>,
 }
 
 impl<P: PaginableThread> ThreadedEventsLoader<P> {
     /// Create a new [`ThreadedEventsLoader`], given a room implementation.
     pub fn new(room: P, root_event_id: OwnedEventId) -> Self {
-        Self { room, root_event_id, token: Mutex::new(None.into()) }
+        Self { room, root_event_id, tokens: Mutex::new(PaginationTokens { previous: None.into(), next: None.into() }) }
+    }
+
+    pub async fn init_focused(&self, focused_event_id: &EventId) -> Result<EventWithContextResponse, Error> {
+        let result = self.room.load_event_with_context(focused_event_id).await?;
+        warn!("Got /context response | prev_token {:?}, next_token {:?}", result.prev_batch_token, result.next_batch_token);
+        let mut tokens = self.tokens.lock().unwrap();
+        tokens.previous = match &result.prev_batch_token {
+            Some(token) => PaginationToken::HasMore(token.clone()),
+            None => PaginationToken::None,
+        };
+        tokens.next = match &result.next_batch_token {
+            Some(token) => PaginationToken::HasMore(token.clone()),
+            None => PaginationToken::None,
+        };
+        Ok(result)
     }
 
     /// Run a single pagination backwards, returning the next set of events and
@@ -85,10 +116,11 @@ impl<P: PaginableThread> ThreadedEventsLoader<P> {
         &self,
         num_events: UInt,
     ) -> Result<PaginationResult, PaginatorError> {
+        warn!("Paginating backwards");
         let token = {
-            let token = self.token.lock().unwrap();
+            let token = &self.tokens.lock().unwrap().previous;
 
-            match &*token {
+            match token {
                 PaginationToken::None => None,
                 PaginationToken::HasMore(token) => Some(token.clone()),
                 PaginationToken::HitEnd => {
@@ -115,9 +147,9 @@ impl<P: PaginableThread> ThreadedEventsLoader<P> {
 
         // Update the stored tokens
         {
-            let mut token = self.token.lock().unwrap();
+            let mut tokens = self.tokens.lock().unwrap();
 
-            *token = match result.next_batch_token {
+            tokens.previous = match result.next_batch_token {
                 Some(val) => PaginationToken::HasMore(val),
                 None => PaginationToken::HitEnd,
             };
@@ -132,6 +164,57 @@ impl<P: PaginableThread> ThreadedEventsLoader<P> {
                 .map_err(|err| PaginatorError::SdkError(Box::new(err)))?;
 
             result.chunk.push(root_event);
+        }
+
+        Ok(PaginationResult { events: result.chunk, hit_end_of_timeline })
+    }
+
+    /// Run a single pagination backwards, returning the next set of events and
+    /// information whether we've reached the start of the thread.
+    ///
+    /// Note: when the thread start is reached, the root event *will* be
+    /// included in the result.
+    pub async fn paginate_forwards(
+        &self,
+        num_events: UInt,
+    ) -> Result<PaginationResult, PaginatorError> {
+        warn!("Paginating forwards");
+        let token = {
+            let token = &self.tokens.lock().unwrap().next;
+
+            match token {
+                PaginationToken::None => None,
+                PaginationToken::HasMore(token) => Some(token.clone()),
+                PaginationToken::HitEnd => {
+                    return Ok(PaginationResult { events: Vec::new(), hit_end_of_timeline: true });
+                }
+            }
+        };
+
+        let options = RelationsOptions {
+            from: token,
+            dir: Direction::Forward,
+            limit: Some(num_events),
+            include_relations: IncludeRelations::AllRelations,
+            recurse: true,
+        };
+
+        let mut result = self
+            .room
+            .relations(self.root_event_id.to_owned(), options)
+            .await
+            .map_err(|error| PaginatorError::SdkError(Box::new(error)))?;
+
+        let hit_end_of_timeline = result.next_batch_token.is_none();
+
+        // Update the stored tokens
+        {
+            let mut tokens = self.tokens.lock().unwrap();
+
+            tokens.next = match result.next_batch_token {
+                Some(val) => PaginationToken::HasMore(val),
+                None => PaginationToken::HitEnd,
+            };
         }
 
         Ok(PaginationResult { events: result.chunk, hit_end_of_timeline })

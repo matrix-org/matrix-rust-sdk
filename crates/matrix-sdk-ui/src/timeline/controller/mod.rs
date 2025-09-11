@@ -90,6 +90,7 @@ mod state_transaction;
 
 pub(super) use aggregations::*;
 pub(super) use decryption_retry_task::{CryptoDropHandles, spawn_crypto_tasks};
+use matrix_sdk::paginators::thread::ThreadedEventsLoader;
 
 /// Data associated to the current timeline focus.
 ///
@@ -120,6 +121,12 @@ pub(in crate::timeline) enum TimelineFocusKind<P: RoomDataProvider> {
         root_event_id: OwnedEventId,
     },
 
+    ThreadEvent {
+        /// The root event for the current thread.
+        root_event_id: OwnedEventId,
+        event_load: ThreadedEventsLoader<Room>,
+    },
+
     PinnedEvents {
         loader: PinnedEventsLoader,
     },
@@ -143,6 +150,9 @@ impl<P: RoomDataProvider> TimelineFocusKind<P> {
                 }
             }
             TimelineFocusKind::Thread { root_event_id } => {
+                ReceiptThread::Thread(root_event_id.clone())
+            }
+            TimelineFocusKind::ThreadEvent { root_event_id , .. } => {
                 ReceiptThread::Thread(root_event_id.clone())
             }
             TimelineFocusKind::PinnedEvents { .. } => ReceiptThread::Unthreaded,
@@ -313,6 +323,10 @@ impl<P: RoomDataProvider> TimelineController<P> {
                 TimelineFocusKind::Thread { root_event_id }
             }
 
+            TimelineFocus::ThreadEvent { root_event_id, target} => {
+                TimelineFocusKind::ThreadEvent { event_load: ThreadedEventsLoader::new(room_data_provider.room().unwrap(), root_event_id.clone()), root_event_id }
+            }
+
             TimelineFocus::PinnedEvents { max_events_to_load, max_concurrent_requests } => {
                 TimelineFocusKind::PinnedEvents {
                     loader: PinnedEventsLoader::new(
@@ -435,6 +449,35 @@ impl<P: RoomDataProvider> TimelineController<P> {
                 Ok(has_events)
             }
 
+            TimelineFocus::ThreadEvent { root_event_id, target} => {
+                let TimelineFocusKind::ThreadEvent { event_load, .. } = &*self.focus else {
+                    unreachable!();
+                };
+
+                match event_load.init_focused(target).await {
+                    Ok(mut result) => {
+                        let mut items = Vec::new();
+                        let mut items_before = result.events_before.clone();
+                        items_before.reverse();
+                        items.append(&mut items_before);
+                        if let Some(event) = result.event {
+                            items.push(event);
+                        }
+                        items.append(&mut result.events_after);
+
+                        let has_events = !items.is_empty();
+
+                        self.replace_with_initial_remote_events(items.into_iter(), RemoteEventOrigin::Pagination).await;
+
+                        Ok(has_events)
+                    }
+                    Err(err) => {
+                        // TODO: return error instead
+                        Ok(false)
+                    }
+                }
+            }
+
             TimelineFocus::PinnedEvents { .. } => {
                 let TimelineFocusKind::PinnedEvents { loader } = &*self.focus else {
                     // Note: this is sync'd with code in the ctor.
@@ -543,6 +586,7 @@ impl<P: RoomDataProvider> TimelineController<P> {
                 .paginate_backward(num_events.into())
                 .await
                 .map_err(PaginationError::Paginator)?,
+            TimelineFocusKind::ThreadEvent { event_load, .. } => event_load.paginate_backwards(num_events.into()).await.map_err(PaginationError::Paginator)?,
         };
 
         // Events are in reverse topological order.
@@ -573,6 +617,7 @@ impl<P: RoomDataProvider> TimelineController<P> {
                 .paginate_forward(num_events.into())
                 .await
                 .map_err(PaginationError::Paginator)?,
+            TimelineFocusKind::ThreadEvent { event_load, .. } => event_load.paginate_forwards(num_events.into()).await.map_err(PaginationError::Paginator)?,
         };
 
         // Events are in topological order.

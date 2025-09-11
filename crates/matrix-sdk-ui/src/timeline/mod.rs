@@ -151,6 +151,8 @@ pub enum TimelineFocus {
 
     /// Focus on a specific thread
     Thread { root_event_id: OwnedEventId },
+    
+    ThreadEvent { root_event_id: OwnedEventId, target: OwnedEventId },
 
     /// Only show pinned events.
     PinnedEvents { max_events_to_load: u16, max_concurrent_requests: u16 },
@@ -162,6 +164,7 @@ impl TimelineFocus {
             TimelineFocus::Live { .. } => "live".to_owned(),
             TimelineFocus::Event { target, .. } => format!("permalink:{target}"),
             TimelineFocus::Thread { root_event_id, .. } => format!("thread:{root_event_id}"),
+            TimelineFocus::ThreadEvent { root_event_id, target } => format!("thread_event:{root_event_id}-{target}"),
             TimelineFocus::PinnedEvents { .. } => "pinned-events".to_owned(),
         }
     }

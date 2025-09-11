@@ -383,6 +383,8 @@ impl Room {
         Self { inner: room, client }
     }
 
+    pub fn room_id(&self) -> &RoomId { self.inner.room_id() }
+
     /// Leave this room.
     /// If the room was in [`RoomState::Invited`] state, it'll also be forgotten
     /// automatically.

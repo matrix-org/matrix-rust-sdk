@@ -164,9 +164,15 @@ pub(super) trait RoomDataProvider:
         &'a self,
         event_id: &'a EventId,
     ) -> impl Future<Output = Result<TimelineEvent>> + SendOutsideWasm + 'a;
+
+    fn room(&self) -> Option<Room>;
 }
 
 impl RoomDataProvider for Room {
+    fn room(&self) -> Option<Room> {
+        Some(self.clone())
+    }
+
     fn own_user_id(&self) -> &UserId {
         (**self).own_user_id()
     }

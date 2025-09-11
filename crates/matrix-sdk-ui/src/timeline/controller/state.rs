@@ -177,6 +177,7 @@ impl<P: RoomDataProvider> TimelineState<P> {
                 // of the `should_add_new_items` value.
                 false
             }
+            TimelineFocusKind::ThreadEvent { .. } => false,
         };
 
         let ctx = TimelineEventContext {
