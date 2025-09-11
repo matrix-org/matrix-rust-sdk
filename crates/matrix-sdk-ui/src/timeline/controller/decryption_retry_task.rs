@@ -404,7 +404,8 @@ pub(super) async fn retry_fetch_encryption_info<P: RoomDataProvider>(
 
 /// Create a replacement TimelineItem for the supplied one, with new
 /// [`EncryptionInfo`] from the supplied `room_data_provider`. Returns None if
-/// the supplied item is not a remote event, or if it doesn't have a session ID.
+/// the supplied item is not a remote event, or if it doesn't have a session ID,
+/// or if the [`EncryptionInfo`] hasn't actually changed.
 async fn make_replacement_for<P: RoomDataProvider>(
     room_data_provider: &P,
     item: Option<&Arc<TimelineItem>>,
@@ -416,6 +417,12 @@ async fn make_replacement_for<P: RoomDataProvider>(
 
     let new_encryption_info =
         room_data_provider.get_encryption_info(session_id, &event.sender).await;
+
+    // Only create a replacement if the encryption info actually changed.
+    if remote.encryption_info == new_encryption_info {
+        return None;
+    }
+
     let mut new_remote = remote.clone();
     new_remote.encryption_info = new_encryption_info;
     let new_item = item.with_kind(TimelineItemKind::Event(
