@@ -24,7 +24,7 @@ crate-type = [
 ]
 
 [features]
-default = ["bundled-sqlite", "unstable-msc4274"]
+default = ["bundled-sqlite", "unstable-msc4274", "unstable-msc4076"]
 bundled-sqlite = ["matrix-sdk/bundled-sqlite"]
 unstable-msc4274 = ["matrix-sdk-ui/unstable-msc4274"]
 # Required when targeting a Javascript environment, like Wasm in a browser.
@@ -35,6 +35,8 @@ native-tls = ["matrix-sdk/native-tls", "sentry?/native-tls"]
 rustls-tls = ["matrix-sdk/rustls-tls", "sentry?/rustls"]
 # Enable sentry error monitoring, not compatible with Wasm platforms.
 sentry = ["dep:sentry", "dep:sentry-tracing"]
+
+unstable-msc4076 = ["matrix-sdk/unstable-msc4076"]
 
 [dependencies]
 anyhow.workspace = true
@@ -57,7 +59,7 @@ matrix-sdk-ffi-macros.workspace = true
 matrix-sdk-ui = { workspace = true, features = ["uniffi"] }
 mime = "0.3.16"
 once_cell.workspace = true
-ruma = { workspace = true, features = ["html", "unstable-msc3488", "compat-unset-avatar", "unstable-msc3245-v1-compat", "unstable-msc4278", "unstable-hydra"] }
+ruma = { workspace = true, features = ["html", "unstable-msc3488", "compat-unset-avatar", "unstable-msc3245-v1-compat", "unstable-msc4278", "unstable-hydra", "unstable-msc4076"] }
 serde.workspace = true
 serde_json.workspace = true
 sentry = { workspace = true, optional = true, default-features = false, features = [

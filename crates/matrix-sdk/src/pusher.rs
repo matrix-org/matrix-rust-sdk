@@ -85,6 +85,8 @@ mod tests {
             lang: "EN".to_owned(),
             device_display_name: "name".to_owned(),
             profile_tag: None,
+            #[cfg(feature = "unstable-msc4076")]
+            disable_badge_count: true,
         };
 
         let response = client.pusher().set(pusher.into()).await;
