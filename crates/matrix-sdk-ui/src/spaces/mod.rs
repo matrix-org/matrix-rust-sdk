@@ -85,7 +85,8 @@ pub mod room_list;
 ///
 /// // Get a list of all the rooms in a particular space
 /// let room_list = space_service
-///     .space_room_list(owned_room_id!("!some_space:example.org"));
+///     .space_room_list(owned_room_id!("!some_space:example.org"))
+///     .await;
 ///
 /// // Which can be used to retrieve information about the children rooms
 /// let children = room_list.rooms();
@@ -161,8 +162,8 @@ impl SpaceService {
     }
 
     /// Returns a `SpaceRoomList` for the given space ID.
-    pub fn space_room_list(&self, space_id: OwnedRoomId) -> SpaceRoomList {
-        SpaceRoomList::new(self.client.clone(), space_id)
+    pub async fn space_room_list(&self, space_id: OwnedRoomId) -> SpaceRoomList {
+        SpaceRoomList::new(self.client.clone(), space_id).await
     }
 
     fn update_joined_spaces_if_needed(

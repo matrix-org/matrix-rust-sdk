@@ -78,17 +78,12 @@ impl SpaceService {
     }
 
     /// Returns a `SpaceRoomList` for the given space ID.
-    #[allow(clippy::unused_async)]
-    // This method doesn't need to be async but if its not the FFI layer panics
-    // with "there is no no reactor running, must be called from the context
-    // of a Tokio 1.x runtime" error because the underlying constructor spawns
-    // an async task.
     pub async fn space_room_list(
         &self,
         space_id: String,
     ) -> Result<Arc<SpaceRoomList>, ClientError> {
         let space_id = RoomId::parse(space_id)?;
-        Ok(Arc::new(SpaceRoomList::new(self.inner.space_room_list(space_id))))
+        Ok(Arc::new(SpaceRoomList::new(self.inner.space_room_list(space_id).await)))
     }
 }
 
