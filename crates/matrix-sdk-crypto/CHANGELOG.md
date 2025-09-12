@@ -6,6 +6,11 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased] - ReleaseDate
 
+### Bug Fixes
+
+- Fix a bug introduced in 0.14.0 which meant that the serialization of the value returned by `OtherUserIdentity::verification_request_content` did not include a `msgtype` field.
+  ([#5642](https://github.com/matrix-org/matrix-rust-sdk/pull/5642))
+
 ## [0.14.0] - 2025-09-04
 
 ### Features
