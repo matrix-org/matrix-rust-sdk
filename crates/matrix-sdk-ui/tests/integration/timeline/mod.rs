@@ -916,8 +916,9 @@ async fn test_custom_msglike_event_in_timeline() {
     server
         .sync_room(
             &client,
-            JoinedRoomBuilder::new(room_id)
-                .add_timeline_event(f.custom_message_like_event().event_id(event_id).sender(user_id!("@a:b.c"))),
+            JoinedRoomBuilder::new(room_id).add_timeline_event(
+                f.custom_message_like_event().event_id(event_id).sender(user_id!("@a:b.c")),
+            ),
         )
         .await;
 

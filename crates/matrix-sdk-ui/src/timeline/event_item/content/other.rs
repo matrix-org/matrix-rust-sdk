@@ -12,7 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Timeline item content for other message-like events created by the EventContent macro from ruma.
+//! Timeline item content for other message-like events created by the
+//! EventContent macro from ruma.
 
 use std::fmt;
 

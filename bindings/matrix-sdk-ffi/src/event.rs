@@ -453,8 +453,8 @@ impl TryFrom<ruma::events::MessageLikeEventType> for MessageLikeEventType {
             }
             ruma::events::MessageLikeEventType::UnstablePollStart => Ok(Self::UnstablePollStart),
             _type => Err(self::ClientError::Generic {
-                msg: "Cannot convert custom MessageLikeEventTypes yet".to_string(),
-                details: Some(format!("origin type: {}", _type.to_string())),
+                msg: "Cannot convert custom MessageLikeEventTypes yet".to_owned(),
+                details: Some(format!("origin type: {}", _type)),
             }),
         }
     }
