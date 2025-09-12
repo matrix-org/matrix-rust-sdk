@@ -142,11 +142,14 @@ impl SpaceRoomList {
                                     .clone()
                                     .iter()
                                     .find_position(|room| &room.room_id == updated_room_id)
-                                    && let Some(update_room) = client.get_room(updated_room_id)
+                                    && let Some(updated_room) = client.get_room(updated_room_id)
                                 {
                                     mutable_rooms.set(
                                         position,
-                                        SpaceRoom::new_from_known(update_room, room.children_count),
+                                        SpaceRoom::new_from_known(
+                                            &updated_room,
+                                            room.children_count,
+                                        ),
                                     );
                                 }
                             })
@@ -165,7 +168,7 @@ impl SpaceRoomList {
                 .await
                 .map_or(0, |c| c.len() as u64);
 
-            Some(SpaceRoom::new_from_known(parent, children_count))
+            Some(SpaceRoom::new_from_known(&parent, children_count))
         } else {
             None
         };

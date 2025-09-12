@@ -236,10 +236,7 @@ impl SpaceService {
                 let room_id = room.room_id();
 
                 if root_nodes.contains(&room_id) {
-                    Some(SpaceRoom::new_from_known(
-                        room.clone(),
-                        graph.children_of(room_id).len() as u64,
-                    ))
+                    Some(SpaceRoom::new_from_known(room, graph.children_of(room_id).len() as u64))
                 } else {
                     None
                 }
@@ -408,12 +405,12 @@ mod tests {
 
         assert_eq!(
             initial_values,
-            vec![SpaceRoom::new_from_known(client.get_room(first_space_id).unwrap(), 0)].into()
+            vec![SpaceRoom::new_from_known(&client.get_room(first_space_id).unwrap(), 0)].into()
         );
 
         assert_eq!(
             space_service.joined_spaces().await,
-            vec![SpaceRoom::new_from_known(client.get_room(first_space_id).unwrap(), 0)]
+            vec![SpaceRoom::new_from_known(&client.get_room(first_space_id).unwrap(), 0)]
         );
 
         // And the stream is still pending as the initial values were
@@ -442,8 +439,8 @@ mod tests {
         assert_eq!(
             space_service.joined_spaces().await,
             vec![
-                SpaceRoom::new_from_known(client.get_room(first_space_id).unwrap(), 0),
-                SpaceRoom::new_from_known(client.get_room(second_space_id).unwrap(), 1)
+                SpaceRoom::new_from_known(&client.get_room(first_space_id).unwrap(), 0),
+                SpaceRoom::new_from_known(&client.get_room(second_space_id).unwrap(), 1)
             ]
         );
 
@@ -453,8 +450,8 @@ mod tests {
                 VectorDiff::Clear,
                 VectorDiff::Append {
                     values: vec![
-                        SpaceRoom::new_from_known(client.get_room(first_space_id).unwrap(), 0),
-                        SpaceRoom::new_from_known(client.get_room(second_space_id).unwrap(), 1)
+                        SpaceRoom::new_from_known(&client.get_room(first_space_id).unwrap(), 0),
+                        SpaceRoom::new_from_known(&client.get_room(second_space_id).unwrap(), 1)
                     ]
                     .into()
                 },
@@ -470,7 +467,7 @@ mod tests {
                 VectorDiff::Clear,
                 VectorDiff::Append {
                     values: vec![SpaceRoom::new_from_known(
-                        client.get_room(first_space_id).unwrap(),
+                        &client.get_room(first_space_id).unwrap(),
                         0
                     )]
                     .into()
@@ -491,7 +488,7 @@ mod tests {
         assert_pending!(joined_spaces_subscriber);
         assert_eq!(
             space_service.joined_spaces().await,
-            vec![SpaceRoom::new_from_known(client.get_room(first_space_id).unwrap(), 0)]
+            vec![SpaceRoom::new_from_known(&client.get_room(first_space_id).unwrap(), 0)]
         );
     }
 }
