@@ -920,6 +920,87 @@ async fn test_megolm_state_encryption_bad_state_key() {
     );
 }
 
+#[cfg(feature = "experimental-encrypted-state-events")]
+#[async_test]
+async fn test_megolm_state_encryption_outer_state_key_no_inner() {
+    let room_id = room_id!("!test:example.org");
+    let (alice, bob) = megolm_encryption_setup_helper(room_id).await;
+
+    // Construct an inner message-like event and encrypt it.
+    let plaintext = "It is a secret to everybody";
+    let content = RoomMessageEventContent::text_plain(plaintext);
+    let encrypted_content = alice
+        .encrypt_room_event(room_id, AnyMessageLikeEventContent::RoomMessage(content))
+        .await
+        .unwrap();
+
+    // Construct an outer event that has `state_key` defined.
+    let event = json!({
+        "event_id": "$xxxxx:example.org",
+        "origin_server_ts": MilliSecondsSinceUnixEpoch::now(),
+        "sender": alice.user_id(),
+        "type": "m.room.encrypted",
+        "state_key": "m.room.message:",
+        "content": encrypted_content,
+    });
+
+    let event = json_convert(&event).unwrap();
+
+    let decryption_settings =
+        DecryptionSettings { sender_device_trust_requirement: TrustRequirement::Untrusted };
+
+    let decryption_result =
+        bob.try_decrypt_room_event(&event, room_id, &decryption_settings).await.unwrap();
+
+    assert_matches!(
+        decryption_result,
+        RoomEventDecryptionResult::UnableToDecrypt(UnableToDecryptInfo {
+            reason: UnableToDecryptReason::StateKeyVerificationFailed,
+            ..
+        })
+    );
+}
+
+#[cfg(feature = "experimental-encrypted-state-events")]
+#[async_test]
+async fn test_megolm_state_encryption_inner_state_key_no_outer() {
+    use ruma::events::EmptyStateKey;
+
+    let room_id = room_id!("!test:example.org");
+    let (alice, bob) = megolm_encryption_setup_helper(room_id).await;
+
+    // Construct an inner state event (with state key) and encrypt it.
+    let plaintext = "It is a secret to everybody";
+    let content = RoomTopicEventContent::new(plaintext.to_owned());
+    let encrypted_content =
+        alice.encrypt_state_event(room_id, content, EmptyStateKey).await.unwrap();
+
+    // Construct an outer event without a state key.
+    let event = json!({
+        "event_id": "$xxxxx:example.org",
+        "origin_server_ts": MilliSecondsSinceUnixEpoch::now(),
+        "sender": alice.user_id(),
+        "type": "m.room.encrypted",
+        "content": encrypted_content,
+    });
+
+    let event = json_convert(&event).unwrap();
+
+    let decryption_settings =
+        DecryptionSettings { sender_device_trust_requirement: TrustRequirement::Untrusted };
+
+    let decryption_result =
+        bob.try_decrypt_room_event(&event, room_id, &decryption_settings).await.unwrap();
+
+    assert_matches!(
+        decryption_result,
+        RoomEventDecryptionResult::UnableToDecrypt(UnableToDecryptInfo {
+            reason: UnableToDecryptReason::StateKeyVerificationFailed,
+            ..
+        })
+    );
+}
+
 #[async_test]
 async fn test_withheld_unverified() {
     let (alice, bob) =
