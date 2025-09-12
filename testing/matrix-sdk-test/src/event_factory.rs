@@ -29,9 +29,9 @@ use ruma::{
     TransactionId, UInt, UserId, VoipVersionId,
     events::{
         AnyGlobalAccountDataEvent, AnyStateEvent, AnySyncMessageLikeEvent, AnySyncStateEvent,
-        AnySyncTimelineEvent, AnyTimelineEvent, BundledMessageLikeRelations, False, Mentions,
-        RedactedMessageLikeEventContent, RedactedStateEventContent, StateEventContent,
-        StaticEventContent,
+        AnySyncTimelineEvent, AnyTimelineEvent, BundledMessageLikeRelations, False,
+        GlobalAccountDataEventContent, Mentions, RedactedMessageLikeEventContent,
+        RedactedStateEventContent, StateEventContent, StaticEventContent,
         beacon::BeaconEventContent,
         call::{
             SessionDescription,
@@ -1075,6 +1075,16 @@ impl EventFactory {
     /// Timestamps will continue to increase by 1 (millisecond) from that value.
     pub fn set_next_ts(&self, value: u64) {
         self.next_ts.store(value, SeqCst);
+    }
+
+    /// Create a new global account data event of the given `C` content type.
+    pub fn global_account_data<C>(&self, content: C) -> EventBuilder<C>
+    where
+        C: GlobalAccountDataEventContent + StaticEventContent<IsPrefix = False>,
+    {
+        let mut event = self.event(content);
+        event.is_global = true;
+        event
     }
 }
 

@@ -605,13 +605,14 @@ impl Timeline {
     ///
     /// Ensures that only one reaction is sent at a time to avoid race
     /// conditions and spamming the homeserver with requests.
+    ///
+    /// Returns `true` if the reaction was added, `false` if it was removed.
     pub async fn toggle_reaction(
         &self,
         item_id: EventOrTransactionId,
         key: String,
-    ) -> Result<(), ClientError> {
-        self.inner.toggle_reaction(&item_id.try_into()?, &key).await?;
-        Ok(())
+    ) -> Result<bool, ClientError> {
+        Ok(self.inner.toggle_reaction(&item_id.try_into()?, &key).await?)
     }
 
     pub async fn fetch_details_for_event(&self, event_id: String) -> Result<(), ClientError> {
