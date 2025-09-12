@@ -67,12 +67,14 @@ use matrix_sdk::{
 };
 pub use room_list::*;
 use ruma::{
-    OwnedRoomId, RoomId, UInt, api::client::sync::sync_events::v5 as http, assign,
+    OwnedRoomId, RoomId, UInt,
+    api::{FeatureFlag, client::sync::sync_events::v5 as http},
+    assign,
     events::StateEventType,
 };
 pub use state::*;
 use thiserror::Error;
-use tracing::{debug, error};
+use tracing::{debug, error, warn};
 
 /// The default `required_state` constant value for sliding sync lists and
 /// sliding sync room subscriptions.
@@ -156,12 +158,25 @@ impl RoomListService {
             }));
 
         if client.enabled_thread_subscriptions() {
-            builder = builder.with_thread_subscriptions_extension(
-                assign!(http::request::ThreadSubscriptions::default(), {
-                    enabled: Some(true),
-                    limit: Some(ruma::uint!(10))
-                }),
-            );
+            let server_features = client
+                .supported_versions()
+                .await
+                .map_err(|err| Error::SlidingSync(err.into()))?
+                .features;
+
+            if !server_features.contains(&FeatureFlag::from("org.matrix.msc4306")) {
+                warn!(
+                    "Thread subscriptions extension is requested on the client, but the server doesn't advertise support for it: not enabling."
+                );
+            } else {
+                debug!("Enabling the thread subscriptions extension");
+                builder = builder.with_thread_subscriptions_extension(
+                    assign!(http::request::ThreadSubscriptions::default(), {
+                        enabled: Some(true),
+                        limit: Some(ruma::uint!(10))
+                    }),
+                );
+            }
         }
 
         if share_pos {
