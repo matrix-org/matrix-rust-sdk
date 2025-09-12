@@ -44,6 +44,11 @@ pub struct SpaceRoom {
     /// Whether guest users may join the room and participate in it.
     pub guest_can_join: bool,
 
+    /// Whether this room is a direct room.
+    ///
+    /// Only set if the room is known to the client otherwise we
+    /// assume DMs shouldn't be exposed publicly in spaces.
+    pub is_direct: Option<bool>,
     /// The number of children room this has, if a space.
     pub children_count: u64,
     /// Whether this room is joined, left etc.
@@ -71,6 +76,7 @@ impl SpaceRoom {
             join_rule: Some(summary.join_rule.clone()),
             world_readable: Some(summary.world_readable),
             guest_can_join: summary.guest_can_join,
+            is_direct: known_room.as_ref().map(|r| r.direct_targets_length() != 0),
             children_count,
             state: known_room.as_ref().map(|r| r.state()),
             heroes: known_room.map(|r| r.heroes()),
@@ -94,6 +100,7 @@ impl SpaceRoom {
                 .history_visibility()
                 .map(|vis| *vis == HistoryVisibility::WorldReadable),
             guest_can_join: known_room.guest_access() == GuestAccess::CanJoin,
+            is_direct: Some(known_room.direct_targets_length() != 0),
             children_count,
             state: Some(known_room.state()),
             heroes: Some(room_info.heroes().to_vec()),
