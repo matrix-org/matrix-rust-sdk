@@ -732,3 +732,160 @@ impl IdentityResetHandle {
         self.cross_signing_reset_handle.cancel().await;
     }
 }
+
+// The http mocking library is not supported for wasm32
+#[cfg(all(test, not(target_family = "wasm")))]
+pub(crate) mod tests {
+    use assert_matches::assert_matches;
+    use matrix_sdk_test::async_test;
+    use serde_json::json;
+
+    use super::Recovery;
+    use crate::{
+        encryption::{recovery::types::RecoveryError, secret_storage::SecretStorageError},
+        test_utils::mocks::MatrixMockServer,
+    };
+
+    // If recovery fails due when importing a secret from secret storage, we
+    // should get the `ImportError` variant of `SecretStorageError`.  The
+    // following tests test different import failures.
+    #[async_test]
+    async fn test_recover_with_no_cross_signing_key() {
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+
+        server
+            .mock_global_account_data()
+            .ok(
+                client.user_id().unwrap(),
+                ruma::events::GlobalAccountDataEventType::SecretStorageKey("abc".to_owned()),
+                json!({
+                    "algorithm": "m.secret_storage.v1.aes-hmac-sha2",
+                    "iv": "xv5b6/p3ExEw++wTyfSHEg==",
+                    "mac": "ujBBbXahnTAMkmPUX2/0+VTfUh63pGyVRuBcDMgmJC8="
+                }),
+            )
+            .mount()
+            .await;
+        server
+            .mock_global_account_data()
+            .ok(
+                client.user_id().unwrap(),
+                ruma::events::GlobalAccountDataEventType::SecretStorageDefaultKey,
+                json!({
+                    "key": "abc"
+                }),
+            )
+            .mount()
+            .await;
+
+        let recovery = Recovery { client };
+
+        let ret =
+            recovery.recover("EsTj 3yST y93F SLpB jJsz eAXc 2XzA ygD3 w69H fGaN TKBj jXEd").await;
+
+        assert_matches!(ret, Err(RecoveryError::SecretStorage(SecretStorageError::ImportError(_))));
+    }
+
+    #[async_test]
+    async fn test_recover_with_invalid_cross_signing_key() {
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+
+        server
+            .mock_global_account_data()
+            .ok(
+                client.user_id().unwrap(),
+                ruma::events::GlobalAccountDataEventType::SecretStorageKey("abc".to_owned()),
+                json!({
+                    "algorithm": "m.secret_storage.v1.aes-hmac-sha2",
+                    "iv": "xv5b6/p3ExEw++wTyfSHEg==",
+                    "mac": "ujBBbXahnTAMkmPUX2/0+VTfUh63pGyVRuBcDMgmJC8="
+                }),
+            )
+            .mount()
+            .await;
+        server
+            .mock_global_account_data()
+            .ok(
+                client.user_id().unwrap(),
+                ruma::events::GlobalAccountDataEventType::SecretStorageDefaultKey,
+                json!({
+                    "key": "abc"
+                }),
+            )
+            .mount()
+            .await;
+        server
+            .mock_global_account_data()
+            .ok(
+                client.user_id().unwrap(),
+                ruma::events::GlobalAccountDataEventType::from("m.cross_signing.master".to_owned()),
+                json!({}),
+            )
+            .mount()
+            .await;
+
+        let recovery = Recovery { client };
+
+        let ret =
+            recovery.recover("EsTj 3yST y93F SLpB jJsz eAXc 2XzA ygD3 w69H fGaN TKBj jXEd").await;
+
+        assert_matches!(ret, Err(RecoveryError::SecretStorage(SecretStorageError::ImportError(_))));
+    }
+
+    #[async_test]
+    async fn test_recover_with_undecryptable_cross_signing_key() {
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+
+        server
+            .mock_global_account_data()
+            .ok(
+                client.user_id().unwrap(),
+                ruma::events::GlobalAccountDataEventType::SecretStorageKey("abc".to_owned()),
+                json!({
+                    "algorithm": "m.secret_storage.v1.aes-hmac-sha2",
+                    "iv": "xv5b6/p3ExEw++wTyfSHEg==",
+                    "mac": "ujBBbXahnTAMkmPUX2/0+VTfUh63pGyVRuBcDMgmJC8="
+                }),
+            )
+            .mount()
+            .await;
+        server
+            .mock_global_account_data()
+            .ok(
+                client.user_id().unwrap(),
+                ruma::events::GlobalAccountDataEventType::SecretStorageDefaultKey,
+                json!({
+                    "key": "abc"
+                }),
+            )
+            .mount()
+            .await;
+        server
+            .mock_global_account_data()
+            .ok(
+                client.user_id().unwrap(),
+                ruma::events::GlobalAccountDataEventType::from("m.cross_signing.master".to_owned()),
+                json!({
+                    "encrypted": {
+                        "abc": {
+                            "iv": "xv5b6/p3ExEw++wTyfSHEg==",
+                            "mac": "ujBBbXahnTAMkmPUX2/0+VTfUh63pGyVRuBcDMgmJC8=",
+                            "ciphertext": "abcd"
+                        }
+                    }
+                }),
+            )
+            .mount()
+            .await;
+
+        let recovery = Recovery { client };
+
+        let ret =
+            recovery.recover("EsTj 3yST y93F SLpB jJsz eAXc 2XzA ygD3 w69H fGaN TKBj jXEd").await;
+
+        assert_matches!(ret, Err(RecoveryError::SecretStorage(SecretStorageError::ImportError(_))));
+    }
+}

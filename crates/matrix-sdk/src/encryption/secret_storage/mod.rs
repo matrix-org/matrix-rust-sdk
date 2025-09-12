@@ -90,6 +90,27 @@ pub use secret_store::SecretStore;
 /// Convenicence type alias for the secret-storage specific results.
 pub type Result<T, E = SecretStorageError> = std::result::Result<T, E>;
 
+/// Error type for errors when importing a secret from secret storage.
+#[derive(Debug, Error)]
+pub enum ImportError {
+    /// A typical SDK error.
+    #[error(transparent)]
+    Sdk(#[from] crate::Error),
+
+    /// Error when deserializing account data events.
+    #[error(transparent)]
+    Json(#[from] serde_json::Error),
+
+    /// A secret could not be imported from the secret store into the local
+    /// store.
+    #[error(transparent)]
+    SecretImportError(#[from] SecretImportError),
+
+    /// Error describing a decryption failure of a secret.
+    #[error(transparent)]
+    Decryption(#[from] DecryptionError),
+}
+
 /// Error type for the secret-storage subsystem.
 #[derive(Debug, Error)]
 pub enum SecretStorageError {
@@ -120,10 +141,9 @@ pub enum SecretStorageError {
         key_id: Option<String>,
     },
 
-    /// A secret could not have been imported from the secret store into the
-    /// local store.
+    /// An error when importing from the secret store into the local store.
     #[error(transparent)]
-    SecretImportError(#[from] SecretImportError),
+    ImportError(#[from] ImportError),
 
     /// A general storage error.
     #[error(transparent)]
