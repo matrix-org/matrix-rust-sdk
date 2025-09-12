@@ -2297,17 +2297,10 @@ impl OlmMachine {
     ) -> MegolmResult<()> {
         use serde::Deserialize;
 
-        // We only need to verify state events.
-        let Some(raw_state_key) = &original.state_key else { return Ok(()) };
-
-        // Unpack event type and state key from the raw state key.
-        let (outer_event_type, outer_state_key) =
-            raw_state_key.split_once(":").ok_or(MegolmError::StateKeyVerificationFailed)?;
-
         // Helper for deserializing.
         #[derive(Deserialize)]
         struct PayloadDeserializationHelper {
-            state_key: String,
+            state_key: Option<String>,
             #[serde(rename = "type")]
             event_type: String,
         }
@@ -2319,6 +2312,17 @@ impl OlmMachine {
         } = decrypted
             .deserialize_as_unchecked()
             .map_err(|_| MegolmError::StateKeyVerificationFailed)?;
+
+        // Ensure we have a state key on the outer event iff there is one in the inner.
+        let (raw_state_key, inner_state_key) = match (&original.state_key, &inner_state_key) {
+            (Some(raw_state_key), Some(inner_state_key)) => (raw_state_key, inner_state_key),
+            (None, None) => return Ok(()),
+            _ => return Err(MegolmError::StateKeyVerificationFailed),
+        };
+
+        // Unpack event type and state key from the raw state key.
+        let (outer_event_type, outer_state_key) =
+            raw_state_key.split_once(":").ok_or(MegolmError::StateKeyVerificationFailed)?;
 
         // Check event types match, discard if not.
         if outer_event_type != inner_event_type {
