@@ -101,9 +101,9 @@ pub enum SpaceRoomListPaginationState {
 pub struct SpaceRoomList {
     client: Client,
 
-    parent_space_id: OwnedRoomId,
+    space_id: OwnedRoomId,
 
-    parent_space: SharedObservable<Option<SpaceRoom>>,
+    space: SharedObservable<Option<SpaceRoom>>,
 
     token: AsyncMutex<PaginationToken>,
 
@@ -116,7 +116,7 @@ pub struct SpaceRoomList {
 
 impl SpaceRoomList {
     /// Creates a new `SpaceRoomList` for the given space identifier.
-    pub async fn new(client: Client, parent_space_id: OwnedRoomId) -> Self {
+    pub async fn new(client: Client, space_id: OwnedRoomId) -> Self {
         let rooms = Arc::new(Mutex::new(ObservableVector::<SpaceRoom>::new()));
 
         let all_room_updates_receiver = client.subscribe_to_all_room_updates();
@@ -159,7 +159,7 @@ impl SpaceRoomList {
             }
         });
 
-        let parent_space = if let Some(parent) = client.get_room(&parent_space_id) {
+        let space = if let Some(parent) = client.get_room(&space_id) {
             let children_count = parent
                 .get_state_events_static::<SpaceChildEventContent>()
                 .await
@@ -172,8 +172,8 @@ impl SpaceRoomList {
 
         Self {
             client,
-            parent_space_id,
-            parent_space: SharedObservable::new(parent_space),
+            space_id,
+            space: SharedObservable::new(space),
             token: AsyncMutex::new(None.into()),
             pagination_state: SharedObservable::new(SpaceRoomListPaginationState::Idle {
                 end_reached: false,
@@ -183,14 +183,14 @@ impl SpaceRoomList {
         }
     }
 
-    /// Returns the parent space of the room list if known.
-    pub fn parent_space(&self) -> Option<SpaceRoom> {
-        self.parent_space.get()
+    /// Returns the space of the room list if known.
+    pub fn space(&self) -> Option<SpaceRoom> {
+        self.space.get()
     }
 
     /// Subscribe to space updates.
-    pub fn subscribe_to_parent_space_updates(&self) -> Subscriber<Option<SpaceRoom>> {
-        self.parent_space.subscribe()
+    pub fn subscribe_to_space_updates(&self) -> Subscriber<Option<SpaceRoom>> {
+        self.space.subscribe()
     }
 
     /// Returns if the room list is currently paginating or not.
@@ -236,7 +236,7 @@ impl SpaceRoomList {
             ObservableWriteGuard::set(&mut pagination_state, SpaceRoomListPaginationState::Loading);
         }
 
-        let mut request = get_hierarchy::v1::Request::new(self.parent_space_id.clone());
+        let mut request = get_hierarchy::v1::Request::new(self.space_id.clone());
         request.max_depth = Some(uint!(1)); // We only want the immediate children of the space
 
         let mut pagination_token = self.token.lock().await;
@@ -263,10 +263,10 @@ impl SpaceRoomList {
                             room.children_state.len() as u64,
                         ));
 
-                        if room.summary.room_id == self.parent_space_id {
-                            let mut parent_space = self.parent_space.write();
-                            if parent_space.is_none() {
-                                ObservableWriteGuard::set(&mut parent_space, space_room);
+                        if room.summary.room_id == self.space_id {
+                            let mut space = self.space.write();
+                            if space.is_none() {
+                                ObservableWriteGuard::set(&mut space, space_room);
                             }
 
                             return None;
@@ -342,7 +342,7 @@ mod tests {
         let room_list = space_service.space_room_list(parent_space_id.to_owned()).await;
 
         // The space parent is known to the client and should be populated accordingly
-        assert_let!(Some(parent_space) = room_list.parent_space());
+        assert_let!(Some(parent_space) = room_list.space());
         assert_eq!(parent_space.children_count, 2);
 
         // Start off idle
@@ -486,9 +486,9 @@ mod tests {
 
         // Parent space is unknown to the client and thus not populated yet
         let room_list = space_service.space_room_list(parent_space_id.to_owned()).await;
-        assert!(room_list.parent_space().is_none());
+        assert!(room_list.space().is_none());
 
-        let parent_space_subscriber = room_list.subscribe_to_parent_space_updates();
+        let parent_space_subscriber = room_list.subscribe_to_space_updates();
         pin_mut!(parent_space_subscriber);
         assert_pending!(parent_space_subscriber);
 
@@ -500,7 +500,7 @@ mod tests {
 
         // Pagination will however fetch and populate it from /hierarchy
         room_list.paginate().await.unwrap();
-        assert_let!(Some(parent_space) = room_list.parent_space());
+        assert_let!(Some(parent_space) = room_list.space());
         assert_eq!(parent_space.room_id, parent_space_id);
 
         // And the subscription is informed about the change
@@ -528,7 +528,7 @@ mod tests {
         let room_list = space_service.space_room_list(parent_space_id.to_owned()).await;
 
         // The parent space is known to the client and should be populated accordingly
-        assert_let!(Some(parent_space) = room_list.parent_space());
+        assert_let!(Some(parent_space) = room_list.space());
         assert_eq!(parent_space.children_count, 2);
     }
 }
