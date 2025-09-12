@@ -1144,6 +1144,7 @@ impl Client {
     }
 
     /// Registers a pusher with given parameters
+    #[allow(clippy::too_many_arguments)]
     pub async fn set_pusher(
         &self,
         identifiers: PusherIdentifiers,
@@ -1152,6 +1153,7 @@ impl Client {
         device_display_name: String,
         profile_tag: Option<String>,
         lang: String,
+        #[cfg(feature = "unstable-msc4076")] disable_badge_count: bool,
     ) -> Result<(), ClientError> {
         let ids = identifiers.into();
 
@@ -1162,6 +1164,8 @@ impl Client {
             device_display_name,
             profile_tag,
             lang,
+            #[cfg(feature = "unstable-msc4076")]
+            disable_badge_count,
         };
         self.inner.pusher().set(pusher_init.into()).await?;
         Ok(())
