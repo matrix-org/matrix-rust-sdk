@@ -130,17 +130,6 @@ pub mod v1 {
         pub const EVENTS_RELATION_RELATION_TYPES: &str = "events_relation_relation_type";
         pub const GAPS: &str = "gaps";
         pub const GAPS_KEY_PATH: &str = "id";
-        pub const MEDIA_RETENTION_POLICY_KEY: &str = "media_retention_policy";
-        pub const MEDIA: &str = "media";
-        pub const MEDIA_KEY_PATH: &str = "id";
-        pub const MEDIA_SOURCE: &str = "media_source";
-        pub const MEDIA_SOURCE_KEY_PATH: &str = "source";
-        pub const MEDIA_CONTENT_SIZE: &str = "media_content_size";
-        pub const MEDIA_CONTENT_SIZE_KEY_PATH: &str = "content_size";
-        pub const MEDIA_LAST_ACCESS: &str = "media_last_access";
-        pub const MEDIA_LAST_ACCESS_KEY_PATH: &str = "last_access";
-        pub const MEDIA_RETENTION_METADATA: &str = "media_retention_metadata";
-        pub const MEDIA_RETENTION_METADATA_KEY_PATH: &str = "retention_metadata";
     }
 
     /// Create all object stores and indices for v1 database
@@ -150,7 +139,6 @@ pub mod v1 {
         create_linked_chunks_object_store(db)?;
         create_events_object_store(db)?;
         create_gaps_object_store(db)?;
-        create_media_object_store(db)?;
         Ok(())
     }
 
@@ -227,34 +215,6 @@ pub mod v1 {
         let mut object_store_params = IdbObjectStoreParameters::new();
         object_store_params.key_path(Some(&keys::GAPS_KEY_PATH.into()));
         let _ = db.create_object_store_with_params(keys::GAPS, &object_store_params)?;
-        Ok(())
-    }
-
-    /// Create an object store for tracking information about media.
-    ///
-    /// * Primary Key - `id`
-    /// * Index - `source` - tracks the [`MediaSource`][1] of the associated
-    ///   media
-    /// * Index - `content_size` - tracks the size of the media content and
-    ///   whether to ignore the [`MediaRetentionPolicy`][2]
-    /// * Index - `last_access` - tracks the last time the associated media was
-    ///   accessed
-    /// * Index - `retention_metadata` - tracks all retention metadata - i.e.,
-    ///   joins `content_size` and `last_access`
-    ///
-    /// [1]: ruma::events::room::MediaSource
-    /// [2]: matrix_sdk_base::event_cache::store::media::MediaRetentionPolicy
-    fn create_media_object_store(db: &IdbDatabase) -> Result<(), DomException> {
-        let mut object_store_params = IdbObjectStoreParameters::new();
-        object_store_params.key_path(Some(&keys::MEDIA_KEY_PATH.into()));
-        let media = db.create_object_store_with_params(keys::MEDIA, &object_store_params)?;
-        media.create_index(keys::MEDIA_SOURCE, &keys::MEDIA_SOURCE_KEY_PATH.into())?;
-        media.create_index(keys::MEDIA_CONTENT_SIZE, &keys::MEDIA_CONTENT_SIZE_KEY_PATH.into())?;
-        media.create_index(keys::MEDIA_LAST_ACCESS, &keys::MEDIA_LAST_ACCESS_KEY_PATH.into())?;
-        media.create_index(
-            keys::MEDIA_RETENTION_METADATA,
-            &keys::MEDIA_RETENTION_METADATA_KEY_PATH.into(),
-        )?;
         Ok(())
     }
 }

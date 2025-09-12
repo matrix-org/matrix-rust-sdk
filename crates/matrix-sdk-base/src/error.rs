@@ -15,7 +15,7 @@
 
 //! Error conditions.
 
-use matrix_sdk_common::store_locks::LockStoreError;
+use matrix_sdk_common::cross_process_lock::CrossProcessLockError;
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk_crypto::{CryptoStoreError, MegolmError, OlmError};
 use thiserror::Error;
@@ -51,7 +51,7 @@ pub enum Error {
 
     /// An error happened while attempting to lock the event cache store.
     #[error(transparent)]
-    EventCacheLock(#[from] LockStoreError),
+    EventCacheLock(#[from] CrossProcessLockError),
 
     /// An error occurred in the crypto store.
     #[cfg(feature = "e2e-encryption")]

@@ -5,8 +5,8 @@ use matrix_sdk_base::crypto::{
     store::{LockableCryptoStore, Store},
     CryptoStoreError,
 };
-use matrix_sdk_common::store_locks::{
-    CrossProcessStoreLock, CrossProcessStoreLockGuard, LockStoreError,
+use matrix_sdk_common::cross_process_lock::{
+    CrossProcessLock, CrossProcessLockError, CrossProcessLockGuard,
 };
 use sha2::{Digest as _, Sha256};
 use thiserror::Error;
@@ -61,13 +61,13 @@ fn compute_session_hash(tokens: &SessionTokens) -> SessionHash {
 #[derive(Clone)]
 pub(super) struct CrossProcessRefreshManager {
     store: Store,
-    store_lock: CrossProcessStoreLock<LockableCryptoStore>,
+    store_lock: CrossProcessLock<LockableCryptoStore>,
     known_session_hash: Arc<Mutex<Option<SessionHash>>>,
 }
 
 impl CrossProcessRefreshManager {
     /// Create a new `CrossProcessRefreshManager`.
-    pub fn new(store: Store, lock: CrossProcessStoreLock<LockableCryptoStore>) -> Self {
+    pub fn new(store: Store, lock: CrossProcessLock<LockableCryptoStore>) -> Self {
         Self { store, store_lock: lock, known_session_hash: Arc::new(Mutex::new(None)) }
     }
 
@@ -134,7 +134,7 @@ pub(super) struct CrossProcessRefreshLockGuard {
     hash_guard: OwnedMutexGuard<Option<SessionHash>>,
 
     /// Cross-process lock being hold.
-    _store_guard: CrossProcessStoreLockGuard,
+    _store_guard: CrossProcessLockGuard,
 
     /// Reference to the underlying store, for storing the hash of the latest
     /// known session (as a custom value).
@@ -218,7 +218,7 @@ pub enum CrossProcessRefreshLockError {
 
     /// The locking itself failed.
     #[error(transparent)]
-    LockError(#[from] LockStoreError),
+    LockError(#[from] CrossProcessLockError),
 
     /// The previous hash isn't valid.
     #[error("the previous stored hash isn't a valid integer")]

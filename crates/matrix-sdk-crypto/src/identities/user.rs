@@ -1639,7 +1639,7 @@ pub(crate) mod tests {
         let (_, device) = device(&response);
 
         let account = Account::with_device_id(device.user_id(), device.device_id());
-        let (identity, _, _) = PrivateCrossSigningIdentity::with_account(&account).await;
+        let identity = PrivateCrossSigningIdentity::for_account(&account);
 
         let id = Arc::new(Mutex::new(identity.clone()));
 

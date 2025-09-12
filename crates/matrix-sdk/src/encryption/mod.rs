@@ -23,6 +23,7 @@ use std::{
     io::{Cursor, Read, Write},
     iter,
     path::PathBuf,
+    str::FromStr,
     sync::Arc,
 };
 
@@ -37,8 +38,11 @@ use matrix_sdk_base::crypto::CollectStrategy;
 use matrix_sdk_base::{
     crypto::{
         store::types::{RoomKeyBundleInfo, RoomKeyInfo},
-        types::requests::{
-            OutgoingRequest, OutgoingVerificationRequest, RoomMessageRequest, ToDeviceRequest,
+        types::{
+            requests::{
+                OutgoingRequest, OutgoingVerificationRequest, RoomMessageRequest, ToDeviceRequest,
+            },
+            SignedKey,
         },
         CrossSigningBootstrapRequests, OlmMachine,
     },
@@ -67,7 +71,7 @@ use ruma::{
 };
 #[cfg(feature = "experimental-send-custom-to-device")]
 use ruma::{events::AnyToDeviceEventContent, serde::Raw, to_device::DeviceIdOrAllDevices};
-use serde::Deserialize;
+use serde::{de::Error as _, Deserialize};
 use tasks::BundleReceiverTask;
 use tokio::sync::{Mutex, RwLockReadGuard};
 use tokio_stream::wrappers::errors::BroadcastStreamRecvError;
@@ -87,8 +91,8 @@ use self::{
 use crate::{
     attachment::Thumbnail,
     client::{ClientInner, WeakClient},
+    cross_process_lock::CrossProcessLockGuard,
     error::HttpResult,
-    store_locks::CrossProcessStoreLockGuard,
     Client, Error, HttpError, Result, Room, RumaApiError, TransmissionProgress,
 };
 
@@ -234,7 +238,7 @@ pub enum VerificationState {
 /// Wraps together a `CrossProcessLockStoreGuard` and a generation number.
 #[derive(Debug)]
 pub struct CrossProcessLockStoreGuardWithGeneration {
-    _guard: CrossProcessStoreLockGuard,
+    _guard: CrossProcessLockGuard,
     generation: u64,
 }
 
@@ -378,6 +382,66 @@ struct OAuthCrossSigningResetUiaaParameters {
 struct OAuthCrossSigningResetUiaaResetParameter {
     /// The URL where the user can approve the reset of the cross-signing keys.
     url: Url,
+}
+
+/// A struct that helps to parse the custom error message Synapse posts if a
+/// duplicate one-time key is uploaded.
+#[derive(Debug)]
+struct DuplicateOneTimeKeyErrorMessage {
+    /// The previously uploaded one-time key.
+    old_key: Curve25519PublicKey,
+    /// The one-time key we're attempting to upload right now.
+    new_key: Curve25519PublicKey,
+}
+
+impl FromStr for DuplicateOneTimeKeyErrorMessage {
+    type Err = serde_json::Error;
+
+    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
+        // First we split the string into two parts, the part containing the old key and
+        // the part containing the new key. The parts are conveniently separated
+        // by a `;` character.
+        let mut split = s.split_terminator(';');
+
+        let old_key = split
+            .next()
+            .ok_or(serde_json::Error::custom("Old key is missing in the error message"))?;
+        let new_key = split
+            .next()
+            .ok_or(serde_json::Error::custom("New key is missing in the error message"))?;
+
+        // Now we remove the lengthy prefix from the part containing the old key, we
+        // should be left with just the JSON of the signed key.
+        let old_key_index = old_key
+            .find("Old key:")
+            .ok_or(serde_json::Error::custom("Old key is missing the prefix"))?;
+
+        let old_key = old_key[old_key_index..]
+            .trim()
+            .strip_prefix("Old key:")
+            .ok_or(serde_json::Error::custom("Old key is missing the prefix"))?;
+
+        // The part containing the new key is much simpler, we just remove a static
+        // prefix.
+        let new_key = new_key
+            .trim()
+            .strip_prefix("new key:")
+            .ok_or(serde_json::Error::custom("New key is missing the prefix"))?;
+
+        // The JSON containing the new key is for some reason quoted using single
+        // quotes, so let's replace them with normal double quotes.
+        let new_key = new_key.replace("'", "\"");
+
+        // Let's deserialize now.
+        let old_key: SignedKey = serde_json::from_str(old_key)?;
+        let new_key: SignedKey = serde_json::from_str(&new_key)?;
+
+        // Pick out the Curve keys, we don't care about the rest that much.
+        let old_key = old_key.key();
+        let new_key = new_key.key();
+
+        Ok(Self { old_key, new_key })
+    }
 }
 
 impl Client {
@@ -644,11 +708,21 @@ impl Client {
                                         .is_some();
 
                                     if message.starts_with("One time key") && !already_reported {
-                                        tracing::error!(
-                                            sentry = true,
-                                            error_message = message,
-                                            "Duplicate one-time keys have been uploaded"
-                                        );
+                                        if let Ok(message) =
+                                            DuplicateOneTimeKeyErrorMessage::from_str(message)
+                                        {
+                                            error!(
+                                                sentry = true,
+                                                old_key = %message.old_key,
+                                                new_key = %message.new_key,
+                                                "Duplicate one-time keys have been uploaded"
+                                            );
+                                        } else {
+                                            error!(
+                                                sentry = true,
+                                                "Duplicate one-time keys have been uploaded"
+                                            );
+                                        }
 
                                         self.state_store()
                                             .set_kv_data(
@@ -1921,6 +1995,7 @@ impl Encryption {
 mod tests {
     use std::{
         ops::Not,
+        str::FromStr,
         sync::{
             atomic::{AtomicBool, Ordering},
             Arc,
@@ -1946,7 +2021,9 @@ mod tests {
     use crate::{
         assert_next_matches_with_timeout,
         config::RequestConfig,
-        encryption::{OAuthCrossSigningResetInfo, VerificationState},
+        encryption::{
+            DuplicateOneTimeKeyErrorMessage, OAuthCrossSigningResetInfo, VerificationState,
+        },
         test_utils::{
             client::mock_matrix_session, logged_in_client, no_retry_test_client, set_client_session,
         },
@@ -2326,5 +2403,26 @@ mod tests {
             .expect("We should be able to deserialize the UiaaInfo");
         OAuthCrossSigningResetInfo::from_auth_info(&auth_info)
             .expect("We should be able to fetch the cross-signing reset info from the auth info");
+    }
+
+    #[test]
+    fn test_duplicate_one_time_key_error_parsing() {
+        let message = concat!(
+            r#"One time key signed_curve25519:AAAAAAAAAAA already exists. "#,
+            r#"Old key: {"key":"dBcZBzQaiQYWf6rBPh2QypIOB/dxSoTeyaFaxNNbeHs","#,
+            r#""signatures":{"@example:matrix.org":{"ed25519:AAAAAAAAAA":""#,
+            r#"Fk45zHAbrd+1j9wZXLjL2Y/+DU/Mnz9yuvlfYBOOT7qExN2Jdud+5BAuNs8nZ/caS4wTF39Kg3zQpzaGERoCBg"}}};"#,
+            r#" new key: {'key': 'CY0TWVK1/Kj3ZADuBcGe3UKvpT+IKAPMUsMeJhSDqno', "#,
+            r#"'signatures': {'@example:matrix.org': {'ed25519:AAAAAAAAAA': "#,
+            r#"'BQ9Gp0p+6srF+c8OyruqKKd9R4yaub3THYAyyBB/7X/rG8BwcAqFynzl1aGyFYun4Q+087a5OSiglCXI+/kQAA'}}}"#
+        );
+        let message = DuplicateOneTimeKeyErrorMessage::from_str(message)
+            .expect("We should be able to parse the error message");
+
+        assert_eq!(message.old_key.to_base64(), "dBcZBzQaiQYWf6rBPh2QypIOB/dxSoTeyaFaxNNbeHs");
+        assert_eq!(message.new_key.to_base64(), "CY0TWVK1/Kj3ZADuBcGe3UKvpT+IKAPMUsMeJhSDqno");
+
+        DuplicateOneTimeKeyErrorMessage::from_str("One time key already exists.")
+            .expect_err("We shouldn't be able to parse an incomplete error message");
     }
 }

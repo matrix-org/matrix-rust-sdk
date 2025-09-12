@@ -45,6 +45,9 @@ pub mod sync;
 mod test_utils;
 mod utils;
 
+#[cfg(feature = "experimental-element-recent-emojis")]
+pub mod recent_emojis;
+
 #[cfg(feature = "uniffi")]
 uniffi::setup_scaffolding!();
 

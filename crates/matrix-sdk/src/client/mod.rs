@@ -32,6 +32,7 @@ use futures_util::StreamExt;
 use matrix_sdk_base::crypto::{store::LockableCryptoStore, DecryptionSettings};
 use matrix_sdk_base::{
     event_cache::store::EventCacheStoreLock,
+    media::store::MediaStoreLock,
     store::{DynStateStore, RoomLoadSettings, ServerInfo, WellKnownResponse},
     sync::{Notification, RoomUpdates},
     BaseClient, RoomInfoNotableUpdate, RoomState, RoomStateFilter, SendOutsideWasm, SessionMeta,
@@ -109,8 +110,8 @@ use crate::{
 };
 #[cfg(feature = "e2e-encryption")]
 use crate::{
+    cross_process_lock::CrossProcessLock,
     encryption::{Encryption, EncryptionData, EncryptionSettings, VerificationState},
-    store_locks::CrossProcessStoreLock,
 };
 
 mod builder;
@@ -234,8 +235,7 @@ pub(crate) struct ClientLocks {
     pub(crate) read_receipt_deduplicated_handler: DeduplicatingHandler<(String, OwnedEventId)>,
 
     #[cfg(feature = "e2e-encryption")]
-    pub(crate) cross_process_crypto_store_lock:
-        OnceCell<CrossProcessStoreLock<LockableCryptoStore>>,
+    pub(crate) cross_process_crypto_store_lock: OnceCell<CrossProcessLock<LockableCryptoStore>>,
 
     /// Latest "generation" of data known by the crypto store.
     ///
@@ -301,7 +301,7 @@ pub(crate) struct ClientInner {
     /// The cross-process store locks holder name.
     ///
     /// The SDK provides cross-process store locks (see
-    /// [`matrix_sdk_common::store_locks::CrossProcessStoreLock`]). The
+    /// [`matrix_sdk_common::cross_process_lock::CrossProcessLock`]). The
     /// `holder_name` is the value used for all cross-process store locks
     /// used by this `Client`.
     ///
@@ -519,7 +519,7 @@ impl Client {
     /// The cross-process store locks holder name.
     ///
     /// The SDK provides cross-process store locks (see
-    /// [`matrix_sdk_common::store_locks::CrossProcessStoreLock`]). The
+    /// [`matrix_sdk_common::cross_process_lock::CrossProcessLock`]). The
     /// `holder_name` is the value used for all cross-process store locks
     /// used by this `Client`.
     pub fn cross_process_store_locks_holder_name(&self) -> &str {
@@ -744,6 +744,11 @@ impl Client {
     /// Get a reference to the event cache store.
     pub fn event_cache_store(&self) -> &EventCacheStoreLock {
         self.base_client().event_cache_store()
+    }
+
+    /// Get a reference to the media store.
+    pub fn media_store(&self) -> &MediaStoreLock {
+        self.base_client().media_store()
     }
 
     /// Access the native Matrix authentication API with this client.
@@ -2759,10 +2764,10 @@ impl Client {
 
     /// Create a new specialized `Client` that can process notifications.
     ///
-    /// See [`CrossProcessStoreLock::new`] to learn more about
+    /// See [`CrossProcessLock::new`] to learn more about
     /// `cross_process_store_locks_holder_name`.
     ///
-    /// [`CrossProcessStoreLock::new`]: matrix_sdk_common::store_locks::CrossProcessStoreLock::new
+    /// [`CrossProcessLock::new`]: matrix_sdk_common::cross_process_lock::CrossProcessLock::new
     pub async fn notification_client(
         &self,
         cross_process_store_locks_holder_name: String,

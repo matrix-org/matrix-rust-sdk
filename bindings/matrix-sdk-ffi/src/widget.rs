@@ -125,9 +125,10 @@ pub async fn generate_webview_url(
 ///   call widget.
 #[matrix_sdk_ffi_macros::export]
 pub fn new_virtual_element_call_widget(
-    props: matrix_sdk::widget::VirtualElementCallWidgetOptions,
+    props: matrix_sdk::widget::VirtualElementCallWidgetProperties,
+    config: matrix_sdk::widget::VirtualElementCallWidgetConfig,
 ) -> Result<WidgetSettings, ParseError> {
-    Ok(matrix_sdk::widget::WidgetSettings::new_virtual_element_call_widget(props)
+    Ok(matrix_sdk::widget::WidgetSettings::new_virtual_element_call_widget(props, config)
         .map(|w| w.into())?)
 }
 
@@ -176,12 +177,9 @@ pub fn get_element_call_required_permissions(
             event_type: MessageLikeEventType::RoomRedaction.to_string(),
         },
         // This allows declining an incoming call and detect if someone declines a call.
-        // Accepts both `org.matrix.msc4310.rtc.decline` and `m.rtc.decline` events to ease future
-        // transition.
         WidgetEventFilter::MessageLikeWithType {
-            event_type: "org.matrix.msc4310.rtc.decline".to_owned(),
+            event_type: MessageLikeEventType::RtcDecline.to_string(),
         },
-        WidgetEventFilter::MessageLikeWithType { event_type: "m.rtc.decline".to_owned() },
     ];
 
     WidgetCapabilities {
@@ -538,8 +536,6 @@ mod tests {
 
         // RTC decline
         cap_assert("org.matrix.msc2762.receive.event:org.matrix.msc4310.rtc.decline");
-        cap_assert("org.matrix.msc2762.receive.event:m.rtc.decline");
         cap_assert("org.matrix.msc2762.send.event:org.matrix.msc4310.rtc.decline");
-        cap_assert("org.matrix.msc2762.send.event:m.rtc.decline");
     }
 }

@@ -45,27 +45,20 @@ impl LatestEventValue {
     /// Get the timestamp of the [`LatestEventValue`].
     ///
     /// If it's [`None`], it returns `None`. If it's [`Remote`], it returns the
-    /// `origin_server_ts`. If it's [`LocalIsSending`] or [`LocalCannotBeSent`],
-    /// it returns the [`timestamp`] value.
+    /// [`TimelineEvent::timestamp`]. If it's [`LocalIsSending`] or
+    /// [`LocalCannotBeSent`], it returns the
+    /// [`LocalLatestEventValue::timestamp`] value.
     ///
     /// [`None`]: LatestEventValue::None
     /// [`Remote`]: LatestEventValue::Remote
     /// [`LocalIsSending`]: LatestEventValue::LocalIsSending
     /// [`LocalCannotBeSent`]: LatestEventValue::LocalCannotBeSent
-    /// [`timestamp`]: LocalLatestEventValue::timestamp
-    pub fn timestamp(&self) -> Option<u64> {
+    pub fn timestamp(&self) -> Option<MilliSecondsSinceUnixEpoch> {
         match self {
             Self::None => None,
-            Self::Remote(remote_latest_event_value) => remote_latest_event_value
-                .kind
-                .raw()
-                .get_field::<u64>("origin_server_ts")
-                .ok()
-                .flatten(),
+            Self::Remote(remote_latest_event_value) => remote_latest_event_value.timestamp(),
             Self::LocalIsSending(LocalLatestEventValue { timestamp, .. })
-            | Self::LocalCannotBeSent(LocalLatestEventValue { timestamp, .. }) => {
-                Some(timestamp.get().into())
-            }
+            | Self::LocalCannotBeSent(LocalLatestEventValue { timestamp, .. }) => Some(*timestamp),
         }
     }
 }
@@ -121,7 +114,7 @@ mod tests_latest_event_value {
             .unwrap(),
         ));
 
-        assert_eq!(value.timestamp(), Some(42));
+        assert_eq!(value.timestamp(), Some(MilliSecondsSinceUnixEpoch(uint!(42))));
     }
 
     #[test]
@@ -137,7 +130,7 @@ mod tests_latest_event_value {
             ),
         });
 
-        assert_eq!(value.timestamp(), Some(42));
+        assert_eq!(value.timestamp(), Some(MilliSecondsSinceUnixEpoch(uint!(42))));
     }
 
     #[test]
@@ -153,7 +146,7 @@ mod tests_latest_event_value {
             ),
         });
 
-        assert_eq!(value.timestamp(), Some(42));
+        assert_eq!(value.timestamp(), Some(MilliSecondsSinceUnixEpoch(uint!(42))));
     }
 }
 
@@ -790,6 +783,7 @@ mod tests {
                             }
                         },
                         "thread_summary": "None",
+                        "timestamp": null,
                     }
                 }
             })

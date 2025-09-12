@@ -14,7 +14,6 @@ use matrix_sdk::{
     authentication::oauth::{
         AccountManagementActionFull, ClientId, OAuthAuthorizationData, OAuthSession,
     },
-    event_cache::EventCacheError,
     media::{MediaFormat, MediaRequestParameters, MediaRetentionPolicy, MediaThumbnailSettings},
     ruma::{
         api::client::{
@@ -39,7 +38,7 @@ use matrix_sdk::{
     },
     sliding_sync::Version as SdkSlidingSyncVersion,
     store::RoomLoadSettings as SdkRoomLoadSettings,
-    Account, AuthApi, AuthSession, Client as MatrixClient, SessionChange, SessionTokens,
+    Account, AuthApi, AuthSession, Client as MatrixClient, Error, SessionChange, SessionTokens,
     STATE_STORE_DATABASE_NAME,
 };
 use matrix_sdk_common::{stream::StreamExt, SendOutsideWasm, SyncOutsideWasm};
@@ -1510,8 +1509,8 @@ impl Client {
         &self,
         policy: MediaRetentionPolicy,
     ) -> Result<(), ClientError> {
-        let closure = async || -> Result<_, EventCacheError> {
-            let store = self.inner.event_cache_store().lock().await?;
+        let closure = async || -> Result<_, Error> {
+            let store = self.inner.media_store().lock().await?;
             Ok(store.set_media_retention_policy(policy).await?)
         };
 
@@ -1559,13 +1558,13 @@ impl Client {
 
             // Clean up the media cache according to the current media retention policy.
             self.inner
-                .event_cache_store()
+                .media_store()
                 .lock()
                 .await
-                .map_err(EventCacheError::from)?
-                .clean_up_media_cache()
+                .map_err(Error::from)?
+                .clean()
                 .await
-                .map_err(EventCacheError::from)?;
+                .map_err(Error::from)?;
 
             // Clear all the room chunks. It's important to *not* call
             // `EventCacheStore::clear_all_linked_chunks` here, because there might be live
@@ -1746,6 +1745,37 @@ impl Client {
             }
         }))))
     }
+
+    /// Adds a recently used emoji to the list and uploads the updated
+    /// `io.element.recent_emoji` content to the global account data.
+    #[cfg(feature = "experimental-element-recent-emojis")]
+    pub async fn add_recent_emoji(&self, emoji: String) -> Result<(), ClientError> {
+        Ok(self.inner.account().add_recent_emoji(&emoji).await?)
+    }
+
+    /// Gets the list of recently used emojis from the `io.element.recent_emoji`
+    /// global account data.
+    #[cfg(feature = "experimental-element-recent-emojis")]
+    pub async fn get_recent_emojis(&self) -> Result<Vec<RecentEmoji>, ClientError> {
+        Ok(self
+            .inner
+            .account()
+            .get_recent_emojis(false)
+            .await?
+            .into_iter()
+            .map(|(emoji, count)| RecentEmoji { emoji, count: count.into() })
+            .collect::<Vec<RecentEmoji>>())
+    }
+}
+
+/// Represents an emoji recently used for reactions.
+#[cfg(feature = "experimental-element-recent-emojis")]
+#[derive(Debug, uniffi::Record)]
+pub struct RecentEmoji {
+    /// The actual emoji text representation.
+    pub emoji: String,
+    /// The number of times this emoji has been used for reactions.
+    pub count: u64,
 }
 
 #[matrix_sdk_ffi_macros::export(callback_interface)]

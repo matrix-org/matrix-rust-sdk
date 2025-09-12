@@ -12,11 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License
 
-use matrix_sdk_base::{
-    event_cache::store::{EventCacheStore, EventCacheStoreError, MemoryStore},
-    SendOutsideWasm, SyncOutsideWasm,
-};
-use serde::de::Error;
+use matrix_sdk_base::{event_cache::store::EventCacheStoreError, SendOutsideWasm, SyncOutsideWasm};
 use thiserror::Error;
 
 use crate::event_cache_store::transaction::IndexeddbEventCacheStoreTransactionError;
@@ -43,8 +39,6 @@ pub enum IndexeddbEventCacheStoreError {
     NoMaxChunkId,
     #[error("transaction: {0}")]
     Transaction(#[from] IndexeddbEventCacheStoreTransactionError),
-    #[error("media store: {0}")]
-    MemoryStore(<MemoryStore as EventCacheStore>::Error),
 }
 
 impl From<web_sys::DomException> for IndexeddbEventCacheStoreError {
@@ -68,7 +62,6 @@ impl From<IndexeddbEventCacheStoreError> for EventCacheStoreError {
             | NoMaxChunkId
             | UnableToLoadChunk => Self::InvalidData { details: value.to_string() },
             Transaction(inner) => inner.into(),
-            MemoryStore(inner) => inner,
         }
     }
 }

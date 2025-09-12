@@ -274,7 +274,7 @@ enum LogTarget {
     MatrixSdkBaseResponseProcessors,
 
     // SDK common modules.
-    MatrixSdkCommonStoreLocks,
+    MatrixSdkCommonCrossProcessLock,
 
     // SDK modules.
     MatrixSdk,
@@ -302,7 +302,7 @@ impl LogTarget {
             LogTarget::MatrixSdkBaseSlidingSync => "matrix_sdk_base::sliding_sync",
             LogTarget::MatrixSdkBaseStoreAmbiguityMap => "matrix_sdk_base::store::ambiguity_map",
             LogTarget::MatrixSdkBaseResponseProcessors => "matrix_sdk_base::response_processors",
-            LogTarget::MatrixSdkCommonStoreLocks => "matrix_sdk_common::store_locks",
+            LogTarget::MatrixSdkCommonCrossProcessLock => "matrix_sdk_common::cross_process_lock",
             LogTarget::MatrixSdk => "matrix_sdk",
             LogTarget::MatrixSdkClient => "matrix_sdk::client",
             LogTarget::MatrixSdkCrypto => "matrix_sdk_crypto",
@@ -335,18 +335,18 @@ const DEFAULT_TARGET_LOG_LEVELS: &[(LogTarget, LogLevel)] = &[
     (LogTarget::MatrixSdkEventCache, LogLevel::Info),
     (LogTarget::MatrixSdkBaseEventCache, LogLevel::Info),
     (LogTarget::MatrixSdkEventCacheStore, LogLevel::Info),
-    (LogTarget::MatrixSdkCommonStoreLocks, LogLevel::Warn),
+    (LogTarget::MatrixSdkCommonCrossProcessLock, LogLevel::Warn),
     (LogTarget::MatrixSdkBaseStoreAmbiguityMap, LogLevel::Warn),
     (LogTarget::MatrixSdkUiNotificationClient, LogLevel::Info),
     (LogTarget::MatrixSdkBaseResponseProcessors, LogLevel::Debug),
 ];
 
 const IMMUTABLE_LOG_TARGETS: &[LogTarget] = &[
-    LogTarget::Hyper,                          // Too verbose
-    LogTarget::MatrixSdk,                      // Too generic
-    LogTarget::MatrixSdkFfi,                   // Too verbose
-    LogTarget::MatrixSdkCommonStoreLocks,      // Too verbose
-    LogTarget::MatrixSdkBaseStoreAmbiguityMap, // Too verbose
+    LogTarget::Hyper,                           // Too verbose
+    LogTarget::MatrixSdk,                       // Too generic
+    LogTarget::MatrixSdkFfi,                    // Too verbose
+    LogTarget::MatrixSdkCommonCrossProcessLock, // Too verbose
+    LogTarget::MatrixSdkBaseStoreAmbiguityMap,  // Too verbose
 ];
 
 /// A log pack can be used to set the trace log level for a group of multiple
@@ -723,7 +723,7 @@ mod tests {
             matrix_sdk::event_cache=info,
             matrix_sdk_base::event_cache=info,
             matrix_sdk_sqlite::event_cache_store=info,
-            matrix_sdk_common::store_locks=warn,
+            matrix_sdk_common::cross_process_lock=warn,
             matrix_sdk_base::store::ambiguity_map=warn,
             matrix_sdk_ui::notification_client=info,
             matrix_sdk_base::response_processors=debug,
@@ -767,7 +767,7 @@ mod tests {
             matrix_sdk::event_cache=trace,
             matrix_sdk_base::event_cache=trace,
             matrix_sdk_sqlite::event_cache_store=trace,
-            matrix_sdk_common::store_locks=warn,
+            matrix_sdk_common::cross_process_lock=warn,
             matrix_sdk_base::store::ambiguity_map=warn,
             matrix_sdk_ui::notification_client=trace,
             matrix_sdk_base::response_processors=trace,
@@ -812,7 +812,7 @@ mod tests {
             matrix_sdk::event_cache=trace,
             matrix_sdk_base::event_cache=trace,
             matrix_sdk_sqlite::event_cache_store=trace,
-            matrix_sdk_common::store_locks=warn,
+            matrix_sdk_common::cross_process_lock=warn,
             matrix_sdk_base::store::ambiguity_map=warn,
             matrix_sdk_ui::notification_client=info,
             matrix_sdk_base::response_processors=debug,

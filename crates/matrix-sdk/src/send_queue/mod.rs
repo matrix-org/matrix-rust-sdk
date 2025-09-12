@@ -141,14 +141,14 @@ use eyeball::SharedObservable;
 #[cfg(feature = "unstable-msc4274")]
 use matrix_sdk_base::store::FinishGalleryItemInfo;
 use matrix_sdk_base::{
+    cross_process_lock::CrossProcessLockError,
     event_cache::store::EventCacheStoreError,
-    media::MediaRequestParameters,
+    media::{store::MediaStoreError, MediaRequestParameters},
     store::{
         ChildTransactionId, DependentQueuedRequest, DependentQueuedRequestKind, DynStateStore,
         FinishUploadThumbnailInfo, QueueWedgeError, QueuedRequest, QueuedRequestKind,
         SentMediaInfo, SentRequestKey, SerializableEventContent,
     },
-    store_locks::LockStoreError,
     RoomState, StoreError,
 };
 use matrix_sdk_common::{
@@ -842,7 +842,7 @@ impl RoomSendQueue {
                 let fut = async move {
                     let data = room
                         .client()
-                        .event_cache_store()
+                        .media_store()
                         .lock()
                         .await?
                         .get_media_content(&cache_key)
@@ -2348,9 +2348,13 @@ pub enum RoomSendQueueStorageError {
     #[error(transparent)]
     EventCacheStoreError(#[from] EventCacheStoreError),
 
+    /// Error caused by the event cache store.
+    #[error(transparent)]
+    MediaStoreError(#[from] MediaStoreError),
+
     /// Error caused when attempting to get a handle on the event cache store.
     #[error(transparent)]
-    LockError(#[from] LockStoreError),
+    LockError(#[from] CrossProcessLockError),
 
     /// Error caused when (de)serializing into/from json.
     #[error(transparent)]

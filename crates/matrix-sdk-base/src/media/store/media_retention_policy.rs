@@ -17,19 +17,22 @@
 //! indefinitely.
 //!
 //! To proceed to a cleanup, first set the [`MediaRetentionPolicy`] to use with
-//! [`EventCacheStore::set_media_retention_policy()`]. Then call
-//! [`EventCacheStore::clean_up_media_cache()`].
+//! [`MediaStore::set_media_retention_policy()`]. Then call
+//! [`MediaStore::clean()`].
 //!
 //! In the future, other settings will allow to run automatic periodic cleanup
 //! jobs.
 //!
-//! [`EventCacheStore::set_media_retention_policy()`]: crate::event_cache::store::EventCacheStore::set_media_retention_policy
-//! [`EventCacheStore::clean_up_media_cache()`]: crate::event_cache::store::EventCacheStore::clean_up_media_cache
+//! [`MediaStore::set_media_retention_policy()`]: crate::media::store::MediaStore::set_media_retention_policy
+//! [`MediaStore::clean()`]: crate::media::store::MediaStore::clean
 
 use ruma::time::{Duration, SystemTime};
 use serde::{Deserialize, Serialize};
 
-/// The retention policy for media content used by the [`EventCacheStore`].
+#[cfg(doc)]
+use crate::media::store::MediaStore;
+
+/// The retention policy for media content used by the [`MediaStore`].
 ///
 /// [`EventCacheStore`]: crate::event_cache::store::EventCacheStore
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
