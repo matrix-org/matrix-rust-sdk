@@ -806,11 +806,30 @@ impl Account {
         device_keys
     }
 
-    /// Bootstrap Cross-Signing
+    /// Bootstraps cross-signing, generating new cross-signing keys and creating
+    /// the necessary upload and signature requests.
+    ///
+    /// # Returns
+    /// A tuple containing:
+    /// - [`PrivateCrossSigningIdentity`]: The newly-generated cross-signing
+    ///   identity (including a signature from this device).
+    /// - [`UploadSigningKeysRequest`]: The request to upload the
+    ///   newly-generated cross-signing keys to the server.
+    /// - [`SignatureUploadRequest`]: The request to upload the signature of
+    ///   this device to the server.
     pub async fn bootstrap_cross_signing(
         &self,
     ) -> (PrivateCrossSigningIdentity, UploadSigningKeysRequest, SignatureUploadRequest) {
-        PrivateCrossSigningIdentity::with_account(self).await
+        let identity = PrivateCrossSigningIdentity::for_account(self);
+
+        let signature_request = identity
+            .sign_account(self.static_data())
+            .await
+            .expect("Can't sign own device with new cross signing keys");
+
+        let upload_request = identity.as_upload_request().await;
+
+        (identity, upload_request, signature_request)
     }
 
     /// Sign the given CrossSigning Key in place

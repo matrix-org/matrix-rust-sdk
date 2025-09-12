@@ -912,7 +912,8 @@ mod tests {
         ) -> Self {
             let account = Account::with_device_id(user_id, device_id);
             let user_id = user_id.to_owned();
-            let private_identity = Arc::new(Mutex::new(create_private_identity(&account).await));
+            let private_identity =
+                Arc::new(Mutex::new(PrivateCrossSigningIdentity::for_account(&account)));
 
             let user_identity =
                 create_user_identity(&*private_identity.lock().await, is_me, is_verified, signer)
@@ -976,10 +977,6 @@ mod tests {
         } else {
             panic!("You must provide a `signer` if you want an Other to be verified!");
         }
-    }
-
-    async fn create_private_identity(account: &Account) -> PrivateCrossSigningIdentity {
-        PrivateCrossSigningIdentity::with_account(account).await.0
     }
 
     fn create_room_key_event(
