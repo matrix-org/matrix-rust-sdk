@@ -110,6 +110,27 @@ impl SpaceRoomList {
 
 #[matrix_sdk_ffi_macros::export]
 impl SpaceRoomList {
+    /// Returns the space of the room list if known.
+    pub fn space(&self) -> Option<SpaceRoom> {
+        self.inner.space().map(Into::into)
+    }
+
+    /// Subscribe to space updates.
+    pub fn subscribe_to_space_updates(
+        &self,
+        listener: Box<dyn SpaceRoomListSpaceListener>,
+    ) -> Arc<TaskHandle> {
+        let space_updates = self.inner.subscribe_to_space_updates();
+
+        Arc::new(TaskHandle::new(get_runtime_handle().spawn(async move {
+            pin_mut!(space_updates);
+
+            while let Some(space) = space_updates.next().await {
+                listener.on_update(space.map(Into::into));
+            }
+        })))
+    }
+
     /// Returns if the room list is currently paginating or not.
     pub fn pagination_state(&self) -> SpaceRoomListPaginationState {
         self.inner.pagination_state()
@@ -159,6 +180,11 @@ impl SpaceRoomList {
     pub async fn paginate(&self) -> Result<(), ClientError> {
         self.inner.paginate().await.map_err(ClientError::from)
     }
+}
+
+#[matrix_sdk_ffi_macros::export(callback_interface)]
+pub trait SpaceRoomListSpaceListener: SendOutsideWasm + SyncOutsideWasm + Debug {
+    fn on_update(&self, space: Option<SpaceRoom>);
 }
 
 #[matrix_sdk_ffi_macros::export(callback_interface)]
