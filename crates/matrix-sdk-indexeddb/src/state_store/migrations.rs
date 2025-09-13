@@ -853,7 +853,7 @@ mod tests {
 
     use super::{old_keys, MigrationConflictStrategy, CURRENT_DB_VERSION, CURRENT_META_DB_VERSION};
     use crate::{
-        safe_encode::SafeEncode,
+        serializer::safe_encode::SafeEncode,
         state_store::{encode_key, keys, serialize_value, Result},
         IndexeddbStateStore, IndexeddbStateStoreError,
     };
