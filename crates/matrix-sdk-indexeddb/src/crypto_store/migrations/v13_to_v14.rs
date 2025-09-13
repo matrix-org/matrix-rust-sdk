@@ -19,10 +19,10 @@ use web_sys::{DomException, IdbTransactionMode};
 use super::MigrationDb;
 use crate::{
     crypto_store::{keys, migrations::do_schema_upgrade, Result},
-    serializer::IndexeddbSerializer,
+    serializer::SafeEncodeSerializer,
 };
 
-pub(crate) async fn data_migrate(name: &str, _: &IndexeddbSerializer) -> Result<()> {
+pub(crate) async fn data_migrate(name: &str, _: &SafeEncodeSerializer) -> Result<()> {
     let db = MigrationDb::new(name, 14).await?;
     let transaction = db.transaction_on_one_with_mode(
         keys::RECEIVED_ROOM_KEY_BUNDLES,

@@ -23,7 +23,7 @@ use crate::{
         traits::{Indexed, IndexedKey},
         types::IndexedKeyRange,
     },
-    serializer::IndexeddbSerializer,
+    serializer::SafeEncodeSerializer,
 };
 
 pub mod traits;
@@ -45,23 +45,23 @@ impl<T> From<serde_wasm_bindgen::Error> for IndexeddbEventCacheStoreSerializerEr
 
 /// A (de)serializer for an IndexedDB implementation of [`EventCacheStore`][1].
 ///
-/// This is primarily a wrapper around [`IndexeddbSerializer`] with a
+/// This is primarily a wrapper around [`SafeEncodeSerializer`] with
 /// convenience functions for (de)serializing types specific to the
 /// [`EventCacheStore`][1].
 ///
 /// [1]: matrix_sdk_base::event_cache::store::EventCacheStore
 #[derive(Debug, Clone)]
 pub struct IndexeddbEventCacheStoreSerializer {
-    inner: IndexeddbSerializer,
+    inner: SafeEncodeSerializer,
 }
 
 impl IndexeddbEventCacheStoreSerializer {
-    pub fn new(inner: IndexeddbSerializer) -> Self {
+    pub fn new(inner: SafeEncodeSerializer) -> Self {
         Self { inner }
     }
 
     /// Returns a reference to the inner [`IndexeddbSerializer`].
-    pub fn inner(&self) -> &IndexeddbSerializer {
+    pub fn inner(&self) -> &SafeEncodeSerializer {
         &self.inner
     }
 

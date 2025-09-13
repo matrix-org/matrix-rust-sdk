@@ -52,7 +52,7 @@ use web_sys::IdbKeyRange;
 
 use crate::{
     crypto_store::migrations::open_and_upgrade_db,
-    serializer::{IndexeddbSerializer, IndexeddbSerializerError, MaybeEncrypted},
+    serializer::{MaybeEncrypted, SafeEncodeSerializer, SafeEncodeSerializerError},
 };
 
 mod migrations;
@@ -122,7 +122,7 @@ pub struct IndexeddbCryptoStore {
     name: String,
     pub(crate) inner: IdbDatabase,
 
-    serializer: IndexeddbSerializer,
+    serializer: SafeEncodeSerializer,
     save_changes_lock: Arc<Mutex<()>>,
 }
 
@@ -155,14 +155,14 @@ pub enum IndexeddbCryptoStoreError {
     SchemaTooNewError { max_supported_version: u32, current_version: u32 },
 }
 
-impl From<IndexeddbSerializerError> for IndexeddbCryptoStoreError {
-    fn from(value: IndexeddbSerializerError) -> Self {
+impl From<SafeEncodeSerializerError> for IndexeddbCryptoStoreError {
+    fn from(value: SafeEncodeSerializerError) -> Self {
         match value {
-            IndexeddbSerializerError::Serialization(error) => Self::Serialization(error),
-            IndexeddbSerializerError::DomException { code, name, message } => {
+            SafeEncodeSerializerError::Serialization(error) => Self::Serialization(error),
+            SafeEncodeSerializerError::DomException { code, name, message } => {
                 Self::DomException { code, name, message }
             }
-            IndexeddbSerializerError::CryptoStoreError(crypto_store_error) => {
+            SafeEncodeSerializerError::CryptoStoreError(crypto_store_error) => {
                 Self::CryptoStoreError(crypto_store_error)
             }
         }
@@ -287,7 +287,7 @@ impl IndexeddbCryptoStore {
     ) -> Result<Self> {
         let name = format!("{prefix:0}::matrix-sdk-crypto");
 
-        let serializer = IndexeddbSerializer::new(store_cipher);
+        let serializer = SafeEncodeSerializer::new(store_cipher);
         debug!("IndexedDbCryptoStore: opening main store {name}");
         let db = open_and_upgrade_db(&name, &serializer).await?;
 
@@ -1804,7 +1804,7 @@ impl InboundGroupSessionIndexedDbObject {
     /// session.
     pub async fn from_session(
         session: &InboundGroupSession,
-        serializer: &IndexeddbSerializer,
+        serializer: &SafeEncodeSerializer,
     ) -> Result<Self, CryptoStoreError> {
         let session_id =
             serializer.encode_key_as_string(keys::INBOUND_GROUP_SESSIONS_V3, session.session_id());
@@ -1837,7 +1837,7 @@ mod unit_tests {
     use ruma::{device_id, room_id, user_id};
 
     use super::InboundGroupSessionIndexedDbObject;
-    use crate::serializer::{IndexeddbSerializer, MaybeEncrypted};
+    use crate::serializer::{MaybeEncrypted, SafeEncodeSerializer};
 
     #[test]
     fn needs_backup_is_serialized_as_a_u8_in_json() {
@@ -1915,7 +1915,7 @@ mod unit_tests {
         )
         .unwrap();
 
-        InboundGroupSessionIndexedDbObject::from_session(&session, &IndexeddbSerializer::new(None))
+        InboundGroupSessionIndexedDbObject::from_session(&session, &SafeEncodeSerializer::new(None))
             .await
             .unwrap()
     }

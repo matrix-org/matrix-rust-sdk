@@ -13,4 +13,4 @@
 // limitations under the License.
 
 pub mod safe_encode;
-pub use safe_encode::{IndexeddbSerializer, IndexeddbSerializerError, MaybeEncrypted};
+pub use safe_encode::{MaybeEncrypted, SafeEncodeSerializer, SafeEncodeSerializerError};

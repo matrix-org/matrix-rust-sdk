@@ -24,14 +24,14 @@ use crate::{
         keys,
         migrations::{do_schema_upgrade, old_keys, MigrationDb},
     },
-    serializer::IndexeddbSerializer,
+    serializer::SafeEncodeSerializer,
 };
 
 /// Migrate data from `backup_keys.backup_key_v1` to
 /// `backup_keys.backup_version_v1`.
 pub(crate) async fn data_migrate(
     name: &str,
-    serializer: &IndexeddbSerializer,
+    serializer: &SafeEncodeSerializer,
 ) -> crate::crypto_store::Result<()> {
     let db = MigrationDb::new(name, 11).await?;
     let txn = db.transaction_on_one_with_mode(keys::BACKUP_KEYS, IdbTransactionMode::Readwrite)?;

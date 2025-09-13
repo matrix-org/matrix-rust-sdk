@@ -25,7 +25,7 @@ use crate::{
         migrations::{do_schema_upgrade, old_keys, v7, MigrationDb},
         Result,
     },
-    serializer::IndexeddbSerializer,
+    serializer::SafeEncodeSerializer,
     IndexeddbCryptoStoreError,
 };
 
@@ -33,7 +33,7 @@ use crate::{
 /// `inbound_group_sessions` verbatim into `inbound_group_sessions2`. What we
 /// should have done is re-hash them using the new table name, so we fix them up
 /// here.
-pub(crate) async fn data_migrate(name: &str, serializer: &IndexeddbSerializer) -> Result<()> {
+pub(crate) async fn data_migrate(name: &str, serializer: &SafeEncodeSerializer) -> Result<()> {
     let db = MigrationDb::new(name, 8).await?;
 
     let txn = db.transaction_on_one_with_mode(

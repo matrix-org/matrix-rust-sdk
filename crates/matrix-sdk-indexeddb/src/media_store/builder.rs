@@ -22,7 +22,7 @@ use crate::{
         error::IndexeddbMediaStoreError, migrations::open_and_upgrade_db,
         serializer::IndexeddbMediaStoreSerializer, IndexeddbMediaStore,
     },
-    serializer::IndexeddbSerializer,
+    serializer::SafeEncodeSerializer,
 };
 
 /// A type for conveniently building an [`IndexeddbMediaStore`]
@@ -66,7 +66,7 @@ impl IndexeddbMediaStoreBuilder {
     pub async fn build(self) -> Result<IndexeddbMediaStore, IndexeddbMediaStoreError> {
         Ok(IndexeddbMediaStore {
             inner: Rc::new(open_and_upgrade_db(&self.database_name).await?),
-            serializer: IndexeddbMediaStoreSerializer::new(IndexeddbSerializer::new(
+            serializer: IndexeddbMediaStoreSerializer::new(SafeEncodeSerializer::new(
                 self.store_cipher,
             )),
             media_service: MediaService::new(),

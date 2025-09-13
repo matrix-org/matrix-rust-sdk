@@ -21,7 +21,7 @@ use crate::{
         error::IndexeddbEventCacheStoreError, migrations::open_and_upgrade_db,
         serializer::IndexeddbEventCacheStoreSerializer, IndexeddbEventCacheStore,
     },
-    serializer::IndexeddbSerializer,
+    serializer::SafeEncodeSerializer,
 };
 
 /// A type for conveniently building an [`IndexeddbEventCacheStore`]
@@ -65,7 +65,7 @@ impl IndexeddbEventCacheStoreBuilder {
     pub async fn build(self) -> Result<IndexeddbEventCacheStore, IndexeddbEventCacheStoreError> {
         Ok(IndexeddbEventCacheStore {
             inner: Rc::new(open_and_upgrade_db(&self.database_name).await?),
-            serializer: IndexeddbEventCacheStoreSerializer::new(IndexeddbSerializer::new(
+            serializer: IndexeddbEventCacheStoreSerializer::new(SafeEncodeSerializer::new(
                 self.store_cipher,
             )),
         })
