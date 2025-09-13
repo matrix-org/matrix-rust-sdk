@@ -50,7 +50,7 @@ use crate::{
         },
         types::{Lease, Media},
     },
-    serializer::{IndexeddbSerializer, MaybeEncrypted},
+    serializer::{MaybeEncrypted, SafeEncodeSerializer},
 };
 
 /// The first unicode character, and hence the lower bound for IndexedDB keys
@@ -141,7 +141,7 @@ pub enum IndexedKeyRange<K> {
 impl<'a, C: 'a> IndexedKeyRange<C> {
     /// Encodes a range of key components of type `K::KeyComponents`
     /// into a range of keys of type `K`.
-    pub fn encoded<T, K>(self, serializer: &IndexeddbSerializer) -> IndexedKeyRange<K>
+    pub fn encoded<T, K>(self, serializer: &SafeEncodeSerializer) -> IndexedKeyRange<K>
     where
         T: Indexed,
         K: IndexedKey<T, KeyComponents<'a> = C>,
@@ -166,7 +166,7 @@ impl<K> IndexedKeyRange<K> {
         }
     }
 
-    pub fn all<T>(serializer: &IndexeddbSerializer) -> IndexedKeyRange<K>
+    pub fn all<T>(serializer: &SafeEncodeSerializer) -> IndexedKeyRange<K>
     where
         T: Indexed,
         K: IndexedKeyBounds<T>,
@@ -174,7 +174,7 @@ impl<K> IndexedKeyRange<K> {
         IndexedKeyRange::Bound(K::lower_key(serializer), K::upper_key(serializer))
     }
 
-    pub fn all_with_prefix<T, P>(prefix: P, serializer: &IndexeddbSerializer) -> IndexedKeyRange<K>
+    pub fn all_with_prefix<T, P>(prefix: P, serializer: &SafeEncodeSerializer) -> IndexedKeyRange<K>
     where
         T: Indexed,
         K: IndexedPrefixKeyBounds<T, P>,
@@ -248,7 +248,7 @@ impl Indexed for Lease {
 
     fn to_indexed(
         &self,
-        serializer: &IndexeddbSerializer,
+        serializer: &SafeEncodeSerializer,
     ) -> Result<Self::IndexedType, Self::Error> {
         Ok(IndexedLease {
             id: <IndexedLeaseIdKey as IndexedKey<Lease>>::encode(&self.key, serializer),
@@ -258,7 +258,7 @@ impl Indexed for Lease {
 
     fn from_indexed(
         indexed: Self::IndexedType,
-        serializer: &IndexeddbSerializer,
+        serializer: &SafeEncodeSerializer,
     ) -> Result<Self, Self::Error> {
         serializer.maybe_decrypt_value(indexed.content)
     }
@@ -275,7 +275,7 @@ pub type IndexedLeaseIdKey = String;
 impl IndexedKey<Lease> for IndexedLeaseIdKey {
     type KeyComponents<'a> = &'a str;
 
-    fn encode(components: Self::KeyComponents<'_>, serializer: &IndexeddbSerializer) -> Self {
+    fn encode(components: Self::KeyComponents<'_>, serializer: &SafeEncodeSerializer) -> Self {
         serializer.encode_key_as_string(keys::LEASES, components)
     }
 }
@@ -310,7 +310,7 @@ impl Indexed for MediaRetentionPolicy {
 
     fn to_indexed(
         &self,
-        serializer: &IndexeddbSerializer,
+        serializer: &SafeEncodeSerializer,
     ) -> Result<Self::IndexedType, Self::Error> {
         Ok(Self::IndexedType {
             id: <IndexedCoreIdKey as IndexedKey<Self>>::encode((), serializer),
@@ -320,7 +320,7 @@ impl Indexed for MediaRetentionPolicy {
 
     fn from_indexed(
         indexed: Self::IndexedType,
-        serializer: &IndexeddbSerializer,
+        serializer: &SafeEncodeSerializer,
     ) -> Result<Self, Self::Error> {
         serializer.maybe_decrypt_value(indexed.content)
     }
@@ -329,7 +329,7 @@ impl Indexed for MediaRetentionPolicy {
 impl IndexedKey<MediaRetentionPolicy> for IndexedCoreIdKey {
     type KeyComponents<'a> = ();
 
-    fn encode(_components: Self::KeyComponents<'_>, serializer: &IndexeddbSerializer) -> Self {
+    fn encode(_components: Self::KeyComponents<'_>, serializer: &SafeEncodeSerializer) -> Self {
         serializer.encode_key_as_string(keys::CORE, keys::MEDIA_RETENTION_POLICY_KEY)
     }
 }
@@ -379,7 +379,7 @@ impl Indexed for Media {
 
     fn to_indexed(
         &self,
-        serializer: &IndexeddbSerializer,
+        serializer: &SafeEncodeSerializer,
     ) -> Result<Self::IndexedType, Self::Error> {
         let content = rmp_serde::to_vec_named(&serializer.maybe_encrypt_value(&self.content)?)?;
         Ok(Self::IndexedType {
@@ -410,7 +410,7 @@ impl Indexed for Media {
 
     fn from_indexed(
         indexed: Self::IndexedType,
-        serializer: &IndexeddbSerializer,
+        serializer: &SafeEncodeSerializer,
     ) -> Result<Self, Self::Error> {
         Ok(Self {
             metadata: serializer.maybe_decrypt_value(indexed.metadata)?,
@@ -431,7 +431,7 @@ pub struct IndexedMediaIdKey(String);
 impl IndexedKey<Media> for IndexedMediaIdKey {
     type KeyComponents<'a> = &'a MediaRequestParameters;
 
-    fn encode(components: Self::KeyComponents<'_>, serializer: &IndexeddbSerializer) -> Self {
+    fn encode(components: Self::KeyComponents<'_>, serializer: &SafeEncodeSerializer) -> Self {
         Self(serializer.encode_key_as_string(keys::MEDIA, components.unique_key()))
     }
 }
@@ -448,7 +448,7 @@ pub struct IndexedMediaSourceKey(String);
 impl IndexedKey<Media> for IndexedMediaSourceKey {
     type KeyComponents<'a> = &'a MediaSource;
 
-    fn encode(components: Self::KeyComponents<'_>, serializer: &IndexeddbSerializer) -> Self {
+    fn encode(components: Self::KeyComponents<'_>, serializer: &SafeEncodeSerializer) -> Self {
         Self(serializer.encode_key_as_string(keys::MEDIA_SOURCE, components.unique_key()))
     }
 }
@@ -484,7 +484,7 @@ impl IndexedKey<Media> for IndexedMediaContentSizeKey {
 
     fn encode(
         (ignore_policy, content_size): Self::KeyComponents<'_>,
-        _: &IndexeddbSerializer,
+        _: &SafeEncodeSerializer,
     ) -> Self {
         Self(ignore_policy, content_size)
     }
@@ -535,7 +535,7 @@ impl IndexedKey<Media> for IndexedMediaLastAccessKey {
 
     fn encode(
         (ignore_policy, last_access): Self::KeyComponents<'_>,
-        _: &IndexeddbSerializer,
+        _: &SafeEncodeSerializer,
     ) -> Self {
         Self(ignore_policy, last_access.as_secs())
     }
@@ -589,7 +589,7 @@ impl IndexedKey<Media> for IndexedMediaRetentionMetadataKey {
 
     fn encode(
         (ignore_policy, last_access, content_size): Self::KeyComponents<'_>,
-        _: &IndexeddbSerializer,
+        _: &SafeEncodeSerializer,
     ) -> Self {
         Self(ignore_policy, last_access.as_secs(), content_size)
     }

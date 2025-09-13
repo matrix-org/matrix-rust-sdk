@@ -18,7 +18,7 @@ use indexed_db_futures::{prelude::*, web_sys::DomException};
 use tracing::info;
 use wasm_bindgen::JsValue;
 
-use crate::{crypto_store::Result, serializer::IndexeddbSerializer, IndexeddbCryptoStoreError};
+use crate::{crypto_store::Result, serializer::SafeEncodeSerializer, IndexeddbCryptoStoreError};
 
 mod old_keys;
 mod v0_to_v5;
@@ -100,7 +100,7 @@ const MAX_SUPPORTED_SCHEMA_VERSION: u32 = 99;
 /// of the schema if necessary.
 pub async fn open_and_upgrade_db(
     name: &str,
-    serializer: &IndexeddbSerializer,
+    serializer: &SafeEncodeSerializer,
 ) -> Result<IdbDatabase, IndexeddbCryptoStoreError> {
     // Move the DB version up from where it is to the latest version.
     //
@@ -282,7 +282,7 @@ mod tests {
     #[async_test]
     async fn test_count_lots_of_sessions_v8() {
         let cipher = Arc::new(StoreCipher::new().unwrap());
-        let serializer = IndexeddbSerializer::new(Some(cipher.clone()));
+        let serializer = SafeEncodeSerializer::new(Some(cipher.clone()));
         // Session keys are slow to create, so make one upfront and use it for every
         // session
         let session_key = create_session_key();
@@ -319,7 +319,7 @@ mod tests {
     /// Make lots of sessions and see how long it takes to count them in v10
     #[async_test]
     async fn test_count_lots_of_sessions_v10() {
-        let serializer = IndexeddbSerializer::new(Some(Arc::new(StoreCipher::new().unwrap())));
+        let serializer = SafeEncodeSerializer::new(Some(Arc::new(StoreCipher::new().unwrap())));
 
         // Session keys are slow to create, so make one upfront and use it for every
         // session
@@ -395,7 +395,7 @@ mod tests {
         i: usize,
         session_key: &SessionKey,
         cipher: &Arc<StoreCipher>,
-        serializer: &IndexeddbSerializer,
+        serializer: &SafeEncodeSerializer,
     ) -> (JsValue, JsValue) {
         let session = create_inbound_group_session(i, session_key);
         let pickled_session = session.pickle().await;
@@ -416,7 +416,7 @@ mod tests {
     async fn create_inbound_group_sessions3_record(
         i: usize,
         session_key: &SessionKey,
-        serializer: &IndexeddbSerializer,
+        serializer: &SafeEncodeSerializer,
     ) -> (JsValue, JsValue) {
         let session = create_inbound_group_session(i, session_key);
         let pickled_session = session.pickle().await;
@@ -682,7 +682,7 @@ mod tests {
         // entry.
         let db = create_v5_db(&db_name).await.unwrap();
 
-        let serializer = IndexeddbSerializer::new(store_cipher.clone());
+        let serializer = SafeEncodeSerializer::new(store_cipher.clone());
 
         let txn = db
             .transaction_on_one_with_mode(

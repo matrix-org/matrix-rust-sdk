@@ -29,18 +29,18 @@ use wasm_bindgen::JsValue;
 use web_sys::IdbKeyRange;
 use zeroize::Zeroizing;
 
-type Result<A, E = IndexeddbSerializerError> = std::result::Result<A, E>;
+type Result<A, E = SafeEncodeSerializerError> = std::result::Result<A, E>;
 
 const BASE64: GeneralPurpose = GeneralPurpose::new(&alphabet::STANDARD, general_purpose::NO_PAD);
 
 /// Handles the functionality of serializing and encrypting data for the
 /// indexeddb store.
 #[derive(Clone)]
-pub struct IndexeddbSerializer {
+pub struct SafeEncodeSerializer {
     store_cipher: Option<Arc<StoreCipher>>,
 }
 
-impl std::fmt::Debug for IndexeddbSerializer {
+impl std::fmt::Debug for SafeEncodeSerializer {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("IndexeddbSerializer")
             .field("store_cipher", &self.store_cipher.as_ref().map(|_| "<StoreCipher>"))
@@ -49,7 +49,7 @@ impl std::fmt::Debug for IndexeddbSerializer {
 }
 
 #[derive(Debug, thiserror::Error)]
-pub enum IndexeddbSerializerError {
+pub enum SafeEncodeSerializerError {
     #[error(transparent)]
     Serialization(#[from] serde_json::Error),
     #[error("DomException {name} ({code}): {message}")]
@@ -65,13 +65,13 @@ pub enum IndexeddbSerializerError {
     CryptoStoreError(#[from] CryptoStoreError),
 }
 
-impl From<web_sys::DomException> for IndexeddbSerializerError {
+impl From<web_sys::DomException> for SafeEncodeSerializerError {
     fn from(frm: web_sys::DomException) -> Self {
         Self::DomException { name: frm.name(), message: frm.message(), code: frm.code() }
     }
 }
 
-impl From<serde_wasm_bindgen::Error> for IndexeddbSerializerError {
+impl From<serde_wasm_bindgen::Error> for SafeEncodeSerializerError {
     fn from(e: serde_wasm_bindgen::Error) -> Self {
         Self::Serialization(serde::de::Error::custom(e.to_string()))
     }
@@ -84,7 +84,7 @@ pub enum MaybeEncrypted {
     Unencrypted(String),
 }
 
-impl IndexeddbSerializer {
+impl SafeEncodeSerializer {
     pub fn new(store_cipher: Option<Arc<StoreCipher>>) -> Self {
         Self { store_cipher }
     }
@@ -150,7 +150,7 @@ impl IndexeddbSerializer {
         &self,
         table_name: &str,
         key: T,
-    ) -> Result<IdbKeyRange, IndexeddbSerializerError>
+    ) -> Result<IdbKeyRange, SafeEncodeSerializerError>
     where
         T: SafeEncode,
     {
@@ -158,7 +158,7 @@ impl IndexeddbSerializer {
             Some(cipher) => key.encode_to_range_secure(table_name, cipher),
             None => key.encode_to_range(),
         }
-        .map_err(|e| IndexeddbSerializerError::DomException {
+        .map_err(|e| SafeEncodeSerializerError::DomException {
             code: 0,
             name: "IdbKeyRangeMakeError".to_owned(),
             message: e,
@@ -173,7 +173,7 @@ impl IndexeddbSerializer {
     pub fn serialize_value(
         &self,
         value: &impl Serialize,
-    ) -> Result<JsValue, IndexeddbSerializerError> {
+    ) -> Result<JsValue, SafeEncodeSerializerError> {
         let serialized = self.maybe_encrypt_value(value)?;
         Ok(serde_wasm_bindgen::to_value(&serialized)?)
     }
@@ -227,7 +227,7 @@ impl IndexeddbSerializer {
     pub fn deserialize_value<T: DeserializeOwned>(
         &self,
         value: JsValue,
-    ) -> Result<T, IndexeddbSerializerError> {
+    ) -> Result<T, SafeEncodeSerializerError> {
         // Objects which are serialized nowadays should be represented as a
         // `MaybeEncrypted`. However, `serialize_value` previously used a
         // different format, so we need to handle that in case we have old data.
@@ -281,11 +281,11 @@ impl IndexeddbSerializer {
     pub fn deserialize_legacy_value<T: DeserializeOwned>(
         &self,
         value: JsValue,
-    ) -> Result<T, IndexeddbSerializerError> {
+    ) -> Result<T, SafeEncodeSerializerError> {
         match &self.store_cipher {
             Some(cipher) => {
                 if !value.is_array() {
-                    return Err(IndexeddbSerializerError::CryptoStoreError(
+                    return Err(SafeEncodeSerializerError::CryptoStoreError(
                         CryptoStoreError::UnpicklingError,
                     ));
                 }
@@ -363,7 +363,7 @@ mod tests {
     use serde_json::json;
     use wasm_bindgen::JsValue;
 
-    use super::IndexeddbSerializer;
+    use super::SafeEncodeSerializer;
 
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
@@ -371,7 +371,7 @@ mod tests {
     /// cipher is in use.
     #[async_test]
     async fn test_serialize_deserialize_with_cipher() {
-        let serializer = IndexeddbSerializer::new(Some(Arc::new(StoreCipher::new().unwrap())));
+        let serializer = SafeEncodeSerializer::new(Some(Arc::new(StoreCipher::new().unwrap())));
 
         let obj = make_test_object();
         let serialized = serializer.serialize_value(&obj).expect("could not serialize");
@@ -385,7 +385,7 @@ mod tests {
     /// cipher is in use.
     #[async_test]
     async fn test_serialize_deserialize_no_cipher() {
-        let serializer = IndexeddbSerializer::new(None);
+        let serializer = SafeEncodeSerializer::new(None);
         let obj = make_test_object();
         let serialized = serializer.serialize_value(&obj).expect("could not serialize");
         let deserialized: TestStruct =
@@ -413,7 +413,7 @@ mod tests {
 
         // Now, try deserializing with `deserialize_value`, and check we get the right
         // thing.
-        let serializer = IndexeddbSerializer::new(Some(Arc::new(cipher)));
+        let serializer = SafeEncodeSerializer::new(Some(Arc::new(cipher)));
         let deserialized: TestStruct =
             serializer.deserialize_value(serialized).expect("could not deserialize");
 
@@ -429,7 +429,7 @@ mod tests {
         let json = json!({ "id":0, "name": "test", "map": { "0": "test" }});
         let serialized = js_sys::JSON::parse(&json.to_string()).unwrap();
 
-        let serializer = IndexeddbSerializer::new(None);
+        let serializer = SafeEncodeSerializer::new(None);
         let deserialized: TestStruct =
             serializer.deserialize_value(serialized).expect("could not deserialize");
 
@@ -444,7 +444,7 @@ mod tests {
         let json = json!([1, 2, 3, 4]);
         let serialized = js_sys::JSON::parse(&json.to_string()).unwrap();
 
-        let serializer = IndexeddbSerializer::new(None);
+        let serializer = SafeEncodeSerializer::new(None);
         let deserialized: Vec<u8> =
             serializer.deserialize_value(serialized).expect("could not deserialize");
 
@@ -455,7 +455,7 @@ mod tests {
     /// `maybe_encrypt_value`, when a cipher is in use.
     #[async_test]
     async fn test_maybe_encrypt_deserialize_with_cipher() {
-        let serializer = IndexeddbSerializer::new(Some(Arc::new(StoreCipher::new().unwrap())));
+        let serializer = SafeEncodeSerializer::new(Some(Arc::new(StoreCipher::new().unwrap())));
 
         let obj = make_test_object();
         let serialized = serializer.maybe_encrypt_value(&obj).expect("could not serialize");
@@ -471,7 +471,7 @@ mod tests {
     /// `maybe_encrypt_value`, when no cipher is in use.
     #[async_test]
     async fn test_maybe_encrypt_deserialize_no_cipher() {
-        let serializer = IndexeddbSerializer::new(None);
+        let serializer = SafeEncodeSerializer::new(None);
         let obj = make_test_object();
         let serialized = serializer.maybe_encrypt_value(&obj).expect("could not serialize");
         let serialized = serde_wasm_bindgen::to_value(&serialized).unwrap();
@@ -485,7 +485,7 @@ mod tests {
     /// when a cipher is in use.
     #[async_test]
     async fn test_maybe_encrypt_decrypt_with_cipher() {
-        let serializer = IndexeddbSerializer::new(Some(Arc::new(StoreCipher::new().unwrap())));
+        let serializer = SafeEncodeSerializer::new(Some(Arc::new(StoreCipher::new().unwrap())));
 
         let obj = make_test_object();
         let serialized = serializer.maybe_encrypt_value(&obj).expect("could not serialize");
@@ -499,7 +499,7 @@ mod tests {
     /// when no cipher is in use.
     #[async_test]
     async fn test_maybe_encrypt_decrypt_no_cipher() {
-        let serializer = IndexeddbSerializer::new(None);
+        let serializer = SafeEncodeSerializer::new(None);
 
         let obj = make_test_object();
         let serialized = serializer.maybe_encrypt_value(&obj).expect("could not serialize");

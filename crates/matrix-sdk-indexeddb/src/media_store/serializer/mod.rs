@@ -23,7 +23,7 @@ use crate::{
         traits::{Indexed, IndexedKey},
         types::IndexedKeyRange,
     },
-    serializer::IndexeddbSerializer,
+    serializer::SafeEncodeSerializer,
 };
 
 pub mod foreign;
@@ -46,23 +46,23 @@ impl<T> From<serde_wasm_bindgen::Error> for IndexeddbMediaStoreSerializerError<T
 
 /// A (de)serializer for an IndexedDB implementation of [`MediaStore`][1].
 ///
-/// This is primarily a wrapper around [`IndexeddbSerializer`] with a
+/// This is primarily a wrapper around [`SafeEncodeSerializer`] with
 /// convenience functions for (de)serializing types specific to the
 /// [`MediaStore`][1].
 ///
 /// [1]: matrix_sdk_base::media::store::MediaStore
 #[derive(Debug, Clone)]
 pub struct IndexeddbMediaStoreSerializer {
-    inner: IndexeddbSerializer,
+    inner: SafeEncodeSerializer,
 }
 
 impl IndexeddbMediaStoreSerializer {
-    pub fn new(inner: IndexeddbSerializer) -> Self {
+    pub fn new(inner: SafeEncodeSerializer) -> Self {
         Self { inner }
     }
 
     /// Returns a reference to the inner [`IndexeddbSerializer`].
-    pub fn inner(&self) -> &IndexeddbSerializer {
+    pub fn inner(&self) -> &SafeEncodeSerializer {
         &self.inner
     }
 
