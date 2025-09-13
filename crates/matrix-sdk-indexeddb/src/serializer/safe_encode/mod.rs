@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+pub mod traits;
 use std::sync::Arc;
 
 use base64::{
@@ -23,11 +24,10 @@ use gloo_utils::format::JsValueSerdeExt;
 use matrix_sdk_crypto::CryptoStoreError;
 use matrix_sdk_store_encryption::{EncryptedValueBase64, StoreCipher};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
+pub use traits::SafeEncode;
 use wasm_bindgen::JsValue;
 use web_sys::IdbKeyRange;
 use zeroize::Zeroizing;
-
-use crate::safe_encode::SafeEncode;
 
 type Result<A, E = IndexeddbSerializerError> = std::result::Result<A, E>;
 

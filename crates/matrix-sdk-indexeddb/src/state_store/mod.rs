@@ -59,7 +59,7 @@ mod migrations;
 
 pub use self::migrations::MigrationConflictStrategy;
 use self::migrations::{upgrade_inner_db, upgrade_meta_db};
-use crate::safe_encode::SafeEncode;
+use crate::serializer::safe_encode::SafeEncode;
 
 #[derive(Debug, thiserror::Error)]
 pub enum IndexeddbStateStoreError {
