@@ -20,7 +20,7 @@ use matrix_sdk_store_encryption::StoreCipher;
 use crate::{
     media_store::{
         error::IndexeddbMediaStoreError, migrations::open_and_upgrade_db,
-        serializer::IndexeddbMediaStoreSerializer, IndexeddbMediaStore,
+        serializer::IndexedTypeSerializer, IndexeddbMediaStore,
     },
     serializer::SafeEncodeSerializer,
 };
@@ -66,9 +66,7 @@ impl IndexeddbMediaStoreBuilder {
     pub async fn build(self) -> Result<IndexeddbMediaStore, IndexeddbMediaStoreError> {
         Ok(IndexeddbMediaStore {
             inner: Rc::new(open_and_upgrade_db(&self.database_name).await?),
-            serializer: IndexeddbMediaStoreSerializer::new(SafeEncodeSerializer::new(
-                self.store_cipher,
-            )),
+            serializer: IndexedTypeSerializer::new(SafeEncodeSerializer::new(self.store_cipher)),
             media_service: MediaService::new(),
             memory_store: MemoryMediaStore::new(),
         })
