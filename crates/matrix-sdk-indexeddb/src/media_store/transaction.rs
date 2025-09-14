@@ -26,7 +26,7 @@ use crate::media_store::{
     serializer::{
         traits::{Indexed, IndexedKey},
         types::{IndexedCoreIdKey, IndexedKeyRange, IndexedLeaseIdKey},
-        IndexeddbMediaStoreSerializer,
+        IndexedTypeSerializer,
     },
     types::Lease,
 };
@@ -72,14 +72,11 @@ impl From<IndexeddbMediaStoreTransactionError> for MediaStoreError {
 /// [`MediaStore`](matrix_sdk_base::media::store::MediaStore).
 pub struct IndexeddbMediaStoreTransaction<'a> {
     transaction: IdbTransaction<'a>,
-    serializer: &'a IndexeddbMediaStoreSerializer,
+    serializer: &'a IndexedTypeSerializer,
 }
 
 impl<'a> IndexeddbMediaStoreTransaction<'a> {
-    pub fn new(
-        transaction: IdbTransaction<'a>,
-        serializer: &'a IndexeddbMediaStoreSerializer,
-    ) -> Self {
+    pub fn new(transaction: IdbTransaction<'a>, serializer: &'a IndexedTypeSerializer) -> Self {
         Self { transaction, serializer }
     }
 

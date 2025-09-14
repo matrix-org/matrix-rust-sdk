@@ -36,7 +36,7 @@ use matrix_sdk_base::{
     timer,
 };
 use ruma::{time::SystemTime, MilliSecondsSinceUnixEpoch, MxcUri};
-use serializer::IndexeddbMediaStoreSerializer;
+use serializer::IndexedTypeSerializer;
 use tracing::instrument;
 use web_sys::IdbTransactionMode;
 
@@ -54,7 +54,7 @@ pub struct IndexeddbMediaStore {
     // A handle to the IndexedDB database
     inner: Rc<IdbDatabase>,
     // A serializer with functionality tailored to `IndexeddbMediaStore`
-    serializer: IndexeddbMediaStoreSerializer,
+    serializer: IndexedTypeSerializer,
     // A service for conveniently delegating media-related queries to an `MediaStoreInner`
     // implementation
     media_service: MediaService,
