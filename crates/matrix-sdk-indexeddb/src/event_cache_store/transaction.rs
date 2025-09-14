@@ -34,7 +34,7 @@ use crate::event_cache_store::{
             IndexedEventRoomKey, IndexedGapIdKey, IndexedKeyRange, IndexedLeaseIdKey,
             IndexedNextChunkIdKey, IndexedRoomId,
         },
-        IndexeddbEventCacheStoreSerializer,
+        IndexedTypeSerializer,
     },
     types::{Chunk, ChunkType, Event, Gap, Lease, Position},
 };
@@ -80,14 +80,11 @@ impl From<IndexeddbEventCacheStoreTransactionError> for EventCacheStoreError {
 /// [`EventCacheStore`](matrix_sdk_base::event_cache::store::EventCacheStore).
 pub struct IndexeddbEventCacheStoreTransaction<'a> {
     transaction: IdbTransaction<'a>,
-    serializer: &'a IndexeddbEventCacheStoreSerializer,
+    serializer: &'a IndexedTypeSerializer,
 }
 
 impl<'a> IndexeddbEventCacheStoreTransaction<'a> {
-    pub fn new(
-        transaction: IdbTransaction<'a>,
-        serializer: &'a IndexeddbEventCacheStoreSerializer,
-    ) -> Self {
+    pub fn new(transaction: IdbTransaction<'a>, serializer: &'a IndexedTypeSerializer) -> Self {
         Self { transaction, serializer }
     }
 
