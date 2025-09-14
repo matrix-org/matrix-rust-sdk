@@ -33,7 +33,7 @@ use web_sys::IdbTransactionMode;
 
 use crate::event_cache_store::{
     migrations::current::keys,
-    serializer::{traits::Indexed, IndexeddbEventCacheStoreSerializer},
+    serializer::{traits::Indexed, IndexedTypeSerializer},
     transaction::{IndexeddbEventCacheStoreTransaction, IndexeddbEventCacheStoreTransactionError},
     types::{ChunkType, InBandEvent, Lease, OutOfBandEvent},
 };
@@ -60,7 +60,7 @@ pub struct IndexeddbEventCacheStore {
     // A handle to the IndexedDB database
     inner: Rc<IdbDatabase>,
     // A serializer with functionality tailored to `IndexeddbEventCacheStore`
-    serializer: IndexeddbEventCacheStoreSerializer,
+    serializer: IndexedTypeSerializer,
 }
 
 impl IndexeddbEventCacheStore {

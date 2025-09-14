@@ -30,14 +30,14 @@ pub mod traits;
 pub mod types;
 
 #[derive(Debug, Error)]
-pub enum IndexeddbEventCacheStoreSerializerError<IndexingError> {
+pub enum IndexedTypeSerializerError<IndexingError> {
     #[error("indexing: {0}")]
     Indexing(IndexingError),
     #[error("serialization: {0}")]
     Serialization(#[from] serde_json::Error),
 }
 
-impl<T> From<serde_wasm_bindgen::Error> for IndexeddbEventCacheStoreSerializerError<T> {
+impl<T> From<serde_wasm_bindgen::Error> for IndexedTypeSerializerError<T> {
     fn from(e: serde_wasm_bindgen::Error) -> Self {
         Self::Serialization(serde::de::Error::custom(e.to_string()))
     }
@@ -51,11 +51,11 @@ impl<T> From<serde_wasm_bindgen::Error> for IndexeddbEventCacheStoreSerializerEr
 ///
 /// [1]: matrix_sdk_base::event_cache::store::EventCacheStore
 #[derive(Debug, Clone)]
-pub struct IndexeddbEventCacheStoreSerializer {
+pub struct IndexedTypeSerializer {
     inner: SafeEncodeSerializer,
 }
 
-impl IndexeddbEventCacheStoreSerializer {
+impl IndexedTypeSerializer {
     pub fn new(inner: SafeEncodeSerializer) -> Self {
         Self { inner }
     }
@@ -139,30 +139,22 @@ impl IndexeddbEventCacheStoreSerializer {
     }
 
     /// Serializes an [`Indexed`] type into a [`JsValue`]
-    pub fn serialize<T>(
-        &self,
-        t: &T,
-    ) -> Result<JsValue, IndexeddbEventCacheStoreSerializerError<T::Error>>
+    pub fn serialize<T>(&self, t: &T) -> Result<JsValue, IndexedTypeSerializerError<T::Error>>
     where
         T: Indexed,
         T::IndexedType: Serialize,
     {
-        let indexed =
-            t.to_indexed(&self.inner).map_err(IndexeddbEventCacheStoreSerializerError::Indexing)?;
+        let indexed = t.to_indexed(&self.inner).map_err(IndexedTypeSerializerError::Indexing)?;
         serde_wasm_bindgen::to_value(&indexed).map_err(Into::into)
     }
 
     /// Deserializes an [`Indexed`] type from a [`JsValue`]
-    pub fn deserialize<T>(
-        &self,
-        value: JsValue,
-    ) -> Result<T, IndexeddbEventCacheStoreSerializerError<T::Error>>
+    pub fn deserialize<T>(&self, value: JsValue) -> Result<T, IndexedTypeSerializerError<T::Error>>
     where
         T: Indexed,
         T::IndexedType: DeserializeOwned,
     {
         let indexed: T::IndexedType = value.into_serde()?;
-        T::from_indexed(indexed, &self.inner)
-            .map_err(IndexeddbEventCacheStoreSerializerError::Indexing)
+        T::from_indexed(indexed, &self.inner).map_err(IndexedTypeSerializerError::Indexing)
     }
 }
