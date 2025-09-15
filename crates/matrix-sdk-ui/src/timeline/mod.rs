@@ -868,6 +868,12 @@ impl Timeline {
     ) -> Result<Option<EmbeddedEvent>, Error> {
         self.controller.make_replied_to(event).await
     }
+
+    /// Returns whether this timeline is focused on a thread (be it live, or
+    /// from a permalink to a threaded event).
+    pub fn is_threaded(&self) -> bool {
+        self.controller.is_threaded()
+    }
 }
 
 /// Test helpers, likely not very useful in production.
