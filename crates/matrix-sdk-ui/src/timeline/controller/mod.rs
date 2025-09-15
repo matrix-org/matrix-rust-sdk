@@ -148,6 +148,17 @@ impl<P: RoomDataProvider> TimelineFocusKind<P> {
             TimelineFocusKind::PinnedEvents { .. } => ReceiptThread::Unthreaded,
         }
     }
+
+    /// Whether the focus is on a thread (from a live thread or a thread
+    /// permalink).
+    fn is_thread(&self) -> bool {
+        match self {
+            TimelineFocusKind::Live { hide_threaded_events: _ }
+            | TimelineFocusKind::Event { paginator: _, hide_threaded_events: _ }
+            | TimelineFocusKind::PinnedEvents { loader: _ } => false,
+            TimelineFocusKind::Thread { root_event_id: _ } => true,
+        }
+    }
 }
 
 #[derive(Clone, Debug)]

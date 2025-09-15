@@ -627,7 +627,7 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
                     &raw,
                     bundled_edit_encryption_info,
                     &self.items,
-                    matches!(self.focus, TimelineFocusKind::Thread { .. }),
+                    self.focus.is_thread(),
                 );
 
                 let should_add = self.should_add_event_item(
