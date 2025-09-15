@@ -124,7 +124,7 @@ fn format_timeline_item(item: &Arc<TimelineItem>, is_thread: bool) -> Option<Lis
                     kind: MsgLikeKind::Poll(_), ..
                 })
                 | TimelineItemContent::CallInvite
-                | TimelineItemContent::CallNotify => {
+                | TimelineItemContent::RtcNotification => {
                     return None;
                 }
             }

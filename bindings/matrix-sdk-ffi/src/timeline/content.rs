@@ -35,7 +35,7 @@ impl From<matrix_sdk_ui::timeline::TimelineItemContent> for TimelineItemContent 
 
             Content::CallInvite => TimelineItemContent::CallInvite,
 
-            Content::CallNotify => TimelineItemContent::CallNotify,
+            Content::RtcNotification => TimelineItemContent::RtcNotification,
 
             Content::MembershipChange(membership) => {
                 let reason = match membership.content() {
@@ -109,7 +109,7 @@ pub enum TimelineItemContent {
         content: MsgLikeContent,
     },
     CallInvite,
-    CallNotify,
+    RtcNotification,
     RoomMembership {
         user_id: String,
         user_display_name: Option<String>,

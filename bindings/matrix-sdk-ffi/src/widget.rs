@@ -204,10 +204,12 @@ pub fn get_element_call_required_permissions(
         send: vec![
             // To notify other users that a call has started.
             WidgetEventFilter::MessageLikeWithType {
-                event_type: "org.matrix.msc4075.rtc.notification".to_owned(),
+                event_type: MessageLikeEventType::RtcNotification.to_string(),
             },
             // Also for call notifications, except this is the deprecated fallback type which
             // Element Call still sends.
+            // Deprecated for now, kept for backward compatibility as widgets will send both
+            // CallNotify and RtcNotification.
             WidgetEventFilter::MessageLikeWithType {
                 event_type: MessageLikeEventType::CallNotify.to_string(),
             },

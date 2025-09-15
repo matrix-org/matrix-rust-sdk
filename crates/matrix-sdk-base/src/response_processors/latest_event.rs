@@ -80,7 +80,7 @@ async fn find_suitable_and_decrypt(
                     PossibleLatestEvent::YesRoomMessage(_)
                     | PossibleLatestEvent::YesPoll(_)
                     | PossibleLatestEvent::YesCallInvite(_)
-                    | PossibleLatestEvent::YesCallNotify(_)
+                    | PossibleLatestEvent::YesRtcNotification(_)
                     | PossibleLatestEvent::YesSticker(_)
                     | PossibleLatestEvent::YesKnockedStateEvent(_) => {
                         return Some((Box::new(LatestEvent::new(decrypted)), i));

@@ -17,6 +17,7 @@
 use std::{
     collections::{BTreeMap, BTreeSet},
     sync::atomic::{AtomicU64, Ordering::SeqCst},
+    time::Duration,
 };
 
 use as_variant::as_variant;
@@ -33,11 +34,7 @@ use ruma::{
         GlobalAccountDataEventContent, Mentions, RedactedMessageLikeEventContent,
         RedactedStateEventContent, StateEventContent, StaticEventContent,
         beacon::BeaconEventContent,
-        call::{
-            SessionDescription,
-            invite::CallInviteEventContent,
-            notify::{ApplicationType, CallNotifyEventContent, NotifyType},
-        },
+        call::{SessionDescription, invite::CallInviteEventContent},
         direct::{DirectEventContent, OwnedDirectUserIdentifier},
         ignored_user_list::IgnoredUserListEventContent,
         member_hints::MemberHintsEventContent,
@@ -52,7 +49,7 @@ use ruma::{
         push_rules::PushRulesEventContent,
         reaction::ReactionEventContent,
         receipt::{Receipt, ReceiptEventContent, ReceiptThread, ReceiptType},
-        relation::{Annotation, BundledThread, InReplyTo, Replacement, Thread},
+        relation::{Annotation, BundledThread, InReplyTo, Reference, Replacement, Thread},
         room::{
             ImageInfo,
             avatar::{self, RoomAvatarEventContent},
@@ -73,7 +70,10 @@ use ruma::{
             tombstone::RoomTombstoneEventContent,
             topic::RoomTopicEventContent,
         },
-        rtc::decline::RtcDeclineEventContent,
+        rtc::{
+            decline::RtcDeclineEventContent,
+            notification::{NotificationType, RtcNotificationEventContent},
+        },
         space::{child::SpaceChildEventContent, parent::SpaceParentEventContent},
         sticker::StickerEventContent,
         typing::TypingEventContent,
@@ -1003,15 +1003,21 @@ impl EventFactory {
         self.event(CallInviteEventContent::new(call_id, lifetime, offer, version))
     }
 
-    /// Create a new `m.call.notify` event.
-    pub fn call_notify(
+    /// Create a new `m.rtc.notification` event.
+    pub fn rtc_notification(
         &self,
-        call_id: String,
-        application: ApplicationType,
-        notify_type: NotifyType,
-        mentions: Mentions,
-    ) -> EventBuilder<CallNotifyEventContent> {
-        self.event(CallNotifyEventContent::new(call_id, application, notify_type, mentions))
+        notification_type: NotificationType,
+        mentions: Option<Mentions>,
+        rtc_membership_event_id: Option<OwnedEventId>,
+    ) -> EventBuilder<RtcNotificationEventContent> {
+        let mut content = RtcNotificationEventContent::new(
+            MilliSecondsSinceUnixEpoch::now(),
+            Duration::new(20, 0),
+            notification_type,
+        );
+        content.relates_to = rtc_membership_event_id.map(Reference::new);
+        content.mentions = mentions;
+        self.event(content)
     }
 
     // Creates a new `org.matrix.msc4310.rtc.decline` event.

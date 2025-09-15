@@ -12,6 +12,9 @@ All notable changes to this project will be documented in this file.
   struct.
   ([#5635](https://github.com/matrix-org/matrix-rust-sdk/pull/5635))
 
+- Remove the deprecated `CallNotify` event (`org.matrix.msc4075.call.notify`) in favor of the new
+  `RtcNotification` event (`org.matrix.msc4075.rtc.notification`).
+
 ## [0.14.0] - 2025-09-04
 
 ### Features:

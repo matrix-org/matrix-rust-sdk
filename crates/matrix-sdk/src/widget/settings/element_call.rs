@@ -236,7 +236,8 @@ pub struct VirtualElementCallWidgetConfig {
 /// All these are required to start the widget in the first place.
 /// This is different from the `VirtualElementCallWidgetConfiguration` which
 /// configures the widgets behavior.
-#[derive(Debug, Default, uniffi::Record, Clone)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+#[derive(Debug, Default, Clone)]
 pub struct VirtualElementCallWidgetProperties {
     /// The url to the app.
     ///

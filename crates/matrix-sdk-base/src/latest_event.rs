@@ -8,7 +8,7 @@ use ruma::{
     UserId,
     events::{
         AnySyncMessageLikeEvent, AnySyncStateEvent, AnySyncTimelineEvent,
-        call::{invite::SyncCallInviteEvent, notify::SyncCallNotifyEvent},
+        call::invite::SyncCallInviteEvent,
         poll::unstable_start::SyncUnstablePollStartEvent,
         relation::RelationType,
         room::{
@@ -16,6 +16,7 @@ use ruma::{
             message::{MessageType, SyncRoomMessageEvent},
             power_levels::RoomPowerLevels,
         },
+        rtc::notification::SyncRtcNotificationEvent,
         sticker::SyncStickerEvent,
     },
 };
@@ -168,7 +169,7 @@ pub enum PossibleLatestEvent<'a> {
     YesCallInvite(&'a SyncCallInviteEvent),
 
     /// This message is suitable - it's a call notification
-    YesCallNotify(&'a SyncCallNotifyEvent),
+    YesRtcNotification(&'a SyncRtcNotificationEvent),
 
     /// This state event is suitable - it's a knock membership change
     /// that can be handled by the current user.
@@ -228,8 +229,8 @@ pub fn is_suitable_for_latest_event<'a>(
             PossibleLatestEvent::YesCallInvite(invite)
         }
 
-        AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::CallNotify(notify)) => {
-            PossibleLatestEvent::YesCallNotify(notify)
+        AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::RtcNotification(notify)) => {
+            PossibleLatestEvent::YesRtcNotification(notify)
         }
 
         AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::Sticker(sticker)) => {
@@ -429,26 +430,23 @@ impl LatestEvent {
 mod tests {
     #[cfg(feature = "e2e-encryption")]
     use std::collections::BTreeMap;
+    use std::time::Duration;
 
     #[cfg(feature = "e2e-encryption")]
     use assert_matches::assert_matches;
     #[cfg(feature = "e2e-encryption")]
     use assert_matches2::assert_let;
     use matrix_sdk_common::deserialized_responses::TimelineEvent;
-    use ruma::serde::Raw;
     #[cfg(feature = "e2e-encryption")]
     use ruma::{
         MilliSecondsSinceUnixEpoch, UInt, VoipVersionId,
         events::{
             AnySyncMessageLikeEvent, AnySyncStateEvent, AnySyncTimelineEvent, EmptyStateKey,
-            Mentions, MessageLikeUnsigned, OriginalSyncMessageLikeEvent, OriginalSyncStateEvent,
+            MessageLikeUnsigned, OriginalSyncMessageLikeEvent, OriginalSyncStateEvent,
             RedactedSyncMessageLikeEvent, RedactedUnsigned, StateUnsigned, SyncMessageLikeEvent,
             call::{
                 SessionDescription,
                 invite::{CallInviteEventContent, SyncCallInviteEvent},
-                notify::{
-                    ApplicationType, CallNotifyEventContent, NotifyType, SyncCallNotifyEvent,
-                },
             },
             poll::{
                 unstable_response::{
@@ -475,6 +473,12 @@ mod tests {
             sticker::{StickerEventContent, SyncStickerEvent},
         },
         owned_event_id, owned_mxc_uri, owned_user_id,
+    };
+    use ruma::{
+        events::rtc::notification::{
+            NotificationType, RtcNotificationEventContent, SyncRtcNotificationEvent,
+        },
+        serde::Raw,
     };
     use serde_json::json;
 
@@ -557,13 +561,12 @@ mod tests {
     #[cfg(feature = "e2e-encryption")]
     #[test]
     fn test_call_notifications_are_suitable() {
-        let event = AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::CallNotify(
-            SyncCallNotifyEvent::Original(OriginalSyncMessageLikeEvent {
-                content: CallNotifyEventContent::new(
-                    "call_id".into(),
-                    ApplicationType::Call,
-                    NotifyType::Ring,
-                    Mentions::new(),
+        let event = AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::RtcNotification(
+            SyncRtcNotificationEvent::Original(OriginalSyncMessageLikeEvent {
+                content: RtcNotificationEventContent::new(
+                    MilliSecondsSinceUnixEpoch::now(),
+                    Duration::new(30, 0),
+                    NotificationType::Ring,
                 ),
                 event_id: owned_event_id!("$1"),
                 sender: owned_user_id!("@a:b.c"),
@@ -572,7 +575,7 @@ mod tests {
             }),
         ));
         assert_let!(
-            PossibleLatestEvent::YesCallNotify(SyncMessageLikeEvent::Original(_)) =
+            PossibleLatestEvent::YesRtcNotification(SyncMessageLikeEvent::Original(_)) =
                 is_suitable_for_latest_event(&event, None)
         );
     }

@@ -23,7 +23,6 @@ use matrix_sdk::attachment::{BaseAudioInfo, BaseFileInfo, BaseImageInfo, BaseVid
 use ruma::{
     assign,
     events::{
-        call::notify::NotifyType as RumaNotifyType,
         direct::DirectEventContent,
         fully_read::FullyReadEventContent,
         identity_server::IdentityServerEventContent,
@@ -57,6 +56,7 @@ use ruma::{
             ImageInfo as RumaImageInfo, MediaSource as RumaMediaSource,
             ThumbnailInfo as RumaThumbnailInfo,
         },
+        rtc::notification::NotificationType as RumaNotificationType,
         secret_storage::{
             default_key::SecretStorageDefaultKeyEventContent,
             key::{
@@ -487,25 +487,25 @@ impl TryFrom<RumaMessageType> for MessageType {
 }
 
 #[derive(Clone, uniffi::Enum)]
-pub enum NotifyType {
+pub enum RtcNotificationType {
     Ring,
     Notify,
 }
 
-impl From<RumaNotifyType> for NotifyType {
-    fn from(val: RumaNotifyType) -> Self {
+impl From<RumaNotificationType> for RtcNotificationType {
+    fn from(val: RumaNotificationType) -> Self {
         match val {
-            RumaNotifyType::Ring => Self::Ring,
+            RumaNotificationType::Ring => Self::Ring,
             _ => Self::Notify,
         }
     }
 }
 
-impl From<NotifyType> for RumaNotifyType {
-    fn from(value: NotifyType) -> Self {
+impl From<RtcNotificationType> for RumaNotificationType {
+    fn from(value: RtcNotificationType) -> Self {
         match value {
-            NotifyType::Ring => RumaNotifyType::Ring,
-            NotifyType::Notify => RumaNotifyType::Notify,
+            RtcNotificationType::Ring => RumaNotificationType::Ring,
+            RtcNotificationType::Notify => RumaNotificationType::Notification,
         }
     }
 }
