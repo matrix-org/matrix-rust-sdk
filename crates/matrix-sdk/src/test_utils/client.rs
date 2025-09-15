@@ -54,7 +54,7 @@ impl MockClientBuilder {
         }
     }
 
-    /// Don't cache server versions in the client.
+    /// Don't use an initial, cached server versions list in the client.
     pub fn no_server_versions(mut self) -> Self {
         self.server_versions = ServerVersions::None;
         self
