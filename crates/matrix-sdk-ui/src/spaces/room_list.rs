@@ -256,26 +256,35 @@ impl SpaceRoomList {
                 };
 
                 let mut rooms = self.rooms.lock();
-                result
-                    .rooms
+
+                // The space is part of the /hierarchy response. Partition the room array
+                // so we can use its details but also filter it out of the room list
+                let (space, children): (Vec<_>, Vec<_>) =
+                    result.rooms.into_iter().partition(|f| f.summary.room_id == self.space_id);
+
+                if let Some(room) = space.first() {
+                    let mut space = self.space.write();
+
+                    if space.is_none() {
+                        ObservableWriteGuard::set(
+                            &mut space,
+                            Some(SpaceRoom::new_from_summary(
+                                &room.summary,
+                                self.client.get_room(&room.summary.room_id),
+                                room.children_state.len() as u64,
+                            )),
+                        );
+                    }
+                }
+
+                children
                     .iter()
-                    .filter_map(|room| {
-                        let space_room = Some(SpaceRoom::new_from_summary(
+                    .map(|room| {
+                        SpaceRoom::new_from_summary(
                             &room.summary,
                             self.client.get_room(&room.summary.room_id),
                             room.children_state.len() as u64,
-                        ));
-
-                        if room.summary.room_id == self.space_id {
-                            let mut space = self.space.write();
-                            if space.is_none() {
-                                ObservableWriteGuard::set(&mut space, space_room);
-                            }
-
-                            return None;
-                        }
-
-                        space_room
+                        )
                     })
                     .for_each(|room| rooms.push_back(room));
 
