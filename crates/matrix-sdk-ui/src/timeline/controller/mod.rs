@@ -604,11 +604,18 @@ impl<P: RoomDataProvider> TimelineController<P> {
 
     /// Is this timeline focused on a thread?
     pub(super) fn is_threaded(&self) -> bool {
-        matches!(&*self.focus, TimelineFocusKind::Thread { .. })
+        self.focus.is_thread()
     }
 
+    /// The root of the current thread, for a live thread timeline or a
+    /// permalink to a thread message.
     pub(super) fn thread_root(&self) -> Option<OwnedEventId> {
-        as_variant!(&*self.focus, TimelineFocusKind::Thread { root_event_id } => root_event_id.clone())
+        match &*self.focus {
+            TimelineFocusKind::Live { hide_threaded_events: _ }
+            | TimelineFocusKind::Event { paginator: _, hide_threaded_events: _ }
+            | TimelineFocusKind::PinnedEvents { loader: _ } => None,
+            TimelineFocusKind::Thread { root_event_id } => Some(root_event_id.clone()),
+        }
     }
 
     /// Get a copy of the current items in the list.
