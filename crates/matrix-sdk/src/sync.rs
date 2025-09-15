@@ -41,7 +41,7 @@ use ruma::{
     serde::Raw,
     time::Instant,
 };
-use tracing::{debug, error, warn};
+use tracing::{debug, error, instrument, warn};
 
 use crate::{Client, Result, Room, event_handler::HandlerKind};
 
@@ -151,6 +151,12 @@ impl Client {
         &self,
         response: sync_events::v3::Response,
     ) -> Result<BaseSyncResponse> {
+        subscribe_to_room_latest_events(
+            self,
+            response.rooms.join.keys().chain(response.rooms.leave.keys()),
+        )
+        .await;
+
         let response = Box::pin(self.base_client().receive_sync_response(response)).await?;
 
         // Some new keys might have been received, so trigger a backup if needed.
@@ -341,5 +347,23 @@ impl Client {
         }
 
         *last_sync_time = Some(now);
+    }
+}
+
+/// Call `LatestEvents::listen_to_room` for rooms in `response`.
+///
+/// That way, the latest event is computed and updated for all rooms receiving
+/// an update from the sync.
+#[instrument(skip_all)]
+pub(crate) async fn subscribe_to_room_latest_events<'a, R>(client: &'a Client, room_ids: R)
+where
+    R: Iterator<Item = &'a OwnedRoomId>,
+{
+    let latest_events = client.latest_events().await;
+
+    for room_id in room_ids {
+        if let Err(error) = latest_events.listen_to_room(room_id).await {
+            error!(?error, ?room_id, "Failed to listen to the latest event for this room");
+        }
     }
 }
