@@ -33,6 +33,8 @@ impl std::fmt::Debug for TracingTimer {
 
 impl Drop for TracingTimer {
     fn drop(&mut self) {
+        let elapsed = self.start.elapsed();
+
         let enabled = tracing::level_enabled!(self.level) && {
             let interest = self.callsite.interest();
             !interest.is_never()
@@ -43,7 +45,7 @@ impl Drop for TracingTimer {
             return;
         }
 
-        let message = format!("_{}_ finished in {:?}", self.id, self.start.elapsed());
+        let message = format!("_{}_ finished in {:?}", self.id, elapsed);
 
         let metadata = self.callsite.metadata();
         let fields = metadata.fields();
