@@ -20,12 +20,13 @@ use std::{
 
 use async_trait::async_trait;
 use matrix_sdk_common::{
-    cross_process_lock::memory_store_helper::try_take_leased_lock, ring_buffer::RingBuffer,
+    cross_process_lock::{
+        CrossProcessLockGeneration,
+        memory_store_helper::{Lease, try_take_leased_lock},
+    },
+    ring_buffer::RingBuffer,
 };
-use ruma::{
-    MxcUri, OwnedMxcUri,
-    time::{Instant, SystemTime},
-};
+use ruma::{MxcUri, OwnedMxcUri, time::SystemTime};
 
 use super::Result;
 use crate::media::{
@@ -48,7 +49,7 @@ pub struct MemoryMediaStore {
 #[derive(Debug)]
 struct MemoryMediaStoreInner {
     media: RingBuffer<MediaContent>,
-    leases: HashMap<String, (String, Instant)>,
+    leases: HashMap<String, Lease>,
     media_retention_policy: Option<MediaRetentionPolicy>,
     last_media_cleanup_time: SystemTime,
 }
@@ -110,7 +111,7 @@ impl MediaStore for MemoryMediaStore {
         lease_duration_ms: u32,
         key: &str,
         holder: &str,
-    ) -> Result<bool, Self::Error> {
+    ) -> Result<Option<CrossProcessLockGeneration>, Self::Error> {
         let mut inner = self.inner.write().unwrap();
 
         Ok(try_take_leased_lock(&mut inner.leases, lease_duration_ms, key, holder))
