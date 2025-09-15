@@ -36,20 +36,21 @@ use futures_util::{
 #[cfg(feature = "experimental-send-custom-to-device")]
 use matrix_sdk_base::crypto::CollectStrategy;
 use matrix_sdk_base::{
+    StateStoreDataKey, StateStoreDataValue,
     crypto::{
+        CrossSigningBootstrapRequests, OlmMachine,
         store::types::{RoomKeyBundleInfo, RoomKeyInfo},
         types::{
+            SignedKey,
             requests::{
                 OutgoingRequest, OutgoingVerificationRequest, RoomMessageRequest, ToDeviceRequest,
             },
-            SignedKey,
         },
-        CrossSigningBootstrapRequests, OlmMachine,
     },
-    StateStoreDataKey, StateStoreDataValue,
 };
 use matrix_sdk_common::{executor::spawn, locks::Mutex as StdMutex};
 use ruma::{
+    DeviceId, MilliSecondsSinceUnixEpoch, OwnedDeviceId, OwnedUserId, TransactionId, UserId,
     api::client::{
         error::ErrorBody,
         keys::{
@@ -67,11 +68,10 @@ use ruma::{
         direct::DirectUserIdentifier,
         room::{MediaSource, ThumbnailInfo},
     },
-    DeviceId, MilliSecondsSinceUnixEpoch, OwnedDeviceId, OwnedUserId, TransactionId, UserId,
 };
 #[cfg(feature = "experimental-send-custom-to-device")]
 use ruma::{events::AnyToDeviceEventContent, serde::Raw, to_device::DeviceIdOrAllDevices};
-use serde::{de::Error as _, Deserialize};
+use serde::{Deserialize, de::Error as _};
 use tasks::BundleReceiverTask;
 use tokio::sync::{Mutex, RwLockReadGuard};
 use tokio_stream::wrappers::errors::BroadcastStreamRecvError;
@@ -80,7 +80,7 @@ use url::Url;
 use vodozemac::Curve25519PublicKey;
 
 use self::{
-    backups::{types::BackupClientState, Backups},
+    backups::{Backups, types::BackupClientState},
     futures::UploadEncryptedFile,
     identities::{Device, DeviceUpdates, IdentityUpdates, UserDevices, UserIdentity},
     recovery::{Recovery, RecoveryState},
@@ -89,11 +89,11 @@ use self::{
     verification::{SasVerification, Verification, VerificationRequest},
 };
 use crate::{
+    Client, Error, HttpError, Result, Room, RumaApiError, TransmissionProgress,
     attachment::Thumbnail,
     client::{ClientInner, WeakClient},
     cross_process_lock::CrossProcessLockGuard,
     error::HttpResult,
-    Client, Error, HttpError, Result, Room, RumaApiError, TransmissionProgress,
 };
 
 pub mod backups;
@@ -105,13 +105,14 @@ pub(crate) mod tasks;
 pub mod verification;
 
 pub use matrix_sdk_base::crypto::{
+    CrossSigningStatus, CryptoStoreError, DecryptorError, EventError, KeyExportError, LocalTrust,
+    MediaEncryptionInfo, MegolmError, OlmError, RoomKeyImportResult, SecretImportError,
+    SessionCreationError, SignatureError, VERSION,
     olm::{
         SessionCreationError as MegolmSessionCreationError,
         SessionExportError as OlmSessionExportError,
     },
-    vodozemac, CrossSigningStatus, CryptoStoreError, DecryptorError, EventError, KeyExportError,
-    LocalTrust, MediaEncryptionInfo, MegolmError, OlmError, RoomKeyImportResult, SecretImportError,
-    SessionCreationError, SignatureError, VERSION,
+    vodozemac,
 };
 
 #[cfg(feature = "experimental-send-custom-to-device")]
@@ -881,7 +882,7 @@ impl Encryption {
     /// # Examples
     ///
     /// ```no_run
-    /// use matrix_sdk::{encryption, Client};
+    /// use matrix_sdk::{Client, encryption};
     /// use url::Url;
     ///
     /// # async {
@@ -1152,7 +1153,7 @@ impl Encryption {
     /// }
     /// # anyhow::Ok(()) };
     /// ```
-    pub async fn devices_stream(&self) -> Result<impl Stream<Item = DeviceUpdates>> {
+    pub async fn devices_stream(&self) -> Result<impl Stream<Item = DeviceUpdates> + use<>> {
         let olm = self.client.olm_machine().await;
         let olm = olm.as_ref().ok_or(Error::NoOlmMachine)?;
         let client = self.client.to_owned();
@@ -1190,7 +1191,9 @@ impl Encryption {
     /// }
     /// # anyhow::Ok(()) };
     /// ```
-    pub async fn user_identities_stream(&self) -> Result<impl Stream<Item = IdentityUpdates>> {
+    pub async fn user_identities_stream(
+        &self,
+    ) -> Result<impl Stream<Item = IdentityUpdates> + use<>> {
         let olm = self.client.olm_machine().await;
         let olm = olm.as_ref().ok_or(Error::NoOlmMachine)?;
         let client = self.client.to_owned();
@@ -1591,7 +1594,8 @@ impl Encryption {
     /// ```
     pub async fn room_keys_received_stream(
         &self,
-    ) -> Option<impl Stream<Item = Result<Vec<RoomKeyInfo>, BroadcastStreamRecvError>>> {
+    ) -> Option<impl Stream<Item = Result<Vec<RoomKeyInfo>, BroadcastStreamRecvError>> + use<>>
+    {
         let olm = self.client.olm_machine().await;
         let olm = olm.as_ref()?;
 
@@ -1628,7 +1632,9 @@ impl Encryption {
     /// }
     /// # anyhow::Ok(()) };
     /// ```
-    pub async fn historic_room_key_stream(&self) -> Option<impl Stream<Item = RoomKeyBundleInfo>> {
+    pub async fn historic_room_key_stream(
+        &self,
+    ) -> Option<impl Stream<Item = RoomKeyBundleInfo> + use<>> {
         let olm = self.client.olm_machine().await;
         let olm = olm.as_ref()?;
 
@@ -1997,15 +2003,15 @@ mod tests {
         ops::Not,
         str::FromStr,
         sync::{
-            atomic::{AtomicBool, Ordering},
             Arc,
+            atomic::{AtomicBool, Ordering},
         },
         time::Duration,
     };
 
     use matrix_sdk_test::{
-        async_test, event_factory::EventFactory, test_json, JoinedRoomBuilder, StateTestEvent,
-        SyncResponseBuilder, DEFAULT_TEST_ROOM_ID,
+        DEFAULT_TEST_ROOM_ID, JoinedRoomBuilder, StateTestEvent, SyncResponseBuilder, async_test,
+        event_factory::EventFactory, test_json,
     };
     use ruma::{
         event_id,
@@ -2014,12 +2020,12 @@ mod tests {
     };
     use serde_json::json;
     use wiremock::{
-        matchers::{header, method, path_regex},
         Mock, MockServer, Request, ResponseTemplate,
+        matchers::{header, method, path_regex},
     };
 
     use crate::{
-        assert_next_matches_with_timeout,
+        Client, assert_next_matches_with_timeout,
         config::RequestConfig,
         encryption::{
             DuplicateOneTimeKeyErrorMessage, OAuthCrossSigningResetInfo, VerificationState,
@@ -2027,7 +2033,6 @@ mod tests {
         test_utils::{
             client::mock_matrix_session, logged_in_client, no_retry_test_client, set_client_session,
         },
-        Client,
     };
 
     #[async_test]
@@ -2067,11 +2072,9 @@ mod tests {
         client.base_client().receive_sync_response(response).await.unwrap();
 
         let room = client.get_room(&DEFAULT_TEST_ROOM_ID).expect("Room should exist");
-        assert!(room
-            .latest_encryption_state()
-            .await
-            .expect("Getting encryption state")
-            .is_encrypted());
+        assert!(
+            room.latest_encryption_state().await.expect("Getting encryption state").is_encrypted()
+        );
 
         let event_id = event_id!("$1:example.org");
         let reaction = ReactionEventContent::new(Annotation::new(event_id.into(), "🐈".to_owned()));

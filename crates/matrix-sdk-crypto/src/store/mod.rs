@@ -1129,7 +1129,7 @@ impl Store {
     /// `CryptoStoreWrapper` are dropped.
     pub fn room_keys_received_stream(
         &self,
-    ) -> impl Stream<Item = Result<Vec<RoomKeyInfo>, BroadcastStreamRecvError>> {
+    ) -> impl Stream<Item = Result<Vec<RoomKeyInfo>, BroadcastStreamRecvError>> + use<> {
         self.inner.store.room_keys_received_stream()
     }
 
@@ -1353,7 +1353,7 @@ impl Store {
     /// }
     /// # anyhow::Ok(()) };
     /// ```
-    pub fn historic_room_key_stream(&self) -> impl Stream<Item = RoomKeyBundleInfo> {
+    pub fn historic_room_key_stream(&self) -> impl Stream<Item = RoomKeyBundleInfo> + use<> {
         self.inner.store.historic_room_key_stream()
     }
 

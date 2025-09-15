@@ -17,10 +17,10 @@
 use std::future::IntoFuture;
 
 use futures_core::Stream;
-use futures_util::{pin_mut, StreamExt};
+use futures_util::{StreamExt, pin_mut};
 use matrix_sdk_common::boxed_into_future;
 use tokio_stream::wrappers::errors::BroadcastStreamRecvError;
-use tracing::{warn, Instrument, Span};
+use tracing::{Instrument, Span, warn};
 
 use super::{EnableProgress, Recovery, RecoveryError, Result};
 use crate::{
@@ -52,7 +52,7 @@ impl<'a> Enable<'a> {
     /// Subscribe to updates to the recovery enabling progress.
     pub fn subscribe_to_progress(
         &self,
-    ) -> impl Stream<Item = Result<EnableProgress, BroadcastStreamRecvError>> {
+    ) -> impl Stream<Item = Result<EnableProgress, BroadcastStreamRecvError>> + use<> {
         self.progress.subscribe()
     }
 

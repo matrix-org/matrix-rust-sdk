@@ -32,7 +32,7 @@
 //! doesn't exist, as well:
 //!
 //! ```no_run
-//! use matrix_sdk::{encryption::EncryptionSettings, Client};
+//! use matrix_sdk::{Client, encryption::EncryptionSettings};
 //!
 //! # async {
 //! # let homeserver = "http://example.org";
@@ -95,9 +95,9 @@ use futures_util::StreamExt as _;
 use ruma::{
     api::client::keys::get_keys,
     events::{
+        GlobalAccountDataEventType,
         secret::{request::SecretName, send::ToDeviceSecretSendEvent},
         secret_storage::{default_key::SecretStorageDefaultKeyEvent, secret::SecretEventContent},
-        GlobalAccountDataEventType,
     },
     serde::Raw,
 };
@@ -109,7 +109,7 @@ use crate::encryption::{
     backups::Backups,
     secret_storage::{SecretStorage, SecretStore},
 };
-use crate::{client::WeakClient, encryption::backups::BackupState, Client};
+use crate::{Client, client::WeakClient, encryption::backups::BackupState};
 
 pub mod futures;
 mod types;
@@ -169,7 +169,7 @@ impl Recovery {
     /// }
     /// # anyhow::Ok(()) };
     /// ```
-    pub fn state_stream(&self) -> impl Stream<Item = RecoveryState> {
+    pub fn state_stream(&self) -> impl Stream<Item = RecoveryState> + use<> {
         self.client.inner.e2ee.recovery_state.subscribe_reset()
     }
 
@@ -653,7 +653,7 @@ impl Recovery {
     /// task which is always listening for updates in the [`BackupState`].
     pub(crate) fn update_state_after_backup_state_change(
         client: &Client,
-    ) -> impl Future<Output = ()> {
+    ) -> impl Future<Output = ()> + use<> {
         let mut stream = client.encryption().backups().state_stream();
         let weak = WeakClient::from_client(client);
 

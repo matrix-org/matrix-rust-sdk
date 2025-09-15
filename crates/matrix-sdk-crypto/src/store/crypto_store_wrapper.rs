@@ -321,7 +321,7 @@ impl CryptoStoreWrapper {
     /// the reader.
     pub fn room_keys_received_stream(
         &self,
-    ) -> impl Stream<Item = Result<Vec<RoomKeyInfo>, BroadcastStreamRecvError>> {
+    ) -> impl Stream<Item = Result<Vec<RoomKeyInfo>, BroadcastStreamRecvError>> + use<> {
         BroadcastStream::new(self.room_keys_received_sender.subscribe())
     }
 
@@ -349,7 +349,7 @@ impl CryptoStoreWrapper {
 
     /// Receive notifications of historic room key bundles being received and
     /// stored in the store as a [`Stream`].
-    pub fn historic_room_key_stream(&self) -> impl Stream<Item = RoomKeyBundleInfo> {
+    pub fn historic_room_key_stream(&self) -> impl Stream<Item = RoomKeyBundleInfo> + use<> {
         let stream = BroadcastStream::new(self.historic_room_key_bundles_broadcaster.subscribe());
         Self::filter_errors_out_of_stream(stream, "bundle_stream")
     }
