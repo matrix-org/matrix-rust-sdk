@@ -22,7 +22,7 @@
 use serde::Serialize;
 use url::Url;
 
-use super::{url_params, WidgetSettings};
+use super::{WidgetSettings, url_params};
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -398,8 +398,8 @@ mod tests {
     use url::Url;
 
     use crate::widget::{
-        settings::element_call::{HeaderStyle, VirtualElementCallWidgetConfig},
         ClientProperties, Intent, WidgetSettings,
+        settings::element_call::{HeaderStyle, VirtualElementCallWidgetConfig},
     };
 
     const WIDGET_ID: &str = "1/@#w23";
@@ -494,16 +494,17 @@ mod tests {
                 &controlledAudioDevices=false\
         ";
 
-        let mut url = get_element_call_widget_settings(None, false, false, false, None, false)
-            .raw_url()
-            .clone();
-        let mut gen = Url::parse(CONVERTED_URL).unwrap();
-        assert_eq!(get_query_sets(&url).unwrap(), get_query_sets(&gen).unwrap());
-        url.set_fragment(None);
-        url.set_query(None);
-        gen.set_fragment(None);
-        gen.set_query(None);
-        assert_eq!(url, gen);
+        let mut generated_url =
+            get_element_call_widget_settings(None, false, false, false, None, false)
+                .raw_url()
+                .clone();
+        let mut expected_url = Url::parse(CONVERTED_URL).unwrap();
+        assert_eq!(get_query_sets(&generated_url).unwrap(), get_query_sets(&expected_url).unwrap());
+        generated_url.set_fragment(None);
+        generated_url.set_query(None);
+        expected_url.set_fragment(None);
+        expected_url.set_query(None);
+        assert_eq!(generated_url, expected_url);
     }
 
     #[test]
@@ -556,18 +557,17 @@ mod tests {
                 &hideScreensharing=false\
                 &controlledAudioDevices=false\
         ";
-        let gen = build_url_from_widget_settings(get_element_call_widget_settings(
-            None, false, false, false, None, false,
-        ));
-
-        let mut url = Url::parse(&gen).unwrap();
-        let mut gen = Url::parse(CONVERTED_URL).unwrap();
-        assert_eq!(get_query_sets(&url).unwrap(), get_query_sets(&gen).unwrap());
-        url.set_fragment(None);
-        url.set_query(None);
-        gen.set_fragment(None);
-        gen.set_query(None);
-        assert_eq!(url, gen);
+        let mut generated_url = Url::parse(&build_url_from_widget_settings(
+            get_element_call_widget_settings(None, false, false, false, None, false),
+        ))
+        .unwrap();
+        let mut expected_url = Url::parse(CONVERTED_URL).unwrap();
+        assert_eq!(get_query_sets(&generated_url).unwrap(), get_query_sets(&expected_url).unwrap());
+        generated_url.set_fragment(None);
+        generated_url.set_query(None);
+        expected_url.set_fragment(None);
+        expected_url.set_query(None);
+        assert_eq!(generated_url, expected_url);
     }
 
     #[test]
@@ -597,18 +597,17 @@ mod tests {
                 &sentryEnvironment=SENTRY_ENV\
                 &controlledAudioDevices=false\
         ";
-        let gen = build_url_from_widget_settings(get_element_call_widget_settings(
-            None, true, true, true, None, false,
-        ));
-
-        let mut url = Url::parse(&gen).unwrap();
-        let mut gen = Url::parse(CONVERTED_URL).unwrap();
-        assert_eq!(get_query_sets(&url).unwrap(), get_query_sets(&gen).unwrap());
-        url.set_fragment(None);
-        url.set_query(None);
-        gen.set_fragment(None);
-        gen.set_query(None);
-        assert_eq!(url, gen);
+        let mut generated_url = Url::parse(&build_url_from_widget_settings(
+            get_element_call_widget_settings(None, true, true, true, None, false),
+        ))
+        .unwrap();
+        let mut original_url = Url::parse(CONVERTED_URL).unwrap();
+        assert_eq!(get_query_sets(&generated_url).unwrap(), get_query_sets(&original_url).unwrap());
+        generated_url.set_fragment(None);
+        generated_url.set_query(None);
+        original_url.set_fragment(None);
+        original_url.set_query(None);
+        assert_eq!(generated_url, original_url);
     }
 
     #[test]
