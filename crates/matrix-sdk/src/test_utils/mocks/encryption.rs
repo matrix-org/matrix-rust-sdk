@@ -18,12 +18,14 @@
 use std::{
     collections::BTreeMap,
     future::Future,
-    sync::{atomic::Ordering, Arc, Mutex},
+    sync::{Arc, Mutex, atomic::Ordering},
 };
 
 use assert_matches2::assert_let;
 use matrix_sdk_test::test_json;
 use ruma::{
+    CrossSigningKeyId, DeviceId, MilliSecondsSinceUnixEpoch, OneTimeKeyAlgorithm, OwnedDeviceId,
+    OwnedOneTimeKeyId, OwnedUserId, UserId,
     api::client::{
         keys::upload_signatures::v3::SignedKeys, to_device::send_event_to_device::v3::Messages,
     },
@@ -32,22 +34,20 @@ use ruma::{
     owned_device_id, owned_user_id,
     serde::Raw,
     to_device::DeviceIdOrAllDevices,
-    CrossSigningKeyId, DeviceId, MilliSecondsSinceUnixEpoch, OneTimeKeyAlgorithm, OwnedDeviceId,
-    OwnedOneTimeKeyId, OwnedUserId, UserId,
 };
 use serde_json::json;
 use wiremock::{
-    matchers::{method, path_regex},
     Mock, MockGuard, Request, ResponseTemplate,
+    matchers::{method, path_regex},
 };
 
 use crate::{
+    Client,
     crypto::types::events::room::encrypted::EncryptedToDeviceEvent,
     test_utils::{
         client::MockClientBuilder,
         mocks::{Keys, MatrixMockServer},
     },
-    Client,
 };
 
 /// Stores pending to-device messages for each user and device.
@@ -339,7 +339,7 @@ impl MatrixMockServer {
     pub async fn mock_capture_put_to_device(
         &self,
         sender_user_id: &UserId,
-    ) -> (MockGuard, impl Future<Output = Raw<EncryptedToDeviceEvent>>) {
+    ) -> (MockGuard, impl Future<Output = Raw<EncryptedToDeviceEvent>> + use<>) {
         let (tx, rx) = tokio::sync::oneshot::channel();
         let tx = Arc::new(Mutex::new(Some(tx)));
 

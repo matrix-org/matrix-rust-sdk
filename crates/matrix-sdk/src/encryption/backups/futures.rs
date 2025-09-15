@@ -65,7 +65,7 @@ impl WaitForSteadyState<'_> {
     /// to settle down.
     pub fn subscribe_to_progress(
         &self,
-    ) -> impl Stream<Item = Result<UploadState, BroadcastStreamRecvError>> {
+    ) -> impl Stream<Item = Result<UploadState, BroadcastStreamRecvError>> + use<> {
         self.progress.subscribe()
     }
 
