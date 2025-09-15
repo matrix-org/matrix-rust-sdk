@@ -188,46 +188,55 @@ pub struct VirtualElementCallWidgetConfig {
     pub intent: Option<Intent>,
 
     /// Skip the lobby when joining a call.
+    #[uniffi(default = None)]
     pub skip_lobby: Option<bool>,
 
     /// Whether the branding header of Element call should be shown or if a
     /// mobile header navbar should be render.
     ///
     /// Default: [`HeaderStyle::Standard`]
+    #[uniffi(default = None)]
     pub header: Option<HeaderStyle>,
 
     /// Whether the branding header of Element call should be hidden.
     ///
     /// Default: `true`
     #[deprecated(note = "Use `header` instead", since = "0.12.1")]
+    #[uniffi(default = None)]
     pub hide_header: Option<bool>,
 
     /// If set, the lobby will be skipped and the widget will join the
     /// call on the `io.element.join` action.
     ///
     /// Default: `false`
+    #[uniffi(default = None)]
     pub preload: Option<bool>,
 
     /// Whether element call should prompt the user to open in the browser or
     /// the app.
     ///
     /// Default: `false`
+    #[uniffi(default = None)]
     pub app_prompt: Option<bool>,
 
     /// Make it not possible to get to the calls list in the webview.
     ///
     /// Default: `true`
+    #[uniffi(default = None)]
     pub confine_to_room: Option<bool>,
 
     /// Do not show the screenshare button.
+    #[uniffi(default = None)]
     pub hide_screensharing: Option<bool>,
 
     /// Make the audio devices be controlled by the os instead of the
     /// element-call webview.
+    #[uniffi(default = None)]
     pub controlled_audio_devices: Option<bool>,
 
     /// Whether and what type of notification Element Call should send, when
     /// starting a call.
+    #[uniffi(default = None)]
     pub send_notification_type: Option<NotificationType>,
 }
 
@@ -259,14 +268,17 @@ pub struct VirtualElementCallWidgetProperties {
     ///
     /// Defaults to `element_call_url` for the non-iframe (dedicated webview)
     /// usecase.
+    #[uniffi(default = None)]
     pub parent_url: Option<String>,
 
     /// The font scale which will be used inside element call.
     ///
     /// Default: `1`
+    #[uniffi(default = None)]
     pub font_scale: Option<f64>,
 
     /// The font to use, to adapt to the system font.
+    #[uniffi(default = None)]
     pub font: Option<String>,
 
     /// The encryption system to use.
@@ -275,23 +287,30 @@ pub struct VirtualElementCallWidgetProperties {
     pub encryption: EncryptionSystem,
 
     /// Can be used to pass a PostHog id to element call.
+    #[uniffi(default = None)]
     pub posthog_user_id: Option<String>,
     /// The host of the posthog api.
     /// This is only used by the embedded package of Element Call.
+    #[uniffi(default = None)]
     pub posthog_api_host: Option<String>,
     /// The key for the posthog api.
     /// This is only used by the embedded package of Element Call.
+    #[uniffi(default = None)]
     pub posthog_api_key: Option<String>,
 
     /// The url to use for submitting rageshakes.
     /// This is only used by the embedded package of Element Call.
+    #[uniffi(default = None)]
     pub rageshake_submit_url: Option<String>,
 
     /// Sentry [DSN](https://docs.sentry.io/concepts/key-terms/dsn-explainer/)
     /// This is only used by the embedded package of Element Call.
+    #[uniffi(default = None)]
     pub sentry_dsn: Option<String>,
+
     /// Sentry [environment](https://docs.sentry.io/concepts/key-terms/key-terms/)
     /// This is only used by the embedded package of Element Call.
+    #[uniffi(default = None)]
     pub sentry_environment: Option<String>,
 }
 
