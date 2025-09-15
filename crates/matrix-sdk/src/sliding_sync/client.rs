@@ -9,7 +9,7 @@ use ruma::api::{
     client::sync::sync_events::v5::{self as http, response},
     FeatureFlag, SupportedVersions,
 };
-use tracing::error;
+use tracing::{error, instrument};
 
 use super::{SlidingSync, SlidingSyncBuilder};
 use crate::{Client, Result};
@@ -193,6 +193,8 @@ impl SlidingSyncResponseProcessor {
         response: &http::Response,
         requested_required_states: &RequestedRequiredStates,
     ) -> Result<()> {
+        subscribe_to_room_latest_events(&self.client, response).await;
+
         let mut sync_response = self
             .client
             .base_client()
@@ -234,6 +236,21 @@ impl SlidingSyncResponseProcessor {
         self.client.call_sync_response_handlers(&response).await?;
 
         Ok(response)
+    }
+}
+
+/// Call `LatestEvents::listen_to_room` for rooms in `response`.
+///
+/// That way, the latest event is computed and updated for all rooms receiving
+/// an update from the sync.
+#[instrument(skip_all)]
+async fn subscribe_to_room_latest_events(client: &Client, response: &http::Response) {
+    let latest_events = client.latest_events().await;
+
+    for room_id in response.rooms.keys() {
+        if let Err(error) = latest_events.listen_to_room(room_id).await {
+            error!(?error, ?room_id, "Failed to listen to the latest event for this room");
+        }
     }
 }
 
@@ -325,12 +342,12 @@ async fn handle_receipts_extension(
 
 #[cfg(all(test, not(target_family = "wasm")))]
 mod tests {
-    use std::collections::BTreeMap;
+    use std::{collections::BTreeMap, ops::Not};
 
     use assert_matches::assert_matches;
     use matrix_sdk_base::{
         notification_settings::RoomNotificationMode, RequestedRequiredStates,
-        RoomInfoNotableUpdate, RoomInfoNotableUpdateReasons,
+        RoomInfoNotableUpdate, RoomInfoNotableUpdateReasons, RoomState,
     };
     use matrix_sdk_test::async_test;
     use ruma::{
@@ -531,6 +548,59 @@ mod tests {
             room.cached_user_defined_notification_mode(),
             Some(RoomNotificationMode::MentionsAndKeywordsOnly),
         );
+
+        Ok(())
+    }
+
+    #[async_test]
+    async fn test_auto_listen_to_latest_events() -> Result<()> {
+        let client = MockClientBuilder::new(None).build().await;
+        let room_id = room_id!("!r0");
+
+        // Create the room beforehand.
+        client.base_client().get_or_create_room(room_id, RoomState::Joined);
+
+        // Enable the event cache (required for the latest events).
+        client.event_cache().subscribe()?;
+
+        // The latest event “listener” for this room has NOT been enabled.
+        assert!(client.latest_events().await.is_listening_to_room(room_id).await.not());
+
+        // Create the sliding sync client.
+        let sliding_sync = client
+            .sliding_sync("test")?
+            .add_list(
+                SlidingSyncList::builder("all")
+                    .sync_mode(SlidingSyncMode::new_selective().add_range(0..=10)),
+            )
+            .build()
+            .await?;
+
+        // Receive a (mocked) response.
+        {
+            let server_response = assign!(http::Response::new("0".to_owned()), {
+                rooms: BTreeMap::from([(
+                    room_id.to_owned(),
+                    http::response::Room::default(),
+                )]),
+            });
+
+            let mut pos_guard = sliding_sync.inner.position.clone().lock_owned().await;
+
+            sliding_sync
+                .handle_response(
+                    server_response.clone(),
+                    &mut pos_guard,
+                    RequestedRequiredStates::default(),
+                )
+                .await?;
+        }
+
+        // The room still exists.
+        assert!(client.get_room(room_id).is_some());
+
+        // The latest event “listener” for this room has been enabled.
+        assert!(client.latest_events().await.is_listening_to_room(room_id).await);
 
         Ok(())
     }
