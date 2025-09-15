@@ -16,7 +16,9 @@ use as_variant::as_variant;
 use ruma::OwnedEventId;
 
 use super::{EmbeddedEvent, EncryptedMessage, InReplyToDetails, Message, PollState, Sticker};
-use crate::timeline::{ReactionsByKeyBySender, TimelineDetails};
+use crate::timeline::{
+    ReactionsByKeyBySender, TimelineDetails, event_item::content::other::OtherMessageLike,
+};
 
 #[derive(Clone, Debug)]
 pub enum MsgLikeKind {
@@ -34,6 +36,9 @@ pub enum MsgLikeKind {
 
     /// An `m.room.encrypted` event that could not be decrypted.
     UnableToDecrypt(EncryptedMessage),
+
+    /// A custom message like event.
+    Other(OtherMessageLike),
 }
 
 #[derive(Clone, Debug)]
@@ -74,6 +79,7 @@ impl MsgLikeContent {
             MsgLikeKind::Poll(_) => "a poll",
             MsgLikeKind::Redacted => "a redacted message",
             MsgLikeKind::UnableToDecrypt(_) => "an encrypted message we couldn't decrypt",
+            MsgLikeKind::Other(_) => "a custom message",
         }
     }
 
