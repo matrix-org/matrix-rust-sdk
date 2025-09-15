@@ -883,7 +883,7 @@ impl Client {
     ///     expires_at: MilliSecondsSinceUnixEpoch,
     /// }
     ///
-    /// client.add_event_handler(|ev: SyncTokenEvent, room: Room| async move {
+    /// client.add_event_handler(async |ev: SyncTokenEvent, room: Room| -> () {
     ///     todo!("Display the token");
     /// });
     ///

@@ -884,7 +884,6 @@ mod tests {
     }
 
     #[async_test]
-    #[allow(dependency_on_unit_never_type_fallback)]
     async fn test_add_to_device_event_handler() -> crate::Result<()> {
         let client = logged_in_client(None).await;
 
@@ -923,7 +922,6 @@ mod tests {
     }
 
     #[async_test]
-    #[allow(dependency_on_unit_never_type_fallback)]
     async fn test_add_room_event_handler() -> crate::Result<()> {
         let client = logged_in_client(None).await;
 
@@ -959,9 +957,15 @@ mod tests {
         });
 
         // Room name event handler for room name events in room B
-        client.add_room_event_handler(room_id_b, move |_ev: OriginalSyncRoomNameEvent| async {
-            unreachable!("No room event in room B")
-        });
+        client.add_room_event_handler(
+            room_id_b,
+            // lint is buggy: rustc wants the explicit conversion from ! to () here, but clippy
+            // thinks it's useless.
+            #[allow(clippy::unused_unit)]
+            async move |_ev: OriginalSyncRoomNameEvent| -> () {
+                unreachable!("No room event in room B")
+            },
+        );
 
         let response = SyncResponseBuilder::default()
             .add_joined_room(
@@ -985,7 +989,6 @@ mod tests {
     }
 
     #[async_test]
-    #[allow(dependency_on_unit_never_type_fallback)]
     async fn test_add_event_handler_with_tuples() -> crate::Result<()> {
         let client = logged_in_client(None).await;
 
@@ -999,7 +1002,6 @@ mod tests {
     }
 
     #[async_test]
-    #[allow(dependency_on_unit_never_type_fallback)]
     async fn test_remove_event_handler() -> crate::Result<()> {
         let client = logged_in_client(None).await;
 
@@ -1012,13 +1014,21 @@ mod tests {
             }
         });
 
-        let handle_a = client.add_event_handler(move |_ev: OriginalSyncRoomMemberEvent| async {
-            panic!("handler should have been removed");
-        });
+        let handle_a = client.add_event_handler(
+            // lint is buggy: rustc wants the explicit conversion from ! to () here, but clippy
+            // thinks it's useless.
+            #[allow(clippy::unused_unit)]
+            async move |_ev: OriginalSyncRoomMemberEvent| -> () {
+                panic!("handler should have been removed");
+            },
+        );
         let handle_b = client.add_room_event_handler(
             #[allow(unknown_lints, clippy::explicit_auto_deref)] // lint is buggy
             *DEFAULT_TEST_ROOM_ID,
-            move |_ev: OriginalSyncRoomMemberEvent| async {
+            // lint is buggy: rustc wants the explicit conversion from ! to () here, but clippy
+            // thinks it's useless.
+            #[allow(clippy::unused_unit)]
+            async move |_ev: OriginalSyncRoomMemberEvent| -> () {
                 panic!("handler should have been removed");
             },
         );
@@ -1117,7 +1127,6 @@ mod tests {
     }
 
     #[async_test]
-    #[allow(dependency_on_unit_never_type_fallback)]
     async fn test_observe_events() -> crate::Result<()> {
         let client = logged_in_client(None).await;
 
@@ -1192,7 +1201,6 @@ mod tests {
     }
 
     #[async_test]
-    #[allow(dependency_on_unit_never_type_fallback)]
     async fn test_observe_room_events() -> crate::Result<()> {
         let client = logged_in_client(None).await;
 
@@ -1339,7 +1347,6 @@ mod tests {
     }
 
     #[async_test]
-    #[allow(dependency_on_unit_never_type_fallback)]
     async fn test_observe_events_with_type_prefix() -> crate::Result<()> {
         let client = logged_in_client(None).await;
 
@@ -1380,7 +1387,6 @@ mod tests {
     }
 
     #[async_test]
-    #[allow(dependency_on_unit_never_type_fallback)]
     async fn test_observe_room_events_with_type_prefix() -> crate::Result<()> {
         // To create an event handler for a room account data event type with prefix, we
         // need to create a custom event type, none exist in the Matrix specification
