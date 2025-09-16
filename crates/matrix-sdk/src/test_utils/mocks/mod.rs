@@ -4320,11 +4320,20 @@ impl<'a> MockEndpoint<'a, GetHierarchyEndpoint> {
     pub fn ok_with_room_ids_and_children_state(
         self,
         room_ids: Vec<&RoomId>,
-        children_state: Vec<&RoomId>,
+        children_state: Vec<(&RoomId, Vec<&ServerName>)>,
     ) -> MatrixMock<'a> {
         let children_state = children_state
             .into_iter()
-            .map(|id| json!({ "type": "m.space.child", "state_key": id }))
+            .map(|(id, via)| {
+                json!({
+                    "type":
+                    "m.space.child",
+                    "state_key": id,
+                    "content": { "via": via },
+                    "sender": "@bob:matrix.org",
+                    "origin_server_ts": MilliSecondsSinceUnixEpoch::now()
+                })
+            })
             .collect::<Vec<_>>();
 
         let rooms = room_ids

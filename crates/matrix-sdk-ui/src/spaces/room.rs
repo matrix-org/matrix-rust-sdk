@@ -14,7 +14,7 @@
 
 use matrix_sdk::{Room, RoomHero, RoomState};
 use ruma::{
-    OwnedMxcUri, OwnedRoomAliasId, OwnedRoomId,
+    OwnedMxcUri, OwnedRoomAliasId, OwnedRoomId, OwnedServerName,
     events::room::{guest_access::GuestAccess, history_visibility::HistoryVisibility},
     room::{JoinRuleSummary, RoomSummary, RoomType},
 };
@@ -55,6 +55,8 @@ pub struct SpaceRoom {
     pub state: Option<RoomState>,
     /// A list of room members considered to be heroes.
     pub heroes: Option<Vec<RoomHero>>,
+    /// The via parameters of the room.
+    pub via: Vec<OwnedServerName>,
 }
 
 impl SpaceRoom {
@@ -64,6 +66,7 @@ impl SpaceRoom {
         summary: &RoomSummary,
         known_room: Option<Room>,
         children_count: u64,
+        via: Vec<OwnedServerName>,
     ) -> Self {
         Self {
             room_id: summary.room_id.clone(),
@@ -80,6 +83,7 @@ impl SpaceRoom {
             children_count,
             state: known_room.as_ref().map(|r| r.state()),
             heroes: known_room.map(|r| r.heroes()),
+            via,
         }
     }
 
@@ -104,6 +108,7 @@ impl SpaceRoom {
             children_count,
             state: Some(known_room.state()),
             heroes: Some(room_info.heroes().to_vec()),
+            via: vec![],
         }
     }
 }

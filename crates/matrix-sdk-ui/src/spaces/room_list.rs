@@ -12,7 +12,7 @@
 // See the License for that specific language governing permissions and
 // limitations under the License.
 
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
 use eyeball::{ObservableWriteGuard, SharedObservable, Subscriber};
 use eyeball_im::{ObservableVector, VectorSubscriberBatchedStream};
@@ -22,11 +22,11 @@ use itertools::Itertools;
 use matrix_sdk::{Client, Error, executor::AbortOnDrop, locks::Mutex, paginators::PaginationToken};
 use matrix_sdk_common::executor::spawn;
 use ruma::{
-    OwnedRoomId, api::client::space::get_hierarchy, events::space::child::SpaceChildEventContent,
-    uint,
+    OwnedRoomId, OwnedServerName, api::client::space::get_hierarchy,
+    events::space::child::SpaceChildEventContent, uint,
 };
 use tokio::sync::Mutex as AsyncMutex;
-use tracing::error;
+use tracing::{error, warn};
 
 use crate::spaces::SpaceRoom;
 
@@ -105,6 +105,8 @@ pub struct SpaceRoomList {
 
     space: SharedObservable<Option<SpaceRoom>>,
 
+    via_parameters: Mutex<Option<HashMap<OwnedRoomId, Vec<OwnedServerName>>>>,
+
     token: AsyncMutex<PaginationToken>,
 
     pagination_state: SharedObservable<SpaceRoomListPaginationState>,
@@ -177,6 +179,7 @@ impl SpaceRoomList {
             client,
             space_id,
             space: SharedObservable::new(space),
+            via_parameters: Mutex::new(None),
             token: AsyncMutex::new(None.into()),
             pagination_state: SharedObservable::new(SpaceRoomListPaginationState::Idle {
                 end_reached: false,
@@ -263,8 +266,21 @@ impl SpaceRoomList {
                     result.rooms.into_iter().partition(|f| f.summary.room_id == self.space_id);
 
                 if let Some(room) = space.first() {
-                    let mut space = self.space.write();
+                    let mut via_parameters = self.via_parameters.lock();
+                    *via_parameters = Some(
+                        room.children_state
+                            .iter()
+                            .filter_map(|event| match event.deserialize() {
+                                Ok(child) => Some((child.state_key, child.content.via)),
+                                Err(error) => {
+                                    warn!("Failed deserializing space child event: {error}");
+                                    None
+                                }
+                            })
+                            .collect::<HashMap<_, _>>(),
+                    );
 
+                    let mut space = self.space.write();
                     if space.is_none() {
                         ObservableWriteGuard::set(
                             &mut space,
@@ -272,10 +288,13 @@ impl SpaceRoomList {
                                 &room.summary,
                                 self.client.get_room(&room.summary.room_id),
                                 room.children_state.len() as u64,
+                                vec![],
                             )),
                         );
                     }
                 }
+
+                let via = (*self.via_parameters.lock()).clone().unwrap_or_default();
 
                 children
                     .iter()
@@ -284,6 +303,7 @@ impl SpaceRoomList {
                             &room.summary,
                             self.client.get_room(&room.summary.room_id),
                             room.children_state.len() as u64,
+                            via.get(&room.summary.room_id).cloned().unwrap_or(Default::default()),
                         )
                     })
                     .for_each(|room| rooms.push_back(room));
@@ -313,8 +333,9 @@ mod tests {
         JoinedRoomBuilder, LeftRoomBuilder, async_test, event_factory::EventFactory,
     };
     use ruma::{
+        owned_server_name,
         room::{JoinRuleSummary, RoomSummary},
-        room_id, uint,
+        room_id, server_name, uint,
     };
     use stream_assert::{assert_next_eq, assert_next_matches, assert_pending, assert_ready};
 
@@ -381,7 +402,7 @@ mod tests {
             .mock_get_hierarchy()
             .ok_with_room_ids_and_children_state(
                 vec![child_space_id_1, child_space_id_2],
-                vec![room_id!("!child:example.org")],
+                vec![(room_id!("!child:example.org"), vec![])],
             )
             .mount()
             .await;
@@ -408,7 +429,8 @@ mod tests {
                             false,
                         ),
                         None,
-                        1
+                        1,
+                        vec![],
                     )
                 },
                 VectorDiff::PushBack {
@@ -421,7 +443,8 @@ mod tests {
                             false,
                         ),
                         None,
-                        1
+                        1,
+                        vec![],
                     ),
                 }
             ]
@@ -506,7 +529,13 @@ mod tests {
 
         server
             .mock_get_hierarchy()
-            .ok_with_room_ids(vec![parent_space_id, child_space_id_1, child_space_id_2])
+            .ok_with_room_ids_and_children_state(
+                vec![parent_space_id, child_space_id_1, child_space_id_2],
+                vec![(
+                    room_id!("!child:example.org"),
+                    vec![server_name!("matrix-client.example.org")],
+                )],
+            )
             .mount()
             .await;
 
@@ -542,5 +571,73 @@ mod tests {
         // The parent space is known to the client and should be populated accordingly
         assert_let!(Some(parent_space) = room_list.space());
         assert_eq!(parent_space.children_count, 2);
+    }
+
+    #[async_test]
+    async fn test_via_retrieval() {
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+        let space_service = SpaceService::new(client.clone());
+
+        server.mock_room_state_encryption().plain().mount().await;
+
+        let parent_space_id = room_id!("!parent_space:example.org");
+        let child_space_id_1 = room_id!("!1:example.org");
+        let child_space_id_2 = room_id!("!2:example.org");
+
+        let room_list = space_service.space_room_list(parent_space_id.to_owned()).await;
+
+        let (_, rooms_subscriber) = room_list.subscribe_to_room_updates();
+        pin_mut!(rooms_subscriber);
+
+        // When retrieving the parent and children via /hierarchy
+        server
+            .mock_get_hierarchy()
+            .ok_with_room_ids_and_children_state(
+                vec![parent_space_id, child_space_id_1, child_space_id_2],
+                vec![
+                    (child_space_id_1, vec![server_name!("matrix-client.example.org")]),
+                    (child_space_id_2, vec![server_name!("other-matrix-client.example.org")]),
+                ],
+            )
+            .mount()
+            .await;
+
+        room_list.paginate().await.unwrap();
+
+        // The parent `children_state` is used to populate children via params
+        assert_next_eq!(
+            rooms_subscriber,
+            vec![
+                VectorDiff::PushBack {
+                    value: SpaceRoom::new_from_summary(
+                        &RoomSummary::new(
+                            child_space_id_1.to_owned(),
+                            JoinRuleSummary::Public,
+                            false,
+                            uint!(1),
+                            false,
+                        ),
+                        None,
+                        2,
+                        vec![owned_server_name!("matrix-client.example.org")],
+                    )
+                },
+                VectorDiff::PushBack {
+                    value: SpaceRoom::new_from_summary(
+                        &RoomSummary::new(
+                            child_space_id_2.to_owned(),
+                            JoinRuleSummary::Public,
+                            false,
+                            uint!(1),
+                            false,
+                        ),
+                        None,
+                        2,
+                        vec![owned_server_name!("other-matrix-client.example.org")],
+                    ),
+                }
+            ]
+        );
     }
 }
