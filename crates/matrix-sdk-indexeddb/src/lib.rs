@@ -13,8 +13,6 @@ mod event_cache_store;
 #[cfg(feature = "media-store")]
 mod media_store;
 #[cfg(feature = "e2e-encryption")]
-mod serialize_bool_for_indexeddb;
-#[cfg(feature = "e2e-encryption")]
 mod serializer;
 #[cfg(feature = "state-store")]
 mod state_store;
