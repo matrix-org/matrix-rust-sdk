@@ -30,7 +30,7 @@ use web_sys::IdbCursorDirection;
 use crate::{
     error::AsyncErrorDeps,
     event_cache_store::{
-        serializer::types::{
+        serializer::indexed_types::{
             IndexedChunkIdKey, IndexedEventIdKey, IndexedEventPositionKey, IndexedEventRelationKey,
             IndexedEventRoomKey, IndexedGapIdKey, IndexedLeaseIdKey, IndexedNextChunkIdKey,
             IndexedRoomId,

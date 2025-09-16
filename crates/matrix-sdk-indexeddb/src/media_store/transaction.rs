@@ -26,7 +26,7 @@ use web_sys::IdbCursorDirection;
 use crate::{
     error::AsyncErrorDeps,
     media_store::{
-        serializer::types::{IndexedCoreIdKey, IndexedLeaseIdKey},
+        serializer::indexed_types::{IndexedCoreIdKey, IndexedLeaseIdKey},
         types::Lease,
     },
     serializer::{Indexed, IndexedKey, IndexedKeyRange, IndexedTypeSerializer},
