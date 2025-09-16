@@ -12,6 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License
 
+// Allow dead code here, as this module is still in the process
+// of being developed, so some functions will be used later on.
+// Once development is complete, we can remove this line and
+// clean up any dead code.
+#![allow(dead_code)]
+
 pub mod constants;
 pub mod range;
 pub mod traits;
