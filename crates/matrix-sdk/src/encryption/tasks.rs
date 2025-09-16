@@ -15,29 +15,29 @@
 use std::{collections::BTreeMap, sync::Arc, time::Duration};
 
 use futures_core::Stream;
-use futures_util::{pin_mut, StreamExt};
+use futures_util::{StreamExt, pin_mut};
 #[cfg(feature = "experimental-encrypted-state-events")]
 use matrix_sdk_base::crypto::types::events::room::encrypted::{
     EncryptedEvent, RoomEventEncryptionScheme,
 };
 use matrix_sdk_base::{
-    crypto::store::types::RoomKeyBundleInfo, InviteAcceptanceDetails, RoomState,
+    InviteAcceptanceDetails, RoomState, crypto::store::types::RoomKeyBundleInfo,
 };
 use matrix_sdk_common::failures_cache::FailuresCache;
 #[cfg(not(feature = "experimental-encrypted-state-events"))]
 use ruma::events::room::encrypted::{EncryptedEventScheme, OriginalSyncRoomEncryptedEvent};
 #[cfg(feature = "experimental-encrypted-state-events")]
 use ruma::serde::JsonCastable;
-use ruma::{serde::Raw, OwnedEventId, OwnedRoomId};
-use tokio::sync::{mpsc, Mutex};
+use ruma::{OwnedEventId, OwnedRoomId, serde::Raw};
+use tokio::sync::{Mutex, mpsc};
 use tracing::{debug, info, instrument, trace, warn};
 
 use crate::{
+    Client, Room,
     client::WeakClient,
     encryption::backups::UploadState,
-    executor::{spawn, JoinHandle},
+    executor::{JoinHandle, spawn},
     room::shared_room_history,
-    Client, Room,
 };
 
 /// A cache of room keys we already downloaded.
@@ -515,7 +515,7 @@ impl BundleReceiverTask {
 #[cfg(all(test, not(target_family = "wasm")))]
 mod test {
     use matrix_sdk_test::{
-        async_test, event_factory::EventFactory, InvitedRoomBuilder, JoinedRoomBuilder,
+        InvitedRoomBuilder, JoinedRoomBuilder, async_test, event_factory::EventFactory,
     };
     #[cfg(not(feature = "experimental-encrypted-state-events"))]
     use ruma::events::room::encrypted::OriginalSyncRoomEncryptedEvent;

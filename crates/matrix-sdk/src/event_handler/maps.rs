@@ -14,7 +14,7 @@
 
 use std::{
     borrow::Borrow,
-    collections::{btree_map, BTreeMap},
+    collections::{BTreeMap, btree_map},
 };
 
 use ruma::{OwnedRoomId, RoomId};

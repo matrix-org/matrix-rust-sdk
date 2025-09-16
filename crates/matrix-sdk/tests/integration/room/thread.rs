@@ -4,7 +4,7 @@ use matrix_sdk::{
     room::ThreadSubscription,
     test_utils::mocks::{MatrixMockServer, PushRuleIdSpec},
 };
-use matrix_sdk_test::{async_test, event_factory::EventFactory, JoinedRoomBuilder, ALICE};
+use matrix_sdk_test::{ALICE, JoinedRoomBuilder, async_test, event_factory::EventFactory};
 use ruma::{event_id, owned_event_id, push::RuleKind, room_id};
 
 #[async_test]

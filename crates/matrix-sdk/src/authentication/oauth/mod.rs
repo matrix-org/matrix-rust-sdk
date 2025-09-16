@@ -178,19 +178,20 @@ use error::{
 use matrix_sdk_base::crypto::types::qr_login::QrCodeData;
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk_base::once_cell::sync::OnceCell;
-use matrix_sdk_base::{store::RoomLoadSettings, SessionMeta};
+use matrix_sdk_base::{SessionMeta, store::RoomLoadSettings};
 use oauth2::{
-    basic::BasicClient as OAuthClient, AccessToken, PkceCodeVerifier, RedirectUrl, RefreshToken,
-    RevocationUrl, Scope, StandardErrorResponse, StandardRevocableToken, TokenResponse, TokenUrl,
+    AccessToken, PkceCodeVerifier, RedirectUrl, RefreshToken, RevocationUrl, Scope,
+    StandardErrorResponse, StandardRevocableToken, TokenResponse, TokenUrl,
+    basic::BasicClient as OAuthClient,
 };
 pub use oauth2::{ClientId, CsrfToken};
 use ruma::{
+    DeviceId, OwnedDeviceId,
     api::client::discovery::get_authorization_server_metadata::{
         self,
         v1::{AccountManagementAction, AuthorizationServerMetadata},
     },
     serde::Raw,
-    DeviceId, OwnedDeviceId,
 };
 use serde::{Deserialize, Serialize};
 use sha2::Digest as _;
@@ -221,10 +222,10 @@ pub use self::{
 };
 use self::{
     http_client::OAuthHttpClient,
-    registration::{register_client, ClientMetadata, ClientRegistrationResponse},
+    registration::{ClientMetadata, ClientRegistrationResponse, register_client},
 };
 use super::{AuthData, SessionTokens};
-use crate::{client::SessionChange, executor::spawn, Client, HttpError, RefreshTokenError, Result};
+use crate::{Client, HttpError, RefreshTokenError, Result, client::SessionChange, executor::spawn};
 
 pub(crate) struct OAuthCtx {
     /// Lock and state when multiple processes may refresh an OAuth 2.0 session.

@@ -4,7 +4,7 @@ use assert_matches2::assert_let;
 use eyeball_im::VectorDiff;
 use imbl::Vector;
 use matrix_sdk::{
-    assert_let_timeout,
+    Client, ThreadingSupport, assert_let_timeout,
     deserialized_responses::{ThreadSummaryStatus, TimelineEvent},
     event_cache::{RoomEventCacheSubscriber, RoomEventCacheUpdate, ThreadEventCacheUpdate},
     sleep::sleep,
@@ -12,16 +12,15 @@ use matrix_sdk::{
         assert_event_matches_msg,
         mocks::{MatrixMockServer, RoomRelationsResponseTemplate},
     },
-    Client, ThreadingSupport,
 };
-use matrix_sdk_test::{async_test, event_factory::EventFactory, JoinedRoomBuilder, ALICE};
+use matrix_sdk_test::{ALICE, JoinedRoomBuilder, async_test, event_factory::EventFactory};
 use ruma::{
-    event_id,
+    OwnedEventId, OwnedRoomId, event_id,
     events::{AnySyncTimelineEvent, Mentions},
     push::{ConditionalPushRule, Ruleset},
     room_id,
     serde::Raw,
-    user_id, OwnedEventId, OwnedRoomId,
+    user_id,
 };
 use tokio::sync::broadcast;
 
@@ -415,11 +414,12 @@ async fn test_deduplication() {
     server
         .sync_room(
             &client,
-            JoinedRoomBuilder::new(room_id).add_timeline_bulk(vec![f
-                .text_msg("hoy!")
-                .in_thread(thread_root, first_reply_event_id)
-                .event_id(second_reply_event_id)
-                .into_raw_sync()]),
+            JoinedRoomBuilder::new(room_id).add_timeline_bulk(vec![
+                f.text_msg("hoy!")
+                    .in_thread(thread_root, first_reply_event_id)
+                    .event_id(second_reply_event_id)
+                    .into_raw_sync(),
+            ]),
         )
         .await;
 

@@ -2,8 +2,8 @@ use std::sync::Arc;
 
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk_base::crypto::{
-    store::{LockableCryptoStore, Store},
     CryptoStoreError,
+    store::{LockableCryptoStore, Store},
 };
 use matrix_sdk_common::cross_process_lock::{
     CrossProcessLock, CrossProcessLockError, CrossProcessLockGuard,
@@ -247,21 +247,21 @@ mod tests {
 
     use anyhow::Context as _;
     use futures_util::future::join_all;
-    use matrix_sdk_base::{store::RoomLoadSettings, SessionMeta};
+    use matrix_sdk_base::{SessionMeta, store::RoomLoadSettings};
     use matrix_sdk_test::async_test;
     use ruma::{owned_device_id, owned_user_id};
 
     use super::compute_session_hash;
     use crate::{
+        Error,
         authentication::oauth::cross_process::SessionHash,
         test_utils::{
             client::{
-                mock_prev_session_tokens_with_refresh, mock_session_tokens_with_refresh,
-                oauth::mock_session, MockClientBuilder,
+                MockClientBuilder, mock_prev_session_tokens_with_refresh,
+                mock_session_tokens_with_refresh, oauth::mock_session,
             },
             mocks::MatrixMockServer,
         },
-        Error,
     };
 
     #[async_test]

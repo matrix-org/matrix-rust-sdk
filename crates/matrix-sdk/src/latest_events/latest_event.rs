@@ -19,16 +19,16 @@ pub use matrix_sdk_base::latest_event::{
     LatestEventValue, LocalLatestEventValue, RemoteLatestEventValue,
 };
 use matrix_sdk_base::{
-    deserialized_responses::TimelineEvent, store::SerializableEventContent,
-    RoomInfoNotableUpdateReasons, StateChanges,
+    RoomInfoNotableUpdateReasons, StateChanges, deserialized_responses::TimelineEvent,
+    store::SerializableEventContent,
 };
 use ruma::{
+    EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, TransactionId, UserId,
     events::{
+        AnyMessageLikeEventContent, AnySyncStateEvent, AnySyncTimelineEvent, SyncStateEvent,
         relation::RelationType,
         room::{member::MembershipState, message::MessageType, power_levels::RoomPowerLevels},
-        AnyMessageLikeEventContent, AnySyncStateEvent, AnySyncTimelineEvent, SyncStateEvent,
     },
-    EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, TransactionId, UserId,
 };
 use tracing::{error, instrument, warn};
 
@@ -170,17 +170,17 @@ impl LatestEvent {
 mod tests_latest_event {
     use assert_matches::assert_matches;
     use matrix_sdk_base::{
+        RoomInfoNotableUpdateReasons, RoomState,
         linked_chunk::{ChunkIdentifier, LinkedChunkId, Position, Update},
         store::StoreConfig,
-        RoomInfoNotableUpdateReasons, RoomState,
     };
     use matrix_sdk_test::{async_test, event_factory::EventFactory};
     use ruma::{
-        event_id,
-        events::{room::message::RoomMessageEventContent, AnyMessageLikeEventContent},
+        MilliSecondsSinceUnixEpoch, OwnedTransactionId, event_id,
+        events::{AnyMessageLikeEventContent, room::message::RoomMessageEventContent},
         room_id,
         serde::Raw,
-        user_id, MilliSecondsSinceUnixEpoch, OwnedTransactionId,
+        user_id,
     };
 
     use super::{LatestEvent, LatestEventValue, LocalLatestEventValue, SerializableEventContent};
@@ -412,10 +412,9 @@ mod tests_latest_event {
                         },
                         Update::PushItems {
                             at: Position::new(ChunkIdentifier::new(0), 0),
-                            items: vec![event_factory
-                                .text_msg("A")
-                                .event_id(event_id!("$ev0"))
-                                .into()],
+                            items: vec![
+                                event_factory.text_msg("A").event_id(event_id!("$ev0")).into(),
+                            ],
                         },
                     ],
                 )
@@ -552,7 +551,10 @@ impl LatestEventValueBuilder {
                         }
 
                         Err(error) => {
-                            error!(?error, "Failed to deserialize an event from `RoomSendQueueUpdate::NewLocalEvent`");
+                            error!(
+                                ?error,
+                                "Failed to deserialize an event from `RoomSendQueueUpdate::NewLocalEvent`"
+                            );
 
                             LatestEventValue::None
                         }
@@ -639,7 +641,10 @@ impl LatestEventValueBuilder {
                         }
 
                         Err(error) => {
-                            error!(?error, "Failed to deserialize an event from `RoomSendQueueUpdate::ReplacedLocalEvent`");
+                            error!(
+                                ?error,
+                                "Failed to deserialize an event from `RoomSendQueueUpdate::ReplacedLocalEvent`"
+                            );
 
                             return LatestEventValue::None;
                         }
@@ -1244,7 +1249,7 @@ mod tests_latest_event_content {
 
     #[test]
     fn test_room_message_verification_request() {
-        use ruma::{events::room::message, OwnedDeviceId};
+        use ruma::{OwnedDeviceId, events::room::message};
 
         assert_latest_event_content!(
             event | event_factory | {
@@ -1268,9 +1273,9 @@ mod tests_latest_event_content {
 mod tests_latest_event_values_for_local_events {
     use assert_matches::assert_matches;
     use ruma::{
-        events::{room::message::RoomMessageEventContent, AnyMessageLikeEventContent},
-        serde::Raw,
         MilliSecondsSinceUnixEpoch, OwnedTransactionId,
+        events::{AnyMessageLikeEventContent, room::message::RoomMessageEventContent},
+        serde::Raw,
     };
     use serde_json::json;
 
@@ -1510,20 +1515,20 @@ mod tests_latest_event_value_builder {
 
     use assert_matches::assert_matches;
     use matrix_sdk_base::{
+        RoomState,
         deserialized_responses::TimelineEventKind,
         linked_chunk::{ChunkIdentifier, LinkedChunkId, Position, Update},
         store::SerializableEventContent,
-        RoomState,
     };
     use matrix_sdk_test::{async_test, event_factory::EventFactory};
     use ruma::{
-        event_id,
+        MilliSecondsSinceUnixEpoch, OwnedRoomId, OwnedTransactionId, event_id,
         events::{
-            reaction::ReactionEventContent, relation::Annotation,
-            room::message::RoomMessageEventContent, AnyMessageLikeEventContent,
-            AnySyncMessageLikeEvent, AnySyncTimelineEvent, SyncMessageLikeEvent,
+            AnyMessageLikeEventContent, AnySyncMessageLikeEvent, AnySyncTimelineEvent,
+            SyncMessageLikeEvent, reaction::ReactionEventContent, relation::Annotation,
+            room::message::RoomMessageEventContent,
         },
-        room_id, user_id, MilliSecondsSinceUnixEpoch, OwnedRoomId, OwnedTransactionId,
+        room_id, user_id,
     };
 
     use super::{
@@ -1531,11 +1536,11 @@ mod tests_latest_event_value_builder {
         RemoteLatestEventValue, RoomEventCache, RoomSendQueueUpdate,
     };
     use crate::{
+        Client, Error,
         client::WeakClient,
         room::WeakRoom,
         send_queue::{AbstractProgress, LocalEcho, LocalEchoContent, RoomSendQueue, SendHandle},
         test_utils::mocks::MatrixMockServer,
-        Client, Error,
     };
 
     macro_rules! assert_remote_value_matches_room_message_with_body {
@@ -2212,10 +2217,9 @@ mod tests_latest_event_value_builder {
                         },
                         Update::PushItems {
                             at: Position::new(ChunkIdentifier::new(0), 0),
-                            items: vec![event_factory
-                                .text_msg("hello")
-                                .event_id(event_id_0)
-                                .into()],
+                            items: vec![
+                                event_factory.text_msg("hello").event_id(event_id_0).into(),
+                            ],
                         },
                     ],
                 )

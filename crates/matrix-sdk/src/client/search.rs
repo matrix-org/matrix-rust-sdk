@@ -142,7 +142,7 @@ impl SearchIndexGuard<'_> {
 
 #[cfg(test)]
 mod tests {
-    use matrix_sdk_test::{async_test, event_factory::EventFactory, JoinedRoomBuilder};
+    use matrix_sdk_test::{JoinedRoomBuilder, async_test, event_factory::EventFactory};
     use ruma::{
         event_id, events::room::message::RoomMessageEventContentWithoutRelation, room_id, user_id,
     };
@@ -165,11 +165,13 @@ mod tests {
         let room = mock_server
             .sync_room(
                 &client,
-                JoinedRoomBuilder::new(room_id).add_timeline_bulk(vec![event_factory
-                    .text_msg("this is a sentence")
-                    .event_id(event_id)
-                    .sender(user_id)
-                    .into_raw_sync()]),
+                JoinedRoomBuilder::new(room_id).add_timeline_bulk(vec![
+                    event_factory
+                        .text_msg("this is a sentence")
+                        .event_id(event_id)
+                        .sender(user_id)
+                        .into_raw_sync(),
+                ]),
             )
             .await;
 

@@ -1,8 +1,8 @@
 use matrix_sdk_test::async_test;
 use serde_json::json;
 use wiremock::{
-    matchers::{method, path},
     Mock, Request, ResponseTemplate,
+    matchers::{method, path},
 };
 
 use crate::logged_in_client_with_server;
@@ -33,11 +33,9 @@ async fn test_account_deactivation() {
             .mount_as_scoped(&server)
             .await;
 
-        assert!(client
-            .account()
-            .deactivate(Some("FirstIdentityServer"), None, false)
-            .await
-            .is_ok());
+        assert!(
+            client.account().deactivate(Some("FirstIdentityServer"), None, false).await.is_ok()
+        );
     }
 
     {

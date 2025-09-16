@@ -1,9 +1,9 @@
 use ruma::{
+    RoomId,
     push::{
         Action, NewPushRule, PredefinedContentRuleId, PredefinedOverrideRuleId,
         RemovePushRuleError, RuleKind, Ruleset,
     },
-    RoomId,
 };
 
 use super::command::Command;
@@ -219,12 +219,12 @@ mod tests {
     use assert_matches::assert_matches;
     use matrix_sdk_test::async_test;
     use ruma::{
+        OwnedRoomId, RoomId, UserId,
         push::{
             Action, NewPushRule, NewSimplePushRule, PredefinedContentRuleId,
             PredefinedOverrideRuleId, PredefinedUnderrideRuleId, RemovePushRuleError, RuleKind,
             Ruleset, Tweak,
         },
-        OwnedRoomId, RoomId, UserId,
     };
 
     use super::RuleCommands;
@@ -421,23 +421,29 @@ mod tests {
             .unwrap();
 
         // The ruleset must have been updated.
-        assert!(rule_commands
-            .rules
-            .get(RuleKind::Override, PredefinedOverrideRuleId::IsUserMention)
-            .unwrap()
-            .enabled());
+        assert!(
+            rule_commands
+                .rules
+                .get(RuleKind::Override, PredefinedOverrideRuleId::IsUserMention)
+                .unwrap()
+                .enabled()
+        );
         #[allow(deprecated)]
         {
-            assert!(rule_commands
-                .rules
-                .get(RuleKind::Override, PredefinedOverrideRuleId::ContainsDisplayName)
-                .unwrap()
-                .enabled());
-            assert!(rule_commands
-                .rules
-                .get(RuleKind::Content, PredefinedContentRuleId::ContainsUserName)
-                .unwrap()
-                .enabled());
+            assert!(
+                rule_commands
+                    .rules
+                    .get(RuleKind::Override, PredefinedOverrideRuleId::ContainsDisplayName)
+                    .unwrap()
+                    .enabled()
+            );
+            assert!(
+                rule_commands
+                    .rules
+                    .get(RuleKind::Content, PredefinedContentRuleId::ContainsUserName)
+                    .unwrap()
+                    .enabled()
+            );
         }
 
         // Three commands are expected.
@@ -496,18 +502,22 @@ mod tests {
             .unwrap();
 
         // The ruleset must have been updated.
-        assert!(rule_commands
-            .rules
-            .get(RuleKind::Override, PredefinedOverrideRuleId::IsRoomMention)
-            .unwrap()
-            .enabled());
+        assert!(
+            rule_commands
+                .rules
+                .get(RuleKind::Override, PredefinedOverrideRuleId::IsRoomMention)
+                .unwrap()
+                .enabled()
+        );
         #[allow(deprecated)]
         {
-            assert!(rule_commands
-                .rules
-                .get(RuleKind::Override, PredefinedOverrideRuleId::RoomNotif)
-                .unwrap()
-                .enabled());
+            assert!(
+                rule_commands
+                    .rules
+                    .get(RuleKind::Override, PredefinedOverrideRuleId::RoomNotif)
+                    .unwrap()
+                    .enabled()
+            );
         }
 
         // Two commands are expected.

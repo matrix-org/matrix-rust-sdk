@@ -15,9 +15,9 @@
 // limitations under the License.
 
 use std::{
-    collections::{btree_map, BTreeMap, BTreeSet},
+    collections::{BTreeMap, BTreeSet, btree_map},
     fmt::{self, Debug},
-    future::{ready, Future},
+    future::{Future, ready},
     pin::Pin,
     sync::{Arc, Mutex as StdMutex, RwLock as StdRwLock, Weak},
     time::Duration,
@@ -29,20 +29,23 @@ use eyeball_im::{Vector, VectorDiff};
 use futures_core::Stream;
 use futures_util::StreamExt;
 #[cfg(feature = "e2e-encryption")]
-use matrix_sdk_base::crypto::{store::LockableCryptoStore, DecryptionSettings};
+use matrix_sdk_base::crypto::{DecryptionSettings, store::LockableCryptoStore};
 use matrix_sdk_base::{
+    BaseClient, RoomInfoNotableUpdate, RoomState, RoomStateFilter, SendOutsideWasm, SessionMeta,
+    StateStoreDataKey, StateStoreDataValue, SyncOutsideWasm, ThreadingSupport,
     event_cache::store::EventCacheStoreLock,
     media::store::MediaStoreLock,
     store::{DynStateStore, RoomLoadSettings, ServerInfo, WellKnownResponse},
     sync::{Notification, RoomUpdates},
-    BaseClient, RoomInfoNotableUpdate, RoomState, RoomStateFilter, SendOutsideWasm, SessionMeta,
-    StateStoreDataKey, StateStoreDataValue, SyncOutsideWasm, ThreadingSupport,
 };
 use matrix_sdk_common::ttl_cache::TtlCache;
 #[cfg(feature = "e2e-encryption")]
-use ruma::events::{room::encryption::RoomEncryptionEventContent, InitialStateEvent};
+use ruma::events::{InitialStateEvent, room::encryption::RoomEncryptionEventContent};
 use ruma::{
+    DeviceId, OwnedDeviceId, OwnedEventId, OwnedRoomId, OwnedRoomOrAliasId, OwnedServerName,
+    RoomAliasId, RoomId, RoomOrAliasId, ServerName, UInt, UserId,
     api::{
+        FeatureFlag, MatrixVersion, OutgoingRequest, SupportedVersions,
         client::{
             account::whoami,
             alias::{create_alias, delete_alias, get_alias},
@@ -55,7 +58,7 @@ use ruma::{
                 get_supported_versions,
             },
             error::ErrorKind,
-            filter::{create_filter::v3::Request as FilterUploadRequest, FilterDefinition},
+            filter::{FilterDefinition, create_filter::v3::Request as FilterUploadRequest},
             knock::knock_room,
             media,
             membership::{join_room_by_id, join_room_by_id_or_alias},
@@ -68,24 +71,23 @@ use ruma::{
         },
         error::FromHttpResponseError,
         federation::discovery::get_server_version,
-        FeatureFlag, MatrixVersion, OutgoingRequest, SupportedVersions,
     },
     assign,
     push::Ruleset,
     time::Instant,
-    DeviceId, OwnedDeviceId, OwnedEventId, OwnedRoomId, OwnedRoomOrAliasId, OwnedServerName,
-    RoomAliasId, RoomId, RoomOrAliasId, ServerName, UInt, UserId,
 };
 use serde::de::DeserializeOwned;
-use tokio::sync::{broadcast, Mutex, OnceCell, RwLock, RwLockReadGuard};
-use tracing::{debug, error, instrument, trace, warn, Instrument, Span};
+use tokio::sync::{Mutex, OnceCell, RwLock, RwLockReadGuard, broadcast};
+use tracing::{Instrument, Span, debug, error, instrument, trace, warn};
 use url::Url;
 
 use self::futures::SendRequest;
 use crate::{
+    Account, AuthApi, AuthSession, Error, HttpError, Media, Pusher, RefreshTokenError, Result,
+    Room, SessionTokens, TransmissionProgress,
     authentication::{
-        matrix::MatrixAuth, oauth::OAuth, AuthCtx, AuthData, ReloadSessionCallback,
-        SaveSessionCallback,
+        AuthCtx, AuthData, ReloadSessionCallback, SaveSessionCallback, matrix::MatrixAuth,
+        oauth::OAuth,
     },
     client::thread_subscriptions::ThreadSubscriptionCatchup,
     config::{RequestConfig, SyncToken},
@@ -105,8 +107,6 @@ use crate::{
     send_queue::{SendQueue, SendQueueData},
     sliding_sync::Version as SlidingSyncVersion,
     sync::{RoomUpdate, SyncResponse},
-    Account, AuthApi, AuthSession, Error, HttpError, Media, Pusher, RefreshTokenError, Result,
-    Room, SessionTokens, TransmissionProgress,
 };
 #[cfg(feature = "e2e-encryption")]
 use crate::{
@@ -121,7 +121,7 @@ pub(crate) mod futures;
 pub(crate) mod search;
 pub(crate) mod thread_subscriptions;
 
-pub use self::builder::{sanitize_server_name, ClientBuildError, ClientBuilder};
+pub use self::builder::{ClientBuildError, ClientBuilder, sanitize_server_name};
 #[cfg(feature = "experimental-search")]
 use crate::client::search::SearchIndex;
 
@@ -949,8 +949,8 @@ impl Client {
     /// ```
     /// use futures_util::StreamExt as _;
     /// use matrix_sdk::{
-    ///     ruma::{events::room::message::SyncRoomMessageEvent, push::Action},
     ///     Client, Room,
+    ///     ruma::{events::room::message::SyncRoomMessageEvent, push::Action},
     /// };
     ///
     /// # async fn example(client: Client) -> Option<()> {
@@ -968,6 +968,7 @@ impl Client {
     ///
     /// ```
     /// use matrix_sdk::{
+    ///     Client, Room,
     ///     deserialized_responses::EncryptionInfo,
     ///     ruma::{
     ///         events::room::{
@@ -975,7 +976,6 @@ impl Client {
     ///         },
     ///         push::Action,
     ///     },
-    ///     Client, Room,
     /// };
     ///
     /// # async fn example(client: Client) {
@@ -1090,8 +1090,8 @@ impl Client {
     /// # let homeserver = Url::parse("http://localhost:8080").unwrap();
     /// #
     /// use matrix_sdk::{
-    ///     event_handler::EventHandlerHandle,
-    ///     ruma::events::room::member::SyncRoomMemberEvent, Client,
+    ///     Client, event_handler::EventHandlerHandle,
+    ///     ruma::events::room::member::SyncRoomMemberEvent,
     /// };
     /// #
     /// # futures_executor::block_on(async {
@@ -1137,8 +1137,8 @@ impl Client {
     ///
     /// ```no_run
     /// use matrix_sdk::{
-    ///     event_handler::Ctx, ruma::events::room::message::SyncRoomMessageEvent,
-    ///     Room,
+    ///     Room, event_handler::Ctx,
+    ///     ruma::events::room::message::SyncRoomMessageEvent,
     /// };
     /// # #[derive(Clone)]
     /// # struct SomeType;
@@ -1705,8 +1705,8 @@ impl Client {
     ///
     /// ```no_run
     /// use matrix_sdk::{
-    ///     ruma::api::client::room::create_room::v3::Request as CreateRoomRequest,
     ///     Client,
+    ///     ruma::api::client::room::create_room::v3::Request as CreateRoomRequest,
     /// };
     /// # use url::Url;
     /// #
@@ -1752,9 +1752,10 @@ impl Client {
     /// * `user_id` - The ID of the user to create a DM for.
     pub async fn create_dm(&self, user_id: &UserId) -> Result<Room> {
         #[cfg(feature = "e2e-encryption")]
-        let initial_state =
-            vec![InitialStateEvent::new(RoomEncryptionEventContent::with_recommended_defaults())
-                .to_raw_any()];
+        let initial_state = vec![
+            InitialStateEvent::new(RoomEncryptionEventContent::with_recommended_defaults())
+                .to_raw_any(),
+        ];
 
         #[cfg(not(feature = "e2e-encryption"))]
         let initial_state = vec![];
@@ -2332,8 +2333,8 @@ impl Client {
     /// # let username = "";
     /// # let password = "";
     /// use matrix_sdk::{
-    ///     config::SyncSettings,
-    ///     ruma::events::room::message::OriginalSyncRoomMessageEvent, Client,
+    ///     Client, config::SyncSettings,
+    ///     ruma::events::room::message::OriginalSyncRoomMessageEvent,
     /// };
     ///
     /// let client = Client::new(homeserver).await?;
@@ -2453,8 +2454,8 @@ impl Client {
     /// # let username = "";
     /// # let password = "";
     /// use matrix_sdk::{
-    ///     config::SyncSettings,
-    ///     ruma::events::room::message::OriginalSyncRoomMessageEvent, Client,
+    ///     Client, config::SyncSettings,
+    ///     ruma::events::room::message::OriginalSyncRoomMessageEvent,
     /// };
     ///
     /// let client = Client::new(homeserver).await?;
@@ -2658,7 +2659,7 @@ impl Client {
     /// # let username = "";
     /// # let password = "";
     /// use futures_util::StreamExt;
-    /// use matrix_sdk::{config::SyncSettings, Client};
+    /// use matrix_sdk::{Client, config::SyncSettings};
     ///
     /// let client = Client::new(homeserver).await?;
     /// client.matrix_auth().login_username(&username, &password).send().await?;
@@ -3061,33 +3062,34 @@ pub(crate) mod tests {
     use assert_matches::assert_matches;
     use assert_matches2::assert_let;
     use eyeball::SharedObservable;
-    use futures_util::{pin_mut, FutureExt, StreamExt};
-    use js_int::{uint, UInt};
+    use futures_util::{FutureExt, StreamExt, pin_mut};
+    use js_int::{UInt, uint};
     use matrix_sdk_base::{
-        store::{MemoryStore, StoreConfig},
         RoomState,
+        store::{MemoryStore, StoreConfig},
     };
     use matrix_sdk_test::{
-        async_test, event_factory::EventFactory, JoinedRoomBuilder, StateTestEvent,
-        SyncResponseBuilder, DEFAULT_TEST_ROOM_ID,
+        DEFAULT_TEST_ROOM_ID, JoinedRoomBuilder, StateTestEvent, SyncResponseBuilder, async_test,
+        event_factory::EventFactory,
     };
     #[cfg(target_family = "wasm")]
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
     use ruma::{
+        RoomId, ServerName, UserId,
         api::{
+            FeatureFlag, MatrixVersion,
             client::{
                 discovery::discover_homeserver::RtcFocusInfo,
                 room::create_room::v3::Request as CreateRoomRequest,
             },
-            FeatureFlag, MatrixVersion,
         },
         assign,
         events::{
             ignored_user_list::IgnoredUserListEventContent,
             media_preview_config::{InviteAvatars, MediaPreviewConfigEventContent, MediaPreviews},
         },
-        owned_room_id, owned_user_id, room_alias_id, room_id, RoomId, ServerName, UserId,
+        owned_room_id, owned_user_id, room_alias_id, room_id,
     };
     use serde_json::json;
     use stream_assert::{assert_next_matches, assert_pending};
@@ -3099,12 +3101,12 @@ pub(crate) mod tests {
 
     use super::Client;
     use crate::{
-        client::{futures::SendMediaUploadRequest, WeakClient},
+        Error, TransmissionProgress,
+        client::{WeakClient, futures::SendMediaUploadRequest},
         config::{RequestConfig, SyncSettings},
         futures::SendRequest,
         media::MediaError,
         test_utils::{client::MockClientBuilder, mocks::MatrixMockServer},
-        Error, TransmissionProgress,
     };
 
     #[async_test]
@@ -3479,11 +3481,13 @@ pub(crate) mod tests {
             .await;
 
         // These calls to the new client hit the on-disk cache.
-        assert!(client
-            .unstable_features()
-            .await
-            .unwrap()
-            .contains(&FeatureFlag::from("org.matrix.e2e_cross_signing")));
+        assert!(
+            client
+                .unstable_features()
+                .await
+                .unwrap()
+                .contains(&FeatureFlag::from("org.matrix.e2e_cross_signing"))
+        );
         let supported = client.supported_versions().await.unwrap();
         assert!(supported.versions.contains(&MatrixVersion::V1_0));
         assert!(supported.features.contains(&FeatureFlag::from("org.matrix.e2e_cross_signing")));
@@ -3555,11 +3559,13 @@ pub(crate) mod tests {
             .await;
 
         // This call to the new client hits the on-disk cache.
-        assert!(client
-            .unstable_features()
-            .await
-            .unwrap()
-            .contains(&FeatureFlag::from("org.matrix.e2e_cross_signing")));
+        assert!(
+            client
+                .unstable_features()
+                .await
+                .unwrap()
+                .contains(&FeatureFlag::from("org.matrix.e2e_cross_signing"))
+        );
 
         // Then this call hits the in-memory cache.
         assert_eq!(client.rtc_foci().await.unwrap(), rtc_foci);

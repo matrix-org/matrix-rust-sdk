@@ -6,7 +6,7 @@ use assert_matches2::assert_let;
 use matrix_sdk_base::{deserialized_responses::TimelineEvent, store::RoomLoadSettings};
 use ruma::{
     api::MatrixVersion,
-    events::{room::message::MessageType, AnySyncMessageLikeEvent, AnySyncTimelineEvent},
+    events::{AnySyncMessageLikeEvent, AnySyncTimelineEvent, room::message::MessageType},
 };
 use url::Url;
 
@@ -15,7 +15,7 @@ pub mod client;
 pub mod mocks;
 
 use self::client::mock_matrix_session;
-use crate::{config::RequestConfig, Client, ClientBuilder};
+use crate::{Client, ClientBuilder, config::RequestConfig};
 
 /// Checks that an event is a message-like text event with the given text.
 #[track_caller]

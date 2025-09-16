@@ -23,7 +23,7 @@ mod list;
 mod sticky_parameters;
 
 use std::{
-    collections::{btree_map::Entry, BTreeMap},
+    collections::{BTreeMap, btree_map::Entry},
     fmt::Debug,
     future::Future,
     sync::{Arc, RwLock as StdRwLock},
@@ -38,15 +38,16 @@ use matrix_sdk_base::RequestedRequiredStates;
 use matrix_sdk_common::executor::JoinHandleExt as _;
 use matrix_sdk_common::{executor::spawn, timer};
 use ruma::{
+    OwnedRoomId, RoomId,
     api::client::{error::ErrorKind, sync::sync_events::v5 as http},
-    assign, OwnedRoomId, RoomId,
+    assign,
 };
 use serde::{Deserialize, Serialize};
 use tokio::{
     select,
-    sync::{broadcast::Sender, Mutex as AsyncMutex, OwnedMutexGuard, RwLock as AsyncRwLock},
+    sync::{Mutex as AsyncMutex, OwnedMutexGuard, RwLock as AsyncRwLock, broadcast::Sender},
 };
-use tracing::{debug, error, info, instrument, trace, warn, Instrument, Span};
+use tracing::{Instrument, Span, debug, error, info, instrument, trace, warn};
 
 pub use self::{builder::*, client::VersionBuilderError, error::*, list::*};
 use self::{
@@ -54,7 +55,7 @@ use self::{
     client::SlidingSyncResponseProcessor,
     sticky_parameters::{LazyTransactionId, SlidingSyncStickyManager, StickyData},
 };
-use crate::{config::RequestConfig, Client, Result};
+use crate::{Client, Result, config::RequestConfig};
 
 /// The Sliding Sync instance.
 ///
@@ -957,34 +958,34 @@ mod tests {
 
     use assert_matches::assert_matches;
     use event_listener::Listener;
-    use futures_util::{future::join_all, pin_mut, StreamExt};
+    use futures_util::{StreamExt, future::join_all, pin_mut};
     use matrix_sdk_base::{RequestedRequiredStates, RoomMemberships};
     use matrix_sdk_common::executor::spawn;
-    use matrix_sdk_test::{async_test, event_factory::EventFactory, ALICE};
+    use matrix_sdk_test::{ALICE, async_test, event_factory::EventFactory};
     use ruma::{
+        OwnedRoomId, TransactionId,
         api::client::error::ErrorKind,
         assign,
         events::{direct::DirectEvent, room::member::MembershipState},
         owned_room_id, room_id,
         serde::Raw,
-        uint, OwnedRoomId, TransactionId,
+        uint,
     };
     use serde::Deserialize;
     use serde_json::json;
     use wiremock::{
-        http::Method, matchers::method, Match, Mock, MockServer, Request, ResponseTemplate,
+        Match, Mock, MockServer, Request, ResponseTemplate, http::Method, matchers::method,
     };
 
     use super::{
-        http,
-        sticky_parameters::{LazyTransactionId, SlidingSyncStickyManager},
         SlidingSync, SlidingSyncList, SlidingSyncListBuilder, SlidingSyncMode,
-        SlidingSyncStickyParameters,
+        SlidingSyncStickyParameters, http,
+        sticky_parameters::{LazyTransactionId, SlidingSyncStickyManager},
     };
     use crate::{
+        Client, Result,
         sliding_sync::cache::restore_sliding_sync_state,
         test_utils::{logged_in_client, mocks::MatrixMockServer},
-        Client, Result,
     };
 
     #[derive(Copy, Clone)]
@@ -1016,8 +1017,10 @@ mod tests {
 
     #[async_test]
     async fn test_subscribe_to_rooms() -> Result<()> {
-        let (server, sliding_sync) = new_sliding_sync(vec![SlidingSyncList::builder("foo")
-            .sync_mode(SlidingSyncMode::new_selective().add_range(0..=10))])
+        let (server, sliding_sync) = new_sliding_sync(vec![
+            SlidingSyncList::builder("foo")
+                .sync_mode(SlidingSyncMode::new_selective().add_range(0..=10)),
+        ])
         .await?;
 
         let stream = sliding_sync.sync();
@@ -1136,8 +1139,10 @@ mod tests {
 
     #[async_test]
     async fn test_room_subscriptions_are_reset_when_session_expires() -> Result<()> {
-        let (_server, sliding_sync) = new_sliding_sync(vec![SlidingSyncList::builder("foo")
-            .sync_mode(SlidingSyncMode::new_selective().add_range(0..=10))])
+        let (_server, sliding_sync) = new_sliding_sync(vec![
+            SlidingSyncList::builder("foo")
+                .sync_mode(SlidingSyncMode::new_selective().add_range(0..=10)),
+        ])
         .await?;
 
         let room_id_0 = room_id!("!r0:bar.org");
@@ -1195,8 +1200,10 @@ mod tests {
 
     #[async_test]
     async fn test_add_list() -> Result<()> {
-        let (_server, sliding_sync) = new_sliding_sync(vec![SlidingSyncList::builder("foo")
-            .sync_mode(SlidingSyncMode::new_selective().add_range(0..=10))])
+        let (_server, sliding_sync) = new_sliding_sync(vec![
+            SlidingSyncList::builder("foo")
+                .sync_mode(SlidingSyncMode::new_selective().add_range(0..=10)),
+        ])
         .await?;
 
         let _stream = sliding_sync.sync();
@@ -2024,8 +2031,10 @@ mod tests {
 
     #[async_test]
     async fn test_stop_sync_loop() -> Result<()> {
-        let (_server, sliding_sync) = new_sliding_sync(vec![SlidingSyncList::builder("foo")
-            .sync_mode(SlidingSyncMode::new_selective().add_range(0..=10))])
+        let (_server, sliding_sync) = new_sliding_sync(vec![
+            SlidingSyncList::builder("foo")
+                .sync_mode(SlidingSyncMode::new_selective().add_range(0..=10)),
+        ])
         .await?;
 
         // Start the sync loop.
@@ -2655,7 +2664,7 @@ mod tests {
     #[async_test]
     async fn test_timeout_one_list() -> Result<()> {
         let (_server, sliding_sync) = new_sliding_sync(vec![
-            SlidingSyncList::builder("foo").sync_mode(SlidingSyncMode::new_growing(10))
+            SlidingSyncList::builder("foo").sync_mode(SlidingSyncMode::new_growing(10)),
         ])
         .await?;
 

@@ -15,15 +15,15 @@
 use matrix_sdk_base::deserialized_responses::TimelineEvent;
 use matrix_sdk_search::index::RoomIndexOperation;
 use ruma::{
+    EventId,
     events::{
+        AnySyncMessageLikeEvent, AnySyncTimelineEvent,
         room::{
             message::{OriginalSyncRoomMessageEvent, Relation, SyncRoomMessageEvent},
             redaction::SyncRoomRedactionEvent,
         },
-        AnySyncMessageLikeEvent, AnySyncTimelineEvent,
     },
     room_version_rules::RedactionRules,
-    EventId,
 };
 use tracing::warn;
 
@@ -35,7 +35,7 @@ async fn get_most_recent_edit(
     cache: &RoomEventCache,
     original: &EventId,
 ) -> Option<OriginalSyncRoomMessageEvent> {
-    use ruma::events::{relation::RelationType, AnySyncTimelineEvent};
+    use ruma::events::{AnySyncTimelineEvent, relation::RelationType};
 
     let Some((original_ev, related)) =
         cache.find_event_with_relations(original, Some(vec![RelationType::Replacement])).await

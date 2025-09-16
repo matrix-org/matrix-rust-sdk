@@ -2,12 +2,12 @@ use std::collections::BTreeSet;
 
 use futures_util::future::try_join_all;
 use matrix_sdk_base::{
-    sync::SyncResponse, timer, RequestedRequiredStates, ThreadSubscriptionCatchupToken,
+    RequestedRequiredStates, ThreadSubscriptionCatchupToken, sync::SyncResponse, timer,
 };
 use matrix_sdk_common::deserialized_responses::ProcessedToDeviceEvent;
 use ruma::api::{
-    client::sync::sync_events::v5::{self as http, response},
     FeatureFlag, SupportedVersions,
+    client::sync::sync_events::v5::{self as http, response},
 };
 use tracing::error;
 
@@ -329,8 +329,8 @@ mod tests {
 
     use assert_matches::assert_matches;
     use matrix_sdk_base::{
-        notification_settings::RoomNotificationMode, RequestedRequiredStates,
-        RoomInfoNotableUpdate, RoomInfoNotableUpdateReasons,
+        RequestedRequiredStates, RoomInfoNotableUpdate, RoomInfoNotableUpdateReasons,
+        notification_settings::RoomNotificationMode,
     };
     use matrix_sdk_test::async_test;
     use ruma::{
@@ -341,10 +341,10 @@ mod tests {
 
     use super::{Version, VersionBuilder};
     use crate::{
-        error::Result,
-        sliding_sync::{client::SlidingSyncResponseProcessor, http, VersionBuilderError},
-        test_utils::{client::MockClientBuilder, mocks::MatrixMockServer},
         SlidingSyncList, SlidingSyncMode,
+        error::Result,
+        sliding_sync::{VersionBuilderError, client::SlidingSyncResponseProcessor, http},
+        test_utils::{client::MockClientBuilder, mocks::MatrixMockServer},
     };
 
     #[test]

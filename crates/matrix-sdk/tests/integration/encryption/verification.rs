@@ -1,16 +1,16 @@
 use assert_matches2::assert_matches;
 use futures_util::FutureExt;
 use matrix_sdk::{
+    Client,
     encryption::VerificationState,
     test_utils::{logged_in_client_with_server, mocks::MatrixMockServer},
-    Client,
 };
 use matrix_sdk_test::async_test;
 use ruma::{owned_device_id, owned_user_id, user_id};
 use serde_json::json;
 use wiremock::{
-    matchers::{body_json, method, path},
     Mock, ResponseTemplate,
+    matchers::{body_json, method, path},
 };
 
 async fn bootstrap_cross_signing(client: &Client) {

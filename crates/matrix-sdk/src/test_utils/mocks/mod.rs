@@ -19,17 +19,19 @@
 
 use std::{
     collections::BTreeMap,
-    sync::{atomic::AtomicU32, Arc, Mutex},
+    sync::{Arc, Mutex, atomic::AtomicU32},
 };
 
 use js_int::UInt;
 use matrix_sdk_base::deserialized_responses::TimelineEvent;
 use matrix_sdk_test::{
-    test_json, InvitedRoomBuilder, JoinedRoomBuilder, KnockedRoomBuilder, LeftRoomBuilder,
-    SyncResponseBuilder,
+    InvitedRoomBuilder, JoinedRoomBuilder, KnockedRoomBuilder, LeftRoomBuilder,
+    SyncResponseBuilder, test_json,
 };
 use percent_encoding::{AsciiSet, CONTROLS};
 use ruma::{
+    DeviceId, EventId, MilliSecondsSinceUnixEpoch, MxcUri, OwnedDeviceId, OwnedEventId,
+    OwnedOneTimeKeyId, OwnedRoomId, OwnedUserId, RoomId, ServerName, UserId,
     api::client::{
         receipt::create_receipt::v3::ReceiptType,
         room::Visibility,
@@ -42,26 +44,24 @@ use ruma::{
     directory::PublicRoomsChunk,
     encryption::{CrossSigningKey, DeviceKeys, OneTimeKey},
     events::{
-        receipt::ReceiptThread, room::member::RoomMemberEvent, AnyStateEvent, AnySyncTimelineEvent,
-        AnyTimelineEvent, GlobalAccountDataEventType, MessageLikeEventType,
-        RoomAccountDataEventType, StateEventType,
+        AnyStateEvent, AnySyncTimelineEvent, AnyTimelineEvent, GlobalAccountDataEventType,
+        MessageLikeEventType, RoomAccountDataEventType, StateEventType, receipt::ReceiptThread,
+        room::member::RoomMemberEvent,
     },
     media::Method,
     push::RuleKind,
     serde::Raw,
     time::Duration,
-    DeviceId, EventId, MilliSecondsSinceUnixEpoch, MxcUri, OwnedDeviceId, OwnedEventId,
-    OwnedOneTimeKeyId, OwnedRoomId, OwnedUserId, RoomId, ServerName, UserId,
 };
 use serde::Deserialize;
-use serde_json::{from_value, json, Value};
+use serde_json::{Value, from_value, json};
 use tokio::sync::oneshot::{self, Receiver};
 use wiremock::{
+    Mock, MockBuilder, MockGuard, MockServer, Request, Respond, ResponseTemplate, Times,
     matchers::{
         body_json, body_partial_json, header, method, path, path_regex, query_param,
         query_param_is_missing,
     },
-    Mock, MockBuilder, MockGuard, MockServer, Request, Respond, ResponseTemplate, Times,
 };
 
 #[cfg(feature = "e2e-encryption")]
@@ -69,7 +69,7 @@ pub mod encryption;
 pub mod oauth;
 
 use super::client::MockClientBuilder;
-use crate::{room::IncludeRelations, Client, OwnedServerName, Room, SlidingSyncBuilder};
+use crate::{Client, OwnedServerName, Room, SlidingSyncBuilder, room::IncludeRelations};
 
 /// Structure used to store the crypto keys uploaded to the server.
 /// They will be served back to clients when requested.

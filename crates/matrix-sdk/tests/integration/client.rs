@@ -4,7 +4,8 @@ use assert_matches2::{assert_let, assert_matches};
 use eyeball_im::VectorDiff;
 use futures_util::FutureExt;
 use matrix_sdk::{
-    authentication::oauth::{error::OAuthTokenRevocationError, OAuthError},
+    Client, Error, MemoryStore, SlidingSyncList, StateChanges, StateStore, ThreadingSupport,
+    authentication::oauth::{OAuthError, error::OAuthTokenRevocationError},
     config::{RequestConfig, StoreConfig, SyncSettings, SyncToken},
     sleep::sleep,
     store::{RoomLoadSettings, ThreadSubscriptionStatus},
@@ -12,26 +13,24 @@ use matrix_sdk::{
     test_utils::{
         client::mock_matrix_session, mocks::MatrixMockServer, no_retry_test_client_with_server,
     },
-    Client, Error, MemoryStore, SlidingSyncList, StateChanges, StateStore, ThreadingSupport,
 };
-use matrix_sdk_base::{sync::RoomUpdates, RoomState};
+use matrix_sdk_base::{RoomState, sync::RoomUpdates};
 use matrix_sdk_common::executor::spawn;
 use matrix_sdk_test::{
-    async_test,
+    DEFAULT_TEST_ROOM_ID, JoinedRoomBuilder, SyncResponseBuilder, async_test,
     event_factory::EventFactory,
     sync_state_event,
     test_json::{
-        self,
+        self, TAG,
         sync::{
             MIXED_INVITED_ROOM_ID, MIXED_JOINED_ROOM_ID, MIXED_KNOCKED_ROOM_ID, MIXED_LEFT_ROOM_ID,
             MIXED_SYNC,
         },
         sync_events::PINNED_EVENTS,
-        TAG,
     },
-    JoinedRoomBuilder, SyncResponseBuilder, DEFAULT_TEST_ROOM_ID,
 };
 use ruma::{
+    EventId, OwnedUserId, RoomId,
     api::client::{
         directory::{
             get_public_rooms,
@@ -47,25 +46,25 @@ use ruma::{
     directory::Filter,
     event_id,
     events::{
+        AnyInitialStateEvent,
         direct::{DirectEventContent, OwnedDirectUserIdentifier},
         room::{
             encrypted::OriginalSyncRoomEncryptedEvent, history_visibility::HistoryVisibility,
             member::MembershipState,
         },
-        AnyInitialStateEvent,
     },
     owned_event_id, owned_room_id,
     room::JoinRule,
     room_id,
     serde::Raw,
-    uint, user_id, EventId, OwnedUserId, RoomId,
+    uint, user_id,
 };
-use serde_json::{json, Value as JsonValue};
+use serde_json::{Value as JsonValue, json};
 use stream_assert::{assert_next_matches, assert_pending};
 use tokio_stream::wrappers::BroadcastStream;
 use wiremock::{
-    matchers::{header, method, path, path_regex},
     Mock, Request, ResponseTemplate,
+    matchers::{header, method, path, path_regex},
 };
 
 use crate::{logged_in_client_with_server, mock_sync};

@@ -20,9 +20,9 @@ use driver_req::{ReadStateRequest, UpdateDelayedEventRequest};
 use from_widget::UpdateDelayedEventResponse;
 use indexmap::IndexMap;
 use ruma::{
+    OwnedRoomId,
     events::{AnyStateEvent, AnyTimelineEvent},
     serde::{JsonObject, Raw},
-    OwnedRoomId,
 };
 use serde::Serialize;
 use serde_json::value::RawValue as RawJsonValue;
@@ -49,11 +49,11 @@ use self::{
 #[cfg(doc)]
 use super::WidgetDriver;
 use super::{
+    Capabilities, StateEventFilter, StateKeySelector,
     capabilities::{SEND_DELAYED_EVENT, UPDATE_DELAYED_EVENT},
     filter::FilterInput,
-    Capabilities, StateEventFilter, StateKeySelector,
 };
-use crate::{widget::Filter, Error, Result};
+use crate::{Error, Result, widget::Filter};
 
 mod driver_req;
 mod from_widget;

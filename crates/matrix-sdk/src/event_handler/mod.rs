@@ -39,8 +39,8 @@ use std::{
     future::Future,
     pin::Pin,
     sync::{
-        atomic::{AtomicU64, Ordering::SeqCst},
         Arc, RwLock, Weak,
+        atomic::{AtomicU64, Ordering::SeqCst},
     },
     task::{Context, Poll},
 };
@@ -53,14 +53,14 @@ use eyeball::{SharedObservable, Subscriber};
 use futures_core::Stream;
 use futures_util::stream::{FuturesUnordered, StreamExt};
 use matrix_sdk_base::{
+    SendOutsideWasm, SyncOutsideWasm,
     deserialized_responses::{EncryptionInfo, TimelineEvent},
     sync::State,
-    SendOutsideWasm, SyncOutsideWasm,
 };
 use matrix_sdk_common::deserialized_responses::ProcessedToDeviceEvent;
 use pin_project_lite::pin_project;
-use ruma::{events::BooleanType, push::Action, serde::Raw, OwnedRoomId};
-use serde::{de::DeserializeOwned, Deserialize};
+use ruma::{OwnedRoomId, events::BooleanType, push::Action, serde::Raw};
+use serde::{Deserialize, de::DeserializeOwned};
 use serde_json::value::RawValue as RawJsonValue;
 use tracing::{debug, error, field::debug, instrument, warn};
 
@@ -137,19 +137,11 @@ pub enum HandlerKind {
 
 impl HandlerKind {
     fn message_like_redacted(redacted: bool) -> Self {
-        if redacted {
-            Self::RedactedMessageLike
-        } else {
-            Self::OriginalMessageLike
-        }
+        if redacted { Self::RedactedMessageLike } else { Self::OriginalMessageLike }
     }
 
     fn state_redacted(redacted: bool) -> Self {
-        if redacted {
-            Self::RedactedState
-        } else {
-            Self::OriginalState
-        }
+        if redacted { Self::RedactedState } else { Self::OriginalState }
     }
 }
 
@@ -735,9 +727,8 @@ where
 #[cfg(test)]
 mod tests {
     use matrix_sdk_test::{
-        async_test,
+        DEFAULT_TEST_ROOM_ID, InvitedRoomBuilder, JoinedRoomBuilder, async_test,
         event_factory::{EventFactory, PreviousMembership},
-        InvitedRoomBuilder, JoinedRoomBuilder, DEFAULT_TEST_ROOM_ID,
     };
     use serde::Serialize;
     use stream_assert::{assert_closed, assert_pending, assert_ready};
@@ -746,8 +737,8 @@ mod tests {
     use std::{
         future,
         sync::{
-            atomic::{AtomicU8, Ordering::SeqCst},
             Arc,
+            atomic::{AtomicU8, Ordering::SeqCst},
         },
     };
 
@@ -758,6 +749,7 @@ mod tests {
     use ruma::{
         event_id,
         events::{
+            AnySyncStateEvent, AnySyncTimelineEvent, AnyToDeviceEvent,
             macros::EventContent,
             room::{
                 member::{MembershipState, OriginalSyncRoomMemberEvent, StrippedRoomMemberEvent},
@@ -766,7 +758,6 @@ mod tests {
             },
             secret_storage::key::SecretStorageKeyEvent,
             typing::SyncTypingEvent,
-            AnySyncStateEvent, AnySyncTimelineEvent, AnyToDeviceEvent,
         },
         room_id,
         serde::Raw,
@@ -775,9 +766,9 @@ mod tests {
     use serde_json::json;
 
     use crate::{
+        Client, Room,
         event_handler::Ctx,
         test_utils::{logged_in_client, no_retry_test_client},
-        Client, Room,
     };
 
     static MEMBER_EVENT: Lazy<Raw<AnySyncTimelineEvent>> = Lazy::new(|| {
