@@ -12,7 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License
 
-use crate::media_store::serializer::indexed_types::IndexedMediaContentSize;
+use crate::{
+    media_store::{serializer::indexed_types::IndexedMediaContentSize, types::UnixTime},
+    serializer::INDEXED_KEY_UPPER_DURATION_SECONDS,
+};
 
 /// An [`IndexedMediaContentSize`] set to it's minimal value - i.e., `0`.
 ///
@@ -30,3 +33,19 @@ pub const INDEXED_KEY_LOWER_MEDIA_CONTENT_SIZE: IndexedMediaContentSize = 0;
 /// [`INDEXED_KEY_LOWER_MEDIA_CONTENT_SIZE`].
 pub const INDEXED_KEY_UPPER_MEDIA_CONTENT_SIZE: IndexedMediaContentSize =
     js_sys::Number::MAX_SAFE_INTEGER as usize;
+
+/// The earliest [`UnixTime`] which can be represented in IndexedDB.
+///
+/// This value is useful for constructing a key range over all keys which
+/// contain time-related values when used in conjunction with
+/// [`INDEXED_KEY_UPPER_UNIX_TIME`].
+pub const INDEXED_KEY_LOWER_UNIX_TIME: UnixTime =
+    UnixTime::BeforeEpoch(INDEXED_KEY_UPPER_DURATION_SECONDS);
+
+/// The latest [`UnixTime`] which can be represented in IndexedDB.
+///
+/// This value is useful for constructing a key range over all keys which
+/// contain time-related values when used in conjunction with
+/// [`INDEXED_KEY_LOWER_UNIX_TIME`].
+pub const INDEXED_KEY_UPPER_UNIX_TIME: UnixTime =
+    UnixTime::AfterEpoch(INDEXED_KEY_UPPER_DURATION_SECONDS);

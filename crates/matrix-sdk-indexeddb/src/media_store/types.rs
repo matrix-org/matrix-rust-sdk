@@ -50,7 +50,7 @@ pub struct MediaMetadata {
     /// [`Media::content`]
     pub request_parameters: MediaRequestParameters,
     /// The last time the media was accessed in IndexedDB
-    pub last_access: Duration,
+    pub last_access: UnixTime,
     /// Whether to ignore the [`MediaRetentionPolicy`][1] stored in IndexedDB
     ///
     /// [1]: matrix_sdk_base::media::store::MediaRetentionPolicy

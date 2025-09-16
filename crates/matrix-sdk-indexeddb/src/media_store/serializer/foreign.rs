@@ -53,3 +53,55 @@ pub mod ignore_media_retention_policy {
         })
     }
 }
+
+pub mod unix_time {
+    //! This module contains an alternative implementation of
+    //! [`serde::Serialize`] and [`serde::Deserialize`] for [`UnixTime`].
+    //! These implementations can be injected with the proper macros, i.e.,
+    //! `#[serde(with = "path::to::this::module")]`.
+    //!
+    //! This is necessary, as the derived implementation of [`UnixTime`] does
+    //! not produce values which can be used in IndexedDB keys.
+
+    use std::time::Duration;
+
+    use serde::{Deserializer, Serializer};
+
+    use crate::media_store::types::UnixTime;
+
+    /// Serializes a [`UnixTime`] as an `i64` which represents an amount of
+    /// seconds relative to the [`UNIX_EPOCH`](ruma::time::UNIX_EPOCH).
+    /// [`UnixTime::BeforeEpoch`] is represented as a negative value
+    /// and [`UnixTime::AfterEpoch`] is represented as a positive value.
+    pub fn serialize<S>(unix_time: &UnixTime, s: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        s.serialize_i64(match unix_time {
+            UnixTime::BeforeEpoch(duration) => {
+                -i64::try_from(duration.as_secs()).map_err(serde::ser::Error::custom)?
+            }
+            UnixTime::AfterEpoch(duration) => {
+                i64::try_from(duration.as_secs()).map_err(serde::ser::Error::custom)?
+            }
+        })
+    }
+
+    /// Deserializes an `i64` into a [`UnixTime`]. Negative values represent
+    /// the number of seconds before the [`UNIX_EPOCH`][1] and are deserialized
+    /// into [`UnixTime::BeforeEpoch`]. Positive values represent
+    /// the number of seconds after the [`UNIX_EPOCH`][1] and are deserialized
+    /// into [`UnixTime::AfterEpoch`].
+    ///
+    /// [1]: ruma::time::UNIX_EPOCH
+    pub fn deserialize<'de, D>(d: D) -> Result<UnixTime, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let seconds: i64 = serde::de::Deserialize::deserialize(d)?;
+        Ok(match seconds {
+            seconds @ ..0 => UnixTime::BeforeEpoch(Duration::from_secs(seconds.unsigned_abs())),
+            seconds @ 0.. => UnixTime::AfterEpoch(Duration::from_secs(seconds.unsigned_abs())),
+        })
+    }
+}
