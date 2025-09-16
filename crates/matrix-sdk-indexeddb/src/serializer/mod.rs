@@ -12,9 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#[cfg(feature = "e2e-encryption")]
 pub mod foreign;
 
+#[cfg(feature = "e2e-encryption")]
 pub mod indexed_type;
+#[cfg(feature = "e2e-encryption")]
 pub use indexed_type::{
     constants::{
         INDEXED_KEY_LOWER_CHARACTER, INDEXED_KEY_LOWER_DURATION, INDEXED_KEY_LOWER_STRING,
@@ -29,4 +32,5 @@ pub use indexed_type::{
 };
 
 pub mod safe_encode;
-pub use safe_encode::{MaybeEncrypted, SafeEncodeSerializer, SafeEncodeSerializerError};
+#[cfg(feature = "e2e-encryption")]
+pub use safe_encode::types::{MaybeEncrypted, SafeEncodeSerializer, SafeEncodeSerializerError};
