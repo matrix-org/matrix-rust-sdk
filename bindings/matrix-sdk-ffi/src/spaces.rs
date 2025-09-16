@@ -233,6 +233,8 @@ pub struct SpaceRoom {
     pub state: Option<Membership>,
     /// A list of room members considered to be heroes.
     pub heroes: Option<Vec<RoomHero>>,
+    /// The via parameters of the room.
+    pub via: Vec<String>,
 }
 
 impl From<UISpaceRoom> for SpaceRoom {
@@ -251,6 +253,7 @@ impl From<UISpaceRoom> for SpaceRoom {
             children_count: room.children_count,
             state: room.state.map(Into::into),
             heroes: room.heroes.map(|heroes| heroes.into_iter().map(Into::into).collect()),
+            via: room.via.into_iter().map(Into::into).collect(),
         }
     }
 }
