@@ -49,11 +49,11 @@ pub enum PaginatorState {
 
 /// Paginations tokens used for backward and forward pagination.
 #[derive(Debug)]
-struct PaginationTokens {
+pub(crate) struct PaginationTokens {
     /// Pagination token used for backward pagination.
-    previous: PaginationToken,
+    pub(crate) previous: PaginationToken,
     /// Pagination token used for forward pagination.
-    next: PaginationToken,
+    pub(crate) next: PaginationToken,
 }
 
 /// A stateful object to reach to an event, and then paginate backward and
