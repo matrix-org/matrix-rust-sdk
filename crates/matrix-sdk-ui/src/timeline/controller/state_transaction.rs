@@ -410,7 +410,7 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
                 room_data_provider.is_pinned_event(event.event_id())
             }
 
-            TimelineFocusKind::Event { hide_threaded_events, .. } => {
+            TimelineFocusKind::Event { hide_threaded_events, paginator: _ } => {
                 // If the timeline's filtering out in-thread events, don't add items for
                 // threaded events.
                 if thread_root.is_some() && *hide_threaded_events {
