@@ -1756,11 +1756,11 @@ impl Client {
     /// Gets the list of recently used emojis from the `io.element.recent_emoji`
     /// global account data.
     #[cfg(feature = "experimental-element-recent-emojis")]
-    pub async fn get_recent_emojis(&self) -> Result<Vec<RecentEmoji>, ClientError> {
+    pub async fn get_recent_emojis(&self, limit: u64) -> Result<Vec<RecentEmoji>, ClientError> {
         Ok(self
             .inner
             .account()
-            .get_recent_emojis(false)
+            .get_recent_emojis(false, limit as usize)
             .await?
             .into_iter()
             .map(|(emoji, count)| RecentEmoji { emoji, count: count.into() })
