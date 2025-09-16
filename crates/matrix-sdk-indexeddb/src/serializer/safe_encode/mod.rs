@@ -13,7 +13,6 @@
 // limitations under the License.
 
 pub mod traits;
-pub use traits::SafeEncode;
 
 #[cfg(feature = "e2e-encryption")]
 pub mod types;

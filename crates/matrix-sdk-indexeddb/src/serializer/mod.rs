@@ -15,9 +15,15 @@
 #[cfg(feature = "e2e-encryption")]
 pub mod foreign;
 
-#[cfg(feature = "e2e-encryption")]
+#[cfg(all(
+    feature = "e2e-encryption",
+    any(feature = "event-cache-store", feature = "media-store")
+))]
 pub mod indexed_type;
-#[cfg(feature = "e2e-encryption")]
+#[cfg(all(
+    feature = "e2e-encryption",
+    any(feature = "event-cache-store", feature = "media-store")
+))]
 pub use indexed_type::{
     constants::{
         INDEXED_KEY_LOWER_CHARACTER, INDEXED_KEY_LOWER_DURATION, INDEXED_KEY_LOWER_STRING,
