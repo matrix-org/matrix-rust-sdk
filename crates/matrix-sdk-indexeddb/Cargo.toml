@@ -20,6 +20,9 @@ media-store = ["dep:matrix-sdk-base"]
 state-store = ["dep:matrix-sdk-base", "growable-bloom-filter"]
 e2e-encryption = ["dep:matrix-sdk-crypto"]
 testing = ["matrix-sdk-crypto?/testing"]
+experimental-encrypted-state-events = [
+    "matrix-sdk-crypto?/experimental-encrypted-state-events"
+]
 
 [dependencies]
 anyhow.workspace = true
