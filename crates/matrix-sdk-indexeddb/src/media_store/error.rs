@@ -13,9 +13,10 @@
 // limitations under the License
 
 use matrix_sdk_base::media::store::{MediaStore, MediaStoreError, MemoryMediaStore};
+use serde::de::Error;
 use thiserror::Error;
 
-use crate::media_store::transaction::IndexeddbMediaStoreTransactionError;
+use crate::transaction::TransactionError;
 
 #[derive(Debug, Error)]
 pub enum IndexeddbMediaStoreError {
@@ -23,7 +24,7 @@ pub enum IndexeddbMediaStoreError {
     MemoryStore(<MemoryMediaStore as MediaStore>::Error),
 
     #[error("transaction: {0}")]
-    Transaction(#[from] IndexeddbMediaStoreTransactionError),
+    Transaction(#[from] TransactionError),
 
     #[error("DomException {name} ({code}): {message}")]
     DomException { name: String, message: String, code: u16 },
@@ -44,5 +45,17 @@ impl From<IndexeddbMediaStoreError> for MediaStoreError {
 impl From<web_sys::DomException> for IndexeddbMediaStoreError {
     fn from(value: web_sys::DomException) -> Self {
         Self::DomException { name: value.name(), message: value.message(), code: value.code() }
+    }
+}
+
+impl From<TransactionError> for MediaStoreError {
+    fn from(value: TransactionError) -> Self {
+        use TransactionError::*;
+
+        match value {
+            DomException { .. } => Self::InvalidData { details: value.to_string() },
+            Serialization(e) => Self::Serialization(serde_json::Error::custom(e.to_string())),
+            ItemIsNotUnique | ItemNotFound => Self::InvalidData { details: value.to_string() },
+        }
     }
 }
