@@ -996,7 +996,7 @@ mod tests_latest_event_content {
     use ruma::{
         event_id,
         events::{room::message::RoomMessageEventContent, rtc::notification::NotificationType},
-        user_id,
+        owned_user_id, user_id,
     };
 
     use super::filter_timeline_event;
@@ -1099,9 +1099,10 @@ mod tests_latest_event_content {
                 event_factory
                      .rtc_notification(
                         NotificationType::Ring,
-                        None,
-                        None,
                     )
+                    .mentions(vec![owned_user_id!("@alice:server.name")])
+                    .relates_to_membership_state_event(ruma::OwnedEventId::try_from("!1234").unwrap())
+                    .lifetime(60)
                     .into_event()
             }
             is a candidate

@@ -1007,17 +1007,12 @@ impl EventFactory {
     pub fn rtc_notification(
         &self,
         notification_type: NotificationType,
-        mentions: Option<Mentions>,
-        rtc_membership_event_id: Option<OwnedEventId>,
     ) -> EventBuilder<RtcNotificationEventContent> {
-        let mut content = RtcNotificationEventContent::new(
+        self.event(RtcNotificationEventContent::new(
             MilliSecondsSinceUnixEpoch::now(),
-            Duration::new(20, 0),
+            Duration::new(30, 0),
             notification_type,
-        );
-        content.relates_to = rtc_membership_event_id.map(Reference::new);
-        content.mentions = mentions;
-        self.event(content)
+        ))
     }
 
     // Creates a new `org.matrix.msc4310.rtc.decline` event.
@@ -1196,6 +1191,23 @@ impl EventBuilder<RoomAvatarEventContent> {
     /// Defines the image info for the avatar.
     pub fn info(mut self, image: avatar::ImageInfo) -> Self {
         self.content.info = Some(Box::new(image));
+        self
+    }
+}
+
+impl EventBuilder<RtcNotificationEventContent> {
+    pub fn mentions(mut self, users: impl IntoIterator<Item = OwnedUserId>) -> Self {
+        self.content.mentions = Some(Mentions::with_user_ids(users));
+        self
+    }
+
+    pub fn relates_to_membership_state_event(mut self, event_id: OwnedEventId) -> Self {
+        self.content.relates_to = Some(Reference::new(event_id));
+        self
+    }
+
+    pub fn lifetime(mut self, time_in_seconds: u64) -> Self {
+        self.content.lifetime = Duration::from_secs(time_in_seconds);
         self
     }
 }

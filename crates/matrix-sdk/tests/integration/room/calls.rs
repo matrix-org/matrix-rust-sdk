@@ -25,7 +25,7 @@ async fn test_subscribe_to_decline_call_events() {
         .sync_room(
             &client,
             JoinedRoomBuilder::new(room_id).add_timeline_event(
-                f.rtc_notification(NotificationType::Ring, None, None)
+                f.rtc_notification(NotificationType::Ring)
                     .sender(user_id!("@alice:matrix.org"))
                     .event_id(&notification_event_id),
             ),
@@ -104,12 +104,12 @@ async fn test_decline_call() {
             JoinedRoomBuilder::new(room_id)
                 .add_state_event(StateTestEvent::Encryption)
                 .add_timeline_event(
-                    f.rtc_notification(NotificationType::Ring, None, None)
+                    f.rtc_notification(NotificationType::Ring)
                         .sender(user_id!("@alice:matrix.org"))
                         .event_id(&notification_event_id),
                 )
                 .add_timeline_event(
-                    f.rtc_notification(NotificationType::Ring, None, None)
+                    f.rtc_notification(NotificationType::Ring)
                         .sender(user_id!("@example:localhost"))
                         .event_id(&own_notification_event_id),
                 )
