@@ -18,6 +18,8 @@ mod serialize_bool_for_indexeddb;
 mod serializer;
 #[cfg(feature = "state-store")]
 mod state_store;
+#[cfg(any(feature = "event-cache-store", feature = "media-store"))]
+mod transaction;
 
 #[cfg(feature = "e2e-encryption")]
 pub use crypto_store::{IndexeddbCryptoStore, IndexeddbCryptoStoreError};
