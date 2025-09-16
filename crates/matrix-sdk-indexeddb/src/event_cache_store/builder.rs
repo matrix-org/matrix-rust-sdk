@@ -12,6 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License
 
+// At the moment, this builder is not public outside of the crate, so we
+// get a few dead code warnings; however, this will eventually be a public
+// type, at which point the line below can be removed.
+#![allow(dead_code)]
+
 use std::{rc::Rc, sync::Arc};
 
 use matrix_sdk_store_encryption::StoreCipher;
