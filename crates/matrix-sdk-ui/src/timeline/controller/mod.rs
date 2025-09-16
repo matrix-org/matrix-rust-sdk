@@ -47,7 +47,7 @@ use ruma::{
     room_version_rules::RoomVersionRules,
     serde::Raw,
 };
-use tokio::sync::{RwLock, RwLockWriteGuard};
+use tokio::sync::{OnceCell, RwLock, RwLockWriteGuard};
 use tracing::{debug, error, field::debug, info, instrument, trace, warn};
 
 pub(super) use self::{
@@ -90,6 +90,10 @@ mod state_transaction;
 
 pub(super) use aggregations::*;
 pub(super) use decryption_retry_task::{CryptoDropHandles, spawn_crypto_tasks};
+use matrix_sdk::paginators::{PaginatorError::NotInstantiated, thread::ThreadedEventsLoader};
+use matrix_sdk_common::{
+    deserialized_responses::TimelineEventKind, serde_helpers::extract_thread_root,
+};
 
 /// Data associated to the current timeline focus.
 ///
@@ -108,7 +112,7 @@ pub(in crate::timeline) enum TimelineFocusKind<P: RoomDataProvider> {
     /// direction or another.
     Event {
         /// The paginator instance.
-        paginator: Paginator<P>,
+        paginator: OnceCell<AnyPaginator<P>>,
 
         /// Whether to hide in-thread events from the timeline.
         hide_threaded_events: bool,
@@ -123,6 +127,12 @@ pub(in crate::timeline) enum TimelineFocusKind<P: RoomDataProvider> {
     PinnedEvents {
         loader: PinnedEventsLoader,
     },
+}
+
+#[derive(Debug)]
+pub(in crate::timeline) enum AnyPaginator<P: RoomDataProvider> {
+    Unthreaded(Paginator<P>),
+    Threaded(ThreadedEventsLoader<P>),
 }
 
 impl<P: RoomDataProvider> TimelineFocusKind<P> {
@@ -160,9 +170,15 @@ impl<P: RoomDataProvider> TimelineFocusKind<P> {
     /// If the focus is a thread, returns its root event ID.
     fn thread_root(&self) -> Option<&EventId> {
         match self {
-            TimelineFocusKind::Live { .. }
-            | TimelineFocusKind::Event { paginator: _, hide_threaded_events: _ }
-            | TimelineFocusKind::PinnedEvents { .. } => None,
+            TimelineFocusKind::Event { paginator, hide_threaded_events: _ } => {
+                match paginator.get() {
+                    Some(AnyPaginator::Threaded(threaded_event_loader)) => {
+                        Some(&threaded_event_loader.root_event_id)
+                    }
+                    _ => None,
+                }
+            }
+            TimelineFocusKind::Live { .. } | TimelineFocusKind::PinnedEvents { .. } => None,
             TimelineFocusKind::Thread { root_event_id } => Some(root_event_id),
         }
     }
@@ -323,8 +339,7 @@ impl<P: RoomDataProvider> TimelineController<P> {
             }
 
             TimelineFocus::Event { hide_threaded_events, .. } => {
-                let paginator = Paginator::new(room_data_provider.clone());
-                TimelineFocusKind::Event { paginator, hide_threaded_events }
+                TimelineFocusKind::Event { paginator: OnceCell::new(), hide_threaded_events }
             }
 
             TimelineFocus::Thread { root_event_id, .. } => {
@@ -398,16 +413,46 @@ impl<P: RoomDataProvider> TimelineController<P> {
                     unreachable!();
                 };
 
-                // Start a /context request, and append the results (in order) to the timeline.
-                let start_from_result = paginator
+                let event_paginator = Paginator::new(self.room_data_provider.clone());
+
+                // Start a /context request so we can know if the event is in a thread or not
+                let start_from_result = event_paginator
                     .start_from(event_id, (*num_context_events).into())
                     .await
                     .map_err(PaginationError::Paginator)?;
 
+                let thread_root_event_id = start_from_result
+                    .events
+                    .iter()
+                    .find(
+                        |event| {
+                            if let Some(id) = event.event_id() { id == *event_id } else { false }
+                        },
+                    )
+                    .and_then(|raw_event| match &raw_event.kind {
+                        TimelineEventKind::Decrypted(event) => {
+                            let raw_event = event.event.clone().cast_unchecked();
+                            extract_thread_root(&raw_event)
+                        }
+                        TimelineEventKind::PlainText { event } => extract_thread_root(event),
+                        TimelineEventKind::UnableToDecrypt { .. } => None,
+                    });
+
+                let _ = paginator.set(match thread_root_event_id {
+                    Some(root_id) => AnyPaginator::Threaded(ThreadedEventsLoader::new(
+                        self.room_data_provider.clone(),
+                        root_id,
+                        event_paginator.prev_token(),
+                        event_paginator.next_token(),
+                    )),
+                    None => AnyPaginator::Unthreaded(event_paginator),
+                });
+
                 let has_events = !start_from_result.events.is_empty();
+                let events = start_from_result.events;
 
                 self.replace_with_initial_remote_events(
-                    start_from_result.events,
+                    events.into_iter(),
                     RemoteEventOrigin::Pagination,
                 )
                 .await;
@@ -549,10 +594,17 @@ impl<P: RoomDataProvider> TimelineController<P> {
             | TimelineFocusKind::Thread { .. } => {
                 return Err(PaginationError::NotSupported);
             }
-            TimelineFocusKind::Event { paginator, .. } => paginator
-                .paginate_backward(num_events.into())
-                .await
-                .map_err(PaginationError::Paginator)?,
+            TimelineFocusKind::Event { paginator, .. } => match paginator.get() {
+                Some(AnyPaginator::Unthreaded(event_paginator)) => event_paginator
+                    .paginate_backward(num_events.into())
+                    .await
+                    .map_err(PaginationError::Paginator)?,
+                Some(AnyPaginator::Threaded(threaded_paginator)) => threaded_paginator
+                    .paginate_backwards(num_events.into())
+                    .await
+                    .map_err(PaginationError::Paginator)?,
+                None => return Err(PaginationError::Paginator(NotInstantiated)),
+            },
         };
 
         // Events are in reverse topological order.
@@ -579,10 +631,17 @@ impl<P: RoomDataProvider> TimelineController<P> {
             | TimelineFocusKind::PinnedEvents { .. }
             | TimelineFocusKind::Thread { .. } => return Err(PaginationError::NotSupported),
 
-            TimelineFocusKind::Event { paginator, .. } => paginator
-                .paginate_forward(num_events.into())
-                .await
-                .map_err(PaginationError::Paginator)?,
+            TimelineFocusKind::Event { paginator, .. } => match paginator.get() {
+                Some(AnyPaginator::Unthreaded(event_paginator)) => event_paginator
+                    .paginate_forward(num_events.into())
+                    .await
+                    .map_err(PaginationError::Paginator)?,
+                Some(AnyPaginator::Threaded(threaded_paginator)) => threaded_paginator
+                    .paginate_forwards(num_events.into())
+                    .await
+                    .map_err(PaginationError::Paginator)?,
+                None => return Err(PaginationError::Paginator(NotInstantiated)),
+            },
         };
 
         // Events are in topological order.
