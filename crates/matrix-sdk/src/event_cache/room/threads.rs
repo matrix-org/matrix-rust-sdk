@@ -26,9 +26,9 @@ use tokio::sync::broadcast::{Receiver, Sender};
 use tracing::trace;
 
 use crate::event_cache::{
-    deduplicator::DeduplicationOutcome,
-    room::{events::EventLinkedChunk, LoadMoreEventsBackwardsOutcome},
     BackPaginationOutcome, EventsOrigin, RoomEventCacheLinkedChunkUpdate,
+    deduplicator::DeduplicationOutcome,
+    room::{LoadMoreEventsBackwardsOutcome, events::EventLinkedChunk},
 };
 
 /// An update coming from a thread event cache.
@@ -253,7 +253,7 @@ impl ThreadEventCache {
             // If the gap id is missing, it means that the gap disappeared during
             // pagination; in this case, early return to the caller.
             let gap_id = self.chunk.chunk_identifier(|chunk| {
-                    matches!(chunk.content(), ChunkContent::Gap(Gap { ref prev_token }) if *prev_token == token)
+                    matches!(chunk.content(), ChunkContent::Gap(Gap { prev_token }) if *prev_token == token)
                 })?;
 
             Some(gap_id)
