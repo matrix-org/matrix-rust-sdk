@@ -43,34 +43,10 @@ use crate::{
     serializer::{
         Indexed, IndexedKey, IndexedKeyBounds, IndexedKeyComponentBounds, IndexedPrefixKeyBounds,
         IndexedPrefixKeyComponentBounds, MaybeEncrypted, SafeEncodeSerializer,
+        INDEXED_KEY_LOWER_CHARACTER, INDEXED_KEY_LOWER_STRING, INDEXED_KEY_UPPER_CHARACTER,
+        INDEXED_KEY_UPPER_STRING,
     },
 };
-
-/// The first unicode character, and hence the lower bound for IndexedDB keys
-/// (or key components) which are represented as strings.
-///
-/// This value is useful for constructing a key range over all strings when used
-/// in conjunction with [`INDEXED_KEY_UPPER_CHARACTER`].
-const INDEXED_KEY_LOWER_CHARACTER: char = '\u{0000}';
-
-/// The last unicode character in the [Basic Multilingual Plane][1]. This seems
-/// like a reasonable place to set the upper bound for IndexedDB keys (or key
-/// components) which are represented as strings, though one could
-/// theoretically set it to `\u{10FFFF}`.
-///
-/// This value is useful for constructing a key range over all strings when used
-/// in conjunction with [`INDEXED_KEY_LOWER_CHARACTER`].
-///
-/// [1]: https://en.wikipedia.org/wiki/Plane_(Unicode)#Basic_Multilingual_Plane
-const INDEXED_KEY_UPPER_CHARACTER: char = '\u{FFFF}';
-
-/// Identical to [`INDEXED_KEY_LOWER_CHARACTER`] but represented as a [`String`]
-static INDEXED_KEY_LOWER_STRING: LazyLock<String> =
-    LazyLock::new(|| String::from(INDEXED_KEY_LOWER_CHARACTER));
-
-/// Identical to [`INDEXED_KEY_UPPER_CHARACTER`] but represented as a [`String`]
-static INDEXED_KEY_UPPER_STRING: LazyLock<String> =
-    LazyLock::new(|| String::from(INDEXED_KEY_UPPER_CHARACTER));
 
 /// A [`ChunkIdentifier`] constructed with `0`.
 ///

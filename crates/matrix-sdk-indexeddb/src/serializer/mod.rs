@@ -16,6 +16,10 @@ pub mod foreign;
 
 pub mod indexed_type;
 pub use indexed_type::{
+    constants::{
+        INDEXED_KEY_LOWER_CHARACTER, INDEXED_KEY_LOWER_DURATION, INDEXED_KEY_LOWER_STRING,
+        INDEXED_KEY_UPPER_CHARACTER, INDEXED_KEY_UPPER_DURATION_SECONDS, INDEXED_KEY_UPPER_STRING,
+    },
     range::IndexedKeyRange,
     traits::{
         Indexed, IndexedKey, IndexedKeyBounds, IndexedKeyComponentBounds, IndexedPrefixKeyBounds,

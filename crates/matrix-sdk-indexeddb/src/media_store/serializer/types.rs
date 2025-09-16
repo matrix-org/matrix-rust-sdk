@@ -47,34 +47,10 @@ use crate::{
     serializer::{
         Indexed, IndexedKey, IndexedKeyBounds, IndexedKeyComponentBounds, IndexedPrefixKeyBounds,
         IndexedPrefixKeyComponentBounds, MaybeEncrypted, SafeEncodeSerializer,
+        INDEXED_KEY_LOWER_DURATION, INDEXED_KEY_LOWER_STRING, INDEXED_KEY_UPPER_DURATION_SECONDS,
+        INDEXED_KEY_UPPER_STRING,
     },
 };
-
-/// The first unicode character, and hence the lower bound for IndexedDB keys
-/// (or key components) which are represented as strings.
-///
-/// This value is useful for constructing a key range over all strings when used
-/// in conjunction with [`INDEXED_KEY_UPPER_CHARACTER`].
-const INDEXED_KEY_LOWER_CHARACTER: char = '\u{0000}';
-
-/// The last unicode character in the [Basic Multilingual Plane][1]. This seems
-/// like a reasonable place to set the upper bound for IndexedDB keys (or key
-/// components) which are represented as strings, though one could
-/// theoretically set it to `\u{10FFFF}`.
-///
-/// This value is useful for constructing a key range over all strings when used
-/// in conjunction with [`INDEXED_KEY_LOWER_CHARACTER`].
-///
-/// [1]: https://en.wikipedia.org/wiki/Plane_(Unicode)#Basic_Multilingual_Plane
-const INDEXED_KEY_UPPER_CHARACTER: char = '\u{FFFF}';
-
-/// Identical to [`INDEXED_KEY_LOWER_CHARACTER`] but represented as a [`String`]
-static INDEXED_KEY_LOWER_STRING: LazyLock<String> =
-    LazyLock::new(|| String::from(INDEXED_KEY_LOWER_CHARACTER));
-
-/// Identical to [`INDEXED_KEY_UPPER_CHARACTER`] but represented as a [`String`]
-static INDEXED_KEY_UPPER_STRING: LazyLock<String> =
-    LazyLock::new(|| String::from(INDEXED_KEY_UPPER_CHARACTER));
 
 /// An [`IndexedMediaContentSize`] set to it's minimal value - i.e., `0`.
 ///
@@ -92,22 +68,6 @@ const INDEXED_KEY_LOWER_MEDIA_CONTENT_SIZE: IndexedMediaContentSize = 0;
 /// [`INDEXED_KEY_LOWER_MEDIA_CONTENT_SIZE`].
 const INDEXED_KEY_UPPER_MEDIA_CONTENT_SIZE: IndexedMediaContentSize =
     js_sys::Number::MAX_SAFE_INTEGER as usize;
-
-/// The minimum possible [`Duration`].
-///
-/// This value is useful for constructing a key range over all keys which
-/// contain time-related values when used in conjunction with
-/// [`INDEXED_KEY_UPPER_DURATION`].
-const INDEXED_KEY_LOWER_DURATION: Duration = Duration::ZERO;
-
-/// A [`Duration`] constructed with [`js_sys::Number::MAX_SAFE_INTEGER`]
-/// seconds.
-///
-/// This value is useful for constructing a key range over all keys which
-/// contain time-related values in seconds when used in conjunction with
-/// [`INDEXED_KEY_LOWER_DURATION`].
-const INDEXED_KEY_UPPER_DURATION_SECONDS: Duration =
-    Duration::from_secs(js_sys::Number::MAX_SAFE_INTEGER as u64);
 
 /// A representation of the primary key of the [`CORE`][1] object store.
 /// The key may or may not be hashed depending on the
