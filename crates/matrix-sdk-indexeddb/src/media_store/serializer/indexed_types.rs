@@ -27,8 +27,6 @@
 //! These types mimic the structure of the object stores and indices created in
 //! [`crate::media_store::migrations`].
 
-use std::time::Duration;
-
 use matrix_sdk_base::media::{
     store::{IgnoreMediaRetentionPolicy, MediaRetentionPolicy},
     MediaRequestParameters, UniqueKey,
@@ -43,16 +41,16 @@ use crate::{
         migrations::current::keys,
         serializer::{
             constants::{
-                INDEXED_KEY_LOWER_MEDIA_CONTENT_SIZE, INDEXED_KEY_UPPER_MEDIA_CONTENT_SIZE,
+                INDEXED_KEY_LOWER_MEDIA_CONTENT_SIZE, INDEXED_KEY_LOWER_UNIX_TIME,
+                INDEXED_KEY_UPPER_MEDIA_CONTENT_SIZE, INDEXED_KEY_UPPER_UNIX_TIME,
             },
-            foreign::ignore_media_retention_policy,
+            foreign::{ignore_media_retention_policy, unix_time},
         },
-        types::{Lease, Media},
+        types::{Lease, Media, UnixTime},
     },
     serializer::{
         Indexed, IndexedKey, IndexedKeyComponentBounds, IndexedPrefixKeyComponentBounds,
-        MaybeEncrypted, SafeEncodeSerializer, INDEXED_KEY_LOWER_DURATION, INDEXED_KEY_LOWER_STRING,
-        INDEXED_KEY_UPPER_DURATION_SECONDS, INDEXED_KEY_UPPER_STRING,
+        MaybeEncrypted, SafeEncodeSerializer, INDEXED_KEY_LOWER_STRING, INDEXED_KEY_UPPER_STRING,
     },
 };
 
@@ -380,24 +378,24 @@ impl<'a> IndexedPrefixKeyComponentBounds<'a, Media, IgnoreMediaRetentionPolicy>
 /// index of the [`MEDIA`][1] object store, which is constructed from:
 ///
 /// - The value of [`IgnoreMediaRetentionPolicy`]
-/// - The last time the associated [`IndexedMedia`] was accessed (in seconds
-///   since the Unix Epoch)
+/// - The last time the associated [`IndexedMedia`] was accessed, represented as
+///   a [`UnixTime`]
 ///
 /// [1]: crate::media_store::migrations::v1::create_media_object_store
 #[derive(Debug, Serialize, Deserialize)]
 pub struct IndexedMediaLastAccessKey(
     #[serde(with = "ignore_media_retention_policy")] IgnoreMediaRetentionPolicy,
-    IndexedSecondsSinceUnixEpoch,
+    #[serde(with = "unix_time")] UnixTime,
 );
 
 impl IndexedKey<Media> for IndexedMediaLastAccessKey {
-    type KeyComponents<'a> = (IgnoreMediaRetentionPolicy, Duration);
+    type KeyComponents<'a> = (IgnoreMediaRetentionPolicy, UnixTime);
 
     fn encode(
         (ignore_policy, last_access): Self::KeyComponents<'_>,
         _: &SafeEncodeSerializer,
     ) -> Self {
-        Self(ignore_policy, last_access.as_secs())
+        Self(ignore_policy, last_access)
     }
 }
 
@@ -417,13 +415,13 @@ impl<'a> IndexedPrefixKeyComponentBounds<'a, Media, IgnoreMediaRetentionPolicy>
     fn lower_key_components_with_prefix(
         prefix: IgnoreMediaRetentionPolicy,
     ) -> Self::KeyComponents<'a> {
-        (prefix, INDEXED_KEY_LOWER_DURATION)
+        (prefix, INDEXED_KEY_LOWER_UNIX_TIME)
     }
 
     fn upper_key_components_with_prefix(
         prefix: IgnoreMediaRetentionPolicy,
     ) -> Self::KeyComponents<'a> {
-        (prefix, INDEXED_KEY_UPPER_DURATION_SECONDS)
+        (prefix, INDEXED_KEY_UPPER_UNIX_TIME)
     }
 }
 
@@ -432,26 +430,26 @@ impl<'a> IndexedPrefixKeyComponentBounds<'a, Media, IgnoreMediaRetentionPolicy>
 /// [`MEDIA`][1] object store, which is constructed from:
 ///
 /// - The value of [`IgnoreMediaRetentionPolicy`]
-/// - The last time the associated [`IndexedMedia`] was accessed (in seconds
-///   since the Unix Epoch)
+/// - The last time the associated [`IndexedMedia`] was accessed, represented as
+///   a [`UnixTime`]
 /// - The size in bytes of the associated [`IndexedMedia::content`]
 ///
 /// [1]: crate::media_store::migrations::v1::create_media_object_store
 #[derive(Debug, Serialize, Deserialize)]
 pub struct IndexedMediaRetentionMetadataKey(
     #[serde(with = "ignore_media_retention_policy")] IgnoreMediaRetentionPolicy,
-    IndexedSecondsSinceUnixEpoch,
+    #[serde(with = "unix_time")] UnixTime,
     IndexedMediaContentSize,
 );
 
 impl IndexedKey<Media> for IndexedMediaRetentionMetadataKey {
-    type KeyComponents<'a> = (IgnoreMediaRetentionPolicy, Duration, IndexedMediaContentSize);
+    type KeyComponents<'a> = (IgnoreMediaRetentionPolicy, UnixTime, IndexedMediaContentSize);
 
     fn encode(
         (ignore_policy, last_access, content_size): Self::KeyComponents<'_>,
         _: &SafeEncodeSerializer,
     ) -> Self {
-        Self(ignore_policy, last_access.as_secs(), content_size)
+        Self(ignore_policy, last_access, content_size)
     }
 }
 
@@ -471,12 +469,12 @@ impl<'a> IndexedPrefixKeyComponentBounds<'a, Media, IgnoreMediaRetentionPolicy>
     fn lower_key_components_with_prefix(
         prefix: IgnoreMediaRetentionPolicy,
     ) -> Self::KeyComponents<'a> {
-        (prefix, INDEXED_KEY_LOWER_DURATION, INDEXED_KEY_LOWER_MEDIA_CONTENT_SIZE)
+        (prefix, INDEXED_KEY_LOWER_UNIX_TIME, INDEXED_KEY_LOWER_MEDIA_CONTENT_SIZE)
     }
 
     fn upper_key_components_with_prefix(
         prefix: IgnoreMediaRetentionPolicy,
     ) -> Self::KeyComponents<'a> {
-        (prefix, INDEXED_KEY_UPPER_DURATION_SECONDS, INDEXED_KEY_UPPER_MEDIA_CONTENT_SIZE)
+        (prefix, INDEXED_KEY_UPPER_UNIX_TIME, INDEXED_KEY_UPPER_MEDIA_CONTENT_SIZE)
     }
 }
