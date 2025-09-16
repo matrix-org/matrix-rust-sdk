@@ -22,8 +22,8 @@ use thiserror::Error;
 use web_sys::IdbCursorDirection;
 
 use crate::{
+    error::AsyncErrorDeps,
     media_store::{
-        error::AsyncErrorDeps,
         serializer::types::{IndexedCoreIdKey, IndexedLeaseIdKey},
         types::Lease,
     },

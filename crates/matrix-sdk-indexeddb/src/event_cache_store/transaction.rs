@@ -26,8 +26,8 @@ use thiserror::Error;
 use web_sys::IdbCursorDirection;
 
 use crate::{
+    error::AsyncErrorDeps,
     event_cache_store::{
-        error::AsyncErrorDeps,
         serializer::types::{
             IndexedChunkIdKey, IndexedEventIdKey, IndexedEventPositionKey, IndexedEventRelationKey,
             IndexedEventRoomKey, IndexedGapIdKey, IndexedLeaseIdKey, IndexedNextChunkIdKey,
