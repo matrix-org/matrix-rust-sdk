@@ -312,7 +312,6 @@ impl EventCacheStore for IndexeddbEventCacheStore {
     > {
         let _timer = timer!("method");
 
-        let owned_linked_chunk_id = linked_chunk_id.to_owned();
         let transaction = self.transaction(
             &[keys::LINKED_CHUNKS, keys::EVENTS, keys::GAPS],
             IdbTransactionMode::Readonly,
@@ -517,10 +516,9 @@ impl EventCacheStore for IndexeddbEventCacheStore {
 #[cfg(all(test, target_family = "wasm"))]
 mod tests {
     use matrix_sdk_base::{
-        event_cache::store::{EventCacheStore, EventCacheStoreError},
-        event_cache_store_integration_tests, event_cache_store_integration_tests_time,
+        event_cache::store::EventCacheStoreError, event_cache_store_integration_tests,
+        event_cache_store_integration_tests_time,
     };
-    use matrix_sdk_test::async_test;
     use uuid::Uuid;
 
     use crate::{

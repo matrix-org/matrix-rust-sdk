@@ -14,18 +14,13 @@
 
 use std::ops::Deref;
 
-use indexed_db_futures::{prelude::IdbTransaction, IdbQuerySource};
+use indexed_db_futures::prelude::IdbTransaction;
 use matrix_sdk_base::{
-    event_cache::{store::EventCacheStoreError, Event as RawEvent, Gap as RawGap},
+    event_cache::{Event as RawEvent, Gap as RawGap},
     linked_chunk::{ChunkContent, ChunkIdentifier, LinkedChunkId, RawChunk},
 };
 use ruma::{events::relation::RelationType, EventId, RoomId};
-use serde::{
-    de::{DeserializeOwned, Error},
-    Serialize,
-};
-use thiserror::Error;
-use web_sys::IdbCursorDirection;
+use serde::{de::DeserializeOwned, Serialize};
 
 use crate::{
     error::AsyncErrorDeps,
@@ -33,13 +28,12 @@ use crate::{
         serializer::indexed_types::{
             IndexedChunkIdKey, IndexedEventIdKey, IndexedEventPositionKey, IndexedEventRelationKey,
             IndexedEventRoomKey, IndexedGapIdKey, IndexedLeaseIdKey, IndexedNextChunkIdKey,
-            IndexedRoomId,
         },
         types::{Chunk, ChunkType, Event, Gap, Lease, Position},
     },
     serializer::{
-        Indexed, IndexedKey, IndexedKeyRange, IndexedPrefixKeyBounds,
-        IndexedPrefixKeyComponentBounds, IndexedTypeSerializer,
+        Indexed, IndexedKeyRange, IndexedPrefixKeyBounds, IndexedPrefixKeyComponentBounds,
+        IndexedTypeSerializer,
     },
     transaction::{Transaction, TransactionError},
 };
@@ -62,11 +56,6 @@ impl<'a> Deref for IndexeddbEventCacheStoreTransaction<'a> {
 impl<'a> IndexeddbEventCacheStoreTransaction<'a> {
     pub fn new(transaction: IdbTransaction<'a>, serializer: &'a IndexedTypeSerializer) -> Self {
         Self { transaction: Transaction::new(transaction, serializer) }
-    }
-
-    /// Returns the underlying IndexedDB transaction.
-    pub fn into_inner(self) -> Transaction<'a> {
-        self.transaction
     }
 
     /// Commit all operations tracked in this transaction to IndexedDB.
@@ -130,25 +119,6 @@ impl<'a> IndexeddbEventCacheStoreTransaction<'a> {
         .await
     }
 
-    /// Query IndexedDB for the number of items of type `T` by `K` in the given
-    /// room.
-    pub async fn get_items_count_in_room<'b, T, K>(
-        &self,
-        room_id: &'b RoomId,
-    ) -> Result<usize, TransactionError>
-    where
-        T: Indexed,
-        T::IndexedType: DeserializeOwned,
-        T::Error: AsyncErrorDeps,
-        K: IndexedPrefixKeyBounds<T, &'b RoomId> + Serialize,
-    {
-        self.get_items_count_by_key::<T, K>(IndexedKeyRange::all_with_prefix(
-            room_id,
-            self.serializer().inner(),
-        ))
-        .await
-    }
-
     /// Delete all items of type `T` by key `K` associated with the given linked
     /// chunk id from IndexedDB
     pub async fn delete_items_by_linked_chunk_id<'b, T, K>(
@@ -161,22 +131,6 @@ impl<'a> IndexeddbEventCacheStoreTransaction<'a> {
     {
         self.delete_items_by_key::<T, K>(IndexedKeyRange::all_with_prefix(
             linked_chunk_id,
-            self.serializer().inner(),
-        ))
-        .await
-    }
-
-    /// Delete all items of type `T` by key `K` in the given room from IndexedDB
-    pub async fn delete_items_in_room<'b, T, K>(
-        &self,
-        room_id: &'b RoomId,
-    ) -> Result<(), TransactionError>
-    where
-        T: Indexed,
-        K: IndexedPrefixKeyBounds<T, &'b RoomId> + Serialize,
-    {
-        self.delete_items_by_key::<T, K>(IndexedKeyRange::all_with_prefix(
-            room_id,
             self.serializer().inner(),
         ))
         .await
@@ -394,32 +348,6 @@ impl<'a> IndexeddbEventCacheStoreTransaction<'a> {
     /// room.
     pub async fn get_room_events(&self, room_id: &RoomId) -> Result<Vec<Event>, TransactionError> {
         self.get_items_in_room::<Event, IndexedEventRoomKey>(room_id).await
-    }
-
-    /// Query IndexedDB for events in the given position range matching the
-    /// given linked chunk id.
-    pub async fn get_events_by_position(
-        &self,
-        linked_chunk_id: LinkedChunkId<'_>,
-        range: impl Into<IndexedKeyRange<Position>>,
-    ) -> Result<Vec<Event>, TransactionError> {
-        self.get_items_by_key_components::<Event, IndexedEventPositionKey>(
-            range.into().map(|position| (linked_chunk_id, position)),
-        )
-        .await
-    }
-
-    /// Query IndexedDB for number of events in the given position range
-    /// matching the given linked_chunk_id.
-    pub async fn get_events_count_by_position(
-        &self,
-        linked_chunk_id: LinkedChunkId<'_>,
-        range: impl Into<IndexedKeyRange<Position>>,
-    ) -> Result<usize, TransactionError> {
-        self.get_items_count_by_key_components::<Event, IndexedEventPositionKey>(
-            range.into().map(|position| (linked_chunk_id, position)),
-        )
-        .await
     }
 
     /// Query IndexedDB for events in the given chunk matching the given linked
