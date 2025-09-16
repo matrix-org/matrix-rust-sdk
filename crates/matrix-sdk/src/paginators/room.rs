@@ -339,6 +339,16 @@ impl<PR: PaginableRoom> Paginator<PR> {
 
         Ok(PaginationResult { events: response.chunk, hit_end_of_timeline })
     }
+
+    /// Returns the current `prev_token` used for pagination.
+    pub fn prev_token(&self) -> PaginationToken {
+        self.tokens.lock().unwrap().previous.clone()
+    }
+
+    /// Returns the current `next_token` used for pagination.
+    pub fn next_token(&self) -> PaginationToken {
+        self.tokens.lock().unwrap().next.clone()
+    }
 }
 
 /// A room that can be paginated.
