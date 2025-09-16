@@ -133,30 +133,37 @@ impl<P: RoomDataProvider> TimelineFocusKind<P> {
     /// general, unless they hide in-thread events, in which case they will
     /// use the main thread.
     pub(super) fn receipt_thread(&self) -> ReceiptThread {
+        if let Some(thread_root) = self.thread_root() {
+            ReceiptThread::Thread(thread_root.to_owned())
+        } else if self.hide_threaded_events() {
+            ReceiptThread::Main
+        } else {
+            ReceiptThread::Unthreaded
+        }
+    }
+
+    /// Whether to hide in-thread events from the timeline.
+    fn hide_threaded_events(&self) -> bool {
         match self {
             TimelineFocusKind::Live { hide_threaded_events }
-            | TimelineFocusKind::Event { hide_threaded_events, .. } => {
-                if *hide_threaded_events {
-                    ReceiptThread::Main
-                } else {
-                    ReceiptThread::Unthreaded
-                }
-            }
-            TimelineFocusKind::Thread { root_event_id } => {
-                ReceiptThread::Thread(root_event_id.clone())
-            }
-            TimelineFocusKind::PinnedEvents { .. } => ReceiptThread::Unthreaded,
+            | TimelineFocusKind::Event { hide_threaded_events, .. } => *hide_threaded_events,
+            TimelineFocusKind::Thread { .. } | TimelineFocusKind::PinnedEvents { .. } => false,
         }
     }
 
     /// Whether the focus is on a thread (from a live thread or a thread
     /// permalink).
     fn is_thread(&self) -> bool {
+        self.thread_root().is_some()
+    }
+
+    /// If the focus is a thread, returns its root event ID.
+    fn thread_root(&self) -> Option<&EventId> {
         match self {
-            TimelineFocusKind::Live { hide_threaded_events: _ }
+            TimelineFocusKind::Live { .. }
             | TimelineFocusKind::Event { paginator: _, hide_threaded_events: _ }
-            | TimelineFocusKind::PinnedEvents { loader: _ } => false,
-            TimelineFocusKind::Thread { root_event_id: _ } => true,
+            | TimelineFocusKind::PinnedEvents { .. } => None,
+            TimelineFocusKind::Thread { root_event_id } => Some(root_event_id),
         }
     }
 }
@@ -610,12 +617,7 @@ impl<P: RoomDataProvider> TimelineController<P> {
     /// The root of the current thread, for a live thread timeline or a
     /// permalink to a thread message.
     pub(super) fn thread_root(&self) -> Option<OwnedEventId> {
-        match &*self.focus {
-            TimelineFocusKind::Live { hide_threaded_events: _ }
-            | TimelineFocusKind::Event { paginator: _, hide_threaded_events: _ }
-            | TimelineFocusKind::PinnedEvents { loader: _ } => None,
-            TimelineFocusKind::Thread { root_event_id } => Some(root_event_id.clone()),
-        }
+        self.focus.thread_root().map(ToOwned::to_owned)
     }
 
     /// Get a copy of the current items in the list.
