@@ -12,7 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License
 
-#![cfg_attr(not(test), allow(unused))]
+// Allow dead code here, as this module is still in the process
+// of being developed, so some functions will be used later on.
+// Once development is complete, we can remove this line and
+// clean up any unused code.
+#![allow(dead_code)]
 
 mod builder;
 mod error;
@@ -333,13 +337,12 @@ impl MediaStoreInner for IndexeddbMediaStore {
 #[cfg(all(test, target_family = "wasm"))]
 mod tests {
     use matrix_sdk_base::{
-        media::store::{MediaStore, MediaStoreError},
-        media_store_integration_tests, media_store_integration_tests_time,
+        media::store::MediaStoreError, media_store_integration_tests,
+        media_store_integration_tests_time,
     };
-    use matrix_sdk_test::async_test;
     use uuid::Uuid;
 
-    use crate::media_store::{error::IndexeddbMediaStoreError, IndexeddbMediaStore};
+    use crate::media_store::IndexeddbMediaStore;
 
     mod unencrypted {
         use super::*;
