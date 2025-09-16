@@ -44,7 +44,10 @@ use tracing::instrument;
 use web_sys::IdbTransactionMode;
 
 use crate::{
-    media_store::{transaction::IndexeddbMediaStoreTransaction, types::Lease},
+    media_store::{
+        transaction::IndexeddbMediaStoreTransaction,
+        types::{Lease, Media, MediaMetadata},
+    },
     serializer::{Indexed, IndexedTypeSerializer},
 };
 
@@ -146,10 +149,17 @@ impl MediaStore for IndexeddbMediaStore {
         to: &MediaRequestParameters,
     ) -> Result<(), IndexeddbMediaStoreError> {
         let _timer = timer!("method");
-        self.memory_store
-            .replace_media_key(from, to)
-            .await
-            .map_err(IndexeddbMediaStoreError::MemoryStore)
+
+        let transaction =
+            self.transaction(&[Media::OBJECT_STORE], IdbTransactionMode::Readwrite)?;
+        if let Some(mut media) = transaction.get_media_by_id(from).await? {
+            // delete before adding, in case `from` and `to` generate the same key
+            transaction.delete_media_by_id(from).await?;
+            media.metadata.request_parameters = to.clone();
+            transaction.add_media(&media).await?;
+            transaction.commit().await?;
+        }
+        Ok(())
     }
 
     #[instrument(skip_all)]
@@ -167,10 +177,11 @@ impl MediaStore for IndexeddbMediaStore {
         request: &MediaRequestParameters,
     ) -> Result<(), IndexeddbMediaStoreError> {
         let _timer = timer!("method");
-        self.memory_store
-            .remove_media_content(request)
-            .await
-            .map_err(IndexeddbMediaStoreError::MemoryStore)
+
+        let transaction =
+            self.transaction(&[Media::OBJECT_STORE], IdbTransactionMode::Readwrite)?;
+        transaction.delete_media_by_id(request).await?;
+        transaction.commit().await.map_err(Into::into)
     }
 
     #[instrument(skip(self))]
@@ -188,10 +199,11 @@ impl MediaStore for IndexeddbMediaStore {
         uri: &MxcUri,
     ) -> Result<(), IndexeddbMediaStoreError> {
         let _timer = timer!("method");
-        self.memory_store
-            .remove_media_content_for_uri(uri)
-            .await
-            .map_err(IndexeddbMediaStoreError::MemoryStore)
+
+        let transaction =
+            self.transaction(&[Media::OBJECT_STORE], IdbTransactionMode::Readwrite)?;
+        transaction.delete_media_by_uri(uri).await?;
+        transaction.commit().await.map_err(Into::into)
     }
 
     #[instrument(skip_all)]
@@ -264,10 +276,21 @@ impl MediaStoreInner for IndexeddbMediaStore {
         ignore_policy: IgnoreMediaRetentionPolicy,
     ) -> Result<(), IndexeddbMediaStoreError> {
         let _timer = timer!("method");
-        self.memory_store
-            .add_media_content_inner(request, content, current_time, policy, ignore_policy)
-            .await
-            .map_err(IndexeddbMediaStoreError::MemoryStore)
+
+        let transaction =
+            self.transaction(&[Media::OBJECT_STORE], IdbTransactionMode::Readwrite)?;
+
+        let media = Media {
+            metadata: MediaMetadata {
+                request_parameters: request.clone(),
+                last_access: current_time.into(),
+                ignore_policy,
+            },
+            content,
+        };
+
+        transaction.put_media_if_policy_compliant(&media, policy).await?;
+        transaction.commit().await.map_err(Into::into)
     }
 
     #[instrument(skip_all)]
@@ -290,10 +313,12 @@ impl MediaStoreInner for IndexeddbMediaStore {
         current_time: SystemTime,
     ) -> Result<Option<Vec<u8>>, IndexeddbMediaStoreError> {
         let _timer = timer!("method");
-        self.memory_store
-            .get_media_content_inner(request, current_time)
-            .await
-            .map_err(IndexeddbMediaStoreError::MemoryStore)
+
+        let transaction =
+            self.transaction(&[Media::OBJECT_STORE], IdbTransactionMode::Readwrite)?;
+        let media = transaction.access_media_by_id(request, current_time).await?;
+        transaction.commit().await?;
+        Ok(media.map(|m| m.content))
     }
 
     #[instrument(skip_all)]
@@ -303,10 +328,12 @@ impl MediaStoreInner for IndexeddbMediaStore {
         current_time: SystemTime,
     ) -> Result<Option<Vec<u8>>, IndexeddbMediaStoreError> {
         let _timer = timer!("method");
-        self.memory_store
-            .get_media_content_for_uri_inner(uri, current_time)
-            .await
-            .map_err(IndexeddbMediaStoreError::MemoryStore)
+
+        let transaction =
+            self.transaction(&[Media::OBJECT_STORE], IdbTransactionMode::Readwrite)?;
+        let media = transaction.access_media_by_uri(uri, current_time).await?.pop();
+        transaction.commit().await?;
+        Ok(media.map(|m| m.content))
     }
 
     #[instrument(skip_all)]
