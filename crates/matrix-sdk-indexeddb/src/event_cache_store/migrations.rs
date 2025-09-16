@@ -180,7 +180,7 @@ pub mod v1 {
             keys::EVENTS_ROOM,
             &keys::EVENTS_ROOM_KEY_PATH.into(),
             &events_room_params,
-        );
+        )?;
 
         let events_position_params = IdbIndexParameters::new();
         events_position_params.set_unique(true);
