@@ -489,14 +489,14 @@ impl TryFrom<RumaMessageType> for MessageType {
 #[derive(Clone, uniffi::Enum)]
 pub enum RtcNotificationType {
     Ring,
-    Notify,
+    Notification,
 }
 
 impl From<RumaNotificationType> for RtcNotificationType {
     fn from(val: RumaNotificationType) -> Self {
         match val {
             RumaNotificationType::Ring => Self::Ring,
-            _ => Self::Notify,
+            _ => Self::Notification,
         }
     }
 }
@@ -505,7 +505,7 @@ impl From<RtcNotificationType> for RumaNotificationType {
     fn from(value: RtcNotificationType) -> Self {
         match value {
             RtcNotificationType::Ring => RumaNotificationType::Ring,
-            RtcNotificationType::Notify => RumaNotificationType::Notification,
+            RtcNotificationType::Notification => RumaNotificationType::Notification,
         }
     }
 }
