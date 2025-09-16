@@ -19,9 +19,9 @@ use matrix_sdk_store_encryption::StoreCipher;
 use crate::{
     event_cache_store::{
         error::IndexeddbEventCacheStoreError, migrations::open_and_upgrade_db,
-        serializer::IndexedTypeSerializer, IndexeddbEventCacheStore,
+        IndexeddbEventCacheStore,
     },
-    serializer::SafeEncodeSerializer,
+    serializer::{IndexedTypeSerializer, SafeEncodeSerializer},
 };
 
 /// A type for conveniently building an [`IndexeddbEventCacheStore`]

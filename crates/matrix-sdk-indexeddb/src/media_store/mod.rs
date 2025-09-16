@@ -36,12 +36,12 @@ use matrix_sdk_base::{
     timer,
 };
 use ruma::{time::SystemTime, MilliSecondsSinceUnixEpoch, MxcUri};
-use serializer::IndexedTypeSerializer;
 use tracing::instrument;
 use web_sys::IdbTransactionMode;
 
-use crate::media_store::{
-    serializer::traits::Indexed, transaction::IndexeddbMediaStoreTransaction, types::Lease,
+use crate::{
+    media_store::{transaction::IndexeddbMediaStoreTransaction, types::Lease},
+    serializer::{Indexed, IndexedTypeSerializer},
 };
 
 /// A type for providing an IndexedDB implementation of [`MediaStore`][1].

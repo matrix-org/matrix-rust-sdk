@@ -31,11 +31,15 @@ use ruma::{
 use tracing::{error, instrument, trace};
 use web_sys::IdbTransactionMode;
 
-use crate::event_cache_store::{
-    migrations::current::keys,
-    serializer::{traits::Indexed, IndexedTypeSerializer},
-    transaction::{IndexeddbEventCacheStoreTransaction, IndexeddbEventCacheStoreTransactionError},
-    types::{ChunkType, InBandEvent, Lease, OutOfBandEvent},
+use crate::{
+    event_cache_store::{
+        migrations::current::keys,
+        transaction::{
+            IndexeddbEventCacheStoreTransaction, IndexeddbEventCacheStoreTransactionError,
+        },
+        types::{ChunkType, InBandEvent, Lease, OutOfBandEvent},
+    },
+    serializer::{Indexed, IndexedTypeSerializer},
 };
 
 mod builder;

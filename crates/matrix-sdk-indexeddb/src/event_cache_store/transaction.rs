@@ -25,18 +25,20 @@ use serde::{
 use thiserror::Error;
 use web_sys::IdbCursorDirection;
 
-use crate::event_cache_store::{
-    error::AsyncErrorDeps,
-    serializer::{
-        traits::{Indexed, IndexedKey, IndexedPrefixKeyBounds, IndexedPrefixKeyComponentBounds},
-        types::{
+use crate::{
+    event_cache_store::{
+        error::AsyncErrorDeps,
+        serializer::types::{
             IndexedChunkIdKey, IndexedEventIdKey, IndexedEventPositionKey, IndexedEventRelationKey,
-            IndexedEventRoomKey, IndexedGapIdKey, IndexedKeyRange, IndexedLeaseIdKey,
-            IndexedNextChunkIdKey, IndexedRoomId,
+            IndexedEventRoomKey, IndexedGapIdKey, IndexedLeaseIdKey, IndexedNextChunkIdKey,
+            IndexedRoomId,
         },
-        IndexedTypeSerializer,
+        types::{Chunk, ChunkType, Event, Gap, Lease, Position},
     },
-    types::{Chunk, ChunkType, Event, Gap, Lease, Position},
+    serializer::{
+        Indexed, IndexedKey, IndexedKeyRange, IndexedPrefixKeyBounds,
+        IndexedPrefixKeyComponentBounds, IndexedTypeSerializer,
+    },
 };
 
 #[derive(Debug, Error)]
