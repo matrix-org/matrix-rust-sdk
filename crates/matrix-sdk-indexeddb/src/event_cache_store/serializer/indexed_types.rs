@@ -27,11 +27,9 @@
 //! These types mimic the structure of the object stores and indices created in
 //! [`crate::event_cache_store::migrations`].
 
-use std::sync::LazyLock;
-
 use matrix_sdk_base::linked_chunk::{ChunkIdentifier, LinkedChunkId};
 use matrix_sdk_crypto::CryptoStoreError;
-use ruma::{events::relation::RelationType, EventId, OwnedEventId, RoomId};
+use ruma::{events::relation::RelationType, EventId, RoomId};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -47,19 +45,12 @@ use crate::{
         types::{Chunk, Event, Gap, Lease, Position},
     },
     serializer::{
-        Indexed, IndexedKey, IndexedKeyBounds, IndexedKeyComponentBounds, IndexedPrefixKeyBounds,
+        Indexed, IndexedKey, IndexedKeyComponentBounds, IndexedPrefixKeyBounds,
         IndexedPrefixKeyComponentBounds, MaybeEncrypted, SafeEncodeSerializer,
         INDEXED_KEY_LOWER_CHARACTER, INDEXED_KEY_LOWER_STRING, INDEXED_KEY_UPPER_CHARACTER,
         INDEXED_KEY_UPPER_STRING,
     },
 };
-
-/// A representation of the primary key of the [`CORE`][1] object store.
-/// The key may or may not be hashed depending on the
-/// provided [`IndexeddbSerializer`].
-///
-/// [1]: crate::event_cache_store::migrations::v1::create_core_object_store
-pub type IndexedCoreIdKey = String;
 
 /// A (possibly) encrypted representation of a [`Lease`]
 pub type IndexedLeaseContent = MaybeEncrypted;
@@ -97,10 +88,6 @@ pub type IndexedEventContent = MaybeEncrypted;
 
 /// A (possibly) encrypted representation of a [`Gap`]
 pub type IndexedGapContent = MaybeEncrypted;
-
-/// A representation of time in seconds since the [Unix
-/// Epoch](std::time::UNIX_EPOCH) which is suitable for use in an IndexedDB key
-pub type IndexedSecondsSinceUnixEpoch = u64;
 
 /// Represents the [`LEASES`][1] object store.
 ///
