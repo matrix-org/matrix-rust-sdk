@@ -21,14 +21,13 @@ use serde::{
 use thiserror::Error;
 use web_sys::IdbCursorDirection;
 
-use crate::media_store::{
-    error::AsyncErrorDeps,
-    serializer::{
-        traits::{Indexed, IndexedKey},
-        types::{IndexedCoreIdKey, IndexedKeyRange, IndexedLeaseIdKey},
-        IndexedTypeSerializer,
+use crate::{
+    media_store::{
+        error::AsyncErrorDeps,
+        serializer::types::{IndexedCoreIdKey, IndexedLeaseIdKey},
+        types::Lease,
     },
-    types::Lease,
+    serializer::{Indexed, IndexedKey, IndexedKeyRange, IndexedTypeSerializer},
 };
 
 #[derive(Debug, Error)]

@@ -41,16 +41,13 @@ use thiserror::Error;
 use crate::{
     media_store::{
         migrations::current::keys,
-        serializer::{
-            foreign::ignore_media_retention_policy,
-            traits::{
-                Indexed, IndexedKey, IndexedKeyBounds, IndexedKeyComponentBounds,
-                IndexedPrefixKeyBounds, IndexedPrefixKeyComponentBounds,
-            },
-        },
+        serializer::foreign::ignore_media_retention_policy,
         types::{Lease, Media},
     },
-    serializer::{MaybeEncrypted, SafeEncodeSerializer},
+    serializer::{
+        Indexed, IndexedKey, IndexedKeyBounds, IndexedKeyComponentBounds, IndexedPrefixKeyBounds,
+        IndexedPrefixKeyComponentBounds, MaybeEncrypted, SafeEncodeSerializer,
+    },
 };
 
 /// The first unicode character, and hence the lower bound for IndexedDB keys
@@ -111,93 +108,6 @@ const INDEXED_KEY_LOWER_DURATION: Duration = Duration::ZERO;
 /// [`INDEXED_KEY_LOWER_DURATION`].
 const INDEXED_KEY_UPPER_DURATION_SECONDS: Duration =
     Duration::from_secs(js_sys::Number::MAX_SAFE_INTEGER as u64);
-
-/// Representation of a range of keys of type `K`. This is loosely
-/// correlated with [IDBKeyRange][1], with a few differences.
-///
-/// Namely, this enum only provides a single way to express a bounded range
-/// which is always inclusive on both bounds. While all ranges can still be
-/// represented, [`IDBKeyRange`][1] provides more flexibility in this regard.
-///
-/// [1]: https://developer.mozilla.org/en-US/docs/Web/API/IDBKeyRange
-#[derive(Debug, Copy, Clone)]
-pub enum IndexedKeyRange<K> {
-    /// Represents a single key of type `K`.
-    ///
-    /// Identical to [`IDBKeyRange.only`][1].
-    ///
-    /// [1]: https://developer.mozilla.org/en-US/docs/Web/API/IDBKeyRange/only
-    Only(K),
-    /// Represents an inclusive range of keys of type `K`
-    /// where the first item is the lower bound and the
-    /// second item is the upper bound.
-    ///
-    /// Similar to [`IDBKeyRange.bound`][1].
-    ///
-    /// [1]: https://developer.mozilla.org/en-US/docs/Web/API/IDBKeyRange/bound
-    Bound(K, K),
-}
-
-impl<'a, C: 'a> IndexedKeyRange<C> {
-    /// Encodes a range of key components of type `K::KeyComponents`
-    /// into a range of keys of type `K`.
-    pub fn encoded<T, K>(self, serializer: &SafeEncodeSerializer) -> IndexedKeyRange<K>
-    where
-        T: Indexed,
-        K: IndexedKey<T, KeyComponents<'a> = C>,
-    {
-        match self {
-            Self::Only(components) => IndexedKeyRange::Only(K::encode(components, serializer)),
-            Self::Bound(lower, upper) => {
-                IndexedKeyRange::Bound(K::encode(lower, serializer), K::encode(upper, serializer))
-            }
-        }
-    }
-}
-
-impl<K> IndexedKeyRange<K> {
-    pub fn map<T, F>(self, f: F) -> IndexedKeyRange<T>
-    where
-        F: Fn(K) -> T,
-    {
-        match self {
-            IndexedKeyRange::Only(key) => IndexedKeyRange::Only(f(key)),
-            IndexedKeyRange::Bound(lower, upper) => IndexedKeyRange::Bound(f(lower), f(upper)),
-        }
-    }
-
-    pub fn all<T>(serializer: &SafeEncodeSerializer) -> IndexedKeyRange<K>
-    where
-        T: Indexed,
-        K: IndexedKeyBounds<T>,
-    {
-        IndexedKeyRange::Bound(K::lower_key(serializer), K::upper_key(serializer))
-    }
-
-    pub fn all_with_prefix<T, P>(prefix: P, serializer: &SafeEncodeSerializer) -> IndexedKeyRange<K>
-    where
-        T: Indexed,
-        K: IndexedPrefixKeyBounds<T, P>,
-        P: Clone,
-    {
-        IndexedKeyRange::Bound(
-            K::lower_key_with_prefix(prefix.clone(), serializer),
-            K::upper_key_with_prefix(prefix, serializer),
-        )
-    }
-}
-
-impl<K> From<(K, K)> for IndexedKeyRange<K> {
-    fn from(value: (K, K)) -> Self {
-        Self::Bound(value.0, value.1)
-    }
-}
-
-impl<K> From<K> for IndexedKeyRange<K> {
-    fn from(value: K) -> Self {
-        Self::Only(value)
-    }
-}
 
 /// A representation of the primary key of the [`CORE`][1] object store.
 /// The key may or may not be hashed depending on the

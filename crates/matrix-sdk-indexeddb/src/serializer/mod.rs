@@ -12,5 +12,15 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+pub mod indexed_type;
+pub use indexed_type::{
+    range::IndexedKeyRange,
+    traits::{
+        Indexed, IndexedKey, IndexedKeyBounds, IndexedKeyComponentBounds, IndexedPrefixKeyBounds,
+        IndexedPrefixKeyComponentBounds,
+    },
+    IndexedTypeSerializer,
+};
+
 pub mod safe_encode;
 pub use safe_encode::{MaybeEncrypted, SafeEncodeSerializer, SafeEncodeSerializerError};

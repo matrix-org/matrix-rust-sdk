@@ -19,10 +19,9 @@ use matrix_sdk_store_encryption::StoreCipher;
 
 use crate::{
     media_store::{
-        error::IndexeddbMediaStoreError, migrations::open_and_upgrade_db,
-        serializer::IndexedTypeSerializer, IndexeddbMediaStore,
+        error::IndexeddbMediaStoreError, migrations::open_and_upgrade_db, IndexeddbMediaStore,
     },
-    serializer::SafeEncodeSerializer,
+    serializer::{IndexedTypeSerializer, SafeEncodeSerializer},
 };
 
 /// A type for conveniently building an [`IndexeddbMediaStore`]
