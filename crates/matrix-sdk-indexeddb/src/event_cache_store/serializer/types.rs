@@ -38,6 +38,12 @@ use thiserror::Error;
 use crate::{
     event_cache_store::{
         migrations::current::keys,
+        serializer::constants::{
+            INDEXED_KEY_LOWER_CHUNK_IDENTIFIER, INDEXED_KEY_LOWER_EVENT_ID,
+            INDEXED_KEY_LOWER_EVENT_INDEX, INDEXED_KEY_LOWER_EVENT_POSITION,
+            INDEXED_KEY_UPPER_CHUNK_IDENTIFIER, INDEXED_KEY_UPPER_EVENT_ID,
+            INDEXED_KEY_UPPER_EVENT_INDEX, INDEXED_KEY_UPPER_EVENT_POSITION,
+        },
         types::{Chunk, Event, Gap, Lease, Position},
     },
     serializer::{
@@ -47,77 +53,6 @@ use crate::{
         INDEXED_KEY_UPPER_STRING,
     },
 };
-
-/// A [`ChunkIdentifier`] constructed with `0`.
-///
-/// This value is useful for constructing a key range over all keys which
-/// contain [`ChunkIdentifier`]s when used in conjunction with
-/// [`INDEXED_KEY_UPPER_CHUNK_IDENTIFIER`].
-static INDEXED_KEY_LOWER_CHUNK_IDENTIFIER: LazyLock<ChunkIdentifier> =
-    LazyLock::new(|| ChunkIdentifier::new(0));
-
-/// A [`ChunkIdentifier`] constructed with [`js_sys::Number::MAX_SAFE_INTEGER`].
-///
-/// This value is useful for constructing a key range over all keys which
-/// contain [`ChunkIdentifier`]s when used in conjunction with
-/// [`INDEXED_KEY_LOWER_CHUNK_IDENTIFIER`].
-static INDEXED_KEY_UPPER_CHUNK_IDENTIFIER: LazyLock<ChunkIdentifier> =
-    LazyLock::new(|| ChunkIdentifier::new(js_sys::Number::MAX_SAFE_INTEGER as u64));
-
-/// An [`OwnedEventId`] constructed with [`INDEXED_KEY_LOWER_CHARACTER`].
-///
-/// This value is useful for constructing a key range over all keys which
-/// contain [`EventId`]s when used in conjunction with
-/// [`INDEXED_KEY_UPPER_EVENT_ID`].
-static INDEXED_KEY_LOWER_EVENT_ID: LazyLock<OwnedEventId> = LazyLock::new(|| {
-    OwnedEventId::try_from(format!("${INDEXED_KEY_LOWER_CHARACTER}")).expect("valid event id")
-});
-
-/// An [`OwnedEventId`] constructed with [`INDEXED_KEY_UPPER_CHARACTER`].
-///
-/// This value is useful for constructing a key range over all keys which
-/// contain [`EventId`]s when used in conjunction with
-/// [`INDEXED_KEY_LOWER_EVENT_ID`].
-static INDEXED_KEY_UPPER_EVENT_ID: LazyLock<OwnedEventId> = LazyLock::new(|| {
-    OwnedEventId::try_from(format!("${INDEXED_KEY_UPPER_CHARACTER}")).expect("valid event id")
-});
-
-/// The lowest possible index that can be used to reference an [`Event`] inside
-/// a [`Chunk`] - i.e., `0`.
-///
-/// This value is useful for constructing a key range over all keys which
-/// contain [`Position`]s when used in conjunction with
-/// [`INDEXED_KEY_UPPER_EVENT_INDEX`].
-const INDEXED_KEY_LOWER_EVENT_INDEX: usize = 0;
-
-/// The highest possible index that can be used to reference an [`Event`] inside
-/// a [`Chunk`] - i.e., [`js_sys::Number::MAX_SAFE_INTEGER`].
-///
-/// This value is useful for constructing a key range over all keys which
-/// contain [`Position`]s when used in conjunction with
-/// [`INDEXED_KEY_LOWER_EVENT_INDEX`].
-const INDEXED_KEY_UPPER_EVENT_INDEX: usize = js_sys::Number::MAX_SAFE_INTEGER as usize;
-
-/// The lowest possible [`Position`] that can be used to reference an [`Event`].
-///
-/// This value is useful for constructing a key range over all keys which
-/// contain [`Position`]s when used in conjunction with
-/// [`INDEXED_KEY_UPPER_EVENT_INDEX`].
-static INDEXED_KEY_LOWER_EVENT_POSITION: LazyLock<Position> = LazyLock::new(|| Position {
-    chunk_identifier: INDEXED_KEY_LOWER_CHUNK_IDENTIFIER.index(),
-    index: INDEXED_KEY_LOWER_EVENT_INDEX,
-});
-
-/// The highest possible [`Position`] that can be used to reference an
-/// [`Event`].
-///
-/// This value is useful for constructing a key range over all keys which
-/// contain [`Position`]s when used in conjunction with
-/// [`INDEXED_KEY_LOWER_EVENT_INDEX`].
-static INDEXED_KEY_UPPER_EVENT_POSITION: LazyLock<Position> = LazyLock::new(|| Position {
-    chunk_identifier: INDEXED_KEY_UPPER_CHUNK_IDENTIFIER.index(),
-    index: INDEXED_KEY_UPPER_EVENT_INDEX,
-});
 
 /// A representation of the primary key of the [`CORE`][1] object store.
 /// The key may or may not be hashed depending on the

@@ -41,7 +41,12 @@ use thiserror::Error;
 use crate::{
     media_store::{
         migrations::current::keys,
-        serializer::foreign::ignore_media_retention_policy,
+        serializer::{
+            constants::{
+                INDEXED_KEY_LOWER_MEDIA_CONTENT_SIZE, INDEXED_KEY_UPPER_MEDIA_CONTENT_SIZE,
+            },
+            foreign::ignore_media_retention_policy,
+        },
         types::{Lease, Media},
     },
     serializer::{
@@ -51,23 +56,6 @@ use crate::{
         INDEXED_KEY_UPPER_STRING,
     },
 };
-
-/// An [`IndexedMediaContentSize`] set to it's minimal value - i.e., `0`.
-///
-/// This value is useful for constructing a key range over all keys which
-/// contain [`IndexedMediaContentSize`] values when used in conjunction with
-/// [`INDEXED_KEY_UPPER_MEDIA_CONTENT_SIZE`].
-const INDEXED_KEY_LOWER_MEDIA_CONTENT_SIZE: IndexedMediaContentSize = 0;
-
-/// An [`IndexedMediaContentSize`] set to [`js_sys::Number::MAX_SAFE_INTEGER`].
-/// Note that this restricts the size of [`IndexedMedia::content`], which
-/// ultimately restricts the size of [`Media::content`].
-///
-/// This value is useful for constructing a key range over all keys which
-/// contain [`IndexedMediaContentSize`] values when used in conjunction with
-/// [`INDEXED_KEY_LOWER_MEDIA_CONTENT_SIZE`].
-const INDEXED_KEY_UPPER_MEDIA_CONTENT_SIZE: IndexedMediaContentSize =
-    js_sys::Number::MAX_SAFE_INTEGER as usize;
 
 /// A representation of the primary key of the [`CORE`][1] object store.
 /// The key may or may not be hashed depending on the
