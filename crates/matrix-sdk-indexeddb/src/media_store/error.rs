@@ -12,21 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License
 
-use matrix_sdk_base::{
-    media::store::{MediaStore, MediaStoreError, MemoryMediaStore},
-    SendOutsideWasm, SyncOutsideWasm,
-};
+use matrix_sdk_base::media::store::{MediaStore, MediaStoreError, MemoryMediaStore};
 use thiserror::Error;
 
 use crate::media_store::transaction::IndexeddbMediaStoreTransactionError;
-
-/// A trait that combines the necessary traits needed for asynchronous runtimes,
-/// but excludes them when running in a web environment - i.e., when
-/// `#[cfg(target_family = "wasm")]`.
-pub trait AsyncErrorDeps: std::error::Error + SendOutsideWasm + SyncOutsideWasm + 'static {}
-
-impl<T> AsyncErrorDeps for T where T: std::error::Error + SendOutsideWasm + SyncOutsideWasm + 'static
-{}
 
 #[derive(Debug, Error)]
 pub enum IndexeddbMediaStoreError {
