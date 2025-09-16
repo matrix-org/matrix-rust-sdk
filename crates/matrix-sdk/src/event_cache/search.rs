@@ -93,19 +93,16 @@ async fn handle_room_redaction(
     cache: &RoomEventCache,
     rules: &RedactionRules,
 ) -> Option<RoomIndexOperation> {
-    if let Some(redacted_event_id) = event.redacts(rules) {
-        if let Some(redacted_event) = cache.find_event(redacted_event_id).await {
-            if let Ok(AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::RoomMessage(
-                redacted_event,
-            ))) = redacted_event.raw().deserialize()
-            {
-                if let Some(redacted_event) = redacted_event.as_original() {
-                    return handle_possible_edit(redacted_event, cache)
-                        .await
-                        .or(Some(RoomIndexOperation::Remove(redacted_event.event_id.clone())));
-                }
-            }
-        }
+    if let Some(redacted_event_id) = event.redacts(rules)
+        && let Some(redacted_event) = cache.find_event(redacted_event_id).await
+        && let Ok(AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::RoomMessage(
+            redacted_event,
+        ))) = redacted_event.raw().deserialize()
+        && let Some(redacted_event) = redacted_event.as_original()
+    {
+        return handle_possible_edit(redacted_event, cache)
+            .await
+            .or(Some(RoomIndexOperation::Remove(redacted_event.event_id.clone())));
     }
     None
 }

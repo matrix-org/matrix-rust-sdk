@@ -1045,22 +1045,20 @@ impl OAuth {
         // Enable the cross-process lock for refreshes, if needs be.
         self.deferred_enable_cross_process_refresh_lock().await;
 
-        if let Some(cross_process_manager) = self.ctx().cross_process_token_refresh_manager.get() {
-            if let Some(tokens) = self.client.session_tokens() {
-                let mut cross_process_guard = cross_process_manager.spin_lock().await?;
+        if let Some(cross_process_manager) = self.ctx().cross_process_token_refresh_manager.get()
+            && let Some(tokens) = self.client.session_tokens()
+        {
+            let mut cross_process_guard = cross_process_manager.spin_lock().await?;
 
-                if cross_process_guard.hash_mismatch {
-                    // At this point, we're finishing a login while another process had written
-                    // something in the database. It's likely the information in the database is
-                    // just outdated and wasn't properly updated, but display a warning, just in
-                    // case this happens frequently.
-                    warn!(
-                        "unexpected cross-process hash mismatch when finishing login (see comment)"
-                    );
-                }
-
-                cross_process_guard.save_in_memory_and_db(&tokens).await?;
+            if cross_process_guard.hash_mismatch {
+                // At this point, we're finishing a login while another process had written
+                // something in the database. It's likely the information in the database is
+                // just outdated and wasn't properly updated, but display a warning, just in
+                // case this happens frequently.
+                warn!("unexpected cross-process hash mismatch when finishing login (see comment)");
             }
+
+            cross_process_guard.save_in_memory_and_db(&tokens).await?;
         }
 
         Ok(())

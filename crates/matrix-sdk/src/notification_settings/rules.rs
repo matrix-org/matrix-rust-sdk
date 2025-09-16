@@ -142,11 +142,11 @@ impl Rules {
             match rule {
                 AnyPushRuleRef::Override(r) | AnyPushRuleRef::Underride(r) => {
                     for condition in &r.conditions {
-                        if let PushCondition::EventMatch { key, pattern } = condition {
-                            if key == "room_id" {
-                                room_ids.insert(pattern.clone());
-                                break;
-                            }
+                        if let PushCondition::EventMatch { key, pattern } = condition
+                            && key == "room_id"
+                        {
+                            room_ids.insert(pattern.clone());
+                            break;
                         }
                     }
                 }
@@ -173,19 +173,19 @@ impl Rules {
         #[allow(deprecated)]
         if let Some(rule) =
             self.ruleset.get(RuleKind::Override, PredefinedOverrideRuleId::ContainsDisplayName)
+            && rule.enabled()
+            && rule.triggers_notification()
         {
-            if rule.enabled() && rule.triggers_notification() {
-                return true;
-            }
+            return true;
         }
 
         #[allow(deprecated)]
         if let Some(rule) =
             self.ruleset.get(RuleKind::Content, PredefinedContentRuleId::ContainsUserName)
+            && rule.enabled()
+            && rule.triggers_notification()
         {
-            if rule.enabled() && rule.triggers_notification() {
-                return true;
-            }
+            return true;
         }
 
         false

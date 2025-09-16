@@ -702,39 +702,38 @@ impl QueueStorage {
         let mut removed_dependent_upload = false;
         let mut removed_dependent_event = false;
 
-        if let Some(thumbnail_txn) = &handles.upload_thumbnail_txn {
-            if store.remove_send_queue_request(&self.room_id, thumbnail_txn).await? {
-                // The thumbnail upload existed as a request: either it was pending (something
-                // else was being sent), or it was actively being sent.
-                trace!("could remove thumbnail request, removing 2 dependent requests now");
+        if let Some(thumbnail_txn) = &handles.upload_thumbnail_txn
+            && store.remove_send_queue_request(&self.room_id, thumbnail_txn).await?
+        {
+            // The thumbnail upload existed as a request: either it was pending (something
+            // else was being sent), or it was actively being sent.
+            trace!("could remove thumbnail request, removing 2 dependent requests now");
 
-                // 1. Try to abort sending using the being_sent info, in case it was active.
-                if let Some(info) = guard.being_sent.as_ref() {
-                    if info.transaction_id == *thumbnail_txn {
-                        // SAFETY: we knew it was Some(), two lines above.
-                        let info = guard.being_sent.take().unwrap();
-                        if info.cancel_upload() {
-                            trace!("aborted ongoing thumbnail upload");
-                        }
-                    }
+            // 1. Try to abort sending using the being_sent info, in case it was active.
+            if let Some(info) = guard.being_sent.as_ref()
+                && info.transaction_id == *thumbnail_txn
+            {
+                // SAFETY: we knew it was Some(), two lines above.
+                let info = guard.being_sent.take().unwrap();
+                if info.cancel_upload() {
+                    trace!("aborted ongoing thumbnail upload");
                 }
+            }
 
-                // 2. Remove the dependent requests.
-                removed_dependent_upload = store
-                    .remove_dependent_queued_request(&self.room_id, &upload_file_as_dependent)
-                    .await?;
+            // 2. Remove the dependent requests.
+            removed_dependent_upload = store
+                .remove_dependent_queued_request(&self.room_id, &upload_file_as_dependent)
+                .await?;
 
-                if !removed_dependent_upload {
-                    warn!("unable to find the dependent file upload request");
-                }
+            if !removed_dependent_upload {
+                warn!("unable to find the dependent file upload request");
+            }
 
-                removed_dependent_event = store
-                    .remove_dependent_queued_request(&self.room_id, &event_as_dependent)
-                    .await?;
+            removed_dependent_event =
+                store.remove_dependent_queued_request(&self.room_id, &event_as_dependent).await?;
 
-                if !removed_dependent_event {
-                    warn!("unable to find the dependent media event upload request");
-                }
+            if !removed_dependent_event {
+                warn!("unable to find the dependent media event upload request");
             }
         }
 
@@ -751,13 +750,13 @@ impl QueueStorage {
                 trace!("could remove file upload request, removing 1 dependent request");
 
                 // 1. Try to abort sending using the being_sent info, in case it was active.
-                if let Some(info) = guard.being_sent.as_ref() {
-                    if info.transaction_id == handles.upload_file_txn {
-                        // SAFETY: we knew it was Some(), two lines above.
-                        let info = guard.being_sent.take().unwrap();
-                        if info.cancel_upload() {
-                            trace!("aborted ongoing file upload");
-                        }
+                if let Some(info) = guard.being_sent.as_ref()
+                    && info.transaction_id == handles.upload_file_txn
+                {
+                    // SAFETY: we knew it was Some(), two lines above.
+                    let info = guard.being_sent.take().unwrap();
+                    if info.cancel_upload() {
+                        trace!("aborted ongoing file upload");
                     }
                 }
 
@@ -890,22 +889,22 @@ impl QueueStorage {
         let new_serialized = SerializableEventContent::new(&any_content.clone())?;
 
         // If the request is active (being sent), send a dependent request.
-        if let Some(being_sent) = guard.being_sent.as_ref() {
-            if being_sent.transaction_id == *txn {
-                // Record a dependent request to edit, and exit.
-                store
-                    .save_dependent_queued_request(
-                        &self.room_id,
-                        txn,
-                        ChildTransactionId::new(),
-                        MilliSecondsSinceUnixEpoch::now(),
-                        DependentQueuedRequestKind::EditEvent { new_content: new_serialized },
-                    )
-                    .await?;
+        if let Some(being_sent) = guard.being_sent.as_ref()
+            && being_sent.transaction_id == *txn
+        {
+            // Record a dependent request to edit, and exit.
+            store
+                .save_dependent_queued_request(
+                    &self.room_id,
+                    txn,
+                    ChildTransactionId::new(),
+                    MilliSecondsSinceUnixEpoch::now(),
+                    DependentQueuedRequestKind::EditEvent { new_content: new_serialized },
+                )
+                .await?;
 
-                trace!("media event was being sent, pushed a dependent edit");
-                return Ok(Some(any_content));
-            }
+            trace!("media event was being sent, pushed a dependent edit");
+            return Ok(Some(any_content));
         }
 
         // The request is not active: edit the local echo.

@@ -193,14 +193,14 @@ impl CrossProcessRefreshLockGuard {
         let new_hash = compute_session_hash(trusted_tokens);
         trace!("Trusted OAuth 2.0 tokens have hash {new_hash:?}; db had {:?}", self.db_hash);
 
-        if let Some(db_hash) = &self.db_hash {
-            if new_hash != *db_hash {
-                // That should never happen, unless we got into an impossible situation!
-                // In this case, we assume the value returned by the callback is always
-                // correct, so override that in the database too.
-                tracing::error!("error: DB and trusted disagree. Overriding in DB.");
-                self.save_in_database(&new_hash).await?;
-            }
+        if let Some(db_hash) = &self.db_hash
+            && new_hash != *db_hash
+        {
+            // That should never happen, unless we got into an impossible situation!
+            // In this case, we assume the value returned by the callback is always
+            // correct, so override that in the database too.
+            tracing::error!("error: DB and trusted disagree. Overriding in DB.");
+            self.save_in_database(&new_hash).await?;
         }
 
         self.save_in_memory(new_hash);

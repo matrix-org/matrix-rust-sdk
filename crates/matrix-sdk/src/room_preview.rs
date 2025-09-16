@@ -383,10 +383,11 @@ fn ensure_server_names_is_not_empty(
 ) -> Vec<OwnedServerName> {
     let mut server_names = server_names;
 
-    if let Some((own_server, alias_server)) = own_server_name.zip(room_or_alias_id.server_name()) {
-        if server_names.is_empty() && own_server != alias_server {
-            server_names.push(alias_server.to_owned());
-        }
+    if let Some((own_server, alias_server)) = own_server_name.zip(room_or_alias_id.server_name())
+        && server_names.is_empty()
+        && own_server != alias_server
+    {
+        server_names.push(alias_server.to_owned());
     }
 
     server_names

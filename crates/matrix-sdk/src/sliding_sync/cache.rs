@@ -179,11 +179,11 @@ pub(super) async fn restore_sliding_sync_state(
     if let Some(olm_machine) = &*_client.olm_machine().await {
         let instance_storage_key = format_storage_key_for_sliding_sync(storage_key);
 
-        if let Ok(Some(blob)) = olm_machine.store().get_custom_value(&instance_storage_key).await {
-            if let Ok(frozen_pos) = serde_json::from_slice::<FrozenSlidingSyncPos>(&blob) {
-                trace!("Successfully read the `Sliding Sync` pos from the crypto store cache");
-                restored_fields.pos = frozen_pos.pos;
-            }
+        if let Ok(Some(blob)) = olm_machine.store().get_custom_value(&instance_storage_key).await
+            && let Ok(frozen_pos) = serde_json::from_slice::<FrozenSlidingSyncPos>(&blob)
+        {
+            trace!("Successfully read the `Sliding Sync` pos from the crypto store cache");
+            restored_fields.pos = frozen_pos.pos;
         }
     }
 

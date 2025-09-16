@@ -931,23 +931,23 @@ fn filter_timeline_event(
         AnySyncTimelineEvent::State(state) => {
             // … but we make an exception for knocked state events _if_ the current user
             // can either accept or decline them.
-            if let AnySyncStateEvent::RoomMember(member) = state {
-                if matches!(member.membership(), MembershipState::Knock) {
-                    let can_accept_or_decline_knocks = match power_levels {
-                        Some((own_user_id, room_power_levels)) => {
-                            room_power_levels.user_can_invite(own_user_id)
-                                || room_power_levels.user_can_kick(own_user_id)
-                        }
-                        _ => false,
-                    };
-
-                    // The current user can act on the knock changes, so they should be
-                    // displayed
-                    if can_accept_or_decline_knocks {
-                        // We can only decide whether the user can accept or decline knocks if the
-                        // event isn't redacted.
-                        return matches!(member, SyncStateEvent::Original(_));
+            if let AnySyncStateEvent::RoomMember(member) = state
+                && matches!(member.membership(), MembershipState::Knock)
+            {
+                let can_accept_or_decline_knocks = match power_levels {
+                    Some((own_user_id, room_power_levels)) => {
+                        room_power_levels.user_can_invite(own_user_id)
+                            || room_power_levels.user_can_kick(own_user_id)
                     }
+                    _ => false,
+                };
+
+                // The current user can act on the knock changes, so they should be
+                // displayed
+                if can_accept_or_decline_knocks {
+                    // We can only decide whether the user can accept or decline knocks if the
+                    // event isn't redacted.
+                    return matches!(member, SyncStateEvent::Original(_));
                 }
             }
 
