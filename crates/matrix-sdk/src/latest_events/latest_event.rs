@@ -977,7 +977,7 @@ fn filter_any_message_like_event_content(event: AnyMessageLikeEventContent) -> b
 
         AnyMessageLikeEventContent::UnstablePollStart(_)
         | AnyMessageLikeEventContent::CallInvite(_)
-        | AnyMessageLikeEventContent::CallNotify(_)
+        | AnyMessageLikeEventContent::RtcNotification(_)
         | AnyMessageLikeEventContent::Sticker(_) => true,
 
         // Encrypted events are not suitable.
@@ -993,7 +993,11 @@ mod tests_latest_event_content {
     use std::ops::Not;
 
     use matrix_sdk_test::event_factory::EventFactory;
-    use ruma::{event_id, events::room::message::RoomMessageEventContent, user_id};
+    use ruma::{
+        event_id,
+        events::{room::message::RoomMessageEventContent, rtc::notification::NotificationType},
+        owned_user_id, user_id,
+    };
 
     use super::filter_timeline_event;
 
@@ -1089,16 +1093,16 @@ mod tests_latest_event_content {
     }
 
     #[test]
-    fn test_call_notify() {
+    fn test_rtc_notification() {
         assert_latest_event_content!(
             event | event_factory | {
                 event_factory
-                    .call_notify(
-                        "call_id".to_owned(),
-                        ruma::events::call::notify::ApplicationType::Call,
-                        ruma::events::call::notify::NotifyType::Ring,
-                        ruma::events::Mentions::new(),
+                     .rtc_notification(
+                        NotificationType::Ring,
                     )
+                    .mentions(vec![owned_user_id!("@alice:server.name")])
+                    .relates_to_membership_state_event(ruma::OwnedEventId::try_from("$abc:server.name").unwrap())
+                    .lifetime(60)
                     .into_event()
             }
             is a candidate

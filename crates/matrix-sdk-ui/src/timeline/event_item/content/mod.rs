@@ -22,7 +22,7 @@ use ruma::{
     events::{
         AnyFullStateEventContent, AnySyncTimelineEvent, FullStateEventContent, Mentions,
         MessageLikeEventType, StateEventType,
-        call::{invite::SyncCallInviteEvent, notify::SyncCallNotifyEvent},
+        call::invite::SyncCallInviteEvent,
         policy::rule::{
             room::PolicyRuleRoomEventContent, server::PolicyRuleServerEventContent,
             user::PolicyRuleUserEventContent,
@@ -51,6 +51,7 @@ use ruma::{
             tombstone::RoomTombstoneEventContent,
             topic::RoomTopicEventContent,
         },
+        rtc::notification::SyncRtcNotificationEvent,
         space::{child::SpaceChildEventContent, parent::SpaceParentEventContent},
         sticker::{StickerEventContent, SyncStickerEvent},
     },
@@ -116,8 +117,8 @@ pub enum TimelineItemContent {
     /// An `m.call.invite` event
     CallInvite,
 
-    /// An `m.call.notify` event
-    CallNotify,
+    /// An `m.rtc.notification` event
+    RtcNotification,
 }
 
 impl TimelineItemContent {
@@ -141,8 +142,8 @@ impl TimelineItemContent {
             PossibleLatestEvent::YesCallInvite(call_invite) => {
                 Some(Self::from_suitable_latest_call_invite_content(call_invite))
             }
-            PossibleLatestEvent::YesCallNotify(call_notify) => {
-                Some(Self::from_suitable_latest_call_notify_content(call_notify))
+            PossibleLatestEvent::YesRtcNotification(rtc_notification) => {
+                Some(Self::from_suitable_latest_rtc_notification_content(rtc_notification))
             }
             PossibleLatestEvent::NoUnsupportedEventType => {
                 // TODO: when we support state events in message previews, this will need change
@@ -326,12 +327,12 @@ impl TimelineItemContent {
         }
     }
 
-    fn from_suitable_latest_call_notify_content(
-        event: &SyncCallNotifyEvent,
+    fn from_suitable_latest_rtc_notification_content(
+        event: &SyncRtcNotificationEvent,
     ) -> TimelineItemContent {
         match event {
-            SyncCallNotifyEvent::Original(_) => TimelineItemContent::CallNotify,
-            SyncCallNotifyEvent::Redacted(_) => {
+            SyncRtcNotificationEvent::Original(_) => TimelineItemContent::RtcNotification,
+            SyncRtcNotificationEvent::Redacted(_) => {
                 TimelineItemContent::MsgLike(MsgLikeContent::redacted())
             }
         }
@@ -446,7 +447,7 @@ impl TimelineItemContent {
             TimelineItemContent::FailedToParseMessageLike { .. }
             | TimelineItemContent::FailedToParseState { .. } => "an event that couldn't be parsed",
             TimelineItemContent::CallInvite => "a call invite",
-            TimelineItemContent::CallNotify => "a call notification",
+            TimelineItemContent::RtcNotification => "a call notification",
         }
     }
 
@@ -517,7 +518,7 @@ impl TimelineItemContent {
 
     pub(in crate::timeline) fn redact(&self, rules: &RedactionRules) -> Self {
         match self {
-            Self::MsgLike(_) | Self::CallInvite | Self::CallNotify => {
+            Self::MsgLike(_) | Self::CallInvite | Self::RtcNotification => {
                 TimelineItemContent::MsgLike(MsgLikeContent::redacted())
             }
             Self::MembershipChange(ev) => Self::MembershipChange(ev.redact(rules)),
@@ -549,7 +550,7 @@ impl TimelineItemContent {
             | TimelineItemContent::FailedToParseMessageLike { .. }
             | TimelineItemContent::FailedToParseState { .. }
             | TimelineItemContent::CallInvite
-            | TimelineItemContent::CallNotify => {
+            | TimelineItemContent::RtcNotification => {
                 // No reactions for these kind of items.
                 None
             }
@@ -574,7 +575,7 @@ impl TimelineItemContent {
             | TimelineItemContent::FailedToParseMessageLike { .. }
             | TimelineItemContent::FailedToParseState { .. }
             | TimelineItemContent::CallInvite
-            | TimelineItemContent::CallNotify => {
+            | TimelineItemContent::RtcNotification => {
                 // No reactions for these kind of items.
                 None
             }

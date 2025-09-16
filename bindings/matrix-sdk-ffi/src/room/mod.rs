@@ -21,7 +21,6 @@ use mime::Mime;
 use ruma::{
     assign,
     events::{
-        call::notify,
         room::{
             avatar::ImageInfo as RumaAvatarImageInfo,
             history_visibility::HistoryVisibility as RumaHistoryVisibility,
@@ -1381,18 +1380,6 @@ impl TryFrom<ImageInfo> for RumaAvatarImageInfo {
             thumbnail_url: thumbnail_url,
             blurhash: value.blurhash,
         }))
-    }
-}
-
-#[derive(uniffi::Enum)]
-pub enum RtcApplicationType {
-    Call,
-}
-impl From<RtcApplicationType> for notify::ApplicationType {
-    fn from(value: RtcApplicationType) -> Self {
-        match value {
-            RtcApplicationType::Call => notify::ApplicationType::Call,
-        }
     }
 }
 

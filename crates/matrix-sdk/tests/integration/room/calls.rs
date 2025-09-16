@@ -3,7 +3,9 @@ use std::sync::{Arc, Mutex};
 use assert_matches2::assert_matches;
 use matrix_sdk::{room::calls::CallError, test_utils::mocks::MatrixMockServer};
 use matrix_sdk_test::{async_test, event_factory::EventFactory, JoinedRoomBuilder, StateTestEvent};
-use ruma::{owned_event_id, room_id, user_id, OwnedUserId};
+use ruma::{
+    events::rtc::notification::NotificationType, owned_event_id, room_id, user_id, OwnedUserId,
+};
 use tokio::spawn;
 
 #[async_test]
@@ -23,14 +25,9 @@ async fn test_subscribe_to_decline_call_events() {
         .sync_room(
             &client,
             JoinedRoomBuilder::new(room_id).add_timeline_event(
-                f.call_notify(
-                    "call_id".to_owned(),
-                    ruma::events::call::notify::ApplicationType::Call,
-                    ruma::events::call::notify::NotifyType::Ring,
-                    ruma::events::Mentions::new(),
-                )
-                .sender(user_id!("@alice:matrix.org"))
-                .event_id(&notification_event_id),
+                f.rtc_notification(NotificationType::Ring)
+                    .sender(user_id!("@alice:matrix.org"))
+                    .event_id(&notification_event_id),
             ),
         )
         .await;
@@ -107,24 +104,14 @@ async fn test_decline_call() {
             JoinedRoomBuilder::new(room_id)
                 .add_state_event(StateTestEvent::Encryption)
                 .add_timeline_event(
-                    f.call_notify(
-                        "call_id".to_owned(),
-                        ruma::events::call::notify::ApplicationType::Call,
-                        ruma::events::call::notify::NotifyType::Ring,
-                        ruma::events::Mentions::new(),
-                    )
-                    .sender(user_id!("@alice:matrix.org"))
-                    .event_id(&notification_event_id),
+                    f.rtc_notification(NotificationType::Ring)
+                        .sender(user_id!("@alice:matrix.org"))
+                        .event_id(&notification_event_id),
                 )
                 .add_timeline_event(
-                    f.call_notify(
-                        "call_id_1".to_owned(),
-                        ruma::events::call::notify::ApplicationType::Call,
-                        ruma::events::call::notify::NotifyType::Ring,
-                        ruma::events::Mentions::new(),
-                    )
-                    .sender(user_id!("@example:localhost"))
-                    .event_id(&own_notification_event_id),
+                    f.rtc_notification(NotificationType::Ring)
+                        .sender(user_id!("@example:localhost"))
+                        .event_id(&own_notification_event_id),
                 )
                 .add_timeline_event(
                     f.text_msg("Hello, HRU? ")

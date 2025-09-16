@@ -292,7 +292,7 @@ pub fn default_event_filter(event: &AnySyncTimelineEvent, rules: &RoomVersionRul
                             UnstablePollStartEventContent::New(_),
                         )
                         | AnyMessageLikeEventContent::CallInvite(_)
-                        | AnyMessageLikeEventContent::CallNotify(_)
+                        | AnyMessageLikeEventContent::RtcNotification(_)
                         | AnyMessageLikeEventContent::RoomEncrypted(_) => true,
 
                         _ => false,

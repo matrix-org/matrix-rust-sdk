@@ -461,7 +461,7 @@ pub(crate) async fn cache_latest_events(
                 PossibleLatestEvent::YesRoomMessage(_)
                 | PossibleLatestEvent::YesPoll(_)
                 | PossibleLatestEvent::YesCallInvite(_)
-                | PossibleLatestEvent::YesCallNotify(_)
+                | PossibleLatestEvent::YesRtcNotification(_)
                 | PossibleLatestEvent::YesSticker(_)
                 | PossibleLatestEvent::YesKnockedStateEvent(_) => {
                     // We found a suitable latest event. Store it.

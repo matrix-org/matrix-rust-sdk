@@ -65,7 +65,7 @@ impl Room {
     /// The returned receiver will receive the sender UserID for each decline
     /// for the matching notify event.
     /// Example:
-    /// - A push is received for an `m.call.notify` event.
+    /// - A push is received for an `m.rtc.notification` event.
     /// - The app starts ringing on this device.
     /// - The app subscribes to decline events for that notify event and stops
     ///   ringing if another device declines the call.
@@ -80,7 +80,7 @@ impl Room {
     /// # async fn dismiss_incoming_call_ui() {}
     /// #
     /// # async fn on_push_for_call_notify(room: matrix_sdk::Room, notify_event_id: &ruma::EventId) {
-    ///     // 1) We just received a push for an `m.call.notify` in `room`.
+    ///     // 1) We just received a push for an `m.rtc.notification` in `room`.
     ///     show_incoming_call_ui().await;
     ///     start_ringing().await;
     ///
@@ -149,8 +149,10 @@ async fn make_call_decline_event(
 
     let event = target.raw().deserialize().map_err(CallError::Deserialize)?;
 
-    // The event must be CallNotify-like.
-    if let AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::CallNotify(notify)) = event {
+    // The event must be RtcNotification-like.
+    if let AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::RtcNotification(notify)) =
+        event
+    {
         if notify.sender() == own_user_id {
             // Cannot decline own call.
             Err(CallError::DeclineOwnCall)
