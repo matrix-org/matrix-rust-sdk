@@ -14,4 +14,4 @@
 
 pub mod constants;
 pub mod foreign;
-pub mod types;
+pub mod indexed_types;

@@ -13,4 +13,4 @@
 // limitations under the License
 
 pub mod constants;
-pub mod types;
+pub mod indexed_types;
