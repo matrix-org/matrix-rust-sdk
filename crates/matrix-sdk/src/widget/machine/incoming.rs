@@ -17,16 +17,16 @@ use ruma::{
     events::{AnyStateEvent, AnyTimelineEvent, AnyToDeviceEvent},
     serde::Raw,
 };
-use serde::{de, Deserialize, Deserializer};
+use serde::{Deserialize, Deserializer, de};
 use serde_json::value::RawValue as RawJsonValue;
 use uuid::Uuid;
 
 #[cfg(doc)]
 use super::MatrixDriverRequestData;
 use super::{
+    SendToDeviceEventResponse,
     from_widget::{FromWidgetRequest, SendEventResponse},
     to_widget::ToWidgetResponse,
-    SendToDeviceEventResponse,
 };
 use crate::widget::Capabilities;
 

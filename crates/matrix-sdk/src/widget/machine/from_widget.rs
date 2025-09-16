@@ -16,24 +16,24 @@ use std::collections::BTreeMap;
 
 use as_variant::as_variant;
 use ruma::{
+    OwnedEventId, OwnedRoomId,
     api::client::{
         delayed_events::{delayed_message_event, delayed_state_event, update_delayed_event},
         error::{ErrorBody, StandardErrorBody},
     },
     events::AnyTimelineEvent,
     serde::Raw,
-    OwnedEventId, OwnedRoomId,
 };
 use serde::{Deserialize, Serialize};
 use tracing::error;
 
 use super::{
-    driver_req::SendToDeviceRequest, MatrixDriverResponse, SendEventRequest,
-    UpdateDelayedEventRequest,
+    MatrixDriverResponse, SendEventRequest, UpdateDelayedEventRequest,
+    driver_req::SendToDeviceRequest,
 };
 use crate::{
-    widget::{machine::driver_req::FromMatrixDriverResponse, StateKeySelector},
     Error, HttpError, RumaApiError,
+    widget::{StateKeySelector, machine::driver_req::FromMatrixDriverResponse},
 };
 
 #[derive(Deserialize, Debug)]

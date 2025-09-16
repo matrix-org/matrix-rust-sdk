@@ -16,9 +16,9 @@
 
 use std::{fmt, sync::Arc};
 
-use matrix_sdk_base::{locks::Mutex, SessionMeta};
+use matrix_sdk_base::{SessionMeta, locks::Mutex};
 use serde::{Deserialize, Serialize};
-use tokio::sync::{broadcast, Mutex as AsyncMutex, OnceCell};
+use tokio::sync::{Mutex as AsyncMutex, OnceCell, broadcast};
 
 pub mod matrix;
 pub mod oauth;

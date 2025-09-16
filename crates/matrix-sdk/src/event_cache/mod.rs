@@ -37,37 +37,39 @@ use eyeball::{SharedObservable, Subscriber};
 use eyeball_im::VectorDiff;
 use futures_util::future::{join_all, try_join_all};
 use matrix_sdk_base::{
+    ThreadingSupport,
     cross_process_lock::CrossProcessLockError,
     deserialized_responses::{AmbiguityChange, TimelineEvent},
     event_cache::{
-        store::{EventCacheStoreError, EventCacheStoreLock},
         Gap,
+        store::{EventCacheStoreError, EventCacheStoreLock},
     },
     executor::AbortOnDrop,
-    linked_chunk::{self, lazy_loader::LazyLoaderError, OwnedLinkedChunkId},
+    linked_chunk::{self, OwnedLinkedChunkId, lazy_loader::LazyLoaderError},
     serde_helpers::extract_thread_root_from_content,
     sync::RoomUpdates,
-    timer, ThreadingSupport,
+    timer,
 };
-use matrix_sdk_common::executor::{spawn, JoinHandle};
+use matrix_sdk_common::executor::{JoinHandle, spawn};
 use room::RoomEventCacheState;
 use ruma::{
-    events::AnySyncEphemeralRoomEvent, serde::Raw, OwnedEventId, OwnedRoomId, OwnedTransactionId,
-    RoomId,
+    OwnedEventId, OwnedRoomId, OwnedTransactionId, RoomId, events::AnySyncEphemeralRoomEvent,
+    serde::Raw,
 };
 use tokio::{
     select,
     sync::{
-        broadcast::{channel, error::RecvError, Receiver, Sender},
-        mpsc, Mutex, RwLock,
+        Mutex, RwLock,
+        broadcast::{Receiver, Sender, channel, error::RecvError},
+        mpsc,
     },
 };
-use tracing::{debug, error, info, info_span, instrument, trace, warn, Instrument as _, Span};
+use tracing::{Instrument as _, Span, debug, error, info, info_span, instrument, trace, warn};
 
 use crate::{
+    Client,
     client::WeakClient,
     send_queue::{LocalEchoContent, RoomSendQueueUpdate, SendQueueUpdate},
-    Client,
 };
 
 mod deduplicator;
@@ -754,7 +756,9 @@ impl EventCache {
                     }
                 }
                 Err(RecvError::Closed) => {
-                    debug!("Linked chunk update channel has been closed, exiting thread subscriber task");
+                    debug!(
+                        "Linked chunk update channel has been closed, exiting thread subscriber task"
+                    );
                     break;
                 }
                 Err(RecvError::Lagged(num_skipped)) => {
@@ -1163,12 +1167,12 @@ mod tests {
     use assert_matches::assert_matches;
     use futures_util::FutureExt as _;
     use matrix_sdk_base::{
+        RoomState,
         linked_chunk::{ChunkIdentifier, LinkedChunkId, Position, Update},
         sync::{JoinedRoomUpdate, RoomUpdates, Timeline},
-        RoomState,
     };
     use matrix_sdk_test::{
-        async_test, event_factory::EventFactory, JoinedRoomBuilder, SyncResponseBuilder,
+        JoinedRoomBuilder, SyncResponseBuilder, async_test, event_factory::EventFactory,
     };
     use ruma::{event_id, room_id, serde::Raw, user_id};
     use serde_json::json;
@@ -1357,11 +1361,13 @@ mod tests {
                     },
                     Update::PushItems {
                         at: Position::new(ChunkIdentifier::new(0), 0),
-                        items: vec![event_factory
-                            .text_msg("hello")
-                            .sender(user)
-                            .event_id(event_id!("$ev0"))
-                            .into_event()],
+                        items: vec![
+                            event_factory
+                                .text_msg("hello")
+                                .sender(user)
+                                .event_id(event_id!("$ev0"))
+                                .into_event(),
+                        ],
                     },
                 ],
             )
@@ -1432,11 +1438,13 @@ mod tests {
                     },
                     Update::PushItems {
                         at: Position::new(ChunkIdentifier::new(2), 0),
-                        items: vec![event_factory
-                            .text_msg("hello")
-                            .sender(user)
-                            .event_id(event_id!("$ev0"))
-                            .into_event()],
+                        items: vec![
+                            event_factory
+                                .text_msg("hello")
+                                .sender(user)
+                                .event_id(event_id!("$ev0"))
+                                .into_event(),
+                        ],
                     },
                     // Non-empty items chunk.
                     Update::NewItemsChunk {
@@ -1446,11 +1454,13 @@ mod tests {
                     },
                     Update::PushItems {
                         at: Position::new(ChunkIdentifier::new(3), 0),
-                        items: vec![event_factory
-                            .text_msg("world")
-                            .sender(user)
-                            .event_id(event_id!("$ev1"))
-                            .into_event()],
+                        items: vec![
+                            event_factory
+                                .text_msg("world")
+                                .sender(user)
+                                .event_id(event_id!("$ev1"))
+                                .into_event(),
+                        ],
                     },
                 ],
             )

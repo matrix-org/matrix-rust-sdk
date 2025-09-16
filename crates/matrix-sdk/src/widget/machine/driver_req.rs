@@ -17,19 +17,19 @@
 use std::{collections::BTreeMap, marker::PhantomData};
 
 use ruma::{
+    OwnedUserId,
     api::client::{account::request_openid_token, delayed_events::update_delayed_event},
     events::{AnyStateEvent, AnyTimelineEvent, AnyToDeviceEventContent},
     serde::Raw,
     to_device::DeviceIdOrAllDevices,
-    OwnedUserId,
 };
 use serde::Deserialize;
 use serde_json::value::RawValue as RawJsonValue;
 use tracing::error;
 
 use super::{
-    from_widget::SendEventResponse, incoming::MatrixDriverResponse, Action,
-    MatrixDriverRequestMeta, SendToDeviceEventResponse, WidgetMachine,
+    Action, MatrixDriverRequestMeta, SendToDeviceEventResponse, WidgetMachine,
+    from_widget::SendEventResponse, incoming::MatrixDriverResponse,
 };
 use crate::widget::{Capabilities, StateKeySelector};
 
@@ -80,8 +80,8 @@ where
     pub(crate) fn add_response_handler(
         self,
         response_handler: impl FnOnce(Result<T, crate::Error>, &mut WidgetMachine) -> Vec<Action>
-            + Send
-            + 'static,
+        + Send
+        + 'static,
     ) {
         self.request_meta.response_fn = Some(Box::new(move |response, machine| {
             if let Some(response_data) = response.map(T::from_response).transpose() {

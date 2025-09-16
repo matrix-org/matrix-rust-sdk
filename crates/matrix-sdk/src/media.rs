@@ -27,13 +27,13 @@ use matrix_sdk_base::media::store::IgnoreMediaRetentionPolicy;
 pub use matrix_sdk_base::media::{store::MediaRetentionPolicy, *};
 use mime::Mime;
 use ruma::{
+    MilliSecondsSinceUnixEpoch, MxcUri, OwnedMxcUri, TransactionId, UInt,
     api::{
-        client::{authenticated_media, error::ErrorKind, media},
         OutgoingRequest,
+        client::{authenticated_media, error::ErrorKind, media},
     },
     assign,
     events::room::{MediaSource, ThumbnailInfo},
-    MilliSecondsSinceUnixEpoch, MxcUri, OwnedMxcUri, TransactionId, UInt,
 };
 #[cfg(not(target_family = "wasm"))]
 use tempfile::{Builder as TempFileBuilder, NamedTempFile, TempDir};
@@ -41,8 +41,8 @@ use tempfile::{Builder as TempFileBuilder, NamedTempFile, TempDir};
 use tokio::{fs::File as TokioFile, io::AsyncWriteExt};
 
 use crate::{
-    attachment::Thumbnail, client::futures::SendMediaUploadRequest, config::RequestConfig, Client,
-    Error, Result, TransmissionProgress,
+    Client, Error, Result, TransmissionProgress, attachment::Thumbnail,
+    client::futures::SendMediaUploadRequest, config::RequestConfig,
 };
 
 /// A conservative upload speed of 1Mbps
@@ -808,8 +808,9 @@ impl Media {
 mod tests {
     use assert_matches2::assert_matches;
     use ruma::{
+        MxcUri,
         events::room::{EncryptedFile, MediaSource},
-        mxc_uri, owned_mxc_uri, uint, MxcUri,
+        mxc_uri, owned_mxc_uri, uint,
     };
     use serde_json::json;
 

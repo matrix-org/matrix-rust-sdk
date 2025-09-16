@@ -15,31 +15,32 @@
 use std::{
     collections::BTreeMap,
     sync::{
-        atomic::{self, AtomicBool},
         Arc,
+        atomic::{self, AtomicBool},
     },
 };
 
 use matrix_sdk_base::{
+    StateStoreDataKey, StateStoreDataValue, ThreadSubscriptionCatchupToken,
     executor::AbortOnDrop,
     store::{StoredThreadSubscription, ThreadSubscriptionStatus},
-    StateStoreDataKey, StateStoreDataValue, ThreadSubscriptionCatchupToken,
 };
 use matrix_sdk_common::executor::spawn;
 use once_cell::sync::OnceCell;
 use ruma::{
+    OwnedEventId, OwnedRoomId,
     api::client::threads::get_thread_subscriptions_changes::unstable::{
         ThreadSubscription, ThreadUnsubscription,
     },
-    assign, OwnedEventId, OwnedRoomId,
+    assign,
 };
 use tokio::sync::{
-    mpsc::{channel, Receiver, Sender},
     Mutex, OwnedMutexGuard,
+    mpsc::{Receiver, Sender, channel},
 };
 use tracing::{instrument, trace, warn};
 
-use crate::{client::WeakClient, Client, Result};
+use crate::{Client, Result, client::WeakClient};
 
 struct GuardedStoreAccess {
     _mutex: OwnedMutexGuard<()>,

@@ -6,7 +6,7 @@ use matrix_sdk::{
     test_utils::mocks::MatrixMockServer,
 };
 use matrix_sdk_test::{
-    async_test, event_factory::EventFactory, InvitedRoomBuilder, JoinedRoomBuilder, StateTestEvent,
+    InvitedRoomBuilder, JoinedRoomBuilder, StateTestEvent, async_test, event_factory::EventFactory,
 };
 use ruma::{
     device_id, event_id, events::room::message::RoomMessageEventContent, mxc_uri, room_id, user_id,

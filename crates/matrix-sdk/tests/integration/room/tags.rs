@@ -1,20 +1,21 @@
 use std::{collections::BTreeMap, ops::Not, time::Duration};
 
 use matrix_sdk::{
-    config::{SyncSettings, SyncToken},
     Client, Room,
+    config::{SyncSettings, SyncToken},
 };
 use matrix_sdk_test::{
-    async_test, test_json, JoinedRoomBuilder, RoomAccountDataTestEvent, SyncResponseBuilder,
+    JoinedRoomBuilder, RoomAccountDataTestEvent, SyncResponseBuilder, async_test, test_json,
 };
 use ruma::{
+    RoomId,
     events::tag::{TagInfo, TagName, Tags},
-    room_id, RoomId,
+    room_id,
 };
 use serde_json::json;
 use wiremock::{
-    matchers::{header, method, path_regex},
     Mock, MockServer, ResponseTemplate,
+    matchers::{header, method, path_regex},
 };
 
 use crate::{logged_in_client_with_server, mock_sync};

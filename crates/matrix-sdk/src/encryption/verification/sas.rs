@@ -16,9 +16,9 @@ use futures_core::Stream;
 use matrix_sdk_base::crypto::{
     AcceptSettings, CancelInfo, DeviceData, Emoji, Sas as BaseSas, SasState,
 };
-use ruma::{events::key::verification::cancel::CancelCode, RoomId, UserId};
+use ruma::{RoomId, UserId, events::key::verification::cancel::CancelCode};
 
-use crate::{error::Result, Client};
+use crate::{Client, error::Result};
 
 /// An object controlling the short auth string verification flow.
 #[derive(Debug, Clone)]

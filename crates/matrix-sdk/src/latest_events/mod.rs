@@ -60,11 +60,11 @@ use eyeball::{AsyncLock, Subscriber};
 use futures_util::FutureExt;
 use latest_event::LatestEvent;
 pub use latest_event::{LatestEventValue, LocalLatestEventValue, RemoteLatestEventValue};
-use matrix_sdk_common::executor::{spawn, AbortOnDrop, JoinHandleExt as _};
+use matrix_sdk_common::executor::{AbortOnDrop, JoinHandleExt as _, spawn};
 use ruma::{EventId, OwnedEventId, OwnedRoomId, RoomId};
 use tokio::{
     select,
-    sync::{broadcast, mpsc, RwLock, RwLockReadGuard, RwLockWriteGuard},
+    sync::{RwLock, RwLockReadGuard, RwLockWriteGuard, broadcast, mpsc},
 };
 use tracing::{error, warn};
 
@@ -725,22 +725,22 @@ mod tests {
 
     use assert_matches::assert_matches;
     use matrix_sdk_base::{
+        RoomState,
         deserialized_responses::TimelineEventKind,
         linked_chunk::{ChunkIdentifier, LinkedChunkId, Position, Update},
-        RoomState,
     };
-    use matrix_sdk_test::{async_test, event_factory::EventFactory, JoinedRoomBuilder};
+    use matrix_sdk_test::{JoinedRoomBuilder, async_test, event_factory::EventFactory};
     use ruma::{
-        event_id,
+        OwnedTransactionId, event_id,
         events::{AnySyncMessageLikeEvent, AnySyncTimelineEvent, SyncMessageLikeEvent},
-        owned_room_id, room_id, user_id, OwnedTransactionId,
+        owned_room_id, room_id, user_id,
     };
     use stream_assert::assert_pending;
 
     use super::{
-        broadcast, listen_to_event_cache_and_send_queue_updates, mpsc, HashSet, LatestEventValue,
-        RemoteLatestEventValue, RoomEventCacheGenericUpdate, RoomRegistration, RoomSendQueueUpdate,
-        SendQueueUpdate,
+        HashSet, LatestEventValue, RemoteLatestEventValue, RoomEventCacheGenericUpdate,
+        RoomRegistration, RoomSendQueueUpdate, SendQueueUpdate, broadcast,
+        listen_to_event_cache_and_send_queue_updates, mpsc,
     };
     use crate::test_utils::mocks::MatrixMockServer;
 
@@ -915,15 +915,17 @@ mod tests {
             room_registration_sender.send(RoomRegistration::Add(room_id_0.clone())).await.unwrap();
 
             // Run the task.
-            assert!(listen_to_event_cache_and_send_queue_updates(
-                &mut room_registration_receiver,
-                &mut room_event_cache_generic_update_receiver,
-                &mut send_queue_generic_update_receiver,
-                &mut listened_rooms,
-                &latest_event_queue_sender,
-            )
-            .await
-            .is_continue());
+            assert!(
+                listen_to_event_cache_and_send_queue_updates(
+                    &mut room_registration_receiver,
+                    &mut room_event_cache_generic_update_receiver,
+                    &mut send_queue_generic_update_receiver,
+                    &mut listened_rooms,
+                    &latest_event_queue_sender,
+                )
+                .await
+                .is_continue()
+            );
 
             assert_eq!(listened_rooms.len(), 1);
             assert!(listened_rooms.contains(&room_id_0));
@@ -935,15 +937,17 @@ mod tests {
             room_registration_sender.send(RoomRegistration::Add(room_id_0.clone())).await.unwrap();
 
             // Run the task.
-            assert!(listen_to_event_cache_and_send_queue_updates(
-                &mut room_registration_receiver,
-                &mut room_event_cache_generic_update_receiver,
-                &mut send_queue_generic_update_receiver,
-                &mut listened_rooms,
-                &latest_event_queue_sender,
-            )
-            .await
-            .is_continue());
+            assert!(
+                listen_to_event_cache_and_send_queue_updates(
+                    &mut room_registration_receiver,
+                    &mut room_event_cache_generic_update_receiver,
+                    &mut send_queue_generic_update_receiver,
+                    &mut listened_rooms,
+                    &latest_event_queue_sender,
+                )
+                .await
+                .is_continue()
+            );
 
             // This is the second time this room is added. Nothing happens.
             assert_eq!(listened_rooms.len(), 1);
@@ -959,15 +963,17 @@ mod tests {
                 .unwrap();
 
             // Run the task.
-            assert!(listen_to_event_cache_and_send_queue_updates(
-                &mut room_registration_receiver,
-                &mut room_event_cache_generic_update_receiver,
-                &mut send_queue_generic_update_receiver,
-                &mut listened_rooms,
-                &latest_event_queue_sender,
-            )
-            .await
-            .is_continue());
+            assert!(
+                listen_to_event_cache_and_send_queue_updates(
+                    &mut room_registration_receiver,
+                    &mut room_event_cache_generic_update_receiver,
+                    &mut send_queue_generic_update_receiver,
+                    &mut listened_rooms,
+                    &latest_event_queue_sender,
+                )
+                .await
+                .is_continue()
+            );
 
             // This is the first time this room is added. It must appear.
             assert_eq!(listened_rooms.len(), 2);
@@ -991,16 +997,18 @@ mod tests {
         room_registration_receiver.close();
 
         // Run the task.
-        assert!(listen_to_event_cache_and_send_queue_updates(
-            &mut room_registration_receiver,
-            &mut room_event_cache_generic_update_receiver,
-            &mut send_queue_generic_update_receiver,
-            &mut listened_rooms,
-            &latest_event_queue_sender,
-        )
-        .await
-        // It breaks!
-        .is_break());
+        assert!(
+            listen_to_event_cache_and_send_queue_updates(
+                &mut room_registration_receiver,
+                &mut room_event_cache_generic_update_receiver,
+                &mut send_queue_generic_update_receiver,
+                &mut listened_rooms,
+                &latest_event_queue_sender,
+            )
+            .await
+            // It breaks!
+            .is_break()
+        );
 
         assert_eq!(listened_rooms.len(), 0);
         assert!(latest_event_queue_receiver.is_empty());
@@ -1025,15 +1033,17 @@ mod tests {
                 .unwrap();
 
             // Run the task.
-            assert!(listen_to_event_cache_and_send_queue_updates(
-                &mut room_registration_receiver,
-                &mut room_event_cache_generic_update_receiver,
-                &mut send_queue_generic_update_receiver,
-                &mut listened_rooms,
-                &latest_event_queue_sender,
-            )
-            .await
-            .is_continue());
+            assert!(
+                listen_to_event_cache_and_send_queue_updates(
+                    &mut room_registration_receiver,
+                    &mut room_event_cache_generic_update_receiver,
+                    &mut send_queue_generic_update_receiver,
+                    &mut listened_rooms,
+                    &latest_event_queue_sender,
+                )
+                .await
+                .is_continue()
+            );
 
             assert!(listened_rooms.is_empty());
 
@@ -1051,15 +1061,17 @@ mod tests {
             // Run the task to handle the `RoomRegistration` and the
             // `RoomEventCacheGenericUpdate`.
             for _ in 0..2 {
-                assert!(listen_to_event_cache_and_send_queue_updates(
-                    &mut room_registration_receiver,
-                    &mut room_event_cache_generic_update_receiver,
-                    &mut send_queue_generic_update_receiver,
-                    &mut listened_rooms,
-                    &latest_event_queue_sender,
-                )
-                .await
-                .is_continue());
+                assert!(
+                    listen_to_event_cache_and_send_queue_updates(
+                        &mut room_registration_receiver,
+                        &mut room_event_cache_generic_update_receiver,
+                        &mut send_queue_generic_update_receiver,
+                        &mut listened_rooms,
+                        &latest_event_queue_sender,
+                    )
+                    .await
+                    .is_continue()
+                );
             }
 
             assert_eq!(listened_rooms.len(), 1);
@@ -1095,15 +1107,17 @@ mod tests {
                 .unwrap();
 
             // Run the task.
-            assert!(listen_to_event_cache_and_send_queue_updates(
-                &mut room_registration_receiver,
-                &mut room_event_cache_generic_update_receiver,
-                &mut send_queue_generic_update_receiver,
-                &mut listened_rooms,
-                &latest_event_queue_sender,
-            )
-            .await
-            .is_continue());
+            assert!(
+                listen_to_event_cache_and_send_queue_updates(
+                    &mut room_registration_receiver,
+                    &mut room_event_cache_generic_update_receiver,
+                    &mut send_queue_generic_update_receiver,
+                    &mut listened_rooms,
+                    &latest_event_queue_sender,
+                )
+                .await
+                .is_continue()
+            );
 
             assert!(listened_rooms.is_empty());
 
@@ -1126,15 +1140,17 @@ mod tests {
 
             // Run the task to handle the `RoomRegistration` and the `SendQueueUpdate`.
             for _ in 0..2 {
-                assert!(listen_to_event_cache_and_send_queue_updates(
-                    &mut room_registration_receiver,
-                    &mut room_event_cache_generic_update_receiver,
-                    &mut send_queue_generic_update_receiver,
-                    &mut listened_rooms,
-                    &latest_event_queue_sender,
-                )
-                .await
-                .is_continue());
+                assert!(
+                    listen_to_event_cache_and_send_queue_updates(
+                        &mut room_registration_receiver,
+                        &mut room_event_cache_generic_update_receiver,
+                        &mut send_queue_generic_update_receiver,
+                        &mut listened_rooms,
+                        &latest_event_queue_sender,
+                    )
+                    .await
+                    .is_continue()
+                );
             }
 
             assert_eq!(listened_rooms.len(), 1);
@@ -1159,16 +1175,18 @@ mod tests {
         drop(room_event_cache_generic_update_sender);
 
         // Run the task.
-        assert!(listen_to_event_cache_and_send_queue_updates(
-            &mut room_registration_receiver,
-            &mut room_event_cache_generic_update_receiver,
-            &mut send_queue_generic_update_receiver,
-            &mut listened_rooms,
-            &latest_event_queue_sender,
-        )
-        .await
-        // It breaks!
-        .is_break());
+        assert!(
+            listen_to_event_cache_and_send_queue_updates(
+                &mut room_registration_receiver,
+                &mut room_event_cache_generic_update_receiver,
+                &mut send_queue_generic_update_receiver,
+                &mut listened_rooms,
+                &latest_event_queue_sender,
+            )
+            .await
+            // It breaks!
+            .is_break()
+        );
 
         assert_eq!(listened_rooms.len(), 0);
         assert!(latest_event_queue_receiver.is_empty());
@@ -1188,16 +1206,18 @@ mod tests {
         drop(send_queue_generic_update_sender);
 
         // Run the task.
-        assert!(listen_to_event_cache_and_send_queue_updates(
-            &mut room_registration_receiver,
-            &mut room_event_cache_generic_update_receiver,
-            &mut send_queue_generic_update_receiver,
-            &mut listened_rooms,
-            &latest_event_queue_sender,
-        )
-        .await
-        // It breaks!
-        .is_break());
+        assert!(
+            listen_to_event_cache_and_send_queue_updates(
+                &mut room_registration_receiver,
+                &mut room_event_cache_generic_update_receiver,
+                &mut send_queue_generic_update_receiver,
+                &mut listened_rooms,
+                &latest_event_queue_sender,
+            )
+            .await
+            // It breaks!
+            .is_break()
+        );
 
         assert_eq!(listened_rooms.len(), 0);
         assert!(latest_event_queue_receiver.is_empty());

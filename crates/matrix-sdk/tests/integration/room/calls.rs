@@ -2,9 +2,9 @@ use std::sync::{Arc, Mutex};
 
 use assert_matches2::assert_matches;
 use matrix_sdk::{room::calls::CallError, test_utils::mocks::MatrixMockServer};
-use matrix_sdk_test::{async_test, event_factory::EventFactory, JoinedRoomBuilder, StateTestEvent};
+use matrix_sdk_test::{JoinedRoomBuilder, StateTestEvent, async_test, event_factory::EventFactory};
 use ruma::{
-    events::rtc::notification::NotificationType, owned_event_id, room_id, user_id, OwnedUserId,
+    OwnedUserId, events::rtc::notification::NotificationType, owned_event_id, room_id, user_id,
 };
 use tokio::spawn;
 

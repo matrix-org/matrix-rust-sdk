@@ -15,17 +15,17 @@
 //!  Facilities to handle incoming calls.
 
 use ruma::{
-    events::{
-        rtc::decline::{RtcDeclineEventContent, SyncRtcDeclineEvent},
-        AnySyncMessageLikeEvent, AnySyncTimelineEvent,
-    },
     EventId, OwnedUserId, UserId,
+    events::{
+        AnySyncMessageLikeEvent, AnySyncTimelineEvent,
+        rtc::decline::{RtcDeclineEventContent, SyncRtcDeclineEvent},
+    },
 };
 use thiserror::Error;
 use tokio::sync::broadcast;
 use tracing::instrument;
 
-use crate::{event_handler::EventHandlerDropGuard, room::EventSource, Room};
+use crate::{Room, event_handler::EventHandlerDropGuard, room::EventSource};
 
 /// An error occurring while interacting with a call/rtc event.
 #[derive(Debug, Error)]

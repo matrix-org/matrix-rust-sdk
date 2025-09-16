@@ -6,7 +6,7 @@ use matrix_sdk_test::async_test;
 use ruma::{
     api::client::media::get_content_thumbnail::v3::Method,
     assign,
-    events::room::{message::ImageMessageEventContent, ImageInfo, MediaSource},
+    events::room::{ImageInfo, MediaSource, message::ImageMessageEventContent},
     mxc_uri, owned_mxc_uri, uint,
 };
 

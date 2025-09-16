@@ -18,13 +18,13 @@
 
 use std::{fmt::Formatter, future::Future, sync::Mutex};
 
-use matrix_sdk_base::{deserialized_responses::TimelineEvent, SendOutsideWasm, SyncOutsideWasm};
-use ruma::{api::Direction, OwnedEventId, UInt};
+use matrix_sdk_base::{SendOutsideWasm, SyncOutsideWasm, deserialized_responses::TimelineEvent};
+use ruma::{OwnedEventId, UInt, api::Direction};
 
 use crate::{
+    Error, Room,
     paginators::{PaginationResult, PaginationToken, PaginatorError},
     room::{IncludeRelations, Relations, RelationsOptions},
-    Error, Room,
 };
 
 /// A paginable thread interface, useful for testing purposes.

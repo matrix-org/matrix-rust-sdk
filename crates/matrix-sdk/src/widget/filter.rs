@@ -330,8 +330,10 @@ mod tests {
 
     #[test]
     fn test_text_event_filter_does_not_match_image_event() {
-        assert!(!room_message_text_event_filter()
-            .matches(&FilterInput::message_with_msgtype("m.image")));
+        assert!(
+            !room_message_text_event_filter()
+                .matches(&FilterInput::message_with_msgtype("m.image"))
+        );
     }
 
     #[test]
@@ -351,8 +353,10 @@ mod tests {
 
     #[test]
     fn test_reaction_event_filter_matches_reaction() {
-        assert!(reaction_event_filter()
-            .matches(&message_event(&MessageLikeEventType::Reaction.to_string())));
+        assert!(
+            reaction_event_filter()
+                .matches(&message_event(&MessageLikeEventType::Reaction.to_string()))
+        );
     }
 
     #[test]
@@ -391,20 +395,26 @@ mod tests {
 
     #[test]
     fn self_member_event_filter_does_not_match_unrelated_state_event_with_same_state_key() {
-        assert!(!self_member_event_filter()
-            .matches(&FilterInput::state("io.element.test_state_event", "@self.example.me")));
+        assert!(
+            !self_member_event_filter()
+                .matches(&FilterInput::state("io.element.test_state_event", "@self.example.me"))
+        );
     }
 
     #[test]
     fn test_self_member_event_filter_does_not_match_reaction_event() {
-        assert!(!self_member_event_filter()
-            .matches(&message_event(&MessageLikeEventType::Reaction.to_string())));
+        assert!(
+            !self_member_event_filter()
+                .matches(&message_event(&MessageLikeEventType::Reaction.to_string()))
+        );
     }
 
     #[test]
     fn test_self_member_event_filter_only_matches_specific_state_key() {
-        assert!(!self_member_event_filter()
-            .matches(&FilterInput::state(&StateEventType::RoomMember.to_string(), "")));
+        assert!(
+            !self_member_event_filter()
+                .matches(&FilterInput::state(&StateEventType::RoomMember.to_string(), ""))
+        );
     }
 
     // Tests against an `m.room.member` filter with any `state_key`.
@@ -422,20 +432,26 @@ mod tests {
 
     #[test]
     fn test_member_event_filter_does_not_match_room_name_event() {
-        assert!(!member_event_filter()
-            .matches(&FilterInput::state(&TimelineEventType::RoomName.to_string(), "")));
+        assert!(
+            !member_event_filter()
+                .matches(&FilterInput::state(&TimelineEventType::RoomName.to_string(), ""))
+        );
     }
 
     #[test]
     fn test_member_event_filter_does_not_match_reaction_event() {
-        assert!(!member_event_filter()
-            .matches(&message_event(&MessageLikeEventType::Reaction.to_string())));
+        assert!(
+            !member_event_filter()
+                .matches(&message_event(&MessageLikeEventType::Reaction.to_string()))
+        );
     }
 
     #[test]
     fn test_member_event_filter_matches_any_state_key() {
-        assert!(member_event_filter()
-            .matches(&FilterInput::state(&StateEventType::RoomMember.to_string(), "")));
+        assert!(
+            member_event_filter()
+                .matches(&FilterInput::state(&StateEventType::RoomMember.to_string(), ""))
+        );
     }
 
     // Tests against an `m.room.topic` filter with `state_key = ""`
@@ -448,8 +464,10 @@ mod tests {
 
     #[test]
     fn test_topic_event_filter_does_match() {
-        assert!(topic_event_filter()
-            .matches(&FilterInput::state(&StateEventType::RoomTopic.to_string(), "")));
+        assert!(
+            topic_event_filter()
+                .matches(&FilterInput::state(&StateEventType::RoomTopic.to_string(), ""))
+        );
     }
 
     // Tests against an `m.room.message` filter with `msgtype = m.custom`
@@ -464,32 +482,44 @@ mod tests {
 
     #[test]
     fn test_reaction_event_type_does_not_match_room_message_text_event_filter() {
-        assert!(!room_message_text_event_filter()
-            .matches(&FilterInput::message_like(&MessageLikeEventType::Reaction.to_string())));
+        assert!(
+            !room_message_text_event_filter()
+                .matches(&FilterInput::message_like(&MessageLikeEventType::Reaction.to_string()))
+        );
     }
 
     #[test]
     fn test_room_message_event_without_msgtype_does_not_match_custom_msgtype_filter() {
-        assert!(!room_message_custom_event_filter()
-            .matches(&FilterInput::message_like(&MessageLikeEventType::RoomMessage.to_string())));
+        assert!(
+            !room_message_custom_event_filter().matches(&FilterInput::message_like(
+                &MessageLikeEventType::RoomMessage.to_string()
+            ))
+        );
     }
 
     #[test]
     fn test_reaction_event_type_does_not_match_room_message_custom_event_filter() {
-        assert!(!room_message_custom_event_filter()
-            .matches(&FilterInput::message_like(&MessageLikeEventType::Reaction.to_string())));
+        assert!(
+            !room_message_custom_event_filter()
+                .matches(&FilterInput::message_like(&MessageLikeEventType::Reaction.to_string()))
+        );
     }
 
     #[test]
     fn test_room_message_event_type_matches_room_message_event_filter() {
-        assert!(room_message_filter()
-            .matches(&FilterInput::message_like(&MessageLikeEventType::RoomMessage.to_string())));
+        assert!(
+            room_message_filter().matches(&FilterInput::message_like(
+                &MessageLikeEventType::RoomMessage.to_string()
+            ))
+        );
     }
 
     #[test]
     fn test_reaction_event_type_does_not_match_room_message_event_filter() {
-        assert!(!room_message_filter()
-            .matches(&FilterInput::message_like(&MessageLikeEventType::Reaction.to_string())));
+        assert!(
+            !room_message_filter()
+                .matches(&FilterInput::message_like(&MessageLikeEventType::Reaction.to_string()))
+        );
     }
     #[test]
     fn test_convert_raw_event_into_message_like_filter_input() {

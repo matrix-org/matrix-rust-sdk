@@ -10,43 +10,42 @@ use futures_util::{future::join_all, pin_mut};
 use matrix_sdk::{
     assert_next_with_timeout, assert_recv_with_timeout,
     config::SyncSettings,
-    room::{edit::EditedContent, Receipts, ReportedContentScore, RoomMemberRole},
+    room::{Receipts, ReportedContentScore, RoomMemberRole, edit::EditedContent},
     test_utils::mocks::MatrixMockServer,
 };
 use matrix_sdk_base::{EncryptionState, RoomMembersUpdate, RoomState};
 use matrix_sdk_common::executor::spawn;
 use matrix_sdk_test::{
-    async_test,
+    DEFAULT_TEST_ROOM_ID, InvitedRoomBuilder, JoinedRoomBuilder, RoomAccountDataTestEvent,
+    SyncResponseBuilder, async_test,
     event_factory::EventFactory,
     mocks::mock_encryption_state,
     test_json::{self, sync::CUSTOM_ROOM_POWER_LEVELS},
-    InvitedRoomBuilder, JoinedRoomBuilder, RoomAccountDataTestEvent, SyncResponseBuilder,
-    DEFAULT_TEST_ROOM_ID,
 };
 use ruma::{
+    OwnedUserId, RoomVersionId, TransactionId,
     api::client::{
         membership::Invite3pidInit, receipt::create_receipt::v3::ReceiptType,
         room::upgrade_room::v3::Request as UpgradeRoomRequest,
     },
     assign, event_id,
     events::{
+        RoomAccountDataEventType, TimelineEventType,
         direct::DirectUserIdentifier,
         receipt::ReceiptThread,
         room::{
             member::MembershipState,
             message::{RoomMessageEventContent, RoomMessageEventContentWithoutRelation},
         },
-        RoomAccountDataEventType, TimelineEventType,
     },
-    int, mxc_uri, owned_event_id, room_id, thirdparty, user_id, OwnedUserId, RoomVersionId,
-    TransactionId,
+    int, mxc_uri, owned_event_id, room_id, thirdparty, user_id,
 };
 use serde_json::json;
 use stream_assert::assert_pending;
 use tokio::time::sleep;
 use wiremock::{
-    matchers::{body_json, body_partial_json, header, method, path_regex},
     Mock, ResponseTemplate,
+    matchers::{body_json, body_partial_json, header, method, path_regex},
 };
 
 use crate::{logged_in_client_with_server, mock_sync};

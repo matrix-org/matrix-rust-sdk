@@ -3,14 +3,14 @@
 use imbl::HashSet;
 use indexmap::IndexSet;
 use ruma::{
+    RoomId,
     push::{
         AnyPushRuleRef, PatternedPushRule, PredefinedContentRuleId, PredefinedOverrideRuleId,
         PredefinedUnderrideRuleId, PushCondition, RuleKind, Ruleset,
     },
-    RoomId,
 };
 
-use super::{command::Command, rule_commands::RuleCommands, RoomNotificationMode};
+use super::{RoomNotificationMode, command::Command, rule_commands::RuleCommands};
 use crate::{
     error::NotificationSettingsError,
     notification_settings::{IsEncrypted, IsOneToOne},
@@ -319,19 +319,19 @@ pub(crate) mod tests {
         notification_settings::{build_ruleset, get_server_default_ruleset},
     };
     use ruma::{
+        OwnedRoomId, RoomId,
         push::{
             Action, NewConditionalPushRule, NewPushRule, PredefinedContentRuleId,
             PredefinedOverrideRuleId, PredefinedUnderrideRuleId, PushCondition, RuleKind,
         },
-        OwnedRoomId, RoomId,
     };
 
     use super::RuleCommands;
     use crate::{
         error::NotificationSettingsError,
         notification_settings::{
-            rules::{self, Rules},
             IsEncrypted, IsOneToOne, RoomNotificationMode,
+            rules::{self, Rules},
         },
     };
 
@@ -505,9 +505,11 @@ pub(crate) mod tests {
         assert!(rules.is_user_mention_enabled());
         // is_enabled() should also return `true` for
         // PredefinedOverrideRuleId::IsUserMention
-        assert!(rules
-            .is_enabled(RuleKind::Override, PredefinedOverrideRuleId::IsUserMention.as_str())
-            .unwrap());
+        assert!(
+            rules
+                .is_enabled(RuleKind::Override, PredefinedOverrideRuleId::IsUserMention.as_str())
+                .unwrap()
+        );
 
         // If `IsUserMention` is disabled, then is_user_mention_enabled() should return
         // `false` even if the deprecated rules are enabled
@@ -536,9 +538,11 @@ pub(crate) mod tests {
         assert!(!rules.is_user_mention_enabled());
         // is_enabled() should also return `false` for
         // PredefinedOverrideRuleId::IsUserMention
-        assert!(!rules
-            .is_enabled(RuleKind::Override, PredefinedOverrideRuleId::IsUserMention.as_str())
-            .unwrap());
+        assert!(
+            !rules
+                .is_enabled(RuleKind::Override, PredefinedOverrideRuleId::IsUserMention.as_str())
+                .unwrap()
+        );
     }
 
     #[async_test]
@@ -558,9 +562,11 @@ pub(crate) mod tests {
         assert!(rules.is_room_mention_enabled());
         // is_enabled() should also return `true` for
         // PredefinedOverrideRuleId::IsRoomMention
-        assert!(rules
-            .is_enabled(RuleKind::Override, PredefinedOverrideRuleId::IsRoomMention.as_str())
-            .unwrap());
+        assert!(
+            rules
+                .is_enabled(RuleKind::Override, PredefinedOverrideRuleId::IsRoomMention.as_str())
+                .unwrap()
+        );
 
         // If `IsRoomMention` is present and disabled then is_room_mention_enabled()
         // should return `false` even if the deprecated rule is enabled
@@ -575,9 +581,11 @@ pub(crate) mod tests {
         assert!(!rules.is_room_mention_enabled());
         // is_enabled() should also return `false` for
         // PredefinedOverrideRuleId::IsRoomMention
-        assert!(!rules
-            .is_enabled(RuleKind::Override, PredefinedOverrideRuleId::IsRoomMention.as_str())
-            .unwrap());
+        assert!(
+            !rules
+                .is_enabled(RuleKind::Override, PredefinedOverrideRuleId::IsRoomMention.as_str())
+                .unwrap()
+        );
     }
 
     #[async_test]
@@ -644,9 +652,11 @@ pub(crate) mod tests {
         rules.apply(rules_commands);
 
         // The rule must have been disabled in the updated rules
-        assert!(!rules
-            .is_enabled(RuleKind::Override, PredefinedOverrideRuleId::Reaction.as_str())
-            .unwrap());
+        assert!(
+            !rules
+                .is_enabled(RuleKind::Override, PredefinedOverrideRuleId::Reaction.as_str())
+                .unwrap()
+        );
     }
 
     #[async_test]

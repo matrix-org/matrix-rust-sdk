@@ -14,8 +14,8 @@
 
 use language_tags::LanguageTag;
 use ruma::{
-    api::client::profile::{get_profile, AvatarUrl, DisplayName},
     DeviceId, RoomId, UserId,
+    api::client::profile::{AvatarUrl, DisplayName, get_profile},
 };
 use url::Url;
 

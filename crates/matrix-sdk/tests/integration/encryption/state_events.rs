@@ -1,8 +1,8 @@
 use matrix_sdk::{encryption::EncryptionSettings, test_utils::mocks::MatrixMockServer};
-use matrix_sdk_test::{async_test, event_factory::EventFactory, JoinedRoomBuilder, StateTestEvent};
+use matrix_sdk_test::{JoinedRoomBuilder, StateTestEvent, async_test, event_factory::EventFactory};
 use ruma::{
     device_id, event_id,
-    events::{room::topic::RoomTopicEventContent, StateEventType},
+    events::{StateEventType, room::topic::RoomTopicEventContent},
     room_id, user_id,
 };
 use serde_json::json;
