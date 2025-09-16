@@ -1101,7 +1101,7 @@ mod tests_latest_event_content {
                         NotificationType::Ring,
                     )
                     .mentions(vec![owned_user_id!("@alice:server.name")])
-                    .relates_to_membership_state_event(ruma::OwnedEventId::try_from("!1234").unwrap())
+                    .relates_to_membership_state_event(ruma::OwnedEventId::try_from("$abc:server.name").unwrap())
                     .lifetime(60)
                     .into_event()
             }
