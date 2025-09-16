@@ -27,7 +27,7 @@ use ruma::{
     },
 };
 use serde::{Deserialize, Serialize};
-use tracing::warn;
+use tracing::{trace, warn};
 #[cfg(target_family = "wasm")]
 use wasm_bindgen::prelude::*;
 
@@ -777,7 +777,13 @@ impl TimelineEvent {
     /// [`MilliSecondsSinceUnixEpoch::now`]. It means that the returned value
     /// might not be constant.
     pub fn timestamp(&self) -> Option<MilliSecondsSinceUnixEpoch> {
-        self.timestamp.or_else(|| extract_timestamp(self.raw(), MilliSecondsSinceUnixEpoch::now()))
+        self.timestamp.or_else(|| {
+            trace!(
+                "`TimelineEvent::timestamp` is parsing the raw event to extract the `timestamp`"
+            );
+
+            extract_timestamp(self.raw(), MilliSecondsSinceUnixEpoch::now())
+        })
     }
 
     /// Get the timestamp value, without trying to backfill it if `None`.
