@@ -19,8 +19,8 @@ use std::{
     fmt,
     ops::{Deref, DerefMut},
     sync::{
-        atomic::{AtomicUsize, Ordering},
         Arc,
+        atomic::{AtomicUsize, Ordering},
     },
 };
 
@@ -34,14 +34,15 @@ use matrix_sdk_base::{
     sync::{JoinedRoomUpdate, LeftRoomUpdate, Timeline},
 };
 use ruma::{
-    api::Direction,
-    events::{relation::RelationType, AnyRoomAccountDataEvent, AnySyncEphemeralRoomEvent},
-    serde::Raw,
     EventId, OwnedEventId, OwnedRoomId,
+    api::Direction,
+    events::{AnyRoomAccountDataEvent, AnySyncEphemeralRoomEvent, relation::RelationType},
+    serde::Raw,
 };
 use tokio::sync::{
+    Notify, RwLock,
     broadcast::{Receiver, Sender},
-    mpsc, Notify, RwLock,
+    mpsc,
 };
 use tracing::{instrument, trace, warn};
 
@@ -603,7 +604,7 @@ pub(super) enum LoadMoreEventsBackwardsOutcome {
 mod private {
     use std::{
         collections::{BTreeMap, HashMap, HashSet},
-        sync::{atomic::AtomicUsize, Arc},
+        sync::{Arc, atomic::AtomicUsize},
     };
 
     use eyeball::SharedObservable;
@@ -612,39 +613,40 @@ mod private {
         apply_redaction,
         deserialized_responses::{ThreadSummary, ThreadSummaryStatus, TimelineEventKind},
         event_cache::{
-            store::{DynEventCacheStore, EventCacheStoreLock},
             Event, Gap,
+            store::{DynEventCacheStore, EventCacheStoreLock},
         },
         linked_chunk::{
-            lazy_loader::{self},
             ChunkContent, ChunkIdentifierGenerator, ChunkMetadata, LinkedChunkId,
             OwnedLinkedChunkId, Position, Update,
+            lazy_loader::{self},
         },
         serde_helpers::extract_thread_root,
         sync::Timeline,
     };
     use matrix_sdk_common::executor::spawn;
     use ruma::{
+        EventId, OwnedEventId, OwnedRoomId,
         events::{
-            relation::RelationType, room::redaction::SyncRoomRedactionEvent,
             AnySyncMessageLikeEvent, AnySyncTimelineEvent, MessageLikeEventType,
+            relation::RelationType, room::redaction::SyncRoomRedactionEvent,
         },
         room_version_rules::RoomVersionRules,
         serde::Raw,
-        EventId, OwnedEventId, OwnedRoomId,
     };
     use tokio::sync::broadcast::{Receiver, Sender};
     use tracing::{debug, error, instrument, trace, warn};
 
     use super::{
-        super::{deduplicator::DeduplicationOutcome, EventCacheError},
+        super::{EventCacheError, deduplicator::DeduplicationOutcome},
+        EventLocation, LoadMoreEventsBackwardsOutcome,
         events::EventLinkedChunk,
-        sort_positions_descending, EventLocation, LoadMoreEventsBackwardsOutcome,
+        sort_positions_descending,
     };
     use crate::event_cache::{
-        deduplicator::filter_duplicate_events, room::threads::ThreadEventCache,
         BackPaginationOutcome, RoomEventCacheLinkedChunkUpdate, RoomPaginationStatus,
-        ThreadEventCacheUpdate,
+        ThreadEventCacheUpdate, deduplicator::filter_duplicate_events,
+        room::threads::ThreadEventCache,
     };
 
     /// State for a single room's event cache.
@@ -1836,7 +1838,7 @@ mod private {
             let prev_gap_id = if let Some(token) = prev_token {
                 // Find the corresponding gap in the in-memory linked chunk.
                 let gap_chunk_id = self.room_linked_chunk.chunk_identifier(|chunk| {
-                    matches!(chunk.content(), ChunkContent::Gap(Gap { ref prev_token }) if *prev_token == token)
+                    matches!(chunk.content(), ChunkContent::Gap(Gap { prev_token }) if *prev_token == token)
                 });
 
                 if gap_chunk_id.is_none() {
@@ -1957,9 +1959,9 @@ mod tests {
     use matrix_sdk_base::event_cache::Event;
     use matrix_sdk_test::{async_test, event_factory::EventFactory};
     use ruma::{
-        event_id,
+        RoomId, event_id,
         events::{relation::RelationType, room::message::RoomMessageEventContentWithoutRelation},
-        room_id, user_id, RoomId,
+        room_id, user_id,
     };
 
     use crate::test_utils::logged_in_client;
@@ -2220,28 +2222,28 @@ mod timed_tests {
     use futures_util::FutureExt;
     use matrix_sdk_base::{
         event_cache::{
-            store::{EventCacheStore as _, MemoryStore},
             Gap,
+            store::{EventCacheStore as _, MemoryStore},
         },
         linked_chunk::{
-            lazy_loader::from_all_chunks, ChunkContent, ChunkIdentifier, LinkedChunkId, Position,
-            Update,
+            ChunkContent, ChunkIdentifier, LinkedChunkId, Position, Update,
+            lazy_loader::from_all_chunks,
         },
         store::StoreConfig,
         sync::{JoinedRoomUpdate, Timeline},
     };
-    use matrix_sdk_test::{async_test, event_factory::EventFactory, ALICE, BOB};
+    use matrix_sdk_test::{ALICE, BOB, async_test, event_factory::EventFactory};
     use ruma::{
-        event_id,
+        OwnedUserId, event_id,
         events::{AnySyncMessageLikeEvent, AnySyncTimelineEvent},
-        room_id, user_id, OwnedUserId,
+        room_id, user_id,
     };
     use tokio::task::yield_now;
 
     use super::RoomEventCacheGenericUpdate;
     use crate::{
         assert_let_timeout,
-        event_cache::{room::LoadMoreEventsBackwardsOutcome, RoomEventCacheUpdate},
+        event_cache::{RoomEventCacheUpdate, room::LoadMoreEventsBackwardsOutcome},
         test_utils::client::MockClientBuilder,
     };
 
@@ -3351,14 +3353,16 @@ mod timed_tests {
         );
 
         // Look for an event that is inside the storage, but not loaded.
-        assert!(room_event_cache
-            .rfind_map_event_in_memory_by(|event| {
-                (event.raw().get_field::<OwnedUserId>("sender").unwrap().as_deref()
-                    == Some(user_id))
-                .then(|| event.event_id())
-            })
-            .await
-            .is_none());
+        assert!(
+            room_event_cache
+                .rfind_map_event_in_memory_by(|event| {
+                    (event.raw().get_field::<OwnedUserId>("sender").unwrap().as_deref()
+                        == Some(user_id))
+                    .then(|| event.event_id())
+                })
+                .await
+                .is_none()
+        );
 
         // Look for an event that doesn't exist.
         assert!(room_event_cache.rfind_map_event_in_memory_by(|_| None::<()>).await.is_none());
