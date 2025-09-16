@@ -151,6 +151,25 @@ impl IndexedTypeSerializer {
         serde_wasm_bindgen::to_value(&indexed).map_err(Into::into)
     }
 
+    /// Serializes an [`Indexed`] type into a [`JsValue`] if the
+    /// [`Indexed::IndexedType`] meets criteria defined by `f`.
+    pub fn serialize_if<T>(
+        &self,
+        t: &T,
+        f: impl Fn(&T::IndexedType) -> bool,
+    ) -> Result<Option<JsValue>, IndexedTypeSerializerError<T::Error>>
+    where
+        T: Indexed,
+        T::IndexedType: Serialize,
+    {
+        let indexed = t.to_indexed(&self.inner).map_err(IndexedTypeSerializerError::Indexing)?;
+        if f(&indexed) {
+            serde_wasm_bindgen::to_value(&indexed).map(Some).map_err(Into::into)
+        } else {
+            Ok(None)
+        }
+    }
+
     /// Deserializes an [`Indexed`] type from a [`JsValue`]
     pub fn deserialize<T>(&self, value: JsValue) -> Result<T, IndexedTypeSerializerError<T::Error>>
     where

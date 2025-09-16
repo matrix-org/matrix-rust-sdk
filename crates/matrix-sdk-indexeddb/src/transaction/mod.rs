@@ -272,6 +272,30 @@ impl<'a> Transaction<'a> {
             .map_err(Into::into)
     }
 
+    /// Puts an item in the corresponding IndexedDB object
+    /// store, i.e., `T::OBJECT_STORE`, if `T::IndexedType` meets the criteria
+    /// defined by `f`. If an item with the same key already
+    /// exists, it will be overwritten.
+    pub async fn put_item_if<T>(
+        &self,
+        item: &T,
+        f: impl Fn(&T::IndexedType) -> bool,
+    ) -> Result<(), TransactionError>
+    where
+        T: Indexed + Serialize,
+        T::IndexedType: Serialize,
+        T::Error: AsyncErrorDeps,
+    {
+        let option = self
+            .serializer
+            .serialize_if(item, f)
+            .map_err(|e| TransactionError::Serialization(Box::new(e)))?;
+        if let Some(value) = option {
+            self.transaction.object_store(T::OBJECT_STORE)?.put_val_owned(value)?.await?;
+        }
+        Ok(())
+    }
+
     /// Delete items in given key range from IndexedDB
     pub async fn delete_items_by_key<T, K>(
         &self,
