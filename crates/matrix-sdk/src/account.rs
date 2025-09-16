@@ -1184,7 +1184,7 @@ impl Account {
         let Some(user_id) = self.client.user_id() else {
             return Err(Error::AuthenticationRequired);
         };
-        let mut recent_emojis = self.get_recent_emojis(true).await?;
+        let mut recent_emojis = self.get_recent_emojis(true, usize::MAX).await?;
 
         let index = recent_emojis.iter().position(|(unicode, _)| unicode == emoji);
 
@@ -1207,7 +1207,11 @@ impl Account {
     /// If the `refresh` param is `true`, the data will be fetched from the
     /// homeserver instead of the local storage.
     #[cfg(feature = "experimental-element-recent-emojis")]
-    pub async fn get_recent_emojis(&self, refresh: bool) -> Result<Vec<(String, UInt)>> {
+    pub async fn get_recent_emojis(
+        &self,
+        refresh: bool,
+        limit: usize,
+    ) -> Result<Vec<(String, UInt)>> {
         let content = if refresh {
             let Some(user_id) = self.client.user_id() else {
                 return Err(Error::AuthenticationRequired);
@@ -1240,6 +1244,7 @@ impl Account {
                 .into_iter()
                 // Items with higher counts should be first
                 .sorted_by(|(_, count_a), (_, count_b)| count_b.cmp(count_a))
+                .take(limit)
                 .collect();
             Ok(sorted_emojis)
         } else {
@@ -1297,23 +1302,18 @@ mod test_recent_emojis {
         let client = server.client_builder().build().await;
         let user_id = client.user_id().expect("session_id");
 
-        server
-            .mock_update_global_account_data()
-            .ok(user_id, RecentEmojisContent::default().event_type())
-            .named("Update recent emojis global account data")
-            .mock_once()
-            .mount()
-            .await;
-
-        let recent_emojis = client.account().get_recent_emojis(false).await.expect("recent emojis");
+        let recent_emojis =
+            client.account().get_recent_emojis(false, usize::MAX).await.expect("recent emojis");
         assert!(recent_emojis.is_empty());
 
+        // Mock the existing list of recent emojis
         let emoji_list = vec![
             (":/".to_owned(), uint!(1)),
             (":)".to_owned(), uint!(12)),
             (":D".to_owned(), uint!(12)),
         ];
 
+        // Mock fetch and update account data endpoints
         server
             .mock_global_account_data()
             .ok(
@@ -1326,8 +1326,18 @@ mod test_recent_emojis {
             .mount()
             .await;
 
+        server
+            .mock_update_global_account_data()
+            .ok(user_id, RecentEmojisContent::default().event_type())
+            .named("Update recent emojis global account data")
+            .mock_once()
+            .mount()
+            .await;
+
+        // Add a recent emoji usage
         client.account().add_recent_emoji(":)").await.expect("adding emoji");
 
+        // Mock the sync returning the updated emojis
         server
             .mock_sync()
             .ok(|builder| {
@@ -1339,9 +1349,11 @@ mod test_recent_emojis {
             .mount()
             .await;
 
+        // Sync and check we got the updated emojis from the sync
         client.sync_once(SyncSettings::default()).await.expect("sync failed");
 
-        let recent_emojis = client.account().get_recent_emojis(false).await.expect("recent emojis");
+        let recent_emojis =
+            client.account().get_recent_emojis(false, usize::MAX).await.expect("recent emojis");
 
         // Assert size
         assert_eq!(recent_emojis.len(), 3);
@@ -1350,5 +1362,10 @@ mod test_recent_emojis {
         assert_eq!(recent_emojis[0].0, ":)");
         assert_eq!(recent_emojis[1].0, ":D");
         assert_eq!(recent_emojis[2].0, ":/");
+
+        // Now limit the amount of emojis we want to retrieve
+        let recent_emojis =
+            client.account().get_recent_emojis(false, 2).await.expect("recent emojis");
+        assert_eq!(recent_emojis.len(), 2);
     }
 }
