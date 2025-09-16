@@ -42,13 +42,13 @@ use std::{
     future::Future,
     sync::{
         Arc,
-        atomic::{self, AtomicU32},
+        atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering},
     },
     time::Duration,
 };
 
 use tokio::sync::Mutex;
-use tracing::{debug, error, instrument, trace};
+use tracing::{debug, error, instrument, trace, warn};
 
 use crate::{
     SendOutsideWasm,
@@ -60,8 +60,12 @@ use crate::{
 /// holder.
 pub type CrossProcessLockGeneration = u64;
 
+type AtomicCrossProcessLockGeneration = AtomicU64;
+
 /// Describe the first lock generation value (see [`LockGeneration`]).
 pub const FIRST_CROSS_PROCESS_LOCK_GENERATION: CrossProcessLockGeneration = 1;
+
+pub const NO_CROSS_PROCESS_LOCK_GENERATION: CrossProcessLockGeneration = 0;
 
 /// Trait used to try to take a lock. Foundation of [`CrossProcessLock`].
 pub trait TryLock {
@@ -111,7 +115,7 @@ pub struct CrossProcessLockGuard {
 
 impl Drop for CrossProcessLockGuard {
     fn drop(&mut self) {
-        self.num_holders.fetch_sub(1, atomic::Ordering::SeqCst);
+        self.num_holders.fetch_sub(1, Ordering::SeqCst);
     }
 }
 
@@ -154,6 +158,10 @@ where
 
     /// Backoff time, in milliseconds.
     backoff: Arc<Mutex<WaitingTime>>,
+
+    lock_generation: Arc<AtomicCrossProcessLockGeneration>,
+
+    is_poisoned: Arc<AtomicBool>,
 }
 
 /// Amount of time a lease of the lock should last, in milliseconds.
@@ -193,7 +201,29 @@ where
             num_holders: Arc::new(0.into()),
             locking_attempt: Arc::new(Mutex::new(())),
             renew_task: Default::default(),
+            lock_generation: Arc::new(AtomicCrossProcessLockGeneration::new(
+                FIRST_CROSS_PROCESS_LOCK_GENERATION,
+            )),
+            is_poisoned: Arc::new(AtomicBool::new(false)),
         }
+    }
+
+    /// Determine whether the cross-process lock is poisoned.
+    ///
+    /// If another process has taken the lock, then this lock becomes poisoned.
+    /// You should not trust a `false` value for program correctness without
+    /// additional synchronisation.
+    pub fn is_poisoned(&self) -> bool {
+        self.is_poisoned.load(Ordering::SeqCst)
+    }
+
+    /// Clear the poisoned state from this cross-process lock.
+    ///
+    /// If the cross-process lock is poisoned, it will remain poisoned until
+    /// this method is called. This allows recovering from a poisoned
+    /// state and marking that it has recovered.
+    pub fn clear_poison(&self) {
+        self.is_poisoned.store(false, Ordering::SeqCst);
     }
 
     /// Try to lock once, returns whether the lock was obtained or not.
@@ -207,25 +237,49 @@ where
 
         // If another thread obtained the lock, make sure to only superficially increase
         // the number of holders, and carry on.
-        if self.num_holders.load(atomic::Ordering::SeqCst) > 0 {
+        if self.num_holders.load(Ordering::SeqCst) > 0 {
             // Note: between the above load and the fetch_add below, another thread may
             // decrement `num_holders`. That's fine because that means the lock
             // was taken by at least one thread, and after this call it will be
             // taken by at least one thread.
             trace!("We already had the lock, incrementing holder count");
-            self.num_holders.fetch_add(1, atomic::Ordering::SeqCst);
+            self.num_holders.fetch_add(1, Ordering::SeqCst);
             let guard = CrossProcessLockGuard { num_holders: self.num_holders.clone() };
             return Ok(Some(guard));
         }
 
-        let acquired = self
+        if let Some(generation) = self
             .locker
             .try_lock(LEASE_DURATION_MS, &self.lock_key, &self.lock_holder)
             .await
             .map_err(|err| CrossProcessLockError::TryLockError(Box::new(err)))?
-            .is_some();
+        {
+            match self.lock_generation.load(Ordering::SeqCst) {
+                // If there is no lock generation, it means this is the first time the lock is
+                // acquired. Let's remember the generation.
+                NO_CROSS_PROCESS_LOCK_GENERATION => {
+                    trace!(?generation, "Setting the lock generation for the first time");
 
-        if !acquired {
+                    self.lock_generation.store(generation, Ordering::SeqCst);
+                }
+
+                // This is NOT the same generation, the lock has been poisoned!
+                current_generation if current_generation != generation => {
+                    warn!(
+                        ?current_generation,
+                        ?generation,
+                        "The lock has been acquired, but it's been poisoned!"
+                    );
+                }
+
+                // This is the same generation, no problem.
+                _ => {
+                    trace!("Same lock generation; no problem");
+                }
+            }
+
+            trace!("Lock acquired!");
+        } else {
             trace!("Couldn't acquire the lock immediately.");
             return Ok(None);
         }
@@ -269,7 +323,7 @@ where
                     let _guard = this.locking_attempt.lock().await;
 
                     // If there are no more users, we can quit.
-                    if this.num_holders.load(atomic::Ordering::SeqCst) == 0 {
+                    if this.num_holders.load(Ordering::SeqCst) == 0 {
                         trace!("exiting the lease extension loop");
 
                         // Cancel the lease with another 0ms lease.
@@ -295,7 +349,7 @@ where
             }
         }));
 
-        self.num_holders.fetch_add(1, atomic::Ordering::SeqCst);
+        self.num_holders.fetch_add(1, Ordering::SeqCst);
 
         let guard = CrossProcessLockGuard { num_holders: self.num_holders.clone() };
         Ok(Some(guard))
