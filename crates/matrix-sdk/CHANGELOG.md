@@ -6,6 +6,14 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased] - ReleaseDate
 
+### Features
+
+### Refactor
+- The Matrix SDK crate now uses the 2024 edition of Rust.
+  ([#5677](https://github.com/matrix-org/matrix-rust-sdk/pull/5677))
+
+### Bugfix
+
 ## [0.14.0] - 2025-09-04
 
 ### Features
