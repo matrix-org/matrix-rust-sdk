@@ -276,10 +276,10 @@ impl Media {
     ) -> Result<()> {
         // Do a best-effort at reporting an expired MXC URI here; otherwise the server
         // may complain about it later.
-        if let Some(expire_date) = uri.expire_date {
-            if MilliSecondsSinceUnixEpoch::now() >= expire_date {
-                return Err(Error::Media(MediaError::ExpiredPreallocatedMxcUri));
-            }
+        if let Some(expire_date) = uri.expire_date
+            && MilliSecondsSinceUnixEpoch::now() >= expire_date
+        {
+            return Err(Error::Media(MediaError::ExpiredPreallocatedMxcUri));
         }
 
         let timeout = std::cmp::max(
@@ -426,12 +426,11 @@ impl Media {
         }
 
         // Read from the cache.
-        if use_cache {
-            if let Some(content) =
+        if use_cache
+            && let Some(content) =
                 self.client.media_store().lock().await?.get_media_content(request).await?
-            {
-                return Ok(content);
-            }
+        {
+            return Ok(content);
         }
 
         let request_config = self

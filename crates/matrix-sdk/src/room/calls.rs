@@ -125,10 +125,9 @@ impl Room {
                     // Ignore decline for other unrelated notification events.
                     if let Some(declined_event_id) =
                         event.as_original().map(|ev| ev.content.relates_to.event_id.clone())
+                        && declined_event_id == own_notification_event_id
                     {
-                        if declined_event_id == own_notification_event_id {
-                            let _ = sender.send(event.sender().to_owned());
-                        }
+                        let _ = sender.send(event.sender().to_owned());
                     }
                 }
             });

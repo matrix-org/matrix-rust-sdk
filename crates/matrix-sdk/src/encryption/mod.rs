@@ -1830,10 +1830,10 @@ impl Encryption {
             // network requests
             this.update_verification_state().await;
 
-            if this.settings().auto_enable_cross_signing {
-                if let Err(e) = this.bootstrap_cross_signing_if_needed(auth_data).await {
-                    error!("Couldn't bootstrap cross signing {e:?}");
-                }
+            if this.settings().auto_enable_cross_signing
+                && let Err(e) = this.bootstrap_cross_signing_if_needed(auth_data).await
+            {
+                error!("Couldn't bootstrap cross signing {e:?}");
             }
 
             if let Err(e) = this.backups().setup_and_resume().await {
@@ -1852,10 +1852,10 @@ impl Encryption {
     pub async fn wait_for_e2ee_initialization_tasks(&self) {
         let task = self.client.inner.e2ee.tasks.lock().setup_e2ee.take();
 
-        if let Some(task) = task {
-            if let Err(err) = task.await {
-                warn!("Error when initializing backups: {err}");
-            }
+        if let Some(task) = task
+            && let Err(err) = task.await
+        {
+            warn!("Error when initializing backups: {err}");
         }
     }
 

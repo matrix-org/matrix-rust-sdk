@@ -858,7 +858,7 @@ mod tests {
                     (_, Some(m)) => {
                         assert_eq!(*m.membership(), new_state);
                     }
-                };
+                }
             }
 
             async fn bob_is_pinned(&self) -> bool {

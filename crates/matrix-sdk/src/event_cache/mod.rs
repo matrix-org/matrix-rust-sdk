@@ -747,11 +747,9 @@ impl EventCache {
                         if let Some(index_operation) =
                             search::parse_timeline_event(&room_cache, &event, &redaction_rules)
                                 .await
+                            && let Err(err) = search_index_guard.execute(index_operation, &room_id)
                         {
-                            if let Err(err) = search_index_guard.execute(index_operation, &room_id)
-                            {
-                                warn!("Failed to handle event for indexing: {err}")
-                            }
+                            warn!("Failed to handle event for indexing: {err}")
                         }
                     }
                 }

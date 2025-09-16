@@ -170,15 +170,15 @@ impl BackupDownloadTask {
         room_id: OwnedRoomId,
         event: Raw<OriginalSyncRoomEncryptedEvent>,
     ) {
-        if let Ok(deserialized_event) = event.deserialize() {
-            if let EncryptedEventScheme::MegolmV1AesSha2(c) = deserialized_event.content.scheme {
-                let _ = self.sender.send(RoomKeyDownloadRequest {
-                    room_id,
-                    event_id: deserialized_event.event_id,
-                    event,
-                    megolm_session_id: c.session_id,
-                });
-            }
+        if let Ok(deserialized_event) = event.deserialize()
+            && let EncryptedEventScheme::MegolmV1AesSha2(c) = deserialized_event.content.scheme
+        {
+            let _ = self.sender.send(RoomKeyDownloadRequest {
+                room_id,
+                event_id: deserialized_event.event_id,
+                event,
+                megolm_session_id: c.session_id,
+            });
         }
     }
 

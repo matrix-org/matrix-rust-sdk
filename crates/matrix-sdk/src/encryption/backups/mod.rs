@@ -454,21 +454,21 @@ impl Backups {
 
         let backup_keys = olm_machine.store().load_backup_keys().await?;
 
-        if let Some(decryption_key) = backup_keys.decryption_key {
-            if let Some(version) = backup_keys.backup_version {
-                let request =
-                    get_backup_keys_for_room::v3::Request::new(version.clone(), room_id.to_owned());
-                let response = self.client.send(request).await?;
+        if let Some(decryption_key) = backup_keys.decryption_key
+            && let Some(version) = backup_keys.backup_version
+        {
+            let request =
+                get_backup_keys_for_room::v3::Request::new(version.clone(), room_id.to_owned());
+            let response = self.client.send(request).await?;
 
-                // Transform response to standard format (map of room ID -> room key).
-                let response = get_backup_keys::v3::Response::new(BTreeMap::from([(
-                    room_id.to_owned(),
-                    RoomKeyBackup::new(response.sessions),
-                )]));
+            // Transform response to standard format (map of room ID -> room key).
+            let response = get_backup_keys::v3::Response::new(BTreeMap::from([(
+                room_id.to_owned(),
+                RoomKeyBackup::new(response.sessions),
+            )]));
 
-                self.handle_downloaded_room_keys(response, decryption_key, &version, olm_machine)
-                    .await?;
-            }
+            self.handle_downloaded_room_keys(response, decryption_key, &version, olm_machine)
+                .await?;
         }
 
         Ok(())

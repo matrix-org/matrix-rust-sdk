@@ -307,19 +307,15 @@ impl Recovery {
         // Then we finally set the event to an empty JSON content.
         if let Ok(Some(default_event)) =
             self.client.encryption().secret_storage().fetch_default_key_id().await
+            && let Ok(default_event) = default_event.deserialize()
         {
-            if let Ok(default_event) = default_event.deserialize() {
-                let key_id = default_event.key_id;
-                let event_type = GlobalAccountDataEventType::SecretStorageKey(key_id);
+            let key_id = default_event.key_id;
+            let event_type = GlobalAccountDataEventType::SecretStorageKey(key_id);
 
-                self.client
-                    .account()
-                    .set_account_data_raw(
-                        event_type,
-                        Raw::new(&json!({})).expect("").cast_unchecked(),
-                    )
-                    .await?;
-            }
+            self.client
+                .account()
+                .set_account_data_raw(event_type, Raw::new(&json!({})).expect("").cast_unchecked())
+                .await?;
         }
 
         // Now let's "delete" the actual `m.secret.storage.default_key` event.
@@ -688,13 +684,13 @@ impl Recovery {
 
     #[instrument(skip_all)]
     pub(crate) async fn update_state_after_keys_query(&self, response: &get_keys::v3::Response) {
-        if let Some(user_id) = self.client.user_id() {
-            if response.master_keys.contains_key(user_id) {
-                // TODO: This is unnecessarily expensive, we could let the crypto crate notify
-                // us that our private keys got erased... But, the OlmMachine
-                // gets recreated and... You know the drill by now...
-                self.update_recovery_state_no_fail().await;
-            }
+        if let Some(user_id) = self.client.user_id()
+            && response.master_keys.contains_key(user_id)
+        {
+            // TODO: This is unnecessarily expensive, we could let the crypto crate notify
+            // us that our private keys got erased... But, the OlmMachine
+            // gets recreated and... You know the drill by now...
+            self.update_recovery_state_no_fail().await;
         }
     }
 }

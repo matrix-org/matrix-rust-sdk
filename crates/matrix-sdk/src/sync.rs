@@ -334,10 +334,10 @@ impl Client {
         // If the last sync happened less than a second ago, sleep for a
         // while to not hammer out requests if the server doesn't respect
         // the sync timeout.
-        if let Some(t) = last_sync_time {
-            if now - *t <= Duration::from_secs(1) {
-                Self::sleep().await;
-            }
+        if let Some(t) = last_sync_time
+            && now - *t <= Duration::from_secs(1)
+        {
+            Self::sleep().await;
         }
 
         *last_sync_time = Some(now);

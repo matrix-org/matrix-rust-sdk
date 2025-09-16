@@ -389,11 +389,11 @@ impl PaginableRoom for Room {
                     // If the error was a 404, then the event wasn't found on the server;
                     // special case this to make it easy to react to
                     // such an error.
-                    if let Some(error) = err.as_client_api_error() {
-                        if error.status_code == 404 {
-                            // Event not found
-                            return Err(PaginatorError::EventNotFound(event_id.to_owned()));
-                        }
+                    if let Some(error) = err.as_client_api_error()
+                        && error.status_code == 404
+                    {
+                        // Event not found
+                        return Err(PaginatorError::EventNotFound(event_id.to_owned()));
                     }
 
                     // Otherwise, just return a wrapped error.

@@ -708,10 +708,9 @@ impl Room {
         if let Ok(AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::RoomEncrypted(
             SyncMessageLikeEvent::Original(_),
         ))) = event.deserialize_as::<AnySyncTimelineEvent>()
+            && let Ok(event) = self.decrypt_event(event.cast_ref_unchecked(), push_ctx).await
         {
-            if let Ok(event) = self.decrypt_event(event.cast_ref_unchecked(), push_ctx).await {
-                return event;
-            }
+            return event;
         }
 
         let mut event = TimelineEvent::from_plaintext(event.cast());
@@ -3589,12 +3588,12 @@ impl Room {
         let _response = self.client.send(request).await?;
 
         // If it was a DM, remove the room from the `m.direct` global account data.
-        if self.inner.direct_targets_length() != 0 {
-            if let Err(e) = self.set_is_direct(false).await {
-                // It is not important whether we managed to remove the room, it will not have
-                // any consequences, so just log the error.
-                warn!(room_id = ?self.room_id(), "failed to remove room from m.direct account data: {e}");
-            }
+        if self.inner.direct_targets_length() != 0
+            && let Err(e) = self.set_is_direct(false).await
+        {
+            // It is not important whether we managed to remove the room, it will not have
+            // any consequences, so just log the error.
+            warn!(room_id = ?self.room_id(), "failed to remove room from m.direct account data: {e}");
         }
 
         self.client.base_client().forget_room(self.inner.room_id()).await?;

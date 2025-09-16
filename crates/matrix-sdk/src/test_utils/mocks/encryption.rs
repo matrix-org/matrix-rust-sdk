@@ -365,10 +365,10 @@ impl MatrixMockServer {
                 });
                 let event: Raw<EncryptedToDeviceEvent> = serde_json::from_value(event).unwrap();
 
-                if let Ok(mut guard) = tx.lock() {
-                    if let Some(tx) = guard.take() {
-                        let _ = tx.send(event);
-                    }
+                if let Ok(mut guard) = tx.lock()
+                    && let Some(tx) = guard.take()
+                {
+                    let _ = tx.send(event);
                 }
 
                 ResponseTemplate::new(200).set_body_json(&*test_json::EMPTY)

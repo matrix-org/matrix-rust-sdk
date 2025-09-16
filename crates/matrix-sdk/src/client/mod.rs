@@ -1362,12 +1362,11 @@ impl Client {
     /// * `login_well_known` - The `well_known` field from a successful login
     ///   response.
     pub(crate) fn maybe_update_login_well_known(&self, login_well_known: Option<&DiscoveryInfo>) {
-        if self.inner.respect_login_well_known {
-            if let Some(well_known) = login_well_known {
-                if let Ok(homeserver) = Url::parse(&well_known.homeserver.base_url) {
-                    self.set_homeserver(homeserver);
-                }
-            }
+        if self.inner.respect_login_well_known
+            && let Some(well_known) = login_well_known
+            && let Ok(homeserver) = Url::parse(&well_known.homeserver.base_url)
+        {
+            self.set_homeserver(homeserver);
         }
     }
 
@@ -1576,13 +1575,12 @@ impl Client {
         }
 
         #[cfg(feature = "e2e-encryption")]
-        if self.inner.enable_share_history_on_invite {
-            if let Some(inviter) =
+        if self.inner.enable_share_history_on_invite
+            && let Some(inviter) =
                 pre_join_room_info.as_ref().and_then(|info| info.inviter.as_ref())
-            {
-                crate::room::shared_room_history::maybe_accept_key_bundle(&room, inviter.user_id())
-                    .await?;
-            }
+        {
+            crate::room::shared_room_history::maybe_accept_key_bundle(&room, inviter.user_id())
+                .await?;
         }
 
         // Suppress "unused variable" and "unused field" lints
@@ -1726,13 +1724,13 @@ impl Client {
 
         let joined_room = Room::new(self.clone(), base_room);
 
-        if is_direct_room && !invite.is_empty() {
-            if let Err(error) =
+        if is_direct_room
+            && !invite.is_empty()
+            && let Err(error) =
                 self.account().mark_as_dm(joined_room.room_id(), invite.as_slice()).await
-            {
-                // FIXME: Retry in the background
-                error!("Failed to mark room as DM: {error}");
-            }
+        {
+            // FIXME: Retry in the background
+            error!("Failed to mark room as DM: {error}");
         }
 
         Ok(joined_room)

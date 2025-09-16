@@ -136,28 +136,28 @@ async fn test_delete_devices() {
 
     let devices = &[device_id!("DEVICEID").to_owned()];
 
-    if let Err(e) = client.delete_devices(devices, None).await {
-        if let Some(info) = e.as_uiaa_response() {
-            let mut auth_parameters = BTreeMap::new();
+    if let Err(e) = client.delete_devices(devices, None).await
+        && let Some(info) = e.as_uiaa_response()
+    {
+        let mut auth_parameters = BTreeMap::new();
 
-            let identifier = json!({
-                "type": "m.id.user",
-                "user": "example",
-            });
-            auth_parameters.insert("identifier".to_owned(), identifier);
-            auth_parameters.insert("password".to_owned(), "wordpass".into());
+        let identifier = json!({
+            "type": "m.id.user",
+            "user": "example",
+        });
+        auth_parameters.insert("identifier".to_owned(), identifier);
+        auth_parameters.insert("password".to_owned(), "wordpass".into());
 
-            let auth_data = uiaa::AuthData::Password(assign!(
-                uiaa::Password::new(
-                    uiaa::UserIdentifier::UserIdOrLocalpart("example".to_owned()),
-                    "wordpass".to_owned(),
-                ), {
-                    session: info.session.clone(),
-                }
-            ));
+        let auth_data = uiaa::AuthData::Password(assign!(
+            uiaa::Password::new(
+                uiaa::UserIdentifier::UserIdOrLocalpart("example".to_owned()),
+                "wordpass".to_owned(),
+            ), {
+                session: info.session.clone(),
+            }
+        ));
 
-            client.delete_devices(devices, Some(auth_data)).await.unwrap();
-        }
+        client.delete_devices(devices, Some(auth_data)).await.unwrap();
     }
 }
 
