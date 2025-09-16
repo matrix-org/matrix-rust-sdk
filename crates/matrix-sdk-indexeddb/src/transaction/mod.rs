@@ -63,6 +63,12 @@ impl<'a> Transaction<'a> {
         Self { transaction, serializer }
     }
 
+    /// Returns the serializer performing (de)serialization for this
+    /// [`Transaction`]
+    pub fn serializer(&self) -> &IndexedTypeSerializer {
+        self.serializer
+    }
+
     /// Returns the underlying IndexedDB transaction.
     pub fn into_inner(self) -> IdbTransaction<'a> {
         self.transaction

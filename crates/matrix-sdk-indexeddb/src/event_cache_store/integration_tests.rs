@@ -26,9 +26,9 @@ use matrix_sdk_base::{
 use matrix_sdk_test::DEFAULT_TEST_ROOM_ID;
 use ruma::room_id;
 
-use crate::event_cache_store::{
-    transaction::IndexeddbEventCacheStoreTransactionError, IndexeddbEventCacheStore,
-    IndexeddbEventCacheStoreError,
+use crate::{
+    event_cache_store::{IndexeddbEventCacheStore, IndexeddbEventCacheStoreError},
+    transaction::TransactionError,
 };
 
 pub async fn test_linked_chunk_new_items_chunk(store: IndexeddbEventCacheStore) {
@@ -423,9 +423,7 @@ pub async fn test_linked_chunk_update_is_a_transaction(store: IndexeddbEventCach
     // The operation fails with a constraint violation error.
     assert_matches!(
         err,
-        IndexeddbEventCacheStoreError::Transaction(
-            IndexeddbEventCacheStoreTransactionError::DomException { .. }
-        )
+        IndexeddbEventCacheStoreError::Transaction(TransactionError::DomException { .. })
     );
 
     // If the updates have been handled transactionally, then no new chunks should

@@ -13,9 +13,10 @@
 // limitations under the License
 
 use matrix_sdk_base::event_cache::store::EventCacheStoreError;
+use serde::de::Error;
 use thiserror::Error;
 
-use crate::event_cache_store::transaction::IndexeddbEventCacheStoreTransactionError;
+use crate::transaction::TransactionError;
 
 #[derive(Debug, Error)]
 pub enum IndexeddbEventCacheStoreError {
@@ -30,7 +31,7 @@ pub enum IndexeddbEventCacheStoreError {
     #[error("no max chunk id")]
     NoMaxChunkId,
     #[error("transaction: {0}")]
-    Transaction(#[from] IndexeddbEventCacheStoreTransactionError),
+    Transaction(#[from] TransactionError),
 }
 
 impl From<web_sys::DomException> for IndexeddbEventCacheStoreError {
@@ -54,6 +55,18 @@ impl From<IndexeddbEventCacheStoreError> for EventCacheStoreError {
             | NoMaxChunkId
             | UnableToLoadChunk => Self::InvalidData { details: value.to_string() },
             Transaction(inner) => inner.into(),
+        }
+    }
+}
+
+impl From<TransactionError> for EventCacheStoreError {
+    fn from(value: TransactionError) -> Self {
+        use TransactionError::*;
+
+        match value {
+            DomException { .. } => Self::InvalidData { details: value.to_string() },
+            Serialization(e) => Self::Serialization(serde_json::Error::custom(e.to_string())),
+            ItemIsNotUnique | ItemNotFound => Self::InvalidData { details: value.to_string() },
         }
     }
 }

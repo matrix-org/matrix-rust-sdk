@@ -34,12 +34,11 @@ use web_sys::IdbTransactionMode;
 use crate::{
     event_cache_store::{
         migrations::current::keys,
-        transaction::{
-            IndexeddbEventCacheStoreTransaction, IndexeddbEventCacheStoreTransactionError,
-        },
+        transaction::IndexeddbEventCacheStoreTransaction,
         types::{ChunkType, InBandEvent, Lease, OutOfBandEvent},
     },
     serializer::{Indexed, IndexedTypeSerializer},
+    transaction::TransactionError,
 };
 
 mod builder;
@@ -326,7 +325,7 @@ impl EventCacheStore for IndexeddbEventCacheStore {
         // for the last chunk in the room by getting the chunk which does not
         // have a next chunk.
         match transaction.get_chunk_by_next_chunk_id(linked_chunk_id, None).await {
-            Err(IndexeddbEventCacheStoreTransactionError::ItemIsNotUnique) => {
+            Err(TransactionError::ItemIsNotUnique) => {
                 // If there are multiple chunks that do not have a next chunk, that
                 // means we have more than one last chunk, which means that we have
                 // more than one list in the room.
