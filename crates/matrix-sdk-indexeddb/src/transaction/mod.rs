@@ -19,7 +19,6 @@
 #![allow(dead_code)]
 
 use indexed_db_futures::{prelude::IdbTransaction, IdbQuerySource};
-use matrix_sdk_base::media::store::{MediaRetentionPolicy, MediaStoreError};
 use serde::{
     de::{DeserializeOwned, Error},
     Serialize,
