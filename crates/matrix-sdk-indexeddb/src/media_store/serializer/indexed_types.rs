@@ -27,7 +27,7 @@
 //! These types mimic the structure of the object stores and indices created in
 //! [`crate::media_store::migrations`].
 
-use std::{sync::LazyLock, time::Duration};
+use std::time::Duration;
 
 use matrix_sdk_base::media::{
     store::{IgnoreMediaRetentionPolicy, MediaRetentionPolicy},
@@ -50,10 +50,9 @@ use crate::{
         types::{Lease, Media},
     },
     serializer::{
-        Indexed, IndexedKey, IndexedKeyBounds, IndexedKeyComponentBounds, IndexedPrefixKeyBounds,
-        IndexedPrefixKeyComponentBounds, MaybeEncrypted, SafeEncodeSerializer,
-        INDEXED_KEY_LOWER_DURATION, INDEXED_KEY_LOWER_STRING, INDEXED_KEY_UPPER_DURATION_SECONDS,
-        INDEXED_KEY_UPPER_STRING,
+        Indexed, IndexedKey, IndexedKeyComponentBounds, IndexedPrefixKeyComponentBounds,
+        MaybeEncrypted, SafeEncodeSerializer, INDEXED_KEY_LOWER_DURATION, INDEXED_KEY_LOWER_STRING,
+        INDEXED_KEY_UPPER_DURATION_SECONDS, INDEXED_KEY_UPPER_STRING,
     },
 };
 

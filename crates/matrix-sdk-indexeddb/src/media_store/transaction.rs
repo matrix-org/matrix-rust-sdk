@@ -14,22 +14,15 @@
 
 use std::ops::Deref;
 
-use indexed_db_futures::{prelude::IdbTransaction, IdbQuerySource};
-use matrix_sdk_base::media::store::{MediaRetentionPolicy, MediaStoreError};
-use serde::{
-    de::{DeserializeOwned, Error},
-    Serialize,
-};
-use thiserror::Error;
-use web_sys::IdbCursorDirection;
+use indexed_db_futures::prelude::IdbTransaction;
+use matrix_sdk_base::media::store::MediaRetentionPolicy;
 
 use crate::{
-    error::AsyncErrorDeps,
     media_store::{
         serializer::indexed_types::{IndexedCoreIdKey, IndexedLeaseIdKey},
         types::Lease,
     },
-    serializer::{Indexed, IndexedKey, IndexedKeyRange, IndexedTypeSerializer},
+    serializer::IndexedTypeSerializer,
     transaction::{Transaction, TransactionError},
 };
 
