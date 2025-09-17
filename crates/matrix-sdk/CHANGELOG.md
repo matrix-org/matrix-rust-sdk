@@ -52,6 +52,8 @@ All notable changes to this project will be documented in this file.
 
 - [**breaking**] `OAuth::login` now allows requesting additional scopes for the authorization code grant.
   ([#5395](https://github.com/matrix-org/matrix-rust-sdk/pull/5395))
+- [**breaking**] `ThreadedEventsLoader::new` now takes optional `prev_token` and `next_token` parameters ([#5678](https://github.com/matrix-org/matrix-rust-sdk/pull/5678).
+- Make `PaginationTokens` `pub(crate)`, as well as its `previous` and `next` tokens so they can be assigned from other files. Also added public `Paginator::prev_token` and `Paginator::next_token` methods to be able to fetch the currently used tokens from other crates ([#5678](https://github.com/matrix-org/matrix-rust-sdk/pull/5678).
 
 ### Refactor
 

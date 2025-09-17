@@ -6,6 +6,7 @@ use matrix_sdk_ui::timeline::TimelineEventItemId;
 use ruma::{
     events::{
         room::{
+            encrypted,
             message::{MessageType as RumaMessageType, Relation},
             redaction::SyncRoomRedactionEvent,
         },
@@ -50,6 +51,18 @@ impl TimelineEvent {
             }
         };
         Ok(event_type)
+    }
+
+    pub fn thread_root_event_id(&self) -> Option<String> {
+        match self.0.deref() {
+            AnySyncTimelineEvent::MessageLike(event) => {
+                match event.original_content().and_then(|content| content.relation()) {
+                    Some(encrypted::Relation::Thread(thread)) => Some(thread.event_id.to_string()),
+                    _ => None,
+                }
+            }
+            AnySyncTimelineEvent::State(_) => None,
+        }
     }
 }
 
