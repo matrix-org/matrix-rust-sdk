@@ -475,8 +475,10 @@ impl App {
                                 Enter => {
                                     if let Some(query) = view.get_text() {
                                         if let Some(room) = self.room_view.room() {
-                                            if let Some(results) =
-                                                room.search(&query, 100, None).await
+                                            if let Ok(results) =
+                                                room.search(&query, 100, None).await.inspect_err(|err| {
+                                                    error!("error occurred while searching index: {err:?}");
+                                                })
                                             {
                                                 let results = get_events_from_event_ids(
                                                     &self.client,
@@ -486,8 +488,6 @@ impl App {
                                                 .await;
 
                                                 view.results(results);
-                                            } else {
-                                                debug!("No results found in search.")
                                             }
                                         } else {
                                             warn!("No room in view.")

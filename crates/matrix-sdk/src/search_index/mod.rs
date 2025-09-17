@@ -36,7 +36,7 @@ use ruma::{
     room_version_rules::RedactionRules,
 };
 use tokio::sync::{Mutex, MutexGuard};
-use tracing::{debug, error, warn};
+use tracing::{debug, warn};
 
 use crate::event_cache::RoomEventCache;
 
@@ -141,23 +141,20 @@ impl SearchIndexGuard<'_> {
     /// Search a [`Room`]'s index for the query and return at most
     /// max_number_of_results results.
     pub(crate) fn search(
-        &self,
+        &mut self,
         query: &str,
         max_number_of_results: usize,
         pagination_offset: Option<usize>,
         room_id: &RoomId,
-    ) -> Option<Vec<OwnedEventId>> {
-        if let Some(index) = self.index_map.get(room_id) {
-            index
-                .search(query, max_number_of_results, pagination_offset)
-                .inspect_err(|err| {
-                    error!("error occurred while searching index: {err:?}");
-                })
-                .ok()
-        } else {
-            debug!("Tried to search in a room with no index");
-            None
+    ) -> Result<Vec<OwnedEventId>, IndexError> {
+        if !self.index_map.contains_key(room_id) {
+            let index = self.create_index(room_id)?;
+            self.index_map.insert(room_id.to_owned(), index);
         }
+
+        let index = self.index_map.get_mut(room_id).expect("index should exist");
+
+        index.search(query, max_number_of_results, pagination_offset)
     }
 
     /// Given a [`TimelineEvent`] this function will derive a
