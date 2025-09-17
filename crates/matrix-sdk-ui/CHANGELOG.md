@@ -6,6 +6,12 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased] - ReleaseDate
 
+### Refactor
+
+- [**breaking**] `TimelineFocusKind::Event`'s `paginator` is now an instance of an `AnyPaginator` enum
+  which can be either `Paginator` or `ThreadedEventsLoader`, this way we can paginate events using any 
+  of those ([#5678](https://github.com/matrix-org/matrix-rust-sdk/pull/5678)).
+
 ### Bug Fixes
 
 - Avoid replacing timeline items when the encryption info is unchanged.
@@ -53,7 +59,7 @@ All notable changes to this project will be documented in this file.
 ### Refactor
 
 - [**breaking**] The MSRV has been bumped to Rust 1.88.
-  ([#5431](https://github.com/matrix-org/matrix-rust-sdk/pull/5431))
+  ([#5431](https://github.com/matrix-org/matrix-rust-sdk/pull/5431)) 
 
 ### Bug Fixes
 
