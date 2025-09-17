@@ -24,7 +24,7 @@ where
 /// Create a new filter that will filter out rooms that are spaces, i.e.
 /// room with a `room_type` of `m.space` as defined in <https://spec.matrix.org/latest/client-server-api/#spaces>
 pub fn new_filter() -> impl Filter {
-    let is_space = |room: &Room| room.is_space();
+    let is_space = |room: &Room| room.cached_is_space;
 
     move |room| -> bool { matches(is_space, room) }
 }

@@ -28,7 +28,7 @@ where
 
 /// Create a new filter that will filter out left rooms.
 pub fn new_filter() -> impl Filter {
-    let state = |room: &Room| room.state();
+    let state = |room: &Room| room.cached_state;
 
     move |room| -> bool { matches(state, room) }
 }

@@ -68,7 +68,7 @@ where
 pub fn new_filter() -> impl Filter {
     let state = |room: &Room| {
         (
-            room.state(),
+            room.cached_state,
             room.successor_room()
                 .and_then(|successor_room| room.client().get_room(&successor_room.room_id))
                 .map(|successor_room| successor_room.state()),

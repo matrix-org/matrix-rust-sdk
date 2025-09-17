@@ -16,9 +16,9 @@ use std::cmp::Ordering;
 
 use super::{Room, Sorter};
 
-fn cmp<F>(names: F, left: &Room, right: &Room) -> Ordering
+fn cmp<'a, 'b, F>(names: F, left: &'a Room, right: &'b Room) -> Ordering
 where
-    F: Fn(&Room, &Room) -> (Option<String>, Option<String>),
+    F: Fn(&'a Room, &'b Room) -> (Option<&'a str>, Option<&'b str>),
 {
     let (left_name, right_name) = names(left, right);
 
@@ -29,12 +29,9 @@ where
 /// comparing their display names. A lexicographically ordering is applied, i.e.
 /// "a" < "b".
 pub fn new_sorter() -> impl Sorter {
-    let names = |left: &Room, right: &Room| {
-        (
-            left.cached_display_name().map(|display_name| display_name.to_string()),
-            right.cached_display_name().map(|display_name| display_name.to_string()),
-        )
-    };
+    fn names<'a, 'b>(left: &'a Room, right: &'b Room) -> (Option<&'a str>, Option<&'b str>) {
+        (left.cached_display_name.as_deref(), right.cached_display_name.as_deref())
+    }
 
     move |left, right| -> Ordering { cmp(names, left, right) }
 }
@@ -56,11 +53,7 @@ mod tests {
         // `room_a` has a “greater name” than `room_b`.
         {
             assert_eq!(
-                cmp(
-                    |_left, _right| (Some("Foo".to_owned()), Some("Baz".to_owned())),
-                    &room_a,
-                    &room_b
-                ),
+                cmp(|_left, _right| (Some("Foo"), Some("Baz")), &room_a, &room_b),
                 Ordering::Greater
             );
         }
@@ -68,11 +61,7 @@ mod tests {
         // `room_a` has a “lesser name” than `room_b`.
         {
             assert_eq!(
-                cmp(
-                    |_left, _right| (Some("Bar".to_owned()), Some("Baz".to_owned())),
-                    &room_a,
-                    &room_b
-                ),
+                cmp(|_left, _right| (Some("Bar"), Some("Baz")), &room_a, &room_b),
                 Ordering::Less
             );
         }
@@ -80,11 +69,7 @@ mod tests {
         // `room_a` has the same name than `room_b`.
         {
             assert_eq!(
-                cmp(
-                    |_left, _right| (Some("Baz".to_owned()), Some("Baz".to_owned())),
-                    &room_a,
-                    &room_b
-                ),
+                cmp(|_left, _right| (Some("Baz"), Some("Baz")), &room_a, &room_b),
                 Ordering::Equal
             );
         }
@@ -99,17 +84,14 @@ mod tests {
         // `room_a` has a name, `room_b` has no name.
         {
             assert_eq!(
-                cmp(|_left, _right| (Some("Foo".to_owned()), None), &room_a, &room_b),
+                cmp(|_left, _right| (Some("Foo"), None), &room_a, &room_b),
                 Ordering::Greater
             );
         }
 
         // `room_a` has no name, `room_b` has a name.
         {
-            assert_eq!(
-                cmp(|_left, _right| (None, Some("Bar".to_owned())), &room_a, &room_b),
-                Ordering::Less
-            );
+            assert_eq!(cmp(|_left, _right| (None, Some("Bar")), &room_a, &room_b), Ordering::Less);
         }
     }
 
