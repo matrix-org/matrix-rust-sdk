@@ -15,6 +15,7 @@
 #[cfg(feature = "e2e-encryption")]
 use std::{collections::BTreeMap, num::NonZeroUsize};
 
+use ruma::MilliSecondsSinceUnixEpoch;
 #[cfg(feature = "e2e-encryption")]
 use ruma::{OwnedRoomId, events::AnySyncTimelineEvent, serde::Raw};
 
@@ -35,8 +36,21 @@ impl Room {
     }
 
     /// Return the [`LatestEventValue`] of this room.
+    ///
+    /// Note that it clones the [`LatestEventValue`]! This can be add pressure
+    /// on the memory if used in a hot path.
     pub fn new_latest_event(&self) -> LatestEventValue {
         self.inner.read().new_latest_event.clone()
+    }
+
+    /// Return the value of [`LatestEventValue::timestamp`].
+    pub fn new_latest_event_timestamp(&self) -> Option<MilliSecondsSinceUnixEpoch> {
+        self.inner.read().new_latest_event.timestamp()
+    }
+
+    /// Return the value of [`LatestEventValue::is_local`].
+    pub fn new_latest_event_is_local(&self) -> bool {
+        self.inner.read().new_latest_event.is_local()
     }
 
     /// Return the most recent few encrypted events. When the keys come through

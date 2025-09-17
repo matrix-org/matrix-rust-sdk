@@ -14,10 +14,6 @@
 
 use std::cmp::Ordering;
 
-// TODO @hywan: remove once the `TODO` in `extract_rank` is solved.
-#[allow(unused)]
-use matrix_sdk::latest_events::LatestEventValue;
-
 use super::{Room, Sorter};
 
 fn cmp<F>(ranks: F, left: &Room, right: &Room) -> Ordering
@@ -64,6 +60,7 @@ where
 ///
 /// [`RoomInfo::recency_stamp`]: matrix_sdk_base::RoomInfo::recency_stamp
 /// [`RoomInfo::new_latest_event`]: matrix_sdk_base::RoomInfo::new_latest_event
+/// [`LatestEventValue::None`]: matrix_sdk_base::latest_event::LatestEventValue::None
 pub fn new_sorter() -> impl Sorter {
     let ranks = |left: &Room, right: &Room| extract_rank(left, right);
 
@@ -84,43 +81,27 @@ type Rank = u64;
 /// `RoomInfo::recency_stamp` is not a timestamp, while `LatestEventValue` uses
 /// a timestamp.
 fn extract_rank(left: &Room, right: &Room) -> (Option<Rank>, Option<Rank>) {
-    // TODO @hywan: calling `LatestEventValue::timestamp` here is apparently
-    // causing issues. While investigating, let's disable this part of the code,
-    // and let's fallback to the recency stamp (as it was the case before).
-    (left.recency_stamp().map(Into::into), right.recency_stamp().map(Into::into))
-
-    /*
-    match (left.new_latest_event(), right.new_latest_event()) {
-        // One of both rooms has NO latest event value. Let's fallback to the recency stamp from the
-        // `RoomInfo` for both room.
-        (LatestEventValue::None, _) | (_, LatestEventValue::None) => {
+    // Be careful. This method is called **a lot** in the context of a sorter. Using
+    // `Room::new_latest_event` would be dramatic as it returns a clone of the
+    // `LatestEventValue`. It's better to use the more specific method
+    // `Room::new_latest_event_timestamp`.
+    match (left.new_latest_event_timestamp(), right.new_latest_event_timestamp()) {
+        // One of the two rooms has no latest event timestamp. Let's fallback to
+        // the recency stamp from the `RoomInfo` for both room.
+        (None, _) | (_, None) => {
             (left.recency_stamp().map(Into::into), right.recency_stamp().map(Into::into))
         }
 
-        // Both rooms have a non-`None` latest event. We can use their timestamps as a rank.
-        (
-            left @ LatestEventValue::Remote(_)
-            | left @ LatestEventValue::LocalIsSending(_)
-            | left @ LatestEventValue::LocalCannotBeSent(_),
-            right @ LatestEventValue::Remote(_)
-            | right @ LatestEventValue::LocalIsSending(_)
-            | right @ LatestEventValue::LocalCannotBeSent(_),
-        ) => (
-            left.timestamp().map(|ms| ms.get().into()),
-            right.timestamp().map(|ms| ms.get().into()),
-        ),
+        // Both rooms have a timestamp. We can use them as a rank.
+        (Some(left), Some(right)) => (Some(left.get().into()), Some(right.get().into())),
     }
-    */
 }
 
 #[cfg(test)]
 mod tests {
-    // TODO @hywan: remove once the `TODO` in `extract_rank` is solved.
-    #![allow(unused)]
-
     use matrix_sdk::{
         RoomRecencyStamp,
-        latest_events::{LocalLatestEventValue, RemoteLatestEventValue},
+        latest_events::{LatestEventValue, LocalLatestEventValue, RemoteLatestEventValue},
         store::SerializableEventContent,
         test_utils::logged_in_client_with_server,
     };
@@ -229,8 +210,6 @@ mod tests {
         }
     }
 
-    // TODO @hywan: uncomment once the `TODO` in `extract_rank` is solved.
-    /*
     #[async_test]
     async fn test_extract_recency_stamp_with_remote_or_local() {
         let (client, server) = logged_in_client_with_server().await;
@@ -254,7 +233,6 @@ mod tests {
             }
         }
     }
-    */
 
     #[async_test]
     async fn test_with_two_recency_stamps() {
