@@ -275,6 +275,7 @@ enum LogTarget {
 
     // SDK common modules.
     MatrixSdkCommonCrossProcessLock,
+    MatrixSdkCommonDeserializedResponses,
 
     // SDK modules.
     MatrixSdk,
@@ -303,6 +304,9 @@ impl LogTarget {
             LogTarget::MatrixSdkBaseStoreAmbiguityMap => "matrix_sdk_base::store::ambiguity_map",
             LogTarget::MatrixSdkBaseResponseProcessors => "matrix_sdk_base::response_processors",
             LogTarget::MatrixSdkCommonCrossProcessLock => "matrix_sdk_common::cross_process_lock",
+            LogTarget::MatrixSdkCommonDeserializedResponses => {
+                "matrix_sdk_common::deserialized_responses"
+            }
             LogTarget::MatrixSdk => "matrix_sdk",
             LogTarget::MatrixSdkClient => "matrix_sdk::client",
             LogTarget::MatrixSdkCrypto => "matrix_sdk_crypto",
@@ -336,6 +340,7 @@ const DEFAULT_TARGET_LOG_LEVELS: &[(LogTarget, LogLevel)] = &[
     (LogTarget::MatrixSdkBaseEventCache, LogLevel::Info),
     (LogTarget::MatrixSdkEventCacheStore, LogLevel::Info),
     (LogTarget::MatrixSdkCommonCrossProcessLock, LogLevel::Warn),
+    (LogTarget::MatrixSdkCommonDeserializedResponses, LogLevel::Warn),
     (LogTarget::MatrixSdkBaseStoreAmbiguityMap, LogLevel::Warn),
     (LogTarget::MatrixSdkUiNotificationClient, LogLevel::Info),
     (LogTarget::MatrixSdkBaseResponseProcessors, LogLevel::Debug),
@@ -374,15 +379,21 @@ impl TraceLogPacks {
                 LogTarget::MatrixSdkEventCache,
                 LogTarget::MatrixSdkBaseEventCache,
                 LogTarget::MatrixSdkEventCacheStore,
+                LogTarget::MatrixSdkCommonCrossProcessLock,
+                LogTarget::MatrixSdkCommonDeserializedResponses,
             ],
             TraceLogPacks::SendQueue => &[LogTarget::MatrixSdkSendQueue],
-            TraceLogPacks::Timeline => &[LogTarget::MatrixSdkUiTimeline],
+            TraceLogPacks::Timeline => {
+                &[LogTarget::MatrixSdkUiTimeline, LogTarget::MatrixSdkCommonDeserializedResponses]
+            }
             TraceLogPacks::NotificationClient => &[LogTarget::MatrixSdkUiNotificationClient],
             TraceLogPacks::SyncProfiling => &[
                 LogTarget::MatrixSdkSlidingSync,
                 LogTarget::MatrixSdkBaseSlidingSync,
                 LogTarget::MatrixSdkBaseResponseProcessors,
                 LogTarget::MatrixSdkCrypto,
+                LogTarget::MatrixSdkCommonCrossProcessLock,
+                LogTarget::MatrixSdkCommonDeserializedResponses,
             ],
         }
     }
@@ -724,6 +735,7 @@ mod tests {
             matrix_sdk_base::event_cache=info,
             matrix_sdk_sqlite::event_cache_store=info,
             matrix_sdk_common::cross_process_lock=warn,
+            matrix_sdk_common::deserialized_responses=warn,
             matrix_sdk_base::store::ambiguity_map=warn,
             matrix_sdk_ui::notification_client=info,
             matrix_sdk_base::response_processors=debug,
@@ -768,6 +780,7 @@ mod tests {
             matrix_sdk_base::event_cache=trace,
             matrix_sdk_sqlite::event_cache_store=trace,
             matrix_sdk_common::cross_process_lock=warn,
+            matrix_sdk_common::deserialized_responses=trace,
             matrix_sdk_base::store::ambiguity_map=warn,
             matrix_sdk_ui::notification_client=trace,
             matrix_sdk_base::response_processors=trace,
@@ -813,6 +826,7 @@ mod tests {
             matrix_sdk_base::event_cache=trace,
             matrix_sdk_sqlite::event_cache_store=trace,
             matrix_sdk_common::cross_process_lock=warn,
+            matrix_sdk_common::deserialized_responses=trace,
             matrix_sdk_base::store::ambiguity_map=warn,
             matrix_sdk_ui::notification_client=info,
             matrix_sdk_base::response_processors=debug,
