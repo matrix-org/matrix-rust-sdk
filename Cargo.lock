@@ -490,13 +490,16 @@ dependencies = [
 name = "benchmarks"
 version = "1.0.0"
 dependencies = [
+ "assert_matches",
  "codspeed-criterion-compat",
+ "futures-util",
  "matrix-sdk",
  "matrix-sdk-base",
  "matrix-sdk-crypto",
  "matrix-sdk-sqlite",
  "matrix-sdk-test",
  "matrix-sdk-ui",
+ "rand 0.8.5",
  "ruma",
  "serde",
  "serde_json",
