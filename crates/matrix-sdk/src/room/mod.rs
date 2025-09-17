@@ -56,6 +56,8 @@ use matrix_sdk_common::{
     timeout::timeout,
 };
 #[cfg(feature = "experimental-search")]
+use matrix_sdk_search::error::IndexError;
+#[cfg(feature = "experimental-search")]
 #[cfg(doc)]
 use matrix_sdk_search::index::RoomIndex;
 use mime::Mime;
@@ -4122,8 +4124,8 @@ impl Room {
         query: &str,
         max_number_of_results: usize,
         pagination_offset: Option<usize>,
-    ) -> Option<Vec<OwnedEventId>> {
-        let search_index_guard = self.client.search_index().lock().await;
+    ) -> Result<Vec<OwnedEventId>, IndexError> {
+        let mut search_index_guard = self.client.search_index().lock().await;
         search_index_guard.search(query, max_number_of_results, pagination_offset, self.room_id())
     }
 
