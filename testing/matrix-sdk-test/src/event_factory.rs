@@ -562,6 +562,11 @@ impl EventFactory {
         self
     }
 
+    pub fn server_ts(self, ts: u64) -> Self {
+        self.next_ts.store(ts, SeqCst);
+        self
+    }
+
     fn next_server_ts(&self) -> MilliSecondsSinceUnixEpoch {
         MilliSecondsSinceUnixEpoch(
             self.next_ts
