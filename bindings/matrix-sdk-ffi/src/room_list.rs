@@ -231,7 +231,12 @@ impl RoomList {
                 listener.on_update(
                     diffs
                         .into_iter()
-                        .map(|room| RoomListEntriesUpdate::from(utd_hook.clone(), room))
+                        .map(|diff| {
+                            RoomListEntriesUpdate::from(
+                                utd_hook.clone(),
+                                diff.map(|room| room.into_inner()),
+                            )
+                        })
                         .collect(),
                 );
             }

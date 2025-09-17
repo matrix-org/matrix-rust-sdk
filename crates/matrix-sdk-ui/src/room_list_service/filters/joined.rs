@@ -26,7 +26,7 @@ where
 /// Create a new filter that will filter out rooms that are not joined (see
 /// [`matrix_sdk_base::RoomState::Joined`]).
 pub fn new_filter() -> impl Filter {
-    let state = |room: &Room| room.state();
+    let state = |room: &Room| room.cached_state;
 
     move |room| -> bool { matches(state, room) }
 }

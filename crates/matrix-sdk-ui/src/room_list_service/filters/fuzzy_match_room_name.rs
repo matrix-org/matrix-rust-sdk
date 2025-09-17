@@ -48,9 +48,9 @@ pub fn new_filter(pattern: &str) -> impl Filter + use<> {
     let searcher = FuzzyMatcher::new().with_pattern(pattern);
 
     move |room| -> bool {
-        let Some(room_name) = room.cached_display_name() else { return false };
+        let Some(room_name) = &room.cached_display_name else { return false };
 
-        searcher.matches(&room_name.to_string())
+        searcher.matches(room_name)
     }
 }
 

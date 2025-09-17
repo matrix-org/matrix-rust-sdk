@@ -84,12 +84,13 @@ fn extract_rank(left: &Room, right: &Room) -> (Option<Rank>, Option<Rank>) {
     // Be careful. This method is called **a lot** in the context of a sorter. Using
     // `Room::new_latest_event` would be dramatic as it returns a clone of the
     // `LatestEventValue`. It's better to use the more specific method
-    // `Room::new_latest_event_timestamp`.
-    match (left.new_latest_event_timestamp(), right.new_latest_event_timestamp()) {
+    // `Room::new_latest_event_timestamp`, where the value is cached in this
+    // module's `Room` type.
+    match (left.cached_latest_event_timestamp, right.cached_latest_event_timestamp) {
         // One of the two rooms has no latest event timestamp. Let's fallback to
         // the recency stamp from the `RoomInfo` for both room.
         (None, _) | (_, None) => {
-            (left.recency_stamp().map(Into::into), right.recency_stamp().map(Into::into))
+            (left.cached_recency_stamp.map(Into::into), right.cached_recency_stamp.map(Into::into))
         }
 
         // Both rooms have a timestamp. We can use them as a rank.
@@ -168,12 +169,14 @@ mod tests {
         let mut room_info = room.clone_info();
         room_info.set_new_latest_event(latest_event_value);
         room.set_room_info(room_info, RoomInfoNotableUpdateReasons::LATEST_EVENT);
+        room.refresh_cached_data();
     }
 
     fn set_recency_stamp(room: &mut Room, recency_stamp: RoomRecencyStamp) {
         let mut room_info = room.clone_info();
         room_info.update_recency_stamp(recency_stamp);
         room.set_room_info(room_info, RoomInfoNotableUpdateReasons::RECENCY_STAMP);
+        room.refresh_cached_data();
     }
 
     #[async_test]
