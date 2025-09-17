@@ -48,7 +48,7 @@ impl Room {
     ///
     /// Returns true if no members are missing, false otherwise.
     pub fn are_members_synced(&self) -> bool {
-        self.inner.read().members_synced
+        self.info.read().members_synced
     }
 
     /// Mark this Room as holding all member information.
@@ -57,14 +57,14 @@ impl Room {
     /// about its members.
     #[cfg(feature = "testing")]
     pub fn mark_members_synced(&self) {
-        self.inner.update(|info| {
+        self.info.update(|info| {
             info.members_synced = true;
         });
     }
 
     /// Mark this Room as still missing member information.
     pub fn mark_members_missing(&self) {
-        self.inner.update_if(|info| {
+        self.info.update_if(|info| {
             // notify observable subscribers only if the previous value was false
             mem::replace(&mut info.members_synced, false)
         })
@@ -119,17 +119,17 @@ impl Room {
     /// Returns the number of members who have joined or been invited to the
     /// room.
     pub fn active_members_count(&self) -> u64 {
-        self.inner.read().active_members_count()
+        self.info.read().active_members_count()
     }
 
     /// Returns the number of members who have been invited to the room.
     pub fn invited_members_count(&self) -> u64 {
-        self.inner.read().invited_members_count()
+        self.info.read().invited_members_count()
     }
 
     /// Returns the number of members who have joined the room.
     pub fn joined_members_count(&self) -> u64 {
-        self.inner.read().joined_members_count()
+        self.info.read().joined_members_count()
     }
 
     /// Get the `RoomMember` with the given `user_id`.

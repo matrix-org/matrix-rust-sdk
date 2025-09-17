@@ -84,12 +84,12 @@ pub struct InviteAcceptanceDetails {
 impl Room {
     /// Subscribe to the inner `RoomInfo`.
     pub fn subscribe_info(&self) -> Subscriber<RoomInfo> {
-        self.inner.subscribe()
+        self.info.subscribe()
     }
 
     /// Clone the inner `RoomInfo`.
     pub fn clone_info(&self) -> RoomInfo {
-        self.inner.get()
+        self.info.get()
     }
 
     /// Update the summary with given RoomInfo.
@@ -98,7 +98,7 @@ impl Room {
         room_info: RoomInfo,
         room_info_notable_update_reasons: RoomInfoNotableUpdateReasons,
     ) {
-        self.inner.set(room_info);
+        self.info.set(room_info);
 
         if !room_info_notable_update_reasons.is_empty() {
             // Ignore error if no receiver exists.
@@ -1222,7 +1222,7 @@ pub fn apply_redaction(
 /// A room info notable update is an update that can be interesting for other
 /// parts of the code. This mechanism is used in coordination with
 /// [`BaseClient::room_info_notable_update_receiver`][baseclient] (and
-/// `Room::inner` plus `Room::room_info_notable_update_sender`) where `RoomInfo`
+/// `Room::info` plus `Room::room_info_notable_update_sender`) where `RoomInfo`
 /// can be observed and some of its updates can be spread to listeners.
 ///
 /// [baseclient]: crate::BaseClient::room_info_notable_update_receiver

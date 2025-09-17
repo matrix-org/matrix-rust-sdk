@@ -32,7 +32,7 @@ impl Room {
     /// Return the last event in this room, if one has been cached during
     /// sliding sync.
     pub fn latest_event(&self) -> Option<LatestEvent> {
-        self.inner.read().latest_event.as_deref().cloned()
+        self.info.read().latest_event.as_deref().cloned()
     }
 
     /// Return the [`LatestEventValue`] of this room.
@@ -40,17 +40,17 @@ impl Room {
     /// Note that it clones the [`LatestEventValue`]! This can be add pressure
     /// on the memory if used in a hot path.
     pub fn new_latest_event(&self) -> LatestEventValue {
-        self.inner.read().new_latest_event.clone()
+        self.info.read().new_latest_event.clone()
     }
 
     /// Return the value of [`LatestEventValue::timestamp`].
     pub fn new_latest_event_timestamp(&self) -> Option<MilliSecondsSinceUnixEpoch> {
-        self.inner.read().new_latest_event.timestamp()
+        self.info.read().new_latest_event.timestamp()
     }
 
     /// Return the value of [`LatestEventValue::is_local`].
     pub fn new_latest_event_is_local(&self) -> bool {
-        self.inner.read().new_latest_event.is_local()
+        self.info.read().new_latest_event.is_local()
     }
 
     /// Return the most recent few encrypted events. When the keys come through
@@ -229,7 +229,7 @@ mod tests_with_e2e_encryption {
 
         use std::collections::BTreeMap;
         let (_store, room) = make_room_test_helper(RoomState::Joined);
-        room.inner.update(|info| info.latest_event = Some(make_latest_event("$A")));
+        room.info.update(|info| info.latest_event = Some(make_latest_event("$A")));
         add_encrypted_event(&room, "$0");
         add_encrypted_event(&room, "$1");
         add_encrypted_event(&room, "$2");

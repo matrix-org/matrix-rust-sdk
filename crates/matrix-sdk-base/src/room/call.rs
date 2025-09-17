@@ -20,7 +20,7 @@ impl Room {
     /// Is there a non expired membership with application `m.call` and scope
     /// `m.room` in this room.
     pub fn has_active_room_call(&self) -> bool {
-        self.inner.read().has_active_room_call()
+        self.info.read().has_active_room_call()
     }
 
     /// Returns a `Vec` of `OwnedUserId`'s that participate in the room call.
@@ -32,7 +32,7 @@ impl Room {
     ///
     /// The vector is ordered by oldest membership user to newest.
     pub fn active_room_call_participants(&self) -> Vec<OwnedUserId> {
-        self.inner.read().active_room_call_participants()
+        self.info.read().active_room_call_participants()
     }
 }
 
@@ -182,7 +182,7 @@ mod tests {
     }
 
     fn receive_state_events(room: &Room, events: Vec<&AnySyncStateEvent>) {
-        room.inner.update_if(|info| {
+        room.info.update_if(|info| {
             let mut res = false;
             for ev in events {
                 res |= info.handle_state_event(ev);

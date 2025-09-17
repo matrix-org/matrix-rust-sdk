@@ -38,7 +38,7 @@ impl Room {
     ///
     /// A room is considered favourite if it has received the `m.favourite` tag.
     pub fn is_favourite(&self) -> bool {
-        self.inner.read().base_info.notable_tags.contains(RoomNotableTags::FAVOURITE)
+        self.info.read().base_info.notable_tags.contains(RoomNotableTags::FAVOURITE)
     }
 
     /// Check whether the room is marked as low priority.
@@ -46,7 +46,7 @@ impl Room {
     /// A room is considered low priority if it has received the `m.lowpriority`
     /// tag.
     pub fn is_low_priority(&self) -> bool {
-        self.inner.read().base_info.notable_tags.contains(RoomNotableTags::LOW_PRIORITY)
+        self.info.read().base_info.notable_tags.contains(RoomNotableTags::LOW_PRIORITY)
     }
 }
 
