@@ -14,6 +14,8 @@
 
 use std::cmp::Ordering;
 
+// TODO @hywan: remove once the `TODO` in `extract_rank` is solved.
+#[allow(unused)]
 use matrix_sdk::latest_events::LatestEventValue;
 
 use super::{Room, Sorter};
@@ -82,12 +84,16 @@ type Rank = u64;
 /// `RoomInfo::recency_stamp` is not a timestamp, while `LatestEventValue` uses
 /// a timestamp.
 fn extract_rank(left: &Room, right: &Room) -> (Option<Rank>, Option<Rank>) {
+    // TODO @hywan: calling `LatestEventValue::timestamp` here is apparently
+    // causing issues. While investigating, let's disable this part of the code,
+    // and let's fallback to the recency stamp (as it was the case before).
+    (left.recency_stamp().map(Into::into), right.recency_stamp().map(Into::into))
+
+    /*
     match (left.new_latest_event(), right.new_latest_event()) {
-        // None of both rooms, or only one of both rooms, have a latest event value. Let's fallback
-        // to the recency stamp from the `RoomInfo` for both room.
-        (LatestEventValue::None, LatestEventValue::None)
-        | (LatestEventValue::None, _)
-        | (_, LatestEventValue::None) => {
+        // One of both rooms has NO latest event value. Let's fallback to the recency stamp from the
+        // `RoomInfo` for both room.
+        (LatestEventValue::None, _) | (_, LatestEventValue::None) => {
             (left.recency_stamp().map(Into::into), right.recency_stamp().map(Into::into))
         }
 
@@ -104,10 +110,14 @@ fn extract_rank(left: &Room, right: &Room) -> (Option<Rank>, Option<Rank>) {
             right.timestamp().map(|ms| ms.get().into()),
         ),
     }
+    */
 }
 
 #[cfg(test)]
 mod tests {
+    // TODO @hywan: remove once the `TODO` in `extract_rank` is solved.
+    #![allow(unused)]
+
     use matrix_sdk::{
         RoomRecencyStamp,
         latest_events::{LocalLatestEventValue, RemoteLatestEventValue},
@@ -219,6 +229,8 @@ mod tests {
         }
     }
 
+    // TODO @hywan: uncomment once the `TODO` in `extract_rank` is solved.
+    /*
     #[async_test]
     async fn test_extract_recency_stamp_with_remote_or_local() {
         let (client, server) = logged_in_client_with_server().await;
@@ -242,6 +254,7 @@ mod tests {
             }
         }
     }
+    */
 
     #[async_test]
     async fn test_with_two_recency_stamps() {
