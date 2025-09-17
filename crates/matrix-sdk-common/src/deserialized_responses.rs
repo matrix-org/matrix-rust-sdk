@@ -27,7 +27,7 @@ use ruma::{
     },
 };
 use serde::{Deserialize, Serialize};
-use tracing::{trace, warn};
+use tracing::warn;
 #[cfg(target_family = "wasm")]
 use wasm_bindgen::prelude::*;
 
@@ -778,9 +778,7 @@ impl TimelineEvent {
     /// might not be constant.
     pub fn timestamp(&self) -> Option<MilliSecondsSinceUnixEpoch> {
         self.timestamp.or_else(|| {
-            trace!(
-                "`TimelineEvent::timestamp` is parsing the raw event to extract the `timestamp`"
-            );
+            warn!("`TimelineEvent::timestamp` is parsing the raw event to extract the `timestamp`");
 
             extract_timestamp(self.raw(), MilliSecondsSinceUnixEpoch::now())
         })
