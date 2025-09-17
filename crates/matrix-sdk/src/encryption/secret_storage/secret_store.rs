@@ -301,31 +301,34 @@ impl SecretStore {
     }
 
     async fn maybe_enable_backups(&self) -> Result<()> {
-        let get_secret_result = self.get_secret(SecretName::RecoveryKey).await;
-        if let Ok(Some(mut secret)) = get_secret_result {
-            let ret = self
-                .client
-                .encryption()
-                .backups()
-                .maybe_enable_backups(&secret)
-                .await
-                .map_err(ImportError::from);
+        match self.get_secret(SecretName::RecoveryKey).await {
+            Ok(Some(mut secret)) => {
+                let ret = self
+                    .client
+                    .encryption()
+                    .backups()
+                    .maybe_enable_backups(&secret)
+                    .await
+                    .map_err(ImportError::from);
 
-            if let Err(e) = &ret {
-                warn!("Could not enable backups from secret storage: {e:?}");
+                if let Err(e) = &ret {
+                    warn!("Could not enable backups from secret storage: {e:?}");
+                }
+
+                secret.zeroize();
+
+                Ok(ret.map(|_| ())?)
             }
+            Err(e) => {
+                warn!("Could not enable backups from secret storage: {e:?}");
 
-            secret.zeroize();
+                Err(e)
+            }
+            _ => {
+                info!("No backup recovery key found.");
 
-            Ok(ret.map(|_| ())?)
-        } else if let Err(e) = get_secret_result {
-            warn!("Could not enable backups from secret storage: {e:?}");
-
-            Err(e)
-        } else {
-            info!("No backup recovery key found.");
-
-            Ok(())
+                Ok(())
+            }
         }
     }
 
