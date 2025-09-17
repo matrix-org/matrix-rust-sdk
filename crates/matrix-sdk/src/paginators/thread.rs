@@ -146,11 +146,8 @@ impl<P: PaginableThread> ThreadedEventsLoader<P> {
         Ok(PaginationResult { events: result.chunk, hit_end_of_timeline })
     }
 
-    /// Run a single pagination backwards, returning the next set of events and
-    /// information whether we've reached the start of the thread.
-    ///
-    /// Note: when the thread start is reached, the root event *will* be
-    /// included in the result.
+    /// Run a single pagination forwards, returning the next set of events and
+    /// information whether we've reached the end of the thread.
     pub async fn paginate_forwards(
         &self,
         num_events: UInt,
