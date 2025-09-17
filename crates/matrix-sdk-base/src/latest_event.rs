@@ -62,6 +62,18 @@ impl LatestEventValue {
             | Self::LocalCannotBeSent(LocalLatestEventValue { timestamp, .. }) => Some(*timestamp),
         }
     }
+
+    /// Check whether the [`LatestEventValue`] represents a local value or not,
+    /// i.e. it is [`LocalIsSending`] or [`LocalCannotBeSent`].
+    ///
+    /// [`LocalIsSending`]: LatestEventValue::LocalIsSending
+    /// [`LocalCannotBeSent`]: LatestEventValue::LocalCannotBeSent
+    pub fn is_local(&self) -> bool {
+        match self {
+            Self::LocalIsSending(_) | Self::LocalCannotBeSent(_) => true,
+            Self::None | Self::Remote(_) => false,
+        }
+    }
 }
 
 /// Represents the value for [`LatestEventValue::Remote`].
