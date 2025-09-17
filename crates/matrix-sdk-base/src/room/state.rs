@@ -21,7 +21,7 @@ use super::Room;
 impl Room {
     /// Get the state of the room.
     pub fn state(&self) -> RoomState {
-        self.inner.read().room_state
+        self.info.read().room_state
     }
 }
 

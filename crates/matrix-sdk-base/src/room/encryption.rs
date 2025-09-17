@@ -19,13 +19,13 @@ use super::Room;
 impl Room {
     /// Get the encryption state of this room.
     pub fn encryption_state(&self) -> EncryptionState {
-        self.inner.read().encryption_state()
+        self.info.read().encryption_state()
     }
 
     /// Get the `m.room.encryption` content that enabled end to end encryption
     /// in the room.
     pub fn encryption_settings(&self) -> Option<RoomEncryptionEventContent> {
-        self.inner.read().base_info.encryption.clone()
+        self.info.read().base_info.encryption.clone()
     }
 }
 
@@ -118,7 +118,7 @@ mod tests {
     }
 
     fn receive_state_events(room: &Room, events: Vec<&AnySyncStateEvent>) {
-        room.inner.update_if(|info| {
+        room.info.update_if(|info| {
             let mut res = false;
             for ev in events {
                 res |= info.handle_state_event(ev);
@@ -157,7 +157,7 @@ mod tests {
         let (_store, room) = make_room_test_helper(RoomState::Joined);
 
         assert_matches!(room.encryption_state(), EncryptionState::Unknown);
-        room.inner.update_if(|info| {
+        room.info.update_if(|info| {
             info.mark_encryption_state_synced();
 
             false

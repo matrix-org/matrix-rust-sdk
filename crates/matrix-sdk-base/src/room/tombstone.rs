@@ -26,7 +26,7 @@ impl Room {
     ///
     /// [`m.room.tombstone`]: https://spec.matrix.org/v1.14/client-server-api/#mroomtombstone
     pub fn is_tombstoned(&self) -> bool {
-        self.inner.read().base_info.tombstone.is_some()
+        self.info.read().base_info.tombstone.is_some()
     }
 
     /// Get the [`m.room.tombstone`] state event's content of this room if one
@@ -37,7 +37,7 @@ impl Room {
     ///
     /// [`m.room.tombstone`]: https://spec.matrix.org/v1.14/client-server-api/#mroomtombstone
     pub fn tombstone_content(&self) -> Option<RoomTombstoneEventContent> {
-        self.inner.read().tombstone().cloned()
+        self.info.read().tombstone().cloned()
     }
 
     /// If this room is tombstoned, return the “reference” to the successor room
