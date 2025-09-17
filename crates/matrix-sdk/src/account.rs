@@ -1409,13 +1409,11 @@ mod test_recent_emojis {
             list
         };
 
-        let updated_content = RecentEmojisContent::new(expected_updated_emoji_list);
-
         // Now if we add a new emoji that was not in the list, the last one in the list
         // should be gone
         server
             .mock_update_global_account_data()
-            .ok_with_request_body(user_id, updated_content.event_type(), json!(updated_content))
+            .ok_recent_emojis(user_id, expected_updated_emoji_list)
             .named("Update recent emojis global account data")
             .mock_once()
             .mount()

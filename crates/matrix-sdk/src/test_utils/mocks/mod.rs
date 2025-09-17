@@ -53,6 +53,7 @@ use ruma::{
     serde::Raw,
     time::Duration,
 };
+use ruma::events::GlobalAccountDataEventContent;
 use serde::Deserialize;
 use serde_json::{Value, from_value, json};
 use tokio::sync::oneshot::{self, Receiver};
@@ -63,6 +64,7 @@ use wiremock::{
         query_param_is_missing,
     },
 };
+use matrix_sdk_base::recent_emojis::RecentEmojisContent;
 
 #[cfg(feature = "e2e-encryption")]
 pub mod encryption;
@@ -3554,20 +3556,18 @@ impl<'a> MockEndpoint<'a, UpdateGlobalAccountDataEndpoint> {
         MatrixMock { server: self.server, mock }
     }
 
-    /// Returns a mock for a successful global account data event, as long as it
-    /// matches the provided `body`.
-    pub fn ok_with_request_body(
-        self,
-        user_id: &UserId,
-        event_type: GlobalAccountDataEventType,
-        body: Value,
-    ) -> MatrixMock<'a> {
+    /// Returns a mock for a successful update of the recent emojis account data event.
+    /// The request body contents should match the provided emoji list.
+    #[cfg(feature = "experimental-element-recent-emojis")]
+    pub fn ok_recent_emojis(self, user_id: &UserId, recent_emojis: Vec<(String, UInt)>) -> MatrixMock<'a> {
+        let content = RecentEmojisContent::new(recent_emojis);
+        let event_type = content.event_type();
         let mock = self
             .mock
             .and(path_regex(format!(
                 r"^/_matrix/client/v3/user/{user_id}/account_data/{event_type}"
             )))
-            .and(body_json(body))
+            .and(body_json(json!(content)))
             .respond_with(ResponseTemplate::new(200).set_body_json(()));
         MatrixMock { server: self.server, mock }
     }
