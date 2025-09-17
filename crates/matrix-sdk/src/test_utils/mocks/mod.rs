@@ -3553,6 +3553,24 @@ impl<'a> MockEndpoint<'a, UpdateGlobalAccountDataEndpoint> {
             .respond_with(ResponseTemplate::new(200).set_body_json(()));
         MatrixMock { server: self.server, mock }
     }
+
+    /// Returns a mock for a successful global account data event, as long as it
+    /// matches the provided `body`.
+    pub fn ok_with_request_body(
+        self,
+        user_id: &UserId,
+        event_type: GlobalAccountDataEventType,
+        body: Value,
+    ) -> MatrixMock<'a> {
+        let mock = self
+            .mock
+            .and(path_regex(format!(
+                r"^/_matrix/client/v3/user/{user_id}/account_data/{event_type}"
+            )))
+            .and(body_json(body))
+            .respond_with(ResponseTemplate::new(200).set_body_json(()));
+        MatrixMock { server: self.server, mock }
+    }
 }
 
 /// A response to a [`RoomRelationsEndpoint`] query.

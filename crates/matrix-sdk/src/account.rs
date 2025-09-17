@@ -65,6 +65,10 @@ use tracing::error;
 
 use crate::{Client, Error, Result, config::RequestConfig};
 
+/// The maximum number of recent emojis that should be stored and loaded.
+#[cfg(feature = "experimental-element-recent-emojis")]
+const MAX_RECENT_EMOJI_COUNT: usize = 100;
+
 /// A high-level API to manage the client owner's account.
 ///
 /// All the methods on this struct send a request to the homeserver.
@@ -1184,9 +1188,16 @@ impl Account {
 
         let index = recent_emojis.iter().position(|(unicode, _)| unicode == emoji);
 
+        // Remove the emoji from the list if it was present and get it's `count` value
         let count = if let Some(index) = index { recent_emojis.remove(index).1 } else { uint!(0) };
 
+        // Insert the emoji with the updated count at the start of the list, so it's
+        // considered the most recently used emoji
         recent_emojis.insert(0, (emoji.to_owned(), count + uint!(1)));
+
+        // Then truncate to the max allowed size, which will remove any emojis that
+        // haven't been used in a very long time
+        recent_emojis.truncate(MAX_RECENT_EMOJI_COUNT);
 
         let request = UpdateGlobalAccountDataRequest::new(
             user_id.to_owned(),
@@ -1236,6 +1247,8 @@ impl Account {
                 .into_iter()
                 // Items with higher counts should be first
                 .sorted_by(|(_, count_a), (_, count_b)| count_b.cmp(count_a))
+                // Make sure we take only up to MAX_RECENT_EMOJI_COUNT
+                .take(MAX_RECENT_EMOJI_COUNT)
                 .collect();
             Ok(sorted_emojis)
         } else {
@@ -1279,13 +1292,15 @@ mod tests {
 #[cfg(test)]
 #[cfg(feature = "experimental-element-recent-emojis")]
 mod test_recent_emojis {
-    use js_int::uint;
+    use js_int::{uint, UInt};
     use matrix_sdk_base::recent_emojis::RecentEmojisContent;
     use matrix_sdk_test::{async_test, event_factory::EventFactory};
     use ruma::events::GlobalAccountDataEventContent;
     use serde_json::json;
 
-    use crate::{config::SyncSettings, test_utils::mocks::MatrixMockServer};
+    use crate::{
+        account::MAX_RECENT_EMOJI_COUNT, config::SyncSettings, test_utils::mocks::MatrixMockServer,
+    };
 
     #[async_test]
     async fn test_recent_emojis() {
@@ -1346,5 +1361,66 @@ mod test_recent_emojis {
         assert_eq!(recent_emojis[0].0, ":)");
         assert_eq!(recent_emojis[1].0, ":D");
         assert_eq!(recent_emojis[2].0, ":/");
+    }
+
+    #[async_test]
+    async fn test_max_recent_emoji_count() {
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+        let user_id = client.user_id().expect("session_id");
+
+        // This list is > the MAX_RECENT_EMOJI_COUNT
+        let long_emoji_list = (0..MAX_RECENT_EMOJI_COUNT * 2)
+            .map(|i| (i.to_string(), uint!(1)))
+            .collect::<Vec<(String, UInt)>>();
+
+        // Initially we locally don't have any emojis
+        let recent_emojis = client.account().get_recent_emojis(false).await.expect("recent emojis");
+        assert!(recent_emojis.is_empty());
+
+        server
+            .mock_global_account_data()
+            .ok(
+                user_id,
+                RecentEmojisContent::default().event_type(),
+                json!({ "recent_emoji": long_emoji_list }),
+            )
+            .named("Fetch recent emojis")
+            .expect(2)
+            .mount()
+            .await;
+
+        // Now with a list of emojis longer than the max count, we fetch the emoji list
+        let recent_emojis = client.account().get_recent_emojis(true).await.expect("recent emojis");
+
+        // It should only return until the max count
+        assert_eq!(recent_emojis.len(), MAX_RECENT_EMOJI_COUNT);
+        assert_eq!(recent_emojis, long_emoji_list[..MAX_RECENT_EMOJI_COUNT]);
+
+        // Simulate the logic we expect when adding a new emoji:
+        // 1. Remove the existing emoji if present
+        // 2. Increase its count value and insert it at the front.
+        // 3. Truncate at MAX_RECENT_EMOJI_COUNT
+        let expected_updated_emoji_list = {
+            let mut list = long_emoji_list.clone();
+            let item = list.remove(50);
+            list.insert(0, (item.0, item.1 + uint!(1)));
+            list.truncate(MAX_RECENT_EMOJI_COUNT);
+            list
+        };
+
+        let updated_content = RecentEmojisContent::new(expected_updated_emoji_list);
+
+        // Now if we add a new emoji that was not in the list, the last one in the list
+        // should be gone
+        server
+            .mock_update_global_account_data()
+            .ok_with_request_body(user_id, updated_content.event_type(), json!(updated_content))
+            .named("Update recent emojis global account data")
+            .mock_once()
+            .mount()
+            .await;
+
+        client.account().add_recent_emoji("50").await.expect("adding emoji");
     }
 }
