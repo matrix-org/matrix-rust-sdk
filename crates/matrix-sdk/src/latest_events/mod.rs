@@ -141,6 +141,14 @@ impl LatestEvents {
         Ok(self.state.registered_rooms.for_room(room_id).await?.is_some())
     }
 
+    /// Check whether the system listens to a particular room.
+    ///
+    /// Note: It's a test only method.
+    #[cfg(test)]
+    pub async fn is_listening_to_room(&self, room_id: &RoomId) -> bool {
+        self.state.registered_rooms.rooms.read().await.contains_key(room_id)
+    }
+
     /// Start listening to updates (if not already) for a particular room, and
     /// return a [`Subscriber`] to get the current and future
     /// [`LatestEventValue`]s.
