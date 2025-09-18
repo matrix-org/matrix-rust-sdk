@@ -6,6 +6,7 @@ pub type OpStamp = u64;
 
 pub(crate) const TANTIVY_INDEX_MEMORY_BUDGET: usize = 50_000_000;
 
+mod encrypted;
 mod schema;
 mod writer;
 

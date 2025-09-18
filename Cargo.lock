@@ -3471,11 +3471,21 @@ dependencies = [
 name = "matrix-sdk-search"
 version = "0.14.0"
 dependencies = [
+ "aes",
+ "byteorder",
+ "ctr",
+ "hkdf",
+ "hmac",
  "matrix-sdk-test",
+ "pbkdf2",
+ "rand 0.8.5",
  "ruma",
+ "sha2",
  "tantivy",
+ "tempfile",
  "thiserror 2.0.16",
  "tracing",
+ "zeroize",
 ]
 
 [[package]]
