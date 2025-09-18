@@ -286,6 +286,7 @@ impl EncryptedMmapDirectory {
     /// * `new_passphrase` - The passphrase that should be used from now on.
     /// * `new_key_derivation_count` - The key derivation count that should be
     ///   used for the re-encrypted store key.
+    #[allow(dead_code)] // already implemented and will almost certainly be used.
     pub fn change_passphrase<P: AsRef<Path>>(
         path: P,
         old_passphrase: &str,

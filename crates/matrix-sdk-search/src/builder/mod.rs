@@ -5,8 +5,10 @@ use tantivy::{
     Index,
     directory::{MmapDirectory, error::OpenDirectoryError},
 };
+use zeroize::Zeroizing;
 
 use crate::{
+    encrypted::encrypted_dir::{EncryptedMmapDirectory, PBKDF_COUNT},
     error::IndexError,
     index::RoomIndex,
     schema::{MatrixSearchIndexSchema, RoomMessageSchema},
@@ -49,6 +51,15 @@ impl PhysicalRoomIndexBuilder {
             room_id: self.room_id.clone(),
         }
     }
+
+    /// Make an encrypted index
+    pub fn encrypted<P: Into<String>>(&self, password: P) -> EncryptedPhysicalRoomIndexBuilder {
+        EncryptedPhysicalRoomIndexBuilder {
+            path: self.path.clone(),
+            room_id: self.room_id.clone(),
+            password: Zeroizing::new(password.into()),
+        }
+    }
 }
 
 /// Complete builder for [`RoomIndex`] on disk.
@@ -76,6 +87,39 @@ impl UnencryptedPhysicalRoomIndexBuilder {
                 _ => Err(err),
             },
         }?;
+        let schema = RoomMessageSchema::new();
+        let index = Index::open_or_create(mmap_dir, schema.as_tantivy_schema())?;
+        Ok(RoomIndex::new_with(index, schema, &self.room_id))
+    }
+}
+
+/// Complete builder for [`RoomIndex`] on disk.
+pub struct EncryptedPhysicalRoomIndexBuilder {
+    path: PathBuf,
+    room_id: OwnedRoomId,
+    password: Zeroizing<String>,
+}
+
+impl EncryptedPhysicalRoomIndexBuilder {
+    /// Build the [`RoomIndex`]
+    pub fn build(&self) -> Result<RoomIndex, IndexError> {
+        let path = self.path.join(self.room_id.as_str());
+        let mmap_dir =
+            match EncryptedMmapDirectory::open_or_create(path, &self.password, PBKDF_COUNT) {
+                Ok(dir) => Ok(dir),
+                Err(err) => match err {
+                    OpenDirectoryError::DoesNotExist(path) => {
+                        fs::create_dir_all(path.clone()).map_err(|err| {
+                            OpenDirectoryError::IoError {
+                                io_error: Arc::new(err),
+                                directory_path: path.to_path_buf(),
+                            }
+                        })?;
+                        EncryptedMmapDirectory::open_or_create(path, &self.password, PBKDF_COUNT)
+                    }
+                    _ => Err(err),
+                },
+            }?;
         let schema = RoomMessageSchema::new();
         let index = Index::open_or_create(mmap_dir, schema.as_tantivy_schema())?;
         Ok(RoomIndex::new_with(index, schema, &self.room_id))
