@@ -14,11 +14,11 @@
 
 use std::cmp::Ordering;
 
-use super::{Room, Sorter};
+use super::{RoomListItem, Sorter};
 
-fn cmp<F>(ranks: F, left: &Room, right: &Room) -> Ordering
+fn cmp<F>(ranks: F, left: &RoomListItem, right: &RoomListItem) -> Ordering
 where
-    F: Fn(&Room, &Room) -> (Option<Rank>, Option<Rank>),
+    F: Fn(&RoomListItem, &RoomListItem) -> (Option<Rank>, Option<Rank>),
 {
     if left.room_id() == right.room_id() {
         // `left` and `right` are the same room. We are comparing the same
@@ -52,8 +52,8 @@ where
     }
 }
 
-/// Create a new sorter that will sort two [`Room`] by recency, i.e. by
-/// comparing their [`RoomInfo::new_latest_event`]'s recency (timestamp)
+/// Create a new sorter that will sort two [`RoomListItem`] by recency, i.e.
+/// by comparing their [`RoomInfo::new_latest_event`]'s recency (timestamp)
 /// if any (i.e. if different from [`LatestEventValue::None`]), or their
 /// [`RoomInfo::recency_stamp`] value. The `Room` with the newest recency stamp
 /// comes first, i.e. newest < oldest.
@@ -62,7 +62,7 @@ where
 /// [`RoomInfo::new_latest_event`]: matrix_sdk_base::RoomInfo::new_latest_event
 /// [`LatestEventValue::None`]: matrix_sdk_base::latest_event::LatestEventValue::None
 pub fn new_sorter() -> impl Sorter {
-    let ranks = |left: &Room, right: &Room| extract_rank(left, right);
+    let ranks = |left: &RoomListItem, right: &RoomListItem| extract_rank(left, right);
 
     move |left, right| -> Ordering { cmp(ranks, left, right) }
 }
@@ -80,7 +80,7 @@ type Rank = u64;
 /// [`RoomInfo::recency_stamp`], but we **must never** mix both. The
 /// `RoomInfo::recency_stamp` is not a timestamp, while `LatestEventValue` uses
 /// a timestamp.
-fn extract_rank(left: &Room, right: &Room) -> (Option<Rank>, Option<Rank>) {
+fn extract_rank(left: &RoomListItem, right: &RoomListItem) -> (Option<Rank>, Option<Rank>) {
     // Be careful. This method is called **a lot** in the context of a sorter. Using
     // `Room::new_latest_event` would be dramatic as it returns a clone of the
     // `LatestEventValue`. It's better to use the more specific method
@@ -165,14 +165,14 @@ mod tests {
         })
     }
 
-    fn set_latest_event_value(room: &mut Room, latest_event_value: LatestEventValue) {
+    fn set_latest_event_value(room: &mut RoomListItem, latest_event_value: LatestEventValue) {
         let mut room_info = room.clone_info();
         room_info.set_new_latest_event(latest_event_value);
         room.set_room_info(room_info, RoomInfoNotableUpdateReasons::LATEST_EVENT);
         room.refresh_cached_data();
     }
 
-    fn set_recency_stamp(room: &mut Room, recency_stamp: RoomRecencyStamp) {
+    fn set_recency_stamp(room: &mut RoomListItem, recency_stamp: RoomRecencyStamp) {
         let mut room_info = room.clone_info();
         room_info.update_recency_stamp(recency_stamp);
         room.set_room_info(room_info, RoomInfoNotableUpdateReasons::RECENCY_STAMP);

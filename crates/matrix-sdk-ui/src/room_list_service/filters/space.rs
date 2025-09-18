@@ -12,11 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use super::{super::Room, Filter};
+use super::{super::RoomListItem, Filter};
 
-fn matches<F>(is_space: F, room: &Room) -> bool
+fn matches<F>(is_space: F, room: &RoomListItem) -> bool
 where
-    F: Fn(&Room) -> bool,
+    F: Fn(&RoomListItem) -> bool,
 {
     is_space(room)
 }
@@ -24,7 +24,7 @@ where
 /// Create a new filter that will filter out rooms that are spaces, i.e.
 /// room with a `room_type` of `m.space` as defined in <https://spec.matrix.org/latest/client-server-api/#spaces>
 pub fn new_filter() -> impl Filter {
-    let is_space = |room: &Room| room.cached_is_space;
+    let is_space = |room: &RoomListItem| room.cached_is_space;
 
     move |room| -> bool { matches(is_space, room) }
 }

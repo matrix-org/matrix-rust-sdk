@@ -62,7 +62,7 @@ use async_stream::stream;
 use eyeball::Subscriber;
 use futures_util::{Stream, StreamExt, pin_mut};
 use matrix_sdk::{
-    Client, Error as SlidingSyncError, SlidingSync, SlidingSyncList, SlidingSyncMode,
+    Client, Error as SlidingSyncError, Room, SlidingSync, SlidingSyncList, SlidingSyncMode,
     event_cache::EventCacheError, timeout::timeout,
 };
 pub use room_list::*;
@@ -420,8 +420,8 @@ impl RoomListService {
         self.list_for(ALL_ROOMS_LIST_NAME).await
     }
 
-    /// Get a [`Room`][matrix_sdk::Room] if it exists.
-    pub fn room(&self, room_id: &RoomId) -> Result<matrix_sdk::Room, Error> {
+    /// Get a [`Room`] if it exists.
+    pub fn room(&self, room_id: &RoomId) -> Result<Room, Error> {
         self.client.get_room(room_id).ok_or_else(|| Error::RoomNotFound(room_id.to_owned()))
     }
 

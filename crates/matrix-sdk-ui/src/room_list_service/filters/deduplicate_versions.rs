@@ -14,13 +14,13 @@
 
 use matrix_sdk_base::RoomState;
 
-use super::{super::Room, Filter};
+use super::{super::RoomListItem, Filter};
 
 type SuccessorRoomState = RoomState;
 
-fn matches<F>(state: F, room: &Room) -> bool
+fn matches<F>(state: F, room: &RoomListItem) -> bool
 where
-    F: Fn(&Room) -> (RoomState, Option<SuccessorRoomState>),
+    F: Fn(&RoomListItem) -> (RoomState, Option<SuccessorRoomState>),
 {
     let (room_state, successor_room_state) = state(room);
 
@@ -66,7 +66,7 @@ where
 ///
 /// All other rooms are filtered out.
 pub fn new_filter() -> impl Filter {
-    let state = |room: &Room| {
+    let state = |room: &RoomListItem| {
         (
             room.cached_state,
             room.successor_room()
@@ -94,7 +94,7 @@ mod tests {
         let (client, server) = logged_in_client_with_server().await;
         let [room] = new_rooms([room_id!("!a:b.c")], &client, &server).await;
 
-        assert!(matches(|_room: &Room| (RoomState::Joined, None), &room));
+        assert!(matches(|_room: &RoomListItem| (RoomState::Joined, None), &room));
     }
 
     #[async_test]
@@ -174,7 +174,7 @@ mod tests {
         let (client, server) = logged_in_client_with_server().await;
         let [room] = new_rooms([room_id!("!a:b.c")], &client, &server).await;
 
-        let state = |_: &Room| (RoomState::Left, None);
+        let state = |_: &RoomListItem| (RoomState::Left, None);
         assert!(matches(state, &room));
     }
 
@@ -183,7 +183,7 @@ mod tests {
         let (client, server) = logged_in_client_with_server().await;
         let [room] = new_rooms([room_id!("!a:b.c")], &client, &server).await;
 
-        let state = |_: &Room| (RoomState::Invited, None);
+        let state = |_: &RoomListItem| (RoomState::Invited, None);
         assert!(matches(state, &room));
     }
 
@@ -192,7 +192,7 @@ mod tests {
         let (client, server) = logged_in_client_with_server().await;
         let [room] = new_rooms([room_id!("!a:b.c")], &client, &server).await;
 
-        let state = |_: &Room| (RoomState::Banned, None);
+        let state = |_: &RoomListItem| (RoomState::Banned, None);
         assert!(matches(state, &room));
     }
 
@@ -201,7 +201,7 @@ mod tests {
         let (client, server) = logged_in_client_with_server().await;
         let [room] = new_rooms([room_id!("!a:b.c")], &client, &server).await;
 
-        let state = |_: &Room| (RoomState::Knocked, None);
+        let state = |_: &RoomListItem| (RoomState::Knocked, None);
         assert!(matches(state, &room));
     }
 }
