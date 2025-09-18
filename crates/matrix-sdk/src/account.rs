@@ -1298,11 +1298,9 @@ mod tests {
 #[cfg(test)]
 #[cfg(feature = "experimental-element-recent-emojis")]
 mod test_recent_emojis {
-    use js_int::{uint, UInt};
+    use js_int::{UInt, uint};
     use matrix_sdk_base::recent_emojis::RecentEmojisContent;
     use matrix_sdk_test::{async_test, event_factory::EventFactory};
-    use ruma::events::GlobalAccountDataEventContent;
-    use serde_json::json;
 
     use crate::{
         account::MAX_RECENT_EMOJI_COUNT, config::SyncSettings, test_utils::mocks::MatrixMockServer,
@@ -1315,8 +1313,8 @@ mod test_recent_emojis {
         let user_id = client.user_id().expect("session_id");
 
         server
-            .mock_update_global_account_data()
-            .ok(user_id, RecentEmojisContent::default().event_type())
+            .mock_add_recent_emojis()
+            .ok(user_id)
             .named("Update recent emojis global account data")
             .mock_once()
             .mount()
@@ -1332,12 +1330,8 @@ mod test_recent_emojis {
         ];
 
         server
-            .mock_global_account_data()
-            .ok(
-                user_id,
-                RecentEmojisContent::default().event_type(),
-                json!({ "recent_emoji": emoji_list }),
-            )
+            .mock_get_recent_emojis()
+            .ok(user_id, emoji_list.clone())
             .named("Fetch recent emojis")
             .mock_once()
             .mount()
@@ -1385,14 +1379,10 @@ mod test_recent_emojis {
         assert!(recent_emojis.is_empty());
 
         server
-            .mock_global_account_data()
-            .ok(
-                user_id,
-                RecentEmojisContent::default().event_type(),
-                json!({ "recent_emoji": long_emoji_list }),
-            )
+            .mock_get_recent_emojis()
+            .ok(user_id, long_emoji_list.clone())
             .named("Fetch recent emojis")
-            .expect(2)
+            .expect(3)
             .mount()
             .await;
 
@@ -1418,13 +1408,35 @@ mod test_recent_emojis {
         // Now if we add a new emoji that was not in the list, the last one in the list
         // should be gone
         server
-            .mock_update_global_account_data()
-            .ok_recent_emojis(user_id, expected_updated_emoji_list)
-            .named("Update recent emojis global account data")
+            .mock_add_recent_emojis()
+            .match_emojis_in_request_body(expected_updated_emoji_list)
+            .ok(user_id)
+            .named("Update recent emojis global account data with existing emoji")
             .mock_once()
             .mount()
             .await;
 
         client.account().add_recent_emoji("50").await.expect("adding emoji");
+
+        // Do the same, but now with a new emoji that wasn't previously in the list
+        let expected_updated_emoji_list = {
+            let mut list = long_emoji_list.clone();
+            let item = (":D".to_owned(), uint!(1));
+            list.insert(0, item);
+            list.truncate(MAX_RECENT_EMOJI_COUNT);
+            list
+        };
+
+        // We should still have `MAX_RECENT_EMOJI_COUNT` items
+        server
+            .mock_add_recent_emojis()
+            .match_emojis_in_request_body(expected_updated_emoji_list)
+            .ok(user_id)
+            .named("Update recent emojis global account data with new emoji")
+            .mock_once()
+            .mount()
+            .await;
+
+        client.account().add_recent_emoji(":D").await.expect("adding emoji");
     }
 }
