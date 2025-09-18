@@ -25,6 +25,9 @@ unstable-msc3956 = ["ruma/unstable-msc3956"]
 # Add support for inline media galleries via msgtypes
 unstable-msc4274 = ["matrix-sdk/unstable-msc4274"]
 
+# "Do not Disturb" notification settings
+unstable-msc4359 = ["matrix-sdk/unstable-msc4359"]
+
 # Enable experimental support for encrypting state events; see
 # https://github.com/matrix-org/matrix-rust-sdk/issues/5397.
 experimental-encrypted-state-events = [
@@ -38,6 +41,7 @@ async-rx.workspace = true
 async-stream.workspace = true
 async_cell = "0.2.3"
 bitflags.workspace = true
+cfg-if.workspace = true
 chrono.workspace = true
 eyeball.workspace = true
 eyeball-im.workspace = true

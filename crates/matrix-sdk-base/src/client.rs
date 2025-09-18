@@ -32,6 +32,8 @@ use matrix_sdk_crypto::{
 };
 #[cfg(doc)]
 use ruma::DeviceId;
+#[cfg(feature = "unstable-msc4359")]
+use ruma::events::do_not_disturb::{DoNotDisturbEventContent, DoNotDisturbRoomKey};
 #[cfg(feature = "e2e-encryption")]
 use ruma::events::room::{history_visibility::HistoryVisibility, member::MembershipState};
 use ruma::{
@@ -1121,6 +1123,37 @@ impl BaseClient {
             Ok(None) => false,
             Err(error) => {
                 warn!(?error, "Could not get the ignored user list from the state store");
+                false
+            }
+        }
+    }
+
+    /// Checks whether the provided `room_id` belongs to a room in "Do not
+    /// Disturb" mode.
+    #[cfg(feature = "unstable-msc4359")]
+    pub async fn is_room_in_do_not_disturb_mode(&self, room_id: &RoomId) -> bool {
+        match self.state_store.get_account_data_event_static::<DoNotDisturbEventContent>().await {
+            Ok(Some(raw_do_not_disturb_room_list)) => {
+                match raw_do_not_disturb_room_list.deserialize() {
+                    Ok(current_do_not_disturb_room_list) => {
+                        current_do_not_disturb_room_list
+                            .content
+                            .rooms
+                            .contains_key(&DoNotDisturbRoomKey::AllRooms)
+                            || current_do_not_disturb_room_list
+                                .content
+                                .rooms
+                                .contains_key(&DoNotDisturbRoomKey::SingleRoom(room_id.to_owned()))
+                    }
+                    Err(error) => {
+                        warn!(?error, "Failed to deserialize the do not disturb room list event");
+                        false
+                    }
+                }
+            }
+            Ok(None) => false,
+            Err(error) => {
+                warn!(?error, "Could not get the do not disturb room list from the state store");
                 false
             }
         }
