@@ -42,7 +42,6 @@ use ruma::{
     api::client::{error::ErrorKind, sync::sync_events::v5 as http},
     assign,
 };
-use serde::{Deserialize, Serialize};
 use tokio::{
     select,
     sync::{Mutex as AsyncMutex, OwnedMutexGuard, RwLock as AsyncRwLock, broadcast::Sender},
@@ -855,12 +854,6 @@ impl SlidingSync {
 pub(super) struct SlidingSyncPositionMarkers {
     /// An ephemeral position in the current stream, as received from the
     /// previous `/sync` response, or `None` for the first request.
-    pos: Option<String>,
-}
-
-#[derive(Serialize, Deserialize)]
-struct FrozenSlidingSyncPos {
-    #[serde(skip_serializing_if = "Option::is_none")]
     pos: Option<String>,
 }
 
