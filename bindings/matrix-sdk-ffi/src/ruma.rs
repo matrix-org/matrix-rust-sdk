@@ -24,6 +24,10 @@ use ruma::{
     assign,
     events::{
         direct::DirectEventContent,
+        do_not_disturb::{
+            DoNotDisturbEventContent, DoNotDisturbRoom as RumaDoNotDisturbRoom,
+            DoNotDisturbRoomKey as RumaDoNotDisturbRoomKey,
+        },
         fully_read::FullyReadEventContent,
         identity_server::IdentityServerEventContent,
         ignored_user_list::{IgnoredUser as RumaIgnoredUser, IgnoredUserListEventContent},
@@ -1090,6 +1094,8 @@ pub fn content_without_relation_from_message(
 pub enum AccountDataEventType {
     /// m.direct
     Direct,
+    /// dm.filament.do_not_disturb
+    DoNotDisturbRoomList,
     /// m.identity_server
     IdentityServer,
     /// m.ignored_user_list
@@ -1108,6 +1114,7 @@ impl TryFrom<RumaGlobalAccountDataEventType> for AccountDataEventType {
     fn try_from(value: RumaGlobalAccountDataEventType) -> Result<Self, Self::Error> {
         match value {
             RumaGlobalAccountDataEventType::Direct => Ok(Self::Direct),
+            RumaGlobalAccountDataEventType::DoNotDisturb => Ok(Self::DoNotDisturbRoomList),
             RumaGlobalAccountDataEventType::IdentityServer => Ok(Self::IdentityServer),
             RumaGlobalAccountDataEventType::IgnoredUserList => Ok(Self::IgnoredUserList),
             RumaGlobalAccountDataEventType::PushRules => Ok(Self::PushRules),
@@ -1130,6 +1137,12 @@ pub enum AccountDataEvent {
         /// The mapping of user ID to a list of room IDs of the ‘direct’ rooms
         /// for that user ID.
         map: HashMap<String, Vec<String>>,
+    },
+    /// dm.filament.do_not_disturb
+    DoNotDisturbRoomList {
+        /// The map of rooms in "Do not Disturb" mode. This is a mapping from
+        /// [`DoNotDisturbRoomKey`] to empty object.
+        rooms: HashMap<DoNotDisturbRoomKey, DoNotDisturbRoom>,
     },
     /// m.identity_server
     IdentityServer {
@@ -1229,6 +1242,42 @@ impl From<InviteAvatars> for RumaInviteAvatars {
             InviteAvatars::On => Self::On,
             InviteAvatars::Off => Self::Off,
         }
+    }
+}
+
+/// The key for a "Do not Disturb" setting.
+///
+/// This either matches a single room or all rooms.
+#[derive(Clone, Eq, Hash, PartialEq, uniffi::Enum)]
+pub enum DoNotDisturbRoomKey {
+    /// Match any room.
+    AllRooms,
+
+    /// Match a single room based on its room ID.
+    SingleRoom(String),
+}
+
+impl From<RumaDoNotDisturbRoomKey> for DoNotDisturbRoomKey {
+    fn from(value: RumaDoNotDisturbRoomKey) -> Self {
+        match value {
+            RumaDoNotDisturbRoomKey::AllRooms => DoNotDisturbRoomKey::AllRooms,
+            RumaDoNotDisturbRoomKey::SingleRoom(room_id) => {
+                DoNotDisturbRoomKey::SingleRoom(room_id.into())
+            }
+            _ => panic!("Unexpected DoNotDisturbRoomKey: {value:?}"),
+        }
+    }
+}
+
+/// Details about a room in "Do not Disturb" mode.
+///
+/// This is currently empty.
+#[derive(Clone, uniffi::Record)]
+pub struct DoNotDisturbRoom {}
+
+impl From<RumaDoNotDisturbRoom> for DoNotDisturbRoom {
+    fn from(_value: RumaDoNotDisturbRoom) -> Self {
+        DoNotDisturbRoom {}
     }
 }
 
@@ -1561,6 +1610,21 @@ impl From<RumaGlobalAccountDataEvent<DirectEventContent>> for AccountDataEvent {
                 .into_iter()
                 .map(|(user_id, room_ids)| {
                     (user_id.to_string(), room_ids.iter().map(ToString::to_string).collect())
+                })
+                .collect(),
+        }
+    }
+}
+
+impl From<RumaGlobalAccountDataEvent<DoNotDisturbEventContent>> for AccountDataEvent {
+    fn from(value: RumaGlobalAccountDataEvent<DoNotDisturbEventContent>) -> Self {
+        Self::DoNotDisturbRoomList {
+            rooms: value
+                .content
+                .rooms
+                .into_iter()
+                .map(|(key, do_not_disturb_room)| {
+                    (key.into(), DoNotDisturbRoom::from(do_not_disturb_room))
                 })
                 .collect(),
         }

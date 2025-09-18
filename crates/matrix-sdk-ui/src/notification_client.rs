@@ -18,6 +18,7 @@ use std::{
     time::Duration,
 };
 
+use cfg_if::cfg_if;
 use futures_util::{StreamExt as _, pin_mut};
 use matrix_sdk::{
     Client, ClientBuildError, SlidingSyncList, SlidingSyncMode, room::Room, sleep::sleep,
@@ -637,7 +638,19 @@ impl NotificationClient {
         let notification_item =
             NotificationItem::new(room, raw_event, push_actions, state_events).await?;
 
-        if self.client.is_user_ignored(notification_item.event.sender()).await {
+        let is_room_in_do_not_disturb = {
+            cfg_if! {
+                if #[cfg(feature = "unstable-msc4359")] {
+                    self.client.is_room_in_do_not_disturb_mode(room.room_id()).await
+                } else {
+                    false
+                }
+            }
+        };
+
+        if self.client.is_user_ignored(notification_item.event.sender()).await
+            || is_room_in_do_not_disturb
+        {
             Ok(NotificationStatus::EventFilteredOut)
         } else {
             Ok(NotificationStatus::Event(Box::new(notification_item)))

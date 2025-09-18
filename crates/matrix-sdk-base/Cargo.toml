@@ -65,6 +65,9 @@ testing = [
 # Add support for inline media galleries via msgtypes
 unstable-msc4274 = []
 
+# "Do not Disturb" notification settings
+unstable-msc4359 = ["ruma/unstable-msc4359"]
+
 experimental-element-recent-emojis = []
 
 [dependencies]

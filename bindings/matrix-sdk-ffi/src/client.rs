@@ -61,6 +61,7 @@ use ruma::{
     },
     events::{
         direct::DirectEventContent,
+        do_not_disturb::DoNotDisturbEventContent,
         fully_read::FullyReadEventContent,
         identity_server::IdentityServerEventContent,
         ignored_user_list::IgnoredUserListEventContent,
@@ -698,6 +699,9 @@ impl Client {
         match event_type {
             AccountDataEventType::Direct => {
                 observe!(DirectEventContent)
+            }
+            AccountDataEventType::DoNotDisturbRoomList => {
+                observe!(DoNotDisturbEventContent)
             }
             AccountDataEventType::IdentityServer => {
                 observe!(IdentityServerEventContent)

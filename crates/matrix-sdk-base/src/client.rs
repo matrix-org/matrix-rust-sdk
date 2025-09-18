@@ -32,6 +32,8 @@ use matrix_sdk_crypto::{
 };
 #[cfg(doc)]
 use ruma::DeviceId;
+#[cfg(feature = "unstable-msc4359")]
+use ruma::events::do_not_disturb::{DoNotDisturbEventContent, DoNotDisturbRoomKey};
 #[cfg(feature = "e2e-encryption")]
 use ruma::events::room::{history_visibility::HistoryVisibility, member::MembershipState};
 use ruma::{
@@ -1135,6 +1137,37 @@ impl BaseClient {
             }
         }
     }
+
+    /// Checks whether the provided `room_id` belongs to a room in "Do not
+    /// Disturb" mode.
+    #[cfg(feature = "unstable-msc4359")]
+    pub async fn is_room_in_do_not_disturb_mode(&self, room_id: &RoomId) -> bool {
+        match self.state_store.get_account_data_event_static::<DoNotDisturbEventContent>().await {
+            Ok(Some(raw_do_not_disturb_room_list)) => {
+                match raw_do_not_disturb_room_list.deserialize() {
+                    Ok(current_do_not_disturb_room_list) => {
+                        current_do_not_disturb_room_list
+                            .content
+                            .rooms
+                            .contains_key(&DoNotDisturbRoomKey::AllRooms)
+                            || current_do_not_disturb_room_list
+                                .content
+                                .rooms
+                                .contains_key(&DoNotDisturbRoomKey::SingleRoom(room_id.to_owned()))
+                    }
+                    Err(error) => {
+                        warn!(?error, "Failed to deserialize the 'Do not Disturb' room list event");
+                        false
+                    }
+                }
+            }
+            Ok(None) => false,
+            Err(error) => {
+                warn!(?error, "Could not get the 'Do not Disturb' room list from the state store");
+                false
+            }
+        }
+    }
 }
 
 /// Represent the `required_state` values sent by a sync request.
@@ -1770,6 +1803,24 @@ mod tests {
         client.receive_sync_response(response).await.unwrap();
 
         assert!(client.is_user_ignored(ignored_user_id).await);
+    }
+
+    #[cfg(feature = "unstable-msc4359")]
+    #[async_test]
+    async fn test_is_room_in_do_not_disturb() {
+        let dnd_room_id = room_id!("!sonofagun");
+        let client = logged_in_base_client(None).await;
+
+        assert!(!client.is_room_in_do_not_disturb_mode(dnd_room_id).await);
+
+        let mut sync_builder = SyncResponseBuilder::new();
+        let f = EventFactory::new();
+        let response = sync_builder
+            .add_global_account_data(f.do_not_disturb_room_list([dnd_room_id.to_owned()]))
+            .build_sync_response();
+        client.receive_sync_response(response).await.unwrap();
+
+        assert!(client.is_room_in_do_not_disturb_mode(dnd_room_id).await);
     }
 
     #[async_test]

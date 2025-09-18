@@ -1095,6 +1095,112 @@ async fn test_notification_client_sliding_sync_filters_out_events_from_ignored_u
     };
 }
 
+#[cfg(feature = "unstable-msc4359")]
+#[async_test]
+async fn test_notification_client_sliding_sync_filters_out_events_from_do_not_disturb_rooms() {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+
+    let sender = user_id!("@user:example.org");
+    let my_user_id = client.user_id().unwrap().to_owned();
+
+    let room_id = room_id!("!a98sd12bjh:example.org");
+    let room_name = "The Maltese Falcon";
+    let sender_display_name = "John Mastodon";
+    let event_id = event_id!("$example_event_id");
+
+    let raw_event = EventFactory::new()
+        .room(room_id)
+        .sender(sender)
+        .text_msg("Heya")
+        .event_id(event_id)
+        .into_raw_sync();
+
+    let event_factory = EventFactory::new().room(room_id);
+
+    let sender_member_event = event_factory
+        .member(sender)
+        .display_name(sender_display_name)
+        .membership(MembershipState::Join)
+        .into_raw_sync();
+
+    let own_member_event = event_factory
+        .member(&my_user_id)
+        .display_name("My self")
+        .membership(MembershipState::Join)
+        .into_raw_sync();
+
+    let power_levels_event =
+        event_factory.sender(sender).power_levels(&mut BTreeMap::new()).into_raw_sync();
+
+    let pos = Mutex::new(0);
+    Mock::given(SlidingSyncMatcher)
+        .respond_with(move |request: &Request| {
+            let partial_request: PartialSlidingSyncRequest = request.body_json().unwrap();
+            // Repeat the transaction id in the response, to validate sticky parameters.
+            let mut pos = pos.lock().unwrap();
+            *pos += 1;
+            let pos_as_str = (*pos).to_string();
+            ResponseTemplate::new(200).set_body_json(json!({
+                "txn_id": partial_request.txn_id,
+                "pos": pos_as_str,
+                "rooms": {
+                    room_id: {
+                        "name": room_name,
+                        "initial": true,
+
+                        "required_state": [
+                            // Sender's member information.
+                            sender_member_event,
+
+                            // Own member information.
+                            own_member_event,
+
+                            // Power levels.
+                            power_levels_event,
+                        ],
+
+                        "timeline": [
+                            raw_event,
+                        ]
+                    }
+                },
+
+                "extensions": {
+                    "account_data": {
+                        "global": [{
+                            "type": "dm.filament.do_not_disturb",
+                            "content": {
+                                "rooms": { room_id: {} }
+                            }
+                        }]
+                    }
+                }
+            }))
+        })
+        .mount(server.server())
+        .await;
+
+    let dummy_sync_service = Arc::new(SyncService::builder(client.clone()).build().await.unwrap());
+    let process_setup =
+        NotificationProcessSetup::SingleProcess { sync_service: dummy_sync_service };
+    let notification_client = NotificationClient::new(client, process_setup).await.unwrap();
+    let mut result = notification_client
+        .get_notifications_with_sliding_sync(&[NotificationItemsRequest {
+            room_id: room_id.to_owned(),
+            event_ids: vec![event_id.to_owned()],
+        }])
+        .await
+        .unwrap();
+
+    let Some(Ok(item)) = result.remove(event_id) else {
+        panic!("fetching notification for {event_id} failed");
+    };
+    let NotificationStatus::EventFilteredOut = item else {
+        panic!("notification for {event_id} was not filtered out");
+    };
+}
+
 #[async_test]
 async fn test_notification_client_context_filters_out_events_from_ignored_users() {
     let server = MatrixMockServer::new().await;
@@ -1127,6 +1233,85 @@ async fn test_notification_client_context_filters_out_events_from_ignored_users(
                             "type": "m.ignored_user_list",
                             "content": {
                                 "ignored_users": { sender: {} }
+                            }
+                        }]
+                    }
+                }
+            }))
+        })
+        .mount(server.server())
+        .await;
+
+    let event = EventFactory::new()
+        .room(room_id)
+        .sender(sender)
+        .text_msg("Heya")
+        .event_id(event_id)
+        .into_event();
+
+    // Mock the /context response
+    server
+        .mock_room_event_context()
+        .ok(RoomContextResponseTemplate::new(event).start("start").end("end"))
+        .mock_once()
+        .mount()
+        .await;
+
+    let dummy_sync_service = Arc::new(SyncService::builder(client.clone()).build().await.unwrap());
+    let process_setup =
+        NotificationProcessSetup::SingleProcess { sync_service: dummy_sync_service };
+    let notification_client = NotificationClient::new(client, process_setup).await.unwrap();
+
+    // Call sync first so we get the list of ignored users in the notification
+    // client This should still work in a real life usage
+    let _ = notification_client
+        .get_notifications_with_sliding_sync(&[NotificationItemsRequest {
+            room_id: room_id.to_owned(),
+            event_ids: vec![event_id.to_owned()],
+        }])
+        .await;
+
+    // If the event is not found even though there was a mocked response for it, it
+    // was discarded as expected.
+    let result =
+        notification_client.get_notification_with_context(room_id, event_id).await.unwrap();
+
+    assert_matches!(result, NotificationStatus::EventFilteredOut);
+}
+
+#[cfg(feature = "unstable-msc4359")]
+#[async_test]
+async fn test_notification_client_context_filters_out_events_from_do_not_disturb_rooms() {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+
+    let sender = user_id!("@user:example.org");
+    let room_id = room_id!("!a98sd12bjh:example.org");
+    let event_id = event_id!("$example_event_id");
+
+    server.sync_joined_room(&client, room_id).await;
+
+    // Add mock for sliding sync so we get the ignored user list from its account
+    // data
+    let pos = Mutex::new(0);
+    Mock::given(SlidingSyncMatcher)
+        .respond_with(move |request: &Request| {
+            let partial_request: PartialSlidingSyncRequest = request.body_json().unwrap();
+            // Repeat the transaction id in the response, to validate sticky parameters.
+            let mut pos = pos.lock().unwrap();
+            *pos += 1;
+            let pos_as_str = (*pos).to_string();
+            ResponseTemplate::new(200).set_body_json(json!({
+                "txn_id": partial_request.txn_id,
+                "pos": pos_as_str,
+                "rooms": {},
+
+                "extensions": {
+                    "account_data": {
+                        "global": [{
+                            "type": "dm.filament.do_not_disturb",
+                            "content": {
+                                "rooms": { room_id: {} }
                             }
                         }]
                     }
